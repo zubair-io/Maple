@@ -1,51 +1,75 @@
 /**
  * ONNX wrapper around the face models loaded by `face-models.ts`.
  *
- * **Detector model:** despite the `retinaFace`/`RETINAFACE_*` names that
- * date back to the initial port, the detector we actually load is
- * InsightFace's **SCRFD-500m** (`det_500m.onnx`, shipped inside
- * `buffalo_s.zip`). The on-disk basename `retinaface.onnx` and the
- * `FaceModels.retinaFace` session field are kept stable so existing
- * operator model directories don't need migration; the model behind
- * them is SCRFD, and the decoder math reflects that.
+ * Pipeline overview (Phase 1 of the face-clustering quality upgrade):
  *
- * Two operations:
+ *   1. `detectFaces(jpegBytes)` decodes the input to a 640×640 NCHW float
+ *      tensor, runs the **SCRFD-10G** detector
+ *      (`antelopev2/scrfd_10g_bnkps.onnx`, shipped as `scrfd_10g.onnx`),
+ *      and returns one entry per detection: `{ bbox, confidence,
+ *      landmarks }`, all in normalised [0,1] coordinates relative to
+ *      the input image. The five landmarks (left eye, right eye, nose,
+ *      left mouth, right mouth) are the identity-preserving keypoints
+ *      recognised by every InsightFace head — they feed directly into
+ *      the alignment step below.
  *
- *   - `detectFaces(jpegBytes)` runs SCRFD and returns one entry per
- *     detection: `{ bbox, confidence, landmarks }`, all in normalised
- *     [0,1] coordinates relative to the input image. Returning normalised
- *     values means the worker doesn't have to track decoded image size
- *     past the call site.
+ *   2. `embedFace(jpegBytes, detection)` computes a similarity transform
+ *      via Umeyama's closed-form least-squares method that maps the
+ *      detected landmarks onto the canonical `arcface_dst` template
+ *      (the standard 112×112 5-point template every InsightFace
+ *      recognizer is trained on). The source image is warped through
+ *      that transform with bilinear sampling, normalised to [-1,1] and
+ *      fed to the **ArcFace R100** recognizer
+ *      (`antelopev2/glintr100.onnx` — R100 trained on Glint360K,
+ *      shipped as `arcface_r100_glint360k.onnx`). The 512-D L2-normalised
+ *      output is the identity embedding.
  *
- *   - `embedFace(jpegBytes, alignment)` runs MobileFaceNet on a 112×112
- *     aligned crop derived from the landmarks and returns the 512-D
- *     embedding as a `Float32Array`. The worker stores it as `number[]`
- *     so Mongo can serialise it without a BSON Binary detour.
+ * Landmark-based alignment is load-bearing: ArcFace R100's discrimination
+ * is the headline reason for the buffalo_s → antelopev2 swap (buffalo_l
+ * was considered but ships R50 — `w600k_r50.onnx` — not R100 despite
+ * being the "large" bundle), and that discrimination collapses if the
+ * input crop doesn't match the geometry the network was trained on. A
+ * tilted-head crop fed bbox-only embeds about as well as a different
+ * person's face — see InsightFace's own docs for the parity numbers.
+ * Every face that reaches the embedder MUST have five landmarks in
+ * normalised coordinates; the detector guarantees this for SCRFD
+ * outputs.
  *
  * Image decode goes through `sharp` (already a dep — used by the indexer's
- * thumb pipeline). The face models eat normalised-RGB float tensors, so
- * `sharp` is the right place to handle resize + extract + raw pixel read.
- *
- * The detection / embedding *math* (NMS, anchor decoding, similarity
- * transforms) is intentionally light here — each model exposes its own
- * shape and we keep this file as a thin adapter. When we move to a
- * different detector head (e.g. SCRFD) the heavy lifting changes; the
- * worker contract does not.
+ * thumb pipeline). For detection we let sharp resize-to-640 directly; for
+ * the recognizer we extract the raw RGB plane and warp in TS so the
+ * sampling stays under our control (sharp's `affine` doesn't expose the
+ * bilinear coefficients we'd need to match InsightFace's reference output).
  *
  * Spec: `docs/indexer-enrichment.md` §6.
  */
 
-import sharp from "sharp";
-import { child as childLogger } from "../log.ts";
+import sharp from 'sharp';
+import { child as childLogger } from '../log.ts';
+import {
+  ARCFACE_DST,
+  applySimilarity,
+  invertSimilarity,
+  sampleBilinear,
+  umeyamaSimilarity,
+  type Similarity2D,
+} from './face-similarity.ts';
 import {
   loadFaceModels,
   type FaceModels,
   type OnnxSessionLike,
   type OnnxTensorConstructor,
   type OnnxTensorLike,
-} from "./face-models.ts";
+} from './face-models.ts';
 
-const log = childLogger("enrichment:face-detector");
+const log = childLogger('enrichment:face-detector');
+
+/** One-shot guard for the synthetic-landmarks warning. The re-embed
+ * migration calls embedFace with empty landmarks for every legacy face
+ * (the v1 detector didn't store them) — without this, a million-face
+ * library would log a million WARN lines. We warn once at process
+ * start and demote the rest to debug. */
+let warnedSyntheticLandmarks = false;
 
 /** Thrown when `sharp`/libvips cannot decode the thumbnail JPEG (e.g.
  * "VipsJpeg: Invalid SOS parameters"). Surfaces a non-retryable signal
@@ -54,42 +78,41 @@ const log = childLogger("enrichment:face-detector");
 export class ThumbDecodeError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = "ThumbDecodeError";
+    this.name = 'ThumbDecodeError';
   }
 }
 
-/** Single detection from RetinaFace. All coords normalised to [0,1]. */
+/** Single detection from SCRFD. All coords normalised to [0,1]. */
 export interface DetectedFace {
   bbox: { x: number; y: number; w: number; h: number };
   confidence: number;
   /** Five landmarks (left eye, right eye, nose, left mouth, right mouth)
-   * in normalised coordinates. RetinaFace's standard output. */
+   * in normalised coordinates. SCRFD's standard output. */
   landmarks: Array<{ x: number; y: number }>;
 }
 
-/** Sane default for the detection score gate. RetinaFace tends to emit
- * lots of low-confidence proposals; anything below ~0.6 is noise. */
-export const DEFAULT_DETECTION_THRESHOLD = 0.6;
+/** Sane default for the detection score gate. SCRFD-10G tends to emit
+ * lots of low-confidence proposals; anything below ~0.5 is noise. */
+export const DEFAULT_DETECTION_THRESHOLD = 0.5;
 
-/** RetinaFace's standard input is 640×640, NCHW float32, normalised by
- * subtracting (104, 117, 123) per the original Caffe model. We follow
- * that — most pretrained checkpoints expect those magic numbers. */
-const RETINAFACE_INPUT_SIZE = 640;
+/** SCRFD-10G's standard input is 640×640, NCHW float32. The antelopev2
+ * detector uses InsightFace's standard `(px - 127.5) / 128.0` per-channel
+ * RGB normalisation — same as the v1 SCRFD-500m head. */
+const DETECTOR_INPUT_SIZE = 640;
 
-/** MobileFaceNet's input is 112×112 NCHW float32, normalised to [-1, 1]
- * (i.e. (px - 127.5) / 128.0 per channel). Standard for face-recognition
- * checkpoints. */
-const MFN_INPUT_SIZE = 112;
+/** ArcFace R100's input is 112×112 NCHW float32, normalised to [-1, 1]
+ * (i.e. (px - 127.5) / 128.0 per channel). Same normalisation as the v1
+ * MobileFaceNet head — the input geometry (the 112×112 *crop content*)
+ * is what changes between the two pipelines: ArcFace expects a
+ * landmark-aligned face, not a bbox crop. */
+const RECOGNIZER_INPUT_SIZE = 112;
 
 /** Test/inject hook so worker tests can stub the detector without
  * touching ONNX. The `detectFaces` + `embedFace` pair is the entire
  * surface the worker depends on. */
 export interface FaceDetector {
   detectFaces(jpegBytes: Uint8Array): Promise<DetectedFace[]>;
-  embedFace(
-    jpegBytes: Uint8Array,
-    detection: DetectedFace,
-  ): Promise<Float32Array>;
+  embedFace(jpegBytes: Uint8Array, detection: DetectedFace): Promise<Float32Array>;
 }
 
 /** Default implementation — uses the singleton ONNX models. */
@@ -104,25 +127,18 @@ export class OnnxFaceDetector implements FaceDetector {
   }
 
   async detectFaces(jpegBytes: Uint8Array): Promise<DetectedFace[]> {
-    const { retinaFace, Tensor } = await this.models();
-    const { tensor } = await jpegToInputTensor(
-      jpegBytes,
-      RETINAFACE_INPUT_SIZE,
-      Tensor,
-    );
-    const inputName = inferInputName(retinaFace, "input");
-    const outputs = await retinaFace.run({ [inputName]: tensor });
-    return decodeScrfdOutputs(outputs, RETINAFACE_INPUT_SIZE);
+    const { detector, Tensor } = await this.models();
+    const { tensor } = await jpegToInputTensor(jpegBytes, DETECTOR_INPUT_SIZE, Tensor);
+    const inputName = inferInputName(detector, 'input.1');
+    const outputs = await detector.run({ [inputName]: tensor });
+    return decodeScrfdOutputs(outputs, DETECTOR_INPUT_SIZE);
   }
 
-  async embedFace(
-    jpegBytes: Uint8Array,
-    detection: DetectedFace,
-  ): Promise<Float32Array> {
-    const { mobileFaceNet, Tensor } = await this.models();
+  async embedFace(jpegBytes: Uint8Array, detection: DetectedFace): Promise<Float32Array> {
+    const { recognizer, Tensor } = await this.models();
     const aligned = await alignFaceCrop(jpegBytes, detection, Tensor);
-    const inputName = inferInputName(mobileFaceNet, "input");
-    const outputs = await mobileFaceNet.run({ [inputName]: aligned });
+    const inputName = inferInputName(recognizer, 'input.1');
+    const outputs = await recognizer.run({ [inputName]: aligned });
     return extractEmbedding(outputs);
   }
 }
@@ -148,11 +164,8 @@ export function setDefaultFaceDetectorForTests(d: FaceDetector | null): void {
 /** Decode JPEG → resize to `size`×`size` → produce NCHW float32 tensor.
  *
  * Normalisation is `(pixel - 127.5) / 128.0` in RGB order — what both
- * InsightFace's SCRFD detector (`buffalo_s/det_500m.onnx`) and
- * MobileFaceNet expect. The earlier Caffe-style `(B-104, G-117, R-123)`
- * BGR preprocessing was for the legacy RetinaFace MobileNet0.25 export
- * that we no longer ship; SCRFD doesn't share that contract and the
- * mean-subtract path produced wildly wrong scores.
+ * InsightFace's SCRFD-10G detector and the ArcFace R100 recognizer
+ * expect.
  *
  * Throws `ThumbDecodeError` if `sharp`/libvips can't read the input —
  * the worker handler converts that into `{ skip }` so corrupt thumbnails
@@ -174,8 +187,16 @@ async function jpegToInputTensor(
     const meta = await img.metadata();
     srcWidth = meta.width ?? size;
     srcHeight = meta.height ?? size;
+    // `toColourspace('srgb')` forces a 3-channel RGB output even when the
+    // input is single-channel grayscale (a small but real fraction of
+    // user libraries — scans, B&W JPEGs from older cameras). Without it,
+    // `.raw()` would yield a 1-channel buffer and the (r,g,b) indexing
+    // below would read into adjacent pixels' luma values. `removeAlpha()`
+    // then drops the alpha channel if present (4 → 3) without affecting
+    // the already-3-channel path.
     raw = await img
-      .resize(size, size, { fit: "fill" })
+      .resize(size, size, { fit: 'fill' })
+      .toColourspace('srgb')
       .removeAlpha()
       .raw()
       .toBuffer();
@@ -194,21 +215,28 @@ async function jpegToInputTensor(
     data[2 * plane + i] = (b - 127.5) / 128.0;
   }
   return {
-    tensor: new Tensor("float32", data, [1, 3, size, size]),
+    tensor: new Tensor('float32', data, [1, 3, size, size]),
     srcWidth,
     srcHeight,
   };
 }
 
-/** Crop the face out of the JPEG using the bounding box, resize to
- * 112×112, and return the MobileFaceNet input tensor.
+/** Warp the face out of the JPEG via a 5-point landmark similarity
+ * transform onto the canonical `arcface_dst` template at 112×112, then
+ * package it as an NCHW float32 recognizer input.
  *
- * Proper alignment uses the five landmarks via a similarity transform.
- * That's a meaningful future improvement (the embedding quality jumps
- * noticeably with aligned crops) but a square bbox crop is the standard
- * fallback and gives recognisable embeddings for v1. The landmarks are
- * still stored on each detection, so we can re-embed later without
- * re-detecting once the alignment path lands.
+ * The transform is computed by `umeyamaSimilarity` (closed-form
+ * Umeyama 1991 — covariance SVD, with the sign-correction rule that
+ * makes it a proper rotation rather than a reflection). We invert it
+ * via `invertSimilarity` so we can sample the source image at the
+ * pre-image of every output pixel — that's bilinear interpolation in
+ * the conventional sense for image warps and avoids any "where do output
+ * pixels land" rasterisation issues.
+ *
+ * Falls back to a bbox-derived synthetic landmark set when the detection
+ * has no landmarks (operator-injected face, hand-edited XMP) — preserves
+ * the v0 behaviour but logs a warning since the embedding quality drops
+ * meaningfully without real landmarks.
  */
 async function alignFaceCrop(
   jpegBytes: Uint8Array,
@@ -217,77 +245,126 @@ async function alignFaceCrop(
 ): Promise<OnnxTensorLike> {
   let W: number;
   let H: number;
-  let cropRaw: Buffer;
+  let raw: Buffer;
+  let channels: number;
   try {
-    const meta = await sharp(jpegBytes).metadata();
+    const img = sharp(jpegBytes);
+    const meta = await img.metadata();
     W = meta.width ?? 0;
     H = meta.height ?? 0;
+    if (W === 0 || H === 0) {
+      // Dimension sanity check sits OUTSIDE the catch on purpose:
+      // sharp accepting bytes but returning zero dims would indicate a
+      // bug in our preprocessing pipeline, not a corrupt JPEG, so we
+      // surface it as a hard error rather than swallowing it as
+      // `thumb-undecodable`.
+      throw new Error('face-detector: unable to read image dimensions');
+    }
+    // Same reason as in `jpegToInputTensor`: `toColourspace('srgb')`
+    // forces a 3-channel RGB output even when the input is single-channel
+    // grayscale (B&W scans, older cameras). Without it, the bilinear
+    // sampler below would read garbage out of a 1-channel buffer because
+    // it assumes a 3-byte stride per pixel.
+    raw = await img.toColourspace('srgb').removeAlpha().raw().toBuffer();
+    channels = 3;
   } catch (err) {
+    if (err instanceof Error && err.message.startsWith('face-detector:')) {
+      // Re-throw our own hard error untouched (see comment above).
+      throw err;
+    }
     throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
   }
-  // Dimension sanity check sits OUTSIDE the decode try-catch on purpose:
-  // sharp accepting bytes but returning zero dims would indicate a bug
-  // in our preprocessing pipeline, not a corrupt JPEG, so we surface it
-  // as a hard error rather than swallowing it as `thumb-undecodable`.
-  if (W === 0 || H === 0) {
-    throw new Error("face-detector: unable to read image dimensions");
-  }
-  // Inflate the box a touch so MobileFaceNet sees a bit of context — it
-  // was trained on slightly-padded crops, not tight bounding boxes.
-  const pad = 0.1;
-  const cx = (detection.bbox.x + detection.bbox.w / 2) * W;
-  const cy = (detection.bbox.y + detection.bbox.h / 2) * H;
-  const side =
-    Math.max(detection.bbox.w * W, detection.bbox.h * H) * (1 + pad);
-  const left = Math.max(0, Math.round(cx - side / 2));
-  const top = Math.max(0, Math.round(cy - side / 2));
-  const width = Math.min(W - left, Math.round(side));
-  const height = Math.min(H - top, Math.round(side));
-  // Validate geometry OUTSIDE the decode try-catch: a degenerate bbox
-  // (zero side, or one wholly outside the image) means the detector
-  // emitted garbage, not that the JPEG is corrupt. Surface it as a
-  // hard error so the operator sees a real signal in the dead-letter
-  // queue instead of a misleading `thumb-undecodable` skip.
-  if (width <= 0 || height <= 0) {
+  if (raw.length !== W * H * channels) {
+    // Defensive — sharp should always return W*H*3 bytes after removeAlpha,
+    // but if anything ever changes upstream we want a hard error, not
+    // out-of-bounds reads in the warp loop.
     throw new Error(
-      `face-detector: invalid crop geometry left=${left} top=${top} ` +
-        `width=${width} height=${height} from bbox=${JSON.stringify(detection.bbox)} ` +
-        `image=${W}x${H}`,
+      `face-detector: raw buffer size mismatch (${raw.length} bytes for ${W}x${H}x${channels})`,
     );
   }
-  try {
-    cropRaw = await sharp(jpegBytes)
-      .extract({ left, top, width, height })
-      .resize(MFN_INPUT_SIZE, MFN_INPUT_SIZE, { fit: "fill" })
-      .removeAlpha()
-      .raw()
-      .toBuffer();
-  } catch (err) {
-    throw new ThumbDecodeError(err instanceof Error ? err.message : String(err));
+
+  // Build the source landmark set in source-image pixel coordinates.
+  // Detector landmarks are normalised to [0,1] — multiply through.
+  let landmarksPx: Array<[number, number]>;
+  if (detection.landmarks && detection.landmarks.length === 5) {
+    landmarksPx = detection.landmarks.map((p) => [p.x * W, p.y * H] as [number, number]);
+  } else {
+    // No landmarks — synthesise a sensible default set from the bbox so
+    // we still produce a workable embedding. Quality drops a lot here
+    // because the points are guesses; warn once per process so the
+    // operator knows but the migration of N legacy faces doesn't spam
+    // N lines into the log.
+    if (!warnedSyntheticLandmarks) {
+      warnedSyntheticLandmarks = true;
+      log.warn(
+        'face has no landmarks — using bbox-derived synthetic template (embedding quality reduced); subsequent occurrences logged at debug level',
+      );
+    } else {
+      log.debug({ bbox: detection.bbox }, 'face has no landmarks — synthetic template');
+    }
+    const bx = detection.bbox.x * W;
+    const by = detection.bbox.y * H;
+    const bw = detection.bbox.w * W;
+    const bh = detection.bbox.h * H;
+    // Scale ARCFACE_DST down to the bbox; result is upright by construction.
+    landmarksPx = ARCFACE_DST.map(
+      ([tx, ty]) => [bx + (tx / 112) * bw, by + (ty / 112) * bh] as [number, number],
+    );
   }
-  const data = new Float32Array(3 * MFN_INPUT_SIZE * MFN_INPUT_SIZE);
-  const plane = MFN_INPUT_SIZE * MFN_INPUT_SIZE;
-  for (let i = 0; i < plane; i++) {
-    const r = cropRaw[i * 3]!;
-    const g = cropRaw[i * 3 + 1]!;
-    const b = cropRaw[i * 3 + 2]!;
-    data[i] = (r - 127.5) / 128.0;
-    data[plane + i] = (g - 127.5) / 128.0;
-    data[2 * plane + i] = (b - 127.5) / 128.0;
+
+  // Reject degenerate inputs early so the warp loop doesn't have to.
+  // A bbox with zero area means the detector emitted garbage; we want
+  // that to surface as a real error rather than silently producing
+  // an embedding of the image's top-left corner.
+  if (detection.bbox.w * W <= 0 || detection.bbox.h * H <= 0) {
+    throw new Error(
+      `face-detector: invalid crop geometry from bbox=${JSON.stringify(detection.bbox)} image=${W}x${H}`,
+    );
   }
-  return new Tensor("float32", data, [1, 3, MFN_INPUT_SIZE, MFN_INPUT_SIZE]);
+
+  // Solve the similarity transform mapping landmarksPx → ARCFACE_DST.
+  // Then invert it so we can sample the source for every output pixel
+  // (the conventional inverse-warp setup for bilinear resampling).
+  const fwd = umeyamaSimilarity(landmarksPx, ARCFACE_DST);
+  const inv = invertSimilarity(fwd);
+
+  const S = RECOGNIZER_INPUT_SIZE;
+  const data = new Float32Array(3 * S * S);
+  const plane = S * S;
+  const a = inv.a;
+  const b = inv.b;
+  const tx = inv.tx;
+  const ty = inv.ty;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      // Forward similarity is (x',y') = a*(x,y) + b*(-y,x)? No — for a
+      // 2×2 rotation+scale the matrix is [[a, -b],[b, a]] in standard
+      // form. We use that explicit form (rather than a generic affine)
+      // because it preserves the "rotation+uniform-scale" property the
+      // Umeyama solver returns.
+      const srcX = a * x - b * y + tx;
+      const srcY = b * x + a * y + ty;
+      const sample = sampleBilinear(raw, W, H, srcX, srcY);
+      const r = sample[0];
+      const g = sample[1];
+      const blue = sample[2];
+      const idx = y * S + x;
+      data[idx] = (r - 127.5) / 128.0;
+      data[plane + idx] = (g - 127.5) / 128.0;
+      data[2 * plane + idx] = (blue - 127.5) / 128.0;
+    }
+  }
+  return new Tensor('float32', data, [1, 3, S, S]);
 }
 
 /** Pick the model's input tensor name. ONNX exporters disagree on what
- * to call the input — common values are `input`, `data`, `images`, etc.
- * — and `onnxruntime-node` exposes `inputNames` on the session.
+ * to call the input — common values are `input`, `data`, `images`,
+ * `input.1`, etc. — and `onnxruntime-node` exposes `inputNames` on the
+ * session.
  *
  * Fall back to a guess so the test stub (which doesn't expose the
  * field) keeps working. */
-function inferInputName(
-  session: OnnxSessionLike,
-  fallback: string,
-): string {
+function inferInputName(session: OnnxSessionLike, fallback: string): string {
   const names = (session as unknown as { inputNames?: string[] }).inputNames;
   if (names && names.length > 0) return names[0]!;
   return fallback;
@@ -299,7 +376,7 @@ const NMS_IOU_THRESHOLD = 0.4;
 
 /** Decode SCRFD's outputs into normalised face entries.
  *
- * The InsightFace `buffalo_s/det_500m.onnx` detector emits 9 tensors —
+ * SCRFD (both `det_500m.onnx` and `det_10g.onnx`) emits 9 tensors —
  * three feature-pyramid strides (8, 16, 32), each with three heads
  * (score, bbox, kps). Output names are export-specific integer strings
  * (e.g. `"443"`, `"446"`, `"449"`), so we don't key off names; instead
@@ -336,8 +413,7 @@ function decodeScrfdOutputs(
   }
   // Descending by row count = stride 8 → 16 → 32 (the input area shrinks
   // by 4× each step, so more anchors at finer strides).
-  const byRowsDesc = (a: OnnxTensorLike, b: OnnxTensorLike) =>
-    b.dims[0]! - a.dims[0]!;
+  const byRowsDesc = (a: OnnxTensorLike, b: OnnxTensorLike) => b.dims[0]! - a.dims[0]!;
   scoreTensors.sort(byRowsDesc);
   bboxTensors.sort(byRowsDesc);
   kpsTensors.sort(byRowsDesc);
@@ -399,10 +475,7 @@ function decodeScrfdOutputs(
   }
 
   const kept = nms(candidates, NMS_IOU_THRESHOLD);
-  log.debug(
-    { candidates: candidates.length, kept: kept.length },
-    "decoded SCRFD detections",
-  );
+  log.debug({ candidates: candidates.length, kept: kept.length }, 'decoded SCRFD detections');
   return kept;
 }
 
@@ -432,9 +505,7 @@ function inferStrideLayout(
 /** Greedy non-maximum suppression. Sorts by confidence and drops every
  * detection that overlaps a higher-scoring one above `iouThreshold`. */
 function nms(detections: DetectedFace[], iouThreshold: number): DetectedFace[] {
-  const sorted = [...detections].sort(
-    (a, b) => b.confidence - a.confidence,
-  );
+  const sorted = [...detections].sort((a, b) => b.confidence - a.confidence);
   const kept: DetectedFace[] = [];
   for (const det of sorted) {
     let suppress = false;
@@ -469,15 +540,13 @@ function bboxIoU(
   return inter / union;
 }
 
-/** Extract the 512-D embedding from MobileFaceNet's outputs. The model's
+/** Extract the 512-D embedding from the recognizer's outputs. The model's
  * single output tensor is the embedding. We L2-normalise so cosine
  * similarity in clustering reduces to a dot product. */
-function extractEmbedding(
-  outputs: Record<string, OnnxTensorLike>,
-): Float32Array {
+function extractEmbedding(outputs: Record<string, OnnxTensorLike>): Float32Array {
   const tensor = Object.values(outputs)[0];
   if (!tensor) {
-    throw new Error("face-detector: MobileFaceNet returned no output");
+    throw new Error('face-detector: recognizer returned no output');
   }
   const raw = tensor.data as Float32Array;
   // L2-normalise.

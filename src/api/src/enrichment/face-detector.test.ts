@@ -9,25 +9,25 @@
  * "Tensor.location must be a string." and dead-letters the image.
  */
 
-import { afterEach, describe, expect, it } from "bun:test";
-import sharp from "sharp";
+import { afterEach, describe, expect, it } from 'bun:test';
+import sharp from 'sharp';
 
-import { OnnxFaceDetector, ThumbDecodeError } from "./face-detector.ts";
+import { OnnxFaceDetector, ThumbDecodeError } from './face-detector.ts';
 import {
   setFaceModelLoaderForTests,
   type FaceModels,
   type OnnxSessionLike,
   type OnnxTensorConstructor,
   type OnnxTensorLike,
-} from "./face-models.ts";
+} from './face-models.ts';
 
 /** Minimal stand-in for `onnxruntime-node`'s `Tensor`. Real Tensors set
  * `location` from the constructor; the detector code only depends on the
  * value being a non-undefined string, so we hard-code `'cpu'`. */
 class FakeTensor implements OnnxTensorLike {
-  readonly location = "cpu" as const;
+  readonly location = 'cpu' as const;
   constructor(
-    readonly type: "float32",
+    readonly type: 'float32',
     readonly data: Float32Array,
     readonly dims: readonly number[],
   ) {}
@@ -56,12 +56,14 @@ async function makeTinyJpeg(): Promise<Uint8Array> {
   return new Uint8Array(buf);
 }
 
-/** SCRFD output shapes for input 640×640 with the buffalo_s det_500m
- * checkpoint: three strides (8, 16, 32) × three heads (score, bbox, kps).
- * For numAnchors=2: stride 8 → 80×80×2 = 12800, 16 → 3200, 32 → 800. */
+/** SCRFD output shapes for input 640×640 (same layout for both the v1
+ * buffalo_s/det_500m checkpoint and the current antelopev2/SCRFD-10G
+ * head — they share the architecture, only the weights differ): three
+ * strides (8, 16, 32) × three heads (score, bbox, kps). For numAnchors=2:
+ * stride 8 → 80×80×2 = 12800, 16 → 3200, 32 → 800. */
 function emptyScrfdOutputs(): Record<string, OnnxTensorLike> {
   const make = (rows: number, cols: number) =>
-    new FakeTensor("float32", new Float32Array(rows * cols), [rows, cols]);
+    new FakeTensor('float32', new Float32Array(rows * cols), [rows, cols]);
   return {
     score_8: make(12800, 1),
     score_16: make(3200, 1),
@@ -75,8 +77,8 @@ function emptyScrfdOutputs(): Record<string, OnnxTensorLike> {
   };
 }
 
-describe("OnnxFaceDetector — feed construction", () => {
-  it("passes a real Tensor instance (with string .location) to session.run", async () => {
+describe('OnnxFaceDetector — feed construction', () => {
+  it('passes a real Tensor instance (with string .location) to session.run', async () => {
     const seenFeeds: Record<string, OnnxTensorLike>[] = [];
     const fakeSession: OnnxSessionLike = {
       run: async (feeds) => {
@@ -89,10 +91,10 @@ describe("OnnxFaceDetector — feed construction", () => {
     };
     setFaceModelLoaderForTests(
       async (): Promise<FaceModels> => ({
-        retinaFace: fakeSession,
-        mobileFaceNet: fakeSession,
+        detector: fakeSession,
+        recognizer: fakeSession,
         Tensor: FakeTensorCtor,
-        paths: { retinaFace: "stub", mobileFaceNet: "stub" },
+        paths: { detector: 'stub', recognizer: 'stub' },
       }),
     );
 
@@ -104,9 +106,9 @@ describe("OnnxFaceDetector — feed construction", () => {
     expect(feed).toBeInstanceOf(FakeTensor);
     // The native ORT binding validates these exact properties — assert
     // each one so a future refactor can't quietly drop them again.
-    expect(typeof (feed as FakeTensor).location).toBe("string");
-    expect((feed as FakeTensor).location).toBe("cpu");
-    expect((feed as FakeTensor).type).toBe("float32");
+    expect(typeof (feed as FakeTensor).location).toBe('string');
+    expect((feed as FakeTensor).location).toBe('cpu');
+    expect((feed as FakeTensor).type).toBe('float32');
     expect(feed.dims).toEqual([1, 3, 640, 640]);
     expect(feed.data).toBeInstanceOf(Float32Array);
     // Sanity: zero-score outputs decode to zero detections.
@@ -114,8 +116,8 @@ describe("OnnxFaceDetector — feed construction", () => {
   });
 });
 
-describe("OnnxFaceDetector — SCRFD decode", () => {
-  it("decodes a single high-confidence anchor into a normalised face", async () => {
+describe('OnnxFaceDetector — SCRFD decode', () => {
+  it('decodes a single high-confidence anchor into a normalised face', async () => {
     // Target anchor: stride-8 head, grid cell (col=40, row=40), anchor 0.
     // Spatial index = 40*80 + 40 = 3240, anchor stride 2 → idx = 6480.
     // Centre = (40*8, 40*8) = (320, 320). With distances (16,16,16,16)
@@ -138,11 +140,7 @@ describe("OnnxFaceDetector — SCRFD decode", () => {
     const fakeSession: OnnxSessionLike = {
       run: async () => {
         const make = (rows: number, cols: number, data?: Float32Array) =>
-          new FakeTensor(
-            "float32",
-            data ?? new Float32Array(rows * cols),
-            [rows, cols],
-          );
+          new FakeTensor('float32', data ?? new Float32Array(rows * cols), [rows, cols]);
         return {
           score_8: make(12800, 1, score),
           score_16: make(3200, 1),
@@ -158,10 +156,10 @@ describe("OnnxFaceDetector — SCRFD decode", () => {
     };
     setFaceModelLoaderForTests(
       async (): Promise<FaceModels> => ({
-        retinaFace: fakeSession,
-        mobileFaceNet: fakeSession,
+        detector: fakeSession,
+        recognizer: fakeSession,
         Tensor: FakeTensorCtor,
-        paths: { retinaFace: "stub", mobileFaceNet: "stub" },
+        paths: { detector: 'stub', recognizer: 'stub' },
       }),
     );
 
@@ -180,7 +178,7 @@ describe("OnnxFaceDetector — SCRFD decode", () => {
     expect(d.landmarks[0]!.y).toBeCloseTo(0.5, 5);
   });
 
-  it("suppresses near-duplicate detections via NMS", async () => {
+  it('suppresses near-duplicate detections via NMS', async () => {
     // Two adjacent anchors in stride-8 head, both high-confidence with
     // identical distance values. Anchor A at idx 6480 (cell col=40,
     // row=40) → centre (320, 320). Anchor B at idx 6482 (cell col=41,
@@ -200,11 +198,7 @@ describe("OnnxFaceDetector — SCRFD decode", () => {
     const fakeSession: OnnxSessionLike = {
       run: async () => {
         const make = (rows: number, cols: number, data?: Float32Array) =>
-          new FakeTensor(
-            "float32",
-            data ?? new Float32Array(rows * cols),
-            [rows, cols],
-          );
+          new FakeTensor('float32', data ?? new Float32Array(rows * cols), [rows, cols]);
         return {
           score_8: make(12800, 1, score),
           score_16: make(3200, 1),
@@ -217,10 +211,10 @@ describe("OnnxFaceDetector — SCRFD decode", () => {
     };
     setFaceModelLoaderForTests(
       async (): Promise<FaceModels> => ({
-        retinaFace: fakeSession,
-        mobileFaceNet: fakeSession,
+        detector: fakeSession,
+        recognizer: fakeSession,
         Tensor: FakeTensorCtor,
-        paths: { retinaFace: "stub", mobileFaceNet: "stub" },
+        paths: { detector: 'stub', recognizer: 'stub' },
       }),
     );
 
@@ -231,21 +225,21 @@ describe("OnnxFaceDetector — SCRFD decode", () => {
     expect(detections[0]!.confidence).toBeCloseTo(0.95);
   });
 
-  it("throws on mismatched SCRFD output bucket counts", async () => {
+  it('throws on mismatched SCRFD output bucket counts', async () => {
     // Only score tensors, no bbox tensors — operator gave us a broken
     // export. We want a hard error, not a silent empty-detections result.
     const fakeSession: OnnxSessionLike = {
       run: async () =>
         ({
-          score_8: new FakeTensor("float32", new Float32Array(12800), [12800, 1]),
+          score_8: new FakeTensor('float32', new Float32Array(12800), [12800, 1]),
         }) as Record<string, OnnxTensorLike>,
     };
     setFaceModelLoaderForTests(
       async (): Promise<FaceModels> => ({
-        retinaFace: fakeSession,
-        mobileFaceNet: fakeSession,
+        detector: fakeSession,
+        recognizer: fakeSession,
         Tensor: FakeTensorCtor,
-        paths: { retinaFace: "stub", mobileFaceNet: "stub" },
+        paths: { detector: 'stub', recognizer: 'stub' },
       }),
     );
 
@@ -257,18 +251,18 @@ describe("OnnxFaceDetector — SCRFD decode", () => {
       err = e;
     }
     expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toContain("SCRFD outputs malformed");
+    expect((err as Error).message).toContain('SCRFD outputs malformed');
   });
 });
 
-describe("OnnxFaceDetector — JPEG decode failure", () => {
+describe('OnnxFaceDetector — JPEG decode failure', () => {
   it("throws ThumbDecodeError when sharp/libvips can't read the bytes", async () => {
     setFaceModelLoaderForTests(
       async (): Promise<FaceModels> => ({
-        retinaFace: { run: async () => ({}) },
-        mobileFaceNet: { run: async () => ({}) },
+        detector: { run: async () => ({}) },
+        recognizer: { run: async () => ({}) },
         Tensor: FakeTensorCtor,
-        paths: { retinaFace: "stub", mobileFaceNet: "stub" },
+        paths: { detector: 'stub', recognizer: 'stub' },
       }),
     );
 
@@ -288,14 +282,14 @@ describe("OnnxFaceDetector — JPEG decode failure", () => {
   });
 });
 
-describe("OnnxFaceDetector — degenerate bbox", () => {
-  it("throws a plain Error (not ThumbDecodeError) for invalid crop geometry", async () => {
+describe('OnnxFaceDetector — degenerate bbox', () => {
+  it('throws a plain Error (not ThumbDecodeError) for invalid crop geometry', async () => {
     setFaceModelLoaderForTests(
       async (): Promise<FaceModels> => ({
-        retinaFace: { run: async () => ({}) },
-        mobileFaceNet: { run: async () => ({}) },
+        detector: { run: async () => ({}) },
+        recognizer: { run: async () => ({}) },
         Tensor: FakeTensorCtor,
-        paths: { retinaFace: "stub", mobileFaceNet: "stub" },
+        paths: { detector: 'stub', recognizer: 'stub' },
       }),
     );
 
@@ -318,6 +312,6 @@ describe("OnnxFaceDetector — degenerate bbox", () => {
     }
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(ThumbDecodeError);
-    expect((err as Error).message).toContain("invalid crop geometry");
+    expect((err as Error).message).toContain('invalid crop geometry');
   });
 });

@@ -15,6 +15,7 @@ import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 
 // Import after module is created.
 import { faceHandler, THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON } from './face.ts';
+import { CURRENT_EMBEDDING_VERSION } from '../../enrichment/face-models.ts';
 
 const noopCtx: StageContext = {
   log: {
@@ -157,6 +158,7 @@ describe('faceHandler — happy path', () => {
         expect.closeTo(0.3, 5),
         expect.closeTo(0.4, 5),
       ] as never);
+      expect(face.embedding_version).toBe(CURRENT_EMBEDDING_VERSION);
     } finally {
       teardown();
     }

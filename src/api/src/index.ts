@@ -56,6 +56,7 @@ import { searchRoutes } from './routes/search.ts';
 import { jobsRoutes } from './routes/jobs.ts';
 import { enrichmentRoutes } from './routes/enrichment.ts';
 import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
+import { reEmbedFacesRoutes } from './routes/admin-re-embed-faces.ts';
 import { peopleRoutes } from './routes/people.ts';
 import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
 import { backupIngestRoutes } from './routes/backup-ingest.ts';
@@ -201,6 +202,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(jobsRoutes)
         .use(enrichmentRoutes)
         .use(meilisearchBackfillRoutes)
+        .use(reEmbedFacesRoutes)
         .use(peopleRoutes)
         .use(changesRoutes)
         .use(workerRoutes()),
