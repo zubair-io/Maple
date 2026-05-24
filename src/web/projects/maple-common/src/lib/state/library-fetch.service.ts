@@ -16,7 +16,6 @@ import {
   FilesystemBrowseService,
   FsDirListing,
   FsImageEntry,
-  FsImageExif,
 } from '../api/filesystem-browse.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
@@ -89,30 +88,6 @@ export function isSupportedRaw(filename: string): boolean {
  * effect. Both sides import this constant so the key can't silently drift.
  */
 export const LAST_SOURCE_KEY = 'cm.lastSourceId';
-
-/**
- * Format the indexer's EXIF subdocument into the human-readable strings the
- * Asset model + Info-tab template expect (`f/2.8`, `50mm`, `Hasselblad
- * L3D-100c`, etc). Returns a partial Asset slice — fields stay undefined
- * when EXIF is missing or the corresponding sub-field is null.
- */
-export function exifToAssetMetadata(exif: FsImageExif | null | undefined): Partial<Asset> {
-  if (!exif) return {};
-  const camera = [exif.camera_make, exif.camera_model]
-    .filter((s): s is string => !!s && s.length > 0)
-    .join(' ')
-    .trim();
-  return {
-    camera: camera.length > 0 ? camera : undefined,
-    lens: exif.lens ?? undefined,
-    focalLength: exif.focal_length != null ? `${exif.focal_length}mm` : undefined,
-    aperture: exif.aperture != null ? `f/${exif.aperture}` : undefined,
-    shutter: exif.shutter ?? undefined,
-    iso: exif.iso ?? undefined,
-    capturedAt: exif.captured_at ?? undefined,
-    gps: exif.gps ? { lat: exif.gps.lat, lon: exif.gps.lng } : undefined,
-  };
-}
 
 @Injectable({ providedIn: 'root' })
 export class LibraryFetch {
@@ -578,12 +553,6 @@ export class LibraryFetch {
     const newAssets: Asset[] = listing.images.map((img: FsImageEntry) => {
       const id: AssetId = `fs:${img.path}`;
       this.store.assetAbsPaths.set(id, img.path);
-      // Register the Mongo asset id so `apiIdFor(id)` resolves, which is what
-      // the detail-panel's `getAssetDetails` call needs to fetch place /
-      // faces / description / ocr. Absent on un-indexed files — the detail
-      // fetch then no-ops and the enrichment sections stay hidden.
-      if (img.id) this.store.apiAssetIds.set(id, img.id);
-      const meta = exifToAssetMetadata(img.exif);
       return {
         id,
         filename: img.name,
@@ -596,7 +565,6 @@ export class LibraryFetch {
         absPath: img.path,
         size: img.size,
         mtime: img.mtime,
-        ...meta,
       };
     });
 
