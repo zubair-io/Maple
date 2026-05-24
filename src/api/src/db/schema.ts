@@ -468,6 +468,23 @@ export interface AssetFaceDoc {
   person_id: string | null;
   confidence: number;
   embedding?: number[];
+  /** Tag identifying which face-recognition model + alignment pipeline
+   * produced `embedding`. Required on new writes; legacy rows without
+   * this field are treated as `"mobilefacenet_v1"` (the v1 pipeline:
+   * SCRFD-500m detector + MobileFaceNet recognizer + bbox-only crop).
+   * The current pipeline tag is `"arcface_r100_glint360k_v1"`
+   * (antelopev2: SCRFD-10G + ArcFace R100 trained on Glint360K +
+   * landmark-aligned 112×112 crop).
+   *
+   * Used by the re-embed migration (`workers/jobs/re-embed-faces.ts`)
+   * to identify rows whose embeddings are no longer comparable with
+   * freshly-produced ones, and by the clustering job to (eventually)
+   * gate which embeddings can be compared in a single cosine search.
+   *
+   * Optional on the type because: (a) old documents predate the field,
+   * and (b) operator-injected test fixtures sometimes omit it. Writers
+   * inside this codebase always set it. */
+  embedding_version?: string;
   /** Operator hid this face. Hidden faces are excluded from clustering
    * (so they don't get re-assigned to any person) and from every
    * person panel. `person_id` is forced to `null` on hide — the two
