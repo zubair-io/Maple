@@ -27,7 +27,7 @@ import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
 
 // Re-export RAW-extension helpers for callers that import from this module.
-export { SUPPORTED_RAW_EXTENSIONS, isSupportedRaw, exifToAssetMetadata } from './library-fetch.service';
+export { SUPPORTED_RAW_EXTENSIONS, isSupportedRaw } from './library-fetch.service';
 
 @Injectable({ providedIn: 'root' })
 export class LibraryStateService {
@@ -154,7 +154,11 @@ export class LibraryStateService {
     this.fetch_.openSelfHostedSubfolder(absPath, sourceId, selectAssetId);
   }
 
-  expandFsFolder(node: { id: string; absPath?: string; childrenStatus?: 'loading' | 'loaded' | 'error' }): void {
+  expandFsFolder(node: {
+    id: string;
+    absPath?: string;
+    childrenStatus?: 'loading' | 'loaded' | 'error';
+  }): void {
     this.fetch_.expandFsFolder(node);
   }
 
@@ -219,23 +223,17 @@ export class LibraryStateService {
 
   // ── Culling mutations (+ trigger debounced index write) ────────────────────
   setRating(id: AssetId, rating: number): void {
-    this.store.assets.update((list) =>
-      list.map((a) => (a.id === id ? { ...a, rating } : a)),
-    );
+    this.store.assets.update((list) => list.map((a) => (a.id === id ? { ...a, rating } : a)));
     this.fetch_.scheduleSidecarWrite(id);
   }
 
   setFlag(id: AssetId, flag: Flag): void {
-    this.store.assets.update((list) =>
-      list.map((a) => (a.id === id ? { ...a, flag } : a)),
-    );
+    this.store.assets.update((list) => list.map((a) => (a.id === id ? { ...a, flag } : a)));
     this.fetch_.scheduleSidecarWrite(id);
   }
 
   setColorLabel(id: AssetId, colorLabel: ColorLabel): void {
-    this.store.assets.update((list) =>
-      list.map((a) => (a.id === id ? { ...a, colorLabel } : a)),
-    );
+    this.store.assets.update((list) => list.map((a) => (a.id === id ? { ...a, colorLabel } : a)));
     this.fetch_.scheduleSidecarWrite(id);
   }
 
@@ -293,4 +291,3 @@ export class LibraryStateService {
     this.prefs.setFolderOpen(id, open);
   }
 }
-
