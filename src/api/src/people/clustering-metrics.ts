@@ -276,8 +276,6 @@ export function recallAt1(predicted: number[], truth: string[]): number {
   if (predicted.length === 0) return 1;
   const ct = buildContingency(predicted, truth);
   const { table, clusterTotals, n, clusterIndex, classIndex } = ct;
-  const reverseClassIndex = new Map<number, string>();
-  for (const [label, idx] of classIndex) reverseClassIndex.set(idx, label);
 
   let hits = 0;
   for (let i = 0; i < n; i += 1) {

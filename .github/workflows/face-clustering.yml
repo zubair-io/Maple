@@ -49,12 +49,11 @@ jobs:
         with:
           bun-version: latest
 
-      # Install API deps so `bun src/api/src/people/clustering-quality-harness.ts`
-      # can resolve `mongodb`/`pino`/etc. (transitively imported via
-      # `clustering-job.ts`). Frozen-lockfile to avoid drift.
-      - name: Install API deps
-        working-directory: src/api
-        run: bun install --frozen-lockfile
+      # No `bun install` needed: the harness imports only the pure
+      # `cluster-embeddings.ts` and `clustering-metrics.ts` modules,
+      # neither of which has external dependencies. Skipping the install
+      # step keeps the gate fast (~30s shaved) and removes a class of
+      # CI-only failure modes (lockfile drift, registry flakes).
 
       # Probe the committed fixture so a missing-file branch is logged
       # explicitly. The script itself also skip-passes; this step makes

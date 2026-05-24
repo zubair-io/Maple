@@ -116,7 +116,13 @@ function loadFixtures(path: string): FixtureRow[] {
 
 function loadBudgets(path: string): Budgets {
   if (!existsSync(path)) fail(`budgets file not found: ${path}`, 2);
-  const raw = JSON.parse(readFileSync(path, 'utf8')) as Budgets;
+  const text = readFileSync(path, 'utf8');
+  let raw: Budgets;
+  try {
+    raw = JSON.parse(text) as Budgets;
+  } catch (e) {
+    fail(`budgets file is not valid JSON: ${path} (${e instanceof Error ? e.message : String(e)})`, 2);
+  }
   const required: (keyof Budgets)[] = [
     'purity_min',
     'nmi_min',
@@ -126,6 +132,14 @@ function loadBudgets(path: string): Budgets {
   ];
   for (const k of required) {
     if (typeof raw[k] !== 'number') fail(`budgets.json missing numeric ${String(k)}`, 2);
+  }
+  // `similarity_threshold` is optional, but if present must be finite —
+  // a NaN/Infinity here would silently produce nonsense clusters.
+  if (raw.similarity_threshold !== undefined && !Number.isFinite(raw.similarity_threshold)) {
+    fail(
+      `budgets.json: similarity_threshold must be a finite number (got ${String(raw.similarity_threshold)})`,
+      2,
+    );
   }
   return raw;
 }
@@ -256,9 +270,21 @@ const args = parseArgs(process.argv.slice(2));
 const fixturesPath = args.fixtures ?? 'test-fixtures/face-clustering/embeddings.jsonl';
 const budgetsPath = args.budgets ?? 'test-fixtures/face-clustering/budgets.json';
 
+function parseNumericArg(name: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    fail(`--${name} must be a finite number (got "${raw}")`, 2);
+  }
+  return n;
+}
+
 if (args['suggest-budgets'] === 'true') {
-  const threshold = args.threshold !== undefined ? Number(args.threshold) : undefined;
-  const margin = args.margin !== undefined ? Number(args.margin) : 0.03;
+  // `threshold` is `undefined` => harness picks the algorithm default.
+  // If the operator supplied a value, it MUST parse to a finite number;
+  // `Number('foo')` => NaN silently corrupts the downstream clustering call.
+  const threshold = args.threshold !== undefined ? parseNumericArg('threshold', args.threshold, 0) : undefined;
+  const margin = parseNumericArg('margin', args.margin, 0.03);
   process.exit(captureBudgetSuggestion(fixturesPath, threshold, margin));
 }
 

@@ -98,10 +98,14 @@ test-fixtures/face-clustering/embeddings.jsonl
 ```
 
 The harness does **not** touch MongoDB. It calls the pure-function core
-`clusterEmbeddings` exported from `src/api/src/people/clustering-job.ts`,
-which is the same code path the DB-backed `runOnlineClustering` calls
-internally to make assignment decisions. The DB wrapper just adds load /
-persist around the same math.
+`clusterEmbeddings` imported directly from
+`src/api/src/people/cluster-embeddings.ts` — the canonical pure module
+that has no Mongo / pino / Elysia dependencies. (`clustering-job.ts`
+re-exports the same symbol for back-compat, but importing it pulls in
+the DB-backed wrapper's transitive deps, which the harness deliberately
+avoids.) The DB-backed `runOnlineClustering` in `clustering-job.ts`
+calls into the same pure function internally to make assignment
+decisions; it just adds load / persist around the same math.
 
 ## Metric meanings (one-line versions)
 
