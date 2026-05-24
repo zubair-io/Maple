@@ -56,7 +56,8 @@ function buildContingency(predicted: number[], truth: string[]): Contingency {
   const n = predicted.length;
   // First pass: discover unique cluster ids + class labels in stable order.
   for (let i = 0; i < n; i += 1) {
-    if (!clusterIndex.has(predicted[i])) clusterIndex.set(predicted[i], clusterIndex.size);
+    if (!clusterIndex.has(predicted[i]))
+      clusterIndex.set(predicted[i], clusterIndex.size);
     if (!classIndex.has(truth[i])) classIndex.set(truth[i], classIndex.size);
   }
   const nClusters = clusterIndex.size;
@@ -146,7 +147,10 @@ function mutualInformationFromTable(table: Contingency): number {
  * Range [0, 1]. Returns 1.0 when both labellings have at most one
  * non-trivial group (degenerate but well-defined as "fully agree").
  */
-export function normalizedMutualInformation(predicted: number[], truth: string[]): number {
+export function normalizedMutualInformation(
+  predicted: number[],
+  truth: string[],
+): number {
   if (predicted.length === 0) return 1;
   const ct = buildContingency(predicted, truth);
   const hC = entropyFromCounts(ct.clusterTotals, ct.n);
@@ -181,7 +185,11 @@ export function normalizedMutualInformation(predicted: number[], truth: string[]
  * normaliser for NMI above so the two metrics are NOT identical in this
  * library and are worth tracking separately.
  */
-export function vMeasure(predicted: number[], truth: string[], beta = 1): number {
+export function vMeasure(
+  predicted: number[],
+  truth: string[],
+  beta = 1,
+): number {
   if (predicted.length === 0) return 1;
   const ct = buildContingency(predicted, truth);
   const hC = entropyFromCounts(ct.clusterTotals, ct.n);
@@ -221,7 +229,10 @@ function pairs(k: number): number {
  * chance. Returns 0 when the expected-index normaliser collapses (e.g. all
  * items in one cluster or one class), matching scikit-learn.
  */
-export function adjustedRandIndex(predicted: number[], truth: string[]): number {
+export function adjustedRandIndex(
+  predicted: number[],
+  truth: string[],
+): number {
   if (predicted.length === 0) return 1;
   const ct = buildContingency(predicted, truth);
   const { table, clusterTotals, classTotals, n } = ct;
@@ -316,7 +327,10 @@ export interface ClusteringMetrics {
   n_classes_true: number;
 }
 
-export function allMetrics(predicted: number[], truth: string[]): ClusteringMetrics {
+export function allMetrics(
+  predicted: number[],
+  truth: string[],
+): ClusteringMetrics {
   const ct = buildContingency(predicted, truth);
   return {
     purity: purity(predicted, truth),
