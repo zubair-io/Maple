@@ -25,8 +25,8 @@ import {
   DEFAULT_SIMILARITY_THRESHOLD,
   EMBEDDING_DIM,
   l2Normalise,
-  dotProduct,
-  updateCentroid,
+  clusterEmbeddings,
+  type ClusterSeed,
 } from './cluster-embeddings.ts';
 
 const log = childLogger('people:clustering');
@@ -102,6 +102,13 @@ interface CentroidEntry {
  * or create a new "Person N" cluster if no match is close enough.
  *
  * Idempotent: re-running with the same data assigns zero faces.
+ *
+ * Implementation: delegates the centroid-search / assignment math to the
+ * pure `clusterEmbeddings` function in `./cluster-embeddings.ts` so the
+ * harness scores the same code path that production runs. This layer
+ * only handles the Mongo-shaped concerns: seed loading, persisting
+ * `PersonDoc` rows for new clusters, buffering per-asset writes, and
+ * the cover-asset backfill.
  */
 export async function runOnlineClustering(
   options: RunOnlineClusteringOptions = {},
@@ -115,6 +122,19 @@ export async function runOnlineClustering(
   let nextAutoIndex = await maxAutoNameIndex();
   const faces = await loadUnassignedFaces();
 
+  // Hand the embedding batch to the pure clustering core. The seeds
+  // array carries our existing centroids in stable order so the
+  // assignment indices we get back map 1:1 back onto `centroids[i]`.
+  const seeds: ClusterSeed[] = centroids.map((c) => ({
+    centroid: c.centroid,
+    face_count: c.face_count,
+  }));
+  const seedCount = seeds.length;
+  const result = clusterEmbeddings(
+    faces.map((f) => f.embedding),
+    { similarityThreshold: threshold, seeds },
+  );
+
   let assigned = 0;
   let newPeople = 0;
   // Buffer assignments per (asset_id, face_index) so we can apply them
@@ -123,42 +143,34 @@ export async function runOnlineClustering(
     string,
     { assetId: ObjectId; updates: Array<{ index: number; personId: string }> }
   >();
+  // Track which new-cluster index has been materialised to a `PersonDoc`
+  // — multiple faces can land in the same new cluster, but we only
+  // create the row once (and the first face seeds the cover bbox).
+  const newPersonIds = new Map<number, ObjectId>();
 
-  for (const face of faces) {
-    let bestId: ObjectId | null = null;
-    let bestScore = -Infinity;
-    for (const c of centroids) {
-      const score = dotProduct(face.embedding, c.centroid);
-      if (score > bestScore) {
-        bestScore = score;
-        bestId = c.person_id;
+  for (let i = 0; i < faces.length; i += 1) {
+    const face = faces[i];
+    const clusterIdx = result.assignments[i];
+    let personId: ObjectId;
+    if (clusterIdx < seedCount) {
+      // Matched an existing person — reuse its ObjectId.
+      personId = centroids[clusterIdx].person_id;
+    } else {
+      // Brand-new cluster. Materialise a `PersonDoc` on first contact;
+      // subsequent faces in the same new cluster reuse that ObjectId.
+      const cached = newPersonIds.get(clusterIdx);
+      if (cached) {
+        personId = cached;
+      } else {
+        nextAutoIndex += 1;
+        const name = `Person ${nextAutoIndex}`;
+        personId = await createAutoPerson(name, face.embedding, face.asset_id, face.bbox);
+        newPersonIds.set(clusterIdx, personId);
+        newPeople += 1;
       }
     }
-    if (bestId !== null && bestScore >= threshold) {
-      const target = centroids.find((c) => c.person_id.equals(bestId!));
-      if (target) {
-        // Streaming mean: c' = (c * n + e) / (n + 1) followed by L2
-        // renormalise so cosine == dot.
-        target.centroid = updateCentroid(target.centroid, face.embedding, target.face_count);
-        target.face_count += 1;
-      }
-      bufferAssignment(perAsset, face, bestId.toHexString());
-      assigned += 1;
-      continue;
-    }
-    // No good match — spawn a new auto-named person seeded with this
-    // face as the cover thumb.
-    nextAutoIndex += 1;
-    const name = `Person ${nextAutoIndex}`;
-    const created = await createAutoPerson(name, face.embedding, face.asset_id, face.bbox);
-    centroids.push({
-      person_id: created,
-      centroid: l2Normalise(face.embedding),
-      face_count: 1,
-    });
-    bufferAssignment(perAsset, face, created.toHexString());
+    bufferAssignment(perAsset, face, personId.toHexString());
     assigned += 1;
-    newPeople += 1;
   }
 
   // Apply buffered assignments per asset doc. One updateOne per asset is
@@ -173,7 +185,23 @@ export async function runOnlineClustering(
     await assets.updateOne({ _id: entry.assetId }, { $set: set });
   }
 
-  // Persist refreshed centroids so subsequent runs converge.
+  // Persist refreshed centroids so subsequent runs converge. The pure
+  // core returned updated seeds (positions 0..seedCount-1) followed by
+  // any newly-created clusters — fold those back into the live entries
+  // before writing.
+  for (let k = 0; k < seedCount; k += 1) {
+    centroids[k].centroid = result.clusters[k].centroid;
+    centroids[k].face_count = result.clusters[k].face_count;
+  }
+  for (let k = seedCount; k < result.clusters.length; k += 1) {
+    const personId = newPersonIds.get(k);
+    if (!personId) continue;
+    centroids.push({
+      person_id: personId,
+      centroid: result.clusters[k].centroid,
+      face_count: result.clusters[k].face_count,
+    });
+  }
   await persistCentroids(centroids);
 
   // Backfill cover thumbs for any live person without one. Covers may be
