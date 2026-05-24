@@ -15,8 +15,10 @@
  *     URL) → log loud and leave the worker dormant. Do NOT crash the
  *     API. The operator fixes via:
  *       (a) dropping the file at `<MAPLE_MODEL_DIR>/<basename>`, or
- *       (b) setting `MAPLE_FACE_RETINAFACE_URL` /
- *           `MAPLE_FACE_MOBILEFACENET_URL` and restarting.
+ *       (b) setting `MAPLE_FACE_DETECTOR_URL` /
+ *           `MAPLE_FACE_RECOGNIZER_URL` and restarting. The legacy
+ *           `MAPLE_FACE_RETINAFACE_URL` / `MAPLE_FACE_MOBILEFACENET_URL`
+ *           env vars are still honoured (deprecation-warned at boot).
  *
  *   - Worker enabled and models load → start the loop. Sets
  *     worker_config.paused=false so the stage controller unblocks.
@@ -29,15 +31,12 @@
  * Spec: `docs/indexer-enrichment.md` §6.
  */
 
-import { child as childLogger } from "../log.ts";
-import {
-  loadEnrichmentConfig,
-  resolveEnrichmentConfig,
-} from "./enrichment-config.repo.ts";
-import { loadFaceModels } from "./face-models.ts";
-import { workerConfigCollection } from "../db/client.ts";
+import { child as childLogger } from '../log.ts';
+import { loadEnrichmentConfig, resolveEnrichmentConfig } from './enrichment-config.repo.ts';
+import { loadFaceModels } from './face-models.ts';
+import { workerConfigCollection } from '../db/client.ts';
 
-const log = childLogger("face");
+const log = childLogger('face');
 
 /**
  * Propagate the paused state for a stage into the worker_config collection.
@@ -46,12 +45,16 @@ const log = childLogger("face");
 async function applyPausedToWorkerConfig(name: string, paused: boolean): Promise<void> {
   try {
     const coll = await workerConfigCollection();
-    await coll.updateOne({ name }, { $set: { paused }, $setOnInsert: { name } as never }, { upsert: true });
+    await coll.updateOne(
+      { name },
+      { $set: { paused }, $setOnInsert: { name } as never },
+      { upsert: true },
+    );
   } catch (err) {
     // Non-fatal — log and continue. The stage controller will fall back to
     // the stage's built-in defaults if the DB write fails.
     const msg = err instanceof Error ? err.message : String(err);
-    log.warn({ err: msg, name }, "failed to write paused state to worker_config");
+    log.warn({ err: msg, name }, 'failed to write paused state to worker_config');
   }
 }
 
@@ -73,26 +76,26 @@ export async function startFaceWorker(): Promise<null> {
   const resolved = resolveEnrichmentConfig(dbConfig);
 
   if (!resolved.face_worker_enabled) {
-    log.info("face_bootstrap: face_worker_enabled=false; skipping model preload");
-    await applyPausedToWorkerConfig("face", true);
+    log.info('face_bootstrap: face_worker_enabled=false; skipping model preload');
+    await applyPausedToWorkerConfig('face', true);
     return null;
   }
 
   try {
     await loadFaceModels({
       modelDir: resolved.face_model_dir,
-      retinafaceUrl: resolved.face_retinaface_url,
-      mobilefacenetUrl: resolved.face_mobilefacenet_url,
-      retinafaceSha256: resolved.face_retinaface_sha256,
-      mobilefacenetSha256: resolved.face_mobilefacenet_sha256,
+      detectorUrl: resolved.face_detector_url,
+      detectorSha256: resolved.face_detector_sha256,
+      recognizerUrl: resolved.face_recognizer_url,
+      recognizerSha256: resolved.face_recognizer_sha256,
     });
-    log.info("face models loaded (stage controller will handle detection)");
-    await applyPausedToWorkerConfig("face", false);
+    log.info('face models loaded (stage controller will handle detection)');
+    await applyPausedToWorkerConfig('face', false);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.warn(
       { err: msg },
-      "face model preload failed; first inference will attempt load. Fix via /settings/enrichment.",
+      'face model preload failed; first inference will attempt load. Fix via /settings/enrichment.',
     );
   }
   return null;

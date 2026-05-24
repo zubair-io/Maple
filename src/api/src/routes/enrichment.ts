@@ -12,8 +12,8 @@
  * All routes are mounted behind `requireAuth` — see `src/index.ts`.
  */
 
-import { Elysia, t } from "elysia";
-import { child as childLogger } from "../log.ts";
+import { Elysia, t } from 'elysia';
+import { child as childLogger } from '../log.ts';
 import {
   MAX_DESCRIBE_DAILY_CAP_USD,
   MAX_NOMINATIM_RATE_LIMIT_PER_SEC,
@@ -23,22 +23,14 @@ import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
   saveEnrichmentConfig,
-} from "../enrichment/enrichment-config.repo.ts";
-import {
-  applyEnrichmentConfig,
-} from "../enrichment/bootstrap.ts";
-import { applyDescribeConfig } from "../enrichment/describe-bootstrap.ts";
-import { NominatimClient, NominatimError } from "../enrichment/nominatim-client.ts";
-import {
-  getFaceModelsStatus,
-  probeFaceModelFiles,
-} from "../enrichment/face-models.ts";
-import {
-  RemoteError,
-  getDescribeProvider,
-} from "../enrichment/describe-providers/index.ts";
+} from '../enrichment/enrichment-config.repo.ts';
+import { applyEnrichmentConfig } from '../enrichment/bootstrap.ts';
+import { applyDescribeConfig } from '../enrichment/describe-bootstrap.ts';
+import { NominatimClient, NominatimError } from '../enrichment/nominatim-client.ts';
+import { getFaceModelsStatus, probeFaceModelFiles } from '../enrichment/face-models.ts';
+import { RemoteError, getDescribeProvider } from '../enrichment/describe-providers/index.ts';
 
-const log = childLogger("enrichment:routes");
+const log = childLogger('enrichment:routes');
 
 const ConfigBody = t.Object({
   nominatim_url: t.Union([t.String(), t.Null()]),
@@ -46,9 +38,7 @@ const ConfigBody = t.Object({
   /** Optional in PUT — when omitted, the existing DB value (or env, or
    * default) is kept. Send a number to set, or `null` to clear back to
    * env-or-default. */
-  nominatim_rate_limit_per_sec: t.Optional(
-    t.Union([t.Number(), t.Null()]),
-  ),
+  nominatim_rate_limit_per_sec: t.Optional(t.Union([t.Number(), t.Null()])),
   // ── Describe worker (Phase 6) ──────────────────────────────────────
   describe_worker_enabled: t.Optional(t.Union([t.Boolean(), t.Null()])),
   describe_provider: t.Optional(t.Union([t.String(), t.Null()])),
@@ -61,6 +51,17 @@ const ConfigBody = t.Object({
   /** Operator-tunable face worker model paths. `null` clears the override
    * back to env / default; omitted leaves the saved value alone. */
   face_model_dir: t.Optional(t.Union([t.String(), t.Null()])),
+  face_detector_url: t.Optional(t.Union([t.String(), t.Null()])),
+  face_detector_sha256: t.Optional(t.Union([t.String(), t.Null()])),
+  face_recognizer_url: t.Optional(t.Union([t.String(), t.Null()])),
+  face_recognizer_sha256: t.Optional(t.Union([t.String(), t.Null()])),
+  // Legacy field names kept on the body schema so operator UIs that still
+  // post them don't get a 400. The route forwards them to
+  // saveEnrichmentConfig, which transparently remaps each legacy key
+  // onto its new equivalent (face_retinaface_* -> face_detector_*,
+  // face_mobilefacenet_* -> face_recognizer_*) at write time so the
+  // resolver finds the saved value under the canonical name. When a
+  // patch carries both the legacy and the new key, the new key wins.
   face_retinaface_url: t.Optional(t.Union([t.String(), t.Null()])),
   face_retinaface_sha256: t.Optional(t.Union([t.String(), t.Null()])),
   face_mobilefacenet_url: t.Optional(t.Union([t.String(), t.Null()])),
@@ -88,18 +89,18 @@ function validateNominatimUrl(raw: string | null): string | null | { error: stri
   try {
     parsed = new URL(trimmed);
   } catch {
-    return { error: "Not a valid URL" };
+    return { error: 'Not a valid URL' };
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return { error: `Unsupported protocol: ${parsed.protocol}` };
   }
   // Strip trailing slashes so the saved value matches what NominatimClient
   // produces internally.
-  return trimmed.replace(/\/+$/, "");
+  return trimmed.replace(/\/+$/, '');
 }
 
-export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
-  .get("/config", async () => {
+export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
+  .get('/config', async () => {
     const dbConfig = await loadEnrichmentConfig();
     const resolved = resolveEnrichmentConfig(dbConfig);
     // Live face-models status — combines the loader's runtime state
@@ -113,17 +114,22 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
       face_models: {
         status: status.kind,
         error_detail: status.errorDetail,
-        retinaface: probe.retinaface,
-        mobilefacenet: probe.mobilefacenet,
+        detector: probe.detector,
+        recognizer: probe.recognizer,
+        // Legacy aliases kept on the response for one release so any UI
+        // that still keys off them keeps rendering. New consumers should
+        // read `detector` / `recognizer`.
+        retinaface: probe.detector,
+        mobilefacenet: probe.recognizer,
       },
     };
   })
 
   .put(
-    "/config",
+    '/config',
     async ({ body, set }) => {
       const validated = validateNominatimUrl(body.nominatim_url);
-      if (validated && typeof validated === "object" && "error" in validated) {
+      if (validated && typeof validated === 'object' && 'error' in validated) {
         set.status = 400;
         return { error: `Invalid nominatim_url: ${validated.error}` };
       }
@@ -134,7 +140,7 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
       // (MIN, MAX]. Reject 0 / negative — a misclick mustn't pause the
       // worker silently.
       let rateLimit: number | null | undefined = body.nominatim_rate_limit_per_sec;
-      if (typeof rateLimit === "number") {
+      if (typeof rateLimit === 'number') {
         if (
           !Number.isFinite(rateLimit) ||
           rateLimit < MIN_NOMINATIM_RATE_LIMIT_PER_SEC ||
@@ -157,7 +163,7 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
         } catch (err) {
           set.status = 502;
           const msg = err instanceof Error ? err.message : String(err);
-          log.warn({ url, err: msg }, "PUT /config health check failed");
+          log.warn({ url, err: msg }, 'PUT /config health check failed');
           return {
             error: `Nominatim health check failed for ${url}: ${msg}`,
           };
@@ -169,12 +175,8 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
       // `undefined` leaves the existing value alone. Provider must be
       // one of the known names; cap must be in (MIN, MAX].
 
-      let describeProvider: string | null | undefined =
-        body.describe_provider;
-      if (
-        typeof describeProvider === "string" &&
-        asDescribeProvider(describeProvider) === null
-      ) {
+      let describeProvider: string | null | undefined = body.describe_provider;
+      if (typeof describeProvider === 'string' && asDescribeProvider(describeProvider) === null) {
         set.status = 400;
         return {
           error: `Invalid describe_provider: must be one of "ollama", "anthropic", "openai", "gemini" (got "${describeProvider}")`,
@@ -182,7 +184,7 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
       }
 
       const describeCap = body.describe_daily_cap_usd;
-      if (typeof describeCap === "number") {
+      if (typeof describeCap === 'number') {
         if (
           !Number.isFinite(describeCap) ||
           describeCap <= MIN_DESCRIBE_DAILY_CAP_USD ||
@@ -198,34 +200,36 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
       await saveEnrichmentConfig({
         nominatim_url: url,
         geocode_worker_enabled: body.geocode_worker_enabled,
-        ...(rateLimit !== undefined
-          ? { nominatim_rate_limit_per_sec: rateLimit }
-          : {}),
+        ...(rateLimit !== undefined ? { nominatim_rate_limit_per_sec: rateLimit } : {}),
         ...(body.describe_worker_enabled !== undefined
           ? { describe_worker_enabled: body.describe_worker_enabled }
           : {}),
         ...(describeProvider !== undefined
           ? {
               describe_provider:
-                describeProvider === null
-                  ? null
-                  : asDescribeProvider(describeProvider),
+                describeProvider === null ? null : asDescribeProvider(describeProvider),
             }
           : {}),
-        ...(body.describe_model !== undefined
-          ? { describe_model: body.describe_model }
-          : {}),
+        ...(body.describe_model !== undefined ? { describe_model: body.describe_model } : {}),
         ...(body.describe_system_prompt !== undefined
           ? { describe_system_prompt: body.describe_system_prompt }
           : {}),
-        ...(describeCap !== undefined
-          ? { describe_daily_cap_usd: describeCap }
-          : {}),
+        ...(describeCap !== undefined ? { describe_daily_cap_usd: describeCap } : {}),
         ...(body.describe_provider_url !== undefined
           ? { describe_provider_url: body.describe_provider_url }
           : {}),
-        ...(body.face_model_dir !== undefined
-          ? { face_model_dir: body.face_model_dir }
+        ...(body.face_model_dir !== undefined ? { face_model_dir: body.face_model_dir } : {}),
+        ...(body.face_detector_url !== undefined
+          ? { face_detector_url: body.face_detector_url }
+          : {}),
+        ...(body.face_detector_sha256 !== undefined
+          ? { face_detector_sha256: body.face_detector_sha256 }
+          : {}),
+        ...(body.face_recognizer_url !== undefined
+          ? { face_recognizer_url: body.face_recognizer_url }
+          : {}),
+        ...(body.face_recognizer_sha256 !== undefined
+          ? { face_recognizer_sha256: body.face_recognizer_sha256 }
           : {}),
         ...(body.face_retinaface_url !== undefined
           ? { face_retinaface_url: body.face_retinaface_url }
@@ -256,7 +260,7 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
         // the test call and the apply), surface it. The DB row is already
         // saved; the worker will retry the apply on next boot.
         const msg = err instanceof Error ? err.message : String(err);
-        log.error({ err: msg }, "applyEnrichmentConfig failed after save");
+        log.error({ err: msg }, 'applyEnrichmentConfig failed after save');
         set.status = 502;
         return { error: `Saved, but worker reconfigure failed: ${msg}` };
       }
@@ -268,7 +272,7 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
         // failure. We still surface unexpected exceptions so the
         // operator sees them.
         const msg = err instanceof Error ? err.message : String(err);
-        log.error({ err: msg }, "applyDescribeConfig failed after save");
+        log.error({ err: msg }, 'applyDescribeConfig failed after save');
       }
       return resolved;
     },
@@ -276,14 +280,14 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
   )
 
   .post(
-    "/test",
+    '/test',
     async ({ body, set }) => {
       const validated = validateNominatimUrl(body.nominatim_url);
       if (validated === null) {
         set.status = 400;
-        return { ok: false, error: "URL is empty" };
+        return { ok: false, error: 'URL is empty' };
       }
-      if (typeof validated === "object" && "error" in validated) {
+      if (typeof validated === 'object' && 'error' in validated) {
         set.status = 400;
         return { ok: false, error: validated.error };
       }
@@ -293,7 +297,7 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
         return { ok: true, url: validated };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const status = err instanceof NominatimError ? err.status ?? null : null;
+        const status = err instanceof NominatimError ? (err.status ?? null) : null;
         return { ok: false, error: msg, status };
       }
     },
@@ -305,7 +309,7 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
   // The `api_key` field is write-only (we never echo it back), so the UI
   // can pass a freshly-typed key without saving it.
   .post(
-    "/test-describe",
+    '/test-describe',
     async ({ body, set }) => {
       const provider = asDescribeProvider(body.provider);
       if (!provider) {
@@ -330,10 +334,7 @@ export const enrichmentRoutes = new Elysia({ prefix: "/api/enrichment" })
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const status =
-          err instanceof RemoteError && err.status !== undefined
-            ? err.status
-            : null;
+        const status = err instanceof RemoteError && err.status !== undefined ? err.status : null;
         return { ok: false, error: msg, status };
       }
     },

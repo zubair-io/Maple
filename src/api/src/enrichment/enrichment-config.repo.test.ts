@@ -2,40 +2,33 @@
  * enrichment-config repo tests — pure resolver logic + real-Mongo round-trip.
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "bun:test";
-import { MongoClient, type Db } from "mongodb";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { MongoClient, type Db } from 'mongodb';
 import {
   DEFAULT_DESCRIBE_MODELS,
   QWEN_VL_OLLAMA_TAG,
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
   saveEnrichmentConfig,
-} from "./enrichment-config.repo.ts";
+} from './enrichment-config.repo.ts';
 
-describe("QWEN_VL_OLLAMA_TAG — pinned literal", () => {
+describe('QWEN_VL_OLLAMA_TAG — pinned literal', () => {
   // Hyphen vs no-hyphen burned us once (PR #182 follow-up): the Qwen team
   // names it `qwen2.5-vl` but Ollama's library publishes it as
   // `qwen2.5vl` (no hyphen between "5" and "vl"). Pinning the literal so
   // a future rename to the HuggingFace form 404s in CI instead of in prod.
   it("matches Ollama's library tag exactly", () => {
-    expect(QWEN_VL_OLLAMA_TAG).toBe("qwen2.5vl:7b");
+    expect(QWEN_VL_OLLAMA_TAG).toBe('qwen2.5vl:7b');
   });
 
-  it("is the default for the Ollama provider", () => {
+  it('is the default for the Ollama provider', () => {
     expect(DEFAULT_DESCRIBE_MODELS.ollama).toBe(QWEN_VL_OLLAMA_TAG);
   });
 });
 
 const TEST_DB = `maple_test_enrichment_cfg_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
@@ -48,10 +41,12 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch {}
+    try {
+      await c.close();
+    } catch {}
     return null;
   }
 }
@@ -60,18 +55,18 @@ beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
-    console.log("[enrichment-config.test] skipping: MongoDB unreachable");
+    console.log('[enrichment-config.test] skipping: MongoDB unreachable');
     return;
   }
   db = mongo!.db(TEST_DB);
   await db.dropDatabase();
-  const { closeDb } = await import("../db/client.ts");
+  const { closeDb } = await import('../db/client.ts');
   await closeDb();
 });
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await db!.collection("app_settings").deleteMany({});
+  await db!.collection('app_settings').deleteMany({});
 });
 
 afterAll(async () => {
@@ -79,157 +74,157 @@ afterAll(async () => {
     await mongo.db(TEST_DB).dropDatabase();
     await mongo.close();
   }
-  const { closeDb } = await import("../db/client.ts");
+  const { closeDb } = await import('../db/client.ts');
   await closeDb();
 });
 
-describe("resolveEnrichmentConfig — pure logic", () => {
-  it("falls back to env when there is no DB row", () => {
+describe('resolveEnrichmentConfig — pure logic', () => {
+  it('falls back to env when there is no DB row', () => {
     const r = resolveEnrichmentConfig(null, {
-      MAPLE_NOMINATIM_URL: "http://nominatim.lan:8080",
-      MAPLE_GEOCODE_WORKER_ENABLED: "true",
+      MAPLE_NOMINATIM_URL: 'http://nominatim.lan:8080',
+      MAPLE_GEOCODE_WORKER_ENABLED: 'true',
     });
-    expect(r.nominatim_url).toBe("http://nominatim.lan:8080");
+    expect(r.nominatim_url).toBe('http://nominatim.lan:8080');
     expect(r.geocode_worker_enabled).toBe(true);
-    expect(r.source.nominatim_url).toBe("env");
-    expect(r.source.geocode_worker_enabled).toBe("env");
+    expect(r.source.nominatim_url).toBe('env');
+    expect(r.source.geocode_worker_enabled).toBe('env');
   });
 
-  it("DB wins over env", () => {
+  it('DB wins over env', () => {
     const r = resolveEnrichmentConfig(
-      { nominatim_url: "http://db.lan", geocode_worker_enabled: false },
-      { MAPLE_NOMINATIM_URL: "http://env.lan", MAPLE_GEOCODE_WORKER_ENABLED: "true" },
+      { nominatim_url: 'http://db.lan', geocode_worker_enabled: false },
+      { MAPLE_NOMINATIM_URL: 'http://env.lan', MAPLE_GEOCODE_WORKER_ENABLED: 'true' },
     );
-    expect(r.nominatim_url).toBe("http://db.lan");
+    expect(r.nominatim_url).toBe('http://db.lan');
     expect(r.geocode_worker_enabled).toBe(false);
-    expect(r.source.nominatim_url).toBe("db");
-    expect(r.source.geocode_worker_enabled).toBe("db");
+    expect(r.source.nominatim_url).toBe('db');
+    expect(r.source.geocode_worker_enabled).toBe('db');
   });
 
-  it("returns defaults when neither DB nor env have a value", () => {
+  it('returns defaults when neither DB nor env have a value', () => {
     const r = resolveEnrichmentConfig(null, {});
     expect(r.nominatim_url).toBeNull();
     expect(r.geocode_worker_enabled).toBe(true);
-    expect(r.source.nominatim_url).toBe("unset");
-    expect(r.source.geocode_worker_enabled).toBe("default");
+    expect(r.source.nominatim_url).toBe('unset');
+    expect(r.source.geocode_worker_enabled).toBe('default');
   });
 
   it("MAPLE_GEOCODE_WORKER_ENABLED='false' disables", () => {
     const r = resolveEnrichmentConfig(null, {
-      MAPLE_GEOCODE_WORKER_ENABLED: "false",
+      MAPLE_GEOCODE_WORKER_ENABLED: 'false',
     });
     expect(r.geocode_worker_enabled).toBe(false);
-    expect(r.source.geocode_worker_enabled).toBe("env");
+    expect(r.source.geocode_worker_enabled).toBe('env');
   });
 
-  it("DB null URL falls through to env", () => {
+  it('DB null URL falls through to env', () => {
     const r = resolveEnrichmentConfig(
       { nominatim_url: null, geocode_worker_enabled: true },
-      { MAPLE_NOMINATIM_URL: "http://env.lan" },
+      { MAPLE_NOMINATIM_URL: 'http://env.lan' },
     );
-    expect(r.nominatim_url).toBe("http://env.lan");
-    expect(r.source.nominatim_url).toBe("env");
+    expect(r.nominatim_url).toBe('http://env.lan');
+    expect(r.source.nominatim_url).toBe('env');
   });
 
-  it("rate limit defaults to 10 when neither DB nor env set it", () => {
+  it('rate limit defaults to 10 when neither DB nor env set it', () => {
     const r = resolveEnrichmentConfig(null, {});
     expect(r.nominatim_rate_limit_per_sec).toBe(10);
-    expect(r.source.nominatim_rate_limit_per_sec).toBe("default");
+    expect(r.source.nominatim_rate_limit_per_sec).toBe('default');
   });
 
-  it("rate limit reads MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC from env", () => {
+  it('rate limit reads MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC from env', () => {
     const r = resolveEnrichmentConfig(null, {
-      MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "5",
+      MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: '5',
     });
     expect(r.nominatim_rate_limit_per_sec).toBe(5);
-    expect(r.source.nominatim_rate_limit_per_sec).toBe("env");
+    expect(r.source.nominatim_rate_limit_per_sec).toBe('env');
   });
 
-  it("rate limit DB wins over env", () => {
+  it('rate limit DB wins over env', () => {
     const r = resolveEnrichmentConfig(
       {
         nominatim_url: null,
         geocode_worker_enabled: true,
         nominatim_rate_limit_per_sec: 2,
       },
-      { MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "20" },
+      { MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: '20' },
     );
     expect(r.nominatim_rate_limit_per_sec).toBe(2);
-    expect(r.source.nominatim_rate_limit_per_sec).toBe("db");
+    expect(r.source.nominatim_rate_limit_per_sec).toBe('db');
   });
 
-  it("rate limit ignores non-positive DB values and falls through", () => {
+  it('rate limit ignores non-positive DB values and falls through', () => {
     const r = resolveEnrichmentConfig(
       {
         nominatim_url: null,
         geocode_worker_enabled: true,
         nominatim_rate_limit_per_sec: 0,
       },
-      { MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "7" },
+      { MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: '7' },
     );
     expect(r.nominatim_rate_limit_per_sec).toBe(7);
-    expect(r.source.nominatim_rate_limit_per_sec).toBe("env");
+    expect(r.source.nominatim_rate_limit_per_sec).toBe('env');
   });
 
-  it("rate limit ignores garbage env values and uses default", () => {
+  it('rate limit ignores garbage env values and uses default', () => {
     const r = resolveEnrichmentConfig(null, {
-      MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "not-a-number",
+      MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: 'not-a-number',
     });
     expect(r.nominatim_rate_limit_per_sec).toBe(10);
-    expect(r.source.nominatim_rate_limit_per_sec).toBe("default");
+    expect(r.source.nominatim_rate_limit_per_sec).toBe('default');
   });
 
-  it("rate limit DB null falls through to env", () => {
+  it('rate limit DB null falls through to env', () => {
     const r = resolveEnrichmentConfig(
       {
         nominatim_url: null,
         geocode_worker_enabled: true,
         nominatim_rate_limit_per_sec: null,
       },
-      { MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: "3" },
+      { MAPLE_NOMINATIM_RATE_LIMIT_PER_SEC: '3' },
     );
     expect(r.nominatim_rate_limit_per_sec).toBe(3);
-    expect(r.source.nominatim_rate_limit_per_sec).toBe("env");
+    expect(r.source.nominatim_rate_limit_per_sec).toBe('env');
   });
 });
 
-describe("saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip", () => {
-  it("returns null before any save", async () => {
+describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () => {
+  it('returns null before any save', async () => {
     if (!mongoReachable) return;
     const c = await loadEnrichmentConfig();
     expect(c).toBeNull();
   });
 
-  it("save then load round-trips both fields", async () => {
+  it('save then load round-trips both fields', async () => {
     if (!mongoReachable) return;
     await saveEnrichmentConfig({
-      nominatim_url: "http://nominatim.test:8080",
+      nominatim_url: 'http://nominatim.test:8080',
       geocode_worker_enabled: true,
     });
     const c = await loadEnrichmentConfig();
     expect(c).toMatchObject({
-      nominatim_url: "http://nominatim.test:8080",
+      nominatim_url: 'http://nominatim.test:8080',
       geocode_worker_enabled: true,
     });
-    expect(typeof c!.updated_at).toBe("number");
+    expect(typeof c!.updated_at).toBe('number');
   });
 
-  it("partial save preserves existing fields", async () => {
+  it('partial save preserves existing fields', async () => {
     if (!mongoReachable) return;
     await saveEnrichmentConfig({
-      nominatim_url: "http://a.test",
+      nominatim_url: 'http://a.test',
       geocode_worker_enabled: true,
     });
     await saveEnrichmentConfig({ geocode_worker_enabled: false });
     const c = await loadEnrichmentConfig();
-    expect(c!.nominatim_url).toBe("http://a.test");
+    expect(c!.nominatim_url).toBe('http://a.test');
     expect(c!.geocode_worker_enabled).toBe(false);
   });
 
-  it("can clear the URL by saving null", async () => {
+  it('can clear the URL by saving null', async () => {
     if (!mongoReachable) return;
     await saveEnrichmentConfig({
-      nominatim_url: "http://x",
+      nominatim_url: 'http://x',
       geocode_worker_enabled: true,
     });
     await saveEnrichmentConfig({ nominatim_url: null });
@@ -237,27 +232,60 @@ describe("saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip", () 
     expect(c!.nominatim_url).toBeNull();
   });
 
-  it("partial save persists rate-limit and preserves URL", async () => {
+  it('partial save persists rate-limit and preserves URL', async () => {
     if (!mongoReachable) return;
     await saveEnrichmentConfig({
-      nominatim_url: "http://saved.lan",
+      nominatim_url: 'http://saved.lan',
       geocode_worker_enabled: true,
     });
     await saveEnrichmentConfig({ nominatim_rate_limit_per_sec: 4 });
     const c = await loadEnrichmentConfig();
-    expect(c!.nominatim_url).toBe("http://saved.lan");
+    expect(c!.nominatim_url).toBe('http://saved.lan');
     expect(c!.nominatim_rate_limit_per_sec).toBe(4);
   });
 
-  it("can clear the rate limit by saving null", async () => {
+  it('can clear the rate limit by saving null', async () => {
     if (!mongoReachable) return;
     await saveEnrichmentConfig({
-      nominatim_url: "http://saved.lan",
+      nominatim_url: 'http://saved.lan',
       geocode_worker_enabled: true,
       nominatim_rate_limit_per_sec: 4,
     });
     await saveEnrichmentConfig({ nominatim_rate_limit_per_sec: null });
     const c = await loadEnrichmentConfig();
     expect(c!.nominatim_rate_limit_per_sec).toBeNull();
+  });
+
+  it('maps legacy face_retinaface_* / face_mobilefacenet_* onto new keys at write time', async () => {
+    if (!mongoReachable) return;
+    // Operator UI still POSTs the v1 names. Without the remap, the new
+    // keys would stay unset and the resolver's fallback would pick the
+    // legacy field at read time — but it still wouldn't show up in
+    // /settings/enrichment under the new field name, so the operator
+    // can't see what was saved. The remap normalises to the new schema.
+    await saveEnrichmentConfig({
+      face_retinaface_url: 'http://legacy.lan/scrfd_10g.onnx',
+      face_retinaface_sha256: 'deadbeef',
+      face_mobilefacenet_url: 'http://legacy.lan/arcface.onnx',
+      face_mobilefacenet_sha256: 'cafef00d',
+    });
+    const c = await loadEnrichmentConfig();
+    expect(c!.face_detector_url).toBe('http://legacy.lan/scrfd_10g.onnx');
+    expect(c!.face_detector_sha256).toBe('deadbeef');
+    expect(c!.face_recognizer_url).toBe('http://legacy.lan/arcface.onnx');
+    expect(c!.face_recognizer_sha256).toBe('cafef00d');
+  });
+
+  it('new keys take precedence when both legacy and new are in one save', async () => {
+    if (!mongoReachable) return;
+    await saveEnrichmentConfig({
+      face_detector_url: 'http://new.lan/scrfd_10g.onnx',
+      face_retinaface_url: 'http://legacy.lan/scrfd_10g.onnx',
+      face_recognizer_url: 'http://new.lan/arcface.onnx',
+      face_mobilefacenet_url: 'http://legacy.lan/arcface.onnx',
+    });
+    const c = await loadEnrichmentConfig();
+    expect(c!.face_detector_url).toBe('http://new.lan/scrfd_10g.onnx');
+    expect(c!.face_recognizer_url).toBe('http://new.lan/arcface.onnx');
   });
 });
