@@ -2,8 +2,11 @@
  * Face-detection stage. Wraps the pure `face-detector.ts` ONNX module.
  *
  * Depends on `["thumb"]`. Concurrency 1 (ONNX session is single-threaded).
- * The handler reads the thumbnail from the cache path, runs RetinaFace +
- * MobileFaceNet, and returns the detected faces as a patch.
+ * The handler reads the thumbnail from the cache path, runs SCRFD-10G +
+ * ArcFace R100 (with 5-point landmark alignment), and returns the detected
+ * faces as a patch. Each face doc carries an `embedding_version` tag so
+ * the re-embed migration can identify rows that need rebuilding when the
+ * model pair changes.
  *
  * `pausedOnFirstBoot: true` — the face stage downloads ONNX models on first
  * enable. Operators must explicitly unpause it from /settings/workers after
@@ -32,6 +35,7 @@ import {
   ThumbDecodeError,
   type DetectedFace,
 } from '../../enrichment/face-detector.ts';
+import { CURRENT_EMBEDDING_VERSION } from '../../enrichment/face-models.ts';
 import type { AssetFaceDoc } from '../../db/schema.ts';
 
 export const THUMB_MISSING_REASON = 'thumb-missing';
@@ -97,6 +101,7 @@ function detectionToDoc(det: DetectedFace, embedding: Float32Array): AssetFaceDo
     confidence: det.confidence,
     person_id: null,
     embedding: Array.from(embedding),
+    embedding_version: CURRENT_EMBEDDING_VERSION,
   };
 }
 
