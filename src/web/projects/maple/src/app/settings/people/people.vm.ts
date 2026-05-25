@@ -107,7 +107,10 @@ export const PEOPLE_GRID = {
 /** Column count for a given content width. At least one column; otherwise the
  * largest count whose cards (≥ MIN_CARD_W) plus gaps fit the width — matching
  * CSS `repeat(auto-fill, minmax(MIN_CARD_W, 1fr))`. */
-export function peopleGridColumns(contentWidth: number, minCardW = PEOPLE_GRID.MIN_CARD_W): number {
+export function peopleGridColumns(
+  contentWidth: number,
+  minCardW: number = PEOPLE_GRID.MIN_CARD_W,
+): number {
   if (contentWidth <= 0) return 1;
   const cols = Math.floor((contentWidth + PEOPLE_GRID.GAP) / (minCardW + PEOPLE_GRID.GAP));
   return Math.max(1, cols);
