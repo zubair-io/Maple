@@ -30,9 +30,13 @@ public actor CloudSearchClient {
 
   /// `GET /api/search/buckets?libraryId=<id>[&pathPrefix=<p>]` — returns
   /// year/month aggregations for the given library, optionally narrowed
-  /// to records whose `abs_path` starts with `pathPrefix`. Sending the
-  /// same pathPrefix to `page()` keeps buckets and page result sets in
-  /// agreement.
+  /// to a sub-folder. `pathPrefix` must be RELATIVE to the library root
+  /// (e.g. `2026/spain`, not the absolute on-disk path): since the
+  /// drop-abs-path migration the server anchors it against `fileinfo.path`,
+  /// which stores each asset's directory relative to its library root.
+  /// `libraryId` scopes to the library; `pathPrefix` narrows within it.
+  /// Sending the same pathPrefix to `page()` keeps buckets and page result
+  /// sets in agreement. Build it with `relativePathPrefix(absPath:libraryRoot:)`.
   public func buckets(libraryID: String,
                       pathPrefix: String? = nil) async throws -> TimelineBuckets {
     var items: [URLQueryItem] = [URLQueryItem(name: "libraryId", value: libraryID)]
@@ -61,10 +65,10 @@ public actor CloudSearchClient {
   /// whose count is ≤ `limit` (e.g. a month with 15 photos returns
   /// `total: 15, results: []` for page 1).
   ///
-  /// `pathPrefix`, if non-nil, scopes results to assets whose `abs_path`
-  /// starts with that prefix. The server applies it as an anchored
-  /// prefix on `abs_path` — sending it on `page()` AND `buckets()` for
-  /// the same scope keeps counts and listings in agreement.
+  /// `pathPrefix`, if non-nil, narrows results to a sub-folder and is
+  /// RELATIVE to the library root (the server anchors it against
+  /// `fileinfo.path`). Sending it on `page()` AND `buckets()` for the same
+  /// scope keeps counts and listings in agreement.
   public func page(libraryID: String,
                    year: Int,
                    month: Int,
@@ -107,13 +111,37 @@ public actor CloudSearchClient {
 
   /// Trim whitespace, drop empty, and append a trailing slash so the
   /// server's anchored-prefix match doesn't span partial directory
-  /// names (e.g. `/srv/photos/Library` would otherwise also match
-  /// `/srv/photos/Library2024`). Returns nil when the input is nil or
-  /// empty after trim — callers omit the query param in that case.
+  /// names (e.g. `2026` would otherwise also match `2026-archive`).
+  /// Returns nil when the input is nil or empty after trim — callers
+  /// omit the query param in that case.
   private static func normalizePathPrefix(_ raw: String?) -> String? {
     guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
           !raw.isEmpty else { return nil }
     return raw.hasSuffix("/") ? raw : raw + "/"
+  }
+
+  /// Convert a selected node's ABSOLUTE on-disk path into a path RELATIVE
+  /// to its owning library root — the shape `buckets`/`page` expect for
+  /// `pathPrefix`. Since the drop-abs-path migration the server matches
+  /// `pathPrefix` against `fileinfo.path` (the per-asset directory relative
+  /// to the library root), so sending the absolute path matched zero rows
+  /// and left the Timeline empty.
+  ///
+  /// Returns nil — meaning "no sub-folder narrowing, scope by libraryId
+  /// alone" — when:
+  ///   * the selection IS the library root (whole library in scope), or
+  ///   * `libraryRoot` is nil / doesn't contain `absPath` (can't resolve a
+  ///     relative path; a library-wide scope is the safe fallback, never
+  ///     an absolute prefix that matches nothing).
+  public static func relativePathPrefix(absPath: String, libraryRoot: String?) -> String? {
+    guard let libraryRoot else { return nil }
+    let root = libraryRoot.hasSuffix("/") ? String(libraryRoot.dropLast()) : libraryRoot
+    let abs = absPath.hasSuffix("/") ? String(absPath.dropLast()) : absPath
+    if abs == root { return nil }
+    let boundary = root + "/"
+    guard abs.hasPrefix(boundary) else { return nil }
+    let rel = String(abs.dropFirst(boundary.count))
+    return rel.isEmpty ? nil : rel
   }
 
   private func makeURL(path: String, query: [URLQueryItem]) -> URL {
