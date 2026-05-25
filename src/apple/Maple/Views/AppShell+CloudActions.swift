@@ -203,10 +203,14 @@ extension AppShell {
                 // sidebar already populated; fall back to a live /api/folders
                 // fetch on a miss. nil root → relativePathPrefix returns nil
                 // → library-wide scope (safe), never a zero-matching path.
-                let libraryRoot = CloudFoldersCache.load(server: serverID)?
-                    .first(where: { $0.id == folderID })?.path
-                    ?? (await loadCloudFoldersFor(serverID))
+                let libraryRoot: String?
+                if let cachedRoot = CloudFoldersCache.load(server: serverID)?
+                    .first(where: { $0.id == folderID })?.path {
+                    libraryRoot = cachedRoot
+                } else {
+                    libraryRoot = (await loadCloudFoldersFor(serverID))
                         .first(where: { $0.id == folderID })?.path
+                }
                 let timelinePrefix = CloudSearchClient.relativePathPrefix(
                     absPath: libraryPath, libraryRoot: libraryRoot)
                 cloudTimelineVM = CloudTimelineViewModel(
