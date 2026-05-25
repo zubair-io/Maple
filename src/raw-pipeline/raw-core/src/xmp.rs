@@ -97,10 +97,10 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
                 ))),
             };
         }
-        // DisplayLookCurve (ticket #371). Absent attribute -> default
-        // (Look::Default) — the LUT applies to existing sidecars without
-        // an explicit migration. Users opting out persist
-        // `papp:Look="Neutral"`.
+        // Display Look (ticket #371). Absent attribute -> the model default,
+        // which is `Look::Neutral` under #397 (the Look is skipped while the
+        // 4-tier DCP path is validated and a new Look is re-derived). An
+        // explicit `papp:Look="Default"` still selects the #371 LUT.
         "papp:Look" => {
             m.look = match value {
                 "neutral" | "Neutral" => Look::Neutral,
@@ -401,12 +401,12 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[test]
-    fn defaults_look_is_default() {
-        // Per #371: new users get the empirical Look, not Neutral. This
-        // mirrors the assertion in `types::adjustment::tests` — duplicated
-        // here so the XMP module's defaults invariant is self-contained.
+    fn defaults_look_is_neutral() {
+        // Per #397: the default skips the Look. Mirrors the assertion in
+        // `types::adjustment::tests` — duplicated here so the XMP module's
+        // defaults invariant is self-contained.
         let m = AdjustmentModel::default();
-        assert_eq!(m.look, Look::Default);
+        assert_eq!(m.look, Look::Neutral);
     }
 
     #[test]
@@ -436,15 +436,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_look_absent_defaults_to_default() {
-        // Existing sidecars produced before #371 don't carry `papp:Look` —
-        // they must pick up the empirical Look automatically (the "default
-        // for new users" criterion in the ticket). Verifies the parser
-        // does NOT reset `look` to Neutral when the attribute is missing.
+    fn parse_look_absent_defaults_to_neutral() {
+        // Sidecars without `papp:Look` pick up the model default, which is
+        // `Look::Neutral` under #397. Verifies the parser leaves `look` at
+        // the default when the attribute is missing.
         let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
             papp:HighlightRecoveryMode="Off"/></x>"#;
         let m = parse(xml).unwrap();
-        assert_eq!(m.look, Look::Default);
+        assert_eq!(m.look, Look::Neutral);
     }
 
     #[test]

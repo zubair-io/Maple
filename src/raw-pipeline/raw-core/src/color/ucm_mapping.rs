@@ -104,6 +104,7 @@ mod tests {
             camera_make: "Test".into(),
             camera_model: model.into(),
             unique_camera_model: Some(model.into()),
+            is_dng: false,
             color_matrices: Default::default(),
             forward_matrices: Default::default(),
             orientation: ExifOrientation::Normal,

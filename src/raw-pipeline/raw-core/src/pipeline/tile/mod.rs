@@ -214,6 +214,7 @@ mod tests {
             camera_make: "Test".into(),
             camera_model: "Test".into(),
             unique_camera_model: None,
+            is_dng: false,
             color_matrices: std::collections::HashMap::new(),
             forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,

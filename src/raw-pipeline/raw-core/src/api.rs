@@ -1368,6 +1368,7 @@ mod tests {
             camera_make: "test".into(),
             camera_model: "test".into(),
             unique_camera_model: None,
+            is_dng: false,
             color_matrices,
             forward_matrices: std::collections::HashMap::new(),
             orientation: ExifOrientation::Normal,

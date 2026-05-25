@@ -122,6 +122,15 @@ pub struct RawImage {
     /// the upstream DCP UCM convention (`"Canon EOS 5D Mark IV"` etc.) so the
     /// fallback path works there without changes.
     pub unique_camera_model: Option<String>,
+    /// True when the decoded source was a DNG container (extension hint
+    /// `dng`). The profile-source resolver uses this to tell apart a DNG's
+    /// own embedded ColorMatrix (DCP read from the file — `EmbeddedFull` /
+    /// `EmbeddedCmOnly` tiers) from rawler's hardcoded dcraw-lineage
+    /// ColorMatrix on a vendor RAW (`RawlerFallback` tier). The color math
+    /// is identical either way; the flag exists so provenance is honest per
+    /// `dcp::ProfileTier` (issue #397 § 2). Set by [`crate::decode::decode_bytes`];
+    /// `false` for synthetic test rigs and vendor RAW formats.
+    pub is_dng: bool,
     /// Camera color matrices by calibration illuminant. Each is XYZ→camera per
     /// DNG spec (inverse at apply-time to get camera→XYZ). Populated from rawler
     /// per-illuminant data; may contain 1-2 entries. Used by DCP for dual-

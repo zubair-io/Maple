@@ -3,10 +3,21 @@
 This document is the source of truth for which camera bodies the
 third-party-derived profile bundle (`profiles.bin`) covers, which
 bodies are known-missing, and which need a UCM-naming alias to hit.
-Under ticket #345 (bundle-canonical color) the bundle is the only
-source of color math — when it misses, the develop pipeline produces
-an identity-CM `Fallback` render. Honest coverage tracking is
-therefore load-bearing.
+
+**As of #397 the bundle is no longer the only source of color math.**
+The resolver (`dcp::profile_for_with_tier`) is a four-tier priority
+chain (#397 § 2.3): `EmbeddedFull` (a DNG's own CM+FM+HSM) wins over
+`BundleConfident` (a `profiles.bin` hit), which wins over
+`EmbeddedCmOnly` (a DNG's bare CM), which wins over `RawlerFallback`
+(rawler's dcraw-lineage CM for a vendor RAW the bundle misses; identity
+only when no matrix exists at all). So a "bundle hit" below means the
+body is **eligible for Tier 2** — it is actually used only when the
+file does not carry a full embedded DCP that the resolver prefers at
+Tier 1. A bundle *miss* on a DNG falls to its embedded CM (Tier 3), and
+on a vendor RAW to rawler's CM (Tier 4) — never to identity (the #345
+regression #397 corrects). The per-fixture *resolved tier* is verified
+by the in-tree probe on a machine that has the gitignored fixtures;
+the table below tracks Tier-2 eligibility, which is fixture-independent.
 
 ## Bundle summary
 

@@ -456,6 +456,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         camera_make,
         camera_model,
         unique_camera_model,
+        is_dng: ext.eq_ignore_ascii_case("dng"),
         color_matrices,
         forward_matrices,
         orientation,

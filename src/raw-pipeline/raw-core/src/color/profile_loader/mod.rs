@@ -87,13 +87,12 @@ pub use types::{CameraKey, MapleProfile};
 ///
 /// Runtime graceful degradation: when `parser::parse_bundle` fails to
 /// validate the header (e.g. bumped `FORMAT_VERSION`, corrupted bytes) it
-/// returns an empty `HashMap` — `lookup_profile` then returns `None` and
-/// `dcp::profile_for_with_source` produces an identity-CM fallback
-/// profile tagged [`crate::color::dcp::ProfileSource::Fallback`] (#345
-/// — bundle-canonical color, no rawler-CM substitution). So a stale or
-/// missing bundle never breaks decoding, but the developer sees an
-/// obvious wrong-color render and a `Fallback` ProfileSource in the
-/// pipeline diagnostics rather than a silently wrong rawler-CM output.
+/// returns an empty `HashMap` — `lookup_profile` then returns `None`, the
+/// `BundleConfident` tier is skipped, and `dcp::profile_for_with_tier`
+/// falls through to the embedded (Tier 3 for DNGs) or `RawlerFallback`
+/// (Tier 4) path. So a stale or missing bundle never breaks decoding; it
+/// just drops bundle-covered bodies down to whatever embedded/rawler color
+/// data the file carries.
 pub(crate) const PROFILES_BIN: &[u8] = include_bytes!("../profiles/profiles.bin");
 
 pub(crate) const MAGIC: &[u8; 4] = b"MDCP";
@@ -110,8 +109,9 @@ static PROFILE_TABLE: OnceLock<HashMap<CameraKey, MapleProfile>> = OnceLock::new
 ///   1. The camera isn't in the bundle (no UCM hit, and no UCM-mapping
 ///      alias matched either — see [`ucm_mapping`]).
 ///   2. `MAPLE_DISABLE_BUNDLED_PROFILES=1` is set (escape hatch for
-///      diagnostics — exercises the identity-fallback path in
-///      [`crate::color::dcp::profile_for_with_source`]).
+///      diagnostics — skips the `BundleConfident` tier in
+///      [`crate::color::dcp::profile_for_with_tier`], falling through to the
+///      embedded / rawler-fallback tiers).
 ///
 /// Per ticket #345 (bundle-canonical color), the previous two gates
 /// (`PLT-present` and `matrices-match-source`) were removed. Those gates
@@ -310,9 +310,9 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// `to_dcp_profile`'s single-illuminant fallback so the Bradford source
 /// white comes from the *scene*, not the sole calibration illuminant.
 /// Same 8-line math (McCamy polynomial) that lived in `dcp.rs` before
-/// #345 — now only here, since the dcp-side single-illum fallback was
-/// removed in the bundle-canonical refactor.
-fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) -> f32 {
+/// #345. Shared with the dcp-side embedded single-illuminant path
+/// (`dcp::embedded_profile`) reinstated for the 4-tier resolver (#397).
+pub(crate) fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) -> f32 {
     let cm_inv = match cm.inverse() {
         Some(inv) => inv,
         None => return fallback,

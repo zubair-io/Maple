@@ -145,10 +145,16 @@ pub struct AdjustmentModel {
     pub dehaze: f32,         // -100..100, default 0
     pub highlight_recovery: HighlightRecoveryMode,
 
-    /// DisplayLookCurve (ticket #371). `Look::Default` ships the empirically-
-    /// derived 1D LUT that closes ~65% of the bias-to-ACR gap; `Look::Neutral`
-    /// short-circuits the stage for strict scene-referred output. Defaults to
-    /// `Look::Default` — new users want the punch.
+    /// Display Look (stage 26). `Look::Default` is the empirically-derived
+    /// 1D LUT (ticket #371); `Look::Neutral` short-circuits the stage for
+    /// pure scene-referred AgX output.
+    ///
+    /// Default is `Look::Neutral` (#397). The pre-#371 LUT was fit on top of
+    /// the bundle-or-identity color path and masked the DCP gap; while the
+    /// 4-tier DCP resolver is validated and a new Look is re-derived against
+    /// the corrected, tier-labeled distribution (#397 § 4.2), new renders
+    /// skip the Look so the DCP output is visible un-graded. The LUT and the
+    /// `Look::Default` variant are retained, not deleted.
     pub look: Look,
 
     /// Local adjustment layers (ticket #280). Each entry pairs a `Mask`
@@ -212,7 +218,7 @@ impl Default for AdjustmentModel {
             nr_color: 25.0,
             dehaze: 0.0,
             highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
-            look: Look::Default,
+            look: Look::Neutral,
             local_adjustments: Vec::new(),
             // Per-channel point curves default to identity (empty `Vec`).
             // See the field-level docs above on the struct.
@@ -273,9 +279,11 @@ mod tests {
     }
 
     #[test]
-    fn look_defaults_to_default_variant() {
-        // Per ticket #371: new users get the empirical Look, not Neutral.
+    fn look_defaults_to_neutral() {
+        // Per #397: the default skips the Look so the un-graded 4-tier DCP
+        // output is visible while a new Look is re-derived. The LUT and the
+        // `Look::Default` variant remain available, just not the default.
         let m = AdjustmentModel::default();
-        assert_eq!(m.look, Look::Default);
+        assert_eq!(m.look, Look::Neutral);
     }
 }

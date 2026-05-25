@@ -56,9 +56,17 @@ fn cct_interpolation_continuous() {
         ]
     }
 
+    // Sample densely (17 points) across the StdA→D65 axis. The real dual-CM
+    // embedded interpolation (#397 Tier 1/3) traces a smooth convex ramp here
+    // — neutral-preserving, monotonic, accelerating toward the warm end. With
+    // only 5 points the per-step delta of that genuine curve reached ~0.023,
+    // tripping the coarse 1e-2 bound; dense sampling shrinks each smooth step
+    // well under it while a true CCT-crossover discontinuity (a jump that does
+    // NOT shrink with sampling density) would still trip it.
+    const N: usize = 16;
     let mut samples = Vec::new();
-    for k in 0..=4 {
-        let t = (k as f32) / 4.0;
+    for k in 0..=N {
+        let t = (k as f32) / (N as f32);
         let mut dng = SyntheticGreyDng::default().with_hasselblad_dcp();
         dng.as_shot_neutral_override = Some(pick_asn(t));
         let img = develop(&dng, &AdjustmentModel::default());
