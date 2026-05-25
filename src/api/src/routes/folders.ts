@@ -49,10 +49,10 @@ async function sha1HeadHex(absPath: string): Promise<string> {
 const log = childLogger('folders');
 
 /**
- * Decode + validate the `X-Maple-Target-Path` header shared by
- * `/upload` and `/mkdir`. Returns a discriminated result — callers
- * set `set.status` to the embedded status on failure and return the
- * embedded body. Validation rules:
+ * Decode + validate one percent-encoded relative-path header. `label`
+ * names the header in error messages. Returns a discriminated result —
+ * callers set `set.status` to the embedded status on failure and return
+ * the embedded body. Validation rules:
  *   - header must be present and non-empty
  *   - percent-decoding must not throw (no `%ZZ`)
  *   - path must be relative (no leading `/`)
@@ -60,18 +60,18 @@ const log = childLogger('folders');
  *   - no `..` or `.` components
  *   - no leading-dot components (blocks writes into `.maple/`)
  */
-function decodeAndValidateTargetPath(
-  headers: Record<string, string | undefined>,
+function validateRelPathHeader(
+  raw: string | undefined,
+  label: string,
 ): { ok: true; target: string; parts: string[] } | { ok: false; status: number; error: string } {
-  const raw = headers['x-maple-target-path'];
   if (typeof raw !== 'string' || raw.length === 0) {
-    return { ok: false, status: 400, error: 'Missing X-Maple-Target-Path' };
+    return { ok: false, status: 400, error: `Missing ${label}` };
   }
   let target: string;
   try {
     target = decodeURIComponent(raw);
   } catch {
-    return { ok: false, status: 400, error: 'Invalid X-Maple-Target-Path encoding' };
+    return { ok: false, status: 400, error: `Invalid ${label} encoding` };
   }
   // Reject backslashes outright: the rest of the validator splits on
   // `/` only, so a Windows-style separator would smuggle path
@@ -81,14 +81,14 @@ function decodeAndValidateTargetPath(
   // contract, so refusing backslashes here keeps the writer side
   // honest. Mirrors the discover watcher's POSIX-normalization invariant.
   if (target.includes('\\')) {
-    return { ok: false, status: 400, error: 'Backslashes not allowed in target path' };
+    return { ok: false, status: 400, error: 'Backslashes not allowed in path' };
   }
   if (target.startsWith('/')) {
     return { ok: false, status: 400, error: 'Path must be relative' };
   }
   const parts = target.split('/').filter((p) => p.length > 0);
   if (parts.length === 0) {
-    return { ok: false, status: 400, error: 'Empty target path' };
+    return { ok: false, status: 400, error: 'Empty path' };
   }
   for (const part of parts) {
     if (part === '..' || part === '.') {
@@ -99,6 +99,16 @@ function decodeAndValidateTargetPath(
     }
   }
   return { ok: true, target, parts };
+}
+
+/**
+ * Decode + validate the `X-Maple-Target-Path` header shared by
+ * `/upload`, `/mkdir`, and `/move`.
+ */
+function decodeAndValidateTargetPath(
+  headers: Record<string, string | undefined>,
+): { ok: true; target: string; parts: string[] } | { ok: false; status: number; error: string } {
+  return validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
 }
 
 export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
@@ -664,6 +674,93 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     }
     set.status = 201;
     return { abs_path: absPath };
+  })
+
+  // Rename or move a subdirectory within a library root. Source path in
+  // `X-Maple-Source-Path`, destination path in `X-Maple-Target-Path`
+  // (both URL-encoded, relative to the library root, same validation as
+  // `/mkdir`). The whole directory is renamed on disk — paired sidecars
+  // and the `.maple/` thumb cache ride along because they live inside
+  // it. The DB's `fileinfo` paths are reconciled by the discover watcher
+  // (it coalesces the per-file unlink+add into renames), so this route
+  // does not touch MongoDB.
+  //
+  // The File Provider extension calls this when the user renames or
+  // moves a folder in Finder (`modifyItem` with `.filename` and/or
+  // `.parentItemIdentifier`). Without it, folder rename returned
+  // featureUnsupported and Finder surfaced an error while leaving the
+  // freshly-created "untitled folder" stranded on the server.
+  .post('/:id/move', async ({ params, headers, set }) => {
+    let folderId: ObjectId;
+    try {
+      folderId = new ObjectId(params.id);
+    } catch {
+      set.status = 400;
+      return { error: 'Invalid folder id' };
+    }
+
+    const folders = await foldersCollection();
+    const folder = await folders.findOne({ _id: folderId });
+    if (!folder) {
+      set.status = 404;
+      return { error: 'Folder not found' };
+    }
+
+    const source = validateRelPathHeader(headers['x-maple-source-path'], 'X-Maple-Source-Path');
+    if (!source.ok) {
+      set.status = source.status;
+      return { error: source.error };
+    }
+    const target = validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
+    if (!target.ok) {
+      set.status = target.status;
+      return { error: target.error };
+    }
+
+    const absSource = nodePath.join(folder.path, source.target);
+    const absTarget = nodePath.join(folder.path, target.target);
+
+    // Reject moving a folder onto itself or into its own subtree — that
+    // would either be a no-op or an `fs.rename` error, and silently
+    // mangles the tree if it ever succeeded.
+    const rel = nodePath.relative(absSource, absTarget);
+    if (rel === '' || (!rel.startsWith('..') && !nodePath.isAbsolute(rel))) {
+      set.status = 400;
+      return { error: 'Cannot move a folder into itself or its own subtree' };
+    }
+
+    let srcStat;
+    try {
+      srcStat = await stat(absSource);
+    } catch {
+      set.status = 404;
+      return { error: 'Source folder not found' };
+    }
+    if (!srcStat.isDirectory()) {
+      set.status = 400;
+      return { error: 'Source is not a directory' };
+    }
+
+    // Refuse to clobber an existing destination. `fs.rename` would
+    // overwrite an empty dir or fail on a non-empty one; an explicit
+    // 409 lets Finder surface a name collision instead.
+    try {
+      await stat(absTarget);
+      set.status = 409;
+      return { error: 'Target already exists' };
+    } catch {
+      // ENOENT — the happy path.
+    }
+
+    try {
+      await mkdir(nodePath.dirname(absTarget), { recursive: true });
+      await rename(absSource, absTarget);
+    } catch (err) {
+      set.status = 500;
+      return { error: `move failed: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    set.status = 200;
+    return { abs_path: absTarget };
   })
 
   // Paged list of trashed assets for one library, newest-first.
