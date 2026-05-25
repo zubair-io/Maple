@@ -235,6 +235,11 @@ export class PeopleStore implements Store<ApiPerson[]> {
   private readonly _hiddenLoading = signal<boolean>(false);
   private readonly _hiddenError = signal<Error | null>(null);
   private _hiddenInFlight = false;
+  /** Set when `ensureHidden`/`invalidateHidden` is called during an in-flight
+   * fetch. The completion handler re-fetches once so a post-mutation
+   * invalidation can't be swallowed by an earlier-started request (which
+   * would leave the Hidden page showing stale membership). */
+  private _hiddenDirty = false;
 
   /** The hidden-people list, or undefined before the first fetch resolves. */
   readonly hidden: Signal<ApiPerson[] | undefined> = this._hidden.asReadonly();
@@ -273,8 +278,14 @@ export class PeopleStore implements Store<ApiPerson[]> {
   }
 
   private _fetchHidden(): void {
-    if (this._hiddenInFlight) return;
+    if (this._hiddenInFlight) {
+      // A refresh is already running; remember that the result is now stale
+      // so we re-fetch once it lands instead of dropping this call.
+      this._hiddenDirty = true;
+      return;
+    }
     this._hiddenInFlight = true;
+    this._hiddenDirty = false;
     this._hiddenLoading.set(true);
     this._hiddenError.set(null);
     this.api.listHiddenPeople().subscribe({
@@ -282,11 +293,13 @@ export class PeopleStore implements Store<ApiPerson[]> {
         this._hidden.set(rows);
         this._hiddenLoading.set(false);
         this._hiddenInFlight = false;
+        if (this._hiddenDirty) this._fetchHidden();
       },
       error: (err: unknown) => {
         this._hiddenError.set(err instanceof Error ? err : new Error(String(err)));
         this._hiddenLoading.set(false);
         this._hiddenInFlight = false;
+        if (this._hiddenDirty) this._fetchHidden();
       },
     });
   }
