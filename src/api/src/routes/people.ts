@@ -15,10 +15,8 @@
 
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
-import {
-  backfillCoverAssets,
-  runOnlineClustering,
-} from "../people/clustering-job.ts";
+import { backfillCoverAssets } from "../people/clustering-job.ts";
+import { clusterCoordinator } from "../people/cluster-coordinator.ts";
 import {
   assignFaceToPerson,
   createPerson,
@@ -201,7 +199,10 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
       if (body && typeof body.similarity_threshold === "number") {
         opts.similarityThreshold = body.similarity_threshold;
       }
-      const result = await runOnlineClustering(opts);
+      // Route the manual click through the shared single-flight coordinator so
+      // an operator "Run clustering" and a face-embed auto-trigger can never
+      // run two passes concurrently (both walk the whole faces space).
+      const result = await clusterCoordinator().runClusterNow(opts);
       return {
         assigned: result.assigned,
         new_people: result.newPeople,
