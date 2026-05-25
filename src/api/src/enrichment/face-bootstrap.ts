@@ -39,6 +39,15 @@ import { workerConfigCollection } from '../db/client.ts';
 const log = childLogger('face');
 
 /**
+ * The worker_config stage keys the face pipeline now runs as. The monolithic
+ * `face` stage was split into a detection stage and an embedding stage
+ * (see `workers/stages/manifest.ts`), so the enrichment on/off toggle must
+ * pause/unpause BOTH — pausing only the legacy `face` key would leave the
+ * split stages running (or stuck) regardless of the toggle.
+ */
+export const FACE_STAGE_NAMES = ['face-detect', 'face-embed'] as const;
+
+/**
  * Propagate the paused state for a stage into the worker_config collection.
  * Uses upsert so it's safe to call before any stage has been seeded.
  */
@@ -55,6 +64,13 @@ async function applyPausedToWorkerConfig(name: string, paused: boolean): Promise
     // the stage's built-in defaults if the DB write fails.
     const msg = err instanceof Error ? err.message : String(err);
     log.warn({ err: msg, name }, 'failed to write paused state to worker_config');
+  }
+}
+
+/** Apply the paused state to every stage in the split face pipeline. */
+async function applyPausedToFaceStages(paused: boolean): Promise<void> {
+  for (const name of FACE_STAGE_NAMES) {
+    await applyPausedToWorkerConfig(name, paused);
   }
 }
 
@@ -78,7 +94,7 @@ export async function startFaceWorker(): Promise<null> {
 
   if (!resolved.face_worker_enabled) {
     log.info('face_bootstrap: face_worker_enabled=false; skipping model preload');
-    await applyPausedToWorkerConfig('face', true);
+    await applyPausedToFaceStages(true);
     return null;
   }
 
@@ -91,7 +107,7 @@ export async function startFaceWorker(): Promise<null> {
       recognizerSha256: resolved.face_recognizer_sha256,
     });
     log.info('face models loaded (stage controller will handle detection)');
-    await applyPausedToWorkerConfig('face', false);
+    await applyPausedToFaceStages(false);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.warn(
