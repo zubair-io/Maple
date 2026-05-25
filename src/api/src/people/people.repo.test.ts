@@ -320,10 +320,10 @@ describe('people.repo — assignFaceToPerson', () => {
   });
 });
 
-describe('people.repo — deletePerson', () => {
-  it('re-points faces to null and removes the row', async () => {
+describe('people.repo — hidePerson / unhidePerson', () => {
+  it('hidePerson sets hidden=true, keeps faces assigned, keeps the row', async () => {
     if (!mongoReachable) return;
-    const { createPerson, assignFaceToPerson, deletePerson } = await import('./people.repo.ts');
+    const { createPerson, assignFaceToPerson, hidePerson } = await import('./people.repo.ts');
     const p = await createPerson('Henry');
     const asset = await insertAssetWithFaces([
       {
@@ -334,11 +334,51 @@ describe('people.repo — deletePerson', () => {
       },
     ]);
     await assignFaceToPerson(asset, 0, p._id);
-    await deletePerson(p._id);
+    await hidePerson(p._id);
+    // Faces stay assigned — soft-hide does NOT unassign.
     const row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
-    expect(row?.faces?.[0]?.person_id).toBeNull();
-    const gone = await db!.collection<PersonDoc>('people').findOne({ _id: p._id });
-    expect(gone).toBeNull();
+    expect(row?.faces?.[0]?.person_id).toBe(p._id.toHexString());
+    // The row is still present, just flagged hidden.
+    const stored = await db!.collection<PersonDoc>('people').findOne({ _id: p._id });
+    expect(stored).not.toBeNull();
+    expect(stored?.hidden).toBe(true);
+  });
+
+  it('listPeople excludes hidden; listHiddenPeople returns them with counts', async () => {
+    if (!mongoReachable) return;
+    const { createPerson, assignFaceToPerson, hidePerson, listPeople, listHiddenPeople } =
+      await import('./people.repo.ts');
+    const visible = await createPerson('Visible Vera');
+    const hidden = await createPerson('Hidden Hugo');
+    const asset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9 },
+      { bbox: { x: 11, y: 0, w: 10, h: 10 }, person_id: null, confidence: 0.9 },
+    ]);
+    await assignFaceToPerson(asset, 0, visible._id);
+    await assignFaceToPerson(asset, 1, hidden._id);
+    await hidePerson(hidden._id);
+
+    const normal = await listPeople({ withCounts: true });
+    expect(normal.map((r) => r.person.name)).toEqual(['Visible Vera']);
+    expect(normal[0].faceCount).toBe(1);
+
+    const hiddenList = await listHiddenPeople({ withCounts: true });
+    expect(hiddenList.map((r) => r.person.name)).toEqual(['Hidden Hugo']);
+    // Hidden person keeps its assigned faces, so the count is preserved.
+    expect(hiddenList[0].faceCount).toBe(1);
+  });
+
+  it('unhidePerson restores: returns to listPeople, drops off listHiddenPeople', async () => {
+    if (!mongoReachable) return;
+    const { createPerson, hidePerson, unhidePerson, listPeople, listHiddenPeople } =
+      await import('./people.repo.ts');
+    const p = await createPerson('Iris');
+    await hidePerson(p._id);
+    expect((await listPeople()).map((r) => r.person.name)).toEqual([]);
+    expect((await listHiddenPeople()).map((r) => r.person.name)).toEqual(['Iris']);
+    await unhidePerson(p._id);
+    expect((await listPeople()).map((r) => r.person.name)).toEqual(['Iris']);
+    expect((await listHiddenPeople()).map((r) => r.person.name)).toEqual([]);
   });
 });
 

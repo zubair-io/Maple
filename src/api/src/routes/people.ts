@@ -1,11 +1,13 @@
 /**
  * /api/people/* — face-cluster identity routes.
  *
- *   GET    /api/people                — list with face counts
+ *   GET    /api/people                — list with face counts (excludes hidden)
+ *   GET    /api/people/hidden         — soft-hidden people (the Hidden page)
  *   GET    /api/people/:id            — single person + recent face thumbnails
  *   POST   /api/people                — body { name } → create or return existing
  *   PUT    /api/people/:id            — body { name } → rename; merge on collision
- *   DELETE /api/people/:id            — re-points faces to null + removes the row
+ *   POST   /api/people/:id/hide       — soft-hide a person (keeps faces + row)
+ *   POST   /api/people/:id/unhide     — restore a hidden person
  *   POST   /api/people/cluster        — kicks off online clustering
  *   POST   /api/people/assign         — manual face → person override
  *   POST   /api/people/hide           — hide a face (excluded from clustering)
@@ -20,11 +22,14 @@ import { clusterCoordinator } from '../people/cluster-coordinator.ts';
 import {
   assignFaceToPerson,
   createPerson,
-  deletePerson,
   getPerson,
   hideFace,
+  hidePerson,
+  listHiddenPeople,
   listPeople,
   renamePerson,
+  unhidePerson,
+  type PersonWithCount,
 } from '../people/people.repo.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -60,6 +65,29 @@ function safeObjectId(raw: string): ObjectId | null {
   }
 }
 
+/** Wire shape for one row of the people list (and the Hidden list). Kept as
+ * one mapper so `GET /people` and `GET /people/hidden` return byte-identical
+ * shapes — the web reuses `ApiPerson` for both. */
+function toPersonListRow(r: PersonWithCount) {
+  return {
+    id: r.person._id.toHexString(),
+    name: r.person.name,
+    face_count: r.faceCount,
+    cover_asset_id: r.person.cover_asset_id ?? null,
+    // Surfaced so the web can request the cover via /api/fs/thumb (the
+    // same URL the browse view uses) and reuse its blob-URL + HTTP cache.
+    cover_abs_path: r.coverAbsPath,
+    // Bbox of the cover face, in normalised [0,1] — the web applies the
+    // same `faceCropTransform` it uses for detail-panel face thumbs so
+    // the list cards show the person's face, not the whole asset. Null
+    // for manually-created people who have no faces yet (or pre-backfill
+    // rows on a stale install — backfill heals on the next list call).
+    cover_bbox: r.person.cover_bbox ?? null,
+    created_at: r.person.created_at,
+    updated_at: r.person.updated_at,
+  };
+}
+
 export const peopleRoutes = new Elysia({ prefix: '/api/people' })
   // ── List ────────────────────────────────────────────────────────────
   .get('/', async () => {
@@ -76,23 +104,23 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
       );
     }
     const rows = await listPeople({ withCounts: true });
-    return rows.map((r) => ({
-      id: r.person._id.toHexString(),
-      name: r.person.name,
-      face_count: r.faceCount,
-      cover_asset_id: r.person.cover_asset_id ?? null,
-      // Surfaced so the web can request the cover via /api/fs/thumb (the
-      // same URL the browse view uses) and reuse its blob-URL + HTTP cache.
-      cover_abs_path: r.coverAbsPath,
-      // Bbox of the cover face, in normalised [0,1] — the web applies the
-      // same `faceCropTransform` it uses for detail-panel face thumbs so
-      // the list cards show the person's face, not the whole asset. Null
-      // for manually-created people who have no faces yet (or pre-backfill
-      // rows on a stale install — backfill heals on the next list call).
-      cover_bbox: r.person.cover_bbox ?? null,
-      created_at: r.person.created_at,
-      updated_at: r.person.updated_at,
-    }));
+    return rows.map(toPersonListRow);
+  })
+
+  // ── Hidden (soft-hidden people; the Hidden page) ────────────────────
+  // Registered BEFORE `/:id` so "hidden" isn't swallowed as a person id.
+  // Same wire shape as `GET /` so the web reuses `ApiPerson`.
+  .get('/hidden', async () => {
+    try {
+      await backfillCoverAssets();
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'cover backfill failed; serving hidden list anyway',
+      );
+    }
+    const rows = await listHiddenPeople({ withCounts: true });
+    return rows.map(toPersonListRow);
   })
 
   // ── Single ──────────────────────────────────────────────────────────
@@ -179,16 +207,26 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
     { body: NameBody },
   )
 
-  // ── Soft delete (re-point faces, remove row) ────────────────────────
-  .delete('/:id', async ({ params, set }) => {
+  // ── Soft-hide a person (keeps faces + row; stays a clustering seed) ──
+  .post('/:id/hide', async ({ params, set }) => {
     const id = safeObjectId(params.id);
     if (!id) {
       set.status = 400;
       return { error: 'invalid person id' };
     }
-    await deletePerson(id);
-    set.status = 204;
-    return null;
+    await hidePerson(id);
+    return { ok: true };
+  })
+
+  // ── Restore a hidden person ─────────────────────────────────────────
+  .post('/:id/unhide', async ({ params, set }) => {
+    const id = safeObjectId(params.id);
+    if (!id) {
+      set.status = 400;
+      return { error: 'invalid person id' };
+    }
+    await unhidePerson(id);
+    return { ok: true };
   })
 
   // ── Online clustering ───────────────────────────────────────────────
