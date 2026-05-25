@@ -40,6 +40,10 @@ public final class SearchViewModel {
   private var generation: Int = 0
   /// Pending debounced search; cancelled when a newer keystroke arrives.
   private var debounceTask: Task<Void, Never>?
+  /// The params last sent to the server. Lets `submitIfChanged()` skip a
+  /// redundant round-trip when nothing actually changed (e.g. the filter
+  /// popover closes without an edit).
+  private var lastSubmittedParams: SearchParams?
 
   public init(server: URL,
               libraryID: String,
@@ -80,6 +84,7 @@ public final class SearchViewModel {
     isLoading = true
     loadError = nil
     page = 0
+    lastSubmittedParams = params
     defer { if g == generation { isLoading = false } }
 
     // Results and facets run concurrently against the actor. A facet
@@ -100,7 +105,18 @@ public final class SearchViewModel {
       loadError = error
       results = []
       total = 0
+      // Drop facets too — leaving them would show the filter panel options
+      // from a previous successful query against a now-failed result set.
+      facets = nil
     }
+  }
+
+  /// Re-run the search only if `params` changed since the last submit.
+  /// Used when the filter popover closes to catch typed-but-not-committed
+  /// numeric / date fields without firing a redundant request when nothing
+  /// changed.
+  public func submitIfChanged() async {
+    if params != lastSubmittedParams { await submit() }
   }
 
   /// Fetch the next page and append. No-ops when a load is already in
@@ -109,7 +125,11 @@ public final class SearchViewModel {
     guard canLoadMore, !isLoading, !isLoadingMore else { return }
     let g = generation
     isLoadingMore = true
-    defer { if g == generation { isLoadingMore = false } }
+    // Cleared unconditionally: if a `submit()` bumps `generation` mid-flight,
+    // a generation-guarded reset would leave this stuck `true` and block all
+    // further pagination. `submit()` doesn't read `isLoadingMore`, so an
+    // unconditional clear is safe.
+    defer { isLoadingMore = false }
 
     let next = page + 1
     do {
