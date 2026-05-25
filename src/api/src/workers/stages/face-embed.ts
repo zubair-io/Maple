@@ -45,11 +45,17 @@ import {
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 
-/** The version `face-embed` starts at. Bump this on a model swap to
- * re-embed every face through the normal worker loop. Exported so the
- * in-flight migration that seeds existing assets references the exact
- * number rather than hard-coding it. */
-export const FACE_EMBED_TARGET_VERSION = 1;
+/** Reprocess target for `face-embed`. Bumping this re-embeds every face
+ * whose embedding is below it, in place (per-index `$set`, so `person_id`
+ * / bbox / hidden are preserved).
+ *
+ * v1 → v2: re-embed the back-catalog into the antelopev2 R100 / Glint360K
+ * space. Existing embeddings were produced by the old MobileFaceNet model
+ * and are mathematically unrelated — they must be recomputed (there is no
+ * cross-model vector migration). The seed baseline stays pinned at 1 (see
+ * SEED_FACE_EMBED_VERSION in migrations.ts), below this target, so seeded
+ * legacy faces reprocess. */
+export const FACE_EMBED_TARGET_VERSION = 2;
 
 export async function faceEmbedHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const detector = defaultFaceDetector();
