@@ -467,6 +467,19 @@ export interface AssetFaceDoc {
   bbox: Bbox;
   person_id: string | null;
   confidence: number;
+  /** Five identity-preserving landmarks (left eye, right eye, nose, left
+   * mouth, right mouth) in normalised `[0,1]` coordinates, as emitted by
+   * the SCRFD detector. Written by the `face-detect` stage and consumed by
+   * `face-embed`, which feeds them to the recognizer's alignment step so a
+   * re-embed reproduces the exact aligned crop detection produced — without
+   * re-detecting.
+   *
+   * Optional for back-compat: legacy face docs (produced by the old single
+   * `face` stage, which didn't persist landmarks) and operator-injected
+   * fixtures omit it. When absent, `embedFace`'s alignment falls back to a
+   * bbox-derived synthetic template (lower-quality embedding, but still in
+   * the correct embedding space). */
+  landmarks?: Array<{ x: number; y: number }>;
   embedding?: number[];
   /** Tag identifying which face-recognition model + alignment pipeline
    * produced `embedding`. Required on new writes; legacy rows without
@@ -476,10 +489,11 @@ export interface AssetFaceDoc {
    * (antelopev2: SCRFD-10G + ArcFace R100 trained on Glint360K +
    * landmark-aligned 112×112 crop).
    *
-   * Used by the re-embed migration (`workers/jobs/re-embed-faces.ts`)
-   * to identify rows whose embeddings are no longer comparable with
-   * freshly-produced ones, and by the clustering job to (eventually)
-   * gate which embeddings can be compared in a single cosine search.
+   * Written by the `face-embed` stage. A model swap is performed by
+   * bumping that stage's `targetVersion`, which re-runs the recognizer on
+   * every detected face through the normal worker loop and rewrites this
+   * tag. Used by the clustering job to (eventually) gate which embeddings
+   * can be compared in a single cosine search.
    *
    * Optional on the type because: (a) old documents predate the field,
    * and (b) operator-injected test fixtures sometimes omit it. Writers

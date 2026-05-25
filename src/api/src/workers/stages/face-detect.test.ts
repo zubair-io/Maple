@@ -13,9 +13,11 @@ import {
 import { setLibraryRootsForTests } from '../../indexer/libraries.cache.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 
-// Import after module is created.
-import { faceHandler, THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON } from './face.ts';
-import { CURRENT_EMBEDDING_VERSION } from '../../enrichment/face-models.ts';
+import {
+  faceDetectHandler,
+  THUMB_MISSING_REASON,
+  THUMB_UNDECODABLE_REASON,
+} from './face-detect.ts';
 
 const noopCtx: StageContext = {
   log: {
@@ -40,12 +42,6 @@ function fakeDoc(
 ): ImageDoc {
   const { absPath, libraryId, mapleId, ...rest } = overrides;
   const filename = absPath.split('/').pop()!;
-  const dir = absPath.substring(0, absPath.lastIndexOf('/'));
-  // The face stage resolves thumb paths via resolveThumbPathForAsset,
-  // which needs maple_id + fileinfo[0]. Tests stage the thumb in the
-  // legacy basename-keyed cache path; we plug the library_id and the
-  // relative-path math via mocks-friendly fixtures so the new helper
-  // still resolves.
   return {
     _id: new ObjectId(),
     maple_id: mapleId ?? 'face-test-' + Math.random().toString(36).slice(2),
@@ -98,19 +94,22 @@ function fakeDetection(): DetectedFace {
   };
 }
 
-function mockDetector(detections: DetectedFace[], embedErr?: Error): FaceDetector {
+function mockDetector(detections: DetectedFace[], detectErr?: Error): FaceDetector {
   return {
-    detectFaces: async () => detections,
+    detectFaces: async () => {
+      if (detectErr) throw detectErr;
+      return detections;
+    },
+    // face-detect must NOT call embedFace — fail loudly if it does.
     embedFace: async () => {
-      if (embedErr) throw embedErr;
-      return new Float32Array([0.1, 0.2, 0.3, 0.4]);
+      throw new Error('face-detect must not call embedFace');
     },
   };
 }
 
 let tmpRoot: string;
 function setup(): { root: string; libraryId: ObjectId } {
-  tmpRoot = mkdtempSync(join(tmpdir(), 'maple-face-stage-'));
+  tmpRoot = mkdtempSync(join(tmpdir(), 'maple-face-detect-'));
   const libraryId = new ObjectId();
   setLibraryRootsForTests(new Map([[libraryId.toHexString(), tmpRoot]]));
   return { root: tmpRoot, libraryId };
@@ -120,8 +119,6 @@ function teardown() {
   setLibraryRootsForTests(null);
 }
 
-/** Returns `(absPath, doc, thumbPath)` — the content-addressed location
- * the stage will look at, given a registered library + maple_id + fileinfo[0]. */
 function stageAsset(
   root: string,
   libraryId: ObjectId,
@@ -137,28 +134,29 @@ function stageAsset(
   return { absPath, doc, thumbPath };
 }
 
-describe('faceHandler — happy path', () => {
-  it('detects faces and returns patch with faces array', async () => {
+describe('faceDetectHandler — happy path', () => {
+  it('detects faces and returns patch with bbox + landmarks, no embedding', async () => {
     const { root, libraryId } = setup();
     try {
       const { doc, thumbPath } = stageAsset(root, libraryId, 'img.dng');
       mkdirSync(dirname(thumbPath), { recursive: true });
       writeFileSync(thumbPath, 'stub-jpeg');
       setDefaultFaceDetectorForTests(mockDetector([fakeDetection()]));
-      const result = await faceHandler(doc, noopCtx);
+      const result = await faceDetectHandler(doc, noopCtx);
       expect(result).toHaveProperty('patch');
-      expect((result as { patch: { faces: unknown[] } }).patch.faces).toHaveLength(1);
-      const face = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces[0]!;
+      const faces = (result as { patch: { faces: AssetFaceDoc[] } }).patch.faces;
+      expect(faces).toHaveLength(1);
+      const face = faces[0]!;
       expect(face.confidence).toBeCloseTo(0.95);
       expect(face.bbox.x).toBeCloseTo(0.1);
       expect(face.person_id).toBeNull();
-      expect(face.embedding).toEqual([
-        expect.closeTo(0.1, 5),
-        expect.closeTo(0.2, 5),
-        expect.closeTo(0.3, 5),
-        expect.closeTo(0.4, 5),
-      ] as never);
-      expect(face.embedding_version).toBe(CURRENT_EMBEDDING_VERSION);
+      expect(face.hidden).toBe(false);
+      // Landmarks persisted so face-embed can align without re-detecting.
+      expect(face.landmarks).toHaveLength(5);
+      expect(face.landmarks![0]!.x).toBeCloseTo(0.2);
+      // Detection stage does NOT embed.
+      expect(face.embedding).toBeUndefined();
+      expect(face.embedding_version).toBeUndefined();
     } finally {
       teardown();
     }
@@ -171,7 +169,7 @@ describe('faceHandler — happy path', () => {
       mkdirSync(dirname(thumbPath), { recursive: true });
       writeFileSync(thumbPath, 'stub-jpeg');
       setDefaultFaceDetectorForTests(mockDetector([]));
-      const result = await faceHandler(doc, noopCtx);
+      const result = await faceDetectHandler(doc, noopCtx);
       expect((result as { patch: { faces: unknown[] } }).patch.faces).toEqual([]);
     } finally {
       teardown();
@@ -179,13 +177,13 @@ describe('faceHandler — happy path', () => {
   });
 });
 
-describe('faceHandler — thumb missing', () => {
+describe('faceDetectHandler — thumb missing', () => {
   it('returns { skip } with THUMB_MISSING_REASON when thumb is absent', async () => {
     const { root, libraryId } = setup();
     try {
       const { doc } = stageAsset(root, libraryId, 'noThumb.dng');
       setDefaultFaceDetectorForTests(mockDetector([]));
-      const result = await faceHandler(doc, noopCtx);
+      const result = await faceDetectHandler(doc, noopCtx);
       expect(result).toHaveProperty('skip');
       expect((result as { skip: string }).skip).toContain(THUMB_MISSING_REASON);
     } finally {
@@ -194,46 +192,24 @@ describe('faceHandler — thumb missing', () => {
   });
 });
 
-describe('faceHandler — thumb undecodable', () => {
+describe('faceDetectHandler — thumb undecodable', () => {
   it('returns { skip } with THUMB_UNDECODABLE_REASON when detector throws ThumbDecodeError', async () => {
     const { root, libraryId } = setup();
     try {
       const { doc, thumbPath } = stageAsset(root, libraryId, 'corrupt.jpg');
       mkdirSync(dirname(thumbPath), { recursive: true });
       writeFileSync(thumbPath, 'garbage-bytes');
-      const detector: FaceDetector = {
-        detectFaces: async () => {
-          throw new ThumbDecodeError('VipsJpeg: Invalid SOS parameters for sequential JPEG');
-        },
-        embedFace: async () => new Float32Array(),
-      };
-      setDefaultFaceDetectorForTests(detector);
-      const result = await faceHandler(doc, noopCtx);
+      setDefaultFaceDetectorForTests(
+        mockDetector(
+          [],
+          new ThumbDecodeError('VipsJpeg: Invalid SOS parameters for sequential JPEG'),
+        ),
+      );
+      const result = await faceDetectHandler(doc, noopCtx);
       expect(result).toHaveProperty('skip');
       const skip = (result as { skip: string }).skip;
       expect(skip).toContain(THUMB_UNDECODABLE_REASON);
       expect(skip).toContain('VipsJpeg');
-    } finally {
-      teardown();
-    }
-  });
-
-  it('returns { skip } when embedFace throws ThumbDecodeError (post-detection)', async () => {
-    const { root, libraryId } = setup();
-    try {
-      const { doc, thumbPath } = stageAsset(root, libraryId, 'corrupt2.jpg');
-      mkdirSync(dirname(thumbPath), { recursive: true });
-      writeFileSync(thumbPath, 'garbage-bytes');
-      const detector: FaceDetector = {
-        detectFaces: async () => [fakeDetection()],
-        embedFace: async () => {
-          throw new ThumbDecodeError('VipsJpeg: late decode failure');
-        },
-      };
-      setDefaultFaceDetectorForTests(detector);
-      const result = await faceHandler(doc, noopCtx);
-      expect(result).toHaveProperty('skip');
-      expect((result as { skip: string }).skip).toContain(THUMB_UNDECODABLE_REASON);
     } finally {
       teardown();
     }
