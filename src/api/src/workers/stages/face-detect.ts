@@ -45,10 +45,18 @@ import {
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 
-/** The version `face-detect` starts at. Exported so the in-flight
- * migration that seeds existing assets can reference the exact number
- * rather than hard-coding it. */
-export const FACE_DETECT_TARGET_VERSION = 1;
+/** Reprocess target for `face-detect`. Bumping this re-queues every asset
+ * whose stored detections are below it (the version-gated worker loop).
+ *
+ * v1 → v2: re-detect the back-catalog. Assets seeded from the old single
+ * `face` stage carry SCRFD-500m boxes and NO landmarks (the legacy stage
+ * never persisted them); re-running SCRFD-10G writes better boxes + the
+ * 5-point landmarks `face-embed` needs for proper alignment. NOTE: this
+ * rewrites the faces array, so `person_id` assignments reset to null —
+ * a re-cluster is required afterward. The seed baseline stays pinned at 1
+ * (see SEED_FACE_DETECT_VERSION in migrations.ts); it is intentionally
+ * below this target so seeded legacy assets reprocess. */
+export const FACE_DETECT_TARGET_VERSION = 2;
 
 export async function faceDetectHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const detector = defaultFaceDetector();

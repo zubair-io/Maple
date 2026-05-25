@@ -414,15 +414,20 @@ export interface SeedFaceStageSplitResult {
   updated: number;
 }
 
-// Initial targetVersion of each split-out stage. Inlined (rather than
-// imported from `workers/stages/face-detect.ts` / `face-embed.ts`) on
-// purpose: those modules pull in the ONNX/`sharp` face-detector chain at
-// import time, and this migration module is loaded on the boot path via
+// Baseline version stamped on legacy assets when the old single `face`
+// stage is migrated to the split stages. Inlined (rather than imported
+// from `workers/stages/face-detect.ts` / `face-embed.ts`) on purpose:
+// those modules pull in the ONNX/`sharp` face-detector chain at import
+// time, and this migration module is loaded on the boot path via
 // `client.ts` → `ensureIndexes`. Keeping the dependency direction one-way
-// (no migrations → workers/stages edge) avoids dragging the heavy face deps
-// into every boot and any import-cycle risk. These literals mirror
-// `FACE_DETECT_TARGET_VERSION` / `FACE_EMBED_TARGET_VERSION`; a stage test
-// asserts they stay in sync.
+// (no migrations → workers/stages edge) avoids dragging the heavy face
+// deps into every boot and any import-cycle risk.
+//
+// This is intentionally pinned at 1 and does NOT track the stage
+// `targetVersion`s, which advance independently as the pipeline improves
+// (e.g. face-* are at v2 to re-detect + re-embed the back-catalog into the
+// antelopev2 R100 space). Seeding the legacy baseline BELOW the current
+// target is what makes seeded assets reprocess.
 const SEED_FACE_DETECT_VERSION = 1;
 const SEED_FACE_EMBED_VERSION = 1;
 
