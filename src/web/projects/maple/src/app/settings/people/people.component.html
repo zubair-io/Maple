@@ -267,98 +267,128 @@
     </div>
   } @else {
     <!-- ── List view ─────────────────────────────────────────────────── -->
-    <header class="page-header">
-      <div class="titles">
-        <h1>People</h1>
-        <p>
-          Face clusters from the face worker. Name a cluster to merge new faces into it
-          automatically; un-named clusters keep accreting until you do.
-        </p>
-      </div>
-      <div class="actions">
-        <a class="btn-ghost" routerLink="/settings/workers">Worker settings</a>
-        <button
-          type="button"
-          class="btn-primary"
-          [disabled]="clusteringBusy()"
-          (click)="runClustering()"
-        >
-          <maple-settings-icon name="sparkle" [size]="13" color="#ffffff" />
-          {{ clusteringBusy() ? 'Clustering…' : 'Run clustering' }}
-        </button>
-      </div>
-    </header>
-
-    <div class="people-body">
-      @if (hasPeople()) {
-        <div class="stats-line">
-          {{ peopleStats().named }} named · {{ peopleStats().unnamed }} unnamed ·
-          {{ peopleStats().faces | number }} face{{ peopleStats().faces === 1 ? '' : 's' }}
-        </div>
-      }
-
-      @if (!hasPeople()) {
-        <div class="empty-card">
-          <h3>No people yet.</h3>
+    <!-- Flex column so the header stays fixed and the virtual-scroll
+         viewport owns the remaining height (and its own scroll). -->
+    <div class="people-list-view">
+      <header class="page-header">
+        <div class="titles">
+          <h1>People</h1>
           <p>
-            Run clustering to group detected faces. Faces come from the face worker — make sure it's
-            enabled under
-            <a routerLink="/settings/workers">Worker settings</a>.
+            Face clusters from the face worker. Name a cluster to merge new faces into it
+            automatically; un-named clusters keep accreting until you do.
           </p>
         </div>
-      } @else {
-        <div class="people-grid">
-          @for (p of sortedPeople(); track p.id) {
-            <article
-              class="person-card"
-              (click)="selectPerson(p.id)"
-              (mapleVisibleOnce)="ensureCoverThumb(p)"
-              tabindex="0"
-              role="button"
-              (keydown.enter)="selectPerson(p.id); $event.preventDefault()"
-              (keydown.space)="selectPerson(p.id); $event.preventDefault()"
-            >
-              <div class="person-thumb">
-                @if (coverThumbUrl(p); as url) {
-                  @if (p.coverBbox; as bbox) {
-                    <img
-                      [src]="url"
-                      [style.transform]="faceCropTransform(bbox, url)"
-                      style="transform-origin: 0 0"
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                      (load)="onFaceImgLoad(url, $event)"
-                    />
-                  } @else {
-                    <img class="cover-fill" [src]="url" alt="" loading="lazy" decoding="async" />
-                  }
-                } @else {
-                  <span class="person-thumb-fallback">{{ p.name.slice(0, 1).toUpperCase() }}</span>
-                }
-              </div>
-              <div class="person-meta">
-                <div class="person-name" [class.is-auto-named]="isAutoName(p.name)">
-                  {{ p.name }}
-                </div>
-                <div class="person-stats">
-                  <span class="person-faces"
-                    >{{ p.faceCount }} face{{ p.faceCount === 1 ? '' : 's' }}</span
-                  >
-                  <button
-                    type="button"
-                    class="card-delete"
-                    [title]="'Delete ' + p.name"
-                    (click)="$event.stopPropagation(); deletePerson(p)"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </article>
-          }
+        <div class="actions">
+          <a class="btn-ghost" routerLink="/settings/workers">Worker settings</a>
+          <button
+            type="button"
+            class="btn-primary"
+            [disabled]="clusteringBusy()"
+            (click)="runClustering()"
+          >
+            <maple-settings-icon name="sparkle" [size]="13" color="#ffffff" />
+            {{ clusteringBusy() ? 'Clustering…' : 'Run clustering' }}
+          </button>
         </div>
-      }
+      </header>
+
+      <div class="people-body">
+        @if (hasPeople()) {
+          <div class="stats-line">
+            {{ peopleStats().named }} named · {{ peopleStats().unnamed }} unnamed ·
+            {{ peopleStats().faces | number }} face{{ peopleStats().faces === 1 ? '' : 's' }}
+          </div>
+        }
+
+        @if (!hasPeople()) {
+          <div class="empty-card">
+            <h3>No people yet.</h3>
+            <p>
+              Run clustering to group detected faces. Faces come from the face worker — make sure
+              it's enabled under
+              <a routerLink="/settings/workers">Worker settings</a>.
+            </p>
+          </div>
+        } @else {
+          <!-- Virtual-scroll list: only the visible rows are in the DOM. Sorted
+             people are packed into fixed-height rows of `gridColumns()` cards;
+             the viewport windows the rows by the computed `rowHeight()`. The
+             (mapleVisibleOnce) cover-lazy-load fires per card as rows mount. -->
+          <cdk-virtual-scroll-viewport
+            #peopleScrollContent
+            class="people-viewport"
+            [itemSize]="rowHeight()"
+            minBufferPx="600"
+            maxBufferPx="1200"
+          >
+            <div
+              *cdkVirtualFor="let row of peopleRows(); trackBy: trackRow"
+              class="people-row"
+              [style.gap.px]="12"
+              [style.margin-bottom.px]="12"
+            >
+              @for (p of row; track p.id) {
+                <article
+                  class="person-card"
+                  [style.width.px]="cardWidth()"
+                  (click)="selectPerson(p.id)"
+                  (mapleVisibleOnce)="ensureCoverThumb(p)"
+                  tabindex="0"
+                  role="button"
+                  (keydown.enter)="selectPerson(p.id); $event.preventDefault()"
+                  (keydown.space)="selectPerson(p.id); $event.preventDefault()"
+                >
+                  <div class="person-thumb">
+                    @if (coverThumbUrl(p); as url) {
+                      @if (p.coverBbox; as bbox) {
+                        <img
+                          [src]="url"
+                          [style.transform]="faceCropTransform(bbox, url)"
+                          style="transform-origin: 0 0"
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          (load)="onFaceImgLoad(url, $event)"
+                        />
+                      } @else {
+                        <img
+                          class="cover-fill"
+                          [src]="url"
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                        />
+                      }
+                    } @else {
+                      <span class="person-thumb-fallback">{{
+                        p.name.slice(0, 1).toUpperCase()
+                      }}</span>
+                    }
+                  </div>
+                  <div class="person-meta">
+                    <div class="person-name" [class.is-auto-named]="isAutoName(p.name)">
+                      {{ p.name }}
+                    </div>
+                    <div class="person-stats">
+                      <span class="person-faces"
+                        >{{ p.faceCount }} face{{ p.faceCount === 1 ? '' : 's' }}</span
+                      >
+                      <button
+                        type="button"
+                        class="card-delete"
+                        [title]="'Delete ' + p.name"
+                        (click)="$event.stopPropagation(); deletePerson(p)"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              }
+            </div>
+          </cdk-virtual-scroll-viewport>
+        }
+      </div>
     </div>
   }
 </maple-settings-shell>
