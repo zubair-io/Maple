@@ -107,6 +107,41 @@ public actor CloudSearchClient {
     }
   }
 
+  /// `GET /api/search?...` — full structured search. Serialises every
+  /// filter the user set (mirrors the web `SearchService.search`) plus
+  /// sort + pagination. `page` is zero-indexed to match the server.
+  public func search(_ params: SearchParams,
+                     page: Int,
+                     limit: Int) async throws -> SearchResponse {
+    let url = makeURL(path: "/api/search",
+                      query: params.listQueryItems(page: page, limit: limit))
+    let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
+    try Self.checkOK(resp, data: data)
+    do {
+      return try JSONDecoder().decode(SearchResponse.self, from: data)
+    } catch {
+      let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
+      cloudHTTPLogger.error("decode SearchResponse (search) failed: \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      throw error
+    }
+  }
+
+  /// `GET /api/search/facets?...` — counts/ranges scoped to the same
+  /// filter set (page/limit/sort omitted). Drives the filter panel's
+  /// option lists.
+  public func facets(_ params: SearchParams) async throws -> SearchFacets {
+    let url = makeURL(path: "/api/search/facets", query: params.facetQueryItems())
+    let (data, resp) = try await httpClient.data(for: URLRequest(url: url))
+    try Self.checkOK(resp, data: data)
+    do {
+      return try JSONDecoder().decode(SearchFacets.self, from: data)
+    } catch {
+      let preview = String(data: data.prefix(2048), encoding: .utf8) ?? "<non-utf8 \(data.count)B>"
+      cloudHTTPLogger.error("decode SearchFacets failed: \(error.localizedDescription, privacy: .public) — body preview: \(preview, privacy: .public)")
+      throw error
+    }
+  }
+
   // MARK: - Helpers
 
   /// Trim whitespace, drop empty, and append a trailing slash so the
