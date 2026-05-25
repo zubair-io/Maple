@@ -31,16 +31,15 @@
 // `./people.vm.ts`. This file owns DI, signal wiring, and side effects.
 
 import {
-  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
   ElementRef,
   OnDestroy,
-  ViewChild,
   computed,
   effect,
   inject,
   signal,
+  viewChild,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { DecimalPipe } from '@angular/common';
@@ -104,7 +103,7 @@ import {
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PeopleComponent implements AfterViewInit, OnDestroy {
+export class PeopleComponent implements OnDestroy {
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly route = inject(ActivatedRoute);
@@ -170,21 +169,18 @@ export class PeopleComponent implements AfterViewInit, OnDestroy {
   readonly namedPeople = computed(() => filterNamed(this.sortedPeople()));
 
   // ── List-view virtual scroll ────────────────────────────────────────────
-  //
-  // The list grid is windowed by `cdk-virtual-scroll-viewport`. CDK
-  // virtualises a flat item stream by a fixed `itemSize`, so we pack the
-  // sorted people into fixed-height rows of `gridColumns()` cards each and
-  // virtualise the ROWS (`peopleRows()`). Column count + card width derive
-  // from the measured container width; the row height is the viewport's
-  // `itemSize`. The `(mapleVisibleOnce)` cover-lazy-load still fires per card
-  // as rows mount into the viewport's render window.
+  // The list grid is windowed by `cdk-virtual-scroll-viewport`: sorted people
+  // are packed into fixed-height rows of `gridColumns()` cards (see the
+  // row-packing helpers in people.vm.ts) and the ROWS are virtualised. The
+  // `(mapleVisibleOnce)` cover-lazy-load still fires per card as rows mount.
 
-  @ViewChild('peopleScrollContent', { read: ElementRef })
-  private peopleScrollContentRef?: ElementRef<HTMLElement>;
+  /** Virtual-scroll viewport host. Signal query (not a static ViewChild)
+   * because it lives in conditional template blocks — only present in the
+   * populated list view, and re-appears on back-navigation. */
+  private readonly peopleScrollContent = viewChild<ElementRef<HTMLElement>>('peopleScrollContent');
 
-  /** Measured inner width of the scroll viewport's content area. Seeded to a
-   * sane default until the ResizeObserver in `ngAfterViewInit` reports the
-   * real width. */
+  /** Measured inner width of the viewport. Seeded until the ResizeObserver
+   * reports the real width. */
   private readonly containerWidth = signal<number>(900);
 
   /** Min card width — denser on narrow (phone) viewports, matching the old
@@ -311,25 +307,36 @@ export class PeopleComponent implements AfterViewInit, OnDestroy {
         this.thumbs.ensure(f.absPath, f.absPath, f.assetId);
       }
     });
+
+    // Attach the ResizeObserver whenever the virtual-scroll viewport appears.
+    // The viewport lives inside conditional template blocks (only the
+    // populated list view renders it), so a static AfterViewInit hook would
+    // miss it on first paint of a detail route and on back-navigation. This
+    // signal-query effect re-targets the observer each time the element
+    // resolves.
+    effect(() => {
+      const ref = this.peopleScrollContent();
+      if (ref) this.observeViewport(ref.nativeElement);
+    });
   }
 
   /** ResizeObserver on the viewport content so the column count + card/row
-   * sizes track the container width. Disconnected on destroy. */
+   * sizes track the container width. Re-targeted by the constructor effect
+   * whenever the viewport element appears (it lives in a conditional block).
+   * Disconnected on destroy. */
   private resizeObserver?: ResizeObserver;
 
-  ngAfterViewInit(): void {
-    const host = this.peopleScrollContentRef?.nativeElement;
-    if (!host) return;
-    if (typeof ResizeObserver === 'undefined') {
-      // SSR / very old browser — fall back to the measured width once.
-      this.containerWidth.set(host.clientWidth || 900);
-      return;
-    }
+  /** (Re)attach the ResizeObserver to the current viewport host, and seed the
+   * width immediately. Called from a constructor effect that tracks the
+   * `peopleScrollContent` signal query. */
+  private observeViewport(host: HTMLElement): void {
+    this.containerWidth.set(host.clientWidth || 900);
+    if (typeof ResizeObserver === 'undefined') return; // SSR / very old browser
+    this.resizeObserver?.disconnect();
     this.resizeObserver = new ResizeObserver((entries) => {
       for (const e of entries) this.containerWidth.set(e.contentRect.width);
     });
     this.resizeObserver.observe(host);
-    this.containerWidth.set(host.clientWidth || 900);
   }
 
   ngOnDestroy(): void {
