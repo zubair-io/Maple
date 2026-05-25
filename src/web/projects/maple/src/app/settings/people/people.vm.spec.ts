@@ -383,7 +383,7 @@ describe('faceCropTransform', () => {
 
 describe('hidePersonConfirm', () => {
   it('pluralises photos honestly and mentions restore', () => {
-    expect(hidePersonConfirm('Alice', 1)).toContain('1 photo stay grouped');
+    expect(hidePersonConfirm('Alice', 1)).toContain('1 photo stays grouped');
     expect(hidePersonConfirm('Alice', 4)).toContain('4 photos stay grouped');
     expect(hidePersonConfirm('Alice', 4)).toContain('Hidden page');
   });
