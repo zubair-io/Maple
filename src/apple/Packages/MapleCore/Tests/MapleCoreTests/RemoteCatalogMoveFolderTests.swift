@@ -24,11 +24,14 @@ final class RemoteCatalogMoveFolderTests: XCTestCase {
         let http = AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session)
         let cat = RemoteCatalog(http: http, server: server)
 
-        let resp = try await cat.moveFolder(
+        let result = try await cat.moveFolder(
             folderID: "650a",
             sourceRelativePath: "untitled folder",
             targetRelativePath: "0002")
 
+        guard case .ok(let resp) = result else {
+            return XCTFail("expected .ok, got \(result)")
+        }
         XCTAssertEqual(resp.absPath, "/lib/0002")
         let snap = observed.snapshot()
         XCTAssertEqual(snap.path, "/api/folders/650a/move")
@@ -39,7 +42,7 @@ final class RemoteCatalogMoveFolderTests: XCTestCase {
         XCTAssertEqual(snap.target?.removingPercentEncoding, "0002")
     }
 
-    func testMoveFolderMapsConflictToFilenameCollision() async throws {
+    func testMoveFolderReturnsConflictOn409() async throws {
         let server = URL(string: "https://example.test")!
         let session = URLSession.stubbedSequence { req in
             let resp = HTTPURLResponse(url: req.url!, statusCode: 409,
@@ -49,15 +52,10 @@ final class RemoteCatalogMoveFolderTests: XCTestCase {
         let http = AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session)
         let cat = RemoteCatalog(http: http, server: server)
 
-        do {
-            _ = try await cat.moveFolder(folderID: "650a",
-                                         sourceRelativePath: "a",
-                                         targetRelativePath: "b")
-            XCTFail("expected a filename-collision error")
-        } catch let error as NSError {
-            XCTAssertEqual(error.domain, NSFileProviderErrorDomain)
-            XCTAssertEqual(error.code, NSFileProviderError.filenameCollision.rawValue)
-        }
+        let result = try await cat.moveFolder(folderID: "650a",
+                                              sourceRelativePath: "a",
+                                              targetRelativePath: "b")
+        XCTAssertEqual(result, .conflict)
     }
 
     func testMoveFolderThrowsOnServerError() async throws {
