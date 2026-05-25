@@ -23,7 +23,16 @@ describe('GET /api/workers/status', () => {
   // first /status call, even before any stage has booted.
   it("surfaces pre-registered stages as 'stopped' even when none have booted", async () => {
     stageRegistry._resetForTests();
-    const names = ['exif', 'thumb', 'preview', 'face', 'describe', 'geocode', 'meili'];
+    const names = [
+      'exif',
+      'thumb',
+      'preview',
+      'face-detect',
+      'face-embed',
+      'describe',
+      'geocode',
+      'meili',
+    ];
     for (const n of names) stageRegistry.preregister(n, 1);
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(new Request('http://localhost/api/workers/status'));

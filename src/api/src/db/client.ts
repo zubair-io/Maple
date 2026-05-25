@@ -15,6 +15,7 @@ import {
   mergeDuplicateAssets,
   migrationApplied,
   recordMigration,
+  seedFaceStageSplit,
 } from './migrations.ts';
 import type {
   FolderDoc,
@@ -164,12 +165,18 @@ export async function serverStateCollection(): Promise<Collection<ServerStateDoc
  * The `hash` stage was removed in the content-addressing migration (hashing
  * is now done inline by discover/backup-ingest), so its indexes are dropped
  * by the `drop-abs-path-2026-05-21` sentinel block in `ensureIndexes` and
- * never recreated here. */
+ * never recreated here.
+ *
+ * The single `face` stage was split into `face-detect` + `face-embed`
+ * (seed-face-stage-split-2026-05-25). Like `hash`, the legacy
+ * `stage_face_version` / `stage_face_dead` indexes are simply no longer
+ * recreated — they're harmless if left behind on a deployed DB. */
 const WORKER_STAGE_NAMES = [
   'exif',
   'thumb',
   'preview',
-  'face',
+  'face-detect',
+  'face-embed',
   'describe',
   'geocode',
   'meili',
@@ -915,6 +922,23 @@ export async function ensureIndexes(): Promise<void> {
     } catch (err) {
       // Do NOT record on failure so the next boot retries.
       log.warn({ err: err instanceof Error ? err.message : err }, 'fileinfo backfill skipped');
+    }
+  }
+
+  // One-shot seed: the single `face` stage was split into `face-detect` +
+  // `face-embed` (see `workers/stages/face-detect.ts` / `face-embed.ts`).
+  // Seed both new stages to their initial targetVersion for every asset
+  // whose old `face` stage already completed, so existing libraries don't
+  // reprocess ~15k faces on deploy. Idempotent — gated by the migrations
+  // sentinel; the seed itself also guards on `$exists: false`.
+  if (!(await migrationApplied(db, 'seed-face-stage-split-2026-05-25'))) {
+    try {
+      const res = await seedFaceStageSplit(db);
+      await recordMigration(db, 'seed-face-stage-split-2026-05-25', res.updated);
+      log.info({ updated: res.updated }, 'seeded face-detect / face-embed stage versions');
+    } catch (err) {
+      // Do NOT record on failure so the next boot retries.
+      log.warn({ err: err instanceof Error ? err.message : err }, 'face-stage-split seed skipped');
     }
   }
 
