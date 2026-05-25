@@ -58,6 +58,8 @@ export * from './lib/xmp/xmp-store.service';
 export * from './lib/state/store';
 export * from './lib/xmp/sidecar-idb-cache';
 export * from './lib/xmp/sidecar.store';
+// People page SWR cache (list + per-person detail).
+export * from './lib/api/people.store';
 
 // #193 slice 2: first reactive consumer of SidecarStore.
 export * from './lib/components/editor-sidecar-status-badge/editor-sidecar-status-badge.component';
