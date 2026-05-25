@@ -98,6 +98,20 @@ export interface StageConfig<TPatch = Record<string, unknown>> {
     pausedOnFirstBoot: boolean;
   };
   handler: (image: ImageDoc, ctx: StageContext) => Promise<StageResult<TPatch>>;
+  /**
+   * Optional per-tick progress hook, invoked by the poll loop after each
+   * successful `runOnce` tick (NOT on a tick that threw — those go through
+   * the retry/backoff path instead). Generic + opt-in: stages that don't
+   * set it pay nothing. `face-embed` uses it to drive auto-clustering.
+   *
+   * @param processedThisTick docs claimed + dispatched this tick (0 = the
+   *   claim query matched nothing — i.e. the stage is idle/drained).
+   * @param idle convenience flag, `true` iff `processedThisTick === 0`.
+   *
+   * Best-effort: the loop awaits it but swallows + logs any rejection so a
+   * misbehaving hook can never stall or crash the poll loop.
+   */
+  onProgress?: (processedThisTick: number, idle: boolean) => void | Promise<void>;
 }
 
 /** Zero-cost identity helper that provides `TPatch` inference at stage sites. */
@@ -254,8 +268,8 @@ export async function runOnce(
   signal?: AbortSignal,
   inFlightSet?: Set<string>,
   throughput?: ThroughputWindow,
-): Promise<void> {
-  if (config.paused) return;
+): Promise<number> {
+  if (config.paused) return 0;
 
   const log = childLogger(`workers:${stage.name}`);
   const effectiveSignal = signal ?? new AbortController().signal;
@@ -336,6 +350,11 @@ export async function runOnce(
       inFlightSet?.delete(idStr);
     }
   });
+
+  // Report how many docs this tick claimed + dispatched. The poll loop hands
+  // this to `stage.onProgress` so a stage can react to throughput / idle
+  // edges without a second DB query (the count is the claim batch size).
+  return docs.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -452,7 +471,7 @@ export async function runStage<TPatch extends Record<string, unknown>>(
     if (shuttingDown) return;
     let delay = config.pollIntervalMs;
     try {
-      await runOnce(
+      const processedThisTick = await runOnce(
         stage,
         config,
         images,
@@ -466,6 +485,19 @@ export async function runStage<TPatch extends Record<string, unknown>>(
       // Surface a clean recovery via /api/workers/status — without this the
       // last poll-loop error would linger as `lastError` indefinitely.
       stageRegistry.clearError(stage.name);
+      // Notify the stage's optional progress hook (e.g. face-embed → the
+      // clustering coordinator). Skipped while paused — runOnce returns 0
+      // immediately under pause, but the hook would still observe a
+      // false "idle" edge every tick, so don't fire it at all. Best-effort:
+      // a rejecting hook is logged, never allowed to stall the loop.
+      if (stage.onProgress && !config.paused) {
+        try {
+          await stage.onProgress(processedThisTick, processedThisTick === 0);
+        } catch (hookErr) {
+          const m = hookErr instanceof Error ? hookErr.message : String(hookErr);
+          log.warn({ err: hookErr, msg: m }, `${stage.name} onProgress hook threw`);
+        }
+      }
     } catch (err) {
       consecutiveErrors++;
       const idx = Math.min(consecutiveErrors - 1, BACKOFF_MS.length - 1);
