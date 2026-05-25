@@ -324,8 +324,8 @@
             <div
               *cdkVirtualFor="let row of peopleRows(); trackBy: trackRow"
               class="people-row"
-              [style.gap.px]="12"
-              [style.margin-bottom.px]="12"
+              [style.gap.px]="gridGap"
+              [style.margin-bottom.px]="gridGap"
             >
               @for (p of row; track p.id) {
                 <article

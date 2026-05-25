@@ -193,6 +193,10 @@ export class PeopleStore implements Store<ApiPerson[]> {
   private _fetchDetail(id: string): void {
     if (this._detailInFlight.has(id)) return;
     this._detailInFlight.add(id);
+    // Reset the error on every fetch start so a stale failure can't linger over
+    // fresh data — matches `_fetchList`, which clears `_listError` up front, and
+    // the `Store<T>` contract of resetting error on a successful re-fetch.
+    this._detailError.set(null);
     this._detailLoadingIds.update((s) => new Set(s).add(id));
     this.api.getPerson(id).subscribe({
       next: (detail) => {

@@ -76,15 +76,19 @@ import {
   filterNamed,
   hiddenFaceCount,
   isAutoNamed,
+  NaturalDims,
+  PEOPLE_GRID,
   peopleCardWidth,
   peopleGridColumns,
   peopleRowHeight,
+  peopleRowKey,
   peopleStats,
   pickSelectedFaces,
   selectAllKeys,
   sortPeople,
   toggleSelection,
   visibleFaces,
+  withNaturalDims,
 } from './people.vm';
 
 @Component({
@@ -197,12 +201,15 @@ export class PeopleComponent implements OnDestroy {
   /** Fixed row height fed to the viewport `itemSize`. */
   readonly rowHeight = computed(() => peopleRowHeight(this.cardWidth()));
 
+  /** Inter-card gap + per-row bottom margin (px). One source of truth shared
+   * with the packing math (`peopleRowHeight` adds one `GAP`/row). */
+  protected readonly gridGap = PEOPLE_GRID.GAP;
+
   /** Sorted people packed into fixed-width rows for the virtual viewport. */
   readonly peopleRows = computed(() => chunkPeopleRows(this.sortedPeople(), this.gridColumns()));
 
-  /** Track-by for virtualised rows: key off the first card's id so row
-   * identity survives re-packs of the same head item. */
-  trackRow = (_: number, row: ApiPerson[]): string => (row.length ? row[0].id : `r${_}`);
+  /** Track-by for virtualised rows (see `peopleRowKey`). */
+  trackRow = peopleRowKey;
 
   readonly visibleFaces = computed(() => {
     const detail = this.selected();
@@ -237,19 +244,13 @@ export class PeopleComponent implements OnDestroy {
    * `faceCropTransform` to undo the `object-fit: cover` letterbox so the
    * bbox lands where the detector said it would, regardless of source
    * aspect ratio. */
-  protected readonly imgNaturalDims = signal<ReadonlyMap<string, { nw: number; nh: number }>>(
-    new Map(),
-  );
+  protected readonly imgNaturalDims = signal<ReadonlyMap<string, NaturalDims>>(new Map());
 
   onFaceImgLoad(url: string, event: Event): void {
     const img = event.target as HTMLImageElement;
-    if (!img.naturalWidth || !img.naturalHeight) return;
-    const cur = this.imgNaturalDims();
-    const prev = cur.get(url);
-    if (prev && prev.nw === img.naturalWidth && prev.nh === img.naturalHeight) return;
-    const next = new Map(cur);
-    next.set(url, { nw: img.naturalWidth, nh: img.naturalHeight });
-    this.imgNaturalDims.set(next);
+    this.imgNaturalDims.set(
+      withNaturalDims(this.imgNaturalDims(), url, img.naturalWidth, img.naturalHeight),
+    );
   }
 
   /** Template wrapper around the pure `faceCropTransform` from
@@ -308,27 +309,27 @@ export class PeopleComponent implements OnDestroy {
       }
     });
 
-    // Attach the ResizeObserver whenever the virtual-scroll viewport appears.
-    // The viewport lives inside conditional template blocks (only the
-    // populated list view renders it), so a static AfterViewInit hook would
-    // miss it on first paint of a detail route and on back-navigation. This
-    // signal-query effect re-targets the observer each time the element
-    // resolves.
-    effect(() => {
+    // Re-target the ResizeObserver each time the virtual-scroll viewport
+    // appears. It lives in conditional template blocks (only the populated
+    // list view renders it), so a signal-query effect catches first paint and
+    // back-navigation alike. `onCleanup` disconnects when the viewport goes
+    // away (the detail view removes it from the DOM) so a detached element
+    // isn't observed/retained until destroy; the effect re-attaches when the
+    // query resolves to a fresh element again.
+    effect((onCleanup) => {
       const ref = this.peopleScrollContent();
-      if (ref) this.observeViewport(ref.nativeElement);
+      if (!ref) return;
+      this.observeViewport(ref.nativeElement);
+      onCleanup(() => this.resizeObserver?.disconnect());
     });
   }
 
   /** ResizeObserver on the viewport content so the column count + card/row
-   * sizes track the container width. Re-targeted by the constructor effect
-   * whenever the viewport element appears (it lives in a conditional block).
-   * Disconnected on destroy. */
+   * sizes track the container width. Re-targeted by the constructor effect. */
   private resizeObserver?: ResizeObserver;
 
-  /** (Re)attach the ResizeObserver to the current viewport host, and seed the
-   * width immediately. Called from a constructor effect that tracks the
-   * `peopleScrollContent` signal query. */
+  /** (Re)attach the ResizeObserver to the current viewport host and seed the
+   * width immediately. Disconnects any prior observer first. */
   private observeViewport(host: HTMLElement): void {
     this.containerWidth.set(host.clientWidth || 900);
     if (typeof ResizeObserver === 'undefined') return; // SSR / very old browser
