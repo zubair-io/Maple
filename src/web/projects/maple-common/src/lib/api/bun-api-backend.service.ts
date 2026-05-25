@@ -433,22 +433,21 @@ export class BunApiBackendService {
   // -------------------------------------------------------------------------
 
   listPeople(): Observable<ApiPerson[]> {
-    return this.http.get<ApiPersonRaw[]>(`${this.base}/people`).pipe(
-      // Normalise snake_case → camelCase for the UI layer. Done here so
-      // every component that consumes the service gets the same shape.
-      map((rows) =>
-        rows.map((r) => ({
-          id: r.id,
-          name: r.name,
-          faceCount: r.face_count,
-          coverAssetId: r.cover_asset_id ?? null,
-          coverAbsPath: r.cover_abs_path ?? null,
-          coverBbox: r.cover_bbox ?? null,
-          createdAt: r.created_at,
-          updatedAt: r.updated_at,
-        })),
-      ),
+    return (
+      this.http
+        .get<ApiPersonRaw[]>(`${this.base}/people`)
+        // Normalise snake_case → camelCase for the UI layer. Done here so
+        // every component that consumes the service gets the same shape.
+        .pipe(map((rows) => rows.map(normalisePerson)))
     );
+  }
+
+  /** Soft-hidden people — the Hidden page. Same wire shape as
+   * `listPeople`, so it shares the `ApiPerson` normaliser. */
+  listHiddenPeople(): Observable<ApiPerson[]> {
+    return this.http
+      .get<ApiPersonRaw[]>(`${this.base}/people/hidden`)
+      .pipe(map((rows) => rows.map(normalisePerson)));
   }
 
   getPerson(id: string): Observable<ApiPersonDetail> {
@@ -521,9 +520,33 @@ export class BunApiBackendService {
     );
   }
 
-  deletePerson(id: string): Observable<void> {
-    return this.http.delete<void>(`${this.base}/people/${id}`);
+  /** Soft-hide a person — keeps faces assigned + the row alive; the
+   * person leaves the normal list and moves to the Hidden page. Server
+   * returns `{ ok: true }`. */
+  hidePerson(id: string): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/people/${id}/hide`, {});
   }
+
+  /** Restore a hidden person back into the normal list. */
+  unhidePerson(id: string): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/people/${id}/unhide`, {});
+  }
+}
+
+/** Map the wire's snake_case people-list row → the UI's camelCase
+ * `ApiPerson`. Shared by `listPeople` and `listHiddenPeople` (identical
+ * shapes). */
+function normalisePerson(r: ApiPersonRaw): ApiPerson {
+  return {
+    id: r.id,
+    name: r.name,
+    faceCount: r.face_count,
+    coverAssetId: r.cover_asset_id ?? null,
+    coverAbsPath: r.cover_abs_path ?? null,
+    coverBbox: r.cover_bbox ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
 }
 
 export type DescribeProviderName = 'ollama' | 'anthropic' | 'openai' | 'gemini';

@@ -1,0 +1,108 @@
+<maple-settings-shell section="people">
+  @if (toast(); as t) {
+    <div
+      class="toast"
+      [class.toast-success]="t.tone === 'success'"
+      [class.toast-error]="t.tone === 'error'"
+    >
+      {{ t.text }}
+    </div>
+  }
+  @if (loadError(); as e) {
+    <div class="toast toast-error">Failed to load: {{ e }}</div>
+  }
+
+  <div class="people-list-view">
+    <header class="page-header">
+      <div class="titles">
+        <button type="button" class="back-link" routerLink="/settings/people">
+          <maple-settings-icon name="back" [size]="13" color="#a8a29e" />
+          <span>People</span>
+        </button>
+        <h1>Hidden people</h1>
+        <p>
+          People you've hidden from the main list. Their photos stay grouped and they keep
+          collecting newly-detected faces — restore one anytime to bring it back.
+        </p>
+      </div>
+    </header>
+
+    <div class="people-body">
+      @if (loading()) {
+        <div class="stats-line">Loading…</div>
+      } @else if (!hasPeople()) {
+        <div class="empty-card">
+          <h3>No hidden people.</h3>
+          <p>
+            When you hide someone on the <a routerLink="/settings/people">People page</a>, they show
+            up here so you can restore them later.
+          </p>
+        </div>
+      } @else {
+        <cdk-virtual-scroll-viewport
+          #peopleScrollContent
+          class="people-viewport"
+          [itemSize]="rowHeight()"
+          minBufferPx="600"
+          maxBufferPx="1200"
+        >
+          <div
+            *cdkVirtualFor="let row of peopleRows(); trackBy: trackRow"
+            class="people-row"
+            [style.gap.px]="gridGap"
+            [style.margin-bottom.px]="gridGap"
+          >
+            @for (p of row; track p.id) {
+              <article
+                class="person-card"
+                [style.width.px]="cardWidth()"
+                (mapleVisibleOnce)="ensureCoverThumb(p)"
+              >
+                <div class="person-thumb">
+                  @if (coverThumbUrl(p); as url) {
+                    @if (p.coverBbox; as bbox) {
+                      <img
+                        [src]="url"
+                        [style.transform]="faceCropTransform(bbox, url)"
+                        style="transform-origin: 0 0"
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        (load)="onFaceImgLoad(url, $event)"
+                      />
+                    } @else {
+                      <img class="cover-fill" [src]="url" alt="" loading="lazy" decoding="async" />
+                    }
+                  } @else {
+                    <span class="person-thumb-fallback">{{
+                      p.name.slice(0, 1).toUpperCase()
+                    }}</span>
+                  }
+                </div>
+                <div class="person-meta">
+                  <div class="person-name" [class.is-auto-named]="isAutoName(p.name)">
+                    {{ p.name }}
+                  </div>
+                  <div class="person-stats">
+                    <span class="person-faces"
+                      >{{ p.faceCount | number }} face{{ p.faceCount === 1 ? '' : 's' }}</span
+                    >
+                    <button
+                      type="button"
+                      class="card-restore"
+                      [disabled]="isRestoring(p.id)"
+                      [title]="'Restore ' + p.name"
+                      (click)="restore(p)"
+                    >
+                      {{ isRestoring(p.id) ? 'Restoring…' : 'Restore' }}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            }
+          </div>
+        </cdk-virtual-scroll-viewport>
+      }
+    </div>
+  </div>
+</maple-settings-shell>
