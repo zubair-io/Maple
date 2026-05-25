@@ -42,13 +42,13 @@ export const DEFAULT_ANTELOPEV2_URL =
  * Canonical SHA256 for `antelopev2.zip` on the InsightFace v0.7 release.
  *
  * Verified 2026-05-25 against the actual release asset (360,662,982 bytes,
- * last-modified 2024-08-12). When set, the download path checks the
- * streamed bytes against this hash and rejects a mismatch (rotated bundle
- * or corrupted download). Operators who want to pin a different bundle
- * should pre-stage the files and set MAPLE_FACE_DETECTOR_URL /
+ * last-modified 2024-08-12). The download path always checks the streamed
+ * bytes against this hash and rejects a mismatch (rotated bundle or
+ * corrupted download). Operators who want to pin a different bundle should
+ * pre-stage the files and set MAPLE_FACE_DETECTOR_URL /
  * MAPLE_FACE_RECOGNIZER_URL with their own explicit SHA256s instead.
  */
-export const DEFAULT_ANTELOPEV2_SHA256: string | null =
+export const DEFAULT_ANTELOPEV2_SHA256 =
   '8e182f14fc6e80b3bfa375b33eb6cff7ee05d8ef7633e738d1c89021dcf0c5c5';
 
 /** Member names inside `antelopev2.zip` (paths the InsightFace bundle uses).
@@ -115,20 +115,13 @@ export async function downloadAntelopeV2Default(
     rmSync(zipPath, { force: true });
     throw err;
   }
-  if (DEFAULT_ANTELOPEV2_SHA256) {
-    const actual = hash.digest('hex');
-    if (actual.toLowerCase() !== (DEFAULT_ANTELOPEV2_SHA256 as string).toLowerCase()) {
-      rmSync(zipPath, { force: true });
-      throw new Error(
-        `SHA256 mismatch for antelopev2.zip: expected ${DEFAULT_ANTELOPEV2_SHA256}, got ${actual}. ` +
-          `InsightFace may have rotated the bundle, or this is a corrupted download. ` +
-          `Set MAPLE_FACE_DETECTOR_URL / MAPLE_FACE_RECOGNIZER_URL to pin the model files yourself.`,
-      );
-    }
-  } else {
-    log.warn(
-      { bytes },
-      'antelopev2.zip downloaded without SHA256 verification — DEFAULT_ANTELOPEV2_SHA256 is unset',
+  const actual = hash.digest('hex');
+  if (actual.toLowerCase() !== DEFAULT_ANTELOPEV2_SHA256.toLowerCase()) {
+    rmSync(zipPath, { force: true });
+    throw new Error(
+      `SHA256 mismatch for antelopev2.zip: expected ${DEFAULT_ANTELOPEV2_SHA256}, got ${actual}. ` +
+        `InsightFace may have rotated the bundle, or this is a corrupted download. ` +
+        `Set MAPLE_FACE_DETECTOR_URL / MAPLE_FACE_RECOGNIZER_URL to pin the model files yourself.`,
     );
   }
   log.info({ zipPath, bytes }, 'antelopev2 downloaded; extracting');
