@@ -15,7 +15,7 @@ import {
   bulkSuccessLabel,
   chunkPeopleRows,
   clusteringSummary,
-  deletePersonConfirm,
+  hidePersonConfirm,
   errorMessage,
   faceCropTransform,
   faceKey,
@@ -381,10 +381,11 @@ describe('faceCropTransform', () => {
 
 // ── Copy / labels ─────────────────────────────────────────────────────────
 
-describe('deletePersonConfirm', () => {
-  it('pluralises faces honestly', () => {
-    expect(deletePersonConfirm('Alice', 1)).toContain('1 face will become unassigned');
-    expect(deletePersonConfirm('Alice', 4)).toContain('4 faces will become unassigned');
+describe('hidePersonConfirm', () => {
+  it('pluralises photos honestly and mentions restore', () => {
+    expect(hidePersonConfirm('Alice', 1)).toContain('1 photo stay grouped');
+    expect(hidePersonConfirm('Alice', 4)).toContain('4 photos stay grouped');
+    expect(hidePersonConfirm('Alice', 4)).toContain('Hidden page');
   });
 });
 

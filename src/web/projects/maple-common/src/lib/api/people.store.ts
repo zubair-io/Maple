@@ -26,10 +26,14 @@
 // list is cheap to re-fetch once per session; the cost is doing it on every
 // click). Detail entries are keyed by person id in a Map.
 //
-// Mutations (rename / assign / hide / delete / cluster) MUST NOT serve stale
-// names or counts. The component routes its post-mutation refreshes through
-// `invalidate()` / `invalidateDetail(id)` so the affected entries re-fetch
-// instead of replaying a cached value.
+// Mutations (rename / assign / hide-face / hide-person / unhide / cluster)
+// MUST NOT serve stale names or counts. The component routes its
+// post-mutation refreshes through `invalidate()` / `invalidateDetail(id)` so
+// the affected entries re-fetch instead of replaying a cached value.
+//
+// Hidden list: a SECOND SWR cache (mirroring the main-list shape) backs the
+// Hidden page. Hiding/unhiding a person invalidates BOTH lists so the person
+// moves between them without a stale frame.
 
 import { Injectable, computed, inject, signal, type Signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
@@ -220,19 +224,97 @@ export class PeopleStore implements Store<ApiPerson[]> {
     });
   }
 
+  // ── Hidden-list cache (the Hidden page) ─────────────────────────────────────
+  //
+  // Same SWR shape as the main list — `hidden` / `hiddenLoading` /
+  // `hiddenRefreshing` / `hiddenError` signals plus `ensureHidden()` /
+  // `invalidateHidden()`. A separate in-flight guard so it never collides with
+  // the main list. Hiding / unhiding a person invalidates both lists.
+
+  private readonly _hidden = signal<ApiPerson[] | undefined>(undefined);
+  private readonly _hiddenLoading = signal<boolean>(false);
+  private readonly _hiddenError = signal<Error | null>(null);
+  private _hiddenInFlight = false;
+
+  /** The hidden-people list, or undefined before the first fetch resolves. */
+  readonly hidden: Signal<ApiPerson[] | undefined> = this._hidden.asReadonly();
+
+  /** First hidden-list fetch in flight (nothing cached to show). */
+  readonly hiddenLoading: Signal<boolean> = computed(
+    () => this._hiddenLoading() && this._hidden() === undefined,
+  );
+
+  /** Hidden-list re-fetch in flight while a cached value is shown. */
+  readonly hiddenRefreshing: Signal<boolean> = computed(
+    () => this._hiddenLoading() && this._hidden() !== undefined,
+  );
+
+  readonly hiddenError: Signal<Error | null> = this._hiddenError.asReadonly();
+
+  readonly hiddenStatus: Signal<StoreStatus> = computed(() => {
+    if (this._hiddenError()) return 'error';
+    if (this.hiddenLoading()) return 'loading';
+    if (this.hiddenRefreshing()) return 'refreshing';
+    if (this._hidden() !== undefined) return 'loaded';
+    return 'idle';
+  });
+
+  /** SWR read of the hidden list. First call fetches; later calls serve the
+   * cached value and refresh in the background. Safe to call on every Hidden
+   * page entry. */
+  ensureHidden(): void {
+    this._fetchHidden();
+  }
+
+  /** Force a hidden-list re-fetch (after hide / unhide). Keeps the cached
+   * value visible while the refresh lands. */
+  invalidateHidden(): void {
+    this._fetchHidden();
+  }
+
+  private _fetchHidden(): void {
+    if (this._hiddenInFlight) return;
+    this._hiddenInFlight = true;
+    this._hiddenLoading.set(true);
+    this._hiddenError.set(null);
+    this.api.listHiddenPeople().subscribe({
+      next: (rows) => {
+        this._hidden.set(rows);
+        this._hiddenLoading.set(false);
+        this._hiddenInFlight = false;
+      },
+      error: (err: unknown) => {
+        this._hiddenError.set(err instanceof Error ? err : new Error(String(err)));
+        this._hiddenLoading.set(false);
+        this._hiddenInFlight = false;
+      },
+    });
+  }
+
   // ── Mutation pass-throughs ──────────────────────────────────────────────────
   //
-  // The store does not own the mutation endpoints (they live on
+  // The store does not own most mutation endpoints (they live on
   // BunApiBackendService and the component drives the toast/UX flow), but it
-  // exposes a single `await`-able delete helper used by the component's
-  // pessimistic delete path so eviction + list-invalidate happen together.
+  // exposes `await`-able hide/unhide helpers so the cache bookkeeping
+  // (eviction + list invalidation) happens atomically with the mutation.
 
-  /** Pessimistic delete: removes the person server-side, evicts the cached
-   * detail, then invalidates the list so counts/membership refresh. Throws on
-   * failure so the caller can surface an error toast. */
-  async deletePerson(id: string): Promise<void> {
-    await firstValueFrom(this.api.deletePerson(id));
+  /** Soft-hide a person server-side, then evict its cached detail and
+   * invalidate BOTH lists so the person leaves the main list and appears on
+   * the Hidden page immediately. Throws on failure so the caller can surface
+   * an error toast. */
+  async hidePerson(id: string): Promise<void> {
+    await firstValueFrom(this.api.hidePerson(id));
     this.evictDetail(id);
     this.invalidate();
+    this.invalidateHidden();
+  }
+
+  /** Restore a hidden person, then invalidate BOTH lists so it returns to the
+   * main list and drops off the Hidden page. Throws on failure. */
+  async unhidePerson(id: string): Promise<void> {
+    await firstValueFrom(this.api.unhidePerson(id));
+    this.evictDetail(id);
+    this.invalidate();
+    this.invalidateHidden();
   }
 }
