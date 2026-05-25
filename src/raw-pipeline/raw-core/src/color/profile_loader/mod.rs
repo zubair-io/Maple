@@ -234,15 +234,20 @@ pub fn to_dcp_profile(
     let cold = profile.illum1.and_then(|i| profile.cm1.map(|m| (i, m)));
     let warm = profile.illum2.and_then(|i| profile.cm2.map(|m| (i, m)));
 
-    // HSM source: prefer the bundle's. When the bundle ships no HSM tables
-    // (current default — matrices-only bundle), pass through the source
-    // DNG's HSM (raw.hsm_data1/2). That preserves the pre-#324 behavior on
-    // bodies whose DNG already shipped Adobe's HSM (e.g. Canon 5DM3 DNG
-    // post-conversion-from-CR2 — the embedded HSM matches Adobe Standard's
-    // by construction). Vendor RAW formats lack DNG tags, so the fallback
-    // is `None`, same as before.
-    let hsm1 = profile.hsm1.as_ref().or(raw.hsm_data1.as_ref());
-    let hsm2 = profile.hsm2.as_ref().or(raw.hsm_data2.as_ref());
+    // HSM source: the bundle's tables ONLY. We deliberately do NOT backfill
+    // from the source DNG's `raw.hsm_data1/2` — that was a cross-source mix
+    // (bundle CM/FM + embedded HSM) which contradicts the `BundleConfident`
+    // provenance contract (#397 invariant; PR #402 review). The backfill is
+    // also unreachable for any legitimate case under the FM-keyed resolver:
+    // a DNG that ships embedded HSM necessarily ships an FM too, so it
+    // resolves at `EmbeddedFull` (Tier 1) and applies its own HSM directly —
+    // it never reaches this bundle path. Vendor RAWs carry no embedded HSM.
+    // So the only thing `.or(raw.hsm_data1/2)` ever did was the forbidden
+    // mix. When the (matrices-only) bundle ships no HSM, the bundled profile
+    // simply has no HSM — graceful degradation, honest tag. Rebuild
+    // `profiles.bin` with `--include-hsm` to give Tier 2 bodies HSM.
+    let hsm1 = profile.hsm1.as_ref();
+    let hsm2 = profile.hsm2.as_ref();
 
     if let (Some((il_cold, m_cold)), Some((il_warm, m_warm))) = (cold, warm) {
         if il_cold != il_warm {

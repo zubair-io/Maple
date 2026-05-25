@@ -499,21 +499,33 @@ fn lerp_hsm_for_cct(
 /// the tier from this return value, not a second lookup.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ProfileTier {
-    /// Tier 1. The RAW is a DNG carrying a full embedded DCP — ColorMatrix
-    /// **and** ForwardMatrix **and** HueSatMap. Read directly from the file:
-    /// camera-vendor authoritative, per-shot data, used as one coherent
-    /// matched set (its FM, HSM, and the develop chain's PTC/PLT). Preferred
-    /// over the bundle, which structurally eliminates the bundle-matrices-
-    /// over-embedded-curves mixing.
+    /// Tier 1. A DNG whose embedded profile carries a **ForwardMatrix** (the
+    /// calibrated camera→XYZ-D50 adaptation), plus its ColorMatrix and a
+    /// HueSatMap when present. The FM is the discriminant: its presence is
+    /// precisely what makes an embedded profile rich enough to outrank the
+    /// bundle, so the embedded profile is used whole (its FM, HSM, and the
+    /// develop chain's PTC/PLT) and the bundle is never consulted — which
+    /// structurally eliminates bundle-matrices-over-embedded-curves mixing.
+    /// (The canonical full DCP CM+FM+HSM lands here, as does the common
+    /// medium-format CM+FM-without-HSM profile.)
     EmbeddedFull,
     /// Tier 2. The camera body has a *confident* bundle match — byte-exact
     /// `UniqueCameraModel` equality or an explicit alias-table entry, never
     /// fuzzy/substring (#397 § 2.4). Carries CM + FM (+ HSM when the bundle
-    /// ships it) from `profiles.bin`.
+    /// ships it) from `profiles.bin` **only** — never backfilled from the
+    /// file's embedded tables (that would be cross-source mixing; see
+    /// `profile_loader::to_dcp_profile`).
     BundleConfident,
-    /// Tier 3. The RAW is a DNG carrying ColorMatrix but **no** ForwardMatrix
-    /// and **no** HueSatMap. CM read from the file; FM/HSM contributions
-    /// degrade to identity.
+    /// Tier 3. A DNG whose embedded profile has a ColorMatrix but **no
+    /// ForwardMatrix** — the Bradford-CA path. Ranks *below* the bundle
+    /// because the bundle's CM+FM is the richer adaptation; the missing FM
+    /// is exactly why. This tier is keyed on **FM-absence, not
+    /// CM-aloneness** — so if a profile somehow rode in with a HueSatMap but
+    /// no FM (which real DCPs do not ship), that HSM **is still applied**:
+    /// it's embedded-sourced, so there's no cross-source mix, and dropping
+    /// free embedded accuracy would be perverse. The FM is what's missing;
+    /// the tier name reflects the resulting Bradford path, not a promise
+    /// that no other tables exist.
     EmbeddedCmOnly,
     /// Tier 4. None of the above applied — typically a vendor RAW
     /// (CR2/NEF/ARW/RAF/RW2/…) whose body the bundle does not cover. Uses
@@ -543,22 +555,30 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// Tier order — first hit wins, always the highest the data supports
 /// (#397 § 2.7, no silent downgrade):
 ///
-///   1. **`EmbeddedFull`** — DNG with CM + FM + HSM embedded. The camera's
-///      own profile is used as a coherent matched set; the bundle is never
-///      consulted, which structurally eliminates the bundle-matrices-over-
+///   1. **`EmbeddedFull`** — DNG whose embedded profile has a ForwardMatrix
+///      (CM+FM, HSM when present). FM-presence is the priority discriminant:
+///      it's what makes the embedded profile rich enough to beat the bundle,
+///      so the camera's own profile is used whole and the bundle is never
+///      consulted — structurally eliminating the bundle-matrices-over-
 ///      embedded-curves mixing that #345 had to gate around.
 ///   2. **`BundleConfident`** — confident bundle/alias hit (#397 § 2.4).
-///   3. **`EmbeddedCmOnly`** — DNG with CM but no FM/HSM.
+///   3. **`EmbeddedCmOnly`** — DNG with embedded CM but no ForwardMatrix
+///      (the Bradford-CA path; ranks below the bundle's CM+FM).
 ///   4. **`RawlerFallback`** — rawler's dcraw-lineage CM (a vendor RAW the
 ///      bundle misses), or identity when no matrix exists at all.
 pub fn profile_for_with_tier(raw: &RawImage) -> crate::Result<(DcpProfile, ProfileTier)> {
     let has_cm = !raw.color_matrices.is_empty();
     let has_fm = !raw.forward_matrices.is_empty();
-    let has_hsm = raw.hsm_data1.is_some() || raw.hsm_data2.is_some();
 
-    // Tier 1: DNG with a full embedded DCP (CM + FM + HSM). Used whole,
-    // ahead of the bundle.
-    if raw.is_dng && has_cm && has_fm && has_hsm {
+    // Tier 1: DNG whose embedded profile carries a ForwardMatrix. The FM is
+    // the calibrated cam→XYZ-D50 adaptation — its presence is exactly what
+    // makes the embedded profile rich enough to prefer over the bundle, so
+    // we use it whole (CM+FM, plus HSM/PTC/PLT when present) ahead of the
+    // bundle. HSM is NOT required here: a real DNG that ships HSM also ships
+    // FM, so it lands at Tier 1 and applies its own HSM directly — which is
+    // why the bundle path never needs to (and must not) backfill embedded
+    // HSM (see `profile_loader::to_dcp_profile`).
+    if raw.is_dng && has_cm && has_fm {
         if let Some(p) = embedded_profile(raw) {
             return Ok((p, ProfileTier::EmbeddedFull));
         }
@@ -573,8 +593,13 @@ pub fn profile_for_with_tier(raw: &RawImage) -> crate::Result<(DcpProfile, Profi
         // all — never observed across the bundle. Fall through.
     }
 
-    // Tier 3: DNG with embedded CM but no FM/HSM.
-    if raw.is_dng && has_cm {
+    // Tier 3: DNG with embedded CM but no ForwardMatrix (Bradford-CA path).
+    // `!has_fm` is implied here (Tier 1 already consumed the FM-bearing
+    // DNGs), but stated explicitly so the predicate documents the FM-keyed
+    // boundary and survives reordering. A stray embedded HSM (no real DCP
+    // ships one without an FM) still flows through `embedded_profile` — it's
+    // embedded-sourced, so no mixing; the absent FM is what defines the tier.
+    if raw.is_dng && has_cm && !has_fm {
         if let Some(p) = embedded_profile(raw) {
             return Ok((p, ProfileTier::EmbeddedCmOnly));
         }
@@ -836,6 +861,28 @@ mod tests {
         assert_eq!(tier, ProfileTier::EmbeddedFull);
         assert!(profile.forward_matrix.is_some(), "FM must carry through at Tier 1");
         assert!(profile.hsm.is_some(), "HSM must carry through at Tier 1");
+    }
+
+    /// Tier 1 is keyed on ForwardMatrix presence, not the full CM+FM+HSM
+    /// triple (#402 review). A DNG with CM+FM but **no** HSM — the common
+    /// medium-format profile — must resolve to `EmbeddedFull` (preferred
+    /// over the bundle), NOT be mislabeled `EmbeddedCmOnly`. Regression
+    /// guard for the provenance-tag bug Copilot flagged.
+    #[test]
+    fn dng_with_cm_and_fm_no_hsm_resolves_embedded_full() {
+        let mut cms = std::collections::HashMap::new();
+        let cm = Matrix3([[0.7, 0.0, 0.0], [0.0, 0.7, 0.0], [0.0, 0.0, 0.7]]);
+        cms.insert(Illuminant::D65, cm);
+        let mut fms = std::collections::HashMap::new();
+        fms.insert(Illuminant::D65, Matrix3::IDENTITY);
+        let mut raw = make_raw(cms);
+        raw.is_dng = true;
+        raw.forward_matrices = fms; // FM present, HSM absent
+        let (profile, tier) = profile_for_with_tier(&raw).expect("embedded full should succeed");
+        assert_eq!(tier, ProfileTier::EmbeddedFull,
+            "CM+FM (no HSM) is FM-bearing → EmbeddedFull, not EmbeddedCmOnly");
+        assert!(profile.forward_matrix.is_some());
+        assert!(profile.hsm.is_none(), "no HSM was supplied");
     }
 
     // ── New dual-illuminant tests ─────────────────────────────────────────────
