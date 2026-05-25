@@ -108,23 +108,25 @@ export interface FaceModels {
  * current model pair. Bump this string when the pipeline changes in a way
  * that makes existing embeddings incompatible with new ones (different
  * recognizer architecture, different alignment template, different
- * normalisation). The re-embed migration uses it as the gate for whether
- * to recompute an existing face's embedding.
+ * normalisation). The `face-embed` stage stamps this onto every face it
+ * embeds; a model swap is performed by bumping that stage's `targetVersion`,
+ * which re-runs the recognizer on every detected face through the normal
+ * worker loop.
  *
  * The tag intentionally encodes the training dataset (`glint360k`) as
  * well as the architecture (`arcface_r100`) — distinct datasets produce
  * distinct embedding spaces even when the architecture matches, and a
- * future swap from one to the other must trigger a re-embed migration.
+ * future swap from one to the other must coincide with a `face-embed`
+ * targetVersion bump.
  *
  * Tag for the v1 pipeline (SCRFD-500m + MobileFaceNet, bbox-only crop):
- * `"mobilefacenet_v1"` — used by the migration to identify rows that
- * predate this commit. Old face docs without an `embedding_version` field
+ * `"mobilefacenet_v1"`. Old face docs without an `embedding_version` field
  * are treated as `"mobilefacenet_v1"`.
  */
 export const CURRENT_EMBEDDING_VERSION = 'arcface_r100_glint360k_v1' as const;
 
 /** Tag used for face docs produced by the OLD (pre-antelopev2) pipeline.
- * Surfaced as a constant so the migration's matcher and the test suite
+ * Surfaced as a constant so any version-gating code and the test suite
  * agree on the exact string. */
 export const LEGACY_EMBEDDING_VERSION = 'mobilefacenet_v1' as const;
 
@@ -327,7 +329,8 @@ export async function loadFaceModels(config: FaceModelsConfig = {}): Promise<Fac
     // common case for 64–128-core hosts running Docker), most of those pins
     // fail with EINVAL and ORT spams stderr — one ERROR line per thread per
     // session — before the load even completes. The face stage runs with
-    // `concurrency: 1` (workers/stages/face.ts), so a small pool is plenty.
+    // `concurrency: 1` (workers/stages/face-detect.ts + face-embed.ts), so a
+    // small pool is plenty.
     const sessionOptions = {
       intraOpNumThreads: resolveOrtThreadCount(
         process.env.MAPLE_FACE_ORT_INTRA_OP_THREADS,

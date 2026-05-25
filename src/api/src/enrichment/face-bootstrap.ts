@@ -63,7 +63,8 @@ async function applyPausedToWorkerConfig(name: string, paused: boolean): Promise
  *
  * The bespoke FaceWorker class has been retired (face-worker.ts deleted).
  * Face detection is now handled by the unified stage-controller runtime
- * (src/api/src/workers/stages/face.ts). This bootstrap retains the model-
+ * (src/api/src/workers/stages/face-detect.ts + face-embed.ts). This
+ * bootstrap retains the model-
  * preload side-effect so the ONNX session is warm before the first claim
  * arrives. The start/stop interface is kept so index.ts doesn't need editing.
  */
