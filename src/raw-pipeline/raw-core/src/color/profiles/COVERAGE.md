@@ -13,9 +13,9 @@ chain (#397 § 2.3): `EmbeddedFull` (a DNG's own CM+FM+HSM) wins over
 only when no matrix exists at all). So a "bundle hit" below means the
 body is **eligible for Tier 2** — it is actually used only when the
 file does not carry a full embedded DCP that the resolver prefers at
-Tier 1. A bundle *miss* on a DNG falls to its embedded CM (Tier 3), and
+Tier 1. A bundle _miss_ on a DNG falls to its embedded CM (Tier 3), and
 on a vendor RAW to rawler's CM (Tier 4) — never to identity (the #345
-regression #397 corrects). The per-fixture *resolved tier* is verified
+regression #397 corrects). The per-fixture _resolved tier_ is verified
 by the in-tree probe on a machine that has the gitignored fixtures;
 the table below tracks Tier-2 eligibility, which is fixture-independent.
 
