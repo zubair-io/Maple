@@ -68,10 +68,7 @@ pub enum Look {
 
 impl Default for Look {
     fn default() -> Self {
-        // #397: Neutral is the current default — the #371 LUT was masking the
-        // pre-4-tier DCP gap. The LUT and `Look::Default` stay available; a
-        // new Look is re-derived against the corrected distribution.
-        Self::Neutral
+        Self::Default
     }
 }
 
@@ -101,9 +98,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_look_is_neutral_variant() {
-        // #397: default skips the Look until a new one is re-derived.
-        assert_eq!(Look::default(), Look::Neutral);
+    fn default_look_is_lut_variant() {
+        // The empirical LUT is the new-user default (#371, re-derived
+        // 2026-05-24 against the 4-tier DCP distribution per #397).
+        assert_eq!(Look::default(), Look::Default);
     }
 
     #[test]

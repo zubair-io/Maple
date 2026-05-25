@@ -413,8 +413,8 @@ mod tests {
         // Force `Look::Neutral` here — this test validates a structural
         // pipeline invariant (achromatic input yields achromatic output,
         // monotone ramp stays monotone) and the empirical Look LUT has
-        // intentionally different per-channel curves (R/G floor at ~7, B
-        // floor at ~19), which makes neutral-axis preservation
+        // intentionally different per-channel curves (R/G floor at ~12, B
+        // floor at ~16), which makes neutral-axis preservation
         // colorimetric, not byte-exact. Pipeline aesthetics are tested
         // separately by the parity harness; this is the invariant gate.
         let model = AdjustmentModel { look: crate::view::look::Look::Neutral, ..AdjustmentModel::default() };

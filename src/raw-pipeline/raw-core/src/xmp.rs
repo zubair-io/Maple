@@ -98,9 +98,9 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
             };
         }
         // Display Look (ticket #371). Absent attribute -> the model default,
-        // which is `Look::Neutral` under #397 (the Look is skipped while the
-        // 4-tier DCP path is validated and a new Look is re-derived). An
-        // explicit `papp:Look="Default"` still selects the #371 LUT.
+        // `Look::Default` (the empirical LUT, re-derived 2026-05-24 against
+        // the 4-tier DCP distribution per #397). An explicit
+        // `papp:Look="Neutral"` selects strict scene-referred output.
         "papp:Look" => {
             m.look = match value {
                 "neutral" | "Neutral" => Look::Neutral,
@@ -401,12 +401,13 @@ mod tests {
     // -----------------------------------------------------------------
 
     #[test]
-    fn defaults_look_is_neutral() {
-        // Per #397: the default skips the Look. Mirrors the assertion in
-        // `types::adjustment::tests` — duplicated here so the XMP module's
-        // defaults invariant is self-contained.
+    fn defaults_look_is_lut() {
+        // The default is the empirical LUT (#371, re-derived 2026-05-24
+        // against the 4-tier DCP distribution per #397). Mirrors the
+        // assertion in `types::adjustment::tests` — duplicated here so
+        // the XMP module's defaults invariant is self-contained.
         let m = AdjustmentModel::default();
-        assert_eq!(m.look, Look::Neutral);
+        assert_eq!(m.look, Look::Default);
     }
 
     #[test]
@@ -436,14 +437,14 @@ mod tests {
     }
 
     #[test]
-    fn parse_look_absent_defaults_to_neutral() {
-        // Sidecars without `papp:Look` pick up the model default, which is
-        // `Look::Neutral` under #397. Verifies the parser leaves `look` at
-        // the default when the attribute is missing.
+    fn parse_look_absent_defaults_to_lut() {
+        // Sidecars without `papp:Look` pick up the model default, the
+        // empirical LUT (`Look::Default`). Verifies the parser leaves
+        // `look` at the default when the attribute is missing.
         let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
             papp:HighlightRecoveryMode="Off"/></x>"#;
         let m = parse(xml).unwrap();
-        assert_eq!(m.look, Look::Neutral);
+        assert_eq!(m.look, Look::Default);
     }
 
     #[test]
