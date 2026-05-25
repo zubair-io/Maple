@@ -9,9 +9,11 @@ import { describe, it, expect } from 'vitest';
 import type { ApiPerson, ApiPersonDetail, ApiPersonFace, Bbox } from '@maple-common';
 import {
   AUTO_NAME_RE,
+  PEOPLE_GRID,
   averageConfidence,
   bulkFailureLabel,
   bulkSuccessLabel,
+  chunkPeopleRows,
   clusteringSummary,
   deletePersonConfirm,
   errorMessage,
@@ -20,12 +22,17 @@ import {
   filterNamed,
   hiddenFaceCount,
   isAutoNamed,
+  peopleCardWidth,
+  peopleGridColumns,
+  peopleRowHeight,
+  peopleRowKey,
   peopleStats,
   pickSelectedFaces,
   selectAllKeys,
   sortPeople,
   toggleSelection,
   visibleFaces,
+  withNaturalDims,
 } from './people.vm';
 
 // ── Fixture builders ───────────────────────────────────────────────────────
@@ -429,5 +436,136 @@ describe('errorMessage', () => {
   it('falls back to String(err) for unknown shapes', () => {
     expect(errorMessage(42)).toBe('42');
     expect(errorMessage('raw string')).toBe('raw string');
+  });
+});
+
+// ── Virtual-scroll row packing ──────────────────────────────────────────────
+//
+// These helpers drive the `cdk-virtual-scroll-viewport` windowing on the
+// People list and were never exercised in a browser, so the unit coverage is
+// the only guarantee the packing math agrees with the rendered grid (gap,
+// card width, row height, chunking).
+
+describe('peopleGridColumns', () => {
+  it('returns the largest whole column count whose cards + gaps fit the width', () => {
+    // minCardW 180, GAP 12. floor((width + GAP) / (minCardW + GAP)).
+    // width 900: floor(912 / 192) = 4.
+    expect(peopleGridColumns(900)).toBe(4);
+    // width 600: floor(612 / 192) = 3.
+    expect(peopleGridColumns(600)).toBe(3);
+  });
+
+  it('honours a custom min card width (narrow-viewport density)', () => {
+    // minCardW 140, GAP 12 → (140 + 12) = 152. width 600: floor(612 / 152) = 4.
+    expect(peopleGridColumns(600, 140)).toBe(4);
+  });
+
+  it('clamps to at least one column for narrow / zero / negative widths', () => {
+    // A container narrower than one card still gets a single column.
+    expect(peopleGridColumns(100)).toBe(1);
+    expect(peopleGridColumns(0)).toBe(1);
+    expect(peopleGridColumns(-50)).toBe(1);
+  });
+
+  it('fits exactly one column when the width equals a single min card', () => {
+    expect(peopleGridColumns(PEOPLE_GRID.MIN_CARD_W)).toBe(1);
+  });
+});
+
+describe('peopleCardWidth', () => {
+  it('stretches cards to fill the row (the `1fr` behaviour), netting the gaps', () => {
+    // 4 cols in 900px: (900 - 3*12) / 4 = 864 / 4 = 216.
+    expect(peopleCardWidth(900, 4)).toBe(216);
+  });
+
+  it('equals the full width for a single column (no inter-card gap)', () => {
+    expect(peopleCardWidth(500, 1)).toBe(500);
+  });
+
+  it('falls back to the min card width for non-positive cols / width', () => {
+    expect(peopleCardWidth(900, 0)).toBe(PEOPLE_GRID.MIN_CARD_W);
+    expect(peopleCardWidth(0, 4)).toBe(PEOPLE_GRID.MIN_CARD_W);
+  });
+});
+
+describe('peopleRowHeight', () => {
+  it('is the (rounded) card side + meta footer + one bottom gap', () => {
+    // This MUST stay equal to cardWidth + META_H + GAP — the `[style.gap.px]` /
+    // `[style.margin-bottom.px]` template bindings use the same GAP, so the
+    // viewport `itemSize` and the rendered row spacing can't drift.
+    const cardW = 216;
+    expect(peopleRowHeight(cardW)).toBe(Math.round(cardW + PEOPLE_GRID.META_H + PEOPLE_GRID.GAP));
+  });
+
+  it('rounds fractional card widths to a whole pixel', () => {
+    const cardW = 215.4;
+    expect(peopleRowHeight(cardW)).toBe(Math.round(cardW + PEOPLE_GRID.META_H + PEOPLE_GRID.GAP));
+    expect(Number.isInteger(peopleRowHeight(cardW))).toBe(true);
+  });
+});
+
+describe('chunkPeopleRows', () => {
+  const rows = (n: number): ApiPerson[] =>
+    Array.from({ length: n }, (_, i) => person({ id: `p${i}`, name: `P${i}` }));
+
+  it('chunks an exact multiple into full rows', () => {
+    const out = chunkPeopleRows(rows(6), 3);
+    expect(out.map((r) => r.length)).toEqual([3, 3]);
+    expect(out[0].map((p) => p.id)).toEqual(['p0', 'p1', 'p2']);
+    expect(out[1].map((p) => p.id)).toEqual(['p3', 'p4', 'p5']);
+  });
+
+  it('leaves a short ragged last row', () => {
+    const out = chunkPeopleRows(rows(7), 3);
+    expect(out.map((r) => r.length)).toEqual([3, 3, 1]);
+    expect(out[2].map((p) => p.id)).toEqual(['p6']);
+  });
+
+  it('returns no rows for an empty input', () => {
+    expect(chunkPeopleRows([], 4)).toEqual([]);
+  });
+
+  it('treats a non-positive column count as one column rather than looping forever', () => {
+    const out = chunkPeopleRows(rows(3), 0);
+    expect(out.map((r) => r.length)).toEqual([1, 1, 1]);
+  });
+});
+
+describe('peopleRowKey', () => {
+  it('keys a packed row off its first card id (survives re-packs of the head item)', () => {
+    expect(peopleRowKey(0, [person({ id: 'p3' }), person({ id: 'p4' })])).toBe('p3');
+  });
+
+  it('falls back to the index for an empty row', () => {
+    expect(peopleRowKey(2, [])).toBe('r2');
+  });
+});
+
+describe('withNaturalDims', () => {
+  it('records dimensions for a new url, never mutating the input map', () => {
+    const cur = new Map();
+    const next = withNaturalDims(cur, '/a.jpg', 800, 600);
+    expect(next).not.toBe(cur);
+    expect(cur.size).toBe(0);
+    expect(next.get('/a.jpg')).toEqual({ nw: 800, nh: 600 });
+  });
+
+  it('returns the SAME map reference when the url already holds those dims', () => {
+    const cur = new Map([['/a.jpg', { nw: 800, nh: 600 }]]);
+    expect(withNaturalDims(cur, '/a.jpg', 800, 600)).toBe(cur);
+  });
+
+  it('updates when the dims differ for an existing url', () => {
+    const cur = new Map([['/a.jpg', { nw: 800, nh: 600 }]]);
+    const next = withNaturalDims(cur, '/a.jpg', 1024, 768);
+    expect(next).not.toBe(cur);
+    expect(next.get('/a.jpg')).toEqual({ nw: 1024, nh: 768 });
+  });
+
+  it('ignores zero / negative dimensions (unloaded or broken images)', () => {
+    const cur = new Map();
+    expect(withNaturalDims(cur, '/a.jpg', 0, 600)).toBe(cur);
+    expect(withNaturalDims(cur, '/a.jpg', 800, 0)).toBe(cur);
+    expect(withNaturalDims(cur, '/a.jpg', -1, -1)).toBe(cur);
   });
 });

@@ -97,8 +97,12 @@
 .people-viewport {
   flex: 1;
   min-height: 0;
-  // Negative margin + matching padding so the focus ring / hover border on
-  // edge cards isn't clipped by the viewport's overflow.
+  // No negative-margin/padding compensation is needed here: `.person-card`'s
+  // hover/focus indicator is an in-bounds `border-color` change with
+  // `outline: none`, so it never paints outside the card box and the
+  // viewport's `overflow` can't clip it. If a card ever grows an outer outline
+  // or box-shadow focus ring, add `margin: 0 -Npx` + matching padding so the
+  // viewport's overflow doesn't shave it.
   width: 100%;
 }
 

@@ -140,6 +140,37 @@ export function chunkPeopleRows(rows: readonly ApiPerson[], cols: number): ApiPe
   return out;
 }
 
+/** `trackBy` key for a virtualised packed row: the first card's id so row
+ * identity survives re-packs of the same head item; falls back to the index
+ * for an (empty) row. */
+export function peopleRowKey(index: number, row: readonly ApiPerson[]): string {
+  return row.length ? row[0].id : `r${index}`;
+}
+
+// ── Image natural-dimension cache ────────────────────────────────────────────
+
+/** Source pixel dimensions of a thumb, read from the `<img>` `(load)` event. */
+export interface NaturalDims {
+  nw: number;
+  nh: number;
+}
+
+/** Return a `(url → NaturalDims)` map updated with the given dimensions, or the
+ * SAME map reference when there's nothing to change (zero/negative dims, or the
+ * url already holds these exact dims). Keeping the ref stable lets the caller's
+ * signal skip a needless emission. Never mutates the input. */
+export function withNaturalDims(
+  cur: ReadonlyMap<string, NaturalDims>,
+  url: string,
+  nw: number,
+  nh: number,
+): ReadonlyMap<string, NaturalDims> {
+  if (nw <= 0 || nh <= 0) return cur;
+  const prev = cur.get(url);
+  if (prev && prev.nw === nw && prev.nh === nh) return cur;
+  return new Map(cur).set(url, { nw, nh });
+}
+
 // ── Detail-view derivation ────────────────────────────────────────────────
 
 /** Visible (threshold-filtered + confidence-sorted) faces. Sort is

@@ -284,6 +284,36 @@ describe('PeopleStore', () => {
     expect(store.detail()?.name).toBe('Renamed');
   });
 
+  it('clears a stale detailError once a later detail fetch succeeds', () => {
+    // Regression: previously `_detailError` was only reset in
+    // setActiveDetailId(), so an `invalidateDetail()` re-fetch (or SWR
+    // refresh) that succeeded left the old error on screen over fresh data.
+    const subjects: Subject<ApiPersonDetail>[] = [];
+    const api = new ApiStub();
+    api.getPerson = vi.fn(() => {
+      const s = new Subject<ApiPersonDetail>();
+      subjects.push(s);
+      return s.asObservable();
+    });
+    makeBed(api);
+    store = TestBed.inject(PeopleStore);
+
+    // First detail fetch fails — error surfaces.
+    store.setActiveDetailId('p1');
+    subjects[0].error(new Error('detail boom'));
+    expect(store.detailError()?.message).toBe('detail boom');
+
+    // A later re-fetch of the same id must clear the stale error on START…
+    store.invalidateDetail('p1');
+    expect(store.detailError()).toBeNull();
+
+    // …and stay null once it lands successfully.
+    subjects[1].next(detail('p1', 'Alice'));
+    subjects[1].complete();
+    expect(store.detailError()).toBeNull();
+    expect(store.detail()?.name).toBe('Alice');
+  });
+
   it('deletePerson evicts the cached detail and invalidates the list', async () => {
     const { api } = makeBed();
     store = TestBed.inject(PeopleStore);
