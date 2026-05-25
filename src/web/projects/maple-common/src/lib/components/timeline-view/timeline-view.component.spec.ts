@@ -91,6 +91,19 @@ describe('TimelineViewComponent', () => {
     });
     library = TestBed.inject(LibraryStateService);
     timeline = TestBed.inject(TimelineStateService);
+    // The Timeline scopes its query to the registered library that owns the
+    // selection and sends the prefix RELATIVE to that root, so the derived
+    // params need a registered library to resolve against.
+    library.registeredFolders.set([
+      {
+        id: 'lib-1',
+        path: '/Lib',
+        label: 'Lib',
+        last_scan: null,
+        file_count: 0,
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
     library.sidebarTree.set([
       {
         kind: 'folder',
@@ -119,8 +132,14 @@ describe('TimelineViewComponent', () => {
     fixture.detectChanges();
 
     expect(searchStub.buckets).toHaveBeenCalled();
-    const params = searchStub.bucketsCalls[0] as { pathPrefix?: string; hasCapturedAt?: boolean };
-    expect(params.pathPrefix).toBe('/Lib/');
+    const params = searchStub.bucketsCalls[0] as {
+      pathPrefix?: string;
+      libraryId?: string;
+      hasCapturedAt?: boolean;
+    };
+    // Selecting the library root scopes by libraryId with no sub-path prefix.
+    expect(params.libraryId).toBe('lib-1');
+    expect(params.pathPrefix).toBeUndefined();
     expect(params.hasCapturedAt).toBe(true);
 
     const html = fixture.nativeElement.textContent as string;

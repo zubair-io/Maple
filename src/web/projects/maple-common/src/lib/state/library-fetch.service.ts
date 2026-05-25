@@ -8,6 +8,7 @@
 
 import { HttpErrorResponse } from '@angular/common/http';
 import { Injectable, effect, inject } from '@angular/core';
+import { FOLDER_LISTING_CACHE } from '../api/folder-listing-cache';
 import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
 import { GridFolderItem, SidebarEntry } from '../models/folder';
 import { AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
@@ -104,6 +105,7 @@ export class LibraryFetch {
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly prefs = inject(BrowsePreferencesService);
+  private readonly folderCache = inject(FOLDER_LISTING_CACHE);
 
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
@@ -337,16 +339,20 @@ export class LibraryFetch {
   }
 
   /**
-   * Insert minimal sibling-less sidebar nodes for each ancestor of
-   * `absPath` under the registered `libraryRoot`, and auto-expand the
-   * library root + every ancestor so the deep selection is visible in
-   * the sidebar from the moment the page loads.
+   * Bring a deep-linked sub-folder into the sidebar: synthesize the ancestor
+   * chain so the selection has a node to highlight immediately, auto-expand
+   * the library root + every ancestor, and — crucially — load each ancestor's
+   * real children so its SIBLINGS appear, not just the single node on the
+   * chain.
    *
-   * Children are loaded lazily — the synthesized nodes have no
-   * `childrenStatus`, so clicking the chevron triggers a real
-   * `expandFsFolder` fetch. The chain just needs to exist so
-   * `selectedSourceLabel` resolves and the highlight has somewhere
-   * to land.
+   * Without the sibling load, restoring a `?folder=…` deep-link painted only
+   * a thin spine (each ancestor showed exactly one child — the next link in
+   * the chain) and the rest of the tree stayed invisible until the user
+   * clicked into each level. We walk back up the chain and fetch every
+   * ancestor (the library root through the selected folder's direct parent)
+   * via the SWR cache, so the full tree fills in on load. The selected leaf
+   * itself is loaded by the `openSelfHostedSubfolder` call that drives the
+   * grid, so we stop at its parent.
    *
    * No-ops if `absPath` isn't a strict descendant of `libraryRoot`.
    */
@@ -361,9 +367,15 @@ export class LibraryFetch {
     // ancestor we're about to synthesize) are visible.
     this.prefs.setFolderOpen(`fs:${libraryRoot}`, true);
 
+    // Every node that owns a child on the chain — the library root through the
+    // selected folder's direct parent. Their children get a real fetch below
+    // so siblings populate.
+    const ancestors: { id: string; absPath: string }[] = [];
+
     let parentId = `fs:${libraryRoot}`;
     let parentPath = libraryRoot;
     for (let i = 0; i < segments.length; i++) {
+      ancestors.push({ id: parentId, absPath: parentPath });
       const seg = segments[i]!;
       parentPath = `${parentPath}/${seg}`;
       const childId = `fs:${parentPath}`;
@@ -394,6 +406,14 @@ export class LibraryFetch {
         this.prefs.setFolderOpen(childId, true);
       }
       parentId = childId;
+    }
+
+    // Load each ancestor's real children so siblings fill in. `expandFsFolder`
+    // is idempotent (no-ops once loaded/loading) and SWR-cached, so this is
+    // cheap on a warm reload and merges with the synthesized chain — the
+    // attach preserves existing nodes by id, keeping the deeper expansion.
+    for (const a of ancestors) {
+      this.expandFsFolder({ id: a.id, absPath: a.absPath, childrenStatus: undefined });
     }
   }
 
@@ -492,27 +512,41 @@ export class LibraryFetch {
     this.status.backendError.set(null);
     this.status.backendEmpty.set(false);
 
-    this.fsBrowse.listDir(absPath).subscribe({
-      next: (listing) => {
-        this._applyFsListing(id, absPath, listing);
-        // If a caller passed `selectAssetId` (e.g. EditorShell cold-loading
-        // a deep-linked asset), honour it. Otherwise select the first image
-        // so the detail panel has something to render.
-        if (selectAssetId) {
-          const target = this.store.assets().find((a) => a.id === selectAssetId);
-          if (target) this.selection.selectAsset(target.id);
-        } else {
-          const firstAsset = this.store.assets().find((a) => a.folderId === id);
-          if (firstAsset) this.selection.selectAsset(firstAsset.id);
+    // Select an asset only on the first paint that actually has a target —
+    // a cached paint should land the cursor instantly, and the later network
+    // revalidation must not clobber a selection the user made in between.
+    let selected = false;
+    const trySelect = (): void => {
+      if (selected) return;
+      if (selectAssetId) {
+        const target = this.store.assets().find((a) => a.id === selectAssetId);
+        if (target) {
+          this.selection.selectAsset(target.id);
+          selected = true;
         }
+      } else {
+        const firstAsset = this.store.assets().find((a) => a.folderId === id);
+        if (firstAsset) {
+          this.selection.selectAsset(firstAsset.id);
+          selected = true;
+        }
+      }
+    };
+
+    this._swrListDir(
+      absPath,
+      (listing, fresh) => {
+        this._applyFsListing(id, absPath, listing);
+        trySelect();
         this.status.backendLoading.set(false);
-        if (listing.dirs.length === 0 && listing.images.length === 0) {
+        if (fresh && listing.dirs.length === 0 && listing.images.length === 0) {
           // Empty folder — clear any leftover error banner; the grid will
-          // show its own "Folder is empty" state.
+          // show its own "Folder is empty" state. Only act on the fresh
+          // listing so a stale-empty cache entry can't flash the empty state.
           this.status.backendEmpty.set(false);
         }
       },
-      error: (err: HttpErrorResponse) => {
+      (err: HttpErrorResponse) => {
         this.status.backendLoading.set(false);
         const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
         this.status.backendError.set(
@@ -521,6 +555,46 @@ export class LibraryFetch {
             : `Failed to load folder: ${detail}`,
         );
       },
+    );
+  }
+
+  /**
+   * Stale-while-revalidate directory read. Paints the cached listing (from
+   * the synchronous in-memory tier, else the async IndexedDB tier) so the
+   * sidebar tree + grid appear instantly on re-navigation and full app
+   * reloads, then always revalidates over the network and re-applies the
+   * fresh listing on top.
+   *
+   * `apply` runs at most twice: once with the cached listing (`fresh=false`)
+   * and once with the network listing (`fresh=true`). The network result is
+   * authoritative and always wins — a late-arriving cache read is dropped
+   * once the fresh listing has landed.
+   */
+  private _swrListDir(
+    absPath: string,
+    apply: (listing: FsDirListing, fresh: boolean) => void,
+    onError: (err: HttpErrorResponse) => void,
+  ): void {
+    let freshArrived = false;
+
+    const cached = this.folderCache.peek(absPath);
+    if (cached) {
+      apply(cached, false);
+    } else {
+      // No synchronous hit — try the persistent tier. Drop the result if the
+      // network beat us to it.
+      void this.folderCache.get(absPath).then((listing) => {
+        if (listing && !freshArrived) apply(listing, false);
+      });
+    }
+
+    this.fsBrowse.listDir(absPath).subscribe({
+      next: (listing) => {
+        freshArrived = true;
+        this.folderCache.put(absPath, listing);
+        apply(listing, true);
+      },
+      error: onError,
     });
   }
 
@@ -653,9 +727,11 @@ export class LibraryFetch {
       this.store.patchTree(tree, node.id, (n) => ({ ...n, childrenStatus: 'loading' })),
     );
 
-    this.fsBrowse.listDir(node.absPath).subscribe({
-      next: (listing) => this._attachFsChildren(node.id, node.absPath!, listing.dirs),
-      error: (err: HttpErrorResponse) => {
+    const absPath = node.absPath;
+    this._swrListDir(
+      absPath,
+      (listing) => this._attachFsChildren(node.id, absPath, listing.dirs),
+      (err: HttpErrorResponse) => {
         const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
         this.store.sidebarTree.update((tree) =>
           this.store.patchTree(tree, node.id, (n) => ({
@@ -665,7 +741,7 @@ export class LibraryFetch {
           })),
         );
       },
-    });
+    );
   }
 
   /**
