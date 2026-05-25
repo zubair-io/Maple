@@ -25,6 +25,20 @@ describe('TimelineStateService', () => {
     });
     timeline = TestBed.inject(TimelineStateService);
     library = TestBed.inject(LibraryStateService);
+    // The Timeline scopes its server query to the registered library that
+    // owns the selection (longest path-prefix match), and sends the prefix
+    // RELATIVE to that library root. Register `/Lib` so the derived params
+    // can resolve a library id + relative prefix.
+    library.registeredFolders.set([
+      {
+        id: 'lib-1',
+        path: '/Lib',
+        label: 'Lib',
+        last_scan: null,
+        file_count: 0,
+        created_at: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
     library.sidebarTree.set([
       {
         kind: 'folder',
@@ -115,11 +129,27 @@ describe('TimelineStateService', () => {
       expect(timeline.params()).toBeNull();
     });
 
-    it('always sends hasCapturedAt:true and the resolved pathPrefix', () => {
+    it('sends hasCapturedAt:true, the library-relative pathPrefix, and libraryId', () => {
       const p = timeline.params();
       expect(p).not.toBeNull();
-      expect(p!.pathPrefix).toBe('/Lib/2026/');
+      // Relative to the owning library root `/Lib` — the server anchors this
+      // against `fileinfo.path`, which is the directory relative to the root.
+      expect(p!.pathPrefix).toBe('2026');
+      expect(p!.libraryId).toBe('lib-1');
       expect(p!.hasCapturedAt).toBe(true);
+    });
+
+    it('omits pathPrefix but keeps libraryId when the library root itself is selected', () => {
+      library.selectedSourceId.set('fs:/Lib');
+      const p = timeline.params();
+      expect(p).not.toBeNull();
+      expect(p!.pathPrefix).toBeUndefined();
+      expect(p!.libraryId).toBe('lib-1');
+    });
+
+    it('returns null when the owning library has not loaded yet', () => {
+      library.registeredFolders.set([]);
+      expect(timeline.params()).toBeNull();
     });
 
     it('threads the toolbar searchQuery through as q', () => {

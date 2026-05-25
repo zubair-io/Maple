@@ -20,6 +20,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from './library-state.service';
 import { SidebarEntry } from '../models/folder';
+import { ApiFolder } from '../api/bun-api-backend.service';
 import { SearchParams } from '../api/search.service';
 
 export type TimelineFlag = '' | 'pick' | 'reject';
@@ -54,15 +55,54 @@ export class TimelineStateService {
     return found.absPath.endsWith('/') ? found.absPath : `${found.absPath}/`;
   });
 
+  // ── Derived: registered library that owns the current selection ──────────
+  /**
+   * Longest path-prefix match of the absolute selection against the
+   * registered libraries. Drives both the `libraryId` scope and the
+   * library-relative `pathPrefix` (the server matches `fileinfo.path`, which
+   * is the directory RELATIVE to the library root — see below). Returns null
+   * when nothing filesystem-backed is selected or the library list hasn't
+   * loaded yet.
+   */
+  private readonly owningLibrary = computed<ApiFolder | null>(() => {
+    const prefix = this.pathPrefix();
+    if (!prefix) return null;
+    const abs = prefix.replace(/\/+$/, '');
+    let best: ApiFolder | null = null;
+    for (const f of this.state.registeredFolders()) {
+      const root = f.path.replace(/\/+$/, '');
+      if (abs === root || abs.startsWith(root + '/')) {
+        if (!best || root.length > best.path.replace(/\/+$/, '').length) best = f;
+      }
+    }
+    return best;
+  });
+
   // ── Derived: params bag for SearchService.search / .buckets ──────────────
   /**
    * Returns the params shape expected by `SearchService.buckets` (no
    * page/limit/sort) and the augmenting fields needed for `.search`. null
-   * when there's no path scope to operate on.
+   * when there's no path scope to operate on, or the owning library isn't
+   * known yet (the `registeredFolders` signal is a dependency, so this
+   * recomputes — and the Timeline refreshes — the moment it loads).
+   *
+   * `pathPrefix` is sent RELATIVE to the owning library root because the
+   * server anchors it against `fileinfo.path` (the per-asset directory
+   * relative to the library root). Sending the absolute path here is the
+   * bug that left every Timeline scope matching zero photos. `libraryId`
+   * scopes the query to the owning library so a relative prefix like
+   * `2026` can't accidentally match a same-named folder in another library.
    */
   readonly params = computed<Omit<SearchParams, 'page' | 'limit' | 'sort'> | null>(() => {
     const prefix = this.pathPrefix();
     if (!prefix) return null;
+    const owning = this.owningLibrary();
+    if (!owning) return null;
+
+    const root = owning.path.replace(/\/+$/, '');
+    const abs = prefix.replace(/\/+$/, '');
+    const rel = abs === root ? '' : abs.slice(root.length).replace(/^\/+/, '');
+
     const q = this.state.searchQuery().trim();
     const minR = this.minRating();
     const flag = this.flag();
@@ -70,7 +110,8 @@ export class TimelineStateService {
     const from = this.from();
     const to = this.to();
     return {
-      pathPrefix: prefix,
+      libraryId: owning.id,
+      pathPrefix: rel.length > 0 ? rel : undefined,
       hasCapturedAt: true,
       q: q.length > 0 ? q : undefined,
       rating: minR > 0 ? minR : undefined,
