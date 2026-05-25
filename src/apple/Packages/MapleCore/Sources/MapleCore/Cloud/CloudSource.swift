@@ -125,7 +125,24 @@ extension CloudSource: ImageSource {
     _ = sidecar
   }
 
-  public func search(_ query: SearchQuery) async throws -> [ImageRef]? { nil }
+  /// Free-text search against `GET /api/search`, scoped to this source's
+  /// library. The richer filter UI drives `CloudSearchClient` directly via
+  /// `SearchViewModel`; this protocol entry point covers the minimal
+  /// `q`/limit/offset envelope so generic `ImageSource` callers can search
+  /// a cloud library without knowing the full param surface.
+  public func search(_ query: SearchQuery) async throws -> [ImageRef]? {
+    var params = SearchParams(libraryID: folderID)
+    params.q = query.q
+    let client = CloudSearchClient(server: server, httpClient: httpClient)
+    let limit = query.limit ?? 100
+    let page = (query.offset ?? 0) / max(1, limit)
+    let resp = try await client.search(params, page: page, limit: limit)
+    let iso8601 = ISO8601DateFormatter()
+    return resp.results.map { a in
+      ImageRef(id: a.id, displayName: a.filename, url: nil,
+               captureDate: a.captured_at.flatMap { iso8601.date(from: $0) })
+    }
+  }
 
   // MARK: - Helpers
 

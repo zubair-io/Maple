@@ -19,10 +19,17 @@ struct AppShellToolbar: ToolbarContent {
     let isFullImage: Bool
     /// True when an `EditSession` is selected — gates the Export button.
     let hasSelection: Bool
+    /// True when search can run — i.e. a Maple Cloud library is selected.
+    /// Gates (disables) the search button on local / PhotoKit / SMB sources.
+    let searchAvailable: Bool
+    /// True when the search UI is currently showing — drives the button tint.
+    let isSearchActive: Bool
     /// Grid fill/fit toggle — toolbar both reads (icon) and writes (tap).
     @Binding var browseDisplayMode: GridDisplayMode
     /// Tapped when the user hits the Back chevron in Full-image mode.
     let onBack: () -> Void
+    /// Toggles the cloud search UI on/off.
+    let onToggleSearch: () -> Void
     /// Tapped when the user hits Export (also keyboard ⌘E).
     let onExport: () -> Void
     /// Triggered by the hidden ⌘O keyboard shortcut.
@@ -46,14 +53,19 @@ struct AppShellToolbar: ToolbarContent {
                 .keyboardShortcut(.escape, modifiers: [])
                 .accessibilityLabel("Back to Library")
             } else {
-                // TODO(UI-search): wire library search.
+                // Library search — Maple-Cloud-only (the /api/search endpoint
+                // is server-backed + auth-gated), so it's disabled unless a
+                // cloud library is selected.
                 Button {
-                    // no-op
+                    onToggleSearch()
                 } label: {
                     Image(systemName: "magnifyingglass")
-                        .foregroundStyle(MapleTokens.textMuted)
+                        .foregroundStyle(isSearchActive
+                                         ? MapleTokens.primary : MapleTokens.textMuted)
                 }
+                .disabled(!searchAvailable)
                 .accessibilityLabel("Search")
+                .accessibilityIdentifier("search-toggle")
             }
         }
         // Grid fill/fit toggle — only relevant in browse mode. Persists for

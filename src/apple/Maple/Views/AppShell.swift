@@ -146,6 +146,30 @@ struct AppShell: View {
     /// when the user switches to a non-PhotoKit source.
     @State var mergedCloudSource: CloudSource?
 
+    // MARK: - Cloud search
+
+    /// Whether the cloud search UI is showing. When true the center column
+    /// renders `CloudSearchView` instead of the grid / timeline. Toggled by
+    /// the toolbar magnifying-glass; only meaningful while a cloud library
+    /// is selected (see `searchAvailable`).
+    @State var isSearchActive = false
+    /// Data model for the active search session — constructed by
+    /// `activateSearch()`, torn down by `deactivateSearch()`.
+    @State var searchVM: SearchViewModel?
+    /// Thumb client + cache for search result cells. Built alongside
+    /// `searchVM` and reused for the session so the AuthenticatedHTTPClient's
+    /// 401-refresh coalescer isn't defeated by per-cell client churn (same
+    /// rationale as the timeline thumb client).
+    @State var searchThumbClient: CloudThumbClient?
+    @State var searchThumbCache: CloudThumbCache?
+
+    /// Search is only available against a Maple Cloud library — local /
+    /// PhotoKit / SMB sources have no server-side index to query.
+    var searchAvailable: Bool {
+        if case .cloudLibrary = librarySelection { return true }
+        return false
+    }
+
     // The root bookmark for the currently-open folder tree — used to claim
     // security scope when the user clicks a sub-folder cell inside the grid.
     @State var currentRootBookmark: Data?
@@ -213,6 +237,12 @@ struct AppShell: View {
             )
         }
         .onChange(of: librarySelection) { _, newValue in
+            // Close any active search when the user changes what they're
+            // looking at — the search VM is scoped to one library, so it
+            // would otherwise show stale results against the new selection.
+            // Teardown-only: the new selection's own load repopulates the
+            // center column, so we must not also trigger a restore here.
+            if isSearchActive { tearDownSearch() }
             // Cloud-current-path + Timeline VM are both only meaningful
             // while a cloud library is selected. Drop both on any
             // non-cloud selection so the sidebar tree's auto-expand /
@@ -257,12 +287,17 @@ struct AppShell: View {
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
+            isSearchActive: isSearchActive,
+            searchVM: searchVM,
+            searchThumbClient: searchThumbClient,
+            searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
             sidebar: { sharedSidebar },
             toolbarContent: { browseToolbarContent },
             onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
+            onCloseSearch: { deactivateSearch() },
             onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
             onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
             onNavigateFolder: { url in navigateFolder(url) },
@@ -346,12 +381,17 @@ struct AppShell: View {
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
+            isSearchActive: isSearchActive,
+            searchVM: searchVM,
+            searchThumbClient: searchThumbClient,
+            searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
             sidebar: { sharedSidebar },
             toolbarContent: { browseToolbarContent },
             onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
+            onCloseSearch: { deactivateSearch() },
             onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
             onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
             onNavigateFolder: { url in navigateFolder(url) },
@@ -373,8 +413,11 @@ struct AppShell: View {
         AppShellToolbar(
             isFullImage: mode == .fullImage,
             hasSelection: selectedSession != nil,
+            searchAvailable: searchAvailable,
+            isSearchActive: isSearchActive,
             browseDisplayMode: $browseDisplayMode,
             onBack: { mode = .browse },
+            onToggleSearch: { toggleSearch() },
             onExport: { showExport = true },
             onOpenFolder: { showFilePicker = true },
             onSettings: { showSettings = true }

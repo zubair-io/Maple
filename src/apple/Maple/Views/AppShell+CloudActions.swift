@@ -227,6 +227,65 @@ extension AppShell {
         }
     }
 
+    // MARK: - Cloud search
+
+    /// Toolbar magnifying-glass handler — flips the cloud search UI on/off.
+    @MainActor
+    func toggleSearch() {
+        if isSearchActive { deactivateSearch() }
+        else { activateSearch() }
+    }
+
+    /// Stand up a search session for the currently-selected cloud library.
+    /// Reuses the same AuthenticatedHTTPClient for the search + thumb
+    /// clients (one 401-refresh coalescer) for the VM's lifetime. No-op for
+    /// non-cloud selections — the toolbar button is disabled there anyway.
+    @MainActor
+    func activateSearch() {
+        guard case .cloudLibrary(let serverID, let folderID) = librarySelection else { return }
+        let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+        searchVM = SearchViewModel(
+            server: serverID,
+            libraryID: folderID,
+            searchClient: CloudSearchClient(server: serverID, httpClient: httpClient))
+        searchThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
+        searchThumbCache = CloudThumbCache()
+        isSearchActive = true
+    }
+
+    /// Drop the search session state without restoring the underlying view.
+    /// Used when the selection itself is changing — the new selection's own
+    /// load repopulates the center column, so a restore here would race it.
+    @MainActor
+    func tearDownSearch() {
+        isSearchActive = false
+        searchVM = nil
+        searchThumbClient = nil
+        searchThumbCache = nil
+    }
+
+    /// Tear down the search session and return to the library's normal view.
+    @MainActor
+    func deactivateSearch() {
+        tearDownSearch()
+        // Folder-mode restore: opening a search result routes through
+        // `openCloudAsset`, which replaces the browse grid with the single
+        // opened asset (and clears `currentSource`). Reload the directory so
+        // closing search returns to the full listing rather than one cell.
+        // Timeline-mode libraries keep `cloudTimelineVM` set and re-show the
+        // timeline on their own, so they need no restore here.
+        if cloudTimelineVM == nil,
+           case .cloudLibrary(let serverID, let folderID) = librarySelection,
+           let path = cloudCurrentPath {
+            let httpClient = makeAuthenticatedHTTPClient(server: serverID)
+            let source = CloudSource(server: serverID,
+                                     folderID: folderID,
+                                     libraryPath: path,
+                                     httpClient: httpClient)
+            Task { @MainActor in await browseVM.loadCloudDir(source, absPath: path) }
+        }
+    }
+
     /// Open the FullImage editor for a cloud asset selected from
     /// CloudTimelineView. Builds a bytes-providing AssetRef so the Rust
     /// pipeline can decode without a local file, and injects a
