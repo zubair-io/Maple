@@ -65,19 +65,26 @@ export async function faceEmbedHandler(image: ImageDoc, _ctx: StageContext): Pro
   const detector = defaultFaceDetector();
   const faces = image.faces ?? [];
   // No faces detected on this asset — nothing to embed. (face-detect having
-  // run is guaranteed by the `dependsOn: ['face-detect']` gate.)
-  if (faces.length === 0) return { wrote: true };
+  // run is guaranteed by the `dependsOn: ['face-detect']` gate.) Report zero
+  // faces so the auto-cluster cadence (which counts FACES, not assets) doesn't
+  // advance on a faceless asset.
+  if (faces.length === 0) {
+    clusterCoordinator().recordFacesEmbedded(0);
+    return { wrote: true };
+  }
 
   const loaded = await loadThumbBytes(image);
   if ('skip' in loaded) return loaded;
 
   const patch: Record<string, unknown> = {};
+  let embeddedCount = 0;
   for (let i = 0; i < faces.length; i++) {
     const face = faces[i]!;
     try {
       const embedding = await detector.embedFace(loaded.bytes, toDetection(face));
       patch[`faces.${i}.embedding`] = Array.from(embedding);
       patch[`faces.${i}.embedding_version`] = CURRENT_EMBEDDING_VERSION;
+      embeddedCount++;
     } catch (err) {
       if (err instanceof ThumbDecodeError) {
         return { skip: `${THUMB_UNDECODABLE_REASON}: ${err.message}` };
@@ -85,6 +92,11 @@ export async function faceEmbedHandler(image: ImageDoc, _ctx: StageContext): Pro
       throw err;
     }
   }
+  // Report the real FACE count for this asset to the auto-cluster coordinator
+  // (drives the "every N faces" cadence + the idle-edge "did any work?" gate).
+  // The generic per-tick `onProgress` hook only sees the asset count, so the
+  // accurate face count must come from here, where we know `image.faces`.
+  clusterCoordinator().recordFacesEmbedded(embeddedCount);
   return { patch };
 }
 
@@ -120,11 +132,13 @@ const faceEmbedStage = defineStage({
     pausedOnFirstBoot: true,
   },
   handler: faceEmbedHandler,
-  // Auto-clustering: after each poll tick, tell the clustering coordinator how
-  // many assets we embedded (and whether the queue drained). The coordinator
-  // single-flights `runOnlineClustering` and fires a pass on the idle edge or
-  // every N faces, so people populate during the embed run instead of only
-  // after a manual "Run clustering" click. Other stages leave this unset.
+  // Auto-clustering idle edge: after each poll tick, tell the coordinator
+  // whether the queue drained. This loop-level hook is asset-agnostic (it only
+  // knows the asset count, not the face count), so it carries ONLY the idle
+  // signal — the "every N faces" cadence is driven by `recordFacesEmbedded`,
+  // which the handler calls with the real per-asset face count. Together they
+  // populate people during the embed run instead of only after a manual "Run
+  // clustering" click. Other stages leave this unset.
   onProgress: (processedThisTick, idle) => {
     clusterCoordinator().notifyProgress(processedThisTick, idle);
   },
