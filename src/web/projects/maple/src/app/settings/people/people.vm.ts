@@ -312,11 +312,12 @@ export function faceCropTransform(
 
 // ── Copy / labels ─────────────────────────────────────────────────────────
 
-/** Confirm-prompt body for the per-row + detail-header delete buttons.
- * Pluralises "face"/"faces" honestly so the count chip never reads
- * "1 faces". */
-export function deletePersonConfirm(name: string, faceCount: number): string {
-  return `Delete "${name}"? Their ${faceCount} face${faceCount === 1 ? '' : 's'} will become unassigned.`;
+/** Confirm-prompt body for the per-row + detail-header hide buttons. Hiding
+ * is a soft action — the person moves to the Hidden page, their photos stay
+ * grouped, and they can be restored anytime. Pluralises "photo"/"photos"
+ * honestly so the copy never reads "1 photos". */
+export function hidePersonConfirm(name: string, faceCount: number): string {
+  return `Hide "${name}"? They'll move to the Hidden page; their ${faceCount} photo${faceCount === 1 ? '' : 's'} stay grouped and you can restore them anytime.`;
 }
 
 /** Toast text after a clustering run. Reads cleanly for the zero-result

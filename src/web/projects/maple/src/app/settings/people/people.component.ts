@@ -69,12 +69,12 @@ import {
   bulkSuccessLabel,
   chunkPeopleRows,
   clusteringSummary,
-  deletePersonConfirm,
   errorMessage,
   faceCropTransform,
   faceKey,
   filterNamed,
   hiddenFaceCount,
+  hidePersonConfirm,
   isAutoNamed,
   NaturalDims,
   PEOPLE_GRID,
@@ -453,32 +453,32 @@ export class PeopleComponent implements OnDestroy {
     });
   }
 
-  async deletePerson(person: ApiPerson): Promise<void> {
-    const ok = confirm(deletePersonConfirm(person.name, person.faceCount));
+  async hidePerson(person: ApiPerson): Promise<void> {
+    const ok = confirm(hidePersonConfirm(person.name, person.faceCount));
     if (!ok) return;
     try {
-      // Store's deletePerson evicts the cached detail + invalidates the list
-      // so counts/membership refresh and a recycled id can't serve a stale
-      // entry.
-      await this.store.deletePerson(person.id);
-      this.showToast(`Deleted ${person.name}`, 'success');
+      // Store's hidePerson flags the row hidden, evicts the cached detail, and
+      // invalidates both lists so the person leaves the main list and lands on
+      // the Hidden page. Faces stay grouped server-side (soft-hide, not delete).
+      await this.store.hidePerson(person.id);
+      this.showToast(`Hid ${person.name}`, 'success');
       if (this.selected()?.id === person.id) this.closeDetail();
     } catch (err) {
       this.showToast(errorMessage(err), 'error');
     }
   }
 
-  /** Detail-header "Delete cluster" — confirms against the open detail. */
-  async deleteSelectedCluster(): Promise<void> {
+  /** Detail-header "Hide person" — confirms against the open detail. */
+  async hideSelectedCluster(): Promise<void> {
     const detail = this.selected();
     if (!detail) return;
     const matching = this.people().find((p) => p.id === detail.id);
     const faceCount = matching?.faceCount ?? detail.faces.length;
-    const ok = confirm(deletePersonConfirm(detail.name, faceCount));
+    const ok = confirm(hidePersonConfirm(detail.name, faceCount));
     if (!ok) return;
     try {
-      await this.store.deletePerson(detail.id);
-      this.showToast(`Deleted ${detail.name}`, 'success');
+      await this.store.hidePerson(detail.id);
+      this.showToast(`Hid ${detail.name}`, 'success');
       this.closeDetail();
     } catch (err) {
       this.showToast(errorMessage(err), 'error');

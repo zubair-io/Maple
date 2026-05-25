@@ -204,6 +204,27 @@
   }
 }
 
+// Hidden page: "Restore" action on each card. Same chrome as `.card-delete`
+// but a positive (accent) hover instead of the destructive red.
+.card-restore {
+  background: transparent;
+  border: none;
+  font-family: var(--s-font);
+  font-size: 11px;
+  color: var(--s-text-dim);
+  cursor: pointer;
+  padding: 0;
+
+  &:hover {
+    color: var(--s-accent, var(--s-text));
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+
 // ── Detail view: header ────────────────────────────────────────────
 
 .detail-head {
