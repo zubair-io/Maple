@@ -37,8 +37,23 @@
 
 // ── List view ───────────────────────────────────────────────────────
 
+// List view fills the settings `.page` so the header stays fixed and the
+// virtual-scroll viewport owns the remaining height + its own scroll.
+.people-list-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
 .people-body {
   padding: 24px 36px;
+  // Flex child of `.people-list-view`: take the remaining height so the
+  // viewport inside can scroll. `min-height: 0` lets it shrink below content.
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .stats-line {
@@ -77,10 +92,21 @@
   }
 }
 
-.people-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
+// CDK virtual-scroll viewport for the card list. Fills the body's remaining
+// height and scrolls internally; only the visible rows are in the DOM.
+.people-viewport {
+  flex: 1;
+  min-height: 0;
+  // Negative margin + matching padding so the focus ring / hover border on
+  // edge cards isn't clipped by the viewport's overflow.
+  width: 100%;
+}
+
+// One packed row of fixed-width cards. Card widths are set inline from the
+// measured container width so they fill the row like the old `1fr` grid.
+.people-row {
+  display: flex;
+  align-items: stretch;
 }
 
 .person-card {
@@ -619,7 +645,6 @@
     margin-left: 0;
     width: 100%;
   }
-  .people-grid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  }
+  // Card column density on phones is driven by `minCardWidth()` in the
+  // component (140px), not CSS — the grid is now JS-packed for virtual scroll.
 }

@@ -31,9 +31,12 @@
 // `./people.vm.ts`. This file owns DI, signal wiring, and side effects.
 
 import {
+  AfterViewInit,
   ChangeDetectionStrategy,
   Component,
+  ElementRef,
   OnDestroy,
+  ViewChild,
   computed,
   effect,
   inject,
@@ -42,6 +45,7 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ScrollingModule } from '@angular/cdk/scrolling';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -51,6 +55,7 @@ import {
   Bbox,
   BunApiBackendService,
   FilesystemBrowseService,
+  PeopleStore,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -63,6 +68,7 @@ import {
   averageConfidence,
   bulkFailureLabel,
   bulkSuccessLabel,
+  chunkPeopleRows,
   clusteringSummary,
   deletePersonConfirm,
   errorMessage,
@@ -71,6 +77,9 @@ import {
   filterNamed,
   hiddenFaceCount,
   isAutoNamed,
+  peopleCardWidth,
+  peopleGridColumns,
+  peopleRowHeight,
   peopleStats,
   pickSelectedFaces,
   selectAllKeys,
@@ -86,6 +95,7 @@ import {
     DecimalPipe,
     FormsModule,
     RouterLink,
+    ScrollingModule,
     SettingsShellComponent,
     SettingsIconComponent,
     MapleVisibleOnceDirective,
@@ -94,18 +104,38 @@ import {
   styleUrl: './people.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class PeopleComponent implements OnDestroy {
+export class PeopleComponent implements AfterViewInit, OnDestroy {
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  readonly people = signal<ApiPerson[]>([]);
-  readonly loadError = signal<string | null>(null);
+  /** SWR cache for the people list + per-person detail. Renders cached data
+   * instantly on re-navigation and revalidates in the background. */
+  private readonly store = inject(PeopleStore);
+
+  /** List view, fed by the store. `?? []` so the template's `@for` and stats
+   * see an array before the first fetch resolves (the store's `data()` is
+   * `undefined` until then). */
+  readonly people = computed<ApiPerson[]>(() => this.store.data() ?? []);
+
+  /** Surfaces either the list error or the active-detail error — the template
+   * shows a single "Failed to load" toast. Normalised to a string message. */
+  readonly loadError = computed<string | null>(() => {
+    const err = this.store.error() ?? this.store.detailError();
+    return err ? errorMessage(err) : null;
+  });
+
   readonly clusteringBusy = signal<boolean>(false);
 
-  readonly selected = signal<ApiPersonDetail | null>(null);
-  readonly selectedLoading = signal<boolean>(false);
+  /** Active person detail, fed by the store's id-keyed cache. `?? null`
+   * matches the previous signal's shape (the template branches on truthiness). */
+  readonly selected = computed<ApiPersonDetail | null>(() => this.store.detail() ?? null);
+
+  /** First-fetch of the open detail (no cached value to show). A background
+   * refresh of an already-cached detail does NOT flip this — the cached panel
+   * stays on screen, matching SWR semantics. */
+  readonly selectedLoading = computed<boolean>(() => this.store.detailLoading());
 
   readonly editingId = signal<string | null>(null);
   readonly draftName = signal<string>('');
@@ -138,6 +168,45 @@ export class PeopleComponent implements OnDestroy {
   readonly sortedPeople = computed(() => sortPeople(this.people()));
 
   readonly namedPeople = computed(() => filterNamed(this.sortedPeople()));
+
+  // ── List-view virtual scroll ────────────────────────────────────────────
+  //
+  // The list grid is windowed by `cdk-virtual-scroll-viewport`. CDK
+  // virtualises a flat item stream by a fixed `itemSize`, so we pack the
+  // sorted people into fixed-height rows of `gridColumns()` cards each and
+  // virtualise the ROWS (`peopleRows()`). Column count + card width derive
+  // from the measured container width; the row height is the viewport's
+  // `itemSize`. The `(mapleVisibleOnce)` cover-lazy-load still fires per card
+  // as rows mount into the viewport's render window.
+
+  @ViewChild('peopleScrollContent', { read: ElementRef })
+  private peopleScrollContentRef?: ElementRef<HTMLElement>;
+
+  /** Measured inner width of the scroll viewport's content area. Seeded to a
+   * sane default until the ResizeObserver in `ngAfterViewInit` reports the
+   * real width. */
+  private readonly containerWidth = signal<number>(900);
+
+  /** Min card width — denser on narrow (phone) viewports, matching the old
+   * responsive `minmax(140px|180px, 1fr)` CSS. */
+  private readonly minCardWidth = computed(() => (this.containerWidth() <= 767 ? 140 : 180));
+
+  readonly gridColumns = computed(() =>
+    peopleGridColumns(this.containerWidth(), this.minCardWidth()),
+  );
+
+  /** Square card side (px) for the current column count + container width. */
+  readonly cardWidth = computed(() => peopleCardWidth(this.containerWidth(), this.gridColumns()));
+
+  /** Fixed row height fed to the viewport `itemSize`. */
+  readonly rowHeight = computed(() => peopleRowHeight(this.cardWidth()));
+
+  /** Sorted people packed into fixed-width rows for the virtual viewport. */
+  readonly peopleRows = computed(() => chunkPeopleRows(this.sortedPeople(), this.gridColumns()));
+
+  /** Track-by for virtualised rows: key off the first card's id so row
+   * identity survives re-packs of the same head item. */
+  trackRow = (_: number, row: ApiPerson[]): string => (row.length ? row[0].id : `r${_}`);
 
   readonly visibleFaces = computed(() => {
     const detail = this.selected();
@@ -213,20 +282,22 @@ export class PeopleComponent implements OnDestroy {
   readonly selectedRouteId = computed(() => this.routeParamMap().get('id'));
 
   constructor() {
-    this.refresh();
+    // SWR list: first entry fetches, later entries serve cached + refresh.
+    this.store.ensureList();
 
-    // URL → detail fetch. `selectedRouteId` is a computed signal so
-    // duplicate paramMap emissions for the same id don't re-fire this.
-    // The effect is owned by the component's DestroyRef, so teardown
-    // runs automatically on destroy.
+    // URL → detail. `selectedRouteId` is a computed signal so duplicate
+    // paramMap emissions for the same id don't re-fire this. The store's
+    // SWR cache renders a previously-visited person instantly while it
+    // revalidates in the background; a never-seen id shows the loading
+    // chrome. The effect is owned by the component's DestroyRef, so
+    // teardown runs automatically on destroy.
     effect(() => {
       const id = this.selectedRouteId();
-      if (id) {
-        this.openDetail(id);
-      } else {
-        this.selected.set(null);
-        this.selectedFaces.set(new Set());
-      }
+      this.store.setActiveDetailId(id ?? null);
+      // Clear the per-face selection whenever the active person changes — a
+      // selection keyed on the previous person's faces is meaningless once
+      // we switch detail (or return to the list).
+      this.selectedFaces.set(new Set());
     });
 
     // Detail-panel face thumbs prefetch eagerly — the visible-faces grid
@@ -242,8 +313,28 @@ export class PeopleComponent implements OnDestroy {
     });
   }
 
+  /** ResizeObserver on the viewport content so the column count + card/row
+   * sizes track the container width. Disconnected on destroy. */
+  private resizeObserver?: ResizeObserver;
+
+  ngAfterViewInit(): void {
+    const host = this.peopleScrollContentRef?.nativeElement;
+    if (!host) return;
+    if (typeof ResizeObserver === 'undefined') {
+      // SSR / very old browser — fall back to the measured width once.
+      this.containerWidth.set(host.clientWidth || 900);
+      return;
+    }
+    this.resizeObserver = new ResizeObserver((entries) => {
+      for (const e of entries) this.containerWidth.set(e.contentRect.width);
+    });
+    this.resizeObserver.observe(host);
+    this.containerWidth.set(host.clientWidth || 900);
+  }
+
   ngOnDestroy(): void {
     this.thumbs.destroy();
+    this.resizeObserver?.disconnect();
   }
 
   ensureCoverThumb(p: ApiPerson): void {
@@ -251,40 +342,33 @@ export class PeopleComponent implements OnDestroy {
     if (key) this.thumbs.ensure(key, p.coverAbsPath, p.coverAssetId);
   }
 
+  /** Re-fetch the people list. Routes through the store's `invalidate()` so
+   * the cached list stays on screen while the refresh lands — mutations that
+   * change membership/counts (rename, assign, hide, delete, cluster) call
+   * this so the list never shows stale data. */
   refresh(): void {
-    this.loadError.set(null);
-    this.api.listPeople().subscribe({
-      next: (rows) => this.people.set(rows),
-      error: (err) => this.loadError.set(errorMessage(err)),
-    });
+    this.store.invalidate();
   }
 
   selectPerson(id: string): void {
     void this.router.navigate(['/settings/people', id], { replaceUrl: true });
   }
 
+  /** Force a fresh fetch of an open person's detail (bypassing the SWR
+   * cached value). Used after a mutation touches that person so the panel
+   * reflects server state. */
   openDetail(id: string): void {
-    this.selectedLoading.set(true);
-    this.api.getPerson(id).subscribe({
-      next: (detail) => {
-        this.selected.set(detail);
-        this.selectedFaces.set(new Set());
-        this.selectedLoading.set(false);
-      },
-      error: (err) => {
-        this.selectedLoading.set(false);
-        this.loadError.set(errorMessage(err));
-      },
-    });
+    this.store.invalidateDetail(id);
   }
 
-  /** Re-fetch the open detail after a server-side mutation. If `id`
-   * matches the current URL, the route signal won't fire the
-   * detail-fetch effect (computed signals dedupe on equality), so call
-   * openDetail() directly. Otherwise navigate; the effect picks it up. */
+  /** Re-fetch the open detail after a server-side mutation. If `id` matches
+   * the current URL, the route signal won't re-fire the detail effect
+   * (computed signals dedupe on equality), so invalidate the store entry
+   * directly. Otherwise navigate; the effect picks it up and the store
+   * serves the cached entry (if any) while revalidating. */
   private refetchDetail(id: string): void {
     if (this.selectedRouteId() === id) {
-      this.openDetail(id);
+      this.store.invalidateDetail(id);
     } else {
       this.selectPerson(id);
     }
@@ -365,10 +449,12 @@ export class PeopleComponent implements OnDestroy {
     const ok = confirm(deletePersonConfirm(person.name, person.faceCount));
     if (!ok) return;
     try {
-      await firstValueFrom(this.api.deletePerson(person.id));
+      // Store's deletePerson evicts the cached detail + invalidates the list
+      // so counts/membership refresh and a recycled id can't serve a stale
+      // entry.
+      await this.store.deletePerson(person.id);
       this.showToast(`Deleted ${person.name}`, 'success');
       if (this.selected()?.id === person.id) this.closeDetail();
-      this.refresh();
     } catch (err) {
       this.showToast(errorMessage(err), 'error');
     }
@@ -383,10 +469,9 @@ export class PeopleComponent implements OnDestroy {
     const ok = confirm(deletePersonConfirm(detail.name, faceCount));
     if (!ok) return;
     try {
-      await firstValueFrom(this.api.deletePerson(detail.id));
+      await this.store.deletePerson(detail.id);
       this.showToast(`Deleted ${detail.name}`, 'success');
       this.closeDetail();
-      this.refresh();
     } catch (err) {
       this.showToast(errorMessage(err), 'error');
     }
