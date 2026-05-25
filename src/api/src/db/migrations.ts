@@ -31,8 +31,7 @@ export type MigrationId =
   | 'fileinfo-backfill-2026-05-20'
   | 'merge-duplicate-assets-2026-05-21'
   | 'drop-abs-path-2026-05-21'
-  | 'swap-maple-id-partial-filter-2026-05-23'
-  | 'seed-face-stage-split-2026-05-25';
+  | 'swap-maple-id-partial-filter-2026-05-23';
 
 interface MigrationDoc {
   _id: MigrationId;
@@ -370,90 +369,4 @@ export async function countAssetsMissingFileinfo(db: Db): Promise<number> {
     fileinfo: { $exists: false },
     $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }],
   });
-}
-
-// ---------------------------------------------------------------------------
-// seed-face-stage-split-2026-05-25
-//
-// The single `face` stage (detect + embed in one handler) was split into two
-// version-gated stages: `face-detect` (writes bbox + landmarks + confidence)
-// and `face-embed` (writes embedding + embedding_version, depends on
-// face-detect). See `workers/stages/face-detect.ts` / `face-embed.ts`.
-//
-// Existing assets already ran the old `face` stage to completion and carry
-// faces with embeddings, but their `stages` map has a `face` entry, not
-// `face-detect` / `face-embed`. Without intervention, every such asset would
-// look like it had never run either new stage and the whole library would
-// reprocess on deploy (re-running ~15k SCRFD + ArcFace inferences) — and
-// because face-embed re-detects nothing, that's pure wasted work that
-// produces near-identical embeddings.
-//
-// So we SEED: for every asset whose old `face` stage completed
-// (`stages.face.version >= 1`) and that doesn't already have the new
-// entries, write `stages.face-detect` and `stages.face-embed` at the new
-// stages' initial targetVersion (1) with a clean (non-dead, zero-attempts)
-// state. Those assets are then considered "done" by the orchestrator's
-// claim query and stay put until an operator explicitly bumps
-// `face-embed.targetVersion` for a model swap.
-//
-// Consequence for legacy faces: they were written before the detector
-// persisted `landmarks`, so a future face-embed re-run on them aligns the
-// crop from the bbox-derived synthetic template rather than real landmarks
-// (lower-quality embedding, but in the correct space). This matches the old
-// re-embed migration's behaviour exactly — it's acceptable and expected.
-//
-// The old `face` stage entry is left in place (not deleted): it's harmless,
-// nothing reads it anymore, and keeping it avoids orphaning historical state
-// / racing a concurrent writer.
-//
-// Idempotent: the `face-detect`/`face-embed` `$exists: false` guards make a
-// second run a no-op. Sentinel-gated in `ensureIndexes`.
-// ---------------------------------------------------------------------------
-
-export interface SeedFaceStageSplitResult {
-  updated: number;
-}
-
-// Baseline version stamped on legacy assets when the old single `face`
-// stage is migrated to the split stages. Inlined (rather than imported
-// from `workers/stages/face-detect.ts` / `face-embed.ts`) on purpose:
-// those modules pull in the ONNX/`sharp` face-detector chain at import
-// time, and this migration module is loaded on the boot path via
-// `client.ts` → `ensureIndexes`. Keeping the dependency direction one-way
-// (no migrations → workers/stages edge) avoids dragging the heavy face
-// deps into every boot and any import-cycle risk.
-//
-// This is intentionally pinned at 1 and does NOT track the stage
-// `targetVersion`s, which advance independently as the pipeline improves
-// (e.g. face-* are at v2 to re-detect + re-embed the back-catalog into the
-// antelopev2 R100 space). Seeding the legacy baseline BELOW the current
-// target is what makes seeded assets reprocess.
-const SEED_FACE_DETECT_VERSION = 1;
-const SEED_FACE_EMBED_VERSION = 1;
-
-export async function seedFaceStageSplit(db: Db): Promise<SeedFaceStageSplitResult> {
-  const cleanState = (version: number) => ({
-    version,
-    attempts: 0,
-    last_error: null,
-    processed_at: null,
-    dead: false,
-  });
-  const res = await db.collection('assets').updateMany(
-    {
-      // Old single `face` stage completed at least once.
-      'stages.face.version': { $gte: 1 },
-      // Don't clobber assets that already have the new entries (e.g. a
-      // partial prior run, or a re-run of this migration).
-      'stages.face-detect': { $exists: false },
-      'stages.face-embed': { $exists: false },
-    },
-    {
-      $set: {
-        'stages.face-detect': cleanState(SEED_FACE_DETECT_VERSION),
-        'stages.face-embed': cleanState(SEED_FACE_EMBED_VERSION),
-      },
-    },
-  );
-  return { updated: res.modifiedCount ?? 0 };
 }
