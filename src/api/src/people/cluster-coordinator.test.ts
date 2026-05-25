@@ -70,15 +70,15 @@ describe('resolveAutoclusterThreshold', () => {
 });
 
 describe('ClusterCoordinator — N-faces trigger', () => {
-  it('fires a pass once the running total reaches the threshold', async () => {
+  it('fires a pass once the running FACE total reaches the threshold', async () => {
     const { runner, calls } = makeRunner();
     const c = new ClusterCoordinator({ runner, faceThreshold: 10 });
 
-    c.notifyProgress(4, false); // 4 — below
+    c.recordFacesEmbedded(4); // 4 — below
     await tick();
     expect(calls()).toBe(0);
 
-    c.notifyProgress(6, false); // 10 — hits threshold
+    c.recordFacesEmbedded(6); // 10 — hits threshold
     await tick();
     expect(calls()).toBe(1);
     // Accumulator reset after the pass started.
@@ -88,10 +88,61 @@ describe('ClusterCoordinator — N-faces trigger', () => {
   it('does not fire below the threshold', async () => {
     const { runner, calls } = makeRunner();
     const c = new ClusterCoordinator({ runner, faceThreshold: 100 });
-    c.notifyProgress(50, false);
-    c.notifyProgress(40, false);
+    c.recordFacesEmbedded(50);
+    c.recordFacesEmbedded(40);
     await tick();
     expect(calls()).toBe(0);
+  });
+
+  it('counts FACES, not asset docs — a zero-face asset does not advance', async () => {
+    const { runner, calls } = makeRunner();
+    const c = new ClusterCoordinator({ runner, faceThreshold: 3 });
+    // Three assets, none of which had any faces — must not advance the counter
+    // (the old asset-count cadence would have fired here).
+    c.recordFacesEmbedded(0);
+    c.recordFacesEmbedded(0);
+    c.recordFacesEmbedded(0);
+    await tick();
+    expect(calls()).toBe(0);
+    expect(c._state.facesSinceLastPass).toBe(0);
+    // A single 3-face asset DOES cross the threshold.
+    c.recordFacesEmbedded(3);
+    await tick();
+    expect(calls()).toBe(1);
+  });
+
+  it('arms: reaching the threshold logs/triggers once until N more accumulate', async () => {
+    const { runner, calls, release, gate } = makeRunner();
+    gate(true); // hold the pass open so the threshold can't reset via runPass
+    const c = new ClusterCoordinator({ runner, faceThreshold: 10 });
+
+    c.recordFacesEmbedded(10); // crosses → one trigger
+    await tick();
+    expect(calls()).toBe(1);
+    expect(c._state.inFlight).toBe(true);
+    expect(c._state.dirty).toBe(false);
+    // Accumulator reset on the cross, so further records during the in-flight
+    // pass must NOT re-trigger until N more faces accumulate.
+    expect(c._state.facesSinceLastPass).toBe(0);
+
+    c.recordFacesEmbedded(4); // 4 < 10 — no new trigger, no dirty
+    await tick();
+    expect(c._state.dirty).toBe(false);
+
+    c.recordFacesEmbedded(6); // 10 again — crosses → arms the ONE follow-up
+    await tick();
+    expect(c._state.dirty).toBe(true);
+    expect(c._state.facesSinceLastPass).toBe(0);
+
+    // More faces while a follow-up is already queued must not re-arm/re-log.
+    c.recordFacesEmbedded(50);
+    await tick();
+    expect(c._state.dirty).toBe(true);
+
+    gate(false);
+    release();
+    await tick();
+    expect(calls()).toBe(2); // exactly the one coalesced follow-up
   });
 });
 
@@ -100,7 +151,8 @@ describe('ClusterCoordinator — idle edge', () => {
     const { runner, calls } = makeRunner();
     const c = new ClusterCoordinator({ runner, faceThreshold: 1000 });
 
-    c.notifyProgress(5, false); // did work
+    c.recordFacesEmbedded(5); // did work (embedded faces)
+    c.notifyProgress(2, false); // loop tick — still has work
     await tick();
     expect(calls()).toBe(0); // below N-threshold, no fire yet
 
@@ -115,7 +167,18 @@ describe('ClusterCoordinator — idle edge', () => {
     expect(calls()).toBe(1);
   });
 
-  it('does not fire on idle when no work was done since the last pass', async () => {
+  it('does not fire on idle when no faces were embedded since the last pass', async () => {
+    const { runner, calls } = makeRunner();
+    const c = new ClusterCoordinator({ runner, faceThreshold: 1000 });
+    // Loop processed asset docs but the handler reported zero faces on each.
+    c.recordFacesEmbedded(0);
+    c.notifyProgress(3, false);
+    c.notifyProgress(0, true);
+    await tick();
+    expect(calls()).toBe(0);
+  });
+
+  it('does not fire on idle when the stage was idle from the start', async () => {
     const { runner, calls } = makeRunner();
     const c = new ClusterCoordinator({ runner, faceThreshold: 1000 });
     // Stage idle from the start (at rest) — never did work.
@@ -128,12 +191,12 @@ describe('ClusterCoordinator — idle edge', () => {
   it('re-arms after a fresh batch of work following a drain', async () => {
     const { runner, calls } = makeRunner();
     const c = new ClusterCoordinator({ runner, faceThreshold: 1000 });
-    c.notifyProgress(3, false);
+    c.recordFacesEmbedded(3);
     c.notifyProgress(0, true); // fire #1
     await tick();
     expect(calls()).toBe(1);
 
-    c.notifyProgress(2, false); // new work
+    c.recordFacesEmbedded(2); // new faces embedded
     c.notifyProgress(0, true); // fire #2
     await tick();
     expect(calls()).toBe(2);
@@ -147,16 +210,16 @@ describe('ClusterCoordinator — single-flight coalescing', () => {
     const c = new ClusterCoordinator({ runner, faceThreshold: 5 });
 
     // First trigger starts a pass (now held open).
-    c.notifyProgress(5, false);
+    c.recordFacesEmbedded(5);
     await tick();
     expect(calls()).toBe(1);
     expect(c._state.inFlight).toBe(true);
 
     // Three more triggers while the pass is in flight → coalesce to ONE
     // follow-up, not three.
-    c.notifyProgress(5, false);
-    c.notifyProgress(5, false);
-    c.notifyProgress(5, false);
+    c.recordFacesEmbedded(5);
+    c.recordFacesEmbedded(5);
+    c.recordFacesEmbedded(5);
     await tick();
     expect(calls()).toBe(1); // still only the first pass running
     expect(c._state.dirty).toBe(true);
@@ -176,7 +239,7 @@ describe('ClusterCoordinator — single-flight coalescing', () => {
     const c = new ClusterCoordinator({ runner, faceThreshold: 5 });
 
     // Auto-trigger starts a held pass.
-    c.notifyProgress(5, false);
+    c.recordFacesEmbedded(5);
     await tick();
     expect(calls()).toBe(1);
 
@@ -211,14 +274,83 @@ describe('ClusterCoordinator — skip cases', () => {
       throw new Error('boom');
     };
     const c = new ClusterCoordinator({ runner, faceThreshold: 1 });
-    c.notifyProgress(1, false);
+    c.recordFacesEmbedded(1);
     await tick();
     expect(calls).toBe(1);
     expect(c._state.inFlight).toBe(false); // lock released despite throw
 
     // A later trigger still works.
-    c.notifyProgress(1, false);
+    c.recordFacesEmbedded(1);
     await tick();
     expect(calls).toBe(2);
+  });
+});
+
+describe('ClusterCoordinator — manual vs auto error semantics', () => {
+  it('auto-trigger SWALLOWS a runner failure (no throw, loop survives)', async () => {
+    let calls = 0;
+    const runner: ClusterRunner = async () => {
+      calls += 1;
+      throw new Error('auto boom');
+    };
+    const c = new ClusterCoordinator({ runner, faceThreshold: 1 });
+    // Auto path goes through recordFacesEmbedded → void trigger(); the
+    // rejection must NOT surface anywhere (it's logged + swallowed).
+    c.recordFacesEmbedded(1);
+    await tick();
+    expect(calls).toBe(1);
+    expect(c._state.inFlight).toBe(false);
+  });
+
+  it('manual runClusterNow RETHROWS when its pass fails', async () => {
+    const err = new Error('manual boom');
+    const runner: ClusterRunner = async () => {
+      throw err;
+    };
+    const c = new ClusterCoordinator({ runner, faceThreshold: 1000 });
+    await expect(c.runClusterNow()).rejects.toThrow('manual boom');
+    // Lock released; a later successful manual run resolves cleanly.
+    expect(c._state.inFlight).toBe(false);
+  });
+
+  it('manual run resolves with counts when its pass succeeds', async () => {
+    const runner: ClusterRunner = async () => ({ assigned: 7, newPeople: 2, scanned: 99 });
+    const c = new ClusterCoordinator({ runner, faceThreshold: 1000 });
+    const result = await c.runClusterNow();
+    expect(result).toEqual({ assigned: 7, newPeople: 2, scanned: 99 });
+  });
+
+  it('a coalesced manual call reflects the coalesced pass: rethrows if it threw', async () => {
+    let calls = 0;
+    let gated = true;
+    let pending: Array<() => void> = [];
+    const runner: ClusterRunner = async () => {
+      calls += 1;
+      if (gated) await new Promise<void>((resolve) => pending.push(resolve));
+      // The follow-up (coalesced) pass throws.
+      if (calls >= 2) throw new Error('coalesced boom');
+      return { assigned: 0, newPeople: 0, scanned: 0 };
+    };
+    const release = () => {
+      const w = pending;
+      pending = [];
+      for (const r of w) r();
+    };
+    const c = new ClusterCoordinator({ runner, faceThreshold: 5 });
+
+    // Auto-trigger starts a held first pass.
+    c.recordFacesEmbedded(5);
+    await tick();
+    expect(calls).toBe(1);
+
+    // Manual click coalesces onto the guaranteed follow-up (which will throw).
+    const manual = c.runClusterNow();
+    await tick();
+
+    gated = false;
+    release();
+    await expect(manual).rejects.toThrow('coalesced boom');
+    expect(calls).toBe(2);
+    expect(c._state.inFlight).toBe(false);
   });
 });

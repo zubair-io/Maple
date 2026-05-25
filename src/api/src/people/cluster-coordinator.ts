@@ -95,8 +95,14 @@ export class ClusterCoordinator {
   /** A trigger fired mid-pass — run exactly one more pass when this finishes. */
   private dirty = false;
   /** Result of the most recently COMPLETED pass — returned to manual callers
-   * that coalesced onto someone else's pass so the route still reports counts. */
-  private lastResult: RunOnlineClusteringResult = { assigned: 0, newPeople: 0, scanned: 0 };
+   * that coalesced onto someone else's pass so the route still reports counts.
+   * `null` until a pass has completed successfully. */
+  private lastResult: RunOnlineClusteringResult | null = null;
+  /** Error thrown by the most recently COMPLETED pass, or `null` if it
+   * succeeded. Manual callers (`runClusterNow`) rethrow this so the route
+   * returns a 5xx; auto-triggers ignore it (logged + swallowed). Set/cleared
+   * at the end of every pass iteration so it always reflects the latest pass. */
+  private lastError: unknown = null;
   /** Options for the NEXT pass start. The manual route may pass a
    * `similarityThreshold` override; auto-triggers pass none (default 0.5).
    * Applied at the start of each pass and then cleared so a one-off manual
@@ -111,30 +117,54 @@ export class ClusterCoordinator {
   }
 
   /**
-   * Poll-tick notification from a worker stage (wired as `onProgress`).
+   * Per-asset face count from the `face-embed` handler. Called once per asset
+   * the handler embeds, with the number of FACES it embedded on that asset
+   * (0..N). This — not the asset count — drives the N-faces trigger and the
+   * idle "did any work?" gate, so the cadence counts real faces and an asset
+   * with zero faces contributes nothing.
    *
-   * @param processedThisTick docs the stage claimed this tick.
-   * @param idle true iff the claim query matched nothing this tick.
+   * @param faces number of faces embedded on this asset (>= 0).
    */
-  notifyProgress(processedThisTick: number, idle: boolean): void {
-    if (processedThisTick > 0) {
-      this.facesSinceLastPass += processedThisTick;
-      this.sawWorkSinceDrain = true;
-    }
+  recordFacesEmbedded(faces: number): void {
+    if (faces <= 0) return;
+    this.facesSinceLastPass += faces;
+    this.sawWorkSinceDrain = true;
 
-    // N-faces trigger — progressive population during a long embed run.
-    if (this.facesSinceLastPass >= this.faceThreshold) {
+    // N-faces trigger — progressive population during a long embed run. Only
+    // fire on the rising CROSS of the threshold: reset the accumulator the
+    // moment we trigger (so N more faces must accumulate before it fires
+    // again), and skip while a trigger is already queued. Without this guard
+    // every subsequent record past the threshold re-logs + re-calls trigger()
+    // until the in-flight pass drains.
+    if (this.facesSinceLastPass >= this.faceThreshold && !(this.inFlight && this.dirty)) {
       log.info(
         { facesSinceLastPass: this.facesSinceLastPass, threshold: this.faceThreshold },
         'auto-cluster: N-faces threshold reached',
       );
+      // Reset now so the threshold must be re-crossed before the next fire.
+      // (`runPass` also resets at pass start; this covers the coalesced case
+      // where the trigger only sets `dirty` and no new pass starts yet.)
+      this.facesSinceLastPass = 0;
       void this.trigger();
-      return;
     }
+  }
 
-    // Idle edge — fire once on WORK → DRAINED, and only if there's unclustered
-    // work pending. Once drained, `sawWorkSinceDrain` is false so subsequent
-    // idle ticks are no-ops (the stage is idle ~all the time at rest).
+  /**
+   * Poll-tick notification from a worker stage (wired as `onProgress`). This
+   * is the loop-level, asset-agnostic signal — it only knows the asset count,
+   * not the face count, so it is used SOLELY for the idle edge. Face-count
+   * accumulation lives in `recordFacesEmbedded`, which the handler calls.
+   *
+   * @param _processedThisTick docs the stage claimed this tick (unused here —
+   *   face accounting happens in `recordFacesEmbedded`).
+   * @param idle true iff the claim query matched nothing this tick.
+   */
+  notifyProgress(_processedThisTick: number, idle: boolean): void {
+    // Idle edge — fire once on WORK → DRAINED, and only if faces were embedded
+    // since the last pass. Once drained, `sawWorkSinceDrain` is false so
+    // subsequent idle ticks are no-ops (the stage is idle ~all the time at
+    // rest). `facesSinceLastPass > 0` keeps it from firing when only
+    // zero-face assets passed through since the last pass.
     if (idle && this.sawWorkSinceDrain && this.facesSinceLastPass > 0) {
       this.sawWorkSinceDrain = false;
       log.info(
@@ -153,9 +183,17 @@ export class ClusterCoordinator {
    *
    * Manual-vs-auto concurrency: a manual click during an in-flight pass does
    * NOT run concurrently — it coalesces into the single guaranteed follow-up
-   * pass, then reads `lastResult`. The follow-up rescans, so the returned
-   * counts are correct for the post-call DB state, but they're the counts of
-   * the COALESCED pass, which may also absorb faces from concurrent triggers.
+   * pass, then reads that pass's outcome. The follow-up rescans, so the
+   * returned counts are correct for the post-call DB state, but they're the
+   * counts of the COALESCED pass, which may also absorb faces from concurrent
+   * triggers.
+   *
+   * Error semantics: if the pass this call resolved against THREW, that error
+   * is rethrown here so the route returns a 5xx instead of HTTP 200 with stale
+   * zeros. A coalesced manual call therefore throws iff the coalesced pass
+   * threw, and returns that pass's counts otherwise — never silently stale.
+   * (Auto-triggers go through `void this.trigger()` and never read this, so
+   * their failures stay logged-and-swallowed and don't crash the worker loop.)
    */
   async runClusterNow(options?: RunOnlineClusteringOptions): Promise<RunOnlineClusteringResult> {
     if (options) this.pendingOptions = options;
@@ -165,11 +203,12 @@ export class ClusterCoordinator {
       this.dirty = true;
       await this.inFlight;
       while (this.inFlight) await this.inFlight;
-      return this.lastResult;
+    } else {
+      await this.trigger();
+      while (this.inFlight) await this.inFlight;
     }
-    await this.trigger();
-    while (this.inFlight) await this.inFlight;
-    return this.lastResult;
+    if (this.lastError !== null) throw this.lastError;
+    return this.lastResult ?? { assigned: 0, newPeople: 0, scanned: 0 };
   }
 
   /**
@@ -199,6 +238,7 @@ export class ClusterCoordinator {
         try {
           const result = await this.runner(options);
           this.lastResult = result;
+          this.lastError = null;
           log.info(
             {
               assigned: result.assigned,
@@ -208,6 +248,11 @@ export class ClusterCoordinator {
             'auto-cluster pass complete',
           );
         } catch (err) {
+          // Record the error so a manual `runClusterNow` caller that resolved
+          // against this pass can rethrow it (→ 5xx). Auto-triggers never read
+          // `lastError`, so for them this stays logged-and-swallowed — a failed
+          // auto pass must not crash the worker loop; the next trigger retries.
+          this.lastError = err;
           const msg = err instanceof Error ? err.message : String(err);
           log.error({ err, msg }, 'auto-cluster pass failed');
         }
