@@ -743,13 +743,19 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
 
     // Refuse to clobber an existing destination. `fs.rename` would
     // overwrite an empty dir or fail on a non-empty one; an explicit
-    // 409 lets Finder surface a name collision instead.
+    // 409 lets Finder surface a name collision instead. Only ENOENT
+    // (target is free) is the happy path — any other stat error
+    // (permissions, transient IO) is surfaced as a 500 rather than
+    // silently proceeding to rename.
     try {
       await stat(absTarget);
       set.status = 409;
       return { error: 'Target already exists' };
-    } catch {
-      // ENOENT — the happy path.
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'ENOENT') {
+        set.status = 500;
+        return { error: `stat failed: ${err instanceof Error ? err.message : String(err)}` };
+      }
     }
 
     try {
