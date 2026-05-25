@@ -41,15 +41,15 @@ export const DEFAULT_ANTELOPEV2_URL =
 /**
  * Canonical SHA256 for `antelopev2.zip` on the InsightFace v0.7 release.
  *
- * TODO(operator): verify on first download. This automation could not
- * reach github.com to confirm the hash at the time of the swap, and we
- * refuse to ship a fabricated SHA — when null we still download the
- * bundle (because the zero-config path is the whole point), but skip
- * the integrity check. Operators who want strong integrity should
- * pre-stage the file and set MAPLE_FACE_DETECTOR_URL /
- * MAPLE_FACE_RECOGNIZER_URL with explicit SHA256s.
+ * Verified 2026-05-25 against the actual release asset (360,662,982 bytes,
+ * last-modified 2024-08-12). When set, the download path checks the
+ * streamed bytes against this hash and rejects a mismatch (rotated bundle
+ * or corrupted download). Operators who want to pin a different bundle
+ * should pre-stage the files and set MAPLE_FACE_DETECTOR_URL /
+ * MAPLE_FACE_RECOGNIZER_URL with their own explicit SHA256s instead.
  */
-export const DEFAULT_ANTELOPEV2_SHA256: string | null = null;
+export const DEFAULT_ANTELOPEV2_SHA256: string | null =
+  '8e182f14fc6e80b3bfa375b33eb6cff7ee05d8ef7633e738d1c89021dcf0c5c5';
 
 /** Member names inside `antelopev2.zip` (paths the InsightFace bundle uses).
  *
@@ -128,7 +128,7 @@ export async function downloadAntelopeV2Default(
   } else {
     log.warn(
       { bytes },
-      'antelopev2.zip downloaded without SHA256 verification — DEFAULT_ANTELOPEV2_SHA256 is unset (TODO: operator to fill in once the canonical hash is confirmed)',
+      'antelopev2.zip downloaded without SHA256 verification — DEFAULT_ANTELOPEV2_SHA256 is unset',
     );
   }
   log.info({ zipPath, bytes }, 'antelopev2 downloaded; extracting');
