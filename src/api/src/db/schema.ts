@@ -549,6 +549,14 @@ export interface PersonDoc {
   /** Number of assigned faces at the time `centroid` was last refreshed.
    * Lets `runOnlineClustering` skip the recompute when nothing changed. */
   centroid_face_count?: number;
+  /** Operator soft-hide marker. Absent/false = visible. A hidden person is
+   * filtered out of the normal `/api/people` listing and surfaced only on
+   * the Hidden page (`listHiddenPeople`), where it can be restored. The
+   * person's faces stay ASSIGNED to it, and the row stays a clustering seed
+   * (see `loadCentroids` / `recomputeCentroids`) so newly-detected matching
+   * faces keep flowing into the hidden person rather than spawning a fresh
+   * visible "Person N". Additive — no migration needed. */
+  hidden?: boolean;
 }
 
 export type PersonWithId = WithId<PersonDoc>;

@@ -224,6 +224,11 @@ export async function runOnlineClustering(
 export async function recomputeCentroids(): Promise<number> {
   const peopleC = await peopleCollection();
   const assets = await assetsCollection();
+  // Seed query is intentionally NOT filtered on `hidden`: a hidden (soft-
+  // deleted) person must remain a clustering seed so its newly-detected
+  // matching faces keep flowing into it and it STAYS hidden, rather than
+  // reforming as a fresh visible "Person N". Do not add a `hidden` filter
+  // here — see `hidePerson` in people.repo.ts.
   const livePeople = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
   let updated = 0;
   for (const person of livePeople) {
@@ -294,6 +299,10 @@ export async function recomputeCentroids(): Promise<number> {
 
 async function loadCentroids(): Promise<CentroidEntry[]> {
   const peopleC = await peopleCollection();
+  // Seed query is intentionally NOT filtered on `hidden`: hidden persons
+  // stay clustering seeds so their new faces keep being absorbed (the person
+  // stays hidden) instead of spawning a new visible cluster. Do not add a
+  // `hidden` filter here — see `hidePerson` in people.repo.ts.
   const rows = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
   const out: CentroidEntry[] = [];
   for (const r of rows) {

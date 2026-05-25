@@ -214,6 +214,53 @@ describe('runOnlineClustering', () => {
     expect(r.newPeople).toBe(2);
   });
 
+  it('a hidden person stays a clustering seed — new matching faces flow into it (no new visible cluster)', async () => {
+    if (!mongoReachable) return;
+    const { runOnlineClustering } = await import('./clustering-job.ts');
+    const { hidePerson } = await import('./people.repo.ts');
+
+    // First pass: one face near axis-0 forms a single auto-named person.
+    await insertAssetWithFaces([
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.05),
+      },
+    ]);
+    const r1 = await runOnlineClustering();
+    expect(r1.newPeople).toBe(1);
+    const seed = await db!.collection('people').findOne({ merged_into: null });
+    expect(seed).not.toBeNull();
+    const seedId = seed!._id.toHexString();
+
+    // Operator hides that person.
+    await hidePerson(seed!._id);
+
+    // A brand-new face matching the SAME axis arrives and clustering re-runs.
+    const newAsset = await insertAssetWithFaces([
+      {
+        bbox: { x: 2, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.08),
+      },
+    ]);
+    const r2 = await runOnlineClustering();
+
+    // The new face joined the hidden seed; NO new person was created.
+    expect(r2.assigned).toBe(1);
+    expect(r2.newPeople).toBe(0);
+    const newRow = await db!.collection<AssetDoc>('assets').findOne({ _id: newAsset });
+    expect(newRow?.faces?.[0]?.person_id).toBe(seedId);
+
+    // The seed is still the only (non-merged) person AND still hidden.
+    const all = await db!.collection('people').find({ merged_into: null }).toArray();
+    expect(all).toHaveLength(1);
+    expect(all[0]._id.toHexString()).toBe(seedId);
+    expect(all[0].hidden).toBe(true);
+  });
+
   it('seeds cover_asset_id on newly-created people', async () => {
     if (!mongoReachable) return;
     const { runOnlineClustering } = await import('./clustering-job.ts');
