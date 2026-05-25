@@ -103,7 +103,8 @@ describe('workers smoke test', () => {
       expect(stages.thumb?.version).toBe(thumbTarget);
 
       // The Plan 3 stages should still be at version 0 (untouched).
-      expect(stages.face?.version).toBe(0);
+      expect(stages['face-detect']?.version).toBe(0);
+      expect(stages['face-embed']?.version).toBe(0);
 
       // Clean up.
       await assetsColl.deleteOne({ _id: doc!._id as never });

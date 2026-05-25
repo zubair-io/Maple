@@ -68,7 +68,16 @@ describe('ensureStageIndexes — dead partial index', () => {
     const indexes = await db.collection('assets').indexes();
     const byName = new Map(indexes.map((i) => [i.name as string, i]));
 
-    for (const name of ['exif', 'thumb', 'preview', 'face', 'describe', 'geocode', 'meili']) {
+    for (const name of [
+      'exif',
+      'thumb',
+      'preview',
+      'face-detect',
+      'face-embed',
+      'describe',
+      'geocode',
+      'meili',
+    ]) {
       const idx = byName.get(`stage_${name}_dead`);
       expect(idx).toBeDefined();
       // Partial filter must restrict to dead: true so the index stays tiny.
