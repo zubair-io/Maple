@@ -49,8 +49,10 @@ struct SearchFilterPanel: View {
       }
     }
     .background(MapleTokens.surface)
-    // Apply any typed-but-not-committed text fields when the panel closes.
-    .onDisappear { Task { await vm.submit() } }
+    // Apply any typed-but-not-committed text fields when the panel closes —
+    // but only if something actually changed, so closing an untouched panel
+    // doesn't fire a redundant search + facets round-trip.
+    .onDisappear { Task { await vm.submitIfChanged() } }
   }
 
   // MARK: - Header

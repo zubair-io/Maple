@@ -134,11 +134,26 @@ extension CloudSource: ImageSource {
     var params = SearchParams(libraryID: folderID)
     params.q = query.q
     let client = CloudSearchClient(server: server, httpClient: httpClient)
-    let limit = query.limit ?? 100
-    let page = (query.offset ?? 0) / max(1, limit)
-    let resp = try await client.search(params, page: page, limit: limit)
+    let limit = max(1, query.limit ?? 100)
+    let offset = max(0, query.offset ?? 0)
+
+    // The server paginates by page, not offset. Fetch the page(s) spanning
+    // [offset, offset + limit) and slice, so a non-aligned offset (e.g. 50
+    // with limit 100) returns that exact window instead of silently
+    // snapping to the page boundary.
+    let dropFront = offset % limit
+    var collected: [SearchAsset] = []
+    var page = offset / limit
+    while collected.count < dropFront + limit {
+      let resp = try await client.search(params, page: page, limit: limit)
+      collected.append(contentsOf: resp.results)
+      if resp.results.count < limit { break }  // reached the last page
+      page += 1
+    }
+    let window = collected.dropFirst(dropFront).prefix(limit)
+
     let iso8601 = ISO8601DateFormatter()
-    return resp.results.map { a in
+    return window.map { a in
       ImageRef(id: a.id, displayName: a.filename, url: nil,
                captureDate: a.captured_at.flatMap { iso8601.date(from: $0) })
     }
