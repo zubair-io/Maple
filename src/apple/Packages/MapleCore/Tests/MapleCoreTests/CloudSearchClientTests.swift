@@ -46,4 +46,47 @@ final class CloudSearchClientTests: XCTestCase {
     XCTAssertEqual(result.results[0].rating, 4)
     XCTAssertEqual(result.results[0].camera?.model, "R5")
   }
+
+  // MARK: - relativePathPrefix
+
+  func test_relativePathPrefix_subfolderIsRelativeToRoot() {
+    XCTAssertEqual(
+      CloudSearchClient.relativePathPrefix(absPath: "/srv/Lib/2026/spain", libraryRoot: "/srv/Lib"),
+      "2026/spain")
+  }
+
+  func test_relativePathPrefix_libraryRootSelectedReturnsNil() {
+    // Root selected → no sub-folder narrowing (libraryId scopes it).
+    XCTAssertNil(
+      CloudSearchClient.relativePathPrefix(absPath: "/srv/Lib", libraryRoot: "/srv/Lib"))
+  }
+
+  func test_relativePathPrefix_tolerantOfTrailingSlashes() {
+    XCTAssertEqual(
+      CloudSearchClient.relativePathPrefix(absPath: "/srv/Lib/2026/", libraryRoot: "/srv/Lib/"),
+      "2026")
+    XCTAssertNil(
+      CloudSearchClient.relativePathPrefix(absPath: "/srv/Lib/", libraryRoot: "/srv/Lib"))
+  }
+
+  func test_relativePathPrefix_siblingPrefixDoesNotMatch() {
+    // `/srv/Lib` must not swallow `/srv/Lib2026` — the boundary slash guards it.
+    XCTAssertNil(
+      CloudSearchClient.relativePathPrefix(absPath: "/srv/Lib2026", libraryRoot: "/srv/Lib"))
+  }
+
+  func test_relativePathPrefix_nilOrForeignRootReturnsNil() {
+    XCTAssertNil(
+      CloudSearchClient.relativePathPrefix(absPath: "/srv/Lib/2026", libraryRoot: nil))
+    XCTAssertNil(
+      CloudSearchClient.relativePathPrefix(absPath: "/other/2026", libraryRoot: "/srv/Lib"))
+  }
+
+  func test_relativePathPrefix_filesystemRootLibrary() {
+    XCTAssertEqual(
+      CloudSearchClient.relativePathPrefix(absPath: "/Lib", libraryRoot: "/"),
+      "Lib")
+    XCTAssertNil(
+      CloudSearchClient.relativePathPrefix(absPath: "/", libraryRoot: "/"))
+  }
 }
