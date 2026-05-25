@@ -127,3 +127,62 @@ public struct SearchResponse: Codable, Sendable {
   public let limit: Int
   public let results: [SearchAsset]
 }
+
+// MARK: - Facets
+
+// DTOs for /api/search/facets. Mirrors the server's wire format and the
+// web `SearchFacets` interface. Decode-only — counts/ranges scoped to the
+// current filter set, used to populate the filter sidebar's option lists.
+
+public struct CameraFacet: Codable, Equatable, Sendable {
+  public let make: String?
+  public let model: String?
+  public let count: Int
+}
+
+/// Generic `{ value, count }` facet bucket (lenses, extensions, scene
+/// types, activities, subjects). `value` is optional because the server
+/// emits `null` for assets missing the field (e.g. lens-less captures).
+public struct ValueFacet: Codable, Equatable, Sendable {
+  public let value: String?
+  public let count: Int
+}
+
+/// `{ min, max }` numeric range. Decoded as Double so an integer ISO and a
+/// fractional aperture both round-trip without a decode failure.
+public struct RangeFacet: Codable, Equatable, Sendable {
+  public let min: Double
+  public let max: Double
+}
+
+public struct CaptureRangeFacet: Codable, Equatable, Sendable {
+  public let from: String
+  public let to: String
+}
+
+/// Tri-state screenshot bucket counts. The wire keys are the reserved
+/// words `true` / `false`, remapped here via CodingKeys.
+public struct ScreenshotFacet: Codable, Equatable, Sendable {
+  public let trueCount: Int
+  public let falseCount: Int
+  public let unknown: Int
+
+  enum CodingKeys: String, CodingKey {
+    case trueCount = "true"
+    case falseCount = "false"
+    case unknown
+  }
+}
+
+public struct SearchFacets: Codable, Sendable {
+  public let total: Int
+  public let cameras: [CameraFacet]
+  public let lenses: [ValueFacet]
+  public let extensions: [ValueFacet]
+  public let iso_range: RangeFacet?
+  public let capture_range: CaptureRangeFacet?
+  public let scene_types: [ValueFacet]
+  public let activities: [ValueFacet]
+  public let subjects: [ValueFacet]
+  public let is_screenshot: ScreenshotFacet
+}
