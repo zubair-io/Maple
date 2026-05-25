@@ -13,10 +13,10 @@
  * Mounted behind `requireAuth` in `src/api/src/index.ts`.
  */
 
-import { Elysia, t } from "elysia";
-import { ObjectId } from "mongodb";
-import { backfillCoverAssets } from "../people/clustering-job.ts";
-import { clusterCoordinator } from "../people/cluster-coordinator.ts";
+import { Elysia, t } from 'elysia';
+import { ObjectId } from 'mongodb';
+import { backfillCoverAssets } from '../people/clustering-job.ts';
+import { clusterCoordinator } from '../people/cluster-coordinator.ts';
 import {
   assignFaceToPerson,
   createPerson,
@@ -25,10 +25,10 @@ import {
   hideFace,
   listPeople,
   renamePerson,
-} from "../people/people.repo.ts";
-import { child as childLogger } from "../log.ts";
+} from '../people/people.repo.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("people:routes");
+const log = childLogger('people:routes');
 
 const NameBody = t.Object({
   name: t.String({ minLength: 1, maxLength: 200 }),
@@ -60,9 +60,9 @@ function safeObjectId(raw: string): ObjectId | null {
   }
 }
 
-export const peopleRoutes = new Elysia({ prefix: "/api/people" })
+export const peopleRoutes = new Elysia({ prefix: '/api/people' })
   // ── List ────────────────────────────────────────────────────────────
-  .get("/", async () => {
+  .get('/', async () => {
     // Opportunistic heal: installs clustered before cover_asset_id shipped
     // still have null covers on every person doc. backfillCoverAssets is
     // idempotent and fast on a healthy DB (one find that returns 0 rows).
@@ -72,7 +72,7 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
     } catch (err) {
       log.warn(
         { err: err instanceof Error ? err.message : String(err) },
-        "cover backfill failed; serving list anyway",
+        'cover backfill failed; serving list anyway',
       );
     }
     const rows = await listPeople({ withCounts: true });
@@ -96,16 +96,16 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
   })
 
   // ── Single ──────────────────────────────────────────────────────────
-  .get("/:id", async ({ params, set }) => {
+  .get('/:id', async ({ params, set }) => {
     const id = safeObjectId(params.id);
     if (!id) {
       set.status = 400;
-      return { error: "invalid person id" };
+      return { error: 'invalid person id' };
     }
     const detail = await getPerson(id);
     if (!detail) {
       set.status = 404;
-      return { error: "person not found" };
+      return { error: 'person not found' };
     }
     return {
       id: detail.person._id.toHexString(),
@@ -126,12 +126,12 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
 
   // ── Create (or dedupe) ──────────────────────────────────────────────
   .post(
-    "/",
+    '/',
     async ({ body, set }) => {
       const name = body.name.trim();
       if (name.length === 0) {
         set.status = 400;
-        return { error: "name must not be empty" };
+        return { error: 'name must not be empty' };
       }
       const person = await createPerson(name);
       return {
@@ -146,17 +146,17 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
 
   // ── Rename (merge on collision) ─────────────────────────────────────
   .put(
-    "/:id",
+    '/:id',
     async ({ params, body, set }) => {
       const id = safeObjectId(params.id);
       if (!id) {
         set.status = 400;
-        return { error: "invalid person id" };
+        return { error: 'invalid person id' };
       }
       const name = body.name.trim();
       if (name.length === 0) {
         set.status = 400;
-        return { error: "name must not be empty" };
+        return { error: 'name must not be empty' };
       }
       try {
         const result = await renamePerson(id, name);
@@ -167,11 +167,11 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.startsWith("person not found") || msg.startsWith("person already merged")) {
+        if (msg.startsWith('person not found') || msg.startsWith('person already merged')) {
           set.status = 404;
           return { error: msg };
         }
-        log.error({ err: msg }, "rename failed");
+        log.error({ err: msg }, 'rename failed');
         set.status = 500;
         return { error: msg };
       }
@@ -180,11 +180,11 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
   )
 
   // ── Soft delete (re-point faces, remove row) ────────────────────────
-  .delete("/:id", async ({ params, set }) => {
+  .delete('/:id', async ({ params, set }) => {
     const id = safeObjectId(params.id);
     if (!id) {
       set.status = 400;
-      return { error: "invalid person id" };
+      return { error: 'invalid person id' };
     }
     await deletePerson(id);
     set.status = 204;
@@ -193,10 +193,10 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
 
   // ── Online clustering ───────────────────────────────────────────────
   .post(
-    "/cluster",
+    '/cluster',
     async ({ body }) => {
       const opts: { similarityThreshold?: number } = {};
-      if (body && typeof body.similarity_threshold === "number") {
+      if (body && typeof body.similarity_threshold === 'number') {
         opts.similarityThreshold = body.similarity_threshold;
       }
       // Route the manual click through the shared single-flight coordinator so
@@ -214,24 +214,24 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
 
   // ── Manual assign / unassign ────────────────────────────────────────
   .post(
-    "/assign",
+    '/assign',
     async ({ body, set }) => {
       const assetId = safeObjectId(body.asset_id);
       if (!assetId) {
         set.status = 400;
-        return { error: "invalid asset_id" };
+        return { error: 'invalid asset_id' };
       }
       const personId = body.person_id ? safeObjectId(body.person_id) : null;
       if (body.person_id && !personId) {
         set.status = 400;
-        return { error: "invalid person_id" };
+        return { error: 'invalid person_id' };
       }
       try {
         await assignFaceToPerson(assetId, body.face_index, personId);
         return { ok: true };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        set.status = msg.includes("not found") ? 404 : 400;
+        set.status = msg.includes('not found') ? 404 : 400;
         return { error: msg };
       }
     },
@@ -240,19 +240,19 @@ export const peopleRoutes = new Elysia({ prefix: "/api/people" })
 
   // ── Hide a face (operator "this isn't a face I want tracked") ───────
   .post(
-    "/hide",
+    '/hide',
     async ({ body, set }) => {
       const assetId = safeObjectId(body.asset_id);
       if (!assetId) {
         set.status = 400;
-        return { error: "invalid asset_id" };
+        return { error: 'invalid asset_id' };
       }
       try {
         await hideFace(assetId, body.face_index);
         return { ok: true };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        set.status = msg.includes("not found") ? 404 : 400;
+        set.status = msg.includes('not found') ? 404 : 400;
         return { error: msg };
       }
     },
