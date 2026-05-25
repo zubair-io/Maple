@@ -48,14 +48,14 @@ export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 /** Reprocess target for `face-detect`. Bumping this re-queues every asset
  * whose stored detections are below it (the version-gated worker loop).
  *
- * v1 → v2: re-detect the back-catalog. Assets seeded from the old single
+ * v1 → v2: re-detect the back-catalog. Legacy faces from the old single
  * `face` stage carry SCRFD-500m boxes and NO landmarks (the legacy stage
  * never persisted them); re-running SCRFD-10G writes better boxes + the
  * 5-point landmarks `face-embed` needs for proper alignment. NOTE: this
  * rewrites the faces array, so `person_id` assignments reset to null —
- * a re-cluster is required afterward. The seed baseline stays pinned at 1
- * (see SEED_FACE_DETECT_VERSION in migrations.ts); it is intentionally
- * below this target so seeded legacy assets reprocess. */
+ * a re-cluster is required afterward. Assets below this version (including
+ * any legacy `face`-stage asset that lacks `face-detect` entirely)
+ * reprocess through the normal loop. */
 export const FACE_DETECT_TARGET_VERSION = 2;
 
 export async function faceDetectHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
@@ -92,7 +92,12 @@ function detectionToDoc(det: DetectedFace): AssetFaceDoc {
 const faceDetectStage = defineStage({
   name: 'face-detect',
   targetVersion: FACE_DETECT_TARGET_VERSION,
-  dependsOn: ['thumb'],
+  // Require thumb at v2, not just >= 1. `thumb` is at targetVersion 2 (the
+  // orientation fix); detecting against a stale v1 thumbnail would produce
+  // boxes/landmarks on a mis-oriented image and never self-correct after
+  // the thumb regenerates. Pinning the minVersion makes re-detect wait for
+  // the corrected thumbnail.
+  dependsOn: [{ name: 'thumb', minVersion: 2 }],
   defaults: {
     concurrency: 1,
     pollIntervalMs: 1000,

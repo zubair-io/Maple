@@ -42,19 +42,22 @@ import {
   THUMB_MISSING_REASON,
   THUMB_UNDECODABLE_REASON,
 } from './face-stage-shared.ts';
+import { FACE_DETECT_TARGET_VERSION } from './face-detect.ts';
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 
-/** Reprocess target for `face-embed`. Bumping this re-embeds every face
- * whose embedding is below it, in place (per-index `$set`, so `person_id`
- * / bbox / hidden are preserved).
+/** Reprocess target for `face-embed`. The worker loop gates on each
+ * asset's `stages.face-embed.version` vs this number (see run-stage.ts);
+ * bumping it re-queues every asset whose stage version is below it and
+ * re-embeds its faces in place (per-index `$set`, so `person_id` / bbox /
+ * hidden are preserved).
  *
  * v1 → v2: re-embed the back-catalog into the antelopev2 R100 / Glint360K
  * space. Existing embeddings were produced by the old MobileFaceNet model
  * and are mathematically unrelated — they must be recomputed (there is no
- * cross-model vector migration). The seed baseline stays pinned at 1 (see
- * SEED_FACE_EMBED_VERSION in migrations.ts), below this target, so seeded
- * legacy faces reprocess. */
+ * cross-model vector migration). Assets carrying the lower version (legacy
+ * faces, or anything below v2) go stale and reprocess through the normal
+ * loop. */
 export const FACE_EMBED_TARGET_VERSION = 2;
 
 export async function faceEmbedHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
@@ -100,7 +103,12 @@ function toDetection(face: AssetFaceDoc): DetectedFace {
 const faceEmbedStage = defineStage({
   name: 'face-embed',
   targetVersion: FACE_EMBED_TARGET_VERSION,
-  dependsOn: ['face-detect'],
+  // Require face-detect at ITS target, not just >= 1. Both stages sit at
+  // v2 for the R100 re-process; a plain `'face-detect'` dep would only
+  // enforce >= 1, letting face-embed re-embed an asset off its STALE v1
+  // boxes/landmarks before the v2 re-detect pass runs. Pinning to
+  // FACE_DETECT_TARGET_VERSION keeps re-embed strictly after re-detect.
+  dependsOn: [{ name: 'face-detect', minVersion: FACE_DETECT_TARGET_VERSION }],
   defaults: {
     concurrency: 1,
     pollIntervalMs: 1000,
