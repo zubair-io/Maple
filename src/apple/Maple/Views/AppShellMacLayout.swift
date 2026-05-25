@@ -31,6 +31,10 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let cloudTimelineVM: CloudTimelineViewModel?
     let cloudTimelineThumbClient: CloudThumbClient?
     let cloudTimelineThumbCache: CloudThumbCache?
+    let isSearchActive: Bool
+    let searchVM: SearchViewModel?
+    let searchThumbClient: CloudThumbClient?
+    let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
@@ -44,6 +48,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     // AppShell+PhotoKitActions). Centralising them here keeps the layout
     // pure-presentation and lets AppShell own all state mutation.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
+    /// Dismiss the cloud search UI.
+    let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
@@ -106,10 +112,15 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
+            isSearchActive: isSearchActive,
+            searchVM: searchVM,
+            searchThumbClient: searchThumbClient,
+            searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
             onSelectCloudAsset: onSelectCloudAsset,
+            onCloseSearch: onCloseSearch,
             onSelectLocalAsset: onSelectLocalAsset,
             onGrantPhotosAccess: onGrantPhotosAccess,
             onNavigateFolder: onNavigateFolder,

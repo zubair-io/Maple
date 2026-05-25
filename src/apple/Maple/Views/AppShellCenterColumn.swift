@@ -26,12 +26,22 @@ struct AppShellCenterColumn: View {
     let cloudTimelineVM: CloudTimelineViewModel?
     let cloudTimelineThumbClient: CloudThumbClient?
     let cloudTimelineThumbCache: CloudThumbCache?
+    /// When true (and the search VM + thumb client/cache are present) the
+    /// center column renders `CloudSearchView` instead of the grid /
+    /// timeline. Takes precedence over the timeline branch but not the
+    /// full-image editor.
+    let isSearchActive: Bool
+    let searchVM: SearchViewModel?
+    let searchThumbClient: CloudThumbClient?
+    let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
     // Center-column callbacks — forward into AppShell action methods.
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
+    /// Dismiss the cloud search UI.
+    let onCloseSearch: () -> Void
     let onSelectLocalAsset: (ImageRef) -> Void
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
@@ -53,6 +63,18 @@ struct AppShellCenterColumn: View {
                 // drop back to browse.
                 Color.clear.onAppear { onFullImageFallback() }
             }
+        } else if isSearchActive,
+                  let svm = searchVM,
+                  let thumbClient = searchThumbClient,
+                  let thumbCache = searchThumbCache {
+            CloudSearchView(
+                vm: svm,
+                thumbClient: thumbClient,
+                thumbCache: thumbCache,
+                displayMode: browseDisplayMode,
+                onSelectAsset: { asset in onSelectCloudAsset(asset, svm.server) },
+                onClose: onCloseSearch
+            )
         } else {
             if let vm = cloudTimelineVM,
                let thumbClient = cloudTimelineThumbClient,

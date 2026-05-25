@@ -47,6 +47,80 @@ final class CloudSearchClientTests: XCTestCase {
     XCTAssertEqual(result.results[0].camera?.model, "R5")
   }
 
+  func test_search_buildsURLAndParsesResponse() async throws {
+    let server = URL(string: "https://example.test")!
+    let json = """
+    {"total":1,"page":0,"limit":100,"results":[
+      {"id":"fs:/p/a.dng","folder_id":"lib-1","abs_path":"/p/a.dng","filename":"a.dng",
+       "rating":5,"flag":1,"color_label":"red"}
+    ]}
+    """
+    // Capture the outgoing request URL so we can assert the query contract.
+    let captured = CapturedURL()
+    let session = URLSession.stubbedSequence { req in
+      captured.value = req.url
+      let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                                 headerFields: ["Content-Type": "application/json"])!
+      return (Data(json.utf8), resp)
+    }
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    var params = SearchParams(libraryID: "lib-1")
+    params.q = "beach"
+    params.rating = 4
+    params.flag = .pick
+    let result = try await client.search(params, page: 0, limit: 100)
+
+    XCTAssertEqual(result.total, 1)
+    XCTAssertEqual(result.results.first?.color_label, "red")
+
+    let comps = URLComponents(url: captured.value!, resolvingAgainstBaseURL: false)!
+    XCTAssertEqual(comps.path, "/api/search")
+    let items = Dictionary(uniqueKeysWithValues:
+      (comps.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+    XCTAssertEqual(items["q"], "beach")
+    XCTAssertEqual(items["libraryId"], "lib-1")
+    XCTAssertEqual(items["rating"], "4")
+    XCTAssertEqual(items["flag"], "pick")
+    XCTAssertEqual(items["page"], "0")
+    XCTAssertEqual(items["limit"], "100")
+    XCTAssertEqual(items["sort"], "captured_desc")
+  }
+
+  func test_facets_parsesResponse() async throws {
+    let server = URL(string: "https://example.test")!
+    let json = """
+    {"total":7,
+     "cameras":[{"make":"Canon","model":"R5","count":4}],
+     "lenses":[{"value":"RF 50","count":3},{"value":null,"count":1}],
+     "extensions":[{"value":"dng","count":7}],
+     "iso_range":{"min":100,"max":6400},
+     "capture_range":{"from":"2024-01-01T00:00:00Z","to":"2024-12-31T23:59:59Z"},
+     "scene_types":[{"value":"outdoor","count":5}],
+     "activities":[{"value":"hiking","count":2}],
+     "subjects":[{"value":"mountain","count":3}],
+     "is_screenshot":{"true":1,"false":5,"unknown":1}}
+    """
+    let session = URLSession.stubbed(response: json)
+    let client = CloudSearchClient(
+      server: server,
+      httpClient: AuthenticatedHTTPClient.unauthenticated(server: server, urlSession: session))
+
+    let facets = try await client.facets(SearchParams(libraryID: "lib-1"))
+
+    XCTAssertEqual(facets.total, 7)
+    XCTAssertEqual(facets.cameras.first?.model, "R5")
+    XCTAssertEqual(facets.lenses.count, 2)
+    XCTAssertNil(facets.lenses[1].value)
+    XCTAssertEqual(facets.iso_range?.max, 6400)
+    XCTAssertEqual(facets.scene_types.first?.value, "outdoor")
+    XCTAssertEqual(facets.is_screenshot.trueCount, 1)
+    XCTAssertEqual(facets.is_screenshot.falseCount, 5)
+    XCTAssertEqual(facets.is_screenshot.unknown, 1)
+  }
+
   // MARK: - relativePathPrefix
 
   func test_relativePathPrefix_subfolderIsRelativeToRoot() {
@@ -89,4 +163,9 @@ final class CloudSearchClientTests: XCTestCase {
     XCTAssertNil(
       CloudSearchClient.relativePathPrefix(absPath: "/", libraryRoot: "/"))
   }
+}
+
+/// Box for capturing the request URL out of the stub closure.
+private final class CapturedURL: @unchecked Sendable {
+  var value: URL?
 }
