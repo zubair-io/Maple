@@ -154,11 +154,6 @@ async function put(
   return { status: res.status, body: res.status === 204 ? null : await res.json() };
 }
 
-async function del(path: string): Promise<{ status: number; body: unknown }> {
-  const res = await app!.handle(new Request(`http://localhost${path}`, { method: 'DELETE' }));
-  return { status: res.status, body: res.status === 204 ? null : await res.json() };
-}
-
 describe('POST /api/people', () => {
   it('creates a person', async () => {
     if (!mongoReachable) return;
@@ -354,18 +349,49 @@ describe('POST /api/people/assign', () => {
   });
 });
 
-describe('DELETE /api/people/:id', () => {
-  it('re-points faces to null and removes the row', async () => {
+describe('POST /api/people/:id/hide + /unhide', () => {
+  it('hide keeps faces assigned, drops the person from the list, surfaces it on /hidden', async () => {
     if (!mongoReachable) return;
     const created = await post('/api/people', { name: 'Lex' });
     const id = (created.body as { id: string }).id;
     const asset = await insertAssetWithFaces([
       { bbox: { x: 0, y: 0, w: 1, h: 1 }, person_id: id, confidence: 0.9 },
     ]);
-    const r = await del(`/api/people/${id}`);
-    expect(r.status).toBe(204);
+
+    const hide = await post(`/api/people/${id}/hide`);
+    expect(hide.status).toBe(200);
+    expect((hide.body as { ok: true }).ok).toBe(true);
+
+    // Faces stay assigned — soft-hide is not a delete.
     const row = await db!.collection<AssetDoc>('assets').findOne({ _id: asset });
-    expect(row?.faces?.[0]?.person_id).toBeNull();
+    expect(row?.faces?.[0]?.person_id).toBe(id);
+
+    // Gone from the normal list…
+    const list = await get('/api/people');
+    expect((list.body as Array<{ id: string }>).some((p) => p.id === id)).toBe(false);
+
+    // …present on the Hidden list, with the same wire shape (face_count etc).
+    const hidden = await get('/api/people/hidden');
+    expect(hidden.status).toBe(200);
+    const hiddenRows = hidden.body as Array<{ id: string; name: string; face_count: number }>;
+    const lex = hiddenRows.find((p) => p.id === id);
+    expect(lex?.name).toBe('Lex');
+    expect(lex?.face_count).toBe(1);
+
+    // Unhide restores it.
+    const unhide = await post(`/api/people/${id}/unhide`);
+    expect(unhide.status).toBe(200);
+    expect((unhide.body as { ok: true }).ok).toBe(true);
+    const back = await get('/api/people');
+    expect((back.body as Array<{ id: string }>).some((p) => p.id === id)).toBe(true);
+    const hidden2 = await get('/api/people/hidden');
+    expect((hidden2.body as Array<{ id: string }>).some((p) => p.id === id)).toBe(false);
+  });
+
+  it('400 on invalid person id', async () => {
+    if (!mongoReachable) return;
+    const r = await post('/api/people/not-a-hex/hide');
+    expect(r.status).toBe(400);
   });
 });
 

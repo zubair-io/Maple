@@ -239,10 +239,36 @@ async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: string): Pr
  * Sorted by `name` ascending under the case-insensitive collation.
  */
 export async function listPeople(options: ListPeopleOptions = {}): Promise<PersonWithCount[]> {
+  // The normal listing excludes hidden people (`hidden: { $ne: true }` so
+  // absent === visible). Hidden persons live on the Hidden page via
+  // `listHiddenPeople`. NOTE: this hidden filter is applied at the person
+  // level ONLY — the clustering seed queries in `clustering-job.ts` stay
+  // unfiltered on purpose so hidden persons keep absorbing their new faces.
+  return listPeopleByFilter({ merged_into: null, hidden: { $ne: true } }, options);
+}
+
+/**
+ * List soft-hidden people (the Hidden page). Same projection/shape as
+ * `listPeople` so the web reuses the `ApiPerson` type — face counts and
+ * cover paths included.
+ */
+export async function listHiddenPeople(
+  options: ListPeopleOptions = {},
+): Promise<PersonWithCount[]> {
+  return listPeopleByFilter({ merged_into: null, hidden: true }, options);
+}
+
+/** Shared list body for `listPeople` / `listHiddenPeople`. The two differ
+ * only in their person-level `hidden` predicate; everything downstream
+ * (cover resolution, face counts, sort) is identical. */
+async function listPeopleByFilter(
+  filter: Filter<PersonDoc>,
+  options: ListPeopleOptions = {},
+): Promise<PersonWithCount[]> {
   const { withCounts = true } = options;
   const coll = await peopleCollection();
   const people = await coll
-    .find({ merged_into: null } as Filter<PersonDoc>)
+    .find(filter)
     .collation({ locale: 'en', strength: 2 })
     .sort({ name: 1 })
     .toArray();
@@ -457,21 +483,33 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
 }
 
 /**
- * Soft-delete: re-point every assigned face back to `null` and remove the
- * person row. We keep the audit trail simple — operators can recreate the
- * person and the next clustering run will recover from the embeddings.
+ * Soft-hide a person. Sets `hidden: true` on the row and DOES NOT touch any
+ * faces or delete the row. The person drops out of the normal `/api/people`
+ * listing (see `listPeople`) and shows up on the Hidden page instead, where
+ * `unhidePerson` can restore it.
+ *
+ * Critically, a hidden person stays a clustering seed (the seed queries in
+ * `clustering-job.ts` filter on `merged_into: null` only — NOT `hidden`), so
+ * newly-detected faces that match this person keep flowing into it and it
+ * STAYS hidden, rather than reforming as a fresh visible "Person N". That is
+ * the entire point of soft-hide over the old hard delete.
+ *
+ * Idempotent — hiding an already-hidden person is a no-op write.
  */
-export async function deletePerson(id: ObjectId): Promise<void> {
-  const personHex = id.toHexString();
-  const assets = await assetsCollection();
-  await assets.updateMany(
-    { 'faces.person_id': personHex },
-    { $set: { 'faces.$[face].person_id': null } },
-    { arrayFilters: [{ 'face.person_id': personHex }] },
-  );
+export async function hidePerson(id: ObjectId): Promise<void> {
   const coll = await peopleCollection();
-  await coll.deleteOne({ _id: id });
-  log.info({ id: personHex }, 'deleted person');
+  await coll.updateOne({ _id: id }, { $set: { hidden: true, updated_at: nowIso() } });
+  log.info({ id: id.toHexString() }, 'hid person');
+}
+
+/**
+ * Restore a hidden person — clears the `hidden` flag so it reappears in the
+ * normal listing. Idempotent on an already-visible person.
+ */
+export async function unhidePerson(id: ObjectId): Promise<void> {
+  const coll = await peopleCollection();
+  await coll.updateOne({ _id: id }, { $set: { hidden: false, updated_at: nowIso() } });
+  log.info({ id: id.toHexString() }, 'unhid person');
 }
 
 /**
