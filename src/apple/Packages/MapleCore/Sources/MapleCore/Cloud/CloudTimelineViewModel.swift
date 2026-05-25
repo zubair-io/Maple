@@ -37,11 +37,13 @@ public final class CloudTimelineViewModel {
 
   public let server: URL
   public let libraryID: String
-  /// Optional anchored prefix on `abs_path`. When set, both
-  /// `/api/search/buckets` and `/api/search` are scoped to assets whose
-  /// path starts with this string — drives the "filter Timeline by
-  /// folder" UX. Same value is included in the cache key so two
-  /// scopes don't pollute each other's on-disk cache.
+  /// Optional sub-folder prefix, RELATIVE to the library root (the server
+  /// anchors it against `fileinfo.path`). When set, both
+  /// `/api/search/buckets` and `/api/search` are scoped to assets under
+  /// that directory — drives the "filter Timeline by folder" UX. nil means
+  /// the whole library (scoped by `libraryID` alone). Same value is
+  /// included in the cache key so two scopes don't pollute each other's
+  /// on-disk cache. Build it with `CloudSearchClient.relativePathPrefix`.
   public let pathPrefix: String?
   private let searchClient: CloudSearchClient
   private let bucketsCache: CloudBucketsCache

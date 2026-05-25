@@ -167,13 +167,15 @@ extension AppShell {
                 // call goes out, all callers wait on the same continuation.
                 let httpClient = makeAuthenticatedHTTPClient(server: serverID)
                 let searchClient = CloudSearchClient(server: serverID, httpClient: httpClient)
-                // pathPrefix = libraryPath scopes the Timeline to whatever
-                // the user has selected in the sidebar tree — library root
-                // when they pick the library row, a subfolder when they
-                // pick deeper. Matches the web Timeline's filter behavior:
-                // both /api/search/buckets and /api/search receive the
-                // same pathPrefix so the bucket counts and asset listings
-                // describe the same scope.
+                // Scope the Timeline to whatever the user picked in the
+                // sidebar — the library root, or a subfolder when they pick
+                // deeper. The server matches pathPrefix against
+                // `fileinfo.path` (relative to the library root), so we send
+                // a library-RELATIVE prefix; libraryID handles the
+                // library-wide scope. Both /api/search/buckets and
+                // /api/search get the same prefix so bucket counts and asset
+                // listings describe the same scope. (Sending the absolute
+                // libraryPath here is what left the Timeline empty.)
                 // Construct a PhotoKitMergeAdapter when this cloud library is
                 // the configured backup destination AND the user has granted
                 // PhotoKit access. This enables the merged Photos+Cloud view
@@ -196,10 +198,21 @@ extension AppShell {
                     Task { await adapter.warmUp() }
                     return adapter
                 }()
+                // Resolve the library's registered root so the prefix can be
+                // made relative to it. Prefer the warm folder cache the
+                // sidebar already populated; fall back to a live /api/folders
+                // fetch on a miss. nil root → relativePathPrefix returns nil
+                // → library-wide scope (safe), never a zero-matching path.
+                let libraryRoot = CloudFoldersCache.load(server: serverID)?
+                    .first(where: { $0.id == folderID })?.path
+                    ?? (await loadCloudFoldersFor(serverID))
+                        .first(where: { $0.id == folderID })?.path
+                let timelinePrefix = CloudSearchClient.relativePathPrefix(
+                    absPath: libraryPath, libraryRoot: libraryRoot)
                 cloudTimelineVM = CloudTimelineViewModel(
                     server: serverID,
                     libraryID: folderID,
-                    pathPrefix: libraryPath,
+                    pathPrefix: timelinePrefix,
                     searchClient: searchClient,
                     photoKitMerge: photoKitMerge)
                 cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
