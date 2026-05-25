@@ -152,7 +152,16 @@ describe('POST /api/folders/:id/upload', () => {
       string,
       { version: number; processed_at: null }
     >;
-    for (const stage of ['exif', 'thumb', 'preview', 'face', 'describe', 'geocode', 'meili']) {
+    for (const stage of [
+      'exif',
+      'thumb',
+      'preview',
+      'face-detect',
+      'face-embed',
+      'describe',
+      'geocode',
+      'meili',
+    ]) {
       expect(stages[stage]).toBeDefined();
       expect(stages[stage].version).toBe(0);
       expect(stages[stage].processed_at).toBeNull();
