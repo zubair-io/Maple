@@ -69,6 +69,14 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/people/people.component').then((m) => m.PeopleComponent),
   },
+  // Hidden page MUST precede the `:id` detail route — otherwise the router
+  // would match "hidden" as a person id and route to the people detail view.
+  {
+    path: 'settings/people/hidden',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/people/hidden-people.component').then((m) => m.HiddenPeopleComponent),
+  },
   {
     path: 'settings/people/:id',
     canActivate: [authGuard],

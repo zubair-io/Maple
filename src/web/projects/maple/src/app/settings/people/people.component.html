@@ -100,8 +100,8 @@
             <maple-settings-icon name="merge" [size]="12" />
             Merge into…
           </button>
-          <button type="button" class="btn-ghost danger" (click)="deleteSelectedCluster()">
-            Delete cluster
+          <button type="button" class="btn-ghost danger" (click)="hideSelectedCluster()">
+            Hide person
           </button>
         </div>
       </div>
@@ -279,6 +279,7 @@
           </p>
         </div>
         <div class="actions">
+          <a class="btn-ghost" routerLink="/settings/people/hidden">Hidden</a>
           <a class="btn-ghost" routerLink="/settings/workers">Worker settings</a>
           <button
             type="button"
@@ -376,10 +377,10 @@
                       <button
                         type="button"
                         class="card-delete"
-                        [title]="'Delete ' + p.name"
-                        (click)="$event.stopPropagation(); deletePerson(p)"
+                        [title]="'Hide ' + p.name"
+                        (click)="$event.stopPropagation(); hidePerson(p)"
                       >
-                        Delete
+                        Hide
                       </button>
                     </div>
                   </div>

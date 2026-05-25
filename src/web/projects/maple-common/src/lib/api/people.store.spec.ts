@@ -11,7 +11,9 @@
 //     serves cached + refreshes on revisit; switching ids surfaces the right
 //     cached entry.
 //   - invalidateDetail(id) re-fetches a specific person.
-//   - deletePerson evicts the detail and invalidates the list.
+//   - hidePerson evicts the detail and invalidates BOTH lists.
+//   - unhidePerson invalidates both lists.
+//   - Hidden-list SWR: ensureHidden / invalidateHidden mirror the main list.
 //   - Errors surface on `error()` / `detailError()` without clobbering data.
 //
 // The store fetches through BunApiBackendService (which already maps
@@ -55,9 +57,12 @@ function detail(id: string, name: string): ApiPersonDetail {
 
 class ApiStub {
   listResult: ApiPerson[] = [person('p1', 'Alice'), person('p2', 'Person 7')];
+  hiddenResult: ApiPerson[] = [person('h1', 'Hidden Hugo')];
   listPeople = vi.fn(() => of(this.listResult));
+  listHiddenPeople = vi.fn(() => of(this.hiddenResult));
   getPerson = vi.fn((id: string) => of(detail(id, id === 'p1' ? 'Alice' : 'Person 7')));
-  deletePerson = vi.fn((_id: string) => of(undefined as void));
+  hidePerson = vi.fn((_id: string) => of({ ok: true as const }));
+  unhidePerson = vi.fn((_id: string) => of({ ok: true as const }));
 }
 
 function makeBed(api: ApiStub = new ApiStub()) {
@@ -314,32 +319,102 @@ describe('PeopleStore', () => {
     expect(store.detail()?.name).toBe('Alice');
   });
 
-  it('deletePerson evicts the cached detail and invalidates the list', async () => {
+  it('hidePerson evicts the cached detail and invalidates both lists', async () => {
     const { api } = makeBed();
     store = TestBed.inject(PeopleStore);
 
     store.ensureList();
+    store.ensureHidden();
     store.setActiveDetailId('p1');
     expect(store.detail()?.id).toBe('p1');
 
-    await store.deletePerson('p1');
+    await store.hidePerson('p1');
 
-    expect(api.deletePerson).toHaveBeenCalledWith('p1');
-    // List re-fetched (membership/counts changed).
+    expect(api.hidePerson).toHaveBeenCalledWith('p1');
+    // Main list re-fetched (membership/counts changed).
     expect(api.listPeople).toHaveBeenCalledTimes(2);
+    // Hidden list re-fetched (the person just joined it).
+    expect(api.listHiddenPeople).toHaveBeenCalledTimes(2);
     // Cached detail evicted — `detail()` for the still-active id is gone.
     expect(store.detail()).toBeUndefined();
   });
 
-  it('deletePerson rejects (and does not invalidate) when the API delete fails', async () => {
+  it('hidePerson rejects (and does not invalidate) when the API call fails', async () => {
     const api = new ApiStub();
-    api.deletePerson = vi.fn(() => throwError(() => new Error('delete failed')));
+    api.hidePerson = vi.fn(() => throwError(() => new Error('hide failed')));
     makeBed(api);
     store = TestBed.inject(PeopleStore);
     store.ensureList();
 
-    await expect(store.deletePerson('p1')).rejects.toThrow('delete failed');
+    await expect(store.hidePerson('p1')).rejects.toThrow('hide failed');
     // No extra list fetch beyond the initial ensureList().
     expect(api.listPeople).toHaveBeenCalledTimes(1);
+  });
+
+  it('unhidePerson invalidates both lists', async () => {
+    const { api } = makeBed();
+    store = TestBed.inject(PeopleStore);
+
+    store.ensureList();
+    store.ensureHidden();
+    await store.unhidePerson('h1');
+
+    expect(api.unhidePerson).toHaveBeenCalledWith('h1');
+    expect(api.listPeople).toHaveBeenCalledTimes(2);
+    expect(api.listHiddenPeople).toHaveBeenCalledTimes(2);
+  });
+
+  // ── Hidden-list SWR ─────────────────────────────────────────────────────────
+
+  it('ensureHidden(): first call fetches (loading → loaded)', () => {
+    const { api } = makeBed();
+    store = TestBed.inject(PeopleStore);
+
+    expect(store.hiddenStatus()).toBe('idle');
+    store.ensureHidden();
+    expect(api.listHiddenPeople).toHaveBeenCalledTimes(1);
+    expect(store.hiddenStatus()).toBe('loaded');
+    expect(store.hidden()).toHaveLength(1);
+    expect(store.hidden()![0].name).toBe('Hidden Hugo');
+  });
+
+  it('hidden SWR: second ensureHidden() serves cached value and refreshes', () => {
+    const subjects: Subject<ApiPerson[]>[] = [];
+    const api = new ApiStub();
+    api.listHiddenPeople = vi.fn(() => {
+      const s = new Subject<ApiPerson[]>();
+      subjects.push(s);
+      return s.asObservable();
+    });
+    makeBed(api);
+    store = TestBed.inject(PeopleStore);
+
+    store.ensureHidden();
+    subjects[0].next([person('h1', 'Hidden Hugo')]);
+    subjects[0].complete();
+    expect(store.hidden()).toHaveLength(1);
+
+    store.ensureHidden();
+    expect(api.listHiddenPeople).toHaveBeenCalledTimes(2);
+    expect(store.hiddenRefreshing()).toBe(true);
+    expect(store.hiddenLoading()).toBe(false);
+    expect(store.hidden()).toHaveLength(1); // prior value still shown
+
+    subjects[1].next([]);
+    subjects[1].complete();
+    expect(store.hiddenStatus()).toBe('loaded');
+    expect(store.hidden()).toHaveLength(0);
+  });
+
+  it('surfaces a hidden-list fetch error on hiddenError() without throwing', () => {
+    const api = new ApiStub();
+    api.listHiddenPeople = vi.fn(() => throwError(() => new Error('hidden boom')));
+    makeBed(api);
+    store = TestBed.inject(PeopleStore);
+
+    store.ensureHidden();
+    expect(store.hiddenStatus()).toBe('error');
+    expect(store.hiddenError()?.message).toBe('hidden boom');
+    expect(store.hidden()).toBeUndefined();
   });
 });
