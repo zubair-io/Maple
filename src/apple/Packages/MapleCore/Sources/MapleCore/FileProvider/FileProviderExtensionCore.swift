@@ -1013,33 +1013,42 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 defer { progress.completedUnitCount = 1 }
                 do {
                     self.log.notice("folder move folderID=\(folderID, privacy: .public) source=\(sourceRelative, privacy: .private) target=\(targetRelative, privacy: .private)")
-                    let resp = try await catalog.moveFolder(
+                    let result = try await catalog.moveFolder(
                         folderID: folderID,
                         sourceRelativePath: sourceRelative,
                         targetRelativePath: targetRelative
                     )
-                    let dir = DirChild(name: filename, path: resp.absPath, mtime: Date())
-                    let moved = MapleItem(
-                        subdirectory: dir,
-                        parentFolderID: folderID,
-                        parentRelativePath: newParentRelative,
-                        parentIdentifier: newParentID
-                    )
-                    completionHandler(moved, [], false, nil)
-                    // The folder's identifier (and its descendants') moved with
-                    // the path. Reload the new parent so the OS re-enumerates
-                    // the subtree under its new identifiers; reload the old
-                    // parent too on a cross-folder move so its stale entry drops.
-                    await self.signalEnumeratorReload(parent: newParentID)
-                    let oldParentRelative: String = {
-                        guard let slash = sourceRelative.lastIndex(of: "/") else { return "" }
-                        return String(sourceRelative[..<slash])
-                    }()
-                    let oldParentID = NSFileProviderItemIdentifier(
-                        FileProviderIdentifier.folder(folderID: folderID,
-                                                       relativePath: oldParentRelative).rawValue)
-                    if oldParentID != newParentID {
-                        await self.signalEnumeratorReload(parent: oldParentID)
+                    switch result {
+                    case .conflict:
+                        completionHandler(nil, [], false,
+                            NSError(domain: NSFileProviderErrorDomain,
+                                    code: NSFileProviderError.filenameCollision.rawValue))
+                        return
+                    case .ok(let resp):
+                        let dir = DirChild(name: filename, path: resp.absPath, mtime: Date())
+                        let moved = MapleItem(
+                            subdirectory: dir,
+                            parentFolderID: folderID,
+                            parentRelativePath: newParentRelative,
+                            parentIdentifier: newParentID
+                        )
+                        completionHandler(moved, [], false, nil)
+                        // The folder's identifier (and its descendants') moved
+                        // with the path. Reload the new parent so the OS
+                        // re-enumerates the subtree under its new identifiers;
+                        // reload the old parent too on a cross-folder move so
+                        // its stale entry drops.
+                        await self.signalEnumeratorReload(parent: newParentID)
+                        let oldParentRelative: String = {
+                            guard let slash = sourceRelative.lastIndex(of: "/") else { return "" }
+                            return String(sourceRelative[..<slash])
+                        }()
+                        let oldParentID = NSFileProviderItemIdentifier(
+                            FileProviderIdentifier.folder(folderID: folderID,
+                                                           relativePath: oldParentRelative).rawValue)
+                        if oldParentID != newParentID {
+                            await self.signalEnumeratorReload(parent: oldParentID)
+                        }
                     }
                 } catch {
                     self.log.error("folder move failed: \(error.localizedDescription, privacy: .public)")
