@@ -10,21 +10,21 @@ landing on `claude/serene-planck-LWvPn`. This spec assumes that branch's
 
 ## Summary
 
-Two adjacent — but deliberately *separate* — features:
+Two adjacent — but deliberately _separate_ — features:
 
 1. **Auto Tone** — a one-shot **button** that analyses the image and **writes
    slider values** (exposure, contrast, whites, blacks, highlights, shadows).
    The sliders visibly move; the result is an ordinary, fully-editable starting
-   point persisted as normal slider values in the XMP. This is an *editing
-   assist*.
+   point persisted as normal slider values in the XMP. This is an _editing
+   assist_.
 
 2. **The Look dropdown** — a picker in the Develop panel with three options:
    - **Maple Look** (default) — the empirical 1D display LUT (`Look::Default`, #371).
    - **None** — strict scene-referred AgX, no shaping (`Look::Neutral`).
-   - **Auto** — a **new** per-image *adaptive* display curve that does **not**
+   - **Auto** — a **new** per-image _adaptive_ display curve that does **not**
      touch the sliders. It is a final tone-shaping layer recomputed every
      render; the user's sliders sit underneath it and stack with it. This is a
-     *rendering mode*, not an edit.
+     _rendering mode_, not an edit.
 
 The thing to hold onto: **Auto Tone moves sliders; the Auto Look never does.**
 They can be used independently or together.
@@ -38,7 +38,7 @@ They can be used independently or together.
   from RawTherapee's `getAutoExp`, sitting at `AE_DAMPING = 0.0` (identity)
   explicitly "as infrastructure for a future user-facing Auto toggle"
   (`src/raw-pipeline/raw-core/src/stages/auto_exposure.rs`). Feature 1 is
-  largely *wiring up work that already exists*, plus a Maple-native slider
+  largely _wiring up work that already exists_, plus a Maple-native slider
   mapping.
 - `Look` already exists as a core/XMP concept (`Neutral`/`Default`) but has no
   UI and is invisible on the live canvas. Shipping the dropdown forces us to
@@ -47,33 +47,33 @@ They can be used independently or together.
 
 ## Terminology — the two "Autos" (read this twice)
 
-| | **Auto Tone** (Feature 1) | **Auto Look** (Feature 2) |
-|---|---|---|
-| Surface | A button ("Auto") near the tone sliders | One option in the Look dropdown |
-| What it changes | The **slider values** in `AdjustmentModel` | Nothing in the model except `look = Auto` |
-| Visible to user | Sliders jump to new positions | Sliders unchanged; image is reshaped |
-| When it runs | Once, on click | Every render, adaptively |
-| Persisted as | `crs:Exposure2012`, `crs:Contrast2012`, … (real slider XMP) | `papp:Look="Auto"` only |
-| Editable after | Yes — tweak any slider | The *look* is fixed-algorithm; you edit by moving sliders underneath it |
-| Mental model | "Suggest a good starting edit" | "Adaptively grade the final image; follow me as I edit" |
-| Pipeline location | `scene_tone_controls` (mid-chain, scene-linear) | `view::look` (final, display-encoded) |
+|                   | **Auto Tone** (Feature 1)                                   | **Auto Look** (Feature 2)                                               |
+| ----------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Surface           | A button ("Auto") near the tone sliders                     | One option in the Look dropdown                                         |
+| What it changes   | The **slider values** in `AdjustmentModel`                  | Nothing in the model except `look = Auto`                               |
+| Visible to user   | Sliders jump to new positions                               | Sliders unchanged; image is reshaped                                    |
+| When it runs      | Once, on click                                              | Every render, adaptively                                                |
+| Persisted as      | `crs:Exposure2012`, `crs:Contrast2012`, … (real slider XMP) | `papp:Look="Auto"` only                                                 |
+| Editable after    | Yes — tweak any slider                                      | The _look_ is fixed-algorithm; you edit by moving sliders underneath it |
+| Mental model      | "Suggest a good starting edit"                              | "Adaptively grade the final image; follow me as I edit"                 |
+| Pipeline location | `scene_tone_controls` (mid-chain, scene-linear)             | `view::look` (final, display-encoded)                                   |
 
 ## What exists today (load-bearing context)
 
-| Component | Status | Where |
-|---|---|---|
-| Histogram-shape auto-exposure (RawTherapee `getAutoExp` port) | Built, **parked at identity** | `raw-core/src/stages/auto_exposure.rs` |
-| `AutoExposure { expcomp, black, bright, contr, hlcompr, hlcomprthresh }` | Returned, currently discarded | same file; called in `pipeline/develop.rs:281` |
-| `Look { Neutral, Default }` enum | Built | `raw-core/src/view/look.rs` |
-| Static empirical Look LUT (768 B, `derive_look_lut.py`) | Built | `raw-core/src/view/look_lut.rs` |
-| `papp:Look` XMP read/write (Rust + Swift + TS) | Built | `xmp.rs`, `AdjustmentModel.swift`, `xmp-serializer.service.ts` |
-| Look applied on **u8 export/CLI** path | Built | `pipeline/render.rs:57,185,246` |
-| Look applied on **live GPU canvas** | **Missing** | — (known #371 follow-up) |
-| Scene-linear slider closed-form predictors | Built | `src/scripts/test_grey_adjustments.sh` |
-| Per-case perceptual harness vs ACR references | Built (CI gate) | `src/scripts/test_color_pipeline.sh`, `test-fixtures/budgets.json` |
-| Develop tab UI sections (Tone, WB, Presence, Sharpen, Noise) | Built | `web .../components/editor-detail-panel/`, Swift `DetailPanel.swift` |
-| `Look` selector UI (any platform) | **Missing** | — |
-| Auto white balance algorithm (`WhiteBalancePreset::Auto`) | Enum value only, **no algorithm** | `types/adjustment/mod.rs` |
+| Component                                                                | Status                            | Where                                                                |
+| ------------------------------------------------------------------------ | --------------------------------- | -------------------------------------------------------------------- |
+| Histogram-shape auto-exposure (RawTherapee `getAutoExp` port)            | Built, **parked at identity**     | `raw-core/src/stages/auto_exposure.rs`                               |
+| `AutoExposure { expcomp, black, bright, contr, hlcompr, hlcomprthresh }` | Returned, currently discarded     | same file; called in `pipeline/develop.rs:281`                       |
+| `Look { Neutral, Default }` enum                                         | Built                             | `raw-core/src/view/look.rs`                                          |
+| Static empirical Look LUT (768 B, `derive_look_lut.py`)                  | Built                             | `raw-core/src/view/look_lut.rs`                                      |
+| `papp:Look` XMP read/write (Rust + Swift + TS)                           | Built                             | `xmp.rs`, `AdjustmentModel.swift`, `xmp-serializer.service.ts`       |
+| Look applied on **u8 export/CLI** path                                   | Built                             | `pipeline/render.rs:57,185,246`                                      |
+| Look applied on **live GPU canvas**                                      | **Missing**                       | — (known #371 follow-up)                                             |
+| Scene-linear slider closed-form predictors                               | Built                             | `src/scripts/test_grey_adjustments.sh`                               |
+| Per-case perceptual harness vs ACR references                            | Built (CI gate)                   | `src/scripts/test_color_pipeline.sh`, `test-fixtures/budgets.json`   |
+| Develop tab UI sections (Tone, WB, Presence, Sharpen, Noise)             | Built                             | `web .../components/editor-detail-panel/`, Swift `DetailPanel.swift` |
+| `Look` selector UI (any platform)                                        | **Missing**                       | —                                                                    |
+| Auto white balance algorithm (`WhiteBalancePreset::Auto`)                | Enum value only, **no algorithm** | `types/adjustment/mod.rs`                                            |
 
 ### The develop chain order (where each Auto lives)
 
@@ -94,14 +94,14 @@ decode → linearize → dcp → profile_gain_table_map → capture_sharpening
 sites in `render.rs` + `maple-cli`). The live editor canvas does **not** use
 those paths:
 
-- **Web**: `render_bytes_scene_linear` returns *pre-AgX scene-linear* fp16; the
+- **Web**: `render_bytes_scene_linear` returns _pre-AgX scene-linear_ fp16; the
   WebGL shaders (`agx-view-transform.ts` et al.) do AgX + Rec.2020→sRGB +
   encode on the GPU. The Look LUT is never applied there.
 - **Apple**: `apply_scene_linear_chain` (FFI) runs WB→…→AgX in Rust per tick and
-  returns *post-AgX display-linear* fp16; Metal does sharpen/nr_color + the
+  returns _post-AgX display-linear_ fp16; Metal does sharpen/nr_color + the
   final encode. The Look LUT is never applied there either.
 
-**Consequence:** today the live canvas shows *no* Look (not even Maple Look) —
+**Consequence:** today the live canvas shows _no_ Look (not even Maple Look) —
 it only appears on export/thumbnail/CLI. The dropdown is meaningless until the
 Look is applied live. Closing this gap is **Phase 0** of Feature 2 and benefits
 the existing Maple Look too.
@@ -119,10 +119,10 @@ the existing Maple Look too.
   Auto Enhance): a model trained on thousands of expert edits emits exposure,
   contrast, highlights, shadows, whites, blacks, vibrance. Better results, not
   reproducible offline, heavy, and a poor fit for a deterministic
-  parity-gated Rust core. Out of scope; we treat ACR Auto only as a *reference
-  target* for tuning, not a dependency.
+  parity-gated Rust core. Out of scope; we treat ACR Auto only as a _reference
+  target_ for tuning, not a dependency.
 - **Scene-referred targeting**: because Maple is scene-referred with an AgX view
-  transform, "expose to mid-grey" means *scene-linear* 0.18, not display 0.5.
+  transform, "expose to mid-grey" means _scene-linear_ 0.18, not display 0.5.
   The parked engine already targets `MIDGRAY = 0.1842` linear and samples
   post-DCP scene-linear Rec.2020 — correct surface, correct target.
 
@@ -137,7 +137,7 @@ the existing Maple Look too.
   for v1; the Auto Look is a **global** adaptive curve (a follow-up can add
   locality, mirroring the #389 3D-LUT direction).
 
-**Conclusion.** Both features are well-served by histogram-driven *global* math
+**Conclusion.** Both features are well-served by histogram-driven _global_ math
 that already half-exists in the tree. We reuse the AE engine for Feature 1 and a
 sibling histogram→curve builder for Feature 2. No ML, no new heavy deps.
 
@@ -162,24 +162,24 @@ sibling histogram→curve builder for Feature 2. No ML, no new heavy deps.
 
 Maple's tone block is `exposure (EV)`, `contrast`, `highlights`, `shadows`,
 `whites`, `blacks` (all −100..100 except exposure in EV). **Maple has no
-"brightness" slider** — in a scene-referred model "brightness" *is* exposure (a
+"brightness" slider** — in a scene-referred model "brightness" _is_ exposure (a
 linear multiply). We map the user's "brightness" intent onto `exposure`; we do
 **not** introduce a brightness slider. (Decision flagged in Open Questions.)
 
-Rather than translate RawTherapee's slider *units* (its `bright`/`contr` are a
+Rather than translate RawTherapee's slider _units_ (its `bright`/`contr` are a
 different curve from Maple's AgX-routed controls), we use a **Maple-native
-inversion**: the AE engine gives us histogram *targets*; the existing
+inversion**: the AE engine gives us histogram _targets_; the existing
 closed-form scene-linear slider predictors (`test_grey_adjustments.sh`) let us
 **solve for the slider value that hits a target**.
 
-| Maple slider | Target the auto solves for | Source signal |
-|---|---|---|
-| `exposure` | scene-linear luma median → AgX mid-grey (0.18) | AE `expcomp1` (mean/median-to-midgrey gain) |
-| `whites` | highlight clip point at `clip_hi%` (≈0.1%) of pixels | AE `whiteclip` bin |
-| `blacks` | shadow clip point at `clip_lo%` (≈0.25%) of pixels | AE `shc` bin |
-| `contrast` | histogram spread → S-curve amount | AE `ospread` (octile spread) |
-| `highlights` | recover clipped headroom (pull down if blown) | AE `hlcompr` |
-| `shadows` | open crushed shadows (lift if needed) | shadow-mass below `shc` |
+| Maple slider | Target the auto solves for                           | Source signal                               |
+| ------------ | ---------------------------------------------------- | ------------------------------------------- |
+| `exposure`   | scene-linear luma median → AgX mid-grey (0.18)       | AE `expcomp1` (mean/median-to-midgrey gain) |
+| `whites`     | highlight clip point at `clip_hi%` (≈0.1%) of pixels | AE `whiteclip` bin                          |
+| `blacks`     | shadow clip point at `clip_lo%` (≈0.25%) of pixels   | AE `shc` bin                                |
+| `contrast`   | histogram spread → S-curve amount                    | AE `ospread` (octile spread)                |
+| `highlights` | recover clipped headroom (pull down if blown)        | AE `hlcompr`                                |
+| `shadows`    | open crushed shadows (lift if needed)                | shadow-mass below `shc`                     |
 
 The inversion (target → slider value) is fit **once**, offline, by sweeping each
 slider through the closed-form predictor and storing a monotone lookup
@@ -217,13 +217,13 @@ Maple slider units, so the user sees and can edit honest numbers.
   ```
 
 - **FFI / WASM surface (parity-critical).** Expose `compute_auto_tone` so both
-  front-ends call the *same* implementation and get *identical* values:
+  front-ends call the _same_ implementation and get _identical_ values:
   - WASM: `maple_compute_auto_tone(scene_linear_fp16, w, h) -> AutoTone` (or
     accept a precomputed 8192-bin histogram to avoid re-walking pixels — the
     front-end already holds the scene-linear buffer).
   - FFI: `maple_compute_auto_tone(in_ptr, w, h, *out: MapleAutoTone) -> i32`.
-  The front-end then writes the returned values into its `AdjustmentModel` and
-  triggers one re-render. No new per-tick cost.
+    The front-end then writes the returned values into its `AdjustmentModel` and
+    triggers one re-render. No new per-tick cost.
 
 - **Performance.** One-shot. Run on the **already-downsampled preview buffer**
   (~2 MP), not full-res — an 8192-bin histogram over ~2 MP is well under a frame.
@@ -232,7 +232,7 @@ Maple slider units, so the user sees and can edit honest numbers.
 - **Persistence.** The six values serialize through the **existing** slider XMP
   attributes (`crs:Exposure2012`, `crs:Contrast2012`, …). No schema change.
   Auto leaves no marker — once applied, it is indistinguishable from a manual
-  edit (by design; it *is* an edit).
+  edit (by design; it _is_ an edit).
 
 ### UI (Feature 1)
 
@@ -256,8 +256,8 @@ Maple slider units, so the user sees and can edit honest numbers.
 - Changing the Look re-renders immediately. It **does not touch any slider**.
 - With **Auto** selected, the user keeps editing with the sliders as normal; the
   Auto curve re-derives from the new result on each render and "follows" the
-  edit. This is the user's quoted intent: *"a look that does not move the
-  sliders — your sliders are applied on top of the image."*
+  edit. This is the user's quoted intent: _"a look that does not move the
+  sliders — your sliders are applied on top of the image."_
 
 ### The Auto Look algorithm
 
@@ -318,7 +318,7 @@ derived in):
   Auto).
 
 raw-core remains the **single source of LUT generation** (static + adaptive);
-the GPUs only *sample* an uploaded table. This guarantees live-canvas ==
+the GPUs only _sample_ an uploaded table. This guarantees live-canvas ==
 export parity and keeps one implementation.
 
 For **Auto**, the per-image LUT is uploaded each render. To stay in budget,
@@ -357,7 +357,7 @@ no extra full-res pass on the slider-tick path.
 Fully composable and well-ordered:
 
 - **Auto Tone** writes slider values that feed `scene_tone_controls` mid-chain.
-- **Auto Look** shapes the *final* display output after the view transform.
+- **Auto Look** shapes the _final_ display output after the view transform.
 - With both active: Auto Tone sets a sensible scene-linear edit, the develop
   chain renders it, then the Auto Look adaptively grades the encoded result. No
   conflict — they operate at different pipeline stages.
@@ -411,7 +411,7 @@ Fully composable and well-ordered:
   the #389 direction; v1 Auto Look is a global hue-preserving curve.
 - User-authored / importable custom Looks (LUT packs, `.cube`). The dropdown is
   fixed to three options in v1.
-- Auto WB is specced as *related and separable*, not bundled into v1 of the Auto
+- Auto WB is specced as _related and separable_, not bundled into v1 of the Auto
   button (can land as a follow-up checkbox).
 
 ## Open questions / decisions needed
@@ -437,6 +437,7 @@ Fully composable and well-ordered:
 Epic: **Auto Tone + Look dropdown**.
 
 Feature 1 — Auto Tone
+
 - `core: auto_tone module + compute_auto_tone (exposure-only, Phase 1a)`
 - `ffi/wasm: expose compute_auto_tone; maple-cli auto-tone subcommand + golden`
 - `web/apple: "Auto" button in Tone section, slider write-back + re-render`
@@ -445,6 +446,7 @@ Feature 1 — Auto Tone
 - `(related) core: WhiteBalancePreset::Auto algorithm`
 
 Feature 2 — Look dropdown
+
 - `Phase 0a — web: apply Look LUT in WebGL encode (live Maple Look) + parity`
 - `Phase 0b — apple: apply Look LUT in Metal/CoreImage encode (live Maple Look) + parity`
 - `core: add Look::Auto + build_auto_look_lut + papp:Look="Auto" round-trip (Rust/Swift/TS)`
