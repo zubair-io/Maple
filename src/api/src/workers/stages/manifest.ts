@@ -13,7 +13,8 @@
 import exifStage from './exif.ts';
 import thumbStage from './thumb.ts';
 import previewStage from './preview.ts';
-import faceStage from './face.ts';
+import faceDetectStage from './face-detect.ts';
+import faceEmbedStage from './face-embed.ts';
 import describeStage from './describe.ts';
 import geocodeStage from './geocode.ts';
 import meiliStage from './meili.ts';
@@ -22,7 +23,8 @@ export const stageManifest = [
   exifStage,
   thumbStage,
   previewStage,
-  faceStage,
+  faceDetectStage,
+  faceEmbedStage,
   describeStage,
   geocodeStage,
   meiliStage,
@@ -32,7 +34,8 @@ export const ALL_STAGE_NAMES = [
   'exif',
   'thumb',
   'preview',
-  'face',
+  'face-detect',
+  'face-embed',
   'describe',
   'geocode',
   'meili',
