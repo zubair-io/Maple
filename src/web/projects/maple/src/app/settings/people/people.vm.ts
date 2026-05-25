@@ -81,6 +81,62 @@ export function filterNamed(rows: readonly ApiPerson[]): ApiPerson[] {
   return rows.filter((p) => !isAutoNamed(p.name));
 }
 
+// ── Virtual-scroll row packing ──────────────────────────────────────────────
+//
+// The list grid renders ~15k uniform cards. To window the DOM with CDK's
+// `cdk-virtual-scroll-viewport` (which virtualises a flat item stream by a
+// fixed `itemSize`) over a multi-column responsive grid, we pre-pack the
+// sorted people into fixed-height rows of `cols` cards each and virtualise the
+// ROWS. `cols` is derived from the measured container width (see
+// `peopleGridColumns`); the row height (the viewport's `itemSize`) is derived
+// from the card width + meta footer (see `peopleRowHeight`). This mirrors the
+// asset-grid's row-packing approach.
+
+/** Layout constants for the list-view card grid. Kept here (not the SCSS) so
+ * the row-packing math and the viewport `itemSize` agree with the rendered
+ * cards. `MIN_CARD_W` matches the SCSS `minmax(180px, 1fr)`; `META_H` is the
+ * card footer height (name + stats + padding); `GAP` matches the grid gap. */
+export const PEOPLE_GRID = {
+  MIN_CARD_W: 180,
+  GAP: 12,
+  /** Footer block under the square thumb: 10px*2 padding + ~13px name +
+   * 4px margin + ~16px stats line ≈ 53px. */
+  META_H: 53,
+} as const;
+
+/** Column count for a given content width. At least one column; otherwise the
+ * largest count whose cards (≥ MIN_CARD_W) plus gaps fit the width — matching
+ * CSS `repeat(auto-fill, minmax(MIN_CARD_W, 1fr))`. */
+export function peopleGridColumns(contentWidth: number, minCardW = PEOPLE_GRID.MIN_CARD_W): number {
+  if (contentWidth <= 0) return 1;
+  const cols = Math.floor((contentWidth + PEOPLE_GRID.GAP) / (minCardW + PEOPLE_GRID.GAP));
+  return Math.max(1, cols);
+}
+
+/** Rendered card width (square thumb side) for `cols` columns in
+ * `contentWidth`. Cards stretch to fill the row (the `1fr` behaviour). */
+export function peopleCardWidth(contentWidth: number, cols: number): number {
+  if (cols <= 0 || contentWidth <= 0) return PEOPLE_GRID.MIN_CARD_W;
+  return (contentWidth - (cols - 1) * PEOPLE_GRID.GAP) / cols;
+}
+
+/** Fixed row height = square thumb (card width) + meta footer + the bottom
+ * gap. This is the viewport `itemSize`. */
+export function peopleRowHeight(cardWidth: number): number {
+  return Math.round(cardWidth + PEOPLE_GRID.META_H + PEOPLE_GRID.GAP);
+}
+
+/** Chunk a flat (already sorted) list into rows of `cols` items each. The
+ * last row may be short; CSS keeps short rows left-aligned. */
+export function chunkPeopleRows(rows: readonly ApiPerson[], cols: number): ApiPerson[][] {
+  const n = Math.max(1, cols);
+  const out: ApiPerson[][] = [];
+  for (let i = 0; i < rows.length; i += n) {
+    out.push(rows.slice(i, i + n));
+  }
+  return out;
+}
+
 // ── Detail-view derivation ────────────────────────────────────────────────
 
 /** Visible (threshold-filtered + confidence-sorted) faces. Sort is
