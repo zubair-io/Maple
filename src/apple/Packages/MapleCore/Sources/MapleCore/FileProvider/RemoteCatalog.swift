@@ -210,6 +210,15 @@ public struct MakeDirResponse: Codable, Equatable, Sendable {
     }
 }
 
+/// Outcome of `RemoteCatalog.moveFolder`. Domain-neutral so the HTTP
+/// layer stays free of FileProvider types — the extension maps
+/// `.conflict` to `NSFileProviderError.filenameCollision`.
+public enum MoveFolderResult: Equatable, Sendable {
+    case ok(MakeDirResponse)
+    /// 409 — a directory already exists at the target path.
+    case conflict
+}
+
 public enum XMPWriteResult: Equatable, Sendable {
     /// Write succeeded; the response's Last-Modified header is parsed
     /// into this Date and reflects the new on-disk mtime.
@@ -737,24 +746,23 @@ public actor RemoteCatalog {
     ///
     /// Called from the File Provider extension when the OS renames or
     /// moves a folder (`modifyItem` with `.filename` / `.parentItemIdentifier`).
-    /// A 409 maps to a filename collision (target already exists).
+    /// A 409 surfaces as `.conflict` (a directory already exists at the
+    /// target) so the caller can map it to a filename collision — this
+    /// layer stays free of FileProvider types.
     public func moveFolder(
         folderID: String,
         sourceRelativePath: String,
         targetRelativePath: String
-    ) async throws -> MakeDirResponse {
+    ) async throws -> MoveFolderResult {
         var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/move"))
         req.httpMethod = "POST"
         req.setValue(try Self.encodeTargetPath(sourceRelativePath), forHTTPHeaderField: "X-Maple-Source-Path")
         req.setValue(try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
         let (data, resp) = try await http.data(for: req)
         let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
-        if status == 409 {
-            throw NSError(domain: NSFileProviderErrorDomain,
-                          code: NSFileProviderError.filenameCollision.rawValue)
-        }
+        if status == 409 { return .conflict }
         guard status == 200 else { throw URLError(.badServerResponse) }
-        return try decoder.decode(MakeDirResponse.self, from: data)
+        return .ok(try decoder.decode(MakeDirResponse.self, from: data))
     }
 
     /// DELETE /api/assets/<id>. 204 = success; everything else throws.
