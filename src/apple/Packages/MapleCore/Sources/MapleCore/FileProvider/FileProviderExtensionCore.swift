@@ -974,6 +974,81 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             return Progress()
         }
 
+        // Folder rename / move. The folder identifier encodes its path
+        // (`folder/<libraryID>:<b64(relativePath)>`), so a rename or move
+        // changes this folder's identifier and every descendant's. We push
+        // the rename to the server, return a freshly-built item carrying the
+        // NEW path-derived identifier, and signal a re-enumeration of the
+        // affected parents so the OS rebuilds descendant identifiers.
+        //
+        // Only same-library moves are supported: the new parent's library
+        // folder ID must match this folder's. Anything beyond filename/parent
+        // (and cross-library moves) falls through to featureUnsupported.
+        if case .folder(let folderID, let sourceRelative) = parsed {
+            let renameOrMove: NSFileProviderItemFields = [.filename, .parentItemIdentifier]
+            guard !changedFields.intersection(renameOrMove).isEmpty,
+                  changedFields.isSubset(of: renameOrMove) else {
+                completionHandler(nil, [], false,
+                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+                return Progress()
+            }
+            let newParentID = item.parentItemIdentifier
+            let newParentParsed: FileProviderIdentifier
+            do { newParentParsed = try FileProviderIdentifier(rawValue: newParentID.rawValue) }
+            catch {
+                completionHandler(nil, [], false,
+                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+                return Progress()
+            }
+            guard case .folder(let newFolderID, let newParentRelative) = newParentParsed,
+                  newFolderID == folderID else {
+                completionHandler(nil, [], false,
+                    NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
+                return Progress()
+            }
+            let filename = item.filename
+            let targetRelative = newParentRelative.isEmpty ? filename : "\(newParentRelative)/\(filename)"
+            let progress = Progress(totalUnitCount: 1)
+            Task {
+                defer { progress.completedUnitCount = 1 }
+                do {
+                    self.log.notice("folder move folderID=\(folderID, privacy: .public) source=\(sourceRelative, privacy: .private) target=\(targetRelative, privacy: .private)")
+                    let resp = try await catalog.moveFolder(
+                        folderID: folderID,
+                        sourceRelativePath: sourceRelative,
+                        targetRelativePath: targetRelative
+                    )
+                    let dir = DirChild(name: filename, path: resp.absPath, mtime: Date())
+                    let moved = MapleItem(
+                        subdirectory: dir,
+                        parentFolderID: folderID,
+                        parentRelativePath: newParentRelative,
+                        parentIdentifier: newParentID
+                    )
+                    completionHandler(moved, [], false, nil)
+                    // The folder's identifier (and its descendants') moved with
+                    // the path. Reload the new parent so the OS re-enumerates
+                    // the subtree under its new identifiers; reload the old
+                    // parent too on a cross-folder move so its stale entry drops.
+                    await self.signalEnumeratorReload(parent: newParentID)
+                    let oldParentRelative: String = {
+                        guard let slash = sourceRelative.lastIndex(of: "/") else { return "" }
+                        return String(sourceRelative[..<slash])
+                    }()
+                    let oldParentID = NSFileProviderItemIdentifier(
+                        FileProviderIdentifier.folder(folderID: folderID,
+                                                       relativePath: oldParentRelative).rawValue)
+                    if oldParentID != newParentID {
+                        await self.signalEnumeratorReload(parent: oldParentID)
+                    }
+                } catch {
+                    self.log.error("folder move failed: \(error.localizedDescription, privacy: .public)")
+                    completionHandler(nil, [], false, error)
+                }
+            }
+            return progress
+        }
+
         // Restore: the only `modifyItem` shape Phase 3 understands for assets
         // is reparent FROM a trash container TO a folder, with no other
         // changes. Anything else (rename + reparent in one shot, in-place

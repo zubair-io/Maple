@@ -727,6 +727,36 @@ public actor RemoteCatalog {
         return try decoder.decode(MakeDirResponse.self, from: data)
     }
 
+    /// Rename or move a subdirectory within a library root.
+    /// `sourceRelativePath` is the folder's current path; `targetRelativePath`
+    /// its new path. Both are sent percent-encoded (source in
+    /// `X-Maple-Source-Path`, target in `X-Maple-Target-Path`) and
+    /// validated server-side the same way uploads and `mkdir` are. The
+    /// server `fs.rename`s the whole directory and lets its discover
+    /// watcher reconcile the indexed asset paths.
+    ///
+    /// Called from the File Provider extension when the OS renames or
+    /// moves a folder (`modifyItem` with `.filename` / `.parentItemIdentifier`).
+    /// A 409 maps to a filename collision (target already exists).
+    public func moveFolder(
+        folderID: String,
+        sourceRelativePath: String,
+        targetRelativePath: String
+    ) async throws -> MakeDirResponse {
+        var req = URLRequest(url: server.appending(path: "/api/folders/\(folderID)/move"))
+        req.httpMethod = "POST"
+        req.setValue(try Self.encodeTargetPath(sourceRelativePath), forHTTPHeaderField: "X-Maple-Source-Path")
+        req.setValue(try Self.encodeTargetPath(targetRelativePath), forHTTPHeaderField: "X-Maple-Target-Path")
+        let (data, resp) = try await http.data(for: req)
+        let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        if status == 409 {
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.filenameCollision.rawValue)
+        }
+        guard status == 200 else { throw URLError(.badServerResponse) }
+        return try decoder.decode(MakeDirResponse.self, from: data)
+    }
+
     /// DELETE /api/assets/<id>. 204 = success; everything else throws.
     /// Server distinguishes trash-vs-permanent-purge from the current
     /// asset state — both code paths return 204.
