@@ -43,6 +43,7 @@ import {
   THUMB_UNDECODABLE_REASON,
 } from './face-stage-shared.ts';
 import { FACE_DETECT_TARGET_VERSION } from './face-detect.ts';
+import { clusterCoordinator } from '../../people/cluster-coordinator.ts';
 
 export { THUMB_MISSING_REASON, THUMB_UNDECODABLE_REASON };
 
@@ -119,6 +120,14 @@ const faceEmbedStage = defineStage({
     pausedOnFirstBoot: true,
   },
   handler: faceEmbedHandler,
+  // Auto-clustering: after each poll tick, tell the clustering coordinator how
+  // many assets we embedded (and whether the queue drained). The coordinator
+  // single-flights `runOnlineClustering` and fires a pass on the idle edge or
+  // every N faces, so people populate during the embed run instead of only
+  // after a manual "Run clustering" click. Other stages leave this unset.
+  onProgress: (processedThisTick, idle) => {
+    clusterCoordinator().notifyProgress(processedThisTick, idle);
+  },
 });
 
 export default faceEmbedStage;
