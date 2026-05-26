@@ -210,7 +210,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
     let hr_neutral = if skip_pre_gain { [1.0; 3] } else { raw.as_shot_neutral };
     stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
     dump_after("02_highlight_recovery", &camera_rgb);
-    let (profile, _source) = stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
+    let profile = stage("dcp::profile_for", || dcp::profile_for(raw))?;
     // dcp::apply_colorimetry runs CM/FM (chromatic adaptation) and HSM
     // (metameric correction) only. Under ticket #425 (part of #416),
     // the Adobe aesthetic layers — ProfileToneCurve (PTC) and
