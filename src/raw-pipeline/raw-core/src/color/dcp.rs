@@ -486,58 +486,110 @@ fn lerp_hsm_for_cct(
 
 /// Where the resolved [`DcpProfile`] came from. Carried alongside the
 /// profile so the develop chain knows whether to suppress the source
-/// DNG's `ProfileToneCurve` (suppressed for `Bundled`, kept otherwise)
-/// without re-doing the bundled-profile lookup. See thread
+/// DNG's `ProfileToneCurve` (suppressed for `BundleConfident`, kept
+/// otherwise) without re-doing the bundled-profile lookup. See thread
 /// `PRRT_kwDOSK_I1M6EOuzz` on PR #330 for the motivation — eliminates
 /// a redundant HashMap probe + env var read on every full-frame and
 /// tile render.
 ///
-/// Per ticket #424 (never-identity fallback), `ProfileSource` no longer
-/// has a `Fallback` variant carrying an identity ColorMatrix. The lookup
-/// order is now `Bundled → EmbeddedDng → Generic`; every variant carries
-/// a real (non-identity) calibration matrix. Darktable's `src/iop/colorin.c`
-/// uses the same degrade-to-embedded-matrix logic.
+/// Per ticket #460 (4-tier resolver, salvage from #402), `ProfileSource`
+/// distinguishes four cases in priority order:
+///
+///   1. [`EmbeddedFull`] — DNG ships CM + FM + (HSM1 | HSM2). The vendor's
+///      own complete calibration; beats the bundle.
+///   2. [`BundleConfident`] — byte-exact UCM (or alias) hit in
+///      `profiles.bin`. The canonical externally-calibrated profile.
+///   3. [`EmbeddedCmOnly`] — DNG ships CM (with or without FM) but no HSM.
+///      Partial calibration; loses to the bundle when both are available.
+///   4. [`RawlerFallback`] — neither the bundle nor the source DNG carry a
+///      usable matrix. Synthetic D65 → Rec.2020 fallback that keeps the
+///      pipeline rendering with bounded error — never identity.
+///
+/// `EmbeddedFull` requires CM + FM + at least one HSM table: this is the
+/// shape a real camera-vendor DCP ships (e.g. an Adobe-emitted full DNG
+/// from a Hasselblad / DJI body). When that triad is present the embedded
+/// profile is internally consistent (FM was calibrated against this exact
+/// CM, HSM tuned to this exact FM), and using it whole is strictly better
+/// than splicing in the bundle's externally-derived matrices. Anything
+/// short of the triad — CM + FM without HSM, CM only — lands at
+/// `EmbeddedCmOnly`, which loses to the bundle.
+///
+/// The `Generic` variant of the previous (#424) three-tier enum has been
+/// renamed to `RawlerFallback` for accuracy — rawler always decodes
+/// *some* body when given a RAW we can read, so the diagnostic "rawler
+/// fell back" framing matches the failure case more directly than the
+/// implementation-detail "synthetic D65→Rec.2020" framing. The matrix
+/// payload (`M_XYZ_D65_TO_REC2020`) is unchanged from the #424 `Generic`
+/// path; per #345's source-mixing rationale, surfacing rawler's
+/// substituted CM regresses test_0004 (7.24 → 8.86 ΔE) so we keep the
+/// synthetic CM instead.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ProfileSource {
-    /// Came from Maple's bundled third-party-derived profile table
-    /// (`crate::color::profile_loader::lookup_profile`). PTC/PLT in the
-    /// source DNG were calibrated against the vendor's own matrices; the
-    /// caller should drop PTC when this variant is in play (see the
-    /// `pipeline::develop` comments at each call site).
-    Bundled,
-    /// Synthesised from the embedded DNG calibration matrices that
-    /// `rawler` decoded out of the source file
-    /// (`ColorMatrix1`/`ColorMatrix2` + optional `ForwardMatrix1`/2).
-    /// Used when the bundle has no entry for this body but the source
-    /// shipped its own calibration. The carried [`Illuminant`] is the
-    /// calibration illuminant the profile was authored against — for
-    /// dual-illuminant DNGs it's the one closer to the as-shot CCT,
-    /// matching the dispatch already used in
-    /// [`interpolated_profile`].
+    /// Source DNG ships CM + FM + (HSM1 | HSM2). The vendor's own complete
+    /// profile, used whole — beats the bundle's externally-derived
+    /// matrices because the embedded triad is internally consistent
+    /// (FM calibrated against this exact CM, HSM tuned to this exact FM).
     ///
-    /// PTC/PLT contract: when the develop chain sees `EmbeddedDng`, the
-    /// source DNG's PTC/PLT (if any) flow through unchanged — they were
-    /// calibrated against the same vendor matrices we're rendering with,
-    /// so dropping them would break the tone calibration.
-    EmbeddedDng {
+    /// PTC/PLT contract: the source's PTC/PLT flow through unchanged.
+    /// They were authored against the same embedded matrices we're using.
+    EmbeddedFull {
         /// Calibration illuminant the embedded matrix was authored under.
         /// Dual-illuminant DNGs report the closer-CCT side after CCT lerp.
         illuminant: Illuminant,
     },
-    /// Last-resort generic D65 → Rec.2020 fallback. Both the bundle and the
-    /// source DNG were silent on this body's calibration; the synthesised
-    /// profile pretends the sensor has Rec.2020 primaries so camera RGB
-    /// passes through approximately unchanged. Visibly imperfect, but
-    /// crucially **not identity** — a true identity matrix treats camera
-    /// RGB as XYZ (1.5–3× too bright with grossly miscalibrated channel
-    /// ratios). Coverage gaps that produce `Generic` are logged once per
+    /// Byte-exact UCM (or alias) hit in Maple's bundled profile table
+    /// (`crate::color::profile_loader::lookup_profile`). The canonical
+    /// color source: 1,403+ externally-calibrated profiles, PTC/PLT
+    /// stripped at the bundle layer (AgX handles tone).
+    ///
+    /// PTC/PLT contract: the develop chain DROPS the source DNG's PTC
+    /// when this variant is in play — that tag was calibrated against
+    /// the vendor's own matrices, not the externally-calibrated
+    /// substitute. PLT stays (it's the look table). See
+    /// `pipeline::develop` comments for the per-call-site contract.
+    BundleConfident,
+    /// Synthesised from the embedded DNG calibration matrices that
+    /// `rawler` decoded out of the source file
+    /// (`ColorMatrix1`/`ColorMatrix2` + optional `ForwardMatrix1`/2),
+    /// when no `ProfileHueSatMapData1`/`Data2` was present. Used when
+    /// the bundle has no entry for this body but the source shipped a
+    /// partial calibration. The carried [`Illuminant`] is the
+    /// calibration illuminant the profile was authored against — for
+    /// dual-illuminant DNGs it's the one closer to the as-shot CCT,
+    /// matching the dispatch already used in [`interpolated_profile`].
+    ///
+    /// PTC/PLT contract: when the develop chain sees `EmbeddedCmOnly`,
+    /// the source DNG's PTC/PLT (if any) flow through unchanged — they
+    /// were calibrated against the same vendor matrices we're rendering
+    /// with, so dropping them would break the tone calibration.
+    EmbeddedCmOnly {
+        /// Calibration illuminant the embedded matrix was authored under.
+        /// Dual-illuminant DNGs report the closer-CCT side after CCT lerp.
+        illuminant: Illuminant,
+    },
+    /// Last-resort fallback when neither the bundle nor the source DNG
+    /// carry a usable calibration matrix (vendor RAW from an uncovered
+    /// body, or a malformed DNG). Synthesises a CM of
+    /// `M_XYZ_D65_TO_REC2020` (XYZ D65 → Rec.2020) — i.e. "pretend the
+    /// sensor has Rec.2020 primaries at D65", which under the DNG
+    /// XYZ→camera convention makes camera RGB pass through approximately
+    /// unchanged into output Rec.2020. Visibly imperfect, but crucially
+    /// **not identity** — a true identity matrix treats camera RGB as XYZ
+    /// (1.5–3× too bright with grossly miscalibrated channel ratios).
+    /// Coverage gaps that produce `RawlerFallback` are logged once per
     /// UCM via `eprintln!` (see [`profile_for_with_source`]).
     ///
-    /// PTC/PLT contract: same as `EmbeddedDng` — the source's PTC/PLT
+    /// The name reflects the diagnostic stance: rawler decoded *some*
+    /// body but we have no calibration for it. The CM payload itself is
+    /// synthetic; per #345 we deliberately do NOT surface rawler's
+    /// dcraw-lineage substituted matrices (which would regress test_0004
+    /// 7.24 → 8.86 ΔE).
+    ///
+    /// PTC/PLT contract: same as `EmbeddedCmOnly` — the source's PTC/PLT
     /// flow through. The matrix is wrong-but-bounded, not wrong-by-2x,
     /// so suppressing PTC would lose tone calibration without buying
     /// anything.
-    Generic,
+    RawlerFallback,
 }
 
 /// Synthesize a `DcpProfile` from a `RawImage`'s embedded color matrices.
@@ -555,80 +607,85 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 /// to decide PTC suppression in a single pass — see ticket #324 and the
 /// PR #330 PTC-suppression rationale in `pipeline::develop`.
 ///
-/// Lookup order under ticket #424 (never-identity fallback):
+/// Lookup order under ticket #460 (4-tier resolver, salvage from #402):
 ///
-///   1. **Maple's bundled third-party-derived profile** for this
-///      camera's UCM (or a known alias — see
-///      [`crate::color::ucm_mapping`]). Returns
-///      [`ProfileSource::Bundled`]. This is the canonical color source:
-///      1,403+ externally-calibrated profiles, PTC/PLT stripped (AgX
-///      handles tone). If the source is a DNG with its own embedded CM,
-///      the bundle's CM wins — every body is authored once by the
-///      external standard, not split between bundle (matrices) and
-///      vendor (FM/HSM).
+///   1. **Embedded full profile** — DNG ships CM + FM + (HSM1 | HSM2).
+///      The vendor's own complete calibration is internally consistent
+///      (FM calibrated against this exact CM, HSM tuned to this exact FM)
+///      and **wins over the bundle**. Returns
+///      [`ProfileSource::EmbeddedFull`]. Synthesised via
+///      [`profile_from_embedded_full`].
 ///
-///   2. **Embedded DNG `ColorMatrix1`/`ColorMatrix2` (+ optional
-///      `ForwardMatrix1`/2)** that the source FILE itself carries —
-///      i.e. DNG-shaped sources whose Root IFD contains DNG-spec
-///      ColorMatrix tags. `decode.rs` § 8 (`cm_in_ifd` gate) only
-///      populates `raw.color_matrices` in this case; vendor RAW formats
-///      (.fff/.cr2/.arw/.nef/etc.) leave it empty even though `rawler`
-///      internally has dcraw-lineage substitute matrices — those
-///      substitutes have historically regressed color quality (ticket
-///      #345 source-mixing rationale).
+///   2. **Bundled profile** for this camera's UCM (or a known alias —
+///      see [`crate::color::ucm_mapping`]). Returns
+///      [`ProfileSource::BundleConfident`]. This is the canonical color
+///      source for cameras whose embedded profile is partial: 1,403+
+///      externally-calibrated profiles, PTC/PLT stripped (AgX handles
+///      tone).
+///
+///   3. **Embedded CM-only fallback** — DNG ships CM (with or without
+///      FM, but without HSM) and the bundle missed. Partial calibration;
+///      we use it because it's still the camera vendor's own matrix
+///      rather than a synthetic. `decode.rs` § 8 (`cm_in_ifd` gate)
+///      only populates `raw.color_matrices` for DNG-shaped sources —
+///      vendor RAW formats (.fff/.cr2/.arw/.nef/etc.) leave it empty
+///      even though `rawler` internally has dcraw-lineage substitute
+///      matrices that historically regressed color quality (#345
+///      source-mixing rationale).
 ///
 ///      Dual-illuminant DNGs are reciprocal-CCT-lerped through
 ///      [`interpolated_profile`]; single-illuminant DNGs build a
 ///      profile via [`single_illuminant_profile`]. Returns
-///      [`ProfileSource::EmbeddedDng`]. This is the canonical
-///      Darktable-style degrade — `src/iop/colorin.c` does the same
-///      thing when its bundled lookup misses on DNG-shaped sources.
+///      [`ProfileSource::EmbeddedCmOnly`]. This is the canonical
+///      Darktable-style degrade.
 ///
-///   3. **Generic D65 → Rec.2020 fallback** when neither the bundle nor
-///      the source DNG carry a usable calibration matrix (vendor RAW
-///      from an uncovered body, or a malformed DNG). Synthesises a
-///      `ColorMatrix` of `M_XYZ_D65_TO_REC2020` (XYZ D65 → Rec.2020) —
-///      i.e. "pretend the sensor has Rec.2020 primaries at D65", which
-///      under the DNG XYZ→camera convention makes camera RGB pass
-///      through approximately unchanged into output Rec.2020. Returns
-///      [`ProfileSource::Generic`]. Logged once per UCM via
-///      [`log_coverage_gap_once`] so the gap surfaces in diagnostics
-///      without flooding stderr from per-tile renders.
+///   4. **Rawler fallback** — neither the bundle nor the source DNG
+///      carry a usable calibration matrix (vendor RAW from an uncovered
+///      body, or a malformed DNG). Synthesises a `ColorMatrix` of
+///      `M_XYZ_D65_TO_REC2020`. Returns [`ProfileSource::RawlerFallback`].
+///      Logged once per UCM via [`log_coverage_gap_once`].
 ///
-/// **Never identity.** Pre-#424 this function returned an identity
-/// ColorMatrix for uncovered bodies, which treats camera RGB as XYZ —
-/// catastrophic (1.5–3× over-bright with badly miscalibrated channel
-/// ratios; test_0004 hit ΔE mean ≈ 7.96 before #424). The
-/// embedded-and-generic chain replaces that.
+/// **Never identity.** Every variant carries a real (non-identity)
+/// matrix. Pre-#424 this function returned an identity ColorMatrix for
+/// uncovered bodies (1.5–3× over-bright with badly miscalibrated channel
+/// ratios; test_0004 hit ΔE mean ≈ 7.96 before #424).
 ///
-/// **No rawler-substituted-CM path.** Step 2 uses ONLY matrices the
-/// DNG itself carries (`ColorMatrix1/2` / `ForwardMatrix1/2`) — never
-/// rawler's dcraw-lineage per-body defaults. The previous
-/// (#345) "bundle-canonical or bust" stance only banned rawler's
-/// substituted matrices, not the matrices that ship inside the DNG
-/// file itself.
+/// **No rawler-substituted-CM path.** Steps 1/3 use ONLY matrices the
+/// DNG itself carries (`ColorMatrix1/2` / `ForwardMatrix1/2` /
+/// `ProfileHueSatMapData1/2`) — never rawler's dcraw-lineage per-body
+/// defaults. The previous (#345) "bundle-canonical or bust" stance only
+/// banned rawler's substituted matrices, not the matrices that ship
+/// inside the DNG file itself.
 pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, ProfileSource)> {
-    // ── 1. Bundled profile ────────────────────────────────────────────────
+    let wb_already_baked = !is_lossy_linearraw(raw);
+
+    // ── 1. Embedded full profile (CM + FM + HSM) ──────────────────────────
+    // Camera vendor's own complete calibration; beats the bundle because
+    // the embedded triad is internally consistent (FM matched to CM, HSM
+    // tuned for FM). This is the new behavior under ticket #460.
+    if let Some((profile, illuminant)) = profile_from_embedded_full(raw, wb_already_baked) {
+        return Ok((profile, ProfileSource::EmbeddedFull { illuminant }));
+    }
+
+    // ── 2. Bundled profile ────────────────────────────────────────────────
     if let Some(bundled) = crate::color::profile_loader::lookup_profile(raw) {
         if let Some(p) = crate::color::profile_loader::to_dcp_profile(bundled, raw) {
-            return Ok((p, ProfileSource::Bundled));
+            return Ok((p, ProfileSource::BundleConfident));
         }
         // to_dcp_profile only fails when the bundle entry has no CMs at
         // all — never observed in practice across the 1,447-profile set.
-        // Fall through to the embedded / generic paths for the degenerate
-        // case.
+        // Fall through to the embedded-CM / rawler-fallback paths for the
+        // degenerate case.
     }
 
-    let wb_already_baked = !is_lossy_linearraw(raw);
-
-    // ── 2. Embedded DNG matrices ──────────────────────────────────────────
+    // ── 3. Embedded CM-only fallback ──────────────────────────────────────
+    // DNG ships CM (with or without FM) but no HSM, and the bundle missed.
     // Two CMs → interpolated profile. One CM → single-illuminant profile.
-    // FMs are optional and paired with their illuminant by `decode.rs`.
-    if let Some((profile, illuminant)) = profile_from_embedded(raw, wb_already_baked) {
-        return Ok((profile, ProfileSource::EmbeddedDng { illuminant }));
+    if let Some((profile, illuminant)) = profile_from_embedded_cm_only(raw, wb_already_baked) {
+        return Ok((profile, ProfileSource::EmbeddedCmOnly { illuminant }));
     }
 
-    // ── 3. Generic D65 → Rec.2020 fallback ────────────────────────────────
+    // ── 4. Rawler fallback (synthetic D65 → Rec.2020) ─────────────────────
     // Pretend the sensor has Rec.2020 primaries at D65. The DNG `CM` is
     // XYZ→camera, so we want `inv(CM) = M_REC2020_TO_XYZ_D65` — meaning
     // `CM = M_XYZ_D65_TO_REC2020`. Under `apply`'s non-FM Bradford branch,
@@ -637,6 +694,11 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
     // neutral camera reading lands neutral in Rec.2020 D65. Wrong-but-
     // bounded vs the pre-#424 identity-CM catastrophe (which treated camera
     // RGB as XYZ wholesale).
+    //
+    // Per #345, we deliberately do NOT surface rawler's dcraw-lineage
+    // substituted matrices here even though rawler can decode the body —
+    // that path regressed test_0004 7.24 → 8.86 ΔE. The synthetic CM is
+    // the safer wrong-but-bounded default.
     log_coverage_gap_once(raw);
     let generic_cm = crate::color::matrices::M_XYZ_D65_TO_REC2020;
     Ok((
@@ -649,7 +711,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
             wb_already_baked,
             hsm: None,
         },
-        ProfileSource::Generic,
+        ProfileSource::RawlerFallback,
     ))
 }
 
@@ -674,7 +736,7 @@ fn is_lossy_linearraw(raw: &RawImage) -> bool {
 /// never ship `ColorMatrix1 = I` — only synthetic / placeholder DNGs
 /// (see `test_support::synth_dng`) do. Treating a literal-identity
 /// embedded CM as a real calibration would violate the ticket-#424
-/// "never identity" guarantee, so those bodies degrade to `Generic`.
+/// "never identity" guarantee, so those bodies degrade to `RawlerFallback`.
 ///
 /// Dual-illuminant (CM1 + CM2 with distinct illuminants) → reciprocal-CCT
 /// lerp via [`interpolated_profile`]. The returned `illuminant` is the
@@ -682,6 +744,11 @@ fn is_lossy_linearraw(raw: &RawImage) -> bool {
 /// already records on `DcpProfile::illuminant`.
 ///
 /// Single-illuminant (one CM) → [`single_illuminant_profile`].
+///
+/// This shared helper is called by both [`profile_from_embedded_full`]
+/// (gated on FM + HSM presence) and [`profile_from_embedded_cm_only`]
+/// (no HSM gate). The math is identical; only the resolver's tier
+/// classification differs.
 fn profile_from_embedded(
     raw: &RawImage,
     wb_already_baked: bool,
@@ -742,6 +809,51 @@ fn profile_from_embedded(
         .or_else(|| raw.hsm_data.values().next().cloned());
     let profile = single_illuminant_profile(cm, illum, fm, hsm, raw.as_shot_neutral, wb_already_baked);
     Some((profile, illum))
+}
+
+/// Build a DcpProfile when the source DNG ships a *complete* embedded
+/// profile — CM + FM + (HSM1 | HSM2). This is the
+/// [`ProfileSource::EmbeddedFull`] tier: the vendor's own internally-
+/// consistent calibration, used whole, beats the bundle.
+///
+/// The gate is "non-empty `color_matrices` AND non-empty
+/// `forward_matrices` AND non-empty `hsm_data`". Only one HSM table is
+/// required (DNG 1.6 § 6.6.5 allows single-illuminant HSM), so we accept
+/// any non-empty `hsm_data` map even for dual-illuminant DNGs that
+/// happen to ship only `ProfileHueSatMapData1`. The CM/FM pair is
+/// optional per illuminant in the same way — `profile_from_embedded`
+/// already handles the partial-pair cases internally.
+///
+/// Returns `None` if any of the three gates miss; the caller (the
+/// resolver) then falls through to the bundle / cm-only / fallback path.
+fn profile_from_embedded_full(
+    raw: &RawImage,
+    wb_already_baked: bool,
+) -> Option<(DcpProfile, Illuminant)> {
+    if raw.color_matrices.is_empty()
+        || raw.forward_matrices.is_empty()
+        || raw.hsm_data.is_empty()
+    {
+        return None;
+    }
+    profile_from_embedded(raw, wb_already_baked)
+}
+
+/// Build a DcpProfile from a partial embedded profile (CM, with or
+/// without FM, but no HSM — or the FM-also-absent case). This is the
+/// [`ProfileSource::EmbeddedCmOnly`] tier: the bundle is the preferred
+/// source for these bodies, and we only land here when the bundle
+/// missed too.
+///
+/// The resolver guarantees `EmbeddedFull` has already been ruled out
+/// before this is called (so we don't need to check HSM absence
+/// here — the resolver's tier order does the gating). The function
+/// itself just degrades on `color_matrices.is_empty()`.
+fn profile_from_embedded_cm_only(
+    raw: &RawImage,
+    wb_already_baked: bool,
+) -> Option<(DcpProfile, Illuminant)> {
+    profile_from_embedded(raw, wb_already_baked)
 }
 
 /// True when `m` is within `1e-4` per element of the identity matrix.
@@ -1036,22 +1148,23 @@ mod tests {
         }
     }
 
-    /// Under ticket #424 (never-identity), a RawImage with no bundle hit
-    /// AND no embedded matrices falls to the generic D65→Rec.2020 path.
-    /// The synthesised ColorMatrix is `M_XYZ_D65_TO_REC2020` (XYZ D65 →
-    /// Rec.2020, the DNG XYZ→camera convention applied to a hypothetical
-    /// Rec.2020-primaries sensor at D65) — NOT identity. The pipeline still
-    /// produces pixels (visibly imperfect, but bounded vs the pre-#424
-    /// identity-CM catastrophe) and the `Generic` source tag surfaces in
+    /// Under ticket #460 (4-tier resolver), a RawImage with no bundle hit
+    /// AND no embedded matrices falls to the rawler-fallback path
+    /// (renamed from `Generic` for diagnostic accuracy). The synthesised
+    /// ColorMatrix is `M_XYZ_D65_TO_REC2020` (XYZ D65 → Rec.2020, the DNG
+    /// XYZ→camera convention applied to a hypothetical Rec.2020-primaries
+    /// sensor at D65) — NOT identity. The pipeline still produces pixels
+    /// (visibly imperfect, but bounded vs the pre-#424 identity-CM
+    /// catastrophe) and the `RawlerFallback` source tag surfaces in
     /// diagnostics.
     #[test]
-    fn profile_for_with_no_matrix_returns_generic_non_identity() {
+    fn profile_for_with_no_matrix_returns_rawler_fallback_non_identity() {
         let raw = make_raw(std::collections::HashMap::new());
-        let (profile, source) = profile_for_with_source(&raw).expect("generic should succeed");
-        assert_eq!(source, ProfileSource::Generic);
+        let (profile, source) = profile_for_with_source(&raw).expect("rawler fallback should succeed");
+        assert_eq!(source, ProfileSource::RawlerFallback);
         assert_ne!(profile.color_matrix, Matrix3::IDENTITY,
-            "Generic fallback must NOT be identity — that's exactly what #424 forbade");
-        // The generic CM is `M_XYZ_D65_TO_REC2020` per the DNG XYZ→camera
+            "RawlerFallback must NOT be identity — that's exactly what #424 forbade");
+        // The fallback CM is `M_XYZ_D65_TO_REC2020` per the DNG XYZ→camera
         // convention — a hypothetical Rec.2020-primaries sensor at D65.
         // Under `apply`, a neutral camera reading projects to neutral in
         // Rec.2020 D65.
@@ -1059,7 +1172,7 @@ mod tests {
         for i in 0..3 {
             for j in 0..3 {
                 assert!((profile.color_matrix.0[i][j] - expected.0[i][j]).abs() < 1e-6,
-                    "Generic CM mismatch at [{i}][{j}]: got {} expected {}",
+                    "RawlerFallback CM mismatch at [{i}][{j}]: got {} expected {}",
                     profile.color_matrix.0[i][j], expected.0[i][j]);
             }
         }
@@ -1071,32 +1184,34 @@ mod tests {
     /// calibration — they're a synthetic / placeholder shape (see
     /// `test_support::synth_dng`) that real cameras never ship. The
     /// `profile_from_embedded` helper filters them out so the lookup
-    /// degrades to `Generic` instead, preserving ticket-#424's
+    /// degrades to `RawlerFallback` instead, preserving ticket-#424's
     /// "never identity" guarantee even when the DNG file itself
     /// claims an identity calibration.
     #[test]
-    fn synthetic_raw_with_identity_embedded_cm_falls_through_to_generic() {
+    fn synthetic_raw_with_identity_embedded_cm_falls_through_to_rawler_fallback() {
         let mut cms = std::collections::HashMap::new();
         cms.insert(Illuminant::D65, Matrix3::IDENTITY);
         let raw = make_raw(cms);
         let (profile, source) = profile_for_with_source(&raw)
-            .expect("identity-CM raw should fall through to Generic, not error");
-        assert_eq!(source, ProfileSource::Generic,
-            "identity embedded CM must skip to Generic, got {:?}", source);
-        // Whatever Generic uses, it must not be identity.
+            .expect("identity-CM raw should fall through to RawlerFallback, not error");
+        assert_eq!(source, ProfileSource::RawlerFallback,
+            "identity embedded CM must skip to RawlerFallback, got {:?}", source);
+        // Whatever the fallback uses, it must not be identity.
         assert_ne!(profile.color_matrix, Matrix3::IDENTITY);
     }
 
-    /// Embedded-CM path: a synthetic RawImage that carries a single
-    /// `ColorMatrix1` and no bundle entry surfaces the embedded matrix
-    /// verbatim, tagged [`ProfileSource::EmbeddedDng`]. This is the
-    /// canonical #424 happy path — the body isn't bundled, but the
-    /// source DNG ships its own usable calibration.
+    /// Embedded-CM-only path: a synthetic RawImage that carries a single
+    /// `ColorMatrix1`, no FM/HSM, and no bundle entry surfaces the
+    /// embedded matrix verbatim, tagged [`ProfileSource::EmbeddedCmOnly`].
+    /// This is the canonical #424 happy path — the body isn't bundled,
+    /// but the source DNG ships its own usable calibration. Under #460
+    /// the tier is `EmbeddedCmOnly` (not `EmbeddedFull`) because no HSM
+    /// is present.
     #[test]
-    fn synthetic_raw_with_embedded_cm_surfaces_embedded_profile() {
+    fn synthetic_raw_with_embedded_cm_surfaces_embedded_cm_only_profile() {
         // Plausible-shape camera CM (matches one of the dual-illum-test
         // matrices below). Pre-#424 this synthetic raw resolved to identity
-        // Fallback; under #424 it surfaces as EmbeddedDng.
+        // Fallback; under #424/#460 it surfaces as EmbeddedCmOnly.
         let embedded_cm = Matrix3([
             [ 0.6722, -0.0635, -0.0963],
             [-0.4287,  1.2460,  0.2028],
@@ -1106,15 +1221,16 @@ mod tests {
         cms.insert(Illuminant::D65, embedded_cm);
         let raw = make_raw(cms);
         let (profile, source) = profile_for_with_source(&raw).expect("embedded should succeed");
-        assert!(matches!(source, ProfileSource::EmbeddedDng { illuminant: Illuminant::D65 }),
-            "expected EmbeddedDng {{ D65 }}, got {:?}", source);
+        assert!(matches!(source, ProfileSource::EmbeddedCmOnly { illuminant: Illuminant::D65 }),
+            "expected EmbeddedCmOnly {{ D65 }}, got {:?}", source);
         // The CM surfaces verbatim — no identity substitution.
         assert_eq!(profile.color_matrix, embedded_cm);
     }
 
-    /// Embedded-CM path with dual illuminants: synthesises a profile via
-    /// `interpolated_profile`. The reported `Illuminant` is the
+    /// Embedded-CM-only path with dual illuminants: synthesises a profile
+    /// via `interpolated_profile`. The reported `Illuminant` is the
     /// closer-CCT side (matches `interpolated_profile`'s own tagging).
+    /// Under #460, dual CMs without HSM → `EmbeddedCmOnly`.
     #[test]
     fn synthetic_raw_with_dual_embedded_cms_interpolates() {
         let cm_a = Matrix3([
@@ -1137,13 +1253,13 @@ mod tests {
         // interpolated CM is between the two endpoints (i.e. NOT identity
         // and NOT exactly cm_a / cm_d).
         match source {
-            ProfileSource::EmbeddedDng { illuminant } => {
+            ProfileSource::EmbeddedCmOnly { illuminant } => {
                 assert!(
                     matches!(illuminant, Illuminant::D65 | Illuminant::StdA),
                     "expected closer-CCT illuminant; got {:?}", illuminant
                 );
             }
-            other => panic!("expected EmbeddedDng, got {:?}", other),
+            other => panic!("expected EmbeddedCmOnly, got {:?}", other),
         }
         assert_ne!(profile.color_matrix, Matrix3::IDENTITY);
     }
@@ -1315,8 +1431,8 @@ mod tests {
 
     /// `wb_already_baked` derivation is a property of `cfa` +
     /// `white_level`, independent of which profile-source path runs.
-    /// Under #424 a synthetic raw without a UCM AND no embedded matrices
-    /// goes through the `Generic` path, which still carries
+    /// Under #424/#460 a synthetic raw without a UCM AND no embedded matrices
+    /// goes through the `RawlerFallback` path, which still carries
     /// `wb_already_baked` derived from the same cfa/white_level rules
     /// as the original linearraw / Bayer dispatch — this regression
     /// test confirms that property survives the never-identity refactor.
@@ -1355,8 +1471,8 @@ mod tests {
             crop_rect: None,
         };
         let (prof_linear, src_linear) = profile_for_with_source(&raw_linear).unwrap();
-        // No embedded matrices on this synthetic raw → Generic fallback.
-        assert_eq!(src_linear, ProfileSource::Generic);
+        // No embedded matrices on this synthetic raw → RawlerFallback.
+        assert_eq!(src_linear, ProfileSource::RawlerFallback);
         assert!(prof_linear.wb_already_baked,
             "16-bit LinearRgb must get wb_already_baked=true after Phase 1.2");
 
@@ -1583,11 +1699,11 @@ mod tests {
     /// see `decode.rs` § 8 cm_in_ifd gate and the #345 source-mixing
     /// rationale).
     ///
-    /// Under #424 this fixture therefore resolves to
-    /// [`ProfileSource::Generic`], NOT `EmbeddedDng`. The crucial
-    /// invariant the ticket requires is the **non-identity** guarantee:
-    /// the synthesised CM must not be `Matrix3::IDENTITY` (which was the
-    /// pre-#424 catastrophe — camera RGB treated as XYZ).
+    /// Under #424/#460 this fixture therefore resolves to
+    /// [`ProfileSource::RawlerFallback`], NOT any embedded tier. The
+    /// crucial invariant the ticket requires is the **non-identity**
+    /// guarantee: the synthesised CM must not be `Matrix3::IDENTITY`
+    /// (which was the pre-#424 catastrophe — camera RGB treated as XYZ).
     ///
     /// Skip-passes when `test-fixtures/raws/test_0004.fff` is absent
     /// (matches the soft-pass pattern used throughout this crate). The
@@ -1615,11 +1731,11 @@ mod tests {
         );
         // .fff is a vendor RAW with no DNG ColorMatrix tag in the IFD, so
         // `decode.rs` doesn't surface rawler's substituted matrices and the
-        // dispatcher falls through to `Generic`.
+        // dispatcher falls through to `RawlerFallback`.
         let (profile, source) = profile_for_with_source(&raw).expect("profile_for");
         assert_eq!(
-            source, ProfileSource::Generic,
-            "test_0004 (.fff with no DNG CM tags) must resolve to Generic, \
+            source, ProfileSource::RawlerFallback,
+            "test_0004 (.fff with no DNG CM tags) must resolve to RawlerFallback, \
              got {:?}", source
         );
         // Crucially: NEVER identity. This is the #424 contract.
@@ -1627,6 +1743,265 @@ mod tests {
             profile.color_matrix, Matrix3::IDENTITY,
             "test_0004 must not carry an identity ColorMatrix — that's \
              exactly the catastrophic pre-#424 case the ticket targets."
+        );
+    }
+
+    // ── Ticket #460: 4-tier ProfileSource regression tests ───────────────────
+
+    /// Helper for the #460 tests: build a `RawImage` whose UCM hits the
+    /// bundle (Canon EOS 5D Mark IV is bundled per
+    /// `ucm_mapping::already_covered_ucms_have_no_alias`), with caller-
+    /// controlled CM / FM / HSM populations so we can dial in the four
+    /// resolver tiers.
+    fn make_raw_with_ucm(
+        ucm: &str,
+        cms: std::collections::HashMap<Illuminant, Matrix3>,
+        fms: std::collections::HashMap<Illuminant, Matrix3>,
+        hsm_data: std::collections::HashMap<Illuminant, crate::color::hsm::HsmTable>,
+    ) -> RawImage {
+        RawImage {
+            width: 1, height: 1,
+            cfa: crate::image::CfaPattern::Rggb,
+            black_level: [0; 4], white_level: 1,
+            raw_data: vec![0],
+            as_shot_neutral: [1.0, 1.0, 1.0],
+            as_shot_cct: None,
+            camera_make: "Canon".into(),
+            camera_model: "EOS 5D Mark IV".into(),
+            unique_camera_model: Some(ucm.into()),
+            color_matrices: cms,
+            forward_matrices: fms,
+            orientation: crate::image::ExifOrientation::Normal,
+            baseline_exposure: 0.0,
+            hsm_data,
+            plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
+            crop_rect: None,
+        }
+    }
+
+    /// Tier 1 (new behavior): a DNG carrying CM + FM + HSM resolves to
+    /// `EmbeddedFull` even when the same body has a bundled-profile
+    /// entry. The vendor's complete embedded profile beats the bundle
+    /// because the embedded triad is internally consistent — bundle
+    /// matrices for this body were externally derived and don't share
+    /// the same FM/HSM calibration. Pre-#460, this case fell to
+    /// `Bundled`, silently dropping the embedded FM/HSM.
+    #[test]
+    fn embedded_full_beats_bundle() {
+        // Plausible-shape CM.
+        let cm = Matrix3([
+            [ 0.6722, -0.0635, -0.0963],
+            [-0.4287,  1.2460,  0.2028],
+            [-0.0908,  0.2162,  0.5668],
+        ]);
+        // Plausible-shape FM (camera→XYZ-D50). Doesn't need to be the
+        // actual vendor FM — we just need it non-empty for the tier-1
+        // gate.
+        let fm = Matrix3([
+            [ 0.5151,  0.1234,  0.0457],
+            [ 0.2412,  0.7320,  0.0268],
+            [ 0.0148,  0.0975,  0.7129],
+        ]);
+        // Tiny HSM table; only its presence matters for the tier gate.
+        let hsm = crate::color::hsm::HsmTable::new(
+            [1, 1, 1],
+            vec![0.0, 1.0, 1.0],
+            crate::color::hsm::HsmEncoding::Linear,
+        ).expect("valid 1x1x1 identity HSM");
+
+        let mut cms = std::collections::HashMap::new();
+        cms.insert(Illuminant::D65, cm);
+        let mut fms = std::collections::HashMap::new();
+        fms.insert(Illuminant::D65, fm);
+        let mut hsm_map = std::collections::HashMap::new();
+        hsm_map.insert(Illuminant::D65, hsm);
+
+        // UCM hits the bundle. Confirm that prerequisite first — if
+        // someone removes the Canon 5D Mark IV bundled profile this
+        // test silently becomes meaningless.
+        let raw = make_raw_with_ucm("Canon EOS 5D Mark IV", cms, fms, hsm_map);
+        assert!(
+            crate::color::profile_loader::lookup_profile(&raw).is_some(),
+            "test prerequisite: 'Canon EOS 5D Mark IV' must be bundled. \
+             If the bundle entry was removed, swap in any other UCM the \
+             bundle still covers."
+        );
+
+        let (_profile, source) = profile_for_with_source(&raw)
+            .expect("resolver should succeed");
+        assert!(
+            matches!(source, ProfileSource::EmbeddedFull { illuminant: Illuminant::D65 }),
+            "CM + FM + HSM in a DNG with a bundled body must resolve to \
+             EmbeddedFull, got {:?} — this is the new behavior under #460, \
+             where the embedded triad beats the bundle.",
+            source
+        );
+    }
+
+    /// Tier 2 vs Tier 3: a DNG with CM (and FM) but NO HSM, AND a
+    /// bundled body, resolves to `BundleConfident`. The embedded
+    /// profile is partial, so the bundle's externally-calibrated
+    /// matrices win.
+    #[test]
+    fn embedded_cm_only_loses_to_bundle() {
+        let cm = Matrix3([
+            [ 0.6722, -0.0635, -0.0963],
+            [-0.4287,  1.2460,  0.2028],
+            [-0.0908,  0.2162,  0.5668],
+        ]);
+        let mut cms = std::collections::HashMap::new();
+        cms.insert(Illuminant::D65, cm);
+        // Empty HSM map — that's what disqualifies EmbeddedFull.
+        let raw = make_raw_with_ucm(
+            "Canon EOS 5D Mark IV",
+            cms,
+            std::collections::HashMap::new(),
+            std::collections::HashMap::new(),
+        );
+        assert!(
+            crate::color::profile_loader::lookup_profile(&raw).is_some(),
+            "test prerequisite: 'Canon EOS 5D Mark IV' must be bundled."
+        );
+
+        let (_profile, source) = profile_for_with_source(&raw)
+            .expect("resolver should succeed");
+        assert_eq!(
+            source, ProfileSource::BundleConfident,
+            "CM-only (no HSM) DNG with a bundled body must resolve to \
+             BundleConfident — embedded partial profile loses to the \
+             externally-calibrated bundle entry. Got {:?}",
+            source
+        );
+    }
+
+    /// Tier 4: a body with no bundled profile and no embedded matrices
+    /// (the vendor-RAW case after `decode.rs`'s `cm_in_ifd` gate drops
+    /// rawler's substituted matrices) must resolve to `RawlerFallback`.
+    /// Crucially, the CM must NEVER be identity — that's #424's
+    /// invariant which #460 must preserve.
+    #[test]
+    fn rawler_fallback_when_no_dcp_and_no_bundle() {
+        // UCM that the bundle definitely doesn't cover (Hasselblad H5D-40
+        // is the canonical uncovered fixture, but to keep this test
+        // independent of fixture availability we use the `make_raw`
+        // helper's bare "Test/Test" body which has no bundled profile.).
+        let raw = make_raw(std::collections::HashMap::new());
+        assert!(
+            crate::color::profile_loader::lookup_profile(&raw).is_none(),
+            "test prerequisite: 'Test/Test' must NOT be bundled"
+        );
+        let (profile, source) = profile_for_with_source(&raw)
+            .expect("resolver should succeed even for uncovered bodies");
+        assert_eq!(
+            source, ProfileSource::RawlerFallback,
+            "no DCP + no bundle must resolve to RawlerFallback, got {:?}",
+            source
+        );
+        assert_ne!(
+            profile.color_matrix, Matrix3::IDENTITY,
+            "RawlerFallback CM must NEVER be identity — that violates \
+             ticket #424's invariant carried forward into #460."
+        );
+        // The synthetic CM is `M_XYZ_D65_TO_REC2020` per the DNG
+        // XYZ→camera convention.
+        let expected = crate::color::matrices::M_XYZ_D65_TO_REC2020;
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!((profile.color_matrix.0[i][j] - expected.0[i][j]).abs() < 1e-6);
+            }
+        }
+    }
+
+    /// EmbeddedFull's HSM resolution uses the per-illuminant
+    /// `hsm_data` HashMap from #455: dual-illuminant DNGs with
+    /// two HSM tables get reciprocal-CCT-lerped, single-illuminant DNGs
+    /// (single CM + single HSM keyed by the matching illuminant) get
+    /// the table used as-is. This test wires the dual-illuminant case
+    /// through the resolver and confirms the lerped HSM lands on the
+    /// produced profile (i.e. the lookup composes correctly across the
+    /// HSM HashMap fix).
+    #[test]
+    fn embedded_full_uses_hsm_map_keyed_by_illuminant() {
+        // Two HSM tables with distinguishable hueDelta values, keyed by
+        // illuminant. The cold table (StdA) carries +30° hue shift, the
+        // warm table (D65) carries -60°; if the resolver pairs them with
+        // the wrong CMs (positional pre-#455 bug), the lerp would invert.
+        let cold_hsm = crate::color::hsm::HsmTable::new(
+            [1, 1, 1],
+            vec![30.0, 1.0, 1.0],
+            crate::color::hsm::HsmEncoding::Linear,
+        ).expect("valid 1x1x1 HSM");
+        let warm_hsm = crate::color::hsm::HsmTable::new(
+            [1, 1, 1],
+            vec![-60.0, 1.0, 1.0],
+            crate::color::hsm::HsmEncoding::Linear,
+        ).expect("valid 1x1x1 HSM");
+
+        let cm_stda = Matrix3([
+            [ 0.6722, -0.0635, -0.0963],
+            [-0.4287,  1.2460,  0.2028],
+            [-0.0908,  0.2162,  0.5668],
+        ]);
+        let cm_d65 = Matrix3([
+            [ 0.5000, -0.0500, -0.1100],
+            [-0.3500,  1.3100,  0.1900],
+            [-0.0300,  0.2100,  0.6200],
+        ]);
+        let fm_stda = Matrix3([
+            [ 0.4124, 0.3576, 0.1805],
+            [ 0.2126, 0.7152, 0.0722],
+            [ 0.0193, 0.1192, 0.9505],
+        ]);
+        let fm_d65 = Matrix3([
+            [ 0.5000, 0.3000, 0.2000],
+            [ 0.2500, 0.6500, 0.1000],
+            [ 0.0200, 0.1500, 0.9000],
+        ]);
+
+        let mut cms = std::collections::HashMap::new();
+        cms.insert(Illuminant::StdA, cm_stda);
+        cms.insert(Illuminant::D65, cm_d65);
+        let mut fms = std::collections::HashMap::new();
+        fms.insert(Illuminant::StdA, fm_stda);
+        fms.insert(Illuminant::D65, fm_d65);
+        let mut hsm_map = std::collections::HashMap::new();
+        hsm_map.insert(Illuminant::StdA, cold_hsm);
+        hsm_map.insert(Illuminant::D65, warm_hsm);
+
+        // Use a UCM that does NOT hit the bundle so we test the
+        // EmbeddedFull-vs-no-bundle path cleanly (the
+        // `embedded_full_beats_bundle` test covers the bundle-hit case).
+        let raw = make_raw_with_ucm(
+            "Hypothetical Uncovered Body",
+            cms,
+            fms,
+            hsm_map,
+        );
+
+        let (profile, source) = profile_for_with_source(&raw)
+            .expect("resolver should succeed");
+        assert!(
+            matches!(source, ProfileSource::EmbeddedFull { .. }),
+            "CM + FM + HSM must resolve to EmbeddedFull, got {:?}",
+            source
+        );
+        // The lerped hueDelta must lie strictly between the cold and
+        // warm endpoint values (-60, 30). If the HSM HashMap lookup
+        // composed incorrectly (e.g. paired the StdA table with the D65
+        // CM in the lerp), the t parameter would still produce a value
+        // in that range but the endpoints would be swapped — we'd see
+        // hueDelta close to the warm endpoint (-60) instead of nearer
+        // the cold one (since neutral as_shot_neutral implies a scene
+        // CCT near D65 → t close to 1 → result close to warm).
+        let hsm = profile.hsm.as_ref().expect("EmbeddedFull must carry an HSM table");
+        let hue_delta = hsm.data[0];
+        assert!(
+            (-60.0..=30.0).contains(&hue_delta),
+            "lerped hueDelta {} not in expected [-60, 30] range — HSM \
+             HashMap lookup may have composed incorrectly",
+            hue_delta
         );
     }
 }
