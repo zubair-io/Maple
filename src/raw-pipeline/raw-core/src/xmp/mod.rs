@@ -187,3 +187,5 @@ fn wb_preset(name: &str) -> Option<(f32, f32)> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_modes;
