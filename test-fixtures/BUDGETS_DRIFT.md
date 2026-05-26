@@ -108,3 +108,41 @@ be tightened to ~5.85 (5.56 + 5% headroom) in a follow-up after a
 baseline review across all 33 cases × 16 fixtures of the post-#424
 output.
 
+---
+
+## Post-#425 colorimetry-only baseline (regression expected, not ratcheted)
+
+Ticket #425 (part of #416 Wave 3) drops the Adobe aesthetic layers from
+the DCP apply path:
+
+- **ProfileToneCurve (PTC)** — removed unconditionally from
+  `dcp::apply_*` regardless of `ProfileSource`. Pre-#425 the curve ran
+  for `EmbeddedDng` and `Generic` profiles (suppressed only for
+  `Bundled`); post-#425 it never runs in the DCP stage.
+- **ProfileLookTable (PLT)** — removed unconditionally. Pre-#425 the
+  source DNG's `raw.plt` flowed through for every profile source; the
+  per-format inconsistency this created (same body rendered differently
+  out of a DNG-Converter than a vendor RAW) is exactly what #425
+  eliminates.
+- **HSM** — retained, but documented as **metameric correction only**.
+  HSM authored as an aesthetic "look" should be pre-stripped at the
+  profile-build layer (`profile_loader`), not gated here.
+
+ΔE-to-ACR **will increase** on every fixture that previously consumed
+PLT or PTC — that is the strategic direction stated in the #416 umbrella
+("we are no longer chasing ACR; the CI reference frame is moving to
+ColorChecker colorimetric accuracy + an AgX-look golden"). The next
+steps in Wave 3 (#423, #431, #429, #435, #438, #441, #443) compensate
+for the visual shift; #425's job is the structural change alone.
+
+### Local per-fixture drift
+
+Not measurable in this worktree — `test-fixtures/raws/` and
+`test-fixtures/references/manifest.json` are gitignored and absent
+locally, so `src/scripts/test_color_pipeline.sh` skip-passed with
+"manifest not found". Per-fixture mean/p95/max/bias drift will be
+captured by the CI workflow on the next push to `main` once the
+fixtures are present, and logged here. Until then this section is a
+placeholder header noting that the regression is intentional and the
+ratchet is **deliberately not lowered** in this PR.
+
