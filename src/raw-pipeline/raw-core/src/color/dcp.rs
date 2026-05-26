@@ -587,8 +587,9 @@ pub fn profile_for(raw: &RawImage) -> crate::Result<DcpProfile> {
 ///   3. **Generic D65 → Rec.2020 fallback** when neither the bundle nor
 ///      the source DNG carry a usable calibration matrix (vendor RAW
 ///      from an uncovered body, or a malformed DNG). Synthesises a
-///      `ColorMatrix` of `inv(M_XYZ_D65_TO_REC2020)` — i.e. "pretend the
-///      sensor has Rec.2020 primaries at D65" — so camera RGB passes
+///      `ColorMatrix` of `M_XYZ_D65_TO_REC2020` (XYZ D65 → Rec.2020) —
+///      i.e. "pretend the sensor has Rec.2020 primaries at D65", which
+///      under the DNG XYZ→camera convention makes camera RGB pass
 ///      through approximately unchanged into output Rec.2020. Returns
 ///      [`ProfileSource::Generic`]. Logged once per UCM via
 ///      [`log_coverage_gap_once`] so the gap surfaces in diagnostics
@@ -710,8 +711,13 @@ fn profile_from_embedded(
         let (il_warm, m_warm) = entries[1];
         let fm_cold = raw.forward_matrices.get(&il_cold).copied();
         let fm_warm = raw.forward_matrices.get(&il_warm).copied();
-        let hsm_cold = raw.hsm_data1.as_ref();
-        let hsm_warm = raw.hsm_data2.as_ref();
+        // HSM tables are keyed by their CalibrationIlluminant (mirrors
+        // `forward_matrices`), so the cold/warm pairing follows the same
+        // sort-by-CCT decision as the CMs — DNGs that ship
+        // `CalibrationIlluminant1` warmer than `CalibrationIlluminant2`
+        // still get the correct table per side.
+        let hsm_cold = raw.hsm_data.get(&il_cold);
+        let hsm_warm = raw.hsm_data.get(&il_warm);
         let profile = interpolated_profile(
             m_cold, il_cold,
             m_warm, il_warm,
@@ -727,7 +733,13 @@ fn profile_from_embedded(
     // Single-illuminant: prefer the entry we already sorted to the front.
     let (illum, cm) = entries[0];
     let fm = raw.forward_matrices.get(&illum).copied();
-    let hsm = raw.hsm_data1.as_ref().or(raw.hsm_data2.as_ref()).cloned();
+    // Prefer the HSM keyed to this CM's illuminant; fall back to any HSM
+    // present (some DNGs ship only one HSM alongside a single CM).
+    let hsm = raw
+        .hsm_data
+        .get(&illum)
+        .cloned()
+        .or_else(|| raw.hsm_data.values().next().cloned());
     let profile = single_illuminant_profile(cm, illum, fm, hsm, raw.as_shot_neutral, wb_already_baked);
     Some((profile, illum))
 }
@@ -784,11 +796,10 @@ pub(crate) fn single_illuminant_profile(
     }
 }
 
-/// Same 8-line McCamy estimate that lives (privately) in
-/// `profile_loader/mod.rs`. Duplicated here so the embedded-CM path can
-/// share `single_illuminant_profile` without dragging `profile_loader`
-/// into a circular dependency. Both copies operate on identical inputs;
-/// they cannot drift in practice.
+/// 8-line McCamy CCT estimate for the single-illuminant path.
+/// Takes a camera-matrix and `AsShotNeutral`, projects into xy chromaticity
+/// via `inv(cm)`, applies McCamy's cubic. Falls back to the calibration
+/// illuminant's CCT when the matrix is singular or sums to ~zero.
 fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) -> f32 {
     let cm_inv = match cm.inverse() {
         Some(inv) => inv,
@@ -818,7 +829,14 @@ fn log_coverage_gap_once(raw: &RawImage) {
     static SEEN: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     let key = crate::color::profile_loader::camera_key_for(raw);
     let ucm = key.unique_camera_model.clone();
-    let mut guard = SEEN.get_or_init(|| Mutex::new(HashSet::new())).lock().unwrap();
+    // Recover the inner HashSet even if a previous holder panicked. The set
+    // only tracks "have we already logged for this UCM?" — no integrity
+    // invariant rides on it, so a logging path shouldn't crash rendering
+    // just because some other panic poisoned the lock.
+    let mut guard = SEEN
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     if guard.insert(ucm.clone()) {
         eprintln!(
             "[raw-core] dcp::profile_for: generic D65→Rec.2020 fallback for \
@@ -850,13 +868,123 @@ mod tests {
             forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
-            hsm_data1: None,
-            hsm_data2: None,
+            hsm_data: std::collections::HashMap::new(),
             plt: None,
             profile_tone_curve: None,
             profile_gain_table_map: None,
             crop_rect: None,
         }
+    }
+
+    /// Regression for the HSM↔illuminant mapping bug raised on PR #455.
+    ///
+    /// DNG spec § 6.1 names `CalibrationIlluminant1` as the lower-CCT side,
+    /// but real files have been observed listing the warmer illuminant
+    /// first. Pre-fix, `profile_from_embedded` pulled HSM tables as
+    /// `(hsm_data1, hsm_data2)` while the CM pair was sort-by-CCT — so a
+    /// reversed-order DNG silently paired CalibrationIlluminant1's HSM
+    /// data with the colder calibration matrix and vice versa.
+    ///
+    /// Now `raw.hsm_data` is keyed by `CalibrationIlluminant`, mirroring
+    /// `forward_matrices`. This test constructs a `RawImage` with the
+    /// non-spec ordering and asserts the HSM table keyed to the colder
+    /// illuminant ends up in the cold slot of the produced `DcpProfile`.
+    #[test]
+    fn hsm_pairs_with_illuminant_after_cm_sort() {
+        // Two visibly distinguishable HSM tables: dims [1,1,1] → one entry
+        // each. The COLD-keyed table carries hueDelta = +10° (acts as a
+        // sentinel), the WARM-keyed table carries hueDelta = -20°. If the
+        // pre-fix slot-positional pairing leaked through, the cold side of
+        // the interpolated profile would carry -20° instead of +10°.
+        let cold_table = crate::color::hsm::HsmTable::new(
+            [1, 1, 1],
+            vec![10.0, 1.0, 1.0],
+            crate::color::hsm::HsmEncoding::Linear,
+        ).expect("valid 1x1x1 HSM");
+        let warm_table = crate::color::hsm::HsmTable::new(
+            [1, 1, 1],
+            vec![-20.0, 1.0, 1.0],
+            crate::color::hsm::HsmEncoding::Linear,
+        ).expect("valid 1x1x1 HSM");
+
+        // Plausible-shape CMs (don't matter for the HSM check, only that
+        // both are non-identity so they survive `is_approx_identity`).
+        let cm_for_stda = Matrix3([
+            [0.6722, -0.0635, -0.0963],
+            [-0.4287, 1.2460, 0.2028],
+            [-0.0908, 0.2162, 0.5668],
+        ]);
+        let cm_for_d65 = Matrix3([
+            [0.7501, -0.1234, -0.0712],
+            [-0.3801, 1.2001, 0.1899],
+            [-0.0488, 0.1801, 0.6011],
+        ]);
+
+        // Build the RawImage with both calibration matrices keyed by
+        // illuminant. Note we don't care about positional ordering in the
+        // HashMap — the bug is exactly that the old code relied on
+        // positional ordering elsewhere.
+        let mut cms = std::collections::HashMap::new();
+        cms.insert(Illuminant::StdA, cm_for_stda);
+        cms.insert(Illuminant::D65, cm_for_d65);
+
+        let mut hsm_data = std::collections::HashMap::new();
+        hsm_data.insert(Illuminant::StdA, cold_table.clone());
+        hsm_data.insert(Illuminant::D65, warm_table.clone());
+
+        let raw = RawImage {
+            width: 1, height: 1,
+            cfa: crate::image::CfaPattern::Rggb,
+            black_level: [0; 4], white_level: 1,
+            raw_data: vec![0],
+            as_shot_neutral: [1.0, 1.0, 1.0],
+            as_shot_cct: None,
+            camera_make: "Test".into(),
+            camera_model: "Test".into(),
+            unique_camera_model: None,
+            color_matrices: cms,
+            forward_matrices: std::collections::HashMap::new(),
+            orientation: crate::image::ExifOrientation::Normal,
+            baseline_exposure: 0.0,
+            hsm_data,
+            plt: None,
+            profile_tone_curve: None,
+            profile_gain_table_map: None,
+            crop_rect: None,
+        };
+
+        // Drive the embedded path directly so we don't depend on bundle
+        // hits for fixture cameras.
+        let (profile, _illum) = profile_from_embedded(&raw, true)
+            .expect("two CMs + two HSMs should produce a profile");
+
+        // The interpolated profile's `hsm` is a lerp of cold + warm. For
+        // any reciprocal-CCT `t ∈ [0,1]`, the result's hueDelta sits
+        // between +10 and -20 inclusive; if the pre-fix code leaked
+        // through, the lerp endpoints would be swapped and the t=0 / t=1
+        // edge cases would carry the wrong sign.
+        let hsm = profile.hsm.as_ref().expect("dual HSM should lerp to Some");
+        let hue_delta = hsm.data[0];
+        assert!(
+            (-20.0..=10.0).contains(&hue_delta),
+            "lerped hueDelta {hue_delta} must lie between cold (+10) and warm (-20) — \
+             if it inverts, hsm_data1/2 was paired positionally instead of by illuminant"
+        );
+
+        // Direct verification of the keyed mapping (defends against any
+        // future change to how `profile_from_embedded` consumes hsm_data):
+        // the cold-side table stored under Illuminant::StdA must match
+        // what we inserted there.
+        assert_eq!(
+            raw.hsm_data.get(&Illuminant::StdA).map(|t| t.data[0]),
+            Some(10.0),
+            "Illuminant::StdA must key the cold HSM table"
+        );
+        assert_eq!(
+            raw.hsm_data.get(&Illuminant::D65).map(|t| t.data[0]),
+            Some(-20.0),
+            "Illuminant::D65 must key the warm HSM table"
+        );
     }
 
     #[test]
@@ -910,10 +1038,12 @@ mod tests {
 
     /// Under ticket #424 (never-identity), a RawImage with no bundle hit
     /// AND no embedded matrices falls to the generic D65→Rec.2020 path.
-    /// The synthesised ColorMatrix is `inv(M_XYZ_D65_TO_REC2020)` — NOT
-    /// identity. The pipeline still produces pixels (visibly imperfect,
-    /// but bounded vs the pre-#424 identity-CM catastrophe) and the
-    /// `Generic` source tag surfaces in diagnostics.
+    /// The synthesised ColorMatrix is `M_XYZ_D65_TO_REC2020` (XYZ D65 →
+    /// Rec.2020, the DNG XYZ→camera convention applied to a hypothetical
+    /// Rec.2020-primaries sensor at D65) — NOT identity. The pipeline still
+    /// produces pixels (visibly imperfect, but bounded vs the pre-#424
+    /// identity-CM catastrophe) and the `Generic` source tag surfaces in
+    /// diagnostics.
     #[test]
     fn profile_for_with_no_matrix_returns_generic_non_identity() {
         let raw = make_raw(std::collections::HashMap::new());
@@ -1218,8 +1348,7 @@ mod tests {
             forward_matrices: std::collections::HashMap::new(),
             orientation: crate::image::ExifOrientation::Normal,
             baseline_exposure: 0.0,
-            hsm_data1: None,
-            hsm_data2: None,
+            hsm_data: std::collections::HashMap::new(),
             plt: None,
             profile_tone_curve: None,
             profile_gain_table_map: None,
