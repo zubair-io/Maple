@@ -185,6 +185,9 @@ impl SyntheticColorChart {
             CfaPattern::Gbrg => vec![1, 2, 0, 1],
             CfaPattern::LinearRgb => panic!(
                 "SyntheticColorChart with CfaPattern::LinearRgb is unsupported"),
+            CfaPattern::XTrans(_) => panic!(
+                "SyntheticColorChart with CfaPattern::XTrans is unsupported \
+                 (the DNG-writer's CFAPattern tag is 2×2-only)"),
         }
     }
 

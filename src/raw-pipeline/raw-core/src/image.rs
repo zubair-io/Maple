@@ -49,15 +49,23 @@ impl Image {
     }
 }
 
-/// Bayer CFA pattern. X-Trans is deferred (spec § 3.3 explicitly excludes it
-/// from the slice-1 demosaic path). The `LinearRgb` variant is the special
-/// "no Bayer mosaic" case used for DNG `PhotometricInterpretation = LinearRaw`.
+/// CFA pattern. The four 2×2 Bayer variants are hand-rolled; X-Trans is a
+/// 6×6 runtime-data pattern (different bodies report different layouts —
+/// e.g. Fuji X-T20 uses a distinct layout when compression is enabled —
+/// so the pattern can't be a hard-coded variant). The `LinearRgb` variant
+/// is the special "no Bayer mosaic" case used for DNG
+/// `PhotometricInterpretation = LinearRaw`.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum CfaPattern {
     Rggb,
     Bggr,
     Grbg,
     Gbrg,
+    /// 6×6 Fuji X-Trans CFA. The array is the flat 36-cell pattern in
+    /// row-major order, each cell `0`/`1`/`2` for R/G/B. Sourced from
+    /// rawler's per-body `XTransLayout` metadata block (see
+    /// `crate::decode`). See tickets #417 / #420.
+    XTrans([u8; 36]),
     /// Already-demosaiced 3-channel RGB. Source data is interleaved
     /// `[R₀ G₀ B₀ R₁ G₁ B₁ …]` with no Bayer mosaic pattern. Decoded
     /// from DNG `PhotometricInterpretation = LinearRaw (34892)`. The
@@ -81,11 +89,29 @@ impl CfaPattern {
             Self::Bggr => match (ex, ey) { (0,0)=>2, (1,0)=>1, (0,1)=>1, _=>0 },
             Self::Grbg => match (ex, ey) { (0,0)=>1, (1,0)=>0, (0,1)=>2, _=>1 },
             Self::Gbrg => match (ex, ey) { (0,0)=>1, (1,0)=>2, (0,1)=>0, _=>1 },
+            Self::XTrans(pat) => {
+                // 6×6 modulo lookup. `pat` is row-major with R=0, G=1, B=2.
+                let cx = (x % 6) as usize;
+                let cy = (y % 6) as usize;
+                pat[cy * 6 + cx]
+            }
             Self::LinearRgb => unreachable!(
                 "CfaPattern::LinearRgb has no Bayer position; \
                  callers must short-circuit before invoking color_at"
             ),
         }
+    }
+
+    /// True if this pattern is a 2×2 Bayer mosaic (the four classic
+    /// arrangements). Used by stages that fast-path on 2×2 phase and would
+    /// produce garbage on X-Trans / LinearRgb.
+    pub fn is_bayer_2x2(self) -> bool {
+        matches!(self, Self::Rggb | Self::Bggr | Self::Grbg | Self::Gbrg)
+    }
+
+    /// True if this pattern is X-Trans (Fuji 6×6 CFA).
+    pub fn is_xtrans(self) -> bool {
+        matches!(self, Self::XTrans(_))
     }
 }
 

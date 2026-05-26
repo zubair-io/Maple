@@ -2,11 +2,13 @@ pub mod amaze;
 pub mod bilinear;
 pub mod hamilton_adams;
 pub mod half_res;
+pub mod xtrans;
 
 pub use self::amaze::amaze;
 pub use self::bilinear::bilinear;
 pub use self::hamilton_adams::hamilton_adams;
 pub use self::half_res::half_res;
+pub use self::xtrans::{markesteijn, xtrans_bilinear};
 
 use crate::image::{CfaPattern, Image};
 
@@ -14,12 +16,17 @@ use crate::image::{CfaPattern, Image};
 /// is the previous "high quality" option; `Amaze` is the new high-quality
 /// option (slower, better fine-detail and moiré resistance); `HalfRes`
 /// halves resolution and is reserved for large-sensor preview paths.
+/// `Markesteijn` is the X-Trans counterpart to `Amaze` — Bayer kernels
+/// produce garbage on a 6×6 X-Trans CFA, so the pipeline dispatches
+/// `XTrans(_)` patterns to this kernel regardless of the `RenderQuality`
+/// the caller requested. See [`demosaic`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum DemosaicAlgorithm {
     Bilinear,
     HamiltonAdams,
     Amaze,
     HalfRes,
+    Markesteijn,
 }
 
 impl Default for DemosaicAlgorithm {
@@ -32,5 +39,7 @@ pub fn demosaic(algo: DemosaicAlgorithm, mosaic: &Image, cfa: CfaPattern) -> Ima
         DemosaicAlgorithm::HamiltonAdams => hamilton_adams(mosaic, cfa),
         DemosaicAlgorithm::Amaze         => amaze(mosaic, cfa),
         DemosaicAlgorithm::HalfRes       => half_res(mosaic, cfa),
+        DemosaicAlgorithm::Markesteijn   => markesteijn(mosaic, cfa),
     }
 }
+
