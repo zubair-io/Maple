@@ -9,6 +9,32 @@ use rayon::prelude::*;
 /// **Must NOT be called on `CfaPattern::LinearRgb` data** — that variant has
 /// already-demosaiced interleaved RGB, not a Bayer mosaic, and `raw_data` is
 /// `3 × w × h` instead of `w × h`. Use [`linearraw_to_camera_rgb`] instead.
+///
+/// ## DNG `LinearizationTable` (tag 50712 / 0xC618)
+///
+/// The DNG spec lets a producer ship a per-value LUT that maps encoded sensor
+/// codes to linear codes (DNG 1.6 § "Linearization Table"). It is applied
+/// **before** black-level subtraction and white-level normalization in the
+/// conceptual pipeline.
+///
+/// **We do not apply it here.** Rawler 0.7.x applies the table during decode
+/// itself — see `rawler/src/decoders/mod.rs::apply_linearization` (called at
+/// line 641-642 of the Integer-sample-format path, immediately after the
+/// decompressor and crop, before the data leaves the decoder). By the time
+/// `raw_data` reaches this function, the LUT has already been remapped and
+/// the values are linear codes in the `[0, 2^bits - 1]` range that
+/// `BlackLevel` and `WhiteLevel` describe. Applying the LUT a second time
+/// would double-remap and silently corrupt every DNG that ships the tag
+/// (e.g. Sony ARQ pixel-shift, some Pentax / Leica bodies). See ticket #418
+/// for the verification regression test
+/// (`test_support::synth_dng` round-trip with a hand-crafted LUT).
+///
+/// Caveat: rawler's Float-sample-format path (`SampleFormat::IEEEFP`) carries
+/// a `TODO: other corrections` and does **not** apply the LUT. No fixture we
+/// ship hits that combination (linear-float DNG implies already-linearized
+/// data; the LUT is exclusively a Bayer/integer feature in the wild). If a
+/// future fixture ever combines `RawImageData::Float` with a present
+/// `LinearizationTable`, revisit here.
 pub fn sensor_linearize(raw: &RawImage) -> Image {
     sensor_linearize_region(raw, 0, 0, raw.width, raw.height)
 }
