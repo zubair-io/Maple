@@ -96,6 +96,48 @@ impl Default for WhiteBalancePreset {
     }
 }
 
+/// Tone-curve application mode (ticket #436).
+///
+/// Per-channel RGB curves shift hue (classic problem): lifting only the red
+/// curve at midtones pulls neutrals toward red. That is sometimes the desired
+/// effect (cross-channel cast control), but other times the user just wants
+/// the contrast shape without the hue shift.
+///
+/// - [`ToneCurveMode::PerChannel`] (default): each of
+///   `tone_curve_red`/`tone_curve_green`/`tone_curve_blue` applies independently
+///   to its lane. Hue is NOT preserved by construction. This is the pre-#436
+///   behavior — backward-compatible.
+/// - [`ToneCurveMode::RatioPreserving`]: the per-channel curves fold through
+///   the Rec.2020 luma weights to produce a single luminance scale factor,
+///   preserving R:G:B ratios. Concretely, given a pixel `(R, G, B)`:
+///   `r' = R_curve(Y_in); g' = G_curve(Y_in); b' = B_curve(Y_in);`
+///   `Y_out = 0.2627*r' + 0.6780*g' + 0.0593*b'; scale = Y_out / Y_in;`
+///   `RGB' = RGB * scale`.
+///
+/// Canonical reference: Darktable's `iop/tonecurve.c` `preserve_colors`
+/// branch — the `dt_rgb_norm(...) → curve_lum → ratio = curve_lum/lum →
+/// rgb[c] *= ratio` loop near lines 520–547. Maple's variant differs in
+/// that the curve is evaluated **separately on each of the three
+/// per-channel curves** before the luma combine, rather than once on a
+/// single norm; when all three per-channel curves are equal this collapses
+/// to the Darktable formulation. The parametric curve and `tone_curve_luma`
+/// are already luma-coupled and are unaffected by this mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToneCurveMode {
+    /// Per-channel R/G/B curves apply independently to their lanes; hue
+    /// shifts. Pre-#436 behavior; default for backward compatibility.
+    PerChannel,
+    /// Per-channel R/G/B curves fold into a single Rec.2020 luma scale
+    /// factor; hue (R:G:B ratios) is preserved.
+    RatioPreserving,
+}
+
+impl Default for ToneCurveMode {
+    fn default() -> Self {
+        Self::PerChannel
+    }
+}
+
 /// Per-image develop settings.
 ///
 /// This struct's field order, types, and ranges are the canonical reference
@@ -159,6 +201,14 @@ pub struct AdjustmentModel {
     /// (see `schema` module-level doc).
     pub local_adjustments: Vec<super::local_adjustment::LocalAdjustment>,
 
+    /// Tone-curve application mode (ticket #436). Controls how the
+    /// three per-channel `tone_curve_{red,green,blue}` curves are applied:
+    /// `PerChannel` (default) treats them as three independent 1-D LUTs
+    /// per RGB lane (hue shifts on saturated input); `RatioPreserving`
+    /// folds them through Rec.2020 luma to produce one scale factor (hue
+    /// preserved). See [`ToneCurveMode`].
+    pub tone_curve_mode: ToneCurveMode,
+
     // Per-channel point curves. Each is a `ToneCurve` of control points in
     // `[0, 1]` × `[0, 1]` authoring space; identity == empty `Vec`. Applied
     // in the same stage as the parametric curve above:
@@ -167,9 +217,9 @@ pub struct AdjustmentModel {
     //   Rec.2020 luma weights — like `highlights` step 2, hue is preserved
     //   by construction (uniform scalar from `Y_new / Y_old`).
     //
-    //   `tone_curve_red`, `tone_curve_green`, `tone_curve_blue` apply
-    //   per-channel post-luma. Per-channel curves CAN shift hue — that is
-    //   their purpose (cross-channel cast control per the ticket).
+    //   `tone_curve_red`, `tone_curve_green`, `tone_curve_blue` apply per
+    //   `tone_curve_mode` above — `PerChannel` (hue-shifting) or
+    //   `RatioPreserving` (hue-preserving via Rec.2020 luma fold).
     //
     // All four short-circuit when the curve is identity (`Vec::is_empty()`).
     pub tone_curve_luma: ToneCurve,
@@ -214,6 +264,9 @@ impl Default for AdjustmentModel {
             highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
             look: Look::Default,
             local_adjustments: Vec::new(),
+            // Per-#436: `PerChannel` is the pre-existing behavior. Default
+            // chosen for backward compatibility — `RatioPreserving` is opt-in.
+            tone_curve_mode: ToneCurveMode::PerChannel,
             // Per-channel point curves default to identity (empty `Vec`).
             // See the field-level docs above on the struct.
             tone_curve_luma: ToneCurve::default(),
@@ -277,5 +330,14 @@ mod tests {
         // Per ticket #371: new users get the empirical Look, not Neutral.
         let m = AdjustmentModel::default();
         assert_eq!(m.look, Look::Default);
+    }
+
+    #[test]
+    fn tone_curve_mode_defaults_to_per_channel() {
+        // Per ticket #436: `PerChannel` is the pre-existing behavior. The
+        // default must keep absent-attribute XMP sidecars byte-identical
+        // through the pipeline.
+        let m = AdjustmentModel::default();
+        assert_eq!(m.tone_curve_mode, ToneCurveMode::PerChannel);
     }
 }
