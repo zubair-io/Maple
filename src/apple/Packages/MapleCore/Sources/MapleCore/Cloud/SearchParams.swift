@@ -86,8 +86,16 @@ public enum SearchSceneType: String, Codable, Sendable, CaseIterable {
 /// interface field-for-field. Optional fields are omitted from the query
 /// string when nil / empty.
 public struct SearchParams: Sendable, Equatable, Hashable {
-  /// Free-text query — matches `fileinfo.filename` / `fileinfo.path`.
+  /// Filename/path substring match (case-insensitive on
+  /// `fileinfo.filename` / `fileinfo.path`). Not driven by the main search
+  /// box — kept for the server contract / future filename-scoped search.
   public var q: String = ""
+  /// Free-text content search against the unified `search_blob` (place +
+  /// caption + OCR + people). Natural-language dates and person names work
+  /// with or without Meilisearch; when Meilisearch is configured it adds
+  /// typo-tolerance and semantic ranking on top. This is what the main
+  /// search box drives — mirrors the web `placeQuery`.
+  public var placeQuery: String = ""
   /// Scope to one registered library (folder ObjectId hex).
   public var libraryID: String?
   /// Case-insensitive substring on camera make / model.
@@ -168,6 +176,7 @@ public struct SearchParams: Sendable, Equatable, Hashable {
     }
 
     add("q", q)
+    add("placeQuery", placeQuery)
     add("libraryId", libraryID)
     add("camera", camera)
     add("lens", lens)
