@@ -128,7 +128,10 @@ mod tests {
 
     /// Coloured-edge regression — same shape as the clarity test, smaller
     /// radius. Per-channel unsharp would have shifted chromaticity at the
-    /// edge; luma-space preserves it.
+    /// edge; luma-space preserves it. This case is a same-chromaticity
+    /// brightness step (warm-skin shadow → warm-skin mid). For the
+    /// different-chromaticity step (saturated primary → neutral grey)
+    /// see `preserves_chromaticity_across_a_saturated_edge` below.
     #[test]
     fn preserves_chromaticity_across_a_coloured_edge() {
         let w = 16usize;
@@ -153,6 +156,52 @@ mod tests {
                 "pixel {}: R/G ratio {} drifted from {} (RGB={:?})", i, ratio_rg, r_g_ref, p);
             assert!((ratio_rb - r_b_ref).abs() < 1e-3,
                 "pixel {}: R/B ratio {} drifted from {} (RGB={:?})", i, ratio_rb, r_b_ref, p);
+        }
+    }
+
+    /// No-chroma-drift regression on a *saturated* edge — the strictest
+    /// luminance-only check. One side is a fully-saturated Rec.2020 red
+    /// primary `[1.0, 0.0, 0.0]`, the other side is neutral grey
+    /// `[0.5, 0.5, 0.5]`. The luma values differ (≈0.26 vs ≈0.50), so the
+    /// guided filter sees a real edge and the detail layer is non-zero on
+    /// both sides — i.e. texture actually fires here.
+    ///
+    /// Because the stage scales R, G, B by a single scalar, the red side
+    /// must stay on the red axis (G == 0, B == 0) and the grey side must
+    /// stay neutral (R == G == B) after texture=+100. A per-channel
+    /// unsharp regression would leak energy across channels at the edge —
+    /// red side gains green/blue tint, grey side becomes non-neutral —
+    /// and this test catches that immediately.
+    #[test]
+    fn preserves_chromaticity_across_a_saturated_edge() {
+        let w = 16usize;
+        let h = 1usize;
+        let mut img = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
+        for (i, p) in img.pixels.iter_mut().enumerate() {
+            *p = if i < w / 2 {
+                [1.0, 0.0, 0.0] // fully saturated red
+            } else {
+                [0.5, 0.5, 0.5] // neutral grey, comparable luma magnitude
+            };
+        }
+        apply(&mut img, 100.0);
+        for (i, p) in img.pixels.iter().enumerate() {
+            assert!(p[0].is_finite() && p[1].is_finite() && p[2].is_finite(),
+                "pixel {} not finite: {:?}", i, p);
+            if i < w / 2 {
+                // Red-side: G and B must remain at zero — a per-channel
+                // unsharp would pull them off zero at the edge.
+                assert!(p[1].abs() < 1e-6,
+                    "red-side pixel {}: G drifted off zero: {:?}", i, p);
+                assert!(p[2].abs() < 1e-6,
+                    "red-side pixel {}: B drifted off zero: {:?}", i, p);
+            } else {
+                // Grey-side: R == G == B (within f32 round-off).
+                assert!((p[0] - p[1]).abs() < 1e-5,
+                    "grey-side pixel {}: R-G drifted: {:?}", i, p);
+                assert!((p[1] - p[2]).abs() < 1e-5,
+                    "grey-side pixel {}: G-B drifted: {:?}", i, p);
+            }
         }
     }
 
