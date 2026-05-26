@@ -134,9 +134,13 @@ mod tests {
         // scalar boost ratio is exactly 1 and every pixel passes through
         // unchanged — at every clarity amount in [-100, +100].
         // Ticket #428 explicitly asks for this invariant at "any clarity
-        // amount", not just the previously-pinned +100.
-        let amounts = [-100.0, -50.0, -10.0, 0.0, 10.0, 25.0, 50.0, 100.0];
-        for amount in amounts {
+        // amount", not just the previously-pinned +100. We step the full
+        // integer range by 5 (41 amounts, plus the +100 endpoint) so the
+        // sweep is exhaustive over the slider's quantised values — the
+        // 20×20 image is small enough that this completes well under a
+        // second.
+        for step in (-100..=100).step_by(5) {
+            let amount = step as f32;
             let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
             for p in &mut img.pixels {
                 *p = [0.5, 0.5, 0.5];
@@ -307,7 +311,11 @@ mod tests {
                     // preserves zeros). Asserting this end of the
                     // invariant is what catches a per-channel unsharp
                     // bleeding a complementary fringe across the edge.
-                    let unit = primary_rgb_unit(primary);
+                    // Source the per-primary unit triple from
+                    // `Primary::rgb_unit` so the test stays in lockstep
+                    // with `synthetic_input` if a primary is ever added
+                    // or its definition shifts.
+                    let unit = primary.rgb_unit();
                     for c in 0..3 {
                         if unit[c] == 0.0 {
                             assert!(
@@ -323,20 +331,6 @@ mod tests {
                     }
                 }
             }
-        }
-    }
-
-    /// Mirror of `Primary::rgb_unit` for the assertions above — the
-    /// real one is private to `synthetic_input`.
-    fn primary_rgb_unit(primary: crate::synthetic_input::Primary) -> [f32; 3] {
-        use crate::synthetic_input::Primary;
-        match primary {
-            Primary::Red => [1.0, 0.0, 0.0],
-            Primary::Green => [0.0, 1.0, 0.0],
-            Primary::Blue => [0.0, 0.0, 1.0],
-            Primary::Cyan => [0.0, 1.0, 1.0],
-            Primary::Magenta => [1.0, 0.0, 1.0],
-            Primary::Yellow => [1.0, 1.0, 0.0],
         }
     }
 
