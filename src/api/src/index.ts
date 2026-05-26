@@ -106,7 +106,11 @@ function ensureJwtSecret(): void {
   const secret = randomBytes(32).toString('base64url');
   writeFileSync(path, secret, { mode: 0o600 });
   process.env.MAPLE_JWT_SECRET = secret;
-  log.info({ path }, 'generated JWT secret');
+  // Warn, not info: minting a new secret invalidates every access token
+  // issued under the previous one (clients see "bad signature" 401s). If
+  // this fires on every restart, `path` isn't on persistent storage — set
+  // MAPLE_JWT_SECRET or point MAPLE_JWT_SECRET_FILE at a durable volume.
+  log.warn({ path }, 'generated a NEW JWT secret — existing sessions are now invalid');
 }
 
 // ---------------------------------------------------------------------------

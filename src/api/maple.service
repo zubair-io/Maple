@@ -27,6 +27,12 @@ ExecStart=/usr/local/bin/bun src/index.ts
 Environment=PORT=3000
 Environment=MAPLE_MONGO_URI=mongodb://localhost:27017
 Environment=MAPLE_MONGO_DB=maple
+# Persist the auto-generated JWT secret on a writable, stable path.
+# WorkingDirectory (/opt/maple) is read-only under ProtectSystem=strict,
+# so the code default (./.maple/jwt.secret) can't be written. /var/lib/maple
+# is in ReadWritePaths below and survives restarts — keeping the secret
+# stable so issued access tokens don't fail with "bad signature".
+Environment=MAPLE_JWT_SECRET_FILE=/var/lib/maple/jwt.secret
 # Uncomment and set your photo library roots:
 # Environment=MAPLE_ROOTS=/srv/photos
 # Environment=MAPLE_INDEXER_WORKERS=4

@@ -15,7 +15,13 @@
 #     -e MAPLE_MONGO_URI=mongodb://host.docker.internal:27017 \
 #     -v /path/to/photos:/photos \
 #     -e MAPLE_ROOTS=/photos \
+#     -v maple_config:/app/config \
 #     maple
+#
+# The -v maple_config:/app/config mount is load-bearing: it persists the
+# auto-generated JWT secret across container recreates. Without it (or an
+# explicit MAPLE_JWT_SECRET), every redeploy rotates the secret and all
+# existing sessions fail with "bad signature".
 
 # ---------------------------------------------------------------------------
 # Stage 0: build the raw-wasm image-pipeline blob from source.
@@ -129,6 +135,15 @@ ENV PORT=3000
 ENV MAPLE_MONGO_URI=mongodb://localhost:27017
 ENV MAPLE_MONGO_DB=maple
 ENV MAPLE_UI_DIST=/app/ui
+# Persist the auto-generated JWT secret on the config volume, NOT the
+# container's ephemeral layer. The code default (./.maple/jwt.secret)
+# resolves to /app/.maple/jwt.secret, which is discarded on every
+# container recreate — rotating the secret silently invalidates every
+# issued access token ("bad signature" on verify). /app/config is the
+# documented persistent mount (see docker-compose.yml), so the secret
+# survives redeploys. Mount a volume there or set MAPLE_JWT_SECRET
+# explicitly in any deployment.
+ENV MAPLE_JWT_SECRET_FILE=/app/config/jwt.secret
 
 EXPOSE 3000
 
