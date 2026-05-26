@@ -15,7 +15,15 @@ export type SearchSceneType = '' | 'indoor' | 'outdoor' | 'aerial' | 'macro' | '
 
 /** Query params for /api/search and /api/search/facets. All optional. */
 export interface SearchParams {
+  /** Filename/path substring match (case-insensitive regex on
+   * `fileinfo[].filename` / `fileinfo[].path`). */
   q?: string;
+  /** Free-text content search against the unified `search_blob` (place +
+   * caption + OCR + people). When Meilisearch is configured this runs the
+   * typo-tolerant + semantic-hybrid path and understands natural-language
+   * dates ("May 2023") and person names; otherwise it falls back to Mongo
+   * `$text`. This is what the main search box drives. */
+  placeQuery?: string;
   libraryId?: string;
   camera?: string;
   lens?: string;
@@ -130,6 +138,7 @@ function paramsFrom(p: SearchParams): HttpParams {
     h = h.set(k, String(v));
   };
   set('q', p.q);
+  set('placeQuery', p.placeQuery);
   set('libraryId', p.libraryId);
   set('camera', p.camera);
   set('lens', p.lens);
