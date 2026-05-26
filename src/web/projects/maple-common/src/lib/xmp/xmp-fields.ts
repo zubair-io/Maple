@@ -165,8 +165,11 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
     defaultValue: () => 0,
   },
   {
-    xmpKey: 'papp:CaptureSharpeningRadius',
-    modelKey: 'captureSharpeningRadius',
+    // Canonical capture-sharpening sigma key (#456). Legacy
+    // `papp:CaptureSharpeningRadius` lives in `LEGACY_READ_ALIASES` below —
+    // older sidecars still parse, but writers emit Sigma exclusively (#464).
+    xmpKey: 'papp:CaptureSharpeningSigma',
+    modelKey: 'captureSharpeningSigma',
     serialize: numericSerializer,
     parse: numericParser,
     defaultValue: () => 1.0,
@@ -192,3 +195,24 @@ export const WB_PRESET_FIELD = {
   xmpKey: 'crs:WhiteBalance',
   modelKey: 'whiteBalancePreset' as keyof AdjustmentModel,
 };
+
+/**
+ * Read-only legacy aliases. Each entry maps a deprecated XMP key to the
+ * current canonical model field — the parser consults this table for keys
+ * not found in `ADJUSTMENT_FIELDS`, and the serializer never reads it.
+ *
+ * Currently only `papp:CaptureSharpeningRadius` → `captureSharpeningSigma`
+ * (PR #463 renamed the field; #464 retired the write path). Sigma always
+ * wins when both keys are present — the canonical entry in
+ * `ADJUSTMENT_FIELDS` is applied first by the parser; the legacy alias
+ * only fires when sigma is absent.
+ */
+export const LEGACY_READ_ALIASES: ReadonlyArray<XmpFieldMapping<NumericAdjustmentKey>> = [
+  {
+    xmpKey: 'papp:CaptureSharpeningRadius',
+    modelKey: 'captureSharpeningSigma',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 1.0,
+  },
+];

@@ -203,32 +203,29 @@ Maple writes `crs:Version` and `crs:ProcessVersion` with the same value,
 currently hardcoded to `"11.0"` (Adobe's Process Version 2022 / PV11).
 Imported sidecars retain their original version string.
 
-## Capture-sharpening sigma migration (#456)
+## Capture-sharpening sigma migration (#456, #464)
 
 PR #452 swapped the capture-sharpening PSF from an integer-radius
 tripled-box-blur to a true Gaussian parameterised by float sigma, but kept
 the XMP key as `papp:CaptureSharpeningRadius` — a silent semantic shift.
-Ticket #456 separates the legacy alias from the new canonical key:
+Ticket #456 separated the legacy alias from the new canonical key, and
+#464 retired the legacy write path on Swift + TypeScript:
 
-- **New key:** `papp:CaptureSharpeningSigma` (float, pixels). Writes flow
-  to `AdjustmentModel::capture_sharpening_sigma`.
-- **Legacy key:** `papp:CaptureSharpeningRadius` is kept on the read path
-  only. The legacy value is routed into `capture_sharpening_sigma`
+- **Canonical key:** `papp:CaptureSharpeningSigma` (float, pixels). All
+  three writers (Rust, Swift, TypeScript) emit this key exclusively.
+  Writes flow to `AdjustmentModel::capture_sharpening_sigma`.
+- **Legacy key:** `papp:CaptureSharpeningRadius` is **read-only** on every
+  platform. The legacy value is routed into `capture_sharpening_sigma`
   **unchanged** — no rescale. No shipping sidecar carries a non-zero
   capture-sharpening amount (the slider is off by default), so any
   rescale would be a guess. Authors who want the old box-blur look back
   must re-tune the slider after the schema change.
 - **Precedence:** when both keys are present on the same
   `rdf:Description`, `papp:CaptureSharpeningSigma` always wins,
-  regardless of document order. This matches the read-only,
-  back-compat-only purpose of the legacy key.
-- **Writers:** the canonical write key for new sidecars is
-  `papp:CaptureSharpeningSigma`. The Swift and TypeScript serializers
-  currently still emit the legacy `papp:CaptureSharpeningRadius` key for
-  backward compatibility with older app versions that don't yet recognise
-  the new key — both reads route to the same model field, so this is
-  transparent to consumers. A follow-up (#464) will migrate both writers
-  to emit the new key exclusively once installed versions catch up.
+  regardless of document order. Each platform implements this through a
+  small precedence flag (raw-core's `sigma_seen`, Swift's
+  `captureSharpeningSigmaSeen`, TypeScript's `canonicallyApplied` set)
+  so the rule is source-order independent.
 
 ---
 

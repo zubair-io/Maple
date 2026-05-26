@@ -35,7 +35,7 @@
 //   * `highlightRecovery`          — pre-DCP, no chain equivalent.
 //   * `sharpenRadius`, `sharpenDetail`, `sharpenMasking` — read by
 //     Apple Metal; not used during decode anyway.
-//   * `captureSharpeningAmount`, `captureSharpeningRadius` — runs inside
+//   * `captureSharpeningAmount`, `captureSharpeningSigma` — runs inside
 //     the Rust `develop_scene_linear_*` decode, post-DCP/PGTM, and has
 //     no Apple Metal equivalent. Default amount = 0 short-circuits the
 //     stage in Rust, so kept fields stay no-op until the user opts in.
