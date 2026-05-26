@@ -841,9 +841,12 @@ export interface AssetChangeDoc {
 export type AssetChangeWithId = WithId<AssetChangeDoc>;
 
 /**
- * A small key/value collection for server-wide counters. Today the only
- * key in use is `_id: "asset_changes_cursor"`, holding the next cursor
- * value to allocate.
+ * A small key/value collection for server-wide singletons. Rows:
+ *   - `_id: "asset_changes_cursor"` — holds the next cursor value to allocate
+ *     (numeric, in `seq`).
+ *   - `_id: "jwt_secret"` — the HS256 signing key for access tokens (string,
+ *     in `value`). Stored here so every instance shares one secret and it
+ *     survives container recreates. See `auth/jwt-secret.repo.ts`.
  */
 export interface ServerStateDoc {
   _id: string;
@@ -851,6 +854,8 @@ export interface ServerStateDoc {
    * cursor. The next allocation atomically `$inc`'s this and returns
    * the new value. */
   seq?: number;
+  /** For string-valued singletons (e.g. the `jwt_secret` row). */
+  value?: string;
 }
 
 export type ServerStateWithId = WithId<ServerStateDoc>;
