@@ -27,7 +27,7 @@ use crate::{
 
 use super::{
     capture_sharpening_helper::capture_sharpening_params_from_model,
-    develop::{crop_to_default, quality_divisor},
+    develop::{crop_to_default, effective_quality_divisor},
     downsample::downsample_image_area,
     dump_after, stage, RenderQuality, AUTO_EXPOSURE_CLIP_PCT,
 };
@@ -60,6 +60,16 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
         crate::image::CfaPattern::LinearRgb => {
             stage("sized_linearraw_decode", || linearize::linearraw_to_camera_rgb(raw))?
         }
+        crate::image::CfaPattern::XTrans(_) => {
+            // X-Trans dispatch — see `develop.rs` for the rationale.
+            let mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            stage("sized_demosaic_xtrans", || match quality {
+                RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
+                RenderQuality::Full | RenderQuality::Amaze => {
+                    demosaic::markesteijn(&mosaic, raw.cfa)
+                }
+            })
+        }
         _ => {
             let mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
             stage("sized_demosaic", || match quality {
@@ -81,7 +91,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     // still over the long-edge cap. See ticket #375.
     if let Some(crop) = raw.crop_rect {
         if let Some(cropped) = stage("sized_crop_to_default", || {
-            crop_to_default(&camera_rgb, crop, quality_divisor(quality))
+            crop_to_default(&camera_rgb, crop, effective_quality_divisor(quality, raw.cfa))
         }) {
             camera_rgb = cropped;
         }

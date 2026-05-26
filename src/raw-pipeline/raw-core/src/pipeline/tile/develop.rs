@@ -40,6 +40,20 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
                 .into()
         ));
     }
+    if matches!(raw.cfa, crate::image::CfaPattern::XTrans(_)) {
+        // The tile path rounds the padded rect's start corners to even
+        // multiples (2×2 Bayer phase). X-Trans has a 6×6 phase, so the
+        // current padding logic would corrupt the CFA mapping across
+        // tile boundaries. Refuse here and let the caller fall back to
+        // the full-image render entry — same policy as LinearRaw. See
+        // tickets #420 / #417.
+        return Err(crate::error::Error::Pipeline(
+            "tile path does not support Fuji X-Trans RAFs; use the \
+             full-image render entry instead. The X-Trans 6×6 CFA phase \
+             is incompatible with the 2×2-aligned tile padding (#420)."
+                .into()
+        ));
+    }
     mosaic.assert_space(crate::image::ColorSpace::CameraNativeMosaic);
     let mut camera_rgb = stage("tile_demosaic", || match quality {
         RenderQuality::Preview => demosaic::half_res(mosaic, raw.cfa),

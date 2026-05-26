@@ -439,14 +439,20 @@ pub fn build_luma_histogram_from_raw(raw: &RawImage) -> Vec<u32> {
             CfaPattern::Bggr => [2, 1, 1, 0][xy],
             CfaPattern::Grbg => [1, 0, 2, 1][xy],
             CfaPattern::Gbrg => [1, 2, 0, 1][xy],
-            CfaPattern::LinearRgb => 1, // shouldn't be called; default to G
+            // The early-return below guards against LinearRgb / XTrans
+            // ever reaching this closure on those paths. The arm exists
+            // to satisfy exhaustiveness without changing the hot inner
+            // loop; the value (G=1) is a neutral default.
+            CfaPattern::LinearRgb | CfaPattern::XTrans(_) => 1,
         }
     };
 
     // LinearRgb DNGs carry interleaved RGB, not a Bayer mosaic — the raw
-    // path doesn't make sense. Fall back to an empty histogram; callers
-    // should use the post-DCP path for those fixtures.
-    if matches!(raw.cfa, CfaPattern::LinearRgb) {
+    // path doesn't make sense. X-Trans is a 6×6 CFA — the 2×2 histogram
+    // we build below is Bayer-specific, so AE on the raw is invalid for
+    // X-Trans; fall back to an empty histogram and the caller's post-DCP
+    // path (the AE that runs in scene-linear Rec.2020 is CFA-agnostic).
+    if matches!(raw.cfa, CfaPattern::LinearRgb | CfaPattern::XTrans(_)) {
         return hist;
     }
 

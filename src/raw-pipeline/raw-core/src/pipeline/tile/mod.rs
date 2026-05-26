@@ -95,6 +95,13 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
                 .into()
         ));
     }
+    if matches!(raw.cfa, crate::image::CfaPattern::XTrans(_)) {
+        return Err(crate::error::Error::Pipeline(
+            "tile path does not support Fuji X-Trans RAFs; use the \
+             full-image render entry instead (#420)."
+                .into()
+        ));
+    }
     if model.dehaze.abs() > 1e-3 {
         return Err(crate::error::Error::Pipeline(
             "tile path is not supported when dehaze != 0 (radius 67 px > overlap pad)"

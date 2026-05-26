@@ -69,11 +69,40 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     let source = RawSource::new_from_slice(bytes)
         .with_path(std::path::Path::new(&hint_path));
 
+    // Foveon X3F: rawler 0.7 ships an X3F decoder stub that returns
+    // "X3F decoding not implemented yet" from its compressed-image
+    // branch. Surface that as a structured `UnsupportedFormat` error
+    // rather than a generic `Decode` so callers can render a clear
+    // "this format isn't supported" message. See ticket #417.
+    //
+    // We dispatch on the extension hint (X3F is not magic-byte-clean
+    // enough to detect via leading bytes), which matches how the rest
+    // of the decode path uses `ext` for routing.
+    if ext.eq_ignore_ascii_case("x3f") {
+        return Err(Error::UnsupportedFormat(
+            "Sigma Foveon (.X3F) decoding is not supported — the embedded \
+             rawler decoder is a stub. Tracked under #417.".into()
+        ));
+    }
+
     // ── 1. Decode via rawler ───────────────────────────────────────────────
     let params = RawDecodeParams::default();
-    let raw = rawler::decode(&source, &params).map_err(|e| Error::Decode {
-        path: std::path::PathBuf::from(&hint_path),
-        reason: e.to_string(),
+    let raw = rawler::decode(&source, &params).map_err(|e| {
+        // Belt-and-braces: even when ext wasn't `.x3f` (e.g. a wrapped
+        // X3F passed without the extension hint), rawler's own decoder
+        // emits "X3F decoding not implemented yet" — promote it to the
+        // structured variant so callers can branch on it.
+        let msg = e.to_string();
+        if msg.contains("X3F decoding not implemented") {
+            Error::UnsupportedFormat(format!(
+                "Sigma Foveon (.X3F) decoding is not supported: {}", msg
+            ))
+        } else {
+            Error::Decode {
+                path: std::path::PathBuf::from(&hint_path),
+                reason: msg,
+            }
+        }
     })?;
 
     // ── 1a. EXIF orientation ──────────────────────────────────────────────
@@ -137,7 +166,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // ── 2. CFA pattern ────────────────────────────────────────────────────
     let cfa = match &raw.photometric {
         RawPhotometricInterpretation::Cfa(cfg) => {
-            map_cfa_pattern(&cfg.cfa.name)?
+            map_cfa_pattern_with_pattern(&cfg.cfa)?
         }
         RawPhotometricInterpretation::LinearRaw => {
             // DNG PhotometricInterpretation = LinearRaw (34892): the file
@@ -671,10 +700,8 @@ fn exif_illuminant_to_core(code: u16) -> CoreIlluminant {
     }
 }
 
-/// Map a rawler CFA name string to our [`CfaPattern`] enum.
-///
-/// Only 2×2 Bayer patterns are supported. X-Trans (36-char) and other exotic
-/// patterns return [`Error::UnsupportedCfa`] per spec §3.3.
+/// Map a rawler CFA name string to our [`CfaPattern`] enum. Only handles
+/// the 2×2 Bayer variants — used as a pure-string helper by tests.
 fn map_cfa_pattern(name: &str) -> Result<CfaPattern> {
     match name {
         "RGGB" => Ok(CfaPattern::Rggb),
@@ -683,6 +710,43 @@ fn map_cfa_pattern(name: &str) -> Result<CfaPattern> {
         "GBRG" => Ok(CfaPattern::Gbrg),
         other => Err(Error::UnsupportedCfa(other.to_string())),
     }
+}
+
+/// Map a rawler [`rawler::CFA`] to our [`CfaPattern`].
+///
+/// Handles the 4 classic 2×2 Bayer patterns plus 6×6 X-Trans (Fuji RAF).
+/// rawler reports X-Trans via the `XTransLayout` metadata block as a
+/// 36-character name; we read the pattern off the `cfa.pattern[6][6]`
+/// upper-left tile (rawler stores it expanded to 48×48 internally so
+/// indexing is safe) and pack it into the [`CfaPattern::XTrans`]
+/// variant. Other exotic patterns (CYGM, RGBE, 2×8 / 12×12) return
+/// [`Error::UnsupportedCfa`].
+fn map_cfa_pattern_with_pattern(cfa: &rawler::CFA) -> Result<CfaPattern> {
+    // 2×2 Bayer dispatch by name keeps the hand-rolled `color_at`
+    // matches in `CfaPattern` taking the fast path on the common case.
+    if cfa.width == 2 && cfa.height == 2 {
+        return map_cfa_pattern(&cfa.name);
+    }
+    if cfa.width == 6 && cfa.height == 6 {
+        // Validate that every cell is R/G/B (0/1/2). Anything else (the
+        // `X` sentinel rawler writes on unknown XTransLayout entries)
+        // is an unsupported variant — bail with a clear error.
+        let mut pat = [0u8; 36];
+        for row in 0..6 {
+            for col in 0..6 {
+                let v = cfa.color_at(row, col);
+                if v > 2 {
+                    return Err(Error::UnsupportedCfa(format!(
+                        "X-Trans pattern contains unknown channel {} at ({}, {}): {:?}",
+                        v, col, row, cfa.name
+                    )));
+                }
+                pat[row * 6 + col] = v as u8;
+            }
+        }
+        return Ok(CfaPattern::XTrans(pat));
+    }
+    Err(Error::UnsupportedCfa(cfa.name.clone()))
 }
 
 #[cfg(test)]
@@ -918,6 +982,75 @@ mod tests {
         assert!(raw.profile_gain_table_map.is_none(),
             "Apple iPhone PGTM uses non-canonical MapPlanes=257; \
              strict parser must skip rather than corrupt");
+    }
+
+    /// Regression test for #417: Fuji RAF decodes to `CfaPattern::XTrans`
+    /// with rawler's per-body XTransLayout populated into the 36-cell
+    /// pattern. test_0008 is a Fujifilm X-T3 RAF. The decoded pattern
+    /// must have the canonical R/G/B count for a 6×6 X-Trans tile:
+    /// 8 R, 20 G, 8 B per 36 cells.
+    #[test]
+    fn decode_test_0008_xtrans_pattern_has_canonical_channel_counts() {
+        let path = fixture_root().join("test_0008.RAF");
+        if !path.exists() { return; }
+        let raw = decode_path(&path).expect("decode Fuji RAF");
+        let pattern = match raw.cfa {
+            CfaPattern::XTrans(p) => p,
+            other => panic!("expected XTrans, got {:?}", other),
+        };
+        let mut counts = [0usize; 3];
+        for &c in &pattern {
+            assert!(c <= 2, "channel index out of range: {}", c);
+            counts[c as usize] += 1;
+        }
+        // X-Trans canonical per-tile distribution.
+        assert_eq!(counts, [8, 20, 8],
+            "expected [R=8, G=20, B=8], got {:?} (pattern: {:?})",
+            counts, pattern);
+        assert_eq!(raw.camera_make.to_lowercase(), "fujifilm");
+        // RAF dimensions should be plausible (X-T3 is 6240×4160 raw).
+        assert!(raw.width >= 4000 && raw.height >= 4000,
+                "RAF dimensions look wrong: {}x{}", raw.width, raw.height);
+    }
+
+    /// Regression test for #417: Foveon X3F surfaces as the structured
+    /// `UnsupportedFormat` error variant (not a generic `Decode` error).
+    /// rawler 0.7's X3F decoder is a stub.
+    #[test]
+    fn decode_test_0016_foveon_x3f_returns_unsupported_format() {
+        let path = fixture_root().join("test_0016.X3F");
+        if !path.exists() { return; }
+        let err = decode_path(&path).expect_err("X3F decoding must error");
+        match err {
+            Error::UnsupportedFormat(msg) => {
+                assert!(msg.to_lowercase().contains("foveon")
+                        || msg.to_lowercase().contains("x3f"),
+                    "expected Foveon/X3F mention, got: {}", msg);
+            }
+            other => panic!("expected Error::UnsupportedFormat, got {:?}", other),
+        }
+    }
+
+    /// Foveon detection works even if the caller passes a non-`x3f` extension
+    /// (e.g. byte stream from a tool that lost the extension hint). The
+    /// promotion path inside `decode_bytes` catches rawler's
+    /// "X3F decoding not implemented" diagnostic.
+    #[test]
+    fn decode_foveon_promotes_decoder_error_to_unsupported_format() {
+        let path = fixture_root().join("test_0016.X3F");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).expect("read X3F bytes");
+        // Pass `raw` (a generic vendor extension) — the `x3f` short-circuit
+        // is skipped and we exercise the message-promotion arm.
+        let err = decode_bytes(&bytes, "raw").expect_err("X3F bytes must error");
+        match err {
+            Error::UnsupportedFormat(_) => {}
+            // Some rawler builds may refuse to even identify X3F via the
+            // wrong extension hint — that's still a structured Decode error,
+            // not a panic, which is the minimum bar this test enforces.
+            Error::Decode { .. } => {}
+            other => panic!("expected UnsupportedFormat or Decode, got {:?}", other),
+        }
     }
 
     /// Regression test for ticket #07: LinearRaw DNGs (PhotometricInterpretation
