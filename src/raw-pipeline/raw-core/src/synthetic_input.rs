@@ -7,7 +7,7 @@
 //! dehaze variant is under test) and inspect the resulting per-stage EXR
 //! dumps via the existing `MAPLE_STAGE_DUMP` infrastructure.
 //!
-//! Three failure modes are covered:
+//! Four failure modes are covered:
 //!
 //! * `neutral_ramp` — exercises monotonicity / R==G==B / shadow histogram
 //!   gaps. Symptoms: shadow magenta-banding, stepped gradients.
@@ -15,6 +15,11 @@
 //!   per-channel hue rotation at the AgX shoulder (red→pink, blue→magenta).
 //! * `halo_disk` — anti-aliased dark disk on bright background. Symptoms:
 //!   clarity / dehaze unsharp-mask overshoot at the edge.
+//! * `saturated_neutral_edge` — half-saturated-primary / half-neutral step.
+//!   Symptoms: per-channel local-contrast stages (clarity, texture,
+//!   capture-sharpen) producing cross-channel halos because the channel
+//!   with no edge gets no boost while the others overshoot, leaving a
+//!   complementary-color fringe on the neutral side.
 //!
 //! Used by `maple-cli synthetic`. See `src/scripts/banding_check.py`,
 //! `hue_stability.py`, `halo_check.py`.
@@ -147,6 +152,48 @@ pub fn halo_disk(width: u32, height: u32) -> Image {
     img
 }
 
+/// Half-saturated-primary / half-neutral vertical step. The left half
+/// carries a uniform neutral grey (R=G=B=`neutral`); the right half
+/// carries a uniform saturated primary at the same luma anchor (one
+/// channel = `saturated`, the other two = 0). Width must be even — the
+/// split is exactly at `width / 2`. Height is just for batch-stat
+/// sampling (constant along y).
+///
+/// Used by the clarity / texture / capture-sharpen luminance-only
+/// regression tests: under a per-channel unsharp mask, the channel
+/// with no step (the saturated channel on the neutral side, or any of
+/// the zero channels on the saturated side) gets no detail boost while
+/// the other channels overshoot, leaving a cyan-on-red (or red-on-cyan,
+/// etc.) fringe across the edge. Under a luminance-only implementation
+/// the per-pixel R:G:B ratio is preserved by a single scalar multiply,
+/// so the neutral side stays neutral and the saturated side stays
+/// fully-saturated everywhere.
+pub fn saturated_neutral_edge(
+    primary: Primary,
+    neutral: f32,
+    saturated: f32,
+    width: u32,
+    height: u32,
+) -> Image {
+    assert!(width >= 2, "saturated_neutral_edge: width must be >= 2");
+    assert!(
+        width % 2 == 0,
+        "saturated_neutral_edge: width must be even so the split is sharp"
+    );
+    assert!(height >= 1, "saturated_neutral_edge: height must be >= 1");
+    let unit = primary.rgb_unit();
+    let sat_rgb = [unit[0] * saturated, unit[1] * saturated, unit[2] * saturated];
+    let neu_rgb = [neutral, neutral, neutral];
+    let w = width as usize;
+    let mut img = Image::new(width, height, ColorSpace::SceneLinearRec2020);
+    for y in 0..height as usize {
+        for x in 0..w {
+            img.pixels[y * w + x] = if x < w / 2 { neu_rgb } else { sat_rgb };
+        }
+    }
+    img
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,6 +300,66 @@ mod tests {
         for p in &img.pixels {
             assert_eq!(p[0], p[1]);
             assert_eq!(p[1], p[2]);
+        }
+    }
+
+    #[test]
+    fn saturated_neutral_edge_left_half_is_neutral() {
+        let img = saturated_neutral_edge(Primary::Red, 0.5, 0.7, 16, 4);
+        for y in 0..4 {
+            for x in 0..8 {
+                let p = img.pixels[y * 16 + x];
+                assert_eq!(p, [0.5, 0.5, 0.5], "left pixel ({},{}) drifted: {:?}", x, y, p);
+            }
+        }
+    }
+
+    #[test]
+    fn saturated_neutral_edge_right_half_is_saturated_primary() {
+        let img = saturated_neutral_edge(Primary::Red, 0.5, 0.7, 16, 4);
+        for y in 0..4 {
+            for x in 8..16 {
+                let p = img.pixels[y * 16 + x];
+                assert_eq!(
+                    p,
+                    [0.7, 0.0, 0.0],
+                    "right pixel ({},{}) drifted: {:?}",
+                    x,
+                    y,
+                    p
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn saturated_neutral_edge_works_for_each_primary() {
+        for primary in [
+            Primary::Red,
+            Primary::Green,
+            Primary::Blue,
+            Primary::Cyan,
+            Primary::Magenta,
+            Primary::Yellow,
+        ] {
+            let img = saturated_neutral_edge(primary, 0.4, 0.6, 8, 1);
+            // Left half: achromatic at `neutral`.
+            for x in 0..4 {
+                assert_eq!(img.pixels[x], [0.4, 0.4, 0.4]);
+            }
+            // Right half: each channel is either 0 or `saturated`.
+            for x in 4..8 {
+                let p = img.pixels[x];
+                for &c in &p {
+                    assert!(
+                        c == 0.0 || (c - 0.6).abs() < 1e-6,
+                        "primary {:?}: pixel {} channel must be 0 or saturated; got {:?}",
+                        primary,
+                        x,
+                        p
+                    );
+                }
+            }
         }
     }
 
