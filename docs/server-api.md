@@ -16,7 +16,33 @@ Supply the token as `Authorization: Bearer <jwt>`. Unauthenticated requests
 to protected routes return `401 { "error": "authentication required" }`.
 
 Tokens come from `/api/auth/register/finish` or `/api/auth/login/finish`.
-JWT is HS256, signed with `JWT_SECRET`, 7-day TTL.
+JWT is HS256, signed with `MAPLE_JWT_SECRET`, 7-day TTL.
+
+### Signing-secret persistence
+
+The HS256 signing secret is resolved at boot in this order:
+
+1. `MAPLE_JWT_SECRET` — explicit env var (caller-managed; e.g. a secrets
+   store or CI).
+2. A file on disk at `MAPLE_JWT_SECRET_FILE` (default `./.maple/jwt.secret`).
+3. Otherwise Maple generates 32 random bytes, writes them to that file with
+   mode `0o600`, and uses them.
+
+Because the generated secret is persisted, it already survives restarts —
+every issued token keeps verifying. The only thing that invalidates live
+sessions (logging everyone out) is **losing the secret file**.
+
+The default path is relative to the server's working directory, so a
+reinstall that wipes the install directory takes the secret with it. To make
+the secret survive a reinstall, point `MAPLE_JWT_SECRET_FILE` at a path on a
+**persistent volume** outside the install directory (the same volume you use
+for Mongo / photo data is a good choice), or supply `MAPLE_JWT_SECRET`
+directly from your secrets manager:
+
+```sh
+# Persist the auto-generated secret on a durable volume.
+MAPLE_JWT_SECRET_FILE=/var/lib/maple/jwt.secret
+```
 
 ---
 

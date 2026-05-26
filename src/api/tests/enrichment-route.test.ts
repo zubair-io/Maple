@@ -366,3 +366,73 @@ describe("POST /api/enrichment/test", () => {
     expect(r.status).toBe(400);
   });
 });
+
+describe("POST /api/enrichment/test-meili", () => {
+  it("returns ok:true when Meilisearch /health is reachable", async () => {
+    if (!mongoReachable) return;
+    stubFetch((url) =>
+      url.endsWith("/health") ? { status: 200, body: { status: "available" } } : { status: 200 },
+    );
+    const r = await post("/api/enrichment/test-meili", {
+      meilisearch_url: "http://meili.test:7700/",
+    });
+    expect(r.status).toBe(200);
+    // Trailing slash is stripped to match the saved/used form.
+    expect(r.body).toMatchObject({ ok: true, url: "http://meili.test:7700" });
+  });
+
+  it("returns ok:false when the health check fails", async () => {
+    if (!mongoReachable) return;
+    stubFetch(() => ({ status: 503, body: { status: "unavailable" } }));
+    const r = await post("/api/enrichment/test-meili", {
+      meilisearch_url: "http://meili.test:7700",
+    });
+    expect(r.status).toBe(200);
+    expect((r.body as { ok: boolean }).ok).toBe(false);
+  });
+
+  it("returns 400 for an invalid URL", async () => {
+    if (!mongoReachable) return;
+    const r = await post("/api/enrichment/test-meili", {
+      meilisearch_url: "not-a-url",
+    });
+    expect(r.status).toBe(400);
+  });
+});
+
+describe("PUT /api/enrichment/config — meilisearch_url", () => {
+  it("rejects a malformed meilisearch_url with 400", async () => {
+    if (!mongoReachable) return;
+    const r = await put("/api/enrichment/config", {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_url: "not-a-url",
+    });
+    expect(r.status).toBe(400);
+    expect((r.body as { error: string }).error).toMatch(/Invalid meilisearch_url/);
+  });
+
+  it("persists meilisearch_url and reports source 'db' (no health gate)", async () => {
+    if (!mongoReachable) return;
+    // A bad/unreachable Meili URL must NOT block the save — search degrades
+    // to Mongo $text. We still stub fetch so the background health probe
+    // doesn't hit the network.
+    stubFetch(() => ({ status: 503 }));
+    const r = await put("/api/enrichment/config", {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_url: "http://meili.test:7700/",
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as {
+      meilisearch_url: string;
+      source: { meilisearch_url: string };
+    };
+    expect(body.meilisearch_url).toBe("http://meili.test:7700");
+    expect(body.source.meilisearch_url).toBe("db");
+    const saved = await db!
+      .collection("app_settings")
+      .findOne<{ config: { meilisearch_url?: string } }>({ _id: "enrichment" } as never);
+    expect(saved!.config.meilisearch_url).toBe("http://meili.test:7700");
+  });
+});

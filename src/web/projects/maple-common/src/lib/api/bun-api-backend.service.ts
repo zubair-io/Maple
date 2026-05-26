@@ -401,6 +401,9 @@ export class BunApiBackendService {
     face_retinaface_sha256?: string | null;
     face_mobilefacenet_url?: string | null;
     face_mobilefacenet_sha256?: string | null;
+    // ── Search index (Phase 7) ────────────────────────────────────
+    /** Meilisearch sidecar URL. `null`/empty clears back to env / disabled. */
+    meilisearch_url?: string | null;
   }): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
   }
@@ -410,6 +413,15 @@ export class BunApiBackendService {
   testNominatim(url: string): Observable<EnrichmentTestResponse> {
     return this.http.post<EnrichmentTestResponse>(`${this.base}/enrichment/test`, {
       nominatim_url: url,
+    });
+  }
+
+  /** Health-check an arbitrary Meilisearch URL without saving. The server
+   * authenticates with the `MAPLE_MEILISEARCH_API_KEY` env var, so this
+   * probes exactly what the live client will use. */
+  testMeilisearch(url: string): Observable<EnrichmentTestResponse> {
+    return this.http.post<EnrichmentTestResponse>(`${this.base}/enrichment/test-meili`, {
+      meilisearch_url: url,
     });
   }
 
@@ -576,6 +588,10 @@ export interface EnrichmentConfigResponse {
   face_retinaface_sha256: string | null;
   face_mobilefacenet_url: string | null;
   face_mobilefacenet_sha256: string | null;
+  /** Meilisearch sidecar URL (DB → env → null). `null` disables the sidecar;
+   * search then falls back to the Mongo `$text` path. The API key is not on
+   * the wire — it stays the `MAPLE_MEILISEARCH_API_KEY` env var. */
+  meilisearch_url: string | null;
   /** Set when face worker is enabled but the model files are missing — UI
    * surfaces this as an actionable banner. Optional for backward compat. */
   face_worker_dormant_reason?: string | null;
@@ -605,6 +621,7 @@ export interface EnrichmentConfigResponse {
     face_retinaface_sha256: 'db' | 'env' | 'unset';
     face_mobilefacenet_url: 'db' | 'env' | 'unset';
     face_mobilefacenet_sha256: 'db' | 'env' | 'unset';
+    meilisearch_url: 'db' | 'env' | 'unset';
   };
 }
 

@@ -87,6 +87,7 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
   face_retinaface_sha256: null,
   face_mobilefacenet_url: null,
   face_mobilefacenet_sha256: null,
+  meilisearch_url: null,
   source: {
     nominatim_url: 'unset',
     geocode_worker_enabled: 'default',
@@ -103,6 +104,7 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
     face_retinaface_sha256: 'unset',
     face_mobilefacenet_url: 'unset',
     face_mobilefacenet_sha256: 'unset',
+    meilisearch_url: 'unset',
   },
 };
 

@@ -415,3 +415,18 @@ export function setMeilisearchClientForTests(
 ): void {
   singleton = client;
 }
+
+/**
+ * Rebuild the shared client against an operator-supplied URL — called at boot
+ * and on every `PUT /api/enrichment/config` so a saved Meilisearch URL takes
+ * effect without a restart. `url` is the already-resolved value (DB > env),
+ * so passing it explicitly is authoritative: `null` forces the disabled state
+ * even when `MAPLE_MEILISEARCH_URL` is set in the environment (an explicit
+ * `url: undefined` in the override beats `readConfig()`'s env read).
+ *
+ * The API key is left to `readConfig()` — it always comes from
+ * `MAPLE_MEILISEARCH_API_KEY`, never from the DB.
+ */
+export function reconfigureMeilisearch(url: string | null): void {
+  singleton = createMeilisearchClient({ url: url ?? undefined });
+}

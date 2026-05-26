@@ -23,15 +23,17 @@ import { meilisearchClient, type MeilisearchClient } from '../../enrichment/meil
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 
-let _client: MeilisearchClient | null = null;
+// Tests inject a fake here; production leaves it null and reads the live
+// module singleton on every call so an operator's `PUT /enrichment/config`
+// reconfigure (reconfigureMeilisearch) is picked up without a restart.
+let _testClient: MeilisearchClient | null = null;
 function getClient(): MeilisearchClient {
-  if (!_client) _client = meilisearchClient();
-  return _client;
+  return _testClient ?? meilisearchClient();
 }
 
 /** Test-only setter. Call with `null` to reset between tests. */
 export function setMeilisearchClientForTests(client: MeilisearchClient | null): void {
-  _client = client;
+  _testClient = client;
 }
 
 export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
