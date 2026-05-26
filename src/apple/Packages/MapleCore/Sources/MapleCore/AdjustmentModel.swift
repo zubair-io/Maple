@@ -98,7 +98,12 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // Defaults to 0 (stage skipped) so first-open matches pre-#271 behaviour
     // bit-identically. Per-camera defaults are a follow-up calibration ticket.
     public var captureSharpeningAmount: Double  // 0..100, default 0
-    public var captureSharpeningRadius: Double  // 0.5..2.0, default 1.0
+    /// Gaussian PSF sigma in pixels (#456). Renamed from
+    /// `captureSharpeningRadius` after PR #452 swapped the integer-radius
+    /// tripled-box-blur for a true Gaussian. The XMP key
+    /// `papp:CaptureSharpeningSigma` is the canonical write key; the legacy
+    /// `papp:CaptureSharpeningRadius` is still accepted on read.
+    public var captureSharpeningSigma: Double   // 0.5..2.0, default 1.0
 
     // Detail — noise reduction
     public var nrLuminance: Double      // 0..100, default 0
@@ -134,7 +139,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         sharpenDetail: Double = 25,
         sharpenMasking: Double = 0,
         captureSharpeningAmount: Double = 0,
-        captureSharpeningRadius: Double = 1.0,
+        captureSharpeningSigma: Double = 1.0,
         nrLuminance: Double = 0,
         nrColor: Double = 25,
         highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
@@ -162,7 +167,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.sharpenDetail = sharpenDetail
         self.sharpenMasking = sharpenMasking
         self.captureSharpeningAmount = captureSharpeningAmount
-        self.captureSharpeningRadius = captureSharpeningRadius
+        self.captureSharpeningSigma = captureSharpeningSigma
         self.nrLuminance = nrLuminance
         self.nrColor = nrColor
         self.highlightRecovery = highlightRecovery
@@ -238,6 +243,12 @@ public enum XMPError: Error, LocalizedError {
 private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     var model: AdjustmentModel
     var culling: CullingState
+    /// Tracks whether the canonical `papp:CaptureSharpeningSigma` attribute
+    /// has been applied during this element so the legacy
+    /// `papp:CaptureSharpeningRadius` alias never overrides it. Swift
+    /// dictionary iteration order is undefined; matches the Rust parser's
+    /// `sigma_seen` precedence (PR #463).
+    var captureSharpeningSigmaSeen: Bool = false
 
     init(model: AdjustmentModel, culling: CullingState) {
         self.model = model
@@ -253,9 +264,21 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         if let wb = attributeDict["crs:WhiteBalance"] {
             applyAttribute(key: "crs:WhiteBalance", value: wb)
         }
-        for (rawKey, value) in attributeDict where rawKey != "crs:WhiteBalance" {
+        // Pre-pass: if the canonical capture-sharpening Sigma attribute is
+        // present, apply it before the legacy Radius alias so attribute
+        // iteration order can't flip precedence. Mirrors raw-core's
+        // `sigma_seen` flag.
+        if let sigma = attributeDict["papp:CaptureSharpeningSigma"] {
+            applyAttribute(key: "papp:CaptureSharpeningSigma", value: sigma)
+        }
+        for (rawKey, value) in attributeDict
+            where rawKey != "crs:WhiteBalance" && rawKey != "papp:CaptureSharpeningSigma" {
             applyAttribute(key: rawKey, value: value)
         }
+        // Reset for the next rdf:Description (defensive — XMP normally
+        // carries a single description element, but the parser must remain
+        // idempotent across calls).
+        captureSharpeningSigmaSeen = false
     }
 
     private func applyAttribute(key: String, value: String) {
@@ -279,7 +302,19 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         case "crs:SharpenDetail":       model.sharpenDetail  = d(value) ?? model.sharpenDetail
         case "crs:SharpenEdgeMasking":  model.sharpenMasking = d(value) ?? model.sharpenMasking
         case "papp:CaptureSharpeningAmount": model.captureSharpeningAmount = d(value) ?? model.captureSharpeningAmount
-        case "papp:CaptureSharpeningRadius": model.captureSharpeningRadius = d(value) ?? model.captureSharpeningRadius
+        case "papp:CaptureSharpeningSigma":
+            if let v = d(value) {
+                model.captureSharpeningSigma = v
+                captureSharpeningSigmaSeen = true
+            }
+        case "papp:CaptureSharpeningRadius":
+            // Legacy alias kept on the read path only (#456). Routed into
+            // `captureSharpeningSigma` unchanged — no rescale, since no
+            // shipping sidecar carries a non-zero amount and a rescale
+            // would be a guess. Sigma wins when both keys are present.
+            if !captureSharpeningSigmaSeen, let v = d(value) {
+                model.captureSharpeningSigma = v
+            }
         case "crs:LuminanceSmoothing":  model.nrLuminance    = d(value) ?? model.nrLuminance
         case "crs:ColorNoiseReduction": model.nrColor        = d(value) ?? model.nrColor
         case "crs:WhiteBalance":
@@ -372,7 +407,10 @@ public struct XMPSerializer {
             ("crs:SharpenDetail",        String(format: "%.0f", model.sharpenDetail)),
             ("crs:SharpenEdgeMasking",   String(format: "%.0f", model.sharpenMasking)),
             ("papp:CaptureSharpeningAmount", String(format: "%.0f", model.captureSharpeningAmount)),
-            ("papp:CaptureSharpeningRadius", String(format: "%.1f", model.captureSharpeningRadius)),
+            // Canonical capture-sharpening write key (#456). Legacy
+            // `papp:CaptureSharpeningRadius` is read-only — older sidecars
+            // still parse, but new sidecars emit Sigma exclusively.
+            ("papp:CaptureSharpeningSigma", String(format: "%.1f", model.captureSharpeningSigma)),
             ("crs:LuminanceSmoothing",   String(format: "%.0f", model.nrLuminance)),
             ("crs:ColorNoiseReduction",  String(format: "%.0f", model.nrColor)),
             ("xmp:Rating",               String(culling.stars)),
