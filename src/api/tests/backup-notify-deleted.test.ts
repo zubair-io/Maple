@@ -19,7 +19,13 @@ let assetId3: ObjectId;
 beforeAll(async () => {
   tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), "maple-notify-del-test-"));
   const f = await foldersCollection();
-  await f.insertOne({ _id: libId, path: tmpLib, label: "test", created_at: new Date(), file_count: 0 } as any);
+  await f.insertOne({
+    _id: libId,
+    path: tmpLib,
+    label: "test",
+    created_at: new Date(),
+    file_count: 0,
+  } as any);
 
   const a = await assetsCollection();
   await a.deleteMany({ "fileinfo.library_id": libId });
@@ -32,30 +38,77 @@ beforeAll(async () => {
   // top-level `folder_id`/`abs_path`/`filename` fields were retired in the
   // drop-abs-path-2026-05-21 migration). Mirror the shape backup-ingest
   // actually inserts so the route's `fileinfo.library_id` scoping matches.
-  const base = { size: 64, mtime: Date.now(), rating: 0, flag: 0, color_label: "", indexed_at: new Date().toISOString(), deleted_from_photos: false };
+  const base = {
+    size: 64,
+    mtime: Date.now(),
+    rating: 0,
+    flag: 0,
+    color_label: "",
+    indexed_at: new Date().toISOString(),
+    deleted_from_photos: false,
+  };
 
   await a.insertMany([
     {
       _id: assetId1,
       ...base,
-      fileinfo: [{ path: "", filename: "IMG_DEL_1.HEIC", library_id: libId, deleted_at: null }],
+      fileinfo: [
+        {
+          path: "",
+          filename: "IMG_DEL_1.HEIC",
+          library_id: libId,
+          deleted_at: null,
+        },
+      ],
       maple_id: "del-maple-1",
-      phasset_links: [{ device_id: deviceId, phasset_local_id: phid1, first_seen: new Date() }],
+      phasset_links: [
+        {
+          device_id: deviceId,
+          phasset_local_id: phid1,
+          first_seen: new Date(),
+        },
+      ],
     },
     {
       _id: assetId2,
       ...base,
-      fileinfo: [{ path: "", filename: "IMG_DEL_2.HEIC", library_id: libId, deleted_at: null }],
+      fileinfo: [
+        {
+          path: "",
+          filename: "IMG_DEL_2.HEIC",
+          library_id: libId,
+          deleted_at: null,
+        },
+      ],
       maple_id: "del-maple-2",
-      phasset_links: [{ device_id: deviceId, phasset_local_id: phid2, first_seen: new Date() }],
+      phasset_links: [
+        {
+          device_id: deviceId,
+          phasset_local_id: phid2,
+          first_seen: new Date(),
+        },
+      ],
     },
     {
       _id: assetId3,
       ...base,
-      fileinfo: [{ path: "", filename: "IMG_DEL_3.HEIC", library_id: libId, deleted_at: null }],
+      fileinfo: [
+        {
+          path: "",
+          filename: "IMG_DEL_3.HEIC",
+          library_id: libId,
+          deleted_at: null,
+        },
+      ],
       maple_id: "del-maple-3",
       // Linked to a DIFFERENT device only — should NOT be updated.
-      phasset_links: [{ device_id: "other-device", phasset_local_id: phid3, first_seen: new Date() }],
+      phasset_links: [
+        {
+          device_id: "other-device",
+          phasset_local_id: phid3,
+          first_seen: new Date(),
+        },
+      ],
     },
   ] as any[]);
 });
@@ -64,13 +117,20 @@ afterAll(async () => {
   await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
-function notifyDeleted(body: object, headers: Record<string, string>, libOverride?: string): Request {
+function notifyDeleted(
+  body: object,
+  headers: Record<string, string>,
+  libOverride?: string,
+): Request {
   const id = libOverride ?? libId.toHexString();
-  return new Request(`http://localhost/api/libraries/${id}/backup/notify-deleted`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  });
+  return new Request(
+    `http://localhost/api/libraries/${id}/backup/notify-deleted`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 describe("POST /api/libraries/:id/backup/notify-deleted", () => {
@@ -143,7 +203,9 @@ describe("POST /api/libraries/:id/backup/notify-deleted", () => {
 
   test("phasset_local_ids is not an array → 400", async () => {
     const res = await app.handle(
-      notifyDeleted({ phasset_local_ids: "not-an-array" } as any, { "X-Maple-Device-Id": deviceId }),
+      notifyDeleted({ phasset_local_ids: "not-an-array" } as any, {
+        "X-Maple-Device-Id": deviceId,
+      }),
     );
     expect(res.status).toBe(400);
   });

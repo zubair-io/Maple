@@ -87,7 +87,9 @@ export const backupSidecarRoutes = new Elysia().post(
     }
 
     // Check library exists.
-    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
+    const folder = await (
+      await foldersCollection()
+    ).findOne({ _id: libraryId });
     if (!folder) {
       set.status = 404;
       return { error: "library not found" };
@@ -132,7 +134,10 @@ export const backupSidecarRoutes = new Elysia().post(
     const finalPath = path.join(folder.path, sidecarRelPath);
 
     // Guard: ensure the computed absolute path is under the library root.
-    if (!finalPath.startsWith(folder.path + path.sep) && finalPath !== folder.path) {
+    if (
+      !finalPath.startsWith(folder.path + path.sep) &&
+      finalPath !== folder.path
+    ) {
       set.status = 400;
       return { error: "path escape detected" };
     }
