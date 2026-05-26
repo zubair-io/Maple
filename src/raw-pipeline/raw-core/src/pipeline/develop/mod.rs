@@ -39,7 +39,7 @@ use crate::{
 
 use super::{
     capture_sharpening_helper::capture_sharpening_params_from_model, dump_after, stage,
-    RenderQuality, AUTO_EXPOSURE_CLIP_PCT,
+    RenderQuality,
 };
 
 /// Crop the camera-RGB image to the DNG-recommended render rectangle.
@@ -302,25 +302,20 @@ pub fn develop_scene_linear_from_raw_with_quality(
         });
     }
     dump_after("04b_capture_sharpening", &scene);
-    // Per-image histogram-shape auto-exposure. Operates on the
-    // post-DCP/PTC/PGTM scene-linear Rec.2020 image; deterministic; pure
-    // math. Production behavior is identity (`AE_DAMPING = 0.0` in
-    // stages/auto_exposure.rs) — the stage computes a histogram internally
-    // and returns an `AutoExposure` (with `expcomp`), but this call site
-    // discards the return value and the damping is 0, so pixels are
-    // untouched and nothing is surfaced today. Kept as infrastructure for
-    // a future user-facing "Auto" toggle — that toggle will (a) capture
-    // the returned `AutoExposure` and apply it, and (b) optionally expose
-    // it as XMP/diagnostic output. The earlier
-    // `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` band-aid + `damping = 0.2`
-    // tuning were both removed in commit `ba8e0ecb` once the WB pre-gain
-    // bundle (Phase 1.2) gave the chain a correct foundation. (The Phase-1.1
-    // per-body BE table that originally accompanied it was itself removed
-    // in #370; aesthetic alignment moves to `view::look` in #371.) Runs
-    // BEFORE scene_tone_controls so the user's
-    // exposure slider stacks additively (in EV) on top of any future
-    // auto-tuned baseline.
-    stage("auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
+    // Per-image scene-anchor (ticket #429). Operates on the post-DCP /
+    // PGTM scene-linear Rec.2020 image; deterministic; pure math.
+    // Default is `AutoExposureMode::On` — measures the scene's mid-tone
+    // (geometric mean of luma in the middle 50% percentile range, robust
+    // to specular highlights and crushed shadows) and multiplies pixels
+    // by `clamp(0.18 / midgrey, max=8.0)` so every camera lands at the
+    // same point on the AgX sigmoid by default. User exposure
+    // (`model.exposure`) stacks additively in EV in
+    // `scene_tone_controls` downstream — the two scene-linear multiplies
+    // commute, total per pixel is `anchor_gain * 2^user_ev`. Users can
+    // opt out per-image via `papp:AutoExposure="Off"` for strict
+    // scene-referred output, in which case the stage is a bit-identical
+    // no-op.
+    stage("auto_exposure", || auto_exposure::apply(&mut scene, model));
     dump_after("05_auto_exposure", &scene);
     stage("white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method));
     dump_after("06_white_balance", &scene);

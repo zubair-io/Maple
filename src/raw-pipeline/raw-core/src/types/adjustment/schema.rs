@@ -293,6 +293,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         doc: "Highlight reconstruction mode per spec § 3.3a.",
     },
     FieldSpec {
+        name: "auto_exposure",
+        kind: FieldKind::Enum,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "AutoExposureMode",
+        doc: "Per-image auto-exposure mode (ticket #429). 'On' (default) anchors scene mid-gray to 0.18 before AgX; 'Off' is strict scene-referred. The `exposure` slider stacks additively in EV on top.",
+    },
+    FieldSpec {
         name: "look",
         kind: FieldKind::Enum,
         range: (0.0, 0.0),
@@ -356,6 +364,7 @@ mod tests {
             nr_color,
             dehaze,
             highlight_recovery,
+            auto_exposure,
             look,
             local_adjustments,
             tone_curve_mode,
@@ -393,6 +402,7 @@ mod tests {
             "nr_color",
             "dehaze",
             "highlight_recovery",
+            "auto_exposure",
             "look",
             "tone_curve_mode",
         ];
@@ -438,6 +448,7 @@ mod tests {
             nr_color,
             dehaze,
             highlight_recovery,
+            auto_exposure,
             look,
             tone_curve_mode,
             tone_curve_luma,

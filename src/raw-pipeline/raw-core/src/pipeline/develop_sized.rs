@@ -29,7 +29,7 @@ use super::{
     capture_sharpening_helper::capture_sharpening_params_from_model,
     develop::{crop_to_default, effective_quality_divisor},
     downsample::downsample_image_area,
-    dump_after, stage, RenderQuality, AUTO_EXPOSURE_CLIP_PCT,
+    dump_after, stage, RenderQuality,
 };
 
 /// Sized variant of `develop_scene_linear_from_raw_with_quality` that
@@ -159,7 +159,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
         });
     }
     dump_after("04b_capture_sharpening", &scene);
-    stage("sized_auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
+    stage("sized_auto_exposure", || auto_exposure::apply(&mut scene, model));
     dump_after("05_auto_exposure", &scene);
     stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method));
     dump_after("06_white_balance", &scene);

@@ -1,493 +1,192 @@
-//! Histogram-shape per-image auto-exposure.
-//!
-//! Ported from the sibling reference repo's `raw-core::auto_exposure`
-//! (`/Users/riabuz/Projects/Maple/src/raw-pipeline/crates/raw-core/src/auto_exposure.rs`,
-//! itself derived from RawTherapee's `getAutoExp` / `getAutoExpHistogram`).
+//! Per-image scene-anchor (Ticket #429).
 //!
 //! # Why this exists
-//! Maintained as infrastructure for a future user-facing "Auto" toggle.
-//! At production damping (`AE_DAMPING = 0.0`) the stage is identity — it
-//! computes the histogram internally and returns the fitted `AutoExposure`
-//! (carrying `expcomp` only; the histogram itself isn't surfaced), but
-//! leaves pixels untouched. The histogram-shape AE algorithm is a port
-//! of RawTherapee's `getAutoExp`: sample the actual scene-linear
-//! distribution post-DCP, fit a per-image gain that lands the mean /
-//! median / top of the histogram near canonical mid-gray and clipping
-//! points, return EV. Per-image, deterministic, pure math.
+//! AgX assumes the scene is anchored at mid-gray 0.18. Without a real
+//! anchor, different cameras / scenes land at different points on the
+//! sigmoid → inconsistent brightness across bodies and cross-camera
+//! mismatch. This stage measures the scene's mid-tone in scene-linear
+//! Rec.2020 and applies a scalar gain that pushes it to 0.18 BEFORE AgX.
+//! Every camera lands at the same AgX position by default.
+//!
+//! # Algorithm
+//!
+//! 1. Compute per-pixel luma `Y = dot(REC2020, RGB)` and the geometric
+//!    mean of `Y` in the middle 50% percentile range of the distribution
+//!    (`P25 ≤ Y ≤ P75`). Trimming the top and bottom 25% gives a robust
+//!    mid-tone estimate that ignores specular highlights and crushed
+//!    shadows.
+//! 2. `anchor_gain = clamp(0.18 / scene_midgrey, max = 8.0)`. The 8.0 cap
+//!    (= +3 EV) prevents night scenes (where the midgrey approaches zero)
+//!    from blowing out specular highlights into AgX. Black-frame /
+//!    degenerate inputs short-circuit to `anchor_gain = 1.0` so the stage
+//!    stays well-defined.
+//! 3. Scene-linear multiply: `RGB *= anchor_gain`. Commutes with every
+//!    subsequent scene-linear op (white balance, scene tone controls,
+//!    user exposure, curves) so placement here is algebraically
+//!    equivalent to folding the gain into any of those.
+//!
+//! # User exposure stacks additively on top
+//!
+//! The user's `AdjustmentModel::exposure` slider is applied downstream in
+//! [`crate::stages::scene_tone_controls`] step 1. Mathematically the chain
+//! is `pixel * anchor_gain * 2^user_ev`, which the two stages produce by
+//! commuting multiplies — same result as a single composed multiply by
+//! `anchor_gain * 2^user_ev`. User exposure becomes a relative offset on
+//! top of the per-scene anchor, not an absolute setting.
+//!
+//! # Default behavior
+//!
+//! `AdjustmentModel::auto_exposure = AutoExposureMode::On` by default. To
+//! opt out per-image (e.g. for strict scene-referred output), set
+//! `papp:AutoExposure="Off"` in the XMP sidecar — the stage becomes
+//! identity for that image.
 //!
 //! # History — band-aids removed
-//! Earlier versions of the pipeline ran a non-zero damping (0.2) layered
-//! on top of a global `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` constant
-//! in `decode.rs`. That tuning was AgX-toward-reference-renderer, which is
-//! the wrong optimization target — Maple uses AgX as the platform view
-//! transform and the reference renderer uses a different proprietary tone
-//! curve. Both compensations
-//! were removed in commit `ba8e0ecb` after the WB pre-gain bundle
-//! (Phase 1.2) gave the pipeline a correct foundation. (The Phase-1.1
-//! per-body BE table that originally accompanied it was itself removed
-//! in #370; aesthetic alignment is now the job of `view::look` (#371).)
-//! The damping constant is kept at 0 here so the AE infrastructure is
-//! preserved for the future "Auto" toggle.
 //!
-//! # Adaptations from the reference port
-//! * Reference operates on a `DemosaicedImage { pixels: Vec<f32> }` (interleaved
-//!   camera-RGB, [0,1]). We operate on `crate::image::Image` in
-//!   `ColorSpace::SceneLinearRec2020` (`pixels: Vec<[f32; 3]>`, unbounded f32),
-//!   which is the post-DCP / pre-tone-controls surface in the `_Maple`
-//!   pipeline. Scene-linear Rec.2020 is already chromatically adapted so the
-//!   luminance histogram is meaningful for "this scene" rather than
-//!   sensor-native + WB-multiplier intermediate space.
-//! * Luma weights: Rec.2020 (0.2627, 0.6780, 0.0593), not Rec.709, to match
-//!   the working color space.
-//! * Histogram bin scaling: scene-linear values can exceed 1.0 (specular
-//!   highlights post-DCP). We clamp the bin index, which is how the
-//!   reference behaves anyway via the `clamp(0, BINS - 1)` step.
-//! * The raw-CFA path (`build_luma_histogram_from_raw`) is included for
-//!   completeness. It derives WB multipliers from `RawImage::as_shot_neutral`
-//!   (which `_Maple` stores as the camera reading per DNG spec) by
-//!   inverting and G-normalizing. The pipeline does NOT use this path
-//!   today — it uses the post-DCP `auto_exposure_from_image` path — but
-//!   the raw path is reference-faithful and unit-tested.
+//! Earlier versions of this file carried a 1:1 port of RawTherapee's
+//! `getAutoExp` histogram-shape algorithm (8192 bins → octile-weighted
+//! `expcomp` returning an EV) gated behind a `AE_DAMPING = 0.0` constant
+//! so it shipped as identity. The same code path was tuned to non-zero
+//! damping at one point (commit d431fcf), then reverted in `ba8e0ecb`
+//! when the WB pre-gain bundle (Phase 1.2) gave the chain a correct
+//! foundation; the unused infrastructure was kept "for a future Auto
+//! toggle." Ticket #429 wires up the real scene-anchor algorithm above,
+//! which replaces the histogram-shape port and its dead-code AE_DAMPING
+//! / MAPLE_AE_DAMPING knobs. The RT port and its raw-CFA companion
+//! `build_luma_histogram_from_raw` were deleted in this PR — nothing else
+//! consumed the histogram or the engine-shaped `AutoExposure` struct
+//! they returned.
 
-use crate::image::{ColorSpace, Image, RawImage};
-
-/// Outputs of `compute_auto_exposure`. Names mirror the engine.
-///
-/// Today the pipeline consumes only `expcomp`. The other fields (black,
-/// bright, contr, hlcompr, hlcomprthresh) are populated for reference
-/// fidelity and will become live when the tone-curve / black-point stages
-/// land — they're cheap to compute alongside `expcomp`.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct AutoExposure {
-    /// Exposure compensation in EV. Clamped to [-5, 12] by the engine.
-    pub expcomp: f32,
-    /// Black-point in the 16-bit scale the engine uses. Divide by 65535
-    /// for normalized [0, 1] linear.
-    pub black: i32,
-    /// Brightness slider, [-100, 100].
-    pub bright: i32,
-    /// Contrast slider, [0, 100].
-    pub contr: i32,
-    /// Highlight-compression amount [0, 100].
-    pub hlcompr: i32,
-    /// Threshold below which `hlcompr` has no effect [0, 100].
-    pub hlcomprthresh: i32,
-}
-
-// Engine constants — held in the reference verbatim.
-const SCALE: f32 = 65536.0;
-/// Linear-gamma middle grey (DNG-spec convention).
-const MIDGRAY: f32 = 0.1842;
-/// Histogram compression: 65536 >> 3 = 8192 bins.
-const HISTCOMPR: u32 = 3;
+use crate::image::{ColorSpace, Image};
+use crate::xmp::{AdjustmentModel, AutoExposureMode};
 
 /// Rec.2020 luma weights — match the working color space of the post-DCP
 /// `Image` we sample (see `crate::stages::scene_tone_controls::LUMA_REC2020`).
 const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 
-/// Build an 8192-bin luminance histogram from a scene-linear Rec.2020
-/// image. Bin index ≈ `linear_value * 8192`, clamped to [0, 8191].
+/// Target scene-linear value for mid-gray going into AgX. Matches
+/// `AGX_MID_GRAY` in `crate::view::agx::coeffs` (0.18); we duplicate the
+/// constant here to avoid pulling the `view` module into the `stages`
+/// dependency graph, and the literal is the load-bearing scene-referred
+/// constant of the entire pipeline.
+const SCENE_MIDGRAY_TARGET: f32 = 0.18;
+
+/// Clip on `anchor_gain` so a near-black scene (midgrey → 0) does not
+/// drive a hyper-multiplier that blows out specular highlights into the
+/// AgX toe. +3 EV (= 8.0) is a conservative ceiling — night scenes
+/// either land at -3 EV after the clip (still a meaningful brighten) or
+/// the user follows up with explicit exposure compensation.
+const MAX_ANCHOR_GAIN: f32 = 8.0;
+
+/// Floor on `scene_midgrey` for the gain division — prevents NaN /
+/// Infinity when the trimmed-mean evaluates to zero. The clamp on
+/// `anchor_gain` already caps the output; this guard is just numerical
+/// safety against the division.
+const MIDGREY_FLOOR: f32 = 1e-6;
+
+/// Scene-anchor gain for `image`.
 ///
-/// Scene-linear values can legitimately exceed 1.0 (specular highlights);
-/// those land in the top bin, which the percentile / mean math treats as
-/// "bright clip" — exactly the behaviour the reference's
-/// `compute_auto_exposure` expects.
-pub fn build_luma_histogram(image: &Image) -> Vec<u32> {
-    const BINS: usize = 1 << (16 - HISTCOMPR); // 8192
-    let mut hist = vec![0_u32; BINS];
-    for px in &image.pixels {
-        let y = LUMA_REC2020[0] * px[0] + LUMA_REC2020[1] * px[1] + LUMA_REC2020[2] * px[2];
-        let bin = (y * BINS as f32).clamp(0.0, BINS as f32 - 1.0) as usize;
-        hist[bin] += 1;
-    }
-    hist
-}
-
-/// Auto-exposure from an 8192-bin histogram. `clip` is the percent of
-/// pixels allowed to clip at black/white (the engine default = 0.02).
+/// Returns the scalar gain that, when multiplied into scene-linear
+/// pixels, places the geometric mean of luma in the middle 50% percentile
+/// band at [`SCENE_MIDGRAY_TARGET`] (0.18). Result is clamped to
+/// `(0.0, MAX_ANCHOR_GAIN]` so degenerate inputs cannot produce wild
+/// gains. Returns `1.0` for an all-zero / degenerate image so the
+/// stage is well-defined and the caller can multiply unconditionally.
 ///
-/// 1:1 port of the reference's `compute_auto_exposure`. Two-pass octile
-/// accumulator → log-spread weighting → per-image expcomp / brightness /
-/// contrast. See doc comment on the reference for the algorithm origin
-/// (RawTherapee `rtengine::Color::auto_exposure`).
-pub fn compute_auto_exposure(histogram: &[u32], clip: f32) -> AutoExposure {
-    let histcompr = HISTCOMPR as i32;
-    let imax = 65536 >> histcompr; // 8192
-    debug_assert!(
-        histogram.len() >= imax as usize,
-        "histogram must be ≥ {imax} bins, got {}",
-        histogram.len()
-    );
-
-    // Sum and weighted average.
-    let mut sum: u64 = 0;
-    let mut weighted: f64 = 0.0;
-    for (i, &h) in histogram.iter().take(imax as usize).enumerate() {
-        sum += h as u64;
-        weighted += h as f64 * i as f64;
-    }
-    let sum_f = sum as f32;
-    if sum == 0 {
-        return AutoExposure::default();
-    }
-    let ave = (weighted / sum as f64) as f32;
-
-    // Median.
-    let mut cum: u64 = histogram[0] as u64;
-    let half = sum / 2;
-    let mut median: i32 = 0;
-    while cum < half {
-        median += 1;
-        if median as usize >= histogram.len() {
-            break;
-        }
-        cum += histogram[median as usize] as u64;
-    }
-
-    if median == 0 || ave < 1.0 {
-        // Black-frame detection.
-        return AutoExposure::default();
-    }
-
-    // Compute octiles (log2 positions of the 1/8, 2/8, ... cumulative
-    // thresholds). Two-pass accumulator.
-    let mut octile = [0.0_f32; 8];
-    let mut count: usize = 0;
-    let mut losum = 0.0_f32;
-    let mut hisum = 0.0_f32;
-
-    let mut j = 0_i32;
-    let ave_i = (ave as i32).min(imax);
-    while j < ave_i {
-        if count < 8 {
-            octile[count] += histogram[j as usize] as f32;
-            if octile[count] > sum_f / 8.0 || (count == 7 && octile[count] > sum_f / 16.0) {
-                octile[count] = (1.0 + j as f32).ln() / 2.0_f32.ln();
-                count += 1;
-            }
-        }
-        losum += histogram[j as usize] as f32;
-        j += 1;
-    }
-    while j < imax {
-        if count < 8 {
-            octile[count] += histogram[j as usize] as f32;
-            if octile[count] > sum_f / 8.0 || (count == 7 && octile[count] > sum_f / 16.0) {
-                octile[count] = (1.0 + j as f32).ln() / 2.0_f32.ln();
-                count += 1;
-            }
-        }
-        hisum += histogram[j as usize] as f32;
-        j += 1;
-    }
-
-    if losum == 0.0 || hisum == 0.0 {
-        return AutoExposure::default();
-    }
-
-    let log1p_imax = ((imax as f32) + 1.0).ln() / 2.0_f32.ln();
-    let mut overex = 0;
-    if octile[6] > log1p_imax {
-        octile[6] = 1.5 * octile[5] - 0.5 * octile[4];
-        overex = 2;
-    }
-    if octile[7] > log1p_imax {
-        octile[7] = 1.5 * octile[6] - 0.5 * octile[5];
-        overex = 1;
-    }
-    let oct6 = octile[6];
-    let oct7 = octile[7];
-
-    // Fill any remaining unfilled octile by propagating the previous one.
-    for i in 1..8 {
-        if octile[i] == 0.0 {
-            octile[i] = octile[i - 1];
-        }
-    }
-
-    // Weighted octile spread → contrast setting.
-    let mut ospread = 0.0_f32;
-    for i in 1..6 {
-        let denom = if i > 2 {
-            octile[i + 1] - octile[3]
-        } else {
-            octile[3] - octile[i]
-        };
-        ospread += (octile[i + 1] - octile[i]) / denom.max(0.5);
-    }
-    ospread /= 5.0;
-
-    if ospread <= 0.0 {
-        return AutoExposure::default();
-    }
-
-    // Find rawmax: the last bin with content (walking down from the top).
-    let mut rawmax = imax - 1;
-    let mut clipped: u64 = 0;
-    while rawmax > 1 && histogram[rawmax as usize] as u64 + clipped == 0 {
-        clipped += histogram[rawmax as usize] as u64;
-        rawmax -= 1;
-    }
-
-    // White clip: walk down until cumulative clipped-away bins exceeds
-    // `clippable`.
-    let clippable = (sum_f as f64 * clip as f64 / 100.0) as u64;
-    let mut whiteclip = imax - 1;
-    let mut clipped: u64 = 0;
-    while whiteclip > 1 && (histogram[whiteclip as usize] as u64 + clipped) <= clippable {
-        clipped += histogram[whiteclip as usize] as u64;
-        whiteclip -= 1;
-    }
-
-    // Black clip: walk up from bin 0 until `clippable` pixels covered.
-    let mut shc: i32 = 0;
-    let mut clipped: u64 = 0;
-    while shc < whiteclip - 1 && histogram[shc as usize] as u64 + clipped <= clippable {
-        clipped += histogram[shc as usize] as u64;
-        shc += 1;
-    }
-
-    // Rescale to the 65535 domain.
-    let rawmax = (rawmax << histcompr) as f32;
-    let whiteclip_u = (whiteclip << histcompr) as f32;
-    let ave_u = ave * (1 << histcompr) as f32;
-    let median_u = (median << histcompr) as f32;
-    let shc_u = (shc << histcompr) as f32;
-
-    // expcomp1: gain that sets mean to midgrey.
-    let expcomp1 = (MIDGRAY * SCALE / (ave_u - shc_u + MIDGRAY * shc_u)).ln() / 2.0_f32.ln();
-    // expcomp2: gain that puts the top of the histogram near clipping.
-    let expcomp2 = if overex == 0 {
-        0.5 * ((15.5 - histcompr as f32 - (2.0 * oct7 - oct6))
-            + (SCALE / rawmax).ln() / 2.0_f32.ln())
-    } else {
-        0.5 * ((15.5 - histcompr as f32 - (2.0 * octile[7] - octile[6]))
-            + (SCALE / rawmax).ln() / 2.0_f32.ln())
-    };
-
-    let expcomp = if (expcomp1.abs() - expcomp2.abs()).abs() > 1.0
-        && expcomp1.abs() + expcomp2.abs() > 0.0
-    {
-        (expcomp1 * expcomp2.abs() + expcomp2 * expcomp1.abs())
-            / (expcomp1.abs() + expcomp2.abs())
-    } else {
-        0.5 * expcomp1 + 0.5 * expcomp2
-    };
-
-    let gain = (expcomp * 2.0_f32.ln()).exp();
-    let corr = (gain * SCALE / rawmax).sqrt();
-    let black_linear = shc_u * corr;
-
-    // Highlight compression.
-    let comp = (gain * whiteclip_u / SCALE - 1.0) * 2.3;
-    let hlcompr_raw = 100.0 * comp as f64 / (expcomp.max(0.0) as f64 + 1.0);
-    let hlcompr = hlcompr_raw.round().clamp(0.0, 100.0) as i32;
-
-    // Brightness.
-    let midtmp = gain * (median_u * ave_u).sqrt() / SCALE;
-    let bright_f = if midtmp < 0.1 {
-        (MIDGRAY - midtmp) * 15.0 / midtmp
-    } else {
-        (MIDGRAY - midtmp) * 15.0 / (0.10833 - 0.0833 * midtmp)
-    };
-    let bright = (0.25 * bright_f.max(0.0)).round().clamp(-100.0, 100.0) as i32;
-
-    // Contrast.
-    let contr = (50.0 * (1.1 - ospread)).round().clamp(0.0, 100.0) as i32;
-
-    // Final expcomp clamp matches the engine.
-    let expcomp = expcomp.clamp(-5.0, 12.0);
-
-    AutoExposure {
-        expcomp,
-        black: black_linear.round() as i32,
-        bright,
-        contr,
-        hlcompr,
-        hlcomprthresh: 0,
-    }
-}
-
-/// Convenience: histogram + compute in one call. Sampling input must be
-/// in `ColorSpace::SceneLinearRec2020` (panics in debug otherwise).
-pub fn auto_exposure_from_image(image: &Image, clip: f32) -> AutoExposure {
+/// Deterministic per image; no temporal smoothing or random sampling.
+pub fn compute_scene_anchor_gain(image: &Image) -> f32 {
     image.assert_space(ColorSpace::SceneLinearRec2020);
-    let hist = build_luma_histogram(image);
-    compute_auto_exposure(&hist, clip)
+    let n = image.pixels.len();
+    if n == 0 {
+        return 1.0;
+    }
+
+    // Build a luma vector. We need percentile boundaries, so sort.
+    // Selection algorithms (quickselect) would shave the log-factor, but
+    // this runs once per image (not per slider tick), and `develop` already
+    // handles much heavier passes (demosaic, RL deconvolution). Keeping
+    // the implementation obvious-correct.
+    let mut luma: Vec<f32> = image
+        .pixels
+        .iter()
+        .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
+        .collect();
+    // NaN-aware sort — scene-linear luma can technically carry NaN if the
+    // DCP path mishandled an edge pixel; we drop them so the percentile
+    // math doesn't degenerate.
+    luma.retain(|y| y.is_finite());
+    if luma.is_empty() {
+        return 1.0;
+    }
+    luma.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let len = luma.len();
+    let p25 = len / 4;
+    let p75 = (len * 3) / 4;
+    // p75 is exclusive (we want indices [p25, p75)); guard against the
+    // degenerate len < 4 case where p25 == p75.
+    let p75 = p75.max(p25 + 1).min(len);
+    let band = &luma[p25..p75];
+
+    // Geometric mean = exp(mean(ln(y))). Drop non-positive samples — they
+    // would map to -infinity in log space and silently dominate the mean.
+    // For black scenes this leaves an empty band → bail to gain = 1.0.
+    let mut log_sum = 0.0_f64;
+    let mut count = 0_u64;
+    for &y in band {
+        if y > 0.0 {
+            log_sum += (y as f64).ln();
+            count += 1;
+        }
+    }
+    if count == 0 {
+        return 1.0;
+    }
+    let log_mean = log_sum / count as f64;
+    let midgrey = log_mean.exp() as f32;
+    if midgrey < MIDGREY_FLOOR || !midgrey.is_finite() {
+        return 1.0;
+    }
+
+    let raw_gain = SCENE_MIDGRAY_TARGET / midgrey;
+    if !raw_gain.is_finite() || raw_gain <= 0.0 {
+        return 1.0;
+    }
+    raw_gain.min(MAX_ANCHOR_GAIN)
 }
 
-/// Per-image AE damping factor.
+/// Apply scene-anchor in place. Honors `model.auto_exposure`:
 ///
-/// Currently 0.0 — auto-exposure does NOT modify pixels by default.
+/// * `AutoExposureMode::On` (default) — compute the anchor gain via
+///   [`compute_scene_anchor_gain`] and multiply scene-linear pixels.
+///   Bit-identity when the gain reduces to 1.0 (typical of synthetic
+///   tests with `linear_value = 0.18`).
+/// * `AutoExposureMode::Off` — identity. Used for strict scene-referred
+///   output where the absolute scene-linear value matters.
 ///
-/// History: was set to 0.2 (commit d431fcf) after a sweep against
-/// reference-rendered references showed it produced a small grand-mean ΔE
-/// improvement (12.55 → 12.49 = ~0.06). That tuning was wrong-target:
-/// we were calibrating Maple-AgX brightness toward the reference
-/// renderer's brightness. Maple chose AgX as the platform view transform;
-/// the reference renderer uses a different proprietary tone curve. They
-/// produce different images by design. Tuning AE to push AgX toward the
-/// reference renderer fights the
-/// view-transform's intended look.
-///
-/// AE remains as infrastructure for a future user-facing "Auto"
-/// button — the algorithm computes the histogram + AE EV correctly
-/// and `AutoExposure` is returned to the caller. The default
-/// production behavior is identity (damping = 0); a user-facing
-/// auto-tone toggle would wire this knob explicitly.
-///
-/// The `MAPLE_AE_DAMPING` env var still overrides this constant for
-/// development sweeps (see `apply` below).
-const AE_DAMPING: f32 = 0.0;
-
-/// Apply per-image auto-exposure to a scene-linear image in place. The
-/// AE EV is multiplied by `AE_DAMPING` (currently 0 — see the constant's
-/// docs). At damping = 0 the function computes the histogram + AE values
-/// for diagnostics but leaves pixels untouched.
-///
-/// `clip` is the percent of pixels allowed to clip at black/white. We use
-/// the engine default (0.02) at the pipeline call site.
-pub fn apply(image: &mut Image, clip: f32) -> AutoExposure {
+/// User exposure (`model.exposure`) is NOT applied here — it stacks
+/// downstream in `scene_tone_controls::apply` step 1. The two scene-linear
+/// multiplies commute, so the order is algebraically irrelevant; we keep
+/// them separated for clarity (this stage is "where is the scene?", the
+/// other is "where does the user want it?"). Returns the gain applied
+/// so callers (diagnostics, future UI) can read it; the production
+/// pipeline discards the return value.
+pub fn apply(image: &mut Image, model: &AdjustmentModel) -> f32 {
     image.assert_space(ColorSpace::SceneLinearRec2020);
-    let ae = auto_exposure_from_image(image, clip);
-    // MAPLE_AE_DAMPING env override is for calibration sweeps only —
-    // the production damping is the `AE_DAMPING` const. Read once,
-    // parsed liberally, on each call (only invoked once per render).
-    #[cfg(not(target_arch = "wasm32"))]
-    let damping = std::env::var("MAPLE_AE_DAMPING")
-        .ok()
-        .and_then(|s| s.parse::<f32>().ok())
-        .unwrap_or(AE_DAMPING);
-    #[cfg(target_arch = "wasm32")]
-    let damping = AE_DAMPING;
-    let applied_ev = ae.expcomp * damping;
-    if applied_ev.abs() > 1e-6 {
-        let gain = applied_ev.exp2();
-        for p in &mut image.pixels {
-            p[0] *= gain;
-            p[1] *= gain;
-            p[2] *= gain;
+    match model.auto_exposure {
+        AutoExposureMode::Off => 1.0,
+        AutoExposureMode::On => {
+            let gain = compute_scene_anchor_gain(image);
+            if (gain - 1.0).abs() > 1e-6 {
+                for p in &mut image.pixels {
+                    p[0] *= gain;
+                    p[1] *= gain;
+                    p[2] *= gain;
+                }
+            }
+            gain
         }
     }
-    ae
-}
-
-/// 1:1 port of `rawimagesource.cc::RawImageSource::getAutoExpHistogram`
-/// (Bayer branch). Builds the 8192-bin AE histogram from the **raw CFA
-/// mosaic** with `refwb` pre-multipliers — the way the engine feeds
-/// `getAutoExp`. Each Bayer cell counts as 4 to compensate for the 2×2
-/// mosaic block representing one RGB pixel (matches the engine's `+= 4`).
-///
-/// `_Maple`'s `RawImage::as_shot_neutral` carries the DNG-spec **reading**
-/// (G-normalized to 1) per `decode::decode_bytes` line 247-259. Multipliers
-/// (the engine's `wb_coeffs` convention) are the reciprocal: `1 / reading`.
-/// We invert here so the engine math is identical bin-for-bin to the
-/// reference.
-///
-/// NOTE: this path is NOT wired into the pipeline today. The post-DCP
-/// path (`auto_exposure_from_image`) is more representative for `_Maple`
-/// because (a) the post-DCP image is already chromatically adapted to the
-/// scene illuminant, and (b) `_Maple` stores `black_level: [u32; 4]` per
-/// CFA position rather than a single u16 like the reference, which would
-/// require additional adaptation here. Kept for completeness and for
-/// future use if a "render auto-exposure before DCP" path becomes
-/// desirable.
-///
-/// Returns: a `Vec<u32>` of length 8192. Feed into `compute_auto_exposure`.
-pub fn build_luma_histogram_from_raw(raw: &RawImage) -> Vec<u32> {
-    use crate::image::CfaPattern;
-    const HISTCOMPR: u32 = 3;
-    const BINS: usize = 1 << (16 - HISTCOMPR); // 8192
-    let bin_scale = 1u32 << HISTCOMPR; // 8 — divides incoming 16-bit raw down to 8192 bins
-    let mut hist = vec![0_u32; BINS];
-
-    let w = raw.width as usize;
-    let h = raw.height as usize;
-
-    // `_Maple` stores AsShotNeutral as the camera *reading* (G-normalized).
-    // The engine's `refwb` convention is multipliers (= 1 / reading,
-    // G-normalized). Invert here, then pre-scale by `1 << histcompr` so the
-    // bin index falls in range without an extra multiply per pixel.
-    let nr = raw.as_shot_neutral;
-    // Guard against zero. as_shot_neutral is sanitized at decode time so
-    // this should never trigger, but a 1.0 fallback is the WB-neutral path.
-    let mults = if nr[0] > 0.0 && nr[2] > 0.0 {
-        [1.0 / nr[0], 1.0 / nr[1], 1.0 / nr[2]]
-    } else {
-        [1.0, 1.0, 1.0]
-    };
-    let refwb = [
-        mults[0] / bin_scale as f32,
-        mults[1] / bin_scale as f32,
-        mults[2] / bin_scale as f32,
-    ];
-
-    // Use the smallest per-CFA-position black level as the floor. `_Maple`
-    // stores per-position black levels; the reference uses a single u16.
-    // Min is conservative (we never under-subtract; minor over-subtraction
-    // on positions with a slightly higher floor lands inside the black
-    // clip the engine's `shc` pass already absorbs).
-    let black = (raw.black_level[0]
-        .min(raw.black_level[1])
-        .min(raw.black_level[2])
-        .min(raw.black_level[3])) as u16;
-
-    let cfa_color = |x: usize, y: usize| -> usize {
-        let xy = (y & 1) * 2 + (x & 1);
-        match raw.cfa {
-            CfaPattern::Rggb => [0, 1, 1, 2][xy],
-            CfaPattern::Bggr => [2, 1, 1, 0][xy],
-            CfaPattern::Grbg => [1, 0, 2, 1][xy],
-            CfaPattern::Gbrg => [1, 2, 0, 1][xy],
-            // The early-return below guards against LinearRgb / XTrans
-            // ever reaching this closure on those paths. The arm exists
-            // to satisfy exhaustiveness without changing the hot inner
-            // loop; the value (G=1) is a neutral default.
-            CfaPattern::LinearRgb | CfaPattern::XTrans(_) => 1,
-        }
-    };
-
-    // LinearRgb DNGs carry interleaved RGB, not a Bayer mosaic — the raw
-    // path doesn't make sense. X-Trans is a 6×6 CFA — the 2×2 histogram
-    // we build below is Bayer-specific, so AE on the raw is invalid for
-    // X-Trans; fall back to an empty histogram and the caller's post-DCP
-    // path (the AE that runs in scene-linear Rec.2020 is CFA-agnostic).
-    if matches!(raw.cfa, CfaPattern::LinearRgb | CfaPattern::XTrans(_)) {
-        return hist;
-    }
-
-    for y in 0..h {
-        // Pre-load refwb pattern for the row so the inner loop skips per-
-        // pixel CFA dispatch. The colour pattern repeats every 2 columns.
-        let refwb_a = refwb[cfa_color(0, y)];
-        let refwb_b = refwb[cfa_color(1, y)];
-        let row_off = y * w;
-        let mut x = 0;
-        while x + 1 < w {
-            let v0 = raw.raw_data[row_off + x].saturating_sub(black) as f32 * refwb_a;
-            let v1 = raw.raw_data[row_off + x + 1].saturating_sub(black) as f32 * refwb_b;
-            let bin0 = (v0 as i32).clamp(0, BINS as i32 - 1) as usize;
-            let bin1 = (v1 as i32).clamp(0, BINS as i32 - 1) as usize;
-            hist[bin0] += 4;
-            hist[bin1] += 4;
-            x += 2;
-        }
-        if x < w {
-            let v = raw.raw_data[row_off + x].saturating_sub(black) as f32 * refwb_a;
-            let bin = (v as i32).clamp(0, BINS as i32 - 1) as usize;
-            hist[bin] += 4;
-        }
-    }
-
-    hist
-}
-
-/// Convenience: raw-CFA histogram + AE compute in one call. Reference-
-/// faithful path. Not used by the pipeline today — see
-/// `build_luma_histogram_from_raw` for context.
-pub fn auto_exposure_from_raw(raw: &RawImage, clip: f32) -> AutoExposure {
-    let hist = build_luma_histogram_from_raw(raw);
-    compute_auto_exposure(&hist, clip)
 }
 
 #[cfg(test)]
