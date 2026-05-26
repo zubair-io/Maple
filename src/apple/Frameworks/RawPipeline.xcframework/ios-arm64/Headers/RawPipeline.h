@@ -525,6 +525,33 @@ int32_t maple_apply_scene_linear_chain(const uint16_t *in_ptr,
                                        uint16_t *out_ptr);
 
 /**
+ * f32 sibling of [`maple_apply_scene_linear_chain`]. Identical semantics
+ * (same stage order, same `MapleAdjustmentParams` struct, same error
+ * codes) — the only difference is the buffer surface: input and output
+ * are both packed f32 RGBA, row-major, 4 lanes per pixel
+ * (`bytes_per_pixel = 16`).
+ *
+ * Added in #487 to unblock the Apple end-to-end f32 migration: with the
+ * fp16 entry, an f32 scene buffer would silently round-trip back to fp16
+ * every slider tick, defeating the precision win of #482. New callers
+ * holding a f32 scene buffer should prefer this entry.
+ *
+ * `in_ptr` and `out_ptr` MUST point to buffers of size
+ * `16 * width * height` bytes (= `4 * width * height` f32 lanes). The
+ * caller owns both buffers. Like the fp16 sibling this entry performs
+ * one intermediate heap allocation of the same size as the output
+ * buffer (the wrapped `raw_core` entry returns an owned `Vec<f32>`
+ * which is then copied into `out_ptr`).
+ *
+ * Returns 0 on success, non-zero on error (call `maple_last_error`).
+ */
+int32_t maple_apply_scene_linear_chain_f32(const float *in_ptr,
+                                           uint32_t width,
+                                           uint32_t height,
+                                           const struct MapleAdjustmentParams *params,
+                                           float *out_ptr);
+
+/**
  * Extract an embedded JPEG preview / thumbnail from `raw_path`, downsample
  * to `max_px` on the long edge if necessary, then JPEG-encode the result.
  *

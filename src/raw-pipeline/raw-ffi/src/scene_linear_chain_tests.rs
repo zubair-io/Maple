@@ -6,7 +6,9 @@
 //! rc codes and set `LAST_ERROR` instead of dereferencing junk.
 
 use crate::error::maple_last_error;
-use crate::scene_linear_chain::{maple_apply_scene_linear_chain, MapleAdjustmentParams};
+use crate::scene_linear_chain::{
+    maple_apply_scene_linear_chain, maple_apply_scene_linear_chain_f32, MapleAdjustmentParams,
+};
 use std::ffi::CStr;
 
 fn default_params() -> MapleAdjustmentParams {
@@ -153,4 +155,158 @@ fn overflow_dimensions_return_rc_3() {
         "expected overflow message, got {:?}",
         err
     );
+}
+
+// ----- f32 sibling: mirror the validation cases ----------------------
+
+#[test]
+fn f32_null_in_ptr_returns_rc_1() {
+    let params = default_params();
+    let mut out = vec![0.0f32; 4];
+    let rc = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            std::ptr::null(),
+            1,
+            1,
+            &params as *const _,
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 1);
+    assert!(last_error_string().contains("null"));
+}
+
+#[test]
+fn f32_null_params_returns_rc_1() {
+    let input = vec![0.0f32; 4];
+    let mut out = vec![0.0f32; 4];
+    let rc = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            1,
+            1,
+            std::ptr::null(),
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 1);
+    assert!(last_error_string().contains("null"));
+}
+
+#[test]
+fn f32_null_out_ptr_returns_rc_1() {
+    let input = vec![0.0f32; 4];
+    let params = default_params();
+    let rc = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            1,
+            1,
+            &params as *const _,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_eq!(rc, 1);
+    assert!(last_error_string().contains("null"));
+}
+
+#[test]
+fn f32_zero_width_returns_rc_2() {
+    let input = vec![0.0f32; 4];
+    let params = default_params();
+    let mut out = vec![0.0f32; 4];
+    let rc = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            0,
+            1,
+            &params as *const _,
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 2);
+    assert!(last_error_string().contains("zero dimension"));
+}
+
+#[test]
+fn f32_zero_height_returns_rc_2() {
+    let input = vec![0.0f32; 4];
+    let params = default_params();
+    let mut out = vec![0.0f32; 4];
+    let rc = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            1,
+            0,
+            &params as *const _,
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 2);
+    assert!(last_error_string().contains("zero dimension"));
+}
+
+#[test]
+fn f32_overflow_dimensions_return_rc_3() {
+    let input = vec![0.0f32; 4];
+    let params = default_params();
+    let mut out = vec![0.0f32; 4];
+    let rc = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            u32::MAX,
+            u32::MAX,
+            &params as *const _,
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 3, "expected rc 3 (overflow), got {}", rc);
+    let err = last_error_string();
+    assert!(
+        err.contains("overflow"),
+        "expected overflow message, got {:?}",
+        err
+    );
+}
+
+/// End-to-end smoke: round-trip a small flat-gray buffer through the f32
+/// FFI with `skip_agx=1`. Default model is identity at every cheap stage,
+/// so the output must equal the input (no fp16 quantisation noise).
+#[test]
+fn f32_skip_agx_default_model_is_bit_identical_passthrough() {
+    let w = 4u32;
+    let h = 4u32;
+    let lanes = (w * h * 4) as usize;
+    let mut input = Vec::<f32>::with_capacity(lanes);
+    for _ in 0..(w * h) as usize {
+        input.push(0.18);
+        input.push(0.18);
+        input.push(0.18);
+        input.push(1.0);
+    }
+    let params = default_params(); // skip_agx = 1, all stages identity
+    let mut out = vec![0.0f32; lanes];
+    let rc = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            w,
+            h,
+            &params as *const _,
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0, "expected success rc 0, got {}", rc);
+    // Every R/G/B lane must read back as the input (default model is
+    // identity); alpha is forced to 1.0 by the chain regardless.
+    for i in 0..(w * h) as usize {
+        assert!(
+            (out[i * 4] - 0.18).abs() < 1e-5,
+            "R drift at {}: {} != 0.18",
+            i,
+            out[i * 4]
+        );
+        assert!((out[i * 4 + 1] - 0.18).abs() < 1e-5);
+        assert!((out[i * 4 + 2] - 0.18).abs() < 1e-5);
+        assert!((out[i * 4 + 3] - 1.0).abs() < 1e-6);
+    }
 }

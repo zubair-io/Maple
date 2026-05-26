@@ -174,6 +174,117 @@ pub fn apply_scene_linear_chain(
     Ok(fp16)
 }
 
+/// f32 sibling of [`apply_scene_linear_chain`]. Same stage order and same
+/// model semantics; the input and output buffers are packed f32 RGBA
+/// (16 bytes/pixel) instead of fp16. Use this from the f32 FFI wrapper
+/// (`maple_apply_scene_linear_chain_f32`) so the per-tick chain doesn't
+/// silently round-trip through fp16 when the caller holds the scene
+/// buffer as f32 end-to-end (#487 / #482).
+///
+/// Algorithmically identical to the fp16 sibling — every stage operates
+/// on the same `Image { pixels: Vec<[f32; 3]> }` representation. The only
+/// difference is the endcap (un)packing: this entry reads four f32 lanes
+/// per pixel directly, runs the chain, and writes four f32 lanes per
+/// pixel out. Alpha is read but ignored — output writes 1.0
+/// unconditionally because every stage operates on straight RGB.
+pub fn apply_scene_linear_chain_f32(
+    in_f32_rgba: &[f32],
+    width: u32,
+    height: u32,
+    model: &AdjustmentModel,
+    decoded_temp: f32,
+    decoded_tint: f32,
+    skip_agx: bool,
+) -> Result<Vec<f32>> {
+    use crate::image::{ColorSpace, Image};
+    use crate::stages::{
+        clarity, dehaze, local_adjustments, noise_reduction, saturation, scene_tone_controls,
+        texture, tone_curves, vibrance, white_balance,
+    };
+    use crate::view::agx;
+
+    let pixel_count = (width as usize)
+        .checked_mul(height as usize)
+        .ok_or_else(|| {
+            crate::error::Error::Pipeline(format!(
+                "apply_scene_linear_chain_f32: pixel count overflow: {}x{}",
+                width, height
+            ))
+        })?;
+    let expected_len = pixel_count.checked_mul(4).ok_or_else(|| {
+        crate::error::Error::Pipeline(format!(
+            "apply_scene_linear_chain_f32: expected input length overflow (RGBA 4-lane multiplier): {}x{}",
+            width, height
+        ))
+    })?;
+    if in_f32_rgba.len() != expected_len {
+        return Err(crate::error::Error::Pipeline(format!(
+            "apply_scene_linear_chain_f32: input length {} != width({}) * height({}) * 4 = {}",
+            in_f32_rgba.len(),
+            width,
+            height,
+            expected_len
+        )));
+    }
+
+    // Decode f32 RGBA -> Image (Vec<[f32; 3]>, alpha discarded).
+    let mut img = stage("ffi_chain_unpack_f32", || {
+        let mut pixels: Vec<[f32; 3]> = Vec::with_capacity(pixel_count);
+        for chunk in in_f32_rgba.chunks_exact(4) {
+            pixels.push([chunk[0], chunk[1], chunk[2]]);
+        }
+        Image {
+            width,
+            height,
+            pixels,
+            space: ColorSpace::SceneLinearRec2020,
+        }
+    });
+
+    // Per-stage application — mirrors `apply_scene_linear_chain` (fp16
+    // sibling) verbatim. The order MUST match the Rust reference so
+    // `calibrate_color_pipeline` remains the canonical metric.
+    stage("ffi_chain_white_balance", || {
+        white_balance::apply_delta(&mut img, model.temperature, model.tint, decoded_temp, decoded_tint, model.wb_method)
+    });
+    stage("ffi_chain_scene_tone_controls", || {
+        scene_tone_controls::apply(&mut img, model)
+    });
+    stage("ffi_chain_tone_curves", || tone_curves::apply(&mut img, model));
+    stage("ffi_chain_vibrance", || vibrance::apply(&mut img, model.vibrance));
+    stage("ffi_chain_saturation", || {
+        saturation::apply(&mut img, model.saturation)
+    });
+    stage("ffi_chain_clarity", || clarity::apply(&mut img, model.clarity));
+    stage("ffi_chain_texture", || texture::apply(&mut img, model.texture));
+    stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
+    stage("ffi_chain_local_adjustments", || {
+        local_adjustments::apply(&mut img, &model.local_adjustments)
+    });
+    // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
+    stage("ffi_chain_nr_luminance", || {
+        noise_reduction::apply_luminance(&mut img, model.nr_luminance)
+    });
+    // nr_color omitted — kept on Metal GPU path alongside sharpen
+    if !skip_agx {
+        stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
+    }
+
+    // Pack post-AgX (DisplayLinearRec2020, [0,1]) back to f32 RGBA.
+    // Alpha is always 1.0 — see fp16 sibling's contract.
+    let out = stage("ffi_chain_pack_f32", || {
+        let mut v: Vec<f32> = Vec::with_capacity(pixel_count * 4);
+        for p in &img.pixels {
+            v.push(p[0]);
+            v.push(p[1]);
+            v.push(p[2]);
+            v.push(1.0);
+        }
+        v
+    });
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +371,83 @@ mod tests {
         // overflow happens on the next step: `pixel_count * 4` for the RGBA
         // byte length, which the impl also guards with checked_mul.
         let r = apply_scene_linear_chain(&[], u32::MAX, u32::MAX, &model, 6500.0, 0.0, false);
+        match r {
+            Err(crate::error::Error::Pipeline(msg)) => {
+                assert!(
+                    msg.contains("overflow"),
+                    "expected overflow message, got: {msg}"
+                );
+            }
+            other => panic!("expected Pipeline overflow error, got: {other:?}"),
+        }
+    }
+
+    /// f32 sibling: default-model + skip_agx is identity at scene-linear.
+    /// The fp16 sibling test for the same property uses a ±0.01 tolerance
+    /// to absorb the fp16 round-trip; here we expect a much tighter match
+    /// (f32 identity for every cheap-stage at default values).
+    #[test]
+    fn apply_scene_linear_chain_f32_skip_agx_is_identity_on_default_model() {
+        let w = 4u32;
+        let h = 4u32;
+        let pixels = (w * h) as usize;
+        let mut input: Vec<f32> = Vec::with_capacity(pixels * 4);
+        for _ in 0..pixels {
+            input.push(0.18);
+            input.push(0.18);
+            input.push(0.18);
+            input.push(1.0);
+        }
+        let model = AdjustmentModel::default();
+        let out = apply_scene_linear_chain_f32(&input, w, h, &model, 6500.0, 0.0, true)
+            .expect("apply_scene_linear_chain_f32 skip_agx default-model");
+        assert_eq!(out.len(), input.len());
+        // Default model is identity at every cheap stage; with skip_agx the
+        // output is the input verbatim modulo f32 rounding noise.
+        assert!((out[0] - 0.18).abs() < 1e-5, "R drift: {} != 0.18", out[0]);
+        assert!((out[1] - 0.18).abs() < 1e-5, "G drift: {} != 0.18", out[1]);
+        assert!((out[2] - 0.18).abs() < 1e-5, "B drift: {} != 0.18", out[2]);
+        assert!((out[3] - 1.0).abs() < 1e-6, "alpha must be 1.0: {}", out[3]);
+    }
+
+    /// f32 sibling: default-model with AgX engaged yields the same achromatic
+    /// post-AgX gray that the fp16 sibling does. Cross-checks that the
+    /// f32 path doesn't accidentally take a different code branch.
+    #[test]
+    fn apply_scene_linear_chain_f32_default_model_yields_agx_only() {
+        let w = 4u32;
+        let h = 4u32;
+        let pixels = (w * h) as usize;
+        let mut input: Vec<f32> = Vec::with_capacity(pixels * 4);
+        for _ in 0..pixels {
+            input.push(0.18);
+            input.push(0.18);
+            input.push(0.18);
+            input.push(1.0);
+        }
+        let model = AdjustmentModel::default();
+        let out = apply_scene_linear_chain_f32(&input, w, h, &model, 6500.0, 0.0, false)
+            .expect("apply_scene_linear_chain_f32 default-model");
+        assert!(out[0] > 0.0 && out[0] < 1.0, "R out of [0,1]: {}", out[0]);
+        assert!((out[0] - out[1]).abs() < 1e-4, "R != G: {} vs {}", out[0], out[1]);
+        assert!((out[1] - out[2]).abs() < 1e-4, "G != B: {} vs {}", out[1], out[2]);
+        assert!((out[3] - 1.0).abs() < 1e-6, "alpha must be 1.0: {}", out[3]);
+    }
+
+    /// Length mismatch surfaces as a Pipeline error, not a panic.
+    #[test]
+    fn apply_scene_linear_chain_f32_rejects_size_mismatch() {
+        let model = AdjustmentModel::default();
+        let bogus_input = vec![0.0f32; 10];
+        let r = apply_scene_linear_chain_f32(&bogus_input, 4, 4, &model, 6500.0, 0.0, false);
+        assert!(r.is_err(), "size mismatch must error");
+    }
+
+    /// Overflow guard: same shape as the fp16 sibling's overflow test.
+    #[test]
+    fn apply_scene_linear_chain_f32_rgba_length_overflow_errors() {
+        let model = AdjustmentModel::default();
+        let r = apply_scene_linear_chain_f32(&[], u32::MAX, u32::MAX, &model, 6500.0, 0.0, false);
         match r {
             Err(crate::error::Error::Pipeline(msg)) => {
                 assert!(
