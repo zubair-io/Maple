@@ -51,21 +51,25 @@ sends it as a bearer token on every request.
 
 ## Pointing Maple at the sidecar
 
-There are two ways to set the URL. The **API key** is always the
-`MAPLE_MEILISEARCH_API_KEY` env var — it is a secret and is never stored
-in the database or exposed in the UI.
+The URL and the API key can each be set from the Settings UI or via env vars.
 
 ### From the Settings UI (no restart)
 
-Owners can set the URL at **Settings → Workers → meili → Meilisearch URL**.
-The "Test connection" button health-checks the URL (authenticating with the
-`MAPLE_MEILISEARCH_API_KEY` env var) before you save. On save, Maple rebuilds
-the client and re-creates the index in the background — the running process
+Owners can set both at **Settings → Workers → meili** (Meilisearch URL + API
+key). The "Test connection" button health-checks the URL with the key you've
+typed (or the saved/env key) before you save. On save, Maple rebuilds the
+client and re-creates the index in the background — the running process
 (search route and the `meili` stage) picks up the change with no restart.
 
-A saved URL is persisted in the `app_settings` Mongo doc and **takes
-precedence over the env var**. Clear the field to fall back to the env var
-(or disable the sidecar when neither is set).
+Saved values are persisted in the `app_settings` Mongo doc and **take
+precedence over the env vars**. Clear the URL to fall back to the env var (or
+disable the sidecar when neither is set).
+
+The **API key is write-only** in the UI: it is never echoed back (the config
+endpoint reports only whether a key is set), and it is stored in the database
+in plaintext — so treat database access as equivalent to key access. Leaving
+the key field blank on save keeps the existing key; with no saved key the
+client falls back to `MAPLE_MEILISEARCH_API_KEY`.
 
 ### From the environment
 

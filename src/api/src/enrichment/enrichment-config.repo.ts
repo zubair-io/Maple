@@ -158,10 +158,13 @@ export interface EnrichmentConfig {
   // ── Search index (Phase 7) ───────────────────────────────────────────
   /** Meilisearch sidecar base URL for typo-tolerant search. `null`/missing →
    * falls back to `MAPLE_MEILISEARCH_URL` / unset (search uses the Mongo
-   * `$text` path). The API key is NOT stored here — it stays the
-   * `MAPLE_MEILISEARCH_API_KEY` env var so the secret never lands in Mongo,
-   * matching how describe-provider keys are handled. */
+   * `$text` path). */
   meilisearch_url?: string | null;
+  /** Meilisearch API key (master/search key). Secret: persisted but never
+   * echoed back over HTTP — the config route reports only whether a key is
+   * set. `null`/missing → falls back to the `MAPLE_MEILISEARCH_API_KEY` env
+   * var. */
+  meilisearch_api_key?: string | null;
   updated_at?: number;
 }
 
@@ -278,6 +281,9 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   if (remapped.meilisearch_url !== undefined) {
     set['config.meilisearch_url'] = remapped.meilisearch_url;
   }
+  if (remapped.meilisearch_api_key !== undefined) {
+    set['config.meilisearch_api_key'] = remapped.meilisearch_api_key;
+  }
   await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
 
@@ -317,6 +323,9 @@ export interface ResolvedEnrichmentConfig {
   /** Resolved Meilisearch sidecar URL (DB → env → null). `null` leaves the
    * sidecar disabled and search falls back to the Mongo `$text` path. */
   meilisearch_url: string | null;
+  /** Resolved Meilisearch API key (DB → env → null). Secret: the config
+   * route strips this before responding — never send it to a client. */
+  meilisearch_api_key: string | null;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
   source: {
@@ -336,6 +345,7 @@ export interface ResolvedEnrichmentConfig {
     face_recognizer_url: 'db' | 'env' | 'unset';
     face_recognizer_sha256: 'db' | 'env' | 'unset';
     meilisearch_url: 'db' | 'env' | 'unset';
+    meilisearch_api_key: 'db' | 'env' | 'unset';
   };
 }
 
@@ -529,10 +539,9 @@ export function resolveEnrichmentConfig(
     env.MAPLE_FACE_RECOGNIZER_SHA256 ?? env.MAPLE_FACE_MOBILEFACENET_SHA256,
   );
 
-  // Meilisearch sidecar URL — DB → env (MAPLE_MEILISEARCH_URL) → null.
-  // The API key is intentionally not resolved here; the client reads
-  // MAPLE_MEILISEARCH_API_KEY from env directly.
+  // Meilisearch sidecar — URL + API key, each DB → env → null.
   const meilisearchUrl = resolveStr(db?.meilisearch_url, env.MAPLE_MEILISEARCH_URL);
+  const meilisearchApiKey = resolveStr(db?.meilisearch_api_key, env.MAPLE_MEILISEARCH_API_KEY);
 
   return {
     nominatim_url: url,
@@ -551,6 +560,7 @@ export function resolveEnrichmentConfig(
     face_recognizer_url: faceRecognizerUrl.value,
     face_recognizer_sha256: faceRecognizerSha.value,
     meilisearch_url: meilisearchUrl.value,
+    meilisearch_api_key: meilisearchApiKey.value,
     source: {
       nominatim_url: urlSource,
       geocode_worker_enabled: enabledSource,
@@ -568,6 +578,7 @@ export function resolveEnrichmentConfig(
       face_recognizer_url: faceRecognizerUrl.source,
       face_recognizer_sha256: faceRecognizerSha.source,
       meilisearch_url: meilisearchUrl.source,
+      meilisearch_api_key: meilisearchApiKey.source,
     },
   };
 }

@@ -137,6 +137,9 @@ export interface EnrichmentForm {
   face_mobilefacenet_sha256: string;
   // Meili (search index)
   meilisearch_url: string;
+  // Write-only: always starts blank (the saved key is never echoed). A
+  // blank value on save means "leave the saved key unchanged".
+  meilisearch_api_key: string;
 }
 
 /** Ollama tag the describe stage is locked to at runtime. The structured
@@ -187,6 +190,8 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     face_mobilefacenet_url: ec?.face_mobilefacenet_url ?? '',
     face_mobilefacenet_sha256: ec?.face_mobilefacenet_sha256 ?? '',
     meilisearch_url: ec?.meilisearch_url ?? '',
+    // Never seeded from the response — the key is write-only.
+    meilisearch_api_key: '',
   };
 }
 
