@@ -89,6 +89,49 @@ fn camel_case(snake: &str) -> String {
     out
 }
 
+/// Rewrite backtick-wrapped Rust-style snake_case identifiers in a doc string
+/// to their target-language camelCase form. Only tokens that exactly match a
+/// schema `name` are rewritten — generic snake_case text (e.g. an XMP key
+/// fragment like `crs:Sharpness`) is left alone.
+///
+/// Motivation (PR #463 review): the canonical `ADJUSTMENT_SCHEMA` doc strings
+/// reference sibling fields by their Rust snake_case names (e.g. "use
+/// `capture_sharpening_sigma`"). Emitting that verbatim into Swift/TS sends
+/// platform callers chasing an identifier that does not exist in their
+/// language — Swift sees `captureSharpeningSigma`, TS sees
+/// `captureSharpeningSigma`. Both targets use camelCase, so a single
+/// rewriter covers both.
+fn rewrite_doc_identifiers(doc: &str, schema: &[FieldSpec]) -> String {
+    let mut out = String::with_capacity(doc.len());
+    let bytes = doc.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            // Find the closing backtick.
+            if let Some(rel_end) = bytes[i + 1..].iter().position(|&b| b == b'`') {
+                let end = i + 1 + rel_end;
+                let token = &doc[i + 1..end];
+                // Only rewrite if the token exactly matches a schema field
+                // name (snake_case). Leaves things like `papp:Foo` and
+                // `crs:Bar` untouched because they do not appear as schema
+                // names.
+                if schema.iter().any(|s| s.name == token) {
+                    out.push('`');
+                    out.push_str(&camel_case(token));
+                    out.push('`');
+                } else {
+                    out.push_str(&doc[i..=end]);
+                }
+                i = end + 1;
+                continue;
+            }
+        }
+        out.push(doc[i..].chars().next().unwrap());
+        i += doc[i..].chars().next().unwrap().len_utf8();
+    }
+    out
+}
+
 // -------------------------------------------------------------------------
 // Swift
 // -------------------------------------------------------------------------
@@ -127,7 +170,8 @@ fn emit_swift(schema: &[FieldSpec]) -> String {
             continue;
         }
         let camel = camel_case(spec.name);
-        s.push_str(&format!("    /// {}\n", spec.doc));
+        let doc = rewrite_doc_identifiers(spec.doc, schema);
+        s.push_str(&format!("    /// {}\n", doc));
         s.push_str(&format!(
             "    public static let {}Range: ClosedRange<Double> = {}...{}\n",
             camel,
@@ -176,11 +220,12 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     s.push_str("export interface GeneratedAdjustmentModel {\n");
     for spec in schema {
         let camel = camel_case(spec.name);
+        let doc = rewrite_doc_identifiers(spec.doc, schema);
         match spec.kind {
             FieldKind::F32 => {
                 s.push_str(&format!(
                     "  /** {} Range: [{}, {}]. */\n  {}: number;\n",
-                    spec.doc,
+                    doc,
                     f(spec.range.0),
                     f(spec.range.1),
                     camel,
@@ -191,7 +236,7 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
                 let ts_ty = spec.enum_name;
                 s.push_str(&format!(
                     "  /** {} */\n  {}: {};\n",
-                    spec.doc, camel, ts_ty,
+                    doc, camel, ts_ty,
                 ));
             }
         }
@@ -293,6 +338,36 @@ mod tests {
         assert!(out.contains("ADJUSTMENT_RANGES"));
         assert!(out.contains("defaultGeneratedAdjustmentModel"));
         assert!(out.contains("temperature: 6500"));
+    }
+
+    #[test]
+    fn rewrite_doc_identifiers_rewrites_schema_names_only() {
+        // Backtick-wrapped tokens that match a schema field name are
+        // rewritten to camelCase; anything else (XMP keys, prose) is left
+        // alone. Per PR #463 review.
+        let doc = "Deprecated: use `capture_sharpening_sigma`. See the XMP \
+                   `papp:CaptureSharpeningRadius` read-path; not the \
+                   `temperature` field.";
+        let rewritten = rewrite_doc_identifiers(doc, ADJUSTMENT_SCHEMA);
+        assert!(
+            rewritten.contains("`captureSharpeningSigma`"),
+            "schema field name should be camelCased, got: {}",
+            rewritten
+        );
+        assert!(
+            rewritten.contains("`temperature`"),
+            "single-word schema names should pass through unchanged"
+        );
+        assert!(
+            rewritten.contains("`papp:CaptureSharpeningRadius`"),
+            "XMP keys are not schema names — must be left alone, got: {}",
+            rewritten
+        );
+        assert!(
+            !rewritten.contains("`capture_sharpening_sigma`"),
+            "snake_case schema reference should have been rewritten, got: {}",
+            rewritten
+        );
     }
 
     #[test]
