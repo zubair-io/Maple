@@ -52,6 +52,12 @@
 #[path = "look_lut.rs"]
 mod lut;
 
+// Re-export the raw LUT byte arrays so out-of-crate consumers (raw-ffi,
+// raw-wasm) can seed a GPU 1D LUT texture without duplicating the data.
+// The `lut` module itself stays private — the API surface widens by three
+// `pub` constants, not by a public submodule path.
+pub use lut::{LUT_B, LUT_G, LUT_R};
+
 /// User-selectable display Look applied as a post-encode u8 LUT.
 ///
 /// See module-level docs for the placement rationale and scope.
@@ -69,6 +75,25 @@ pub enum Look {
 impl Default for Look {
     fn default() -> Self {
         Self::Default
+    }
+}
+
+/// Map the C-ABI / WASM `look_mode: u8` byte (the wire representation hosts
+/// pass over FFI) into a `Look`. Stable mapping:
+///
+/// - `0` → [`Look::Neutral`] (identity, scene-referred)
+/// - anything else → [`Look::Default`] (empirical LUT)
+///
+/// The "anything else" branch is deliberate: hosts that have not yet
+/// learned about future variants still get the safe default, and the FFI
+/// `maple_compute_look_lut` entry rejects unknown bytes separately so the
+/// caller can surface the error.
+impl From<u8> for Look {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => Look::Neutral,
+            _ => Look::Default,
+        }
     }
 }
 
@@ -100,6 +125,25 @@ mod tests {
     #[test]
     fn default_look_is_default_variant() {
         assert_eq!(Look::default(), Look::Default);
+    }
+
+    #[test]
+    fn from_u8_maps_zero_to_neutral() {
+        assert_eq!(Look::from(0u8), Look::Neutral);
+    }
+
+    #[test]
+    fn from_u8_maps_one_to_default() {
+        assert_eq!(Look::from(1u8), Look::Default);
+    }
+
+    #[test]
+    fn from_u8_maps_unknown_to_default() {
+        // Hosts ignorant of future variants get the safe default; the FFI
+        // entry handles unknown bytes as an explicit error separately.
+        assert_eq!(Look::from(2u8), Look::Default);
+        assert_eq!(Look::from(99u8), Look::Default);
+        assert_eq!(Look::from(255u8), Look::Default);
     }
 
     #[test]

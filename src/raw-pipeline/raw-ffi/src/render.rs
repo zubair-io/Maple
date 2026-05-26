@@ -3,6 +3,12 @@
 //! output requires the full development chain at decode time, so this
 //! path does NOT apply the Apple-GPU strip (which the scene-linear
 //! entries delegate to the Swift binding).
+//!
+//! Also home to `maple_compute_look_lut` (ticket #515) — the small entry
+//! Apple Metal + Web WebGL hosts call once per render to seed a GPU 1D LUT
+//! texture for the post-AgX DisplayLookCurve. It lives here (next to the
+//! sRGB renderers) rather than in `scene_linear_chain.rs` because it does
+//! not touch the per-tick chain — it's a one-shot byte copy.
 
 use crate::buffers::MapleImageBuffer;
 use crate::error::{set_last_error, with_large_stack};
@@ -164,5 +170,70 @@ pub unsafe extern "C" fn maple_render_bytes(
         }
         0
     })
+}
+
+/// Writes 768 bytes (256 R, then 256 G, then 256 B) into `out` — the byte
+/// layout an Apple Metal `MTLTexture` (3 × `r8Unorm`, 256×1) or a Web
+/// WebGL2 `R8` 1D LUT texture expects, packed in channel-major order so
+/// the host can upload three contiguous 256-byte regions in one staging
+/// buffer.
+///
+/// `look_mode` matches the `Look::from(u8)` mapping (`0` = `Neutral`,
+/// `1` = `Default`). Unknown bytes return `-1` without touching `out`.
+///
+/// Returns `0` on success, `-1` if `out` is null OR `look_mode` is not
+/// one of the documented variants. The error path does not set
+/// `maple_last_error` — the caller has the look_mode in hand and a null
+/// pointer is its own diagnostic; this entry is deliberately small.
+///
+/// Apple + Web hosts call this once per render to seed a GPU LUT texture
+/// (the texture stays valid until the user changes `look_mode`, so this
+/// is not per-tick — see ticket #515 § L3).
+///
+/// # Safety
+///
+/// `out` must point to a writable buffer of at least 768 bytes that lives
+/// for the duration of the call. The buffer is overwritten unconditionally
+/// on success and is not touched on error.
+#[no_mangle]
+pub unsafe extern "C" fn maple_compute_look_lut(look_mode: u8, out: *mut u8) -> i32 {
+    if out.is_null() {
+        return -1;
+    }
+    // Reject unknown modes BEFORE materialising the slice — the caller
+    // gets an unambiguous error rather than a silent fall-through to the
+    // default LUT.
+    if look_mode > 1 {
+        return -1;
+    }
+    let slice = std::slice::from_raw_parts_mut(out, 768);
+    match look_mode {
+        0 => {
+            // Neutral / identity LUT — channel-major `[0, 1, …, 255]`
+            // repeated three times. Hosts uploading this still get a
+            // working sampler-with-LUT pipeline (no shader fork between
+            // "LUT enabled" / "LUT disabled") at the cost of one tiny
+            // texture upload.
+            for c in 0..3 {
+                let base = c * 256;
+                for i in 0..256 {
+                    slice[base + i] = i as u8;
+                }
+            }
+            0
+        }
+        1 => {
+            // Empirical DisplayLookCurve — the bytes derived from the 14
+            // training fixtures at #371. Source of truth lives in
+            // `raw_core::view::look::LUT_{R,G,B}` so the CPU path
+            // (`pipeline::render` → `view::look::apply`) and the GPU
+            // path here cannot drift.
+            slice[0..256].copy_from_slice(&raw_core::view::look::LUT_R);
+            slice[256..512].copy_from_slice(&raw_core::view::look::LUT_G);
+            slice[512..768].copy_from_slice(&raw_core::view::look::LUT_B);
+            0
+        }
+        _ => -1,
+    }
 }
 
