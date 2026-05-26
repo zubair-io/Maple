@@ -9,8 +9,9 @@
 //! 3. DNG `BaselineExposure` gain,
 //! 4. DNG WB pre-gain (skipped for 8-bit lossy LinearRaw),
 //! 5. highlight recovery,
-//! 6. DCP `profile_for` + `apply_with_plt_and_ptc` (HSM → PTC → PLT in
-//!    linear-ProPhoto-D50, then gamut conversion to Rec.2020),
+//! 6. DCP `profile_for` + `apply_colorimetry` (CM/FM + HSM in
+//!    linear-ProPhoto-D50, then gamut conversion to Rec.2020 — #425
+//!    dropped the Adobe aesthetic layers PLT/PTC),
 //! 7. ProfileGainTableMap (when present),
 //! 8. damped per-image auto-exposure,
 //! 9. white-balance, scene-tone-controls, vibrance, saturation, clarity,
@@ -209,41 +210,22 @@ pub fn develop_scene_linear_from_raw_with_quality(
     let hr_neutral = if skip_pre_gain { [1.0; 3] } else { raw.as_shot_neutral };
     stage("highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
     dump_after("02_highlight_recovery", &camera_rgb);
-    let (profile, source) = stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
-    // dcp::apply_with_plt_and_ptc runs HSM (from `profile.hsm`),
-    // ProfileToneCurve (from `raw.profile_tone_curve`), and PLT (from
-    // `raw.plt`) ALL in linear-ProPhoto-D50 space, between the chromatic
-    // adaptation and the gamut conversion to Rec.2020. Order per the
-    // DNG SDK reference: HSM → PLT → PTC, mirroring `dng_render.cpp`
-    // (`Render` method, lines ~1094-1121) which applies `DoBaselineHueSatMap`
-    // (HSM) → `DoBaselineHueSatMap` again with `fLookTable` (PLT) →
-    // `DoBaselineRGBTone` (PTC). When all three are absent, falls
-    // through to the fast single-matmul path.
-    //
-    // When a bundled Maple profile is in use, suppress the source DNG's
-    // ProfileToneCurve — that tag was calibrated against the vendor's own
-    // matrices (iPhone DNGs ship a 257-pair PTC tuned for Apple's
-    // matrices, not the external standard's), so applying it after a matrix
-    // swap is a tone double-up that AgX would have to undo. PLT stays: on
-    // DNG-Converter outputs it's actually the external standard profile's look
-    // table and removing it regresses ΔE on Canon DNG fixtures. The
-    // universal DisplayLookCurve (separate ticket) replaces PLT entirely.
-    //
-    // For every non-`BundleConfident` tier (`EmbeddedFull`,
-    // `EmbeddedCmOnly`, `RawlerFallback` — see ticket #460), PTC/PLT from
-    // the raw flow through unchanged: in the embedded cases PTC was
-    // authored against the same vendor matrices we're rendering with, so
-    // dropping it loses tone calibration; in the fallback case the matrix
-    // is already approximate so stripping PTC compounds the misrender
-    // without buying anything.
-    //
-    // `source` comes from the same lookup `profile_for_with_source`
-    // already did — no second HashMap probe or env-var read in this hot
-    // path. See `dcp::ProfileSource` for the rationale.
-    let use_bundled = matches!(source, dcp::ProfileSource::BundleConfident);
-    let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
-    let mut scene = stage("dcp::apply", || dcp::apply_with_plt_and_ptc(
-        &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,
+    let (profile, _source) = stage("dcp::profile_for", || dcp::profile_for_with_source(raw))?;
+    // dcp::apply_colorimetry runs CM/FM (chromatic adaptation) and HSM
+    // (metameric correction) only. Under ticket #425 (part of #416),
+    // the Adobe aesthetic layers — ProfileToneCurve (PTC) and
+    // ProfileLookTable (PLT) — no longer run inside DCP regardless of
+    // profile source. They were calibrated to sit under Adobe's tone
+    // mapping; AgX has a different rendering intent, and stacking the
+    // Adobe layers on AgX produced compound hue errors and per-format
+    // inconsistency (PTC was suppressed for bundled profiles but PLT
+    // still ran for bundle-miss bodies). HSM stays because the bundled
+    // profile set uses it for metameric correction the linear CM cannot
+    // express. `raw.plt` and `raw.profile_tone_curve` remain on RawImage
+    // for now but are dead data in the develop chain; cleanup is a
+    // separate follow-up.
+    let mut scene = stage("dcp::apply", || dcp::apply_colorimetry(
+        &camera_rgb, &profile,
     ))?;
     dump_after("03_dcp_apply", &scene);
     // ProfileGainTableMap (DNG 1.6 § 6.8) — spatially-varying RGB gain.
