@@ -73,6 +73,37 @@ public actor FileProviderDomainController {
         try await NSFileProviderManager.domains()
     }
 
+    /// Tears down every File Provider domain that no longer corresponds to a
+    /// connected server. Without this, removing a server from the sidebar on
+    /// one launch (or an interrupted teardown) leaves an orphaned domain whose
+    /// `<host>.json` config + mirrored tokens persist — the extension keeps
+    /// reloading them and polling the gone/rebuilt server, surfacing as
+    /// endless "bad signature" 401 loops that the UI offers no way to clear
+    /// (the settings screen only lists domains for registered servers).
+    ///
+    /// `validServerURLs` is the authoritative set of connected servers
+    /// (`CloudServerRegistry.servers`). Candidates are gathered from BOTH the
+    /// registered NSFileProvider domains and the on-disk config files, so an
+    /// orphan is cleaned up even if only one of the two survived a partial
+    /// teardown. Returns the identifiers removed. Call at launch.
+    @discardableResult
+    public func reconcile(validServerURLs: [URL]) async -> [String] {
+        let validIDs = Set(validServerURLs.compactMap { Self.domainIdentifier(for: $0) })
+        var candidates = Set<String>()
+        if let registered = try? await NSFileProviderManager.domains() {
+            for d in registered { candidates.insert(d.identifier.rawValue) }
+        }
+        for c in config.allDomains() { candidates.insert(c.domainIdentifier) }
+        let orphans = candidates.subtracting(validIDs).sorted()
+        for id in orphans {
+            try? await disable(domainIdentifier: id)
+        }
+        if !orphans.isEmpty {
+            log.info("reconcile removed orphaned domains: \(orphans.joined(separator: ","), privacy: .public)")
+        }
+        return orphans
+    }
+
     /// Mirrors tokens from the app-wide `TokenStore` into the shared
     /// `FileProviderTokensStore` for any registered domain matching `serverURL`.
     /// No-op if no domain is registered for that URL.

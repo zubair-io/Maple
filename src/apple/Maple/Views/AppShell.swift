@@ -270,6 +270,13 @@ struct AppShell: View {
             #if DEBUG
             if await loadUITestFixtureIfPresent() { return }
             #endif
+            // Tear down File Provider domains for servers that are no longer
+            // connected. Without this, a server removed in a prior session
+            // (or one whose teardown was interrupted) leaves an orphaned
+            // domain whose extension keeps polling the gone/rebuilt server —
+            // an unrecoverable "bad signature" 401 loop with no UI to clear it.
+            await FileProviderDomainController().reconcile(
+                validServerURLs: CloudServerRegistry.shared.servers)
             // Restore last-used source on cold start.
             await restoreLastSource()
         }
@@ -351,10 +358,19 @@ struct AppShell: View {
             },
             onRemoveCloudServer: { url in
                 Task { @MainActor in
-                    // Remove drops tokens AND the registry entry.
+                    // Remove drops tokens, the registry entry, AND the File
+                    // Provider domain. Without the domain teardown the
+                    // extension keeps running against a server that's gone
+                    // from the UI — it reloads its persisted <host>.json
+                    // config and mirrored tokens and polls the (now stale or
+                    // rebuilt) server, surfacing as endless "bad signature"
+                    // 401 loops with no way to recover from the UI.
                     let session = sessionFor(url)
                     await session.signOut()
                     CloudServerRegistry.shared.remove(url)
+                    if let domainID = FileProviderDomainController.domainIdentifier(for: url) {
+                        try? await FileProviderDomainController().disable(domainIdentifier: domainID)
+                    }
                 }
             },
             onLoadCloudFolders: { url in
