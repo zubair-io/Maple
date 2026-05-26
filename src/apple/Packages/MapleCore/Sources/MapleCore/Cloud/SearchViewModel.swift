@@ -45,6 +45,19 @@ public final class SearchViewModel {
   /// popover closes without an edit).
   private var lastSubmittedParams: SearchParams?
 
+  /// In-memory result cache so re-issuing an identical query (clear-then-
+  /// reapply, popover round-trips, toggling a sort back) serves from memory
+  /// instead of re-hitting the network — mirrors the web search cache.
+  /// Pages key on the full param set + page index; facets on the param set
+  /// alone. Lives for the VM's lifetime (session-scoped, like the web cache).
+  private var pageCache: [PageKey: SearchResponse] = [:]
+  private var facetCache: [SearchParams: SearchFacets] = [:]
+
+  private struct PageKey: Hashable {
+    let params: SearchParams
+    let page: Int
+  }
+
   public init(server: URL,
               libraryID: String,
               searchClient: CloudSearchClient,
@@ -81,24 +94,42 @@ public final class SearchViewModel {
     debounceTask?.cancel()
     generation &+= 1
     let g = generation
-    isLoading = true
-    loadError = nil
     page = 0
     lastSubmittedParams = params
+    let requested = params
+    let pageKey = PageKey(params: requested, page: 0)
+
+    // Serve an identical query (results + facets) from the in-memory cache —
+    // no spinner, no network round-trip. Only short-circuit when BOTH are
+    // cached so a prior facet failure still triggers a refetch.
+    if let cachedPage = pageCache[pageKey], let cachedFacets = facetCache[requested] {
+      loadError = nil
+      results = cachedPage.results
+      total = cachedPage.total
+      facets = cachedFacets
+      return
+    }
+
+    isLoading = true
+    loadError = nil
     defer { if g == generation { isLoading = false } }
 
     // Results and facets run concurrently against the actor. A facet
     // failure must not blank the results, so it's awaited best-effort. The
     // child task is awaited in both branches so it isn't implicitly
     // cancelled mid-flight when `search` throws.
-    async let facetResp = searchClient.facets(params)
+    async let facetResp = searchClient.facets(requested)
     do {
-      let resp = try await searchClient.search(params, page: 0, limit: limit)
+      let resp = try await searchClient.search(requested, page: 0, limit: limit)
       let facetsResult = try? await facetResp
       guard g == generation else { return }
+      pageCache[pageKey] = resp
       results = resp.results
       total = resp.total
-      if let facetsResult { facets = facetsResult }
+      if let facetsResult {
+        facetCache[requested] = facetsResult
+        facets = facetsResult
+      }
     } catch {
       _ = try? await facetResp
       guard g == generation else { return }
@@ -132,9 +163,21 @@ public final class SearchViewModel {
     defer { isLoadingMore = false }
 
     let next = page + 1
-    do {
-      let resp = try await searchClient.search(params, page: next, limit: limit)
+    let requested = params
+    let pageKey = PageKey(params: requested, page: next)
+
+    if let cached = pageCache[pageKey] {
       guard g == generation else { return }
+      page = next
+      results.append(contentsOf: cached.results)
+      total = cached.total
+      return
+    }
+
+    do {
+      let resp = try await searchClient.search(requested, page: next, limit: limit)
+      guard g == generation else { return }
+      pageCache[pageKey] = resp
       page = next
       results.append(contentsOf: resp.results)
       total = resp.total
@@ -148,9 +191,11 @@ public final class SearchViewModel {
   /// and re-run the search.
   public func clearFilters() {
     let keptQuery = params.q
+    let keptPlaceQuery = params.placeQuery
     let keptSort = params.sort
     var fresh = SearchParams(libraryID: libraryID)
     fresh.q = keptQuery
+    fresh.placeQuery = keptPlaceQuery
     fresh.sort = keptSort
     params = fresh
     Task { await submit() }

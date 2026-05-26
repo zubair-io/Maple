@@ -53,10 +53,10 @@ struct CloudSearchView: View {
     HStack(spacing: 8) {
       Image(systemName: "magnifyingglass")
         .foregroundStyle(MapleTokens.textMuted)
-      TextField("Search filenames + paths…", text: $vm.params.q)
+      TextField("Search photos — people, places, things, dates…", text: $vm.params.placeQuery)
         .textFieldStyle(.plain)
         .foregroundStyle(MapleTokens.textMain)
-        .onChange(of: vm.params.q) { _, _ in vm.queryChanged() }
+        .onChange(of: vm.params.placeQuery) { _, _ in vm.queryChanged() }
         .onSubmit { Task { await vm.submit() } }
         .accessibilityIdentifier("search-field")
 
