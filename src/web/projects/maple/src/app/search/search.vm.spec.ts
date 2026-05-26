@@ -58,9 +58,7 @@ describe('constants', () => {
   });
 
   it('SORT_OPTIONS is derived from SORT_LABEL', () => {
-    expect(SORT_OPTIONS.map((o) => o.value).sort()).toEqual(
-      Object.keys(SORT_LABEL).sort(),
-    );
+    expect(SORT_OPTIONS.map((o) => o.value).sort()).toEqual(Object.keys(SORT_LABEL).sort());
     for (const o of SORT_OPTIONS) {
       expect(o.label).toBe(SORT_LABEL[o.value]);
     }
@@ -313,7 +311,7 @@ describe('buildSearchParams', () => {
 
   it('collapses every empty/nullish field to undefined except sort', () => {
     const p = buildSearchParams(emptyState());
-    expect(p.q).toBeUndefined();
+    expect(p.placeQuery).toBeUndefined();
     expect(p.libraryId).toBeUndefined();
     expect(p.camera).toBeUndefined();
     expect(p.isoMin).toBeUndefined();
@@ -342,7 +340,7 @@ describe('buildSearchParams', () => {
       subjects: new Set(['Cat', 'Dog']),
       sort: 'rating',
     });
-    expect(p.q).toBe('sunset');
+    expect(p.placeQuery).toBe('sunset');
     expect(p.camera).toBe('Sony');
     expect(p.isoMin).toBe(100);
     expect(p.isoMax).toBe(1600);
