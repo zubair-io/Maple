@@ -45,6 +45,15 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     expect(id.kind).toBe('primary');
 
     const a = await assetsCollection();
+    // The id is deterministic (same bytes + capture date every run), and the
+    // suite's beforeAll only cleans rows by `phasset_links.device_id` — which
+    // never matches this indexer row (it seeds with empty phasset_links). So
+    // a prior run's row with this maple_id would survive and, because
+    // `findOne({ maple_id })` returns the OLDEST match (a different library),
+    // the dedup branch would resolve against the wrong row. Purge any stale
+    // copies of this content-id before seeding so the test is run-order
+    // independent.
+    await a.deleteMany({ maple_id: id.hex });
     // Post drop-abs-path-2026-05-21: persisted location is fileinfo[]; the
     // backup-ingest route resolves the target path via `assetAbsPath`.
     await a.insertOne({

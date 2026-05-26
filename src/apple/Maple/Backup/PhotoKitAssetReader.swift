@@ -142,6 +142,33 @@ actor PhotoKitAssetReader: AssetReader {
 
     // MARK: - Maple id derivation
 
+    /// Derive the spec-form `maple_id` for a phid WITHOUT the rest of the
+    /// `read(phassetLocalId:)` pipeline (no geocode, no sidecar assembly, no
+    /// rendered/live twins). Feeds the SAME `deriveMapleId(originalBytes:)`
+    /// path the upload reader uses so device and server agree byte-for-byte.
+    ///
+    /// Reads the full original resource bytes: the primary form only hashes
+    /// the leading 64 KB + EXIF date, but the fallback form (no EXIF) hashes
+    /// the whole file + size, so reading the full bytes is required for parity
+    /// on EXIF-less assets. Cost is bounded in practice because step (a) of the
+    /// walk (server PHID reconciliation) keeps the candidate set small.
+    ///
+    /// `nonisolated` + `async` so the walk's content-reconciliation step can
+    /// `await` it from a detached background Task in batches without blocking
+    /// any thread. Returns nil when the asset is missing, has no original
+    /// resource, or the bytes can't be read / hashed — callers treat nil as
+    /// "enqueue and let server-side dedup decide".
+    nonisolated static func deriveMapleId(forPHID phid: String) async -> String? {
+        guard let asset = PhotoKitCatalog.shared.asset(localId: phid) else { return nil }
+        let resources = PHAssetResource.assetResources(for: asset)
+        guard let originalResource = resources.first(where: {
+            $0.type == .photo || $0.type == .video || $0.type == .audio
+        }) else { return nil }
+        guard let bytes = try? await readAllBytes(of: originalResource),
+              !bytes.isEmpty else { return nil }
+        return deriveMapleId(originalBytes: bytes)
+    }
+
     /// Compute the 32-character spec-form `maple_id` for an asset's
     /// original bytes. Reads EXIF DateTimeOriginal from the bytes (matches
     /// the indexer's `readExif` source of truth) and feeds the primary
