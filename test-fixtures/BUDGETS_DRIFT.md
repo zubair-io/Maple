@@ -146,3 +146,32 @@ fixtures are present, and logged here. Until then this section is a
 placeholder header noting that the regression is intentional and the
 ratchet is **deliberately not lowered** in this PR.
 
+---
+
+## test_0008 (Fuji X-Trans) — first-time baseline (#417 / #420)
+
+The Fuji X-T3 RAF fixture (`test_0008.RAF`) became renderable in #417 +
+#420: X-Trans CFA decode through rawler's `XTransLayout` metadata block
++ a Markesteijn-equivalent demosaic added under
+`raw-core/src/demosaic/xtrans.rs`. Before these tickets the fixture
+never reached the color stage (decode failed at `map_cfa_pattern`).
+
+It therefore has no budget entries in `budgets.json` — the harness
+will FAIL with `no-budget-entry` on every test_0008 case until a
+calibration sweep produces the first baseline. Adding budgets is
+explicitly out of scope for the X-Trans-enablement PR (the spec says
+"do NOT touch budgets.json — log to BUDGETS_DRIFT.md instead"); the
+follow-up is to capture the per-case `mean / p95 / max / bias` on a
+machine with the gitignored fixtures present, then seed
+`budgets.json` per the recipe at the top of this file.
+
+End-to-end smoke (from `examples/xtrans_e2e`, release):
+```
+decoded: 6384x4182, cfa=XTrans
+render OK in 3.03s: 6240x4160 (24-bit RGB, 78 MB)
+mean R=118.4 G=125.8 B=125.6 (sane range)
+```
+
+Bayer baselines for the other 16 fixtures are unchanged by the
+X-Trans work — the dispatch in `develop.rs` short-circuits on
+`CfaPattern::XTrans(_)` and leaves the 2×2 kernels untouched.

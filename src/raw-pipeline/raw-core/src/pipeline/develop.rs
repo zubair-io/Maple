@@ -104,11 +104,31 @@ pub(super) fn crop_to_default(
 }
 
 /// Per-quality divisor between raw-sensor coordinates and the post-demosaic
-/// buffer. `half_res` (Preview) halves both axes; everything else preserves.
+/// buffer. `half_res` (Preview, Bayer-only) halves both axes; everything
+/// else preserves. **Caller must use [`effective_quality_divisor`] in
+/// CFA-aware contexts** (e.g. when X-Trans Preview routes to a full-res
+/// kernel, the divisor must be 1 not 2).
 pub(super) fn quality_divisor(quality: RenderQuality) -> u32 {
     match quality {
         RenderQuality::Preview => 2,
         RenderQuality::Full | RenderQuality::Amaze => 1,
+    }
+}
+
+/// CFA-aware variant of [`quality_divisor`]. The X-Trans Preview path
+/// (#420) uses a full-resolution `xtrans_bilinear` kernel rather than
+/// the Bayer half-resolution `half_res` kernel, so the post-demosaic
+/// buffer is NOT halved even at `RenderQuality::Preview` and
+/// `crop_to_default` must be called with divisor=1 to land the crop
+/// at the right buffer coords.
+pub(super) fn effective_quality_divisor(
+    quality: RenderQuality,
+    cfa: crate::image::CfaPattern,
+) -> u32 {
+    if matches!(cfa, crate::image::CfaPattern::XTrans(_)) {
+        1
+    } else {
+        quality_divisor(quality)
     }
 }
 
@@ -132,6 +152,27 @@ pub fn develop_scene_linear_from_raw_with_quality(
             // LinearRaw DNG: data is already 3-channel RGB. Skip the
             // mosaic path entirely. See ticket #07.
             stage("linearraw_decode", || linearize::linearraw_to_camera_rgb(raw))?
+        }
+        crate::image::CfaPattern::XTrans(_) => {
+            // Fuji X-Trans (6×6 CFA): the Bayer kernels above are all
+            // hard-coded for 2×2 phase and produce garbage on the
+            // X-Trans tile. Route all three RenderQuality variants to
+            // the X-Trans demosaicers: bilinear for Preview (the buffer
+            // is half-res-equivalent after downsample), Markesteijn for
+            // Full/AMaZE. See tickets #420 / #417.
+            //
+            // Note: there is no half-res *preview* path for X-Trans on
+            // day one — the `xtrans_bilinear` kernel runs at full
+            // resolution and the surrounding pipeline downsamples
+            // later via `develop_sized`. A true half-res X-Trans
+            // preview is a follow-up.
+            let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            stage("demosaic_xtrans", || match quality {
+                RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
+                RenderQuality::Full | RenderQuality::Amaze => {
+                    demosaic::markesteijn(&mosaic, raw.cfa)
+                }
+            })
         }
         _ => {
             let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
@@ -157,7 +198,7 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // full sensor, which is also what ACR does for them. See ticket #375.
     if let Some(crop) = raw.crop_rect {
         if let Some(cropped) = stage("crop_to_default", || {
-            crop_to_default(&camera_rgb, crop, quality_divisor(quality))
+            crop_to_default(&camera_rgb, crop, effective_quality_divisor(quality, raw.cfa))
         }) {
             camera_rgb = cropped;
         }

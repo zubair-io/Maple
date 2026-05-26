@@ -37,7 +37,7 @@ The 18 RAW fixtures in `test-fixtures/raws/`:
 | test_0005.RAF | Fujifilm GFX 50S               | `Fujifilm GFX 50S`       | HIT         |                                                                                                   |
 | test_0006.DNG | Canon 5D Mark III (DNG)        | `Canon EOS 5D Mark III`  | HIT         |                                                                                                   |
 | test_0007.DNG | Canon 5D Mark III (DNG)        | `Canon EOS 5D Mark III`  | HIT         |                                                                                                   |
-| test_0008.RAF | Fujifilm X-Trans (decode-fail) | n/a                      | n/a         | Unsupported X-Trans CFA pattern in `raw-core`; never reaches color stage.                         |
+| test_0008.RAF | Fujifilm X-T3 (X-Trans)        | `Fujifilm X-T3`          | TBD         | X-Trans CFA + Markesteijn-equivalent demosaic landed in #417 / #420. Renders end-to-end. Bundled-DCP hit status pending the first parity-harness pass — see BUDGETS_DRIFT.md. |
 | test_0009.CR2 | Canon 5D Mark IV               | `Canon EOS 5D Mark IV`   | HIT         |                                                                                                   |
 | test_0010.CR2 | Canon 5D Mark IV               | `Canon EOS 5D Mark IV`   | HIT         |                                                                                                   |
 | test_0011.ARW | Sony α7R IV                    | `Sony ILCE-7RM4`         | HIT         |                                                                                                   |
@@ -45,12 +45,15 @@ The 18 RAW fixtures in `test-fixtures/raws/`:
 | test_0013.DNG | iPhone 12 Pro                  | `iPhone13,3 back camera` | HIT         | Per-lens UCM matches the bundle's per-lens DCP filenames byte-for-byte.                           |
 | test_0014.NEF | Nikon D850                     | `Nikon D850`             | HIT         |                                                                                                   |
 | test_0015.dng | Google Pixel 6 Pro             | `Google Pixel 6 Pro`     | HIT (alias) | Aliased to `Google Pixel 6 Pro Rear Main Camera` (default lens variant; see ucm_mapping.rs).      |
-| test_0016.X3F | Sigma Foveon (decode-fail)     | n/a                      | n/a         | Foveon X3F unsupported by rawler in this configuration; never reaches color stage.                |
+| test_0016.X3F | Sigma Foveon (unsupported)     | n/a                      | n/a         | Foveon X3F surfaces as the structured `Error::UnsupportedFormat` per #417 — rawler 0.7's X3F decoder is a stub. No silent fail.                                              |
 | test_0017.dng | Leica M10                      | `LEICA M10`              | HIT         |                                                                                                   |
 
-Coverage of the renderable fixture set: **15 / 16 HIT** (three of those
+Coverage of the renderable fixture set: **16 / 17 HIT** (three of those
 via the UCM-alias table; test_0004 / Hasselblad H5D-40 is the only
-color-renderable miss — see "Known coverage gaps" below).
+color-renderable miss — see "Known coverage gaps" below). test_0008
+(Fuji X-Trans) is now renderable end-to-end (#417 decode, #420
+demosaic). test_0016 (Foveon) is still unrenderable but now surfaces
+a clear unsupported-format error instead of a silent decode fail.
 
 ## Known coverage gaps
 
@@ -74,9 +77,11 @@ by users, and the bundle has no entry for them today:
   per-lens profiles; the alias table covers Pixel 6 Pro because
   it's in our fixture set, and follows the same shape for siblings.
 
-- **Vendor RAW formats rawler doesn't decode** (Foveon X3F, some
-  X-Trans patterns). These never reach the color stage so coverage
-  is moot — they error at decode time.
+- **Sigma Foveon X3F** — rawler 0.7's X3F decoder is a stub that
+  returns `"X3F decoding not implemented yet"`. Maple promotes this
+  to `Error::UnsupportedFormat` (see #417 / decode.rs) so callers
+  can render a clear "format not supported" message. Following
+  rawler upstream for full X3F support is a separate ticket.
 
 ## How to add a body
 

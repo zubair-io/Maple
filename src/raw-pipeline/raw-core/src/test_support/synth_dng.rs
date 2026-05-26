@@ -313,6 +313,9 @@ impl SyntheticGreyDng {
             CfaPattern::LinearRgb => panic!(
                 "SyntheticGreyDng with CfaPattern::LinearRgb is unsupported \
                  — synthesise a Bayer pattern (Rggb/Bggr/Grbg/Gbrg) instead"),
+            CfaPattern::XTrans(_) => panic!(
+                "SyntheticGreyDng with CfaPattern::XTrans is unsupported \
+                 (the synthetic-DNG writer emits a 2×2 Bayer CFAPattern tag)"),
         }
     }
 
