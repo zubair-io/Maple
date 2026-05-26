@@ -112,17 +112,23 @@ export class SearchComponent implements OnInit, OnDestroy {
   readonly flag = computed<FlagValue>(() => parseFlag(this.query()?.get('flag')));
   readonly color = computed<ColorValue>(() => parseColor(this.query()?.get('color')));
   readonly extSelectedCsv = computed(() => this.query()?.get('ext') ?? '');
-  readonly sceneType = computed<SearchSceneType>(() => parseSceneType(this.query()?.get('sceneType')));
+  readonly sceneType = computed<SearchSceneType>(() =>
+    parseSceneType(this.query()?.get('sceneType')),
+  );
   readonly activity = computed(() => this.query()?.get('activity') ?? '');
   readonly subjectsCsv = computed(() => this.query()?.get('subjects') ?? '');
   /** Tri-state screenshot filter: `''` (Any), `'true'` (Screenshots only),
    * `'false'` (Photos only). Stored as the literal query-param value so
    * the URL round-trips cleanly. */
-  readonly isScreenshot = computed<ScreenshotValue>(() => parseScreenshot(this.query()?.get('isScreenshot')));
+  readonly isScreenshot = computed<ScreenshotValue>(() =>
+    parseScreenshot(this.query()?.get('isScreenshot')),
+  );
   readonly sort = computed<SearchSort>(() => parseSort(this.query()?.get('sort')));
 
   /** Set of selected extensions, parsed from the comma-separated `ext` param. */
-  readonly extSelected = computed<Set<string>>(() => parseCsvSet(this.extSelectedCsv(), { lower: true }));
+  readonly extSelected = computed<Set<string>>(() =>
+    parseCsvSet(this.extSelectedCsv(), { lower: true }),
+  );
 
   /** Set of selected vision subjects, parsed from the comma-separated `subjects` param. */
   readonly subjectsSelected = computed<Set<string>>(() => parseCsvSet(this.subjectsCsv()));
