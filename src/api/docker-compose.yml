@@ -1,4 +1,4 @@
-version: "3.9"
+version: '3.9'
 
 # Maple Self Hosted — Docker Compose
 #
@@ -20,13 +20,13 @@ services:
     image: mongo:7.0
     restart: unless-stopped
     ports:
-      - "27017:27017"
+      - '27017:27017'
     environment:
       MONGO_INITDB_DATABASE: maple
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -35,27 +35,26 @@ services:
   # Maple Self Hosted server (optional — build with Dockerfile)
   # ---------------------------------------------------------------------------
   maple:
-    profiles: ["app"]
+    profiles: ['app']
     build:
-      context: ../..        # monorepo root
+      context: ../.. # monorepo root
       dockerfile: src/api/Dockerfile
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - '3000:3000'
     environment:
-      PORT: "3000"
-      MAPLE_MONGO_URI: "mongodb://mongo:27017"
-      MAPLE_MONGO_DB: "maple"
+      PORT: '3000'
+      MAPLE_MONGO_URI: 'mongodb://mongo:27017'
+      MAPLE_MONGO_DB: 'maple'
       # Mount your photo library here (also set MAPLE_ROOTS):
       # MAPLE_ROOTS: /photos
     volumes:
       # Mount photo library directories here, e.g.:
       # - /path/to/your/photos:/photos:rw
-      # Persists /app/config across container recreates. This holds the
-      # auto-generated JWT secret (MAPLE_JWT_SECRET_FILE=/app/config/jwt.secret,
-      # set in the Dockerfile) — without it, every redeploy rotates the
-      # secret and all clients get "bad signature" 401s until they re-auth.
-      # Set MAPLE_JWT_SECRET explicitly to manage the secret out-of-band.
+      # The JWT secret lives in MongoDB (mongo_data volume) and is shared
+      # across instances — no extra config needed for it to survive redeploys.
+      # /app/config only holds the on-disk FALLBACK secret used if Mongo is
+      # unreachable at boot; persisting it keeps even that path stable.
       - maple_config:/app/config
     depends_on:
       mongo:
@@ -77,7 +76,7 @@ services:
   # 4. Bring it up:  docker compose --profile app --profile proxy up -d
   # ---------------------------------------------------------------------------
   cloudflared:
-    profiles: ["proxy"]
+    profiles: ['proxy']
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
     command: tunnel --no-autoupdate run

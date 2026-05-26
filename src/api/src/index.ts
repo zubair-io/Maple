@@ -41,8 +41,9 @@ import { Elysia } from 'elysia';
 import { swagger } from '@elysiajs/swagger';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { child as childLogger } from './log.ts';
+import { getOrCreateJwtSecret } from './auth/jwt-secret.repo.ts';
 import { requestContext } from './middleware/request-context.ts';
 import { healthRoutes } from './routes/health.ts';
 import { foldersRoutes } from './routes/folders.ts';
@@ -95,32 +96,76 @@ const log = childLogger('server');
 // ---------------------------------------------------------------------------
 //
 // Resolves MAPLE_JWT_SECRET in priority order:
-//   1. Explicit env var (caller-managed; e.g. CI, secret store).
-//   2. File on disk at MAPLE_JWT_SECRET_FILE or `./.maple/jwt.secret`.
-//   3. Generate 32 random bytes (base64url), persist with mode 0o600,
-//      and use that. The .maple/ directory is gitignored.
-//
-// The generated secret persists across restarts. Losing the file is what
-// logs everyone out (every issued JWT stops verifying), so for durability
-// across a *reinstall* point MAPLE_JWT_SECRET_FILE at a persistent volume
-// outside the install dir. See docs/server-api.md § "Signing-secret
-// persistence".
-function ensureJwtSecret(): void {
-  if (process.env.MAPLE_JWT_SECRET) return;
+//   1. Explicit env var (caller-managed; e.g. CI, secret store, tests).
+//   2. The DB (`server_state.jwt_secret`). This is the canonical store: Mongo
+//      data is persistent (survives container recreates) and shared by every
+//      instance, so the secret never silently rotates and tokens keep
+//      verifying. See `auth/jwt-secret.repo.ts`.
+//   3. File on disk at MAPLE_JWT_SECRET_FILE — fallback ONLY when Mongo is
+//      unreachable, so a DB-less dev box / degraded boot still signs tokens.
+//      Generates + persists (mode 0o600) on first use.
+async function ensureJwtSecret(): Promise<void> {
+  let source: 'env' | 'db' | 'db-created' | 'file' | 'generated';
+  if (process.env.MAPLE_JWT_SECRET) {
+    source = 'env';
+  } else {
+    source = (await tryResolveJwtSecretFromDb()) ?? ensureJwtSecretFromFile();
+  }
+  // Log a non-reversible fingerprint of the active secret (never the secret
+  // itself). Every instance that shares a secret prints the same fingerprint;
+  // if two replicas — or the same server across a restart — show different
+  // fingerprints, that's the smoking gun for "bad signature": a token signed
+  // by one secret is being verified against another.
+  const fingerprint = createHash('sha256')
+    .update(process.env.MAPLE_JWT_SECRET!)
+    .digest('hex')
+    .slice(0, 12);
+  log.info({ source, fingerprint }, 'JWT secret resolved');
+}
+
+/**
+ * Loads the shared secret from the DB and sets `process.env.MAPLE_JWT_SECRET`.
+ * Returns the resolved source, or `null` if the DB is unreachable (caller
+ * falls back to the on-disk file). Never throws — a DB hiccup must not block
+ * boot, since the file fallback can still sign tokens.
+ */
+async function tryResolveJwtSecretFromDb(): Promise<'db' | 'db-created' | null> {
+  try {
+    const { secret, created } = await getOrCreateJwtSecret();
+    process.env.MAPLE_JWT_SECRET = secret;
+    if (created) {
+      log.warn('minted a new JWT secret in the DB — first run, or the secret row was cleared');
+    }
+    return created ? 'db-created' : 'db';
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : err },
+      'could not read JWT secret from DB — falling back to MAPLE_JWT_SECRET_FILE',
+    );
+    return null;
+  }
+}
+
+/** File fallback for the JWT secret. Reads MAPLE_JWT_SECRET_FILE (default
+ * `./.maple/jwt.secret`), generating + persisting it (mode 0o600) on first
+ * use. Sets `process.env.MAPLE_JWT_SECRET`. Only reached when the DB is
+ * unreachable. */
+function ensureJwtSecretFromFile(): 'file' | 'generated' {
   const path = process.env.MAPLE_JWT_SECRET_FILE ?? './.maple/jwt.secret';
   if (existsSync(path)) {
     process.env.MAPLE_JWT_SECRET = readFileSync(path, 'utf8').trim();
-    return;
+    return 'file';
   }
   mkdirSync(dirname(path), { recursive: true });
   const secret = randomBytes(32).toString('base64url');
   writeFileSync(path, secret, { mode: 0o600 });
   process.env.MAPLE_JWT_SECRET = secret;
-  // Warn, not info: minting a new secret invalidates every access token
-  // issued under the previous one (clients see "bad signature" 401s). If
-  // this fires on every restart, `path` isn't on persistent storage — set
-  // MAPLE_JWT_SECRET or point MAPLE_JWT_SECRET_FILE at a durable volume.
-  log.warn({ path }, 'generated a NEW JWT secret — existing sessions are now invalid');
+  // Warn, not info: minting a new secret invalidates every access token issued
+  // under the previous one (clients see "bad signature" 401s). Reaching here at
+  // all means Mongo was unreachable; if it recurs every restart, fix Mongo
+  // connectivity or set MAPLE_JWT_SECRET / a persistent MAPLE_JWT_SECRET_FILE.
+  log.warn({ path }, 'generated a NEW JWT secret on disk — existing sessions are now invalid');
+  return 'generated';
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +312,7 @@ let _trashGcHandle: TrashGcHandle | null = null;
 let _discoverHandle: DiscoverHandle | null = null;
 
 async function start(): Promise<void> {
-  ensureJwtSecret();
+  await ensureJwtSecret();
   log.info(
     {
       version: '0.1.0',
