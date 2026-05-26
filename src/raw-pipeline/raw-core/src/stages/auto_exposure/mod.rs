@@ -8,18 +8,31 @@
 //! Rec.2020 and applies a scalar gain that pushes it to 0.18 BEFORE AgX.
 //! Every camera lands at the same AgX position by default.
 //!
-//! # Algorithm
+//! # Algorithm (hybrid anchor — #494)
 //!
-//! 1. Compute per-pixel luma `Y = dot(REC2020, RGB)` and the geometric
-//!    mean of `Y` in the middle 50% percentile range of the distribution
-//!    (`P25 ≤ Y ≤ P75`). Trimming the top and bottom 25% gives a robust
-//!    mid-tone estimate that ignores specular highlights and crushed
-//!    shadows.
-//! 2. `anchor_gain = clamp(0.18 / scene_midgrey, max = 8.0)`. The 8.0 cap
-//!    (= +3 EV) prevents night scenes (where the midgrey approaches zero)
-//!    from blowing out specular highlights into AgX. Black-frame /
-//!    degenerate inputs short-circuit to `anchor_gain = 1.0` so the stage
-//!    stays well-defined.
+//! 1. Compute per-pixel luma `Y = dot(REC2020, RGB)`. From the luma
+//!    distribution derive two statistics in one pass of quickselects:
+//!    * `midgrey` — geometric mean of `Y` over the middle 50% percentile
+//!      band (`P25 ≤ Y ≤ P75`). Trimming the top and bottom quartiles
+//!      gives a robust mid-tone estimate that ignores specular highlights
+//!      and crushed shadows.
+//!    * `p95` — 95th percentile of `Y`. Acts as the highlight anchor.
+//! 2. Compute two candidate gains and pick the larger:
+//!    ```text
+//!    midtone_gain   = clamp(0.18 / midgrey, max = 8.0)
+//!    highlight_gain = clamp(0.85 / p95,     max = 8.0)
+//!    anchor_gain    = max(midtone_gain, highlight_gain)
+//!    ```
+//!    The 8.0 cap (= +3 EV) on both candidates prevents near-black scenes
+//!    from blowing out specular highlights into AgX. The `max` selector
+//!    keeps the original midtone behavior on average scenes while lifting
+//!    dark-subject-on-bright-background scenes where the percentile-50
+//!    band is dragged toward 0.18 by the background and the subject ends
+//!    up well below mid-gray. On highlight-dominated scenes the highlight
+//!    candidate stays at or below the midtone candidate (its p95 sits
+//!    near 0.85 already), so the `max` is a no-op — no over-lift. Black-
+//!    frame / degenerate inputs short-circuit to `anchor_gain = 1.0` so
+//!    the stage stays well-defined.
 //! 3. Scene-linear multiply: `RGB *= anchor_gain`. Commutes with every
 //!    subsequent scene-linear op (white balance, scene tone controls,
 //!    user exposure, curves) so placement here is algebraically
@@ -71,6 +84,15 @@ const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 /// constant of the entire pipeline.
 const SCENE_MIDGRAY_TARGET: f32 = 0.18;
 
+/// Target scene-linear value for the highlight anchor (#494). Sits just
+/// below the AgX shoulder so a scene whose p95 lands here still has
+/// headroom for specular highlights before the view transform compresses.
+/// Paired with `SCENE_MIDGRAY_TARGET` to form the hybrid gain: we pick
+/// `max(midtone_gain, highlight_gain)`, so this target is only effective
+/// on scenes where the midtone heuristic under-reports (subject darker
+/// than background).
+const SCENE_HIGHLIGHT_TARGET: f32 = 0.85;
+
 /// Clip on `anchor_gain` so a near-black scene (midgrey → 0) does not
 /// drive a hyper-multiplier that blows out specular highlights into the
 /// AgX toe. +3 EV (= 8.0) is a conservative ceiling — night scenes
@@ -87,11 +109,19 @@ const MIDGREY_FLOOR: f32 = 1e-6;
 /// Scene-anchor gain for `image`.
 ///
 /// Returns the scalar gain that, when multiplied into scene-linear
-/// pixels, places the geometric mean of luma in the middle 50% percentile
-/// band at [`SCENE_MIDGRAY_TARGET`] (0.18). Result is clamped to
-/// `(0.0, MAX_ANCHOR_GAIN]` so degenerate inputs cannot produce wild
-/// gains. Returns `1.0` for an all-zero / degenerate image so the
-/// stage is well-defined and the caller can multiply unconditionally.
+/// pixels, places either the geometric mean of luma in the middle 50%
+/// percentile band at [`SCENE_MIDGRAY_TARGET`] (0.18) OR the 95th
+/// percentile at [`SCENE_HIGHLIGHT_TARGET`] (0.85), whichever requires
+/// the larger lift. Result is clamped to `(0.0, MAX_ANCHOR_GAIN]` so
+/// degenerate inputs cannot produce wild gains. Returns `1.0` for an
+/// all-zero / degenerate image so the stage is well-defined and the
+/// caller can multiply unconditionally.
+///
+/// The `max(midtone_gain, highlight_gain)` selector keeps the original
+/// behavior on average scenes while lifting dark-subject-on-bright-
+/// background scenes where the percentile-50 band is dragged toward 0.18
+/// by the background. On highlight-rich scenes the p95 already sits near
+/// 0.85, so highlight_gain ≈ 1.0 — no over-lift.
 ///
 /// Deterministic per image; no temporal smoothing or random sampling.
 pub fn compute_scene_anchor_gain(image: &Image) -> f32 {
@@ -104,9 +134,9 @@ pub fn compute_scene_anchor_gain(image: &Image) -> f32 {
     // Build a luma vector. We need percentile boundaries, so partition.
     // Use `select_nth_unstable_by` (quickselect, O(n) average) instead of a
     // full sort (O(n log n)) — we only need the elements positioned at the
-    // P25/P75 ranks, not a fully ordered array. The geometric mean over the
-    // [P25..P75) band is order-independent, so the multiset returned by the
-    // two-stage partition is bit-equivalent to the fully-sorted band's
+    // P25/P75/P95 ranks, not a fully ordered array. The geometric mean over
+    // the [P25..P75) band is order-independent, so the multiset returned by
+    // the chained partitions is bit-equivalent to the fully-sorted band's
     // slice.
     let mut luma: Vec<f32> = image
         .pixels
@@ -127,21 +157,29 @@ pub fn compute_scene_anchor_gain(image: &Image) -> f32 {
     // p75 is exclusive (we want indices [p25, p75)); guard against the
     // degenerate len < 4 case where p25 == p75.
     let p75 = p75.max(p25 + 1).min(len);
+    // p95 index — clamp to the last valid slot.
+    let p95_idx = ((len * 95) / 100).min(len - 1);
 
-    // Position the P25-th element at index `p25` (O(n) quickselect). After
-    // this call: `luma[..p25] ≤ luma[p25] ≤ luma[p25..]` as a partition,
-    // though the two sides are not internally ordered.
     let cmp = |a: &f32, b: &f32| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal);
+
+    // Chain three quickselects so each subsequent select operates on the
+    // *upper* partition the previous one produced. This keeps the band
+    // slice `[p25..p75]` correct as a multiset (its elements are all
+    // ≥ pivot[p25] and ≤ pivot[p75]), and the final p95 select only
+    // permutes elements above p75 — leaving the band untouched.
     luma.select_nth_unstable_by(p25, cmp);
-    // Within the upper-3/4 partition `luma[p25..]`, position the P75-th
-    // element. Skip when `p75 == len` — the second select would index past
-    // the slice end. After this call: `luma[p25..p75]` contains the same
-    // multiset as the original `[p25..p75)` band of a fully-sorted array.
     if p75 < len {
         let upper = &mut luma[p25..];
         upper.select_nth_unstable_by(p75 - p25, cmp);
     }
+    // p95 lives in `luma[p75..]` (since 95 > 75). Skip when there's no
+    // upper segment to partition.
+    if p95_idx >= p75 && p75 < len {
+        let upper = &mut luma[p75..];
+        upper.select_nth_unstable_by(p95_idx - p75, cmp);
+    }
     let band = &luma[p25..p75];
+    let p95 = luma[p95_idx];
 
     // Geometric mean = exp(mean(ln(y))). Drop non-positive samples — they
     // would map to -infinity in log space and silently dominate the mean.
@@ -163,11 +201,22 @@ pub fn compute_scene_anchor_gain(image: &Image) -> f32 {
         return 1.0;
     }
 
-    let raw_gain = SCENE_MIDGRAY_TARGET / midgrey;
-    if !raw_gain.is_finite() || raw_gain <= 0.0 {
+    let midtone_gain = (SCENE_MIDGRAY_TARGET / midgrey).min(MAX_ANCHOR_GAIN);
+
+    // Highlight candidate. Guard the same floor so a near-black p95 can't
+    // drive an infinite division before the clamp. If p95 itself is non-
+    // positive or non-finite we just fall back to the midtone result.
+    let highlight_gain = if p95.is_finite() && p95 > MIDGREY_FLOOR {
+        (SCENE_HIGHLIGHT_TARGET / p95).min(MAX_ANCHOR_GAIN)
+    } else {
+        midtone_gain
+    };
+
+    let anchor_gain = midtone_gain.max(highlight_gain);
+    if !anchor_gain.is_finite() || anchor_gain <= 0.0 {
         return 1.0;
     }
-    raw_gain.min(MAX_ANCHOR_GAIN)
+    anchor_gain.min(MAX_ANCHOR_GAIN)
 }
 
 /// Apply scene-anchor in place. Honors `model.auto_exposure`:
