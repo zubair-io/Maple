@@ -166,6 +166,7 @@ describe('blankEnrichment', () => {
       face_mobilefacenet_url: null,
       face_mobilefacenet_sha256: null,
       meilisearch_url: 'http://meili.local:7700',
+      meilisearch_api_key_set: true,
       source: {} as EnrichmentConfigResponse['source'],
     };
     const form = blankEnrichment(ec);
@@ -176,6 +177,8 @@ describe('blankEnrichment', () => {
     expect('describe_model' in form).toBe(false);
     expect(form.face_model_dir).toBe('/tmp/models');
     expect(form.meilisearch_url).toBe('http://meili.local:7700');
+    // API key is write-only — never seeded from the response, even when set.
+    expect(form.meilisearch_api_key).toBe('');
   });
 
   it('falls back to safe defaults when snapshot is null', () => {
@@ -184,6 +187,7 @@ describe('blankEnrichment', () => {
     expect(form.nominatim_rate_limit_per_sec).toBe('10');
     expect(form.nominatim_url).toBe('');
     expect(form.meilisearch_url).toBe('');
+    expect(form.meilisearch_api_key).toBe('');
   });
 });
 

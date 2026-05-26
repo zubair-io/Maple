@@ -404,6 +404,9 @@ export class BunApiBackendService {
     // ── Search index (Phase 7) ────────────────────────────────────
     /** Meilisearch sidecar URL. `null`/empty clears back to env / disabled. */
     meilisearch_url?: string | null;
+    /** Meilisearch API key (write-only secret). Non-empty string sets it;
+     * `null` clears back to env; omitted/empty leaves the saved key alone. */
+    meilisearch_api_key?: string | null;
   }): Observable<EnrichmentConfigResponse> {
     return this.http.put<EnrichmentConfigResponse>(`${this.base}/enrichment/config`, body);
   }
@@ -416,12 +419,14 @@ export class BunApiBackendService {
     });
   }
 
-  /** Health-check an arbitrary Meilisearch URL without saving. The server
-   * authenticates with the `MAPLE_MEILISEARCH_API_KEY` env var, so this
-   * probes exactly what the live client will use. */
-  testMeilisearch(url: string): Observable<EnrichmentTestResponse> {
+  /** Health-check an arbitrary Meilisearch URL without saving. Pass
+   * `apiKey` to probe with a freshly-typed (not-yet-saved) key; omit it to
+   * let the server fall back to the saved key / `MAPLE_MEILISEARCH_API_KEY`
+   * env var. The key is write-only — never echoed back. */
+  testMeilisearch(url: string, apiKey?: string | null): Observable<EnrichmentTestResponse> {
     return this.http.post<EnrichmentTestResponse>(`${this.base}/enrichment/test-meili`, {
       meilisearch_url: url,
+      ...(apiKey ? { api_key: apiKey } : {}),
     });
   }
 
@@ -589,9 +594,11 @@ export interface EnrichmentConfigResponse {
   face_mobilefacenet_url: string | null;
   face_mobilefacenet_sha256: string | null;
   /** Meilisearch sidecar URL (DB → env → null). `null` disables the sidecar;
-   * search then falls back to the Mongo `$text` path. The API key is not on
-   * the wire — it stays the `MAPLE_MEILISEARCH_API_KEY` env var. */
+   * search then falls back to the Mongo `$text` path. */
   meilisearch_url: string | null;
+  /** Whether a Meilisearch API key is configured (DB or env). The key itself
+   * is a secret and is never sent on the wire — only this boolean. */
+  meilisearch_api_key_set: boolean;
   /** Set when face worker is enabled but the model files are missing — UI
    * surfaces this as an actionable banner. Optional for backward compat. */
   face_worker_dormant_reason?: string | null;
@@ -622,6 +629,7 @@ export interface EnrichmentConfigResponse {
     face_mobilefacenet_url: 'db' | 'env' | 'unset';
     face_mobilefacenet_sha256: 'db' | 'env' | 'unset';
     meilisearch_url: 'db' | 'env' | 'unset';
+    meilisearch_api_key: 'db' | 'env' | 'unset';
   };
 }
 

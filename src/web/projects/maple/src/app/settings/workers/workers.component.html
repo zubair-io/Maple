@@ -460,8 +460,6 @@
                               Base URL of a Meilisearch sidecar for typo-tolerant search. Empty
                               falls back to the <span class="mono">MAPLE_MEILISEARCH_URL</span> env
                               var (or disables the sidecar — search then uses the Mongo text index).
-                              The API key is set via the
-                              <span class="mono">MAPLE_MEILISEARCH_API_KEY</span> env var.
                             </div>
                             @if (testState(s).kind === 'ok') {
                               <div class="test-result ok">
@@ -473,6 +471,36 @@
                                 {{ $any(testState(s)).message }}
                               </div>
                             }
+                          </div>
+                          <div class="field">
+                            <div class="field-label">API key</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="password"
+                                  autocomplete="off"
+                                  [placeholder]="
+                                    enrichmentConfig()?.meilisearch_api_key_set
+                                      ? '•••••••• (saved — blank keeps it)'
+                                      : '(optional)'
+                                  "
+                                  [value]="enrichmentValue(s, 'meilisearch_api_key')"
+                                  (input)="
+                                    setEnrichment(
+                                      s,
+                                      'meilisearch_api_key',
+                                      $any($event.target).value
+                                    )
+                                  "
+                                />
+                              </div>
+                            </div>
+                            <div class="field-hint">
+                              Master or search key for the instance, sent as a bearer token and
+                              stored in the database. Leave blank to keep the saved key. With no
+                              saved key, falls back to
+                              <span class="mono">MAPLE_MEILISEARCH_API_KEY</span>.
+                            </div>
                           </div>
                         </div>
                       }
