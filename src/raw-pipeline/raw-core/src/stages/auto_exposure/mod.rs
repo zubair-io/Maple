@@ -101,24 +101,25 @@ pub fn compute_scene_anchor_gain(image: &Image) -> f32 {
         return 1.0;
     }
 
-    // Build a luma vector. We need percentile boundaries, so sort.
-    // Selection algorithms (quickselect) would shave the log-factor, but
-    // this runs once per image (not per slider tick), and `develop` already
-    // handles much heavier passes (demosaic, RL deconvolution). Keeping
-    // the implementation obvious-correct.
+    // Build a luma vector. We need percentile boundaries, so partition.
+    // Use `select_nth_unstable_by` (quickselect, O(n) average) instead of a
+    // full sort (O(n log n)) — we only need the elements positioned at the
+    // P25/P75 ranks, not a fully ordered array. The geometric mean over the
+    // [P25..P75) band is order-independent, so the multiset returned by the
+    // two-stage partition is bit-equivalent to the fully-sorted band's
+    // slice.
     let mut luma: Vec<f32> = image
         .pixels
         .iter()
         .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
         .collect();
-    // NaN-aware sort — scene-linear luma can technically carry NaN if the
-    // DCP path mishandled an edge pixel; we drop them so the percentile
-    // math doesn't degenerate.
+    // NaN filter — scene-linear luma can technically carry NaN if the DCP
+    // path mishandled an edge pixel; we drop them so the percentile math
+    // doesn't degenerate (and so the unstable cmp closure can't see NaN).
     luma.retain(|y| y.is_finite());
     if luma.is_empty() {
         return 1.0;
     }
-    luma.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let len = luma.len();
     let p25 = len / 4;
@@ -126,6 +127,20 @@ pub fn compute_scene_anchor_gain(image: &Image) -> f32 {
     // p75 is exclusive (we want indices [p25, p75)); guard against the
     // degenerate len < 4 case where p25 == p75.
     let p75 = p75.max(p25 + 1).min(len);
+
+    // Position the P25-th element at index `p25` (O(n) quickselect). After
+    // this call: `luma[..p25] ≤ luma[p25] ≤ luma[p25..]` as a partition,
+    // though the two sides are not internally ordered.
+    let cmp = |a: &f32, b: &f32| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal);
+    luma.select_nth_unstable_by(p25, cmp);
+    // Within the upper-3/4 partition `luma[p25..]`, position the P75-th
+    // element. Skip when `p75 == len` — the second select would index past
+    // the slice end. After this call: `luma[p25..p75]` contains the same
+    // multiset as the original `[p25..p75)` band of a fully-sorted array.
+    if p75 < len {
+        let upper = &mut luma[p25..];
+        upper.select_nth_unstable_by(p75 - p25, cmp);
+    }
     let band = &luma[p25..p75];
 
     // Geometric mean = exp(mean(ln(y))). Drop non-positive samples — they
