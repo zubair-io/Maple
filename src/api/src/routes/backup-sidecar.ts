@@ -18,15 +18,15 @@
  *   404 — library not found, or no prior upload for this device+phasset
  *   413 — body exceeds 256 KB
  */
-import { Elysia, t } from "elysia";
-import { ObjectId } from "mongodb";
-import { assetsCollection, foldersCollection } from "../db/client.ts";
-import { child as childLogger } from "../log.ts";
-import fs from "node:fs/promises";
-import path from "node:path";
-import os from "node:os";
+import { Elysia, t } from 'elysia';
+import { ObjectId } from 'mongodb';
+import { assetsCollection, foldersCollection } from '../db/client.ts';
+import { child as childLogger } from '../log.ts';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
 
-const log = childLogger("backup-sidecar");
+const log = childLogger('backup-sidecar');
 const MAX_SIDECAR_BYTES = 256 * 1024; // 256 KB
 
 /** Move src to dst atomically. Falls back to copy+unlink on EXDEV (cross-device). */
@@ -34,7 +34,7 @@ async function atomicMove(src: string, dst: string): Promise<void> {
   try {
     await fs.rename(src, dst);
   } catch (e: any) {
-    if (e?.code === "EXDEV") {
+    if (e?.code === 'EXDEV') {
       await fs.copyFile(src, dst);
       await fs.unlink(src);
     } else {
@@ -49,17 +49,17 @@ async function atomicMove(src: string, dst: string): Promise<void> {
  */
 function isSafeRelPath(relPath: string): boolean {
   if (!relPath || relPath.length === 0 || relPath.length > 2048) return false;
-  if (relPath.startsWith("/") || relPath.startsWith("\\")) return false;
+  if (relPath.startsWith('/') || relPath.startsWith('\\')) return false;
   const parts = relPath.split(/[/\\]/);
   for (const part of parts) {
-    if (part === ".." || part === ".") return false;
+    if (part === '..' || part === '.') return false;
     if (part.length === 0) return false;
   }
   return true;
 }
 
 export const backupSidecarRoutes = new Elysia().post(
-  "/api/libraries/:libraryId/backup/sidecar",
+  '/api/libraries/:libraryId/backup/sidecar',
   async ({ params, headers, body, set }) => {
     // Validate library id.
     let libraryId: ObjectId;
@@ -67,32 +67,30 @@ export const backupSidecarRoutes = new Elysia().post(
       libraryId = new ObjectId(params.libraryId);
     } catch {
       set.status = 400;
-      return { error: "invalid library id" };
+      return { error: 'invalid library id' };
     }
 
     // Extract + validate required headers.
-    const deviceId = headers["x-maple-device-id"];
-    const phid = headers["x-maple-phasset-id"];
-    const targetRelPath = headers["x-maple-target-rel-path"];
+    const deviceId = headers['x-maple-device-id'];
+    const phid = headers['x-maple-phasset-id'];
+    const targetRelPath = headers['x-maple-target-rel-path'];
 
     if (!deviceId || !phid || !targetRelPath) {
       set.status = 400;
-      return { error: "missing required headers" };
+      return { error: 'missing required headers' };
     }
 
     // Path-traversal guard.
     if (!isSafeRelPath(targetRelPath)) {
       set.status = 400;
-      return { error: "unsafe X-Maple-Target-Rel-Path" };
+      return { error: 'unsafe X-Maple-Target-Rel-Path' };
     }
 
     // Check library exists.
-    const folder = await (
-      await foldersCollection()
-    ).findOne({ _id: libraryId });
+    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
     if (!folder) {
       set.status = 404;
-      return { error: "library not found" };
+      return { error: 'library not found' };
     }
 
     // Verify prior asset upload — sidecar without prior upload is an error.
@@ -104,29 +102,26 @@ export const backupSidecarRoutes = new Elysia().post(
     // `fileinfo.library_id` scoping the rendered route uses.
     const a = await assetsCollection();
     const asset = await a.findOne({
-      "fileinfo.library_id": libraryId,
-      "phasset_links.device_id": deviceId,
-      "phasset_links.phasset_local_id": phid,
+      'fileinfo.library_id': libraryId,
+      'phasset_links.device_id': deviceId,
+      'phasset_links.phasset_local_id': phid,
     });
     if (!asset) {
       set.status = 404;
-      return { error: "no prior upload for this device and phasset" };
+      return { error: 'no prior upload for this device and phasset' };
     }
 
     // Validate body (raw bytes or Buffer).
-    const buf =
-      body instanceof Uint8Array
-        ? Buffer.from(body)
-        : Buffer.from(body as ArrayBuffer);
+    const buf = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body as ArrayBuffer);
 
     if (buf.byteLength === 0) {
       set.status = 400;
-      return { error: "body must not be empty" };
+      return { error: 'body must not be empty' };
     }
 
     if (buf.byteLength > MAX_SIDECAR_BYTES) {
       set.status = 413;
-      return { error: "sidecar body exceeds 256 KB limit" };
+      return { error: 'sidecar body exceeds 256 KB limit' };
     }
 
     // Compute final sidecar path: <library>/<targetRelPath>.xmp
@@ -134,12 +129,9 @@ export const backupSidecarRoutes = new Elysia().post(
     const finalPath = path.join(folder.path, sidecarRelPath);
 
     // Guard: ensure the computed absolute path is under the library root.
-    if (
-      !finalPath.startsWith(folder.path + path.sep) &&
-      finalPath !== folder.path
-    ) {
+    if (!finalPath.startsWith(folder.path + path.sep) && finalPath !== folder.path) {
       set.status = 400;
-      return { error: "path escape detected" };
+      return { error: 'path escape detected' };
     }
 
     await fs.mkdir(path.dirname(finalPath), { recursive: true });
@@ -153,7 +145,7 @@ export const backupSidecarRoutes = new Elysia().post(
     await fs.writeFile(tmpFile, buf);
     await atomicMove(tmpFile, finalPath);
 
-    log.debug({ phid, sidecarRelPath }, "sidecar written");
+    log.debug({ phid, sidecarRelPath }, 'sidecar written');
     set.status = 200;
     return { target_rel_path: sidecarRelPath };
   },
@@ -165,6 +157,6 @@ export const backupSidecarRoutes = new Elysia().post(
     // 'x' — colliding with `application/x-www-form-urlencoded` in Elysia's
     // fast switch (compose.mjs:438-444), which would hand the handler a
     // URLSearchParams-parsed object instead of an ArrayBuffer.
-    parse: "arrayBuffer",
+    parse: 'arrayBuffer',
   },
 );
