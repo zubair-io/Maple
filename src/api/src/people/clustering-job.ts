@@ -20,7 +20,7 @@
 import { type Filter, ObjectId } from 'mongodb';
 import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc } from '../db/schema.ts';
-import { markAssetsForMeiliReindexBestEffort } from './people-search-reindex.ts';
+import { markAssetIdsForMeiliReindexBestEffort } from './people-search-reindex.ts';
 import { child as childLogger } from '../log.ts';
 import {
   DEFAULT_SIMILARITY_THRESHOLD,
@@ -148,9 +148,6 @@ export async function runOnlineClustering(
   // — multiple faces can land in the same new cluster, but we only
   // create the row once (and the first face seeds the cover bbox).
   const newPersonIds = new Map<number, ObjectId>();
-  // Person ids whose assigned faces changed this run — collected so we can
-  // re-index their assets for person-name search once at the end.
-  const touchedPersonIds = new Set<string>();
 
   for (let i = 0; i < faces.length; i += 1) {
     const face = faces[i];
@@ -174,7 +171,6 @@ export async function runOnlineClustering(
       }
     }
     bufferAssignment(perAsset, face, personId.toHexString());
-    touchedPersonIds.add(personId.toHexString());
     assigned += 1;
   }
 
@@ -214,11 +210,13 @@ export async function runOnlineClustering(
   // created manually via `POST /api/people` ahead of any face assignment.
   await backfillCoverAssets();
 
-  // Re-index the assets whose face assignments changed so person-name
-  // search reflects the new clustering. Fire-and-forget; a search-index
-  // hiccup must not fail the clustering run.
-  if (touchedPersonIds.size > 0) {
-    markAssetsForMeiliReindexBestEffort([...touchedPersonIds]);
+  // Re-index exactly the assets whose face assignments changed so person-name
+  // search reflects the new clustering — not every asset of the touched
+  // people, which on a large library would re-queue huge numbers of unchanged
+  // assets. Fire-and-forget; a search-index hiccup must not fail the run.
+  const changedAssetIds = [...perAsset.values()].map((e) => e.assetId);
+  if (changedAssetIds.length > 0) {
+    markAssetIdsForMeiliReindexBestEffort(changedAssetIds);
   }
 
   log.info({ assigned, newPeople, scanned: faces.length, threshold }, 'online clustering finished');

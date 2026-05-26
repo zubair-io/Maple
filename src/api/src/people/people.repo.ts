@@ -17,7 +17,10 @@ import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc, PersonWithId } from '../db/schema.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { markAssetsForMeiliReindexBestEffort } from './people-search-reindex.ts';
+import {
+  markAssetsForMeiliReindexBestEffort,
+  markAssetIdsForMeiliReindexBestEffort,
+} from './people-search-reindex.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:repo');
@@ -460,10 +463,12 @@ export async function assignFaceToPerson(
     { _id: assetId },
     { $set: { [`faces.${faceIndex}.person_id`]: personHex } },
   );
-  const affected: string[] = [];
-  if (priorPersonId) affected.push(priorPersonId);
-  if (personHex) affected.push(personHex);
-  if (affected.length > 0) markAssetsForMeiliReindexBestEffort(affected);
+  // Only this asset's people set changed — re-index exactly it. Re-queuing
+  // the prior/new person's whole corpus would be wasteful (and could flood
+  // the worker for a heavily-photographed person).
+  if (priorPersonId !== null || personHex !== null) {
+    markAssetIdsForMeiliReindexBestEffort([assetId]);
+  }
 }
 
 /**
@@ -497,9 +502,9 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
       },
     },
   );
-  // Hiding drops the face's person — re-index that person's assets so the
-  // name token is dropped from this asset's blob.
-  if (priorPersonId) markAssetsForMeiliReindexBestEffort([priorPersonId]);
+  // Hiding drops the face's person — only this asset's blob loses the name
+  // token, so re-index just it rather than the whole person's corpus.
+  if (priorPersonId) markAssetIdsForMeiliReindexBestEffort([assetId]);
 }
 
 /**

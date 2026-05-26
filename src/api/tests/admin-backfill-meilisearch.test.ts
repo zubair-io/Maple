@@ -127,6 +127,9 @@ function makeRow(mapleId: string, blob: string | null, opts: { deletedAt?: strin
       focal_length: null,
       gps: null,
     },
+    // Top-level unified blob — what the meili stage persists and what the
+    // backfill cursor now filters on. Empty/absent ⇒ filtered out.
+    search_blob: blob ?? '',
     place:
       blob === null
         ? null
@@ -186,6 +189,9 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
       color_label: '',
       indexed_at: new Date().toISOString(),
       exif: null,
+      // Non-empty top-level blob so it enters the cursor — but no maple_id,
+      // so the per-row skip fires (exercising that path).
+      search_blob: 'boston ma',
       place: {
         source: 'nominatim',
         geocoder_version: 1,
@@ -267,6 +273,7 @@ describe('POST /api/admin/enrichment/backfill-meilisearch', () => {
       color_label: '',
       indexed_at: new Date().toISOString(),
       exif: { captured_at: '2024-06-01T12:00:00.000Z' },
+      search_blob: 'albany ny kids playing lacrosse greyson',
       description: 'kids playing lacrosse',
       ocr_text: null,
       is_screenshot: false,
