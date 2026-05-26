@@ -1604,29 +1604,28 @@ mod tests {
         }
     }
 
-    /// Cross-format hue stability under colorimetry-only DCP (#425).
+    /// Per-pixel determinism of `apply_colorimetry` (#425).
     ///
-    /// Pre-#425, `apply_with_plt_and_ptc` consumed `raw.plt` (the source
-    /// DNG's ProfileLookTable) for bundle-miss bodies. That meant the SAME
-    /// body could render with different hue/saturation depending on file
-    /// format — e.g. a Canon DNG-Converter output (which ships a PLT) vs.
-    /// the same body's .CR2 (which does not). Under colorimetry-only DCP,
-    /// `raw.plt` never feeds into anything; the output is determined
-    /// entirely by `profile` (CM/FM/HSM) and the input pixels. This test
-    /// pins that property by asserting that the new `apply_colorimetry`
-    /// entry produces hue-stable output across inputs that previously
-    /// would have been treated differently.
+    /// Running `apply_colorimetry` twice with the same pixels and the
+    /// same profile must produce bit-identical output. This is the
+    /// minimum contract for a pure function and a prerequisite for
+    /// every higher-level parity property (cross-format, cross-platform
+    /// pixel equality, parity-harness reproducibility) the develop
+    /// pipeline depends on.
     ///
-    /// Concretely: build one profile and run `apply_colorimetry` twice
-    /// with the same pixels. The two outputs must be bit-identical —
-    /// any per-format "look" leakage (PLT/PTC) is gone. Pre-#425 a
-    /// `Some(plt)` vs `None` toggle would have produced different
-    /// pixels; post-#425 the toggle is no longer a parameter of the
-    /// function, so by construction the only way the outputs could
-    /// differ is a non-determinism bug in HSM / CM math (which would
-    /// fail this test).
+    /// **What this does NOT check:** the cross-format / PLT-bypass
+    /// invariance under #425 — i.e. that toggling `raw.plt` or
+    /// `raw.profile_tone_curve` on the input `RawImage` does not change
+    /// the rendered output. That property is enforced at the
+    /// signature level (this function takes no PLT/PTC arguments, so
+    /// it physically cannot read them) and verified at the develop-
+    /// pipeline level by
+    /// `grey_dcp_phase1::profile_tone_curve_is_noop_under_colorimetry_only`
+    /// (PTC case). PLT has no synth-DNG fixture today; the signature-
+    /// level guarantee plus the PTC integration test together cover the
+    /// invariant the docstring formerly claimed.
     #[test]
-    fn colorimetry_only_is_format_invariant() {
+    fn apply_colorimetry_is_deterministic() {
         let cm = Matrix3([
             [ 0.6722, -0.0635, -0.0963],
             [-0.4287,  1.2460,  0.2028],
@@ -1634,16 +1633,16 @@ mod tests {
         ]);
         let profile = DcpProfile::from_embedded_cm(cm);
         let img = img_with_pixels(&[
-            [0.6, 0.3, 0.2], // saturated warm (would previously hit PLT)
+            [0.6, 0.3, 0.2],
             [0.18, 0.18, 0.18],
-            [0.05, 0.2, 0.7], // saturated cool
+            [0.05, 0.2, 0.7],
         ]);
         let a = apply_colorimetry(&img, &profile).unwrap();
         let b = apply_colorimetry(&img, &profile).unwrap();
         for i in 0..a.pixels.len() {
             for c in 0..3 {
                 assert_eq!(a.pixels[i][c], b.pixels[i][c],
-                    "colorimetry-only DCP must be deterministic per-pixel \
+                    "apply_colorimetry must be deterministic per-pixel \
                      (pixel {} channel {})", i, c);
             }
         }

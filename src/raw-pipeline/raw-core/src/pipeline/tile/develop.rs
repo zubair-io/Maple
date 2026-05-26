@@ -72,7 +72,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     stage("tile_highlight_recovery", || {
         highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, raw.as_shot_neutral)
     });
-    let (profile, _source) = stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    let profile = stage("tile_dcp_profile_for", || dcp::profile_for(raw))?;
     // Colorimetry-only DCP per #425 — PLT and PTC no longer run on any
     // path (see `pipeline::develop` for the strategic rationale).
     let mut scene = stage("tile_dcp_apply", || dcp::apply_colorimetry(

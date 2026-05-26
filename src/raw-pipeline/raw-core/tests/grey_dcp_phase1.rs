@@ -5,7 +5,6 @@
 #![cfg(feature = "test-support")]
 
 use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, RenderQuality};
-use raw_core::test_support::predictions::predict_tone_curve;
 use raw_core::test_support::synth_dng::SyntheticGreyDng;
 use raw_core::xmp::AdjustmentModel;
 
@@ -121,9 +120,9 @@ fn forward_matrix_replaces_bradford() {
 /// This test pins the post-#425 contract: attaching a synthetic
 /// ProfileToneCurve to a RawImage must NOT change the scene-linear
 /// output (because the DCP path ignores it). Pre-#425 the curve fed
-/// through `dcp::apply_with_plt_and_ptc` for the Fallback / non-bundled
-/// path and the test asserted the curve's output value at L; the
-/// predictor's premise no longer applies.
+/// through the (removed) `apply_with_plt_and_ptc` entry point for the
+/// Fallback / non-bundled path and the test asserted the curve's
+/// output value at L; the predictor's premise no longer applies.
 #[test]
 fn profile_tone_curve_is_noop_under_colorimetry_only() {
     let curve = vec![
@@ -159,9 +158,5 @@ fn profile_tone_curve_is_noop_under_colorimetry_only() {
                     i, c, a[c], b[c], EPS_SCENE_LINEAR, L);
             }
         }
-        // Silence the unused `predict_tone_curve` import warning when
-        // the fixture is the synthetic grey: keep the import live for
-        // any future colorimetry-only assertions that want it.
-        let _ = predict_tone_curve(L, &curve);
     }
 }
