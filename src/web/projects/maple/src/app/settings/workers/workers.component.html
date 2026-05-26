@@ -451,14 +451,16 @@
                                 (click)="testConnection(s)"
                               >
                                 <maple-settings-icon name="test" [size]="12" />
-                                {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
+                                {{
+                                  testState(s).kind === 'testing' ? 'Testing…' : 'Test connection'
+                                }}
                               </button>
                             </div>
                             <div class="field-hint">
-                              Base URL of a Meilisearch sidecar for typo-tolerant search. Empty falls
-                              back to the <span class="mono">MAPLE_MEILISEARCH_URL</span> env var (or
-                              disables the sidecar — search then uses the Mongo text index). The API
-                              key is set via the
+                              Base URL of a Meilisearch sidecar for typo-tolerant search. Empty
+                              falls back to the <span class="mono">MAPLE_MEILISEARCH_URL</span> env
+                              var (or disables the sidecar — search then uses the Mongo text index).
+                              The API key is set via the
                               <span class="mono">MAPLE_MEILISEARCH_API_KEY</span> env var.
                             </div>
                             @if (testState(s).kind === 'ok') {
