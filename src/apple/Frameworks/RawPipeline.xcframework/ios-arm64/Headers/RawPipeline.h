@@ -4,6 +4,21 @@
 #include <stdlib.h>
 
 /**
+ * FFI return type for [`maple_compute_auto_tone`]. Plain C struct so the
+ * Apple Swift binding (`MapleCore`) and any other native consumer can
+ * mirror it 1:1 — slider rest position is encoded as the literal `0.0`,
+ * no `Option` plumbing required.
+ */
+typedef struct MapleAutoTone {
+  float exposure;
+  float contrast;
+  float whites;
+  float blacks;
+  float highlights;
+  float shadows;
+} MapleAutoTone;
+
+/**
  * Output buffer for the legacy 8-bit sRGB RGB renders
  * (`maple_render_file`, `maple_render_bytes`).
  */
@@ -150,6 +165,35 @@ typedef struct MapleAdjustmentParams {
    */
   uint32_t skip_agx;
 } MapleAdjustmentParams;
+
+/**
+ * Compute Auto Tone slider values from a post-WB scene-linear RGBA f32
+ * buffer.
+ *
+ * `scene_post_wb_rgba` must point to at least `4 * width * height` f32
+ * lanes laid out as RGBA (the alpha lane is ignored). The buffer must
+ * already be in `raw_core::image::ColorSpace::SceneLinearRec2020` — the
+ * same colorspace produced by `maple_render_scene_linear_*_f32`.
+ *
+ * Phase 1a populates the `exposure` field only; the remaining five
+ * fields are returned as 0.0 (slider rest position) so consumers can
+ * write the recommendation back to their slider model with a single
+ * memcpy.
+ *
+ * Returns:
+ * - `0` on success — `*out` is populated.
+ * - `-1` on a null pointer, a `width * height` overflow, or a
+ *   `width * height * 4` overflow.
+ *
+ * # Safety
+ * - `scene_post_wb_rgba` must point to at least `4 * width * height` f32
+ *   values that remain valid for the duration of the call.
+ * - `out` must point to a writable `MapleAutoTone`.
+ */
+int32_t maple_compute_auto_tone(const float *scene_post_wb_rgba,
+                                uint32_t width,
+                                uint32_t height,
+                                struct MapleAutoTone *out);
 
 /**
  * Free a buffer populated by `maple_render_file` or `maple_render_bytes`.
