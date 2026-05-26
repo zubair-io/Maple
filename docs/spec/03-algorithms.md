@@ -438,12 +438,12 @@ The four scene-tone sliders are verified scene-referred and (with one documented
 
 **Hue-preserving — uniform scalar multiply per pixel.**
 
-| Slider                        | Operation                                                          | Hue test                                                                              |
-| ----------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| `highlights`                  | Compute scene-luma `Y`, compress `Y` above knee, scale RGB by `Y_new/Y_old`. | `highlights_preserves_hue_on_partial_specular_below_knee_luma`, `highlights_preserves_hue_on_specular_above_knee_luma`, `highlights_preserves_hue_on_arbitrary_saturated_above_knee` |
-| `shadows`                     | Luma-masked multiplicative lift: `p *= 1 + mask*amount*0.5`.        | `shadows_preserves_hue_on_saturated_deep_shadow`, `shadows_negative_preserves_hue_on_saturated_deep_shadow` |
-| `whites`                      | Smoothstep-weighted scalar gain: `p *= 1 + (w_slider/200)*smoothstep(0.5,1.0,Y)`. | `whites_preserves_neutral_hue`, `whites_preserves_hue_on_arbitrary_saturated`         |
-| `blacks` &lt; 0 (crush)       | Luma-masked multiplicative compression: `p *= 1 + (b_slider/100)*w`. | `blacks_negative_preserves_hue_on_saturated_deep_shadow`                              |
+| Slider                  | Operation                                                                         | Hue test                                                                                                                                                                             |
+| ----------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `highlights`            | Compute scene-luma `Y`, compress `Y` above knee, scale RGB by `Y_new/Y_old`.      | `highlights_preserves_hue_on_partial_specular_below_knee_luma`, `highlights_preserves_hue_on_specular_above_knee_luma`, `highlights_preserves_hue_on_arbitrary_saturated_above_knee` |
+| `shadows`               | Luma-masked multiplicative lift: `p *= 1 + mask*amount*0.5`.                      | `shadows_preserves_hue_on_saturated_deep_shadow`, `shadows_negative_preserves_hue_on_saturated_deep_shadow`                                                                          |
+| `whites`                | Smoothstep-weighted scalar gain: `p *= 1 + (w_slider/200)*smoothstep(0.5,1.0,Y)`. | `whites_preserves_neutral_hue`, `whites_preserves_hue_on_arbitrary_saturated`                                                                                                        |
+| `blacks` &lt; 0 (crush) | Luma-masked multiplicative compression: `p *= 1 + (b_slider/100)*w`.              | `blacks_negative_preserves_hue_on_saturated_deep_shadow`                                                                                                                             |
 
 **Documented asymmetry — `blacks > 0` is additive, NOT multiplicative.**
 
