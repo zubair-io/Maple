@@ -13,8 +13,8 @@ use crate::{
     error::Result,
     image::RawImage,
     stages::{
-        clarity, highlight_recovery, noise_reduction, saturation, scene_tone_controls, sharpen,
-        texture, vibrance, white_balance,
+        clarity, highlight_recovery, highlight_recovery_oklab, noise_reduction, saturation,
+        scene_tone_controls, sharpen, texture, vibrance, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -92,6 +92,12 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     let mut scene = stage("tile_dcp_apply", || dcp::apply_colorimetry(
         &camera_rgb, &profile,
     ))?;
+    // Ticket #471: opt-in post-DCP Oklab chroma-reduction highlight
+    // recovery. No-op for every other mode — see `pipeline::develop` for
+    // the strategic rationale.
+    stage("tile_highlight_recovery_oklab", || {
+        highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
+    });
     if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
         stage("tile_profile_gain_table_map", || {
             crate::color::profile_gain_table_map::apply(&mut scene, pgtm)

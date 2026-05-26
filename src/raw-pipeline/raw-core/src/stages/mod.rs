@@ -11,6 +11,7 @@ pub mod guided;
 pub mod nlm;
 pub mod dehaze;
 pub mod highlight_recovery;
+pub mod highlight_recovery_oklab;
 pub mod sharpen;
 pub mod capture_sharpening;
 pub mod noise_reduction;
