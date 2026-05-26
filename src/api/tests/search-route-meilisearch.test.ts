@@ -79,9 +79,11 @@ function makeMockMeili(impl: MockMeili['searchImpl']): MockMeili {
     searchImpl: impl,
     searchCalls: calls,
     isConfigured: () => true,
+    semanticConfigured: () => false,
     health: async () => true,
     ensureIndex: async () => {},
     upsert: async () => {},
+    upsertOrThrow: async () => {},
     tombstone: async () => {},
     search: async (q, opts = {}) => {
       calls.push({ q, opts });
@@ -362,5 +364,84 @@ describe('/api/search?placeQuery — Meilisearch path', () => {
     expect(r.status).toBe(200);
     expect(mock.searchCalls.length).toBe(1);
     expect(mock.searchCalls[0]!.opts.folderId).toBe(folder.toHexString());
+  });
+
+  it('passes semantic + people through to the Meilisearch options', async () => {
+    if (!mongoReachable) return;
+    // Semantic-capable mock so the route forwards `semantic: true`.
+    const mock = makeMockMeili(async () => ({
+      ids: ['maple-albany'],
+      estimatedTotal: 1,
+    }));
+    mock.semanticConfigured = () => true;
+    setMeilisearchClientForTests(mock);
+
+    const { searchRoutes } = await import('../src/routes/search.ts');
+    const { requireAuth } = await import('../src/auth/middleware.ts');
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+
+    const url =
+      'http://localhost/api/search?placeQuery=museum&people=' + encodeURIComponent('Greyson, Maya');
+    const r = await app.handle(new Request(url, { headers: fmtAuth() }));
+    expect(r.status).toBe(200);
+    expect(mock.searchCalls.length).toBe(1);
+    expect(mock.searchCalls[0]!.opts.semantic).toBe(true);
+    expect(mock.searchCalls[0]!.opts.people).toEqual(['Greyson', 'Maya']);
+  });
+
+  it('strips a natural-language date from placeQuery before the Meili call and applies captured_at', async () => {
+    if (!mongoReachable) return;
+    // Both seeded assets are captured in 2024; constrain to a month that
+    // only matches the Albany row (June). The residual text ("museum") is
+    // what reaches Meili — the date is folded into the Mongo re-fetch.
+    const mock = makeMockMeili(async () => ({
+      ids: ['maple-albany', 'maple-nyc'],
+      estimatedTotal: 2,
+    }));
+    setMeilisearchClientForTests(mock);
+
+    const { searchRoutes } = await import('../src/routes/search.ts');
+    const { requireAuth } = await import('../src/auth/middleware.ts');
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+
+    const url = 'http://localhost/api/search?placeQuery=' + encodeURIComponent('museum June 2024');
+    const r = await app.handle(new Request(url, { headers: fmtAuth() }));
+    expect(r.status).toBe(200);
+    // The date substring is stripped — Meili sees only the residual text.
+    expect(mock.searchCalls.length).toBe(1);
+    expect(mock.searchCalls[0]!.q).toBe('museum');
+    // captured_at June 2024 narrows the Mongo re-fetch to the Albany row
+    // (2024-06-01); the NYC row is 2024-07-01.
+    const body = (await r.json()) as { results: Array<{ filename: string }> };
+    const names = body.results.map((x) => x.filename);
+    expect(names).toContain('albany-museum.dng');
+    expect(names).not.toContain('nyc-park.dng');
+  });
+
+  it('pure-date placeQuery bypasses Meili and filters by captured_at', async () => {
+    if (!mongoReachable) return;
+    let meiliCalls = 0;
+    const mock = makeMockMeili(async () => {
+      meiliCalls += 1;
+      return { ids: [], estimatedTotal: 0 };
+    });
+    setMeilisearchClientForTests(mock);
+
+    const { searchRoutes } = await import('../src/routes/search.ts');
+    const { requireAuth } = await import('../src/auth/middleware.ts');
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+
+    // "2024" resolves to a whole-year range with empty residual text — the
+    // route must NOT touch Meili and instead run a plain Mongo filter.
+    const r = await app.handle(
+      new Request('http://localhost/api/search?placeQuery=2024', { headers: fmtAuth() }),
+    );
+    expect(r.status).toBe(200);
+    expect(meiliCalls).toBe(0);
+    const body = (await r.json()) as { total: number; results: Array<{ filename: string }> };
+    // Both seeded rows are captured in 2024.
+    expect(body.total).toBe(2);
+    const names = body.results.map((x) => x.filename).sort();
+    expect(names).toEqual(['albany-museum.dng', 'nyc-park.dng']);
   });
 });

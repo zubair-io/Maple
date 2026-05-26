@@ -21,7 +21,7 @@
  *     produce a byte-identical blob, regardless of source order)
  */
 
-import type { Place } from "../db/schema.ts";
+import type { Place } from '../db/schema.ts';
 
 export interface ComposeSearchBlobInput {
   /** Reverse-geocoded place. `null`/`undefined` ⇒ contributes no tokens. */
@@ -39,6 +39,11 @@ export interface ComposeSearchBlobInput {
   visionActivity?: string | null;
   /** Structured notable objects (e.g. ["lacrosse stick", "cleats"]). */
   visionNotableObjects?: string[] | null;
+  /** Named people appearing in the asset (e.g. ["Greyson", "Maya"]).
+   * Resolved from `faces[].person_id` by the caller — the blob can't
+   * `$lookup` person names, so the meili stage passes them explicitly.
+   * Auto-generated `Person N` clusters are excluded upstream. */
+  people?: string[] | null;
 }
 
 /** Pure: build the unified blob from the contributing sources. Returns `""`
@@ -68,7 +73,12 @@ export function composeSearchBlob(input: ComposeSearchBlobInput): string {
   add(input.visionActivity);
   for (const o of input.visionNotableObjects ?? []) add(o);
 
-  return [...tokens].sort().join(" ");
+  // Named people — each name tokenised so "Greyson Smith" matches either
+  // word. The meili stage filters out auto-generated `Person N` names
+  // before passing them in.
+  for (const p of input.people ?? []) add(p);
+
+  return [...tokens].sort().join(' ');
 }
 
 /**
@@ -97,6 +107,10 @@ export interface SearchBlobOverrides {
   description?: string | null;
   /** Override for the row's `ocr_text`. */
   ocrText?: string | null;
+  /** Named people to fold into the blob. The aggregation form can't
+   * `$lookup` person names, so callers resolve and pass them explicitly;
+   * the supplied tokens are unioned into the computed token set. */
+  people?: string[] | null;
 }
 
 /** Aggregation pipeline expression that resolves to the synthesised blob.
@@ -109,15 +123,18 @@ export function searchBlobUpdateExpression(
   // when supplied (including `null`, which means "no contribution"), or
   // the current field value as a fallback. `$ifNull` collapses missing
   // fields to empty strings so the tokeniser doesn't trip on null.
-  const placeExpr = "placeSearchBlob" in overrides
-    ? { $ifNull: [overrides.placeSearchBlob ?? "", ""] }
-    : { $ifNull: ["$place.search_blob", ""] };
-  const descExpr = "description" in overrides
-    ? { $ifNull: [overrides.description ?? "", ""] }
-    : { $ifNull: ["$description", ""] };
-  const ocrExpr = "ocrText" in overrides
-    ? { $ifNull: [overrides.ocrText ?? "", ""] }
-    : { $ifNull: ["$ocr_text", ""] };
+  const placeExpr =
+    'placeSearchBlob' in overrides
+      ? { $ifNull: [overrides.placeSearchBlob ?? '', ''] }
+      : { $ifNull: ['$place.search_blob', ''] };
+  const descExpr =
+    'description' in overrides
+      ? { $ifNull: [overrides.description ?? '', ''] }
+      : { $ifNull: ['$description', ''] };
+  const ocrExpr =
+    'ocrText' in overrides
+      ? { $ifNull: [overrides.ocrText ?? '', ''] }
+      : { $ifNull: ['$ocr_text', ''] };
 
   // Tokenise each source: lowercase, normalise whitespace (any
   // tab/newline/CR collapses to a single space — `$split` only splits
@@ -141,35 +158,43 @@ export function searchBlobUpdateExpression(
                       input: {
                         $replaceAll: {
                           input: { $toLower: sourceExpr },
-                          find: "\r\n",
-                          replacement: " ",
+                          find: '\r\n',
+                          replacement: ' ',
                         },
                       },
-                      find: "\n",
-                      replacement: " ",
+                      find: '\n',
+                      replacement: ' ',
                     },
                   },
-                  find: "\r",
-                  replacement: " ",
+                  find: '\r',
+                  replacement: ' ',
                 },
               },
-              find: "\t",
-              replacement: " ",
+              find: '\t',
+              replacement: ' ',
             },
           },
-          " ",
+          ' ',
         ],
       },
-      cond: { $gt: [{ $strLenCP: "$$this" }, 0] },
+      cond: { $gt: [{ $strLenCP: '$$this' }, 0] },
     },
   });
 
+  // People tokens are supplied by the caller (no `$lookup` in this
+  // expression). Tokenise each name client-side — lowercase + whitespace
+  // split — so the union matches the runtime `composeSearchBlob` shape,
+  // then fold the literal array into the union.
+  const peopleTokens: string[] = [];
+  for (const name of overrides.people ?? []) {
+    if (!name) continue;
+    for (const part of name.toLowerCase().split(/\s+/)) {
+      if (part.length > 0) peopleTokens.push(part);
+    }
+  }
+
   const allTokens = {
-    $setUnion: [
-      tokenise(placeExpr),
-      tokenise(descExpr),
-      tokenise(ocrExpr),
-    ],
+    $setUnion: [tokenise(placeExpr), tokenise(descExpr), tokenise(ocrExpr), peopleTokens],
   };
 
   // Sort + join with single space. `$reduce` with the empty-string sentinel
@@ -177,13 +202,9 @@ export function searchBlobUpdateExpression(
   return {
     $reduce: {
       input: { $sortArray: { input: allTokens, sortBy: 1 } },
-      initialValue: "",
+      initialValue: '',
       in: {
-        $cond: [
-          { $eq: ["$$value", ""] },
-          "$$this",
-          { $concat: ["$$value", " ", "$$this"] },
-        ],
+        $cond: [{ $eq: ['$$value', ''] }, '$$this', { $concat: ['$$value', ' ', '$$this'] }],
       },
     },
   };
