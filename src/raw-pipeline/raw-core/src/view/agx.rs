@@ -1,9 +1,22 @@
 //! AgX view transform: scene-linear Rec.2020 → display-linear Rec.2020.
 //! Spec § 3.6a.
 //!
-//! This is **canonical Sobotka AgX** (#263): inset matrix → log encode →
-//! per-channel Jed Smith sigmoid → outset matrix → clamp. The matrices,
-//! sigmoid coefficients, and LUT are derived by
+//! Post-#435: **Sobotka AgX with filmic hue restoration + Oklab gamut
+//! compression**. The chain is:
+//!
+//!   inset matrix
+//!     → ratio-preserving sigmoid (sigmoid applied to max(R,G,B), RGB
+//!       scaled by sigmoid_norm / norm — hue invariant by construction)
+//!     → outset matrix
+//!     → Oklab hue-preserving gamut compression to [0, 1]^3
+//!
+//! The per-channel sigmoid + hard `clamp(0, 1)` form (pre-#435) drove
+//! channels negative on saturated reds/blues/purples, surfaced as
+//! magenta. The `luma_coupled_toe` band-aid that addressed the
+//! symmetric problem in deep shadows is now retired — the ratio path
+//! handles deep shadows naturally without a separate gate.
+//!
+//! The matrices, sigmoid coefficients, and LUT are derived by
 //! `src/scripts/derive_agx_lut.py` and emitted as:
 //!
 //!   * `agx_lut.bin`    — 512 × f32 little-endian, embedded via
@@ -23,11 +36,14 @@ use rayon::prelude::*;
 
 #[path = "agx_coeffs.rs"]
 mod coeffs;
+#[path = "agx_hue_restoration.rs"]
+mod hue_restoration;
 pub use coeffs::{
     AGX_BASE_SLOPE, AGX_INSET_MATRIX, AGX_LUT_SIZE, AGX_MAX_EV, AGX_MID_DISPLAY, AGX_MID_GRAY,
     AGX_MIN_EV, AGX_OUTSET_MATRIX, AGX_SHOULDER_POWER, AGX_TOE_POWER, AGX_VERSION, AGX_X_PIVOT,
     AGX_Y_PIVOT,
 };
+use hue_restoration::{norm_sigmoid_ratio, oklab_gamut_compress};
 
 /// Embedded LUT bytes — 512 × f32 little-endian.
 const AGX_LUT_BYTES: &[u8] = include_bytes!("agx_lut.bin");
@@ -88,64 +104,44 @@ fn log_encode(channel: f32) -> f32 {
     (log_v - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV)
 }
 
-/// Rec.2020 (BT.2020) luminance weights. Used by the luminance-coupled
-/// toe clamp to evaluate whether a pixel's neutral level is below the
-/// AgX toe — without this, per-channel clamping in deep shadows produces
-/// asymmetric channels and surfaces magenta in the darkest pixels.
-const REC2020_LUM_R: f32 = 0.2627;
-const REC2020_LUM_G: f32 = 0.6780;
-const REC2020_LUM_B: f32 = 0.0593;
-
-/// Luminance-coupled toe floor. Replaces the old per-channel `max(scene,
-/// floor)` (which clipped each channel against the same floor independently
-/// and produced asymmetric clamping in deep shadows). Here we test luminance
-/// — only pixels whose luminance is itself below the AgX toe get pinned;
-/// in-gamut shadow pixels with channel-level dips below the floor pass
-/// through unchanged and the sigmoid handles them. Preserves chroma in
-/// deep shadows without surfacing the per-channel magenta artifact.
-#[inline]
-fn luma_coupled_toe(pixel: [f32; 3]) -> [f32; 3] {
-    let floor = AGX_MID_GRAY * AGX_MIN_EV.exp2();
-    let y =
-        REC2020_LUM_R * pixel[0] + REC2020_LUM_G * pixel[1] + REC2020_LUM_B * pixel[2];
-    if y >= floor {
-        return pixel;
-    }
-    // Luminance below the toe — pin all channels to the floor so the
-    // log-encode lands at MIN_EV uniformly (preserves grey-axis).
-    [floor, floor, floor]
-}
-
-/// Apply AgX to a single pixel: full Sobotka pipeline (inset → log →
-/// sigmoid LUT → outset → clamp). `slope` is 1.0 at `contrast=0`; positive
-/// contrast steepens, negative softens. Slope pivots around `MID_NORM`.
+/// Apply AgX to a single pixel:
+///
+/// `slope` is 1.0 at `contrast=0`; positive contrast steepens, negative
+/// softens. Slope pivots around `MID_NORM`. Per the #435 audit the
+/// inner `.clamp(0.0, 1.0)` was removed from the contrast modulation —
+/// `sample_lut` already clamps its input to `[0, 1]`, and the inner
+/// clamp was posterising the toe/shoulder when `|contrast| > 0`.
+///
+/// The sigmoid is **applied in a ratio-preserving way** (norm = max of
+/// inset RGB; sigmoid the norm once, scale RGB by sigmoid_norm / norm),
+/// so hue survives the curve. The post-outset clamp is replaced with
+/// Oklab hue-preserving gamut compression to keep saturated-primary
+/// pixels in `[0, 1]^3` without producing magenta.
 fn agx_pixel(scene: [f32; 3], slope: f32) -> [f32; 3] {
-    // 1) Luminance-coupled toe floor (replaces the old per-channel clamp).
-    let lifted = luma_coupled_toe(scene);
-    // 2) Inset matrix: Rec.2020 → AgX-Base-Rec.2020 (per-channel desat).
-    let inset = matrix_mul(&AGX_INSET_MATRIX, lifted);
-    // 3) Per-channel log encode + sigmoid LUT.
-    let mut sig = [0.0f32; 3];
-    for i in 0..3 {
-        let norm = log_encode(inset[i]);
-        // Contrast modulation: expand/compress around MID_NORM so contrast=0
-        // → identity. The sigmoid LUT already encodes the AgX shape; this
-        // scales the input domain.
-        let modulated = (MID_NORM + (norm - MID_NORM) * slope).clamp(0.0, 1.0);
-        sig[i] = sample_lut(modulated);
-    }
-    // 4) Outset matrix: AgX-Base-Rec.2020 → Rec.2020 (restores chroma).
+    // 1) Inset matrix: Rec.2020 → AgX-Base-Rec.2020 (per-channel desat).
+    //    No pre-clamp: the ratio-preserving sigmoid below handles
+    //    deep shadow uniformly without a luma gate (the old
+    //    `luma_coupled_toe` is retired in #435).
+    let inset = matrix_mul(&AGX_INSET_MATRIX, scene);
+
+    // 2) Ratio-preserving sigmoid: sigmoid applied to max(R,G,B), the
+    //    other channels ride the same scale. Hue invariant; replaces
+    //    the per-channel form that produced magenta on saturated
+    //    primaries.
+    let sigmoid_curve = |x: f32| -> f32 {
+        let norm = log_encode(x);
+        let modulated = MID_NORM + (norm - MID_NORM) * slope;
+        sample_lut(modulated)
+    };
+    let sig = norm_sigmoid_ratio(inset, sigmoid_curve);
+
+    // 3) Outset matrix: AgX-Base-Rec.2020 → Rec.2020 (restores chroma).
     let out = matrix_mul(&AGX_OUTSET_MATRIX, sig);
-    // 5) Clamp to [0, 1]. The outset is the inverse of inset, but the
-    //    sigmoid shape isn't a per-primary mapping in display-linear
-    //    space, so out-of-gamut excursions can produce slightly negative
-    //    channels (e.g. ~ -3e-3) or slight overshoot near 1.0. The next
-    //    pipeline stage (sRGB encode) expects [0, 1]; clamp here.
-    [
-        out[0].clamp(0.0, 1.0),
-        out[1].clamp(0.0, 1.0),
-        out[2].clamp(0.0, 1.0),
-    ]
+
+    // 4) Hue-preserving gamut compression to [0, 1]^3. Most in-gamut
+    //    pixels short-circuit; only saturated primaries pay the Oklab
+    //    bisection cost.
+    oklab_gamut_compress(out)
 }
 
 /// Apply AgX across the image. Input must be `SceneLinearRec2020`; output
@@ -367,23 +363,26 @@ mod tests {
         // A scene with one channel way out of gamut (e.g., saturated red
         // specular at 20× mid-gray, green/blue at mid-gray). The inset
         // matrix bakes per-channel desat into the sigmoid input, so R rolls
-        // off toward 1 while G/B sit near display mid-gray.
+        // off toward 1 while G/B sit below; the ratio-preserving sigmoid
+        // (#435) and Oklab gamut compression keep the result hue-correct
+        // and inside [0, 1]^3.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         img.pixels[0] = [20.0 * AGX_MID_GRAY, AGX_MID_GRAY, AGX_MID_GRAY];
         apply(&mut img, 0.0);
         let p = img.pixels[0];
         assert!(p[0] > p[1], "R < G: {} vs {}", p[0], p[1]);
-        // Real Sobotka AgX maps this case to roughly (0.83, 0.31, 0.31) —
-        // R-G spread ≈ 0.52, well under the naive 0.82 cap.
-        let max_spread = 1.0 - AGX_MID_DISPLAY; // 0.82
-        assert!(
-            p[0] - p[1] < max_spread,
-            "saturated-red spread {} - {} = {} should be < {}",
-            p[0],
-            p[1],
-            p[0] - p[1],
-            max_spread
-        );
+        // After ratio-preserving sigmoid the spread can approach but cannot
+        // exceed 1.0 (output is bounded in `[0, 1]`). The earlier 1−mid_gray
+        // bound was a per-channel-sigmoid artefact and doesn't hold under
+        // ratio-preservation; the load-bearing invariant is "stays in gamut",
+        // which `lands_in_unit_box` and `gamut_compress_lands_in_unit_box`
+        // already cover. Here we just confirm a real spread exists (the
+        // pixel isn't flattened to neutral) and the output channels are
+        // legal.
+        for &c in &p {
+            assert!(c >= 0.0 && c <= 1.0, "out of [0,1]: {}", c);
+        }
+        assert!(p[0] - p[1] > 0.05, "R-G spread collapsed: {} vs {}", p[0], p[1]);
     }
 
     #[test]
@@ -413,30 +412,22 @@ mod tests {
     }
 
     #[test]
-    fn deep_shadow_chroma_preserved_via_inset_matrix() {
-        // A pixel with luminance above the toe but one channel scratched
-        // below the floor: with the OLD per-channel `max(scene, floor)`
-        // clamp, R could land just above the floor while B landed below,
-        // giving asymmetric channels and a magenta tint. In the new
-        // pipeline, the INSET matrix (row sums = 1, all entries > 0)
-        // pulls every channel upward by ~8.5% of the other channels'
-        // contribution — so a near-zero blue channel rides up off the
-        // floor before the per-channel `max(channel, floor)` inside
-        // `log_encode` sees it. Net effect: chroma survives. The companion
-        // `below_toe_luminance_collapses_to_neutral` covers the luma-gate
-        // case where the WHOLE pixel sits below the toe.
+    fn deep_shadow_chroma_preserved_via_ratio_sigmoid() {
+        // A pixel in deep shadow with a non-trivial R:G:B ratio. Pre-#435
+        // the per-channel sigmoid + per-channel toe clamp could clip one
+        // channel asymmetrically and produce magenta. The ratio-preserving
+        // sigmoid scales R, G, B by the same factor (sigmoid(max)/max),
+        // so the input chroma direction is preserved exactly.
         let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
         let floor = AGX_MID_GRAY * AGX_MIN_EV.exp2();
         let r = 0.005f32;
         let g = 0.001f32;
-        let b = floor * 0.5; // below floor — would be pinned by old code
+        let b = floor * 0.5; // intentionally below the per-channel toe floor
         img.pixels[0] = [r, g, b];
-        let y = REC2020_LUM_R * r + REC2020_LUM_G * g + REC2020_LUM_B * b;
-        assert!(y > floor, "test setup: luma must be above floor for this case");
         apply(&mut img, 0.0);
         let p = img.pixels[0];
         // R should remain larger than G in display space — chroma preserved
-        // through the INSET → sigmoid → OUTSET round-trip.
+        // through the INSET → ratio sigmoid → OUTSET round-trip.
         assert!(
             p[0] > p[1],
             "deep shadow chroma collapsed: R={} not > G={}",
