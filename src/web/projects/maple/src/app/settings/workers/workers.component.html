@@ -149,6 +149,9 @@
                         @case ('face') {
                           Face detection
                         }
+                        @case ('meili') {
+                          Search index
+                        }
                       }
                     </div>
 
@@ -422,6 +425,52 @@
                                 />
                               </div>
                             </div>
+                          </div>
+                        </div>
+                      }
+
+                      @case ('meili') {
+                        <div class="grid-2col">
+                          <div class="field field-wide">
+                            <div class="field-label">Meilisearch URL</div>
+                            <div class="text-input mono">
+                              <div class="text-input-wrap">
+                                <input
+                                  type="text"
+                                  placeholder="(empty falls back to env / disables)"
+                                  [value]="enrichmentValue(s, 'meilisearch_url')"
+                                  (input)="
+                                    setEnrichment(s, 'meilisearch_url', $any($event.target).value)
+                                  "
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                class="btn-ghost"
+                                [disabled]="testState(s).kind === 'testing'"
+                                (click)="testConnection(s)"
+                              >
+                                <maple-settings-icon name="test" [size]="12" />
+                                {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
+                              </button>
+                            </div>
+                            <div class="field-hint">
+                              Base URL of a Meilisearch sidecar for typo-tolerant search. Empty falls
+                              back to the <span class="mono">MAPLE_MEILISEARCH_URL</span> env var (or
+                              disables the sidecar — search then uses the Mongo text index). The API
+                              key is set via the
+                              <span class="mono">MAPLE_MEILISEARCH_API_KEY</span> env var.
+                            </div>
+                            @if (testState(s).kind === 'ok') {
+                              <div class="test-result ok">
+                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
+                                Meilisearch responded.
+                              </div>
+                            } @else if (testState(s).kind === 'error') {
+                              <div class="test-result err">
+                                {{ $any(testState(s)).message }}
+                              </div>
+                            }
                           </div>
                         </div>
                       }

@@ -77,7 +77,11 @@ import { workerRoutes } from './workers/routes.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from './enrichment/bootstrap.ts';
 import { startFaceWorker, stopFaceWorker } from './enrichment/face-bootstrap.ts';
 import { startDescribeWorker, stopDescribeWorker } from './enrichment/describe-bootstrap.ts';
-import { meilisearchClient } from './enrichment/meilisearch-client.ts';
+import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
+import {
+  loadEnrichmentConfig,
+  resolveEnrichmentConfig,
+} from './enrichment/enrichment-config.repo.ts';
 import { startJobRunner, stopJobRunner } from './job-runner/runner.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 
@@ -95,6 +99,12 @@ const log = childLogger('server');
 //   2. File on disk at MAPLE_JWT_SECRET_FILE or `./.maple/jwt.secret`.
 //   3. Generate 32 random bytes (base64url), persist with mode 0o600,
 //      and use that. The .maple/ directory is gitignored.
+//
+// The generated secret persists across restarts. Losing the file is what
+// logs everyone out (every issued JWT stops verifying), so for durability
+// across a *reinstall* point MAPLE_JWT_SECRET_FILE at a persistent volume
+// outside the install dir. See docs/server-api.md § "Signing-secret
+// persistence".
 function ensureJwtSecret(): void {
   if (process.env.MAPLE_JWT_SECRET) return;
   const path = process.env.MAPLE_JWT_SECRET_FILE ?? './.maple/jwt.secret';
@@ -374,9 +384,16 @@ async function start(): Promise<void> {
     try {
       // Meilisearch sidecar. Search falls back to Mongo $text when
       // unconfigured / unreachable / index build fails.
+      //
+      // Resolve the URL from the DB-backed enrichment config first (operator
+      // can set it via /settings/workers); a saved value wins over the
+      // MAPLE_MEILISEARCH_URL env var. reconfigureMeilisearch rebuilds the
+      // shared client so every consumer (search route, meili stage) agrees.
+      const resolvedMeili = resolveEnrichmentConfig(await loadEnrichmentConfig());
+      reconfigureMeilisearch(resolvedMeili.meilisearch_url);
       const meili = meilisearchClient();
       if (!meili.isConfigured()) {
-        log.info('MAPLE_MEILISEARCH_URL unset — Meilisearch sidecar disabled');
+        log.info('Meilisearch URL unset (DB + MAPLE_MEILISEARCH_URL) — sidecar disabled');
       } else if (!(await meili.health())) {
         log.warn(
           'Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable',

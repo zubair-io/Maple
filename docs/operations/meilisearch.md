@@ -51,7 +51,25 @@ sends it as a bearer token on every request.
 
 ## Pointing Maple at the sidecar
 
-Set two env vars in Maple's `.env` (see `src/api/.env.example`):
+There are two ways to set the URL. The **API key** is always the
+`MAPLE_MEILISEARCH_API_KEY` env var — it is a secret and is never stored
+in the database or exposed in the UI.
+
+### From the Settings UI (no restart)
+
+Owners can set the URL at **Settings → Workers → meili → Meilisearch URL**.
+The "Test connection" button health-checks the URL (authenticating with the
+`MAPLE_MEILISEARCH_API_KEY` env var) before you save. On save, Maple rebuilds
+the client and re-creates the index in the background — the running process
+(search route and the `meili` stage) picks up the change with no restart.
+
+A saved URL is persisted in the `app_settings` Mongo doc and **takes
+precedence over the env var**. Clear the field to fall back to the env var
+(or disable the sidecar when neither is set).
+
+### From the environment
+
+Set env vars in Maple's `.env` (see `src/api/.env.example`):
 
 ```sh
 MAPLE_MEILISEARCH_URL=http://meili.lan:7700
@@ -65,15 +83,15 @@ Meilisearch sidecar ready
 ```
 
 ```
-MAPLE_MEILISEARCH_URL unset — Meilisearch sidecar disabled
+Meilisearch URL unset (DB + MAPLE_MEILISEARCH_URL) — sidecar disabled
 ```
 
 ```
 Meilisearch health check failed; search will fall back to Mongo $text
 ```
 
-The third case is non-fatal — fix the URL or start the service and
-restart Maple.
+The third case is non-fatal — fix the URL (via the UI or env) or start the
+service; the next search request uses Meilisearch again with no restart.
 
 ## Index settings Maple expects
 

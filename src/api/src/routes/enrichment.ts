@@ -6,8 +6,11 @@
  *
  *   GET  /api/enrichment/config        — current effective config + sources
  *   PUT  /api/enrichment/config        — save new config; runs health-check
- *   POST /api/enrichment/test          — health-check an arbitrary URL
- *                                        without saving (UI "Test" button)
+ *   POST /api/enrichment/test          — health-check an arbitrary Nominatim
+ *                                        URL without saving (UI "Test" button)
+ *   POST /api/enrichment/test-meili    — health-check an arbitrary
+ *                                        Meilisearch URL without saving
+ *   POST /api/enrichment/test-describe — health-check a describe provider
  *
  * All routes are mounted behind `requireAuth` — see `src/index.ts`.
  */
@@ -29,6 +32,10 @@ import { applyDescribeConfig } from '../enrichment/describe-bootstrap.ts';
 import { NominatimClient, NominatimError } from '../enrichment/nominatim-client.ts';
 import { getFaceModelsStatus, probeFaceModelFiles } from '../enrichment/face-models.ts';
 import { RemoteError, getDescribeProvider } from '../enrichment/describe-providers/index.ts';
+import {
+  createMeilisearchClient,
+  reconfigureMeilisearch,
+} from '../enrichment/meilisearch-client.ts';
 
 const log = childLogger('enrichment:routes');
 
@@ -66,10 +73,20 @@ const ConfigBody = t.Object({
   face_retinaface_sha256: t.Optional(t.Union([t.String(), t.Null()])),
   face_mobilefacenet_url: t.Optional(t.Union([t.String(), t.Null()])),
   face_mobilefacenet_sha256: t.Optional(t.Union([t.String(), t.Null()])),
+  // ── Search index (Phase 7) ─────────────────────────────────────────
+  /** Meilisearch sidecar URL. `null`/empty clears back to the
+   * `MAPLE_MEILISEARCH_URL` env var (or disables the sidecar); omitted
+   * leaves the saved value alone. The API key is NOT settable here — it
+   * stays the `MAPLE_MEILISEARCH_API_KEY` env var. */
+  meilisearch_url: t.Optional(t.Union([t.String(), t.Null()])),
 });
 
 const TestBody = t.Object({
   nominatim_url: t.String({ minLength: 1 }),
+});
+
+const TestMeiliBody = t.Object({
+  meilisearch_url: t.String({ minLength: 1 }),
 });
 
 const TestDescribeBody = t.Object({
@@ -79,9 +96,11 @@ const TestDescribeBody = t.Object({
   api_key: t.Optional(t.Union([t.String(), t.Null()])),
 });
 
-/** Best-effort URL validator. We accept http(s) only — Nominatim doesn't
- * speak anything else and it'd be a footgun to allow `file://` etc. */
-function validateNominatimUrl(raw: string | null): string | null | { error: string } {
+/** Best-effort URL validator. We accept http(s) only — Nominatim and
+ * Meilisearch don't speak anything else and it'd be a footgun to allow
+ * `file://` etc. Returns the trimmed, trailing-slash-stripped URL, `null`
+ * for empty input, or `{ error }` for an invalid value. */
+function validateHttpUrl(raw: string | null): string | null | { error: string } {
   if (raw === null) return null;
   const trimmed = raw.trim();
   if (trimmed.length === 0) return null;
@@ -128,7 +147,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
   .put(
     '/config',
     async ({ body, set }) => {
-      const validated = validateNominatimUrl(body.nominatim_url);
+      const validated = validateHttpUrl(body.nominatim_url);
       if (validated && typeof validated === 'object' && 'error' in validated) {
         set.status = 400;
         return { error: `Invalid nominatim_url: ${validated.error}` };
@@ -197,6 +216,21 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         }
       }
 
+      // ── Meilisearch URL validation ────────────────────────────────
+      // `undefined` = field omitted (keep existing); `null`/empty = clear
+      // back to env-or-disabled. Unlike Nominatim, an unreachable Meili URL
+      // is NOT a save-blocker — search degrades to the Mongo `$text` path —
+      // so we only validate the URL shape here, not connectivity.
+      let meiliUrl: string | null | undefined;
+      if (body.meilisearch_url !== undefined) {
+        const validatedMeili = validateHttpUrl(body.meilisearch_url);
+        if (validatedMeili && typeof validatedMeili === 'object' && 'error' in validatedMeili) {
+          set.status = 400;
+          return { error: `Invalid meilisearch_url: ${validatedMeili.error}` };
+        }
+        meiliUrl = validatedMeili as string | null;
+      }
+
       await saveEnrichmentConfig({
         nominatim_url: url,
         geocode_worker_enabled: body.geocode_worker_enabled,
@@ -246,6 +280,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         ...(body.face_worker_enabled !== undefined
           ? { face_worker_enabled: body.face_worker_enabled }
           : {}),
+        ...(meiliUrl !== undefined ? { meilisearch_url: meiliUrl } : {}),
       });
 
       // Re-resolve from DB to compute the effective config (in case env vars
@@ -274,6 +309,23 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         const msg = err instanceof Error ? err.message : String(err);
         log.error({ err: msg }, 'applyDescribeConfig failed after save');
       }
+
+      // Rebuild the Meilisearch client against the resolved URL so the
+      // running process (search route + meili stage) picks it up without a
+      // restart. Best-effort: a bad/unreachable URL just means search falls
+      // back to Mongo `$text`, so we never fail the save here. When a URL is
+      // present we (re)create the index in the background so a freshly
+      // pointed-at Meili gets the right schema.
+      reconfigureMeilisearch(resolved.meilisearch_url);
+      if (resolved.meilisearch_url) {
+        const meili = createMeilisearchClient({ url: resolved.meilisearch_url });
+        try {
+          if (await meili.health()) await meili.ensureIndex();
+        } catch (err) {
+          log.warn({ err }, 'Meilisearch reconfigure health/ensureIndex failed (non-fatal)');
+        }
+      }
+
       return resolved;
     },
     { body: ConfigBody },
@@ -282,7 +334,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
   .post(
     '/test',
     async ({ body, set }) => {
-      const validated = validateNominatimUrl(body.nominatim_url);
+      const validated = validateHttpUrl(body.nominatim_url);
       if (validated === null) {
         set.status = 400;
         return { ok: false, error: 'URL is empty' };
@@ -302,6 +354,31 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       }
     },
     { body: TestBody },
+  )
+
+  // POST /api/enrichment/test-meili — health-check an arbitrary Meilisearch
+  // URL without saving. The API key comes from MAPLE_MEILISEARCH_API_KEY
+  // (read by createMeilisearchClient), so the probe authenticates the same
+  // way the live client will.
+  .post(
+    '/test-meili',
+    async ({ body, set }) => {
+      const validated = validateHttpUrl(body.meilisearch_url);
+      if (validated === null) {
+        set.status = 400;
+        return { ok: false, error: 'URL is empty' };
+      }
+      if (typeof validated === 'object' && 'error' in validated) {
+        set.status = 400;
+        return { ok: false, error: validated.error };
+      }
+      const client = createMeilisearchClient({ url: validated });
+      const ok = await client.health();
+      return ok
+        ? { ok: true, url: validated }
+        : { ok: false, error: 'Meilisearch health check failed', url: validated };
+    },
+    { body: TestMeiliBody },
   )
 
   // POST /api/enrichment/test-describe — health-check the configured

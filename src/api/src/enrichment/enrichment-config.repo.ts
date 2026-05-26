@@ -202,6 +202,13 @@ export interface EnrichmentConfig {
   face_retinaface_sha256?: string | null;
   face_mobilefacenet_url?: string | null;
   face_mobilefacenet_sha256?: string | null;
+  // ── Search index (Phase 7) ───────────────────────────────────────────
+  /** Meilisearch sidecar base URL for typo-tolerant search. `null`/missing →
+   * falls back to `MAPLE_MEILISEARCH_URL` / unset (search uses the Mongo
+   * `$text` path). The API key is NOT stored here — it stays the
+   * `MAPLE_MEILISEARCH_API_KEY` env var so the secret never lands in Mongo,
+   * matching how describe-provider keys are handled. */
+  meilisearch_url?: string | null;
   updated_at?: number;
 }
 
@@ -315,6 +322,9 @@ export async function saveEnrichmentConfig(patch: Partial<EnrichmentConfig>): Pr
   if (remapped.face_recognizer_sha256 !== undefined) {
     set['config.face_recognizer_sha256'] = remapped.face_recognizer_sha256;
   }
+  if (remapped.meilisearch_url !== undefined) {
+    set['config.meilisearch_url'] = remapped.meilisearch_url;
+  }
   await db.collection(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
 
@@ -351,6 +361,9 @@ export interface ResolvedEnrichmentConfig {
   /** Resolved face-recognizer (ArcFace R100) download URL. */
   face_recognizer_url: string | null;
   face_recognizer_sha256: string | null;
+  /** Resolved Meilisearch sidecar URL (DB → env → null). `null` leaves the
+   * sidecar disabled and search falls back to the Mongo `$text` path. */
+  meilisearch_url: string | null;
   /** Where each field came from. The UI renders this so the operator knows
    * whether they're seeing a saved value or an env-var fallback. */
   source: {
@@ -369,6 +382,7 @@ export interface ResolvedEnrichmentConfig {
     face_detector_sha256: 'db' | 'env' | 'unset';
     face_recognizer_url: 'db' | 'env' | 'unset';
     face_recognizer_sha256: 'db' | 'env' | 'unset';
+    meilisearch_url: 'db' | 'env' | 'unset';
   };
 }
 
@@ -562,6 +576,11 @@ export function resolveEnrichmentConfig(
     env.MAPLE_FACE_RECOGNIZER_SHA256 ?? env.MAPLE_FACE_MOBILEFACENET_SHA256,
   );
 
+  // Meilisearch sidecar URL — DB → env (MAPLE_MEILISEARCH_URL) → null.
+  // The API key is intentionally not resolved here; the client reads
+  // MAPLE_MEILISEARCH_API_KEY from env directly.
+  const meilisearchUrl = resolveStr(db?.meilisearch_url, env.MAPLE_MEILISEARCH_URL);
+
   return {
     nominatim_url: url,
     geocode_worker_enabled: enabled,
@@ -578,6 +597,7 @@ export function resolveEnrichmentConfig(
     face_detector_sha256: faceDetectorSha.value,
     face_recognizer_url: faceRecognizerUrl.value,
     face_recognizer_sha256: faceRecognizerSha.value,
+    meilisearch_url: meilisearchUrl.value,
     source: {
       nominatim_url: urlSource,
       geocode_worker_enabled: enabledSource,
@@ -594,6 +614,7 @@ export function resolveEnrichmentConfig(
       face_detector_sha256: faceDetectorSha.source,
       face_recognizer_url: faceRecognizerUrl.source,
       face_recognizer_sha256: faceRecognizerSha.source,
+      meilisearch_url: meilisearchUrl.source,
     },
   };
 }
