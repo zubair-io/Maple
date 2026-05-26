@@ -123,9 +123,19 @@ pub struct RawImage {
     /// fallback path works there without changes.
     pub unique_camera_model: Option<String>,
     /// Camera color matrices by calibration illuminant. Each is XYZ→camera per
-    /// DNG spec (inverse at apply-time to get camera→XYZ). Populated from rawler
-    /// per-illuminant data; may contain 1-2 entries. Used by DCP for dual-
+    /// DNG spec (inverse at apply-time to get camera→XYZ). Used by DCP for dual-
     /// illuminant reciprocal-CCT interpolation (spec § 3.4).
+    ///
+    /// **Only populated when the source FILE itself shipped `ColorMatrix1`
+    /// or `ColorMatrix2` tags** — i.e. DNG-shaped sources. Vendor RAW
+    /// formats (.fff/.cr2/.arw/.nef/etc.) leave this empty even though
+    /// rawler internally substitutes its own dcraw-lineage matrices for
+    /// debayer/WB purposes; those substitutes have historically regressed
+    /// color (test_0004 Hasselblad .fff: 7.24 → 8.86 ΔE if surfaced as
+    /// "embedded"). See `decode.rs` § 8 for the `cm_in_ifd` gate. When
+    /// this map is empty, `dcp::profile_for_with_source` falls through
+    /// to the bundled-profile path; if that also misses, to the generic
+    /// D65 → Rec.2020 fallback (#424). Never identity.
     pub color_matrices: HashMap<Illuminant, Matrix3>,
     /// DNG `ForwardMatrix1` / `ForwardMatrix2` (tags 50964 / 50965), keyed by
     /// the matching `CalibrationIlluminant`. Each is camera→XYZ-D50 per spec
