@@ -149,6 +149,20 @@ typedef struct MapleAdjustmentParams {
    * display-encoded). 0 = apply AgX (RAW path).
    */
   uint32_t skip_agx;
+  /**
+   * User-selectable display Look (ticket #515). The byte is mapped
+   * through `raw_core::view::look::Look::from(u8)`:
+   *   - `0` = `Look::Neutral`  (identity, scene-referred output)
+   *   - `1` = `Look::Default`  (empirical LUT — new-user default)
+   * Hosts that have not been updated yet leave this at `1` (the
+   * `AdjustmentModel::default()` Look).
+   *
+   * Placed at the end of the struct so adding the field does not shift
+   * the offset of any earlier field — the FFI ABI for existing fields
+   * stays binary-compatible with pre-#515 callers that re-bind to the
+   * new header.
+   */
+  uint8_t look_mode;
 } MapleAdjustmentParams;
 
 /**
@@ -347,6 +361,33 @@ int32_t maple_render_bytes(const uint8_t *raw_bytes,
                            const char *xmp_path,
                            int32_t quality_preview,
                            struct MapleImageBuffer *out);
+
+/**
+ * Writes 768 bytes (256 R, then 256 G, then 256 B) into `out` — the byte
+ * layout an Apple Metal `MTLTexture` (3 × `r8Unorm`, 256×1) or a Web
+ * WebGL2 `R8` 1D LUT texture expects, packed in channel-major order so
+ * the host can upload three contiguous 256-byte regions in one staging
+ * buffer.
+ *
+ * `look_mode` matches the `Look::from(u8)` mapping (`0` = `Neutral`,
+ * `1` = `Default`). Unknown bytes return `-1` without touching `out`.
+ *
+ * Returns `0` on success, `-1` if `out` is null OR `look_mode` is not
+ * one of the documented variants. The error path does not set
+ * `maple_last_error` — the caller has the look_mode in hand and a null
+ * pointer is its own diagnostic; this entry is deliberately small.
+ *
+ * Apple + Web hosts call this once per render to seed a GPU LUT texture
+ * (the texture stays valid until the user changes `look_mode`, so this
+ * is not per-tick — see ticket #515 § L3).
+ *
+ * # Safety
+ *
+ * `out` must point to a writable buffer of at least 768 bytes that lives
+ * for the duration of the call. The buffer is overwritten unconditionally
+ * on success and is not touched on error.
+ */
+int32_t maple_compute_look_lut(uint8_t look_mode, uint8_t *out);
 
 /**
  * Render a RAW+XMP to a scene-linear Rec.2020 fp16 RGBA buffer. Returns

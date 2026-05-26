@@ -844,7 +844,13 @@ extension PipelineRenderer {
             dehaze: Float(model.dehaze),
             decoded_temperature: Float(decodedTemperature),
             decoded_tint: Float(decodedTint),
-            skip_agx: skipAgX ? 1 : 0
+            skip_agx: skipAgX ? 1 : 0,
+            // L3 (#515) added `look_mode: u8` to the C-ABI struct. Hard-
+            // coded to `1` = `Look::Default` here as a syntactic
+            // compile-fix — L4 (#509) replaces the literal with
+            // `UInt8(model.look.rawValue)` (or equivalent) so the Swift
+            // shell actually surfaces the user's Look selection.
+            look_mode: 1
         )
     }
 

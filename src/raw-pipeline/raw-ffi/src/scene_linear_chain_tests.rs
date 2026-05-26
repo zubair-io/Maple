@@ -30,6 +30,7 @@ fn default_params() -> MapleAdjustmentParams {
         decoded_temperature: 5500.0,
         decoded_tint: 0.0,
         skip_agx: 1, // skip AgX in tests — keeps math trivial
+        look_mode: 1, // matches AdjustmentModel::default() — Look::Default
     }
 }
 
