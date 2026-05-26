@@ -8,7 +8,7 @@ import { Injectable } from '@angular/core';
 import type { XmpCulling, XmpFlag, XmpColorLabel, PassthroughBucket } from './xmp.types';
 import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-model';
 import type { Look } from '../generated/adjustment-model.generated';
-import { ADJUSTMENT_FIELDS, WB_PRESET_FIELD } from './xmp-fields';
+import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 
 /** XMP xmp:Label words → Maple colorLabel values. */
 const LABEL_MAP: Record<string, XmpColorLabel> = {
@@ -27,6 +27,7 @@ const VALID_FLAGS = new Set<string>(['pick', 'reject', 'unflagged']);
  */
 const KNOWN_ATTRIBUTES = new Set<string>([
   ...ADJUSTMENT_FIELDS.map((f) => f.xmpKey),
+  ...LEGACY_READ_ALIASES.map((f) => f.xmpKey),
   WB_PRESET_FIELD.xmpKey,
   // culling
   'xmp:Rating',
@@ -148,8 +149,16 @@ export class XmpParserService {
     }
 
     const model: Partial<AdjustmentModel> = {};
+    // Tracks model keys already populated from a canonical
+    // `ADJUSTMENT_FIELDS` entry so a `LEGACY_READ_ALIASES` mapping never
+    // overwrites them. Matches raw-core's `sigma_seen` precedence (#463):
+    // when both `papp:CaptureSharpeningSigma` and the legacy
+    // `papp:CaptureSharpeningRadius` are present, sigma always wins.
+    const canonicallyApplied = new Set<keyof AdjustmentModel>();
 
-    // Walk all attributes on rdf:Description.
+    // Pass 1: walk attributes, applying canonical fields and remembering
+    // legacy-aliased attributes for a second pass.
+    const legacyDeferred: Array<{ name: string; value: string }> = [];
     for (let i = 0; i < desc.attributes.length; i++) {
       const attr = desc.attributes[i];
       const name = attr.name;
@@ -161,7 +170,13 @@ export class XmpParserService {
           // Narrowed: every ADJUSTMENT_FIELDS entry is keyed on a numeric
           // AdjustmentModel field, so `parsed` is assignable to model[modelKey].
           model[mapping.modelKey] = parsed;
+          canonicallyApplied.add(mapping.modelKey);
         }
+        continue;
+      }
+
+      if (LEGACY_READ_ALIASES.some((f) => f.xmpKey === name)) {
+        legacyDeferred.push({ name, value: attr.value });
         continue;
       }
 
@@ -183,6 +198,20 @@ export class XmpParserService {
           model.look = parsed;
         }
         continue;
+      }
+    }
+
+    // Pass 2: apply legacy aliases only where the canonical key didn't
+    // already populate the field. DOMParser preserves source order, but
+    // this two-pass design makes the sigma-wins contract source-order
+    // independent.
+    for (const { name, value } of legacyDeferred) {
+      const alias = LEGACY_READ_ALIASES.find((f) => f.xmpKey === name);
+      if (!alias) continue;
+      if (canonicallyApplied.has(alias.modelKey)) continue;
+      const parsed = alias.parse(value);
+      if (!Number.isNaN(parsed)) {
+        model[alias.modelKey] = parsed;
       }
     }
 
