@@ -263,3 +263,38 @@ Local fixture sweep not measured: `test-fixtures/raws/` are gitignored
 on this worktree, so `test_color_pipeline.sh` skip-passed. Capture the
 drift in the same follow-up that ratchets the post-#424 numbers, or
 opportunistically the next time fixtures are mounted.
+
+---
+
+## post-#438 Rec.2020→sRGB hue-preserving gamut compression
+
+#438 replaces the per-channel `clamp(0, 1)` inside `srgb_gamma` with a
+hue-preserving Oklab `(a, b)` bisection at constant `L` when the post-
+matrix sRGB-linear triple sits outside `[0, 1]^3`. Shared helper at
+`src/raw-pipeline/raw-core/src/color/oklab_gamut.rs` —
+`compress_to_unit_cube_oklab(rgb, to_oklab, from_oklab)`. Same algorithm
+will be re-used by AgX (#435) on rebase via the Rec.2020 transform pair.
+
+Direction of drift on fixtures touching saturated reds/blues/purples
+(wide-gamut foliage, sunsets, neon, saturated fabric):
+
+* Hue-shift component of ΔE₀₀ **drops** — per-channel clip used to
+  rotate saturated red toward sRGB-primary red (different chromaticity
+  from Rec.2020 red), now the perceptual hue is preserved.
+* Chroma component **drops** slightly on those same pixels — the
+  bisection lands chroma below "as much as fits" because we land on
+  the first in-gamut scale rather than overshooting the gamut and
+  clipping.
+* Net effect on `test_color_pipeline.sh`: per-fixture `mean` / `p95`
+  on saturated-color cases (test_0010 / test_0014 / sunset-ish
+  fixtures) should move modestly; neutral / desaturated fixtures
+  should be byte-identical (in-gamut input is a strict no-op).
+
+Per-fixture deltas were NOT re-captured locally because
+`test-fixtures/raws/` is gitignored on this worktree. The harness
+skip-passes in CI without fixtures, and `budgets.json` is **not** being
+touched in this PR (one-way ratchet rule: budgets only go down, in the
+same commit that delivers the improvement, with measured numbers). The
+follow-up calibration sweep that re-baselines budgets across the whole
+post-overhaul pipeline will absorb #438's drift along with the rest of
+the wave-3 stack.
