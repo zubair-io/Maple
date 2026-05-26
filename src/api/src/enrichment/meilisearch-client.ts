@@ -22,13 +22,13 @@
  * (`globalThis.fetch`) the only seam tests need to control.
  */
 
-import { child as childLogger } from "../log.ts";
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("enrichment:meilisearch");
+const log = childLogger('enrichment:meilisearch');
 
 /** The Meilisearch index name we manage. Single-tenant; one Maple deployment
  * gets one index regardless of how many libraries the user has registered. */
-export const ASSETS_INDEX = "assets";
+export const ASSETS_INDEX = 'assets';
 
 /** Latest stable v1 features we rely on; bumped when we change the schema. */
 const REQUIRED_SETTINGS_VERSION = 1;
@@ -112,10 +112,7 @@ export interface MeilisearchClient {
   /** Typo-tolerant text search. Returns ids only; the route fetches the
    * full asset rows from Mongo. Throws on transport error so the route can
    * fall back to Mongo `$text`. */
-  search(
-    q: string,
-    opts?: MeilisearchSearchOptions,
-  ): Promise<MeilisearchSearchResult>;
+  search(q: string, opts?: MeilisearchSearchOptions): Promise<MeilisearchSearchResult>;
 }
 
 interface ClientConfig {
@@ -134,14 +131,14 @@ function readConfig(): ClientConfig {
 
 /** Type guard for the env-driven happy path: URL is set. */
 function isLive(cfg: ClientConfig): cfg is ClientConfig & { url: string } {
-  return typeof cfg.url === "string" && cfg.url.length > 0;
+  return typeof cfg.url === 'string' && cfg.url.length > 0;
 }
 
 /** Joins the base url and a relative path, tolerating a trailing slash on
  * the base. Always produces exactly one separator. */
 function joinUrl(base: string, path: string): string {
-  const b = base.replace(/\/+$/, "");
-  const p = path.startsWith("/") ? path : "/" + path;
+  const b = base.replace(/\/+$/, '');
+  const p = path.startsWith('/') ? path : '/' + path;
   return b + p;
 }
 
@@ -157,7 +154,7 @@ interface HttpResult<T> {
  * whether to log-and-swallow or rethrow. */
 async function http<T>(
   cfg: ClientConfig,
-  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
+  method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<HttpResult<T>> {
@@ -166,7 +163,7 @@ async function http<T>(
   }
   const url = joinUrl(cfg.url, path);
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    'Content-Type': 'application/json',
   };
   if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`;
   let response: Response;
@@ -185,7 +182,7 @@ async function http<T>(
     };
   }
   let parsed: unknown = null;
-  const text = await response.text().catch(() => "");
+  const text = await response.text().catch(() => '');
   if (text.length > 0) {
     try {
       parsed = JSON.parse(text);
@@ -198,7 +195,7 @@ async function http<T>(
       ok: false,
       status: response.status,
       body: null,
-      errorText: typeof parsed === "string" ? parsed : JSON.stringify(parsed),
+      errorText: typeof parsed === 'string' ? parsed : JSON.stringify(parsed),
     };
   }
   return {
@@ -219,22 +216,20 @@ interface MeiliSearchResponse {
  * here rather than passing user strings through, so an attacker can't
  * inject filter clauses via `folderId`. */
 function buildFilter(opts: MeilisearchSearchOptions): string {
-  const clauses: string[] = ["deletedAt IS NULL"];
+  const clauses: string[] = ['deletedAt IS NULL'];
   if (opts.folderId !== undefined && opts.folderId.length > 0) {
     // Hex chars only — defensive scrubbing in case a non-Mongo caller
     // ever passes through. ObjectId is 24 hex chars; keep liberal here.
-    const safe = opts.folderId.replace(/[^a-f0-9]/gi, "");
+    const safe = opts.folderId.replace(/[^a-f0-9]/gi, '');
     if (safe.length > 0) clauses.push(`folderId = "${safe}"`);
   }
-  return clauses.join(" AND ");
+  return clauses.join(' AND ');
 }
 
 /** Factory. Cached at module load so the boot path and the worker share
  * the same instance — but tests can call `createMeilisearchClient` directly
  * to inject a mocked `fetch`. */
-export function createMeilisearchClient(
-  override?: Partial<ClientConfig>,
-): MeilisearchClient {
+export function createMeilisearchClient(override?: Partial<ClientConfig>): MeilisearchClient {
   const cfg: ClientConfig = { ...readConfig(), ...override };
 
   return {
@@ -244,11 +239,11 @@ export function createMeilisearchClient(
 
     async health(): Promise<boolean> {
       if (!isLive(cfg)) return false;
-      const result = await http<{ status: string }>(cfg, "GET", "/health");
+      const result = await http<{ status: string }>(cfg, 'GET', '/health');
       if (!result.ok) {
         log.warn(
           { status: result.status, err: result.errorText },
-          "meilisearch health check failed",
+          'meilisearch health check failed',
         );
         return false;
       }
@@ -260,15 +255,15 @@ export function createMeilisearchClient(
       // Idempotent index create. Meilisearch returns 202 with a task on
       // create, and 4xx-with-already-exists if the index is already there;
       // either path is success.
-      const create = await http<unknown>(cfg, "POST", "/indexes", {
+      const create = await http<unknown>(cfg, 'POST', '/indexes', {
         uid: ASSETS_INDEX,
-        primaryKey: "id",
+        primaryKey: 'id',
       });
       if (
         !create.ok &&
         create.status !== 409 &&
         // Meili returns 4xx with an `index_already_exists` error code.
-        !(create.errorText ?? "").includes("index_already_exists")
+        !(create.errorText ?? '').includes('index_already_exists')
       ) {
         log.warn(
           {
@@ -276,37 +271,32 @@ export function createMeilisearchClient(
             err: create.errorText,
             settingsVersion: REQUIRED_SETTINGS_VERSION,
           },
-          "meilisearch ensureIndex create-index failed",
+          'meilisearch ensureIndex create-index failed',
         );
       }
       // Always (re-)apply settings — these are idempotent on Meilisearch's
       // side and let us rev `REQUIRED_SETTINGS_VERSION` later when we add
       // new searchable/filterable attributes.
-      const settings = await http<unknown>(
-        cfg,
-        "PATCH",
-        `/indexes/${ASSETS_INDEX}/settings`,
-        {
-          // Order is the per-attribute weighting Meilisearch applies:
-          // searchBlob (unified, includes everything) ranks first, then
-          // description (LLM caption — higher signal than chrome), then
-          // ocrText (often UI/menu strings).
-          searchableAttributes: ["searchBlob", "description", "ocrText"],
-          filterableAttributes: [
-            "folderId",
-            "deletedAt",
-            "visionSceneType",
-            "visionActivity",
-            "visionSubjects",
-            "isScreenshot",
-          ],
-          sortableAttributes: ["capturedAt"],
-        },
-      );
+      const settings = await http<unknown>(cfg, 'PATCH', `/indexes/${ASSETS_INDEX}/settings`, {
+        // Order is the per-attribute weighting Meilisearch applies:
+        // searchBlob (unified, includes everything) ranks first, then
+        // description (LLM caption — higher signal than chrome), then
+        // ocrText (often UI/menu strings).
+        searchableAttributes: ['searchBlob', 'description', 'ocrText'],
+        filterableAttributes: [
+          'folderId',
+          'deletedAt',
+          'visionSceneType',
+          'visionActivity',
+          'visionSubjects',
+          'isScreenshot',
+        ],
+        sortableAttributes: ['capturedAt'],
+      });
       if (!settings.ok) {
         log.warn(
           { status: settings.status, err: settings.errorText },
-          "meilisearch ensureIndex apply-settings failed",
+          'meilisearch ensureIndex apply-settings failed',
         );
       }
     },
@@ -314,35 +304,20 @@ export function createMeilisearchClient(
     async upsert(doc: MeilisearchAssetDoc): Promise<void> {
       if (!isLive(cfg)) return;
       // Meilisearch's documents endpoint upserts on the primary key.
-      const r = await http<unknown>(
-        cfg,
-        "POST",
-        `/indexes/${ASSETS_INDEX}/documents`,
-        [doc],
-      );
+      const r = await http<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [doc]);
       if (!r.ok) {
-        log.warn(
-          { id: doc.id, status: r.status, err: r.errorText },
-          "meilisearch upsert failed",
-        );
+        log.warn({ id: doc.id, status: r.status, err: r.errorText }, 'meilisearch upsert failed');
       }
     },
 
     async upsertOrThrow(doc: MeilisearchAssetDoc): Promise<void> {
       if (!isLive(cfg)) {
-        throw new Error("meilisearch: not configured");
+        throw new Error('meilisearch: not configured');
       }
       // Meilisearch's documents endpoint upserts on the primary key.
-      const r = await http<unknown>(
-        cfg,
-        "POST",
-        `/indexes/${ASSETS_INDEX}/documents`,
-        [doc],
-      );
+      const r = await http<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [doc]);
       if (!r.ok) {
-        throw new Error(
-          `meilisearch upsert failed: status=${r.status} ${r.errorText ?? ""}`,
-        );
+        throw new Error(`meilisearch upsert failed: status=${r.status} ${r.errorText ?? ''}`);
       }
     },
 
@@ -351,45 +326,29 @@ export function createMeilisearchClient(
       // Update the row's `deletedAt` rather than DELETE-ing the document so
       // the row stays addressable for diagnostics. The search filter
       // `deletedAt IS NULL` keeps it out of results.
-      const r = await http<unknown>(
-        cfg,
-        "POST",
-        `/indexes/${ASSETS_INDEX}/documents`,
-        [{ id, deletedAt: new Date().toISOString() }],
-      );
+      const r = await http<unknown>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/documents`, [
+        { id, deletedAt: new Date().toISOString() },
+      ]);
       if (!r.ok) {
-        log.warn(
-          { id, status: r.status, err: r.errorText },
-          "meilisearch tombstone failed",
-        );
+        log.warn({ id, status: r.status, err: r.errorText }, 'meilisearch tombstone failed');
       }
     },
 
-    async search(
-      q: string,
-      opts: MeilisearchSearchOptions = {},
-    ): Promise<MeilisearchSearchResult> {
+    async search(q: string, opts: MeilisearchSearchOptions = {}): Promise<MeilisearchSearchResult> {
       if (!isLive(cfg)) {
         return { ids: [], estimatedTotal: 0 };
       }
-      const r = await http<MeiliSearchResponse>(
-        cfg,
-        "POST",
-        `/indexes/${ASSETS_INDEX}/search`,
-        {
-          q,
-          filter: buildFilter(opts),
-          offset: opts.offset ?? 0,
-          limit: opts.limit ?? 100,
-          attributesToRetrieve: ["id"],
-        },
-      );
+      const r = await http<MeiliSearchResponse>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/search`, {
+        q,
+        filter: buildFilter(opts),
+        offset: opts.offset ?? 0,
+        limit: opts.limit ?? 100,
+        attributesToRetrieve: ['id'],
+      });
       if (!r.ok || !r.body) {
         // Throw so the search route's try/catch falls back to Mongo. The
         // route logs the fallback at warn level.
-        throw new Error(
-          `meilisearch search failed: status=${r.status} ${r.errorText ?? ""}`,
-        );
+        throw new Error(`meilisearch search failed: status=${r.status} ${r.errorText ?? ''}`);
       }
       const ids = r.body.hits.map((h) => h.id);
       return { ids, estimatedTotal: r.body.estimatedTotalHits };
@@ -410,9 +369,7 @@ export function meilisearchClient(): MeilisearchClient {
 
 /** Replace the singleton — used by tests + by the boot path when an
  * operator changes env via the (future) settings UI. */
-export function setMeilisearchClientForTests(
-  client: MeilisearchClient | null,
-): void {
+export function setMeilisearchClientForTests(client: MeilisearchClient | null): void {
   singleton = client;
 }
 
