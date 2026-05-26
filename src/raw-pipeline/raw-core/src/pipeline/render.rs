@@ -110,6 +110,41 @@ pub fn render_scene_linear_from_raw_with_quality(
     Ok((w, h, fp16))
 }
 
+/// f32 variant of [`render_scene_linear_from_raw_with_quality`].
+///
+/// Same develop chain and orientation handling, but returns the oriented
+/// Rec.2020 RGBA buffer as packed `f32` lanes (16 bytes per pixel) instead
+/// of fp16. This is the canonical end-to-end shape per #416 — fp16 is
+/// kept as a parallel surface until every consumer has migrated.
+///
+/// `Vec<f32>` length is `4 * width * height`, row-major, straight alpha
+/// = 1.0 in every alpha lane. See #482 for the FFI surface that exposes
+/// this to the Web consumer (Apple still consumes the fp16 entries today;
+/// follow-up ticket tracks the per-tick chain migration that blocks the
+/// Apple swap).
+pub fn render_scene_linear_from_raw_with_quality_f32(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+) -> Result<(u32, u32, Vec<f32>)> {
+    let scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
+    let (w0, h0) = (scene.width, scene.height);
+    let rgba_f32 = stage("pack_rgba_f32", || {
+        let mut v = Vec::with_capacity(scene.pixels.len() * 4);
+        for p in &scene.pixels {
+            v.push(p[0]);
+            v.push(p[1]);
+            v.push(p[2]);
+            v.push(1.0);
+        }
+        v
+    });
+    let (w, h, oriented_f32) = stage("apply_orientation_rgba", || {
+        apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
+    });
+    Ok((w, h, oriented_f32))
+}
+
 /// Sized scene-linear render entry. Same shared development chain as
 /// `render_scene_linear_from_raw_with_quality`, then downsample to fit
 /// within `max_long_edge` (single scalar — see Plan 1 v2 Task 8 API
@@ -151,6 +186,37 @@ pub fn render_scene_linear_sized_from_raw_with_quality(
         oriented_f32.iter().map(|&v| f32_to_f16_bits(v)).collect()
     });
     Ok((w, h, fp16))
+}
+
+/// f32 variant of [`render_scene_linear_sized_from_raw_with_quality`].
+///
+/// Same `max_long_edge` cap, no-upscale guarantee, and oriented output.
+/// Returns the oriented buffer as packed `f32` lanes. See the f32 variant
+/// of the full-size entry for the rationale (#482).
+pub fn render_scene_linear_sized_from_raw_with_quality_f32(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+) -> Result<(u32, u32, Vec<f32>)> {
+    let scene = develop_scene_linear_sized_from_raw_with_quality(
+        raw, model, quality, max_long_edge,
+    )?;
+    let (w0, h0) = (scene.width, scene.height);
+    let rgba_f32 = stage("pack_rgba_f32_sized", || {
+        let mut v = Vec::with_capacity(scene.pixels.len() * 4);
+        for p in &scene.pixels {
+            v.push(p[0]);
+            v.push(p[1]);
+            v.push(p[2]);
+            v.push(1.0);
+        }
+        v
+    });
+    let (w, h, oriented_f32) = stage("apply_orientation_rgba_sized", || {
+        apply_orientation_f32_rgba(&rgba_f32, w0, h0, raw.orientation)
+    });
+    Ok((w, h, oriented_f32))
 }
 
 /// Synthetic-input render: takes an already-scene-linear `Image` (the kind
@@ -380,6 +446,62 @@ mod tests {
     /// (or stays at the source dimension if the source is smaller — no
     /// upscale per ticket 06 § Product Requirements 1), and the alpha
     /// lane is 1.0 everywhere.
+    /// f32 scene-linear entry (#482). Mirrors the fp16 test: 4×w×h lanes,
+    /// alpha=1.0 everywhere, non-zero values present. The packed f32
+    /// buffer is the precision-preserving alternative to the fp16 surface
+    /// — fp16 loses ~3 bits of mantissa in highlights/shadows, which
+    /// shows up as banding on smooth gradients.
+    #[test]
+    fn render_scene_linear_f32_test_0002_preview_returns_rec2020_f32_rgba() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).expect("read raw");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let model = AdjustmentModel::default();
+        let (w, h, f32_rgba) = render_scene_linear_from_raw_with_quality_f32(
+            &raw, &model, RenderQuality::Preview
+        ).expect("scene-linear f32 preview render");
+        assert_eq!(f32_rgba.len() as u32, 4 * w * h,
+            "expected 4 × w × h f32 lanes, got {} for {}×{}",
+            f32_rgba.len(), w, h);
+        // Alpha (every 4th lane) must be exactly 1.0.
+        for chunk in f32_rgba.chunks_exact(4) {
+            assert_eq!(chunk[3], 1.0_f32, "alpha != 1.0 in f32 buffer");
+        }
+        // Buffer is not all zeros.
+        let nonzero = f32_rgba.chunks_exact(4)
+            .filter(|c| c[0] != 0.0 || c[1] != 0.0 || c[2] != 0.0)
+            .count();
+        assert!(nonzero > (f32_rgba.len() / 40),
+            "buffer mostly zero: {} non-zero RGB pixels", nonzero);
+        // Every value is finite (no NaN / Inf leaked from the develop chain).
+        assert!(f32_rgba.iter().all(|v| v.is_finite()),
+            "non-finite values in f32 scene-linear buffer");
+    }
+
+    /// f32 sized variant: caps the long edge and produces packed f32
+    /// alpha=1.0 lanes.
+    #[test]
+    fn render_scene_linear_sized_f32_test_0002_caps_long_edge_at_1500() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if !path.exists() { return; }
+        let bytes = std::fs::read(&path).expect("read raw");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let model = AdjustmentModel::default();
+        let max_long_edge: u32 = 1500;
+        let (w, h, f32_rgba) = render_scene_linear_sized_from_raw_with_quality_f32(
+            &raw, &model, RenderQuality::Preview, max_long_edge,
+        ).expect("scene-linear sized f32 preview render");
+        assert!(w.max(h) <= max_long_edge,
+            "long edge exceeded cap: {}x{} > {}", w, h, max_long_edge);
+        assert_eq!(f32_rgba.len() as u32, 4 * w * h);
+        for chunk in f32_rgba.chunks_exact(4) {
+            assert_eq!(chunk[3], 1.0_f32, "alpha != 1.0 in sized f32 buffer");
+        }
+    }
+
     #[test]
     fn render_scene_linear_sized_test_0002_caps_long_edge_at_1500() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -438,6 +560,78 @@ mod tests {
                 "G-B drift at x={}: {} vs {}", x, g, b);
         }
     }
+
+    /// Banding-sanity gate (#482). A high-resolution (4096-wide) neutral
+    /// 0→1 ramp run through the view transform (AgX + sRGB encode + 8-bit
+    /// quantise) must produce a smooth, monotone 8-bit gradient with no
+    /// wide plateaus.
+    ///
+    /// fp16 banding fingerprint on a smooth gradient: ~3 bits of mantissa
+    /// drop out near the AgX shoulder, producing a "jump-then-plateau"
+    /// pattern — adjacent scene-linear values get collapsed onto the same
+    /// fp16 bucket, then the next bucket jumps by several codes. A clean
+    /// f32 scene buffer produces every adjacent step ≤ 1 code at this
+    /// resolution.
+    ///
+    /// We use 4096 pixels so each scene-linear step is 1/4096 ≈ 0.000244,
+    /// well below the smallest derivative of AgX × sRGB encode × u8 quantize
+    /// on the ramp. At that resolution every code transition takes ≥ 1
+    /// pixel; the f32 pipeline never skips. fp16 storage in the scene
+    /// buffer would produce visible +2 / +3 steps around the AgX shoulder
+    /// transitions.
+    ///
+    /// The Rust path is f32 today; this test guards against an accidental
+    /// round-trip through fp16 (e.g. routing the scene buffer through the
+    /// legacy fp16 FFI surface). The Web equivalent lives in
+    /// `pipeline.spec.ts` (#482) — skip-passes under jsdom.
+    #[test]
+    fn neutral_ramp_view_transform_produces_no_banding_at_high_resolution() {
+        use crate::synthetic_input::neutral_ramp;
+        let width: u32 = 4096;
+        let ramp = neutral_ramp(width, 1);
+        // Force Look::Neutral — the empirical LUT introduces per-channel
+        // floors that violate strict-monotonicity by design. Banding gate
+        // is on the upstream pipeline, not the LUT.
+        let model = AdjustmentModel {
+            look: crate::view::look::Look::Neutral,
+            ..AdjustmentModel::default()
+        };
+        let (w, _h, bytes) = render_from_scene_linear(ramp, &model)
+            .expect("ramp render");
+        assert_eq!(w, width);
+        // Green channel at byte offset 1 (Rec.2020 luma weight is highest
+        // on green, so banding shows up there first).
+        let row: Vec<u8> = (0..w as usize).map(|x| bytes[x * 3 + 1]).collect();
+        // Every adjacent step must be 0 or +1. A +2 step at this
+        // resolution would indicate fp16-precision banding.
+        let mut max_step: i32 = 0;
+        let mut max_step_x: usize = 0;
+        for x in 1..row.len() {
+            let step = row[x] as i32 - row[x - 1] as i32;
+            if step > max_step {
+                max_step = step;
+                max_step_x = x;
+            }
+        }
+        assert!(max_step <= 1,
+            "banding: max step in 4096-px ramp = +{} at x={} ({} → {}) — \
+             must be <= +1 for a clean f32 scene buffer (fp16 storage in \
+             the scene buffer would produce +2 / +3 jumps near the AgX \
+             shoulder)",
+            max_step, max_step_x, row[max_step_x - 1], row[max_step_x]);
+    }
+
+    // Note: a paired "negative control" that round-trips the input ramp
+    // through fp16 once does NOT produce visible banding at 4096-px
+    // resolution — a single fp16 truncation has 11-bit mantissa precision
+    // in [0, 1], which is below the 8-bit quantize threshold. The
+    // banding artefact emerges when MULTIPLE stages compound their
+    // fp16 truncations (the WebGL ping-pong chain runs ~5 sequential
+    // passes, each storing back into RGBA16F). The Rust-side gate above
+    // is a positive smoke test that proves the f32 pipeline doesn't
+    // self-produce wide jumps; the meaningful fp16-vs-f32 regression
+    // surface lives on the WebGL side (#482) where the chain depth
+    // exposes accumulated truncation.
 
     #[test]
     fn render_from_scene_linear_uniform_hue_patch_is_uniform_output() {

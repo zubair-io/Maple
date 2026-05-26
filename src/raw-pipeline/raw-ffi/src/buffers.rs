@@ -115,3 +115,57 @@ pub unsafe extern "C" fn maple_free_scene_linear_buffer(buffer: *mut MapleSceneL
     }
     *b = MapleSceneLinearBuffer::empty();
 }
+
+/// Scene-linear FFI buffer — Rec.2020 f32 RGBA, straight alpha, row-major.
+///
+/// Additive sibling of [`MapleSceneLinearBuffer`] (fp16). #416 requires
+/// the scene-referred buffer be carried as f32 end-to-end; fp16 is the
+/// existing surface kept compiling for callers (Apple today) until they
+/// migrate. New callers — Web first, Apple in a follow-up — should
+/// prefer this entry to avoid banding from the fp16 mantissa loss.
+///
+/// `bytes_per_pixel` is always 16 (4 channels × 4 bytes per f32 lane).
+/// `channels` is always 4 (R, G, B, A). Free via
+/// [`maple_free_scene_linear_buffer_f32`].
+#[repr(C)]
+pub struct MapleSceneLinearBufferF32 {
+    /// Pointer to heap-allocated f32 RGBA buffer. Free via
+    /// `maple_free_scene_linear_buffer_f32`.
+    pub f32_rgba: *mut f32,
+    /// Bytes in the buffer (= 4 * 4 * width * height = 16 * width * height).
+    pub len_bytes: usize,
+    /// Channels per pixel (always 4: R, G, B, A).
+    pub channels: u32,
+    /// Bytes per pixel (always 16 for f32 RGBA).
+    pub bytes_per_pixel: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+impl MapleSceneLinearBufferF32 {
+    pub(crate) fn empty() -> Self {
+        Self {
+            f32_rgba: std::ptr::null_mut(),
+            len_bytes: 0,
+            channels: 0,
+            bytes_per_pixel: 0,
+            width: 0,
+            height: 0,
+        }
+    }
+}
+
+/// Free a buffer populated by `maple_render_*_scene_linear_f32`.
+#[no_mangle]
+pub unsafe extern "C" fn maple_free_scene_linear_buffer_f32(
+    buffer: *mut MapleSceneLinearBufferF32,
+) {
+    if buffer.is_null() { return; }
+    let b = &mut *buffer;
+    if !b.f32_rgba.is_null() {
+        let len_lanes = b.len_bytes / std::mem::size_of::<f32>();
+        let slice = std::slice::from_raw_parts_mut(b.f32_rgba, len_lanes);
+        drop(Box::from_raw(slice as *mut [f32]));
+    }
+    *b = MapleSceneLinearBufferF32::empty();
+}
