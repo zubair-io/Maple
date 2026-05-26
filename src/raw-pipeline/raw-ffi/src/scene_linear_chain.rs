@@ -165,3 +165,107 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     out_slice.copy_from_slice(&out_vec);
     0
 }
+
+/// f32 sibling of [`maple_apply_scene_linear_chain`]. Identical semantics
+/// (same stage order, same `MapleAdjustmentParams` struct, same error
+/// codes) — the only difference is the buffer surface: input and output
+/// are both packed f32 RGBA, row-major, 4 lanes per pixel
+/// (`bytes_per_pixel = 16`).
+///
+/// Added in #487 to unblock the Apple end-to-end f32 migration: with the
+/// fp16 entry, an f32 scene buffer would silently round-trip back to fp16
+/// every slider tick, defeating the precision win of #482. New callers
+/// holding a f32 scene buffer should prefer this entry.
+///
+/// `in_ptr` and `out_ptr` MUST point to buffers of size
+/// `16 * width * height` bytes (= `4 * width * height` f32 lanes). The
+/// caller owns both buffers. Like the fp16 sibling this entry performs
+/// one intermediate heap allocation of the same size as the output
+/// buffer (the wrapped `raw_core` entry returns an owned `Vec<f32>`
+/// which is then copied into `out_ptr`).
+///
+/// Returns 0 on success, non-zero on error (call `maple_last_error`).
+#[no_mangle]
+pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
+    in_ptr: *const f32,
+    width: u32,
+    height: u32,
+    params: *const MapleAdjustmentParams,
+    out_ptr: *mut f32,
+) -> i32 {
+    if in_ptr.is_null() || params.is_null() || out_ptr.is_null() {
+        set_last_error("apply_scene_linear_chain_f32: null pointer".into());
+        return 1;
+    }
+    if width == 0 || height == 0 {
+        set_last_error(format!(
+            "apply_scene_linear_chain_f32: zero dimension width={} height={}",
+            width, height
+        ));
+        return 2;
+    }
+    // Same checked-multiply guards as the fp16 entry — at u32::MAX dims
+    // the RGBA lane product is ~2^66, which exceeds 64-bit usize. Without
+    // the guards the unchecked product would wrap and feed nonsense to
+    // from_raw_parts (UB).
+    let lanes = match (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|p| p.checked_mul(4))
+    {
+        Some(n) => n,
+        None => {
+            set_last_error(format!(
+                "apply_scene_linear_chain_f32: pixel-count overflow width={} height={}",
+                width, height
+            ));
+            return 3;
+        }
+    };
+    let p = &*params;
+
+    let mut model = raw_core::xmp::AdjustmentModel::default();
+    model.temperature = p.temperature;
+    model.tint = p.tint;
+    model.exposure = p.exposure;
+    model.contrast = p.contrast;
+    model.highlights = p.highlights;
+    model.shadows = p.shadows;
+    model.whites = p.whites;
+    model.blacks = p.blacks;
+    model.vibrance = p.vibrance;
+    model.saturation = p.saturation;
+    model.clarity = p.clarity;
+    model.texture = p.texture;
+    model.nr_luminance = p.nr_luminance;
+    model.dehaze = p.dehaze;
+
+    let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
+
+    let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32(
+        in_slice,
+        width,
+        height,
+        &model,
+        p.decoded_temperature,
+        p.decoded_tint,
+        p.skip_agx != 0,
+    ) {
+        Ok(v) => v,
+        Err(e) => {
+            set_last_error(format!("apply_scene_linear_chain_f32: {}", e));
+            return 8;
+        }
+    };
+    if out_vec.len() != lanes {
+        set_last_error(format!(
+            "apply_scene_linear_chain_f32: chain returned {} lanes, expected {}",
+            out_vec.len(),
+            lanes
+        ));
+        return 9;
+    }
+
+    let out_slice = std::slice::from_raw_parts_mut(out_ptr, lanes);
+    out_slice.copy_from_slice(&out_vec);
+    0
+}

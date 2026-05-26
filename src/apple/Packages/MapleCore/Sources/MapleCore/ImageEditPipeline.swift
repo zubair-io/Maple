@@ -61,19 +61,20 @@ public actor ImageEditPipeline {
 
     public init() {
         // Metal-backed context where available; `cacheIntermediates: false`
-        // + fp16 working format keeps memory bounded enough that CoreImage
-        // can tile internally on a 100MP input. Mirrors the reference
-        // pipeline's settings.
+        // + f32 working format (#487) keeps memory bounded enough that
+        // CoreImage can tile internally on a 100MP input while preserving
+        // full scene-buffer precision through the chain. Migrated from
+        // fp16 in #487 — see PipelineRenderer.applySceneLinearChain.
         if let device = MTLCreateSystemDefaultDevice() {
             self.context = CIContext(mtlDevice: device, options: [
                 .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
-                .workingFormat: CIFormat.RGBAh,
+                .workingFormat: CIFormat.RGBAf,
                 .cacheIntermediates: false,
             ])
         } else {
             self.context = CIContext(options: [
                 .workingColorSpace: CGColorSpace(name: CGColorSpace.linearSRGB)!,
-                .workingFormat: CIFormat.RGBAh,
+                .workingFormat: CIFormat.RGBAf,
                 .cacheIntermediates: false,
             ])
         }
@@ -167,10 +168,11 @@ public actor ImageEditPipeline {
             logger.error("decodeSceneLinear failed for \(asset.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
         }
-        // Build a CIImage directly from the fp16 RGBA buffer tagged with
-        // extendedLinearITUR_2020. `CIImage(bitmapData:bytesPerRow:size:format:colorSpace:)`
-        // copies the bytes — `imageData.pixels` can be released after the
-        // call returns.
+        // Build a CIImage directly from the f32 RGBA buffer (#487) tagged
+        // with extendedLinearITUR_2020.
+        // `CIImage(bitmapData:bytesPerRow:size:format:colorSpace:)` copies
+        // the bytes — `imageData.pixels` can be released after the call
+        // returns.
         let w = imageData.width, h = imageData.height
         let bytesPerRow = w * imageData.bytesPerPixel
         let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
@@ -179,7 +181,7 @@ public actor ImageEditPipeline {
                 bitmapData: imageData.pixels,
                 bytesPerRow: bytesPerRow,
                 size: CGSize(width: w, height: h),
-                format: .RGBAh,
+                format: .RGBAf,
                 colorSpace: space
             )
         }
@@ -250,7 +252,7 @@ public actor ImageEditPipeline {
                 bitmapData: imageData.pixels,
                 bytesPerRow: bytesPerRow,
                 size: CGSize(width: w, height: h),
-                format: .RGBAh,
+                format: .RGBAf,
                 colorSpace: space
             )
         }
@@ -417,12 +419,12 @@ public actor ImageEditPipeline {
         let h = Int(extent.height.rounded())
         guard w > 0, h > 0 else { return scaled }
 
-        let bytesPerPixel = 8 // 4 fp16 lanes
+        let bytesPerPixel = 16 // 4 f32 lanes (#487 — migrated from fp16 / 8 B/px)
         let rowBytes = w * bytesPerPixel
         let totalBytes = rowBytes * h
         let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
 
-        // Materialise scaled CIImage -> fp16 RGBA bytes.
+        // Materialise scaled CIImage -> f32 RGBA bytes.
         var inputBytes = Data(count: totalBytes)
         let renderSucceeded: Bool = inputBytes.withUnsafeMutableBytes { buf -> Bool in
             guard let base = buf.baseAddress else { return false }
@@ -431,7 +433,7 @@ public actor ImageEditPipeline {
                 toBitmap: base,
                 rowBytes: rowBytes,
                 bounds: CGRect(x: 0, y: 0, width: w, height: h),
-                format: .RGBAh,
+                format: .RGBAf,
                 colorSpace: space
             )
             return true
@@ -462,7 +464,7 @@ public actor ImageEditPipeline {
             return scaled
         }
 
-        // Wrap the FFI output back into a CIImage. The bytes are fp16
+        // Wrap the FFI output back into a CIImage. The bytes are f32
         // RGBA in extendedLinearITUR_2020 — same colour space the FFI
         // input was in, so downstream `MetalKernels.*` consumers see
         // the buffer they expect.
@@ -471,7 +473,7 @@ public actor ImageEditPipeline {
                 bitmapData: outputBytes,
                 bytesPerRow: rowBytes,
                 size: CGSize(width: w, height: h),
-                format: .RGBAh,
+                format: .RGBAf,
                 colorSpace: space
             )
         }
@@ -688,16 +690,17 @@ public actor ImageEditPipeline {
     /// shared context (avoids spinning up a sibling Metal command queue
     /// per slider tick).
     ///
-    /// Output format is `RGBAh` + extended-linear Rec.2020 — the same
-    /// working-space the CIImageView re-encodes from when it lands the
-    /// final P3 raster, so this step doesn't introduce a colour-space
-    /// trip beyond what the canvas will already do.
+    /// Output format is `RGBAf` + extended-linear Rec.2020 (#487 — migrated
+    /// from RGBAh to keep the scene-buffer precision intact through the
+    /// refine path). Same working-space the CIImageView re-encodes from
+    /// when it lands the final P3 raster, so this step doesn't introduce
+    /// a colour-space trip beyond what the canvas will already do.
     nonisolated public func materializeRegion(
         _ image: CIImage,
         rect: CGRect
     ) -> CGImage? {
         let cs = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-        return context.createCGImage(image, from: rect, format: .RGBAh, colorSpace: cs)
+        return context.createCGImage(image, from: rect, format: .RGBAf, colorSpace: cs)
     }
 
     // MARK: Prescale helper (tiling-friendly)
