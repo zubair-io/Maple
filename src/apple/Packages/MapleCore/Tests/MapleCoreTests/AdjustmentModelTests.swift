@@ -30,24 +30,49 @@ final class AdjustmentModelTests: XCTestCase {
     /// follow-up calibration ticket.
     func testDefaultCaptureSharpeningIsOff() {
         XCTAssertEqual(AdjustmentModel.default.captureSharpeningAmount, 0)
-        XCTAssertEqual(AdjustmentModel.default.captureSharpeningRadius, 1.0)
+        XCTAssertEqual(AdjustmentModel.default.captureSharpeningSigma, 1.0)
     }
 
-    func testParseCaptureSharpeningAttributes() throws {
+    /// Canonical `papp:CaptureSharpeningSigma` parses into the sigma field.
+    func testParseCaptureSharpeningSigmaAttribute() throws {
+        let xml = xmp(attrs: #"papp:CaptureSharpeningAmount="65" papp:CaptureSharpeningSigma="2.0""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.captureSharpeningAmount, 65)
+        XCTAssertEqual(m.captureSharpeningSigma, 2.0, accuracy: 0.01)
+    }
+
+    /// Legacy `papp:CaptureSharpeningRadius` is read-only (#456) — parses
+    /// into `captureSharpeningSigma` unchanged so older sidecars still load.
+    func testParseLegacyCaptureSharpeningRadiusAttribute() throws {
         let xml = xmp(attrs: #"papp:CaptureSharpeningAmount="65" papp:CaptureSharpeningRadius="1.5""#)
         let (m, _) = try XMPParser.parse(xml)
         XCTAssertEqual(m.captureSharpeningAmount, 65)
-        XCTAssertEqual(m.captureSharpeningRadius, 1.5, accuracy: 0.01)
+        XCTAssertEqual(m.captureSharpeningSigma, 1.5, accuracy: 0.01)
     }
 
-    func testCaptureSharpeningRoundTrip() throws {
+    /// When both keys are present, `papp:CaptureSharpeningSigma` wins
+    /// regardless of attribute order — matches raw-core's `sigma_seen`
+    /// precedence (#463).
+    func testParseCaptureSharpeningSigmaWinsOverRadius() throws {
+        let xml = xmp(attrs: #"papp:CaptureSharpeningRadius="1.5" papp:CaptureSharpeningSigma="2.0""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.captureSharpeningSigma, 2.0, accuracy: 0.01)
+    }
+
+    /// Round-trip: writes canonical `papp:CaptureSharpeningSigma`, never
+    /// the legacy `papp:CaptureSharpeningRadius` (#464).
+    func testCaptureSharpeningSigmaRoundTrip() throws {
         var m = AdjustmentModel()
         m.captureSharpeningAmount = 55
-        m.captureSharpeningRadius = 1.5
+        m.captureSharpeningSigma = 2.0
         let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"papp:CaptureSharpeningSigma="2.0""#),
+                      "serializer must emit the canonical sigma key")
+        XCTAssertFalse(xml.contains("papp:CaptureSharpeningRadius"),
+                       "serializer must not emit the legacy radius key")
         let (m2, _) = try XMPParser.parse(xml)
         XCTAssertEqual(m2.captureSharpeningAmount, 55)
-        XCTAssertEqual(m2.captureSharpeningRadius, 1.5, accuracy: 0.01)
+        XCTAssertEqual(m2.captureSharpeningSigma, 2.0, accuracy: 0.01)
     }
 
     // MARK: - XMP Parse
