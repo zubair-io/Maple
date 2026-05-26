@@ -194,7 +194,7 @@ float agx_sigmoid(float x) {
 // Apply contrast modulation: expand/compress around AGX_MID_NORM so
 // contrast=0 → identity, +100 → steep sigmoid (spec § 3.6a). Pre-#435
 // this clamped the modulated value to [0, 1] which posterised the toe
-// and shoulder; `agx_sigmoid` already clamps its input so the inner
+// and shoulder; \`agx_sigmoid\` already clamps its input so the inner
 // clamp is redundant and harmful — removed in #435.
 float apply_contrast(float t, float contrast) {
     if (abs(contrast) < 1e-3) return t;
