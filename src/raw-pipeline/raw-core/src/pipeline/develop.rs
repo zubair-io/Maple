@@ -115,20 +115,23 @@ pub(super) fn quality_divisor(quality: RenderQuality) -> u32 {
     }
 }
 
-/// CFA-aware variant of [`quality_divisor`]. The X-Trans Preview path
-/// (#420) uses a full-resolution `xtrans_bilinear` kernel rather than
-/// the Bayer half-resolution `half_res` kernel, so the post-demosaic
-/// buffer is NOT halved even at `RenderQuality::Preview` and
-/// `crop_to_default` must be called with divisor=1 to land the crop
-/// at the right buffer coords.
+/// CFA-aware variant of [`quality_divisor`]. Both the X-Trans Preview
+/// path (#420) and the LinearRaw path (`CfaPattern::LinearRgb`, ticket
+/// #07) bypass the Bayer half-resolution `half_res` kernel and produce
+/// a full-resolution buffer regardless of `RenderQuality`. The X-Trans
+/// Preview routes to a full-res `xtrans_bilinear`; LinearRaw skips the
+/// mosaic path entirely via `linearraw_to_camera_rgb`. In both cases the
+/// post-demosaic buffer is NOT halved at `RenderQuality::Preview`, so
+/// `crop_to_default` must be called with divisor=1 to land the crop at
+/// the right buffer coords for any LinearRaw DNG that carries crop
+/// metadata.
 pub(super) fn effective_quality_divisor(
     quality: RenderQuality,
     cfa: crate::image::CfaPattern,
 ) -> u32 {
-    if matches!(cfa, crate::image::CfaPattern::XTrans(_)) {
-        1
-    } else {
-        quality_divisor(quality)
+    match cfa {
+        crate::image::CfaPattern::XTrans(_) | crate::image::CfaPattern::LinearRgb => 1,
+        _ => quality_divisor(quality),
     }
 }
 
@@ -349,6 +352,49 @@ mod tests {
     use super::*;
     use super::super::develop_sized::develop_scene_linear_sized_from_raw_with_quality;
     use super::super::downsample::downsample_image_area;
+
+    /// `effective_quality_divisor` must return 1 for every CFA path
+    /// whose post-demosaic buffer is full-resolution at Preview
+    /// quality. That set is wider than just X-Trans: LinearRaw DNGs
+    /// (`CfaPattern::LinearRgb`) skip the mosaic path entirely via
+    /// `linearraw_to_camera_rgb` and likewise produce a full-res
+    /// buffer for every `RenderQuality` variant. Returning 2 for
+    /// LinearRgb Preview would mis-map any DNG-recommended crop
+    /// rectangle (`crop_to_default`) by a factor of 2.
+    #[test]
+    fn effective_quality_divisor_full_res_paths_return_one() {
+        use crate::image::CfaPattern;
+        // X-Trans: Preview routes to full-res xtrans_bilinear → 1.
+        let xt = CfaPattern::XTrans([1u8; 36]);
+        assert_eq!(effective_quality_divisor(RenderQuality::Preview, xt), 1);
+        assert_eq!(effective_quality_divisor(RenderQuality::Full, xt), 1);
+        assert_eq!(effective_quality_divisor(RenderQuality::Amaze, xt), 1);
+        // LinearRaw: skips mosaic entirely → 1 at every quality.
+        assert_eq!(
+            effective_quality_divisor(RenderQuality::Preview, CfaPattern::LinearRgb),
+            1,
+            "LinearRgb Preview must use divisor=1 — the path is full-res, \
+             a divisor of 2 mis-maps DefaultCrop coords"
+        );
+        assert_eq!(
+            effective_quality_divisor(RenderQuality::Full, CfaPattern::LinearRgb),
+            1
+        );
+        assert_eq!(
+            effective_quality_divisor(RenderQuality::Amaze, CfaPattern::LinearRgb),
+            1
+        );
+        // Bayer (the only path that *does* halve at Preview) keeps the
+        // expected behaviour.
+        assert_eq!(
+            effective_quality_divisor(RenderQuality::Preview, CfaPattern::Rggb),
+            2
+        );
+        assert_eq!(
+            effective_quality_divisor(RenderQuality::Full, CfaPattern::Rggb),
+            1
+        );
+    }
 
     /// Pin per-fixture full-quality output dimensions against the
     /// DNG-recommended render rectangle (`raw.crop_rect` or, when that's
