@@ -73,4 +73,4 @@ pub const AGX_OUTSET_MATRIX: [[f32; 3]; 3] = [
 /// (due to coefficient edits or LUT recompute), bump this. It is
 /// propagated into RenderedPreviewCache's viewTransformVersion
 /// so every cached preview re-renders on the next cold open.
-pub const AGX_VERSION: u32 = 7;
+pub const AGX_VERSION: u32 = 8;
