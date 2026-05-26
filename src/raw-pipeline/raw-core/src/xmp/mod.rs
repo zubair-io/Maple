@@ -9,7 +9,9 @@ use quick_xml::reader::Reader;
 // Re-export the canonical schema types so existing
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
-pub use crate::types::adjustment::{AdjustmentModel, HighlightRecoveryMode, Look, ToneCurveMode};
+pub use crate::types::adjustment::{
+    AdjustmentModel, HighlightRecoveryMode, Look, ToneCurveMode, WbMethod,
+};
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
 /// fail to parse numerically surface as an error.
@@ -145,6 +147,22 @@ fn set_field(
                 "default" | "Default" => Look::Default,
                 other => return Err(Error::Xmp(format!(
                     "unknown Look: {}", other
+                ))),
+            };
+        }
+        // User white-balance method (ticket #431). Absent attribute ->
+        // default (`Cat16`) — proper chromatic adaptation. Pre-#431
+        // sidecars (which never carried this attribute) implicitly
+        // upgrade to CAT16, which is acceptable: the tint convention
+        // changes sign vs the legacy diagonal-gain path, but #431 is
+        // the documented switchover; users who need the old behaviour
+        // opt in via `papp:WbMethod="DiagonalRec2020"`.
+        "papp:WbMethod" => {
+            m.wb_method = match value {
+                "cat16" | "Cat16" | "CAT16" => WbMethod::Cat16,
+                "diagonalrec2020" | "DiagonalRec2020" => WbMethod::DiagonalRec2020,
+                other => return Err(Error::Xmp(format!(
+                    "unknown WbMethod: {}", other
                 ))),
             };
         }
