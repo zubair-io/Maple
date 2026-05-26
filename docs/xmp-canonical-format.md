@@ -203,6 +203,29 @@ Maple writes `crs:Version` and `crs:ProcessVersion` with the same value,
 currently hardcoded to `"11.0"` (Adobe's Process Version 2022 / PV11).
 Imported sidecars retain their original version string.
 
+## Capture-sharpening sigma migration (#456)
+
+PR #452 swapped the capture-sharpening PSF from an integer-radius
+tripled-box-blur to a true Gaussian parameterised by float sigma, but kept
+the XMP key as `papp:CaptureSharpeningRadius` — a silent semantic shift.
+Ticket #456 separates the legacy alias from the new canonical key:
+
+- **New key:** `papp:CaptureSharpeningSigma` (float, pixels). Writes flow
+  to `AdjustmentModel::capture_sharpening_sigma`.
+- **Legacy key:** `papp:CaptureSharpeningRadius` is kept on the read path
+  only. The legacy value is routed into `capture_sharpening_sigma`
+  **unchanged** — no rescale. No shipping sidecar carries a non-zero
+  capture-sharpening amount (the slider is off by default), so any
+  rescale would be a guess. Authors who want the old box-blur look back
+  must re-tune the slider after the schema change.
+- **Precedence:** when both keys are present on the same
+  `rdf:Description`, `papp:CaptureSharpeningSigma` always wins,
+  regardless of document order. This matches the read-only,
+  back-compat-only purpose of the legacy key.
+- **Writers:** new sidecars should emit `papp:CaptureSharpeningSigma`
+  exclusively. The legacy key is read-only — it must not be written by
+  Maple Swift or TypeScript serializers.
+
 ---
 
 ## What does not live in XMP

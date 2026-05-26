@@ -21,10 +21,11 @@ const MAX_SIGMA_PX: f32 = 8.0;
 /// into the stage's [`capture_sharpening::CaptureSharpeningParams`]. Returns
 /// `None` when the stage should be skipped (default identity: amount = 0).
 ///
-/// The AdjustmentModel's `capture_sharpening_radius` is interpreted as a
-/// Gaussian-PSF **sigma** in pixels — the stage no longer uses an integer
-/// radius. The field name remains `radius` for backward-compat with XMPs
-/// written before #427 (semantic shift only, not a schema rename).
+/// Reads [`AdjustmentModel::capture_sharpening_sigma`] (renamed from
+/// `capture_sharpening_radius` in #456 to reflect the PR #452 PSF swap from
+/// integer-radius tripled-box-blur to a true Gaussian). The XMP parser
+/// writes both `papp:CaptureSharpeningSigma` and the legacy
+/// `papp:CaptureSharpeningRadius` into this field — see `xmp::parse`.
 ///
 /// - `is_finite` guards against NaN / ±Infinity on either field.
 /// - `amount <= 0` short-circuits the stage entirely (the off-by-default
@@ -35,14 +36,14 @@ pub(super) fn capture_sharpening_params_from_model(
     model: &AdjustmentModel,
 ) -> Option<capture_sharpening::CaptureSharpeningParams> {
     if !model.capture_sharpening_amount.is_finite()
-        || !model.capture_sharpening_radius.is_finite()
+        || !model.capture_sharpening_sigma.is_finite()
     {
         return None;
     }
     if model.capture_sharpening_amount <= 0.0 {
         return None;
     }
-    let sigma = model.capture_sharpening_radius.clamp(1e-3, MAX_SIGMA_PX);
+    let sigma = model.capture_sharpening_sigma.clamp(1e-3, MAX_SIGMA_PX);
     let strength = (model.capture_sharpening_amount / 100.0).clamp(0.0, 1.5);
     Some(capture_sharpening::CaptureSharpeningParams {
         sigma,
@@ -76,7 +77,7 @@ mod tests {
             for &radius in non_finite_radii.iter().chain(huge_finite_radii.iter()) {
                 let model = AdjustmentModel {
                     capture_sharpening_amount: amount,
-                    capture_sharpening_radius: radius,
+                    capture_sharpening_sigma: radius,
                     ..AdjustmentModel::default()
                 };
                 let params = capture_sharpening_params_from_model(&model);
@@ -92,7 +93,7 @@ mod tests {
         for radius in non_finite_radii {
             let model = AdjustmentModel {
                 capture_sharpening_amount: 50.0,
-                capture_sharpening_radius: radius,
+                capture_sharpening_sigma: radius,
                 ..AdjustmentModel::default()
             };
             assert!(
@@ -107,7 +108,7 @@ mod tests {
         for &radius in &huge_finite_radii {
             let model = AdjustmentModel {
                 capture_sharpening_amount: 50.0,
-                capture_sharpening_radius: radius,
+                capture_sharpening_sigma: radius,
                 ..AdjustmentModel::default()
             };
             let params = capture_sharpening_params_from_model(&model)
@@ -138,17 +139,17 @@ mod tests {
         assert!(capture_sharpening_params_from_model(&model).is_none());
     }
 
-    /// A typical user-facing slider value (radius slider at 1.0 px) maps
-    /// to sigma = 1.0 — no implicit rescaling.
+    /// A typical user-facing slider value (sigma = 1.0 px) maps through
+    /// to the stage's `sigma = 1.0` — no implicit rescaling.
     #[test]
-    fn radius_field_passes_through_as_sigma() {
+    fn sigma_field_passes_through_unchanged() {
         let model = AdjustmentModel {
             capture_sharpening_amount: 50.0,
-            capture_sharpening_radius: 1.0,
+            capture_sharpening_sigma: 1.0,
             ..AdjustmentModel::default()
         };
         let params = capture_sharpening_params_from_model(&model)
-            .expect("amount=50 radius=1.0 should produce params");
+            .expect("amount=50 sigma=1.0 should produce params");
         assert!((params.sigma - 1.0).abs() < 1e-6);
     }
 }
