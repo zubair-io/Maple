@@ -29,6 +29,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+mod auto_tone;
 mod buffers;
 mod error;
 mod handle;
@@ -44,6 +45,7 @@ mod thumbnail;
 // `#[no_mangle] extern "C"` functions are exported regardless of `pub use`,
 // but cbindgen also needs visibility on the `#[repr(C)]` structs to emit
 // their typedefs.
+pub use auto_tone::MapleAutoTone;
 pub use buffers::{MapleByteBuffer, MapleImageBuffer, MapleSceneLinearBuffer};
 pub use handle::MapleRawHandle;
 pub use scene_linear_chain::MapleAdjustmentParams;
@@ -54,6 +56,9 @@ pub use scene_linear_chain::MapleAdjustmentParams;
 // under `src/` rather than scattering them in a `tests/` integration
 // directory (the FFI entries they exercise are crate-private through
 // `#[no_mangle]`, not `pub`, so integration-test access is awkward).
+#[cfg(test)]
+#[path = "auto_tone_tests.rs"]
+mod auto_tone_tests;
 #[cfg(test)]
 #[path = "render_tests.rs"]
 mod render_tests;
