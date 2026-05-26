@@ -172,6 +172,29 @@ render OK in 3.03s: 6240x4160 (24-bit RGB, 78 MB)
 mean R=118.4 G=125.8 B=125.6 (sane range)
 ```
 
+First parity-harness pass against the ACR references (using
+`FILTER=test_0008 src/scripts/test_color_pipeline.sh` immediately
+post-#420):
+
+```
+test_0008 (33 cases, 10 skipped no-reference)
+  grand_mean_deltaE = 11.47
+  grand_bias        = R -0.054, G -0.036, B +0.014
+  baseline           mean 7.70  p95 17.64  max 84.98  bias R -0.04 G -0.03 B -0.00
+  exposure_max       mean 3.18  p95  8.68  max 50.99  bias R -0.01 G -0.01 B +0.00
+  contrast_max       mean 8.42  p95 22.63  max 95.03  bias R -0.04 G -0.04 B -0.00
+  saturation_max     mean 8.48  p95 21.11  max 97.36  bias R -0.03 G -0.05 B +0.03
+  tint_max           mean 26.92 p95 48.44  max 86.44  bias R -0.47 G -0.01 B -0.31
+  whites_max         mean 14.73 p95 29.79  max 95.46  bias R -0.14 G -0.15 B -0.13
+```
+
+Interpretation: mean ΔE in the 7-15 range on baseline / exposure /
+contrast / WB cases is plausible "first pass on a new fixture"
+territory — calibration-grade convergence would seed budgets at
+mean 5-8 and tighten over multiple ratchets. `tint_max` is the
+outlier; one or both ends of the tint range may need investigation
+once the bundled-DCP coverage path lands a Fuji X-T3 profile.
+
 Bayer baselines for the other 16 fixtures are unchanged by the
 X-Trans work — the dispatch in `develop.rs` short-circuits on
 `CfaPattern::XTrans(_)` and leaves the 2×2 kernels untouched.
