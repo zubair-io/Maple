@@ -380,7 +380,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     //
     // Vendor RAWs (CR2, ARW, RW2, NEF, …) don't ship a DCP profile so all
     // four reads return None; the per-pixel apply step falls through cleanly.
-    let (hsm_data1, hsm_data2, plt) = read_hsm_plt(&root_ifd);
+    let (hsm_data, plt) = read_hsm_plt(&root_ifd);
 
     // ── 9a. ProfileToneCurve (DNG § 6.4.4, tag 50940) ─────────────────────
     // 1D tone curve in profile working space. Apple iPhone DNGs ship one
@@ -481,8 +481,7 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
         forward_matrices,
         orientation,
         baseline_exposure: 0.0,
-        hsm_data1,
-        hsm_data2,
+        hsm_data,
         plt,
         profile_tone_curve,
         profile_gain_table_map,
@@ -522,29 +521,50 @@ fn compose_baseline_exposure(
 }
 
 /// Read ProfileHueSatMap1/2 + ProfileLookTable from a DNG Root IFD.
-/// Returns `(hsm1, hsm2, plt)` — each `None` when the tag is absent or
-/// malformed. All four bail to `None` on `ifd == None` (vendor RAW path).
+/// Returns `(hsm_map, plt)`.
+///
+/// `hsm_map` is keyed by the matching `CalibrationIlluminant1` /
+/// `CalibrationIlluminant2` so each HSM stays paired with its calibration
+/// matrix even when a DNG lists `CalibrationIlluminant1` warmer than
+/// `CalibrationIlluminant2` (non-spec but in the wild). Parallels the
+/// `forward_matrices` decoder above. Empty when the tags are absent or
+/// malformed; bail to (empty, None) on `ifd == None` (vendor RAW path).
 fn read_hsm_plt(
     root_ifd: &Option<std::rc::Rc<rawler::formats::tiff::IFD>>,
 ) -> (
-    Option<crate::color::hsm::HsmTable>,
-    Option<crate::color::hsm::HsmTable>,
+    HashMap<CoreIlluminant, crate::color::hsm::HsmTable>,
     Option<crate::color::hsm::HsmTable>,
 ) {
+    let mut hsm_map: HashMap<CoreIlluminant, crate::color::hsm::HsmTable> = HashMap::new();
     let ifd = match root_ifd.as_ref() {
         Some(i) => i.as_ref(),
-        None => return (None, None, None),
+        None => return (hsm_map, None),
     };
     let hsm_dims = read_dims(ifd, DngTag::ProfileHueSatMapDims);
     let hsm_enc = read_encoding(ifd, DngTag::ProfileHueSatMapEncoding);
-    let hsm1 = hsm_dims.and_then(|dims| {
-        read_floats(ifd, DngTag::ProfileHueSatMapData1)
-            .and_then(|data| crate::color::hsm::HsmTable::new(dims, data, hsm_enc))
-    });
-    let hsm2 = hsm_dims.and_then(|dims| {
-        read_floats(ifd, DngTag::ProfileHueSatMapData2)
-            .and_then(|data| crate::color::hsm::HsmTable::new(dims, data, hsm_enc))
-    });
+    // Pair each HSM with its calibration illuminant. The matching illuminant
+    // tag (CalibrationIlluminant1/2) sits alongside ColorMatrix1/2 — keying
+    // by it here mirrors how `forward_matrices` is built above and lets the
+    // DCP path look the right table up by `il_cold`/`il_warm` rather than
+    // assuming `hsm_data1` is the cold side (which fails when the file's
+    // illuminant ordering is reversed).
+    let read_hsm = |hsm_tag: DngTag, illum_tag: DngTag| -> Option<(CoreIlluminant, crate::color::hsm::HsmTable)> {
+        let dims = hsm_dims?;
+        let data = read_floats(ifd, hsm_tag)?;
+        let table = crate::color::hsm::HsmTable::new(dims, data, hsm_enc)?;
+        let illum_code = ifd.get_entry(illum_tag)?.value.force_u16(0);
+        let illum = exif_illuminant_to_core(illum_code);
+        Some((illum, table))
+    };
+    if let Some((illum, table)) = read_hsm(DngTag::ProfileHueSatMapData1, DngTag::CalibrationIlluminant1) {
+        hsm_map.insert(illum, table);
+    }
+    if let Some((illum, table)) = read_hsm(DngTag::ProfileHueSatMapData2, DngTag::CalibrationIlluminant2) {
+        // First-write-wins matches color_matrices semantics: if both HSMs
+        // map to the same CoreIlluminant variant (shouldn't happen in
+        // practice — DNGs ship distinct illuminants), keep illuminant 1's.
+        hsm_map.entry(illum).or_insert(table);
+    }
 
     let plt_dims = read_dims(ifd, DngTag::ProfileLookTableDims);
     let plt_enc = read_encoding(ifd, DngTag::ProfileLookTableEncoding);
@@ -552,7 +572,7 @@ fn read_hsm_plt(
         read_floats(ifd, DngTag::ProfileLookTableData)
             .and_then(|data| crate::color::hsm::HsmTable::new(dims, data, plt_enc))
     });
-    (hsm1, hsm2, plt)
+    (hsm_map, plt)
 }
 
 /// Read a 3-tuple LONG dims tag. Returns `None` if absent or malformed.
@@ -811,20 +831,24 @@ mod tests {
     /// Regression test for HSM tag reading (DNG § 6.6 / Ticket 10c).
     /// test_0000.DNG (Hasselblad 100 MP) ships ProfileHueSatMapData1 +
     /// ProfileHueSatMapData2 with dims [36, 10, 1] (per `exiftool`). After
-    /// decode, both `hsm_data1` and `hsm_data2` must be `Some(_)`, the
-    /// dims must match, and the data length must be 36 × 10 × 1 × 3 = 1080
-    /// floats per illuminant.
+    /// decode, `hsm_data` must carry two entries (one per calibration
+    /// illuminant), the dims must match, and the data length must be
+    /// 36 × 10 × 1 × 3 = 1080 floats per illuminant.
     #[test]
     fn decode_test_0000_reads_dual_illuminant_hsm() {
         let path = fixture_root().join("test_0000.DNG");
         if !path.exists() { return; }
         let raw = decode_path(&path).expect("decode Hasselblad DNG");
-        let h1 = raw.hsm_data1.as_ref().expect("test_0000 ships HSM data 1");
-        let h2 = raw.hsm_data2.as_ref().expect("test_0000 ships HSM data 2");
-        assert_eq!(h1.dims, [36, 10, 1], "expected DNG-typical [36,10,1]");
-        assert_eq!(h2.dims, [36, 10, 1]);
-        assert_eq!(h1.data.len(), 36 * 10 * 1 * 3);
-        assert_eq!(h2.data.len(), 36 * 10 * 1 * 3);
+        assert_eq!(raw.hsm_data.len(), 2, "test_0000 ships both HSM tables");
+        for (illum, table) in &raw.hsm_data {
+            assert_eq!(table.dims, [36, 10, 1], "{:?} expected DNG-typical [36,10,1]", illum);
+            assert_eq!(table.data.len(), 36 * 10 * 1 * 3);
+        }
+        // Both calibration illuminants must be represented (test_0000 ships
+        // StdA + D65 per spec convention; either order is acceptable, but
+        // the two illuminants must differ).
+        assert_eq!(raw.hsm_data.keys().count(), 2,
+            "two distinct illuminants required for dual-HSM lerp");
         // No PLT in this fixture.
         assert!(raw.plt.is_none(), "test_0000 has no PLT");
     }
@@ -850,8 +874,7 @@ mod tests {
         let path = fixture_root().join("test_0010.CR2");
         if !path.exists() { return; }
         let raw = decode_path(&path).expect("decode CR2");
-        assert!(raw.hsm_data1.is_none(), "CR2 should not carry HSM");
-        assert!(raw.hsm_data2.is_none(), "CR2 should not carry HSM");
+        assert!(raw.hsm_data.is_empty(), "CR2 should not carry HSM");
         assert!(raw.plt.is_none(), "CR2 should not carry PLT");
         assert!(raw.profile_tone_curve.is_none(), "CR2 should not carry PTC");
         assert!(raw.profile_gain_table_map.is_none(), "CR2 should not carry PGTM");
