@@ -53,9 +53,10 @@ export class XmpSerializerService {
       }
     }
 
-    // DisplayLookCurve (#371) — emit only when divergent from the canonical
-    // default ('Default'). Matches the Apple serializer's behaviour and
-    // keeps sidecars compact for the common case.
+    // DisplayLookCurve (#371; retired in #443) — the field is a no-op
+    // post-#443 but the attribute is still emitted on non-default values
+    // so pre-#443 sidecars round-trip. Default-valued models omit the
+    // attribute, so newly-saved sidecars carry no `papp:Look` at all.
     if (model.look && model.look !== 'Default') {
       parts.push(`papp:Look="${this._escapeAttr(model.look)}"`);
     }

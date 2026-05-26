@@ -19,7 +19,7 @@ use crate::{
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
     stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance},
-    view::{agx, encode, look},
+    view::{agx, encode},
     xmp::AdjustmentModel,
 };
 
@@ -50,11 +50,11 @@ pub fn render_from_raw_with_quality(
     // not "post_srgb_encode" which would have implied a full sRGB encode
     // (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
-    let mut bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
-    // DisplayLookCurve (#371) — empirical per-channel u8->u8 LUT that
-    // closes ~65% of the bias-to-ACR gap. `Look::Neutral` short-circuits
-    // and the buffer is bit-identical to the pre-#371 output.
-    stage("look", || look::apply(&mut bytes, model.look));
+    let bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
+    // DisplayLookCurve (#371) was retired in #443 — see the umbrella epic
+    // #416. Color correctness comes from the colorimetry path (steps 08/09)
+    // + view transform (steps 25/26); a stylistic look, if reintroduced,
+    // will live in AgX's normalised-log domain so every platform matches.
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
     let (w, h, bytes) = stage("apply_orientation", || apply_orientation(&bytes, scene.width, scene.height, raw.orientation));
@@ -247,8 +247,7 @@ pub fn render_from_scene_linear(
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
-    let mut bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
-    stage("synth_look", || look::apply(&mut bytes, model.look));
+    let bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
     Ok((w, h, bytes))
 }
 
@@ -308,8 +307,7 @@ pub fn render_from_scene_linear_with_chain(
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
-    let mut bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
-    stage("synth_look", || look::apply(&mut bytes, model.look));
+    let bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
     Ok((w, h, bytes))
 }
 
