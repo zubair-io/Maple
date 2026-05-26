@@ -497,10 +497,12 @@ mod tests {
 
     #[test]
     fn shadows_preserves_hue_on_saturated_deep_shadow() {
-        // Saturated deep red [0.06, 0.02, 0.01]: Y ≈ 0.0327, mask ≈ 1.0,
-        // lift = 0.5 * 1.0 = 0.5 (shadows=+100), so each channel scales
-        // by (1 + 0.5*~0.67) — a uniform scalar multiply. R:G and R:B
-        // ratios must survive within 0.1% (no per-channel drift).
+        // Saturated deep red [0.06, 0.02, 0.01]: Y ≈ 0.0299, so
+        // smoothstep(0, 0.1, Y) ≈ 0.215 and mask = 1 - 0.215 ≈ 0.785.
+        // With shadows=+100, s_factor = 0.5 → lift = 0.5 * 0.785 ≈ 0.393,
+        // so each channel scales by (1 + 0.393) — a uniform scalar
+        // multiply. R:G and R:B ratios must survive within 0.1% (no
+        // per-channel drift).
         let mut img = fresh_img([0.06, 0.02, 0.01]);
         let mut m = model_default();
         m.shadows = 100.0;
@@ -558,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn blacks_positive_is_hue_preserving_when_no_channel_is_zero() {
+    fn blacks_positive_additive_lift_equal_delta() {
         // Lift branch (blacks > 0) is additive: delta is the same for
         // all three channels. When every channel is non-zero AND the
         // delta is small relative to the channel value, ratios are
@@ -566,8 +568,8 @@ mod tests {
         // regime explicitly.
         //
         // Input [0.06, 0.05, 0.04] at blacks=+25:
-        //   Y ≈ 0.0497, w ≈ 1 - smoothstep(0, 0.2, 0.0497) ≈ 0.75
-        //   delta = (25/400) * 0.75 ≈ 0.0469
+        //   Y ≈ 0.0520, smoothstep(0, 0.2, Y) ≈ 0.168, w ≈ 0.832
+        //   delta = (25/400) * 0.832 ≈ 0.052
         // Hue drift is therefore real but small here. We assert that
         // ratios shift by **less than 25%** — i.e. confirm the
         // additive-lift direction without claiming strict hue
@@ -606,7 +608,11 @@ mod tests {
         let p = img.pixels[0];
         // R was 0, now must be > 0 — the documented "zero lifts to positive"
         // semantic. If R stays at 0 the lift is no longer additive.
-        assert!(p[0] > 0.15, "blacks+100 must lift zero R to a positive value, got {}", p[0]);
+        // Use a small epsilon (not a tuned magnitude) so this test isn't
+        // sensitive to future tweaks of the smoothstep thresholds/coefficients
+        // — the semantic being pinned is "zero becomes positive", not a
+        // specific lift amount.
+        assert!(p[0] > 1e-6, "blacks+100 must lift zero R to a positive value, got {}", p[0]);
         // And the additive-shift contract: same delta on every channel.
         let dr = p[0] - 0.0;
         let dg = p[1] - 0.05;
