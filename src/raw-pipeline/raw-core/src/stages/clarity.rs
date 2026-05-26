@@ -129,15 +129,29 @@ mod tests {
 
     #[test]
     fn flat_input_stays_flat() {
-        // A perfectly flat field has no high-frequency content; the
-        // guided filter base equals the input, detail is zero.
-        let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.5, 0.5, 0.5]; }
-        apply(&mut img, 100.0);
-        for p in &img.pixels {
-            for c in 0..3 {
-                assert!((p[c] - 0.5).abs() < 1e-4,
-                    "channel {} drifted off the flat 0.5: {}", c, p[c]);
+        // Closed-form grey predictor: a perfectly flat neutral field has
+        // no high-frequency content; detail is zero everywhere, so the
+        // scalar boost ratio is exactly 1 and every pixel passes through
+        // unchanged — at every clarity amount in [-100, +100].
+        // Ticket #428 explicitly asks for this invariant at "any clarity
+        // amount", not just the previously-pinned +100.
+        let amounts = [-100.0, -50.0, -10.0, 0.0, 10.0, 25.0, 50.0, 100.0];
+        for amount in amounts {
+            let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
+            for p in &mut img.pixels {
+                *p = [0.5, 0.5, 0.5];
+            }
+            apply(&mut img, amount);
+            for p in &img.pixels {
+                for c in 0..3 {
+                    assert!(
+                        (p[c] - 0.5).abs() < 1e-4,
+                        "clarity={}: channel {} drifted off the flat 0.5: {}",
+                        amount,
+                        c,
+                        p[c]
+                    );
+                }
             }
         }
     }
@@ -219,6 +233,110 @@ mod tests {
                 "pixel {}: R/G ratio {} drifted from {} (RGB={:?})", i, ratio_rg, r_g_ref, p);
             assert!((ratio_rb - r_b_ref).abs() < 1e-3,
                 "pixel {}: R/B ratio {} drifted from {} (RGB={:?})", i, ratio_rb, r_b_ref, p);
+        }
+    }
+
+    /// Ticket #428 — pin the luminance-only invariant against a
+    /// saturated-vs-neutral edge. This is the case that fails most
+    /// loudly under a per-channel RGB unsharp mask:
+    ///
+    /// * Left half: neutral grey (R=G=B). Across the edge, the
+    ///   saturated channel has no contrast step, so per-channel unsharp
+    ///   produces no boost on R while G and B overshoot — pulling the
+    ///   neutral side toward the *complement* of the primary (cyan for
+    ///   a red edge, magenta for green, yellow for blue).
+    /// * Right half: a saturated primary (e.g. [0.7, 0, 0]). Per-channel
+    ///   unsharp would overshoot R only, leaving the zero channels at
+    ///   exact zero — but the resulting R:G:B ratio still drifts toward
+    ///   "more saturated than the source" on the boundary side.
+    ///
+    /// Under the current luma-only implementation, the entire scalar
+    /// boost is the luma ratio, so every pixel's R:G:B ratio is
+    /// preserved exactly. Neutral pixels stay neutral; zero channels
+    /// stay zero. This test fails under a per-channel RGB clarity.
+    /// Walks every primary so it also exercises Green, Blue, Cyan,
+    /// Magenta, Yellow — keeps the assertion symmetric and avoids a
+    /// red-only regression test pinning a partial invariant.
+    #[test]
+    fn no_chroma_drift_on_saturated_vs_neutral_edge() {
+        use crate::synthetic_input::{saturated_neutral_edge, Primary};
+        const NEUTRAL: f32 = 0.5;
+        const SATURATED: f32 = 0.7;
+        let primaries = [
+            Primary::Red,
+            Primary::Green,
+            Primary::Blue,
+            Primary::Cyan,
+            Primary::Magenta,
+            Primary::Yellow,
+        ];
+        for primary in primaries {
+            // 64-px wide so the guided-filter window (radius=20) sees
+            // the edge centred well inside the buffer; 4-row tall is
+            // enough for a 1-D check (the image is constant along y).
+            let mut img = saturated_neutral_edge(primary, NEUTRAL, SATURATED, 64, 4);
+            apply(&mut img, 100.0);
+            for (i, p) in img.pixels.iter().enumerate() {
+                let x = i % 64;
+                let y = i / 64;
+                for &c in p {
+                    assert!(
+                        c.is_finite(),
+                        "{:?} pixel ({},{}) non-finite: {:?}",
+                        primary,
+                        x,
+                        y,
+                        p
+                    );
+                }
+                if x < 32 {
+                    // Neutral side: R==G==B at every pixel including
+                    // those adjacent to the edge. Tight tolerance — only
+                    // f32 round-off is allowed.
+                    assert!(
+                        (p[0] - p[1]).abs() < 1e-4 && (p[1] - p[2]).abs() < 1e-4,
+                        "{:?} neutral side at ({},{}) lost achromaticity: {:?}",
+                        primary,
+                        x,
+                        y,
+                        p
+                    );
+                } else {
+                    // Saturated side: any channel that was 0 in the
+                    // source must stay exactly 0 (a scalar multiply
+                    // preserves zeros). Asserting this end of the
+                    // invariant is what catches a per-channel unsharp
+                    // bleeding a complementary fringe across the edge.
+                    let unit = primary_rgb_unit(primary);
+                    for c in 0..3 {
+                        if unit[c] == 0.0 {
+                            assert!(
+                                p[c].abs() < 1e-6,
+                                "{:?} saturated side at ({},{}) channel {} leaked off zero: {:?}",
+                                primary,
+                                x,
+                                y,
+                                c,
+                                p
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Mirror of `Primary::rgb_unit` for the assertions above — the
+    /// real one is private to `synthetic_input`.
+    fn primary_rgb_unit(primary: crate::synthetic_input::Primary) -> [f32; 3] {
+        use crate::synthetic_input::Primary;
+        match primary {
+            Primary::Red => [1.0, 0.0, 0.0],
+            Primary::Green => [0.0, 1.0, 0.0],
+            Primary::Blue => [0.0, 0.0, 1.0],
+            Primary::Cyan => [0.0, 1.0, 1.0],
+            Primary::Magenta => [1.0, 0.0, 1.0],
+            Primary::Yellow => [1.0, 1.0, 0.0],
         }
     }
 
