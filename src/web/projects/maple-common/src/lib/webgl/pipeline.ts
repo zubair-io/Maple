@@ -126,20 +126,17 @@ export class Pipeline {
     // surfaces the canvas's broad `RenderingContext` union. Cast through
     // unknown so the option object can carry `colorSpace: 'display-p3'`
     // without TS narrowing complaints.
-    const gl = canvas.getContext(
-      'webgl2',
-      {
-        antialias: false,
-        premultipliedAlpha: false,
-        // M3 will flip back to `false` when the pipeline drives the
-        // production canvas (per CLAUDE.md no-allocation render-loop
-        // budget). M2.1's dev page needs the buffer to persist after
-        // render so the human-eyeballable canvas matches the readPixels
-        // output the snapshot tests assert against.
-        preserveDrawingBuffer: true,
-        colorSpace: 'display-p3',
-      } as WebGLContextAttributes,
-    ) as WebGL2RenderingContext | null;
+    const gl = canvas.getContext('webgl2', {
+      antialias: false,
+      premultipliedAlpha: false,
+      // M3 will flip back to `false` when the pipeline drives the
+      // production canvas (per CLAUDE.md no-allocation render-loop
+      // budget). M2.1's dev page needs the buffer to persist after
+      // render so the human-eyeballable canvas matches the readPixels
+      // output the snapshot tests assert against.
+      preserveDrawingBuffer: true,
+      colorSpace: 'display-p3',
+    } as WebGLContextAttributes) as WebGL2RenderingContext | null;
     if (!gl) {
       throw new WebglFp16Unsupported(['WebGL2']);
     }
@@ -182,24 +179,16 @@ export class Pipeline {
         'uDecodedTemperature',
         'uDecodedTint',
       ]),
-      sceneToneControls: linkProgram(
-        gl,
-        SHADERS.vertex,
-        SHADERS.sceneToneControls,
-        ['uExposure', 'uHighlights', 'uShadows', 'uWhites', 'uBlacks'],
-      ),
-      sceneVibrance: linkProgram(gl, SHADERS.vertex, SHADERS.sceneVibrance, [
-        'uVibrance',
+      sceneToneControls: linkProgram(gl, SHADERS.vertex, SHADERS.sceneToneControls, [
+        'uExposure',
+        'uHighlights',
+        'uShadows',
+        'uWhites',
+        'uBlacks',
       ]),
-      sceneSaturation: linkProgram(gl, SHADERS.vertex, SHADERS.sceneSaturation, [
-        'uSaturation',
-      ]),
-      agxViewTransform: linkProgram(
-        gl,
-        SHADERS.vertex,
-        SHADERS.agxViewTransform,
-        ['uContrast'],
-      ),
+      sceneVibrance: linkProgram(gl, SHADERS.vertex, SHADERS.sceneVibrance, ['uVibrance']),
+      sceneSaturation: linkProgram(gl, SHADERS.vertex, SHADERS.sceneSaturation, ['uSaturation']),
+      agxViewTransform: linkProgram(gl, SHADERS.vertex, SHADERS.agxViewTransform, ['uContrast']),
     };
 
     const inputTex = createFloatTexture(gl);
@@ -207,22 +196,10 @@ export class Pipeline {
     const pongTex = createFloatTexture(gl);
     const pingFb = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, pingFb);
-    gl.framebufferTexture2D(
-      gl.FRAMEBUFFER,
-      gl.COLOR_ATTACHMENT0,
-      gl.TEXTURE_2D,
-      pingTex,
-      0,
-    );
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pingTex, 0);
     const pongFb = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, pongFb);
-    gl.framebufferTexture2D(
-      gl.FRAMEBUFFER,
-      gl.COLOR_ATTACHMENT0,
-      gl.TEXTURE_2D,
-      pongTex,
-      0,
-    );
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pongTex, 0);
 
     // Empty VAO — gl_VertexID-driven full-screen triangle (vertex.glsl).
     const vao = gl.createVertexArray()!;
@@ -255,24 +232,13 @@ export class Pipeline {
     // is fine in either case — WebGL2 allows uploading HALF_FLOAT pixels
     // into an RGBA32F-internal texture; the GPU widens to f32 on store and
     // the rest of the chain accumulates at full precision.
-    const internalFormat =
-      this.sceneLinearFormat === 'RGBA32F' ? gl.RGBA32F : gl.RGBA16F;
+    const internalFormat = this.sceneLinearFormat === 'RGBA32F' ? gl.RGBA32F : gl.RGBA16F;
 
     // Upload input fp16 RGBA -> inputTex (internal format follows
     // sceneLinearFormat; the upload data is fp16 either way until the
     // WASM side gains an f32 surface — tracked separately).
     gl.bindTexture(gl.TEXTURE_2D, this.inputTex);
-    gl.texImage2D(
-      gl.TEXTURE_2D,
-      0,
-      internalFormat,
-      w,
-      h,
-      0,
-      gl.RGBA,
-      gl.HALF_FLOAT,
-      fp16Rgba,
-    );
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, gl.RGBA, gl.HALF_FLOAT, fp16Rgba);
 
     // Resize ping/pong if size changed (or initialise first run). Empty
     // texImage2D with `null` data + RGBA32F internal format gives us the
@@ -291,10 +257,7 @@ export class Pipeline {
     gl.viewport(0, 0, w, h);
     gl.useProgram(this.programs.whiteBalance.program);
     bindSrcTexture(gl, this.programs.whiteBalance, this.inputTex);
-    gl.uniform1f(
-      this.programs.whiteBalance.uniforms['uLiveTemperature'],
-      model.temperature,
-    );
+    gl.uniform1f(this.programs.whiteBalance.uniforms['uLiveTemperature'], model.temperature);
     gl.uniform1f(this.programs.whiteBalance.uniforms['uLiveTint'], model.tint);
     // Decoded WB == as-shot at the time this Pipeline runs; the test page
     // wires those values from DecodedSceneLinearImage.asShotTemperature/Tint.
@@ -302,28 +265,16 @@ export class Pipeline {
       this.programs.whiteBalance.uniforms['uDecodedTemperature'],
       input.asShotTemperature,
     );
-    gl.uniform1f(
-      this.programs.whiteBalance.uniforms['uDecodedTint'],
-      input.asShotTint,
-    );
+    gl.uniform1f(this.programs.whiteBalance.uniforms['uDecodedTint'], input.asShotTint);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     // Pass 2: SceneToneControls (ping -> pong)
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.pongFb);
     gl.useProgram(this.programs.sceneToneControls.program);
     bindSrcTexture(gl, this.programs.sceneToneControls, this.pingTex);
-    gl.uniform1f(
-      this.programs.sceneToneControls.uniforms['uExposure'],
-      model.exposure,
-    );
-    gl.uniform1f(
-      this.programs.sceneToneControls.uniforms['uHighlights'],
-      model.highlights,
-    );
-    gl.uniform1f(
-      this.programs.sceneToneControls.uniforms['uShadows'],
-      model.shadows,
-    );
+    gl.uniform1f(this.programs.sceneToneControls.uniforms['uExposure'], model.exposure);
+    gl.uniform1f(this.programs.sceneToneControls.uniforms['uHighlights'], model.highlights);
+    gl.uniform1f(this.programs.sceneToneControls.uniforms['uShadows'], model.shadows);
     gl.uniform1f(this.programs.sceneToneControls.uniforms['uWhites'], model.whites);
     gl.uniform1f(this.programs.sceneToneControls.uniforms['uBlacks'], model.blacks);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -339,10 +290,7 @@ export class Pipeline {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.pongFb);
     gl.useProgram(this.programs.sceneSaturation.program);
     bindSrcTexture(gl, this.programs.sceneSaturation, this.pingTex);
-    gl.uniform1f(
-      this.programs.sceneSaturation.uniforms['uSaturation'],
-      model.saturation,
-    );
+    gl.uniform1f(this.programs.sceneSaturation.uniforms['uSaturation'], model.saturation);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     // Pass 5: AgXViewTransform (pong -> canvas backbuffer). Inline sigmoid
@@ -351,10 +299,7 @@ export class Pipeline {
     gl.viewport(0, 0, w, h);
     gl.useProgram(this.programs.agxViewTransform.program);
     bindSrcTexture(gl, this.programs.agxViewTransform, this.pongTex);
-    gl.uniform1f(
-      this.programs.agxViewTransform.uniforms['uContrast'],
-      model.contrast,
-    );
+    gl.uniform1f(this.programs.agxViewTransform.uniforms['uContrast'], model.contrast);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     // Read back the RGBA8 backbuffer. WebGL2 readPixels(RGBA, UNSIGNED_BYTE)
@@ -380,11 +325,7 @@ export class Pipeline {
 
 // === helpers ===
 
-function compileShader(
-  gl: WebGL2RenderingContext,
-  type: GLenum,
-  src: string,
-): WebGLShader {
+function compileShader(gl: WebGL2RenderingContext, type: GLenum, src: string): WebGLShader {
   const sh = gl.createShader(type)!;
   gl.shaderSource(sh, src);
   gl.compileShader(sh);
@@ -444,11 +385,7 @@ function createFloatTexture(gl: WebGL2RenderingContext): WebGLTexture {
   return t;
 }
 
-function bindSrcTexture(
-  gl: WebGL2RenderingContext,
-  p: ProgramHandles,
-  tex: WebGLTexture,
-): void {
+function bindSrcTexture(gl: WebGL2RenderingContext, p: ProgramHandles, tex: WebGLTexture): void {
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.uniform1i(p.uSrc, 0);

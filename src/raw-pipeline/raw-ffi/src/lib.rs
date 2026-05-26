@@ -17,6 +17,8 @@
 //!                            (`maple_render_file`, `maple_render_bytes`).
 //!   - `scene_linear`       — scene-linear fp16 RGBA entries
 //!                            (file/bytes × full/sized/tile).
+//!   - `scene_linear_f32`   — scene-linear f32 RGBA entries (#482)
+//!                            (file/bytes × full/sized).
 //!   - `handle`             — `MapleRawHandle` (cached decoded RAW +
 //!                            model) + render_handle_tile.
 //!   - `scene_linear_chain` — `maple_apply_scene_linear_chain` per-tick
@@ -34,6 +36,7 @@ mod id;
 mod model;
 mod render;
 mod scene_linear;
+mod scene_linear_f32;
 mod scene_linear_chain;
 mod thumbnail;
 
