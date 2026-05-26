@@ -96,13 +96,21 @@ export function extractDatesFromQuery(q: SearchQuery, now: Date = new Date()): S
 
   const out: SearchQuery = { ...q };
 
-  // Intersect: the tightest bound wins. Bare-date strings compare
-  // lexicographically the same as widened ones for max/min selection.
+  // Intersect, comparing the *widened* forms so an explicit param carrying a
+  // time component (e.g. `to=2024-06-30T00:00:00Z`) is measured against the
+  // parsed bare date on the same scale — a naive lexicographic compare treats
+  // the bare date as a prefix and would let it loosen the bound. The tightest
+  // bound wins (max-of-froms, min-of-tos); an explicit param can only tighten.
+  // Store the normalized value — downstream `widen*Date` is idempotent on it.
   if (parsed.from) {
-    out.from = q.from && q.from > parsed.from ? q.from : parsed.from;
+    const candidate = widenFromDate(parsed.from);
+    const explicit = q.from ? widenFromDate(q.from) : undefined;
+    out.from = explicit && explicit > candidate ? explicit : candidate;
   }
   if (parsed.to) {
-    out.to = q.to && q.to < parsed.to ? q.to : parsed.to;
+    const candidate = widenToDate(parsed.to);
+    const explicit = q.to ? widenToDate(q.to) : undefined;
+    out.to = explicit && explicit < candidate ? explicit : candidate;
   }
 
   // Strip the consumed substring from the residual free-text query, then

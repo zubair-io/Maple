@@ -173,7 +173,12 @@ function readConfig(): ClientConfig {
       process.env.MAPLE_DESCRIBE_PROVIDER_URL?.trim() ||
       DEFAULT_EMBEDDER_BASE_URL,
     embedderModel: process.env.MAPLE_MEILISEARCH_EMBEDDER_MODEL?.trim() || DEFAULT_EMBEDDER_MODEL,
-    semanticRatio: Number.isFinite(ratio) ? ratio : DEFAULT_SEMANTIC_RATIO,
+    // Meili's hybrid `semanticRatio` must be in [0,1]; an out-of-range value
+    // 4xxs every semantic query. Clamp rather than reject so a fat-fingered
+    // env var degrades gracefully instead of breaking search.
+    semanticRatio: Number.isFinite(ratio)
+      ? Math.min(1, Math.max(0, ratio))
+      : DEFAULT_SEMANTIC_RATIO,
     fetchImpl: globalThis.fetch.bind(globalThis),
   };
 }
