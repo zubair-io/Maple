@@ -67,3 +67,40 @@ export function markAssetsForMeiliReindexBestEffort(personIds: Array<ObjectId | 
     );
   });
 }
+
+/**
+ * Like `markAssetsForMeiliReindex` but targets specific assets by `_id`.
+ * Used by single-asset face mutations (assign/reassign/hide) and by
+ * clustering, where the caller already knows exactly which assets changed —
+ * resetting a whole person's corpus there would re-queue thousands of
+ * unchanged assets. Reserve the person-wide variant for rename/merge, where
+ * the name token shifts across every one of a person's assets.
+ *
+ * No-op when `assetIds` is empty. Returns the number of assets reset.
+ */
+export async function markAssetIdsForMeiliReindex(assetIds: ObjectId[]): Promise<number> {
+  if (assetIds.length === 0) return 0;
+  const assets = await assetsCollection();
+  const result = await assets.updateMany(
+    { _id: { $in: assetIds } },
+    {
+      $set: {
+        'stages.meili.version': 0,
+        'stages.meili.dead': false,
+        'stages.meili.attempts': 0,
+        'stages.meili.last_error': null,
+      },
+    },
+  );
+  return result.modifiedCount;
+}
+
+/** Fire-and-forget wrapper for `markAssetIdsForMeiliReindex`. */
+export function markAssetIdsForMeiliReindexBestEffort(assetIds: ObjectId[]): void {
+  void markAssetIdsForMeiliReindex(assetIds).catch((err) => {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'failed to mark assets for meili reindex',
+    );
+  });
+}

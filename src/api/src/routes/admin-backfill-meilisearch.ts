@@ -61,12 +61,14 @@ export const meilisearchBackfillRoutes = new Elysia({
   await meili.ensureIndex();
 
   const coll = await assetsCollection();
-  // Filter on the same predicate Phase 3's text index uses: rows with a
-  // populated place blob. The text index ensures fast iteration.
+  // Gate on the unified top-level `search_blob` — the meili stage folds
+  // place + description + OCR + vision + people into it. Gating on
+  // `place.search_blob` (as before) skipped assets that are searchable via
+  // description/vision/people but have no GPS/place.
   const cursor = coll
     .find(
       {
-        'place.search_blob': { $exists: true, $ne: '' },
+        search_blob: { $exists: true, $ne: '' },
       } as unknown as Parameters<typeof coll.find>[0],
       {
         projection: {
@@ -99,13 +101,7 @@ export const meilisearchBackfillRoutes = new Elysia({
     scanned += 1;
     const row = raw as unknown as BackfillRow;
     const mapleId = row.maple_id;
-    const placeBlob = row.place?.search_blob;
-    if (
-      typeof mapleId !== 'string' ||
-      mapleId.length === 0 ||
-      typeof placeBlob !== 'string' ||
-      placeBlob.length === 0
-    ) {
+    if (typeof mapleId !== 'string' || mapleId.length === 0) {
       skipped += 1;
       continue;
     }
@@ -125,7 +121,16 @@ export const meilisearchBackfillRoutes = new Elysia({
         visionNotableObjects: vision?.notable_objects ?? null,
         people: peopleNames,
       });
-      await meili.upsert({
+      // Nothing indexable for this row (no place/description/OCR/vision and
+      // no named people) — skip rather than push an empty document.
+      if (searchBlob.length === 0 && peopleNames.length === 0) {
+        skipped += 1;
+        continue;
+      }
+      // `upsertOrThrow` (not `upsert`) so a Meili transport failure lands in
+      // the catch and bumps `errors` — this operator endpoint must report
+      // real failures rather than silently swallowing them.
+      await meili.upsertOrThrow({
         id: mapleId,
         searchBlob,
         description: row.description ?? null,
@@ -141,8 +146,8 @@ export const meilisearchBackfillRoutes = new Elysia({
       });
       upserted += 1;
     } catch (err) {
-      // The client log-and-swallows on its own — we still bump the
-      // counter so the operator sees a non-zero `errors` field.
+      // `upsertOrThrow` (and any people-resolution failure) lands here —
+      // log and bump `errors` so the operator sees a non-zero count.
       log.warn(
         {
           mapleId,
