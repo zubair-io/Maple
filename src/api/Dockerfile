@@ -135,14 +135,11 @@ ENV PORT=3000
 ENV MAPLE_MONGO_URI=mongodb://localhost:27017
 ENV MAPLE_MONGO_DB=maple
 ENV MAPLE_UI_DIST=/app/ui
-# Persist the auto-generated JWT secret on the config volume, NOT the
-# container's ephemeral layer. The code default (./.maple/jwt.secret)
-# resolves to /app/.maple/jwt.secret, which is discarded on every
-# container recreate — rotating the secret silently invalidates every
-# issued access token ("bad signature" on verify). /app/config is the
-# documented persistent mount (see docker-compose.yml), so the secret
-# survives redeploys. Mount a volume there or set MAPLE_JWT_SECRET
-# explicitly in any deployment.
+# JWT secret: the primary store is the DB (server_state.jwt_secret), which
+# persists in Mongo and is shared across instances — see src/auth/jwt-secret.repo.ts.
+# This path is only the FALLBACK used when Mongo is unreachable at boot. Point
+# it at the persistent /app/config volume (not the ephemeral container layer)
+# so even the degraded path doesn't rotate the secret on every recreate.
 ENV MAPLE_JWT_SECRET_FILE=/app/config/jwt.secret
 
 EXPOSE 3000
