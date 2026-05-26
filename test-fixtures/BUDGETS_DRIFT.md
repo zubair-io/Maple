@@ -198,3 +198,37 @@ once the bundled-DCP coverage path lands a Fuji X-T3 profile.
 Bayer baselines for the other 16 fixtures are unchanged by the
 X-Trans work — the dispatch in `develop.rs` short-circuits on
 `CfaPattern::XTrans(_)` and leaves the 2×2 kernels untouched.
+
+### Follow-up review fixes (PR #465 review pass)
+
+Three demosaic-correctness fixes landed in the same PR after Copilot
+review:
+
+1. `xtrans_bilinear` now preserves the measured center-channel sample
+   exactly — same policy as `bilinear::bilinear` — instead of folding
+   the center into the same-channel neighbour mean. The Markesteijn
+   seed pass inherits the cleaner starting point.
+2. `directional_green` clamps the CFA lookup coords to match what
+   `at()` clamps the read to. Before the fix, x ∈ {2, 3} could surface
+   a non-green sample as green at the 2-px interior margin (the
+   unclamped coord wrapped mod 6 to a different channel than the
+   clamped read).
+3. Dead `let _ = g;` no-op removed in the gradient-direction picker
+   (cosmetic, no behavior change).
+
+Plus a LinearRaw fix outside the X-Trans kernel:
+
+4. `effective_quality_divisor` now returns 1 for `CfaPattern::LinearRgb`
+   Preview as well — the LinearRaw path bypasses the Bayer half-res
+   kernel and produces a full-resolution buffer at every
+   `RenderQuality`, so `crop_to_default` needs divisor=1 to land the
+   crop at the right buffer coords on any LinearRaw DNG that carries
+   crop metadata.
+
+The X-Trans demosaic fixes (1+2) are likely to shift the test_0008
+numbers downward (sharper output, no border-channel leak). The new
+per-case `mean / p95 / max / bias` were NOT re-captured locally
+because `test-fixtures/raws/` is gitignored and the parity harness
+can't run without the RAW. Numbers will be recaptured in the
+calibration sweep that seeds the first `budgets.json` entry for
+test_0008 (per the recipe at the top of this file).
