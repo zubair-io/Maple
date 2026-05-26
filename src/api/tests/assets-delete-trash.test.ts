@@ -92,6 +92,7 @@ function capturingMeili(): CapturingMeili {
     tombstones,
     upserts,
     isConfigured: () => true,
+    semanticConfigured: () => false,
     health: async () => true,
     ensureIndex: async () => {},
     upsert: async (doc) => {
@@ -283,6 +284,7 @@ describe('DELETE /api/assets/:id (trash + permanent purge)', () => {
     if (!mongoReachable) return;
     const failing: MeilisearchClient = {
       isConfigured: () => true,
+      semanticConfigured: () => false,
       health: async () => true,
       ensureIndex: async () => {},
       upsert: async () => {},

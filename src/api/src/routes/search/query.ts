@@ -32,6 +32,7 @@ import { t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
+import { parseNlDateRange } from './nl-date.ts';
 
 export const COLOR_LABELS = new Set(['', 'red', 'yellow', 'green', 'blue', 'purple']);
 
@@ -76,6 +77,50 @@ export function widenToDate(s: string): string {
   return BARE_DATE.test(s) ? `${s}T23:59:59.999Z` : s;
 }
 
+/**
+ * Pull a natural-language date out of `placeQuery` and fold it into the
+ * structured `from`/`to` fields. Returns a shallow clone of `q` with:
+ *   - `from`/`to` intersected with any parsed range (max-of-froms,
+ *     min-of-tos so an explicit param always tightens, never loosens), and
+ *   - the matched date substring stripped from `placeQuery`.
+ *
+ * Conservative by construction — `parseNlDateRange` only fires on clear
+ * date tokens, so non-date text is returned untouched. Pure; safe to call
+ * before `buildFilter`. The `now` argument is injectable for tests.
+ */
+export function extractDatesFromQuery(q: SearchQuery, now: Date = new Date()): SearchQuery {
+  const placeQuery = q.placeQuery;
+  if (!placeQuery || placeQuery.trim().length === 0) return q;
+  const parsed = parseNlDateRange(placeQuery, now);
+  if (!parsed) return q;
+
+  const out: SearchQuery = { ...q };
+
+  // Intersect: the tightest bound wins. Bare-date strings compare
+  // lexicographically the same as widened ones for max/min selection.
+  if (parsed.from) {
+    out.from = q.from && q.from > parsed.from ? q.from : parsed.from;
+  }
+  if (parsed.to) {
+    out.to = q.to && q.to < parsed.to ? q.to : parsed.to;
+  }
+
+  // Strip the consumed substring from the residual free-text query, then
+  // collapse the whitespace it leaves behind. Only the first occurrence is
+  // removed — the parser matched exactly one span.
+  if (parsed.matched && parsed.matched.length > 0) {
+    const idx = placeQuery.toLowerCase().indexOf(parsed.matched.toLowerCase());
+    let residual = placeQuery;
+    if (idx >= 0) {
+      residual = placeQuery.slice(0, idx) + placeQuery.slice(idx + parsed.matched.length);
+    }
+    residual = residual.replace(/\s+/g, ' ').trim();
+    out.placeQuery = residual;
+  }
+
+  return out;
+}
+
 export interface SearchQuery {
   q?: string;
   /** Phase 3+: free-text search against the unified `asset.search_blob`
@@ -110,6 +155,10 @@ export interface SearchQuery {
   /** Screenshot filter. `"true"` shows only screenshots, `"false"` shows
    * only photographs, omitted shows everything. */
   isScreenshot?: string;
+  /** Comma-separated person names for an explicit person picker. Passed to
+   * the Meilisearch `people` filterable attribute; the Mongo `$text`
+   * fallback already covers names via `search_blob`. */
+  people?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -139,6 +188,7 @@ export const SearchQueryT = t.Object({
   activity: t.Optional(t.String()),
   subjects: t.Optional(t.String()),
   isScreenshot: t.Optional(t.String()),
+  people: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
