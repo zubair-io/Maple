@@ -346,3 +346,28 @@ and a new f32 entry-point would be additive (new
 not a breaking change. The Web pipeline still uses RGBA16F textures;
 the f32 upgrade goes with the same KTLO ticket so both shells move
 together.
+
+---
+
+## post-#441 dithering
+
+`src/raw-pipeline/raw-core/src/view/encode.rs::quantize_u8` now adds an
+8×8 Bayer-matrix `[-0.5, +0.5)` LSB positional offset to every channel
+before the round-to-u8 step (eliminates 8-bit banding on smooth
+gradients per ticket #441). The Web AgX shader does the same
+inline before the canvas write.
+
+**Expected ΔE drift on `test_color_pipeline.sh`:** negligible. The
+offset has tile-mean exactly zero (every pair of cells `v` and `63-v`
+contributes equal-and-opposite offsets), so over any patch of ≥8×8
+pixels the dithered mean equals the un-dithered mean to floating-point
+noise. The maximum per-pixel ΔE perturbation is bounded by 1 LSB of u8
+in display-encoded sRGB, which after sRGB-decode and conversion to Lab
+is well under 1 ΔE everywhere on the 0..255 axis. The harness rounds
+ΔE to 3 decimals and per-fixture budgets carry several units of
+slack — no budget is expected to be perturbed beyond rounding noise.
+
+Local fixture sweep not measured: `test-fixtures/raws/` are gitignored
+on this worktree (same constraint as the #424/#431 notes above). If a
+fixture moves >0.05 ΔE on a re-baseline this is the place to record
+which fixture and by how much.

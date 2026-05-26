@@ -63,6 +63,75 @@ function agxSigmoid(x: number): number {
   return clamp(scale * hyperbolic + AGX_Y_PIVOT, 0.0, 1.0);
 }
 
+// ── Bayer 8×8 dither mirror (#441) ───────────────────────────────────────
+// Must match the GLSL `BAYER_8X8` array in `agx-view-transform.ts` AND
+// the Rust `BAYER_8X8` in `raw-core/src/view/dither.rs`. All three are
+// the canonical 8×8 ordered-dither matrix from Wikipedia / the OpenGL
+// Programming Guide; if any one of them drifts, the dither pattern goes
+// out of phase between Rust and Web output and the cross-platform
+// parity claim breaks.
+const BAYER_8X8: readonly number[] = [
+  0, 32, 8, 40, 2, 34, 10, 42,
+  48, 16, 56, 24, 50, 18, 58, 26,
+  12, 44, 4, 36, 14, 46, 6, 38,
+  60, 28, 52, 20, 62, 30, 54, 22,
+  3, 35, 11, 43, 1, 33, 9, 41,
+  51, 19, 59, 27, 49, 17, 57, 25,
+  15, 47, 7, 39, 13, 45, 5, 37,
+  63, 31, 55, 23, 61, 29, 53, 21,
+];
+
+/** Mirror of `dither_offset_lsb` in `agx-view-transform.ts` GLSL and
+ * `bayer_offset_lsb` in `raw-core/src/view/dither.rs`. */
+function ditherOffsetLsb(x: number, y: number): number {
+  const cell = BAYER_8X8[(y & 7) * 8 + (x & 7)];
+  return (cell + 0.5) / 64.0 - 0.5;
+}
+
+describe('Bayer 8×8 dither — Web/Rust parity (#441)', () => {
+  it('matrix contains each of 0..=63 exactly once', () => {
+    const seen = new Array<boolean>(64).fill(false);
+    for (const v of BAYER_8X8) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThan(64);
+      expect(seen[v]).toBe(false);
+      seen[v] = true;
+    }
+    expect(seen.every((b) => b)).toBe(true);
+  });
+
+  it('offset for every cell lies in [-0.5, +0.5)', () => {
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        const o = ditherOffsetLsb(x, y);
+        expect(o).toBeGreaterThanOrEqual(-0.5);
+        expect(o).toBeLessThan(0.5);
+      }
+    }
+  });
+
+  it('tile mean offset is zero', () => {
+    let sum = 0;
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        sum += ditherOffsetLsb(x, y);
+      }
+    }
+    expect(Math.abs(sum)).toBeLessThan(1e-9);
+  });
+
+  it('tiles across an image (same cell at (x+8, y), (x, y+8))', () => {
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 8; x++) {
+        const base = ditherOffsetLsb(x, y);
+        expect(ditherOffsetLsb(x + 8, y)).toBe(base);
+        expect(ditherOffsetLsb(x, y + 8)).toBe(base);
+        expect(ditherOffsetLsb(x + 16, y + 16)).toBe(base);
+      }
+    }
+  });
+});
+
 describe('AgX view transform — GLSL sigmoid self-consistency (#263)', () => {
   it('lands AGX_Y_PIVOT (=0.18) exactly at AGX_X_PIVOT', () => {
     // Load-bearing claim: mid-gray (norm = X_PIVOT) maps to Y_PIVOT.

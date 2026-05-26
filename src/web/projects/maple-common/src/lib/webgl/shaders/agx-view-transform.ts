@@ -68,6 +68,48 @@ const mat3 AGX_OUTSET = mat3(
    -0.1060340474, -0.1060340474,  1.1439659526  // col 2
 );
 
+// ── Bayer 8×8 ordered-dither matrix (ticket #441) ────────────────────────
+// Same matrix as raw-core's \`view/dither.rs::BAYER_8X8\`. Used to add
+// ±0.5 LSB positional jitter to the canvas-bound output so smooth
+// gradients don't band on the implicit RGBA8 quantize the browser does
+// when this fragment is written to the canvas backbuffer.
+//
+// NOTE: the Rust side dithers in *gamma-encoded* sRGB u8 units, while
+// this shader writes display-linear Rec.2020 to a wide-gamut RGBA8
+// canvas — the browser handles the gamma+quantize step. Dither here
+// is therefore *approximate parity* (same matrix, same indexing, same
+// ±0.5 LSB amplitude, but applied in a different colour-encoding
+// domain). Byte-identical parity would need an explicit gamma+quantize
+// pass on the Web side; that's gated behind the f32 scene-buffer
+// handoff in #482 and out of scope for #441.
+//
+// The matrix is unrolled into a 64-entry \`float\` array because GLSL
+// ES 3.0 doesn't allow a const \`int[64]\` literal indexed by a non-const
+// integer expression in all driver paths. Encoding as float saves the
+// int→float cast inside the inner loop.
+const float BAYER_8X8[64] = float[64](
+     0.0, 32.0,  8.0, 40.0,  2.0, 34.0, 10.0, 42.0,
+    48.0, 16.0, 56.0, 24.0, 50.0, 18.0, 58.0, 26.0,
+    12.0, 44.0,  4.0, 36.0, 14.0, 46.0,  6.0, 38.0,
+    60.0, 28.0, 52.0, 20.0, 62.0, 30.0, 54.0, 22.0,
+     3.0, 35.0, 11.0, 43.0,  1.0, 33.0,  9.0, 41.0,
+    51.0, 19.0, 59.0, 27.0, 49.0, 17.0, 57.0, 25.0,
+    15.0, 47.0,  7.0, 39.0, 13.0, 45.0,  5.0, 37.0,
+    63.0, 31.0, 55.0, 23.0, 61.0, 29.0, 53.0, 21.0
+);
+
+// Dither offset in \`[-0.5/255, +0.5/255)\` (i.e. ±0.5 LSB of the RGBA8
+// canvas) for the current fragment. Indexed by \`gl_FragCoord.xy\` modulo
+// 8 — matches the Rust \`bayer_offset_lsb(x, y)\` indexing.
+float dither_offset_lsb() {
+    int x = int(gl_FragCoord.x) & 7;
+    int y = int(gl_FragCoord.y) & 7;
+    float cell = BAYER_8X8[y * 8 + x];
+    // Map 0..=63 to [-0.5, +0.5) — same closed-form as Rust:
+    //   (cell + 0.5) / 64.0 - 0.5
+    return (cell + 0.5) / 64.0 - 0.5;
+}
+
 // Per-channel log2-encode + normalize to [0, 1].
 float agx_log_encode(float linear) {
     float floor_v = AGX_MID_GRAY * exp2(AGX_MIN_EV);
@@ -233,6 +275,16 @@ void main() {
 
     // 4) Hue-preserving Oklab gamut compression to [0, 1]^3.
     display = oklab_gamut_compress(display);
+
+    // 6) Ordered-dither the implicit RGBA8 canvas quantize (#441). Adds
+    // a ±0.5 LSB positional offset so gradients pick up sub-LSB
+    // variance instead of forming flat plateaus. Same offset on R/G/B
+    // so neutrals stay neutral. Re-clamp because the +0.5/255 offset
+    // would otherwise push the top of the display range over 1.0 and
+    // the bottom under 0.0 before the implicit \`* 255 + 0.5 -> u8\`
+    // happens at canvas write.
+    float d = dither_offset_lsb() / 255.0;
+    display = clamp(display + vec3(d), 0.0, 1.0);
 
     outColor = vec4(display, color.a);
 }
