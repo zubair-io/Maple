@@ -268,6 +268,90 @@ mod tests {
         }
     }
 
+    /// Regression for ticket #439 (luminance-only to avoid color fringing on
+    /// high-contrast edges). A vertical step edge that ALSO carries chroma
+    /// — saturated red on one side, saturated cyan on the other — would
+    /// fringe under any per-channel sharpener: red and cyan have opposite
+    /// channel signs, so an RGB unsharp-mask boosts R on the red side and
+    /// G+B on the cyan side, pulling the edge pixels toward magenta /
+    /// yellow casts they shouldn't carry.
+    ///
+    /// Under luma-only USM the scale is a single scalar per pixel applied
+    /// to all three channels, so R:G:B ratios are preserved on both sides
+    /// of the edge AND on the transition pixels themselves. We assert that
+    /// every pixel on the canvas — including the edge transition — keeps
+    /// the chroma ratio it started with (within a tight tolerance).
+    #[test]
+    fn saturated_edge_has_no_chroma_fringing() {
+        let w = 32u32;
+        let h = 8u32;
+        let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+        // Left half: saturated red. Right half: saturated cyan. Both
+        // sides carry strong chroma with opposite channel sign, so an
+        // RGB-per-channel sharpener would boost R on the red side and
+        // G+B on the cyan side independently — that's exactly the
+        // failure mode the ticket calls out. Our assertions are on
+        // *ratio preservation*, which the luma-only path enforces by
+        // construction regardless of the luma magnitudes of the two
+        // sides.
+        let left = [0.40_f32, 0.05, 0.05];
+        let right = [0.05_f32, 0.40, 0.40];
+        for y in 0..h as usize {
+            for x in 0..w as usize {
+                let p = if x < (w / 2) as usize { left } else { right };
+                img.pixels[y * w as usize + x] = p;
+            }
+        }
+        let before = img.pixels.clone();
+        apply(&mut img, 100.0, 1.0, 25.0, 0.0);
+
+        // Every pixel: scaled by a single scalar k, so output/input
+        // must be identical across the three channels.
+        for i in 0..img.pixels.len() {
+            let a = before[i];
+            let b = img.pixels[i];
+            // Reconstruct the per-channel scale.
+            let kr = b[0] / a[0].max(1e-6);
+            let kg = b[1] / a[1].max(1e-6);
+            let kb = b[2] / a[2].max(1e-6);
+            assert!(
+                (kr - kg).abs() < 1e-4 && (kg - kb).abs() < 1e-4,
+                "pixel {} drifted off luma-only scaling: in={:?} out={:?} kr/kg/kb = {} {} {}",
+                i, a, b, kr, kg, kb,
+            );
+            // Chroma ratio (R:G:B) must be preserved bit-for-bit (within
+            // float tolerance): if a[0]/a[1] == c, then b[0]/b[1] == c.
+            let r_in = a[0] / a[1].max(1e-6);
+            let r_out = b[0] / b[1].max(1e-6);
+            let g_in = a[2] / a[1].max(1e-6);
+            let g_out = b[2] / b[1].max(1e-6);
+            assert!(
+                (r_in - r_out).abs() < 1e-4,
+                "pixel {} R/G chroma ratio drifted: in={} out={}",
+                i, r_in, r_out,
+            );
+            assert!(
+                (g_in - g_out).abs() < 1e-4,
+                "pixel {} B/G chroma ratio drifted: in={} out={}",
+                i, g_in, g_out,
+            );
+        }
+
+        // And the edge should actually have moved — confirm the test
+        // isn't trivially passing because sharpening did nothing.
+        let cy = (h / 2) as usize;
+        let left_edge = cy * (w as usize) + (w as usize / 2 - 1);
+        let right_edge = cy * (w as usize) + (w as usize / 2);
+        let left_delta = (img.pixels[left_edge][1] - before[left_edge][1]).abs()
+            + (img.pixels[left_edge][2] - before[left_edge][2]).abs();
+        let right_delta = (img.pixels[right_edge][1] - before[right_edge][1]).abs()
+            + (img.pixels[right_edge][2] - before[right_edge][2]).abs();
+        assert!(
+            left_delta > 1e-4 || right_delta > 1e-4,
+            "sharpen did nothing on the edge — chroma-ratio test is vacuous",
+        );
+    }
+
     #[test]
     fn smoothstep_endpoints() {
         assert_eq!(smoothstep(0.0, 1.0, -0.5), 0.0);
