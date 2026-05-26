@@ -86,7 +86,12 @@ export const backupNotifyDeletedRoutes = new Elysia().post(
     const a = await assetsCollection();
     const result = await a.updateMany(
       {
-        folder_id: libraryId,
+        // Scope by `fileinfo.library_id`, not the retired top-level
+        // `folder_id` (dropped in drop-abs-path-2026-05-21). The legacy
+        // field never matches a real document, so the previous query
+        // silently updated nothing and devices' Photos-deletion reports
+        // were lost. Mirrors backup-sidecar / backup-rendered scoping.
+        "fileinfo.library_id": libraryId,
         phasset_links: {
           $elemMatch: {
             device_id: deviceId,

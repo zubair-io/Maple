@@ -96,10 +96,16 @@ struct BackupSettingsView: View {
             if let serverBaseURL = URL(string: settings.serverURL),
                let storage = try? DeviceIdentity.defaultStorageURL(),
                let deviceId = try? DeviceIdentity.current(storageURL: storage) {
-              settingsLog.info("kicking ChangeObserverWiring.start deviceId=\(deviceId, privacy: .public)")
+              // This is the explicit user Start/Restart path — pass
+              // retryFailed:true so a Restart resets and re-enqueues
+              // .failedRetry tasks (the user chose "Retry failed + new").
+              // The launch path in MapleApp and the periodic walk stay
+              // new-only.
+              settingsLog.info("kicking ChangeObserverWiring.start deviceId=\(deviceId, privacy: .public) retryFailed=true")
               ChangeObserverWiring.start(deviceId: deviceId, settings: settings,
                                          libraryId: settings.libraryId,
-                                         serverBaseURL: serverBaseURL)
+                                         serverBaseURL: serverBaseURL,
+                                         retryFailed: true)
             } else {
               settingsLog.error("ChangeObserverWiring NOT started — failed to resolve serverBaseURL or DeviceIdentity")
             }

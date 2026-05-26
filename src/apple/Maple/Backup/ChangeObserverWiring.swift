@@ -43,9 +43,16 @@ enum ChangeObserverWiring {
     /// `settings` controls which asset types and categories are enqueued.
     /// `libraryId` and `serverBaseURL` are passed to the walk for delete
     /// reconciliation notifications.
+    ///
+    /// `retryFailed` controls the initial seeding walk only: pass `true` for an
+    /// explicit user-initiated Restart so `.failedRetry` tasks are reset and
+    /// re-enqueued. The change-observer-triggered walks that follow always run
+    /// new-only (retryFailed: false) — incremental capture/edit events should
+    /// never reset retry counts on the whole backlog.
     static func start(deviceId: String, settings: BackupSettings,
-                      libraryId: String, serverBaseURL: URL) {
-        log.info("start subscribe deviceId=\(deviceId, privacy: .public) libraryId=\(libraryId, privacy: .public) server=\(serverBaseURL.absoluteString, privacy: .public)")
+                      libraryId: String, serverBaseURL: URL,
+                      retryFailed: Bool = false) {
+        log.info("start subscribe deviceId=\(deviceId, privacy: .public) libraryId=\(libraryId, privacy: .public) server=\(serverBaseURL.absoluteString, privacy: .public) retryFailed=\(retryFailed)")
         // Reset cross-walk delete-diff state so a library change doesn't mark
         // assets in the new library as deleted (they weren't in the old set).
         lastSeenPhids = []
@@ -55,14 +62,19 @@ enum ChangeObserverWiring {
         }
         token = PhotoKitChangeObserver.shared.subscribe { @Sendable in
             Task { @MainActor in
+                // Incremental change events are always new-only — a fresh
+                // capture must not reset the whole backlog's retry counters.
                 await enqueueAllNew(deviceId: deviceId, settings: settings,
-                                    libraryId: libraryId, serverBaseURL: serverBaseURL)
+                                    libraryId: libraryId, serverBaseURL: serverBaseURL,
+                                    retryFailed: false)
             }
         }
         // Kick off an initial walk so we don't wait for a change event to seed
-        // the queue on first launch.
+        // the queue on first launch. This is the one walk that honours the
+        // caller's `retryFailed` (so a user Restart retries the failures).
         Task { await enqueueAllNew(deviceId: deviceId, settings: settings,
-                                   libraryId: libraryId, serverBaseURL: serverBaseURL) }
+                                   libraryId: libraryId, serverBaseURL: serverBaseURL,
+                                   retryFailed: retryFailed) }
     }
 
     /// Unsubscribe from library changes. Idempotent.
@@ -74,11 +86,14 @@ enum ChangeObserverWiring {
     }
 
     /// Public entry point for the periodic safety walk (called by EngineHost's
-    /// weekly timer and the iOS BGProcessingTask handler).
+    /// weekly timer and the iOS BGProcessingTask handler). Always new-only —
+    /// the periodic walk picks up new captures, it does not reset failed-retry
+    /// tasks (that's reserved for an explicit user Restart).
     static func runWalk(deviceId: String, settings: BackupSettings,
                         libraryId: String, serverBaseURL: URL) async {
         await enqueueAllNew(deviceId: deviceId, settings: settings,
-                            libraryId: libraryId, serverBaseURL: serverBaseURL)
+                            libraryId: libraryId, serverBaseURL: serverBaseURL,
+                            retryFailed: false)
     }
 
     /// Walk every PHAsset and enqueue any we don't yet have in BackupStateStore.
@@ -95,8 +110,9 @@ enum ChangeObserverWiring {
     ///  - `includeSharedAlbums`: skip assets that belong to at least one
     ///    iCloud Shared Album (albumCloudShared) when false.
     private static func enqueueAllNew(deviceId: String, settings: BackupSettings,
-                                       libraryId: String, serverBaseURL: URL) async {
-        log.info("walk begin libraryId=\(libraryId, privacy: .public)")
+                                       libraryId: String, serverBaseURL: URL,
+                                       retryFailed: Bool) async {
+        log.info("walk begin libraryId=\(libraryId, privacy: .public) retryFailed=\(retryFailed)")
         guard let state = EngineHost.shared.state else {
             log.error("walk bail: EngineHost.shared.state is nil — backup engine never finished starting")
             return
@@ -126,39 +142,251 @@ enum ChangeObserverWiring {
         }
         lastSeenPhids = currentPhids
 
-        // One round-trip instead of one per phid. Build a Set of known task IDs
-        // and diff in-memory so a 100k library doesn't make 100k SQLite calls.
-        let seen: Set<BackupTaskID>
+        // One round-trip instead of one per phid. Build a map of known task IDs →
+        // state and diff in-memory so a 100k library doesn't make 100k SQLite
+        // calls.
+        let stateByPhid: [String: BackupState]
         do {
             let allTasks = try await state.allTasks()
-            seen = Set(allTasks.map(\.id))
+            stateByPhid = Dictionary(
+                allTasks.map { ($0.id.phassetLocalId, $0.state) },
+                uniquingKeysWith: { _, latest in latest })
         } catch {
             log.error("walk bail: allTasks() failed: \(String(describing: error), privacy: .public)")
             return
         }
 
+        // Server PHID reconciliation (step a — cheap, no hashing). Ask the
+        // server which phids it already has recorded for THIS device, and treat
+        // that as the authoritative "already backed up" set. This is what stops
+        // a cleared/reinstalled local SQLite from re-uploading every photo on
+        // restart: the server already knows about them. Best-effort — a network
+        // failure falls back to local-state-only reconciliation.
+        var serverKnownPhids: Set<String> = []
+        let stateClient = BackupStateClient(baseURL: serverBaseURL,
+                                            libraryId: libraryId, deviceId: deviceId)
+        do {
+            let known = try await stateClient.fetchKnownAssets()
+            serverKnownPhids = Set(known.map(\.phassetLocalId))
+            log.info("walk server-state reconciliation: server knows \(serverKnownPhids.count) phids for this device")
+        } catch {
+            log.error("walk server-state reconciliation skipped (network): \(String(describing: error), privacy: .public)")
+        }
+
+        // Pass 1: classify each enumerated phid into one of:
+        //  - newPhids: never persisted locally, not server-known → candidates.
+        //  - retry phids: locally .failedRetry and retryFailed == true → reset+enqueue.
+        //  - everything else (pending/uploading/uploaded/skipped, or server-known)
+        //    is skipped here.
+        var newPhids: [String] = []
+        var retriedCount = 0
+        var reconciledUploaded = 0
         var enqueuedCount = 0
         var enqueueFailures = 0
+
         for phid in ids {
             let taskId = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
-            if !seen.contains(taskId) {
+            let localState = stateByPhid[phid]
+
+            // Server says it already has this phid for this device → keep/mark
+            // it `.uploaded` locally and skip. Never re-enqueue server-known phids.
+            if serverKnownPhids.contains(phid) {
+                if localState != .uploaded {
+                    do {
+                        let task = BackupTask(id: taskId, state: .uploaded, priority: .background)
+                        try await state.upsert(task)
+                        reconciledUploaded += 1
+                    } catch {
+                        enqueueFailures += 1
+                        if enqueueFailures <= 3 {
+                            log.error("reconcile-upsert failed phid=\(phid, privacy: .public): \(String(describing: error), privacy: .public)")
+                        }
+                    }
+                }
+                continue
+            }
+
+            switch localState {
+            case .none:
+                // Never seen locally and not server-known → candidate.
+                newPhids.append(phid)
+            case .some(.failedRetry):
+                guard retryFailed else { continue }
+                // Reset the failed task to .pending: clear retry count + last
+                // error so the engine's maxRetries ceiling starts fresh, then
+                // enqueue it. (The user explicitly chose "Retry failed + new".)
                 do {
-                    let task = BackupTask(id: taskId, state: .pending, priority: .background)
-                    try await state.upsert(task)
-                    await queue.enqueue(task, priority: .background)
-                    enqueuedCount += 1
+                    try await state.transition(taskId, to: .pending, error: nil, retryCount: 0)
+                    if let reset = try await state.find(taskId) {
+                        await queue.enqueue(reset, priority: reset.priority)
+                        retriedCount += 1
+                    }
                 } catch {
-                    // Persist failures are rare; skip and try again next walk.
                     enqueueFailures += 1
                     if enqueueFailures <= 3 {
-                        // First few failures are useful diagnostics; after that
-                        // a stream of identical errors just floods Console.
-                        log.error("enqueue failed phid=\(phid, privacy: .public): \(String(describing: error), privacy: .public)")
+                        log.error("retry-reset failed phid=\(phid, privacy: .public): \(String(describing: error), privacy: .public)")
                     }
+                }
+            case .some(.pending), .some(.uploading):
+                // Already queued (or rehydrated by EngineHost.start) — leave as-is.
+                continue
+            case .some(.uploaded), .some(.observed),
+                 .some(.skippedPolicy), .some(.localEditPending):
+                // Done / not-a-backup-candidate — skip.
+                continue
+            }
+        }
+
+        // Step b — MAPLE_ID content reconciliation for the surviving candidates.
+        // For phids the server didn't already know by id, derive their maple_id
+        // and ask the server which are genuinely missing. Only enqueue the
+        // missing ones; mark present ones `.uploaded` locally so a future walk
+        // doesn't reconsider them. On a typical same-device restart, step (a)
+        // already covered most photos, so `newPhids` here is small.
+        let phidsToEnqueue: [String]
+        if newPhids.isEmpty || Task.isCancelled {
+            phidsToEnqueue = newPhids
+        } else {
+            phidsToEnqueue = await reconcileByMapleId(
+                candidatePhids: newPhids,
+                deviceId: deviceId, libraryId: libraryId, serverBaseURL: serverBaseURL,
+                state: state, markUploaded: { reconciledUploaded += 1 })
+        }
+
+        for phid in phidsToEnqueue {
+            let taskId = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
+            do {
+                let task = BackupTask(id: taskId, state: .pending, priority: .background)
+                try await state.upsert(task)
+                await queue.enqueue(task, priority: .background)
+                enqueuedCount += 1
+            } catch {
+                // Persist failures are rare; skip and try again next walk.
+                enqueueFailures += 1
+                if enqueueFailures <= 3 {
+                    // First few failures are useful diagnostics; after that
+                    // a stream of identical errors just floods Console.
+                    log.error("enqueue failed phid=\(phid, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
             }
         }
-        log.info("walk done: enqueued=\(enqueuedCount) skipped=\(ids.count - enqueuedCount) failures=\(enqueueFailures)")
+        log.info("walk done: enqueued=\(enqueuedCount) retried=\(retriedCount) reconciled-uploaded=\(reconciledUploaded) skipped=\(ids.count - enqueuedCount - retriedCount) failures=\(enqueueFailures)")
+    }
+
+    /// Step (b) of reconciliation: content-level dedup by maple_id.
+    ///
+    /// Given candidate phids that survived PHID reconciliation, derive each
+    /// one's `maple_id` (off the main thread, in batches, cancellable) and ask
+    /// the server which are NOT yet present in the library. Returns the subset
+    /// of phids that should actually be enqueued; phids whose content the server
+    /// already has are marked `.uploaded` locally (via `markUploaded`) so a
+    /// later walk skips them.
+    ///
+    /// Best-effort: if maple_id derivation fails for a phid, that phid is
+    /// treated as a candidate to enqueue (the upload path dedups server-side as
+    /// a backstop). If the network call fails for a whole batch, every phid in
+    /// that batch falls through to enqueue.
+    private static func reconcileByMapleId(
+        candidatePhids: [String],
+        deviceId: String, libraryId: String, serverBaseURL: URL,
+        state: BackupStateStore,
+        markUploaded: () -> Void
+    ) async -> [String] {
+        let existsClient = BatchExistsClient(baseURL: serverBaseURL,
+                                             libraryId: libraryId, deviceId: deviceId)
+        var toEnqueue: [String] = []
+        var presentPhids: [String] = []
+
+        let batchSize = BatchExistsClient.maxBatchSize
+        var index = 0
+        while index < candidatePhids.count {
+            if Task.isCancelled {
+                // Cancelled mid-walk — enqueue whatever's left rather than
+                // dropping it; server-side dedup is the backstop.
+                toEnqueue.append(contentsOf: candidatePhids[index...])
+                break
+            }
+            let end = min(index + batchSize, candidatePhids.count)
+            let batch = Array(candidatePhids[index..<end])
+            index = end
+
+            // Derive maple_ids off the main thread. Build a phid → maple_id map;
+            // phids whose hash we can't derive go straight to enqueue. The
+            // derivation reads PHAssetResource bytes (async); run it in a
+            // detached Task so the I/O never touches the main actor.
+            let derived: [(phid: String, mapleId: String?)] = await Task.detached(priority: .userInitiated) {
+                var out: [(phid: String, mapleId: String?)] = []
+                out.reserveCapacity(batch.count)
+                for phid in batch {
+                    if Task.isCancelled { break }
+                    let mid = await PhotoKitAssetReader.deriveMapleId(forPHID: phid)
+                    out.append((phid: phid, mapleId: mid))
+                }
+                return out
+            }.value
+
+            // If the detached loop was cancelled mid-batch it returns fewer
+            // entries than `batch`; the missing phids must still be enqueued
+            // (never silently dropped). Server-side dedup is the backstop.
+            if derived.count < batch.count {
+                let coveredPhids = Set(derived.map(\.phid))
+                for phid in batch where !coveredPhids.contains(phid) {
+                    toEnqueue.append(phid)
+                }
+            }
+
+            var mapleIdToPhid: [String: String] = [:]
+            var batchMapleIds: [String] = []
+            for entry in derived {
+                guard let mid = entry.mapleId else {
+                    // Couldn't hash → enqueue and let server-side dedup handle it.
+                    toEnqueue.append(entry.phid)
+                    continue
+                }
+                // First phid wins if two assets hash identically (true dupes
+                // within the same library). Dedupe the query list so each
+                // maple_id is asked about once — and so the missing/present
+                // fan-out below doesn't process the same id twice.
+                if mapleIdToPhid[mid] == nil {
+                    mapleIdToPhid[mid] = entry.phid
+                    batchMapleIds.append(mid)
+                }
+            }
+
+            guard !batchMapleIds.isEmpty else { continue }
+
+            do {
+                let missing = Set(try await existsClient.missing(mapleIds: batchMapleIds))
+                for mid in batchMapleIds {
+                    guard let phid = mapleIdToPhid[mid] else { continue }
+                    if missing.contains(mid) {
+                        toEnqueue.append(phid)
+                    } else {
+                        presentPhids.append(phid)
+                    }
+                }
+            } catch {
+                // Network failure for this batch → enqueue the whole batch.
+                log.error("walk maple_id reconciliation batch failed (network): \(String(describing: error), privacy: .public)")
+                for phid in mapleIdToPhid.values { toEnqueue.append(phid) }
+            }
+        }
+
+        // Mark server-present candidates `.uploaded` locally so they're skipped
+        // next walk without another round-trip.
+        for phid in presentPhids {
+            let taskId = BackupTaskID(deviceId: deviceId, phassetLocalId: phid)
+            do {
+                let task = BackupTask(id: taskId, state: .uploaded, priority: .background)
+                try await state.upsert(task)
+                markUploaded()
+            } catch {
+                // If we can't persist the .uploaded marker, enqueue it instead
+                // — re-uploading is wasteful but never wrong (server dedups).
+                toEnqueue.append(phid)
+            }
+        }
+        return toEnqueue
     }
 
     // MARK: - Off-main PhotoKit walk

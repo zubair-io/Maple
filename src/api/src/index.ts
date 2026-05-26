@@ -61,6 +61,7 @@ import { peopleRoutes } from './routes/people.ts';
 import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
 import { backupIngestRoutes } from './routes/backup-ingest.ts';
 import { backupStateRoutes } from './routes/backup-state.ts';
+import { backupExistsRoutes } from './routes/backup-exists.ts';
 import { backupSidecarRoutes } from './routes/backup-sidecar.ts';
 import { backupRenderedRoutes } from './routes/backup-rendered.ts';
 import { backupNotifyDeletedRoutes } from './routes/backup-notify-deleted.ts';
@@ -233,6 +234,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // learn which assets are already backed up. No auth gate for the same
     // reason as backupIngestRoutes above.
     .use(backupStateRoutes)
+    // Batch dedup probe — device asks which content-hashed maple_ids the
+    // server does NOT already have so it can skip re-uploading duplicates.
+    // No auth gate, same rationale as the other backup-* routes.
+    .use(backupExistsRoutes)
     // XMP sidecar upload — writes a .xmp file next to a previously-uploaded
     // asset. No auth gate (same rationale as backupIngestRoutes).
     .use(backupSidecarRoutes)

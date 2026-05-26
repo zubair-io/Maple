@@ -94,9 +94,15 @@ export const backupSidecarRoutes = new Elysia().post(
     }
 
     // Verify prior asset upload — sidecar without prior upload is an error.
+    // Scope by `fileinfo.library_id`, not the retired top-level `folder_id`
+    // field (dropped in the drop-abs-path-2026-05-21 migration). backup-ingest
+    // writes the on-disk pointer onto `fileinfo[].library_id`; querying the
+    // legacy `folder_id` matched nothing for a freshly-ingested asset and 404'd
+    // the sidecar even though the original bytes landed. Mirrors the
+    // `fileinfo.library_id` scoping the rendered route uses.
     const a = await assetsCollection();
     const asset = await a.findOne({
-      folder_id: libraryId,
+      "fileinfo.library_id": libraryId,
       "phasset_links.device_id": deviceId,
       "phasset_links.phasset_local_id": phid,
     });
