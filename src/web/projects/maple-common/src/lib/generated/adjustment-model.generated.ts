@@ -79,7 +79,7 @@ export interface GeneratedAdjustmentModel {
   highlightRecovery: HighlightRecoveryMode;
   /** Per-image auto-exposure mode (ticket #429). 'On' (default) anchors scene mid-gray to 0.18 before AgX; 'Off' is strict scene-referred. The `exposure` slider stacks additively in EV on top. */
   autoExposure: AutoExposureMode;
-  /** DisplayLookCurve (ticket #371). 'Default' applies the empirical 1D LUT; 'Neutral' is the strict scene-referred identity. */
+  /** DisplayLookCurve (ticket #371; retired in #443). Both variants are now identical no-ops; kept for sidecar back-compat so pre-#443 `papp:Look` round-trips. */
   look: Look;
   /** Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue. */
   toneCurveMode: ToneCurveMode;
