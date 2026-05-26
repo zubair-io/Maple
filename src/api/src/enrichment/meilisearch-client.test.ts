@@ -215,10 +215,10 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     expect(calls[1]!.method).toBe('PATCH');
     expect(calls[1]!.url).toContain(`/indexes/${ASSETS_INDEX}/settings`);
     expect(calls[1]!.body).toEqual({
-      // Phase 8 — per-attribute weighting across the three sources
-      // (place metadata, LLM caption, OCR'd text). Order is the
-      // weighting order Meilisearch applies.
-      searchableAttributes: ['searchBlob', 'description', 'ocrText'],
+      // v2 — per-attribute weighting across the sources (place metadata,
+      // LLM caption, named people, OCR'd text). Order is the weighting
+      // order Meilisearch applies.
+      searchableAttributes: ['searchBlob', 'description', 'people', 'ocrText'],
       filterableAttributes: [
         'folderId',
         'deletedAt',
@@ -226,9 +226,89 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
         'visionActivity',
         'visionSubjects',
         'isScreenshot',
+        'people',
       ],
       sortableAttributes: ['capturedAt'],
     });
+    // Semantic switch OFF (default) — no embedders block, no
+    // experimental-features call.
+    expect((calls[1]!.body as Record<string, unknown>).embedders).toBeUndefined();
+    expect(calls.some((c) => c.url.includes('/experimental-features'))).toBe(false);
+  });
+
+  it('ensureIndex() registers the Ollama embedder + vectorStore when semantic on', async () => {
+    const { fetchImpl, calls } = makeFakeFetch();
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      semantic: true,
+      embedderUrl: 'http://ollama.lan:11434',
+      embedderModel: 'nomic-embed-text',
+      semanticRatio: 0.6,
+    });
+    await client.ensureIndex();
+
+    // POST /indexes + PATCH /experimental-features + PATCH settings.
+    const exp = calls.find((c) => c.url.includes('/experimental-features'));
+    expect(exp).toBeDefined();
+    expect((exp!.body as Record<string, unknown>).vectorStore).toBe(true);
+
+    const settings = calls.find((c) => c.url.includes('/settings'));
+    expect(settings).toBeDefined();
+    const embedders = (settings!.body as Record<string, unknown>).embedders as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(embedders).toBeDefined();
+    expect(embedders.caption.source).toBe('ollama');
+    expect(embedders.caption.url).toBe('http://ollama.lan:11434/api/embeddings');
+    expect(embedders.caption.model).toBe('nomic-embed-text');
+    expect(typeof embedders.caption.documentTemplate).toBe('string');
+    // searchable/filterable still carry the `people` attribute.
+    const filt = (settings!.body as Record<string, unknown>).filterableAttributes as string[];
+    expect(filt).toContain('people');
+  });
+
+  it('ensureIndex() tolerates a 404 on /experimental-features (GA build)', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'PATCH',
+          pathPrefix: '/experimental-features',
+          status: 404,
+          body: { code: 'not_found' },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      semantic: true,
+    });
+    // Must not throw.
+    await client.ensureIndex();
+    expect(calls.some((c) => c.url.includes('/settings'))).toBe(true);
+  });
+
+  it('semanticConfigured() reflects the switch AND configured state', () => {
+    const off = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl: globalThis.fetch.bind(globalThis),
+      semantic: false,
+    });
+    expect(off.semanticConfigured()).toBe(false);
+    const on = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl: globalThis.fetch.bind(globalThis),
+      semantic: true,
+    });
+    expect(on.semanticConfigured()).toBe(true);
+    const unconfigured = createMeilisearchClient({
+      url: undefined,
+      fetchImpl: globalThis.fetch.bind(globalThis),
+      semantic: true,
+    });
+    expect(unconfigured.semanticConfigured()).toBe(false);
   });
 
   it('ensureIndex() tolerates an existing-index 4xx response', async () => {
@@ -421,6 +501,72 @@ describe('Meilisearch client — happy path with mocked fetch', () => {
     });
     const body = calls[0]!.body as Record<string, unknown>;
     expect(body.filter).toBe('deletedAt IS NULL AND folderId = "abc"');
+  });
+
+  it('search() adds a hybrid block only when semantic is on AND requested', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/search`,
+          status: 200,
+          body: { hits: [], estimatedTotalHits: 0 },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      semantic: true,
+      semanticRatio: 0.6,
+    });
+    await client.search('a boy playing ball', { semantic: true });
+    const body = calls[0]!.body as Record<string, unknown>;
+    expect(body.hybrid).toEqual({ embedder: 'caption', semanticRatio: 0.6 });
+  });
+
+  it('search() omits hybrid when the switch is off even if requested', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/search`,
+          status: 200,
+          body: { hits: [], estimatedTotalHits: 0 },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+      semantic: false,
+    });
+    await client.search('a boy playing ball', { semantic: true });
+    const body = calls[0]!.body as Record<string, unknown>;
+    expect(body.hybrid).toBeUndefined();
+  });
+
+  it('search() builds a safe people IN clause', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [
+        {
+          method: 'POST',
+          pathPrefix: `/indexes/${ASSETS_INDEX}/search`,
+          status: 200,
+          body: { hits: [], estimatedTotalHits: 0 },
+        },
+      ],
+    });
+    const client = createMeilisearchClient({
+      url: 'http://meili.local:7700',
+      fetchImpl,
+    });
+    await client.search('ball', {
+      people: ['Greyson', 'Maya "Mae" Smith'],
+    });
+    const body = calls[0]!.body as Record<string, unknown>;
+    // Quotes inside a name are escaped so the filter expression stays valid.
+    expect(body.filter).toBe('deletedAt IS NULL AND people IN ["Greyson", "Maya \\"Mae\\" Smith"]');
   });
 
   it('isConfigured() reports true when URL is set via override', () => {

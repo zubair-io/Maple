@@ -474,3 +474,32 @@ describe('recomputeCentroids', () => {
     expect(maxIndex).toBe(7);
   });
 });
+
+describe('runOnlineClustering — meili reindex trigger', () => {
+  it('re-queues the assets it assigned for the meili stage', async () => {
+    if (!mongoReachable) return;
+    const { runOnlineClustering } = await import('./clustering-job.ts');
+    const asset = await insertAssetWithFaces([
+      {
+        bbox: { x: 0, y: 0, w: 1, h: 1 },
+        person_id: null,
+        confidence: 0.9,
+        embedding: nearAxis(0, 0.05),
+      },
+    ]);
+    // Pretend the asset was already meili-indexed at v6.
+    await db!
+      .collection('assets')
+      .updateOne({ _id: asset }, { $set: { 'stages.meili.version': 6 } });
+    await runOnlineClustering();
+    // The reindex marker is fire-and-forget; poll for the version reset.
+    let version: unknown = 6;
+    for (let i = 0; i < 20; i += 1) {
+      const row = await db!.collection('assets').findOne({ _id: asset });
+      version = (row as { stages?: { meili?: { version?: unknown } } }).stages?.meili?.version;
+      if (version === 0) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(version).toBe(0);
+  });
+});

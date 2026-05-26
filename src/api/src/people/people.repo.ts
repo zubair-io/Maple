@@ -17,6 +17,7 @@ import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc, PersonWithId } from '../db/schema.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { markAssetsForMeiliReindexBestEffort } from './people-search-reindex.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('people:repo');
@@ -155,12 +156,16 @@ export async function renamePerson(id: ObjectId, name: string): Promise<RenameRe
       return { survivor: subject as PersonWithId };
     }
     await coll.updateOne({ _id: id }, { $set: { name: trimmed, updated_at: nowIso() } });
+    // Case-only rename still changes the indexed token (e.g. "alice" →
+    // "Alice"): re-index this person's assets.
+    markAssetsForMeiliReindexBestEffort([id]);
     return { survivor: { ...subject, name: trimmed } as PersonWithId };
   }
   const collision = await findByNameCI(coll, trimmed);
   if (!collision) {
     // No collision — straightforward rename.
     await coll.updateOne({ _id: id }, { $set: { name: trimmed, updated_at: nowIso() } });
+    markAssetsForMeiliReindexBestEffort([id]);
     return {
       survivor: { ...subject, name: trimmed } as PersonWithId,
     };
@@ -169,12 +174,16 @@ export async function renamePerson(id: ObjectId, name: string): Promise<RenameRe
     // Pointing at ourselves (case-only rename hit the same row). Same as
     // the "name unchanged" branch.
     await coll.updateOne({ _id: id }, { $set: { name: trimmed, updated_at: nowIso() } });
+    markAssetsForMeiliReindexBestEffort([id]);
     return { survivor: { ...subject, name: trimmed } as PersonWithId };
   }
   // Collision — merge. Older _id wins.
   const survivor = subject._id.toString() < collision._id.toString() ? subject : collision;
   const orphan = survivor._id.equals(subject._id) ? collision : subject;
   await mergeInto(survivor._id, orphan._id, trimmed);
+  // Both sides' assets need re-indexing: the orphan's faces were repointed
+  // at the survivor, and the survivor's display name may have changed.
+  markAssetsForMeiliReindexBestEffort([survivor._id, orphan._id]);
   // The survivor's stored name should match `trimmed`; both incoming
   // names matched it case-insensitively. We canonicalise to the
   // operator-supplied spelling.
@@ -444,10 +453,17 @@ export async function assignFaceToPerson(
   if (faceIndex >= faces.length) {
     throw new Error(`face index out of range: ${faceIndex} (asset has ${faces.length} faces)`);
   }
+  // Capture the prior person before the write so we can re-index BOTH the
+  // person losing the face and the person gaining it.
+  const priorPersonId = faces[faceIndex]?.person_id ?? null;
   await assets.updateOne(
     { _id: assetId },
     { $set: { [`faces.${faceIndex}.person_id`]: personHex } },
   );
+  const affected: string[] = [];
+  if (priorPersonId) affected.push(priorPersonId);
+  if (personHex) affected.push(personHex);
+  if (affected.length > 0) markAssetsForMeiliReindexBestEffort(affected);
 }
 
 /**
@@ -471,6 +487,7 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
   if (faceIndex >= faces.length) {
     throw new Error(`face index out of range: ${faceIndex} (asset has ${faces.length} faces)`);
   }
+  const priorPersonId = faces[faceIndex]?.person_id ?? null;
   await assets.updateOne(
     { _id: assetId },
     {
@@ -480,6 +497,9 @@ export async function hideFace(assetId: ObjectId, faceIndex: number): Promise<vo
       },
     },
   );
+  // Hiding drops the face's person — re-index that person's assets so the
+  // name token is dropped from this asset's blob.
+  if (priorPersonId) markAssetsForMeiliReindexBestEffort([priorPersonId]);
 }
 
 /**
