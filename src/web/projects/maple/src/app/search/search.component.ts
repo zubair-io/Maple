@@ -25,6 +25,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core';
 import { ActivatedRoute, Params, Router } from '@angular/router';
 import { SlicePipe } from '@angular/common';
@@ -37,6 +38,7 @@ import {
   MapleIconComponent,
   SearchFacets,
   SearchParams,
+  SearchResponse,
   SearchResult,
   SearchSceneType,
   SearchService,
@@ -174,6 +176,11 @@ export class SearchComponent implements OnInit, OnDestroy {
    * live for the duration so back-nav restores instantly. */
   private thumbCache = new Map<string, string>();
 
+  /** Cache of serialized search params → response. Re-issuing an identical
+   * page-0 query (filter round-trips, the URL effect re-firing) serves from
+   * here instead of re-hitting the network. Lives for the page session. */
+  private searchCache = new Map<string, SearchResponse>();
+
   constructor() {
     // URL → request. Refires whenever the query map changes. Sync the qInput
     // signal to the URL value when it changes externally (e.g. cleared via
@@ -182,7 +189,12 @@ export class SearchComponent implements OnInit, OnDestroy {
       const m = this.query();
       if (!m) return;
       const urlQ = m.get('q') ?? '';
-      if (urlQ !== this.qInput()) this.qInput.set(urlQ);
+      // Read/write qInput untracked so a user keystroke (which sets qInput)
+      // can't re-fire this effect and clobber the in-progress text with the
+      // not-yet-debounced URL value. The effect only reacts to URL changes.
+      untracked(() => {
+        if (urlQ !== this.qInput()) this.qInput.set(urlQ);
+      });
       this.scheduleSearch();
       this.scheduleFacets();
     });
@@ -360,19 +372,29 @@ export class SearchComponent implements OnInit, OnDestroy {
 
   private async runSearch(append: boolean): Promise<void> {
     const gen = ++this.searchGen;
-    this.loading.set(true);
-    this.error.set(null);
     const page = append ? this.page() + 1 : 0;
     const params: SearchParams = { ...this.currentParams(), page, limit: PAGE_SIZE };
+    const key = JSON.stringify(params);
+
+    // Serve an identical (non-append) query from cache — bumping searchGen
+    // above already supersedes any in-flight request, so no network round-trip.
+    if (!append) {
+      const cached = this.searchCache.get(key);
+      if (cached) {
+        this.error.set(null);
+        this.loading.set(false);
+        this.applyResults(cached, false);
+        return;
+      }
+    }
+
+    this.loading.set(true);
+    this.error.set(null);
     try {
       const r = await firstValueFrom(this.search.search(params));
       if (gen !== this.searchGen) return; // a newer request superseded us
-      this.total.set(r.total);
-      this.page.set(r.page);
-      const vms = r.results.map((res) => this.toViewModel(res));
-      this.results.update((prev) => (append ? prev.concat(vms) : vms));
-      // Kick off thumb loads (fire-and-forget).
-      for (const vm of vms) void this.loadThumb(vm);
+      this.searchCache.set(key, r);
+      this.applyResults(r, append);
     } catch (e: unknown) {
       if (gen !== this.searchGen) return;
       this.error.set(e instanceof Error ? e.message : String(e));
@@ -380,6 +402,17 @@ export class SearchComponent implements OnInit, OnDestroy {
     } finally {
       if (gen === this.searchGen) this.loading.set(false);
     }
+  }
+
+  /** Apply a search response to the result signals and kick off thumb loads.
+   * Shared by the cache-hit and network paths. */
+  private applyResults(r: SearchResponse, append: boolean): void {
+    this.total.set(r.total);
+    this.page.set(r.page);
+    const vms = r.results.map((res) => this.toViewModel(res));
+    this.results.update((prev) => (append ? prev.concat(vms) : vms));
+    // Kick off thumb loads (fire-and-forget).
+    for (const vm of vms) void this.loadThumb(vm);
   }
 
   private async runFacets(): Promise<void> {
