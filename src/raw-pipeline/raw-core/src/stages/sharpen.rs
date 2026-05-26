@@ -152,6 +152,102 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 mod tests {
     use super::*;
 
+    /// "Broken" reference implementation: per-channel unsharp instead of
+    /// luma-scaled. Mirrors the pre-#439 RGB unsharp pattern — each channel
+    /// gets its own blur and its own delta — which produces chroma fringing
+    /// on coloured edges (the failure mode this stage was rewritten to
+    /// eliminate). Used by `broken_per_channel_reference_does_drift_chroma`
+    /// below to prove the no-chroma-drift assertions in the real test would
+    /// fire on a regression to per-channel. Not called by production code.
+    fn apply_broken_per_channel(
+        img: &mut Image,
+        amount: f32,
+        radius: f32,
+        detail: f32,
+        masking: f32,
+    ) {
+        img.assert_space(ColorSpace::SceneLinearRec2020);
+        if amount.abs() < 1e-3 { return; }
+        let radius_px = radius.clamp(0.5, 3.0).round() as usize;
+        let radius_px = radius_px.max(1);
+        let w = img.width as usize;
+        let h = img.height as usize;
+
+        // Per-channel blur — every channel gets its own Gaussian.
+        let planes: [Vec<f32>; 3] = [
+            img.pixels.iter().map(|p| p[0]).collect(),
+            img.pixels.iter().map(|p| p[1]).collect(),
+            img.pixels.iter().map(|p| p[2]).collect(),
+        ];
+        let blurred: [Vec<f32>; 3] = [
+            gaussian_blur_plane(&planes[0], w, h, radius_px),
+            gaussian_blur_plane(&planes[1], w, h, radius_px),
+            gaussian_blur_plane(&planes[2], w, h, radius_px),
+        ];
+
+        // Per-channel unsharp: each channel's sharpened value is built from
+        // its own delta. Apply the same shadow guard / clamp shape as the
+        // real impl so the only structural difference is per-channel vs
+        // luma-shared. (The shadow guard here uses each channel
+        // individually, which is itself part of the failure mode.)
+        let observed = img.pixels.clone();
+        let mut sharpened: Vec<[f32; 3]> = vec![[0.0; 3]; img.pixels.len()];
+        for i in 0..img.pixels.len() {
+            for c in 0..3 {
+                let oi = planes[c][i];
+                let ob = blurred[c][i];
+                let lo = oi + (oi - ob);
+                let weight = smoothstep(SHADOW_EPSILON, SHADOW_BAND * SHADOW_EPSILON, oi);
+                let safe = oi.max(SHADOW_EPSILON);
+                let raw_scale = lo / safe;
+                let bounded = raw_scale.clamp(MIN_SCALE, MAX_SCALE);
+                let scale = 1.0 + weight * (bounded - 1.0);
+                sharpened[i][c] = observed[i][c] * scale;
+            }
+        }
+
+        // Edge-aware mix mirrors the real path. Build the gradient from
+        // the per-channel-summed (proxy luma) so the mix factor isn't the
+        // discriminator; the chroma-drift signal must come from the
+        // per-channel scale itself.
+        let proxy_luma: Vec<f32> = observed.iter().map(|p| p[0] + p[1] + p[2]).collect();
+        let overall_mix = (amount / 100.0).clamp(0.0, 1.5);
+        let detail_atten = (detail / 100.0).clamp(0.0, 1.0);
+        let masking_threshold = (masking / 100.0).clamp(0.0, 1.0);
+        let w_i = img.width as i32;
+        let h_i = img.height as i32;
+        let gradient = |x: i32, y: i32| -> f32 {
+            let idx = |xi: i32, yi: i32| -> usize {
+                let xc = xi.clamp(0, w_i - 1) as usize;
+                let yc = yi.clamp(0, h_i - 1) as usize;
+                yc * (w_i as usize) + xc
+            };
+            let gx = proxy_luma[idx(x + 1, y)] - proxy_luma[idx(x - 1, y)];
+            let gy = proxy_luma[idx(x, y + 1)] - proxy_luma[idx(x, y - 1)];
+            (gx * gx + gy * gy).sqrt()
+        };
+        for y in 0..h_i {
+            for x in 0..w_i {
+                let i = (y * w_i + x) as usize;
+                let edge = if masking_threshold > 1e-3 {
+                    let g = gradient(x, y);
+                    let g_norm = (g / 0.2).clamp(0.0, 1.0);
+                    if g_norm >= masking_threshold { 1.0 } else { detail_atten }
+                } else {
+                    1.0
+                };
+                let mix = overall_mix * edge;
+                let o = observed[i];
+                let s = sharpened[i];
+                img.pixels[i] = [
+                    o[0] + (s[0] - o[0]) * mix,
+                    o[1] + (s[1] - o[1]) * mix,
+                    o[2] + (s[2] - o[2]) * mix,
+                ];
+            }
+        }
+    }
+
     #[test]
     fn amount_zero_is_identity() {
         let mut img = Image::new(10, 10, ColorSpace::SceneLinearRec2020);
@@ -350,6 +446,66 @@ mod tests {
         assert!(
             left_delta > 1e-4 || right_delta > 1e-4,
             "sharpen did nothing on the edge — chroma-ratio test is vacuous",
+        );
+    }
+
+    /// Control test for `saturated_edge_has_no_chroma_fringing`: run the
+    /// broken per-channel reference on the same red/cyan edge fixture and
+    /// assert it DOES drift chroma. This proves the assertion mechanism
+    /// in the real test would catch a regression to per-channel unsharp —
+    /// the failure mode pre-#439 sharpen exhibited.
+    ///
+    /// PR #450 did the same negative-case validation for clarity by hand
+    /// (inverting the implementation locally); this test pins it
+    /// permanently for sharpen. Closes part of #457.
+    #[test]
+    fn broken_per_channel_reference_does_drift_chroma() {
+        let w = 32u32;
+        let h = 8u32;
+        let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+        let left = [0.40_f32, 0.05, 0.05];
+        let right = [0.05_f32, 0.40, 0.40];
+        for y in 0..h as usize {
+            for x in 0..w as usize {
+                let p = if x < (w / 2) as usize { left } else { right };
+                img.pixels[y * w as usize + x] = p;
+            }
+        }
+        let before = img.pixels.clone();
+        apply_broken_per_channel(&mut img, 100.0, 1.0, 25.0, 0.0);
+
+        // Inverted-impl expectation: somewhere on this fixture, the broken
+        // per-channel scales must diverge (kr != kg or kg != kb beyond
+        // f32 round-off). The same tolerance as the real test (1e-4) is
+        // used as the failure threshold so this control proves the EXACT
+        // assertion in `saturated_edge_has_no_chroma_fringing` would bite.
+        let mut drifted = false;
+        let mut worst_pixel = (0usize, [0f32; 3], [0f32; 3], 0f32, 0f32, 0f32);
+        let mut worst_spread = 0.0f32;
+        for i in 0..img.pixels.len() {
+            let a = before[i];
+            let b = img.pixels[i];
+            let kr = b[0] / a[0].max(1e-6);
+            let kg = b[1] / a[1].max(1e-6);
+            let kb = b[2] / a[2].max(1e-6);
+            let spread = (kr - kg).abs().max((kg - kb).abs());
+            if spread > worst_spread {
+                worst_spread = spread;
+                worst_pixel = (i, a, b, kr, kg, kb);
+            }
+            if (kr - kg).abs() >= 1e-4 || (kg - kb).abs() >= 1e-4 {
+                drifted = true;
+            }
+        }
+        assert!(
+            drifted,
+            "control failed: broken per-channel reference did NOT drift \
+             chroma above the real test's 1e-4 tolerance — \
+             saturated_edge_has_no_chroma_fringing would not bite on a \
+             regression. Worst pixel: idx={} in={:?} out={:?} \
+             kr/kg/kb={}/{}/{} (max spread {:.2e})",
+            worst_pixel.0, worst_pixel.1, worst_pixel.2,
+            worst_pixel.3, worst_pixel.4, worst_pixel.5, worst_spread,
         );
     }
 
