@@ -272,9 +272,10 @@ mod tests {
     /// high-contrast edges). A vertical step edge that ALSO carries chroma
     /// — saturated red on one side, saturated cyan on the other — would
     /// fringe under any per-channel sharpener: red and cyan have opposite
-    /// channel signs, so an RGB unsharp-mask boosts R on the red side and
-    /// G+B on the cyan side, pulling the edge pixels toward magenta /
-    /// yellow casts they shouldn't carry.
+    /// channel dominance (red is R-heavy, cyan is G+B-heavy), so an RGB
+    /// unsharp-mask boosts R on the red side and G+B on the cyan side,
+    /// pulling the edge pixels toward magenta / yellow casts they shouldn't
+    /// carry.
     ///
     /// Under luma-only USM the scale is a single scalar per pixel applied
     /// to all three channels, so R:G:B ratios are preserved on both sides
@@ -287,13 +288,13 @@ mod tests {
         let h = 8u32;
         let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
         // Left half: saturated red. Right half: saturated cyan. Both
-        // sides carry strong chroma with opposite channel sign, so an
-        // RGB-per-channel sharpener would boost R on the red side and
-        // G+B on the cyan side independently — that's exactly the
-        // failure mode the ticket calls out. Our assertions are on
-        // *ratio preservation*, which the luma-only path enforces by
-        // construction regardless of the luma magnitudes of the two
-        // sides.
+        // sides carry strong chroma with opposite channel dominance
+        // (R-heavy vs G+B-heavy), so an RGB-per-channel sharpener
+        // would boost R on the red side and G+B on the cyan side
+        // independently — that's exactly the failure mode the ticket
+        // calls out. Our assertions are on *ratio preservation*, which
+        // the luma-only path enforces by construction regardless of
+        // the luma magnitudes of the two sides.
         let left = [0.40_f32, 0.05, 0.05];
         let right = [0.05_f32, 0.40, 0.40];
         for y in 0..h as usize {
