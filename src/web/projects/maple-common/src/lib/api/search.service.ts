@@ -19,10 +19,13 @@ export interface SearchParams {
    * `fileinfo[].filename` / `fileinfo[].path`). */
   q?: string;
   /** Free-text content search against the unified `search_blob` (place +
-   * caption + OCR + people). When Meilisearch is configured this runs the
-   * typo-tolerant + semantic-hybrid path and understands natural-language
-   * dates ("May 2023") and person names; otherwise it falls back to Mongo
-   * `$text`. This is what the main search box drives. */
+   * caption + OCR + people). Natural-language dates ("May 2023") and
+   * person-name matching work with or without Meilisearch: NL dates are
+   * parsed into `from`/`to` before the backend picks an engine, and people
+   * are folded into `search_blob`, which the Mongo `$text` fallback also
+   * matches. When Meilisearch is configured it adds typo-tolerance and
+   * semantic (vector) ranking on top. This is what the main search box
+   * drives. */
   placeQuery?: string;
   libraryId?: string;
   camera?: string;
