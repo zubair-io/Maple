@@ -237,12 +237,20 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         doc: "Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped).",
     },
     FieldSpec {
+        name: "capture_sharpening_sigma",
+        kind: FieldKind::F32,
+        range: (0.5, 2.0),
+        default_f32: 1.0,
+        enum_name: "",
+        doc: "Capture sharpening Gaussian PSF sigma in pixels (ticket #456: renamed from `capture_sharpening_radius` after PR #452 swapped the PSF for a true Gaussian).",
+    },
+    FieldSpec {
         name: "capture_sharpening_radius",
         kind: FieldKind::F32,
         range: (0.5, 2.0),
         default_f32: 1.0,
         enum_name: "",
-        doc: "Capture sharpening Gaussian PSF sigma in pixels (field name kept for XMP back-compat).",
+        doc: "Deprecated: use `capture_sharpening_sigma`. Kept as a back-compat alias for source-level callers and the XMP `papp:CaptureSharpeningRadius` read-path; no code reads this field after parse.",
     },
     FieldSpec {
         name: "nr_luminance",
@@ -306,6 +314,7 @@ mod tests {
     /// adding a field to the struct without updating the test (and the
     /// schema) is a build failure.
     #[test]
+    #[allow(deprecated)]
     fn schema_matches_struct() {
         let m = AdjustmentModel::default();
         // Pattern-match every field. Adding a struct field without
@@ -332,6 +341,7 @@ mod tests {
             sharpen_detail,
             sharpen_masking,
             capture_sharpening_amount,
+            capture_sharpening_sigma,
             capture_sharpening_radius,
             nr_luminance,
             nr_color,
@@ -367,6 +377,7 @@ mod tests {
             "sharpen_detail",
             "sharpen_masking",
             "capture_sharpening_amount",
+            "capture_sharpening_sigma",
             "capture_sharpening_radius",
             "nr_luminance",
             "nr_color",
@@ -410,6 +421,7 @@ mod tests {
             sharpen_detail,
             sharpen_masking,
             capture_sharpening_amount,
+            capture_sharpening_sigma,
             capture_sharpening_radius,
             nr_luminance,
             nr_color,
@@ -456,6 +468,7 @@ mod tests {
     /// Every `F32` schema entry's `default_f32` matches the corresponding
     /// field on `AdjustmentModel::default()`.
     #[test]
+    #[allow(deprecated)]
     fn schema_f32_defaults_match_struct_default() {
         let m = AdjustmentModel::default();
         for spec in ADJUSTMENT_SCHEMA {
@@ -484,6 +497,7 @@ mod tests {
                 "sharpen_detail" => m.sharpen_detail,
                 "sharpen_masking" => m.sharpen_masking,
                 "capture_sharpening_amount" => m.capture_sharpening_amount,
+                "capture_sharpening_sigma" => m.capture_sharpening_sigma,
                 "capture_sharpening_radius" => m.capture_sharpening_radius,
                 "nr_luminance" => m.nr_luminance,
                 "nr_color" => m.nr_color,

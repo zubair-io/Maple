@@ -35,6 +35,7 @@ extension AdjustmentModel {
         case sharpenDetail = "sharpen_detail"
         case sharpenMasking = "sharpen_masking"
         case captureSharpeningAmount = "capture_sharpening_amount"
+        case captureSharpeningSigma = "capture_sharpening_sigma"
         case captureSharpeningRadius = "capture_sharpening_radius"
         case nrLuminance = "nr_luminance"
         case nrColor = "nr_color"
@@ -88,7 +89,9 @@ extension AdjustmentModel {
     public static let sharpenMaskingRange: ClosedRange<Double> = 0.0...100.0
     /// Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped).
     public static let captureSharpeningAmountRange: ClosedRange<Double> = 0.0...100.0
-    /// Capture sharpening Gaussian PSF sigma in pixels (field name kept for XMP back-compat).
+    /// Capture sharpening Gaussian PSF sigma in pixels (ticket #456: renamed from `capture_sharpening_radius` after PR #452 swapped the PSF for a true Gaussian).
+    public static let captureSharpeningSigmaRange: ClosedRange<Double> = 0.5...2.0
+    /// Deprecated: use `capture_sharpening_sigma`. Kept as a back-compat alias for source-level callers and the XMP `papp:CaptureSharpeningRadius` read-path; no code reads this field after parse.
     public static let captureSharpeningRadiusRange: ClosedRange<Double> = 0.5...2.0
     /// Luminance noise reduction strength per spec § 3.11.
     public static let nrLuminanceRange: ClosedRange<Double> = 0.0...100.0

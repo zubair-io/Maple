@@ -395,9 +395,13 @@ fn parse_nr_color_max() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn defaults_capture_sharpening_is_off() {
     let m = AdjustmentModel::default();
     assert_eq!(m.capture_sharpening_amount, 0.0);
+    assert_eq!(m.capture_sharpening_sigma, 1.0);
+    // Deprecated alias keeps the same default so existing struct-literal
+    // callers (built before #456) still produce an equivalent model.
     assert_eq!(m.capture_sharpening_radius, 1.0);
 }
 
@@ -500,10 +504,56 @@ fn parse_tone_curve_mode_invalid_is_error() {
 }
 
 #[test]
-fn parse_capture_sharpening_attributes() {
+fn parse_capture_sharpening_attributes_legacy_radius() {
+    // #456: legacy sidecars carry only `papp:CaptureSharpeningRadius` —
+    // PR #452 silently changed the semantic from integer radius to float
+    // Gaussian sigma. The parser must route the legacy attribute into the
+    // new `capture_sharpening_sigma` field unchanged (no rescale), because
+    // no shipping sidecar carries a non-zero amount and rescaling would
+    // be a guess.
     let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
-        papp:CaptureSharpeningAmount="65" papp:CaptureSharpeningRadius="1.5"/></x>"#;
+        papp:CaptureSharpeningAmount="65" papp:CaptureSharpeningRadius="2.5"/></x>"#;
     let m = parse(xml).unwrap();
     assert_eq!(m.capture_sharpening_amount, 65.0);
-    assert!((m.capture_sharpening_radius - 1.5).abs() < 1e-6);
+    assert!(
+        (m.capture_sharpening_sigma - 2.5).abs() < 1e-6,
+        "legacy radius=2.5 must land in sigma unchanged, got {}",
+        m.capture_sharpening_sigma
+    );
+}
+
+#[test]
+fn parse_capture_sharpening_sigma_new_key() {
+    // #456: new sidecars carry `papp:CaptureSharpeningSigma`. It writes to
+    // the canonical `capture_sharpening_sigma` field directly.
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:CaptureSharpeningAmount="65" papp:CaptureSharpeningSigma="1.5"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.capture_sharpening_amount, 65.0);
+    assert!((m.capture_sharpening_sigma - 1.5).abs() < 1e-6);
+}
+
+#[test]
+fn parse_capture_sharpening_sigma_wins_over_radius() {
+    // Both attributes present: `Sigma` always wins, regardless of document
+    // order. The parser tracks a `sigma_seen` flag so it can route
+    // `Radius` to `sigma` only when `Sigma` has not yet been seen — and
+    // any later `Sigma` overrides anything `Radius` wrote earlier.
+    let xml_sigma_first = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:CaptureSharpeningSigma="0.8" papp:CaptureSharpeningRadius="2.0"/></x>"#;
+    let m = parse(xml_sigma_first).unwrap();
+    assert!(
+        (m.capture_sharpening_sigma - 0.8).abs() < 1e-6,
+        "Sigma must win when it appears first, got {}",
+        m.capture_sharpening_sigma
+    );
+
+    let xml_radius_first = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:CaptureSharpeningRadius="2.0" papp:CaptureSharpeningSigma="0.8"/></x>"#;
+    let m = parse(xml_radius_first).unwrap();
+    assert!(
+        (m.capture_sharpening_sigma - 0.8).abs() < 1e-6,
+        "Sigma must win when it appears second, got {}",
+        m.capture_sharpening_sigma
+    );
 }

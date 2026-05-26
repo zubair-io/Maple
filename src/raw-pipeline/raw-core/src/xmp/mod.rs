@@ -18,6 +18,15 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
 
+    // Track whether the new-style `papp:CaptureSharpeningSigma` attribute has
+    // been written into `capture_sharpening_sigma`. The legacy
+    // `papp:CaptureSharpeningRadius` (ticket #456 / PR #452 semantic shift)
+    // writes into the same model field for back-compat, but only when the
+    // new key is absent. `attributes()` iterates in document order, so we
+    // need a flag rather than positional precedence — Sigma must win even
+    // if it appears second.
+    let mut sigma_seen = false;
+
     loop {
         match reader.read_event() {
             Ok(Event::Empty(e)) | Ok(Event::Start(e)) => {
@@ -27,7 +36,7 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                         .map_err(|e| Error::Xmp(e.to_string()))?;
                     let value = attr.unescape_value()
                         .map_err(|e| Error::Xmp(e.to_string()))?;
-                    set_field(&mut model, key, &value)?;
+                    set_field(&mut model, key, &value, &mut sigma_seen)?;
                 }
             }
             Ok(Event::Eof) => break,
@@ -38,7 +47,12 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     Ok(model)
 }
 
-fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
+fn set_field(
+    m: &mut AdjustmentModel,
+    key: &str,
+    value: &str,
+    sigma_seen: &mut bool,
+) -> Result<()> {
     let v = || value.parse::<f32>().map_err(|e| Error::Xmp(format!(
         "field {} has non-numeric value {}: {}", key, value, e
     )));
@@ -63,8 +77,25 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
         // distinct from the reference renderer's `crs:Sharpness` unsharp-mask
         // sliders above. Lives under the `papp:` namespace because the
         // reference renderer has no equivalent control.
+        //
+        // #456: PR #452 swapped the integer-radius tripled-box-blur PSF for a
+        // true Gaussian parameterised by float sigma but kept the XMP key as
+        // `papp:CaptureSharpeningRadius`. We rename to
+        // `papp:CaptureSharpeningSigma` here and keep a read-only back-compat
+        // path for the legacy key. `Sigma` always wins over `Radius` (even if
+        // `Radius` appears second in document order); the legacy value is
+        // not rescaled — the field's interpretation changed but no shipping
+        // sidecar carries a non-zero value, so a rescale would be a guess.
         "papp:CaptureSharpeningAmount" => m.capture_sharpening_amount = v()?,
-        "papp:CaptureSharpeningRadius" => m.capture_sharpening_radius = v()?,
+        "papp:CaptureSharpeningSigma" => {
+            m.capture_sharpening_sigma = v()?;
+            *sigma_seen = true;
+        }
+        "papp:CaptureSharpeningRadius" => {
+            if !*sigma_seen {
+                m.capture_sharpening_sigma = v()?;
+            }
+        }
         "crs:LuminanceSmoothing"   => m.nr_luminance    = v()?,
         "crs:ColorNoiseReduction"  => m.nr_color        = v()?,
         "crs:Dehaze"         => m.dehaze      = v()?,
