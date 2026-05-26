@@ -133,7 +133,7 @@ pub fn apply_scene_linear_chain(
     // when `live == decoded` — that's the As Shot rendering, where
     // the slider sits at asShotCCT and the data is unshifted.
     stage("ffi_chain_white_balance", || {
-        white_balance::apply_delta(&mut img, model.temperature, model.tint, decoded_temp, decoded_tint)
+        white_balance::apply_delta(&mut img, model.temperature, model.tint, decoded_temp, decoded_tint, model.wb_method)
     });
     stage("ffi_chain_scene_tone_controls", || {
         scene_tone_controls::apply(&mut img, model)

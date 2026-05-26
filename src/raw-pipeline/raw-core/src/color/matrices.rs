@@ -35,6 +35,36 @@ pub const BRADFORD: Matrix3 = Matrix3([
     [ 0.0389, -0.0685,  1.0296],
 ]);
 
+/// CAT16 chromatic adaptation matrix: XYZ → LMS (cone-fundamental-like).
+///
+/// Reference: Li, Ronnier, Pointer, Hellwig, Melgosa, Cui (2017),
+/// "Comprehensive color solutions: CAM16, CAT16, and CAM16-UCS",
+/// *Color Research & Application*, 42(6): 703–718, Table 4.
+/// (Equivalent constants appear in CIE 248:2022.)
+///
+/// CAT16 is the modern replacement for CAT02 (which has known
+/// out-of-gamut behaviour for extreme XYZ vectors) and the older
+/// Bradford. Darktable's `iop/channelmixerrgb.c` uses CAT16 as the
+/// default chromatic-adaptation transform for user WB; we mirror that
+/// choice.
+pub const CAT16: Matrix3 = Matrix3([
+    [ 0.401288,  0.650173, -0.051461],
+    [-0.250268,  1.204414,  0.045854],
+    [-0.002079,  0.048952,  0.953127],
+]);
+
+/// XYZ D65 → linear Rec.2020 inverse, pre-folded.
+///
+/// `M_XYZ_D65_TO_REC2020.inverse()` at runtime would work too, but the
+/// user-WB path multiplies this matrix into the per-pixel CAT16 update
+/// matrix once per (T, tint) — having the constant avoids the
+/// `.inverse().expect()` call on the hot path.
+pub const M_REC2020_TO_XYZ_D65: Matrix3 = Matrix3([
+    [ 0.6369580,  0.1446169,  0.1688810],
+    [ 0.2627002,  0.6779981,  0.0593017],
+    [ 0.0000000,  0.0280727,  1.0609851],
+]);
+
 /// ProPhoto RGB → XYZ D50. From the DNG specification, "ROMM" matrix.
 pub const M_PRO_TO_XYZ_D50: Matrix3 = Matrix3([
     [0.7976749, 0.1351917, 0.0313534],
@@ -115,5 +145,36 @@ mod tests {
         assert!((out[0] - 1.0).abs() < 1e-3);
         assert!((out[1] - 1.0).abs() < 1e-3);
         assert!((out[2] - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn rec2020_to_xyz_and_back_round_trips() {
+        // M_REC2020_TO_XYZ_D65 is the pre-folded inverse of M_XYZ_D65_TO_REC2020
+        // (primary source: BT.2020). Verify the round-trip on a few non-trivial
+        // colours.
+        let cases = [
+            [1.0, 1.0, 1.0],
+            [0.18, 0.18, 0.18],
+            [0.5, 0.3, 0.7],
+            [0.0, 1.0, 0.0],
+        ];
+        for rgb in cases {
+            let xyz = M_REC2020_TO_XYZ_D65.mul_vec(rgb);
+            let back = M_XYZ_D65_TO_REC2020.mul_vec(xyz);
+            assert!(approx(back, rgb, 1e-3),
+                "round-trip {:?} -> XYZ {:?} -> {:?}", rgb, xyz, back);
+        }
+    }
+
+    #[test]
+    fn cat16_d65_maps_to_d65_in_lms_identity() {
+        // Sanity: CAT16 · D65_XYZ should produce a finite LMS triplet
+        // (no zero / negative components) — CAT16 is positivity-preserving
+        // for typical illuminants.
+        let lms = CAT16.mul_vec(XYZ_D65);
+        for c in 0..3 {
+            assert!(lms[c] > 0.5 && lms[c] < 1.5,
+                "CAT16(D65) cone {} = {} outside expected band", c, lms[c]);
+        }
     }
 }

@@ -16,6 +16,7 @@ extension AdjustmentModel {
     public enum FieldName: String, CaseIterable, Sendable, Hashable {
         case temperature = "temperature"
         case tint = "tint"
+        case wbMethod = "wb_method"
         case exposure = "exposure"
         case contrast = "contrast"
         case highlights = "highlights"

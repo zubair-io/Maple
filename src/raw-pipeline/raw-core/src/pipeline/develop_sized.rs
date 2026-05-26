@@ -161,7 +161,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     dump_after("04b_capture_sharpening", &scene);
     stage("sized_auto_exposure", || auto_exposure::apply(&mut scene, AUTO_EXPOSURE_CLIP_PCT));
     dump_after("05_auto_exposure", &scene);
-    stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
+    stage("sized_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method));
     dump_after("06_white_balance", &scene);
     stage("sized_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     dump_after("07_scene_tone_controls", &scene);
