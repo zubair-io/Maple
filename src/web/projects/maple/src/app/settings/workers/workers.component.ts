@@ -290,6 +290,17 @@ export class WorkersComponent implements OnInit, OnDestroy {
             res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
           error: finishErr,
         });
+    } else if (meta.enrichment === 'meili') {
+      const url = form.meilisearch_url.trim();
+      if (url.length === 0) {
+        finishErr(new Error('Enter a URL to test.'));
+        return;
+      }
+      this.enrichmentApi.testMeilisearch(url).subscribe({
+        next: (res) =>
+          res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
+        error: finishErr,
+      });
     }
   }
 
@@ -410,6 +421,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
       body.face_retinaface_sha256 = form.face_retinaface_sha256.trim() || null;
       body.face_mobilefacenet_url = form.face_mobilefacenet_url.trim() || null;
       body.face_mobilefacenet_sha256 = form.face_mobilefacenet_sha256.trim() || null;
+    } else if (kind === 'meili') {
+      body.meilisearch_url = form.meilisearch_url.trim() || null;
     }
     this.enrichmentApi.saveEnrichmentConfig(body).subscribe({
       next: (cfg) => {
