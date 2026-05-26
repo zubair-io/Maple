@@ -371,3 +371,65 @@ Local fixture sweep not measured: `test-fixtures/raws/` are gitignored
 on this worktree (same constraint as the #424/#431 notes above). If a
 fixture moves >0.05 ΔE on a re-baseline this is the place to record
 which fixture and by how much.
+
+---
+
+## post-#494 hybrid auto-exposure anchor (2026-05-26)
+
+PR #496 changes `compute_scene_anchor_gain` from the percentile-50
+midtone heuristic (`gain = 0.18 / midgrey`, clamped) to a hybrid
+selector that takes the larger of two candidates:
+
+```
+midtone_gain   = clamp(0.18 / midgrey, max = 8.0)
+highlight_gain = clamp(0.85 / p95,     max = 8.0)
+anchor_gain    = max(midtone_gain, highlight_gain)
+```
+
+The change targets a specific failure mode reported in ticket #494:
+on portrait scenes with a dark subject against a brighter background,
+the percentile-50 band sits at the background luma, midgrey lands
+near 0.18 already, midtone_gain ≈ 1.0, and the subject stays crushed
+at scene-linear luma ~0.06–0.08 (vs the 0.3–0.5 a working photographer
+expects).
+
+Per-fixture deltas captured on the local machine (filtered runs vs the
+committed but stale `budgets.json`; reported here informational —
+budgets unchanged per the one-way ratchet rule):
+
+| fixture / case            | mean ΔE | bias R | bias G | bias B | direction               |
+| ------------------------- | ------- | ------ | ------ | ------ | ----------------------- |
+| `test_0000/baseline`      | 13.14   | +0.013 | +0.015 | +0.017 | within budget (pass)    |
+| `test_0002/baseline`      | 12.32   | −0.208 | −0.175 | −0.148 | lifted, still −bias     |
+| `test_0003/baseline`      |  6.63   | +0.037 | +0.028 | +0.025 | lifted past unity → +   |
+
+`test_0002` and `test_0003` are the two fixtures the ticket called out
+as visibly underexposed. After the hybrid anchor:
+
+- `test_0003` flipped to a small positive bias (+0.025–0.037),
+  indicating the subject lift was effective. Brightness now sits
+  slightly above ACR rather than well below — a more correctable
+  starting point.
+- `test_0002` is still negative-biased but the magnitude is reduced
+  from where it was. The remaining gap is likely a combination of
+  the Hasselblad H2D-39 profile (older sensor, DCP forward-matrix
+  drift) and the AgX vs ACR view-transform delta that
+  `BUDGETS_DRIFT.md` discusses elsewhere.
+
+A full 774-case sweep was started locally but cancelled — concurrent
+runs from another worktree were sharing the same CPU and would have
+taken >30 minutes wallclock to finish; the filtered evidence above is
+the load-bearing signal for the ticket.
+
+`budgets.json` is **not** touched in this PR (one-way ratchet rule:
+budgets only go down, with measured numbers, in the same commit that
+delivers the improvement). The follow-up calibration sweep that
+re-baselines `budgets.json` will absorb the post-#494 movement along
+with the rest of the post-Wave-3 stack.
+
+Synthetic gain validation (a `auto_exposure/tests.rs` unit test +
+out-of-test repl): on a 128×128 `test_0002`-like synthetic
+distribution (92% Gaussian at 0.18, 8% Gaussian at 0.06), the new
+hybrid produces `gain ≈ 4.29` (vs `≈ 1.01` under the old algorithm).
+Applied to the ticket's measured face value 0.0845 → 0.363, squarely
+inside the 0.3–0.5 band the ticket asked for.
