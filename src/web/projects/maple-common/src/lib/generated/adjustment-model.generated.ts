@@ -54,7 +54,9 @@ export interface GeneratedAdjustmentModel {
   sharpenMasking: number;
   /** Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped). Range: [0.0, 100.0]. */
   captureSharpeningAmount: number;
-  /** Capture sharpening Gaussian PSF sigma in pixels (field name kept for XMP back-compat). Range: [0.5, 2.0]. */
+  /** Capture sharpening Gaussian PSF sigma in pixels (ticket #456: renamed from `capture_sharpening_radius` after PR #452 swapped the PSF for a true Gaussian). Range: [0.5, 2.0]. */
+  captureSharpeningSigma: number;
+  /** Deprecated: use `capture_sharpening_sigma`. Kept as a back-compat alias for source-level callers and the XMP `papp:CaptureSharpeningRadius` read-path; no code reads this field after parse. Range: [0.5, 2.0]. */
   captureSharpeningRadius: number;
   /** Luminance noise reduction strength per spec § 3.11. Range: [0.0, 100.0]. */
   nrLuminance: number;
@@ -93,6 +95,7 @@ export const ADJUSTMENT_RANGES = {
   sharpenDetail: [0.0, 100.0] as const,
   sharpenMasking: [0.0, 100.0] as const,
   captureSharpeningAmount: [0.0, 100.0] as const,
+  captureSharpeningSigma: [0.5, 2.0] as const,
   captureSharpeningRadius: [0.5, 2.0] as const,
   nrLuminance: [0.0, 100.0] as const,
   nrColor: [0.0, 100.0] as const,
@@ -123,6 +126,7 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     sharpenDetail: 25.0,
     sharpenMasking: 0.0,
     captureSharpeningAmount: 0.0,
+    captureSharpeningSigma: 1.0,
     captureSharpeningRadius: 1.0,
     nrLuminance: 0.0,
     nrColor: 25.0,

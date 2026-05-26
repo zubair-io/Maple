@@ -376,8 +376,12 @@ fn swift_stripped_xmp_round_trips_to_rust_model() {
     assert_eq!(model.sharpen_masking, 20.0);
     // Capture sharpening (#271) runs inside the Rust decode and has no
     // Apple Metal equivalent — kept by the strip and must round-trip.
+    // The XMP sidecar in this test carries the legacy
+    // `papp:CaptureSharpeningRadius` attribute (#456: PR #452 swapped the
+    // PSF for a true Gaussian; the read-path now routes the legacy key
+    // into `capture_sharpening_sigma` unchanged).
     assert_eq!(model.capture_sharpening_amount, 55.0);
-    assert_eq!(model.capture_sharpening_radius, 1.5);
+    assert_eq!(model.capture_sharpening_sigma, 1.5);
     assert_eq!(
         model.highlight_recovery,
         raw_core::xmp::HighlightRecoveryMode::Blend,
