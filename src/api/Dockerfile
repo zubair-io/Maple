@@ -18,10 +18,11 @@
 #     -v maple_config:/app/config \
 #     maple
 #
-# The -v maple_config:/app/config mount is load-bearing: it persists the
-# auto-generated JWT secret across container recreates. Without it (or an
-# explicit MAPLE_JWT_SECRET), every redeploy rotates the secret and all
-# existing sessions fail with "bad signature".
+# The JWT signing secret is stored in MongoDB (server_state.jwt_secret), so it
+# survives container recreates and is shared across instances on its own. The
+# -v maple_config:/app/config mount only persists the on-disk FALLBACK secret
+# used if Mongo is unreachable at boot — keeping it stabilises that degraded
+# path too.
 
 # ---------------------------------------------------------------------------
 # Stage 0: build the raw-wasm image-pipeline blob from source.

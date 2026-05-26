@@ -71,6 +71,23 @@ describe('jwt-secret.repo', () => {
     expect(doc?.value).toBe(first.secret);
   });
 
+  it('populates a row that exists but is missing `value`', async () => {
+    if (!db) return;
+    // A partial prior write could leave the doc with no `value`. The old
+    // $setOnInsert path would NOT fill it (the doc already exists), returning
+    // an unpersisted candidate — so each process minted a different secret.
+    await db.collection('server_state').insertOne({ _id: JWT_SECRET_DOC_ID } as never);
+
+    const r = await getOrCreateJwtSecret();
+    expect(r.created).toBe(true);
+    expect(r.secret.length).toBeGreaterThanOrEqual(32);
+
+    // It must be persisted, and a follow-up call must read the same value back.
+    const again = await getOrCreateJwtSecret();
+    expect(again.created).toBe(false);
+    expect(again.secret).toBe(r.secret);
+  });
+
   it('concurrent first-calls converge on a single secret', async () => {
     if (!db) return;
     const results = await Promise.all(Array.from({ length: 8 }, () => getOrCreateJwtSecret()));
