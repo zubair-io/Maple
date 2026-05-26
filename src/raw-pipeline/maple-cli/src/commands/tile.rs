@@ -56,11 +56,17 @@ pub fn run(
     }
     raw_core::view::agx::apply(&mut img, model.contrast);
     raw_core::view::encode::rec2020_to_srgb(&mut img);
-    let mut u8_bytes = raw_core::view::encode::quantize_u8(&mut img);
+    raw_core::view::encode::srgb_gamma_encode(&mut img);
     // DisplayLookCurve (#371) — match `render_from_raw_with_quality`'s
     // view-tail behaviour so `tile` previews look the same as `batch` /
-    // live FFI output.
-    raw_core::view::look::apply(&mut u8_bytes, model.look);
+    // live FFI output. Per #519 the LUT samples in f32 sRGB-encoded
+    // space BEFORE dither + quantize so the LUT's slope ≠ 1 regions
+    // don't reintroduce histogram gaps the dither could not mask.
+    {
+        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut img.pixels);
+        raw_core::view::look::apply(pixels, model.look);
+    }
+    let u8_bytes = raw_core::view::encode::dither_and_quantize(&mut img);
     let png = raw_core::png::encode(w, h, &u8_bytes)?;
     std::fs::write(out, png)?;
     Ok(0)

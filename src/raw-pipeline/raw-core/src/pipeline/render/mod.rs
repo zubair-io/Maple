@@ -46,15 +46,26 @@ pub fn render_from_raw_with_quality(
     dump_after("16_agx", &scene);
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     // Buffer is in display-linear sRGB primaries here. Gamma encoding
-    // happens later in `quantize_u8`. Name reflects that — "srgb_linear",
-    // not "post_srgb_encode" which would have implied a full sRGB encode
-    // (per PR #281 review feedback).
+    // happens later in `srgb_gamma_encode`. Name reflects that —
+    // "srgb_linear", not "post_srgb_encode" which would have implied a
+    // full sRGB encode (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
-    let mut bytes = stage("quantize_u8", || encode::quantize_u8(&mut scene));
-    // DisplayLookCurve (#371) — empirical per-channel u8->u8 LUT that
-    // closes ~65% of the bias-to-ACR gap. `Look::Neutral` short-circuits
-    // and the buffer is bit-identical to the pre-#371 output.
-    stage("look", || look::apply(&mut bytes, model.look));
+    stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
+    // DisplayLookCurve (#371) — empirical per-channel LUT that closes
+    // ~65% of the bias-to-ACR gap. Pre-#519 it ran as a `u8 → u8`
+    // nearest lookup AFTER dither + quantize, which collapsed multiple
+    // input codes onto one output code wherever LUT slope ≠ 1 and
+    // reintroduced histogram gaps (visible banding). #519 moves the
+    // sampling into f32 sRGB-encoded space with linear interpolation
+    // between adjacent table entries — the dither below now controls
+    // the only quantisation step in the chain.
+    stage("look", || {
+        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+        look::apply(pixels, model.look);
+    });
+    let bytes = stage("dither_and_quantize", || {
+        encode::dither_and_quantize(&mut scene)
+    });
     // Apply EXIF orientation last — rotating/flipping sRGB u8 is cheap and
     // keeps every upstream stage indifferent to sensor-vs-display framing.
     let (w, h, bytes) = stage("apply_orientation", || apply_orientation(&bytes, scene.width, scene.height, raw.orientation));
@@ -247,8 +258,15 @@ pub fn render_from_scene_linear(
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
-    let mut bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
-    stage("synth_look", || look::apply(&mut bytes, model.look));
+    stage("synth_srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
+    // See `render_from_raw_with_quality` for the #519 ordering rationale.
+    stage("synth_look", || {
+        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+        look::apply(pixels, model.look);
+    });
+    let bytes = stage("synth_dither_and_quantize", || {
+        encode::dither_and_quantize(&mut scene)
+    });
     Ok((w, h, bytes))
 }
 
@@ -308,8 +326,15 @@ pub fn render_from_scene_linear_with_chain(
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
-    let mut bytes = stage("synth_quantize_u8", || encode::quantize_u8(&mut scene));
-    stage("synth_look", || look::apply(&mut bytes, model.look));
+    stage("synth_srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
+    // See `render_from_raw_with_quality` for the #519 ordering rationale.
+    stage("synth_look", || {
+        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+        look::apply(pixels, model.look);
+    });
+    let bytes = stage("synth_dither_and_quantize", || {
+        encode::dither_and_quantize(&mut scene)
+    });
     Ok((w, h, bytes))
 }
 
