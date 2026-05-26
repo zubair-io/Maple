@@ -28,16 +28,22 @@
 //! authoring domain). The luma-coupled application path mirrors
 //! `scene_tone_controls`'s `highlights` step 2 — scale all three channels
 //! by `Y_new / Y_old` — so hue is preserved by construction. The
-//! per-channel `tone_curve_{red,green,blue}` paths intentionally do NOT
-//! preserve hue: cross-channel cast control is their purpose (ticket #273).
+//! per-channel `tone_curve_{red,green,blue}` paths default to a
+//! direct-per-lane application (hue is NOT preserved — cross-channel cast
+//! control is their purpose per ticket #273). Ticket #436 adds an opt-in
+//! ratio-preserving mode for users who want the contrast shape without the
+//! hue shift; see [`apply_point_curves_ratio_preserving`] for the formula
+//! and Darktable citation.
 
 mod evaluator;
 
-use evaluator::{eval_curve_scene_linear, prepare_curve, prepare_curve_from_slice};
+use evaluator::{
+    eval_curve_scene_linear, prepare_curve, prepare_curve_from_slice, PreparedCurve,
+};
 
 use crate::{
     image::{ColorSpace, Image},
-    types::adjustment::{ToneCurve, ToneCurvePoint},
+    types::adjustment::{ToneCurve, ToneCurveMode, ToneCurvePoint},
     xmp::AdjustmentModel,
 };
 
@@ -61,7 +67,11 @@ const PARAMETRIC_EPSILON: f32 = 1e-3;
 /// 1. Parametric curve (luma-coupled — hue-preserving)
 /// 2. `tone_curve_luma` point curve (luma-coupled — hue-preserving)
 /// 3. `tone_curve_red`, `tone_curve_green`, `tone_curve_blue` point
-///    curves (per-channel — hue NOT preserved, intentionally)
+///    curves. Application depends on `model.tone_curve_mode`:
+///    - `PerChannel` (default): each curve applies independently per RGB
+///      lane (hue NOT preserved — pre-#436 behavior).
+///    - `RatioPreserving` (ticket #436): the three curves fold through
+///      Rec.2020 luma to a single scale factor per pixel (hue preserved).
 ///
 /// Each sub-step short-circuits independently when its inputs are
 /// identity. The overall stage is a no-op when every region slider is
@@ -82,11 +92,31 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
         apply_point_curve_luma_coupled(img, &model.tone_curve_luma);
     }
 
-    // Per-channel curves apply independently per RGB lane (intentional —
-    // see module doc). Each sub-call short-circuits on identity.
-    apply_point_curve_per_channel(img, &model.tone_curve_red, 0);
-    apply_point_curve_per_channel(img, &model.tone_curve_green, 1);
-    apply_point_curve_per_channel(img, &model.tone_curve_blue, 2);
+    // Per-channel curves: dispatch on the user-selected mode. The
+    // `PerChannel` branch is the pre-#436 default (hue shifts);
+    // `RatioPreserving` folds the three curves through Rec.2020 luma so
+    // hue is preserved. See `ToneCurveMode` and Darktable citation in
+    // `apply_point_curves_ratio_preserving`.
+    let any_per_channel_active = !model.tone_curve_red.is_identity()
+        || !model.tone_curve_green.is_identity()
+        || !model.tone_curve_blue.is_identity();
+    if any_per_channel_active {
+        match model.tone_curve_mode {
+            ToneCurveMode::PerChannel => {
+                apply_point_curve_per_channel(img, &model.tone_curve_red, 0);
+                apply_point_curve_per_channel(img, &model.tone_curve_green, 1);
+                apply_point_curve_per_channel(img, &model.tone_curve_blue, 2);
+            }
+            ToneCurveMode::RatioPreserving => {
+                apply_point_curves_ratio_preserving(
+                    img,
+                    &model.tone_curve_red,
+                    &model.tone_curve_green,
+                    &model.tone_curve_blue,
+                );
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -235,242 +265,79 @@ fn apply_point_curve_per_channel(img: &mut Image, curve: &ToneCurve, channel: us
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// ---------------------------------------------------------------------
+// Point curves — ratio-preserving (hue-preserving) apply
+// ---------------------------------------------------------------------
 
-    fn fresh_img(value: [f32; 3]) -> Image {
-        let mut img = Image::new(2, 2, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels {
-            *p = value;
+/// Apply the three per-channel curves in ratio-preserving mode (ticket
+/// #436). Hue is preserved by folding the three curves through Rec.2020
+/// luma to produce a single scale factor per pixel:
+///
+/// ```text
+///   Y_in  = 0.2627·R + 0.6780·G + 0.0593·B
+///   r' = R_curve(Y_in);  g' = G_curve(Y_in);  b' = B_curve(Y_in)
+///   Y_out = 0.2627·r' + 0.6780·g' + 0.0593·b'
+///   scale = Y_out / Y_in
+///   (R, G, B) *= scale
+/// ```
+///
+/// Canonical reference: Darktable's `iop/tonecurve.c`, `preserve_colors`
+/// branch — the `dt_rgb_norm(...) → curve_lum → ratio = curve_lum/lum →
+/// rgb[c] *= ratio` loop around lines 520–547. Darktable evaluates a
+/// **single** curve on `dt_rgb_norm(rgb)`. Maple's three per-channel
+/// curves collapse to the Darktable formulation when `R_curve == G_curve
+/// == B_curve` (then `r' = g' = b' = curve(Y_in)`, and `Y_out` is just
+/// that scalar).
+///
+/// Identity curves (`is_identity() == true`) contribute their lane's
+/// luma-weighted Y_in to the sum unchanged, so e.g. setting only
+/// `tone_curve_red` still preserves the G:B ratio while the R curve's
+/// effect on Y_in routes back through the global scale.
+///
+/// As with the other curve paths: pixels with `Y_in <= 0` (zero or
+/// negative luma) pass through untouched — the authoring `[0, 1]` domain
+/// cannot map negative input.
+fn apply_point_curves_ratio_preserving(
+    img: &mut Image,
+    curve_r: &ToneCurve,
+    curve_g: &ToneCurve,
+    curve_b: &ToneCurve,
+) {
+    // Prepare each curve once. Identity curves yield empty knots; the
+    // evaluator falls back to `v` (pass-through) so they contribute the
+    // unmodified luma to the Y_out sum. No allocation in the hot loop.
+    let prepared_r = prepare_curve(curve_r);
+    let prepared_g = prepare_curve(curve_g);
+    let prepared_b = prepare_curve(curve_b);
+    eval_ratio_preserving(img, &prepared_r, &prepared_g, &prepared_b);
+}
+
+/// Inner loop split out so the prepared-curve build is unit-testable in
+/// isolation (and so future tile-/SIMD-friendly variants can share the
+/// pixel kernel).
+fn eval_ratio_preserving(
+    img: &mut Image,
+    curve_r: &PreparedCurve,
+    curve_g: &PreparedCurve,
+    curve_b: &PreparedCurve,
+) {
+    for p in &mut img.pixels {
+        let y_in = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
+        if y_in <= 0.0 {
+            continue;
         }
-        img
-    }
-
-    fn model_default() -> AdjustmentModel {
-        AdjustmentModel::default()
-    }
-
-    // -----------------------------------------------------------------
-    // Identity guarantees — the single most important invariant for this
-    // stage. A default model must round-trip every pixel unchanged.
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn default_model_is_identity_on_midgray() {
-        let mut img = fresh_img([0.18, 0.18, 0.18]);
-        apply(&mut img, &model_default());
-        for &c in &img.pixels[0] {
-            assert!((c - 0.18).abs() < 1e-6, "midgray drifted to {}", c);
-        }
-    }
-
-    #[test]
-    fn default_model_is_identity_on_specular() {
-        // 2.0 (one stop above diffuse white) must pass through unchanged.
-        let mut img = fresh_img([2.0, 1.5, 0.5]);
-        apply(&mut img, &model_default());
-        let p = img.pixels[0];
-        assert!((p[0] - 2.0).abs() < 1e-6);
-        assert!((p[1] - 1.5).abs() < 1e-6);
-        assert!((p[2] - 0.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn default_model_is_identity_on_zero() {
-        let mut img = fresh_img([0.0, 0.0, 0.0]);
-        apply(&mut img, &model_default());
-        for &c in &img.pixels[0] {
-            assert_eq!(c, 0.0);
-        }
-    }
-
-    #[test]
-    fn empty_curve_is_identity() {
-        // The per-channel skip path is the hot one for the default
-        // model — explicit smoke test that `is_identity()` short-circuits
-        // before any allocation happens.
-        let mut img = fresh_img([0.3, 0.4, 0.5]);
-        let curve = ToneCurve::default();
-        apply_point_curve_per_channel(&mut img, &curve, 0);
-        apply_point_curve_per_channel(&mut img, &curve, 1);
-        apply_point_curve_per_channel(&mut img, &curve, 2);
-        assert_eq!(img.pixels[0], [0.3, 0.4, 0.5]);
-    }
-
-    // -----------------------------------------------------------------
-    // Per-channel curve — hue NOT preserved (intentional)
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn per_channel_red_curve_lifts_only_red() {
-        // Red curve that lifts 0.25 → 0.5 in authoring domain. Use a
-        // brighter input (scene 1.0 → authoring 0.25) to make the effect
-        // visible.
-        let lift = ToneCurve::new(vec![(0.0, 0.0), (0.25, 0.5), (1.0, 1.0)]);
-        let mut img = fresh_img([1.0, 1.0, 1.0]); // authoring x = 0.25
-        let mut m = model_default();
-        m.tone_curve_red = lift;
-        apply(&mut img, &m);
-        let p = img.pixels[0];
-        assert!(p[0] > 1.4, "red should lift substantially: {}", p[0]);
-        assert!((p[1] - 1.0).abs() < 1e-5, "green unchanged");
-        assert!((p[2] - 1.0).abs() < 1e-5, "blue unchanged");
-    }
-
-    // -----------------------------------------------------------------
-    // Parametric curve — region-specific behavior
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn parametric_shadows_lifts_dark_pixels() {
-        let mut img = fresh_img([0.05, 0.05, 0.05]);
-        let mut m = model_default();
-        m.parametric_shadows = 100.0;
-        apply(&mut img, &m);
-        let p = img.pixels[0];
-        // Shadows lift expected; exact value depends on the synthesised
-        // curve's monotonic-cubic interpolation through the moved knot.
-        assert!(p[0] > 0.05, "shadows lift expected at scene 0.05: {}", p[0]);
-        assert!((p[0] - p[1]).abs() < 1e-5);
-        assert!((p[1] - p[2]).abs() < 1e-5);
-    }
-
-    #[test]
-    fn parametric_highlights_pulls_bright_pixels_down() {
-        let mut img = fresh_img([2.5, 2.5, 2.5]);
-        let mut m = model_default();
-        m.parametric_highlights = -100.0;
-        apply(&mut img, &m);
-        let p = img.pixels[0];
-        assert!(p[0] < 2.5, "highlights pull expected at scene 2.5: {}", p[0]);
-        assert!((p[0] - p[1]).abs() < 1e-5);
-        assert!((p[1] - p[2]).abs() < 1e-5);
-    }
-
-    #[test]
-    fn parametric_conflicting_sliders_produce_monotonic_curve() {
-        // Shadows = +100 lifts knot (0.25, y) toward 0.5; darks = -100
-        // (combined with lights = -100) pulls knot (0.5, y) toward 0.25.
-        // Pre-fix, the synthesised knots were non-monotonic: y_at_0.5
-        // landed below y_at_0.25 and Fritsch–Carlson's monotonicity
-        // contract was violated. Post-fix, the cumulative-max clamp
-        // pins knot (0.5, _) to at least y_at_0.25 — earlier slider
-        // wins, output is monotonic. Verify by sampling the synthesised
-        // knots directly and by checking a monotonic input → monotonic
-        // output across a sweep of pixel values.
-        let mut m = model_default();
-        m.parametric_shadows = 100.0;
-        m.parametric_darks = -100.0;
-        m.parametric_lights = -100.0;
-        let knots = build_parametric_knots(&m);
-        for w in knots.windows(2) {
-            assert!(
-                w[1].1 >= w[0].1 - 1e-6,
-                "non-monotonic knots: {:?} → {:?}",
-                w[0],
-                w[1]
-            );
-        }
-        // End-to-end: monotonically increasing scene values must stay
-        // monotonic after the parametric stage.
-        let mut prev = f32::NEG_INFINITY;
-        for i in 0..40 {
-            let v = i as f32 * 0.1;
-            let mut img = fresh_img([v, v, v]);
-            apply(&mut img, &m);
-            let out = img.pixels[0][0];
-            assert!(out >= prev - 1e-5, "output regression at v={}: out={}, prev={}", v, out, prev);
-            prev = out;
-        }
-    }
-
-    #[test]
-    fn parametric_preserves_hue_on_colorful_input() {
-        // Parametric application is luma-coupled — RGB ratios must be
-        // preserved across any parametric setting.
-        let mut img = fresh_img([0.8, 0.4, 0.2]);
-        let mut m = model_default();
-        m.parametric_shadows = 50.0;
-        m.parametric_lights = -25.0;
-        apply(&mut img, &m);
-        let p = img.pixels[0];
-        let r_g = p[0] / p[1];
-        let r_b = p[0] / p[2];
-        assert!(
-            (r_g - 2.0).abs() / 2.0 < 0.01,
-            "R/G ratio drifted from 2.0 to {}",
-            r_g
-        );
-        assert!(
-            (r_b - 4.0).abs() / 4.0 < 0.01,
-            "R/B ratio drifted from 4.0 to {}",
-            r_b
-        );
-    }
-
-    #[test]
-    fn parametric_all_zero_is_strict_identity() {
-        // Even when an unrelated field on the model is non-default,
-        // all-zero region sliders must skip the loop entirely. Important
-        // for the harness — every non-curve-using fixture must pass
-        // through unchanged.
-        let mut img = fresh_img([0.7, 0.5, 0.3]);
-        let mut m = model_default();
-        m.exposure = 0.5; // unrelated; doesn't trigger this stage
-        apply(&mut img, &m);
-        let p = img.pixels[0];
-        assert_eq!(p, [0.7, 0.5, 0.3]);
-    }
-
-    // -----------------------------------------------------------------
-    // Luma curve — same hue-preservation contract as parametric
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn luma_curve_preserves_hue() {
-        let curve = ToneCurve::new(vec![(0.0, 0.0), (0.5, 0.7), (1.0, 1.0)]);
-        let mut img = fresh_img([0.8, 0.4, 0.2]);
-        let mut m = model_default();
-        m.tone_curve_luma = curve;
-        apply(&mut img, &m);
-        let p = img.pixels[0];
-        let r_g = p[0] / p[1];
-        let r_b = p[0] / p[2];
-        assert!((r_g - 2.0).abs() / 2.0 < 0.01, "R/G drifted: {}", r_g);
-        assert!((r_b - 4.0).abs() / 4.0 < 0.01, "R/B drifted: {}", r_b);
-    }
-
-    // -----------------------------------------------------------------
-    // Edge cases — non-negative outputs, zero / negative inputs
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn negative_scene_input_skips_luma_path() {
-        // The luma-coupled path early-returns on Y <= 0 (the curve's
-        // authoring domain starts at 0). Negative scene values pass
-        // through untouched — they can't go more negative.
-        let mut img = fresh_img([-0.1, -0.1, -0.1]);
-        let mut m = model_default();
-        m.parametric_shadows = 100.0;
-        apply(&mut img, &m);
-        assert_eq!(img.pixels[0], [-0.1, -0.1, -0.1]);
-    }
-
-    #[test]
-    fn per_channel_negative_input_passes_through() {
-        // Per-channel path mirrors the same guard — negative scene
-        // values can't be mapped through the [0, 1] authoring curve, so
-        // we pass them through untouched.
-        let curve = ToneCurve::new(vec![(0.0, 0.0), (0.5, 0.9), (1.0, 1.0)]);
-        let mut img = fresh_img([-0.1, 0.5, -0.05]);
-        let mut m = model_default();
-        m.tone_curve_red = curve.clone();
-        m.tone_curve_blue = curve;
-        apply(&mut img, &m);
-        let p = img.pixels[0];
-        assert_eq!(p[0], -0.1, "negative R untouched");
-        assert!((p[1] - 0.5).abs() < 1e-5, "G unchanged (no green curve)");
-        assert_eq!(p[2], -0.05, "negative B untouched");
+        let r_prime = eval_curve_scene_linear(curve_r, y_in);
+        let g_prime = eval_curve_scene_linear(curve_g, y_in);
+        let b_prime = eval_curve_scene_linear(curve_b, y_in);
+        let y_out =
+            LUMA_REC2020[0] * r_prime + LUMA_REC2020[1] * g_prime + LUMA_REC2020[2] * b_prime;
+        let scale = y_out / y_in;
+        p[0] *= scale;
+        p[1] *= scale;
+        p[2] *= scale;
     }
 }
+
+
+#[cfg(test)]
+mod tests;

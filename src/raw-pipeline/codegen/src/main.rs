@@ -165,6 +165,13 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     // output (see raw-core::view::look).
     s.push_str("export type Look = 'Neutral' | 'Default';\n\n");
 
+    // Tone-curve application mode (ticket #436). `PerChannel` applies the
+    // three R/G/B curves independently (hue shifts); `RatioPreserving`
+    // folds them through Rec.2020 luma to preserve hue. Default is
+    // `PerChannel` for backward compatibility (see
+    // raw-core::stages::tone_curves).
+    s.push_str("export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';\n\n");
+
     // Generated interface.
     s.push_str("export interface GeneratedAdjustmentModel {\n");
     for spec in schema {
@@ -227,6 +234,9 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
                     // DisplayLookCurve (#371). New users get the empirical
                     // Look, not Neutral.
                     "Look" => "Default",
+                    // Tone-curve mode (#436). Default preserves pre-#436
+                    // behavior (absent attribute = current pipeline output).
+                    "ToneCurveMode" => "PerChannel",
                     other => panic!(
                         "codegen: no default mapping for enum `{}` — add one \
                          alongside the matching Rust `Default` impl",
