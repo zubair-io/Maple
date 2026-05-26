@@ -35,6 +35,11 @@ const TAG_FORWARD_MATRIX_1:         u16 = 50964;
 const TAG_FORWARD_MATRIX_2:         u16 = 50965;
 const TAG_PROFILE_TONE_CURVE:       u16 = 50940;
 const TAG_CALIBRATION_ILLUMINANT_2: u16 = 50779;
+// DNG LinearizationTable, spec § "Linearization Table". Tag 50712 / 0xC618.
+// Per-value LUT: encoded sensor codes → linear codes. SHORT-typed, up to
+// `1 << BitsPerSample` entries. Rawler applies it inside the integer decode
+// path (rawler/src/decoders/mod.rs:641-642) before `raw_data` reaches us.
+const TAG_LINEARIZATION_TABLE:      u16 = 50712;
 
 // CFA-photometric value
 const PHOTOMETRIC_CFA: u16 = 32803;
@@ -62,6 +67,21 @@ pub struct SyntheticGreyDng {
     pub forward_matrix_2: Option<[[f32; 3]; 3]>,
     pub profile_tone_curve: Option<Vec<(f32, f32)>>,
     pub as_shot_neutral_override: Option<[f32; 3]>,
+
+    /// DNG `LinearizationTable` (tag 50712 / 0xC618). Per-value LUT from
+    /// encoded sensor codes to linear codes; `table[encoded] = linear`. When
+    /// set, the writer emits a SHORT-array entry of `table.len()` entries
+    /// and also takes the `encoded_value_override` path so the strip carries
+    /// the exact pre-LUT code the test cares about — otherwise the
+    /// `linear_value` / WB-driven path produces linearised codes and the
+    /// LUT becomes a no-op on the test data.
+    pub linearization_table: Option<Vec<u16>>,
+    /// When set, every CFA position in the strip is written as this u16,
+    /// bypassing the `linear_value` / `compute_raw_values` path. Used by
+    /// the LinearizationTable round-trip test (#418) to pin the encoded
+    /// code rawler will look up in the LUT — assertions then check that
+    /// `raw.raw_data[k] ≈ table[encoded_value_override]`.
+    pub encoded_value_override: Option<u16>,
 }
 
 impl Default for SyntheticGreyDng {
@@ -80,6 +100,8 @@ impl Default for SyntheticGreyDng {
             forward_matrix_2: None,
             profile_tone_curve: None,
             as_shot_neutral_override: None,
+            linearization_table: None,
+            encoded_value_override: None,
         }
     }
 }
@@ -238,13 +260,28 @@ impl SyntheticGreyDng {
             ifd.entries.push(IfdEntry::Floats(TAG_PROFILE_TONE_CURVE, bytes));
         }
 
+        if let Some(table) = &self.linearization_table {
+            // SHORT-typed per DNG spec. Rawler reads it via
+            // `Value::Short(points)` and panics on any other type — so we
+            // must use the SHORT path here, not BYTE / LONG.
+            ifd.add_shorts(TAG_LINEARIZATION_TABLE, table.clone());
+        }
+
         ifd
     }
 
     fn build_strip(&self) -> Vec<u8> {
-        let (raw_r, raw_g, raw_b) = compute_raw_values(
-            self.linear_value, self.as_shot_neutral_array(), 0, 65535,
-        );
+        // When the LinearizationTable test pins the encoded code, every CFA
+        // position carries the same u16; the LUT plus WB produces the scene
+        // neutral on the decoder side. Otherwise compute per-position raw
+        // codes from `linear_value` + AsShotNeutral as before.
+        let (raw_r, raw_g, raw_b) = if let Some(v) = self.encoded_value_override {
+            (v, v, v)
+        } else {
+            compute_raw_values(
+                self.linear_value, self.as_shot_neutral_array(), 0, 65535,
+            )
+        };
         let n = (self.width as usize) * (self.height as usize);
         let mut buf = Vec::with_capacity(n * 2);
         // Walk row-major, emit 16-bit LE per CFA position.
@@ -698,5 +735,84 @@ mod tests {
             .expect("ProfileToneCurve must round-trip when emitted");
         assert_eq!(curve.points.len(), 5,
             "expected 5 control points, got {}", curve.points.len());
+    }
+
+    /// Regression test for #418 — DNG `LinearizationTable` (tag 50712) is
+    /// honored. The ticket originally asked us to apply the LUT inside
+    /// `sensor_linearize`, but rawler 0.7.2 already applies it during decode
+    /// (`rawler::decoders::mod::apply_linearization`, called at
+    /// `decoders/mod.rs:641-642` in the Integer sample-format path). This
+    /// test locks that behaviour in: we synthesise a DNG that writes the raw
+    /// strip with encoded code `100` everywhere, ship a `LinearizationTable`
+    /// where `table[i] = i * SCALE`, and assert the decoded `raw_data` reads
+    /// `100 * SCALE` per CFA position (within rawler's dither tolerance).
+    ///
+    /// Without the rawler-side application, decoded values would still be
+    /// `100` and the test would fail by a factor of `SCALE`.
+    #[test]
+    fn linearization_table_is_applied_during_decode() {
+        use crate::decode::decode_bytes;
+
+        // Monotone LUT: table[i] = i * SCALE. SCALE chosen large enough that
+        // an un-applied LUT would be unmistakably wrong (decoded == encoded
+        // instead of encoded * SCALE), and small enough that the LUT entries
+        // stay inside u16.
+        const SCALE: u16 = 4;
+        const ENCODED: u16 = 100;
+        // Table length: 256 entries is sufficient — rawler's
+        // `LookupTable::new_with_bits(points, bits=16)` pads to `1 << 16`
+        // by repeating the last entry, so any code ≥ table.len() maps to
+        // `table[last]`. Our ENCODED=100 is well inside the table.
+        let table: Vec<u16> = (0..256u32).map(|i| (i as u16).saturating_mul(SCALE)).collect();
+
+        let dng = SyntheticGreyDng {
+            width: 8,
+            height: 8,
+            linearization_table: Some(table.clone()),
+            encoded_value_override: Some(ENCODED),
+            ..Default::default()
+        };
+        let bytes = dng.write_to_bytes();
+        let raw = decode_bytes(&bytes, "dng")
+            .expect("synthetic DNG with LinearizationTable must decode");
+
+        // Expected linearised value, plus rawler's dither tolerance.
+        // `LookupTable::dither` does:
+        //   base  = center − ((upper − lower + 2) / 4)
+        //   delta = upper − lower
+        //   pixel = base + (delta * (rand & 2047) + 1024) >> 12   ∈ [base, base+delta]
+        // For a monotone table[i] = i * SCALE: center = ENCODED * SCALE,
+        // upper − lower = 2 * SCALE, so pixel ∈ [center − SCALE/2 (round), center + 3*SCALE/2 (round)].
+        // i.e. |pixel − center| ≤ 2 * SCALE. Use 2*SCALE as the tolerance.
+        let expected = (ENCODED as u32) * (SCALE as u32);
+        let tol = 2 * (SCALE as u32);
+
+        assert_eq!(raw.raw_data.len(), (8 * 8) as usize);
+        for (k, &v) in raw.raw_data.iter().enumerate() {
+            let v = v as u32;
+            assert!(
+                v.abs_diff(expected) <= tol,
+                "pixel {}: raw_data = {} not within ±{} of expected {} \
+                 (LinearizationTable not applied by rawler decode?)",
+                k, v, tol, expected
+            );
+        }
+
+        // Bit-identical-when-absent contract: same DNG without the LUT
+        // must come back unscaled.
+        let dng_no_lut = SyntheticGreyDng {
+            width: 8,
+            height: 8,
+            encoded_value_override: Some(ENCODED),
+            ..Default::default()
+        };
+        let bytes_no_lut = dng_no_lut.write_to_bytes();
+        let raw_no_lut = decode_bytes(&bytes_no_lut, "dng")
+            .expect("synthetic DNG without LinearizationTable must decode");
+        for (k, &v) in raw_no_lut.raw_data.iter().enumerate() {
+            assert_eq!(v, ENCODED,
+                "pixel {}: without LUT, raw_data must equal encoded code {}, got {}",
+                k, ENCODED, v);
+        }
     }
 }
