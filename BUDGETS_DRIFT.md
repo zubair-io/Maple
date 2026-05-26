@@ -36,14 +36,14 @@ fixtures will be appended below.
 **Unit / synthetic gates (run locally, all `cargo check`-equivalent
 clean):**
 
-* `cargo test -p raw-core --lib` — 601 passed, 0 failed (same as
+- `cargo test -p raw-core --lib` — 601 passed, 0 failed (same as
   baseline).
-* `test_synthetic_grey.sh` — 3 passed, 3 failed. Same set of failures
+- `test_synthetic_grey.sh` — 3 passed, 3 failed. Same set of failures
   as baseline (`neutral_display_srgb_005/018/050`); failure values for
   L=0.05 and L=0.50 change because both inputs now anchor to 0.18
   before AgX, but the test predicate (R == G == B at display) was
   already failing pre-change. **No new failures.**
-* `test_grey_adjustments.sh` — 5 passed, 12 failed. Baseline was 4
+- `test_grey_adjustments.sh` — 5 passed, 12 failed. Baseline was 4
   passed, 13 failed. **One predictor win: `exposure_minus1_predicts`
   now passes** (the user exposure is a clean −1 EV offset on top of
   the scene anchor, and at the anchored 0.18 mid-point the L=0.5
