@@ -817,15 +817,25 @@ fn profile_from_embedded(
 /// consistent calibration, used whole, beats the bundle.
 ///
 /// The gate is "non-empty `color_matrices` AND non-empty
-/// `forward_matrices` AND non-empty `hsm_data`". Only one HSM table is
-/// required (DNG 1.6 § 6.6.5 allows single-illuminant HSM), so we accept
-/// any non-empty `hsm_data` map even for dual-illuminant DNGs that
-/// happen to ship only `ProfileHueSatMapData1`. The CM/FM pair is
-/// optional per illuminant in the same way — `profile_from_embedded`
-/// already handles the partial-pair cases internally.
+/// `forward_matrices` AND non-empty `hsm_data`" — AND the synthesised
+/// profile actually carries `forward_matrix.is_some()` AND
+/// `hsm.is_some()`. The post-synth check defends against an
+/// illuminant-key mismatch (e.g. CM keyed by D65, FM keyed by StdA):
+/// the non-empty maps pass the input gate, but
+/// `profile_from_embedded` keys its lookups by the CMs' illuminants, so
+/// a mismatched FM map yields `forward_matrix = None` and a mismatched
+/// HSM map yields `hsm = None`. Without the post-synth check, this tier
+/// would silently surface a half-baked profile that violates the
+/// documented CM + FM + HSM invariant.
 ///
-/// Returns `None` if any of the three gates miss; the caller (the
-/// resolver) then falls through to the bundle / cm-only / fallback path.
+/// Only one HSM table is required (DNG 1.6 § 6.6.5 allows
+/// single-illuminant HSM), so the post-synth gate accepts any HSM the
+/// CMs' illuminants matched (including the single-illuminant case
+/// `profile_from_embedded` handles).
+///
+/// Returns `None` if any of the three input gates miss or the
+/// post-synth FM/HSM check fails; the caller (the resolver) then falls
+/// through to the bundle / cm-only / fallback path.
 fn profile_from_embedded_full(
     raw: &RawImage,
     wb_already_baked: bool,
@@ -836,7 +846,17 @@ fn profile_from_embedded_full(
     {
         return None;
     }
-    profile_from_embedded(raw, wb_already_baked)
+    let (profile, illuminant) = profile_from_embedded(raw, wb_already_baked)?;
+    // Defend the CM + FM + HSM invariant against illuminant-key
+    // mismatches. The input gate is necessary but not sufficient — a
+    // non-empty `forward_matrices` whose keys don't include the CMs'
+    // illuminants synthesises a profile with `forward_matrix = None`,
+    // same for HSM. Falling through to EmbeddedCmOnly / RawlerFallback
+    // in that case is the contract.
+    if profile.forward_matrix.is_none() || profile.hsm.is_none() {
+        return None;
+    }
+    Some((profile, illuminant))
 }
 
 /// Build a DcpProfile from a partial embedded profile (CM, with or
@@ -845,15 +865,23 @@ fn profile_from_embedded_full(
 /// source for these bodies, and we only land here when the bundle
 /// missed too.
 ///
-/// The resolver guarantees `EmbeddedFull` has already been ruled out
-/// before this is called (so we don't need to check HSM absence
-/// here — the resolver's tier order does the gating). The function
-/// itself just degrades on `color_matrices.is_empty()`.
+/// The resolver gates `EmbeddedFull` first (CM + FM + HSM all present),
+/// but the `EmbeddedFull` synth also rejects illuminant-key mismatches
+/// — meaning a DNG with a populated `hsm_data` whose keys don't match
+/// the CM pair (or that ships HSM but no FM) still falls through to
+/// this tier. To match the documented "no HSM" contract for
+/// `EmbeddedCmOnly`, we clear `profile.hsm = None` after delegating
+/// to `profile_from_embedded`. This guarantees `EmbeddedCmOnly`
+/// profiles never carry an HSM table regardless of what
+/// `raw.hsm_data` looked like.
 fn profile_from_embedded_cm_only(
     raw: &RawImage,
     wb_already_baked: bool,
 ) -> Option<(DcpProfile, Illuminant)> {
-    profile_from_embedded(raw, wb_already_baked)
+    let (mut profile, illuminant) = profile_from_embedded(raw, wb_already_baked)?;
+    // Enforce the tier's "no HSM" contract — see fn-level doc.
+    profile.hsm = None;
+    Some((profile, illuminant))
 }
 
 /// True when `m` is within `1e-4` per element of the identity matrix.
@@ -1840,10 +1868,11 @@ mod tests {
         );
     }
 
-    /// Tier 2 vs Tier 3: a DNG with CM (and FM) but NO HSM, AND a
-    /// bundled body, resolves to `BundleConfident`. The embedded
-    /// profile is partial, so the bundle's externally-calibrated
-    /// matrices win.
+    /// Tier 2 vs Tier 3: a DNG with CM but NO HSM, AND a bundled body,
+    /// resolves to `BundleConfident`. The embedded profile is partial,
+    /// so the bundle's externally-calibrated matrices win. (FM
+    /// presence isn't the focus of this test — the empty
+    /// `forward_matrices` here just keeps the fixture minimal.)
     #[test]
     fn embedded_cm_only_loses_to_bundle() {
         let cm = Matrix3([
@@ -1987,21 +2016,158 @@ mod tests {
             "CM + FM + HSM must resolve to EmbeddedFull, got {:?}",
             source
         );
-        // The lerped hueDelta must lie strictly between the cold and
-        // warm endpoint values (-60, 30). If the HSM HashMap lookup
-        // composed incorrectly (e.g. paired the StdA table with the D65
-        // CM in the lerp), the t parameter would still produce a value
-        // in that range but the endpoints would be swapped — we'd see
-        // hueDelta close to the warm endpoint (-60) instead of nearer
-        // the cold one (since neutral as_shot_neutral implies a scene
-        // CCT near D65 → t close to 1 → result close to warm).
+        // Catching the #455 swap regression through the #460 resolver
+        // requires a TIGHT assertion on the lerped value, not just a
+        // range check. Compute the expected reciprocal-CCT `t` from the
+        // scene CCT the profile recorded (same formula as
+        // `lerp_hsm_for_cct`), then assert hueDelta ≈ (1-t)*cold + t*warm
+        // within 1e-3. If the cold/warm HSM tables were paired to the
+        // wrong CMs (the #455 bug), the lerp endpoints would swap and
+        // this assertion fails — empirically validated by swapping the
+        // hsm_map insertions during development; the test failed with
+        // residual ≈ 90.0 (the full +30 ↔ -60 swing) instead of passing.
+        let cct_cold = Illuminant::StdA.cct();
+        let cct_warm = Illuminant::D65.cct();
+        let inv_t1 = 1.0 / cct_cold;
+        let inv_t2 = 1.0 / cct_warm;
+        let inv_target = 1.0 / profile.scene_cct;
+        let t = ((inv_target - inv_t1) / (inv_t2 - inv_t1)).clamp(0.0, 1.0);
+        let expected_hue_delta = (1.0 - t) * 30.0 + t * (-60.0);
         let hsm = profile.hsm.as_ref().expect("EmbeddedFull must carry an HSM table");
         let hue_delta = hsm.data[0];
         assert!(
-            (-60.0..=30.0).contains(&hue_delta),
-            "lerped hueDelta {} not in expected [-60, 30] range — HSM \
-             HashMap lookup may have composed incorrectly",
-            hue_delta
+            (hue_delta - expected_hue_delta).abs() < 1e-3,
+            "lerped hueDelta {hue_delta} ≠ expected {expected_hue_delta} \
+             (t={t}, scene_cct={}) — if the cold/warm HSM tables were \
+             paired to the wrong CMs (#455 swap regression), this would fail",
+            profile.scene_cct
+        );
+    }
+
+    /// EmbeddedFull's "all three maps non-empty" gate isn't sufficient on
+    /// its own: a DNG that lists CMs keyed by {D65}, FMs keyed by
+    /// {StdA} (key mismatch — non-empty map but no FM for the CM's
+    /// illuminant), and any HSM ends up synthesising a profile whose
+    /// `forward_matrix` is `None`. That violates the EmbeddedFull
+    /// invariant (CM + FM + HSM all present), so the resolver must
+    /// fall through to `EmbeddedCmOnly` (or `BundleConfident` if the
+    /// body is bundled) instead of returning `EmbeddedFull` with a
+    /// half-baked profile.
+    ///
+    /// Regression test for PR #466 review comment 1.
+    #[test]
+    fn embedded_full_falls_through_on_fm_illuminant_mismatch() {
+        let cm = Matrix3([
+            [ 0.6722, -0.0635, -0.0963],
+            [-0.4287,  1.2460,  0.2028],
+            [-0.0908,  0.2162,  0.5668],
+        ]);
+        // FM keyed to an illuminant that doesn't match the CM's key.
+        let fm = Matrix3([
+            [ 0.5151,  0.1234,  0.0457],
+            [ 0.2412,  0.7320,  0.0268],
+            [ 0.0148,  0.0975,  0.7129],
+        ]);
+        let hsm = crate::color::hsm::HsmTable::new(
+            [1, 1, 1],
+            vec![0.0, 1.0, 1.0],
+            crate::color::hsm::HsmEncoding::Linear,
+        ).expect("valid 1x1x1 identity HSM");
+
+        let mut cms = std::collections::HashMap::new();
+        cms.insert(Illuminant::D65, cm);
+        let mut fms = std::collections::HashMap::new();
+        // Mismatch: FM keyed to StdA, CM keyed to D65.
+        fms.insert(Illuminant::StdA, fm);
+        let mut hsm_map = std::collections::HashMap::new();
+        hsm_map.insert(Illuminant::D65, hsm);
+
+        // Use an uncovered UCM so the bundle doesn't shadow the test —
+        // we want to observe the EmbeddedFull / EmbeddedCmOnly tier
+        // transition directly.
+        let raw = make_raw_with_ucm("Hypothetical Uncovered Body", cms, fms, hsm_map);
+        assert!(
+            crate::color::profile_loader::lookup_profile(&raw).is_none(),
+            "test prerequisite: 'Hypothetical Uncovered Body' must NOT be bundled"
+        );
+
+        let (profile, source) = profile_for_with_source(&raw)
+            .expect("resolver should succeed");
+        assert!(
+            !matches!(source, ProfileSource::EmbeddedFull { .. }),
+            "FM key mismatch (non-empty FM map but no FM for the CM's \
+             illuminant) must NOT resolve to EmbeddedFull — the \
+             synthesised profile would have forward_matrix = None, \
+             violating the CM+FM+HSM invariant. Got {:?}",
+            source
+        );
+        // Falls through to EmbeddedCmOnly (no bundle hit, single CM
+        // remains usable).
+        assert!(
+            matches!(source, ProfileSource::EmbeddedCmOnly { .. }),
+            "expected EmbeddedCmOnly fallback, got {:?}",
+            source
+        );
+        // Sanity: the surfaced profile actually carries the CM.
+        assert_eq!(profile.color_matrix, cm);
+    }
+
+    /// `EmbeddedCmOnly`'s docs say "no ProfileHueSatMapData… was
+    /// present." If a DNG ships CM + HSM but no FM (a partial profile
+    /// shape — non-empty `hsm_data`, empty `forward_matrices`), the
+    /// resolver lands here. The synthesised profile must NOT carry the
+    /// HSM table from `raw.hsm_data`; carrying it would contradict the
+    /// tier docs and the resolver's "no HSM" description.
+    ///
+    /// Regression test for PR #466 review comment 2.
+    #[test]
+    fn embedded_cm_only_clears_hsm_even_when_raw_carries_one() {
+        let cm = Matrix3([
+            [ 0.6722, -0.0635, -0.0963],
+            [-0.4287,  1.2460,  0.2028],
+            [-0.0908,  0.2162,  0.5668],
+        ]);
+        // Populated HSM map but empty FM map — disqualifies EmbeddedFull
+        // (which gates on non-empty FM), so the resolver routes through
+        // EmbeddedCmOnly.
+        let hsm = crate::color::hsm::HsmTable::new(
+            [1, 1, 1],
+            vec![15.0, 1.0, 1.0],
+            crate::color::hsm::HsmEncoding::Linear,
+        ).expect("valid 1x1x1 HSM");
+
+        let mut cms = std::collections::HashMap::new();
+        cms.insert(Illuminant::D65, cm);
+        let mut hsm_map = std::collections::HashMap::new();
+        hsm_map.insert(Illuminant::D65, hsm);
+
+        // Uncovered UCM so EmbeddedCmOnly (not BundleConfident) is the
+        // landing tier.
+        let raw = make_raw_with_ucm(
+            "Hypothetical Uncovered Body",
+            cms,
+            std::collections::HashMap::new(),
+            hsm_map,
+        );
+        assert!(
+            crate::color::profile_loader::lookup_profile(&raw).is_none(),
+            "test prerequisite: 'Hypothetical Uncovered Body' must NOT be bundled"
+        );
+
+        let (profile, source) = profile_for_with_source(&raw)
+            .expect("resolver should succeed");
+        assert!(
+            matches!(source, ProfileSource::EmbeddedCmOnly { .. }),
+            "CM + HSM without FM (and no bundle) must resolve to \
+             EmbeddedCmOnly, got {:?}",
+            source
+        );
+        assert!(
+            profile.hsm.is_none(),
+            "EmbeddedCmOnly profile must NOT carry an HSM table — \
+             per the tier docs, 'no ProfileHueSatMapData… was present' \
+             defines this tier. Got hsm = {:?}",
+            profile.hsm
         );
     }
 }

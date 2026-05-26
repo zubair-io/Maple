@@ -94,7 +94,8 @@ pub use types::{CameraKey, MapleProfile};
 /// ([`crate::color::dcp::ProfileSource::RawlerFallback`]) per #424/#460.
 /// So a stale or missing bundle never breaks decoding, and color quality
 /// degrades gracefully (embedded matrices first, synthetic only when
-/// neither side has matrices) rather than collapsing to identity.
+/// neither side provides a usable — non-identity, non-placeholder —
+/// calibration matrix) rather than collapsing to identity.
 pub(crate) const PROFILES_BIN: &[u8] = include_bytes!("../profiles/profiles.bin");
 
 pub(crate) const MAGIC: &[u8; 4] = b"MDCP";
