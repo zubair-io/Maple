@@ -52,7 +52,7 @@ export interface GeneratedAdjustmentModel {
   sharpenMasking: number;
   /** Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped). Range: [0.0, 100.0]. */
   captureSharpeningAmount: number;
-  /** Capture sharpening PSF blur radius in pixels. Range: [0.5, 2.0]. */
+  /** Capture sharpening Gaussian PSF sigma in pixels (field name kept for XMP back-compat). Range: [0.5, 2.0]. */
   captureSharpeningRadius: number;
   /** Luminance noise reduction strength per spec § 3.11. Range: [0.0, 100.0]. */
   nrLuminance: number;

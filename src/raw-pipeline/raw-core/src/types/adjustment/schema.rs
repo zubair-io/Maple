@@ -242,7 +242,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.5, 2.0),
         default_f32: 1.0,
         enum_name: "",
-        doc: "Capture sharpening PSF blur radius in pixels.",
+        doc: "Capture sharpening Gaussian PSF sigma in pixels (field name kept for XMP back-compat).",
     },
     FieldSpec {
         name: "nr_luminance",
