@@ -54,21 +54,23 @@ in the background.
 
 ## Environment variables
 
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3000` | HTTP listen port |
-| `MAPLE_MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string |
-| `MAPLE_MONGO_DB` | `maple` | MongoDB database name |
-| `MAPLE_ROOTS` | `/` | Colon-separated FS roots the server may browse and read. Defaults to `/` (Docker mount is the jail). |
-| `MAPLE_INDEXER_WORKERS` | `2` | Concurrent indexer worker threads |
-| `MAPLE_DEV` | (none) | Set to `1` to proxy UI to Angular dev server |
-| `MAPLE_DEV_ORIGIN` | `http://localhost:4201` | Angular dev server origin when `MAPLE_DEV=1` (the `maple` app serves on 4201) |
-| `MAPLE_UI_DIST` | (auto-resolved) | Override the Angular bundle dist path |
-| `MAPLE_RP_ID` | `localhost` | **WebAuthn Relying Party ID — set to your bare hostname in production** (`maple.example.com`, no scheme/port). The browser rejects passkey ceremonies whose `rpId` doesn't match the page hostname. |
-| `MAPLE_ORIGIN` | `http://localhost:3000,http://localhost:4200,http://localhost:4201` | **Set to your full public origin in production** (`https://maple.example.com`). Comma-separated for multiple. Used to verify WebAuthn assertions came from the expected origin. |
-| `MAPLE_CORS_ORIGIN` | `*` | CORS `Access-Control-Allow-Origin`. Tighten to your domain in production. |
-| `MAPLE_JWT_SECRET` | (auto-generated to `MAPLE_JWT_SECRET_FILE`) | HS256 signing key for access tokens. Override to provide your own. **Rotating this invalidates every issued access token** (clients see `bad signature` 401s until they re-auth). |
-| `MAPLE_JWT_SECRET_FILE` | `./.maple/jwt.secret` (native) · `/app/config/jwt.secret` (Docker image) | Path the auto-generator reads/writes. **In Docker this must live on a persistent volume** — otherwise the secret is regenerated on every container recreate and all sessions break. The Docker image defaults it to `/app/config`; mount a volume there (the Compose file does). |
+| Variable                | Default                                                                  | Description                                                                                                                                                                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                  | `3000`                                                                   | HTTP listen port                                                                                                                                                                                                                                         |
+| `MAPLE_MONGO_URI`       | `mongodb://localhost:27017`                                              | MongoDB connection string                                                                                                                                                                                                                                |
+| `MAPLE_MONGO_DB`        | `maple`                                                                  | MongoDB database name                                                                                                                                                                                                                                    |
+| `MAPLE_ROOTS`           | `/`                                                                      | Colon-separated FS roots the server may browse and read. Defaults to `/` (Docker mount is the jail).                                                                                                                                                     |
+| `MAPLE_INDEXER_WORKERS` | `2`                                                                      | Concurrent indexer worker threads                                                                                                                                                                                                                        |
+| `MAPLE_DEV`             | (none)                                                                   | Set to `1` to proxy UI to Angular dev server                                                                                                                                                                                                             |
+| `MAPLE_DEV_ORIGIN`      | `http://localhost:4201`                                                  | Angular dev server origin when `MAPLE_DEV=1` (the `maple` app serves on 4201)                                                                                                                                                                            |
+| `MAPLE_UI_DIST`         | (auto-resolved)                                                          | Override the Angular bundle dist path                                                                                                                                                                                                                    |
+| `MAPLE_RP_ID`           | `localhost`                                                              | **WebAuthn Relying Party ID — set to your bare hostname in production** (`maple.example.com`, no scheme/port). The browser rejects passkey ceremonies whose `rpId` doesn't match the page hostname.                                                      |
+| `MAPLE_ORIGIN`          | `http://localhost:3000,http://localhost:4200,http://localhost:4201`      | **Set to your full public origin in production** (`https://maple.example.com`). Comma-separated for multiple. Used to verify WebAuthn assertions came from the expected origin.                                                                          |
+| `MAPLE_CORS_ORIGIN`     | `*`                                                                      | CORS `Access-Control-Allow-Origin`. Tighten to your domain in production.                                                                                                                                                                                |
+| `MAPLE_JWT_SECRET`      | (DB-backed; see below)                                                   | HS256 signing key for access tokens. When set, it wins over the DB and file — use it to manage the key out-of-band (CI, secret store, k8s). **Rotating it invalidates every issued access token** (clients see `bad signature` 401s until they re-auth). |
+| `MAPLE_JWT_SECRET_FILE` | `./.maple/jwt.secret` (native) · `/app/config/jwt.secret` (Docker image) | On-disk **fallback** path, used only when MongoDB is unreachable at boot.                                                                                                                                                                                |
+
+**JWT secret resolution.** The secret is resolved at startup in this order: (1) `MAPLE_JWT_SECRET` env if set; otherwise (2) the **database** (`server_state` collection, `_id: "jwt_secret"`), created once on first boot — this is the default and the recommended store, because MongoDB data persists across container recreates and is shared by every instance, so the secret never silently rotates; otherwise (3) `MAPLE_JWT_SECRET_FILE` on disk, only as a degraded fallback when Mongo can't be reached. The startup log line `JWT secret resolved` reports the `source` (`env`/`db`/`db-created`/`file`/`generated`) and a non-reversible `fingerprint` — a changing fingerprint across restarts/instances is the signature of a `bad signature` auth bug.
 | `MAPLE_DEV_AUTH` | (none) | Set to `1` to expose `/api/auth/dev-login` (passkey bypass). **NEVER set in production.** |
 
 ## API reference
@@ -141,12 +143,12 @@ environment:
   MAPLE_ROOTS: /photos
 ```
 
-The `maple_config` volume (mounted at `/app/config`) persists the
-auto-generated JWT secret across container recreates. **Don't remove this
-mount** — without it, every `docker compose up --build`/redeploy generates a
-new secret and all clients (web and Apple) start failing with `bad signature`
-401s until they sign in again. To manage the key yourself instead, set
-`MAPLE_JWT_SECRET` directly.
+The JWT signing secret is stored in MongoDB and shared across instances, so it
+survives `docker compose up --build` / redeploys without extra configuration —
+see "JWT secret resolution" above. The `maple_config` volume (mounted at
+`/app/config`) only holds the on-disk fallback secret used when Mongo is
+unreachable at boot; keeping the mount means even that degraded path stays
+stable. To manage the key yourself, set `MAPLE_JWT_SECRET` directly.
 
 ## Self-hosting on Linux (systemd)
 
