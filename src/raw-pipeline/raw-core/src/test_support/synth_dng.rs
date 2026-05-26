@@ -70,11 +70,15 @@ pub struct SyntheticGreyDng {
 
     /// DNG `LinearizationTable` (tag 50712 / 0xC618). Per-value LUT from
     /// encoded sensor codes to linear codes; `table[encoded] = linear`. When
-    /// set, the writer emits a SHORT-array entry of `table.len()` entries
-    /// and also takes the `encoded_value_override` path so the strip carries
-    /// the exact pre-LUT code the test cares about — otherwise the
-    /// `linear_value` / WB-driven path produces linearised codes and the
-    /// LUT becomes a no-op on the test data.
+    /// set, the writer emits a SHORT-array entry of `table.len()` entries.
+    ///
+    /// Note: this field and `encoded_value_override` are independent in
+    /// `build_strip()` — setting the table alone leaves the strip on the
+    /// `linear_value` / WB-driven path, which produces already-linearised
+    /// codes so the LUT becomes a no-op. Tests that exercise the LUT
+    /// therefore typically set both fields: the table here, and
+    /// `encoded_value_override` to a sentinel encoded code so the strip
+    /// carries that exact pre-LUT value for an unambiguous round-trip.
     pub linearization_table: Option<Vec<u16>>,
     /// When set, every CFA position in the strip is written as this u16,
     /// bypassing the `linear_value` / `compute_raw_values` path. Used by
