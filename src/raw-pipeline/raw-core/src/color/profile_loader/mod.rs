@@ -71,10 +71,9 @@ mod types;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use crate::color::dcp::{interpolated_profile, DcpProfile};
+use crate::color::dcp::{interpolated_profile, single_illuminant_profile, DcpProfile};
 use crate::color::ucm_mapping;
 use crate::image::RawImage;
-use crate::math::Matrix3;
 
 pub use types::{CameraKey, MapleProfile};
 
@@ -88,12 +87,13 @@ pub use types::{CameraKey, MapleProfile};
 /// Runtime graceful degradation: when `parser::parse_bundle` fails to
 /// validate the header (e.g. bumped `FORMAT_VERSION`, corrupted bytes) it
 /// returns an empty `HashMap` — `lookup_profile` then returns `None` and
-/// `dcp::profile_for_with_source` produces an identity-CM fallback
-/// profile tagged [`crate::color::dcp::ProfileSource::Fallback`] (#345
-/// — bundle-canonical color, no rawler-CM substitution). So a stale or
-/// missing bundle never breaks decoding, but the developer sees an
-/// obvious wrong-color render and a `Fallback` ProfileSource in the
-/// pipeline diagnostics rather than a silently wrong rawler-CM output.
+/// `dcp::profile_for_with_source` falls through to either the embedded-
+/// DNG matrices ([`crate::color::dcp::ProfileSource::EmbeddedDng`]) or
+/// the generic D65→Rec.2020 path
+/// ([`crate::color::dcp::ProfileSource::Generic`]) per #424. So a stale
+/// or missing bundle never breaks decoding, and color quality degrades
+/// gracefully (embedded matrices first, generic only when neither side
+/// has matrices) rather than collapsing to identity.
 pub(crate) const PROFILES_BIN: &[u8] = include_bytes!("../profiles/profiles.bin");
 
 pub(crate) const MAGIC: &[u8; 4] = b"MDCP";
@@ -262,7 +262,8 @@ pub fn to_dcp_profile(
     }
 
     // Single-illuminant fallback. Build a minimal DcpProfile from the
-    // available CM. Same algebra as `dcp::profile_for`'s single-illum branch.
+    // available CM via the shared `single_illuminant_profile` helper —
+    // same algebra as `dcp::profile_for`'s single-illum branch.
     let (illum, cm) = match (
         profile.illum1.and_then(|i| profile.cm1.map(|m| (i, m))),
         profile.illum2.and_then(|i| profile.cm2.map(|m| (i, m))),
@@ -276,57 +277,9 @@ pub fn to_dcp_profile(
         _ => profile.fm2,
     };
     let single_hsm = hsm1.cloned().or_else(|| hsm2.cloned());
-
-    let neutral_for_white: [f32; 3] = if wb_already_baked {
-        [1.0, 1.0, 1.0]
-    } else {
-        raw.as_shot_neutral
-    };
-    let scene_white_xyz = cm
-        .inverse()
-        .map(|inv| normalize_to_y1(inv.mul_vec(neutral_for_white)))
-        .unwrap_or(crate::color::matrices::XYZ_D65);
-    let scene_cct = compute_scene_cct_single(cm, raw.as_shot_neutral, illum.cct());
-    Some(DcpProfile {
-        illuminant: illum,
-        color_matrix: cm,
-        forward_matrix: fm,
-        scene_cct,
-        scene_white_xyz,
-        wb_already_baked,
-        hsm: single_hsm,
-    })
-}
-
-fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
-    if xyz[1].abs() < 1e-8 {
-        return crate::color::matrices::XYZ_D65;
-    }
-    let s = 1.0 / xyz[1];
-    [xyz[0] * s, 1.0, xyz[2] * s]
-}
-
-/// Scene-CCT estimate from a single ColorMatrix + AsShotNeutral. Used by
-/// `to_dcp_profile`'s single-illuminant fallback so the Bradford source
-/// white comes from the *scene*, not the sole calibration illuminant.
-/// Same 8-line math (McCamy polynomial) that lived in `dcp.rs` before
-/// #345 — now only here, since the dcp-side single-illum fallback was
-/// removed in the bundle-canonical refactor.
-fn compute_scene_cct_single(cm: Matrix3, wb_neutral: [f32; 3], fallback: f32) -> f32 {
-    let cm_inv = match cm.inverse() {
-        Some(inv) => inv,
-        None => return fallback,
-    };
-    let xyz = cm_inv.mul_vec(wb_neutral);
-    let sum = xyz[0] + xyz[1] + xyz[2];
-    if sum < 1e-6 {
-        return fallback;
-    }
-    let x = xyz[0] / sum;
-    let y = xyz[1] / sum;
-    let n = (x - 0.3320) / (0.1858 - y);
-    let cct = 437.0 * n.powi(3) + 3601.0 * n.powi(2) + 6861.0 * n + 5517.0;
-    cct.clamp(2000.0, 15000.0)
+    Some(single_illuminant_profile(
+        cm, illum, fm, single_hsm, raw.as_shot_neutral, wb_already_baked,
+    ))
 }
 
 #[cfg(test)]

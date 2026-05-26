@@ -229,10 +229,14 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // table and removing it regresses ΔE on Canon DNG fixtures. The
     // universal DisplayLookCurve (separate ticket) replaces PLT entirely.
     //
-    // For `ProfileSource::Fallback` (#345 identity-CM rendering — body
-    // not in the bundle), PTC/PLT from the raw flow through unchanged.
-    // The identity-fallback path is already producing visibly-wrong
-    // colors; stripping PTC/PLT on top would compound the misrender.
+    // For `ProfileSource::EmbeddedDng` / `ProfileSource::Generic` (#424
+    // non-identity fallbacks — body not bundled but the source DNG carries
+    // its own calibration, OR neither side has matrices), PTC/PLT from the
+    // raw flow through unchanged: in the embedded case PTC was authored
+    // against the same vendor matrices we're rendering with, so dropping
+    // it loses tone calibration; in the generic case the matrix is already
+    // approximate so stripping PTC compounds the misrender without buying
+    // anything.
     //
     // `source` comes from the same lookup `profile_for_with_source`
     // already did — no second HashMap probe or env-var read in this hot
