@@ -87,3 +87,24 @@ ACR reference renders present:
    ratchet going forward.
 
 Tracked in #332.
+
+---
+
+## Post-#424 improvement (not ratcheted in #424's PR)
+
+After the DCP never-identity fallback chain (ticket #424) landed:
+
+| fixture   | baseline mean before | after  | budget |
+| --------- | -------------------- | ------ | ------ |
+| test_0004 | 7.24                 | 5.56   | 7.96   |
+
+test_0004 (Hasselblad H5D-40 .fff) is the canonical #424 fixture — the
+.fff carries no DNG-spec ColorMatrix tags so it now resolves to the
+generic D65→Rec.2020 fallback instead of identity. All other baseline
+fixtures stay within budget (full `FILTER=baseline` sweep: 0 breaches
+across 16 fixtures). The improvement was deliberately left
+unratcheted in the #424 PR per task instructions; the budget should
+be tightened to ~5.85 (5.56 + 5% headroom) in a follow-up after a
+baseline review across all 33 cases × 16 fixtures of the post-#424
+output.
+
