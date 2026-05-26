@@ -1,6 +1,10 @@
 // agx-view-transform.ts — Maple AgX GLSL fragment shader.
-// Canonical Sobotka AgX (#263): inset matrix → log encode →
-// per-channel Jed Smith sigmoid → outset matrix → clamp.
+// Post-#435: inset matrix → log encode → ratio-preserving Jed Smith
+// sigmoid (norm = max(R,G,B); sigmoid the norm, scale RGB by
+// sigmoid/norm) → outset matrix → Oklab hue-preserving gamut
+// compression to [0, 1]^3. Replaces the pre-#435 per-channel sigmoid
+// + hard `clamp(0,1)` form, which surfaced magenta on saturated
+// reds/blues/purples.
 //
 // GLSL ES 3.0 source as a TypeScript template literal.
 //
@@ -64,28 +68,93 @@ const mat3 AGX_OUTSET = mat3(
    -0.1060340474, -0.1060340474,  1.1439659526  // col 2
 );
 
-// ── Rec.2020 luminance weights (BT.2020) ─────────────────────────────────
-const vec3 REC2020_LUM = vec3(0.2627, 0.6780, 0.0593);
-
-// Luminance-coupled toe floor: replaces the old per-channel \`max(scene,
-// floor)\` clamp that asymmetrically clipped channels in deep shadows.
-// Pixels whose luminance is itself below the AgX toe pin uniformly to
-// the floor; in-gamut shadow pixels pass through.
-vec3 luma_coupled_toe(vec3 pixel) {
-    float floor_v = AGX_MID_GRAY * exp2(AGX_MIN_EV);
-    float y = dot(pixel, REC2020_LUM);
-    if (y >= floor_v) {
-        return pixel;
-    }
-    return vec3(floor_v);
-}
-
 // Per-channel log2-encode + normalize to [0, 1].
 float agx_log_encode(float linear) {
     float floor_v = AGX_MID_GRAY * exp2(AGX_MIN_EV);
     float clamped = max(linear, floor_v);
     float log_v = clamp(log2(clamped / AGX_MID_GRAY), AGX_MIN_EV, AGX_MAX_EV);
     return (log_v - AGX_MIN_EV) / (AGX_MAX_EV - AGX_MIN_EV);
+}
+
+// ── Oklab matrices (Ottosson 2020) ───────────────────────────────────────
+// Used by oklab_gamut_compress to bisect chroma at constant L. Rec.2020 ↔
+// linear sRGB ↔ LMS ↔ Lab. GLSL mat3 is column-major; matrices below are
+// transposed relative to their row-major Rust mirrors.
+const mat3 M_REC2020_TO_SRGB = mat3(
+    1.6605, -0.1246, -0.0182,
+   -0.5876,  1.1329, -0.1006,
+   -0.0728, -0.0083,  1.1187
+);
+const mat3 M_SRGB_TO_REC2020 = mat3(
+    0.6274, 0.0691, 0.0164,
+    0.3293, 0.9195, 0.0880,
+    0.0433, 0.0114, 0.8956
+);
+const mat3 M1_SRGB_TO_LMS = mat3(
+    0.41222147, 0.21190350, 0.08830246,
+    0.53633254, 0.68069955, 0.28171884,
+    0.05144599, 0.10739696, 0.62997870
+);
+const mat3 M2_LMS_TO_LAB = mat3(
+     0.21045426,  1.97799850,  0.02590404,
+     0.79361779, -2.42859221,  0.78277177,
+    -0.00407205,  0.45059371, -0.80867577
+);
+// Pre-baked inverses (computed by src/scripts/derive_agx_lut.py mirroring
+// agx_hue_restoration.rs).
+const mat3 M2_LAB_TO_LMS = mat3(
+    1.00000000, 1.00000000, 1.00000000,
+    0.39633777, -0.10556134, -0.08948418,
+    0.21580376, -0.06385417, -1.29148555
+);
+const mat3 M1_LMS_TO_SRGB = mat3(
+     4.07674166, -1.26843593, -0.00419608,
+    -3.30771159,  2.60975740, -0.70341861,
+     0.23096993, -0.34131938,  1.70761470
+);
+
+vec3 rec2020_to_oklab(vec3 rgb) {
+    vec3 lin_srgb = M_REC2020_TO_SRGB * rgb;
+    vec3 lms = M1_SRGB_TO_LMS * lin_srgb;
+    vec3 lms_cube = sign(lms) * pow(abs(lms), vec3(1.0 / 3.0));
+    return M2_LMS_TO_LAB * lms_cube;
+}
+
+vec3 oklab_to_rec2020(vec3 lab) {
+    vec3 lms_cube = M2_LAB_TO_LMS * lab;
+    vec3 lms = lms_cube * lms_cube * lms_cube;
+    vec3 lin_srgb = M1_LMS_TO_SRGB * lms;
+    return M_SRGB_TO_REC2020 * lin_srgb;
+}
+
+bool in_unit_box(vec3 rgb) {
+    return all(greaterThanEqual(rgb, vec3(-1.0e-5)))
+        && all(lessThanEqual(rgb, vec3(1.0 + 1.0e-5)));
+}
+
+// Hue-preserving gamut compression — bisect Oklab chroma toward 0 at
+// constant L until the Rec.2020 round-trip is in [0, 1]^3. Mirrors
+// agx_hue_restoration::oklab_gamut_compress.
+vec3 oklab_gamut_compress(vec3 rgb) {
+    if (in_unit_box(rgb)) {
+        return clamp(rgb, 0.0, 1.0);
+    }
+    vec3 lab = rec2020_to_oklab(rgb);
+    float L = lab.x;
+    vec2 ab = lab.yz;
+    float lo = 0.0;
+    float hi = 1.0;
+    for (int i = 0; i < 24; ++i) {
+        float mid = 0.5 * (lo + hi);
+        vec3 candidate = oklab_to_rec2020(vec3(L, ab * mid));
+        if (in_unit_box(candidate)) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    vec3 outc = oklab_to_rec2020(vec3(L, ab * lo));
+    return clamp(outc, 0.0, 1.0);
 }
 
 // ── Jed Smith / Sobotka tunable sigmoid ──────────────────────────────────
@@ -122,48 +191,48 @@ float agx_sigmoid(float x) {
     return clamp(scale * hyperbolic + AGX_Y_PIVOT, 0.0, 1.0);
 }
 
-// Apply contrast modulation: expand/compress around AGX_MID_NORM
-// so contrast=0 → identity, +100 → steep sigmoid (spec § 3.6a).
+// Apply contrast modulation: expand/compress around AGX_MID_NORM so
+// contrast=0 → identity, +100 → steep sigmoid (spec § 3.6a). Pre-#435
+// this clamped the modulated value to [0, 1] which posterised the toe
+// and shoulder; `agx_sigmoid` already clamps its input so the inner
+// clamp is redundant and harmful — removed in #435.
 float apply_contrast(float t, float contrast) {
     if (abs(contrast) < 1e-3) return t;
     float s = 1.0 + contrast / 200.0;
-    float shifted = (t - AGX_MID_NORM) * s + AGX_MID_NORM;
-    return clamp(shifted, 0.0, 1.0);
+    return (t - AGX_MID_NORM) * s + AGX_MID_NORM;
+}
+
+// Ratio-preserving sigmoid: sigmoid the max channel, scale RGB by the
+// same factor. Hue invariant — replaces the per-channel form that
+// produced magenta on saturated reds/blues/purples (#435).
+vec3 agx_ratio_sigmoid(vec3 inset, float contrast) {
+    float n = max(max(inset.r, inset.g), inset.b);
+    if (n <= 1.0e-6) {
+        float v = agx_sigmoid(apply_contrast(agx_log_encode(1.0e-6), contrast));
+        return vec3(v);
+    }
+    float sn = agx_sigmoid(apply_contrast(agx_log_encode(n), contrast));
+    float ratio = sn / n;
+    return inset * ratio;
 }
 
 void main() {
     vec4 color = texture(uSrc, vTexCoord);
     vec3 p = color.rgb;
 
-    // 1) Luminance-coupled toe floor.
-    p = luma_coupled_toe(p);
-
-    // 2) Inset matrix: Rec.2020 → AgX-Base-Rec.2020.
+    // 1) Inset matrix: Rec.2020 → AgX-Base-Rec.2020. No pre-clamp:
+    //    the ratio-preserving sigmoid below handles deep shadow without
+    //    a luma gate (the old luma_coupled_toe is retired in #435).
     p = AGX_INSET * p;
 
-    // 3) Per-channel log encode.
-    vec3 log_encoded = vec3(
-        agx_log_encode(p.r),
-        agx_log_encode(p.g),
-        agx_log_encode(p.b)
-    );
+    // 2) Ratio-preserving sigmoid (hue invariant).
+    vec3 display = agx_ratio_sigmoid(p, uContrast);
 
-    // 4) Contrast modulation, then sigmoid per channel.
-    log_encoded = vec3(
-        apply_contrast(log_encoded.r, uContrast),
-        apply_contrast(log_encoded.g, uContrast),
-        apply_contrast(log_encoded.b, uContrast)
-    );
-
-    vec3 display = vec3(
-        agx_sigmoid(log_encoded.r),
-        agx_sigmoid(log_encoded.g),
-        agx_sigmoid(log_encoded.b)
-    );
-
-    // 5) Outset matrix back to Rec.2020 primaries; clamp to display range.
+    // 3) Outset matrix back to Rec.2020 primaries.
     display = AGX_OUTSET * display;
-    display = clamp(display, 0.0, 1.0);
+
+    // 4) Hue-preserving Oklab gamut compression to [0, 1]^3.
+    display = oklab_gamut_compress(display);
 
     outColor = vec4(display, color.a);
 }

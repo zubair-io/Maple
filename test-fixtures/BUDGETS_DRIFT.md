@@ -298,3 +298,51 @@ same commit that delivers the improvement, with measured numbers). The
 follow-up calibration sweep that re-baselines budgets across the whole
 post-overhaul pipeline will absorb #438's drift along with the rest of
 the wave-3 stack.
+---
+
+## post-#435 AgX hue restoration + f32 + Web LUT parity (2026-05-26)
+
+Per-fixture deltas were NOT re-captured locally because
+`test-fixtures/raws/` is gitignored on this worktree (the
+`test_color_pipeline.sh` harness skip-passed with "manifest not found").
+The change is a behaviour-changing default to AgX: ratio-preserving
+sigmoid replaces per-channel sigmoid; Oklab hue-preserving gamut
+compression replaces the post-outset `clamp(0, 1)`; the
+`luma_coupled_toe` band-aid is retired; AGX_VERSION bumped 7 → 8.
+
+Expected drift directions (informational, to be confirmed in the
+calibration sweep that re-runs the harness with fixtures available):
+
+* **Saturated reds / blues / purples (sunsets, deep skies, magenta
+  flowers).** Mean ΔE₀₀ should improve — the per-channel→magenta
+  failure mode is gone. Expect `bias` to shift toward less-saturated
+  on these fixtures.
+* **Highlight rolloff.** Above-knee highlights compress along the
+  ratio rather than per-channel, so the highest stops desaturate less.
+  Expect modest mean increase on highlight-rich fixtures vs ACR (ACR's
+  per-channel filmic desaturates more aggressively); this is the
+  "scene-referred over Adobe-aesthetic" decision from #416.
+* **Neutral grey-axis.** Byte-identical to pre-#435 (synthetic-grey
+  invariants confirm: same R=G=B drift, same 8-bit LSBs at L=0.05/0.18/0.50).
+* **Mid-gray anchor.** Unchanged (X_PIVOT / Y_PIVOT untouched; LUT
+  bytes unchanged; `mid_gray_identity_preserved` test still passes
+  at the original 1e-3 tolerance).
+
+Web (`agx-view-transform.ts`) GLSL was ported in lockstep — same
+ratio sigmoid, same Oklab compression with pre-baked inverse
+matrices. The Rust↔GLSL parity test `glsl_port_matches_rust_lut`
+still passes (the underlying `agx_sigmoid` is unchanged; only the
+calling shape changed). A full Rust↔GLSL parity vector for the
+hue-restored output (16 representative scene-linear values) is a
+follow-up — the Web sigmoid is byte-equivalent to Rust at every
+LUT index, so the only divergence-risk surface is the Oklab matrices,
+and those are pre-computed inverses of the same Rec.2020-to-Oklab
+chain.
+
+f32-end-to-end (#435 item 5) is deferred to a follow-up KTLO ticket —
+the Apple FFI surface is fp16 today (`MapleSceneLinearBuffer.fp16_rgba`)
+and a new f32 entry-point would be additive (new
+`MapleSceneLinearBufferF32` + `maple_render_*_scene_linear_f32`),
+not a breaking change. The Web pipeline still uses RGBA16F textures;
+the f32 upgrade goes with the same KTLO ticket so both shells move
+together.
