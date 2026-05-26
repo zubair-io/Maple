@@ -25,11 +25,20 @@ beforeAll(async () => {
 
   const a = await assetsCollection();
   await a.deleteMany({ "phasset_links.device_id": deviceId });
+  // Post drop-abs-path-2026-05-21: the on-disk pointer lives on `fileinfo[]`,
+  // and the sidecar route scopes its prior-upload lookup by
+  // `{ 'fileinfo.library_id', phasset_links… }`. Seed must carry a
+  // `fileinfo[].library_id` entry for this library or the lookup 404s.
   await a.insertOne({
     _id: new ObjectId(),
-    folder_id: libId,
-    filename: "IMG_SIDECAR.HEIC",
-    abs_path: assetPath,
+    fileinfo: [
+      {
+        library_id: libId,
+        path: path.dirname(targetRelPath),
+        filename: path.basename(targetRelPath),
+        deleted_at: null,
+      },
+    ],
     size: 64,
     mtime: Date.now(),
     rating: 0,

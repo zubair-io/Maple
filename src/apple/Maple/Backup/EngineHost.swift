@@ -20,6 +20,7 @@ import MapleCore
 private let log = Logger(subsystem: "app.justmaple.aperture", category: "Backup.EngineHost")
 
 @MainActor
+@Observable
 public final class EngineHost {
     public static let shared = EngineHost()
 
@@ -65,6 +66,11 @@ public final class EngineHost {
             return
         }
         lastStartError = nil
+
+        // Surface "Restarting…" to the panel before the (potentially slow)
+        // teardown + rehydrate so the user gets immediate feedback that their
+        // tap registered. Flipped to `.running` once the runner is launched.
+        progress.setPhase(.restarting)
 
         // Tear down any previous run (cancels retry tasks, then the runner).
         await stop()
@@ -131,6 +137,8 @@ public final class EngineHost {
 
             startPeriodicWalk(deviceId: deviceId, settings: settings,
                               libraryId: settings.libraryId, serverBaseURL: serverBaseURL)
+            // Runner is live — flip the user-visible phase to Running.
+            progress.setPhase(.running)
             log.info("start ok engine running, state initialized")
         } catch {
             // The most likely failures are filesystem permission issues or
@@ -140,10 +148,42 @@ public final class EngineHost {
             let msg = String(describing: error)
             log.error("start failed: \(msg, privacy: .public)")
             lastStartError = "Couldn't start backup: \(msg)"
+            // The restart never produced a running engine — drop back to
+            // Stopped so the panel doesn't show "Restarting…" forever.
+            progress.setPhase(.stopped)
         }
     }
 
-    /// Cancel the runner and all pending retry tasks cleanly.
+    /// User-initiated pause. Tears the runner down (same as `stop()`) but
+    /// leaves the progress counters intact and clears the now-stale
+    /// "Uploading now" tiles so the panel doesn't look frozen. The panel's
+    /// Resume button calls `resume()` to pick work back up.
+    public func pause() async {
+        await stop()
+        progress.markPaused()
+    }
+
+    /// User-initiated resume from a paused/stopped state. Loads the persisted
+    /// settings and restarts the engine. If settings can't be loaded (deleted,
+    /// corrupt, or never configured), surface a visible error via
+    /// `lastStartError` instead of silently doing nothing — the old Resume
+    /// button was a no-op in exactly this case, which is what made it feel
+    /// broken. Does NOT pass retryFailed — Resume just picks up where Pause
+    /// left off; retrying failures is the explicit "Restart Backup" action.
+    public func resume() async {
+        guard let settings = BackupSettings.load() else {
+            log.error("resume bail: BackupSettings.load() returned nil")
+            lastStartError = "Couldn't resume — backup settings are missing. Re-configure the destination and tap Start Backup."
+            return
+        }
+        await start(settings: settings)
+    }
+
+    /// Cancel the runner and all pending retry tasks cleanly. Internal
+    /// teardown used by both `start()` (restart) and `pause()`. Does not set a
+    /// user-visible phase itself — callers own that (start → .restarting/.running,
+    /// pause → .paused) so a restart's internal teardown doesn't flicker the
+    /// status row.
     public func stop() async {
         // Await engine teardown so retry tasks are cancelled before the runner
         // task exits. This prevents a race where a retry re-enqueues after

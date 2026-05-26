@@ -22,36 +22,37 @@ beforeAll(async () => {
   await f.insertOne({ _id: libId, path: tmpLib, label: "test", created_at: new Date(), file_count: 0 } as any);
 
   const a = await assetsCollection();
-  await a.deleteMany({ folder_id: libId });
+  await a.deleteMany({ "fileinfo.library_id": libId });
 
   assetId1 = new ObjectId();
   assetId2 = new ObjectId();
   assetId3 = new ObjectId();
 
-  const base = { folder_id: libId, size: 64, mtime: Date.now(), rating: 0, flag: 0, color_label: "", indexed_at: new Date().toISOString(), deleted_from_photos: false };
+  // Asset rows carry the on-disk pointer on `fileinfo[].library_id` (the
+  // top-level `folder_id`/`abs_path`/`filename` fields were retired in the
+  // drop-abs-path-2026-05-21 migration). Mirror the shape backup-ingest
+  // actually inserts so the route's `fileinfo.library_id` scoping matches.
+  const base = { size: 64, mtime: Date.now(), rating: 0, flag: 0, color_label: "", indexed_at: new Date().toISOString(), deleted_from_photos: false };
 
   await a.insertMany([
     {
       _id: assetId1,
       ...base,
-      filename: "IMG_DEL_1.HEIC",
-      abs_path: path.join(tmpLib, "IMG_DEL_1.HEIC"),
+      fileinfo: [{ path: "", filename: "IMG_DEL_1.HEIC", library_id: libId, deleted_at: null }],
       maple_id: "del-maple-1",
       phasset_links: [{ device_id: deviceId, phasset_local_id: phid1, first_seen: new Date() }],
     },
     {
       _id: assetId2,
       ...base,
-      filename: "IMG_DEL_2.HEIC",
-      abs_path: path.join(tmpLib, "IMG_DEL_2.HEIC"),
+      fileinfo: [{ path: "", filename: "IMG_DEL_2.HEIC", library_id: libId, deleted_at: null }],
       maple_id: "del-maple-2",
       phasset_links: [{ device_id: deviceId, phasset_local_id: phid2, first_seen: new Date() }],
     },
     {
       _id: assetId3,
       ...base,
-      filename: "IMG_DEL_3.HEIC",
-      abs_path: path.join(tmpLib, "IMG_DEL_3.HEIC"),
+      fileinfo: [{ path: "", filename: "IMG_DEL_3.HEIC", library_id: libId, deleted_at: null }],
       maple_id: "del-maple-3",
       // Linked to a DIFFERENT device only — should NOT be updated.
       phasset_links: [{ device_id: "other-device", phasset_local_id: phid3, first_seen: new Date() }],

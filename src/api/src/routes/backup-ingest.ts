@@ -285,20 +285,104 @@ export const backupIngestRoutes = new Elysia().post(
     if (phCloudId) link.phasset_cloud_id = phCloudId;
 
     if (existing) {
-      // Same content already stored — just link this device to the existing row.
+      // Same content already stored somewhere. Whether we can pure-dedup
+      // (no second copy on disk) depends on which library that copy lives in.
+      //
+      // maple_id is a GLOBAL content hash — not scoped to a library. The
+      // matched row may carry fileinfo only for some OTHER library (e.g. the
+      // photo was discovered by a folder scan, or backed up to a different
+      // library first). The downstream sidecar / rendered routes look the
+      // asset up scoped to THIS library (`fileinfo.library_id == libraryId`),
+      // so if we link-and-dedup against an other-library row without giving
+      // THIS library a fileinfo entry, those steps 404 — which is the backup
+      // failure this branch caused. The invariant: backing a photo up to
+      // library Y must leave a usable fileinfo entry referencing Y.
+      const liveInThisLibrary = (existing.fileinfo ?? []).find(
+        (e: any) => !e.deleted_at && e.library_id?.toHexString?.() === libraryId.toHexString(),
+      );
+
+      const relFromFileInfo = (entry: any): string =>
+        entry && entry.path !== undefined
+          ? entry.path === ''
+            ? entry.filename
+            : `${entry.path}/${entry.filename}`
+          : '';
+
+      // Link this device to the existing row (idempotent on retry).
       const alreadyLinked = (existing.phasset_links ?? []).some(
         (l: any) => l.device_id === deviceId && l.phasset_local_id === phid,
       );
-      if (!alreadyLinked) {
-        await a.updateOne({ _id: existing._id }, { $push: { phasset_links: link } });
+
+      if (liveInThisLibrary) {
+        // Content already on disk in THIS library — true dedup. Drop the tmp
+        // bytes; the canonical copy already lives at this library's fileinfo
+        // entry.
+        if (!alreadyLinked) {
+          await a.updateOne({ _id: existing._id }, { $push: { phasset_links: link } });
+        }
+        try {
+          await fs.unlink(tmpFile);
+        } catch {
+          /* already gone */
+        }
+        await uploadSessions.complete({ sessionId: session._id, mapleId });
+        await backupSessionsRepo.upsertProgress({
+          libraryId,
+          deviceId,
+          uploadedDelta: 1,
+          failedDelta: 0,
+        });
+        log.debug({ phid, mapleId, dedup: true }, 'ingest complete (dedup, same library)');
+        set.status = 200;
+        // Reconstruct this library's rel path so the device knows where the
+        // canonical copy lives (used to route subsequent change-feed updates).
+        return { maple_id: mapleId, target_rel_path: relFromFileInfo(liveInThisLibrary) };
       }
-      // Delete tmp file — the canonical copy lives under the existing
-      // row's primary fileinfo entry; we don't need a second copy on disk.
+
+      // Content exists, but NOT in this library — materialize a copy here so
+      // this library gets its own fileinfo entry (and the folder-scoped
+      // sidecar / rendered lookups succeed). We still avoid re-deriving the
+      // id or re-running enrichment: this is the same content-addressed row,
+      // we only add a location.
+      const finalPath = path.join(folder.path, resolvedTargetRelPath);
+      await fs.mkdir(path.dirname(finalPath), { recursive: true });
+
+      // If the file already sits at the target path (e.g. a prior attempt
+      // moved it but Mongo didn't record this library's fileinfo entry), reuse
+      // it rather than clobbering. Otherwise move the freshly assembled tmp in.
+      let needMove = true;
       try {
-        await fs.unlink(tmpFile);
-      } catch {
-        /* already gone */
+        await fs.stat(finalPath);
+        needMove = false; // already on disk at the destination
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e;
       }
+      if (needMove) {
+        await atomicMove(tmpFile, finalPath);
+      } else {
+        try {
+          await fs.unlink(tmpFile);
+        } catch {
+          /* already gone */
+        }
+      }
+
+      const relDirRaw = path.dirname(resolvedTargetRelPath);
+      const relDir =
+        relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(path.sep).join('/');
+      const newFileInfo = {
+        path: relDir,
+        filename,
+        library_id: libraryId,
+        deleted_at: null,
+      };
+
+      const update: Record<string, any> = { $push: { fileinfo: newFileInfo } };
+      if (!alreadyLinked) {
+        update.$push = { fileinfo: newFileInfo, phasset_links: link };
+      }
+      await a.updateOne({ _id: existing._id }, update);
+
       await uploadSessions.complete({ sessionId: session._id, mapleId });
       await backupSessionsRepo.upsertProgress({
         libraryId,
@@ -306,20 +390,12 @@ export const backupIngestRoutes = new Elysia().post(
         uploadedDelta: 1,
         failedDelta: 0,
       });
-      log.debug({ phid, mapleId, dedup: true }, 'ingest complete (dedup)');
+      log.debug(
+        { phid, mapleId, dedup: true, crossLibrary: true, targetRelPath: resolvedTargetRelPath },
+        'ingest complete (dedup, materialized in target library)',
+      );
       set.status = 200;
-      // Reconstruct the existing row's target rel path from fileinfo[0]
-      // so the device knows where the canonical copy lives (used to
-      // route subsequent change-feed updates).
-      const existingPrimary =
-        (existing.fileinfo ?? []).find((e: any) => !e.deleted_at) ?? existing.fileinfo?.[0];
-      const existingRel =
-        existingPrimary && existingPrimary.path !== undefined
-          ? existingPrimary.path === ''
-            ? existingPrimary.filename
-            : `${existingPrimary.path}/${existingPrimary.filename}`
-          : '';
-      return { maple_id: mapleId, target_rel_path: existingRel };
+      return { maple_id: mapleId, target_rel_path: resolvedTargetRelPath };
     }
 
     // 2. No existing row — move tmp into the final destination.
