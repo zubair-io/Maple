@@ -557,3 +557,28 @@ fn parse_capture_sharpening_sigma_wins_over_radius() {
         m.capture_sharpening_sigma
     );
 }
+
+#[test]
+fn parse_capture_sharpening_sigma_seen_does_not_leak_across_elements() {
+    // PR #463 review: `sigma_seen` must not leak across elements. Two
+    // `rdf:Description`s — the first carries only `Sigma`, the second only
+    // `Radius`. Because each element has its own attribute set, the second
+    // Description's `Radius` has no Sigma to defer to and must write to
+    // `capture_sharpening_sigma` (last writer wins, which is the codebase's
+    // accumulation contract for multi-Description sidecars).
+    //
+    // Bug behavior before the fix: a single stream-scoped `sigma_seen` flag
+    // remembered the first Description's `Sigma` and silently dropped the
+    // second's `Radius`.
+    let xml = r#"<?xml version="1.0"?><x xmlns:rdf="x" xmlns:papp="x">
+        <rdf:Description papp:CaptureSharpeningSigma="0.8"/>
+        <rdf:Description papp:CaptureSharpeningRadius="2.0"/>
+    </x>"#;
+    let m = parse(xml).unwrap();
+    assert!(
+        (m.capture_sharpening_sigma - 2.0).abs() < 1e-6,
+        "second Description's Radius must apply (its own attribute set has \
+         no Sigma); got capture_sharpening_sigma = {}",
+        m.capture_sharpening_sigma
+    );
+}
