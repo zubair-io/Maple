@@ -20,6 +20,10 @@ public enum HighlightRecoveryMode: String, Codable, Sendable, Hashable {
     /// variants kept for back-compat: raw-core silently upgrades them at
     /// apply time.
     case chromaticAdaptation  = "ChromaticAdaptation"
+    /// Ticket #471 — post-DCP Oklab chroma reduction. Opt-in. Runs in
+    /// scene-linear Rec.2020 D65 (where Oklab is well-defined) and reduces
+    /// Oklab chroma at clipped pixels while preserving hue.
+    case oklabChromaReduction = "OklabChromaReduction"
 }
 
 // MARK: - Look
@@ -294,6 +298,7 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             case "blend":                parsed = .blend
             case "luminance":            parsed = .luminance
             case "chromaticadaptation":  parsed = .chromaticAdaptation
+            case "oklabchromareduction": parsed = .oklabChromaReduction
             default:                     parsed = nil
             }
             if let parsed { model.highlightRecovery = parsed }

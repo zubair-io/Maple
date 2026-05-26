@@ -5,7 +5,7 @@
 // default factory. Hand-written extensions (e.g. `WhiteBalancePreset`)
 // live alongside in `adjustment-model.ts` and augment this shape.
 
-export type HighlightRecoveryMode = 'Off' | 'Blend' | 'Luminance' | 'ChromaticAdaptation';
+export type HighlightRecoveryMode = 'Off' | 'Blend' | 'Luminance' | 'ChromaticAdaptation' | 'OklabChromaReduction';
 
 export type Look = 'Neutral' | 'Default';
 

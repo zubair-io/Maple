@@ -130,6 +130,10 @@ fn set_field(
                 "chromaticadaptation" | "ChromaticAdaptation" => {
                     HighlightRecoveryMode::ChromaticAdaptation
                 }
+                // Ticket #471: post-DCP Oklab chroma reduction (opt-in).
+                "oklabchromareduction" | "OklabChromaReduction" => {
+                    HighlightRecoveryMode::OklabChromaReduction
+                }
                 other => return Err(Error::Xmp(format!(
                     "unknown HighlightRecoveryMode: {}", other
                 ))),

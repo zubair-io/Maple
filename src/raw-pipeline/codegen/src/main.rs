@@ -201,7 +201,7 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     // raw-core::stages::highlight_recovery).
     s.push_str(
         "export type HighlightRecoveryMode = \
-         'Off' | 'Blend' | 'Luminance' | 'ChromaticAdaptation';\n\n",
+         'Off' | 'Blend' | 'Luminance' | 'ChromaticAdaptation' | 'OklabChromaReduction';\n\n",
     );
 
     // DisplayLookCurve (ticket #371). `Default` ships the empirical 1D
