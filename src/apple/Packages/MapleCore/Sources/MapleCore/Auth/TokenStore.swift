@@ -11,29 +11,49 @@ public struct AuthTokens: Codable, Equatable, Sendable {
 public enum TokenStore {
   private static let service = "app.justmaple.maple.auth"
 
-  public static func save(_ tokens: AuthTokens, server: URL) throws {
-    let data = try JSONEncoder().encode(tokens)
-    let query: [String: Any] = [
+  /// Base query shared by save/load/clear. `kSecUseDataProtectionKeychain`
+  /// is the load-bearing bit: iOS uses the data-protection keychain by
+  /// default, but macOS defaults to the legacy file keychain — and the
+  /// iOS-style `kSecAttrAccessible…` attribute below behaves inconsistently
+  /// there. Without this flag the macOS app's delete-then-add in `save()`
+  /// fails to overwrite (SecItemAdd returns errSecDuplicateItem because the
+  /// delete didn't match the legacy item), so a fresh login never replaces
+  /// the stored token and the app keeps sending a stale one — which the
+  /// server rejects with "bad signature". Setting it true makes both
+  /// platforms use the same keychain with the same semantics. It's the
+  /// default on iOS, so this is a no-op there and corrective on macOS.
+  private static func baseQuery(server: URL) -> [String: Any] {
+    [
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: service,
       kSecAttrAccount as String: server.absoluteString,
+      kSecUseDataProtectionKeychain as String: true,
     ]
-    SecItemDelete(query as CFDictionary)
-    var add = query
+  }
+
+  public static func save(_ tokens: AuthTokens, server: URL) throws {
+    let data = try JSONEncoder().encode(tokens)
+    let base = baseQuery(server: server)
+    SecItemDelete(base as CFDictionary)
+    var add = base
     add[kSecValueData as String] = data
     add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    let status = SecItemAdd(add as CFDictionary, nil)
+    var status = SecItemAdd(add as CFDictionary, nil)
+    if status == errSecDuplicateItem {
+      // The delete didn't remove the existing item (keychain quirk / race).
+      // Update it in place rather than leaving the stale value behind.
+      status = SecItemUpdate(
+        base as CFDictionary,
+        [kSecValueData as String: data] as CFDictionary
+      )
+    }
     guard status == errSecSuccess else { throw NSError(domain: "TokenStore", code: Int(status)) }
   }
 
   public static func load(server: URL) throws -> AuthTokens? {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: server.absoluteString,
-      kSecReturnData as String: true,
-      kSecMatchLimit as String: kSecMatchLimitOne,
-    ]
+    var query = baseQuery(server: server)
+    query[kSecReturnData as String] = true
+    query[kSecMatchLimit as String] = kSecMatchLimitOne
     var item: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &item)
     if status == errSecItemNotFound { return nil }
@@ -44,11 +64,6 @@ public enum TokenStore {
   }
 
   public static func clear(server: URL) {
-    let query: [String: Any] = [
-      kSecClass as String: kSecClassGenericPassword,
-      kSecAttrService as String: service,
-      kSecAttrAccount as String: server.absoluteString,
-    ]
-    SecItemDelete(query as CFDictionary)
+    SecItemDelete(baseQuery(server: server) as CFDictionary)
   }
 }
