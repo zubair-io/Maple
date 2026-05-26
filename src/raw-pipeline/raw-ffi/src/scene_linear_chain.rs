@@ -54,6 +54,18 @@ pub struct MapleAdjustmentParams {
     /// 1 = skip the AgX view transform (non-RAW path: input is already
     /// display-encoded). 0 = apply AgX (RAW path).
     pub skip_agx: u32,
+    /// User-selectable display Look (ticket #515). The byte is mapped
+    /// through `raw_core::view::look::Look::from(u8)`:
+    ///   - `0` = `Look::Neutral`  (identity, scene-referred output)
+    ///   - `1` = `Look::Default`  (empirical LUT — new-user default)
+    /// Hosts that have not been updated yet leave this at `1` (the
+    /// `AdjustmentModel::default()` Look).
+    ///
+    /// Placed at the end of the struct so adding the field does not shift
+    /// the offset of any earlier field — the FFI ABI for existing fields
+    /// stays binary-compatible with pre-#515 callers that re-bind to the
+    /// new header.
+    pub look_mode: u8,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -134,6 +146,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.texture = p.texture;
     model.nr_luminance = p.nr_luminance;
     model.dehaze = p.dehaze;
+    model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 
@@ -238,6 +251,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.texture = p.texture;
     model.nr_luminance = p.nr_luminance;
     model.dehaze = p.dehaze;
+    model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 
