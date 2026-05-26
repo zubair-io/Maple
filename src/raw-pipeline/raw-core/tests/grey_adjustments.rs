@@ -21,6 +21,13 @@ const EPS_DISPLAY_LSB: i32 = 2;
 /// Synthesise a grey DNG at scene-linear `linear_value`, apply the
 /// requested adjustments via `configure`, develop scene-linear, and
 /// assert per-pixel R=G=B=predict(linear_value) within EPS_SCENE_LINEAR.
+///
+/// Per ticket #429 the model starts with `auto_exposure = Off` so
+/// stage-level closed-form predictors (`predict_shadows`,
+/// `predict_whites`, `predict_blacks`, `predict_highlights`, etc.) see
+/// the raw `linear_value` and not the post-anchor `0.18`. Tests that
+/// validate the anchored behaviour (the two `exposure_*_predicts`)
+/// re-enable it explicitly via `configure`.
 fn assert_predicted_scene_linear(
     linear_value: f32,
     configure: impl FnOnce(&mut AdjustmentModel),
@@ -32,6 +39,7 @@ fn assert_predicted_scene_linear(
         .expect("synthetic DNG must decode");
 
     let mut model = AdjustmentModel::default();
+    model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
     configure(&mut model);
     let img = develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)
         .expect("scene-linear render must succeed");
@@ -48,6 +56,13 @@ fn assert_predicted_scene_linear(
 
 /// Synthesise + render through the full production pipeline (incl. AgX),
 /// assert per-pixel R=G=B in u8 within EPS_DISPLAY_LSB.
+///
+/// Same `auto_exposure = Off` starting point as
+/// [`assert_predicted_scene_linear`]: the neutrality assertion is an
+/// invariant of the pipeline (R == G == B for a neutral input), so the
+/// anchor gain — a uniform scalar across all three channels — never
+/// affects it. Keeping the helpers aligned on the same starting model
+/// avoids subtle divergence between the two predicates.
 fn assert_neutral_display(
     linear_value: f32,
     configure: impl FnOnce(&mut AdjustmentModel),
@@ -58,6 +73,7 @@ fn assert_neutral_display(
         .expect("synthetic DNG must decode");
 
     let mut model = AdjustmentModel::default();
+    model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
     configure(&mut model);
     let (w, h, rgb) = render_from_raw(&raw, &model)
         .expect("full pipeline render must succeed");
@@ -76,19 +92,58 @@ fn assert_neutral_display(
     }
 }
 
+// Per #429, auto-exposure is on by default — the scene-anchor stage
+// pushes mid-gray to 0.18 BEFORE the user's `exposure` slider runs in
+// scene_tone_controls. For a uniform synthetic scene at `L`, the scene
+// midgrey == L (geometric mean of a constant is the constant), so the
+// anchor multiplies pixels by `0.18 / L` (clamped to 8.0). The user
+// exposure then stacks additively on top: `final = 0.18 * 2^ev`, a
+// CONSTANT independent of the input L. That's the spec — anchor first,
+// then a relative EV offset.
+
+/// Predict the scene-linear output for a uniform synthetic scene under
+/// `auto_exposure = On` (default). The scene midgrey collapses to the
+/// uniform value `L`; the anchor multiplies pixels by `0.18 / L`
+/// (clamped to 8.0); the user exposure adds `2^ev` on top.
+fn predict_anchored_exposure(linear_value: f32, ev: f32) -> f32 {
+    let raw_anchor = 0.18_f32 / linear_value;
+    let anchor = raw_anchor.min(8.0); // matches MAX_ANCHOR_GAIN in stages::auto_exposure
+    linear_value * anchor * ev.exp2()
+}
+
 #[test]
 fn exposure_plus1_predicts() {
     for L in [0.05, 0.18, 0.50] {
-        assert_predicted_scene_linear(L, |m| m.exposure = 1.0, |s| predict_exposure(s, 1.0));
-        assert_neutral_display(L, |m| m.exposure = 1.0);
+        assert_predicted_scene_linear(
+            L,
+            |m| {
+                m.auto_exposure = raw_core::xmp::AutoExposureMode::On;
+                m.exposure = 1.0;
+            },
+            |_| predict_anchored_exposure(L, 1.0),
+        );
+        assert_neutral_display(L, |m| {
+            m.auto_exposure = raw_core::xmp::AutoExposureMode::On;
+            m.exposure = 1.0;
+        });
     }
 }
 
 #[test]
 fn exposure_minus1_predicts() {
     for L in [0.05, 0.18, 0.50] {
-        assert_predicted_scene_linear(L, |m| m.exposure = -1.0, |s| predict_exposure(s, -1.0));
-        assert_neutral_display(L, |m| m.exposure = -1.0);
+        assert_predicted_scene_linear(
+            L,
+            |m| {
+                m.auto_exposure = raw_core::xmp::AutoExposureMode::On;
+                m.exposure = -1.0;
+            },
+            |_| predict_anchored_exposure(L, -1.0),
+        );
+        assert_neutral_display(L, |m| {
+            m.auto_exposure = raw_core::xmp::AutoExposureMode::On;
+            m.exposure = -1.0;
+        });
     }
 }
 
@@ -238,11 +293,18 @@ fn tint_minus_pushes_green() {
 fn contrast_plus_creates_s_curve() {
     // Contrast is AgX-internal — assert direction in display-encoded u8.
     // Above-midtone values should brighten; below-midtone should darken.
+    //
+    // Per #429 the scene-anchor pushes every uniform synthetic scene to
+    // 0.18 before AgX, which collapses both L=0.05 and L=0.50 onto the
+    // same AgX position and makes the "above/below midtone" framing
+    // meaningless. We pin the test against the absolute scene-linear
+    // input by setting `auto_exposure = Off`.
     fn render_mean(L: f32, configure: impl FnOnce(&mut AdjustmentModel)) -> u8 {
         let dng = SyntheticGreyDng { linear_value: L, ..Default::default() };
         let bytes = dng.write_to_bytes();
         let raw = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
         let mut model = AdjustmentModel::default();
+        model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
         configure(&mut model);
         let (w, h, rgb) = render_from_raw(&raw, &model).unwrap();
         let n = (w * h) as usize;

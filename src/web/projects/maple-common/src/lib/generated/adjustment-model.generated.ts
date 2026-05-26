@@ -18,6 +18,8 @@ export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';
 
 export type WbMethod = 'Cat16' | 'DiagonalRec2020';
 
+export type AutoExposureMode = 'Off' | 'On';
+
 export interface GeneratedAdjustmentModel {
   /** White balance correlated color temperature in Kelvin. Range: [2000.0, 12000.0]. */
   temperature: number;
@@ -75,6 +77,8 @@ export interface GeneratedAdjustmentModel {
   dehaze: number;
   /** Highlight reconstruction mode per spec § 3.3a. */
   highlightRecovery: HighlightRecoveryMode;
+  /** Per-image auto-exposure mode (ticket #429). 'On' (default) anchors scene mid-gray to 0.18 before AgX; 'Off' is strict scene-referred. The `exposure` slider stacks additively in EV on top. */
+  autoExposure: AutoExposureMode;
   /** DisplayLookCurve (ticket #371). 'Default' applies the empirical 1D LUT; 'Neutral' is the strict scene-referred identity. */
   look: Look;
   /** Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue. */
@@ -142,6 +146,7 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     nrColor: 25.0,
     dehaze: 0.0,
     highlightRecovery: 'ChromaticAdaptation',
+    autoExposure: 'On',
     look: 'Default',
     toneCurveMode: 'PerChannel',
   };

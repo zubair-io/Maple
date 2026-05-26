@@ -10,7 +10,7 @@ use quick_xml::reader::Reader;
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{
-    AdjustmentModel, HighlightRecoveryMode, Look, ToneCurveMode, WbMethod,
+    AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, Look, ToneCurveMode, WbMethod,
 };
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
@@ -167,6 +167,21 @@ fn set_field(
                 "diagonalrec2020" | "DiagonalRec2020" => WbMethod::DiagonalRec2020,
                 other => return Err(Error::Xmp(format!(
                     "unknown WbMethod: {}", other
+                ))),
+            };
+        }
+        // Per-image auto-exposure mode (ticket #429). Absent attribute ->
+        // default (`On`) — scene mid-gray anchored to 0.18 before AgX.
+        // Existing sidecars produced before #429 don't carry
+        // `papp:AutoExposure`; they pick up the new default, which is the
+        // point of the PR — every camera lands at the same AgX position
+        // unless the user opts out per-image with `papp:AutoExposure="Off"`.
+        "papp:AutoExposure" => {
+            m.auto_exposure = match value {
+                "on" | "On" => AutoExposureMode::On,
+                "off" | "Off" => AutoExposureMode::Off,
+                other => return Err(Error::Xmp(format!(
+                    "unknown AutoExposure: {}", other
                 ))),
             };
         }
