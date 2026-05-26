@@ -26,32 +26,18 @@ pub mod schema;
 pub use curves::{ToneCurve, ToneCurvePoint};
 pub use schema::{FieldKind, FieldSpec, ADJUSTMENT_SCHEMA};
 
-/// DisplayLookCurve enum (ticket #371, retired in #443).
+/// User-selectable display Look. Canonical definition lives in
+/// `crate::view::look` (the module that owns the LUT data and `apply`
+/// implementation); this re-export keeps `AdjustmentModel.look` and
+/// existing consumers building against the historical
+/// `crate::types::adjustment::Look` path.
 ///
-/// **Retired:** the empirical 1D u8→u8 Look LUT was removed in #443 (final
-/// Wave-3 step of #416). Both variants are now identical no-ops — the field
-/// is kept on `AdjustmentModel` and `papp:Look` is kept as a parsed XMP
-/// attribute purely for backward compatibility with sidecars produced
-/// before #443. The serializer omits the attribute on the canonical default
-/// (`Default`), so newly-written sidecars carry no `papp:Look` at all.
-///
-/// Color correctness now comes from the colorimetry path (steps 08/09) +
-/// the view transform (steps 25/26). A stylistic look, if reintroduced
-/// later, will live in AgX's normalised-log domain and codegen to
-/// Rust/Metal/GLSL so every platform matches — not as a CPU-only u8 LUT.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Look {
-    /// Strict scene-referred output. Identical to `Default` post-#443.
-    Neutral,
-    /// Pre-#443: the empirical LUT. Post-#443: identical to `Neutral`.
-    Default,
-}
-
-impl Default for Look {
-    fn default() -> Self {
-        Self::Default
-    }
-}
+/// Resurrected in the Maple Look v1 epic (#505) — see
+/// `docs/superpowers/specs/2026-05-26-auto-tone-and-looks-design.md`. The
+/// empirical 1D LUT was originally introduced in #371, retired in #443,
+/// and is being re-wired into the GPU view transforms by the L2–L5
+/// follow-ups so Apple, Web, and Rust render identically.
+pub use crate::view::look::Look;
 
 /// Highlight reconstruction mode per spec § 3.3a.
 ///
