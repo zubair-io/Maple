@@ -127,7 +127,7 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     // variant. PLT stays for DNG-Converter inputs. `source` is the
     // same lookup result `profile_for_with_source` already produced — no
     // redundant HashMap probe in the sized path either.
-    let use_bundled = matches!(source, dcp::ProfileSource::Bundled);
+    let use_bundled = matches!(source, dcp::ProfileSource::BundleConfident);
     let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
     let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt_and_ptc(
         &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,

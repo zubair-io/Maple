@@ -229,19 +229,18 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // table and removing it regresses ΔE on Canon DNG fixtures. The
     // universal DisplayLookCurve (separate ticket) replaces PLT entirely.
     //
-    // For `ProfileSource::EmbeddedDng` / `ProfileSource::Generic` (#424
-    // non-identity fallbacks — body not bundled but the source DNG carries
-    // its own calibration, OR neither side has matrices), PTC/PLT from the
-    // raw flow through unchanged: in the embedded case PTC was authored
-    // against the same vendor matrices we're rendering with, so dropping
-    // it loses tone calibration; in the generic case the matrix is already
-    // approximate so stripping PTC compounds the misrender without buying
-    // anything.
+    // For every non-`BundleConfident` tier (`EmbeddedFull`,
+    // `EmbeddedCmOnly`, `RawlerFallback` — see ticket #460), PTC/PLT from
+    // the raw flow through unchanged: in the embedded cases PTC was
+    // authored against the same vendor matrices we're rendering with, so
+    // dropping it loses tone calibration; in the fallback case the matrix
+    // is already approximate so stripping PTC compounds the misrender
+    // without buying anything.
     //
     // `source` comes from the same lookup `profile_for_with_source`
     // already did — no second HashMap probe or env-var read in this hot
     // path. See `dcp::ProfileSource` for the rationale.
-    let use_bundled = matches!(source, dcp::ProfileSource::Bundled);
+    let use_bundled = matches!(source, dcp::ProfileSource::BundleConfident);
     let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
     let mut scene = stage("dcp::apply", || dcp::apply_with_plt_and_ptc(
         &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,
