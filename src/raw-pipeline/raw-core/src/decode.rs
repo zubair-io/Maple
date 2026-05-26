@@ -292,7 +292,22 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // We only take the first 3 rows (R G B) and ignore the 4th (E/W channel).
     // This preserves all illuminants for dual-illuminant CCT interpolation
     // in dcp::profile_for (spec § 3.4).
-    let color_matrices: HashMap<CoreIlluminant, Matrix3> = {
+    //
+    // Source-mixing avoidance (ticket #345 + #424): rawler exposes
+    // `raw.color_matrix` whether or not the source file actually shipped
+    // ColorMatrix tags — for vendor RAW formats (.fff/.cr2/.arw/.nef) the
+    // map is rawler's dcraw-lineage per-body substitute, NOT a matrix
+    // from the file. Empirically those substitutes regress fixtures
+    // versus the bundled or generic fallbacks (test_0004 .fff regresses
+    // 7.24 → 8.86 ΔE if treated as a real embedded matrix), so we only
+    // populate `color_matrices` when the source file's Root IFD actually
+    // carries `ColorMatrix1` and/or `ColorMatrix2` tags. DNG sources
+    // always do; vendor RAWs typically don't.
+    let cm_in_ifd = root_ifd.as_ref().is_some_and(|ifd| {
+        ifd.as_ref().get_entry(DngTag::ColorMatrix1).is_some()
+            || ifd.as_ref().get_entry(DngTag::ColorMatrix2).is_some()
+    });
+    let color_matrices: HashMap<CoreIlluminant, Matrix3> = if cm_in_ifd {
         let mut map = HashMap::new();
         for (rawler_illum, flat) in &raw.color_matrix {
             if flat.len() < 9 {
@@ -309,6 +324,12 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
             map.entry(core_illum).or_insert(m);
         }
         map
+    } else {
+        // Vendor-RAW source (no DNG-spec ColorMatrix tag in the IFD): drop
+        // rawler's dcraw-lineage substituted matrices to prevent the source-
+        // mixing failure mode. `dcp::profile_for_with_source` will fall
+        // through to its `Generic` (D65 → Rec.2020) fallback instead.
+        HashMap::new()
     };
 
     // ── 8b. ForwardMatrix1 / ForwardMatrix2 (DNG § 1.4.4.3) ───────────────
