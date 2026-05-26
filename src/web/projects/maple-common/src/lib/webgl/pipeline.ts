@@ -1,15 +1,19 @@
 // WebGL2 Pipeline class — Plan 3 M2.1.
 //
 // Compiles five GLSL ES 3.0 fragment shaders into a five-pass chain:
-// fp16 input -> WhiteBalance -> SceneToneControls -> SceneVibrance ->
+// scene-linear input -> WhiteBalance -> SceneToneControls -> SceneVibrance ->
 // SceneSaturation -> AgXViewTransform -> 8-bit sRGB canvas.
 //
-// Two RGBA16F textures act as ping-pong attachments. AgX uses the
-// inline 6-piece polynomial (per ticket #08, Apple commit 8ff4142) —
-// no LUT image is uploaded; Plan 3 M2.1 Task 8 (LUT bundle) is skipped.
+// Two scene-linear textures act as ping-pong attachments. The internal
+// format is `RGBA32F` when `EXT_color_buffer_float` is available (#482 —
+// matches the f32 scene-linear buffer end-to-end mandate from #416), and
+// falls back to `RGBA16F` when only `EXT_color_buffer_half_float` is
+// present. AgX uses the inline 6-piece polynomial (per ticket #08, Apple
+// commit 8ff4142) — no LUT image is uploaded; Plan 3 M2.1 Task 8 (LUT
+// bundle) is skipped.
 //
-// Hard-requires fp16 — `Pipeline.create` throws WebglFp16Unsupported
-// when EXT_color_buffer_half_float or OES_texture_float_linear is
+// Hard-requires at least the fp16 path (`EXT_color_buffer_half_float` +
+// `OES_texture_float_linear`); throws WebglFp16Unsupported when those are
 // missing. M3 wraps construction in a try/catch for the production
 // fallback path.
 //
@@ -21,6 +25,17 @@
 import type { AdjustmentModel } from '../models/adjustment-model';
 import type { DecodedSceneLinearImage } from '../raw-pipeline/raw-pipeline.types';
 import { SHADERS } from './shaders/index';
+
+/**
+ * Internal float format chosen for the ping-pong attachments.
+ *
+ * - `RGBA32F`: full f32 precision end-to-end (#416). Requires
+ *   `EXT_color_buffer_float`. Eliminates banding on smooth gradients
+ *   driven by the ~3-bit mantissa loss in fp16 storage.
+ * - `RGBA16F`: fp16 fallback (the pre-#482 default). Requires
+ *   `EXT_color_buffer_half_float`.
+ */
+type SceneLinearFormat = 'RGBA32F' | 'RGBA16F';
 
 export class WebglFp16Unsupported extends Error {
   constructor(missing: string[]) {
@@ -54,6 +69,8 @@ export class Pipeline {
   private pingFb: WebGLFramebuffer;
   private pongFb: WebGLFramebuffer;
   private vao: WebGLVertexArrayObject;
+  /** Internal float format of the ping-pong attachments. See {@link SceneLinearFormat}. */
+  private readonly sceneLinearFormat: SceneLinearFormat;
 
   // Created via the static factory so async setup hooks (if any) can run
   // before the first render. Private constructor enforces the factory.
@@ -66,6 +83,7 @@ export class Pipeline {
     pingFb: WebGLFramebuffer,
     pongFb: WebGLFramebuffer,
     vao: WebGLVertexArrayObject,
+    sceneLinearFormat: SceneLinearFormat,
   ) {
     this.gl = gl;
     this.programs = progs;
@@ -75,6 +93,15 @@ export class Pipeline {
     this.pingFb = pingFb;
     this.pongFb = pongFb;
     this.vao = vao;
+    this.sceneLinearFormat = sceneLinearFormat;
+  }
+
+  /**
+   * The internal float format the ping-pong attachments were created with.
+   * Test/diagnostic hook — production code should not branch on this.
+   */
+  getSceneLinearFormat(): SceneLinearFormat {
+    return this.sceneLinearFormat;
   }
 
   /**
@@ -116,13 +143,34 @@ export class Pipeline {
     if (!gl) {
       throw new WebglFp16Unsupported(['WebGL2']);
     }
+    // Float texture filtering is required in BOTH the f32 and fp16 paths.
+    // `OES_texture_float_linear` lights up `LINEAR` filtering on float
+    // textures (createFloatTexture below requests `LINEAR` min/mag), so
+    // it's a baseline requirement regardless of which storage format we
+    // pick. Missing it is fatal — no fallback restores filtering.
     const missing: string[] = [];
-    if (!gl.getExtension('EXT_color_buffer_half_float')) {
-      missing.push('EXT_color_buffer_half_float');
-    }
     if (!gl.getExtension('OES_texture_float_linear')) {
       missing.push('OES_texture_float_linear');
     }
+
+    // Prefer RGBA32F when the host's `EXT_color_buffer_float` is present
+    // (#482) — keeps the scene-linear buffer at f32 end-to-end and
+    // eliminates banding on smooth gradients (#416). Fall back to
+    // RGBA16F when only `EXT_color_buffer_half_float` is available so
+    // older / mobile GPUs that don't expose full float renderbuffers
+    // still render. If neither half- nor full-float renderbuffer
+    // extensions are present, we cannot construct the pipeline at all.
+    let sceneLinearFormat: SceneLinearFormat;
+    if (gl.getExtension('EXT_color_buffer_float')) {
+      sceneLinearFormat = 'RGBA32F';
+    } else if (gl.getExtension('EXT_color_buffer_half_float')) {
+      sceneLinearFormat = 'RGBA16F';
+    } else {
+      missing.push('EXT_color_buffer_float (or EXT_color_buffer_half_float)');
+      // Force the throw below.
+      throw new WebglFp16Unsupported(missing);
+    }
+
     if (missing.length > 0) {
       throw new WebglFp16Unsupported(missing);
     }
@@ -154,9 +202,9 @@ export class Pipeline {
       ),
     };
 
-    const inputTex = createFp16Texture(gl);
-    const pingTex = createFp16Texture(gl);
-    const pongTex = createFp16Texture(gl);
+    const inputTex = createFloatTexture(gl);
+    const pingTex = createFloatTexture(gl);
+    const pongTex = createFloatTexture(gl);
     const pingFb = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, pingFb);
     gl.framebufferTexture2D(
@@ -187,6 +235,7 @@ export class Pipeline {
       pingFb,
       pongFb,
       vao,
+      sceneLinearFormat,
     );
   }
 
@@ -201,12 +250,22 @@ export class Pipeline {
     const gl = this.gl;
     const { width: w, height: h, fp16Rgba } = input;
 
-    // Upload input fp16 RGBA -> inputTex.
+    // Internal format: RGBA32F when the host supports `EXT_color_buffer_float`
+    // (#482, the no-banding path), RGBA16F otherwise. The fp16 input data
+    // is fine in either case — WebGL2 allows uploading HALF_FLOAT pixels
+    // into an RGBA32F-internal texture; the GPU widens to f32 on store and
+    // the rest of the chain accumulates at full precision.
+    const internalFormat =
+      this.sceneLinearFormat === 'RGBA32F' ? gl.RGBA32F : gl.RGBA16F;
+
+    // Upload input fp16 RGBA -> inputTex (internal format follows
+    // sceneLinearFormat; the upload data is fp16 either way until the
+    // WASM side gains an f32 surface — tracked separately).
     gl.bindTexture(gl.TEXTURE_2D, this.inputTex);
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
-      gl.RGBA16F,
+      internalFormat,
       w,
       h,
       0,
@@ -215,11 +274,13 @@ export class Pipeline {
       fp16Rgba,
     );
 
-    // Resize ping/pong if size changed (or initialise first run).
+    // Resize ping/pong if size changed (or initialise first run). Empty
+    // texImage2D with `null` data + RGBA32F internal format gives us the
+    // f32 attachment the ping-pong accumulates into.
     gl.bindTexture(gl.TEXTURE_2D, this.pingTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
     gl.bindTexture(gl.TEXTURE_2D, this.pongTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
 
     gl.canvas.width = w;
     gl.canvas.height = h;
@@ -367,7 +428,13 @@ function linkProgram(
   return { program: p, uSrc, uniforms };
 }
 
-function createFp16Texture(gl: WebGL2RenderingContext): WebGLTexture {
+/**
+ * Allocate a scene-linear float texture. The internal storage format
+ * (RGBA32F vs RGBA16F) is set per call via the texImage2D in
+ * {@link Pipeline.render}; this helper just sets the parameter state
+ * (LINEAR filtering, clamp-to-edge) that applies to both formats.
+ */
+function createFloatTexture(gl: WebGL2RenderingContext): WebGLTexture {
   const t = gl.createTexture()!;
   gl.bindTexture(gl.TEXTURE_2D, t);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);

@@ -69,6 +69,41 @@ typedef struct MapleSceneLinearBuffer {
 } MapleSceneLinearBuffer;
 
 /**
+ * Scene-linear FFI buffer — Rec.2020 f32 RGBA, straight alpha, row-major.
+ *
+ * Additive sibling of [`MapleSceneLinearBuffer`] (fp16). #416 requires
+ * the scene-referred buffer be carried as f32 end-to-end; fp16 is the
+ * existing surface kept compiling for callers (Apple today) until they
+ * migrate. New callers — Web first, Apple in a follow-up — should
+ * prefer this entry to avoid banding from the fp16 mantissa loss.
+ *
+ * `bytes_per_pixel` is always 16 (4 channels × 4 bytes per f32 lane).
+ * `channels` is always 4 (R, G, B, A). Free via
+ * [`maple_free_scene_linear_buffer_f32`].
+ */
+typedef struct MapleSceneLinearBufferF32 {
+  /**
+   * Pointer to heap-allocated f32 RGBA buffer. Free via
+   * `maple_free_scene_linear_buffer_f32`.
+   */
+  float *f32_rgba;
+  /**
+   * Bytes in the buffer (= 4 * 4 * width * height = 16 * width * height).
+   */
+  uintptr_t len_bytes;
+  /**
+   * Channels per pixel (always 4: R, G, B, A).
+   */
+  uint32_t channels;
+  /**
+   * Bytes per pixel (always 16 for f32 RGBA).
+   */
+  uint32_t bytes_per_pixel;
+  uint32_t width;
+  uint32_t height;
+} MapleSceneLinearBufferF32;
+
+/**
  * Opaque handle to a decoded RawImage + parsed AdjustmentModel.
  * Allocate via `maple_open_raw_handle` (or
  * `maple_open_raw_handle_bytes`); free via `maple_close_raw_handle`.
@@ -132,6 +167,11 @@ void maple_free_byte_buffer(struct MapleByteBuffer *buffer);
 void maple_free_scene_linear_buffer(struct MapleSceneLinearBuffer *buffer);
 
 /**
+ * Free a buffer populated by `maple_render_*_scene_linear_f32`.
+ */
+void maple_free_scene_linear_buffer_f32(struct MapleSceneLinearBufferF32 *buffer);
+
+/**
  * Returns the most recent error message for the current thread, or null.
  * The returned pointer remains valid until the next FFI call on this thread.
  */
@@ -182,6 +222,8 @@ int32_t maple_open_raw_handle_bytes(const uint8_t *raw_bytes,
  *   - 9: bad tile geometry (src_w/src_h/out_w/out_h == 0)
  *   - 10: dehaze active in the handle's model — tile path unsafe
  *   - 11: upscale attempt (out > src) — tile path is downscale-only
+ *   - 12: mismatched aspect — tile path requires `out_w/out_h` aspect
+ *         to match `src_w/src_h` aspect (within integer rounding)
  *   - 8: any other error from the core tile renderer
  */
 int32_t maple_render_handle_scene_linear_tile(const struct MapleRawHandle *handle,
@@ -369,8 +411,9 @@ int32_t maple_render_bytes_scene_linear_sized(const uint8_t *raw_bytes,
 /**
  * Tile scene-linear render — same fp16 RGBA output struct as the sized
  * variant, but renders only the source-pixel rectangle
- * `(src_x, src_y, src_w, src_h)`. Pads internally by 35 px to satisfy
- * the development chain's stencil radii (clarity is the binding
+ * `(src_x, src_y, src_w, src_h)`. Pads internally by
+ * `raw_core::pipeline::TILE_OVERLAP_PX` to satisfy the
+ * development chain's stencil radii (clarity is the binding
  * constraint), then trims to the inner rect, downsamples to
  * `(out_w, out_h)`, orients, and packs to fp16 RGBA.
  *
@@ -378,9 +421,11 @@ int32_t maple_render_bytes_scene_linear_sized(const uint8_t *raw_bytes,
  * plus:
  *   - 9:  `src_w/src_h/out_w/out_h == 0` — bad tile geometry.
  *   - 10: `model.dehaze != 0` — tile path is not supported (radius 67
- *          exceeds the 35 px overlap pad). Caller should fall back to
+ *          exceeds the overlap pad). Caller should fall back to
  *          fit-zoom rendering.
  *   - 11: `out_w > src_w || out_h > src_h` — tile path is downscale-only.
+ *   - 12: `(out_w, out_h)` aspect does not match `(src_w, src_h)` —
+ *          tile path requires matching aspect.
  *
  * Plan 3 — see .archived-plans/plans/2026-04-25-deep-zoom-tile-rendering.md
  * Task 2 and docs/tickets/06-viewport-sized-rust-ffi-preview.md M4.
@@ -416,12 +461,55 @@ int32_t maple_render_bytes_scene_linear_tile(const uint8_t *raw_bytes,
                                              struct MapleSceneLinearBuffer *out);
 
 /**
+ * f32 sibling of [`maple_render_file_scene_linear`]. Identical inputs
+ * and error codes; the output buffer is [`MapleSceneLinearBufferF32`]
+ * (16 bytes per pixel) instead of the fp16 surface.
+ */
+int32_t maple_render_file_scene_linear_f32(const char *raw_path,
+                                           const char *xmp_path,
+                                           int32_t quality_preview,
+                                           struct MapleSceneLinearBufferF32 *out);
+
+/**
+ * f32 sibling of [`maple_render_bytes_scene_linear`].
+ */
+int32_t maple_render_bytes_scene_linear_f32(const uint8_t *raw_bytes,
+                                            uintptr_t raw_len,
+                                            const char *hint_ext,
+                                            const char *xmp_path,
+                                            int32_t quality_preview,
+                                            struct MapleSceneLinearBufferF32 *out);
+
+/**
+ * f32 sibling of [`maple_render_file_scene_linear_sized`].
+ */
+int32_t maple_render_file_scene_linear_sized_f32(const char *raw_path,
+                                                 const char *xmp_path,
+                                                 uint32_t max_long_edge,
+                                                 int32_t quality_preview,
+                                                 struct MapleSceneLinearBufferF32 *out);
+
+/**
+ * f32 sibling of [`maple_render_bytes_scene_linear_sized`].
+ */
+int32_t maple_render_bytes_scene_linear_sized_f32(const uint8_t *raw_bytes,
+                                                  uintptr_t raw_len,
+                                                  const char *hint_ext,
+                                                  const char *xmp_path,
+                                                  uint32_t max_long_edge,
+                                                  int32_t quality_preview,
+                                                  struct MapleSceneLinearBufferF32 *out);
+
+/**
  * Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
  * buffer. Returns 0 on success, non-zero on error (call `maple_last_error`).
  *
  * `in_ptr` and `out_ptr` MUST point to buffers of size
  * `8 * width * height` bytes (= `4 * width * height` fp16 lanes). The
- * caller owns both buffers; this entry doesn't allocate or free.
+ * caller owns both buffers. This entry does not free anything, but does
+ * perform one intermediate heap allocation of the same size as the output
+ * buffer (the wrapped `raw_core` entry returns an owned `Vec<u16>` which
+ * is then copied into `out_ptr`).
  * `out_ptr` may alias `in_ptr` only if the caller is willing to lose the
  * input on error — current implementation copies the result at the end
  * so partial in-place is safe but partial-write semantics are undefined
@@ -444,7 +532,9 @@ int32_t maple_apply_scene_linear_chain(const uint16_t *in_ptr,
  * free via `maple_free_byte_buffer`. Non-zero on error.
  *
  * `quality` is JPEG quality in [1, 100]. Spec-pinned default is 82; pass 0
- * to use the default.
+ * to use the default. Values > 100 are rejected (rc 14) — `u8` allows up
+ * to 255 and the JPEG encoder accepts anything > 100 silently, which is
+ * not what callers mean.
  */
 int32_t maple_render_thumbnail_jpeg(const char *raw_path,
                                     uint32_t max_px,
@@ -468,6 +558,9 @@ int32_t maple_render_thumbnail_jpeg(const char *raw_path,
  * File-output sidesteps the issue: Rust owns its allocations end-to-end and
  * JS just reads the resulting file. The cost is one extra fs read, which is
  * negligible (the route writes-through to the same cache file anyway).
+ *
+ * `quality` is JPEG quality in [1, 100]; pass 0 to use the default (82).
+ * Values > 100 are rejected with rc 14.
  *
  * Returns 0 on success; non-zero on error (call `maple_last_error`).
  */
