@@ -333,15 +333,25 @@ fn render_from_scene_linear_uniform_hue_patch_is_uniform_output() {
     let model = AdjustmentModel::default();
     let (w, h, bytes) = render_from_scene_linear(patch, &model)
         .expect("synthetic hue patch render");
-    // Every pixel should map to the same triple — no spatial noise.
-    let r0 = bytes[0];
-    let g0 = bytes[1];
-    let b0 = bytes[2];
+    // ±1 LSB spread permitted: #441 ordered dither adds ±0.5 LSB
+    // pre-quantize, so a uniform scene-linear input can land at
+    // adjacent u8 codes for different pixel positions. The gate is
+    // "no spatial noise beyond the documented dither bound," not
+    // bit-exact equality across pixels.
+    let mut r_lo = u8::MAX; let mut r_hi = u8::MIN;
+    let mut g_lo = u8::MAX; let mut g_hi = u8::MIN;
+    let mut b_lo = u8::MAX; let mut b_hi = u8::MIN;
     for i in 0..(w * h) as usize {
-        assert_eq!(bytes[i * 3], r0, "pixel {} R differs", i);
-        assert_eq!(bytes[i * 3 + 1], g0, "pixel {} G differs", i);
-        assert_eq!(bytes[i * 3 + 2], b0, "pixel {} B differs", i);
+        let r = bytes[i * 3];
+        let g = bytes[i * 3 + 1];
+        let b = bytes[i * 3 + 2];
+        r_lo = r_lo.min(r); r_hi = r_hi.max(r);
+        g_lo = g_lo.min(g); g_hi = g_hi.max(g);
+        b_lo = b_lo.min(b); b_hi = b_hi.max(b);
     }
+    assert!(r_hi - r_lo <= 1, "R spread {}..{} > 1 LSB (dither bound)", r_lo, r_hi);
+    assert!(g_hi - g_lo <= 1, "G spread {}..{} > 1 LSB (dither bound)", g_lo, g_hi);
+    assert!(b_hi - b_lo <= 1, "B spread {}..{} > 1 LSB (dither bound)", b_lo, b_hi);
 }
 
 #[test]
