@@ -22,6 +22,12 @@ struct BackupStatusPanel: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
+      // Run-state row — the PRIMARY fix for "the panel never tells me whether
+      // backup is running". Reads `progress.phase`, which `EngineHost` drives
+      // through the real engine lifecycle (Stopped / Running / Paused /
+      // Restarting…). `@Observable` makes this update reactively.
+      statusRow
+
       // Surface engine-startup failures right at the top. Without this,
       // a failed `EngineHost.start` left the user staring at a
       // "No photos queued" panel with no idea why nothing was happening.
@@ -31,6 +37,7 @@ struct BackupStatusPanel: View {
           .foregroundStyle(.red)
           .padding(8)
           .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
+          .accessibilityIdentifier("backup.status.startError")
       }
 
       ProgressView(value: progress.fractionDone) {
@@ -92,13 +99,28 @@ struct BackupStatusPanel: View {
       }
 
       HStack {
+        // Pause is only meaningful while the engine is actively running.
         Button("Pause") {
-          Task { await EngineHost.shared.stop() }
+          Task { await EngineHost.shared.pause() }
         }
+        .disabled(progress.phase != .running)
+        .accessibilityIdentifier("backup.pauseButton")
+
+        // Resume only when paused or fully stopped. `EngineHost.resume()`
+        // surfaces a visible error (via lastStartError → the banner above) if
+        // settings can't be loaded, instead of the old silent no-op.
         Button("Resume") {
-          if let settings = BackupSettings.load() {
-            Task { await EngineHost.shared.start(settings: settings) }
-          }
+          Task { await EngineHost.shared.resume() }
+        }
+        .disabled(!(progress.phase == .paused || progress.phase == .stopped))
+        .accessibilityIdentifier("backup.resumeButton")
+
+        // While a restart is in flight, show an inline spinner so the controls
+        // don't look frozen during the (potentially slow) teardown + walk.
+        if progress.phase == .restarting {
+          ProgressView()
+            .controlSize(.small)
+            .accessibilityIdentifier("backup.restartingSpinner")
         }
       }
       .buttonStyle(.bordered)
@@ -112,6 +134,36 @@ struct BackupStatusPanel: View {
     // away from Settings and back. The `lastStartError` banner above
     // covers the "engine didn't actually start" diagnostic that the old
     // .task path used to surface implicitly.
+  }
+
+  // MARK: - Status row
+
+  /// Prominent run-state row at the top of the panel. The dot + label make the
+  /// current phase legible at a glance; the whole row carries a single
+  /// accessibility label ("Backup status: Running") so UI tests and
+  /// VoiceOver can read the phase directly.
+  @ViewBuilder
+  private var statusRow: some View {
+    HStack(spacing: 8) {
+      Circle()
+        .fill(statusColor)
+        .frame(width: 10, height: 10)
+      Text(progress.phase.label)
+        .font(.headline)
+      Spacer()
+    }
+    .accessibilityElement(children: .ignore)
+    .accessibilityLabel("Backup status: \(progress.phase.label)")
+    .accessibilityIdentifier("backup.status.phase")
+  }
+
+  private var statusColor: Color {
+    switch progress.phase {
+    case .running: return .green
+    case .paused: return .orange
+    case .restarting: return .blue
+    case .stopped: return .secondary
+    }
   }
 }
 

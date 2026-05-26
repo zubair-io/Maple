@@ -22,6 +22,38 @@ import MapleBackup
 @Observable
 public final class BackupProgressViewModel {
 
+    /// Explicit, user-visible run state for the backup engine.
+    ///
+    /// Distinct from `isRunning` (which only tracks "an observer is attached
+    /// to the queue"): this is the engine *phase* the panel shows to the user
+    /// — Stopped / Running / Paused / Restarting…. It is driven by
+    /// `EngineHost` (the only thing that knows the real lifecycle) rather than
+    /// inferred from queue events.
+    public enum BackupRunPhase: Sendable {
+        /// Engine has never started this session, or was fully torn down.
+        case stopped
+        /// Runner is launched and draining the queue.
+        case running
+        /// User tapped Pause — runner is stopped but counters/progress remain.
+        case paused
+        /// A restart is in flight (teardown + walk seeding the queue).
+        case restarting
+
+        /// Short label for the status row.
+        public var label: String {
+            switch self {
+            case .stopped: return "Stopped"
+            case .running: return "Running"
+            case .paused: return "Paused"
+            case .restarting: return "Restarting…"
+            }
+        }
+    }
+
+    /// Current engine phase. Driven by `EngineHost.start`/`stop`/`pause`.
+    /// `@Observable` so the panel updates reactively.
+    public private(set) var phase: BackupRunPhase = .stopped
+
     public struct InFlight: Identifiable, Hashable, Sendable {
         public let id: BackupTaskID
         public let startedAt: Date
@@ -99,6 +131,23 @@ public final class BackupProgressViewModel {
         observerTask?.cancel()
         observerTask = nil
         isRunning = false
+    }
+
+    /// Set the user-visible engine phase. Called by `EngineHost` as the
+    /// engine moves through its lifecycle.
+    public func setPhase(_ newPhase: BackupRunPhase) {
+        phase = newPhase
+    }
+
+    /// Mark the engine paused by the user: clear the "Uploading now" tiles
+    /// (the in-flight uploads were cancelled by `EngineHost.stop()`, so
+    /// leaving them on screen looks frozen) and flip the phase. Cumulative
+    /// counters (`totalCompleted` / `totalEnqueued` / `totalFailed`) and the
+    /// `recentCompleted` strip are intentionally preserved so the user keeps
+    /// their progress context across a pause/resume.
+    public func markPaused() {
+        inFlight.removeAll()
+        phase = .paused
     }
 
     /// Computed convenience: 0.0 → 1.0 progress when totalEnqueued > 0.
