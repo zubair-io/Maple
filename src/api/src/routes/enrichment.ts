@@ -312,18 +312,24 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
 
       // Rebuild the Meilisearch client against the resolved URL so the
       // running process (search route + meili stage) picks it up without a
-      // restart. Best-effort: a bad/unreachable URL just means search falls
-      // back to Mongo `$text`, so we never fail the save here. When a URL is
-      // present we (re)create the index in the background so a freshly
-      // pointed-at Meili gets the right schema.
+      // restart. This swap is synchronous and is the only part that must
+      // happen before we return.
       reconfigureMeilisearch(resolved.meilisearch_url);
       if (resolved.meilisearch_url) {
+        // Warm up the freshly-pointed-at instance — health-check + index
+        // (re)creation — fire-and-forget. NOT awaited: a slow/unreachable
+        // Meili must never block saving the URL, and connectivity is
+        // best-effort (search falls back to Mongo `$text`). Detached so the
+        // response returns immediately; the IIFE owns its own error handling
+        // so there's no unhandled rejection.
         const meili = createMeilisearchClient({ url: resolved.meilisearch_url });
-        try {
-          if (await meili.health()) await meili.ensureIndex();
-        } catch (err) {
-          log.warn({ err }, 'Meilisearch reconfigure health/ensureIndex failed (non-fatal)');
-        }
+        void (async () => {
+          try {
+            if (await meili.health()) await meili.ensureIndex();
+          } catch (err) {
+            log.warn({ err }, 'Meilisearch reconfigure health/ensureIndex failed (non-fatal)');
+          }
+        })();
       }
 
       return resolved;
