@@ -85,6 +85,21 @@ final class SearchParamsTests: XCTestCase {
     XCTAssertEqual(d["sort"], "rating")
   }
 
+  func test_placeQuery_serialisesAlongsideQ() {
+    var p = SearchParams(libraryID: "lib-1")
+    p.placeQuery = "boy playing ball"
+    let d = dict(p.facetQueryItems())
+    XCTAssertEqual(d["placeQuery"], "boy playing ball")
+    // q stays empty/omitted — the main search box drives placeQuery, not q.
+    XCTAssertNil(d["q"])
+  }
+
+  func test_placeQuery_emptyOmitted() {
+    var p = SearchParams(libraryID: "lib-1")
+    p.placeQuery = ""
+    XCTAssertNil(dict(p.facetQueryItems())["placeQuery"])
+  }
+
   func test_isScreenshot_triState() {
     var p = SearchParams()
     // nil → omitted entirely (both photos & screenshots).
@@ -107,6 +122,7 @@ final class SearchParamsTests: XCTestCase {
   func test_hasActiveFilters() {
     var p = SearchParams(libraryID: "lib-1")
     p.q = "anything"        // q is not a "structured" filter
+    p.placeQuery = "a dog"  // nor is the main-box content query
     p.sort = .name          // nor is sort
     XCTAssertFalse(p.hasActiveFilters)
     p.rating = 3
