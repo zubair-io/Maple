@@ -88,12 +88,13 @@ pub use types::{CameraKey, MapleProfile};
 /// validate the header (e.g. bumped `FORMAT_VERSION`, corrupted bytes) it
 /// returns an empty `HashMap` — `lookup_profile` then returns `None` and
 /// `dcp::profile_for_with_source` falls through to either the embedded-
-/// DNG matrices ([`crate::color::dcp::ProfileSource::EmbeddedDng`]) or
-/// the generic D65→Rec.2020 path
-/// ([`crate::color::dcp::ProfileSource::Generic`]) per #424. So a stale
-/// or missing bundle never breaks decoding, and color quality degrades
-/// gracefully (embedded matrices first, generic only when neither side
-/// has matrices) rather than collapsing to identity.
+/// DNG matrices ([`crate::color::dcp::ProfileSource::EmbeddedFull`] or
+/// [`crate::color::dcp::ProfileSource::EmbeddedCmOnly`]) or the
+/// synthetic D65→Rec.2020 path
+/// ([`crate::color::dcp::ProfileSource::RawlerFallback`]) per #424/#460.
+/// So a stale or missing bundle never breaks decoding, and color quality
+/// degrades gracefully (embedded matrices first, synthetic only when
+/// neither side has matrices) rather than collapsing to identity.
 pub(crate) const PROFILES_BIN: &[u8] = include_bytes!("../profiles/profiles.bin");
 
 pub(crate) const MAGIC: &[u8; 4] = b"MDCP";

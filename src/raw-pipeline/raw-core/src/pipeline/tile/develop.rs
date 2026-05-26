@@ -79,7 +79,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // flagged in PR #330 review thread `PRRT_kwDOSK_I1M6EOuzz`. The tile
     // path runs many times per image; this matters for the 16 ms slider
     // budget on supported hardware.
-    let use_bundled = matches!(source, dcp::ProfileSource::Bundled);
+    let use_bundled = matches!(source, dcp::ProfileSource::BundleConfident);
     let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
     let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt_and_ptc(
         &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,
