@@ -73,8 +73,10 @@ impl Primary {
 
     /// Unit triple in Rec.2020-space — the "1.0" magnitude for this
     /// primary. Multiplied by the EV-scaled mid-gray to get the final
-    /// scene-linear value.
-    fn rgb_unit(self) -> [f32; 3] {
+    /// scene-linear value. Exposed `pub(crate)` so downstream tests
+    /// (e.g. `stages::clarity` regression assertions) can reuse the
+    /// same source of truth without duplicating the match.
+    pub(crate) fn rgb_unit(self) -> [f32; 3] {
         match self {
             Primary::Red => [1.0, 0.0, 0.0],
             Primary::Green => [0.0, 1.0, 0.0],
@@ -154,10 +156,12 @@ pub fn halo_disk(width: u32, height: u32) -> Image {
 
 /// Half-saturated-primary / half-neutral vertical step. The left half
 /// carries a uniform neutral grey (R=G=B=`neutral`); the right half
-/// carries a uniform saturated primary at the same luma anchor (one
-/// channel = `saturated`, the other two = 0). Width must be even — the
-/// split is exactly at `width / 2`. Height is just for batch-stat
-/// sampling (constant along y).
+/// carries a uniform saturated primary (one channel = `saturated`, the
+/// other two = 0). The two halves are independent values — the caller
+/// picks whatever neutral / saturated levels exercise the regression
+/// they care about; this generator does not pin them to equal luma.
+/// Width must be even — the split is exactly at `width / 2`. Height is
+/// just for batch-stat sampling (constant along y).
 ///
 /// Used by the clarity / texture / capture-sharpen luminance-only
 /// regression tests: under a per-channel unsharp mask, the channel
