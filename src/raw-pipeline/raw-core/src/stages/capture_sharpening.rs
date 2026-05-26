@@ -26,8 +26,8 @@ use crate::image::{ColorSpace, Image};
 #[derive(Clone, Copy, Debug)]
 pub struct CaptureSharpeningParams {
     /// Gaussian PSF sigma in pixels. The kernel is windowed to
-    /// `±ceil(3·sigma)` taps and renormalized; `sigma <= 0` short-circuits
-    /// the stage.
+    /// `±ceil(3·sigma)` taps and renormalized; `sigma <= 0`, non-finite, or
+    /// `> MAX_SIGMA_PX_STAGE` (50 px) short-circuits the stage to a no-op.
     pub sigma: f32,
     /// Number of Richardson–Lucy iterations. Reference default: 2.
     pub iterations: u32,
@@ -54,12 +54,37 @@ impl Default for CaptureSharpeningParams {
 /// coefficients (0.2627, 0.6780, 0.0593) if parity calls for it.
 const LUM_WEIGHTS: [f32; 3] = [0.2126, 0.7152, 0.0722];
 
+/// Hard ceiling on the Gaussian sigma this stage will accept, in pixels.
+/// The pipeline helper already clamps XMP-sourced sigma to `MAX_SIGMA_PX`
+/// (8.0 px today). This second ceiling is defense-in-depth for any direct
+/// caller of the stage API — e.g. an integration test or a future entry
+/// point — so an unbounded `sigma` can never expand the kernel size into
+/// an OOM/DoS region.
+///
+/// At `sigma = 50.0` the kernel is `2 * ceil(3 * 50) + 1 = 301` taps, which
+/// is large but bounded; anything above that is treated as bogus and the
+/// stage exits early.
+const MAX_SIGMA_PX_STAGE: f32 = 50.0;
+
 /// Build a windowed, renormalized 1D Gaussian kernel of length `2*half+1`,
 /// where `half = ceil(3 * sigma).max(1) as usize`. The kernel is symmetric
 /// around index `half`; weights are `exp(-(k^2)/(2σ²))` and the whole array
 /// is divided by its sum so the convolution preserves DC.
+///
+/// `sigma` is clamped to `(0, MAX_SIGMA_PX_STAGE]` and non-finite values are
+/// rounded up to the lower bound — this function is private to the stage but
+/// has the same defensive contract as `apply_capture_sharpening`, so callers
+/// (the RL inner loop) can't accidentally trigger an unbounded allocation
+/// when a future entry point forgets to validate.
 fn gaussian_kernel_1d(sigma: f32) -> Vec<f32> {
-    debug_assert!(sigma > 0.0 && sigma.is_finite());
+    let sigma = if sigma.is_finite() && sigma > 0.0 {
+        sigma.min(MAX_SIGMA_PX_STAGE)
+    } else {
+        // Smallest sigma that still produces a kernel; the caller-facing
+        // `apply_capture_sharpening` rejects non-finite/<=0 sigma upfront,
+        // so this branch is only reachable via the kernel-only unit tests.
+        1e-3
+    };
     let half = (3.0 * sigma).ceil().max(1.0) as usize;
     let two_sigma_sq = 2.0 * sigma * sigma;
     let mut k: Vec<f32> = (0..=2 * half)
@@ -120,13 +145,24 @@ fn gaussian_blur_plane(buf: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> 
 
 /// Apply capture sharpening in place.
 ///
-/// No-op when `sigma <= 0`, `iterations == 0`, or `strength <= 0`.
+/// No-op when any of the following holds:
+/// - `sigma` is non-finite, `<= 0`, or beyond `MAX_SIGMA_PX_STAGE` (defense
+///   in depth — the pipeline helper already clamps to 8 px, but a direct
+///   caller could pass an unbounded value),
+/// - `strength` or `highlight_threshold` is non-finite,
+/// - `iterations == 0` or `strength <= 0`.
+///
 /// `strength == 0.0` is a bit-exact no-op — see `disabled_at_zero_strength`.
+/// `highlight_threshold` is internally clamped to `< 1.0` so the highlight
+/// fade can never hit a `1.0 / (1.0 - 1.0)` division-by-zero edge.
 pub fn apply_capture_sharpening(image: &mut Image, params: &CaptureSharpeningParams) {
     if !params.sigma.is_finite()
         || params.sigma <= 0.0
+        || params.sigma > MAX_SIGMA_PX_STAGE
         || params.iterations == 0
+        || !params.strength.is_finite()
         || params.strength <= 0.0
+        || !params.highlight_threshold.is_finite()
     {
         return;
     }
@@ -162,8 +198,14 @@ pub fn apply_capture_sharpening(image: &mut Image, params: &CaptureSharpeningPar
     // Scale each channel by (new_Y / old_Y), blending toward no-op near
     // clipped highlights. Small-`y_old` pixels are left alone to avoid
     // divide-by-zero noise amplification in shadows.
+    //
+    // `highlight_threshold` is clamped to a tight ceiling below 1.0 so the
+    // `(1.0 - y_old) / (1.0 - hi_thresh)` ramp never divides by zero when an
+    // upstream caller hands us `hi_thresh == 1.0` (and `y_old == 1.0`). The
+    // 0.999 ceiling matches the default (0.99) head-room and the spec
+    // language "near-clipped highlights".
     let strength = params.strength;
-    let hi_thresh = params.highlight_threshold;
+    let hi_thresh = params.highlight_threshold.min(0.999);
     image.pixels.iter_mut().enumerate().for_each(|(i, px)| {
         let y_old = original[i];
         if y_old < 1e-6 {
@@ -311,6 +353,145 @@ mod tests {
                 },
             );
             assert_eq!(img.pixels, before, "non-finite/negative sigma {sigma} must be a no-op");
+        }
+    }
+
+    /// DoS/OOM hardening: a `pub` caller could in principle hand the stage
+    /// an absurd sigma. The stage-level ceiling (`MAX_SIGMA_PX_STAGE = 50`)
+    /// must reject anything above that as a no-op, with no allocation of the
+    /// `2 * ceil(3 * sigma) + 1` taps the kernel would otherwise demand.
+    #[test]
+    fn disabled_at_huge_sigma() {
+        for sigma in [50.001_f32, 1e6, 1e9, f32::MAX] {
+            let mut img = build_image(8, 8, |_, _| [0.5, 0.5, 0.5]);
+            let before = img.pixels.clone();
+            apply_capture_sharpening(
+                &mut img,
+                &CaptureSharpeningParams {
+                    sigma,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                img.pixels, before,
+                "sigma {sigma} above MAX_SIGMA_PX_STAGE must be a no-op"
+            );
+        }
+    }
+
+    /// `gaussian_kernel_1d` is private but reachable from the convolution
+    /// path; its own clamp is the last-line safeguard if a future entry
+    /// point bypasses `apply_capture_sharpening`'s guards. Verify the
+    /// allocation stays bounded for absurd sigma and the kernel still sums
+    /// to ~1.0 with all-finite weights.
+    #[test]
+    fn gaussian_kernel_1d_clamps_huge_sigma() {
+        let max_taps = 2 * (3.0 * MAX_SIGMA_PX_STAGE).ceil() as usize + 1;
+        for sigma in [50.0_f32, 100.0, 1e6, 1e9, f32::MAX, f32::INFINITY, f32::NAN] {
+            let k = gaussian_kernel_1d(sigma);
+            assert!(
+                k.len() <= max_taps,
+                "kernel for sigma={sigma} expanded to {} taps (max {max_taps})",
+                k.len()
+            );
+            let sum: f32 = k.iter().sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-5,
+                "kernel for sigma={sigma} sums to {sum}, expected 1.0"
+            );
+            for &v in &k {
+                assert!(v.is_finite(), "kernel for sigma={sigma} has non-finite weight");
+            }
+        }
+    }
+
+    /// NaN `strength` must short-circuit, not propagate into pixels. Without
+    /// the `is_finite` guard, the `y_old * (1.0 - blend) + y_new * blend`
+    /// blend produces NaN output for every non-shadow pixel.
+    #[test]
+    fn apply_capture_sharpening_is_noop_on_nan_strength() {
+        for strength in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut img = build_image(16, 16, |x, _| {
+                let v = x as f32 / 15.0;
+                [v, v, v]
+            });
+            let before = img.pixels.clone();
+            apply_capture_sharpening(
+                &mut img,
+                &CaptureSharpeningParams {
+                    strength,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                img.pixels, before,
+                "non-finite strength {strength} must be a no-op"
+            );
+            for p in &img.pixels {
+                for &v in p.iter() {
+                    assert!(v.is_finite(), "non-finite pixel from strength={strength}");
+                }
+            }
+        }
+    }
+
+    /// Inf / NaN `highlight_threshold` must short-circuit. The blend math
+    /// computes `(1.0 - y_old) / (1.0 - hi_thresh)` for highlights — a
+    /// non-finite `hi_thresh` would emit NaN/Inf into pixels otherwise.
+    #[test]
+    fn apply_capture_sharpening_is_noop_on_inf_highlight_threshold() {
+        for hi in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut img = build_image(16, 16, |x, _| {
+                let v = x as f32 / 15.0;
+                [v, v, v]
+            });
+            let before = img.pixels.clone();
+            apply_capture_sharpening(
+                &mut img,
+                &CaptureSharpeningParams {
+                    highlight_threshold: hi,
+                    ..Default::default()
+                },
+            );
+            assert_eq!(
+                img.pixels, before,
+                "non-finite highlight_threshold {hi} must be a no-op"
+            );
+            for p in &img.pixels {
+                for &v in p.iter() {
+                    assert!(v.is_finite(), "non-finite pixel from hi_thresh={hi}");
+                }
+            }
+        }
+    }
+
+    /// `highlight_threshold == 1.0` is the divide-by-zero edge: the
+    /// highlight-fade ramp is `(1.0 - y_old) / (1.0 - hi_thresh)`, so at
+    /// `hi == 1.0` paired with a `y_old == 1.0` pixel the math is `0/0`.
+    /// The stage clamps `hi` to `< 1.0` internally, so the run must
+    /// complete with finite pixels.
+    #[test]
+    fn apply_capture_sharpening_handles_highlight_threshold_one() {
+        // Mix of values including y_old == 1.0 (the pathological pixel).
+        let mut img = build_image(16, 16, |x, _| {
+            let v = if x < 8 { 1.0 } else { x as f32 / 15.0 };
+            [v, v, v]
+        });
+        apply_capture_sharpening(
+            &mut img,
+            &CaptureSharpeningParams {
+                highlight_threshold: 1.0,
+                ..Default::default()
+            },
+        );
+        for p in &img.pixels {
+            for &v in p.iter() {
+                assert!(
+                    v.is_finite(),
+                    "non-finite pixel with highlight_threshold=1.0: {v}"
+                );
+                assert!(v < 1.5, "highlight exploded with hi=1.0: {v}");
+            }
         }
     }
 
