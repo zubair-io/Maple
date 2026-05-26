@@ -198,10 +198,17 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     // HighlightRecoveryMode union. `Blend` and `Luminance` are legacy
     // back-compat variants kept so old XMP sidecars continue to parse;
     // both upgrade to `ChromaticAdaptation` at apply time (see
-    // raw-core::stages::highlight_recovery).
+    // raw-core::stages::highlight_recovery). Emitted in the multi-line
+    // form prettier produces past its print-width threshold so the
+    // codegen-drift + format-check gates agree without a post-step
+    // through `prettier --write`.
     s.push_str(
-        "export type HighlightRecoveryMode = \
-         'Off' | 'Blend' | 'Luminance' | 'ChromaticAdaptation' | 'OklabChromaReduction';\n\n",
+        "export type HighlightRecoveryMode =\n  \
+         | 'Off'\n  \
+         | 'Blend'\n  \
+         | 'Luminance'\n  \
+         | 'ChromaticAdaptation'\n  \
+         | 'OklabChromaReduction';\n\n",
     );
 
     // DisplayLookCurve (ticket #371). `Default` ships the empirical 1D
