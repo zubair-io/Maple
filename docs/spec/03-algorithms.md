@@ -426,6 +426,31 @@ Identity curve: `[(0,0), (255,255)]`. Serializer skips emit when only these two 
 
 The `0.5` coefficient on shadows, the `200.0` denominator on whites, the `400.0` denominator on blacks, the `2.0` multiplier on highlights compression — these are initial guesses. Getting the sliders to feel like Lightroom (where users expect them from) is a one-person-week v1 deliverable against a reference scene set (high-contrast outdoor, low-key portrait, neon night, overcast gray). See [`09-open-questions.md`](./09-open-questions.md) § Scene-referred slider tuning.
 
+### Verified invariants (Ticket #433)
+
+The four scene-tone sliders are verified scene-referred and (with one documented asymmetry) hue-preserving. Future audits — and refactors — should rely on the named tests below rather than re-deriving the invariants.
+
+**Scene-referred (operates on linear Rec.2020 f32 BEFORE the AgX view transform).**
+
+- `pipeline::scene_linear_chain::apply_scene_linear_chain` invokes `scene_tone_controls::apply` before `agx::apply`. The stage asserts `ColorSpace::SceneLinearRec2020` on entry (`assert_space`) and never returns a clamped buffer.
+- Test: `stages::scene_tone_controls::tests::scene_referred_handles_values_above_unity` — a specular `5.0` survives `exposure=+1` as an unclipped `10.0`.
+- Test: `stages::scene_tone_controls::tests::scene_referred_does_not_clip_negatives_introduced_upstream` — slight negatives (typical of DCP on saturated colours) are passed through; AgX handles them downstream.
+
+**Hue-preserving — uniform scalar multiply per pixel.**
+
+| Slider                        | Operation                                                          | Hue test                                                                              |
+| ----------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `highlights`                  | Compute scene-luma `Y`, compress `Y` above knee, scale RGB by `Y_new/Y_old`. | `highlights_preserves_hue_on_partial_specular_below_knee_luma`, `highlights_preserves_hue_on_specular_above_knee_luma`, `highlights_preserves_hue_on_arbitrary_saturated_above_knee` |
+| `shadows`                     | Luma-masked multiplicative lift: `p *= 1 + mask*amount*0.5`.        | `shadows_preserves_hue_on_saturated_deep_shadow`, `shadows_negative_preserves_hue_on_saturated_deep_shadow` |
+| `whites`                      | Smoothstep-weighted scalar gain: `p *= 1 + (w_slider/200)*smoothstep(0.5,1.0,Y)`. | `whites_preserves_neutral_hue`, `whites_preserves_hue_on_arbitrary_saturated`         |
+| `blacks` &lt; 0 (crush)       | Luma-masked multiplicative compression: `p *= 1 + (b_slider/100)*w`. | `blacks_negative_preserves_hue_on_saturated_deep_shadow`                              |
+
+**Documented asymmetry — `blacks > 0` is additive, NOT multiplicative.**
+
+The positive blacks branch applies `p += (b_slider/400) * w` (luma-masked). On a pixel where one channel is `0.0`, the uniform delta lifts it to a positive value — by construction this shifts chromaticity. The asymmetry is deliberate (matches legacy `blacks` semantics so zero pixels visibly lift) and is pinned by `blacks_positive_lift_is_additive_not_multiplicative_by_design`. A future refactor that swaps the lift to multiplicative would silently change a user-visible behaviour; that test is the alert.
+
+Closed-form predictor coverage for each slider lives in `raw_core::test_support::predictions::{predict_exposure, predict_highlights, predict_shadows, predict_whites, predict_blacks}` and is exercised end-to-end through the full RAW pipeline by `tests/grey_adjustments.rs` (the `src/scripts/test_grey_adjustments.sh` harness).
+
 ### Lineage
 
 Scene-referred tone controls are a departure from RtToneCurve's display-referred math. The mental model is closer to Darktable's "filmic" module (which separates scene manipulation from view transform) and to Lightroom's internal pipeline (which is scene-referred despite its display-referred UI feel). **Derive the math from first principles for v1**, tune against references, and iterate. RT and RtToneCurve are no longer a useful numeric reference — their math was scoped to [0, 1].
