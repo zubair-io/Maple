@@ -20,7 +20,7 @@ export const ERROR_POLL_MS = 5_000;
 // ── Stage metadata ────────────────────────────────────────────────────────
 
 export type StageGroup = 'Ingest' | 'Enrich' | 'Index';
-export type EnrichmentKind = 'describe' | 'geocode' | 'face';
+export type EnrichmentKind = 'describe' | 'geocode' | 'face' | 'meili';
 
 export interface StageMeta {
   readonly id: string;
@@ -89,7 +89,7 @@ export const STAGE_META: Record<string, StageMeta> = {
     id: 'meili',
     group: 'Index',
     icon: 'search',
-    enrichment: null,
+    enrichment: 'meili',
     description: 'Pushes enriched assets to Meilisearch so they show up in the library search.',
   },
 };
@@ -135,6 +135,8 @@ export interface EnrichmentForm {
   face_retinaface_sha256: string;
   face_mobilefacenet_url: string;
   face_mobilefacenet_sha256: string;
+  // Meili (search index)
+  meilisearch_url: string;
 }
 
 /** Ollama tag the describe stage is locked to at runtime. The structured
@@ -184,6 +186,7 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     face_retinaface_sha256: ec?.face_retinaface_sha256 ?? '',
     face_mobilefacenet_url: ec?.face_mobilefacenet_url ?? '',
     face_mobilefacenet_sha256: ec?.face_mobilefacenet_sha256 ?? '',
+    meilisearch_url: ec?.meilisearch_url ?? '',
   };
 }
 

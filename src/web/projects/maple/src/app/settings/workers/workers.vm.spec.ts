@@ -165,6 +165,7 @@ describe('blankEnrichment', () => {
       face_retinaface_sha256: null,
       face_mobilefacenet_url: null,
       face_mobilefacenet_sha256: null,
+      meilisearch_url: 'http://meili.local:7700',
       source: {} as EnrichmentConfigResponse['source'],
     };
     const form = blankEnrichment(ec);
@@ -174,6 +175,7 @@ describe('blankEnrichment', () => {
     // qwen2.5-VL via FIXED_DESCRIBE_MODEL.
     expect('describe_model' in form).toBe(false);
     expect(form.face_model_dir).toBe('/tmp/models');
+    expect(form.meilisearch_url).toBe('http://meili.local:7700');
   });
 
   it('falls back to safe defaults when snapshot is null', () => {
@@ -181,6 +183,7 @@ describe('blankEnrichment', () => {
     expect('describe_model' in form).toBe(false);
     expect(form.nominatim_rate_limit_per_sec).toBe('10');
     expect(form.nominatim_url).toBe('');
+    expect(form.meilisearch_url).toBe('');
   });
 });
 

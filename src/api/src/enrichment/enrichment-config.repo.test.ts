@@ -186,6 +186,38 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(r.nominatim_rate_limit_per_sec).toBe(3);
     expect(r.source.nominatim_rate_limit_per_sec).toBe('env');
   });
+
+  it('meilisearch_url falls back to env when no DB row', () => {
+    const r = resolveEnrichmentConfig(null, {
+      MAPLE_MEILISEARCH_URL: 'http://meili.lan:7700',
+    });
+    expect(r.meilisearch_url).toBe('http://meili.lan:7700');
+    expect(r.source.meilisearch_url).toBe('env');
+  });
+
+  it('meilisearch_url DB wins over env', () => {
+    const r = resolveEnrichmentConfig(
+      { nominatim_url: null, geocode_worker_enabled: true, meilisearch_url: 'http://db.lan:7700' },
+      { MAPLE_MEILISEARCH_URL: 'http://env.lan:7700' },
+    );
+    expect(r.meilisearch_url).toBe('http://db.lan:7700');
+    expect(r.source.meilisearch_url).toBe('db');
+  });
+
+  it('meilisearch_url is null/unset when neither DB nor env set it', () => {
+    const r = resolveEnrichmentConfig(null, {});
+    expect(r.meilisearch_url).toBeNull();
+    expect(r.source.meilisearch_url).toBe('unset');
+  });
+
+  it('meilisearch_url DB null/empty falls through to env', () => {
+    const r = resolveEnrichmentConfig(
+      { nominatim_url: null, geocode_worker_enabled: true, meilisearch_url: '   ' },
+      { MAPLE_MEILISEARCH_URL: 'http://env.lan:7700' },
+    );
+    expect(r.meilisearch_url).toBe('http://env.lan:7700');
+    expect(r.source.meilisearch_url).toBe('env');
+  });
 });
 
 describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () => {
