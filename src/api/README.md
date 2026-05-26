@@ -67,8 +67,8 @@ in the background.
 | `MAPLE_RP_ID` | `localhost` | **WebAuthn Relying Party ID — set to your bare hostname in production** (`maple.example.com`, no scheme/port). The browser rejects passkey ceremonies whose `rpId` doesn't match the page hostname. |
 | `MAPLE_ORIGIN` | `http://localhost:3000,http://localhost:4200,http://localhost:4201` | **Set to your full public origin in production** (`https://maple.example.com`). Comma-separated for multiple. Used to verify WebAuthn assertions came from the expected origin. |
 | `MAPLE_CORS_ORIGIN` | `*` | CORS `Access-Control-Allow-Origin`. Tighten to your domain in production. |
-| `MAPLE_JWT_SECRET` | (auto-generated to `./.maple/jwt.secret`) | HS256 signing key for access tokens. Override to provide your own. |
-| `MAPLE_JWT_SECRET_FILE` | `./.maple/jwt.secret` | Path the auto-generator reads/writes. Override to point at a Docker secret etc. |
+| `MAPLE_JWT_SECRET` | (auto-generated to `MAPLE_JWT_SECRET_FILE`) | HS256 signing key for access tokens. Override to provide your own. **Rotating this invalidates every issued access token** (clients see `bad signature` 401s until they re-auth). |
+| `MAPLE_JWT_SECRET_FILE` | `./.maple/jwt.secret` (native) · `/app/config/jwt.secret` (Docker image) | Path the auto-generator reads/writes. **In Docker this must live on a persistent volume** — otherwise the secret is regenerated on every container recreate and all sessions break. The Docker image defaults it to `/app/config`; mount a volume there (the Compose file does). |
 | `MAPLE_DEV_AUTH` | (none) | Set to `1` to expose `/api/auth/dev-login` (passkey bypass). **NEVER set in production.** |
 
 ## API reference
@@ -140,6 +140,13 @@ volumes:
 environment:
   MAPLE_ROOTS: /photos
 ```
+
+The `maple_config` volume (mounted at `/app/config`) persists the
+auto-generated JWT secret across container recreates. **Don't remove this
+mount** — without it, every `docker compose up --build`/redeploy generates a
+new secret and all clients (web and Apple) start failing with `bad signature`
+401s until they sign in again. To manage the key yourself instead, set
+`MAPLE_JWT_SECRET` directly.
 
 ## Self-hosting on Linux (systemd)
 

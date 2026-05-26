@@ -51,6 +51,11 @@ services:
     volumes:
       # Mount photo library directories here, e.g.:
       # - /path/to/your/photos:/photos:rw
+      # Persists /app/config across container recreates. This holds the
+      # auto-generated JWT secret (MAPLE_JWT_SECRET_FILE=/app/config/jwt.secret,
+      # set in the Dockerfile) — without it, every redeploy rotates the
+      # secret and all clients get "bad signature" 401s until they re-auth.
+      # Set MAPLE_JWT_SECRET explicitly to manage the secret out-of-band.
       - maple_config:/app/config
     depends_on:
       mongo:
