@@ -47,16 +47,35 @@ public struct MapleImageData: Sendable {
 
 // MARK: - MapleSceneLinearImageData
 
-/// Pixel buffer returned by `PipelineRenderer.renderSceneLinear`.
-/// Pixels are packed Rec.2020 fp16 RGBA, row-major, 8 bytes per pixel
-/// (R G B A as four `Float16` lanes). Straight (non-premultiplied) alpha,
-/// always 1.0 in Plan 1.
+/// Pixel buffer returned by `PipelineRenderer.renderSceneLinear` and the
+/// tile entries. Pixels are packed Rec.2020 RGBA, row-major, straight
+/// (non-premultiplied) alpha (always 1.0).
+///
+/// Two precisions are carried by this struct depending on which FFI
+/// entry produced it:
+///
+///   * **f32 RGBA, 16 B/px** — `renderSceneLinear*` (full + sized
+///     variants). Migrated to f32 in #487 so the per-tick chain
+///     consumes the scene buffer at full precision, removing the fp16
+///     mantissa drop that produced visible banding near the AgX
+///     shoulder when the buffer round-tripped through the legacy fp16
+///     FFI. Caller wraps as `CIFormat.RGBAf`.
+///   * **fp16 RGBA, 8 B/px** — `renderTile` + `decodePreviewTile`. The
+///     tile FFI still returns fp16 (no `_f32` variant yet — tracked as
+///     a follow-up to #487). Caller wraps as `CIFormat.RGBAh`.
+///
+/// `bytesPerPixel` is the discriminator; callers should never hard-code
+/// it. The buffer is always row-major with `pixels.count ==
+/// bytesPerPixel * width * height`.
 public struct MapleSceneLinearImageData: Sendable {
     public let width: Int
     public let height: Int
     public let channels: Int            // always 4
-    public let bytesPerPixel: Int       // always 8
-    /// Packed fp16 RGBA bytes; `pixels.count == 8 * width * height`.
+    /// 16 for f32 RGBA (`renderSceneLinear*`), 8 for fp16 RGBA
+    /// (`renderTile` / `decodePreviewTile`). Reflects the format of the
+    /// underlying FFI entry — do not hard-code; route on this.
+    public let bytesPerPixel: Int
+    /// Packed RGBA bytes; `pixels.count == bytesPerPixel * width * height`.
     public let pixels: Data
 
     public var pixelCount: Int { width * height }
@@ -334,21 +353,21 @@ public struct PipelineRenderer: Sendable {
         xmpCStr: UnsafePointer<CChar>?,
         quality: Quality
     ) throws -> MapleSceneLinearImageData {
-        var buf = MapleSceneLinearBuffer(
-            fp16_rgba: nil, len_bytes: 0, channels: 0,
+        var buf = MapleSceneLinearBufferF32(
+            f32_rgba: nil, len_bytes: 0, channels: 0,
             bytes_per_pixel: 0, width: 0, height: 0
         )
         let rawPath = String(cString: rawCStr)
         let lastSlash = rawPath.lastIndex(of: "/").map { rawPath.index(after: $0) } ?? rawPath.startIndex
         let fileName = String(rawPath[lastSlash...])
-        pipelineLog.notice("→ Rust FFI maple_render_file_scene_linear START: \(fileName, privacy: .public) quality=\(quality.rawValue)")
-        let rc = maple_render_file_scene_linear(rawCStr, xmpCStr, quality.rawValue, &buf)
+        pipelineLog.notice("→ Rust FFI maple_render_file_scene_linear_f32 START: \(fileName, privacy: .public) quality=\(quality.rawValue)")
+        let rc = maple_render_file_scene_linear_f32(rawCStr, xmpCStr, quality.rawValue, &buf)
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
         }
-        defer { maple_free_scene_linear_buffer(&buf) }
-        guard buf.len_bytes > 0, let ptr = buf.fp16_rgba else {
+        defer { maple_free_scene_linear_buffer_f32(&buf) }
+        guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
             throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
         }
         let data = mapleStage("decode result copy") {
@@ -356,26 +375,18 @@ public struct PipelineRenderer: Sendable {
         }
         // Sample center pixel of the decoded buffer so we can verify on
         // the user side which pipeline produced this output without
-        // having to re-render. fp16 RGBA, 8 bytes per pixel.
-        let centerOffset = (Int(buf.height) / 2) * Int(buf.width) * 8
-                         + (Int(buf.width) / 2) * 8
+        // having to re-render. f32 RGBA, 16 bytes per pixel.
+        let centerOffset = (Int(buf.height) / 2) * Int(buf.width) * 16
+                         + (Int(buf.width) / 2) * 16
         var centerR: Float = 0, centerG: Float = 0, centerB: Float = 0
-        if data.count >= centerOffset + 6 {
-            let r16 = data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> UInt16 in
-                raw.load(fromByteOffset: centerOffset, as: UInt16.self)
+        if data.count >= centerOffset + 12 {
+            data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                centerR = raw.load(fromByteOffset: centerOffset, as: Float.self)
+                centerG = raw.load(fromByteOffset: centerOffset + 4, as: Float.self)
+                centerB = raw.load(fromByteOffset: centerOffset + 8, as: Float.self)
             }
-            let g16 = data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> UInt16 in
-                raw.load(fromByteOffset: centerOffset + 2, as: UInt16.self)
-            }
-            let b16 = data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> UInt16 in
-                raw.load(fromByteOffset: centerOffset + 4, as: UInt16.self)
-            }
-            // Cheap fp16 → fp32 (handles the typical bit pattern; not denorm-correct but fine for diagnostic).
-            centerR = Self.fp16ToFloat(r16)
-            centerG = Self.fp16ToFloat(g16)
-            centerB = Self.fp16ToFloat(b16)
         }
-        pipelineLog.notice("← Rust FFI maple_render_file_scene_linear OK: \(buf.width)x\(buf.height) center scene-linear RGB=(\(centerR, format: .fixed(precision: 4)), \(centerG, format: .fixed(precision: 4)), \(centerB, format: .fixed(precision: 4)))")
+        pipelineLog.notice("← Rust FFI maple_render_file_scene_linear_f32 OK: \(buf.width)x\(buf.height) center scene-linear RGB=(\(centerR, format: .fixed(precision: 4)), \(centerG, format: .fixed(precision: 4)), \(centerB, format: .fixed(precision: 4)))")
         return MapleSceneLinearImageData(
             width: Int(buf.width),
             height: Int(buf.height),
@@ -385,19 +396,6 @@ public struct PipelineRenderer: Sendable {
         )
     }
 
-    /// Cheap fp16 → fp32 for diagnostic logging. Doesn't handle denorms /
-    /// inf / NaN correctly but is fine for displaying typical scene-linear
-    /// values in [0, 4] range.
-    private static func fp16ToFloat(_ h: UInt16) -> Float {
-        let sign = UInt32(h >> 15) & 0x1
-        let exp = UInt32(h >> 10) & 0x1f
-        let mant = UInt32(h) & 0x3ff
-        if exp == 0 { return 0.0 } // denorm/zero — close enough for log
-        if exp == 31 { return Float.nan }
-        let fp32Bits = (sign << 31) | ((exp + 112) << 23) | (mant << 13)
-        return Float(bitPattern: fp32Bits)
-    }
-
     private static func _renderSceneLinearBytes(
         ptr: UnsafePointer<UInt8>?,
         len: Int,
@@ -405,20 +403,20 @@ public struct PipelineRenderer: Sendable {
         xmpCStr: UnsafePointer<CChar>?,
         quality: Quality
     ) throws -> MapleSceneLinearImageData {
-        var buf = MapleSceneLinearBuffer(
-            fp16_rgba: nil, len_bytes: 0, channels: 0,
+        var buf = MapleSceneLinearBufferF32(
+            f32_rgba: nil, len_bytes: 0, channels: 0,
             bytes_per_pixel: 0, width: 0, height: 0
         )
         let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
-            maple_render_bytes_scene_linear(ptr, UInt(len), hintPtr.baseAddress,
-                                            xmpCStr, quality.rawValue, &buf)
+            maple_render_bytes_scene_linear_f32(ptr, UInt(len), hintPtr.baseAddress,
+                                                xmpCStr, quality.rawValue, &buf)
         }
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
         }
-        defer { maple_free_scene_linear_buffer(&buf) }
-        guard buf.len_bytes > 0, let bufPtr = buf.fp16_rgba else {
+        defer { maple_free_scene_linear_buffer_f32(&buf) }
+        guard buf.len_bytes > 0, let bufPtr = buf.f32_rgba else {
             throw PipelineError.renderFailed(code: Int(rc), message: "empty scene-linear buffer")
         }
         let data = mapleStage("decode result copy") {
@@ -441,19 +439,19 @@ public struct PipelineRenderer: Sendable {
         quality: Quality,
         maxLongEdge: UInt32
     ) throws -> MapleSceneLinearImageData {
-        var buf = MapleSceneLinearBuffer(
-            fp16_rgba: nil, len_bytes: 0, channels: 0,
+        var buf = MapleSceneLinearBufferF32(
+            f32_rgba: nil, len_bytes: 0, channels: 0,
             bytes_per_pixel: 0, width: 0, height: 0
         )
-        let rc = maple_render_file_scene_linear_sized(
+        let rc = maple_render_file_scene_linear_sized_f32(
             rawCStr, xmpCStr, maxLongEdge, quality.rawValue, &buf
         )
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
         }
-        defer { maple_free_scene_linear_buffer(&buf) }
-        guard buf.len_bytes > 0, let ptr = buf.fp16_rgba else {
+        defer { maple_free_scene_linear_buffer_f32(&buf) }
+        guard buf.len_bytes > 0, let ptr = buf.f32_rgba else {
             throw PipelineError.renderFailed(code: Int(rc), message: "empty sized buffer")
         }
         let data = mapleStage("decode result copy") {
@@ -476,12 +474,12 @@ public struct PipelineRenderer: Sendable {
         quality: Quality,
         maxLongEdge: UInt32
     ) throws -> MapleSceneLinearImageData {
-        var buf = MapleSceneLinearBuffer(
-            fp16_rgba: nil, len_bytes: 0, channels: 0,
+        var buf = MapleSceneLinearBufferF32(
+            f32_rgba: nil, len_bytes: 0, channels: 0,
             bytes_per_pixel: 0, width: 0, height: 0
         )
         let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
-            maple_render_bytes_scene_linear_sized(
+            maple_render_bytes_scene_linear_sized_f32(
                 ptr, UInt(len), hintPtr.baseAddress,
                 xmpCStr, maxLongEdge, quality.rawValue, &buf
             )
@@ -490,8 +488,8 @@ public struct PipelineRenderer: Sendable {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
         }
-        defer { maple_free_scene_linear_buffer(&buf) }
-        guard buf.len_bytes > 0, let bufPtr = buf.fp16_rgba else {
+        defer { maple_free_scene_linear_buffer_f32(&buf) }
+        guard buf.len_bytes > 0, let bufPtr = buf.f32_rgba else {
             throw PipelineError.renderFailed(code: Int(rc), message: "empty sized buffer")
         }
         let data = mapleStage("decode result copy") {
@@ -852,10 +850,10 @@ extension PipelineRenderer {
 
     /// Run the Rust per-tick scene-linear chain (white_balance → tone →
     /// vibrance → saturation → clarity → texture → dehaze → nr_luminance
-    /// → AgX) over an already-decoded fp16 RGBA buffer. Sharpen and
+    /// → AgX) over an already-decoded f32 RGBA buffer. Sharpen and
     /// nr_color stay on the Apple GPU path (Metal compute kernels).
     ///
-    /// Input data layout: packed fp16 RGBA, row-major, 8 bytes/pixel,
+    /// Input data layout: packed f32 RGBA, row-major, 16 bytes/pixel,
     /// `extendedLinearITUR_2020` colourspace, straight alpha.
     ///
     /// Output is the same dimensions / layout, post-AgX
@@ -869,10 +867,15 @@ extension PipelineRenderer {
     /// `applyAgXViewTransform`) was a duplicate implementation of the
     /// canonical Rust pipeline. This entry calls the Rust functions
     /// directly so Apple and Rust can never drift on the cheap-stage
-    /// chain — see `pipeline::apply_scene_linear_chain` in raw-core.
+    /// chain — see `pipeline::apply_scene_linear_chain_f32` in raw-core.
     ///
-    /// `inputBytes` must be exactly `8 * width * height` bytes (each
-    /// pixel = 4 fp16 lanes). Throws on size mismatch or chain failure.
+    /// Migrated from fp16 to f32 in #487: the fp16 entry silently
+    /// round-tripped the scene buffer through 16-bit precision every
+    /// slider tick, undoing the f32 storage win of #482. The f32 entry
+    /// keeps the working precision intact end-to-end through the chain.
+    ///
+    /// `inputBytes` must be exactly `16 * width * height` bytes (each
+    /// pixel = 4 f32 lanes). Throws on size mismatch or chain failure.
     public static func applySceneLinearChain(
         inputBytes: Data,
         width: Int,
@@ -880,7 +883,7 @@ extension PipelineRenderer {
         params: MapleAdjustmentParams
     ) throws -> Data {
         let lanes = width * height * 4
-        let expectedBytes = lanes * MemoryLayout<UInt16>.size
+        let expectedBytes = lanes * MemoryLayout<Float>.size
         guard inputBytes.count == expectedBytes else {
             throw PipelineError.renderFailed(
                 code: 9,
@@ -889,11 +892,11 @@ extension PipelineRenderer {
         }
         var output = Data(count: expectedBytes)
         let rc = output.withUnsafeMutableBytes { outBuf -> Int32 in
-            let outPtr = outBuf.bindMemory(to: UInt16.self).baseAddress!
+            let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
             return inputBytes.withUnsafeBytes { inBuf -> Int32 in
-                let inPtr = inBuf.bindMemory(to: UInt16.self).baseAddress!
+                let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
                 var p = params
-                return maple_apply_scene_linear_chain(
+                return maple_apply_scene_linear_chain_f32(
                     inPtr, UInt32(width), UInt32(height),
                     &p,
                     outPtr

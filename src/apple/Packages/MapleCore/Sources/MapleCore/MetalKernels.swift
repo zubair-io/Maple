@@ -125,15 +125,21 @@ public enum MetalKernels {
         }
 
         // Build an MTLTexture for the input by rendering the CIImage into
-        // a fresh fp16 RGBA texture. fp16 RGBA matches the Rec.2020
+        // a fresh f32 RGBA texture. f32 RGBA matches the Rec.2020
         // working format the rest of the chain uses (per
-        // ImageEditPipeline.swift, `.RGBAh` / extendedLinearITUR_2020).
+        // ImageEditPipeline.swift, `.RGBAf` / extendedLinearITUR_2020).
+        // Migrated from rgba16Float in #487 so the 3 H+V Gaussian passes
+        // don't compound fp16 truncation error on the scene buffer.
+        // The Metal compute kernels themselves still sample as `half4`
+        // — Metal widens the rgba32Float read into the half-precision
+        // local at sample time, so no shader source changes were
+        // required.
         let extent = input.extent
         let w = max(1, Int(extent.width.rounded()))
         let h = max(1, Int(extent.height.rounded()))
 
         let desc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba16Float,
+            pixelFormat: .rgba32Float,
             width: w, height: h, mipmapped: false
         )
         desc.usage = [.shaderRead, .shaderWrite, .renderTarget]
@@ -148,7 +154,7 @@ public enum MetalKernels {
         let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
         let ciCtx = CIContext(mtlDevice: device, options: [
             .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
-            .workingFormat: CIFormat.RGBAh,
+            .workingFormat: CIFormat.RGBAf,
             .cacheIntermediates: false,
         ])
         guard let queue = device.makeCommandQueue(),
