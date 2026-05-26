@@ -92,22 +92,30 @@ fn assert_neutral_display(
     }
 }
 
-// Per #429, auto-exposure is on by default — the scene-anchor stage
-// pushes mid-gray to 0.18 BEFORE the user's `exposure` slider runs in
-// scene_tone_controls. For a uniform synthetic scene at `L`, the scene
-// midgrey == L (geometric mean of a constant is the constant), so the
-// anchor multiplies pixels by `0.18 / L` (clamped to 8.0). The user
-// exposure then stacks additively on top: `final = 0.18 * 2^ev`, a
-// CONSTANT independent of the input L. That's the spec — anchor first,
-// then a relative EV offset.
+// Per #429 (and updated under #494), auto-exposure is on by default and
+// implements a HYBRID anchor: it picks the larger of two candidate gains,
+//   midtone_gain   = 0.18 / midgrey   (geometric mean of the trimmed band)
+//   highlight_gain = 0.85 / p95       (the 95th percentile of luma)
+// each clamped to MAX_ANCHOR_GAIN = 8.0. For a uniform synthetic scene at
+// `L`, midgrey == p95 == L, so:
+//   midtone_gain   = min(0.18 / L, 8.0)
+//   highlight_gain = min(0.85 / L, 8.0)
+//   anchor         = max(midtone_gain, highlight_gain) = highlight_gain
+// (because 0.85 / L > 0.18 / L for any positive L). The user exposure
+// then stacks additively on top: `final = L * anchor * 2^ev`. The
+// uniform-patch case isn't representative of real scenes — see
+// `auto_exposure::tests::hybrid_anchor_preserves_highlights_on_bright_scene`
+// for the case where the highlight branch is a no-op.
 
 /// Predict the scene-linear output for a uniform synthetic scene under
-/// `auto_exposure = On` (default). The scene midgrey collapses to the
-/// uniform value `L`; the anchor multiplies pixels by `0.18 / L`
-/// (clamped to 8.0); the user exposure adds `2^ev` on top.
+/// `auto_exposure = On` (default). The hybrid anchor reduces to the
+/// highlight branch on uniform inputs; the user exposure adds `2^ev`
+/// on top.
 fn predict_anchored_exposure(linear_value: f32, ev: f32) -> f32 {
-    let raw_anchor = 0.18_f32 / linear_value;
-    let anchor = raw_anchor.min(8.0); // matches MAX_ANCHOR_GAIN in stages::auto_exposure
+    // Matches HYBRID anchor in stages::auto_exposure (#494):
+    let midtone = (0.18_f32 / linear_value).min(8.0);
+    let highlight = (0.85_f32 / linear_value).min(8.0);
+    let anchor = midtone.max(highlight); // = highlight for positive L
     linear_value * anchor * ev.exp2()
 }
 
