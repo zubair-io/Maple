@@ -73,6 +73,29 @@ pub fn oklab_to_rec2020(lab: Vec3) -> Vec3 {
     m_srgb_to_rec2020.mul_vec(srgb)
 }
 
+/// Linear sRGB D65 → Oklab. Use when the input is already in linear sRGB
+/// (e.g. post-encode-matrix at the view-transform tail), so the inner
+/// `M_REC2020_TO_SRGB` multiply that `rec2020_to_oklab` performs would
+/// double-apply. Two 3×3 matrix multiplies + three cube roots per pixel.
+pub fn srgb_linear_to_oklab(rgb: Vec3) -> Vec3 {
+    let lms = M1_SRGB_TO_LMS.mul_vec(rgb);
+    let lms_cube = [lms[0].cbrt(), lms[1].cbrt(), lms[2].cbrt()];
+    M2_LMS_TO_LAB.mul_vec(lms_cube)
+}
+
+/// Inverse of `srgb_linear_to_oklab`. Lands in linear sRGB D65 — no
+/// Rec.2020 step. Two cached inverse-matrix multiplies + three cubes.
+pub fn oklab_to_srgb_linear(lab: Vec3) -> Vec3 {
+    let (m2_inv, m1_inv, _m_srgb_to_rec2020) = oklab_inverse_matrices();
+    let lms_cube = m2_inv.mul_vec(lab);
+    let lms = [
+        lms_cube[0] * lms_cube[0] * lms_cube[0],
+        lms_cube[1] * lms_cube[1] * lms_cube[1],
+        lms_cube[2] * lms_cube[2] * lms_cube[2],
+    ];
+    m1_inv.mul_vec(lms)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +145,46 @@ mod tests {
         for &c in &lab {
             assert!(c.is_finite(), "NaN in Oklab from negative input");
         }
+    }
+
+    #[test]
+    fn srgb_linear_round_trip_preserves_neutral_gray() {
+        let rgb = [0.18, 0.18, 0.18];
+        let lab = srgb_linear_to_oklab(rgb);
+        let back = oklab_to_srgb_linear(lab);
+        assert!(approx(rgb, back, 1e-5), "srgb-linear round trip drifted: {:?} -> {:?}", rgb, back);
+    }
+
+    #[test]
+    fn srgb_linear_round_trip_preserves_saturated_red() {
+        let rgb = [0.9, 0.05, 0.05];
+        let lab = srgb_linear_to_oklab(rgb);
+        let back = oklab_to_srgb_linear(lab);
+        assert!(approx(rgb, back, 1e-4), "srgb-linear round trip drifted: {:?} -> {:?}", rgb, back);
+    }
+
+    #[test]
+    fn srgb_linear_neutral_axis_round_trips_bit_stable() {
+        // Pre-condition for the encode-step gamut compression: in-gamut
+        // neutrals must round-trip through Oklab without drifting off the
+        // R=G=B axis. The bisection's "scale=1" branch passes through this
+        // path, so any drift here would break byte-identity for in-gamut
+        // input.
+        for v in [0.0f32, 0.05, 0.18, 0.5, 0.9, 1.0] {
+            let rgb = [v, v, v];
+            let lab = srgb_linear_to_oklab(rgb);
+            let back = oklab_to_srgb_linear(lab);
+            assert!((back[0] - back[1]).abs() < 1e-5, "neutral drift on G: {:?}", back);
+            assert!((back[1] - back[2]).abs() < 1e-5, "neutral drift on B: {:?}", back);
+        }
+    }
+
+    #[test]
+    fn srgb_linear_neutral_has_zero_ab() {
+        // Any R=G=B input must land on the neutral Oklab axis (a=b=0).
+        let lab = srgb_linear_to_oklab([0.5, 0.5, 0.5]);
+        assert!(lab[1].abs() < 1e-3, "a = {}", lab[1]);
+        assert!(lab[2].abs() < 1e-3, "b = {}", lab[2]);
     }
 
     /// Lock down the matrix-inverse hoist: the cached inverses returned by
