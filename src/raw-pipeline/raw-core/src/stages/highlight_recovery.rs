@@ -94,6 +94,12 @@ pub fn apply(img: &mut Image, mode: HighlightRecoveryMode, as_shot_neutral: [f32
         HighlightRecoveryMode::ChromaticAdaptation => {
             apply_chromatic_adaptation(img, as_shot_neutral);
         }
+        HighlightRecoveryMode::OklabChromaReduction => {
+            // Ticket #471: this variant runs POST-DCP in scene-linear
+            // Rec.2020 D65 where Oklab is well-defined. Nothing to do here
+            // (camera-native pre-DCP). The work happens in
+            // `super::highlight_recovery_oklab::apply_post_dcp`.
+        }
     }
 }
 

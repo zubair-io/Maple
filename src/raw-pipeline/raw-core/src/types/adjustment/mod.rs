@@ -60,6 +60,15 @@ pub enum HighlightRecoveryMode {
     Luminance,
     /// Path C: `AsShotNeutral`-aware reconstruction. Default since #335.
     ChromaticAdaptation,
+    /// Post-DCP Oklab chroma reduction (ticket #471). Opt-in. Runs in
+    /// scene-linear Rec.2020 D65 (where Oklab is well-defined) after
+    /// `dcp::apply_colorimetry` — NOT in camera-native RGB. At each clipped
+    /// pixel, scales Oklab `(a, b)` by a factor that brings the worst
+    /// channel into gamut; hue (`atan2(b, a)`) is preserved by construction
+    /// because both `a` and `b` are scaled by the same factor. The pre-DCP
+    /// `apply()` call is a no-op for this variant — see
+    /// `stages::highlight_recovery_oklab::apply_post_dcp`.
+    OklabChromaReduction,
 }
 
 impl Default for HighlightRecoveryMode {

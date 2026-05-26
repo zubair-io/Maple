@@ -30,9 +30,9 @@ use crate::{
     image::{CropRect, Image, RawImage},
     linearize,
     stages::{
-        auto_exposure, capture_sharpening, clarity, dehaze, highlight_recovery, local_adjustments,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        white_balance,
+        auto_exposure, capture_sharpening, clarity, dehaze, highlight_recovery,
+        highlight_recovery_oklab, local_adjustments, noise_reduction, saturation,
+        scene_tone_controls, sharpen, texture, tone_curves, vibrance, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -272,6 +272,14 @@ pub fn develop_scene_linear_from_raw_with_quality(
         &camera_rgb, &profile,
     ))?;
     dump_after("03_dcp_apply", &scene);
+    // Ticket #471: opt-in `OklabChromaReduction` highlight recovery runs in
+    // scene-linear Rec.2020 D65 where Oklab is well-defined. No-op for the
+    // default `ChromaticAdaptation` and every other variant — see
+    // `stages::highlight_recovery_oklab::apply_post_dcp`.
+    stage("highlight_recovery_oklab", || {
+        highlight_recovery_oklab::apply_post_dcp(&mut scene, model.highlight_recovery)
+    });
+    dump_after("03b_oklab_highlight_recovery", &scene);
     // ProfileGainTableMap (DNG 1.6 § 6.8) — spatially-varying RGB gain.
     // Applied AFTER the gamut conversion, in scene-linear Rec.2020. No-op
     // when raw.profile_gain_table_map is None (most fixtures).
