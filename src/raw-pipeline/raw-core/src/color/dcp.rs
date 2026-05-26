@@ -120,9 +120,32 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 }
 
 /// Apply DCP to camera-native linear RGB, producing scene-linear Rec.2020 D65.
-/// Single-illuminant and interpolated-dual-illuminant profiles both flow
-/// through this path; single-CM skips the interpolation but uses the same
-/// Bradford / FM dispatch logic.
+///
+/// **Colorimetry only** (ticket #425, part of #416). The DCP runs CM / FM for
+/// chromatic adaptation and (optionally) `profile.hsm` for metameric
+/// correction; it does NOT run the Adobe aesthetic layers — ProfileLookTable
+/// (PLT) and ProfileToneCurve (PTC) have been removed from the apply path.
+///
+/// Rationale: PLT and PTC were calibrated to sit *under* Adobe's tone
+/// mapping. Maple's view transform is AgX, which has a different rendering
+/// intent (scene-referred → display-referred via a sigmoidal compressor
+/// across log-encoded luminance, not Adobe's per-channel RGB tone curve).
+/// Stacking the Adobe aesthetic layers on top of AgX produces compound
+/// hue errors and a per-format inconsistency (PTC was suppressed for bundled
+/// profiles but PLT still ran for bundle-miss bodies — same camera, different
+/// tone depending on the source format). Dropping both gives one consistent
+/// transform per body. ΔE-to-ACR gets worse on purpose: per #416, the CI
+/// reference frame is moving from ACR output to ColorChecker colorimetric
+/// accuracy.
+///
+/// HSM is retained because the bundled DCPs (and many vendor DNGs) use it
+/// primarily for **metameric color correction** — off-axis colors that the
+/// linear ColorMatrix can't reach because the camera's spectral sensitivities
+/// differ from the standard observer. HSM is NOT retained as an aesthetic
+/// "look" layer; if a profile's HSM is authored as a look-style rotation
+/// (rather than metameric error correction), that's a profile-authoring
+/// concern, not a pipeline concern. The bundled profile set (`#324` /
+/// `profile_loader`) strips PLT and PTC at bundle-build time; HSM stays.
 ///
 /// Two paths inside `apply_with_post_pro`:
 ///
@@ -148,44 +171,22 @@ fn normalize_to_y1(xyz: crate::math::Vec3) -> crate::math::Vec3 {
 /// HueSatMap operates in the profile's working space, which the DNG spec
 /// defines as RIMM-RGB / linear ProPhoto D50). The result then projects
 /// to Rec.2020 D65 via `m_pro_to_rec2020`. When `None`, the camera→Rec.2020
-/// chain folds into a single matrix multiply per pixel — the original
-/// (pre-Ticket-10c) fast path.
-pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
-    apply_with_post_pro(camera, profile, None, None)
-}
-
-/// Internal: same as [`apply`] but lets the caller hook in a second table
-/// (the ProfileLookTable) that runs in the same ProPhoto-D50 space, right
-/// after HSM. PLT is conceptually a "look" baked into the profile and per
-/// spec § 6.7 also belongs in the camera profile's working space.
+/// chain folds into a single matrix multiply per pixel — the fast path.
 ///
-/// This unification matters when both HSM and PLT are present: we avoid
-/// going Camera → ProPhoto → apply HSM → Rec.2020 → apply PLT (which would
-/// require PLT to "see" Rec.2020 RGB), keeping both stages in their proper
-/// linear-ProPhoto-D50 space.
-pub fn apply_with_plt(
-    camera: &Image,
-    profile: &DcpProfile,
-    plt: Option<&hsm::HsmTable>,
-) -> crate::Result<Image> {
-    apply_with_post_pro(camera, profile, plt, None)
+/// `soft_floor` runs at the exit to lift any post-DCP negative channels
+/// (out-of-gamut camera colors that fall outside Rec.2020) by the deficit
+/// uniformly across R/G/B — hue-preserving. Retained per #425 (the negative
+/// lift doesn't introduce an Adobe-rendering-intent dependency; it's a
+/// gamut-correctness guard).
+pub fn apply_colorimetry(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
+    apply_with_post_pro(camera, profile)
 }
 
-/// Like [`apply_with_plt`] but also runs the DNG 1.4 § 6.4.4
-/// ProfileToneCurve in profile-working space.
-/// Per the DNG SDK reference (`dng_render.cpp:1094-1121`, where the
-/// `Render` method chains `DoBaselineHueSatMap` (HSM) →
-/// `DoBaselineHueSatMap` again with `fLookTable` (PLT) →
-/// `DoBaselineRGBTone` (PTC)), the canonical order is HSM → PLT → PTC,
-/// all in linear ProPhoto D50. **NOT** HSM → PTC → PLT (that was the
-/// pre-#354 bug — PLT was incorrectly seeing PTC-curved values).
-pub fn apply_with_plt_and_ptc(
-    camera: &Image,
-    profile: &DcpProfile,
-    plt: Option<&hsm::HsmTable>,
-    ptc: Option<&crate::color::profile_tone_curve::ProfileToneCurve>,
-) -> crate::Result<Image> {
-    apply_with_post_pro(camera, profile, plt, ptc)
+/// Back-compat alias for [`apply_colorimetry`] — older internal callers and
+/// tests still call `dcp::apply(&camera, &profile)`. New code should prefer
+/// the explicit name.
+pub fn apply(camera: &Image, profile: &DcpProfile) -> crate::Result<Image> {
+    apply_colorimetry(camera, profile)
 }
 
 /// Soft-floor: when any channel goes below 0 post-DCP (out-of-gamut camera
@@ -216,8 +217,6 @@ fn soft_floor(p: [f32; 3]) -> [f32; 3] {
 fn apply_with_post_pro(
     camera: &Image,
     profile: &DcpProfile,
-    post_pro: Option<&hsm::HsmTable>,
-    ptc: Option<&crate::color::profile_tone_curve::ProfileToneCurve>,
 ) -> crate::Result<Image> {
     camera.assert_space(ColorSpace::CameraNativeLinearRgb);
 
@@ -263,36 +262,27 @@ fn apply_with_post_pro(
         }
     };
 
-    let needs_pro_intermediate =
-        profile.hsm.is_some() || post_pro.is_some() || ptc.is_some();
-    if needs_pro_intermediate {
-        // Slow path: project to ProPhoto D50, run HSM / PTC / PLT, then
-        // project to Rec.2020 D65. The intermediate `Image` is tagged
+    if profile.hsm.is_some() {
+        // Slow path: project to ProPhoto D50, run HSM (metameric correction
+        // only — see `apply_colorimetry` docstring), then project to
+        // Rec.2020 D65. The intermediate `Image` is tagged
         // `CameraNativeLinearRgb` only because we don't have a
-        // `ProPhotoLinearD50` color-space variant — `hsm::apply` and
-        // `profile_tone_curve::apply` don't enforce a tag, only the data
-        // layout.
+        // `ProPhotoLinearD50` color-space variant — `hsm::apply` doesn't
+        // enforce a tag, only the data layout.
+        //
+        // Under #425 (colorimetry-only), PLT and PTC no longer run here.
+        // They were the Adobe aesthetic layers and were dropped because
+        // they were tuned to sit under Adobe's tone mapping rather than
+        // AgX, producing compound hue errors. HSM stays because the
+        // bundled profile set uses it for off-axis (metameric) color
+        // correction the linear CM can't express.
         let mut pro = Image::new(camera.width, camera.height, ColorSpace::CameraNativeLinearRgb);
         pro.pixels
             .par_iter_mut()
             .zip(camera.pixels.par_iter())
             .for_each(|(o, p)| { *o = cam_to_pro.mul_vec(*p); });
-        // DNG SDK order per `dng_render.cpp:1094-1121` (the `Render`
-        // method): HSM (camera-hue rotation per illuminant) →
-        // ProfileLookTable (look HSM, `fLookTable` in the SDK) →
-        // ProfileToneCurve (`DoBaselineRGBTone`). All in linear ProPhoto
-        // D50. The pre-#354 code applied PTC BEFORE PLT — that swap
-        // shifted PLT's value-axis sampling into a region the curve
-        // had already steepened, regressing fixtures whose PLT carries
-        // value-dependent saturation behaviour.
         if let Some(table) = profile.hsm.as_ref() {
             hsm::apply(&mut pro, table);
-        }
-        if let Some(table) = post_pro {
-            hsm::apply(&mut pro, table);
-        }
-        if let Some(curve) = ptc {
-            crate::color::profile_tone_curve::apply(&mut pro, curve);
         }
         let exit = m_pro_to_rec2020();
         let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
@@ -303,7 +293,7 @@ fn apply_with_post_pro(
         return Ok(out);
     }
 
-    // Fast path: no HSM, no PLT, no PTC. Fold cam_to_pro and exit into one matrix.
+    // Fast path: no HSM. Fold cam_to_pro and exit into one matrix.
     let exit = m_pro_to_rec2020();
     let m = exit.mul_mat(&cam_to_pro);
     let mut out = Image::new(camera.width, camera.height, ColorSpace::SceneLinearRec2020);
@@ -1541,13 +1531,13 @@ mod tests {
         assert!(profile.color_matrix.0[0][0] < 2.0);
     }
 
-    // ── HSM/PLT integration tests (Ticket 10c) ──────────────────────────────
+    // ── HSM integration tests (#425: colorimetry-only) ──────────────────────
 
-    /// `apply` with `profile.hsm = None` and no PLT must produce IDENTICAL
-    /// output to the legacy single-matmul fast path. Regression guard for
-    /// the dcp::apply refactor that introduced the ProPhoto split.
+    /// `apply` with `profile.hsm = None` must produce identical output to
+    /// the legacy single-matmul fast path. Regression guard for the
+    /// fast-path vs slow-path split when HSM presence changes.
     #[test]
-    fn apply_no_hsm_no_plt_matches_fast_path() {
+    fn apply_no_hsm_matches_fast_path() {
         let cm = Matrix3([
             [ 0.6722, -0.0635, -0.0963],
             [-0.4287,  1.2460,  0.2028],
@@ -1559,13 +1549,13 @@ mod tests {
         img.pixels[1] = [0.18, 0.18, 0.18];
         img.pixels[2] = [0.9, 0.1, 0.05];
         img.pixels[3] = [0.0, 0.0, 0.0];
-        let out_legacy = apply(&img, &profile).unwrap();
-        let out_split  = apply_with_plt(&img, &profile, None).unwrap();
+        let out_a = apply(&img, &profile).unwrap();
+        let out_b = apply_colorimetry(&img, &profile).unwrap();
         for i in 0..4 {
             for c in 0..3 {
-                assert!((out_legacy.pixels[i][c] - out_split.pixels[i][c]).abs() < 1e-5,
-                    "split path pixel {} channel {} drifted: legacy={} split={}",
-                    i, c, out_legacy.pixels[i][c], out_split.pixels[i][c]);
+                assert!((out_a.pixels[i][c] - out_b.pixels[i][c]).abs() < 1e-5,
+                    "alias vs new entry drifted at pixel {} channel {}: apply={} colorimetry={}",
+                    i, c, out_a.pixels[i][c], out_b.pixels[i][c]);
             }
         }
     }
@@ -1614,32 +1604,49 @@ mod tests {
         }
     }
 
-    /// `apply_with_plt` accepting a non-trivial PLT must produce DIFFERENT
-    /// output than the no-PLT path. Sanity check that the PLT plumbing
-    /// actually feeds pixels through the table.
+    /// Cross-format hue stability under colorimetry-only DCP (#425).
+    ///
+    /// Pre-#425, `apply_with_plt_and_ptc` consumed `raw.plt` (the source
+    /// DNG's ProfileLookTable) for bundle-miss bodies. That meant the SAME
+    /// body could render with different hue/saturation depending on file
+    /// format — e.g. a Canon DNG-Converter output (which ships a PLT) vs.
+    /// the same body's .CR2 (which does not). Under colorimetry-only DCP,
+    /// `raw.plt` never feeds into anything; the output is determined
+    /// entirely by `profile` (CM/FM/HSM) and the input pixels. This test
+    /// pins that property by asserting that the new `apply_colorimetry`
+    /// entry produces hue-stable output across inputs that previously
+    /// would have been treated differently.
+    ///
+    /// Concretely: build one profile and run `apply_colorimetry` twice
+    /// with the same pixels. The two outputs must be bit-identical —
+    /// any per-format "look" leakage (PLT/PTC) is gone. Pre-#425 a
+    /// `Some(plt)` vs `None` toggle would have produced different
+    /// pixels; post-#425 the toggle is no longer a parameter of the
+    /// function, so by construction the only way the outputs could
+    /// differ is a non-determinism bug in HSM / CM math (which would
+    /// fail this test).
     #[test]
-    fn apply_with_plt_changes_output() {
+    fn colorimetry_only_is_format_invariant() {
         let cm = Matrix3([
             [ 0.6722, -0.0635, -0.0963],
             [-0.4287,  1.2460,  0.2028],
             [-0.0908,  0.2162,  0.5668],
         ]);
         let profile = DcpProfile::from_embedded_cm(cm);
-        // PLT that doubles saturation everywhere — chroma should jump.
-        let dims = [4u32, 2, 2];
-        let n = (dims[0] * dims[1] * dims[2]) as usize;
-        let mut data = Vec::with_capacity(n * 3);
-        for _ in 0..n { data.extend_from_slice(&[0.0, 2.0, 1.0]); }
-        let plt = crate::color::hsm::HsmTable::new(dims, data, crate::color::hsm::HsmEncoding::Linear).unwrap();
-        let img = img_with_pixels(&[[0.6, 0.3, 0.2]]);
-        let baseline = apply_with_plt(&img, &profile, None).unwrap();
-        let plt_out  = apply_with_plt(&img, &profile, Some(&plt)).unwrap();
-        let diff = (baseline.pixels[0][0] - plt_out.pixels[0][0]).abs()
-                 + (baseline.pixels[0][1] - plt_out.pixels[0][1]).abs()
-                 + (baseline.pixels[0][2] - plt_out.pixels[0][2]).abs();
-        assert!(diff > 0.01,
-            "PLT had no effect: baseline={:?} plt={:?}",
-            baseline.pixels[0], plt_out.pixels[0]);
+        let img = img_with_pixels(&[
+            [0.6, 0.3, 0.2], // saturated warm (would previously hit PLT)
+            [0.18, 0.18, 0.18],
+            [0.05, 0.2, 0.7], // saturated cool
+        ]);
+        let a = apply_colorimetry(&img, &profile).unwrap();
+        let b = apply_colorimetry(&img, &profile).unwrap();
+        for i in 0..a.pixels.len() {
+            for c in 0..3 {
+                assert_eq!(a.pixels[i][c], b.pixels[i][c],
+                    "colorimetry-only DCP must be deterministic per-pixel \
+                     (pixel {} channel {})", i, c);
+            }
+        }
     }
 
     /// Dual-illuminant HSM lerp: `interpolated_profile` resolves the

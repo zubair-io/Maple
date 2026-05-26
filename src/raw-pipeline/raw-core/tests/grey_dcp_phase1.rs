@@ -111,10 +111,21 @@ fn forward_matrix_replaces_bradford() {
         max_delta, p_off, p_on);
 }
 
-/// Hand-crafted PTC, applied via DCP. Sweep L; assert post-PTC scene-
-/// linear matches predict_tone_curve(L, curve).
+/// Under ticket #425 (colorimetry-only DCP), the source DNG's
+/// ProfileToneCurve no longer feeds into the DCP apply path on any
+/// `ProfileSource`. The Adobe aesthetic layers (PTC, PLT) were
+/// calibrated to sit under Adobe's tone mapping; AgX is the view
+/// transform, so they were dropped to remove compound hue errors and
+/// per-format inconsistency.
+///
+/// This test pins the post-#425 contract: attaching a synthetic
+/// ProfileToneCurve to a RawImage must NOT change the scene-linear
+/// output (because the DCP path ignores it). Pre-#425 the curve fed
+/// through `dcp::apply_with_plt_and_ptc` for the Fallback / non-bundled
+/// path and the test asserted the curve's output value at L; the
+/// predictor's premise no longer applies.
 #[test]
-fn profile_tone_curve_predicts() {
+fn profile_tone_curve_is_noop_under_colorimetry_only() {
     let curve = vec![
         (0.0,  0.0),
         (0.18, 0.15),
@@ -123,21 +134,34 @@ fn profile_tone_curve_predicts() {
         (1.0,  1.0),
     ];
     for L in [0.05, 0.18, 0.50, 0.82] {
-        let mut dng = SyntheticGreyDng {
+        let dng_no_ptc = SyntheticGreyDng {
             linear_value: L,
             ..Default::default()
         }.with_hasselblad_dcp();
-        dng.profile_tone_curve = Some(curve.clone());
+        let mut dng_with_ptc = dng_no_ptc.clone();
+        dng_with_ptc.profile_tone_curve = Some(curve.clone());
 
-        let img = develop(&dng, &AdjustmentModel::default());
+        let img_no_ptc = develop(&dng_no_ptc, &AdjustmentModel::default());
+        let img_with_ptc = develop(&dng_with_ptc, &AdjustmentModel::default());
 
-        let predicted = predict_tone_curve(L, &curve);
-        for (i, p) in img.pixels.iter().enumerate() {
+        // Under #425, PTC is a no-op in the DCP stage — the two renders
+        // must be pixel-identical regardless of `profile_tone_curve`.
+        for (i, (a, b)) in img_no_ptc
+            .pixels
+            .iter()
+            .zip(img_with_ptc.pixels.iter())
+            .enumerate()
+        {
             for c in 0..3 {
-                assert!((p[c] - predicted).abs() <= EPS_SCENE_LINEAR,
-                    "pixel {} chan {} = {} (predicted {}, |Δ| > {}) at L = {}",
-                    i, c, p[c], predicted, EPS_SCENE_LINEAR, L);
+                assert!((a[c] - b[c]).abs() <= EPS_SCENE_LINEAR,
+                    "pixel {} chan {}: PTC must be a no-op under \
+                     colorimetry-only DCP (no-PTC={}, with-PTC={}, |Δ|>{}, L={})",
+                    i, c, a[c], b[c], EPS_SCENE_LINEAR, L);
             }
         }
+        // Silence the unused `predict_tone_curve` import warning when
+        // the fixture is the synthetic grey: keep the import live for
+        // any future colorimetry-only assertions that want it.
+        let _ = predict_tone_curve(L, &curve);
     }
 }

@@ -281,27 +281,29 @@ mod tests {
             bytes.iter().map(|&b| b as u64).sum::<u64>() / bytes.len() as u64);
     }
 
-    /// Integration test for ProfileToneCurve end-to-end on test_0013
-    /// (Apple iPhone 12 Pro DNG). Verifies:
-    /// 1. RawImage carries the parsed PTC (decode-side wiring).
-    /// 2. The pipeline renders cleanly with PTC applied — no panics, no
-    ///    NaN, plausible output statistics.
-    /// 3. Render WITH PTC differs from render WITHOUT PTC ONLY when the
-    ///    bundled third-party-derived profile path is NOT in use. When the
-    ///    bundled path is active (PR #324) the develop pipeline suppresses
-    ///    the source DNG's PTC because it was calibrated against Apple's
-    ///    own matrices, not the external standard's — applying it after the
-    ///    matrix swap is a tone double-up. AgX handles tone mapping at
-    ///    the view transform regardless.
+    /// Cross-format invariance for ProfileToneCurve on test_0013 (Apple
+    /// iPhone 12 Pro DNG). Under ticket #425 (colorimetry-only DCP), the
+    /// source DNG's PTC must be a no-op in the develop chain on EVERY
+    /// `ProfileSource` — Bundled, EmbeddedDng, and Generic. Pre-#425
+    /// the bundled path suppressed PTC and the non-bundled paths kept it,
+    /// producing per-format inconsistency; that branch is gone.
+    ///
+    /// Verifies:
+    /// 1. RawImage carries the parsed PTC (decode-side wiring; unchanged).
+    /// 2. The pipeline renders cleanly with PTC present in the raw — no
+    ///    panics, no NaN, plausible output statistics.
+    /// 3. Render WITH PTC == Render WITHOUT PTC, byte-for-byte, regardless
+    ///    of which profile source is in play. The PTC field is dead data
+    ///    in the develop chain.
     #[test]
-    fn render_test_0013_runs_profile_tone_curve() {
+    fn render_test_0013_ptc_is_noop_under_colorimetry_only() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../test-fixtures/raws/test_0013.DNG");
         if !path.exists() { return; }
         let bytes = std::fs::read(&path).unwrap();
         let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode iPhone");
         assert!(raw.profile_tone_curve.is_some(),
-            "test_0013 must surface a ProfileToneCurve");
+            "test_0013 must surface a ProfileToneCurve (decode-side wiring)");
         let model = AdjustmentModel::default();
         let (w, h, with_ptc) = render_from_raw(&raw, &model).expect("render with PTC");
         assert_eq!(with_ptc.len() as u32, w * h * 3);
@@ -310,26 +312,20 @@ mod tests {
         let sat_ratio = with_ptc.iter().filter(|b| **b == 255).count() as f32 / with_ptc.len() as f32;
         assert!(zero_ratio < 0.5, "render too dark: {:.1}% zeros", zero_ratio * 100.0);
         assert!(sat_ratio < 0.5, "render too bright: {:.1}% saturated", sat_ratio * 100.0);
-        // Render WITHOUT PTC by stripping the field. The PTC-vs-no-PTC
-        // delta should be observable ONLY when the bundled profile path
-        // is disabled — when bundled is active for this body, PTC is
-        // suppressed by `pipeline::develop` and the two outputs match.
-        let bundled_active = crate::color::profile_loader::has_bundled_profile(&raw);
+        // Render WITHOUT PTC by stripping the field. Under #425 the two
+        // renders must be bit-identical because the DCP path no longer
+        // consumes `raw.profile_tone_curve` on any source.
         let mut raw_no_ptc = raw.clone();
         raw_no_ptc.profile_tone_curve = None;
         let (_, _, without_ptc) = render_from_raw(&raw_no_ptc, &model).unwrap();
         assert_eq!(with_ptc.len(), without_ptc.len());
         let diffs: usize = with_ptc.iter().zip(without_ptc.iter())
             .filter(|(a, b)| a != b).count();
-        if bundled_active {
-            assert_eq!(diffs, 0,
-                "with bundled profile active, PTC must be suppressed (got {} differing bytes)",
-                diffs);
-        } else {
-            assert!(diffs > with_ptc.len() / 100,
-                "PTC stage had no measurable effect on test_0013: {} of {} bytes differ",
-                diffs, with_ptc.len());
-        }
+        assert_eq!(diffs, 0,
+            "under colorimetry-only DCP (#425), PTC must be suppressed on \
+             every profile source — got {} differing bytes between \
+             with-PTC and without-PTC renders",
+            diffs);
     }
 
     #[test]

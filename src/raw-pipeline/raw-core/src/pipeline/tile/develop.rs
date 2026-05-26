@@ -72,17 +72,11 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     stage("tile_highlight_recovery", || {
         highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, raw.as_shot_neutral)
     });
-    let (profile, source) = stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
-    // PTC suppression when bundled — see `pipeline::develop` for rationale.
-    // `source` is carried out of the single lookup `profile_for_with_source`
-    // already performed — eliminates the per-tile HashMap+env-var redundancy
-    // flagged in PR #330 review thread `PRRT_kwDOSK_I1M6EOuzz`. The tile
-    // path runs many times per image; this matters for the 16 ms slider
-    // budget on supported hardware.
-    let use_bundled = matches!(source, dcp::ProfileSource::BundleConfident);
-    let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
-    let mut scene = stage("tile_dcp_apply", || dcp::apply_with_plt_and_ptc(
-        &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,
+    let (profile, _source) = stage("tile_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    // Colorimetry-only DCP per #425 — PLT and PTC no longer run on any
+    // path (see `pipeline::develop` for the strategic rationale).
+    let mut scene = stage("tile_dcp_apply", || dcp::apply_colorimetry(
+        &camera_rgb, &profile,
     ))?;
     if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
         stage("tile_profile_gain_table_map", || {
