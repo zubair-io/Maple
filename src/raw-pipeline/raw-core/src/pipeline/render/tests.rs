@@ -222,14 +222,11 @@ fn render_scene_linear_sized_test_0002_caps_long_edge_at_1500() {
 #[test]
 fn render_from_scene_linear_neutral_ramp_is_monotone() {
     let ramp = neutral_ramp(64, 4);
-    // Force `Look::Neutral` here — this test validates a structural
-    // pipeline invariant (achromatic input yields achromatic output,
-    // monotone ramp stays monotone) and the empirical Look LUT has
-    // intentionally different per-channel curves (R/G floor at ~7, B
-    // floor at ~19), which makes neutral-axis preservation
-    // colorimetric, not byte-exact. Pipeline aesthetics are tested
-    // separately by the parity harness; this is the invariant gate.
-    let model = AdjustmentModel { look: crate::view::look::Look::Neutral, ..AdjustmentModel::default() };
+    // Validates a structural pipeline invariant: achromatic input yields
+    // achromatic output, monotone ramp stays monotone. Post-#443 the Look
+    // LUT is retired so the byte-exact neutral-axis preservation it broke
+    // is no longer an issue; the default model is sufficient here.
+    let model = AdjustmentModel::default();
     let (w, h, bytes) = render_from_scene_linear(ramp, &model)
         .expect("synthetic ramp render");
     assert_eq!(w, 64);
@@ -283,13 +280,9 @@ fn neutral_ramp_view_transform_produces_no_banding_at_high_resolution() {
     use crate::synthetic_input::neutral_ramp;
     let width: u32 = 4096;
     let ramp = neutral_ramp(width, 1);
-    // Force Look::Neutral — the empirical LUT introduces per-channel
-    // floors that violate strict-monotonicity by design. Banding gate
-    // is on the upstream pipeline, not the LUT.
-    let model = AdjustmentModel {
-        look: crate::view::look::Look::Neutral,
-        ..AdjustmentModel::default()
-    };
+    // Post-#443: Look LUT retired; the default model exercises the same
+    // f32 view-transform path the banding gate guards.
+    let model = AdjustmentModel::default();
     let (w, _h, bytes) = render_from_scene_linear(ramp, &model)
         .expect("ramp render");
     assert_eq!(w, width);
@@ -374,14 +367,11 @@ fn render_from_scene_linear_with_chain_dehaze_zero_is_passthrough() {
     // same bytes as the view-transform-only path (modulo a couple
     // levels of u8 rounding from the extra Oklab round-trips).
     //
-    // Force `Look::Neutral` here — sub-1-unit float drift in the chain
-    // path can index either side of a step in the Look LUT, producing
-    // up to a few u8 of post-LUT divergence even though the underlying
-    // pipelines match within float tolerance. This test gates pipeline
-    // equivalence, not the Look layer.
+    // Post-#443: Look LUT retired, so the historical sub-1-unit drift
+    // around LUT-step boundaries is gone; default model is sufficient.
     let ramp_a = neutral_ramp(32, 2);
     let ramp_b = neutral_ramp(32, 2);
-    let model = AdjustmentModel { look: crate::view::look::Look::Neutral, ..AdjustmentModel::default() };
+    let model = AdjustmentModel::default();
     let (_, _, plain) = render_from_scene_linear(ramp_a, &model).unwrap();
     let (_, _, chained) = render_from_scene_linear_with_chain(ramp_b, &model).unwrap();
     assert_eq!(plain.len(), chained.len());
@@ -391,4 +381,30 @@ fn render_from_scene_linear_with_chain_dehaze_zero_is_passthrough() {
         .unwrap();
     assert!(max_diff <= 3,
         "default model with-chain vs no-chain should match (max diff {})", max_diff);
+}
+
+/// Regression test for #443 (Wave-3 closing step of #416).
+///
+/// The empirical 1D Look LUT was retired; `Look::Default` and
+/// `Look::Neutral` must now produce byte-identical output through every
+/// CPU render path. Before #443 the LUT was applied only on the
+/// `Look::Default` branch, so the two variants differed by tens of
+/// codes per channel on a generic ramp. Post-#443 they must match
+/// bit-for-bit on every pixel.
+#[test]
+fn look_field_is_no_op_post_443() {
+    use crate::types::adjustment::Look;
+    let ramp_default = neutral_ramp(64, 4);
+    let ramp_neutral = neutral_ramp(64, 4);
+    let model_default = AdjustmentModel { look: Look::Default, ..AdjustmentModel::default() };
+    let model_neutral = AdjustmentModel { look: Look::Neutral, ..AdjustmentModel::default() };
+    let (_, _, with_default) = render_from_scene_linear(ramp_default, &model_default)
+        .expect("render Look::Default");
+    let (_, _, with_neutral) = render_from_scene_linear(ramp_neutral, &model_neutral)
+        .expect("render Look::Neutral");
+    assert_eq!(
+        with_default, with_neutral,
+        "post-#443 Look field must be a no-op: Default and Neutral must \
+         produce byte-identical output through the view-transform path"
+    );
 }

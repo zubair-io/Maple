@@ -26,11 +26,32 @@ pub mod schema;
 pub use curves::{ToneCurve, ToneCurvePoint};
 pub use schema::{FieldKind, FieldSpec, ADJUSTMENT_SCHEMA};
 
-// Re-export the Look enum at the canonical `crate::types::adjustment` path
-// so `AdjustmentModel.look: Look` resolves without leaking the `view::`
-// module structure into call sites that don't care about it. Defined in
-// `crate::view::look` because the algorithm lives there.
-pub use crate::view::look::Look;
+/// DisplayLookCurve enum (ticket #371, retired in #443).
+///
+/// **Retired:** the empirical 1D u8→u8 Look LUT was removed in #443 (final
+/// Wave-3 step of #416). Both variants are now identical no-ops — the field
+/// is kept on `AdjustmentModel` and `papp:Look` is kept as a parsed XMP
+/// attribute purely for backward compatibility with sidecars produced
+/// before #443. The serializer omits the attribute on the canonical default
+/// (`Default`), so newly-written sidecars carry no `papp:Look` at all.
+///
+/// Color correctness now comes from the colorimetry path (steps 08/09) +
+/// the view transform (steps 25/26). A stylistic look, if reintroduced
+/// later, will live in AgX's normalised-log domain and codegen to
+/// Rust/Metal/GLSL so every platform matches — not as a CPU-only u8 LUT.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Look {
+    /// Strict scene-referred output. Identical to `Default` post-#443.
+    Neutral,
+    /// Pre-#443: the empirical LUT. Post-#443: identical to `Neutral`.
+    Default,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Self::Default
+    }
+}
 
 /// Highlight reconstruction mode per spec § 3.3a.
 ///
@@ -295,10 +316,13 @@ pub struct AdjustmentModel {
     /// Set to `Off` for strict scene-referred output.
     pub auto_exposure: AutoExposureMode,
 
-    /// DisplayLookCurve (ticket #371). `Look::Default` ships the empirically-
-    /// derived 1D LUT that closes ~65% of the bias-to-ACR gap; `Look::Neutral`
-    /// short-circuits the stage for strict scene-referred output. Defaults to
-    /// `Look::Default` — new users want the punch.
+    /// DisplayLookCurve (ticket #371; **retired #443** — Wave-3 closing
+    /// step of #416). The empirical 1D u8→u8 LUT was removed; both
+    /// `Look::Default` and `Look::Neutral` are now identical no-ops at the
+    /// pipeline level. The field is kept so `papp:Look` in pre-#443
+    /// sidecars round-trips. Setting this field has **no effect on
+    /// rendered output** — gated by `tests::look_field_is_no_op` in the
+    /// render module.
     pub look: Look,
 
     /// Local adjustment layers (ticket #280). Each entry pairs a `Mask`

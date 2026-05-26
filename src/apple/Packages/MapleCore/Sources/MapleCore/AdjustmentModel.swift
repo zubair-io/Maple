@@ -28,11 +28,15 @@ public enum HighlightRecoveryMode: String, Codable, Sendable, Hashable {
 
 // MARK: - Look
 
-/// DisplayLookCurve (ticket #371). Mirrors `raw_core::view::look::Look`.
+/// DisplayLookCurve (ticket #371; **retired in #443** — Wave-3 closing
+/// step of #416). Mirrors `raw_core::types::adjustment::Look`.
 ///
-/// `.default` ships the empirical 1D LUT derived from 14 training fixtures
-/// that closes ~65% of the bias-to-ACR gap; `.neutral` short-circuits the
-/// stage for strict scene-referred output.
+/// Both `.default` and `.neutral` are now identical no-ops at the
+/// pipeline level. The enum is kept so `papp:Look` in pre-#443 sidecars
+/// round-trips cleanly; the serializer still skips the attribute when the
+/// model holds the canonical `.default` value. Apple has never applied
+/// the LUT (CoreImage owns the view transform), so this change is a no-op
+/// on the Apple render path.
 public enum Look: String, Codable, Sendable, Hashable {
     case neutral = "Neutral"
     case `default` = "Default"
@@ -379,8 +383,11 @@ public struct XMPSerializer {
         if model.highlightRecovery != .chromaticAdaptation {
             attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
         }
-        // DisplayLookCurve (#371). Only emit when divergent from the
-        // canonical default — keeps sidecars compact for the common case.
+        // DisplayLookCurve (#371; retired in #443) — the field is a no-op
+        // post-#443 but the attribute is still emitted on non-default
+        // values so it round-trips with pre-#443 sidecars. Default-valued
+        // models omit the attribute, so newly-saved sidecars carry no
+        // `papp:Look` at all.
         if model.look != .default {
             attrs.append(("papp:Look", model.look.rawValue))
         }

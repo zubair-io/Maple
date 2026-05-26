@@ -306,7 +306,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 0.0),
         default_f32: 0.0,
         enum_name: "Look",
-        doc: "DisplayLookCurve (ticket #371). 'Default' applies the empirical 1D LUT; 'Neutral' is the strict scene-referred identity.",
+        doc: "DisplayLookCurve (ticket #371; retired in #443). Both variants are now identical no-ops; kept for sidecar back-compat so pre-#443 `papp:Look` round-trips.",
     },
     FieldSpec {
         name: "tone_curve_mode",

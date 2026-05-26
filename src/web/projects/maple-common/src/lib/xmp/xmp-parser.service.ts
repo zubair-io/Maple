@@ -39,9 +39,9 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'maple:ColorLabel',
   'papp:ColorLabel',
   'ColorLabel',
-  // DisplayLookCurve (#371) — parsed (read-side) here; serialize-side
-  // landed in the same PR for Apple / raw-core. TS serializer support is
-  // a follow-up alongside the Web Look picker UI.
+  // DisplayLookCurve (#371; retired in #443) — kept here so pre-#443
+  // sidecars carrying `papp:Look` round-trip cleanly into the model
+  // (field is a no-op at the pipeline level post-#443).
   'papp:Look',
   // structural / bookkeeping
   'rdf:about',
@@ -170,10 +170,11 @@ export class XmpParserService {
         continue;
       }
 
-      // DisplayLookCurve (#371). Case-insensitive parse matches the
-      // Apple + Rust parsers. Unknown variants are silently dropped so
-      // older sidecars never block sidecar load — the field then takes
-      // its default ('Default').
+      // DisplayLookCurve (#371; retired in #443). Case-insensitive parse
+      // matches the Apple + Rust parsers. Unknown variants are silently
+      // dropped so older sidecars never block sidecar load — the field
+      // then takes its default ('Default'). The field is a no-op at the
+      // pipeline level post-#443; parsed purely for sidecar back-compat.
       if (name === 'papp:Look') {
         const v = attr.value.toLowerCase();
         const parsed: Look | undefined =
