@@ -369,7 +369,7 @@ private struct ActiveDevelopTab: View {
                 // Rust scene-linear chain (see #271). Off by default.
                 AdjustSlider("Amount",     value: $session.model.captureSharpeningAmount, range: AdjustmentModel.captureSharpeningAmountRange,
                              colors: [.gray, .white])
-                AdjustSlider("Radius",     value: $session.model.captureSharpeningSigma, range: AdjustmentModel.captureSharpeningSigmaRange,
+                AdjustSlider("Sigma (px)", value: $session.model.captureSharpeningSigma, range: AdjustmentModel.captureSharpeningSigmaRange,
                              format: "%.1f",
                              colors: [.gray, .white], defaultValue: 1.0)
             }
@@ -454,7 +454,7 @@ private struct DisabledDevelopTab: View {
             CollapsibleSection(title: "Capture Sharpening") {
                 AdjustSlider("Amount",     value: $z, range: AdjustmentModel.captureSharpeningAmountRange,
                              colors: [.gray, .white])
-                AdjustSlider("Radius",     value: $z, range: AdjustmentModel.captureSharpeningSigmaRange, format: "%.1f",
+                AdjustSlider("Sigma (px)", value: $z, range: AdjustmentModel.captureSharpeningSigmaRange, format: "%.1f",
                              colors: [.gray, .white], defaultValue: 1.0)
             }
         }

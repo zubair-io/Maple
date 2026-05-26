@@ -10,6 +10,15 @@ import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-m
 import type { Look } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 
+/**
+ * Precomputed `xmpKey → alias` lookup for `LEGACY_READ_ALIASES`. Used by both
+ * passes in `parseAdjustmentModel()` to replace per-attribute `Array.some` /
+ * `Array.find` scans with O(1) `Map.get`. Sidecars routinely carry 30+
+ * attributes so the constant factor matters even at the current 1-entry
+ * alias table.
+ */
+const LEGACY_READ_ALIASES_MAP = new Map(LEGACY_READ_ALIASES.map((a) => [a.xmpKey, a]));
+
 /** XMP xmp:Label words → Maple colorLabel values. */
 const LABEL_MAP: Record<string, XmpColorLabel> = {
   Red: 'red',
@@ -175,7 +184,7 @@ export class XmpParserService {
         continue;
       }
 
-      if (LEGACY_READ_ALIASES.some((f) => f.xmpKey === name)) {
+      if (LEGACY_READ_ALIASES_MAP.has(name)) {
         legacyDeferred.push({ name, value: attr.value });
         continue;
       }
@@ -206,7 +215,7 @@ export class XmpParserService {
     // this two-pass design makes the sigma-wins contract source-order
     // independent.
     for (const { name, value } of legacyDeferred) {
-      const alias = LEGACY_READ_ALIASES.find((f) => f.xmpKey === name);
+      const alias = LEGACY_READ_ALIASES_MAP.get(name);
       if (!alias) continue;
       if (canonicallyApplied.has(alias.modelKey)) continue;
       const parsed = alias.parse(value);
