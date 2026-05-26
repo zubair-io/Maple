@@ -229,6 +229,13 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     // retained for parity A/B (see raw-core::stages::white_balance).
     s.push_str("export type WbMethod = 'Cat16' | 'DiagonalRec2020';\n\n");
 
+    // Per-image auto-exposure mode (ticket #429). `On` (default) anchors
+    // scene mid-gray to 0.18 before AgX so every camera lands at the
+    // same point on the sigmoid by default; `Off` skips anchoring for
+    // strict scene-referred output. The user `exposure` slider stacks
+    // additively in EV on top (see raw-core::stages::auto_exposure).
+    s.push_str("export type AutoExposureMode = 'Off' | 'On';\n\n");
+
     // Generated interface.
     s.push_str("export interface GeneratedAdjustmentModel {\n");
     for spec in schema {
@@ -298,6 +305,9 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
                     // User WB method (#431). New users get proper chromatic
                     // adaptation in CAT16 cone space.
                     "WbMethod" => "Cat16",
+                    // Per-image auto-exposure (#429). `On` is the new default —
+                    // anchor scene mid-gray to 0.18 before AgX.
+                    "AutoExposureMode" => "On",
                     other => panic!(
                         "codegen: no default mapping for enum `{}` — add one \
                          alongside the matching Rust `Default` impl",

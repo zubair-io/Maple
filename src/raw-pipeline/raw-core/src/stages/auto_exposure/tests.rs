@@ -18,100 +18,148 @@ fn build_image(w: u32, h: u32, f: impl Fn(u32, u32) -> [f32; 3]) -> Image {
 }
 
 #[test]
-fn black_frame_returns_zero_exposure() {
+fn black_frame_anchor_is_identity() {
     let img = build_image(32, 32, |_, _| [0.0, 0.0, 0.0]);
-    let ae = auto_exposure_from_image(&img, 0.02);
-    assert_eq!(ae.expcomp, 0.0);
-    assert_eq!(ae.black, 0);
+    let gain = compute_scene_anchor_gain(&img);
+    assert_eq!(gain, 1.0);
 }
 
 #[test]
-fn mid_grey_needs_no_exposure() {
-    // 18% grey frame — should already land near midgrey.
+fn mid_grey_anchor_is_unity() {
+    // A 0.18 neutral frame is already at mid-gray — anchor must
+    // produce ~1.0.
     let img = build_image(64, 64, |_, _| [0.18, 0.18, 0.18]);
-    let ae = auto_exposure_from_image(&img, 0.02);
+    let gain = compute_scene_anchor_gain(&img);
     assert!(
-        ae.expcomp.abs() < 1.0,
-        "mid-grey got expcomp = {}",
-        ae.expcomp
+        (gain - 1.0).abs() < 1e-4,
+        "mid-grey scene should yield gain ≈ 1.0; got {}",
+        gain
     );
 }
 
 #[test]
-fn dark_image_gets_positive_exposure() {
-    // Underexposed scene with realistic variance: ramp from 0 to 5%.
-    // Uniform images hit the ospread≤0 blackframe bail-out.
-    let img = build_image(128, 128, |x, _| {
-        let v = (x as f32 / 127.0) * 0.05;
-        [v, v, v]
-    });
-    let ae = auto_exposure_from_image(&img, 0.02);
+fn dark_scene_gets_positive_gain() {
+    // Uniform 5% grey → gain ≈ 0.18 / 0.05 = 3.6.
+    let img = build_image(64, 64, |_, _| [0.05, 0.05, 0.05]);
+    let gain = compute_scene_anchor_gain(&img);
     assert!(
-        ae.expcomp > 0.5,
-        "dark image got expcomp = {}",
-        ae.expcomp
+        (gain - 3.6).abs() < 1e-3,
+        "5% grey should yield gain ≈ 3.6; got {}",
+        gain
     );
 }
 
 #[test]
-fn bright_image_gets_negative_exposure() {
-    // Overexposed scene: 50%..95% ramp.
-    let img = build_image(128, 128, |x, _| {
-        let v = 0.5 + (x as f32 / 127.0) * 0.45;
-        [v, v, v]
-    });
-    let ae = auto_exposure_from_image(&img, 0.02);
+fn bright_scene_gets_negative_gain() {
+    // Uniform 50% grey → gain ≈ 0.18 / 0.5 = 0.36.
+    let img = build_image(64, 64, |_, _| [0.5, 0.5, 0.5]);
+    let gain = compute_scene_anchor_gain(&img);
     assert!(
-        ae.expcomp < 0.0,
-        "bright image got expcomp = {}",
-        ae.expcomp
+        (gain - 0.36).abs() < 1e-3,
+        "50% grey should yield gain ≈ 0.36; got {}",
+        gain
     );
 }
 
 #[test]
-fn expcomp_clamped() {
-    // Near-black frame: expcomp must be in [-5, 12].
+fn anchor_gain_is_clamped() {
+    // Near-black image: midgrey ≈ 0.001 → raw gain ≈ 180 → clamped to 8.0.
     let img = build_image(64, 64, |_, _| [0.001, 0.001, 0.001]);
-    let ae = auto_exposure_from_image(&img, 0.02);
-    assert!((-5.0..=12.0).contains(&ae.expcomp));
+    let gain = compute_scene_anchor_gain(&img);
+    assert_eq!(gain, MAX_ANCHOR_GAIN, "near-black gain must be clamped");
+}
+
+#[test]
+fn specular_highlights_dont_dominate() {
+    // Mostly mid-gray with a sprinkling of >1.0 specular pixels. The
+    // P75 trim means the highlights are excluded from the geometric
+    // mean — the anchor still lands on the bulk of the histogram.
+    let img = build_image(32, 32, |x, y| {
+        // Top-right quadrant gets specular highlights at 5.0; the
+        // other 3/4 of the image is at 0.18.
+        if x >= 16 && y < 16 {
+            [5.0, 5.0, 5.0]
+        } else {
+            [0.18, 0.18, 0.18]
+        }
+    });
+    let gain = compute_scene_anchor_gain(&img);
+    assert!(
+        (gain - 1.0).abs() < 1e-3,
+        "specular highlights should not perturb the anchor; got {}",
+        gain
+    );
+}
+
+#[test]
+fn crushed_shadows_dont_dominate() {
+    // Mid-gray plus a crushed-shadow patch at 0.0. The P25 trim
+    // removes the zeros from the geometric mean.
+    let img = build_image(32, 32, |x, y| {
+        if x < 16 && y < 16 {
+            [0.0, 0.0, 0.0]
+        } else {
+            [0.18, 0.18, 0.18]
+        }
+    });
+    let gain = compute_scene_anchor_gain(&img);
+    assert!(
+        (gain - 1.0).abs() < 1e-3,
+        "crushed shadows should not perturb the anchor; got {}",
+        gain
+    );
+}
+
+#[test]
+fn apply_off_is_identity() {
+    let mut img = build_image(16, 16, |x, _| {
+        let v = (x as f32 / 15.0) * 0.5;
+        [v, v, v]
+    });
+    let original = img.pixels.clone();
+    let mut model = AdjustmentModel::default();
+    model.auto_exposure = AutoExposureMode::Off;
+    let gain = apply(&mut img, &model);
+    assert_eq!(gain, 1.0);
+    for (pa, pb) in img.pixels.iter().zip(original.iter()) {
+        assert_eq!(pa, pb, "AutoExposureMode::Off must be a bit-identical no-op");
+    }
+}
+
+#[test]
+fn apply_on_multiplies_pixels() {
+    // 5% scene → anchor gain ≈ 3.6 → output ≈ 0.18.
+    let mut img = build_image(64, 64, |_, _| [0.05, 0.05, 0.05]);
+    let mut model = AdjustmentModel::default();
+    model.auto_exposure = AutoExposureMode::On;
+    let gain = apply(&mut img, &model);
+    assert!((gain - 3.6).abs() < 1e-3);
+    for p in &img.pixels {
+        for c in 0..3 {
+            assert!(
+                (p[c] - 0.18).abs() < 1e-3,
+                "anchored pixel should be ≈ 0.18; got {}",
+                p[c]
+            );
+        }
+    }
 }
 
 #[test]
 fn apply_is_deterministic() {
-    // Same input → same output, byte for byte.
     let make = || build_image(96, 96, |x, y| {
         let v = ((x + y) as f32 / 191.0) * 0.4;
         [v, v * 0.9, v * 1.1]
     });
     let mut a = make();
     let mut b = make();
-    let ae_a = apply(&mut a, 0.02);
-    let ae_b = apply(&mut b, 0.02);
-    assert_eq!(ae_a.expcomp.to_bits(), ae_b.expcomp.to_bits());
+    let model = AdjustmentModel::default();
+    let ga = apply(&mut a, &model);
+    let gb = apply(&mut b, &model);
+    assert_eq!(ga.to_bits(), gb.to_bits());
     for (pa, pb) in a.pixels.iter().zip(b.pixels.iter()) {
         for c in 0..3 {
-            assert_eq!(pa[c].to_bits(), pb[c].to_bits(),
-                "non-deterministic at channel {c}: {} vs {}", pa[c], pb[c]);
-        }
-    }
-}
-
-#[test]
-fn apply_zero_expcomp_is_identity() {
-    // A near-mid-grey frame should yield expcomp ≈ 0, leaving pixels
-    // bit-identical (or off by at most 1 ULP). Verifies the early-exit
-    // path skips the multiply when |expcomp| < 1e-6.
-    let mut img = build_image(64, 64, |x, _| {
-        // Distribution centred on midgrey with mild variance to avoid
-        // the blackframe / ospread guards.
-        let v = 0.18 + (x as f32 / 63.0 - 0.5) * 0.04;
-        [v, v, v]
-    });
-    let original = img.pixels.clone();
-    let ae = apply(&mut img, 0.02);
-    if ae.expcomp.abs() < 1e-6 {
-        for (pa, pb) in img.pixels.iter().zip(original.iter()) {
-            assert_eq!(pa, pb, "expected exact identity when expcomp ~= 0");
+            assert_eq!(pa[c].to_bits(), pb[c].to_bits());
         }
     }
 }
