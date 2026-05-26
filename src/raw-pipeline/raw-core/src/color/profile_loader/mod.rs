@@ -208,13 +208,13 @@ pub fn camera_key_for(raw: &RawImage) -> CameraKey {
 /// illuminant fallback otherwise.
 ///
 /// HSM resolution: prefer the bundled `MapleProfile`'s HSM tables when
-/// present, but **fall back** to the source DNG's `raw.hsm_data1/2` when
-/// the bundle has none. The current bundle (per PR #324) ships matrices
-/// only — HSM data is ~72 MB and the catastrophic-ΔE fixtures don't need
-/// it — so the fallback is what's actually exercised on every body whose
-/// source DNG ships HSM (Canon 5DM3/5DM4 DNGs in the fixture set, every
-/// iPhone DNG). When the bundle is regenerated with `--include-hsm`, the
-/// bundled tables take precedence.
+/// present, but **fall back** to the source DNG's `raw.hsm_data` (keyed
+/// by `CalibrationIlluminant`) when the bundle has none. The current
+/// bundle (per PR #324) ships matrices only — HSM data is ~72 MB and the
+/// catastrophic-ΔE fixtures don't need it — so the fallback is what's
+/// actually exercised on every body whose source DNG ships HSM (Canon
+/// 5DM3/5DM4 DNGs in the fixture set, every iPhone DNG). When the bundle
+/// is regenerated with `--include-hsm`, the bundled tables take precedence.
 ///
 /// The DcpProfile's PLT / PTC fields are not set here (they live on
 /// `RawImage`); the caller (`pipeline::develop`) decides whether to apply
@@ -234,18 +234,25 @@ pub fn to_dcp_profile(
     let cold = profile.illum1.and_then(|i| profile.cm1.map(|m| (i, m)));
     let warm = profile.illum2.and_then(|i| profile.cm2.map(|m| (i, m)));
 
-    // HSM source: prefer the bundle's. When the bundle ships no HSM tables
-    // (current default — matrices-only bundle), pass through the source
-    // DNG's HSM (raw.hsm_data1/2). That preserves the pre-#324 behavior on
-    // bodies whose DNG already shipped Adobe's HSM (e.g. Canon 5DM3 DNG
-    // post-conversion-from-CR2 — the embedded HSM matches Adobe Standard's
-    // by construction). Vendor RAW formats lack DNG tags, so the fallback
-    // is `None`, same as before.
-    let hsm1 = profile.hsm1.as_ref().or(raw.hsm_data1.as_ref());
-    let hsm2 = profile.hsm2.as_ref().or(raw.hsm_data2.as_ref());
-
+    // HSM source: prefer the bundle's (paired with the bundle's illum1/illum2
+    // by construction). When the bundle ships no HSM tables (current default
+    // — matrices-only bundle), pass through the source DNG's HSM. Looking
+    // each side up by its specific illuminant (`raw.hsm_data.get(&il_cold)`
+    // / `get(&il_warm)`) preserves the pre-#324 behaviour on bodies whose
+    // DNG already shipped Adobe's HSM (e.g. Canon 5DM3 DNG post-conversion-
+    // from-CR2) and stays correct on DNGs that list `CalibrationIlluminant1`
+    // warmer than `CalibrationIlluminant2`. Vendor RAW formats lack DNG
+    // tags, so the fallback is `None`, same as before.
     if let (Some((il_cold, m_cold)), Some((il_warm, m_warm))) = (cold, warm) {
         if il_cold != il_warm {
+            let hsm_cold = profile
+                .hsm1
+                .as_ref()
+                .or_else(|| raw.hsm_data.get(&il_cold));
+            let hsm_warm = profile
+                .hsm2
+                .as_ref()
+                .or_else(|| raw.hsm_data.get(&il_warm));
             return Some(interpolated_profile(
                 m_cold,
                 il_cold,
@@ -253,8 +260,8 @@ pub fn to_dcp_profile(
                 il_warm,
                 raw.as_shot_neutral,
                 wb_already_baked,
-                hsm1,
-                hsm2,
+                hsm_cold,
+                hsm_warm,
                 profile.fm1,
                 profile.fm2,
             ));
@@ -276,7 +283,15 @@ pub fn to_dcp_profile(
         i if Some(i) == profile.illum1 => profile.fm1,
         _ => profile.fm2,
     };
-    let single_hsm = hsm1.cloned().or_else(|| hsm2.cloned());
+    // Prefer bundle HSM keyed to the picked illuminant; fall through to the
+    // bundle's other slot, then to any source-DNG HSM keyed to this
+    // illuminant, then to any remaining source-DNG HSM.
+    let single_hsm = profile
+        .hsm1
+        .clone()
+        .or_else(|| profile.hsm2.clone())
+        .or_else(|| raw.hsm_data.get(&illum).cloned())
+        .or_else(|| raw.hsm_data.values().next().cloned());
     Some(single_illuminant_profile(
         cm, illum, fm, single_hsm, raw.as_shot_neutral, wb_already_baked,
     ))
