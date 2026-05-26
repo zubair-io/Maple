@@ -21,33 +21,26 @@
  *
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
  */
-import { Elysia, t } from "elysia";
-import { ObjectId } from "mongodb";
-import {
-  assetsCollection,
-  foldersCollection,
-  geocodeCacheCollection,
-} from "../db/client.ts";
-import {
-  uploadSessions,
-  BusyElsewhereError,
-} from "../backup/upload-session.ts";
-import { formatBackupPath } from "../backup/path-formatter.ts";
-import { backupSessionsRepo } from "../db/backup-sessions.repo.ts";
-import { quantizedKey } from "../enrichment/coordinate-cache.ts";
-import { child as childLogger } from "../log.ts";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { Elysia, t } from 'elysia';
+import { ObjectId } from 'mongodb';
+import { assetsCollection, foldersCollection, geocodeCacheCollection } from '../db/client.ts';
+import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
+import { formatBackupPath } from '../backup/path-formatter.ts';
+import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
+import { quantizedKey } from '../enrichment/coordinate-cache.ts';
+import { child as childLogger } from '../log.ts';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 
-const log = childLogger("backup-ingest");
-const CHUNK_DIR = process.env.MAPLE_BACKUP_TMP ?? "/tmp/maple-backup-chunks";
+const log = childLogger('backup-ingest');
+const CHUNK_DIR = process.env.MAPLE_BACKUP_TMP ?? '/tmp/maple-backup-chunks';
 
 /** Move src to dst atomically. Falls back to copy+unlink on EXDEV (cross-device). */
 async function atomicMove(src: string, dst: string): Promise<void> {
   try {
     await fs.rename(src, dst);
   } catch (e: any) {
-    if (e?.code === "EXDEV") {
+    if (e?.code === 'EXDEV') {
       await fs.copyFile(src, dst);
       await fs.unlink(src);
     } else {
@@ -57,10 +50,7 @@ async function atomicMove(src: string, dst: string): Promise<void> {
 }
 
 /** Resolve a location name from the geocode cache. Returns null on miss. */
-async function resolveLocation(
-  lat: number,
-  lon: number,
-): Promise<string | null> {
+async function resolveLocation(lat: number, lon: number): Promise<string | null> {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
   const coll = await geocodeCacheCollection();
   const row = await coll.findOne({ _id: quantizedKey(lat, lon) });
@@ -69,7 +59,7 @@ async function resolveLocation(
 }
 
 export const backupIngestRoutes = new Elysia().post(
-  "/api/libraries/:libraryId/backup/ingest",
+  '/api/libraries/:libraryId/backup/ingest',
   async ({ params, headers, body, set }) => {
     // Validate library id.
     let libraryId: ObjectId;
@@ -77,83 +67,74 @@ export const backupIngestRoutes = new Elysia().post(
       libraryId = new ObjectId(params.libraryId);
     } catch {
       set.status = 400;
-      return { error: "invalid library id" };
+      return { error: 'invalid library id' };
     }
 
     // Check library exists.
-    const folder = await (
-      await foldersCollection()
-    ).findOne({ _id: libraryId });
+    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
     if (!folder) {
       set.status = 404;
-      return { error: "library not found" };
+      return { error: 'library not found' };
     }
 
     // Extract + validate required headers.
-    const deviceId = headers["x-maple-device-id"];
-    const phid = headers["x-maple-phasset-id"];
+    const deviceId = headers['x-maple-device-id'];
+    const phid = headers['x-maple-phasset-id'];
     // Stable across every device on the same iCloud Photos account. Optional
     // — non-iCloud library users won't have a cloud id, and the merge logic
     // falls back to phasset_local_id matching in that case.
-    const phCloudId = headers["x-maple-phasset-cloud-id"];
-    const captureRaw = headers["x-maple-capture-date"];
-    const filename = headers["x-maple-filename"];
-    const totalBytesRaw = headers["x-maple-total-bytes"];
-    const latRaw = headers["x-maple-lat"];
-    const lonRaw = headers["x-maple-lon"];
-    const mapleId = headers["x-maple-maple-id"];
-    const range = headers["content-range"];
+    const phCloudId = headers['x-maple-phasset-cloud-id'];
+    const captureRaw = headers['x-maple-capture-date'];
+    const filename = headers['x-maple-filename'];
+    const totalBytesRaw = headers['x-maple-total-bytes'];
+    const latRaw = headers['x-maple-lat'];
+    const lonRaw = headers['x-maple-lon'];
+    const mapleId = headers['x-maple-maple-id'];
+    const range = headers['content-range'];
 
-    if (
-      !deviceId ||
-      !phid ||
-      !captureRaw ||
-      !filename ||
-      !totalBytesRaw ||
-      !range
-    ) {
+    if (!deviceId || !phid || !captureRaw || !filename || !totalBytesRaw || !range) {
       set.status = 400;
-      return { error: "missing required headers" };
+      return { error: 'missing required headers' };
     }
 
     const totalBytes = parseInt(totalBytesRaw, 10);
     if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
       set.status = 400;
-      return { error: "invalid X-Maple-Total-Bytes" };
+      return { error: 'invalid X-Maple-Total-Bytes' };
     }
 
     // Parse Content-Range: bytes <start>-<end>/<total>
     const m = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(range);
     if (!m) {
       set.status = 400;
-      return { error: "invalid Content-Range" };
+      return { error: 'invalid Content-Range' };
     }
     const start = parseInt(m[1], 10);
     const end = parseInt(m[2], 10);
     const rangeTotal = parseInt(m[3], 10);
     if (end < start) {
       set.status = 400;
-      return { error: "invalid Content-Range: end must be >= start" };
+      return { error: 'invalid Content-Range: end must be >= start' };
     }
     if (end >= rangeTotal) {
       set.status = 400;
-      return { error: "invalid Content-Range: end must be < total" };
+      return { error: 'invalid Content-Range: end must be < total' };
     }
     if (rangeTotal !== totalBytes) {
       set.status = 400;
-      return { error: "Content-Range total mismatch with X-Maple-Total-Bytes" };
+      return { error: 'Content-Range total mismatch with X-Maple-Total-Bytes' };
     }
 
     // Parse and validate capture date.
     const captureDate = new Date(captureRaw);
     if (isNaN(captureDate.getTime())) {
       set.status = 400;
-      return { error: "invalid X-Maple-Capture-Date" };
+      return { error: 'invalid X-Maple-Capture-Date' };
     }
 
     // Resolve GPS → location name (cache miss is a soft failure — path falls back to date-only layout).
-    const lat = parseFloat(latRaw ?? "NaN");
-    const lon = parseFloat(lonRaw ?? "NaN");
+    const lat = parseFloat(latRaw ?? 'NaN');
+    const lon = parseFloat(lonRaw ?? 'NaN');
     const location = await resolveLocation(lat, lon);
 
     // Compute the destination relative path.
@@ -162,7 +143,7 @@ export const backupIngestRoutes = new Elysia().post(
       targetRelPath = formatBackupPath({ captureDate, location, filename });
     } catch (e: any) {
       set.status = 400;
-      return { error: e?.message ?? "invalid filename" };
+      return { error: e?.message ?? 'invalid filename' };
     }
 
     // Open or resume the upload session.
@@ -191,7 +172,7 @@ export const backupIngestRoutes = new Elysia().post(
         };
       }
       set.status = 409;
-      return { error: e?.message ?? "session metadata mismatch on resume" };
+      return { error: e?.message ?? 'session metadata mismatch on resume' };
     }
 
     // Short-circuit when the upload already finished server-side. The device
@@ -207,7 +188,7 @@ export const backupIngestRoutes = new Elysia().post(
           mapleId: session.maple_id,
           targetRelPath: session.target_rel_path,
         },
-        "ingest short-circuit (already complete)",
+        'ingest short-circuit (already complete)',
       );
       set.status = 200;
       return {
@@ -234,10 +215,10 @@ export const backupIngestRoutes = new Elysia().post(
       try {
         await fs.unlink(tmpFile);
       } catch (e: any) {
-        if (e?.code !== "ENOENT") {
+        if (e?.code !== 'ENOENT') {
           set.status = 500;
           return {
-            error: `could not clear stale tmp file: ${e?.message ?? "unlink failed"}`,
+            error: `could not clear stale tmp file: ${e?.message ?? 'unlink failed'}`,
           };
         }
       }
@@ -247,15 +228,12 @@ export const backupIngestRoutes = new Elysia().post(
     if (session.received_bytes !== start) {
       set.status = 409;
       return {
-        error: "resume offset mismatch",
+        error: 'resume offset mismatch',
         expected_offset: session.received_bytes,
       };
     }
 
-    const buf =
-      body instanceof Uint8Array
-        ? Buffer.from(body)
-        : Buffer.from(body as ArrayBuffer);
+    const buf = body instanceof Uint8Array ? Buffer.from(body) : Buffer.from(body as ArrayBuffer);
 
     // Verify body length matches Content-Range claim.
     const expectedChunkLen = end - start + 1;
@@ -276,14 +254,14 @@ export const backupIngestRoutes = new Elysia().post(
         await uploadSessions.resetForRestart(session._id);
         set.status = 409;
         return {
-          error: "tmp file missing — restart required",
+          error: 'tmp file missing — restart required',
           expected_offset: 0,
         };
       }
       if (tmpStat.size !== session.received_bytes) {
         set.status = 409;
         return {
-          error: "tmp file size mismatch — restart required",
+          error: 'tmp file size mismatch — restart required',
           expected_offset: tmpStat.size,
         };
       }
@@ -307,7 +285,7 @@ export const backupIngestRoutes = new Elysia().post(
 
     if (!mapleId) {
       set.status = 400;
-      return { error: "X-Maple-Maple-Id required on final chunk" };
+      return { error: 'X-Maple-Maple-Id required on final chunk' };
     }
 
     // 1. Dedup lookup BEFORE any filesystem operations.
@@ -335,17 +313,15 @@ export const backupIngestRoutes = new Elysia().post(
       // failure this branch caused. The invariant: backing a photo up to
       // library Y must leave a usable fileinfo entry referencing Y.
       const liveInThisLibrary = (existing.fileinfo ?? []).find(
-        (e: any) =>
-          !e.deleted_at &&
-          e.library_id?.toHexString?.() === libraryId.toHexString(),
+        (e: any) => !e.deleted_at && e.library_id?.toHexString?.() === libraryId.toHexString(),
       );
 
       const relFromFileInfo = (entry: any): string =>
         entry && entry.path !== undefined
-          ? entry.path === ""
+          ? entry.path === ''
             ? entry.filename
             : `${entry.path}/${entry.filename}`
-          : "";
+          : '';
 
       // Link this device to the existing row (idempotent on retry).
       const alreadyLinked = (existing.phasset_links ?? []).some(
@@ -357,10 +333,7 @@ export const backupIngestRoutes = new Elysia().post(
         // bytes; the canonical copy already lives at this library's fileinfo
         // entry.
         if (!alreadyLinked) {
-          await a.updateOne(
-            { _id: existing._id },
-            { $push: { phasset_links: link } },
-          );
+          await a.updateOne({ _id: existing._id }, { $push: { phasset_links: link } });
         }
         try {
           await fs.unlink(tmpFile);
@@ -374,10 +347,7 @@ export const backupIngestRoutes = new Elysia().post(
           uploadedDelta: 1,
           failedDelta: 0,
         });
-        log.debug(
-          { phid, mapleId, dedup: true },
-          "ingest complete (dedup, same library)",
-        );
+        log.debug({ phid, mapleId, dedup: true }, 'ingest complete (dedup, same library)');
         set.status = 200;
         // Reconstruct this library's rel path so the device knows where the
         // canonical copy lives (used to route subsequent change-feed updates).
@@ -403,7 +373,7 @@ export const backupIngestRoutes = new Elysia().post(
         await fs.stat(finalPath);
         needMove = false; // already on disk at the destination
       } catch (e: any) {
-        if (e?.code !== "ENOENT") throw e;
+        if (e?.code !== 'ENOENT') throw e;
       }
       if (needMove) {
         await atomicMove(tmpFile, finalPath);
@@ -417,9 +387,7 @@ export const backupIngestRoutes = new Elysia().post(
 
       const relDirRaw = path.dirname(resolvedTargetRelPath);
       const relDir =
-        relDirRaw === "." || relDirRaw === ""
-          ? ""
-          : relDirRaw.split(path.sep).join("/");
+        relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(path.sep).join('/');
       const newFileInfo = {
         path: relDir,
         filename,
@@ -448,7 +416,7 @@ export const backupIngestRoutes = new Elysia().post(
           crossLibrary: true,
           targetRelPath: resolvedTargetRelPath,
         },
-        "ingest complete (dedup, materialized in target library)",
+        'ingest complete (dedup, materialized in target library)',
       );
       set.status = 200;
       return { maple_id: mapleId, target_rel_path: resolvedTargetRelPath };
@@ -467,7 +435,7 @@ export const backupIngestRoutes = new Elysia().post(
         error: `path collision; file exists at ${resolvedTargetRelPath}`,
       };
     } catch (e: any) {
-      if (e?.code !== "ENOENT") throw e;
+      if (e?.code !== 'ENOENT') throw e;
       // ENOENT is expected — the path is free.
     }
 
@@ -479,10 +447,7 @@ export const backupIngestRoutes = new Elysia().post(
     // FileInfo.path is documented as POSIX-separated; normalize sep
     // here so a host with `\` as path.sep doesn't store backslashes.
     const relDirRaw = path.dirname(resolvedTargetRelPath);
-    const relDir =
-      relDirRaw === "." || relDirRaw === ""
-        ? ""
-        : relDirRaw.split(path.sep).join("/");
+    const relDir = relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(path.sep).join('/');
     await a.insertOne({
       _id: new ObjectId(),
       fileinfo: [
@@ -497,7 +462,7 @@ export const backupIngestRoutes = new Elysia().post(
       mtime: Date.now(),
       rating: 0,
       flag: 0,
-      color_label: "",
+      color_label: '',
       indexed_at: new Date().toISOString(),
       maple_id: mapleId,
       phasset_links: [link],
@@ -512,10 +477,7 @@ export const backupIngestRoutes = new Elysia().post(
       failedDelta: 0,
     });
 
-    log.debug(
-      { phid, targetRelPath: resolvedTargetRelPath, mapleId },
-      "ingest complete",
-    );
+    log.debug({ phid, targetRelPath: resolvedTargetRelPath, mapleId }, 'ingest complete');
     set.status = 200;
     return { maple_id: mapleId, target_rel_path: resolvedTargetRelPath };
   },

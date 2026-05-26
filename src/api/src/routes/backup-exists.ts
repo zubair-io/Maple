@@ -32,17 +32,17 @@
  *
  * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
  */
-import { Elysia, t } from "elysia";
-import { ObjectId } from "mongodb";
-import { assetsCollection, foldersCollection } from "../db/client.ts";
-import { child as childLogger } from "../log.ts";
+import { Elysia, t } from 'elysia';
+import { ObjectId } from 'mongodb';
+import { assetsCollection, foldersCollection } from '../db/client.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("backup-exists");
+const log = childLogger('backup-exists');
 
 const MAX_IDS = 1000;
 
 export const backupExistsRoutes = new Elysia().post(
-  "/api/libraries/:libraryId/backup/exists",
+  '/api/libraries/:libraryId/backup/exists',
   async ({ params, body, set }) => {
     // Validate library id.
     let libraryId: ObjectId;
@@ -50,14 +50,14 @@ export const backupExistsRoutes = new Elysia().post(
       libraryId = new ObjectId(params.libraryId);
     } catch {
       set.status = 400;
-      return { error: "invalid library id" };
+      return { error: 'invalid library id' };
     }
 
     // Validate body shape — maple_ids must be an array of strings.
     const rawIds = (body as { maple_ids?: unknown } | null)?.maple_ids;
     if (!Array.isArray(rawIds)) {
       set.status = 400;
-      return { error: "maple_ids must be an array" };
+      return { error: 'maple_ids must be an array' };
     }
     if (rawIds.length > MAX_IDS) {
       set.status = 400;
@@ -65,12 +65,10 @@ export const backupExistsRoutes = new Elysia().post(
     }
 
     // Check library exists.
-    const folder = await (
-      await foldersCollection()
-    ).findOne({ _id: libraryId });
+    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
     if (!folder) {
       set.status = 404;
-      return { error: "library not found" };
+      return { error: 'library not found' };
     }
 
     // De-duplicate the input while preserving first-seen order. `missing` is
@@ -78,7 +76,7 @@ export const backupExistsRoutes = new Elysia().post(
     const seen = new Set<string>();
     const ids: string[] = [];
     for (const id of rawIds) {
-      if (typeof id !== "string") continue;
+      if (typeof id !== 'string') continue;
       if (seen.has(id)) continue;
       seen.add(id);
       ids.push(id);
@@ -94,14 +92,14 @@ export const backupExistsRoutes = new Elysia().post(
     const a = await assetsCollection();
     const rows = await a
       .find(
-        { "fileinfo.library_id": libraryId, maple_id: { $in: ids } },
+        { 'fileinfo.library_id': libraryId, maple_id: { $in: ids } },
         { projection: { maple_id: 1, _id: 0 } },
       )
       .toArray();
 
     const present = new Set<string>();
     for (const r of rows) {
-      if (typeof r.maple_id === "string") present.add(r.maple_id);
+      if (typeof r.maple_id === 'string') present.add(r.maple_id);
     }
 
     const missing = ids.filter((id) => !present.has(id));
@@ -112,7 +110,7 @@ export const backupExistsRoutes = new Elysia().post(
         requested: ids.length,
         missing: missing.length,
       },
-      "backup exists probe",
+      'backup exists probe',
     );
 
     return { missing };
