@@ -424,3 +424,73 @@ describe('PUT /api/enrichment/config — meilisearch_url', () => {
     expect(saved!.config.meilisearch_url).toBe('http://meili.test:7700');
   });
 });
+
+describe('PUT/GET /api/enrichment/config — meilisearch_api_key (write-only)', () => {
+  it('persists the key but never echoes it; reports meilisearch_api_key_set', async () => {
+    if (!mongoReachable) return;
+    stubFetch(() => ({ status: 200 }));
+    const put1 = await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_url: 'http://meili.test:7700',
+      meilisearch_api_key: 'super-secret',
+    });
+    expect(put1.status).toBe(200);
+    // The raw key must NOT appear in the response.
+    expect(JSON.stringify(put1.body)).not.toContain('super-secret');
+    expect((put1.body as { meilisearch_api_key_set: boolean }).meilisearch_api_key_set).toBe(true);
+    expect(
+      (put1.body as { source: { meilisearch_api_key: string } }).source.meilisearch_api_key,
+    ).toBe('db');
+
+    // GET also reports set=true and never includes the key.
+    const got = await get('/api/enrichment/config');
+    expect(JSON.stringify(got.body)).not.toContain('super-secret');
+    expect((got.body as { meilisearch_api_key_set: boolean }).meilisearch_api_key_set).toBe(true);
+
+    // ...but it IS persisted in Mongo.
+    const saved = await db!
+      .collection('app_settings')
+      .findOne<{ config: { meilisearch_api_key?: string } }>({ _id: 'enrichment' } as never);
+    expect(saved!.config.meilisearch_api_key).toBe('super-secret');
+  });
+
+  it('a blank/omitted key leaves the saved key unchanged', async () => {
+    if (!mongoReachable) return;
+    stubFetch(() => ({ status: 200 }));
+    await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_api_key: 'keep-me',
+    });
+    // Second save with an empty-string key must NOT wipe it.
+    await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_api_key: '',
+    });
+    const saved = await db!
+      .collection('app_settings')
+      .findOne<{ config: { meilisearch_api_key?: string } }>({ _id: 'enrichment' } as never);
+    expect(saved!.config.meilisearch_api_key).toBe('keep-me');
+  });
+
+  it('an explicit null clears the saved key', async () => {
+    if (!mongoReachable) return;
+    stubFetch(() => ({ status: 200 }));
+    await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_api_key: 'delete-me',
+    });
+    await put('/api/enrichment/config', {
+      nominatim_url: null,
+      geocode_worker_enabled: false,
+      meilisearch_api_key: null,
+    });
+    const saved = await db!
+      .collection('app_settings')
+      .findOne<{ config: { meilisearch_api_key?: string | null } }>({ _id: 'enrichment' } as never);
+    expect(saved!.config.meilisearch_api_key).toBeNull();
+  });
+});

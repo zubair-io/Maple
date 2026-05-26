@@ -390,7 +390,7 @@ async function start(): Promise<void> {
       // MAPLE_MEILISEARCH_URL env var. reconfigureMeilisearch rebuilds the
       // shared client so every consumer (search route, meili stage) agrees.
       const resolvedMeili = resolveEnrichmentConfig(await loadEnrichmentConfig());
-      reconfigureMeilisearch(resolvedMeili.meilisearch_url);
+      reconfigureMeilisearch(resolvedMeili.meilisearch_url, resolvedMeili.meilisearch_api_key);
       const meili = meilisearchClient();
       if (!meili.isConfigured()) {
         log.info('Meilisearch URL unset (DB + MAPLE_MEILISEARCH_URL) — sidecar disabled');
