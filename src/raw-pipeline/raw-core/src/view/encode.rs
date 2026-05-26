@@ -61,20 +61,46 @@ pub fn srgb_gamma(x: f32) -> f32 {
 // placement. The Levels layer is therefore no longer
 // needed; leaving it in compounds the correction and crushes midtones.
 
-/// Final encode: display-linear sRGB → u8 RGB via piecewise gamma +
-/// Bayer-dithered quantize. Returns a flat row-major `Vec<u8>` of
-/// length 3 * w * h.
+/// In-place sRGB gamma encode in f32 space.
+///
+/// Pre-#519 this lived inside `quantize_u8` — gamma + dither + u8 cast
+/// all in one pass. Splitting it out lets the empirical Look LUT
+/// (`view::look::apply`) run in f32 sRGB-encoded space BETWEEN the
+/// gamma encode and the dither+quantize step. The pre-#519 ordering
+/// applied the LUT after quantize as a `u8 → u8` nearest lookup, which
+/// reintroduced histogram gaps wherever LUT slope ≠ 1 — visible
+/// banding in shadows and warm gradients that the upstream Bayer
+/// dither could no longer mask.
+///
+/// After this call the buffer is sRGB-gamma-encoded f32 in `[0, 1]`,
+/// ready for either `view::look::apply` (then `dither_and_quantize`)
+/// or `dither_and_quantize` directly when `Look::Neutral` short-
+/// circuits.
+pub fn srgb_gamma_encode(img: &mut Image) {
+    img.assert_space(ColorSpace::DisplayLinearSrgb);
+    img.pixels.par_iter_mut().for_each(|p| {
+        p[0] = srgb_gamma(p[0]);
+        p[1] = srgb_gamma(p[1]);
+        p[2] = srgb_gamma(p[2]);
+    });
+    img.space = ColorSpace::DisplayEncodedSrgb;
+}
+
+/// 8×8 Bayer-dithered quantise from sRGB-encoded f32 → packed `u8` RGB.
+///
+/// Input must be sRGB-gamma-encoded (via [`srgb_gamma_encode`]) and in
+/// `[0, 1]`. Returns a flat row-major `Vec<u8>` of length `3 * w * h`.
 ///
 /// Dithering (#441): adds an 8×8 Bayer-matrix `[-0.5, +0.5)` LSB
-/// offset to `g * 255` before the round. The offset is positional —
+/// offset to `v * 255` before the round. The offset is positional —
 /// `dither::bayer_offset_lsb((i % w) as u32, (i / w) as u32)` — so
 /// the same input image always produces the same output (no
 /// randomness). The mean offset across the 8×8 tile is exactly 0, so
 /// flat-colour regions stay on their u8 plateau ±1 LSB while smooth
 /// gradients pick up enough sub-LSB variance that the eye reads the
 /// quantization error as noise instead of contour bands.
-pub fn quantize_u8(img: &mut Image) -> Vec<u8> {
-    img.assert_space(ColorSpace::DisplayLinearSrgb);
+pub fn dither_and_quantize(img: &mut Image) -> Vec<u8> {
+    img.assert_space(ColorSpace::DisplayEncodedSrgb);
     let w = img.width as usize;
     let mut out = vec![0u8; img.pixels.len() * 3];
     out.par_chunks_mut(3)
@@ -90,12 +116,25 @@ pub fn quantize_u8(img: &mut Image) -> Vec<u8> {
             let y = (i / w) as u32;
             let off = bayer_offset_lsb(x, y);
             for (j, &c) in p.iter().enumerate() {
-                let g = srgb_gamma(c);
-                dst[j] = (g * 255.0 + off + 0.5).clamp(0.0, 255.0) as u8;
+                dst[j] = (c * 255.0 + off + 0.5).clamp(0.0, 255.0) as u8;
             }
         });
-    img.space = ColorSpace::DisplayEncodedSrgb;
     out
+}
+
+/// Final encode: display-linear sRGB → u8 RGB via piecewise gamma +
+/// Bayer-dithered quantize. Returns a flat row-major `Vec<u8>` of
+/// length 3 * w * h.
+///
+/// Thin wrapper over [`srgb_gamma_encode`] + [`dither_and_quantize`].
+/// Pre-#519 this was the single combined pass; today the render path
+/// inserts `view::look::apply` between the two halves so the empirical
+/// Look LUT samples in f32 sRGB-encoded space (preserving the gradient
+/// smoothness the Bayer dither establishes). Tests and any caller that
+/// doesn't need the Look hook can keep calling `quantize_u8` directly.
+pub fn quantize_u8(img: &mut Image) -> Vec<u8> {
+    srgb_gamma_encode(img);
+    dither_and_quantize(img)
 }
 
 #[cfg(test)]
