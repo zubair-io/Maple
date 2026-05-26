@@ -45,9 +45,18 @@ fn xtrans_color(pat: &[u8; 36], x: i32, y: i32) -> usize {
 
 /// Per-pixel bilinear interpolation across the 3×3 neighborhood, with
 /// channel-aware weighting based on the X-Trans CFA position of each
-/// neighbour. Each output channel is the unweighted mean of its
-/// neighbour-of-that-channel samples (including the center pixel if the
-/// channel matches).
+/// neighbour. The *measured* center-channel value is preserved exactly
+/// (mirrors `bilinear::bilinear`'s "known samples are sacred" policy);
+/// only the two missing channels at each site are interpolated, as the
+/// unweighted mean of neighbour-of-that-channel samples in the 3×3
+/// window (widened to 5×5 at edges if needed to find any).
+///
+/// Preserving the center keeps sampled data exact through the demosaic
+/// stage and gives the Markesteijn seed pass a cleaner starting point —
+/// before this fix, averaging the center into the same-channel mean
+/// blurred each measured sample with its non-center same-channel
+/// neighbours, a no-op for uniform input but a real loss of detail on
+/// non-uniform scenes.
 ///
 /// Mirror-reflects out-of-range reads. Single-pass, embarrassingly
 /// parallel. This is the X-Trans equivalent of `bilinear::bilinear`.
@@ -80,11 +89,16 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
             let y = y_idx as i32;
             for (x_idx, px) in row.iter_mut().enumerate() {
                 let x = x_idx as i32;
+                let cself = xtrans_color(&pat, x, y);
                 let mut sums = [0.0_f32; 3];
                 let mut counts = [0u32; 3];
-                // Start with the 3×3 window — covers almost all pixels.
+                // 3×3 window minus the center — the center is the
+                // measured sample for `cself` and is written verbatim
+                // below; folding it into the same-channel mean would
+                // blur an exact sample with neighbours.
                 for dy in -1..=1i32 {
                     for dx in -1..=1i32 {
+                        if dx == 0 && dy == 0 { continue; }
                         let (nx, ny) = mirror(x + dx, y + dy);
                         let c = xtrans_color(&pat, nx, ny);
                         sums[c] += mosaic.pixels[(ny as usize) * w_us + (nx as usize)][c];
@@ -96,7 +110,7 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
                 // per 36-cell tile). On corner pixels the mirror-clamped
                 // 3×3 can miss a channel; widen to 5×5 when needed.
                 for c in 0..3 {
-                    if counts[c] == 0 {
+                    if c != cself && counts[c] == 0 {
                         for dy in -2..=2i32 {
                             for dx in -2..=2i32 {
                                 if dx.abs() <= 1 && dy.abs() <= 1 { continue; }
@@ -113,6 +127,8 @@ pub fn xtrans_bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
                 for c in 0..3 {
                     rgb[c] = if counts[c] > 0 { sums[c] / counts[c] as f32 } else { 0.0 };
                 }
+                // Center-channel: preserve the measured sample exactly.
+                rgb[cself] = mosaic.pixels[y_idx * w_us + x_idx][cself];
                 *px = rgb;
             }
         });
@@ -249,7 +265,7 @@ pub fn markesteijn(mosaic: &Image, cfa: CfaPattern) -> Image {
                     let mut g = h_grad; let mut d = 0u8;
                     if v_grad < g { g = v_grad; d = 1; }
                     if d1_grad < g { g = d1_grad; d = 2; }
-                    if d2_grad < g { let _ = g; d = 3; }
+                    if d2_grad < g { d = 3; }
                     d
                 };
                 // Interpolate G as the average of the two G samples on
@@ -377,17 +393,31 @@ fn directional_green(
         let yc = y.clamp(0, h - 1) as usize;
         flat[yc * w_us + xc]
     };
+    // The CFA lookup must use the SAME coordinate the value read in
+    // `at()` corresponds to — `at()` clamps to the image border, so when
+    // `nx`/`ny` is out of range the physically-present sample is at the
+    // clamped coord, not the requested one. Using `xtrans_color(pat, nx,
+    // ny)` on the unclamped coords lets the CFA wrap modulo 6 to a
+    // channel the clamped pixel does not actually carry — e.g. at x=2,
+    // k=3 gives nx=-1; the read clamps to x=0 (column 0 of the tile)
+    // but the lookup wraps to column 5, surfacing non-green samples as
+    // green or vice versa near the 2-px interior margin.
     let find_g = |step_x: i32, step_y: i32| -> f32 {
         for k in 1..=3 {
             let nx = x + step_x * k;
             let ny = y + step_y * k;
-            if xtrans_color(pat, nx, ny) == 1 {
-                return at(nx, ny);
+            let cx = nx.clamp(0, w - 1);
+            let cy = ny.clamp(0, h - 1);
+            if xtrans_color(pat, cx, cy) == 1 {
+                return at(cx, cy);
             }
         }
         // No G within 3 steps — only possible at the very corner.
-        // Return the 1-step neighbour as a best-effort.
-        at(x + step_x, y + step_y)
+        // Return the 1-step neighbour as a best-effort (clamped, for the
+        // same reason as the loop above).
+        let nx = (x + step_x).clamp(0, w - 1);
+        let ny = (y + step_y).clamp(0, h - 1);
+        at(nx, ny)
     };
     let g_pos = find_g(dx, dy);
     let g_neg = find_g(-dx, -dy);
@@ -538,6 +568,101 @@ mod tests {
              (ratio {:.3}) — Markesteijn must preserve at least as much \
              detail as bilinear on a 2-pixel checkerboard",
             hf_mk, hf_bi, hf_mk / hf_bi);
+    }
+
+    /// xtrans_bilinear must preserve the measured center-channel value
+    /// exactly — only the two missing channels at each site are
+    /// interpolated. Before #420's review fix, the kernel averaged the
+    /// center sample with its same-channel neighbours, which biased the
+    /// measured value on any non-uniform scene (a no-op for uniform
+    /// patches, but a real blur of the sampled data — and the
+    /// Markesteijn seed pass inherits the bias).
+    ///
+    /// Construct a "saturated patch": every cell holds its CFA-channel
+    /// value 1.0, except one off-center cell that holds a known
+    /// outlier. Demosaic and assert the outlier survives verbatim at
+    /// the same channel slot at its own coordinates.
+    #[test]
+    fn xtrans_bilinear_preserves_measured_center_channel() {
+        let cfa = CfaPattern::XTrans(FUJI_PATTERN);
+        let (w, h) = (12u32, 12u32);
+        let mut img = Image::new(w, h, ColorSpace::CameraNativeMosaic);
+        // Saturate every cell at 0.5 in its own channel.
+        for y in 0..h {
+            for x in 0..w {
+                let c = cfa.color_at(x, y) as usize;
+                img.pixels[(y * w + x) as usize][c] = 0.5;
+            }
+        }
+        // Pick a sample slot well inside the interior so it isn't
+        // touched by the 5×5 widen-on-edge path. Put a known outlier in
+        // its measured channel only.
+        let (sx, sy) = (5u32, 5u32);
+        let sc = cfa.color_at(sx, sy) as usize;
+        let outlier = 0.93_f32;
+        img.pixels[(sy * w + sx) as usize][sc] = outlier;
+
+        let out = xtrans_bilinear(&img, cfa);
+        let p = out.pixels[(sy * w + sx) as usize];
+        // The center-channel value at (sx, sy) must equal the measured
+        // sample, byte-for-byte. The other two channels are
+        // neighbour-averaged and don't see the outlier.
+        assert_eq!(
+            p[sc], outlier,
+            "xtrans_bilinear must preserve the measured center-channel \
+             sample exactly, got {} expected {} at channel {}",
+            p[sc], outlier, sc
+        );
+    }
+
+    /// Regression test for the `directional_green` CFA-lookup
+    /// coordinate-mismatch bug (PR #465 review comment 2): when the
+    /// gradient picker selects a direction whose walk crosses the
+    /// image border on the *unclamped* coords, the CFA lookup wraps
+    /// modulo 6 to a different channel from the one `at()` actually
+    /// returns (which clamps to the border). The fix clamps both
+    /// to the same coord. We assert markesteijn output finiteness +
+    /// no negative values on a non-uniform mosaic that exercises the
+    /// 2-px interior margin in every column (x ∈ {2, 3}). Before the
+    /// fix this could surface as a non-green sample being averaged
+    /// in as green at columns near the left edge.
+    #[test]
+    fn markesteijn_edge_column_directional_green_is_consistent() {
+        let cfa = CfaPattern::XTrans(FUJI_PATTERN);
+        let (w, h) = (24u32, 24u32);
+        let mut img = Image::new(w, h, ColorSpace::CameraNativeMosaic);
+        // Non-uniform but smooth scene: gradient in x. The
+        // directional_green axis walk picks H most of the time on
+        // this scene, and the H walk steps land on the left border
+        // for x ∈ {2, 3} with k=2,3. That's the path the bug was on.
+        for y in 0..h {
+            for x in 0..w {
+                let c = cfa.color_at(x, y) as usize;
+                let v = 0.1 + 0.7 * (x as f32 / (w - 1) as f32);
+                img.pixels[(y * w + x) as usize][c] = v;
+            }
+        }
+        let out = markesteijn(&img, cfa);
+        // For x in the interior-margin columns, the reconstructed
+        // green plane must be (a) finite, (b) non-negative, and
+        // (c) within the input range [0.1, 0.8] padded by a small
+        // tolerance for the color-difference reconstruction's
+        // chroma cross-talk. Before the fix, the bad CFA lookup
+        // could let non-green samples through `directional_green`,
+        // surfacing here as G values outside the input range.
+        let tol = 0.05_f32;
+        for y in 2..(h - 2) {
+            for x in 2..=3 {
+                let p = out.pixels[(y * w + x) as usize];
+                assert!(p[1].is_finite(),
+                    "G at ({},{}) is non-finite: {}", x, y, p[1]);
+                assert!(p[1] >= -tol,
+                    "G at ({},{}) is negative: {}", x, y, p[1]);
+                assert!(p[1] <= 0.8 + tol,
+                    "G at ({},{}) above input range: {} (max ≈ 0.8 + {})",
+                    x, y, p[1], tol);
+            }
+        }
     }
 
     /// Markesteijn must not produce NaN / inf on zero input.
