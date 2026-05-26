@@ -139,7 +139,7 @@ pub struct AdjustmentModel {
     pub sharpen_detail: f32, // 0..100, default 25 (edge-attenuation strength)
     pub sharpen_masking: f32, // 0..100, default 0 (edge-mask threshold)
     pub capture_sharpening_amount: f32, // 0..100, default 0 (Richardson–Lucy strength; 0 = stage skipped)
-    pub capture_sharpening_radius: f32, // 0.5..2.0, default 1.0 (PSF blur radius — see stages::capture_sharpening)
+    pub capture_sharpening_radius: f32, // 0.5..2.0, default 1.0 (Gaussian PSF sigma in pixels — see stages::capture_sharpening; field name kept for XMP back-compat)
     pub nr_luminance: f32,   // 0..100, default 0 (spec § 3.11)
     pub nr_color: f32,       // 0..100, default 25 (default = the reference renderer's default)
     pub dehaze: f32,         // -100..100, default 0

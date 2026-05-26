@@ -11,26 +11,26 @@
 use crate::stages::capture_sharpening;
 use crate::xmp::AdjustmentModel;
 
+/// Upper bound on the Gaussian sigma we'll accept from XMP, in pixels.
+/// The declared model range is `[0.5, 2.0]`, so 8.0 is generous head-room
+/// while still bounding the windowed kernel size (`2 * ceil(3 * sigma) + 1`,
+/// i.e. ≤ 49 taps) and preventing absurd XMPs from blowing out runtime.
+const MAX_SIGMA_PX: f32 = 8.0;
+
 /// Translate the AdjustmentModel's user-facing capture-sharpening sliders
 /// into the stage's [`capture_sharpening::CaptureSharpeningParams`]. Returns
 /// `None` when the stage should be skipped (default identity: amount = 0).
 ///
-/// The AdjustmentModel's `capture_sharpening_radius` is an f32 with a
-/// declared range of `[0.5, 2.0]`; the underlying tripled-box-blur
-/// approximation accepts only integer-pixel radii, so we round to the
-/// nearest integer. The slider in the UI is quantised to whole-pixel steps
-/// (`min=1`, `max=2`, `step=1`) so user-driven inputs already land on an
-/// integer — but XMP can in principle carry any f32, so we defensively
-/// clamp the value to `[1, 4]` before the cast:
+/// The AdjustmentModel's `capture_sharpening_radius` is interpreted as a
+/// Gaussian-PSF **sigma** in pixels — the stage no longer uses an integer
+/// radius. The field name remains `radius` for backward-compat with XMPs
+/// written before #427 (semantic shift only, not a schema rename).
 ///
-/// - `is_finite` guards against NaN / ±Infinity — without this a non-finite
-///   value would cast to `usize::MAX` and overflow inside
-///   `gaussian_blur_plane`.
-/// - The upper bound of 4 is 2× the declared model max — generous head-room
-///   for any in-flight XMP yet still small enough that the blur cost stays
-///   bounded. The algorithm tolerates larger radii in principle, but
-///   anything above 4 px would only make sense paired with the true-sigma
-///   path (tracked in the follow-up KTLO ticket #320).
+/// - `is_finite` guards against NaN / ±Infinity on either field.
+/// - `amount <= 0` short-circuits the stage entirely (the off-by-default
+///   path), so this is also the structural "off = no-op" guarantee.
+/// - sigma is clamped to `(0, MAX_SIGMA_PX]` so an out-of-range XMP cannot
+///   blow up kernel size.
 pub(super) fn capture_sharpening_params_from_model(
     model: &AdjustmentModel,
 ) -> Option<capture_sharpening::CaptureSharpeningParams> {
@@ -42,10 +42,10 @@ pub(super) fn capture_sharpening_params_from_model(
     if model.capture_sharpening_amount <= 0.0 {
         return None;
     }
-    let radius = model.capture_sharpening_radius.round().clamp(1.0, 4.0) as usize;
+    let sigma = model.capture_sharpening_radius.clamp(1e-3, MAX_SIGMA_PX);
     let strength = (model.capture_sharpening_amount / 100.0).clamp(0.0, 1.5);
     Some(capture_sharpening::CaptureSharpeningParams {
-        radius,
+        sigma,
         strength,
         ..capture_sharpening::CaptureSharpeningParams::default()
     })
@@ -56,15 +56,14 @@ mod tests {
     use super::*;
 
     /// Regression: `capture_sharpening_params_from_model` must not let
-    /// non-finite or absurdly large XMP values flow through the `f32 →
-    /// usize` cast — without the `is_finite` / `clamp` guards a NaN
-    /// `amount` slips past `<= 0.0` (NaN comparisons are false) and a
-    /// `+Infinity` `radius` casts to `usize::MAX`, which then overflows
-    /// inside `gaussian_blur_plane`'s `usize` arithmetic.
+    /// non-finite or absurdly large XMP values flow through to the stage —
+    /// without the `is_finite` / `clamp` guards a NaN `amount` slips past
+    /// `<= 0.0` (NaN comparisons are false) and an out-of-range `radius`
+    /// would produce a kernel with thousands of taps.
     ///
     /// We don't run the full pipeline — the cast happens entirely in this
     /// helper, so calling it with each pathological value and asserting
-    /// (a) no panic, (b) `radius` lands inside the declared `[1, 4]`
+    /// (a) no panic, (b) `sigma` lands inside the `(0, MAX_SIGMA_PX]`
     /// clamp range when the helper does return params, is enough.
     #[test]
     fn capture_sharpening_params_clamp_pathological_inputs() {
@@ -89,8 +88,7 @@ mod tests {
         }
 
         // Non-finite radius with a finite, > 0 amount → return None
-        // (defensive: the radius is unusable, so skip the stage entirely
-        // rather than guess an integer for the user).
+        // (defensive: the sigma is unusable, so skip the stage entirely).
         for radius in non_finite_radii {
             let model = AdjustmentModel {
                 capture_sharpening_amount: 50.0,
@@ -104,9 +102,8 @@ mod tests {
         }
 
         // Finite-but-pathological radius (huge, negative, zero) paired
-        // with a finite > 0 amount → must still return params, but radius
-        // must be inside the [1, 4] clamp and strength finite. Catches
-        // the `f32::MAX as usize` overflow path.
+        // with a finite > 0 amount → must still return params, but sigma
+        // must be inside `(0, MAX_SIGMA_PX]` and strength finite.
         for &radius in &huge_finite_radii {
             let model = AdjustmentModel {
                 capture_sharpening_amount: 50.0,
@@ -116,9 +113,14 @@ mod tests {
             let params = capture_sharpening_params_from_model(&model)
                 .expect("amount=50 with finite radius should produce Some(params)");
             assert!(
-                params.radius >= 1 && params.radius <= 4,
-                "radius {} (input {radius}) outside [1, 4] clamp",
-                params.radius
+                params.sigma > 0.0 && params.sigma <= MAX_SIGMA_PX,
+                "sigma {} (input {radius}) outside (0, {MAX_SIGMA_PX}] clamp",
+                params.sigma
+            );
+            assert!(
+                params.sigma.is_finite(),
+                "sigma {} (input {radius}) not finite",
+                params.sigma
             );
             assert!(
                 params.strength.is_finite() && params.strength > 0.0,
@@ -126,5 +128,27 @@ mod tests {
                 params.strength
             );
         }
+    }
+
+    /// Default model (amount = 0) returns None — the structural "off by
+    /// default" guarantee for the stage.
+    #[test]
+    fn default_model_returns_none() {
+        let model = AdjustmentModel::default();
+        assert!(capture_sharpening_params_from_model(&model).is_none());
+    }
+
+    /// A typical user-facing slider value (radius slider at 1.0 px) maps
+    /// to sigma = 1.0 — no implicit rescaling.
+    #[test]
+    fn radius_field_passes_through_as_sigma() {
+        let model = AdjustmentModel {
+            capture_sharpening_amount: 50.0,
+            capture_sharpening_radius: 1.0,
+            ..AdjustmentModel::default()
+        };
+        let params = capture_sharpening_params_from_model(&model)
+            .expect("amount=50 radius=1.0 should produce params");
+        assert!((params.sigma - 1.0).abs() < 1e-6);
     }
 }

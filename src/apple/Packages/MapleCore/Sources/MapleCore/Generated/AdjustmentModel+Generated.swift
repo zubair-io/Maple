@@ -87,7 +87,7 @@ extension AdjustmentModel {
     public static let sharpenMaskingRange: ClosedRange<Double> = 0.0...100.0
     /// Capture sharpening strength (Richardson-Lucy deconvolution; 0 = stage skipped).
     public static let captureSharpeningAmountRange: ClosedRange<Double> = 0.0...100.0
-    /// Capture sharpening PSF blur radius in pixels.
+    /// Capture sharpening Gaussian PSF sigma in pixels (field name kept for XMP back-compat).
     public static let captureSharpeningRadiusRange: ClosedRange<Double> = 0.5...2.0
     /// Luminance noise reduction strength per spec § 3.11.
     public static let nrLuminanceRange: ClosedRange<Double> = 0.0...100.0
