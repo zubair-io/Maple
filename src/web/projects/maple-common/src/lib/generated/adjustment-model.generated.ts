@@ -9,6 +9,8 @@ export type HighlightRecoveryMode = 'Off' | 'Blend' | 'Luminance' | 'ChromaticAd
 
 export type Look = 'Neutral' | 'Default';
 
+export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';
+
 export interface GeneratedAdjustmentModel {
   /** White balance correlated color temperature in Kelvin. Range: [2000.0, 12000.0]. */
   temperature: number;
@@ -64,6 +66,8 @@ export interface GeneratedAdjustmentModel {
   highlightRecovery: HighlightRecoveryMode;
   /** DisplayLookCurve (ticket #371). 'Default' applies the empirical 1D LUT; 'Neutral' is the strict scene-referred identity. */
   look: Look;
+  /** Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue. */
+  toneCurveMode: ToneCurveMode;
 }
 
 /** Canonical `[min, max]` range for each scalar field, generated from raw-core. */
@@ -125,5 +129,6 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     dehaze: 0.0,
     highlightRecovery: 'ChromaticAdaptation',
     look: 'Default',
+    toneCurveMode: 'PerChannel',
   };
 }

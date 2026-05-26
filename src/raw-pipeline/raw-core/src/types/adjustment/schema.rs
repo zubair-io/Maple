@@ -284,6 +284,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "Look",
         doc: "DisplayLookCurve (ticket #371). 'Default' applies the empirical 1D LUT; 'Neutral' is the strict scene-referred identity.",
     },
+    FieldSpec {
+        name: "tone_curve_mode",
+        kind: FieldKind::Enum,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "ToneCurveMode",
+        doc: "Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue.",
+    },
 ];
 
 #[cfg(test)]
@@ -331,6 +339,7 @@ mod tests {
             highlight_recovery,
             look,
             local_adjustments,
+            tone_curve_mode,
             tone_curve_luma,
             tone_curve_red,
             tone_curve_green,
@@ -364,6 +373,7 @@ mod tests {
             "dehaze",
             "highlight_recovery",
             "look",
+            "tone_curve_mode",
         ];
         assert_eq!(
             ADJUSTMENT_SCHEMA.len(),
@@ -406,6 +416,7 @@ mod tests {
             dehaze,
             highlight_recovery,
             look,
+            tone_curve_mode,
             tone_curve_luma,
             tone_curve_red,
             tone_curve_green,
@@ -509,6 +520,18 @@ mod tests {
             .expect("look missing from schema");
         assert!(matches!(entry.kind, FieldKind::Enum));
         assert_eq!(entry.enum_name, "Look");
+    }
+
+    /// ToneCurveMode (ticket #436). Enum field; codegen emits matching
+    /// Swift / TS mirrors.
+    #[test]
+    fn tone_curve_mode_enum_spec_is_present() {
+        let entry = ADJUSTMENT_SCHEMA
+            .iter()
+            .find(|s| s.name == "tone_curve_mode")
+            .expect("tone_curve_mode missing from schema");
+        assert!(matches!(entry.kind, FieldKind::Enum));
+        assert_eq!(entry.enum_name, "ToneCurveMode");
     }
 
     /// New PV2012 parametric region sliders are present in the schema with

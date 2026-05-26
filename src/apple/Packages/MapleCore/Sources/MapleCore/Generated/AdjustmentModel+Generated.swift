@@ -41,6 +41,7 @@ extension AdjustmentModel {
         case dehaze = "dehaze"
         case highlightRecovery = "highlight_recovery"
         case look = "look"
+        case toneCurveMode = "tone_curve_mode"
     }
 
     // MARK: - Range constants (canonical, generated)
