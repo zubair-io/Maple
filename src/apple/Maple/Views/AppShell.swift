@@ -31,9 +31,12 @@
 
 import SwiftUI
 import MapleCore
+import OSLog
 #if os(iOS)
 import UIKit
 #endif
+
+private let appShellLog = Logger(subsystem: "app.justmaple.aperture", category: "appshell")
 
 // MARK: - AppShell
 
@@ -369,7 +372,14 @@ struct AppShell: View {
                     await session.signOut()
                     CloudServerRegistry.shared.remove(url)
                     if let domainID = FileProviderDomainController.domainIdentifier(for: url) {
-                        try? await FileProviderDomainController().disable(domainIdentifier: domainID)
+                        // disable() clears local config + tokens even if it
+                        // throws, so the polling stops regardless; log a throw
+                        // so a failed File Provider teardown is visible.
+                        do {
+                            try await FileProviderDomainController().disable(domainIdentifier: domainID)
+                        } catch {
+                            appShellLog.error("File Provider teardown failed for removed server \(domainID, privacy: .public) (local state still cleared): \(error.localizedDescription, privacy: .public)")
+                        }
                     }
                 }
             },

@@ -52,13 +52,27 @@ public actor FileProviderDomainController {
 
     public func disable(domainIdentifier: String) async throws {
         let identifier = NSFileProviderDomainIdentifier(domainIdentifier)
-        let domains = try await NSFileProviderManager.domains()
-        if let domain = domains.first(where: { $0.identifier == identifier }) {
-            try await NSFileProviderManager.remove(domain)
+        // Attempt the File Provider teardown, but DON'T let a throw here skip
+        // the local cleanup below. If NSFileProviderManager is unavailable, the
+        // domain registration may linger, but clearing the on-disk config +
+        // mirrored tokens still stops the extension from reloading them and
+        // polling a gone server — which is the "bad signature" loop we're
+        // killing. The error is logged and rethrown so callers (e.g. the
+        // settings UI) can still surface the failure.
+        var teardownError: Error?
+        do {
+            let domains = try await NSFileProviderManager.domains()
+            if let domain = domains.first(where: { $0.identifier == identifier }) {
+                try await NSFileProviderManager.remove(domain)
+            }
+        } catch {
+            teardownError = error
+            log.error("NSFileProviderManager teardown failed for \(domainIdentifier, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         config.remove(domain: domainIdentifier)
         FileProviderTokensStore().remove(domain: domainIdentifier)
-        log.info("removed domain \(domainIdentifier, privacy: .public)")
+        log.info("cleared local state for domain \(domainIdentifier, privacy: .public)")
+        if let teardownError { throw teardownError }
     }
 
     public func refresh(domainIdentifier: String) async throws {
@@ -96,7 +110,15 @@ public actor FileProviderDomainController {
         for c in config.allDomains() { candidates.insert(c.domainIdentifier) }
         let orphans = candidates.subtracting(validIDs).sorted()
         for id in orphans {
-            try? await disable(domainIdentifier: id)
+            // `disable` clears local config + tokens even when it throws (the
+            // throw means only the NSFileProviderManager registration may
+            // linger), so the orphan's polling stops regardless. Log failures
+            // so a stuck domain is diagnosable rather than silently retried.
+            do {
+                try await disable(domainIdentifier: id)
+            } catch {
+                log.error("reconcile: File Provider teardown failed for orphaned domain \(id, privacy: .public) (local state still cleared): \(error.localizedDescription, privacy: .public)")
+            }
         }
         if !orphans.isEmpty {
             log.info("reconcile removed orphaned domains: \(orphans.joined(separator: ","), privacy: .public)")
