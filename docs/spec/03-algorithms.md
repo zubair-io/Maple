@@ -526,14 +526,22 @@ Two Looks ship today (`Look::Neutral`, `Look::Default`), surfaced as the
 **`Look::Default` is the new-user default.** Implementation lives in
 `raw-core::view::look` (ticket #371).
 
-The actually-shipped Look is a **1D per-channel u8 LUT applied
-post-encode** — after `view::encode::quantize_u8` returns the
-sRGB-encoded display-encoded `Vec<u8>`. This is a deliberate deviation
+The actually-shipped Look is a **1D per-channel 256-entry LUT sampled
+in f32 sRGB-encoded space**, between `view::encode::srgb_gamma_encode`
+and `view::encode::dither_and_quantize`. This is a deliberate deviation
 from the planned step-3 (log-domain) placement above: the empirical LUT
 was derived from per-pixel `(Maple sRGB u8, ACR sRGB u8)` pairs and only
 makes sense in the same domain. Trying to apply it pre-sigmoid would
 index the wrong domain (Rec.2020 primaries, no gamma) and the gain
 disappears.
+
+The LUT byte data is the same 768 bytes (256 × 3 channels) as the
+pre-#519 nearest-lookup version; only the consumer changed. Sampling in
+f32 with linear interpolation between adjacent entries prevents the
+histogram gaps that the pre-#519 u8 → u8 nearest lookup produced
+wherever LUT slope ≠ 1 (visible banding in shadows and warm gradients).
+The Bayer dither in `dither_and_quantize` is now the only quantisation
+step in the chain.
 
 The 1D LUT closes ~65% of the bias-to-ACR gap (3x MAE reduction on 14
 training fixtures, 2x on held-out). The residual scatter — same canonical

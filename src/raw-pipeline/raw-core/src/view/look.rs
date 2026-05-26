@@ -7,33 +7,38 @@
 //!
 //! ## Placement
 //!
-//! Applied **after** `encode::quantize_u8` as a pure `u8 -> u8` transform,
-//! in sRGB-encoded uint8 space. This is the same domain the LUT was
-//! empirically derived against (per `~/Desktop/maple-empirical-lut/lut.json`:
-//! "Maple canonical sRGB uint8 -> ACR sRGB uint8"). Applying it earlier
-//! (e.g. between AgX and the Rec.2020->sRGB matrix) would index with the
-//! wrong domain — Rec.2020 primaries differ from sRGB and the gamma
-//! encode hasn't run yet.
+//! Applied as an f32 transform in sRGB-gamma-encoded space, BETWEEN
+//! `encode::srgb_gamma_encode` and `encode::dither_and_quantize`. That
+//! domain matches the LUT's empirical derivation
+//! (canonical Maple sRGB u8 → ACR sRGB u8) — same primaries, same OETF.
 //!
-//! The plan in `docs/spec/03-algorithms.md` § "apply_look" places a future
-//! `apply_look` between log-encode and the AgX sigmoid (a `[0, 1]`
-//! normalized-log-domain transform). This 1D LUT is a different — and
-//! complementary — mechanism: an empirical post-pipeline shaping layer
-//! that captures the aggregate scene-to-display delta against ACR.
+//! ## Why f32 + linear interpolation (#519)
 //!
-//! Per-channel: `out[c] = LUT[c][in[c]]`, no interpolation (input is
-//! already u8 so the LUT is sampled exactly at integer positions).
+//! Pre-#519 the LUT ran as a `u8 → u8` nearest lookup AFTER the Bayer
+//! dither + 8-bit quantise. Wherever the LUT's slope ≠ 1, multiple
+//! input codes collapsed to one output code — creating histogram gaps
+//! the upstream dither could no longer mask, surfacing as visible
+//! banding in shadows and warm gradients.
+//!
+//! The fix: sample the same 256-entry u8 LUT in f32 space with linear
+//! interpolation between adjacent entries, then dither + quantise once
+//! at the end of the chain. Smooth gradients stay smooth; the dither
+//! controls the final quantisation step exactly as it would without
+//! the LUT in the chain.
+//!
+//! The LUT byte data in `look_lut.rs` is unchanged; only the consumer
+//! changed.
 //!
 //! ## Scope (this PR)
 //!
-//! Applied on the **display-encoded u8 RGB output paths** — every
-//! `quantize_u8` call site in `pipeline/render.rs` plus the
-//! decode-then-render path in `maple-cli`. The scene-linear fp16 RGBA FFI
-//! paths (`render_scene_linear_*` and `apply_scene_linear_chain`) hand off
-//! to Apple CoreImage / Web GPU view transforms that do their own AgX +
-//! sRGB encode — applying a u8 LUT in raw-core there is impossible (the
-//! buffer is still post-AgX `DisplayLinearRec2020` fp16, not encoded u8).
-//! Porting the Look into those GPU view transforms is a follow-up.
+//! Applied on the **display-encoded RGB output paths** — every
+//! `srgb_gamma_encode` / `dither_and_quantize` call site in
+//! `pipeline/render.rs` plus the decode-then-render path in
+//! `maple-cli`. The scene-linear fp16 RGBA FFI paths
+//! (`render_scene_linear_*` and `apply_scene_linear_chain`) hand off to
+//! Apple CoreImage / Web GPU view transforms that do their own AgX +
+//! sRGB encode — porting the Look into those GPU view transforms is a
+//! follow-up.
 //!
 //! ## Look variants
 //!
@@ -58,7 +63,7 @@ mod lut;
 // `pub` constants, not by a public submodule path.
 pub use lut::{LUT_B, LUT_G, LUT_R};
 
-/// User-selectable display Look applied as a post-encode u8 LUT.
+/// User-selectable display Look applied as an f32 LUT in sRGB-encoded space.
 ///
 /// See module-level docs for the placement rationale and scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,25 +102,38 @@ impl From<u8> for Look {
     }
 }
 
-/// Apply the selected Look in place over a packed `u8` RGB buffer.
+/// Apply the selected Look to a packed f32 RGB buffer in sRGB-encoded space.
 ///
-/// Buffer layout: row-major, 3 bytes/pixel `[R, G, B, R, G, B, ...]` —
-/// the same shape `view::encode::quantize_u8` returns.
+/// Values must be in `[0, 1]`. Out-of-range values are clamped at index
+/// lookup. Linear interpolation between adjacent LUT entries preserves
+/// smooth gradients and prevents the histogram gaps that caused the
+/// pre-#519 banding bug.
 ///
-/// `Look::Neutral` short-circuits — no work, no allocations, bit-identical
-/// to the input. `Look::Default` does one indexed `u8 -> u8` lookup per
-/// channel; the inner loop is trivially auto-vectorizable.
-pub fn apply(rgb: &mut [u8], look: Look) {
+/// Buffer layout: row-major, 3 lanes/pixel `[R, G, B, R, G, B, ...]`.
+/// `Look::Neutral` short-circuits — no work, no allocations,
+/// bit-identical to the input.
+pub fn apply(rgb: &mut [f32], look: Look) {
     match look {
         Look::Neutral => {}
         Look::Default => {
             for chunk in rgb.chunks_exact_mut(3) {
-                chunk[0] = lut::LUT_R[chunk[0] as usize];
-                chunk[1] = lut::LUT_G[chunk[1] as usize];
-                chunk[2] = lut::LUT_B[chunk[2] as usize];
+                chunk[0] = sample(&lut::LUT_R, chunk[0]);
+                chunk[1] = sample(&lut::LUT_G, chunk[1]);
+                chunk[2] = sample(&lut::LUT_B, chunk[2]);
             }
         }
     }
+}
+
+#[inline(always)]
+fn sample(lut: &[u8; 256], v: f32) -> f32 {
+    let idx = v.clamp(0.0, 1.0) * 255.0;
+    let lo = idx.floor() as usize;
+    let hi = (lo + 1).min(255);
+    let t = idx - lo as f32;
+    let lo_v = lut[lo] as f32 / 255.0;
+    let hi_v = lut[hi] as f32 / 255.0;
+    lo_v + (hi_v - lo_v) * t
 }
 
 #[cfg(test)]
@@ -148,9 +166,9 @@ mod tests {
 
     #[test]
     fn neutral_is_bit_identical_to_input() {
-        let mut buf = vec![0u8; 3 * 64];
-        for (i, b) in buf.iter_mut().enumerate() {
-            *b = (i % 256) as u8;
+        let mut buf = vec![0.0f32; 3 * 64];
+        for (i, v) in buf.iter_mut().enumerate() {
+            *v = ((i % 256) as f32) / 255.0;
         }
         let original = buf.clone();
         apply(&mut buf, Look::Neutral);
@@ -159,8 +177,13 @@ mod tests {
 
     #[test]
     fn default_lut_changes_buffer_for_non_default_input() {
-        // Pick mid-gray (128) — the LUT is non-identity at most input values.
-        let mut buf: Vec<u8> = (0u8..=255).flat_map(|v| [v, v, v]).collect();
+        // Mid-gray sweep — the LUT is non-identity at most input values.
+        let mut buf: Vec<f32> = (0u8..=255)
+            .flat_map(|v| {
+                let f = v as f32 / 255.0;
+                [f, f, f]
+            })
+            .collect();
         let original = buf.clone();
         apply(&mut buf, Look::Default);
         assert_ne!(
@@ -173,17 +196,14 @@ mod tests {
     fn default_lut_per_channel_independent() {
         // R, G, B at the same input value should map to (potentially)
         // different outputs because each channel has its own LUT.
-        let mut buf = vec![128u8, 128, 128];
+        let mid = 128.0f32 / 255.0;
+        let mut buf = vec![mid, mid, mid];
         apply(&mut buf, Look::Default);
-        // The empirical LUTs at 128 are roughly R≈140, G≈145, B≈189 —
-        // exact values come from `look_lut.rs`. We only assert that the
-        // three channels did not all converge to the same value: that
-        // would mean per-channel routing is broken.
         let r = buf[0];
         let g = buf[1];
         let b = buf[2];
         assert!(
-            r != g || g != b,
+            (r - g).abs() > 1e-6 || (g - b).abs() > 1e-6,
             "Per-channel LUTs collapsed to identical output: ({r}, {g}, {b})"
         );
     }
@@ -227,12 +247,76 @@ mod tests {
 
     #[test]
     fn buffer_with_partial_pixel_is_safe() {
-        // `chunks_exact_mut(3)` skips any trailing bytes that don't fill a
+        // `chunks_exact_mut(3)` skips any trailing lanes that don't fill a
         // full pixel — the function must not panic on a length-mismatched
         // buffer (defensive: real callers always pass `3 * w * h`).
-        let mut buf = vec![10u8, 20, 30, 40]; // 4 bytes — one full RGB + 1 stray
+        let mut buf = vec![10.0f32 / 255.0, 20.0 / 255.0, 30.0 / 255.0, 40.0 / 255.0];
+        let stray_original = buf[3];
         apply(&mut buf, Look::Default);
-        // Stray byte at index 3 is left untouched.
-        assert_eq!(buf[3], 40);
+        // Stray lane at index 3 is left untouched.
+        assert_eq!(buf[3], stray_original);
+    }
+
+    #[test]
+    fn sample_at_half_step_averages_neighbors() {
+        // Linear LUT: lut[i] = i. Sampling at 100.5/255 should land
+        // exactly between lut[100]/255 and lut[101]/255 — i.e. 100.5/255.
+        let mut lut = [0u8; 256];
+        for (i, slot) in lut.iter_mut().enumerate() {
+            *slot = i as u8;
+        }
+        let v = sample(&lut, 100.5 / 255.0);
+        let expected = 100.5 / 255.0;
+        assert!(
+            (v - expected).abs() < 1e-4,
+            "sample at half-step: got {v}, expected {expected}"
+        );
+    }
+
+    #[test]
+    fn default_lut_no_histogram_gaps_on_linear_ramp() {
+        // 4096-step linear ramp — finer than 256 so the pre-#519
+        // `u8 → u8` LUT would have collapsed runs of inputs into the
+        // same output bin, leaving u8 indices empty (visible banding
+        // signature). With f32 linear interpolation, the LUT output
+        // sweeps continuously through every reachable u8 bin in the
+        // interior of its range.
+        let ramp: Vec<f32> = (0..4096).map(|i| i as f32 / 4095.0).collect();
+        let mut rgb: Vec<f32> = ramp.iter().flat_map(|&v| [v, v, v]).collect();
+        apply(&mut rgb, Look::Default);
+        let mut hist = [0u32; 256];
+        for chunk in rgb.chunks_exact(3) {
+            let q = (chunk[0].clamp(0.0, 1.0) * 255.0).round() as u8;
+            hist[q as usize] += 1;
+        }
+        // Interior of the curve's reachable range. The empirical LUT
+        // lifts shadows (`LUT_R[0]` ~ 7) and ceils highlights
+        // (`LUT_R[255]` ~ 250), so we skip the first few bins and the
+        // tail — those are correctly empty by construction.
+        for i in 25..240 {
+            assert!(
+                hist[i] > 0,
+                "histogram gap at {i} (banding bug returned) — hist={:?}",
+                &hist[i.saturating_sub(2)..(i + 3).min(256)]
+            );
+        }
+    }
+
+    #[test]
+    fn default_lut_endpoints_match_table_entries() {
+        // The f32 sampler at exactly 0 / 1 must return the LUT's first /
+        // last entry verbatim — the linear interpolation should not
+        // bias the endpoints.
+        let mut buf = vec![0.0f32, 0.0, 0.0];
+        apply(&mut buf, Look::Default);
+        assert!((buf[0] - lut::LUT_R[0] as f32 / 255.0).abs() < 1e-6);
+        assert!((buf[1] - lut::LUT_G[0] as f32 / 255.0).abs() < 1e-6);
+        assert!((buf[2] - lut::LUT_B[0] as f32 / 255.0).abs() < 1e-6);
+
+        let mut buf = vec![1.0f32, 1.0, 1.0];
+        apply(&mut buf, Look::Default);
+        assert!((buf[0] - lut::LUT_R[255] as f32 / 255.0).abs() < 1e-6);
+        assert!((buf[1] - lut::LUT_G[255] as f32 / 255.0).abs() < 1e-6);
+        assert!((buf[2] - lut::LUT_B[255] as f32 / 255.0).abs() < 1e-6);
     }
 }
