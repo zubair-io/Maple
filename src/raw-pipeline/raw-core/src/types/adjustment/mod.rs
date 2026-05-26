@@ -180,6 +180,35 @@ impl Default for WbMethod {
     }
 }
 
+/// Per-image auto-exposure mode (ticket #429).
+///
+/// AgX expects the scene to land at mid-gray 0.18 by default. Without a
+/// real anchor, different cameras / scenes land at different points on
+/// the AgX sigmoid → inconsistent brightness across bodies. The
+/// `auto_exposure` stage measures the scene's mid-tone (geometric mean of
+/// luma in the middle 50% percentile band) and applies a scalar gain that
+/// pushes it to 0.18 BEFORE AgX. User exposure (`AdjustmentModel::exposure`,
+/// applied in `stages::scene_tone_controls`) stacks additively in EV on
+/// top: `final_gain = scene_anchor_gain * 2^user_ev`.
+///
+/// Default is `On`. Users can opt out per-image via
+/// `papp:AutoExposure="Off"` in the XMP sidecar — useful for strict
+/// scene-referred output where the absolute scene-linear value matters
+/// (e.g. matching a reference renderer's exposure exactly).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoExposureMode {
+    /// Skip scene anchoring — pixels enter AgX at their raw post-DCP scale.
+    Off,
+    /// Anchor scene mid-gray to 0.18 before AgX (default).
+    On,
+}
+
+impl Default for AutoExposureMode {
+    fn default() -> Self {
+        Self::On
+    }
+}
+
 /// Per-image develop settings.
 ///
 /// This struct's field order, types, and ranges are the canonical reference
@@ -259,6 +288,13 @@ pub struct AdjustmentModel {
     pub dehaze: f32,         // -100..100, default 0
     pub highlight_recovery: HighlightRecoveryMode,
 
+    /// Per-image auto-exposure mode (ticket #429). Default `On` — places
+    /// scene mid-gray at 0.18 before AgX so every camera/scene lands at
+    /// the same point on the AgX sigmoid by default. `exposure` stacks
+    /// additively in EV on top: `final = scene * anchor_gain * 2^exposure`.
+    /// Set to `Off` for strict scene-referred output.
+    pub auto_exposure: AutoExposureMode,
+
     /// DisplayLookCurve (ticket #371). `Look::Default` ships the empirically-
     /// derived 1D LUT that closes ~65% of the bias-to-ACR gap; `Look::Neutral`
     /// short-circuits the stage for strict scene-referred output. Defaults to
@@ -337,6 +373,10 @@ impl Default for AdjustmentModel {
             nr_color: 25.0,
             dehaze: 0.0,
             highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
+            // Per-#429: scene-anchor on by default — places mid-gray at
+            // 0.18 before AgX. Users can opt out per-image for strict
+            // scene-referred output.
+            auto_exposure: AutoExposureMode::On,
             look: Look::Default,
             local_adjustments: Vec::new(),
             // Per-#436: `PerChannel` is the pre-existing behavior. Default

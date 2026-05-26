@@ -411,3 +411,19 @@ fn parse_capture_sharpening_sigma_seen_does_not_leak_across_elements() {
         m.capture_sharpening_sigma
     );
 }
+
+// AutoExposure (ticket #429). Sidecars predating the PR have no
+// `papp:AutoExposure` and must pick up `On` automatically.
+#[test]
+fn parse_auto_exposure_modes() {
+    fn mode(v: &str) -> AutoExposureMode {
+        let x = format!(r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:AutoExposure="{v}"/></x>"#);
+        parse(&x).unwrap().auto_exposure
+    }
+    assert_eq!(mode("Off"), AutoExposureMode::Off);
+    assert_eq!(mode("on"),  AutoExposureMode::On);
+    let absent = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x" crs:Exposure2012="0.5"/></x>"#;
+    assert_eq!(parse(absent).unwrap().auto_exposure, AutoExposureMode::On);
+    let bad = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:AutoExposure="auto"/></x>"#;
+    assert!(parse(bad).is_err());
+}

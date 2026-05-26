@@ -42,12 +42,6 @@ pub use render::{
 pub use scene_linear_chain::apply_scene_linear_chain;
 pub use tile::{render_scene_linear_tile_from_raw_with_quality, TILE_OVERLAP_PX};
 
-/// Engine default for the histogram-shape AE clip percentage. 0.02% of
-/// pixels at each end of the histogram are allowed to clip when computing
-/// black-point and white-clip thresholds. See
-/// `stages::auto_exposure::compute_auto_exposure`.
-pub(crate) const AUTO_EXPOSURE_CLIP_PCT: f32 = 0.02;
-
 /// Wraps a pipeline stage with `Instant::now()` timing, emitting one line
 /// to stderr when `MAPLE_PROFILE` is set in the environment. When unset
 /// the only cost is a single `Instant::now()` call and a `getenv` —
