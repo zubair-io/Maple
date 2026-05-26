@@ -95,6 +95,7 @@ function capturingMeili(): CapturingMeili {
     tombstones,
     upserts,
     isConfigured: () => true,
+    semanticConfigured: () => false,
     health: async () => true,
     ensureIndex: async () => {},
     upsert: async (doc) => {
@@ -455,6 +456,7 @@ describe('POST /api/assets/:id/restore', () => {
     if (!mongoReachable) return;
     const failing: MeilisearchClient = {
       isConfigured: () => true,
+      semanticConfigured: () => false,
       health: async () => true,
       ensureIndex: async () => {},
       upsert: async () => {

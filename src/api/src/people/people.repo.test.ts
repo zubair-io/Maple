@@ -451,3 +451,74 @@ describe('people.repo — hideFace', () => {
     expect(afterList.find((r) => r.person.name === 'Jane')?.faceCount).toBe(1);
   });
 });
+
+describe('people-search-reindex — markAssetsForMeiliReindex', () => {
+  it('resets stages.meili.version to 0 on assets carrying a matching face', async () => {
+    if (!mongoReachable) return;
+    const { markAssetsForMeiliReindex } = await import('./people-search-reindex.ts');
+    const personId = new ObjectId();
+    const otherPersonId = new ObjectId();
+    const matching = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 0.2, h: 0.2 }, person_id: personId.toHexString(), confidence: 0.9 },
+    ]);
+    const unrelated = await insertAssetWithFaces([
+      {
+        bbox: { x: 0, y: 0, w: 0.2, h: 0.2 },
+        person_id: otherPersonId.toHexString(),
+        confidence: 0.9,
+      },
+    ]);
+    // Mark both as already-indexed at v6 with dead-letter bookkeeping set.
+    await db!
+      .collection('assets')
+      .updateMany(
+        { _id: { $in: [matching, unrelated] } },
+        { $set: { 'stages.meili': { version: 6, dead: true, attempts: 3, last_error: 'x' } } },
+      );
+
+    const modified = await markAssetsForMeiliReindex([personId]);
+    expect(modified).toBe(1);
+
+    const m = await db!.collection('assets').findOne({ _id: matching });
+    const u = await db!.collection('assets').findOne({ _id: unrelated });
+    const ms = (m as { stages?: { meili?: Record<string, unknown> } }).stages?.meili ?? {};
+    const us = (u as { stages?: { meili?: Record<string, unknown> } }).stages?.meili ?? {};
+    // Matching asset is re-queued (version < targetVersion) with cleared
+    // dead-letter state.
+    expect(ms.version).toBe(0);
+    expect(ms.dead).toBe(false);
+    expect(ms.attempts).toBe(0);
+    expect(ms.last_error).toBeNull();
+    // Unrelated asset is untouched.
+    expect(us.version).toBe(6);
+  });
+
+  it('is a no-op for an empty id list', async () => {
+    if (!mongoReachable) return;
+    const { markAssetsForMeiliReindex } = await import('./people-search-reindex.ts');
+    expect(await markAssetsForMeiliReindex([])).toBe(0);
+  });
+
+  it("renamePerson re-queues the renamed person's assets", async () => {
+    if (!mongoReachable) return;
+    const { createPerson, assignFaceToPerson, renamePerson } = await import('./people.repo.ts');
+    const p = await createPerson('Rho');
+    const asset = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 0.2, h: 0.2 }, person_id: null, confidence: 0.9 },
+    ]);
+    await assignFaceToPerson(asset, 0, p._id);
+    await db!
+      .collection('assets')
+      .updateOne({ _id: asset }, { $set: { 'stages.meili.version': 6 } });
+    await renamePerson(p._id, 'RhoRenamed');
+    // The reindex is fire-and-forget; poll briefly for the reset to land.
+    let version: unknown = 6;
+    for (let i = 0; i < 20; i += 1) {
+      const row = await db!.collection('assets').findOne({ _id: asset });
+      version = (row as { stages?: { meili?: { version?: unknown } } }).stages?.meili?.version;
+      if (version === 0) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(version).toBe(0);
+  });
+});

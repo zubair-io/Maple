@@ -1,6 +1,7 @@
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, mock } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import type { ImageDoc } from '../run-stage.ts';
+import type { AssetFaceDoc } from '../../db/schema.ts';
 import type {
   MeilisearchClient,
   MeilisearchAssetDoc,
@@ -62,6 +63,7 @@ function capturingClient(): {
   const upserts: MeilisearchAssetDoc[] = [];
   const client: MeilisearchClient = {
     isConfigured: () => true,
+    semanticConfigured: () => false,
     health: async () => true,
     ensureIndex: async () => {},
     upsert: async (doc) => {
@@ -79,6 +81,7 @@ function capturingClient(): {
 function failingClient(): MeilisearchClient {
   return {
     isConfigured: () => true,
+    semanticConfigured: () => false,
     health: async () => true,
     ensureIndex: async () => {},
     upsert: async () => {
@@ -95,6 +98,7 @@ function failingClient(): MeilisearchClient {
 function unconfiguredClient(): MeilisearchClient {
   return {
     isConfigured: () => false,
+    semanticConfigured: () => false,
     health: async () => false,
     ensureIndex: async () => {},
     upsert: async () => {},
@@ -231,6 +235,73 @@ describe('meiliHandler — unconfigured Meilisearch', () => {
     // Blob includes tokens from all three sources.
     const tokens = patch.search_blob.split(' ');
     expect(tokens).toContain('albany');
+  });
+});
+
+describe('resolveAssetPeopleNames + people in the doc/blob', () => {
+  // A fake person row set keyed by hex id. The mocked peopleCollection's
+  // find() filters by `_id $in` and `merged_into: null`, mirroring the real
+  // query shape closely enough to exercise the exclusion logic.
+  const PERSON_A = new ObjectId();
+  const PERSON_AUTO = new ObjectId();
+  const PERSON_MERGED = new ObjectId();
+  const personRows = [
+    { _id: PERSON_A, name: 'Greyson', merged_into: null },
+    // Auto-generated cluster name — must be excluded from the index.
+    { _id: PERSON_AUTO, name: 'Person 7', merged_into: null },
+    // Merged row — must be excluded.
+    { _id: PERSON_MERGED, name: 'Maya', merged_into: new ObjectId() },
+  ];
+
+  function facesFor(...ids: ObjectId[]): AssetFaceDoc[] {
+    return ids.map((id) => ({
+      bbox: { x: 0, y: 0, w: 0.1, h: 0.1 },
+      person_id: id.toHexString(),
+      confidence: 0.99,
+    }));
+  }
+
+  it('folds named people into the doc + blob, excluding Person N and merged', async () => {
+    const realDbClient = await import('../../db/client.ts');
+    try {
+      mock.module('../../db/client.ts', () => ({
+        ...realDbClient,
+        peopleCollection: async () => ({
+          find: (filter: { _id: { $in: ObjectId[] }; merged_into: null }) => {
+            const idSet = new Set(filter._id.$in.map((o) => o.toHexString()));
+            const matched = personRows.filter(
+              (r) => idSet.has(r._id.toHexString()) && r.merged_into === null,
+            );
+            return {
+              project: () => ({
+                toArray: async () => matched.map((r) => ({ name: r.name })),
+              }),
+            };
+          },
+        }),
+      }));
+      const { meiliHandler: freshHandler, setMeilisearchClientForTests: setFresh } =
+        await import('./meili.ts');
+      const { client, upserts } = capturingClient();
+      setFresh(client);
+      const doc = {
+        ...fakeDoc(),
+        faces: facesFor(PERSON_A, PERSON_AUTO, PERSON_MERGED),
+      } as ImageDoc;
+      const result = await freshHandler(doc, fakeCtx);
+      expect(upserts.length).toBe(1);
+      const u = upserts[0]!;
+      // Only the real, live, non-auto name lands in the doc.
+      expect(u.people).toEqual(['Greyson']);
+      // …and in the unified blob.
+      expect(u.searchBlob.split(' ')).toContain('greyson');
+      // The patch blob (Mongo fallback) carries it too.
+      const patch = (result as { patch: { search_blob: string } }).patch;
+      expect(patch.search_blob.split(' ')).toContain('greyson');
+      setFresh(null);
+    } finally {
+      mock.module('../../db/client.ts', () => realDbClient);
+    }
   });
 });
 

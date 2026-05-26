@@ -17,7 +17,14 @@ import { meilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { child as childLogger } from '../../log.ts';
 import type { AssetDoc } from '../../db/schema.ts';
 import { projectAsset } from './project.ts';
-import { applyLiveFilter, buildFilter, clampInt, SearchQueryT, type SearchQuery } from './query.ts';
+import {
+  applyLiveFilter,
+  buildFilter,
+  clampInt,
+  extractDatesFromQuery,
+  SearchQueryT,
+  type SearchQuery,
+} from './query.ts';
 import { pickSort, SORT_OPTIONS } from './sort.ts';
 
 const searchLog = childLogger('search');
@@ -25,7 +32,12 @@ const searchLog = childLogger('search');
 export const listRoute = new Elysia().get(
   '/',
   async ({ query, set }) => {
-    const filterOrError = buildFilter(query as SearchQuery);
+    // Natural-language dates: resolve "May 5" / "2023" / "last summer" out
+    // of placeQuery into structured from/to, and strip the matched span so
+    // the residual free-text drives the text/Meili path. Pure-date queries
+    // ("2023") leave an empty residual and skip the text path entirely.
+    const resolved = extractDatesFromQuery(query as SearchQuery);
+    const filterOrError = buildFilter(resolved);
     if ('error' in filterOrError) {
       set.status = 400;
       return { error: filterOrError.error };
@@ -43,11 +55,25 @@ export const listRoute = new Elysia().get(
     // q + camera) doesn't shadow this constraint.
     const finalFilter = applyLiveFilter(filter);
 
-    // When a placeQuery is set, sort by Mongo's textScore first so
-    // closer matches lead the page; tie-break on captured_at desc, then
-    // _id for pagination stability. Otherwise honour the caller's sort.
+    // When a residual placeQuery is set, sort by Mongo's textScore first
+    // so closer matches lead the page; tie-break on captured_at desc, then
+    // _id for pagination stability. Otherwise honour the caller's sort. A
+    // pure-date query ("2023") has an empty residual placeQuery here, so it
+    // bypasses both the Meili path and the Mongo `$text` path and runs as a
+    // plain structured filter on `exif.captured_at`.
     const usingPlaceText =
-      typeof query.placeQuery === 'string' && query.placeQuery.trim().length > 0;
+      typeof resolved.placeQuery === 'string' && resolved.placeQuery.trim().length > 0;
+
+    // Explicit person-name picker — comma-separated names folded into the
+    // Meili `people` filter. The Mongo `$text` fallback already covers
+    // names via search_blob.
+    const peopleNames =
+      typeof resolved.people === 'string' && resolved.people.trim().length > 0
+        ? resolved.people
+            .split(',')
+            .map((p) => p.trim())
+            .filter((p) => p.length > 0)
+        : undefined;
 
     // Phase 7: try Meilisearch first when a placeQuery is present and
     // the sidecar is configured. On miss/error, fall back to the Mongo
@@ -56,9 +82,11 @@ export const listRoute = new Elysia().get(
     const meili = meilisearchClient();
     if (usingPlaceText && meili.isConfigured()) {
       try {
-        const placeQuery = query.placeQuery!.trim();
+        const placeQuery = resolved.placeQuery!.trim();
         const meiliResult = await meili.search(placeQuery, {
           folderId: query.libraryId,
+          people: peopleNames,
+          semantic: meili.semanticConfigured(),
           offset: skip,
           limit,
         });
@@ -111,7 +139,7 @@ export const listRoute = new Elysia().get(
         searchLog.warn(
           {
             err: err instanceof Error ? err.message : String(err),
-            placeQuery: query.placeQuery,
+            placeQuery: resolved.placeQuery,
           },
           'meilisearch query failed; falling back to mongo $text',
         );

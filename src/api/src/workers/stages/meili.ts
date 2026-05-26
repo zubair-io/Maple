@@ -17,11 +17,61 @@
  * rather than spinning forever on an un-fixable invariant violation.
  */
 
+import { ObjectId } from 'mongodb';
 import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
 import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 import { meilisearchClient, type MeilisearchClient } from '../../enrichment/meilisearch-client.ts';
 import { composeSearchBlob } from '../../enrichment/search-blob.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { peopleCollection } from '../../db/client.ts';
+import type { AssetFaceDoc, PersonDoc } from '../../db/schema.ts';
+
+/** Auto-generated cluster names ("Person 1", "Person 12", …). These are
+ * placeholders, not real identities — folding them into the index would
+ * pollute it with the high-frequency token "person", so we exclude them
+ * from both the search blob and the Meili `people` attribute. */
+const AUTO_PERSON_NAME = /^Person \d+$/;
+
+/**
+ * Resolve the named people on an asset from its `faces[].person_id`s.
+ * Dedupes person ids, looks up `peopleCollection`, and returns the names
+ * EXCLUDING auto-generated `Person N` clusters and merged rows
+ * (`merged_into != null`). Returns `[]` (no DB round-trip) when the asset
+ * has no assigned faces, which keeps the no-Mongo / fixture test paths
+ * cheap and offline.
+ */
+export async function resolveAssetPeopleNames(
+  faces: AssetFaceDoc[] | null | undefined,
+): Promise<string[]> {
+  if (!faces || faces.length === 0) return [];
+  const ids: ObjectId[] = [];
+  const seen = new Set<string>();
+  for (const f of faces) {
+    const hex = f.person_id;
+    if (!hex || seen.has(hex)) continue;
+    seen.add(hex);
+    if (!/^[0-9a-f]{24}$/i.test(hex)) continue;
+    try {
+      ids.push(new ObjectId(hex));
+    } catch {
+      // Malformed id — skip.
+    }
+  }
+  if (ids.length === 0) return [];
+  const coll = await peopleCollection();
+  const rows = await coll
+    .find({ _id: { $in: ids }, merged_into: null } as never)
+    .project<{ name: string }>({ name: 1 })
+    .toArray();
+  const names: string[] = [];
+  for (const r of rows) {
+    const name = (r as Pick<PersonDoc, 'name'>).name;
+    if (typeof name === 'string' && name.length > 0 && !AUTO_PERSON_NAME.test(name)) {
+      names.push(name);
+    }
+  }
+  return names;
+}
 
 // Tests inject a fake here; production leaves it null and reads the live
 // module singleton on every call so an operator's `PUT /enrichment/config`
@@ -53,6 +103,10 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
       }
     ).vision ?? null;
 
+  // Named people on this asset — excludes auto-generated `Person N`
+  // clusters and merged rows. `[]` when the asset has no assigned faces.
+  const peopleNames = await resolveAssetPeopleNames(image.faces ?? null);
+
   const blob = composeSearchBlob({
     place: image.place,
     description: image.description,
@@ -61,6 +115,7 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
     visionSetting: vision?.setting ?? null,
     visionActivity: vision?.activity ?? null,
     visionNotableObjects: vision?.notable_objects ?? null,
+    people: peopleNames,
   });
 
   const isScreenshot = (image as unknown as { is_screenshot?: boolean }).is_screenshot ?? null;
@@ -86,6 +141,7 @@ export async function meiliHandler(image: ImageDoc, _ctx: StageContext): Promise
       visionActivity: vision?.activity ?? null,
       visionSubjects: vision?.subjects ?? null,
       isScreenshot,
+      people: peopleNames.length > 0 ? peopleNames : null,
     });
   }
 
@@ -110,7 +166,12 @@ const meiliStage = defineStage({
   // v5: adds `isScreenshot` to the Meilisearch document + filterable
   // attributes for the photos-vs-screenshots filter. Bumping invalidates
   // v4 rows so the index picks up the new field.
-  targetVersion: 5,
+  //
+  // v6: folds named people (from `faces[].person_id`, excluding auto
+  // `Person N` clusters + merged rows) into both the search_blob and the
+  // Meilisearch document's `people` searchable+filterable attribute.
+  // Bumping re-indexes everything so v5 rows learn the people tokens.
+  targetVersion: 6,
   // Only depends on always-on stages. When optional stages (face/ocr/describe/geocode)
   // run later, meili won't automatically re-process to incorporate their outputs.
   // Operator must bump meili.targetVersion or trigger a manual reset to refresh.

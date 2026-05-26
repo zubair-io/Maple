@@ -47,9 +47,11 @@ function makeCapturingMeili(): CapturedMeili {
     tombstones,
     client: {
       isConfigured: () => true,
+      semanticConfigured: () => false,
       health: async () => true,
       ensureIndex: async () => {},
       upsert: async () => {},
+      upsertOrThrow: async () => {},
       tombstone: async (id) => {
         if (c.failNext) {
           c.failNext = false;

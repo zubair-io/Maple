@@ -30,8 +30,22 @@ const log = childLogger('enrichment:meilisearch');
  * gets one index regardless of how many libraries the user has registered. */
 export const ASSETS_INDEX = 'assets';
 
-/** Latest stable v1 features we rely on; bumped when we change the schema. */
-const REQUIRED_SETTINGS_VERSION = 1;
+/** Latest stable v1 features we rely on; bumped when we change the schema.
+ * v2: adds the `people` searchable + filterable attribute and (when the
+ * semantic switch is on) a Meili-managed Ollama `embedders` block. */
+const REQUIRED_SETTINGS_VERSION = 2;
+
+/** Default Ollama base URL — mirrors the describe worker's default
+ * (`MAPLE_DESCRIBE_PROVIDER_URL`). Meilisearch reaches this host to embed
+ * both documents and queries when semantic search is enabled. */
+const DEFAULT_EMBEDDER_BASE_URL = 'http://localhost:11434';
+/** Default Ollama embedding model. `nomic-embed-text` is a small, fast,
+ * widely-available text embedder. */
+const DEFAULT_EMBEDDER_MODEL = 'nomic-embed-text';
+/** Default hybrid blend: 0.5 weights keyword and vector relevance equally. */
+const DEFAULT_SEMANTIC_RATIO = 0.5;
+/** The Meili embedder name we register + reference in hybrid queries. */
+const EMBEDDER_NAME = 'caption';
 
 /** Document shape we push to Meilisearch. Mirror of the unified
  * `asset.search_blob` field plus the per-attribute sources so
@@ -74,11 +88,24 @@ export interface MeilisearchAssetDoc {
   /** Screenshot vs photograph — top-level mirror of `vision.is_screenshot`
    * (or the exif-stage heuristic when describe hasn't run yet). */
   isScreenshot?: boolean | null;
+  /** Named people appearing in this asset — `PersonDoc.name`s resolved from
+   * `faces[].person_id`, EXCLUDING auto-generated `Person N` clusters and
+   * merged rows. Searchable (so "Greyson" matches) and filterable (so an
+   * explicit picker can `people IN [...]`). `null`/omitted when the asset
+   * has no named people. */
+  people?: string[] | null;
 }
 
 export interface MeilisearchSearchOptions {
   /** Hex folder id; passed through to Meilisearch's filter syntax. */
   folderId?: string;
+  /** Person names to constrain results to (filterable `people IN [...]`).
+   * Each value is escaped before injection. */
+  people?: string[];
+  /** When true, run a hybrid (keyword + vector) query against the managed
+   * `caption` embedder. Ignored unless `semanticConfigured()` is true; the
+   * route passes `meili.semanticConfigured()` so this is self-gating. */
+  semantic?: boolean;
   /** Pagination. Defaults match the search route. */
   offset?: number;
   limit?: number;
@@ -96,6 +123,10 @@ export interface MeilisearchSearchResult {
 export interface MeilisearchClient {
   /** Whether the client is configured (URL set in env). */
   isConfigured(): boolean;
+  /** Whether semantic (hybrid vector) search is enabled — the master
+   * switch is on AND the client is configured. The route passes this as
+   * the `semantic` flag so hybrid is opt-in and degrades to keyword. */
+  semanticConfigured(): boolean;
   /** Reachability check used at boot. Returns false on any error
    * (unconfigured, unreachable, 4xx, etc.) so the caller can warn-and-continue. */
   health(): Promise<boolean>;
@@ -118,13 +149,31 @@ export interface MeilisearchClient {
 interface ClientConfig {
   url: string | undefined;
   apiKey: string | undefined;
+  /** Master switch for semantic/hybrid search. Default OFF so existing
+   * deployments are unaffected and Meili↔Ollama coordination is opt-in. */
+  semantic: boolean;
+  /** Ollama base URL Meili embeds against. */
+  embedderUrl: string;
+  /** Ollama embedding model id. */
+  embedderModel: string;
+  /** Hybrid semantic ratio (0 = pure keyword, 1 = pure vector). */
+  semanticRatio: number;
   fetchImpl: typeof fetch;
 }
 
 function readConfig(): ClientConfig {
+  const ratioRaw = process.env.MAPLE_MEILISEARCH_SEMANTIC_RATIO?.trim();
+  const ratio = ratioRaw !== undefined && ratioRaw.length > 0 ? Number(ratioRaw) : NaN;
   return {
     url: process.env.MAPLE_MEILISEARCH_URL?.trim() || undefined,
     apiKey: process.env.MAPLE_MEILISEARCH_API_KEY?.trim() || undefined,
+    semantic: process.env.MAPLE_MEILISEARCH_SEMANTIC?.trim() === 'true',
+    embedderUrl:
+      process.env.MAPLE_MEILISEARCH_EMBEDDER_URL?.trim() ||
+      process.env.MAPLE_DESCRIBE_PROVIDER_URL?.trim() ||
+      DEFAULT_EMBEDDER_BASE_URL,
+    embedderModel: process.env.MAPLE_MEILISEARCH_EMBEDDER_MODEL?.trim() || DEFAULT_EMBEDDER_MODEL,
+    semanticRatio: Number.isFinite(ratio) ? ratio : DEFAULT_SEMANTIC_RATIO,
     fetchImpl: globalThis.fetch.bind(globalThis),
   };
 }
@@ -223,6 +272,16 @@ function buildFilter(opts: MeilisearchSearchOptions): string {
     const safe = opts.folderId.replace(/[^a-f0-9]/gi, '');
     if (safe.length > 0) clauses.push(`folderId = "${safe}"`);
   }
+  if (opts.people !== undefined && opts.people.length > 0) {
+    // `people IN ["A", "B"]` — names are operator-controlled but may
+    // contain quotes/backslashes; escape them so the filter expression
+    // stays well-formed and can't be broken out of.
+    const names = opts.people
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0)
+      .map((p) => `"${p.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+    if (names.length > 0) clauses.push(`people IN [${names.join(', ')}]`);
+  }
   return clauses.join(' AND ');
 }
 
@@ -235,6 +294,10 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
   return {
     isConfigured(): boolean {
       return isLive(cfg);
+    },
+
+    semanticConfigured(): boolean {
+      return isLive(cfg) && cfg.semantic;
     },
 
     async health(): Promise<boolean> {
@@ -274,15 +337,30 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
           'meilisearch ensureIndex create-index failed',
         );
       }
+      // When semantic search is enabled, turn on the experimental
+      // vector-store feature once. GA Meili builds (≥ v1.13 with vectors
+      // on by default) return 404 here — swallow it; the embedders block
+      // below is what actually matters.
+      if (cfg.semantic) {
+        const exp = await http<unknown>(cfg, 'PATCH', '/experimental-features', {
+          vectorStore: true,
+        });
+        if (!exp.ok && exp.status !== 404) {
+          log.warn(
+            { status: exp.status, err: exp.errorText },
+            'meilisearch ensureIndex enable-vectorStore failed',
+          );
+        }
+      }
       // Always (re-)apply settings — these are idempotent on Meilisearch's
       // side and let us rev `REQUIRED_SETTINGS_VERSION` later when we add
       // new searchable/filterable attributes.
-      const settings = await http<unknown>(cfg, 'PATCH', `/indexes/${ASSETS_INDEX}/settings`, {
+      const settingsBody: Record<string, unknown> = {
         // Order is the per-attribute weighting Meilisearch applies:
         // searchBlob (unified, includes everything) ranks first, then
         // description (LLM caption — higher signal than chrome), then
-        // ocrText (often UI/menu strings).
-        searchableAttributes: ['searchBlob', 'description', 'ocrText'],
+        // people (named identities), then ocrText (often UI/menu strings).
+        searchableAttributes: ['searchBlob', 'description', 'people', 'ocrText'],
         filterableAttributes: [
           'folderId',
           'deletedAt',
@@ -290,9 +368,29 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
           'visionActivity',
           'visionSubjects',
           'isScreenshot',
+          'people',
         ],
         sortableAttributes: ['capturedAt'],
-      });
+      };
+      // Register a Meili-managed Ollama embedder so Meili embeds both the
+      // documents (via the template) and the query — no in-process embedding
+      // on the hot search path. Only when the master switch is on.
+      if (cfg.semantic) {
+        settingsBody.embedders = {
+          [EMBEDDER_NAME]: {
+            source: 'ollama',
+            url: joinUrl(cfg.embedderUrl, '/api/embeddings'),
+            model: cfg.embedderModel,
+            documentTemplate: '{{ doc.searchBlob }} {{ doc.description }} {{ doc.people }}',
+          },
+        };
+      }
+      const settings = await http<unknown>(
+        cfg,
+        'PATCH',
+        `/indexes/${ASSETS_INDEX}/settings`,
+        settingsBody,
+      );
       if (!settings.ok) {
         log.warn(
           { status: settings.status, err: settings.errorText },
@@ -338,13 +436,28 @@ export function createMeilisearchClient(override?: Partial<ClientConfig>): Meili
       if (!isLive(cfg)) {
         return { ids: [], estimatedTotal: 0 };
       }
-      const r = await http<MeiliSearchResponse>(cfg, 'POST', `/indexes/${ASSETS_INDEX}/search`, {
+      const body: Record<string, unknown> = {
         q,
         filter: buildFilter(opts),
         offset: opts.offset ?? 0,
         limit: opts.limit ?? 100,
         attributesToRetrieve: ['id'],
-      });
+      };
+      // Hybrid (keyword + vector) only when the caller asked AND the
+      // switch is on. A hybrid 4xx still throws below so the route falls
+      // back to Mongo `$text`.
+      if (opts.semantic && cfg.semantic) {
+        body.hybrid = {
+          embedder: EMBEDDER_NAME,
+          semanticRatio: cfg.semanticRatio,
+        };
+      }
+      const r = await http<MeiliSearchResponse>(
+        cfg,
+        'POST',
+        `/indexes/${ASSETS_INDEX}/search`,
+        body,
+      );
       if (!r.ok || !r.body) {
         // Throw so the search route's try/catch falls back to Mongo. The
         // route logs the fallback at warn level.
