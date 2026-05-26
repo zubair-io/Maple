@@ -75,6 +75,44 @@ pub fn apply(img: &mut Image, texture: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stages::blur::gaussian_blur_plane;
+
+    /// "Broken" reference implementation: per-channel unsharp instead of
+    /// luma-scaled. This is the regression mode the ticket flags — pre-#206
+    /// clarity / pre-#265 texture both shipped per-channel unsharps that
+    /// fringed at coloured edges. Used by
+    /// `broken_per_channel_reference_does_drift_chroma` below to prove the
+    /// no-chroma-drift assertions in the real test (above) would fire on a
+    /// regression. Not called by production code.
+    fn apply_broken_per_channel(img: &mut Image, texture: f32) {
+        img.assert_space(ColorSpace::SceneLinearRec2020);
+        if texture.abs() < 1e-3 { return; }
+        let amount = texture / 100.0;
+        let w = img.width as usize;
+        let h = img.height as usize;
+        // Per-channel base via a separable Gaussian blur (matches the
+        // pre-#206 unsharp pattern: blur each channel, subtract for detail,
+        // amplify, add back). Using gaussian_blur_plane here keeps the
+        // reference cheap and obviously distinct from the luma-only path.
+        let mut planes: [Vec<f32>; 3] = [
+            img.pixels.iter().map(|p| p[0]).collect(),
+            img.pixels.iter().map(|p| p[1]).collect(),
+            img.pixels.iter().map(|p| p[2]).collect(),
+        ];
+        let radius = TEXTURE_GUIDED_RADIUS.max(1);
+        let blurred: [Vec<f32>; 3] = [
+            gaussian_blur_plane(&planes[0], w, h, radius),
+            gaussian_blur_plane(&planes[1], w, h, radius),
+            gaussian_blur_plane(&planes[2], w, h, radius),
+        ];
+        for i in 0..img.pixels.len() {
+            for c in 0..3 {
+                let detail = planes[c][i] - blurred[c][i];
+                planes[c][i] = planes[c][i] + detail * amount;
+            }
+            img.pixels[i] = [planes[0][i], planes[1][i], planes[2][i]];
+        }
+    }
 
     #[test]
     fn identity_at_zero() {
@@ -203,6 +241,59 @@ mod tests {
                     "grey-side pixel {}: G-B drifted: {:?}", i, p);
             }
         }
+    }
+
+    /// Control test for `preserves_chromaticity_across_a_saturated_edge`:
+    /// run the broken per-channel reference on the same fixture and assert
+    /// that it DOES drift chroma. This proves the assertion mechanism in
+    /// the real test would catch a regression to per-channel unsharp —
+    /// without it, a future "simplification" back to per-channel could
+    /// silently slip through if the saturated-edge assertions were vacuous.
+    ///
+    /// PR #450 did the same negative-case validation for clarity by hand
+    /// (inverting the implementation locally); this test pins it
+    /// permanently for texture. Closes part of #457.
+    #[test]
+    fn broken_per_channel_reference_does_drift_chroma() {
+        let w = 16usize;
+        let h = 1usize;
+        let mut img = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
+        for (i, p) in img.pixels.iter_mut().enumerate() {
+            *p = if i < w / 2 {
+                [1.0, 0.0, 0.0] // fully saturated red
+            } else {
+                [0.5, 0.5, 0.5] // neutral grey
+            };
+        }
+        apply_broken_per_channel(&mut img, 100.0);
+
+        // Inverted-impl expectation: the per-channel unsharp must drift
+        // chroma somewhere on this fixture. Either the red-side zero
+        // channels lift off zero, or the grey-side neutrality breaks
+        // (R != G or G != B). At least one of these must fire — if both
+        // hold, the broken reference isn't actually drifting and the real
+        // test is vacuous. We check ALL pixels because the edge is
+        // narrow; the broken-impl drift is largest at the transition.
+        let mut red_zero_leaked = false;
+        let mut grey_lost_neutrality = false;
+        for (i, p) in img.pixels.iter().enumerate() {
+            if i < w / 2 {
+                if p[1].abs() > 1e-4 || p[2].abs() > 1e-4 {
+                    red_zero_leaked = true;
+                }
+            } else {
+                if (p[0] - p[1]).abs() > 1e-4 || (p[1] - p[2]).abs() > 1e-4 {
+                    grey_lost_neutrality = true;
+                }
+            }
+        }
+        assert!(
+            red_zero_leaked || grey_lost_neutrality,
+            "control failed: broken per-channel reference did NOT drift chroma — \
+             the real preserves_chromaticity_across_a_saturated_edge assertions \
+             would not bite on a regression. Pixels: {:?}",
+            img.pixels,
+        );
     }
 
     #[test]
