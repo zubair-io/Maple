@@ -270,6 +270,29 @@ fn parse_highlight_recovery_invalid_is_error() {
     assert!(parse(xml).is_err());
 }
 
+#[test]
+fn parses_papp_highlight_recovery_mode_oklab_chroma_reduction() {
+    // Ticket #471: post-DCP Oklab chroma reduction is an opt-in variant.
+    // Verify the XMP parser accepts both the canonical PascalCase token and
+    // its lowercase alias, matching the convention used for the other
+    // variants above.
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:HighlightRecoveryMode="OklabChromaReduction"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(
+        m.highlight_recovery,
+        HighlightRecoveryMode::OklabChromaReduction
+    );
+
+    let xml_lower = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:HighlightRecoveryMode="oklabchromareduction"/></x>"#;
+    let m = parse(xml_lower).unwrap();
+    assert_eq!(
+        m.highlight_recovery,
+        HighlightRecoveryMode::OklabChromaReduction
+    );
+}
+
 // -----------------------------------------------------------------
 // DisplayLookCurve (ticket #371).
 // -----------------------------------------------------------------
