@@ -6,9 +6,12 @@
 import SwiftUI
 import MapleCore
 import MapleBackup
+import OSLog
 #if canImport(UIKit)
 import UIKit
 #endif
+
+private let signInLog = Logger(subsystem: "app.justmaple.aperture", category: "signin")
 
 @main
 struct MapleApp: App {
@@ -266,7 +269,16 @@ private struct SelfHostedSettingsTab: View {
                 onDismiss: { showAddSheet = false },
                 onSignedIn: { url, tokens, _ in
                     Task { @MainActor in
-                        try? TokenStore.save(tokens, server: url)
+                        // Don't swallow a save failure: if the token can't be
+                        // persisted the app silently keeps using whatever was
+                        // stored before (e.g. a stale token from before a
+                        // server rebuild), which surfaces as "bad signature"
+                        // 401s with no obvious cause.
+                        do {
+                            try TokenStore.save(tokens, server: url)
+                        } catch {
+                            signInLog.error("failed to persist tokens for \(url.absoluteString, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                        }
                         registry.register(url)
                         showAddSheet = false
                     }
