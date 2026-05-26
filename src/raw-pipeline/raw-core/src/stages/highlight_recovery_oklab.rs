@@ -14,8 +14,9 @@
 //!
 //! ### Algorithm
 //!
-//! For each pixel where any channel exceeds 1.0 (the Rec.2020 display
-//! reference white in scene-linear space):
+//! For each pixel that is **post-DCP sensor-clipped** — i.e. at least one
+//! Rec.2020 channel exceeds `1.0` (the post-white-balance, post-DCP sensor
+//! saturation point):
 //!
 //! 1. Convert RGB → Oklab.
 //! 2. Binary-search a scale factor `k ∈ [0, 1]` such that scaling `(a, b)` by
@@ -26,6 +27,26 @@
 //! Oklab hue angle — exactly for any `k > 0`. That's the hue-preservation
 //! guarantee in the ticket. Lightness `L` is left untouched, so the pixel
 //! stays as bright as the input; only its chromatic excursion shrinks.
+//!
+//! ### "Sensor-clipped" vs "out of gamut" — important nuance
+//!
+//! The `>1.0` predicate here is **not** an "out-of-gamut" check. The working
+//! space (`ColorSpace::SceneLinearRec2020`) is intentionally unbounded
+//! scene-linear Rec.2020 D65 — values above `1.0` are legitimate scene
+//! headroom (specular highlights, HDR content) that downstream stages
+//! (AgX view transform) compress into display range. Genuine
+//! "out-of-gamut" checks in this codebase test for *negative* Rec.2020
+//! channels (see `stages::saturation::GAMUT_EPS` and the
+//! `min(channel) >= -GAMUT_EPS` predicate there).
+//!
+//! Instead, `1.0` here represents **post-WB / post-DCP sensor saturation**:
+//! the level at which the raw sensor lost information at capture time.
+//! Pixels above `1.0` after the DCP stage are the targets of highlight
+//! recovery — they're the ones with broken hue/luminance relationships
+//! because one or more channels clipped at the sensor. The variant's job is
+//! to pull chroma in just enough to put those channels back below the
+//! sensor-clip line while preserving the perceptual hue we recovered from
+//! the un-clipped channels.
 //!
 //! ### Pipeline placement
 //!
@@ -41,9 +62,25 @@ use crate::{
     xmp::HighlightRecoveryMode,
 };
 
-/// Margin above 1.0 we accept as "in gamut". Matches the `EPSILON` in the
-/// sibling camera-native variant for consistency.
+/// Numerical slack above the `1.0` post-DCP sensor-saturation line that we
+/// still treat as "below the sensor clip" — accounts for f32 round-trip
+/// noise on the Oklab matrix chain. Matches the `EPSILON` in the sibling
+/// camera-native variant for consistency. NOT a gamut tolerance — the
+/// working space is unbounded scene-linear Rec.2020 (see module docs).
 const CEILING_EPSILON: f32 = 0.005;
+
+/// Predicate: returns `true` when any Rec.2020 channel exceeds the post-DCP
+/// sensor-clip line (`1.0 + CEILING_EPSILON`). This is **NOT** a gamut
+/// check — values `> 1.0` are legitimate scene headroom in the unbounded
+/// scene-linear Rec.2020 D65 working space. Genuine out-of-gamut checks
+/// test for negative channels (see `stages::saturation`). `1.0`
+/// represents the post-WB / post-DCP sensor saturation point: pixels above
+/// it lost information at the sensor and are the targets of highlight
+/// recovery.
+#[inline]
+fn is_post_dcp_sensor_clipped(rgb: [f32; 3]) -> bool {
+    rgb[0].max(rgb[1]).max(rgb[2]) > 1.0 + CEILING_EPSILON
+}
 
 /// Number of binary-search iterations. 15 halvings → resolution `~3e-5` on
 /// the `[0, 1]` scale factor, comfortably below the f32 round-trip noise on
@@ -63,31 +100,31 @@ pub fn apply_post_dcp(img: &mut Image, mode: HighlightRecoveryMode) {
 
 fn apply_oklab_chroma_reduction(img: &mut Image) {
     for p in img.pixels.iter_mut() {
-        let max_in = p[0].max(p[1]).max(p[2]);
-        if max_in <= 1.0 + CEILING_EPSILON {
+        if !is_post_dcp_sensor_clipped(*p) {
             continue;
         }
         let lab = rec2020_to_oklab(*p);
         // Binary search the largest `k` in [0, 1] such that scaling (a, b)
-        // by k brings max channel ≤ 1.0 + EPSILON. `hi = 1.0` is the
-        // identity (no change); `lo = 0.0` is the fully achromatic
-        // projection at this lightness.
+        // by k brings max channel back below the post-DCP sensor-clip line
+        // (`1.0 + CEILING_EPSILON`). `hi = 1.0` is the identity (no
+        // change); `lo = 0.0` is the fully achromatic projection at this
+        // lightness — always below the sensor-clip line because a neutral
+        // grey at any lightness has equal channels.
         let mut lo = 0.0f32;
         let mut hi = 1.0f32;
         for _ in 0..BISECTION_ITERS {
             let mid = 0.5 * (lo + hi);
             let scaled = [lab[0], lab[1] * mid, lab[2] * mid];
             let rgb = oklab_to_rec2020(scaled);
-            let max_c = rgb[0].max(rgb[1]).max(rgb[2]);
-            if max_c <= 1.0 + CEILING_EPSILON {
+            if !is_post_dcp_sensor_clipped(rgb) {
                 lo = mid;
             } else {
                 hi = mid;
             }
         }
-        // Use `lo` — the largest verified-in-gamut scale. If even k=0
-        // didn't fit (very bright pixel), lo stays 0 and the output is the
-        // achromatic projection at this lightness — that's the right
+        // Use `lo` — the largest verified-below-sensor-clip scale. If even
+        // k=0 didn't fit (very bright pixel), lo stays 0 and the output is
+        // the achromatic projection at this lightness — that's the right
         // "fully clipped" fallback.
         let scaled = [lab[0], lab[1] * lo, lab[2] * lo];
         *p = oklab_to_rec2020(scaled);
@@ -156,9 +193,12 @@ mod tests {
 
     #[test]
     fn clipped_red_is_brought_into_gamut_and_hue_preserved() {
-        // Saturated red, R well over 1.0, others in range. After recovery
-        // every channel must be ≤ 1 + EPSILON and the Oklab hue angle must
-        // be preserved within 2 degrees (test 5 / ticket).
+        // Saturated red, R well over the post-DCP sensor-clip line (1.0),
+        // others in range. After recovery every channel must be below
+        // `1 + EPSILON` and the Oklab hue angle must be preserved within
+        // 2 degrees (test 5 / ticket). Note: "into gamut" in the test
+        // name is colloquial for "below the sensor-clip line"; the working
+        // space is unbounded scene-linear Rec.2020 (see module docs).
         let input = [1.8, 0.2, 0.15];
         let hue_in = oklab_hue(input);
         let mut img = one_pixel(input);
@@ -167,7 +207,7 @@ mod tests {
         let max_c = out[0].max(out[1]).max(out[2]);
         assert!(
             max_c <= 1.0 + 2.0 * CEILING_EPSILON,
-            "expected in-gamut, got max channel = {} on {:?}",
+            "expected max channel below sensor-clip line, got {} on {:?}",
             max_c,
             out
         );
