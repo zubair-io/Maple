@@ -197,6 +197,16 @@ mod tests {
         }
     }
 
+    // Per-side tolerances for the saturated-edge chromaticity invariant.
+    // Shared between the real test
+    // (`preserves_chromaticity_across_a_saturated_edge`) and its control
+    // (`broken_per_channel_reference_does_drift_chroma`) so the control
+    // proves drift exceeds the EXACT threshold the real test asserts on —
+    // otherwise drift in the 1e-5..1e-4 band would slip past the control
+    // while still failing the real test (or vice versa).
+    const SAT_EDGE_RED_SIDE_TOL: f32 = 1e-6;
+    const SAT_EDGE_GREY_SIDE_TOL: f32 = 1e-5;
+
     /// No-chroma-drift regression on a *saturated* edge — the strictest
     /// luminance-only check. One side is a fully-saturated Rec.2020 red
     /// primary `[1.0, 0.0, 0.0]`, the other side is neutral grey
@@ -229,15 +239,15 @@ mod tests {
             if i < w / 2 {
                 // Red-side: G and B must remain at zero — a per-channel
                 // unsharp would pull them off zero at the edge.
-                assert!(p[1].abs() < 1e-6,
+                assert!(p[1].abs() < SAT_EDGE_RED_SIDE_TOL,
                     "red-side pixel {}: G drifted off zero: {:?}", i, p);
-                assert!(p[2].abs() < 1e-6,
+                assert!(p[2].abs() < SAT_EDGE_RED_SIDE_TOL,
                     "red-side pixel {}: B drifted off zero: {:?}", i, p);
             } else {
                 // Grey-side: R == G == B (within f32 round-off).
-                assert!((p[0] - p[1]).abs() < 1e-5,
+                assert!((p[0] - p[1]).abs() < SAT_EDGE_GREY_SIDE_TOL,
                     "grey-side pixel {}: R-G drifted: {:?}", i, p);
-                assert!((p[1] - p[2]).abs() < 1e-5,
+                assert!((p[1] - p[2]).abs() < SAT_EDGE_GREY_SIDE_TOL,
                     "grey-side pixel {}: G-B drifted: {:?}", i, p);
             }
         }
@@ -274,24 +284,37 @@ mod tests {
         // hold, the broken reference isn't actually drifting and the real
         // test is vacuous. We check ALL pixels because the edge is
         // narrow; the broken-impl drift is largest at the transition.
+        //
+        // Tolerances MUST match the real test's per-side thresholds
+        // (SAT_EDGE_RED_SIDE_TOL / SAT_EDGE_GREY_SIDE_TOL) — otherwise
+        // drift in the gap between the two tolerances would slip past
+        // this control while still tripping the real assertion, leaving
+        // the assertion mechanism unproven for that band.
         let mut red_zero_leaked = false;
         let mut grey_lost_neutrality = false;
         for (i, p) in img.pixels.iter().enumerate() {
             if i < w / 2 {
-                if p[1].abs() > 1e-4 || p[2].abs() > 1e-4 {
+                if p[1].abs() >= SAT_EDGE_RED_SIDE_TOL
+                    || p[2].abs() >= SAT_EDGE_RED_SIDE_TOL
+                {
                     red_zero_leaked = true;
                 }
             } else {
-                if (p[0] - p[1]).abs() > 1e-4 || (p[1] - p[2]).abs() > 1e-4 {
+                if (p[0] - p[1]).abs() >= SAT_EDGE_GREY_SIDE_TOL
+                    || (p[1] - p[2]).abs() >= SAT_EDGE_GREY_SIDE_TOL
+                {
                     grey_lost_neutrality = true;
                 }
             }
         }
         assert!(
             red_zero_leaked || grey_lost_neutrality,
-            "control failed: broken per-channel reference did NOT drift chroma — \
-             the real preserves_chromaticity_across_a_saturated_edge assertions \
-             would not bite on a regression. Pixels: {:?}",
+            "control failed: broken per-channel reference did NOT drift \
+             chroma above the real test's per-side tolerances \
+             (red {:.0e}, grey {:.0e}) — \
+             preserves_chromaticity_across_a_saturated_edge would not \
+             bite on a regression. Pixels: {:?}",
+            SAT_EDGE_RED_SIDE_TOL, SAT_EDGE_GREY_SIDE_TOL,
             img.pixels,
         );
     }
