@@ -18,18 +18,25 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
 
-    // Track whether the new-style `papp:CaptureSharpeningSigma` attribute has
-    // been written into `capture_sharpening_sigma`. The legacy
-    // `papp:CaptureSharpeningRadius` (ticket #456 / PR #452 semantic shift)
-    // writes into the same model field for back-compat, but only when the
-    // new key is absent. `attributes()` iterates in document order, so we
-    // need a flag rather than positional precedence — Sigma must win even
-    // if it appears second.
-    let mut sigma_seen = false;
-
     loop {
         match reader.read_event() {
             Ok(Event::Empty(e)) | Ok(Event::Start(e)) => {
+                // Track whether the new-style `papp:CaptureSharpeningSigma`
+                // attribute has been written into `capture_sharpening_sigma`
+                // *within this element's attribute set*. The legacy
+                // `papp:CaptureSharpeningRadius` (ticket #456 / PR #452
+                // semantic shift) writes into the same model field for
+                // back-compat, but only when the new key is absent on the
+                // same element. `attributes()` iterates in document order, so
+                // we need a flag rather than positional precedence — Sigma
+                // must win even if it appears second.
+                //
+                // Scope is per element so that precedence does not leak
+                // across unrelated tags: e.g. a sidecar with two
+                // `rdf:Description`s where the first carries only `Sigma`
+                // and the second carries only `Radius` must still apply the
+                // second `Radius` (since its own attribute set has no Sigma).
+                let mut sigma_seen = false;
                 for attr_result in e.attributes() {
                     let attr = attr_result.map_err(|e| Error::Xmp(e.to_string()))?;
                     let key = std::str::from_utf8(attr.key.as_ref())

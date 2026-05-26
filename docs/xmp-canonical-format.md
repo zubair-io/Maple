@@ -222,9 +222,13 @@ Ticket #456 separates the legacy alias from the new canonical key:
   `rdf:Description`, `papp:CaptureSharpeningSigma` always wins,
   regardless of document order. This matches the read-only,
   back-compat-only purpose of the legacy key.
-- **Writers:** new sidecars should emit `papp:CaptureSharpeningSigma`
-  exclusively. The legacy key is read-only — it must not be written by
-  Maple Swift or TypeScript serializers.
+- **Writers:** the canonical write key for new sidecars is
+  `papp:CaptureSharpeningSigma`. The Swift and TypeScript serializers
+  currently still emit the legacy `papp:CaptureSharpeningRadius` key for
+  backward compatibility with older app versions that don't yet recognise
+  the new key — both reads route to the same model field, so this is
+  transparent to consumers. A follow-up (#464) will migrate both writers
+  to emit the new key exclusively once installed versions catch up.
 
 ---
 
