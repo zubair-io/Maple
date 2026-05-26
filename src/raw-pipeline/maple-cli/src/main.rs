@@ -96,6 +96,19 @@ enum Cmd {
         #[arg(long, default_value = "full")]
         quality: String,
     },
+    /// Compute Auto Tone slider values for a RAW file and print as JSON.
+    ///
+    /// Decodes the RAW, runs the development chain to scene-linear
+    /// Rec.2020, and hands the buffer to `compute_auto_tone_from_rgba`.
+    /// Output is a single JSON object: `{"exposure": <f32>, "contrast":
+    /// 0.0, "whites": 0.0, "blacks": 0.0, "highlights": 0.0, "shadows":
+    /// 0.0}`. Phase 1a populates `exposure` only; the other fields are
+    /// slider rest position until Phase 1b/1c expand the mapping. See
+    /// `docs/superpowers/specs/2026-05-26-auto-tone-and-looks-design.md`.
+    AutoTone {
+        /// Path to the RAW file (DNG, CR2, CR3, NEF, ARW, RAF, etc.).
+        raw: PathBuf,
+    },
     /// Generate a synthetic scene-linear input and run it through the
     /// view transform (or the slider chain, when `--params` is given).
     /// Used by the diagnostic harnesses (`test_banding.sh`,
@@ -185,6 +198,7 @@ fn main() -> ExitCode {
             &out,
             &quality,
         )),
+        Cmd::AutoTone { raw } => run_or_exit(commands::auto_tone::run(&raw)),
         Cmd::Synthetic {
             kind,
             primary,

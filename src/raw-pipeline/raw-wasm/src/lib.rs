@@ -18,6 +18,8 @@
 use raw_core::xmp as xmp_mod;
 use wasm_bindgen::prelude::*;
 
+pub mod auto_tone;
+
 // Re-export wasm-bindgen-rayon's `initThreadPool` when the `parallel` feature
 // is enabled. JS imports it as `initThreadPool` from the generated bindings.
 #[cfg(all(target_arch = "wasm32", feature = "parallel"))]

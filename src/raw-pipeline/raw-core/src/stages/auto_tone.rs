@@ -99,10 +99,53 @@ pub fn compute_auto_tone(scene_post_wb: &Image, clip: f32) -> AutoTone {
     let _ = clip;
     scene_post_wb.assert_space(ColorSpace::SceneLinearRec2020);
 
+    let hist = build_luma_histogram(scene_post_wb);
+    auto_tone_from_histogram(&hist)
+}
+
+/// Shim variant of [`compute_auto_tone`] that operates on a flat RGBA f32
+/// slice instead of an [`Image`]. The FFI (#A2) and WASM (#A2) surfaces use
+/// this so they can feed the function from a caller-owned post-WB
+/// scene-linear buffer without round-tripping through an `Image` copy.
+///
+/// `scene_post_wb_rgba` must be `4 * width * height` f32 lanes (RGBA, the
+/// alpha lane is ignored). `width * height` must equal the pixel count;
+/// when it doesn't, the function returns the identity recommendation
+/// (all zeros) — the FFI shim is expected to validate dimensions before
+/// calling, but the defensive fallback keeps this safe to use from
+/// scripted contexts.
+///
+/// `clip` is reserved for Phase 1b and is currently ignored, matching the
+/// `Image`-flavoured [`compute_auto_tone`].
+pub fn compute_auto_tone_from_rgba(
+    scene_post_wb_rgba: &[f32],
+    width: usize,
+    height: usize,
+    clip: f32,
+) -> AutoTone {
+    let _ = clip;
+    let pixels = match width.checked_mul(height) {
+        Some(p) => p,
+        None => return AutoTone::default(),
+    };
+    let expected = match pixels.checked_mul(4) {
+        Some(l) => l,
+        None => return AutoTone::default(),
+    };
+    if scene_post_wb_rgba.len() < expected {
+        return AutoTone::default();
+    }
+    let hist = build_luma_histogram_rgba(&scene_post_wb_rgba[..expected]);
+    auto_tone_from_histogram(&hist)
+}
+
+/// Convert a normalised luma histogram into an [`AutoTone`] recommendation.
+/// Shared by the [`Image`]- and RGBA-flavoured entries so the inversion
+/// math lives in one place.
+fn auto_tone_from_histogram(hist: &[u32; HIST_BINS]) -> AutoTone {
     let mut t = AutoTone::default();
 
-    let hist = build_luma_histogram(scene_post_wb);
-    let p50 = match percentile(&hist, 0.50) {
+    let p50 = match percentile(hist, 0.50) {
         Some(p) => p,
         None => return t, // empty / degenerate image → identity recommendation
     };
@@ -144,6 +187,34 @@ fn build_luma_histogram(image: &Image) -> [u32; HIST_BINS] {
         // Map `y ∈ [0, 1]` to `bin ∈ [0, HIST_BINS)`. Out-of-range values
         // saturate to the appropriate end so percentile lookups stay
         // monotone.
+        let scaled = (y * HIST_BINS as f32).floor();
+        let idx = if scaled <= 0.0 {
+            0
+        } else if scaled >= (HIST_BINS - 1) as f32 {
+            HIST_BINS - 1
+        } else {
+            scaled as usize
+        };
+        bins[idx] = bins[idx].saturating_add(1);
+    }
+    bins
+}
+
+/// Build a normalised luma histogram on a flat RGBA f32 slice. Mirrors
+/// [`build_luma_histogram`] but consumes the FFI-friendly memory layout
+/// (`R0 G0 B0 A0 R1 G1 B1 A1 …`) directly — the alpha lane is ignored.
+///
+/// Used by [`compute_auto_tone_from_rgba`] to avoid the `Vec<[f32; 3]>`
+/// copy a full [`Image`] construction would require at the FFI boundary.
+fn build_luma_histogram_rgba(rgba: &[f32]) -> [u32; HIST_BINS] {
+    let mut bins = [0u32; HIST_BINS];
+    for chunk in rgba.chunks_exact(4) {
+        let y = LUMA_REC2020[0] * chunk[0]
+            + LUMA_REC2020[1] * chunk[1]
+            + LUMA_REC2020[2] * chunk[2];
+        if !y.is_finite() {
+            continue;
+        }
         let scaled = (y * HIST_BINS as f32).floor();
         let idx = if scaled <= 0.0 {
             0
@@ -221,5 +292,56 @@ mod tests {
         let t = compute_auto_tone(&img, 0.005);
         assert!(t.exposure <= 5.0, "got {}", t.exposure);
         assert!(t.exposure >= -5.0, "got {}", t.exposure);
+    }
+
+    /// The RGBA shim used by the FFI/WASM surface must agree with the
+    /// `Image`-flavoured entry on every fixture — they share the histogram
+    /// → percentile → gain inversion math, so any drift is a structural
+    /// bug, not a tolerance one.
+    fn flat_rgba(luma: f32, w: usize, h: usize) -> Vec<f32> {
+        let mut v = vec![0.0f32; w * h * 4];
+        for px in v.chunks_exact_mut(4) {
+            px[0] = luma;
+            px[1] = luma;
+            px[2] = luma;
+            px[3] = 1.0;
+        }
+        v
+    }
+
+    #[test]
+    fn rgba_shim_matches_image_entry_for_midgray() {
+        let img = flat_image(0.18);
+        let rgba = flat_rgba(0.18, 64, 64);
+        let t_img = compute_auto_tone(&img, 0.005);
+        let t_rgba = compute_auto_tone_from_rgba(&rgba, 64, 64, 0.005);
+        assert!((t_img.exposure - t_rgba.exposure).abs() < 1e-6);
+    }
+
+    #[test]
+    fn rgba_shim_matches_image_entry_for_dark_scene() {
+        let img = flat_image(0.045);
+        let rgba = flat_rgba(0.045, 64, 64);
+        let t_img = compute_auto_tone(&img, 0.005);
+        let t_rgba = compute_auto_tone_from_rgba(&rgba, 64, 64, 0.005);
+        assert!((t_img.exposure - t_rgba.exposure).abs() < 1e-6);
+    }
+
+    #[test]
+    fn rgba_shim_ignores_alpha_lane() {
+        // Alpha varies wildly; luma is what drives the histogram.
+        let mut rgba = flat_rgba(0.18, 32, 32);
+        for (i, px) in rgba.chunks_exact_mut(4).enumerate() {
+            px[3] = (i as f32) * 0.01;
+        }
+        let t = compute_auto_tone_from_rgba(&rgba, 32, 32, 0.005);
+        assert!(t.exposure.abs() < 0.05, "got {}", t.exposure);
+    }
+
+    #[test]
+    fn rgba_shim_returns_default_on_shape_mismatch() {
+        let rgba = vec![0.18f32; 8]; // says 32x32, only has 2 pixels
+        let t = compute_auto_tone_from_rgba(&rgba, 32, 32, 0.005);
+        assert_eq!(t, AutoTone::default());
     }
 }
