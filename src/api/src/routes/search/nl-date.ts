@@ -136,8 +136,12 @@ export function parseNlDateRange(text: string, now: Date = new Date()): NlDateRa
     // tail so "winter 2024" means Dec 2023 – Feb 2024 (the common reading).
     if (startM > endM) {
       if (!m[2]) {
-        // Bare "winter" without a year: use the most recent completed one.
-        year = nowMonth <= endM ? nowYear : nowYear + 1;
+        // Bare "winter" without a year: anchor on the Jan/Feb tail of the
+        // most recent winter. That tail year is always the current year —
+        // in Jan/Feb it's the ongoing winter (Dec last year → now); the rest
+        // of the year it's the winter that just ended (e.g. May 2026 →
+        // Dec 2025–Feb 2026). Never the future.
+        year = nowYear;
       }
       if (isLast) year -= 1;
       return {

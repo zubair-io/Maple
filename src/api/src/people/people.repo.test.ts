@@ -499,6 +499,44 @@ describe('people-search-reindex — markAssetsForMeiliReindex', () => {
     expect(await markAssetsForMeiliReindex([])).toBe(0);
   });
 
+  it('markAssetIdsForMeiliReindex resets only the targeted assets', async () => {
+    if (!mongoReachable) return;
+    const { markAssetIdsForMeiliReindex } = await import('./people-search-reindex.ts');
+    const personId = new ObjectId();
+    // Two assets carry the SAME person — the asset-targeted reset must touch
+    // only the one we name, not the whole person's corpus.
+    const target = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 0.2, h: 0.2 }, person_id: personId.toHexString(), confidence: 0.9 },
+    ]);
+    const sibling = await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 0.2, h: 0.2 }, person_id: personId.toHexString(), confidence: 0.9 },
+    ]);
+    await db!
+      .collection('assets')
+      .updateMany(
+        { _id: { $in: [target, sibling] } },
+        { $set: { 'stages.meili': { version: 6, dead: true, attempts: 3, last_error: 'x' } } },
+      );
+
+    const modified = await markAssetIdsForMeiliReindex([target]);
+    expect(modified).toBe(1);
+
+    const t = await db!.collection('assets').findOne({ _id: target });
+    const s = await db!.collection('assets').findOne({ _id: sibling });
+    const ts = (t as { stages?: { meili?: Record<string, unknown> } }).stages?.meili ?? {};
+    const ss = (s as { stages?: { meili?: Record<string, unknown> } }).stages?.meili ?? {};
+    expect(ts.version).toBe(0);
+    expect(ts.dead).toBe(false);
+    // The same person's other asset is left alone.
+    expect(ss.version).toBe(6);
+  });
+
+  it('markAssetIdsForMeiliReindex is a no-op for an empty list', async () => {
+    if (!mongoReachable) return;
+    const { markAssetIdsForMeiliReindex } = await import('./people-search-reindex.ts');
+    expect(await markAssetIdsForMeiliReindex([])).toBe(0);
+  });
+
   it("renamePerson re-queues the renamed person's assets", async () => {
     if (!mongoReachable) return;
     const { createPerson, assignFaceToPerson, renamePerson } = await import('./people.repo.ts');
