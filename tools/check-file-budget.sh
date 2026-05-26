@@ -46,8 +46,24 @@ case "${1:-}" in
 esac
 
 # Resolve repo root so the script works from anywhere.
+#
+# We prefer `git rev-parse --show-toplevel` because it gives the *containing*
+# worktree's root, not whatever `SCRIPT_DIR/..` happens to be. This matters for
+# the `-path` exclusions below: the script must exclude the *current* repo's
+# `.claude/` directory and nothing else. Using a bare `*/.claude/*` glob breaks
+# when the script is run from inside a path that itself contains `/.claude/`
+# (e.g. `~/Projects/Maple/.claude/worktrees/agent-X/`) — every file would
+# match the glob and get pruned, and the script would silently report 0
+# violations. See issue #491.
+#
+# Fall back to `SCRIPT_DIR/..` if git is unavailable or we're not in a repo.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)"; then
+  :
+else
+  echo "file-budget: warning — git rev-parse failed, falling back to script-dir parent" >&2
+  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
 ALLOWLIST="$SCRIPT_DIR/budget-allowlist.txt"
 
 # Load allowlist into an associative-ish lookup using a sentinel-delimited string.
@@ -99,7 +115,7 @@ collect_files() {
       -not -path '*/DerivedData/*' \
       -not -path '*/raw-wasm/pkg/*' \
       -not -path '*/pkg/*' \
-      -not -path '*/.claude/*' \
+      -not -path "$REPO_ROOT/.claude/*" \
       -print
   fi
 }
