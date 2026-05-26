@@ -232,3 +232,31 @@ because `test-fixtures/raws/` is gitignored and the parity harness
 can't run without the RAW. Numbers will be recaptured in the
 calibration sweep that seeds the first `budgets.json` entry for
 test_0008 (per the recipe at the top of this file).
+
+---
+
+## post-#431 CAT16 user WB
+
+User-facing white balance now performs proper chromatic adaptation in
+CAT16 LMS cone space (Li et al. 2017) rather than diagonal per-channel
+gains in linear Rec.2020 (`WbMethod::Cat16` default;
+`DiagonalRec2020` retained as an A/B path for parity work). Tint sign
+also flips to the reference-renderer convention (tint+ = magenta image,
+tint- = green image) — only on the CAT16 path; `DiagonalRec2020`
+preserves the pre-#431 (inverted) convention bit-identically.
+
+The default-model baseline fixtures use `temperature=6500, tint=0`,
+which short-circuits to identity in both methods — bit-for-bit
+equivalent to the diagonal-gain path. **Expected baseline drift on
+`test_color_pipeline.sh`: zero on default-WB fixtures.** Fixture cases
+that exercise the WB slider (the `wb_*` cases under
+`test-fixtures/references/*/`) will move because the matrix shape now
+differs from the diagonal-gain ratios; the magnitude is bounded by
+~7x improvement in +/-1000K symmetry on the synthetic grey
+(`grey_adjustments::temp_symmetric`: main ratio 0.06 → CAT16 ratio ~0.58
+on the synthetic grey predictor, two-orders-of-magnitude tighter).
+
+Local fixture sweep not measured: `test-fixtures/raws/` are gitignored
+on this worktree, so `test_color_pipeline.sh` skip-passed. Capture the
+drift in the same follow-up that ratchets the post-#424 numbers, or
+opportunistically the next time fixtures are mounted.

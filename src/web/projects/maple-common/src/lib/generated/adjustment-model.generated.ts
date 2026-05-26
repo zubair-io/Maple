@@ -16,11 +16,15 @@ export type Look = 'Neutral' | 'Default';
 
 export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';
 
+export type WbMethod = 'Cat16' | 'DiagonalRec2020';
+
 export interface GeneratedAdjustmentModel {
   /** White balance correlated color temperature in Kelvin. Range: [2000.0, 12000.0]. */
   temperature: number;
   /** White balance green/magenta tint. Range: [-100.0, 100.0]. */
   tint: number;
+  /** User white-balance method (ticket #431). 'Cat16' performs proper chromatic adaptation in CAT16 cone space (default); 'DiagonalRec2020' is the legacy per-channel diagonal-gain path retained for parity A/B. */
+  wbMethod: WbMethod;
   /** Linear exposure in EV stops applied in scene-linear. Range: [-4.0, 4.0]. */
   exposure: number;
   /** Contrast — routed to AgX slope per spec § 3.6a. Range: [-100.0, 100.0]. */
@@ -112,6 +116,7 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
   return {
     temperature: 6500.0,
     tint: 0.0,
+    wbMethod: 'Cat16',
     exposure: 0.0,
     contrast: 0.0,
     highlights: 0.0,

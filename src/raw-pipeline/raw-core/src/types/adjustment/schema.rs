@@ -85,6 +85,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         doc: "White balance green/magenta tint.",
     },
     FieldSpec {
+        name: "wb_method",
+        kind: FieldKind::Enum,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "WbMethod",
+        doc: "User white-balance method (ticket #431). 'Cat16' performs proper chromatic adaptation in CAT16 cone space (default); 'DiagonalRec2020' is the legacy per-channel diagonal-gain path retained for parity A/B.",
+    },
+    FieldSpec {
         name: "exposure",
         kind: FieldKind::F32,
         range: (-4.0, 4.0),
@@ -322,6 +330,7 @@ mod tests {
         let AdjustmentModel {
             temperature,
             tint,
+            wb_method,
             exposure,
             contrast,
             highlights,
@@ -358,6 +367,7 @@ mod tests {
         let expected_order = [
             "temperature",
             "tint",
+            "wb_method",
             "exposure",
             "contrast",
             "highlights",
@@ -402,6 +412,7 @@ mod tests {
         let _ = (
             temperature,
             tint,
+            wb_method,
             exposure,
             contrast,
             highlights,
@@ -534,6 +545,18 @@ mod tests {
             .expect("look missing from schema");
         assert!(matches!(entry.kind, FieldKind::Enum));
         assert_eq!(entry.enum_name, "Look");
+    }
+
+    /// WbMethod (ticket #431). Enum field; codegen emits matching
+    /// Swift / TS mirrors.
+    #[test]
+    fn wb_method_enum_spec_is_present() {
+        let entry = ADJUSTMENT_SCHEMA
+            .iter()
+            .find(|s| s.name == "wb_method")
+            .expect("wb_method missing from schema");
+        assert!(matches!(entry.kind, FieldKind::Enum));
+        assert_eq!(entry.enum_name, "WbMethod");
     }
 
     /// ToneCurveMode (ticket #436). Enum field; codegen emits matching

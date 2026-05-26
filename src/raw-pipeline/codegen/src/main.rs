@@ -223,6 +223,12 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     // raw-core::stages::tone_curves).
     s.push_str("export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';\n\n");
 
+    // User white-balance method (ticket #431). `Cat16` performs proper
+    // chromatic adaptation in CAT16 LMS cone space (default since #431);
+    // `DiagonalRec2020` is the legacy von-Kries diagonal-gain path
+    // retained for parity A/B (see raw-core::stages::white_balance).
+    s.push_str("export type WbMethod = 'Cat16' | 'DiagonalRec2020';\n\n");
+
     // Generated interface.
     s.push_str("export interface GeneratedAdjustmentModel {\n");
     for spec in schema {
@@ -289,6 +295,9 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
                     // Tone-curve mode (#436). Default preserves pre-#436
                     // behavior (absent attribute = current pipeline output).
                     "ToneCurveMode" => "PerChannel",
+                    // User WB method (#431). New users get proper chromatic
+                    // adaptation in CAT16 cone space.
+                    "WbMethod" => "Cat16",
                     other => panic!(
                         "codegen: no default mapping for enum `{}` — add one \
                          alongside the matching Rust `Default` impl",

@@ -147,6 +147,39 @@ impl Default for ToneCurveMode {
     }
 }
 
+/// User white-balance method (ticket #431).
+///
+/// Both methods consume the same `(temperature, tint)` UI pair; they
+/// differ only in the math applied to the working buffer:
+///
+/// - [`WbMethod::Cat16`] (default since #431): proper chromatic
+///   adaptation. The buffer is transformed Rec.2020 → XYZ → LMS via the
+///   CAT16 cone matrix (Li et al. 2017), scaled per-cone by
+///   `LMS(D65) / LMS(source)`, then transformed back. Neutrals stay
+///   neutral across the slider range and the +/-1000K asymmetry the
+///   diagonal-gain path exhibits collapses to ~1.0. Matches Darktable's
+///   `iop/channelmixerrgb.c` default. Tint sign follows the
+///   reference-renderer convention: tint+ = magenta image, tint- = green.
+/// - [`WbMethod::DiagonalRec2020`]: legacy von-Kries approximation —
+///   per-channel diagonal gains in linear Rec.2020 derived from
+///   D65/source. Kept for parity A/B comparison; introduces hue error
+///   at extreme WB. Tint sign was inverted vs the reference renderer
+///   (tint+ = green) — preserved as-is to keep pre-#431 outputs
+///   bit-identical when this mode is selected explicitly.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WbMethod {
+    /// CAT16 cone-space chromatic adaptation (default).
+    Cat16,
+    /// Legacy diagonal per-channel gains in linear Rec.2020.
+    DiagonalRec2020,
+}
+
+impl Default for WbMethod {
+    fn default() -> Self {
+        Self::Cat16
+    }
+}
+
 /// Per-image develop settings.
 ///
 /// This struct's field order, types, and ranges are the canonical reference
@@ -163,6 +196,10 @@ impl Default for ToneCurveMode {
 pub struct AdjustmentModel {
     pub temperature: f32, // 2000..12000, default 6500
     pub tint: f32,        // -100..100, default 0
+    /// User white-balance method (ticket #431). Default `Cat16` performs
+    /// proper chromatic adaptation in CAT16 LMS cone space; legacy
+    /// `DiagonalRec2020` keeps the pre-#431 von-Kries diagonal gains.
+    pub wb_method: WbMethod,
     pub exposure: f32,    // -4..+4 EV, default 0
     pub contrast: f32,    // -100..100, default 0 (routed to AgX slope per spec § 3.6a)
     pub highlights: f32,  // -100..100, default 0
@@ -268,6 +305,7 @@ impl Default for AdjustmentModel {
         Self {
             temperature: 6500.0,
             tint: 0.0,
+            wb_method: WbMethod::Cat16,
             exposure: 0.0,
             contrast: 0.0,
             highlights: 0.0,

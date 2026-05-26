@@ -112,7 +112,7 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // render slightly darker than the full-image path (by whatever EV the
     // full path's AE picked); this is a known follow-up. The same
     // architectural reason already excludes dehaze from this path.
-    stage("tile_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint));
+    stage("tile_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method));
     stage("tile_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
     stage("tile_vibrance", || vibrance::apply(&mut scene, model.vibrance));
     stage("tile_saturation", || saturation::apply(&mut scene, model.saturation));
