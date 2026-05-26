@@ -122,15 +122,12 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
     let hr_neutral = if skip_pre_gain { [1.0; 3] } else { raw.as_shot_neutral };
     stage("sized_highlight_recovery", || highlight_recovery::apply(&mut camera_rgb, model.highlight_recovery, hr_neutral));
     dump_after("02_highlight_recovery", &camera_rgb);
-    let (profile, source) = stage("sized_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
-    // PTC suppression when bundled — see the comment in the full-res
-    // variant. PLT stays for DNG-Converter inputs. `source` is the
-    // same lookup result `profile_for_with_source` already produced — no
-    // redundant HashMap probe in the sized path either.
-    let use_bundled = matches!(source, dcp::ProfileSource::BundleConfident);
-    let ptc_for_apply = if use_bundled { None } else { raw.profile_tone_curve.as_ref() };
-    let mut scene = stage("sized_dcp_apply", || dcp::apply_with_plt_and_ptc(
-        &camera_rgb, &profile, raw.plt.as_ref(), ptc_for_apply,
+    let (profile, _source) = stage("sized_dcp_profile_for", || dcp::profile_for_with_source(raw))?;
+    // Colorimetry-only DCP per #425 — see `pipeline::develop` for the
+    // rationale. PLT and PTC no longer run; HSM still does (metameric
+    // correction).
+    let mut scene = stage("sized_dcp_apply", || dcp::apply_colorimetry(
+        &camera_rgb, &profile,
     ))?;
     dump_after("03_dcp_apply", &scene);
     if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
