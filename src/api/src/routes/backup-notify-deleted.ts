@@ -43,7 +43,9 @@ export const backupNotifyDeletedRoutes = new Elysia().post(
     }
 
     // Check library exists.
-    const folder = await (await foldersCollection()).findOne({ _id: libraryId });
+    const folder = await (
+      await foldersCollection()
+    ).findOne({ _id: libraryId });
     if (!folder) {
       set.status = 404;
       return { error: "library not found" };
@@ -55,7 +57,11 @@ export const backupNotifyDeletedRoutes = new Elysia().post(
         ? body
         : (() => {
             try {
-              return JSON.parse(body instanceof Uint8Array ? Buffer.from(body).toString("utf8") : String(body));
+              return JSON.parse(
+                body instanceof Uint8Array
+                  ? Buffer.from(body).toString("utf8")
+                  : String(body),
+              );
             } catch {
               return null;
             }
@@ -74,9 +80,13 @@ export const backupNotifyDeletedRoutes = new Elysia().post(
     if (phassetLocalIds.length === 0) {
       return { updated: 0 };
     }
-    if (!phassetLocalIds.every((id) => typeof id === "string" && id.length > 0)) {
+    if (
+      !phassetLocalIds.every((id) => typeof id === "string" && id.length > 0)
+    ) {
       set.status = 400;
-      return { error: "phasset_local_ids must be an array of non-empty strings" };
+      return {
+        error: "phasset_local_ids must be an array of non-empty strings",
+      };
     }
 
     const ids = phassetLocalIds as string[];
@@ -102,7 +112,10 @@ export const backupNotifyDeletedRoutes = new Elysia().post(
       { $set: { deleted_from_photos: true } },
     );
 
-    log.debug({ deviceId, count: result.modifiedCount }, "notify-deleted processed");
+    log.debug(
+      { deviceId, count: result.modifiedCount },
+      "notify-deleted processed",
+    );
     set.status = 200;
     return { updated: result.modifiedCount };
   },

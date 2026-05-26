@@ -16,7 +16,13 @@ let tmpLib: string;
 beforeAll(async () => {
   tmpLib = await fs.mkdtemp(path.join(os.tmpdir(), "maple-sidecar-test-"));
   const f = await foldersCollection();
-  await f.insertOne({ _id: libId, path: tmpLib, label: "test", created_at: new Date(), file_count: 0 } as any);
+  await f.insertOne({
+    _id: libId,
+    path: tmpLib,
+    label: "test",
+    created_at: new Date(),
+    file_count: 0,
+  } as any);
 
   // Pre-create an AssetDoc that simulates a prior ingest.
   const assetPath = path.join(tmpLib, targetRelPath);
@@ -46,7 +52,9 @@ beforeAll(async () => {
     color_label: "",
     indexed_at: new Date().toISOString(),
     maple_id: mapleId,
-    phasset_links: [{ device_id: deviceId, phasset_local_id: phid, first_seen: new Date() }],
+    phasset_links: [
+      { device_id: deviceId, phasset_local_id: phid, first_seen: new Date() },
+    ],
     deleted_from_photos: false,
   } as any);
 });
@@ -83,7 +91,10 @@ describe("POST /api/libraries/:id/backup/sidecar", () => {
     expect(body.target_rel_path).toBe(`${targetRelPath}.xmp`);
 
     // Verify file exists on disk with correct content.
-    const onDisk = await fs.readFile(path.join(tmpLib, body.target_rel_path), "utf8");
+    const onDisk = await fs.readFile(
+      path.join(tmpLib, body.target_rel_path),
+      "utf8",
+    );
     expect(onDisk).toBe(xmp);
   });
 
@@ -102,7 +113,10 @@ describe("POST /api/libraries/:id/backup/sidecar", () => {
       }),
     );
     expect(res.status).toBe(200);
-    const onDisk = await fs.readFile(path.join(tmpLib, `${targetRelPath}.xmp`), "utf8");
+    const onDisk = await fs.readFile(
+      path.join(tmpLib, `${targetRelPath}.xmp`),
+      "utf8",
+    );
     expect(onDisk).toBe(xmp);
   });
 
@@ -161,11 +175,15 @@ describe("POST /api/libraries/:id/backup/sidecar", () => {
 
   test("library not found → 404", async () => {
     const r = await app.handle(
-      sidecarRequest("<x/>", {
-        "X-Maple-Device-Id": deviceId,
-        "X-Maple-Phasset-Id": phid,
-        "X-Maple-Target-Rel-Path": targetRelPath,
-      }, new ObjectId().toHexString()),
+      sidecarRequest(
+        "<x/>",
+        {
+          "X-Maple-Device-Id": deviceId,
+          "X-Maple-Phasset-Id": phid,
+          "X-Maple-Target-Rel-Path": targetRelPath,
+        },
+        new ObjectId().toHexString(),
+      ),
     );
     expect(r.status).toBe(404);
   });
