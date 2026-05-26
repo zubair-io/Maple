@@ -1,6 +1,20 @@
-# budgets.json is currently stale
+# budgets.json — STATUS RESOLVED 2026-05-26 (closing step of #416)
 
-**Status as of 2026-05-22:** `src/scripts/test_color_pipeline.sh` FAILs on
+**Closing-step recalibration landed on 2026-05-26.** This is the one-time strategic release of the budget ratchet authorized by epic #416 ("we are no longer chasing ACR; budgets recalibrate to post-overhaul Maple AgX output"). From the commit that lands `budgets.json` recalibration **forward**, the one-way ratchet rule resumes: budgets only go down.
+
+The body of this file below documents the pre-overhaul state and the calibration history. It is kept for the audit trail; not authoritative going forward.
+
+## Closing step — reference frame migrated (#416, 2026-05-26)
+
+The new `budgets.json` was generated from the **post-#494 baseline sweep** (`~/Desktop/maple-color-tests/post-494-auto-exposure-20260526-124347/harness.log`). Headroom: `mean ×1.05 + 0.5`, `p95 ×1.05 + 1.0`, `max ×1.05 + 5.0`, `bias = max(0.02, max(|bR|, |bG|, |bB|) × 1.20)`. All 17 baseline fixtures pass with this floor; test_0008 (Fuji X-T3 X-Trans) now has a budget entry where it previously logged `no-budget-entry`.
+
+**Strategic reference-frame:** the ACR PNGs under `test-fixtures/references/*/down/baseline.png` are retained for comparison continuity — `test_color_pipeline.sh` still computes ΔE₀₀ vs ACR — but the **budget floor is the current Maple AgX output**, not ACR's per-channel filmic. ΔE-to-ACR is an information signal, not the target. A future "AgX-look golden" replacement of the reference PNGs (full migration off ACR) is tracked as a follow-up.
+
+**Slider cases (non-baseline) are intentionally not gated yet.** They log `no-budget-entry` warnings. A follow-up KTLO will seed those budgets after a full-sweep calibration on a machine with sustained wall-time available (the agent attempt during the closing step stalled at the render-bound long-tail).
+
+## Pre-overhaul history (audit trail)
+
+**Status as of 2026-05-22:** `src/scripts/test_color_pipeline.sh` FAILed on
 multiple baseline fixtures against the committed `budgets.json`. Examples
 from a recent local run on `origin/main` (`1de2c21b`):
 
