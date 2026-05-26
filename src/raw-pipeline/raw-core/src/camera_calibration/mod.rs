@@ -175,13 +175,12 @@ pub fn lookup_linearization(
 // A hand-curated `baseline_exposure(make, model)` table used to live here,
 // derived per-body to minimise channel-bias vs the reference renderer at
 // default sliders. It was removed in #370: per-body aesthetic alignment is
-// the wrong layer (it conflicts with the documented `apply_look` plan in
-// `docs/spec/03-algorithms.md` § "Look presets"), and the bundled DCP
-// profile's `BaselineExposureOffset` field — parsed in
-// `color::profile_loader::parser` but previously ignored — is now wired
-// into `decode.rs` § 1b instead. Aesthetic alignment with the reference
-// renderer becomes a global `view::look` curve in the follow-up (#371),
-// calibrated against the post-removal bias signature.
+// the wrong layer, and the bundled DCP profile's `BaselineExposureOffset`
+// field — parsed in `color::profile_loader::parser` but previously
+// ignored — is now wired into `decode.rs` § 1b instead. The follow-up
+// global Look LUT (#371) that briefly took over the aesthetic-alignment
+// role was retired in #443; color correctness now lives in the
+// colorimetry path + view transform, not a per-body or global 1D bridge.
 
 #[cfg(test)]
 mod tests {

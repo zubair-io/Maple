@@ -141,10 +141,11 @@ fn set_field(
                 ))),
             };
         }
-        // DisplayLookCurve (ticket #371). Absent attribute -> default
-        // (Look::Default) — the LUT applies to existing sidecars without
-        // an explicit migration. Users opting out persist
-        // `papp:Look="Neutral"`.
+        // DisplayLookCurve (ticket #371; retired in #443 — Wave-3 closing
+        // step of #416). The field is a no-op at the pipeline level
+        // post-#443; this branch is kept so pre-#443 sidecars carrying
+        // `papp:Look` parse cleanly into the model. Absent attribute ->
+        // default (`Look::Default`).
         "papp:Look" => {
             m.look = match value {
                 "neutral" | "Neutral" => Look::Neutral,

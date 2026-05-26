@@ -152,9 +152,11 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     // `RawImage` is otherwise assembled (it gates on the same matrix /
     // PLT checks the rest of the pipeline uses). Only 5/1447 bundled
     // profiles ship a non-zero offset; the field was previously parsed but
-    // never applied — see ticket #370 for the architectural rationale
-    // (per-body aesthetic alignment moves to the global `view::look` in
-    // #371, calibrated against the post-#370 bias signature).
+    // never applied — see ticket #370 for the architectural rationale.
+    // (The per-body aesthetic-alignment Look LUT that #370 deferred to
+    // shipped briefly under #371 and was retired in #443 / closing step
+    // of #416 — color correctness now comes from colorimetry + AgX, not
+    // a per-body 1D bridge.)
     //
     // MAPLE_BE_OVERRIDE is a dev-only absolute override (replaces the
     // entire chain) used by harness sweeps; production never sets it.

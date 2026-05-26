@@ -211,9 +211,11 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
          | 'OklabChromaReduction';\n\n",
     );
 
-    // DisplayLookCurve (ticket #371). `Default` ships the empirical 1D
-    // LUT; `Neutral` short-circuits the stage for strict scene-referred
-    // output (see raw-core::view::look).
+    // DisplayLookCurve (ticket #371; retired in #443 — Wave-3 closing step
+    // of #416). Both variants are now identical no-ops at the pipeline
+    // level; the enum is kept on `AdjustmentModel` and emitted to Swift /
+    // TS so `papp:Look` in pre-#443 sidecars round-trips. See
+    // `raw-core::types::adjustment::Look`.
     s.push_str("export type Look = 'Neutral' | 'Default';\n\n");
 
     // Tone-curve application mode (ticket #436). `PerChannel` applies the

@@ -231,8 +231,8 @@ pub fn develop_scene_linear_from_raw_with_quality(
     // DCP. Enabled unconditionally now that the BaselineExposure compose
     // chain is sourced from DNG tags + bundled-DCP `BaselineExposureOffset`
     // only — the historical Phase-1.1 per-body BE lookup that previously
-    // gated this step was removed in #370 (per-body aesthetic alignment
-    // moves to a global `view::look` curve in #371). See
+    // gated this step was removed in #370. (The follow-up global Look LUT
+    // #371 was retired in #443.) See
     // .archived-plans/specs/2026-04-30-color-convergence-design.md.
     //
     // Skipped for 8-bit lossy LinearRaw DNGs (DNG Converter's
