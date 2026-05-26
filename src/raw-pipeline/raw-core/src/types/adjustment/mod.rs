@@ -181,7 +181,33 @@ pub struct AdjustmentModel {
     pub sharpen_detail: f32, // 0..100, default 25 (edge-attenuation strength)
     pub sharpen_masking: f32, // 0..100, default 0 (edge-mask threshold)
     pub capture_sharpening_amount: f32, // 0..100, default 0 (Richardson–Lucy strength; 0 = stage skipped)
-    pub capture_sharpening_radius: f32, // 0.5..2.0, default 1.0 (Gaussian PSF sigma in pixels — see stages::capture_sharpening; field name kept for XMP back-compat)
+    /// Capture-sharpening Gaussian PSF sigma in pixels (range 0.5..2.0, default 1.0).
+    ///
+    /// PR #452 swapped the integer-radius tripled-box-blur PSF for a true
+    /// Gaussian parameterised by float sigma. The XMP/model field was kept
+    /// as `capture_sharpening_radius` at that point — a silent semantic
+    /// shift. #456 renames the canonical model field to
+    /// `capture_sharpening_sigma`; the legacy `capture_sharpening_radius`
+    /// is retained as a `#[deprecated]` alias so external Rust callers
+    /// still compile (with a warning) and the XMP parser still reads
+    /// `papp:CaptureSharpeningRadius` for back-compat with existing sidecars.
+    pub capture_sharpening_sigma: f32,
+    /// Deprecated: use [`AdjustmentModel::capture_sharpening_sigma`].
+    ///
+    /// The field's interpretation changed in PR #452 from integer radius
+    /// (tripled-box-blur taps) to float Gaussian sigma in pixels — same
+    /// numeric type, different units. #456 renames the canonical field;
+    /// this alias remains so source constructing `AdjustmentModel` by name
+    /// keeps compiling. No code reads this field anymore — the XMP
+    /// back-compat read-path writes `papp:CaptureSharpeningRadius` into
+    /// `capture_sharpening_sigma` directly, with no rescale (no shipping
+    /// sidecar carries a non-zero value, so rescaling would be a guess).
+    #[deprecated(
+        since = "0.0.0",
+        note = "use `capture_sharpening_sigma`; the field's meaning changed from \
+                integer radius to float Gaussian sigma in PR #452"
+    )]
+    pub capture_sharpening_radius: f32, // 0.5..2.0, default 1.0 (kept as a deprecated alias; see field doc)
     pub nr_luminance: f32,   // 0..100, default 0 (spec § 3.11)
     pub nr_color: f32,       // 0..100, default 25 (default = the reference renderer's default)
     pub dehaze: f32,         // -100..100, default 0
@@ -257,6 +283,8 @@ impl Default for AdjustmentModel {
             sharpen_detail: 25.0,
             sharpen_masking: 0.0,
             capture_sharpening_amount: 0.0,
+            capture_sharpening_sigma: 1.0,
+            #[allow(deprecated)]
             capture_sharpening_radius: 1.0,
             nr_luminance: 0.0,
             nr_color: 25.0,
