@@ -13,6 +13,6 @@ pub mod local_adjustment;
 
 pub use adjustment::{
     AdjustmentModel, FieldKind, FieldSpec, HighlightRecoveryMode, ToneCurve, ToneCurveMode,
-    ToneCurvePoint, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
+    ToneCurvePoint, WbMethod, WhiteBalancePreset, ADJUSTMENT_SCHEMA,
 };
 pub use local_adjustment::{LocalAdjustment, Mask, PartialAdjustments, Point2};
