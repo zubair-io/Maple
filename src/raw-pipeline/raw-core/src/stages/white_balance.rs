@@ -6,6 +6,21 @@ use crate::{
     math::{Matrix3, Vec3},
     types::WbMethod,
 };
+use std::sync::OnceLock;
+
+/// Cached inverse of the constant CAT16 cone-response matrix.
+///
+/// `wb_cat16_matrix()` runs once per tile in the refine-stage pipeline.
+/// `Matrix3::inverse()` is a determinant + cofactor solve; caching it
+/// behind an `OnceLock` (same pattern as `color::oklab::cells()` and
+/// `color::profile_loader::PROFILE_TABLE`) keeps the hot path to a
+/// matrix-matrix multiply chain. The inverse is well-defined because
+/// CAT16 is non-singular by construction.
+static CAT16_INVERSE: OnceLock<Matrix3> = OnceLock::new();
+
+fn cat16_inverse() -> &'static Matrix3 {
+    CAT16_INVERSE.get_or_init(|| CAT16.inverse().expect("CAT16 is non-singular"))
+}
 
 /// CCT (Kelvin) → CIE xy chromaticity on the **Planckian (blackbody) locus**
 /// via Hernández-Andrés et al. 1999, "Calculating correlated color
@@ -104,9 +119,13 @@ pub fn wb_gains(temperature: f32, tint: f32) -> Vec3 {
 /// ```
 ///
 /// where `LMS_src = CAT16 · xyz_source(T, tint)` and
-/// `LMS_dst = CAT16 · D65_XYZ`. A neutral patch `(R,G,B)` with R=G=B is
-/// preserved by construction because both source and destination map
-/// the equal-energy line to itself after the per-cone scale.
+/// `LMS_dst = CAT16 · D65_XYZ`. The matrix maps the configured
+/// `(temperature, tint)` source whitepoint to D65 in linear Rec.2020.
+/// A neutral patch under the configured source whitepoint becomes
+/// D65-neutral after adaptation; a neutral patch under a different
+/// illuminant will shift in proportion to the `(CCT, tint)` delta —
+/// that's the whole point of chromatic adaptation, and exactly what
+/// the CAT16 unit tests below assert.
 ///
 /// **Tint sign convention.** The reference renderer treats tint+ as
 /// "magenta image / green light", tint- as "green image / magenta
@@ -129,10 +148,10 @@ pub fn wb_cat16_matrix(temperature: f32, tint: f32) -> Matrix3 {
         [0.0, lms_dst[1] / lms_src[1].max(1e-6), 0.0],
         [0.0, 0.0, lms_dst[2] / lms_src[2].max(1e-6)],
     ]);
-    let cat16_inv = CAT16.inverse().expect("CAT16 is non-singular");
+    let cat16_inv = cat16_inverse();
     // Compose right-to-left: Rec2020 → XYZ → LMS → scale → XYZ → Rec2020.
     M_XYZ_D65_TO_REC2020
-        .mul_mat(&cat16_inv)
+        .mul_mat(cat16_inv)
         .mul_mat(&scale)
         .mul_mat(&CAT16)
         .mul_mat(&M_REC2020_TO_XYZ_D65)
@@ -513,5 +532,26 @@ mod tests {
         assert!(ratio > 0.4 && ratio < 2.5,
             "CAT16 +/-1000K asymmetry too large: warm |R-B|={}, cool |R-B|={}, ratio={}",
             warm_d, cool_d, ratio);
+    }
+
+    #[test]
+    fn cached_cat16_inverse_matches_fresh_inverse() {
+        // Sanity: the OnceLock-cached CAT16 inverse used on the hot path
+        // is bit-equivalent to a freshly computed inverse. If this ever
+        // drifts, every CAT16 WB tile silently shifts.
+        let fresh = CAT16.inverse().expect("CAT16 is non-singular");
+        let cached = cat16_inverse();
+        for r in 0..3 {
+            for c in 0..3 {
+                assert!(
+                    (cached.0[r][c] - fresh.0[r][c]).abs() < 1e-12,
+                    "cached CAT16 inverse [{r}][{c}]={} != fresh={}",
+                    cached.0[r][c],
+                    fresh.0[r][c]
+                );
+            }
+        }
+        // And the cache is sticky — second call returns the same pointer.
+        assert!(std::ptr::eq(cat16_inverse(), cached));
     }
 }

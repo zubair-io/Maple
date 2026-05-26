@@ -251,10 +251,13 @@ equivalent to the diagonal-gain path. **Expected baseline drift on
 `test_color_pipeline.sh`: zero on default-WB fixtures.** Fixture cases
 that exercise the WB slider (the `wb_*` cases under
 `test-fixtures/references/*/`) will move because the matrix shape now
-differs from the diagonal-gain ratios; the magnitude is bounded by
-~7x improvement in +/-1000K symmetry on the synthetic grey
-(`grey_adjustments::temp_symmetric`: main ratio 0.06 → CAT16 ratio ~0.58
-on the synthetic grey predictor, two-orders-of-magnitude tighter).
+differs from the diagonal-gain ratios; the magnitude is bounded by a
+substantial symmetry improvement at +/-1000K on the synthetic grey
+predictor (`grey_adjustments::temp_symmetric`: main's diagonal path
+produces a warm/cool |R-B| ratio of ~8.98, CAT16 lands near ~1.0 —
+about an order of magnitude tighter; see the in-code
+`cat16_temperature_pm_1000k_is_symmetric` test in
+`src/raw-pipeline/raw-core/src/stages/white_balance.rs`).
 
 Local fixture sweep not measured: `test-fixtures/raws/` are gitignored
 on this worktree, so `test_color_pipeline.sh` skip-passed. Capture the
