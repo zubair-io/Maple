@@ -116,9 +116,7 @@ export function parseFlag(v: string | null | undefined): FlagValue {
 }
 
 export function parseColor(v: string | null | undefined): ColorValue {
-  return v === 'red' || v === 'yellow' || v === 'green' || v === 'blue' || v === 'purple'
-    ? v
-    : '';
+  return v === 'red' || v === 'yellow' || v === 'green' || v === 'blue' || v === 'purple' ? v : '';
 }
 
 export function parseScreenshot(v: string | null | undefined): ScreenshotValue {
@@ -154,7 +152,10 @@ export function parseRating(v: string | null | undefined): number {
  * inputs yield an empty set. Trims and (for the `ext` case) lowercases
  * via the `lower` flag. Used by both `extSelected` and `subjectsSelected`
  * — the only difference is the lowercase rule. */
-export function parseCsvSet(csv: string | null | undefined, opts: { lower?: boolean } = {}): Set<string> {
+export function parseCsvSet(
+  csv: string | null | undefined,
+  opts: { lower?: boolean } = {},
+): Set<string> {
   if (!csv) return new Set();
   const lower = opts.lower ?? false;
   return new Set(
@@ -236,7 +237,11 @@ export interface SearchFormState {
  * than `""`. The tri-state `isScreenshot` collapses to a real boolean. */
 export function buildSearchParams(s: SearchFormState): SearchParams {
   return {
-    q: s.q || undefined,
+    // The main search box drives content search, not filename matching, so
+    // its text goes to `placeQuery` (place + caption + OCR + people, with the
+    // Meilisearch semantic/NL-date/person-name path when configured). The URL
+    // keeps the short `?q=` key for link compatibility; `s.q` holds that text.
+    placeQuery: s.q || undefined,
     libraryId: s.libraryId || undefined,
     camera: s.camera || undefined,
     lens: s.lens || undefined,
@@ -255,8 +260,7 @@ export function buildSearchParams(s: SearchFormState): SearchParams {
     sceneType: (s.sceneType || undefined) as SearchSceneType | undefined,
     activity: s.activity || undefined,
     subjects: s.subjects.size > 0 ? Array.from(s.subjects) : undefined,
-    isScreenshot:
-      s.isScreenshot === 'true' ? true : s.isScreenshot === 'false' ? false : undefined,
+    isScreenshot: s.isScreenshot === 'true' ? true : s.isScreenshot === 'false' ? false : undefined,
     sort: s.sort,
   };
 }
@@ -296,7 +300,10 @@ export function cameraLabel(c: { make: string | null; model: string | null }): s
 /** Bucket count for a given scene_type in the current facet snapshot.
  * Returns null when the snapshot is absent or the bucket is missing
  * (so the option label can omit the parenthetical for empty buckets). */
-export function sceneTypeCount(facets: SearchFacets | null | undefined, value: string): number | null {
+export function sceneTypeCount(
+  facets: SearchFacets | null | undefined,
+  value: string,
+): number | null {
   const buckets = facets?.scene_types;
   if (!buckets) return null;
   const hit = buckets.find((b) => b.value === value);
