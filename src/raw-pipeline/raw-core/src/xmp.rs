@@ -9,7 +9,7 @@ use quick_xml::reader::Reader;
 // Re-export the canonical schema types so existing
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
-pub use crate::types::adjustment::{AdjustmentModel, HighlightRecoveryMode, Look};
+pub use crate::types::adjustment::{AdjustmentModel, HighlightRecoveryMode, Look, ToneCurveMode};
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
 /// fail to parse numerically surface as an error.
@@ -107,6 +107,19 @@ fn set_field(m: &mut AdjustmentModel, key: &str, value: &str) -> Result<()> {
                 "default" | "Default" => Look::Default,
                 other => return Err(Error::Xmp(format!(
                     "unknown Look: {}", other
+                ))),
+            };
+        }
+        // Tone-curve application mode (ticket #436). Absent attribute ->
+        // default (`PerChannel`) — pre-#436 behavior. Existing sidecars
+        // round-trip unchanged. Users opt into ratio/hue-preservation via
+        // `papp:ToneCurveMode="RatioPreserving"`.
+        "papp:ToneCurveMode" => {
+            m.tone_curve_mode = match value {
+                "perchannel" | "PerChannel" => ToneCurveMode::PerChannel,
+                "ratiopreserving" | "RatioPreserving" => ToneCurveMode::RatioPreserving,
+                other => return Err(Error::Xmp(format!(
+                    "unknown ToneCurveMode: {}", other
                 ))),
             };
         }
@@ -565,6 +578,63 @@ mod tests {
     fn parse_local_adjustments_malformed_errors() {
         let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
             papp:LocalAdjustments="{not json}"/></x>"#;
+        assert!(parse(xml).is_err());
+    }
+
+    // -----------------------------------------------------------------
+    // ToneCurveMode (ticket #436).
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn defaults_tone_curve_mode_is_per_channel() {
+        // Per #436: `PerChannel` is the pre-existing behavior. Absent
+        // attribute on existing sidecars must keep the current pipeline
+        // output bit-identical.
+        let m = AdjustmentModel::default();
+        assert_eq!(m.tone_curve_mode, ToneCurveMode::PerChannel);
+    }
+
+    #[test]
+    fn parse_tone_curve_mode_ratio_preserving() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:ToneCurveMode="RatioPreserving"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.tone_curve_mode, ToneCurveMode::RatioPreserving);
+    }
+
+    #[test]
+    fn parse_tone_curve_mode_per_channel_explicit() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:ToneCurveMode="PerChannel"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.tone_curve_mode, ToneCurveMode::PerChannel);
+    }
+
+    #[test]
+    fn parse_tone_curve_mode_lowercase() {
+        // Case-insensitive mirror of the `papp:Look` /
+        // `papp:HighlightRecoveryMode` patterns.
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:ToneCurveMode="ratiopreserving"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.tone_curve_mode, ToneCurveMode::RatioPreserving);
+    }
+
+    #[test]
+    fn parse_tone_curve_mode_absent_defaults_to_per_channel() {
+        // Existing sidecars produced before #436 don't carry
+        // `papp:ToneCurveMode`. They must read back as `PerChannel` so the
+        // pipeline output is bit-identical to the pre-#436 baseline.
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+            crs:Exposure2012="1.5"/></x>"#;
+        let m = parse(xml).unwrap();
+        assert_eq!(m.tone_curve_mode, ToneCurveMode::PerChannel);
+    }
+
+    #[test]
+    fn parse_tone_curve_mode_invalid_is_error() {
+        let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+            papp:ToneCurveMode="Hue"/></x>"#;
         assert!(parse(xml).is_err());
     }
 
