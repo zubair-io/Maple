@@ -218,6 +218,22 @@ describe('resolveEnrichmentConfig — pure logic', () => {
     expect(r.meilisearch_url).toBe('http://env.lan:7700');
     expect(r.source.meilisearch_url).toBe('env');
   });
+
+  it('meilisearch_api_key resolves DB > env > unset', () => {
+    expect(resolveEnrichmentConfig(null, {}).meilisearch_api_key).toBeNull();
+    expect(resolveEnrichmentConfig(null, {}).source.meilisearch_api_key).toBe('unset');
+
+    const envOnly = resolveEnrichmentConfig(null, { MAPLE_MEILISEARCH_API_KEY: 'env-key' });
+    expect(envOnly.meilisearch_api_key).toBe('env-key');
+    expect(envOnly.source.meilisearch_api_key).toBe('env');
+
+    const dbWins = resolveEnrichmentConfig(
+      { nominatim_url: null, geocode_worker_enabled: true, meilisearch_api_key: 'db-key' },
+      { MAPLE_MEILISEARCH_API_KEY: 'env-key' },
+    );
+    expect(dbWins.meilisearch_api_key).toBe('db-key');
+    expect(dbWins.source.meilisearch_api_key).toBe('db');
+  });
 });
 
 describe('saveEnrichmentConfig + loadEnrichmentConfig — Mongo round-trip', () => {

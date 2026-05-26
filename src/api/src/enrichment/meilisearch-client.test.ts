@@ -445,7 +445,7 @@ describe('reconfigureMeilisearch — runtime singleton swap', () => {
   });
 
   it('a non-null URL configures the shared client', () => {
-    reconfigureMeilisearch('http://meili.saved:7700');
+    reconfigureMeilisearch('http://meili.saved:7700', null);
     expect(meilisearchClient().isConfigured()).toBe(true);
   });
 
@@ -453,7 +453,7 @@ describe('reconfigureMeilisearch — runtime singleton swap', () => {
     // Simulate the resolver having already chosen the DB value: we pass the
     // resolved URL explicitly, and the env var must NOT leak back in.
     process.env.MAPLE_MEILISEARCH_URL = 'http://meili.env:7700';
-    reconfigureMeilisearch('http://meili.db:7700');
+    reconfigureMeilisearch('http://meili.db:7700', null);
     expect(meilisearchClient().isConfigured()).toBe(true);
   });
 
@@ -461,7 +461,20 @@ describe('reconfigureMeilisearch — runtime singleton swap', () => {
     // resolved.meilisearch_url === null means "neither DB nor env" — but
     // even if a stale env var is present, the explicit null must disable.
     process.env.MAPLE_MEILISEARCH_URL = 'http://meili.env:7700';
-    reconfigureMeilisearch(null);
+    reconfigureMeilisearch(null, null);
     expect(meilisearchClient().isConfigured()).toBe(false);
+  });
+
+  it('sends the resolved API key as a bearer token on requests', async () => {
+    const { fetchImpl, calls } = makeFakeFetch({
+      routes: [{ method: 'GET', pathPrefix: '/health', status: 200, body: { status: 'ok' } }],
+    });
+    reconfigureMeilisearch('http://meili.db:7700', 'db-key');
+    // Swap in the recording fetch on the freshly-built singleton.
+    setMeilisearchClientForTests(
+      createMeilisearchClient({ url: 'http://meili.db:7700', apiKey: 'db-key', fetchImpl }),
+    );
+    await meilisearchClient().health();
+    expect(calls[0]!.headers.Authorization).toBe('Bearer db-key');
   });
 });

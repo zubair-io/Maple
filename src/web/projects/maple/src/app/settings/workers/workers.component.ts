@@ -296,7 +296,9 @@ export class WorkersComponent implements OnInit, OnDestroy {
         finishErr(new Error('Enter a URL to test.'));
         return;
       }
-      this.enrichmentApi.testMeilisearch(url).subscribe({
+      // Probe with the typed key if present; otherwise the server falls back
+      // to the saved key / env var.
+      this.enrichmentApi.testMeilisearch(url, form.meilisearch_api_key.trim() || null).subscribe({
         next: (res) =>
           res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
         error: finishErr,
@@ -423,6 +425,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
       body.face_mobilefacenet_sha256 = form.face_mobilefacenet_sha256.trim() || null;
     } else if (kind === 'meili') {
       body.meilisearch_url = form.meilisearch_url.trim() || null;
+      // Write-only key: only send it when the operator typed something.
+      // Blank → omit → server leaves the saved key unchanged (it's masked
+      // in the UI, so a blank field must not wipe it).
+      const key = form.meilisearch_api_key.trim();
+      if (key.length > 0) body.meilisearch_api_key = key;
     }
     this.enrichmentApi.saveEnrichmentConfig(body).subscribe({
       next: (cfg) => {

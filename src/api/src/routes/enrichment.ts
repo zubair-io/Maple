@@ -26,6 +26,7 @@ import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
   saveEnrichmentConfig,
+  type ResolvedEnrichmentConfig,
 } from '../enrichment/enrichment-config.repo.ts';
 import { applyEnrichmentConfig } from '../enrichment/bootstrap.ts';
 import { applyDescribeConfig } from '../enrichment/describe-bootstrap.ts';
@@ -76,9 +77,13 @@ const ConfigBody = t.Object({
   // ── Search index (Phase 7) ─────────────────────────────────────────
   /** Meilisearch sidecar URL. `null`/empty clears back to the
    * `MAPLE_MEILISEARCH_URL` env var (or disables the sidecar); omitted
-   * leaves the saved value alone. The API key is NOT settable here — it
-   * stays the `MAPLE_MEILISEARCH_API_KEY` env var. */
+   * leaves the saved value alone. */
   meilisearch_url: t.Optional(t.Union([t.String(), t.Null()])),
+  /** Meilisearch API key. Secret — write-only. A non-empty string sets it;
+   * `null` clears it back to the `MAPLE_MEILISEARCH_API_KEY` env var;
+   * omitted (or empty string) leaves the saved key unchanged so a blank
+   * field in the UI never wipes a key the operator can't see. */
+  meilisearch_api_key: t.Optional(t.Union([t.String(), t.Null()])),
 });
 
 const TestBody = t.Object({
@@ -87,7 +92,23 @@ const TestBody = t.Object({
 
 const TestMeiliBody = t.Object({
   meilisearch_url: t.String({ minLength: 1 }),
+  /** Optional write-only key to probe with a not-yet-saved value. When
+   * omitted the env var (`MAPLE_MEILISEARCH_API_KEY`) is used. */
+  api_key: t.Optional(t.Union([t.String(), t.Null()])),
 });
+
+/** Strip the secret Meilisearch API key from a resolved config before it
+ * goes over HTTP, replacing it with a boolean "is a key set" indicator. The
+ * raw key is never echoed to clients; `source.meilisearch_api_key` (db/env/
+ * unset) is safe to keep so the UI can show provenance. */
+function toPublicConfig(resolved: ResolvedEnrichmentConfig) {
+  const { meilisearch_api_key, ...safe } = resolved;
+  return {
+    ...safe,
+    meilisearch_api_key_set:
+      typeof meilisearch_api_key === 'string' && meilisearch_api_key.length > 0,
+  };
+}
 
 const TestDescribeBody = t.Object({
   provider: t.String({ minLength: 1 }),
@@ -129,7 +150,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
     const probe = probeFaceModelFiles(resolved.face_model_dir);
     const status = getFaceModelsStatus();
     return {
-      ...resolved,
+      ...toPublicConfig(resolved),
       face_models: {
         status: status.kind,
         error_detail: status.errorDetail,
@@ -231,6 +252,18 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         meiliUrl = validatedMeili as string | null;
       }
 
+      // Meilisearch API key (secret, write-only). `undefined` or empty
+      // string = leave the saved key unchanged (a blank field in the UI must
+      // not wipe a key the operator can't see); `null` = clear back to env;
+      // a non-empty string sets a new key.
+      let meiliApiKey: string | null | undefined;
+      if (body.meilisearch_api_key === null) {
+        meiliApiKey = null;
+      } else if (typeof body.meilisearch_api_key === 'string') {
+        const trimmed = body.meilisearch_api_key.trim();
+        if (trimmed.length > 0) meiliApiKey = trimmed;
+      }
+
       await saveEnrichmentConfig({
         nominatim_url: url,
         geocode_worker_enabled: body.geocode_worker_enabled,
@@ -281,6 +314,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
           ? { face_worker_enabled: body.face_worker_enabled }
           : {}),
         ...(meiliUrl !== undefined ? { meilisearch_url: meiliUrl } : {}),
+        ...(meiliApiKey !== undefined ? { meilisearch_api_key: meiliApiKey } : {}),
       });
 
       // Re-resolve from DB to compute the effective config (in case env vars
@@ -314,7 +348,7 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
       // running process (search route + meili stage) picks it up without a
       // restart. This swap is synchronous and is the only part that must
       // happen before we return.
-      reconfigureMeilisearch(resolved.meilisearch_url);
+      reconfigureMeilisearch(resolved.meilisearch_url, resolved.meilisearch_api_key);
       if (resolved.meilisearch_url) {
         // Warm up the freshly-pointed-at instance — health-check + index
         // (re)creation — fire-and-forget. NOT awaited: a slow/unreachable
@@ -322,7 +356,10 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         // best-effort (search falls back to Mongo `$text`). Detached so the
         // response returns immediately; the IIFE owns its own error handling
         // so there's no unhandled rejection.
-        const meili = createMeilisearchClient({ url: resolved.meilisearch_url });
+        const meili = createMeilisearchClient({
+          url: resolved.meilisearch_url,
+          apiKey: resolved.meilisearch_api_key ?? undefined,
+        });
         void (async () => {
           try {
             if (await meili.health()) await meili.ensureIndex();
@@ -332,7 +369,8 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         })();
       }
 
-      return resolved;
+      // Strip the secret key before returning.
+      return toPublicConfig(resolved);
     },
     { body: ConfigBody },
   )
@@ -378,7 +416,15 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
         set.status = 400;
         return { ok: false, error: validated.error };
       }
-      const client = createMeilisearchClient({ url: validated });
+      // Probe with the typed key when supplied; otherwise let
+      // createMeilisearchClient read MAPLE_MEILISEARCH_API_KEY from env.
+      // (Don't pass `apiKey: undefined` explicitly — that would override the
+      // env read with "no key".)
+      const override: { url: string; apiKey?: string } = { url: validated };
+      if (typeof body.api_key === 'string' && body.api_key.trim().length > 0) {
+        override.apiKey = body.api_key.trim();
+      }
+      const client = createMeilisearchClient(override);
       const ok = await client.health();
       return ok
         ? { ok: true, url: validated }
