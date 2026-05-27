@@ -39,6 +39,33 @@ pub use schema::{FieldKind, FieldSpec, ADJUSTMENT_SCHEMA};
 /// follow-ups so Apple, Web, and Rust render identically.
 pub use crate::view::look::Look;
 
+/// Render-shaping profile applied at the view-transform stage (Auto
+/// Profile Phase 1, ticket #536). `Auto` (default) fits a per-image curve
+/// from the embedded JPEG preview at render time; `Neutral` runs the AgX
+/// scene-referred view transform. See the design spec at
+/// `docs/superpowers/specs/2026-05-26-auto-profile-and-auto-setting-design.md`.
+///
+/// XMP wire: serialized as `papp:Profile="Auto"|"Neutral"` (and only when
+/// non-default — `Auto` is omitted by the serializer). Pre-#536 sidecars
+/// carrying `papp:Look="Default"|"Neutral"` migrate transparently through
+/// the parser: `Default` → `Auto`, `Neutral` → `Neutral`. When both
+/// attributes are present on the same element, `papp:Profile` wins
+/// regardless of document order.
+///
+/// Not added to `ADJUSTMENT_SCHEMA` yet — the codegen plumbing for
+/// Profile in Swift / TypeScript lands with the T6 pipeline wiring.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Profile {
+    Auto,
+    Neutral,
+}
+
+impl Default for Profile {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
 /// Highlight reconstruction mode per spec § 3.3a.
 ///
 /// Default is `ChromaticAdaptation` (Path C — `AsShotNeutral`-aware
@@ -311,6 +338,13 @@ pub struct AdjustmentModel {
     /// render module.
     pub look: Look,
 
+    /// Render-shaping profile (Auto Profile Phase 1, ticket #536). Selects
+    /// between the per-image curve fit (`Auto`, default) and the
+    /// scene-referred AgX view transform (`Neutral`). Pipeline dispatch
+    /// is wired in T6; until then this field is parsed and round-trips
+    /// through XMP but has no effect on rendered output. See [`Profile`].
+    pub profile: Profile,
+
     /// Local adjustment layers (ticket #280). Each entry pairs a `Mask`
     /// (linear / radial gradient) with a `PartialAdjustments` payload, and
     /// is applied between `dehaze` and `sharpen` in the develop chain. An
@@ -388,6 +422,10 @@ impl Default for AdjustmentModel {
             // scene-referred output.
             auto_exposure: AutoExposureMode::On,
             look: Look::Default,
+            // Per-#536: Auto Profile is the new default — per-image curve
+            // fit at render time. Users opt out per-image via
+            // `papp:Profile="Neutral"` (AgX scene-referred view transform).
+            profile: Profile::Auto,
             local_adjustments: Vec::new(),
             // Per-#436: `PerChannel` is the pre-existing behavior. Default
             // chosen for backward compatibility — `RatioPreserving` is opt-in.
