@@ -139,6 +139,16 @@ public final class FolderEnumerator: NSObject, NSFileProviderEnumerator {
                                                parentImageBase: base,
                                                parentIdentifier: containerIdentifier))
                     }
+                    // Non-image files (video, documents, extensionless, …):
+                    // stored + synced but never indexed, so they're addressed
+                    // by their library-relative path rather than an asset id.
+                    for file in contents.files {
+                        let childRel = relativePath.isEmpty ? file.name : "\(relativePath)/\(file.name)"
+                        items.append(MapleItem(file: file,
+                                               folderID: folderID,
+                                               relativePath: childRel,
+                                               parentIdentifier: containerIdentifier))
+                    }
                     // Inject the synthesized `.maple/` container on the
                     // first page only. The server's `/api/fs/dir` hides
                     // dotdirs (see `src/api/.../routes/fs.ts`), so we

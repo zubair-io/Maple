@@ -70,29 +70,52 @@ public struct SidecarChild: Codable, Equatable, Sendable {
     }
 }
 
+/// A regular file that is neither an indexed image nor an `.xmp` sidecar
+/// (video, documents, extensionless files). Stored + synced but has no
+/// `AssetDoc`, so it carries no asset id — it's addressed by its path.
+public struct FileChild: Codable, Equatable, Sendable {
+    public let name: String
+    public let path: String
+    public let mtime: Date
+    public let size: Int64
+    public let ext: String          // lowercase, no dot; "" for extensionless files
+
+    public init(name: String, path: String, mtime: Date, size: Int64, ext: String) {
+        self.name = name
+        self.path = path
+        self.mtime = mtime
+        self.size = size
+        self.ext = ext
+    }
+}
+
 public struct DirContents: Codable, Equatable, Sendable {
     public let path: String
     public let parent: String?
     public let dirs: [DirChild]
     public let images: [ImageChild]
     public let sidecars: [SidecarChild]
+    /// Non-image, non-sidecar regular files. Surfaced so the File Provider
+    /// can sync every file type; these never carry an asset id.
+    public let files: [FileChild]
     /// Opaque continuation token from the server. Present when paged mode
     /// is engaged and more entries remain; nil otherwise. Clients
     /// round-trip the string verbatim to fetch the next page.
     public let nextCursor: String?
 
     public init(path: String, parent: String?, dirs: [DirChild], images: [ImageChild],
-                sidecars: [SidecarChild], nextCursor: String? = nil) {
+                sidecars: [SidecarChild], files: [FileChild] = [], nextCursor: String? = nil) {
         self.path = path
         self.parent = parent
         self.dirs = dirs
         self.images = images
         self.sidecars = sidecars
+        self.files = files
         self.nextCursor = nextCursor
     }
 
     private enum CodingKeys: String, CodingKey {
-        case path, parent, dirs, images, sidecars
+        case path, parent, dirs, images, sidecars, files
         case nextCursor = "next_cursor"
     }
 
@@ -104,17 +127,21 @@ public struct DirContents: Codable, Equatable, Sendable {
         self.images = try c.decode([ImageChild].self, forKey: .images)
         // Tolerate the field being absent — pre-Phase-2 servers don't send it.
         self.sidecars = (try? c.decode([SidecarChild].self, forKey: .sidecars)) ?? []
+        // Tolerate absence — servers without the sync-all-files change omit it.
+        self.files = (try? c.decode([FileChild].self, forKey: .files)) ?? []
         self.nextCursor = try c.decodeIfPresent(String.self, forKey: .nextCursor)
     }
 }
 
 public struct UploadResponse: Codable, Equatable, Sendable {
-    public let assetID: String
+    /// nil when the uploaded file is not an indexed image — the server
+    /// stored the bytes but created no `AssetDoc`, so there's no asset id.
+    public let assetID: String?
     public let absPath: String
     public let size: Int64
     public let mtime: Date
 
-    public init(assetID: String, absPath: String, size: Int64, mtime: Date) {
+    public init(assetID: String?, absPath: String, size: Int64, mtime: Date) {
         self.assetID = assetID
         self.absPath = absPath
         self.size = size
@@ -712,6 +739,43 @@ public actor RemoteCatalog {
         }
         if status == 415 { return .unsupported }
         throw URLError(.badServerResponse)
+    }
+
+    /// Stream a non-indexed file's bytes to `localURL` by its library-relative
+    /// path. Non-image files have no `AssetDoc`, so `downloadAsset` can't
+    /// reach them — this hits `GET /api/folders/<id>/file?path=<rel>` instead.
+    /// Mirrors `downloadAsset`'s streaming + atomic-move behaviour.
+    public func downloadFile(folderID: String, relativePath: String, to localURL: URL) async throws {
+        var comps = URLComponents(
+            url: server.appending(path: "/api/folders/\(folderID)/file"),
+            resolvingAgainstBaseURL: false)!
+        comps.queryItems = [.init(name: "path", value: relativePath)]
+        let req = URLRequest(url: comps.url!)
+        let session = downloadURLSession
+        let (tmpURL, resp) = try await http.refreshIfNeededAndRetry(request: req) { injected in
+            try await session.download(for: injected)
+        }
+        try Self.check2xx(resp)
+        let fm = FileManager.default
+        if fm.fileExists(atPath: localURL.path) {
+            try fm.removeItem(at: localURL)
+        }
+        try fm.moveItem(at: tmpURL, to: localURL)
+    }
+
+    /// Stat a non-indexed file by its library-relative path. Lets `item(for:)`
+    /// resolve a bare `.file(folderID:relativePath:)` identifier (size + mtime)
+    /// without downloading the bytes. The `/file-meta` response shape matches
+    /// `FileChild` exactly, so we decode straight into it.
+    public func statFile(folderID: String, relativePath: String) async throws -> FileChild {
+        var comps = URLComponents(
+            url: server.appending(path: "/api/folders/\(folderID)/file-meta"),
+            resolvingAgainstBaseURL: false)!
+        comps.queryItems = [.init(name: "path", value: relativePath)]
+        let req = URLRequest(url: comps.url!)
+        let (data, resp) = try await http.data(for: req)
+        try Self.check2xx(resp)
+        return try decoder.decode(FileChild.self, from: data)
     }
 
     /// Create a subdirectory under a library root. `targetRelativePath`

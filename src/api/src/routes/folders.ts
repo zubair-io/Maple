@@ -8,7 +8,7 @@
 
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { readdir, open, rename, stat, unlink, mkdir, utimes } from 'node:fs/promises';
+import { readdir, open, rename, stat, unlink, mkdir, utimes, realpath } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import * as nodePath from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -16,7 +16,7 @@ import { sha1 } from '@noble/hashes/legacy.js';
 import { foldersCollection, assetsCollection } from '../db/client.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { validateRoot } from '../fs/root.ts';
-import { RAW_EXTENSIONS } from '../fs/browse.ts';
+import { RAW_EXTENSIONS, isUnderRoot } from '../fs/browse.ts';
 import { SHARP_EXTENSIONS } from '../thumbs/render.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { listPairedSidecars } from '../fs/xmp.ts';
@@ -109,6 +109,36 @@ function decodeAndValidateTargetPath(
   headers: Record<string, string | undefined>,
 ): { ok: true; target: string; parts: string[] } | { ok: false; status: number; error: string } {
   return validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
+}
+
+/**
+ * Resolve a library-relative `?path=` query param against a folder root and
+ * confirm the symlink-resolved result stays inside that root. Shared by the
+ * file download + stat endpoints (the path-addressed reads the File Provider
+ * uses for non-indexed files). Defends against `..`, absolute paths, and
+ * symlink escapes the same way the browse jail does.
+ */
+async function resolveFolderRelPath(
+  folderPath: string,
+  rawPath: string | undefined,
+): Promise<{ ok: true; real: string } | { ok: false; status: number; error: string }> {
+  if (typeof rawPath !== 'string' || rawPath === '') {
+    return { ok: false, status: 400, error: 'missing path query param' };
+  }
+  if (nodePath.isAbsolute(rawPath) || rawPath.split('/').includes('..')) {
+    return { ok: false, status: 400, error: 'path must be relative and contain no ".." segments' };
+  }
+  const abs = nodePath.join(folderPath, rawPath);
+  let real: string;
+  try {
+    real = await realpath(abs);
+  } catch {
+    return { ok: false, status: 404, error: 'file not found' };
+  }
+  if (!isUnderRoot(real, folderPath)) {
+    return { ok: false, status: 400, error: 'path escapes the library root' };
+  }
+  return { ok: true, real };
 }
 
 export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
@@ -334,11 +364,11 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const filename = parts[parts.length - 1]!;
       const dot = filename.lastIndexOf('.');
       const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : '';
-      const allowed = RAW_EXTENSIONS.has(ext) || SHARP_EXTENSIONS.has(ext);
-      if (!allowed) {
-        set.status = 415;
-        return { error: `Unsupported file extension: "${ext}"` };
-      }
+      // Any file type may be uploaded and stored on disk so the File
+      // Provider can sync everything. Only image files get an `AssetDoc`
+      // — the catalog stays image-only. Everything else (video, documents,
+      // extensionless files) is stored + synced but never indexed.
+      const isMedia = RAW_EXTENSIONS.has(ext) || SHARP_EXTENSIONS.has(ext);
 
       const absPath = nodePath.join(folder.path, target);
 
@@ -398,98 +428,101 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // surface the error.
       type Trashed = { docId: ObjectId; newAbsPath: string; sha1_head?: string; size?: number };
       let trashed: Trashed | undefined;
-      try {
-        await stat(absPath);
-        // Pre-compute the target fileinfo entry that's about to be
-        // overwritten so we can look up the existing row by `(library_id,
-        // path, filename)` instead of the retired `abs_path` field.
-        const preRelDirRaw = nodePath.dirname(target);
-        const preRelDir =
-          preRelDirRaw === '.' || preRelDirRaw === ''
-            ? ''
-            : preRelDirRaw.split(nodePath.sep).join('/');
-        const existing = await assets.findOne({
-          fileinfo: {
-            $elemMatch: { library_id: folderId, path: preRelDir, filename },
-          },
-          deleted_at: null,
-        });
-        const moved = await moveToTrash(absPath, folder.path);
-        if (moved.kind === 'ok') {
-          if (existing) {
-            const existingFields = existing as { sha1_head?: string; size?: number };
-            // Rewrite the primary fileinfo entry to point at the trash
-            // destination so cache resolution + restore can find the row.
-            const trashRelDirRaw = nodePath.relative(
-              folder.path,
-              nodePath.dirname(moved.newAbsPath),
-            );
-            const trashRelDir =
-              trashRelDirRaw === '.' || trashRelDirRaw === ''
-                ? ''
-                : trashRelDirRaw.split(nodePath.sep).join('/');
-            const trashFilename = nodePath.basename(moved.newAbsPath);
-            await assets.updateOne(
-              { _id: existing._id },
-              {
-                $set: {
-                  fileinfo: [
-                    {
-                      library_id: folderId,
-                      path: trashRelDir,
-                      filename: trashFilename,
-                      deleted_at: null,
-                    },
-                  ],
-                  deleted_at: new Date().toISOString(),
-                  original_path: absPath,
+      // Non-media files have no AssetDoc and no trash semantics — a
+      // re-upload simply overwrites the bytes via the atomic rename below.
+      if (isMedia)
+        try {
+          await stat(absPath);
+          // Pre-compute the target fileinfo entry that's about to be
+          // overwritten so we can look up the existing row by `(library_id,
+          // path, filename)` instead of the retired `abs_path` field.
+          const preRelDirRaw = nodePath.dirname(target);
+          const preRelDir =
+            preRelDirRaw === '.' || preRelDirRaw === ''
+              ? ''
+              : preRelDirRaw.split(nodePath.sep).join('/');
+          const existing = await assets.findOne({
+            fileinfo: {
+              $elemMatch: { library_id: folderId, path: preRelDir, filename },
+            },
+            deleted_at: null,
+          });
+          const moved = await moveToTrash(absPath, folder.path);
+          if (moved.kind === 'ok') {
+            if (existing) {
+              const existingFields = existing as { sha1_head?: string; size?: number };
+              // Rewrite the primary fileinfo entry to point at the trash
+              // destination so cache resolution + restore can find the row.
+              const trashRelDirRaw = nodePath.relative(
+                folder.path,
+                nodePath.dirname(moved.newAbsPath),
+              );
+              const trashRelDir =
+                trashRelDirRaw === '.' || trashRelDirRaw === ''
+                  ? ''
+                  : trashRelDirRaw.split(nodePath.sep).join('/');
+              const trashFilename = nodePath.basename(moved.newAbsPath);
+              await assets.updateOne(
+                { _id: existing._id },
+                {
+                  $set: {
+                    fileinfo: [
+                      {
+                        library_id: folderId,
+                        path: trashRelDir,
+                        filename: trashFilename,
+                        deleted_at: null,
+                      },
+                    ],
+                    deleted_at: new Date().toISOString(),
+                    original_path: absPath,
+                  },
                 },
-              },
-            );
-            trashed = {
-              docId: existing._id as ObjectId,
-              newAbsPath: moved.newAbsPath,
-              sha1_head: existingFields.sha1_head,
-              size: existingFields.size,
-            };
-            // Mirror the DELETE route: emit a delete change so consumers
-            // (e.g. WorkingSetEnumerator, which removes items only on
-            // `.delete`) drop the pre-existing asset. The subsequent
-            // `create` for the new bytes still publishes below.
-            await recordAndPublishAssetChange({
-              kind: 'delete',
-              asset_id: existing._id as ObjectId,
-              folder_id: folderId,
-              abs_path: absPath,
-            }).catch(() => {});
+              );
+              trashed = {
+                docId: existing._id as ObjectId,
+                newAbsPath: moved.newAbsPath,
+                sha1_head: existingFields.sha1_head,
+                size: existingFields.size,
+              };
+              // Mirror the DELETE route: emit a delete change so consumers
+              // (e.g. WorkingSetEnumerator, which removes items only on
+              // `.delete`) drop the pre-existing asset. The subsequent
+              // `create` for the new bytes still publishes below.
+              await recordAndPublishAssetChange({
+                kind: 'delete',
+                asset_id: existing._id as ObjectId,
+                folder_id: folderId,
+                abs_path: absPath,
+              }).catch(() => {});
+            }
+          } else {
+            let stillThere = false;
+            try {
+              await stat(absPath);
+              stillThere = true;
+            } catch {}
+            if (stillThere) {
+              try {
+                await unlink(tmp);
+              } catch {}
+              set.status = 500;
+              return { error: `Upload trash failed: ${moved.error}` };
+            }
+            // Benign race — peer moved the file, peer owns its trash + doc
+            // update. We proceed to rename our tmp into place.
           }
-        } else {
-          let stillThere = false;
-          try {
-            await stat(absPath);
-            stillThere = true;
-          } catch {}
-          if (stillThere) {
+        } catch (err) {
+          if ((err as { code?: string }).code !== 'ENOENT') {
             try {
               await unlink(tmp);
             } catch {}
             set.status = 500;
-            return { error: `Upload trash failed: ${moved.error}` };
+            return {
+              error: `Upload pre-trash failed: ${err instanceof Error ? err.message : String(err)}`,
+            };
           }
-          // Benign race — peer moved the file, peer owns its trash + doc
-          // update. We proceed to rename our tmp into place.
         }
-      } catch (err) {
-        if ((err as { code?: string }).code !== 'ENOENT') {
-          try {
-            await unlink(tmp);
-          } catch {}
-          set.status = 500;
-          return {
-            error: `Upload pre-trash failed: ${err instanceof Error ? err.message : String(err)}`,
-          };
-        }
-      }
 
       try {
         await rename(tmp, absPath);
@@ -510,6 +543,17 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         try {
           await utimes(absPath, epoch, epoch);
         } catch {}
+      }
+
+      // Non-media: bytes are stored + synced, but we create no AssetDoc and
+      // emit no asset change-feed event. Respond without an `asset_id`.
+      if (!isMedia) {
+        set.status = 201;
+        return {
+          abs_path: absPath,
+          size: st.size,
+          mtime: new Date(st.mtimeMs).toISOString(),
+        };
       }
 
       // If the file we just trashed had the same prefix-hash and size
@@ -632,6 +676,91 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       parse: 'none',
     },
   )
+
+  // Stream the raw bytes of a file addressed by its library-relative path.
+  // Used by the File Provider to materialize non-indexed files (which have
+  // no AssetDoc, so the `/api/assets/:id/raw` route can't reach them).
+  .get('/:id/file', async ({ params, query, set }) => {
+    let folderId: ObjectId;
+    try {
+      folderId = new ObjectId(params.id);
+    } catch {
+      set.status = 400;
+      return { error: 'Invalid folder id' };
+    }
+    const folder = await (await foldersCollection()).findOne({ _id: folderId });
+    if (!folder) {
+      set.status = 404;
+      return { error: 'Folder not found' };
+    }
+    const resolved = await resolveFolderRelPath(folder.path, query.path);
+    if (!resolved.ok) {
+      set.status = resolved.status;
+      return { error: resolved.error };
+    }
+    let st: Awaited<ReturnType<typeof stat>>;
+    try {
+      st = await stat(resolved.real);
+    } catch {
+      set.status = 404;
+      return { error: 'file not found' };
+    }
+    if (!st.isFile()) {
+      set.status = 404;
+      return { error: 'not a regular file' };
+    }
+    return new Response(Bun.file(resolved.real).stream(), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': String(st.size),
+        'Last-Modified': new Date(st.mtimeMs).toUTCString(),
+      },
+    });
+  })
+
+  // Stat a file addressed by its library-relative path. Lets the File
+  // Provider resolve a bare `.file(folderID, relativePath)` identifier to an
+  // item (size + mtime) without downloading the bytes.
+  .get('/:id/file-meta', async ({ params, query, set }) => {
+    let folderId: ObjectId;
+    try {
+      folderId = new ObjectId(params.id);
+    } catch {
+      set.status = 400;
+      return { error: 'Invalid folder id' };
+    }
+    const folder = await (await foldersCollection()).findOne({ _id: folderId });
+    if (!folder) {
+      set.status = 404;
+      return { error: 'Folder not found' };
+    }
+    const resolved = await resolveFolderRelPath(folder.path, query.path);
+    if (!resolved.ok) {
+      set.status = resolved.status;
+      return { error: resolved.error };
+    }
+    let st: Awaited<ReturnType<typeof stat>>;
+    try {
+      st = await stat(resolved.real);
+    } catch {
+      set.status = 404;
+      return { error: 'file not found' };
+    }
+    if (!st.isFile()) {
+      set.status = 404;
+      return { error: 'not a regular file' };
+    }
+    const name = nodePath.basename(resolved.real);
+    const dot = name.lastIndexOf('.');
+    return {
+      name,
+      path: resolved.real,
+      size: st.size,
+      mtime: new Date(st.mtimeMs).toISOString(),
+      ext: dot >= 0 ? name.slice(dot + 1).toLowerCase() : '',
+    };
+  })
 
   // Create a subdirectory under a library root. Target path in the
   // `X-Maple-Target-Path` header (URL-encoded), same validation rules
