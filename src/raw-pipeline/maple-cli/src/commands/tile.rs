@@ -1,8 +1,8 @@
 //! `maple-cli tile` — render one source-pixel tile to a viewable PNG. The
 //! fp16 RGBA produced by the FFI tile path is decoded back to f32 here and
-//! run through the legacy CPU view tail (AgX + Rec.2020→sRGB + quantize +
-//! Look) so the resulting PNG opens directly in Preview.app. This is a
-//! sanity check on the tile math, not a parity gate.
+//! run through the CPU view tail (AgX + Rec.2020→sRGB + sRGB encode +
+//! dither + quantize) so the resulting PNG opens directly in Preview.app.
+//! This is a sanity check on the tile math, not a parity gate.
 
 use raw_core::decode::decode_bytes;
 use raw_core::pipeline::{render_scene_linear_tile_from_raw_with_quality, RenderQuality};
@@ -57,15 +57,9 @@ pub fn run(
     raw_core::view::agx::apply(&mut img, model.contrast);
     raw_core::view::encode::rec2020_to_srgb(&mut img);
     raw_core::view::encode::srgb_gamma_encode(&mut img);
-    // DisplayLookCurve (#371) — match `render_from_raw_with_quality`'s
-    // view-tail behaviour so `tile` previews look the same as `batch` /
-    // live FFI output. Per #519 the LUT samples in f32 sRGB-encoded
-    // space BEFORE dither + quantize so the LUT's slope ≠ 1 regions
-    // don't reintroduce histogram gaps the dither could not mask.
-    {
-        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut img.pixels);
-        raw_core::view::look::apply(pixels, model.look);
-    }
+    // DisplayLookCurve retired in #538 (Auto Profile T7). The tile path
+    // stays on AgX — Auto Profile only fires from the render entries
+    // that thread the RAW path through to the JPEG-preview fit.
     let u8_bytes = raw_core::view::encode::dither_and_quantize(&mut img);
     let png = raw_core::png::encode(w, h, &u8_bytes)?;
     std::fs::write(out, png)?;

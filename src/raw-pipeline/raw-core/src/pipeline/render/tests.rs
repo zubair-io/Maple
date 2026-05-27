@@ -237,14 +237,12 @@ fn render_scene_linear_sized_test_0002_caps_long_edge_at_1500() {
 #[test]
 fn render_from_scene_linear_neutral_ramp_is_monotone() {
     let ramp = neutral_ramp(64, 4);
-    // Force `Look::Neutral` here — this test validates a structural
-    // pipeline invariant (achromatic input yields achromatic output,
-    // monotone ramp stays monotone) and the empirical Look LUT has
-    // intentionally different per-channel curves (R/G floor at ~7, B
-    // floor at ~19), which makes neutral-axis preservation
-    // colorimetric, not byte-exact. Pipeline aesthetics are tested
-    // separately by the parity harness; this is the invariant gate.
-    let model = AdjustmentModel { look: crate::view::look::Look::Neutral, ..AdjustmentModel::default() };
+    // Post-#538: `look::apply` is a no-op so default model is fine — the
+    // synthetic path always runs AgX. This test gates a structural
+    // pipeline invariant (achromatic in → achromatic out, monotone
+    // ramp stays monotone); pipeline aesthetics are tested by the
+    // parity harness.
+    let model = AdjustmentModel::default();
     let (w, h, bytes) = render_from_scene_linear(ramp, &model)
         .expect("synthetic ramp render");
     assert_eq!(w, 64);
@@ -298,13 +296,10 @@ fn neutral_ramp_view_transform_produces_no_banding_at_high_resolution() {
     use crate::synthetic_input::neutral_ramp;
     let width: u32 = 4096;
     let ramp = neutral_ramp(width, 1);
-    // Force Look::Neutral — the empirical LUT introduces per-channel
-    // floors that violate strict-monotonicity by design. Banding gate
-    // is on the upstream pipeline, not the LUT.
-    let model = AdjustmentModel {
-        look: crate::view::look::Look::Neutral,
-        ..AdjustmentModel::default()
-    };
+    // Post-#538: `look::apply` is a no-op so default model is fine — the
+    // banding gate is on the upstream pipeline (AgX + sRGB encode +
+    // 8-bit quantize).
+    let model = AdjustmentModel::default();
     let (w, _h, bytes) = render_from_scene_linear(ramp, &model)
         .expect("ramp render");
     assert_eq!(w, width);
@@ -389,14 +384,12 @@ fn render_from_scene_linear_with_chain_dehaze_zero_is_passthrough() {
     // same bytes as the view-transform-only path (modulo a couple
     // levels of u8 rounding from the extra Oklab round-trips).
     //
-    // Force `Look::Neutral` here — sub-1-unit float drift in the chain
-    // path can index either side of a step in the Look LUT, producing
-    // up to a few u8 of post-LUT divergence even though the underlying
-    // pipelines match within float tolerance. This test gates pipeline
-    // equivalence, not the Look layer.
+    // Post-#538: `look::apply` is a no-op so default model is fine —
+    // this test gates pipeline equivalence, not the (now-retired) Look
+    // layer.
     let ramp_a = neutral_ramp(32, 2);
     let ramp_b = neutral_ramp(32, 2);
-    let model = AdjustmentModel { look: crate::view::look::Look::Neutral, ..AdjustmentModel::default() };
+    let model = AdjustmentModel::default();
     let (_, _, plain) = render_from_scene_linear(ramp_a, &model).unwrap();
     let (_, _, chained) = render_from_scene_linear_with_chain(ramp_b, &model).unwrap();
     assert_eq!(plain.len(), chained.len());
@@ -434,13 +427,11 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 /// regression in the Neutral / synthetic path will trip this gate.
 #[test]
 fn t6_synthetic_neutral_ramp_byte_golden() {
-    use crate::view::look::Look;
     let ramp = neutral_ramp(64, 4);
-    // `Look::Neutral` keeps the empirical Look LUT out of the picture so
-    // any drift in the Look layer doesn't show up here. T6 owns the view
-    // transform branch, not the Look layer.
+    // Post-#538: `look::apply` is a no-op so the default `Look` field
+    // doesn't affect bytes. Only `Profile::Neutral` matters here —
+    // the golden hash was captured at this configuration.
     let model = AdjustmentModel {
-        look: Look::Neutral,
         profile: crate::types::adjustment::Profile::Neutral,
         ..AdjustmentModel::default()
     };
@@ -461,14 +452,11 @@ fn t6_synthetic_neutral_ramp_byte_golden() {
 /// the same bytes because there's no RAW path to fit against.
 #[test]
 fn t6_synthetic_auto_equals_neutral() {
-    use crate::view::look::Look;
     let model_auto = AdjustmentModel {
-        look: Look::Neutral,
         profile: crate::types::adjustment::Profile::Auto,
         ..AdjustmentModel::default()
     };
     let model_neutral = AdjustmentModel {
-        look: Look::Neutral,
         profile: crate::types::adjustment::Profile::Neutral,
         ..AdjustmentModel::default()
     };
@@ -488,21 +476,16 @@ fn t6_synthetic_auto_equals_neutral() {
 #[test]
 #[cfg_attr(not(feature = "fixtures"), ignore)]
 fn t6_auto_profile_differs_from_neutral_on_test_0017() {
-    use crate::view::look::Look;
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0017.dng");
     if !path.exists() {
         return;
     }
-    // Force `Look::Neutral` on both renders — Look is the same on either
-    // branch, so excluding it isolates the dispatch under test.
     let auto = AdjustmentModel {
-        look: Look::Neutral,
         profile: crate::types::adjustment::Profile::Auto,
         ..AdjustmentModel::default()
     };
     let neutral = AdjustmentModel {
-        look: Look::Neutral,
         profile: crate::types::adjustment::Profile::Neutral,
         ..AdjustmentModel::default()
     };
@@ -523,7 +506,6 @@ fn t6_auto_profile_differs_from_neutral_on_test_0017() {
 /// resulting bytes must equal an explicit `Profile::Neutral` render.
 #[test]
 fn t6_auto_without_path_equals_neutral() {
-    use crate::view::look::Look;
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
     if !path.exists() {
@@ -532,12 +514,10 @@ fn t6_auto_without_path_equals_neutral() {
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let auto = AdjustmentModel {
-        look: Look::Neutral,
         profile: crate::types::adjustment::Profile::Auto,
         ..AdjustmentModel::default()
     };
     let neutral = AdjustmentModel {
-        look: Look::Neutral,
         profile: crate::types::adjustment::Profile::Neutral,
         ..AdjustmentModel::default()
     };

@@ -22,7 +22,7 @@ use crate::{
     image::{apply_orientation, ColorSpace, Image, RawImage},
     stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance},
     types::adjustment::Profile,
-    view::{agx, auto_profile, encode, look},
+    view::{agx, auto_profile, encode},
     xmp::AdjustmentModel,
 };
 
@@ -102,18 +102,10 @@ pub fn render_from_raw_with_quality_and_path(
     // full sRGB encode (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
     stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    // DisplayLookCurve (#371) — empirical per-channel LUT that closes
-    // ~65% of the bias-to-ACR gap. Pre-#519 it ran as a `u8 → u8`
-    // nearest lookup AFTER dither + quantize, which collapsed multiple
-    // input codes onto one output code wherever LUT slope ≠ 1 and
-    // reintroduced histogram gaps (visible banding). #519 moves the
-    // sampling into f32 sRGB-encoded space with linear interpolation
-    // between adjacent table entries — the dither below now controls
-    // the only quantisation step in the chain.
-    stage("look", || {
-        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-        look::apply(pixels, model.look);
-    });
+    // DisplayLookCurve (#371) was retired in #538 (Auto Profile T7).
+    // `view::auto_profile` now owns per-image view-transform shaping;
+    // `Profile::Neutral` runs strict AgX. See `view/look.rs` for what
+    // stays (enum + LUT byte arrays for FFI/GPU consumers).
     let bytes = stage("dither_and_quantize", || {
         encode::dither_and_quantize(&mut scene)
     });
@@ -314,11 +306,7 @@ pub fn render_from_scene_linear(
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
     stage("synth_srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    // See `render_from_raw_with_quality` for the #519 ordering rationale.
-    stage("synth_look", || {
-        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-        look::apply(pixels, model.look);
-    });
+    // DisplayLookCurve retired in #538 — see `render_from_raw_with_quality_and_path`.
     let bytes = stage("synth_dither_and_quantize", || {
         encode::dither_and_quantize(&mut scene)
     });
@@ -382,11 +370,7 @@ pub fn render_from_scene_linear_with_chain(
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
     stage("synth_srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    // See `render_from_raw_with_quality` for the #519 ordering rationale.
-    stage("synth_look", || {
-        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-        look::apply(pixels, model.look);
-    });
+    // DisplayLookCurve retired in #538 — see `render_from_raw_with_quality_and_path`.
     let bytes = stage("synth_dither_and_quantize", || {
         encode::dither_and_quantize(&mut scene)
     });
