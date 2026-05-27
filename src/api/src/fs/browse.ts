@@ -269,12 +269,29 @@ export interface SidecarChild {
   asset_id: string;
 }
 
+/**
+ * A regular file that is neither an indexed-image candidate nor an `.xmp`
+ * sidecar — e.g. a PDF, a `.mov`, a `.txt`, or an extensionless file. These
+ * are stored on disk and surfaced through the File Provider so it can sync
+ * *all* file types, but they get no `AssetDoc` (the database stays
+ * image-only). Addressed by `(folderID, relativePath)` on the client, not by
+ * a Mongo asset id.
+ */
+export interface FileChild extends DirChild {
+  size: number; // bytes
+  ext: string; // lowercase, no dot; "" for extensionless files
+}
+
 export interface DirContents {
   path: string;
   parent: string | null;
   dirs: DirChild[];
   images: ImageChild[];
   sidecars: SidecarChild[];
+  /** Non-image, non-sidecar regular files (incl. video and extensionless
+   *  files). Surfaced so the File Provider can sync every file type; never
+   *  carries an asset id. */
+  files: FileChild[];
   /** Opaque continuation token; present when the listing is paged and more
    *  remains. Absent / null when the listing is complete. */
   next_cursor?: string;
@@ -439,6 +456,7 @@ export async function listDirContents(
 
   const dirs: DirChild[] = [];
   const images: ImageChild[] = [];
+  const files: FileChild[] = [];
   // `SidecarChild` keys are snake_case (`asset_id`); the original
   // `Omit<…, "assetID">` was a no-op typo that left `sidecarRaw`
   // effectively typed as `SidecarChild[]`, making the literal pushed
@@ -468,9 +486,8 @@ export async function listDirContents(
       dirs.push({ name, path: childReal, mtime: st.mtime.toISOString() });
     } else if (st.isFile()) {
       const dot = name.lastIndexOf('.');
-      if (dot < 0) continue;
-      const ext = name.slice(dot + 1).toLowerCase();
-      if (IMAGE_EXTENSIONS.has(ext)) {
+      const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+      if (ext !== '' && IMAGE_EXTENSIONS.has(ext)) {
         images.push({
           name,
           path: childReal,
@@ -484,6 +501,16 @@ export async function listDirContents(
           path: childReal,
           size: st.size,
           mtime: st.mtime.toISOString(),
+        });
+      } else {
+        // Every other regular file (video, documents, archives,
+        // extensionless) — stored + synced but never indexed.
+        files.push({
+          name,
+          path: childReal,
+          size: st.size,
+          mtime: st.mtime.toISOString(),
+          ext,
         });
       }
     }
@@ -589,6 +616,7 @@ export async function listDirContents(
       dirs,
       images,
       sidecars,
+      files,
       ...(nextOffset !== null ? { next_cursor: encodeCursor(nextOffset) } : {}),
     },
   };
