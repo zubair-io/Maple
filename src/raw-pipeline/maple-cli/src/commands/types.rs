@@ -47,3 +47,22 @@ impl From<DemosaicChoice> for RenderQuality {
         }
     }
 }
+
+/// Auto Profile (#537) override exposed by `maple-cli render` / `batch`.
+///
+/// The color-parity harness (`src/scripts/test_color_pipeline.sh`) needs to
+/// pin the view transform to AgX-Neutral so it measures Maple-vs-ACR
+/// fidelity rather than Maple-vs-embedded-JPEG drift; the gate is shipped
+/// alongside Auto Profile, not retired by it. `Xmp` (the default) honours
+/// `papp:Profile` from the sidecar so the user's setting wins for ad-hoc
+/// renders.
+#[derive(ValueEnum, Clone, Copy, Debug)]
+pub enum ProfileChoice {
+    /// Use whatever `papp:Profile` says (default for fresh-open: `Auto`).
+    Xmp,
+    /// Force `Profile::Auto` regardless of XMP.
+    Auto,
+    /// Force `Profile::Neutral` regardless of XMP. Used by the
+    /// color-parity harness.
+    Neutral,
+}

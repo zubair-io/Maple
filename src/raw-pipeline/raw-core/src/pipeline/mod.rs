@@ -35,9 +35,9 @@ pub use develop::develop_scene_linear_from_raw_with_quality;
 pub use develop_sized::develop_scene_linear_sized_from_raw_with_quality;
 pub use downsample::downsample_image_area;
 pub use render::{
-    render_from_raw, render_from_raw_with_quality, render_from_scene_linear,
-    render_from_scene_linear_with_chain, render_scene_linear_from_raw_with_quality,
-    render_scene_linear_from_raw_with_quality_f32,
+    render_from_raw, render_from_raw_with_quality, render_from_raw_with_quality_and_path,
+    render_from_scene_linear, render_from_scene_linear_with_chain,
+    render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
     render_scene_linear_sized_from_raw_with_quality,
     render_scene_linear_sized_from_raw_with_quality_f32,
 };
