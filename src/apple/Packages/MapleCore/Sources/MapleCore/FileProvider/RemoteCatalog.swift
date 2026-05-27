@@ -767,13 +767,19 @@ public actor RemoteCatalog {
     /// resolve a bare `.file(folderID:relativePath:)` identifier (size + mtime)
     /// without downloading the bytes. The `/file-meta` response shape matches
     /// `FileChild` exactly, so we decode straight into it.
-    public func statFile(folderID: String, relativePath: String) async throws -> FileChild {
+    ///
+    /// Returns nil on 404 (file gone) so the caller can map to `noSuchItem`
+    /// while still propagating transient failures (network/auth/5xx) — mirrors
+    /// `getAsset`, and lets the OS tell "evict this item" apart from "retry".
+    public func statFile(folderID: String, relativePath: String) async throws -> FileChild? {
         var comps = URLComponents(
             url: server.appending(path: "/api/folders/\(folderID)/file-meta"),
             resolvingAgainstBaseURL: false)!
         comps.queryItems = [.init(name: "path", value: relativePath)]
         let req = URLRequest(url: comps.url!)
         let (data, resp) = try await http.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        if code == 404 { return nil }
         try Self.check2xx(resp)
         return try decoder.decode(FileChild.self, from: data)
     }

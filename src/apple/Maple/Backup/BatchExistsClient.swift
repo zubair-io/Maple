@@ -24,6 +24,11 @@ actor BatchExistsClient {
     /// Server cap per request. The caller chunks larger candidate sets.
     static let maxBatchSize = 1000
 
+    enum BatchError: Error {
+        /// The caller passed more than `maxBatchSize` ids in one request.
+        case batchTooLarge(count: Int, max: Int)
+    }
+
     private struct RequestBody: Encodable {
         let maple_ids: [String]
     }
@@ -50,8 +55,12 @@ actor BatchExistsClient {
     /// non-200 so the caller can fall back to enqueueing the candidates
     /// (safe: the upload path itself dedups server-side).
     func missing(mapleIds: [String]) async throws -> [String] {
-        precondition(mapleIds.count <= Self.maxBatchSize,
-                     "BatchExistsClient.missing: batch exceeds maxBatchSize")
+        // Throw rather than trap — this is a network helper whose errors the
+        // caller already handles (falls back to enqueueing). A constant drift
+        // or an un-chunked call site shouldn't crash the app.
+        guard mapleIds.count <= Self.maxBatchSize else {
+            throw BatchError.batchTooLarge(count: mapleIds.count, max: Self.maxBatchSize)
+        }
         if mapleIds.isEmpty { return [] }
 
         let endpoint = baseURL
