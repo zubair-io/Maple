@@ -108,6 +108,20 @@ enum Cmd {
         #[arg(long, default_value = "full")]
         quality: String,
     },
+    /// Extract the embedded JPEG preview from a RAW file and write it to
+    /// disk (typically as PNG; format inferred from `--out` extension).
+    ///
+    /// Wraps `raw_core::view::auto_profile::preview::extract_preview`. Used
+    /// by `src/scripts/test_auto_profile_match.sh` to obtain the camera-
+    /// baked reference for the Auto Profile gate. Exits non-zero when the
+    /// RAW carries no embedded preview so the harness can SKIP cleanly.
+    ExtractPreview {
+        /// Path to the RAW file.
+        raw: PathBuf,
+        /// Output image path (extension determines format: .png, .jpg, ...).
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Compute Auto Tone slider values for a RAW file and print as JSON.
     ///
     /// Decodes the RAW, runs the development chain to scene-linear
@@ -214,6 +228,9 @@ fn main() -> ExitCode {
             &out,
             &quality,
         )),
+        Cmd::ExtractPreview { raw, out } => {
+            run_or_exit(commands::extract_preview::run(&raw, &out))
+        }
         Cmd::AutoTone { raw } => run_or_exit(commands::auto_tone::run(&raw)),
         Cmd::Synthetic {
             kind,
