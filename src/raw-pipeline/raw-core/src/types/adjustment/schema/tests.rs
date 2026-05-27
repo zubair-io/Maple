@@ -52,6 +52,7 @@ fn schema_matches_struct() {
         highlight_recovery,
         auto_exposure,
         look,
+        profile,
         local_adjustments,
         tone_curve_mode,
         tone_curve_luma,
@@ -136,6 +137,7 @@ fn schema_matches_struct() {
         highlight_recovery,
         auto_exposure,
         look,
+        profile,
         tone_curve_mode,
         tone_curve_luma,
         tone_curve_red,
@@ -154,15 +156,16 @@ fn schema_matches_struct() {
 /// Schema-exemption allow-list. Fields appearing here are the ones
 /// `schema_matches_struct` deliberately omits from `ADJUSTMENT_SCHEMA`
 /// because they carry structured payloads (Vec / nested struct) rather
-/// than scalar values. Adding a new exemption MUST land in the same PR
-/// that justifies the deviation. The string-matching keeps the
-/// allow-list source-grep-friendly.
+/// than scalar values, OR because their codegen plumbing is queued to
+/// land in a follow-up PR (per Auto Profile Phase 1 #536 for `profile`).
+/// Adding a new exemption MUST land in the same PR that justifies the
+/// deviation. The string-matching keeps the allow-list source-grep-friendly.
 #[test]
 fn schema_exemption_allowlist() {
-    const ALLOWED: &[&str] = &["local_adjustments"];
+    const ALLOWED: &[&str] = &["local_adjustments", "profile"];
     assert_eq!(
         ALLOWED.len(),
-        1,
+        2,
         "schema exemption count changed — update this test and the \
          matching note on the module-level doc-comment"
     );
@@ -170,6 +173,16 @@ fn schema_exemption_allowlist() {
         ALLOWED.contains(&"local_adjustments"),
         "local_adjustments must remain on the schema-exemption allow-list \
          until the codegen table grows a structured-field FieldKind variant"
+    );
+    // `profile` (Auto Profile Phase 1, #536): the Profile { Auto, Neutral }
+    // enum lives on `AdjustmentModel`, but its Swift / TypeScript codegen
+    // is deferred to the T6 pipeline-wiring PR. Until then, the parser
+    // and minimal serializer cover the XMP round-trip but the field is
+    // intentionally absent from `ADJUSTMENT_SCHEMA`.
+    assert!(
+        ALLOWED.contains(&"profile"),
+        "profile must remain on the schema-exemption allow-list until \
+         Auto Profile T6 lifts it into ADJUSTMENT_SCHEMA + codegen"
     );
 }
 

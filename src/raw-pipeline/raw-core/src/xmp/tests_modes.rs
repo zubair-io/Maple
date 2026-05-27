@@ -427,3 +427,76 @@ fn parse_auto_exposure_modes() {
     let bad = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x" papp:AutoExposure="auto"/></x>"#;
     assert!(parse(bad).is_err());
 }
+
+// Profile (Auto / Neutral). Auto Profile Phase 1 (#536): the new
+// `papp:Profile` attribute selects the view-transform branch.
+// Default is `Auto`; legacy `papp:Look` ("Default" / "Neutral") migrates
+// in via the parser when `papp:Profile` is absent. The serializer (a
+// minimal seed living in `crate::xmp::serialize`) only emits attributes
+// that differ from defaults.
+
+#[test]
+fn papp_profile_auto_parses_to_profile_auto() {
+    let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/papp/1.0/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description papp:Profile="Auto"/>
+        </rdf:RDF>
+    </x:xmpmeta>"#;
+    let model = crate::xmp::parse(xmp).expect("parses");
+    assert_eq!(model.profile, crate::types::adjustment::Profile::Auto);
+}
+
+#[test]
+fn papp_profile_neutral_parses_to_profile_neutral() {
+    let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/papp/1.0/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description papp:Profile="Neutral"/>
+        </rdf:RDF>
+    </x:xmpmeta>"#;
+    let model = crate::xmp::parse(xmp).expect("parses");
+    assert_eq!(model.profile, crate::types::adjustment::Profile::Neutral);
+}
+
+#[test]
+fn legacy_papp_look_default_migrates_to_profile_auto() {
+    let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/papp/1.0/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description papp:Look="Default"/>
+        </rdf:RDF>
+    </x:xmpmeta>"#;
+    let model = crate::xmp::parse(xmp).expect("parses");
+    assert_eq!(model.profile, crate::types::adjustment::Profile::Auto);
+}
+
+#[test]
+fn legacy_papp_look_neutral_migrates_to_profile_neutral() {
+    let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/papp/1.0/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description papp:Look="Neutral"/>
+        </rdf:RDF>
+    </x:xmpmeta>"#;
+    let model = crate::xmp::parse(xmp).expect("parses");
+    assert_eq!(model.profile, crate::types::adjustment::Profile::Neutral);
+}
+
+#[test]
+fn profile_auto_is_default_and_omitted_from_serialized_output() {
+    let mut model = crate::types::adjustment::AdjustmentModel::default();
+    assert_eq!(model.profile, crate::types::adjustment::Profile::Auto);
+    let xmp = crate::xmp::serialize(&model);
+    assert!(!xmp.contains("papp:Profile"), "default Auto should not serialize");
+    model.profile = crate::types::adjustment::Profile::Neutral;
+    let xmp = crate::xmp::serialize(&model);
+    assert!(xmp.contains(r#"papp:Profile="Neutral""#), "Neutral must serialize, got:\n{xmp}");
+}
+
+#[test]
+fn papp_profile_wins_over_legacy_papp_look() {
+    let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/" xmlns:papp="http://ns.justmaple.app/papp/1.0/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description papp:Look="Neutral" papp:Profile="Auto"/>
+        </rdf:RDF>
+    </x:xmpmeta>"#;
+    let model = crate::xmp::parse(xmp).expect("parses");
+    assert_eq!(model.profile, crate::types::adjustment::Profile::Auto);
+}
