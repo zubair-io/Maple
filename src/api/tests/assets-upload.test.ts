@@ -168,7 +168,7 @@ describe('POST /api/folders/:id/upload', () => {
     }
   });
 
-  test('415 on unsupported extension; no file on disk, no asset doc', async () => {
+  test('non-image upload is stored on disk but creates no asset doc', async () => {
     if (!mongoReachable) return;
     const { app } = await import('../src/index.ts');
     const res = await app.handle(
@@ -176,12 +176,33 @@ describe('POST /api/folders/:id/upload', () => {
         'X-Maple-Target-Path': 'notes.txt',
       }),
     );
-    expect(res.status).toBe(415);
-    await expect(fs.stat(path.join(realTmpRoot, 'notes.txt'))).rejects.toThrow();
-    const doc = await db!
-      .collection('assets')
-      .findOne({ abs_path: path.join(realTmpRoot, 'notes.txt') });
+    // Any file type may be synced now — the bytes land on disk.
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { asset_id?: string; abs_path: string; size: number };
+    // No AssetDoc for non-image files: the response omits `asset_id`.
+    expect(body.asset_id).toBeUndefined();
+    const onDisk = await fs.readFile(path.join(realTmpRoot, 'notes.txt'), 'utf8');
+    expect(onDisk).toBe('hello');
+    // The catalog stays image-only — nothing inserted for this path.
+    const doc = await db!.collection('assets').findOne({
+      'fileinfo.filename': 'notes.txt',
+    });
     expect(doc).toBeNull();
+  });
+
+  test('extensionless upload is stored on disk with no asset doc', async () => {
+    if (!mongoReachable) return;
+    const { app } = await import('../src/index.ts');
+    const res = await app.handle(
+      upload(Buffer.from('README-bytes'), {
+        'X-Maple-Target-Path': 'README',
+      }),
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { asset_id?: string };
+    expect(body.asset_id).toBeUndefined();
+    const onDisk = await fs.readFile(path.join(realTmpRoot, 'README'), 'utf8');
+    expect(onDisk).toBe('README-bytes');
   });
 
   test('400 on path-escape attempt', async () => {

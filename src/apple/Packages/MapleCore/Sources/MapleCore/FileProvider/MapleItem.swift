@@ -114,6 +114,29 @@ public final class MapleItem: NSObject, NSFileProviderItem {
         self.filename = image.name
     }
 
+    /// A non-indexed file (video, document, extensionless, …). Stored +
+    /// synced but has no `AssetDoc`, so it's addressed by
+    /// `.file(folderID:relativePath:)` rather than an asset id.
+    /// `relativePath` is the file relative to its library root.
+    ///
+    /// v1 capabilities are read-only (`.allowsReading`): the bytes
+    /// download on demand, but in-place edit / rename / reparent / delete
+    /// are deferred — those need a path-addressed mutate endpoint (the
+    /// asset-id delete/trash machinery doesn't cover docless files).
+    public init(file: FileChild, folderID: String, relativePath: String,
+                parentIdentifier: NSFileProviderItemIdentifier) {
+        self.identifier = .file(folderID: folderID, relativePath: relativePath)
+        self.displayName = file.name
+        self.isDirectory = false
+        self.size = NSNumber(value: file.size)
+        self.modified = file.mtime
+        self.utType = file.ext.isEmpty ? .data : (UTType(filenameExtension: file.ext) ?? .data)
+        self.writeCapabilities = [.allowsReading]
+        self.itemIdentifier = NSFileProviderItemIdentifier(self.identifier.rawValue)
+        self.parentItemIdentifier = parentIdentifier
+        self.filename = file.name
+    }
+
     /// Synthetic Trash container shown at the root of each library.
     /// The identifier is `trash/<folderID>` so the extension can route
     /// `enumerator(for:)` to a `TrashEnumerator` and decide capabilities.
