@@ -2,18 +2,19 @@
 //!
 //! Each task lands its tests in its own submodule so parallel work doesn't
 //! collide. Task T2 → `curve_tests`. Task T3 → `apply_tests`. Task T1 →
-//! `preview_tests`.
+//! `preview_tests`. Task T4 → `fit_tests`.
 
 #[cfg(test)]
 mod preview_tests {
     use super::super::preview::extract_preview;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn test_0017_extracts_jpeg_preview() {
-        let path = Path::new("../../test-fixtures/raws/test_0017.dng");
-        let preview = extract_preview(path).expect("test_0017 has an embedded JPEG");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0017.dng");
+        let preview = extract_preview(&path).expect("test_0017 has an embedded JPEG");
         assert!(preview.width() >= 256, "preview too small: {}", preview.width());
         assert!(preview.height() >= 256, "preview too small: {}", preview.height());
     }
@@ -146,5 +147,44 @@ mod apply_tests {
         apply_curve(&mut rgb, &ProfileCurve::identity());
         assert!((rgb[0] - 0.0).abs() < 1e-6, "neg clamped to 0, got {}", rgb[0]);
         assert!((rgb[1] - 1.0).abs() < 1e-6, "over clamped to 1, got {}", rgb[1]);
+    }
+}
+
+#[cfg(test)]
+mod fit_tests {
+    use super::super::fit_curve_from_raw;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn fit_curve_against_test_0017_jpeg_is_not_identity() {
+        // Manifest-relative path; matches the convention used by every
+        // other fixture-loading test in raw-core (decode.rs, api.rs,
+        // pipeline/{develop,render,tile}/*, color/dcp.rs, …).
+        let raw_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0017.dng");
+        let w = 256_usize;
+        let h = 256_usize;
+        // Synthetic uniform ramp as source — fit should produce a non-identity
+        // curve because the JPEG's distribution will differ.
+        let source: Vec<f32> = (0..w * h * 3).map(|i| (i % 256) as f32 / 255.0).collect();
+        let curve = fit_curve_from_raw(&raw_path, &source, w, h)
+            .expect("test_0017 has a usable JPEG preview");
+        let mut differs = false;
+        for (in_v, out_v) in &curve.r.anchors {
+            if (in_v - out_v).abs() > 0.01 {
+                differs = true;
+                break;
+            }
+        }
+        assert!(differs, "fit produced identity — extraction probably failed silently");
+    }
+
+    #[test]
+    fn missing_raw_returns_none() {
+        let path = Path::new("/nonexistent/path.dng");
+        let dummy = vec![0.5_f32; 3];
+        let result = fit_curve_from_raw(path, &dummy, 1, 1);
+        assert!(result.is_none());
     }
 }
