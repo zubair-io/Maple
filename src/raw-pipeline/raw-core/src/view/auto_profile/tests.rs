@@ -103,3 +103,48 @@ mod curve_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod apply_tests {
+    use super::super::{apply_curve, ChannelCurve, ProfileCurve};
+
+    #[test]
+    fn identity_curve_leaves_buffer_unchanged() {
+        let mut rgb: Vec<f32> = vec![0.1, 0.4, 0.7, 0.2, 0.5, 0.8];
+        let original = rgb.clone();
+        apply_curve(&mut rgb, &ProfileCurve::identity());
+        for (a, b) in rgb.iter().zip(original.iter()) {
+            assert!((a - b).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn double_brightness_curve_doubles_each_channel() {
+        // Build a curve that maps x → min(2x, 1.0)
+        let mut anchors = [(0.0_f32, 0.0_f32); 32];
+        for i in 0..32 {
+            let in_v = i as f32 / 31.0;
+            anchors[i] = (in_v, (in_v * 2.0).min(1.0));
+        }
+        let cc = ChannelCurve { anchors };
+        let curve = ProfileCurve {
+            r: cc.clone(),
+            g: cc.clone(),
+            b: cc,
+        };
+
+        let mut rgb: Vec<f32> = vec![0.1, 0.1, 0.1, 0.3, 0.3, 0.3];
+        apply_curve(&mut rgb, &curve);
+        for &v in &rgb {
+            assert!((v - 0.2).abs() < 0.05 || (v - 0.6).abs() < 0.05, "got {v}");
+        }
+    }
+
+    #[test]
+    fn out_of_range_inputs_are_clamped() {
+        let mut rgb: Vec<f32> = vec![-0.5, 1.5, 0.5];
+        apply_curve(&mut rgb, &ProfileCurve::identity());
+        assert!((rgb[0] - 0.0).abs() < 1e-6, "neg clamped to 0, got {}", rgb[0]);
+        assert!((rgb[1] - 1.0).abs() < 1e-6, "over clamped to 1, got {}", rgb[1]);
+    }
+}
