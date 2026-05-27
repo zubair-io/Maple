@@ -191,11 +191,23 @@ enum ChangeObserverWiring {
             // Server says it already has this phid for this device → keep/mark
             // it `.uploaded` locally and skip. Never re-enqueue server-known phids.
             if serverKnownPhids.contains(phid) {
+                // Don't stomp in-flight work: a `.uploading` task is mid-upload
+                // and will transition to `.uploaded` on its own. Overwriting it
+                // here would race the engine's completion handler.
+                if localState == .uploading { continue }
                 if localState != .uploaded {
                     do {
                         let task = BackupTask(id: taskId, state: .uploaded, priority: .background)
                         try await state.upsert(task)
                         reconciledUploaded += 1
+                        // If it was already queued (e.g. rehydrated `.pending` by
+                        // EngineHost.start, or enqueued by a prior walk), cancel
+                        // it. BackupEngine doesn't consult state before uploading,
+                        // so without this the task would still be dequeued and
+                        // re-uploaded despite reconciliation marking it done.
+                        if localState == .pending {
+                            await queue.cancel(taskId)
+                        }
                     } catch {
                         enqueueFailures += 1
                         if enqueueFailures <= 3 {

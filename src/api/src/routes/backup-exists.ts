@@ -63,6 +63,13 @@ export const backupExistsRoutes = new Elysia().post(
       set.status = 400;
       return { error: `too many ids (max ${MAX_IDS})` };
     }
+    // Reject non-string entries rather than silently dropping them — the
+    // documented contract is an array of strings, and masking a client bug
+    // would let it skip uploads it never actually checked.
+    if (rawIds.some((id) => typeof id !== 'string')) {
+      set.status = 400;
+      return { error: 'maple_ids must be an array of strings' };
+    }
 
     // Check library exists.
     const folder = await (await foldersCollection()).findOne({ _id: libraryId });
@@ -75,8 +82,7 @@ export const backupExistsRoutes = new Elysia().post(
     // computed against this de-duped list so the response never repeats an id.
     const seen = new Set<string>();
     const ids: string[] = [];
-    for (const id of rawIds) {
-      if (typeof id !== 'string') continue;
+    for (const id of rawIds as string[]) {
       if (seen.has(id)) continue;
       seen.add(id);
       ids.push(id);
@@ -87,12 +93,17 @@ export const backupExistsRoutes = new Elysia().post(
     }
 
     // Single Mongo query: which of the requested ids are already present in
-    // this library. Scoped to fileinfo.library_id (the library link) AND
-    // maple_id in the requested set; project only maple_id.
+    // this library. Scoped to a LIVE fileinfo entry for this library
+    // (`deleted_at: null`) so soft-deleted content isn't reported present —
+    // otherwise the client would skip re-uploading a photo the user deleted.
+    // Matches the live-entry filter in backup-state.ts.
     const a = await assetsCollection();
     const rows = await a
       .find(
-        { 'fileinfo.library_id': libraryId, maple_id: { $in: ids } },
+        {
+          fileinfo: { $elemMatch: { library_id: libraryId, deleted_at: null } },
+          maple_id: { $in: ids },
+        },
         { projection: { maple_id: 1, _id: 0 } },
       )
       .toArray();
