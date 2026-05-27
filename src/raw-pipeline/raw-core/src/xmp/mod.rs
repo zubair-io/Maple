@@ -10,7 +10,8 @@ use quick_xml::reader::Reader;
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{
-    AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, Look, ToneCurveMode, WbMethod,
+    AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, Look, Profile, ToneCurveMode,
+    WbMethod,
 };
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
@@ -39,13 +40,21 @@ pub fn parse(xml: &str) -> Result<AdjustmentModel> {
                 // and the second carries only `Radius` must still apply the
                 // second `Radius` (since its own attribute set has no Sigma).
                 let mut sigma_seen = false;
+                // Auto Profile (#536): the new `papp:Profile` attribute
+                // wins over the legacy `papp:Look` migration when both
+                // appear on the same element, regardless of document
+                // order. Scoped per element so a later Description's
+                // `papp:Look` is not silently ignored by an earlier
+                // Description's `papp:Profile`. Same precedence-by-flag
+                // pattern as `sigma_seen` above.
+                let mut profile_seen = false;
                 for attr_result in e.attributes() {
                     let attr = attr_result.map_err(|e| Error::Xmp(e.to_string()))?;
                     let key = std::str::from_utf8(attr.key.as_ref())
                         .map_err(|e| Error::Xmp(e.to_string()))?;
                     let value = attr.unescape_value()
                         .map_err(|e| Error::Xmp(e.to_string()))?;
-                    set_field(&mut model, key, &value, &mut sigma_seen)?;
+                    set_field(&mut model, key, &value, &mut sigma_seen, &mut profile_seen)?;
                 }
             }
             Ok(Event::Eof) => break,
@@ -61,6 +70,7 @@ fn set_field(
     key: &str,
     value: &str,
     sigma_seen: &mut bool,
+    profile_seen: &mut bool,
 ) -> Result<()> {
     let v = || value.parse::<f32>().map_err(|e| Error::Xmp(format!(
         "field {} has non-numeric value {}: {}", key, value, e
@@ -146,12 +156,42 @@ fn set_field(
         // post-#443; this branch is kept so pre-#443 sidecars carrying
         // `papp:Look` parse cleanly into the model. Absent attribute ->
         // default (`Look::Default`).
+        //
+        // Auto Profile (#536): `papp:Look` ALSO migrates into the new
+        // `papp:Profile` field — `Default`/`Auto` → `Profile::Auto`,
+        // `Neutral` → `Profile::Neutral`. Migration is gated on
+        // `!*profile_seen` so a `papp:Profile` attribute on the same
+        // element always wins, regardless of document order.
         "papp:Look" => {
             m.look = match value {
                 "neutral" | "Neutral" => Look::Neutral,
                 "default" | "Default" => Look::Default,
                 other => return Err(Error::Xmp(format!(
                     "unknown Look: {}", other
+                ))),
+            };
+            if !*profile_seen {
+                if value.eq_ignore_ascii_case("Default") || value.eq_ignore_ascii_case("Auto") {
+                    m.profile = Profile::Auto;
+                } else if value.eq_ignore_ascii_case("Neutral") {
+                    m.profile = Profile::Neutral;
+                }
+                // Unknown legacy values — already rejected by the Look match
+                // above, so the migration arm is unreachable for them.
+            }
+        }
+        // Render-shaping profile (Auto Profile Phase 1, #536). New
+        // canonical attribute that replaces `papp:Look` migration above.
+        // Absent attribute → default (`Profile::Auto`). Setting
+        // `profile_seen` blocks the legacy migration from clobbering this
+        // value if `papp:Look` appears later in the same attribute set.
+        "papp:Profile" => {
+            *profile_seen = true;
+            m.profile = match value {
+                v if v.eq_ignore_ascii_case("Auto") => Profile::Auto,
+                v if v.eq_ignore_ascii_case("Neutral") => Profile::Neutral,
+                other => return Err(Error::Xmp(format!(
+                    "unknown Profile: {}", other
                 ))),
             };
         }
@@ -202,6 +242,29 @@ fn set_field(
         _ => {}, // Slices 1-2-3-4 ignore everything else.
     }
     Ok(())
+}
+
+/// Minimal XMP-attribute serializer — emits only the attributes that
+/// differ from `AdjustmentModel::default()`. Returned string is the
+/// attribute fragment (leading space + `key="value"` pairs), suitable for
+/// splicing into an `rdf:Description` open tag.
+///
+/// This is intentionally a seed for Auto Profile Phase 1 (#536) — full
+/// XMP sidecar writing lives in the Swift and TypeScript layers per
+/// `docs/architecture.md`. Only `papp:Profile` is emitted here for now;
+/// the legacy `papp:Look` is deliberately NOT serialized — newly-written
+/// sidecars carry the new attribute name only, and old sidecars still
+/// round-trip via the `papp:Look` migration in [`set_field`].
+pub fn serialize(model: &AdjustmentModel) -> String {
+    let mut out = String::new();
+    if model.profile != Profile::default() {
+        let v = match model.profile {
+            Profile::Auto => "Auto",
+            Profile::Neutral => "Neutral",
+        };
+        out.push_str(&format!(r#" papp:Profile="{v}""#));
+    }
+    out
 }
 
 /// Map a `crs:WhiteBalance` preset name to (temperature, tint).
