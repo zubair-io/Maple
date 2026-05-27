@@ -326,9 +326,16 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                 case .file(let folderID, let relativePath):
                     // Non-indexed file resolved by its library-relative path.
                     // Stat for size/mtime; reattach under its parent folder.
+                    // nil means a genuine 404 → noSuchItem; a thrown error is
+                    // transient (network/auth/5xx) and is propagated so Finder
+                    // surfaces the real failure instead of silently evicting.
                     do {
-                        let meta = try await catalog.statFile(folderID: folderID,
-                                                              relativePath: relativePath)
+                        guard let meta = try await catalog.statFile(folderID: folderID,
+                                                                    relativePath: relativePath) else {
+                            completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                                           code: NSFileProviderError.noSuchItem.rawValue))
+                            return
+                        }
                         let parentRel = (relativePath as NSString).deletingLastPathComponent
                         let parentRaw = FileProviderIdentifier
                             .folder(folderID: folderID, relativePath: parentRel)
@@ -339,8 +346,7 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                     parentIdentifier: parentID), nil)
                     } catch {
                         log.error("statFile item(for:) failed: \(error.localizedDescription, privacy: .public)")
-                        completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
-                                                       code: NSFileProviderError.noSuchItem.rawValue))
+                        completionHandler(nil, error)
                     }
                 case .sidecar:
                     // Sidecar item lookup not yet supported; the OS receives items via
@@ -639,7 +645,11 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                                                         relativePath: relativePath,
                                                                         to: localURL)
                     _ = try await downloadTask
-                    let meta = try await metaTask
+                    guard let meta = try await metaTask else {
+                        completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
+                                                            code: NSFileProviderError.noSuchItem.rawValue))
+                        return
+                    }
                     do {
                         try FileManager.default.setAttributes(
                             [.modificationDate: meta.mtime], ofItemAtPath: localURL.path)

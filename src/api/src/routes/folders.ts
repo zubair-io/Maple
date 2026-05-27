@@ -135,7 +135,18 @@ async function resolveFolderRelPath(
   } catch {
     return { ok: false, status: 404, error: 'file not found' };
   }
-  if (!isUnderRoot(real, folderPath)) {
+  // Resolve the library root to its realpath as well, so a symlinked root
+  // prefix (e.g. `/var` → `/private/var` on macOS) doesn't falsely reject a
+  // valid request: `real` is already symlink-resolved, so the jail check must
+  // compare against an equally-resolved root. Best-effort — fall back to the
+  // configured path if the root itself can't be resolved.
+  let realRoot = folderPath;
+  try {
+    realRoot = await realpath(folderPath);
+  } catch {
+    /* keep the configured path */
+  }
+  if (!isUnderRoot(real, realRoot)) {
     return { ok: false, status: 400, error: 'path escapes the library root' };
   }
   return { ok: true, real };

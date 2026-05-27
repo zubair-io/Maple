@@ -82,6 +82,10 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             if folderID.isEmpty { throw DecodeError.malformedFile }
             let encoded = String(body[body.index(after: colon)...])
             guard let path = Self.b64urlDecode(encoded) else { throw DecodeError.badBase64 }
+            // An empty relativePath isn't a meaningful leaf — and the server's
+            // `?path=` rejects it — so reject it here rather than minting an
+            // unusable `.file(..., relativePath: "")`.
+            if path.isEmpty { throw DecodeError.malformedFile }
             self = .file(folderID: folderID, relativePath: path)
             return
         }
