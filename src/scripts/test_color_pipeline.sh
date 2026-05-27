@@ -111,7 +111,12 @@ echo ""
 # Filter is applied substring-on-case-name (matches the Rust `--cases-filter`
 # arg) so partial-fixture iteration is fast.
 echo "test_color_pipeline: rendering candidates ..."
-batch_args=( batch --manifest "$MANIFEST" --out-dir "$CANDIDATES_DIR" )
+# Pin `--profile=neutral` (Auto Profile #537 / T6). The gate measures
+# Maple-vs-ACR fidelity; Auto Profile would instead drift each render
+# toward the embedded JPEG's per-channel distribution, which ACR's
+# reference renderer does not do. T8 owns the Auto-Profile-specific
+# parity harness; this gate stays on the AgX-Neutral view tail.
+batch_args=( batch --manifest "$MANIFEST" --out-dir "$CANDIDATES_DIR" --profile neutral )
 if [[ -n "$FILTER" ]]; then
   batch_args+=( --cases-filter "$FILTER" )
 fi

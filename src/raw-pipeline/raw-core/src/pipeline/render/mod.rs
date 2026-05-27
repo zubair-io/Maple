@@ -7,6 +7,8 @@
 //! fp16-RGBA packing + EXIF orient for the scene-linear FFI path that
 //! hands the buffer off to a CoreImage / WebGL2 view transform.
 
+use std::path::Path;
+
 use super::{
     develop::develop_scene_linear_from_raw_with_quality,
     develop_sized::develop_scene_linear_sized_from_raw_with_quality,
@@ -19,7 +21,8 @@ use crate::{
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
     stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance},
-    view::{agx, encode, look},
+    types::adjustment::Profile,
+    view::{agx, auto_profile, encode, look},
     xmp::AdjustmentModel,
 };
 
@@ -33,7 +36,7 @@ use crate::{
 /// * Tone curves (§ 3.6 steps 6-7, § 3.6b DisplayReferredCurve) deferred to slice 7.
 /// * AgX is the Sobotka power-curve approximation (slice-6 retightens).
 pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, u32, Vec<u8>)> {
-    render_from_raw_with_quality(raw, model, RenderQuality::Full)
+    render_from_raw_with_quality_and_path(raw, model, RenderQuality::Full, None)
 }
 
 pub fn render_from_raw_with_quality(
@@ -41,8 +44,56 @@ pub fn render_from_raw_with_quality(
     model: &AdjustmentModel,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<u8>)> {
+    render_from_raw_with_quality_and_path(raw, model, quality, None)
+}
+
+/// Render entry that carries the RAW file path through to the view
+/// transform — required by `Profile::Auto` (Auto Profile Phase 1, #537),
+/// which reads the embedded JPEG preview to fit a per-image tone curve.
+///
+/// `raw_path` is `Option<&Path>` rather than mandatory: WASM callers
+/// (`raw-wasm::render_bytes`) and the `maple_render_bytes` FFI entry have
+/// only the decoded bytes, no filesystem path. In those cases Auto Profile
+/// is unavailable and the view tail falls back to AgX — the same byte-for-byte
+/// result as `Profile::Neutral`. The full Auto Profile flow runs whenever
+/// the caller supplies the path AND `model.profile == Profile::Auto` AND
+/// the JPEG extraction + curve fit succeeds.
+pub fn render_from_raw_with_quality_and_path(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_path: Option<&Path>,
+) -> Result<(u32, u32, Vec<u8>)> {
     let mut scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
-    stage("agx", || agx::apply(&mut scene, model.contrast));
+    // View transform — Auto Profile (#537) or AgX-Neutral. Auto Profile
+    // needs the RAW path to read the embedded JPEG; when the path is
+    // absent or the fit fails we fall back to AgX so output is always
+    // defined. Both branches transition the buffer from
+    // `SceneLinearRec2020` to `DisplayLinearRec2020` so the downstream
+    // `rec2020_to_srgb` stage's space-assert stays satisfied.
+    let used_auto = match (model.profile, raw_path) {
+        (Profile::Auto, Some(path)) => stage("auto_profile", || {
+            scene.assert_space(ColorSpace::SceneLinearRec2020);
+            let (w, h) = (scene.width as usize, scene.height as usize);
+            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+            match auto_profile::fit_curve_from_raw(path, pixels, w, h) {
+                Some(curve) => {
+                    auto_profile::apply_curve(pixels, &curve);
+                    true
+                }
+                None => false,
+            }
+        }),
+        _ => false,
+    };
+    if used_auto {
+        // Auto Profile is the view transform on this branch — mark the
+        // buffer as display-linear so the next stage's space-assert sees
+        // the same invariant the AgX branch establishes.
+        scene.space = ColorSpace::DisplayLinearRec2020;
+    } else {
+        stage("agx", || agx::apply(&mut scene, model.contrast));
+    }
     dump_after("16_agx", &scene);
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     // Buffer is in display-linear sRGB primaries here. Gamma encoding
@@ -243,6 +294,10 @@ pub fn render_scene_linear_sized_from_raw_with_quality_f32(
 /// or a synthetic ramp.
 ///
 /// Used by `maple-cli synthetic --kind {neutral-ramp,hue-patch,halo-disk}`.
+///
+/// Synthetic inputs unconditionally run AgX — Auto Profile (#537) needs an
+/// embedded JPEG to fit against, which only exists when a RAW file is the
+/// source. `model.profile` is ignored on this path by design.
 pub fn render_from_scene_linear(
     image: Image,
     model: &AdjustmentModel,

@@ -5,14 +5,17 @@
 //! render — same defaults, same view tail).
 
 use raw_core::decode::decode_bytes;
-use raw_core::pipeline::{render_from_raw, render_from_raw_with_quality, RenderQuality};
+use raw_core::pipeline::{render_from_raw_with_quality_and_path, RenderQuality};
 use raw_core::xmp;
 use std::path::Path;
 
-use super::types::{DemosaicChoice, OutputFormat};
+use super::types::{DemosaicChoice, OutputFormat, ProfileChoice};
 
 /// Shell helper: read a RAW from disk, then run the pure raw-core pipeline.
 /// Keeps I/O out of `raw-core` per spec §02 "The core is side-effect-free."
+///
+/// Passes `raw_path` through so the view tail can read the embedded JPEG
+/// for `Profile::Auto` (Auto Profile, #537). Other profiles ignore it.
 pub(super) fn render_path(
     raw_path: &Path,
     model: &xmp::AdjustmentModel,
@@ -20,7 +23,12 @@ pub(super) fn render_path(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    Ok(render_from_raw(&raw, model)?)
+    Ok(render_from_raw_with_quality_and_path(
+        &raw,
+        model,
+        RenderQuality::Full,
+        Some(raw_path),
+    )?)
 }
 
 /// Variant of `render_path` that lets the caller override `RenderQuality`.
@@ -36,7 +44,12 @@ fn render_path_with_quality(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    Ok(render_from_raw_with_quality(&raw, model, quality)?)
+    Ok(render_from_raw_with_quality_and_path(
+        &raw,
+        model,
+        quality,
+        Some(raw_path),
+    )?)
 }
 
 /// Shell helper: write a buffer to disk.
@@ -64,11 +77,20 @@ pub fn run(
     format: Option<OutputFormat>,
     quality: u8,
     demosaic: DemosaicChoice,
+    profile: ProfileChoice,
 ) -> Result<i32, Box<dyn std::error::Error>> {
-    let model = match params {
+    let mut model = match params {
         Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
         None => xmp::AdjustmentModel::default(),
     };
+    // CLI override for Auto Profile (#537). `Xmp` honours the sidecar;
+    // `Neutral` pins the view transform for the color-parity harness;
+    // `Auto` is exposed for symmetry / spot-checks.
+    match profile {
+        ProfileChoice::Xmp => {}
+        ProfileChoice::Auto => model.profile = raw_core::types::adjustment::Profile::Auto,
+        ProfileChoice::Neutral => model.profile = raw_core::types::adjustment::Profile::Neutral,
+    }
     // `DemosaicChoice::Full` (the default) routes through `render_path`
     // for byte-for-byte identity with the historical entry the parity
     // harnesses depend on. Non-default choices route through the

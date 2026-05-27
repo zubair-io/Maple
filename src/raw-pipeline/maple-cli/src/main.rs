@@ -12,7 +12,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use commands::types::{DemosaicChoice, OutputFormat, SyntheticKind};
+use commands::types::{DemosaicChoice, OutputFormat, ProfileChoice, SyntheticKind};
 
 #[derive(Parser)]
 #[command(name = "maple-cli", about = "Maple raw-pipeline reference renderer")]
@@ -48,6 +48,13 @@ enum Cmd {
         /// `maple-cli render` behaviour the parity harnesses depend on.
         #[arg(long, value_enum, default_value_t = DemosaicChoice::Full)]
         demosaic: DemosaicChoice,
+        /// Auto Profile override (#537). `xmp` (default) honours the
+        /// sidecar's `papp:Profile`; `auto` and `neutral` force the
+        /// choice regardless of XMP. The color-parity harness
+        /// (`src/scripts/test_color_pipeline.sh`) pins `neutral` so it
+        /// keeps measuring Maple-vs-ACR fidelity, not Maple-vs-embedded-JPEG.
+        #[arg(long, value_enum, default_value_t = ProfileChoice::Xmp)]
+        profile: ProfileChoice,
     },
     /// Render every case in a JSON manifest.
     Batch {
@@ -58,6 +65,11 @@ enum Cmd {
         /// Only run cases whose name contains this substring.
         #[arg(long = "cases-filter")]
         cases_filter: Option<String>,
+        /// Auto Profile override (#537). See `Render` doc-comment.
+        /// `xmp` is the default; the color-parity harness uses
+        /// `neutral` to keep the gate measuring ACR fidelity.
+        #[arg(long, value_enum, default_value_t = ProfileChoice::Xmp)]
+        profile: ProfileChoice,
     },
     /// Compare two PNGs via compare_images.py; print JSON; exit non-zero if
     /// --budget is set and mean ΔE exceeds it.
@@ -152,6 +164,7 @@ fn main() -> ExitCode {
             format,
             quality,
             demosaic,
+            profile,
         } => run_or_exit(commands::render::run(
             &raw,
             params.as_deref(),
@@ -159,15 +172,18 @@ fn main() -> ExitCode {
             format,
             quality,
             demosaic,
+            profile,
         )),
         Cmd::Batch {
             manifest,
             out_dir,
             cases_filter,
+            profile,
         } => run_or_exit(commands::batch::run(
             &manifest,
             &out_dir,
             cases_filter.as_deref(),
+            profile,
         )),
         Cmd::Diff {
             candidate,
