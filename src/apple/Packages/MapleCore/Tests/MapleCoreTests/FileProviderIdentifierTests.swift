@@ -38,6 +38,14 @@ final class FileProviderIdentifierTests: XCTestCase {
         }
     }
 
+    func testFileEmptyPathRejected() {
+        // `file/f1:` decodes to an empty relativePath, which isn't a usable
+        // leaf — must be rejected, not minted as `.file(..., relativePath: "")`.
+        XCTAssertThrowsError(try FileProviderIdentifier(rawValue: "file/f1:")) { error in
+            XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .malformedFile)
+        }
+    }
+
     func testInvalidPrefixRejected() {
         XCTAssertThrowsError(try FileProviderIdentifier(rawValue: "bogus/123")) { error in
             XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .invalidPrefix)

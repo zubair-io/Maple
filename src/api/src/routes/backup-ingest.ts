@@ -367,11 +367,15 @@ export const backupIngestRoutes = new Elysia().post(
 
       // If the file already sits at the target path (e.g. a prior attempt
       // moved it but Mongo didn't record this library's fileinfo entry), reuse
-      // it rather than clobbering. Otherwise move the freshly assembled tmp in.
+      // it rather than clobbering — but only when it matches the freshly
+      // assembled upload's size. A stale/partial file of a different size must
+      // not be silently adopted and referenced by a new fileinfo entry, so we
+      // overwrite it with the just-assembled tmp instead.
       let needMove = true;
       try {
-        await fs.stat(finalPath);
-        needMove = false; // already on disk at the destination
+        const destStat = await fs.stat(finalPath);
+        const tmpStat = await fs.stat(tmpFile);
+        needMove = destStat.size !== tmpStat.size;
       } catch (e: any) {
         if (e?.code !== 'ENOENT') throw e;
       }
