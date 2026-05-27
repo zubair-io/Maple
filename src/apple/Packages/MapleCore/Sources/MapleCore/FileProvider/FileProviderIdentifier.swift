@@ -4,6 +4,11 @@ import Foundation
 public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
     case asset(String)
     case folder(folderID: String, relativePath: String)
+    /// A regular file that is NOT an indexed image — e.g. a PDF, a `.mov`,
+    /// or an extensionless file. Stored + synced but has no `AssetDoc`, so
+    /// it's addressed by `(folderID, relativePath)` rather than an asset id.
+    /// `relativePath` is the file relative to its library root.
+    case file(folderID: String, relativePath: String)
     /// XMP sidecar paired to an asset. `conflictBasename` is nil for the
     /// canonical `<base>.xmp` and non-nil for conflict copies
     /// (`<base> (conflict from <device>).xmp`). The basename excludes the
@@ -30,7 +35,7 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
     case thumb(assetID: String)
 
     public enum DecodeError: Error {
-        case invalidPrefix, malformedFolder, malformedSidecar, malformedTrash,
+        case invalidPrefix, malformedFolder, malformedFile, malformedSidecar, malformedTrash,
              malformedMapleDir, malformedThumbsDir, malformedThumb, badBase64
     }
 
@@ -40,6 +45,8 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             return "asset/\(id)"
         case .folder(let folderID, let relativePath):
             return "folder/\(folderID):\(Self.b64urlEncode(relativePath))"
+        case .file(let folderID, let relativePath):
+            return "file/\(folderID):\(Self.b64urlEncode(relativePath))"
         case .sidecar(let assetID, let conflictBasename):
             if let conflictBasename {
                 return "sidecar/\(assetID):\(Self.b64urlEncode(conflictBasename))"
@@ -67,6 +74,15 @@ public enum FileProviderIdentifier: Equatable, Hashable, Sendable {
             let encoded = String(body[body.index(after: colon)...])
             guard let path = Self.b64urlDecode(encoded) else { throw DecodeError.badBase64 }
             self = .folder(folderID: folderID, relativePath: path)
+            return
+        }
+        if let body = rawValue.dropPrefixIfPresent("file/") {
+            guard let colon = body.firstIndex(of: ":") else { throw DecodeError.malformedFile }
+            let folderID = String(body[..<colon])
+            if folderID.isEmpty { throw DecodeError.malformedFile }
+            let encoded = String(body[body.index(after: colon)...])
+            guard let path = Self.b64urlDecode(encoded) else { throw DecodeError.badBase64 }
+            self = .file(folderID: folderID, relativePath: path)
             return
         }
         if let body = rawValue.dropPrefixIfPresent("sidecar/") {

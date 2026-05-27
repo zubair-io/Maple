@@ -24,15 +24,6 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
     /// on `invalidate()`. nil while dormant.
     private var changeFeed: ChangeFeedClient?
 
-    /// Upload allowlist for Phase 3 drag-in uploads. Mirrors the server's
-    /// RAW_EXTENSIONS ∪ SHARP_EXTENSIONS — any file outside this set
-    /// rejects with NSFileWriteUnknownError so Finder surfaces a normal
-    /// "operation can't be completed" dialog instead of a server 415.
-    private static let uploadableExtensions: Set<String> = [
-        "cr2", "cr3", "nef", "arw", "dng", "raf", "orf", "rw2", "pef", "srw",
-        "jpg", "jpeg", "png", "webp", "gif", "tif", "tiff", "heic", "heif", "avif",
-    ]
-
     /// Page size used when streaming a parent listing to resolve a single
     /// child by name (subdir lookup in `item(for:)`, sidecar→assetID lookup
     /// in `assetID(forSidecarNamed:in:catalog:)`). Matches the server's
@@ -332,6 +323,25 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                         log.error("getAsset failed: \(error.localizedDescription, privacy: .public)")
                         completionHandler(nil, error)
                     }
+                case .file(let folderID, let relativePath):
+                    // Non-indexed file resolved by its library-relative path.
+                    // Stat for size/mtime; reattach under its parent folder.
+                    do {
+                        let meta = try await catalog.statFile(folderID: folderID,
+                                                              relativePath: relativePath)
+                        let parentRel = (relativePath as NSString).deletingLastPathComponent
+                        let parentRaw = FileProviderIdentifier
+                            .folder(folderID: folderID, relativePath: parentRel)
+                            .rawValue
+                        let parentID = NSFileProviderItemIdentifier(parentRaw)
+                        completionHandler(MapleItem(file: meta, folderID: folderID,
+                                                    relativePath: relativePath,
+                                                    parentIdentifier: parentID), nil)
+                    } catch {
+                        log.error("statFile item(for:) failed: \(error.localizedDescription, privacy: .public)")
+                        completionHandler(nil, NSError(domain: NSFileProviderErrorDomain,
+                                                       code: NSFileProviderError.noSuchItem.rawValue))
+                    }
                 case .sidecar:
                     // Sidecar item lookup not yet supported; the OS receives items via
                     // folder enumeration.
@@ -616,6 +626,36 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     log.notice("fetchContents thumb \(assetID, privacy: .public) ok bytes=\(bytes.count, privacy: .public)")
                     completionHandler(localURL, item, nil)
                     return
+                case .file(let folderID, let relativePath):
+                    // Non-indexed file: stream the bytes by path and stat in
+                    // parallel (the OS requires a non-nil item alongside the
+                    // URL). Materialize under a basename that keeps the
+                    // original extension so Quick Look can identify it.
+                    let ext = (relativePath as NSString).pathExtension
+                    let localName = ext.isEmpty ? UUID().uuidString : "\(UUID().uuidString).\(ext)"
+                    let localURL = tmpDir.appendingPathComponent(localName)
+                    async let metaTask = catalog.statFile(folderID: folderID, relativePath: relativePath)
+                    async let downloadTask: Void = catalog.downloadFile(folderID: folderID,
+                                                                        relativePath: relativePath,
+                                                                        to: localURL)
+                    _ = try await downloadTask
+                    let meta = try await metaTask
+                    do {
+                        try FileManager.default.setAttributes(
+                            [.modificationDate: meta.mtime], ofItemAtPath: localURL.path)
+                    } catch {
+                        log.notice("setAttributes(modificationDate:) failed for \(localURL.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
+                    }
+                    let parentRel = (relativePath as NSString).deletingLastPathComponent
+                    let parentRaw = FileProviderIdentifier
+                        .folder(folderID: folderID, relativePath: parentRel)
+                        .rawValue
+                    let parentID = NSFileProviderItemIdentifier(parentRaw)
+                    log.notice("fetchContents file \(relativePath, privacy: .private) ok bytes-at=\(localURL.path, privacy: .public)")
+                    completionHandler(localURL, MapleItem(file: meta, folderID: folderID,
+                                                          relativePath: relativePath,
+                                                          parentIdentifier: parentID), nil)
+                    return
                 case .folder, .trash, .mapleDir, .mapleThumbsDir:
                     completionHandler(nil, nil, NSError(domain: NSFileProviderErrorDomain,
                                                         code: NSFileProviderError.noSuchItem.rawValue))
@@ -668,6 +708,10 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                                             relativePath: relativePath,
                                             containerIdentifier: containerItemIdentifier)
         case .asset:
+            throw NSError(domain: NSFileProviderErrorDomain,
+                          code: NSFileProviderError.noSuchItem.rawValue)
+        case .file:
+            // Non-indexed files are leaf items, not containers.
             throw NSError(domain: NSFileProviderErrorDomain,
                           code: NSFileProviderError.noSuchItem.rawValue)
         case .sidecar:
@@ -742,14 +786,12 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
             return createXMPItem(basedOn: itemTemplate, contents: url, catalog: catalog, completionHandler: completionHandler)
         }
 
-        // Phase 3 path: drag-in upload.
-        if Self.uploadableExtensions.contains(ext) {
-            return uploadItem(basedOn: itemTemplate, contents: url, catalog: catalog, completionHandler: completionHandler)
-        }
-
-        completionHandler(nil, [], false,
-            NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
-        return Progress()
+        // Any other file — image or not — goes through the upload path. The
+        // server stores every file type and decides whether to index it
+        // (image-only): an image comes back with an asset id and surfaces as
+        // an `.asset` item; everything else comes back without one and
+        // surfaces as a path-addressed `.file` item (see uploadItem).
+        return uploadItem(basedOn: itemTemplate, contents: url, catalog: catalog, completionHandler: completionHandler)
     }
 
     /// Create a subdirectory inside a library root (or a deeper folder
@@ -923,20 +965,37 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // upload and this completion handler. Don't stat the
                     // local stash again.
                     let ext = (filename as NSString).pathExtension.lowercased()
-                    let image = ImageChild(
-                        name: filename,
-                        path: resp.absPath,
-                        mtime: resp.mtime,
-                        size: resp.size,
-                        ext: ext,
-                        assetID: resp.assetID
-                    )
-                    if let item = MapleItem(image: image, parentIdentifier: parentID) {
-                        completionHandler(item, [], false, nil)
+                    if let assetID = resp.assetID {
+                        // Image — indexed, surfaces as an `.asset` item.
+                        let image = ImageChild(
+                            name: filename,
+                            path: resp.absPath,
+                            mtime: resp.mtime,
+                            size: resp.size,
+                            ext: ext,
+                            assetID: assetID
+                        )
+                        if let item = MapleItem(image: image, parentIdentifier: parentID) {
+                            completionHandler(item, [], false, nil)
+                        } else {
+                            completionHandler(nil, [], false,
+                                NSError(domain: NSFileProviderErrorDomain,
+                                        code: NSFileProviderError.noSuchItem.rawValue))
+                        }
                     } else {
-                        completionHandler(nil, [], false,
-                            NSError(domain: NSFileProviderErrorDomain,
-                                    code: NSFileProviderError.noSuchItem.rawValue))
+                        // Non-indexed file (video, document, extensionless, …):
+                        // stored + synced, addressed by its library-relative
+                        // path rather than an asset id.
+                        let file = FileChild(
+                            name: filename,
+                            path: resp.absPath,
+                            mtime: resp.mtime,
+                            size: resp.size,
+                            ext: ext
+                        )
+                        completionHandler(MapleItem(file: file, folderID: folderID,
+                                                    relativePath: targetRel,
+                                                    parentIdentifier: parentID), [], false, nil)
                     }
                     await self.signalEnumeratorReload(parent: parentID)
                 case .unsupported:
@@ -1255,10 +1314,10 @@ open class FileProviderExtensionCore: NSObject, NSFileProviderReplicatedExtensio
                     // doc state; we just call DELETE. Idempotent.
                     try await catalog.deleteAsset(assetID: assetID)
                     completionHandler(nil)
-                case .folder, .trash, .mapleDir, .mapleThumbsDir, .thumb:
-                    // Synthetic `.maple/` items + thumbs are read-only
-                    // — deletes would have to round-trip to the
-                    // server's cache layer, which is server-owned.
+                case .folder, .trash, .mapleDir, .mapleThumbsDir, .thumb, .file:
+                    // Synthetic `.maple/` items + thumbs are read-only, and
+                    // non-indexed files are read-only in v1 (no path-addressed
+                    // delete/trash endpoint yet) — deletes are unsupported.
                     completionHandler(NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError))
                 }
             } catch {

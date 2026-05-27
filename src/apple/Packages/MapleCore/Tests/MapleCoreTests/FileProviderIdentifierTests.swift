@@ -21,6 +21,23 @@ final class FileProviderIdentifierTests: XCTestCase {
         XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
     }
 
+    func testFileRoundTrip() throws {
+        let id = FileProviderIdentifier.file(folderID: "650a1b", relativePath: "2024/clip.mov")
+        XCTAssertTrue(id.rawValue.hasPrefix("file/650a1b:"))
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
+    }
+
+    func testFileRootLevelRoundTrip() throws {
+        let id = FileProviderIdentifier.file(folderID: "f1", relativePath: "notes.txt")
+        XCTAssertEqual(try FileProviderIdentifier(rawValue: id.rawValue), id)
+    }
+
+    func testFileMissingColonRejected() {
+        XCTAssertThrowsError(try FileProviderIdentifier(rawValue: "file/f1")) { error in
+            XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .malformedFile)
+        }
+    }
+
     func testInvalidPrefixRejected() {
         XCTAssertThrowsError(try FileProviderIdentifier(rawValue: "bogus/123")) { error in
             XCTAssertEqual(error as? FileProviderIdentifier.DecodeError, .invalidPrefix)
