@@ -9,21 +9,25 @@ export interface AuthUser {
   role: 'owner' | 'member';
 }
 
-/// Outcome of a refresh attempt.
-///  - `refreshed`: we now hold a valid access token; callers may retry.
-///  - `rejected`:  the server genuinely rejected our refresh credential
-///                 (cookie missing/expired/revoked). The session is cleared
-///                 — this is a real sign-out.
-///  - `transient`: the refresh could not be completed for a reason that is
-///                 NOT an auth failure (offline, network blip, 5xx, rate
-///                 limit). The session is PRESERVED so a momentary hiccup
-///                 doesn't punt a signed-in user back to the login screen.
+/**
+ * Outcome of a refresh attempt.
+ *  - `refreshed`: we now hold a valid access token; callers may retry.
+ *  - `rejected`:  the server genuinely rejected our refresh credential
+ *                 (cookie missing/expired/revoked). The session is cleared
+ *                 — this is a real sign-out.
+ *  - `transient`: the refresh could not be completed for a reason that is
+ *                 NOT an auth failure (offline, network blip, 5xx, rate
+ *                 limit). The session is PRESERVED so a momentary hiccup
+ *                 doesn't punt a signed-in user back to the login screen.
+ */
 export type RefreshOutcome = 'refreshed' | 'rejected' | 'transient';
 
-/// How long a refresh token broadcast by a peer tab is considered usable
-/// before we'd rather mint our own. Access tokens live for 30 days, so a
-/// few-second window is plenty to dedupe a cold-load stampede without ever
-/// adopting a stale credential.
+/**
+ * How long a refresh token broadcast by a peer tab is considered usable
+ * before we'd rather mint our own. Access tokens live for 30 days, so a
+ * few-second window is plenty to dedupe a cold-load stampede without ever
+ * adopting a stale credential.
+ */
 const PEER_TOKEN_TTL_MS = 5_000;
 
 @Injectable({ providedIn: 'root' })
@@ -32,17 +36,21 @@ export class AuthService {
   readonly user = signal<AuthUser | null>(null);
   private accessToken: string | null = null;
 
-  /// In-tab coalescing: a single refresh runs at a time within this tab and
-  /// every concurrent caller awaits the same promise.
+  /**
+   * In-tab coalescing: a single refresh runs at a time within this tab and
+   * every concurrent caller awaits the same promise.
+   */
   private inflight: Promise<RefreshOutcome> | null = null;
 
-  /// Cross-tab coordination. All tabs of one browser share a single httpOnly
-  /// refresh cookie, and that cookie ROTATES on every `/api/auth/refresh`. If
-  /// two tabs refresh concurrently with the same cookie, the server's
-  /// reuse-detection revokes the entire token chain and signs the user out
-  /// everywhere. We serialize refreshes across tabs with the Web Locks API
-  /// and gossip freshly-minted access tokens over a BroadcastChannel so peers
-  /// can skip a redundant rotation.
+  /**
+   * Cross-tab coordination. All tabs of one browser share a single httpOnly
+   * refresh cookie, and that cookie ROTATES on every `/api/auth/refresh`. If
+   * two tabs refresh concurrently with the same cookie, the server's
+   * reuse-detection revokes the entire token chain and signs the user out
+   * everywhere. We serialize refreshes across tabs with the Web Locks API
+   * and gossip freshly-minted access tokens over a BroadcastChannel so peers
+   * can skip a redundant rotation.
+   */
   private readonly channel: BroadcastChannel | null = (() => {
     try {
       if (typeof BroadcastChannel === 'undefined') return null;
@@ -169,10 +177,12 @@ export class AuthService {
     return this.inflight;
   }
 
-  /// Serialize the network refresh across tabs via the Web Locks API. Without
-  /// the lock, two tabs that both cold-load (and so both lack an in-memory
-  /// access token) would `/refresh` with the same cookie and trip the
-  /// server's reuse-detection, signing the user out everywhere.
+  /**
+   * Serialize the network refresh across tabs via the Web Locks API. Without
+   * the lock, two tabs that both cold-load (and so both lack an in-memory
+   * access token) would `/refresh` with the same cookie and trip the
+   * server's reuse-detection, signing the user out everywhere.
+   */
   private runRefresh(): Promise<RefreshOutcome> {
     // Cast through `unknown` so we don't merge with the DOM `LockManager`
     // typing (its `request` overloads resolve to `Promise<any>` and break

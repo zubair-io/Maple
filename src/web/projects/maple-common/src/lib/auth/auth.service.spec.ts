@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -17,6 +17,8 @@ describe('AuthService.refresh', () => {
     auth = TestBed.inject(AuthService);
     ctrl = TestBed.inject(HttpTestingController);
   });
+
+  afterEach(() => ctrl.verify());
 
   it('on success stores the access token and reports `refreshed`', async () => {
     const p = auth.refresh();
