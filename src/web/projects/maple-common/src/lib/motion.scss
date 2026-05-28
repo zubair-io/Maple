@@ -1,0 +1,58 @@
+// motion.scss — responsive-program S0a (epic #577, ticket #581).
+//
+// CSS custom properties for the motion vocabulary. Mirrors motion.ts
+// and Apple's MapleTokens.Motion enum (DesignTokens.swift).
+// Imported once from tokens.scss; consumers reference via var() or via
+// the SCSS aliases at the bottom.
+
+:root {
+  /* Drawer open/close (sidebar collapse on tablet/desktop). */
+  --motion-drawer-ms: 240ms;
+  --motion-drawer-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Push transition (iOS-system feel). */
+  --motion-push-ms: 320ms;
+  --motion-push-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Sheet present. */
+  --motion-sheet-present-ms: 320ms;
+  --motion-sheet-present-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Sheet dismiss. */
+  --motion-sheet-dismiss-ms: 280ms;
+  --motion-sheet-dismiss-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Editor group/tool tab swap. */
+  --motion-group-swap-ms: 120ms;
+  --motion-group-swap-ease: ease-in-out;
+
+  /* Loupe chrome auto-hide. */
+  --motion-chrome-hide-ms: 180ms;
+  --motion-chrome-hide-ease: ease-out;
+
+  /* Library filter chip change cross-fade. */
+  --motion-filter-fade-ms: 120ms;
+  --motion-filter-fade-ease: linear;
+}
+
+// SCSS variable aliases (for @if branches, media query interpolation, etc.)
+$motion-drawer-ms: 240ms;
+$motion-drawer-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+$motion-push-ms: 320ms;
+$motion-push-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+$motion-sheet-present-ms: 320ms;
+$motion-sheet-present-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+$motion-sheet-dismiss-ms: 280ms;
+$motion-sheet-dismiss-ease: cubic-bezier(0.32, 0.72, 0, 1);
+
+$motion-group-swap-ms: 120ms;
+$motion-group-swap-ease: ease-in-out;
+
+$motion-chrome-hide-ms: 180ms;
+$motion-chrome-hide-ease: ease-out;
+
+$motion-filter-fade-ms: 120ms;
+$motion-filter-fade-ease: linear;
