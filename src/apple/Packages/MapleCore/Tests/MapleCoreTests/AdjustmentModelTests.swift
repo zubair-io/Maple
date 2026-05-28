@@ -189,6 +189,96 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(m2.look, .default)
     }
 
+    // MARK: - Profile (Auto Profile Phase 1, ticket #536)
+
+    /// New users land on `.auto` — newly-written sidecars omit
+    /// `papp:Profile` and absent-attribute sidecars also land on `.auto`.
+    func testDefaultProfile() {
+        XCTAssertEqual(AdjustmentModel.default.profile, .auto)
+    }
+
+    func testParseProfileNeutral() throws {
+        let xml = xmp(attrs: #"papp:Profile="Neutral""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.profile, .neutral)
+    }
+
+    func testParseProfileAutoExplicit() throws {
+        let xml = xmp(attrs: #"papp:Profile="Auto""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.profile, .auto)
+    }
+
+    /// Case-insensitive parse mirrors `papp:HighlightRecoveryMode` and
+    /// raw-core's parser (which uses `eq_ignore_ascii_case`).
+    func testParseProfileLowercase() throws {
+        let xml = xmp(attrs: #"papp:Profile="neutral""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.profile, .neutral)
+    }
+
+    /// Absent attribute -> default (`.auto`).
+    func testParseProfileAbsentDefaultsToAuto() throws {
+        let xml = xmp(attrs: #"crs:Exposure2012="0""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.profile, .auto)
+    }
+
+    func testProfileRoundTripNeutral() throws {
+        var m = AdjustmentModel()
+        m.profile = .neutral
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"papp:Profile="Neutral""#),
+                      "non-default Profile must be emitted to the sidecar")
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.profile, .neutral)
+    }
+
+    /// `.auto` is the canonical default — serializer omits the attribute.
+    func testProfileRoundTripAutoOmitted() throws {
+        var m = AdjustmentModel()
+        m.profile = .auto
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertFalse(xml.contains("papp:Profile"),
+                       "Default Profile (.auto) should be omitted from sidecar")
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.profile, .auto)
+    }
+
+    /// Legacy migration: `papp:Look="Neutral"` with no `papp:Profile`
+    /// seeds `profile = .neutral`. Mirrors raw-core's #536 migration.
+    func testLegacyLookNeutralMigratesToProfileNeutral() throws {
+        let xml = xmp(attrs: #"papp:Look="Neutral""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.profile, .neutral)
+    }
+
+    /// Legacy migration: `papp:Look="Default"` (pre-#536 sidecars carry
+    /// this; `.default` was the historical default) seeds `.auto`.
+    func testLegacyLookDefaultMigratesToProfileAuto() throws {
+        let xml = xmp(attrs: #"papp:Look="Default""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.profile, .auto)
+    }
+
+    /// When both attributes are present, `papp:Profile` wins. Swift's
+    /// attribute-dict iteration order is undefined, so the parser's
+    /// pre-pass for `papp:Profile` (mirroring `sigma_seen`) is the
+    /// load-bearing piece this test guards.
+    func testProfileWinsOverLegacyLook() throws {
+        let xml = xmp(attrs: #"papp:Profile="Neutral" papp:Look="Default""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.profile, .neutral)
+    }
+
+    /// Reverse attribute order — Profile still wins (order-independence
+    /// is the whole point of the pre-pass).
+    func testProfileWinsOverLegacyLookReverseOrder() throws {
+        let xml = xmp(attrs: #"papp:Look="Default" papp:Profile="Neutral""#)
+        let (m, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m.profile, .neutral)
+    }
+
     func testParseStars() throws {
         let xml = xmp(attrs: #"xmp:Rating="4""#)
         let (_, c) = try XMPParser.parse(xml)

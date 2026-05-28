@@ -42,6 +42,20 @@ public enum Look: String, Codable, Sendable, Hashable {
     case `default` = "Default"
 }
 
+// MARK: - Profile
+
+/// Render-shaping profile (Auto Profile Phase 1, ticket #536). Mirrors
+/// `raw_core::types::adjustment::Profile`. Replaces the retired
+/// `papp:Look` attribute on the write path; legacy `papp:Look` values
+/// still migrate into `Profile` on read (see `XMPParser`).
+///
+/// Default is `.auto` — new sidecars omit `papp:Profile` and existing
+/// sidecars without the attribute land on `.auto`.
+public enum Profile: String, Codable, Sendable, Hashable, CaseIterable {
+    case auto    = "Auto"
+    case neutral = "Neutral"
+}
+
 // MARK: - AdjustmentModel
 
 /// Per-image editing knobs. Mirrors `raw_core::xmp::AdjustmentModel`.
@@ -116,6 +130,12 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // `.default` — new users get the empirical Look.
     public var look: Look
 
+    // Render-shaping profile (Auto Profile Phase 1, ticket #536). Defaults
+    // to `.auto`. Replaces the retired `papp:Look` attribute on the write
+    // path; the XMP parser migrates legacy `papp:Look` values into this
+    // field when `papp:Profile` is absent.
+    public var profile: Profile
+
     public init(
         temperature: Double = 6500,
         tint: Double = 0,
@@ -143,7 +163,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         nrLuminance: Double = 0,
         nrColor: Double = 25,
         highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
-        look: Look = .default
+        look: Look = .default,
+        profile: Profile = .auto
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -172,6 +193,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.nrColor = nrColor
         self.highlightRecovery = highlightRecovery
         self.look = look
+        self.profile = profile
     }
 
     public static let `default` = AdjustmentModel()
@@ -249,6 +271,11 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     /// dictionary iteration order is undefined; matches the Rust parser's
     /// `sigma_seen` precedence (PR #463).
     var captureSharpeningSigmaSeen: Bool = false
+    /// Tracks whether the canonical `papp:Profile` attribute has been
+    /// applied during this element so the legacy `papp:Look` migration
+    /// never clobbers it. Mirrors raw-core's `profile_seen` precedence
+    /// (ticket #536).
+    var profileSeen: Bool = false
 
     init(model: AdjustmentModel, culling: CullingState) {
         self.model = model
@@ -271,14 +298,24 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         if let sigma = attributeDict["papp:CaptureSharpeningSigma"] {
             applyAttribute(key: "papp:CaptureSharpeningSigma", value: sigma)
         }
+        // Pre-pass: if the canonical `papp:Profile` attribute is present,
+        // apply it before the `papp:Look` legacy-migration arm so Swift's
+        // unordered attribute iteration can't let `Look` overwrite the
+        // explicit Profile choice. Mirrors raw-core's `profile_seen` flag.
+        if let profile = attributeDict["papp:Profile"] {
+            applyAttribute(key: "papp:Profile", value: profile)
+        }
         for (rawKey, value) in attributeDict
-            where rawKey != "crs:WhiteBalance" && rawKey != "papp:CaptureSharpeningSigma" {
+            where rawKey != "crs:WhiteBalance"
+                && rawKey != "papp:CaptureSharpeningSigma"
+                && rawKey != "papp:Profile" {
             applyAttribute(key: rawKey, value: value)
         }
         // Reset for the next rdf:Description (defensive — XMP normally
         // carries a single description element, but the parser must remain
         // idempotent across calls).
         captureSharpeningSigmaSeen = false
+        profileSeen = false
     }
 
     private func applyAttribute(key: String, value: String) {
@@ -350,6 +387,30 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             switch lowered {
             case "neutral": model.look = .neutral
             case "default": model.look = .default
+            default:        break
+            }
+            // Auto Profile (#536) legacy migration. When `papp:Profile` is
+            // absent on the same element, `papp:Look` also seeds the new
+            // Profile field — Default/Auto → .auto, Neutral → .neutral.
+            // Gated on `!profileSeen` so an explicit `papp:Profile`
+            // attribute always wins, regardless of document order.
+            if !profileSeen {
+                switch lowered {
+                case "neutral":         model.profile = .neutral
+                case "default", "auto": model.profile = .auto
+                default:                break
+                }
+            }
+        case "papp:Profile":
+            // Auto Profile Phase 1 (#536) — canonical render-shaping
+            // profile attribute. Case-insensitive parse. Unknown values
+            // keep the current value (default = `.auto`). Setting
+            // `profileSeen` blocks the `papp:Look` legacy migration above
+            // from clobbering this explicit choice.
+            profileSeen = true
+            switch value.lowercased() {
+            case "auto":    model.profile = .auto
+            case "neutral": model.profile = .neutral
             default:        break
             }
         // Lightroom culling
@@ -428,6 +489,14 @@ public struct XMPSerializer {
         // `papp:Look` at all.
         if model.look != .default {
             attrs.append(("papp:Look", model.look.rawValue))
+        }
+        // Auto Profile Phase 1 (#536) — canonical render-shaping profile.
+        // Mirrors raw-core's `serialize`: emit only on non-default
+        // (`.auto`). Newly-written sidecars carry `papp:Profile` only;
+        // older sidecars without it pick up `.auto` automatically, and
+        // legacy `papp:Look` migrates into Profile on read.
+        if model.profile != .auto {
+            attrs.append(("papp:Profile", model.profile.rawValue))
         }
 
         let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")
