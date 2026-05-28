@@ -279,6 +279,15 @@ private struct ActiveDevelopTab: View {
 
             Divider().overlay(MapleTokens.border)
 
+            CollapsibleSection(title: "Profile") {
+                // Auto Profile Phase 1 (#536). Sits at the top so the
+                // profile choice is the first decision the user makes
+                // about an image — Auto applies per-image curve fitting,
+                // Neutral disables it.
+                ProfilePicker(selection: $session.model.profile)
+            }
+            Divider().overlay(MapleTokens.border)
+
             CollapsibleSection(title: "White Balance") {
                 // Temperature: blue (cool source / cool render at low CCT)
                 // → orange (warm source / warm render at high CCT). Default
@@ -405,6 +414,10 @@ private struct DisabledDevelopTab: View {
             // Same gradient palette as ActiveDevelopTab so layout + visual
             // weight are identical when no session is loaded — the panel
             // doesn't jump between states.
+            CollapsibleSection(title: "Profile") {
+                ProfilePicker(selection: .constant(.auto))
+            }
+            Divider().overlay(MapleTokens.border)
             CollapsibleSection(title: "White Balance") {
                 AdjustSlider("Temperature", value: $temp, range: AdjustmentModel.temperatureRange, format: "%.0f K",
                              colors: [.blue, .orange], defaultValue: 6500)
@@ -461,6 +474,29 @@ private struct DisabledDevelopTab: View {
         .padding(.vertical, 4)
         .disabled(true)
         .opacity(0.5)
+    }
+}
+
+// MARK: - ProfilePicker
+
+/// Two-segment Auto/Neutral picker for `AdjustmentModel.profile`. Lives in
+/// `DetailPanel.swift` because that's the only consumer; if a second site
+/// adopts it, lift to its own file. Uses `.segmented` style so both choices
+/// are visible at rest — a menu picker would hide Auto behind a tap.
+struct ProfilePicker: View {
+    @Binding var selection: Profile
+
+    var body: some View {
+        Picker("Profile", selection: $selection) {
+            Text("Auto").tag(Profile.auto)
+                .accessibilityLabel("Auto profile")
+            Text("Neutral").tag(Profile.neutral)
+                .accessibilityLabel("Neutral profile")
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("picker-profile")
+        .accessibilityLabel("Profile selector")
     }
 }
 
