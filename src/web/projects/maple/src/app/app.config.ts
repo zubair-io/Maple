@@ -1,7 +1,7 @@
 import { ApplicationConfig, provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter, withInMemoryScrolling } from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
-import { LIBRARY_BACKEND, authInterceptor } from '@maple-common';
+import { LIBRARY_BACKEND, authInterceptor, provideAuthBootstrap } from '@maple-common';
 import { routes } from './app.routes';
 
 // Self-Hosted: paired with the Bun API. No service worker — refreshes always
@@ -11,6 +11,7 @@ export const appConfig: ApplicationConfig = {
     provideZonelessChangeDetection(),
     provideRouter(routes, withInMemoryScrolling({ scrollPositionRestoration: 'enabled' })),
     provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
+    provideAuthBootstrap(),
     { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
   ],
 };
