@@ -477,23 +477,34 @@ async function start(): Promise<void> {
   // start accepting backup uploads. Awaited so we never serve a request
   // against a half-cleared staging dir; the route is already self-healing
   // on missing `.part` files (returns 409 expected_offset: 0).
+  //
+  // Failure is logged at `error` (operator-visible) but non-fatal — the
+  // pattern matches the surrounding subsystem boots (workers, discover,
+  // meili, jobrunner all log + continue). A missing success line is the
+  // operator's signal that the backup subsystem is degraded; promoting to
+  // process exit would be inconsistent with the rest of the boot.
   try {
     await clearBackupChunkDir();
     log.info({ dir: BACKUP_CHUNK_DIR }, 'cleared backup chunk staging dir');
   } catch (err) {
-    log.warn({ err, dir: BACKUP_CHUNK_DIR }, 'failed to clear backup chunk staging dir');
+    log.error(
+      { err, dir: BACKUP_CHUNK_DIR },
+      'failed to clear backup chunk staging dir — backup uploads may be inconsistent until fixed',
+    );
   }
 
   // Reset received_bytes on every `state: 'open'` Mongo row. We just deleted
   // their on-disk bytes; without this, a client retrying a previously
   // in-progress session would see 409 expected_offset > 0 and (when
   // received_bytes == total) fall out of the upload loop entirely.
-  // Best-effort — if Mongo is unreachable the boot IIFE will surface it.
   try {
     const reset = await uploadSessions.resetAllInProgressBytes();
     if (reset > 0) log.info({ count: reset }, 'reset in-progress upload sessions');
   } catch (err) {
-    log.warn({ err }, 'failed to reset in-progress upload sessions — clients may see stale 409s');
+    log.error(
+      { err },
+      'failed to reset in-progress upload sessions — clients may see stale 409s until fixed',
+    );
   }
 
   const app = buildApp();
