@@ -11,8 +11,11 @@
 //!   correction matrix.
 //! - [`fit`]: fit path (builds CDF curves from source/JPEG distributions,
 //!   fits matrix + Oklab offsets, returns a [`curve::ProfileCurve`]).
+//! - [`cache`]: bounded LRU keyed on `(raw_identity, mtime)` / bytes-hash
+//!   that short-circuits the fit on second-and-after slider ticks.
 
 pub mod apply;
+pub mod cache;
 pub mod curve;
 pub mod fit;
 pub mod matrix;
