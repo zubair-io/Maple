@@ -14,6 +14,8 @@ export type HighlightRecoveryMode =
 
 export type Look = 'Neutral' | 'Default';
 
+export type Profile = 'Auto' | 'Neutral';
+
 export type ToneCurveMode = 'PerChannel' | 'RatioPreserving';
 
 export type WbMethod = 'Cat16' | 'DiagonalRec2020';
@@ -81,6 +83,8 @@ export interface GeneratedAdjustmentModel {
   autoExposure: AutoExposureMode;
   /** DisplayLookCurve (ticket #371; retired in #443). Both variants are now identical no-ops; kept for sidecar back-compat so pre-#443 `papp:Look` round-trips. */
   look: Look;
+  /** Render-shaping profile (Auto Profile Phase 1, ticket #536). 'Auto' (default) fits a per-image curve from the embedded JPEG preview; 'Neutral' runs the scene-referred AgX view transform. Migrates from legacy `papp:Look` on parse (Default→Auto, Neutral→Neutral). */
+  profile: Profile;
   /** Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue. */
   toneCurveMode: ToneCurveMode;
 }
@@ -148,6 +152,7 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     highlightRecovery: 'ChromaticAdaptation',
     autoExposure: 'On',
     look: 'Default',
+    profile: 'Auto',
     toneCurveMode: 'PerChannel',
   };
 }

@@ -51,9 +51,6 @@ pub use crate::view::look::Look;
 /// the parser: `Default` → `Auto`, `Neutral` → `Neutral`. When both
 /// attributes are present on the same element, `papp:Profile` wins
 /// regardless of document order.
-///
-/// Not added to `ADJUSTMENT_SCHEMA` yet — the codegen plumbing for
-/// Profile in Swift / TypeScript lands with the T6 pipeline wiring.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Profile {
     Auto,
