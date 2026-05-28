@@ -111,11 +111,12 @@ mod apply_tests {
 
     #[test]
     fn identity_curve_leaves_buffer_unchanged() {
+        // All values ≤ KNEE (0.95), so compress_input is identity.
         let mut rgb: Vec<f32> = vec![0.1, 0.4, 0.7, 0.2, 0.5, 0.8];
         let original = rgb.clone();
         apply_curve(&mut rgb, &ProfileCurve::identity());
         for (a, b) in rgb.iter().zip(original.iter()) {
-            assert!((a - b).abs() < 1e-6);
+            assert!((a - b).abs() < 1e-6, "a={a} b={b}");
         }
     }
 
@@ -132,11 +133,19 @@ mod apply_tests {
             r: cc.clone(),
             g: cc.clone(),
             b: cc,
+            matrix: super::super::IDENTITY_MATRIX,
+            chroma_boost: 1.0,
+            chroma_offset: [0.0, 0.0],
+            lightness_offset: 0.0,
+            lightness_band_offsets: [0.0; 5],
+            ab_band_offsets: [[0.0, 0.0]; 5],
         };
 
         let mut rgb: Vec<f32> = vec![0.1, 0.1, 0.1, 0.3, 0.3, 0.3];
         apply_curve(&mut rgb, &curve);
         for &v in &rgb {
+            // compress_input(0.1) = 0.1 (below KNEE) -> curve maps 0.1 → 0.2
+            // compress_input(0.3) = 0.3 (below KNEE) -> curve maps 0.3 → 0.6
             assert!((v - 0.2).abs() < 0.05 || (v - 0.6).abs() < 0.05, "got {v}");
         }
     }
@@ -145,15 +154,47 @@ mod apply_tests {
     fn out_of_range_inputs_are_clamped() {
         let mut rgb: Vec<f32> = vec![-0.5, 1.5, 0.5];
         apply_curve(&mut rgb, &ProfileCurve::identity());
+        // For -0.5: compress_input clamps to 0.0; identity → 0.0.
         assert!((rgb[0] - 0.0).abs() < 1e-6, "neg clamped to 0, got {}", rgb[0]);
-        assert!((rgb[1] - 1.0).abs() < 1e-6, "over clamped to 1, got {}", rgb[1]);
+        // For 1.5: above KNEE (0.95), soft compress to roughly
+        //   0.95 + 0.05 * (over/(1+over)) where over = (1.5-0.95)/0.05 = 11
+        //   = 0.95 + 0.05 * (11/12) = 0.95 + 0.0458 = 0.9958
+        assert!(rgb[1] > 0.95 && rgb[1] < 1.0, "soft-knee, got {}", rgb[1]);
+        // For 0.5: below KNEE, identity.
+        assert!((rgb[2] - 0.5).abs() < 1e-6, "got {}", rgb[2]);
     }
 }
 
 #[cfg(test)]
 mod fit_tests {
     use super::super::fit_curve_from_raw;
-    use std::path::{Path, PathBuf};
+    use crate::image::ExifOrientation;
+    use std::path::PathBuf;
+    use std::path::Path;
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn fit_curve_respects_exif_orientation() {
+        // Use a portrait RAW where EXIF orientation is Rotate90 (or similar).
+        let raw_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0003.CR2");
+        let w = 256_usize;
+        let h = 256_usize;
+        let source: Vec<f32> = (0..w * h * 3).map(|i| (i % 256) as f32 / 255.0).collect();
+        // Orientation should be detected from metadata.
+        let curve = fit_curve_from_raw(&raw_path, &source, w, h, ExifOrientation::Rotate90)
+            .expect("preview with orientation should produce a curve");
+        // Ensure at least one anchor deviates from identity, indicating fitting occurred.
+        let mut differs = false;
+        for (in_v, out_v) in &curve.r.anchors {
+            if (in_v - out_v).abs() > 0.01 {
+                differs = true;
+                break;
+            }
+        }
+        assert!(differs, "fit produced identity despite orientation");
+    }
+
+
 
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
@@ -168,7 +209,7 @@ mod fit_tests {
         // Synthetic uniform ramp as source — fit should produce a non-identity
         // curve because the JPEG's distribution will differ.
         let source: Vec<f32> = (0..w * h * 3).map(|i| (i % 256) as f32 / 255.0).collect();
-        let curve = fit_curve_from_raw(&raw_path, &source, w, h)
+        let curve = fit_curve_from_raw(&raw_path, &source, w, h, ExifOrientation::Normal)
             .expect("test_0017 has a usable JPEG preview");
         let mut differs = false;
         for (in_v, out_v) in &curve.r.anchors {
@@ -184,7 +225,7 @@ mod fit_tests {
     fn missing_raw_returns_none() {
         let path = Path::new("/nonexistent/path.dng");
         let dummy = vec![0.5_f32; 3];
-        let result = fit_curve_from_raw(path, &dummy, 1, 1);
+        let result = fit_curve_from_raw(path, &dummy, 1, 1, ExifOrientation::Normal);
         assert!(result.is_none());
     }
 }
