@@ -31,10 +31,16 @@ use crate::{
 /// CLI / Apple FFI / tests use [`RawInput::Path`]; `raw-wasm` uses
 /// [`RawInput::Bytes`] because the browser only ever has the RAW in
 /// memory.
+///
+/// `Bytes::ext` is the file extension (e.g. `"dng"`, `"cr2"`, `"arw"`)
+/// passed to `rawler::RawSource` as a `with_path("rawfile.<ext>")` hint.
+/// Without it, format disambiguation falls back to magic-byte sniffing,
+/// which is ambiguous for some formats (matching the pattern in
+/// `decode.rs` and `api.rs`). Pass `""` if unknown — rawler will sniff.
 #[derive(Clone, Copy, Debug)]
 pub enum RawInput<'a> {
     Path(&'a Path),
-    Bytes(&'a [u8]),
+    Bytes { bytes: &'a [u8], ext: &'a str },
 }
 
 /// Per spec § 02 filter chain, slice-1 through slice-5 subset:
@@ -100,7 +106,9 @@ pub fn render_from_raw_with_quality_and_source(
     let auto_will_fit = model.profile == Profile::Auto
         && match &raw_source {
             Some(RawInput::Path(p)) => auto_profile::preview::extract_preview(p).is_some(),
-            Some(RawInput::Bytes(b)) => auto_profile::preview::extract_preview_from_bytes(b).is_some(),
+            Some(RawInput::Bytes { bytes, ext }) => {
+                auto_profile::preview::extract_preview_from_bytes(bytes, ext).is_some()
+            }
             None => false,
         };
     let auto_model;
@@ -140,11 +148,11 @@ pub fn render_from_raw_with_quality_and_source(
                 None => false,
             }
         }),
-        (Profile::Auto, Some(RawInput::Bytes(bytes))) => stage("auto_profile", || {
+        (Profile::Auto, Some(RawInput::Bytes { bytes, ext })) => stage("auto_profile", || {
             scene.assert_space(ColorSpace::SceneLinearRec2020);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            match auto_profile::fit_curve_from_bytes(bytes, pixels, w, h, raw.orientation) {
+            match auto_profile::fit_curve_from_bytes(bytes, ext, pixels, w, h, raw.orientation) {
                 Some(curve) => {
                     auto_profile::apply_curve(pixels, &curve);
                     true

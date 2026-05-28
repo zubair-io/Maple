@@ -53,9 +53,24 @@ pub fn extract_preview<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
 /// Bytes-based mirror of [`extract_preview`] for the WASM render entry,
 /// which has the RAW file's bytes in memory but no filesystem path.
 /// No exiftool fallback — WASM has no subprocess access.
-pub fn extract_preview_from_bytes(bytes: &[u8]) -> Option<DynamicImage> {
-    let src = RawSource::new_from_slice(bytes);
+///
+/// `ext` is the file extension (e.g. `"dng"`, `"cr2"`, `"arw"`) — passed
+/// through to rawler as a `with_path("rawfile.<ext>")` hint. Without it,
+/// rawler must rely on magic-byte sniffing, which is ambiguous for some
+/// formats (matching how `raw-core/src/decode.rs` and `api.rs` hand bytes
+/// to rawler). Pass `""` if unknown — rawler will fall back to sniffing.
+pub fn extract_preview_from_bytes(bytes: &[u8], ext: &str) -> Option<DynamicImage> {
+    let src = rawsource_from_bytes(bytes, ext);
     extract_preview_from_rawsource(&src)
+}
+
+fn rawsource_from_bytes(bytes: &[u8], ext: &str) -> RawSource {
+    let src = RawSource::new_from_slice(bytes);
+    if ext.is_empty() {
+        src
+    } else {
+        src.with_path(format!("rawfile.{ext}"))
+    }
 }
 
 fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
@@ -94,8 +109,10 @@ pub fn detect_jpeg_color_space<P: AsRef<Path>>(path: P) -> JpegColorSpace {
 
 /// Bytes-based mirror of [`detect_jpeg_color_space`] for WASM. Same EXIF
 /// rules; returns [`JpegColorSpace::SRgb`] on any rawler failure.
-pub fn detect_jpeg_color_space_from_bytes(bytes: &[u8]) -> JpegColorSpace {
-    let src = RawSource::new_from_slice(bytes);
+///
+/// `ext` is the file extension — see [`extract_preview_from_bytes`] doc.
+pub fn detect_jpeg_color_space_from_bytes(bytes: &[u8], ext: &str) -> JpegColorSpace {
+    let src = rawsource_from_bytes(bytes, ext);
     detect_jpeg_color_space_from_rawsource(&src)
 }
 

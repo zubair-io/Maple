@@ -48,15 +48,19 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
 /// Bytes-based mirror of [`fit_curve_from_raw`] for the WASM render
 /// entry. Uses [`preview::extract_preview_from_bytes`] (no exiftool
 /// fallback) plus [`preview::detect_jpeg_color_space_from_bytes`].
+///
+/// `ext` is the file extension (e.g. `"dng"`) used as a rawler format
+/// hint — see [`preview::extract_preview_from_bytes`] doc.
 pub fn fit_curve_from_bytes(
     raw_bytes: &[u8],
+    ext: &str,
     source_rgb: &[f32],
     source_w: usize,
     source_h: usize,
     orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
-    let preview = preview::extract_preview_from_bytes(raw_bytes)?;
-    let cs = preview::detect_jpeg_color_space_from_bytes(raw_bytes);
+    let preview = preview::extract_preview_from_bytes(raw_bytes, ext)?;
+    let cs = preview::detect_jpeg_color_space_from_bytes(raw_bytes, ext);
     fit_curve_from_preview(preview, cs, source_rgb, source_w, source_h, orientation)
 }
 
