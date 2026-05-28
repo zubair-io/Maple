@@ -12,6 +12,10 @@
 // Single source of truth: this file is the only place tokens are defined.
 // Both maple-syrup and maple import it via their `styles.scss`.
 
+// Bundled webfont @font-face declarations. Must come before @theme so the
+// font-family stack references are valid by the time Tailwind expands them.
+@use './fonts';
+
 // Forward the motion vocabulary so consumers that `@use 'tokens'` also get
 // `--motion-*` custom properties emitted at `:root` (without needing a
 // separate import). Responsive-program S0a (#581).
@@ -56,10 +60,50 @@
   --color-error-text: #f87171;
   --color-star: #ef9f27;
 
-  /* Typography */
+  /* Typography — bundled per docs/spec/responsive-program-s0-primitives.md §3.3 */
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif;
-  --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    'Lato', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  --font-serif: 'Merriweather', Georgia, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+  /* Tailwind text-* utility classes per spec §3.4 mapping table. */
+  --text-source-title: 28px;
+  --text-source-title--line-height: 1.1;
+  --text-source-title--font-weight: 700;
+  --text-source-title--letter-spacing: -0.5px;
+
+  --text-sheet-title: 17px;
+  --text-sheet-title--line-height: 1.3;
+  --text-sheet-title--font-weight: 700;
+
+  --text-row-label: 14px;
+  --text-row-label--line-height: 1.35;
+  --text-row-label--font-weight: 400;
+
+  --text-body: 13px;
+  --text-body--line-height: 1.4;
+  --text-body--font-weight: 400;
+
+  --text-tool-label: 10px;
+  --text-tool-label--line-height: 1.2;
+  --text-tool-label--font-weight: 400;
+
+  --text-chip-label: 11px;
+  --text-chip-label--line-height: 1.2;
+  --text-chip-label--font-weight: 700;
+
+  --text-eyebrow: 10px;
+  --text-eyebrow--line-height: 1.2;
+  --text-eyebrow--font-weight: 700;
+  --text-eyebrow--letter-spacing: 0.14em;
+
+  --text-value-chip: 11px;
+  --text-value-chip--line-height: 1.2;
+  --text-value-chip--font-weight: 400;
+
+  --text-filename: 12px;
+  --text-filename--line-height: 1.3;
+  --text-filename--font-weight: 400;
 
   /* Motion */
   --ease-default: cubic-bezier(0.22, 1, 0.36, 1);

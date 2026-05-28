@@ -1,0 +1,49 @@
+// Maple bundled webfonts.
+//
+// Per docs/spec/responsive-program-s0-primitives.md §3.3:
+// - Lato 400 / 700 (SIL OFL 1.1)
+// - Merriweather 700 (SIL OFL 1.1)
+// - JetBrains Mono 400 (SIL OFL 1.1)
+//
+// All faces are Latin-subset .woff2 (~109 KB total first-paint payload).
+// `font-display: swap` is the W3C-recommended default — readable text
+// appears immediately in the fallback stack, then swaps when the webfont
+// loads. The spec acknowledges the trade-off (a future ticket can add
+// `size-adjust` / `ascent-override` / `descent-override` to match metrics
+// and suppress layout shift on swap).
+//
+// Files live at `projects/maple-common/src/assets/fonts/` and are exposed
+// to the running app via the `assets/fonts → /assets/fonts` asset glob in
+// `angular.json` (added to both `maple` and `maple-syrup` build targets).
+
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/Lato-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/Lato-Bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Merriweather';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/assets/fonts/Merriweather-Bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/assets/fonts/JetBrainsMono-Regular.woff2') format('woff2');
+}

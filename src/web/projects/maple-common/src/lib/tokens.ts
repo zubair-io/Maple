@@ -45,5 +45,8 @@ export const MapleTokens = {
 
 export type MapleTokenKey = keyof typeof MapleTokens;
 
-export const MapleFont = `-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif`;
-export const MapleMono = `"SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace`;
+// Font family stacks — kept in lockstep with tokens.scss `--font-*` vars.
+// Bundled via @font-face in `fonts.scss` per spec §3.3.
+export const MapleFont = `"Lato", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif`;
+export const MapleSerif = `"Merriweather", Georgia, "Times New Roman", serif`;
+export const MapleMono = `"JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace`;
