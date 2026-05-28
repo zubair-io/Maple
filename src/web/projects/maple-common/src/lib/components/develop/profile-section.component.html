@@ -1,0 +1,24 @@
+<maple-collapsible label="Profile" storageKey="dev-profile" [padInner]="false">
+  @if (assetId()) {
+    <div class="profile-toggle" role="group" aria-label="Profile">
+      <button
+        type="button"
+        class="profile-button"
+        [class.active]="adj().profile === 'Auto'"
+        [attr.aria-pressed]="adj().profile === 'Auto'"
+        (click)="setProfile('Auto')"
+      >
+        Auto
+      </button>
+      <button
+        type="button"
+        class="profile-button"
+        [class.active]="adj().profile === 'Neutral'"
+        [attr.aria-pressed]="adj().profile === 'Neutral'"
+        (click)="setProfile('Neutral')"
+      >
+        Neutral
+      </button>
+    </div>
+  }
+</maple-collapsible>
