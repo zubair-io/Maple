@@ -74,11 +74,15 @@ STAMP="$NATIVE_DIR/Frameworks/.xcframework-stamp.$PROFILE"
 
 if [[ "${FORCE_XCFRAMEWORK_REBUILD:-}" != "1" && "${1:-}" != "--force" && \
       -f "$STAMP" && -d "$XCFW_OUT_PROBE" ]]; then
+    # Use `-print -quit` (find's built-in early-exit) instead of piping to
+    # `head -n 1`: under `set -o pipefail`, find exits 141 (SIGPIPE) when
+    # head closes the pipe after the first line, which falsely aborts the
+    # script even when the result is "yes, there are changes — rebuild."
     changes=$(find "$RAW_PIPELINE_DIR" \
         \( -type d \( -name target -o -name .git -o -name pkg \) -prune \) -o \
         -type f \( -name '*.rs' -o -name 'Cargo.toml' -o -name 'Cargo.lock' \
                   -o -name 'cbindgen.toml' -o -name '*.h' \) \
-        -newer "$STAMP" -print 2>/dev/null | head -n 1)
+        -newer "$STAMP" -print -quit 2>/dev/null)
     if [[ -z "$changes" ]]; then
         echo "==> No raw-pipeline changes since last build — skipping."
         exit 0
