@@ -12,14 +12,6 @@
 //! schema in `crate::types::local_adjustment`. The `schema_matches_struct`
 //! drift test below allow-lists `local_adjustments` as a known exception.
 //!
-//! `profile` (Auto Profile Phase 1, ticket #536) is similarly absent. The
-//! `Profile { Auto, Neutral }` enum is on `AdjustmentModel` and round-trips
-//! through XMP via `papp:Profile` (with legacy `papp:Look` migration), but
-//! its Swift / TypeScript codegen is deferred to the T6 pipeline-wiring PR
-//! so the codegen panic in `codegen/src/main.rs` (unknown enum default)
-//! doesn't block this T5 change. The `schema_matches_struct` test
-//! allow-lists `profile` for the same reason as `local_adjustments`.
-//!
 //! This module is the **single source of truth** for the develop-settings
 //! schema. Swift (`MapleCore.AdjustmentModel`) and TypeScript
 //! (`maple-common/AdjustmentModel`) mirror this shape today by hand; future
@@ -315,6 +307,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         default_f32: 0.0,
         enum_name: "Look",
         doc: "DisplayLookCurve (ticket #371; retired in #443). Both variants are now identical no-ops; kept for sidecar back-compat so pre-#443 `papp:Look` round-trips.",
+    },
+    FieldSpec {
+        name: "profile",
+        kind: FieldKind::Enum,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "Profile",
+        doc: "Render-shaping profile (Auto Profile Phase 1, ticket #536). 'Auto' (default) fits a per-image curve from the embedded JPEG preview; 'Neutral' runs the scene-referred AgX view transform. Migrates from legacy `papp:Look` on parse (Default→Auto, Neutral→Neutral).",
     },
     FieldSpec {
         name: "tone_curve_mode",

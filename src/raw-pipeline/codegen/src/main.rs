@@ -218,6 +218,14 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     // `raw-core::types::adjustment::Look`.
     s.push_str("export type Look = 'Neutral' | 'Default';\n\n");
 
+    // Render-shaping profile (Auto Profile Phase 1, ticket #536). `Auto`
+    // (default) fits a per-image curve from the embedded JPEG preview at
+    // render time; `Neutral` runs the AgX scene-referred view transform.
+    // Pre-#536 sidecars carrying `papp:Look` migrate transparently in the
+    // parser (Default → Auto, Neutral → Neutral). See
+    // raw-core::types::adjustment::Profile.
+    s.push_str("export type Profile = 'Auto' | 'Neutral';\n\n");
+
     // Tone-curve application mode (ticket #436). `PerChannel` applies the
     // three R/G/B curves independently (hue shifts); `RatioPreserving`
     // folds them through Rec.2020 luma to preserve hue. Default is
@@ -310,6 +318,9 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
                     // Per-image auto-exposure (#429). `On` is the new default —
                     // anchor scene mid-gray to 0.18 before AgX.
                     "AutoExposureMode" => "On",
+                    // Auto Profile (#536). Default fits a per-image curve
+                    // from the embedded preview; `Neutral` runs AgX.
+                    "Profile" => "Auto",
                     other => panic!(
                         "codegen: no default mapping for enum `{}` — add one \
                          alongside the matching Rust `Default` impl",
@@ -366,6 +377,11 @@ mod tests {
         assert!(out.contains("ADJUSTMENT_RANGES"));
         assert!(out.contains("defaultGeneratedAdjustmentModel"));
         assert!(out.contains("temperature: 6500"));
+        // Auto Profile (#536): Profile enum is in ADJUSTMENT_SCHEMA, so the
+        // codegen must emit the type, the interface field, and a default.
+        assert!(out.contains("export type Profile = 'Auto' | 'Neutral';"));
+        assert!(out.contains("profile: Profile;"));
+        assert!(out.contains("profile: 'Auto'"));
     }
 
     #[test]
