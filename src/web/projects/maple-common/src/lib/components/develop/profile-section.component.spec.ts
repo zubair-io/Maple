@@ -12,10 +12,7 @@ import { signal } from '@angular/core';
 
 import { ProfileSectionComponent } from './profile-section.component';
 import { LibraryStateService } from '../../state/library-state.service';
-import {
-  defaultAdjustmentModel,
-  type AdjustmentModel,
-} from '../../models/adjustment-model';
+import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjustment-model';
 
 const ASSET_ID = 'local-asset-1';
 
@@ -41,9 +38,7 @@ function makeFixture() {
 
 function buttons(fixture: ReturnType<typeof TestBed.createComponent>): HTMLButtonElement[] {
   return Array.from(
-    (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>(
-      '.profile-button',
-    ),
+    (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('.profile-button'),
   );
 }
 
