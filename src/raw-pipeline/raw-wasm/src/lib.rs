@@ -131,7 +131,7 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
         &raw_img,
         &model,
         raw_core::pipeline::RenderQuality::Full,
-        Some(raw_core::pipeline::RawInput::Bytes(raw)),
+        Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
     )
         .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(MapleRender {
