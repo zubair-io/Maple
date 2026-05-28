@@ -43,7 +43,7 @@ final class UploadClientTests: XCTestCase {
                 lat: nil, lon: nil,
                 bytes: Data(count: 256), mapleId: "abc")
             XCTFail("expected throw")
-        } catch UploadClient.UploadError.httpError(let code) {
+        } catch UploadClient.UploadError.httpError(let code, _) {
             XCTAssertEqual(code, 500)
         } catch {
             XCTFail("expected httpError(500), got \(error)")
@@ -60,7 +60,7 @@ final class UploadClientTests: XCTestCase {
                 lat: nil, lon: nil,
                 bytes: Data(count: 256), mapleId: "abc")
             XCTFail("expected throw")
-        } catch UploadClient.UploadError.httpError(let code) {
+        } catch UploadClient.UploadError.httpError(let code, _) {
             XCTAssertEqual(code, 400)
         } catch {
             XCTFail("expected httpError(400)")
@@ -230,6 +230,37 @@ final class UploadClientTests: XCTestCase {
             bytes: Data(count: 250))
         XCTAssertEqual(StubURLProtocol.recordedRequests.count, 1,
                        "expected exactly one chunk before short-circuit")
+    }
+
+    /// When the server returns `409 expected_offset == total` on the first
+    /// chunk, the prior client behaviour was to set `offset = total`, fall
+    /// out of the while loop, and throw `badResponse("ingest loop exited
+    /// …")`. The new behaviour is to treat `expected_offset >= total` as a
+    /// disk/DB-desync signal and restart from offset 0. Sequencing:
+    ///   1) 409 with expected_offset == total (stuck-loop trigger)
+    ///   2) 200 with maple_id (clean restart succeeds)
+    func testUpload409WithExpectedOffsetEqualToTotalRestartsFromZero() async throws {
+        let total = 256
+        StubURLProtocol.stub = .sequence([
+            .status(409, json: #"{"expected_offset":256}"#),
+            .ok(json: #"{"maple_id":"after-restart","target_rel_path":"2024/IMG.heic"}"#),
+        ])
+        let client = await makeClient()
+        let result = try await client.upload(
+            phassetLocalId: "P1", filename: "IMG.heic",
+            captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+            lat: nil, lon: nil,
+            bytes: Data(count: total), mapleId: "client-id")
+        XCTAssertEqual(result.mapleId, "after-restart")
+        let reqs = StubURLProtocol.recordedRequests
+        XCTAssertEqual(reqs.count, 2, "expected one 409 then one successful retry")
+        // Both attempts must declare offset 0 in Content-Range — the restart
+        // is the whole point.
+        for req in reqs {
+            XCTAssertEqual(req.value(forHTTPHeaderField: "Content-Range"),
+                           "bytes 0-\(total - 1)/\(total)",
+                           "every attempt should start from offset 0 after a >=total 409")
+        }
     }
 
     func testNetworkErrorPropagates() async throws {

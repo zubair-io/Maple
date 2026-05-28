@@ -60,6 +60,8 @@ import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.t
 import { peopleRoutes } from './routes/people.ts';
 import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
 import { backupIngestRoutes } from './routes/backup-ingest.ts';
+import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from './backup/config.ts';
+import { uploadSessions } from './backup/upload-session.ts';
 import { backupStateRoutes } from './routes/backup-state.ts';
 import { backupExistsRoutes } from './routes/backup-exists.ts';
 import { backupSidecarRoutes } from './routes/backup-sidecar.ts';
@@ -470,6 +472,29 @@ async function start(): Promise<void> {
       log.warn({ err }, 'JobRunner failed to start');
     }
   })();
+
+  // Wipe leftover chunk-staging files from any previous run before we
+  // start accepting backup uploads. Awaited so we never serve a request
+  // against a half-cleared staging dir; the route is already self-healing
+  // on missing `.part` files (returns 409 expected_offset: 0).
+  try {
+    await clearBackupChunkDir();
+    log.info({ dir: BACKUP_CHUNK_DIR }, 'cleared backup chunk staging dir');
+  } catch (err) {
+    log.warn({ err, dir: BACKUP_CHUNK_DIR }, 'failed to clear backup chunk staging dir');
+  }
+
+  // Reset received_bytes on every `state: 'open'` Mongo row. We just deleted
+  // their on-disk bytes; without this, a client retrying a previously
+  // in-progress session would see 409 expected_offset > 0 and (when
+  // received_bytes == total) fall out of the upload loop entirely.
+  // Best-effort — if Mongo is unreachable the boot IIFE will surface it.
+  try {
+    const reset = await uploadSessions.resetAllInProgressBytes();
+    if (reset > 0) log.info({ count: reset }, 'reset in-progress upload sessions');
+  } catch (err) {
+    log.warn({ err }, 'failed to reset in-progress upload sessions — clients may see stale 409s');
+  }
 
   const app = buildApp();
   app.listen(PORT);

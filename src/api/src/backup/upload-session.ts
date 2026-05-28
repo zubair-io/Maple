@@ -343,6 +343,25 @@ export const uploadSessions = {
     );
   },
 
+  /** Bulk-zero `received_bytes` on every `state: 'open'` row that claims
+   * progress (`received_bytes > 0`). Paired with `clearBackupChunkDir()`
+   * at API startup: the on-disk `.part` files were just deleted, so any
+   * Mongo row that still believes its bytes are on disk is now lying —
+   * a client retry would hit the `start !== received_bytes` 409 path at
+   * `backup-ingest.ts` and (with `received_bytes == total`) fall out of
+   * the client's upload loop. Resetting to 0 forces a clean restart on
+   * the next chunk.
+   *
+   * Returns the number of rows reset, for logging. */
+  async resetAllInProgressBytes(): Promise<number> {
+    const coll = await uploadSessionsCollection();
+    const r = await coll.updateMany(
+      { state: 'open', received_bytes: { $gt: 0 } },
+      { $set: { received_bytes: 0, updated_at: new Date() } },
+    );
+    return r.modifiedCount;
+  },
+
   /** Mark "open" sessions whose updated_at is older than `cutoff` as abandoned.
    * Returns the number of rows updated. Called by a periodic job / startup. */
   async gcAbandoned(cutoff: Date): Promise<number> {
