@@ -41,12 +41,12 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
+import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const log = childLogger('backup-rendered');
-const CHUNK_DIR = process.env.MAPLE_BACKUP_TMP ?? '/tmp/maple-backup-chunks';
 
 /** Move src to dst atomically. Fails with EEXIST when dst already exists —
  * this is the final-path collision guard for rendered uploads.
@@ -260,8 +260,8 @@ export const backupRenderedRoutes = new Elysia().post(
     const resolvedTargetRelPath = session.target_rel_path;
 
     // Append chunk to the per-session tmp file.
-    const tmpFile = path.join(CHUNK_DIR, `${session._id.toHexString()}.part`);
-    await fs.mkdir(CHUNK_DIR, { recursive: true });
+    const tmpFile = path.join(BACKUP_CHUNK_DIR, `${session._id.toHexString()}.part`);
+    await fs.mkdir(BACKUP_CHUNK_DIR, { recursive: true });
 
     // Self-heal reset cleared received_bytes — also clear any stale tmp bytes
     // so the next append starts from 0. Only ENOENT is tolerable; anything

@@ -12,17 +12,33 @@
 // Server contract: src/api/src/routes/backup-ingest.ts (PR #27).
 
 import Foundation
+import os
 
 public actor UploadClient {
+
+    /// Unified-logging channel for backup upload failures. Surfaces in
+    /// Console.app / `log stream --predicate 'category == "upload"'` with
+    /// the full failure context (status code, response body snippet,
+    /// chunk offset, URL) that `UploadError`'s stringification can't carry
+    /// across the actor boundary into `BackupEngine`'s SQLite row.
+    private static let logger = Logger(
+        subsystem: "app.justmaple.aperture", category: "upload")
 
     public struct Result: Sendable {
         public let mapleId: String
         public let targetRelPath: String
     }
 
-    public enum UploadError: Error, Equatable, Sendable {
-        case httpError(Int)
-        case badResponse
+    public enum UploadError: Error, Equatable, Sendable, CustomStringConvertible {
+        /// Server returned a non-2xx HTTP status. `body` is a truncated
+        /// (≤512 char) UTF-8 snippet of the response body when available;
+        /// it is what makes the failure debuggable in the queue's persisted
+        /// `lastError` column (which receives `"\(error)"`).
+        case httpError(statusCode: Int, body: String?)
+        /// Protocol violation by the server (non-HTTP response, 200 on a
+        /// final-chunk-only path, loop exited without success, etc.).
+        /// `reason` describes which invariant broke and at what offset.
+        case badResponse(reason: String)
         case resumeMismatchNoOffset
         case emptyAsset
         /// Another device on the same iCloud library is actively uploading
@@ -31,6 +47,37 @@ public actor UploadClient {
         /// most this long (capped) and re-enqueues at the same priority
         /// without burning a retry slot.
         case busyElsewhere(retryAfterSeconds: TimeInterval)
+
+        public var description: String {
+            switch self {
+            case .httpError(let code, let body):
+                if let body, !body.isEmpty {
+                    return "httpError(\(code)): \(body)"
+                }
+                return "httpError(\(code))"
+            case .badResponse(let reason):
+                return "badResponse: \(reason)"
+            case .resumeMismatchNoOffset:
+                return "resumeMismatchNoOffset"
+            case .emptyAsset:
+                return "emptyAsset"
+            case .busyElsewhere(let s):
+                return "busyElsewhere(retryAfter=\(s)s)"
+            }
+        }
+    }
+
+    /// UTF-8 decode + truncate a response body for inclusion in error
+    /// payloads and log lines. Returns `nil` for empty bodies. Binary
+    /// payloads (decode failure) produce a `<binary N bytes>` marker so
+    /// the log still records "we saw N bytes" without spilling raw bytes.
+    private static func bodySnippet(_ data: Data, max: Int = 512) -> String? {
+        guard !data.isEmpty else { return nil }
+        let head = data.prefix(max)
+        guard let text = String(data: head, encoding: .utf8) else {
+            return "<binary \(data.count) bytes>"
+        }
+        return data.count > max ? "\(text)…" : text
     }
 
     private let baseURL: URL
@@ -77,10 +124,17 @@ public actor UploadClient {
         req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
         req.httpBody = Data(xmp.utf8)
 
-        let (_, response) = try await session.data(for: req)
-        guard let http = response as? HTTPURLResponse else { throw UploadError.badResponse }
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            Self.logger.error(
+                "sidecar non-HTTP response url=\(url, privacy: .public) phasset=\(phassetLocalId, privacy: .public) targetRelPath=\(targetRelPath, privacy: .public)")
+            throw UploadError.badResponse(reason: "non-HTTP response from sidecar endpoint")
+        }
         guard (200..<300).contains(http.statusCode) else {
-            throw UploadError.httpError(http.statusCode)
+            let snippet = Self.bodySnippet(data)
+            Self.logger.error(
+                "sidecar http=\(http.statusCode) url=\(url, privacy: .public) phasset=\(phassetLocalId, privacy: .public) targetRelPath=\(targetRelPath, privacy: .public) body=\(snippet ?? "<none>", privacy: .public)")
+            throw UploadError.httpError(statusCode: http.statusCode, body: snippet)
         }
     }
 
@@ -138,17 +192,37 @@ public actor UploadClient {
             req.httpBody = chunk
 
             let (data, response) = try await session.data(for: req)
-            guard let http = response as? HTTPURLResponse else { throw UploadError.badResponse }
+            guard let http = response as? HTTPURLResponse else {
+                Self.logger.error(
+                    "ingest non-HTTP response url=\(ingestURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) range=\(offset)-\(chunkEnd)/\(total)")
+                throw UploadError.badResponse(
+                    reason: "non-HTTP response from ingest at \(offset)-\(chunkEnd)/\(total)")
+            }
 
             switch http.statusCode {
             case 409:
                 // Server says our resume offset is wrong; trust its `expected_offset`.
+                // Special-case `expected_offset == total`: the server thinks all
+                // bytes are already there, but if the session were genuinely
+                // complete we'd have hit the `alreadyComplete` 200 short-circuit
+                // path instead. The only consistent reading is "disk/DB desync"
+                // (e.g. the server cleared its chunk dir at boot but the Mongo
+                // row still had received_bytes == total). Restart from 0 rather
+                // than fall out of the loop without a result.
                 struct Mismatch: Decodable { let expected_offset: Int64? }
                 if let body = try? JSONDecoder().decode(Mismatch.self, from: data),
                    let newOffset = body.expected_offset {
-                    offset = newOffset
+                    if newOffset >= total {
+                        Self.logger.notice(
+                            "ingest 409 expected_offset>=total — restarting from 0 url=\(ingestURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) expected=\(newOffset) total=\(total)")
+                        offset = 0
+                    } else {
+                        offset = newOffset
+                    }
                     continue
                 }
+                Self.logger.error(
+                    "ingest 409 without expected_offset url=\(ingestURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) range=\(offset)-\(chunkEnd)/\(total) body=\(Self.bodySnippet(data) ?? "<none>", privacy: .public)")
                 throw UploadError.resumeMismatchNoOffset
             case 423:
                 // Another device is actively uploading this asset. Surface
@@ -159,7 +233,12 @@ public actor UploadClient {
                 throw UploadError.busyElsewhere(
                     retryAfterSeconds: body?.retry_after_seconds ?? 60)
             case 202:
-                guard !isFinal else { throw UploadError.badResponse }
+                guard !isFinal else {
+                    Self.logger.error(
+                        "ingest 202 on final chunk url=\(ingestURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) range=\(offset)-\(chunkEnd)/\(total)")
+                    throw UploadError.badResponse(
+                        reason: "202 on final chunk \(offset)-\(chunkEnd)/\(total) — expected 200 with maple_id")
+                }
                 offset = chunkEnd + 1
                 if let onProgress { await onProgress(offset, total) }
             case 200:
@@ -175,10 +254,16 @@ public actor UploadClient {
                 let body = try JSONDecoder().decode(Final.self, from: data)
                 return Result(mapleId: body.maple_id, targetRelPath: body.target_rel_path)
             default:
-                throw UploadError.httpError(http.statusCode)
+                let snippet = Self.bodySnippet(data)
+                Self.logger.error(
+                    "ingest http=\(http.statusCode) url=\(ingestURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) range=\(offset)-\(chunkEnd)/\(total) body=\(snippet ?? "<none>", privacy: .public)")
+                throw UploadError.httpError(statusCode: http.statusCode, body: snippet)
             }
         }
-        throw UploadError.badResponse
+        Self.logger.error(
+            "ingest loop exited without success url=\(ingestURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) offset=\(offset) total=\(total)")
+        throw UploadError.badResponse(
+            reason: "ingest loop exited offset=\(offset) total=\(total)")
     }
 
     /// Upload an Apple-rendered companion or Live Photo .mov twin via the
@@ -237,16 +322,32 @@ public actor UploadClient {
             req.httpBody = chunk
 
             let (data, response) = try await session.data(for: req)
-            guard let http = response as? HTTPURLResponse else { throw UploadError.badResponse }
+            guard let http = response as? HTTPURLResponse else {
+                Self.logger.error(
+                    "rendered non-HTTP response url=\(renderedURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) targetRelPath=\(targetRelPath, privacy: .public) range=\(offset)-\(chunkEnd)/\(total)")
+                throw UploadError.badResponse(
+                    reason: "non-HTTP response from rendered at \(offset)-\(chunkEnd)/\(total)")
+            }
 
             switch http.statusCode {
             case 409:
+                // Same disk/DB-desync handling as `upload(...)`: if the server
+                // claims we already sent everything (expected_offset >= total)
+                // but didn't short-circuit to 200, restart from 0.
                 struct Mismatch: Decodable { let expected_offset: Int64? }
                 if let body = try? JSONDecoder().decode(Mismatch.self, from: data),
                    let newOffset = body.expected_offset {
-                    offset = newOffset
+                    if newOffset >= total {
+                        Self.logger.notice(
+                            "rendered 409 expected_offset>=total — restarting from 0 url=\(renderedURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) expected=\(newOffset) total=\(total)")
+                        offset = 0
+                    } else {
+                        offset = newOffset
+                    }
                     continue
                 }
+                Self.logger.error(
+                    "rendered 409 without expected_offset url=\(renderedURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) targetRelPath=\(targetRelPath, privacy: .public) range=\(offset)-\(chunkEnd)/\(total) body=\(Self.bodySnippet(data) ?? "<none>", privacy: .public)")
                 throw UploadError.resumeMismatchNoOffset
             case 423:
                 struct Busy: Decodable { let retry_after_seconds: Double? }
@@ -254,7 +355,12 @@ public actor UploadClient {
                 throw UploadError.busyElsewhere(
                     retryAfterSeconds: body?.retry_after_seconds ?? 60)
             case 202:
-                guard !isFinal else { throw UploadError.badResponse }
+                guard !isFinal else {
+                    Self.logger.error(
+                        "rendered 202 on final chunk url=\(renderedURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) targetRelPath=\(targetRelPath, privacy: .public) range=\(offset)-\(chunkEnd)/\(total)")
+                    throw UploadError.badResponse(
+                        reason: "202 on final rendered chunk \(offset)-\(chunkEnd)/\(total) — expected 200")
+                }
                 offset = chunkEnd + 1
                 if let onProgress { await onProgress(offset, total) }
             case 200:
@@ -265,7 +371,10 @@ public actor UploadClient {
                 if let onProgress { await onProgress(total, total) }
                 return
             default:
-                throw UploadError.httpError(http.statusCode)
+                let snippet = Self.bodySnippet(data)
+                Self.logger.error(
+                    "rendered http=\(http.statusCode) url=\(renderedURL, privacy: .public) phasset=\(phassetLocalId, privacy: .public) targetRelPath=\(targetRelPath, privacy: .public) range=\(offset)-\(chunkEnd)/\(total) body=\(snippet ?? "<none>", privacy: .public)")
+                throw UploadError.httpError(statusCode: http.statusCode, body: snippet)
             }
         }
     }
