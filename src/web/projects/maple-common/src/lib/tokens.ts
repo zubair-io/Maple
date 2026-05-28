@@ -17,10 +17,16 @@ export const MapleTokens = {
 
   // Borders
   border: '#44403c',
+  // Active ticks (drag-bar center tick), grab handles. Responsive-program S0a (#581).
+  borderHi: '#5a5552',
 
   // Accent
   primary: '#c4493a',
   primaryDim: '#422016',
+
+  // Low-confidence signals (e.g. person detection). Tailwind amber-400.
+  // Responsive-program S0a (#581).
+  warn: '#fbbf24',
 
   // Hover/active overlays
   bgHover: 'rgba(255, 255, 255, 0.06)',

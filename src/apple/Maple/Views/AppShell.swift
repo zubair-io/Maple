@@ -192,16 +192,23 @@ struct AppShell: View {
 
     var body: some View {
         Group {
+            // Shell selection goes through `MapleShellKind.current`
+            // (responsive-program S0a, #581). Direct `UIDevice.userInterfaceIdiom`
+            // calls are forbidden elsewhere — grep should show zero hits outside
+            // MapleCore/Layout/MapleLayout.swift. `adaptiveShell` is `#if os(iOS)`
+            // only (it's the iPhone tab-bar shell), so the macOS branch never
+            // references it and always renders the pane shell directly.
             #if os(iOS)
-            // iPad: three-column NavigationSplitView (matches Mac shell —
-            // sidebar gives folder nav). iPhone: TabView single-column collapse.
-            if UIDevice.current.userInterfaceIdiom == .pad {
-                macShell
-            } else {
+            if MapleShellKind.current == .phoneTab {
+                // iPhone idiom → tab-bar shell. Always phone-tier; no
+                // GeometryReader needed (width is implicitly <768pt).
                 adaptiveShell
+                    .environment(\.mapleLayout, .phone)
+            } else {
+                paneShellWithLayout
             }
             #else
-            macShell
+            paneShellWithLayout
             #endif
         }
         .preferredColorScheme(.dark)
@@ -286,6 +293,17 @@ struct AppShell: View {
     }
 
     // MARK: - Mac / iPad
+
+    /// Pane shell (macShell) wrapped in `GeometryReader` so that the
+    /// width-derived `MapleLayout` env value flows to child views.
+    /// Responsive-program S0a (#581).
+    @ViewBuilder
+    private var paneShellWithLayout: some View {
+        GeometryReader { proxy in
+            macShell
+                .environment(\.mapleLayout, MapleLayout.from(width: proxy.size.width))
+        }
+    }
 
     @ViewBuilder
     private var macShell: some View {
