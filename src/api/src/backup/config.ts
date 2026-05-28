@@ -12,8 +12,7 @@
  */
 import fs from 'node:fs/promises';
 
-export const BACKUP_CHUNK_DIR =
-  process.env.MAPLE_BACKUP_TMP ?? '/tmp/maple-backup-chunks';
+export const BACKUP_CHUNK_DIR = process.env.MAPLE_BACKUP_TMP ?? '/tmp/maple-backup-chunks';
 
 /**
  * Wipe and recreate the chunk staging directory. Called once at API
