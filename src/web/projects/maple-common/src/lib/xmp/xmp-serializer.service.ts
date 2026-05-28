@@ -61,6 +61,15 @@ export class XmpSerializerService {
       parts.push(`papp:Look="${this._escapeAttr(model.look)}"`);
     }
 
+    // Auto Profile (Phase 1, #536). Canonical successor to the retired
+    // `papp:Look` — pure enum-string field with default 'Auto'. Mirrors
+    // raw-core's `serialize()` (xmp/mod.rs): only emit when non-default,
+    // and the legacy `papp:Look` is intentionally NOT mirrored on write —
+    // newly-saved sidecars carry only the new attribute name.
+    if (model.profile && model.profile !== 'Auto') {
+      parts.push(`papp:Profile="${this._escapeAttr(model.profile)}"`);
+    }
+
     // Culling fields.
     if (culling?.rating && culling.rating > 0) {
       parts.push(`xmp:Rating="${culling.rating}"`);
