@@ -31,6 +31,28 @@ final class AuthSessionTests: XCTestCase {
     return AuthSession(server: server, client: client)
   }
 
+  /// Wrap `TokenStore.save` so the SPM test target — which lacks the
+  /// keychain entitlement on developer machines — skips instead of
+  /// failing with `errSecMissingEntitlement` (-34018). Mirrors the
+  /// pattern in `SMBCredentialStoreTests.testSaveAndFetch`. On a CI
+  /// runner with entitlements this just performs the save normally.
+  private func saveTokensOrSkip(_ tokens: AuthTokens) throws {
+    do {
+      try TokenStore.save(tokens, server: server)
+    } catch {
+      throw XCTSkip("Keychain not writeable: \(error)")
+    }
+  }
+
+  /// Wrap `TokenStore.load` for the same reason — see `saveTokensOrSkip`.
+  private func loadTokensOrSkip() throws -> AuthTokens? {
+    do {
+      return try TokenStore.load(server: server)
+    } catch {
+      throw XCTSkip("Keychain not readable: \(error)")
+    }
+  }
+
   // MARK: - init / hydration
 
   func testInit_noTokens_isSignedOut() {
@@ -41,7 +63,7 @@ final class AuthSessionTests: XCTestCase {
   }
 
   func testInit_tokensAndCache_isSignedInWithUser() throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     let s = makeSession()
     XCTAssertTrue(s.isSignedIn)
@@ -55,7 +77,7 @@ final class AuthSessionTests: XCTestCase {
   /// would still flash the sign-in sheet. With it, `isSignedIn` is
   /// true and `user` fills in once /me succeeds.
   func testInit_tokensButNoCache_signedInWithoutUser() throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     let s = makeSession()
     XCTAssertTrue(s.isSignedIn)
     XCTAssertTrue(s.hasCredentials)
@@ -65,7 +87,7 @@ final class AuthSessionTests: XCTestCase {
   // MARK: - bootstrap success
 
   func testBootstrap_meSucceeds_populatesUserAndCache() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     StubURLProtocol.responder = { req in
       XCTAssertEqual(req.url?.path, "/api/auth/me")
       return .http(status: 200, body: Self.meBody(user: self.freshUser))
@@ -80,29 +102,29 @@ final class AuthSessionTests: XCTestCase {
   // MARK: - bootstrap transient failures (cached state preserved)
 
   func testBootstrap_networkFailure_preservesCachedState() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     StubURLProtocol.responder = { _ in .failure(URLError(.notConnectedToInternet)) }
     let s = makeSession()
     await s.bootstrapAndRestore()
     XCTAssertEqual(s.user, cachedUser, "offline /me must NOT wipe the cached user")
     XCTAssertTrue(s.hasCredentials, "offline /me must NOT clear the Keychain")
-    XCTAssertNotNil(try TokenStore.load(server: server))
+    XCTAssertNotNil(try loadTokensOrSkip())
   }
 
   func testBootstrap_5xx_preservesCachedState() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     StubURLProtocol.responder = { _ in .http(status: 503, body: Data("down".utf8)) }
     let s = makeSession()
     await s.bootstrapAndRestore()
     XCTAssertEqual(s.user, cachedUser)
     XCTAssertTrue(s.hasCredentials)
-    XCTAssertNotNil(try TokenStore.load(server: server))
+    XCTAssertNotNil(try loadTokensOrSkip())
   }
 
   func testBootstrap_decodeFailure_preservesCachedState() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     StubURLProtocol.responder = { _ in .http(status: 200, body: Data("not-json".utf8)) }
     let s = makeSession()
@@ -114,7 +136,7 @@ final class AuthSessionTests: XCTestCase {
   // MARK: - bootstrap auth failures (refresh path)
 
   func testBootstrap_meReturns401_refreshSucceeds_updatesUser() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     let freshTokens = AuthTokens(access: "A2", refresh: "R2")
     StubURLProtocol.responder = { req in
@@ -134,11 +156,11 @@ final class AuthSessionTests: XCTestCase {
     await s.bootstrapAndRestore()
     XCTAssertEqual(s.user, freshUser)
     XCTAssertTrue(s.hasCredentials)
-    XCTAssertEqual(try TokenStore.load(server: server), freshTokens)
+    XCTAssertEqual(try loadTokensOrSkip(), freshTokens)
   }
 
   func testBootstrap_meReturns401_refreshAlso401_clearsEverything() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     StubURLProtocol.responder = { req in
       return .http(status: 401, body: Data())
@@ -147,7 +169,7 @@ final class AuthSessionTests: XCTestCase {
     await s.bootstrapAndRestore()
     XCTAssertNil(s.user)
     XCTAssertFalse(s.hasCredentials)
-    XCTAssertNil(try TokenStore.load(server: server))
+    XCTAssertNil(try loadTokensOrSkip())
     XCTAssertNil(AuthUserCache.load(server: server))
   }
 
@@ -156,7 +178,7 @@ final class AuthSessionTests: XCTestCase {
   /// branch, 5xx during refresh now preserves credentials so the user
   /// can retry once the server recovers.
   func testBootstrap_meReturns401_refresh5xx_preservesTokens() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     StubURLProtocol.responder = { req in
       if req.url?.path == "/api/auth/refresh" { return .http(status: 503, body: Data()) }
@@ -165,12 +187,12 @@ final class AuthSessionTests: XCTestCase {
     let s = makeSession()
     await s.bootstrapAndRestore()
     XCTAssertTrue(s.hasCredentials, "refresh 5xx must NOT clear the Keychain")
-    XCTAssertNotNil(try TokenStore.load(server: server))
+    XCTAssertNotNil(try loadTokensOrSkip())
     XCTAssertEqual(AuthUserCache.load(server: server), cachedUser)
   }
 
   func testBootstrap_meReturns401_refreshNetworkFailure_preservesTokens() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     StubURLProtocol.responder = { req in
       if req.url?.path == "/api/auth/refresh" { return .failure(URLError(.timedOut)) }
@@ -179,7 +201,7 @@ final class AuthSessionTests: XCTestCase {
     let s = makeSession()
     await s.bootstrapAndRestore()
     XCTAssertTrue(s.hasCredentials)
-    XCTAssertNotNil(try TokenStore.load(server: server))
+    XCTAssertNotNil(try loadTokensOrSkip())
   }
 
   /// Regression: the previous combined `client.refresh()` did
@@ -190,7 +212,7 @@ final class AuthSessionTests: XCTestCase {
   /// split `refreshTokens()` + separate /me path saves the rotation
   /// immediately; a /me failure after rotation is transient.
   func testBootstrap_refreshRotatesTokens_meAfterFails_persistsNewTokens() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     let freshTokens = AuthTokens(access: "A2", refresh: "R2")
     StubURLProtocol.responder = { req in
@@ -208,7 +230,7 @@ final class AuthSessionTests: XCTestCase {
     }
     let s = makeSession()
     await s.bootstrapAndRestore()
-    XCTAssertEqual(try TokenStore.load(server: server), freshTokens,
+    XCTAssertEqual(try loadTokensOrSkip(), freshTokens,
                    "rotated tokens must be saved even when post-refresh /me fails")
     XCTAssertTrue(s.hasCredentials)
     // /me never returned a fresh user, so the cached one is the best
@@ -217,19 +239,19 @@ final class AuthSessionTests: XCTestCase {
   }
 
   func testBootstrap_meReturns403_refreshAlso403_clearsEverything() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     StubURLProtocol.responder = { _ in .http(status: 403, body: Data()) }
     let s = makeSession()
     await s.bootstrapAndRestore()
     XCTAssertFalse(s.hasCredentials)
-    XCTAssertNil(try TokenStore.load(server: server))
+    XCTAssertNil(try loadTokensOrSkip())
   }
 
   // MARK: - signOut
 
   func testSignOut_clearsTokensCacheAndUser() async throws {
-    try TokenStore.save(tokens, server: server)
+    try saveTokensOrSkip(tokens)
     AuthUserCache.save(cachedUser, server: server)
     // Logout endpoint just needs to not 5xx; AuthSession ignores its
     // result either way.
@@ -238,7 +260,7 @@ final class AuthSessionTests: XCTestCase {
     await s.signOut()
     XCTAssertNil(s.user)
     XCTAssertFalse(s.hasCredentials)
-    XCTAssertNil(try TokenStore.load(server: server))
+    XCTAssertNil(try loadTokensOrSkip())
     XCTAssertNil(AuthUserCache.load(server: server))
   }
 
