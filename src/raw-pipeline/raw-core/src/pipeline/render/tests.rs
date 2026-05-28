@@ -24,7 +24,7 @@ fn render_path(path: &std::path::Path, model: &AdjustmentModel) -> Result<(u32, 
 }
 
 /// Auto-Profile-aware variant of `render_path` — feeds the RAW path through
-/// to `render_from_raw_with_quality_and_path` so `Profile::Auto` (#537) can
+/// to `render_from_raw_with_quality_and_source` so `Profile::Auto` (#537) can
 /// fit a curve from the embedded JPEG. Used by the T6 dispatch tests.
 fn render_path_with_auto(
     path: &std::path::Path,
@@ -35,7 +35,7 @@ fn render_path_with_auto(
     })?;
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = crate::decode::decode_bytes(&bytes, ext)?;
-    render_from_raw_with_quality_and_path(&raw, model, RenderQuality::Full, Some(path))
+    render_from_raw_with_quality_and_source(&raw, model, RenderQuality::Full, Some(RawInput::Path(path)))
 }
 
 #[test]
@@ -410,11 +410,12 @@ fn render_from_scene_linear_with_chain_dehaze_zero_is_passthrough() {
 
 // --- T6: Auto Profile dispatch ---
 //
-// `render_from_raw_with_quality_and_path` branches the view tail on
-// `model.profile`: `Profile::Auto` (with a path) calls
-// `auto_profile::fit_curve_from_raw` + `apply_curve`, with AgX-Neutral
-// as a fall-back; `Profile::Neutral` (or any path-less Auto) runs AgX.
-// Synthetic paths ignore `model.profile` (no RAW source to fit against).
+// `render_from_raw_with_quality_and_source` branches the view tail on
+// `model.profile`: `Profile::Auto` (with a source) calls
+// `auto_profile::fit_curve_from_raw` / `fit_curve_from_bytes` +
+// `apply_curve`, with AgX-Neutral as a fall-back; `Profile::Neutral`
+// (or any sourceless Auto) runs AgX. Synthetic paths ignore
+// `model.profile` (no RAW source to fit against).
 
 /// FNV-1a 64-bit. Deterministic, no deps, sufficient for golden-byte
 /// regression detection on the Neutral synthetic-render path.
@@ -519,7 +520,7 @@ fn t6_auto_profile_differs_from_neutral_on_test_0017() {
     );
 }
 
-/// Path-less call with `Profile::Auto` falls back to AgX-Neutral — the
+/// Sourceless call with `Profile::Auto` falls back to AgX-Neutral — the
 /// resulting bytes must equal an explicit `Profile::Neutral` render.
 #[test]
 fn t6_auto_without_path_equals_neutral() {
@@ -541,17 +542,17 @@ fn t6_auto_without_path_equals_neutral() {
         profile: crate::types::adjustment::Profile::Neutral,
         ..AdjustmentModel::default()
     };
-    let (_, _, a) = render_from_raw_with_quality_and_path(
+    let (_, _, a) = render_from_raw_with_quality_and_source(
         &raw, &auto, RenderQuality::Full, None,
     )
-    .expect("auto render w/o path");
-    let (_, _, n) = render_from_raw_with_quality_and_path(
+    .expect("auto render w/o source");
+    let (_, _, n) = render_from_raw_with_quality_and_source(
         &raw, &neutral, RenderQuality::Full, None,
     )
-    .expect("neutral render w/o path");
+    .expect("neutral render w/o source");
     assert_eq!(
         a, n,
-        "Profile::Auto with `raw_path = None` must fall back to AgX and \
+        "Profile::Auto with `raw_source = None` must fall back to AgX and \
          match Profile::Neutral byte-for-byte"
     );
 }

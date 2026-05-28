@@ -26,6 +26,17 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
+/// Source of the RAW bytes for stages that need pre-decoded access to
+/// the file (currently only Auto Profile's embedded-JPEG extraction).
+/// CLI / Apple FFI / tests use [`RawInput::Path`]; `raw-wasm` uses
+/// [`RawInput::Bytes`] because the browser only ever has the RAW in
+/// memory.
+#[derive(Clone, Copy, Debug)]
+pub enum RawInput<'a> {
+    Path(&'a Path),
+    Bytes(&'a [u8]),
+}
+
 /// Per spec § 02 filter chain, slice-1 through slice-5 subset:
 /// * Highlight reconstruction (§ 3.3a), SceneToneControls (§ 3.6 steps 1-5),
 ///   Vibrance + Saturation (§ 3.7, Oklab), Clarity + Texture (§ 3.8),
@@ -36,7 +47,7 @@ use crate::{
 /// * Tone curves (§ 3.6 steps 6-7, § 3.6b DisplayReferredCurve) deferred to slice 7.
 /// * AgX is the Sobotka power-curve approximation (slice-6 retightens).
 pub fn render_from_raw(raw: &RawImage, model: &AdjustmentModel) -> Result<(u32, u32, Vec<u8>)> {
-    render_from_raw_with_quality_and_path(raw, model, RenderQuality::Full, None)
+    render_from_raw_with_quality_and_source(raw, model, RenderQuality::Full, None)
 }
 
 pub fn render_from_raw_with_quality(
@@ -44,25 +55,32 @@ pub fn render_from_raw_with_quality(
     model: &AdjustmentModel,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<u8>)> {
-    render_from_raw_with_quality_and_path(raw, model, quality, None)
+    render_from_raw_with_quality_and_source(raw, model, quality, None)
 }
 
-/// Render entry that carries the RAW file path through to the view
+/// Render entry that carries the RAW source through to the view
 /// transform — required by `Profile::Auto` (Auto Profile Phase 1, #537),
 /// which reads the embedded JPEG preview to fit a per-image tone curve.
 ///
-/// `raw_path` is `Option<&Path>` rather than mandatory: WASM callers
-/// (`raw-wasm::render_bytes`) and the `maple_render_bytes` FFI entry have
-/// only the decoded bytes, no filesystem path. In those cases Auto Profile
-/// is unavailable and the view tail falls back to AgX — the same byte-for-byte
-/// result as `Profile::Neutral`. The full Auto Profile flow runs whenever
-/// the caller supplies the path AND `model.profile == Profile::Auto` AND
-/// the JPEG extraction + curve fit succeeds.
-pub fn render_from_raw_with_quality_and_path(
+/// `raw_source` is `Option<RawInput<'_>>` rather than mandatory:
+/// - CLI / Apple FFI / tests pass `Some(RawInput::Path(_))` — the natural
+///   shape for code that already has a file path.
+/// - `raw-wasm::render_bytes` passes `Some(RawInput::Bytes(_))` — the
+///   browser only ever has the RAW in memory; PR-B (#555) wires this
+///   through so Auto Profile lights up on the web.
+/// - The legacy `maple_render_bytes` FFI entry still passes `None` (its
+///   only consumer doesn't surface a profile selector yet). On that path
+///   Auto Profile is unavailable and the view tail falls back to AgX —
+///   the same byte-for-byte result as `Profile::Neutral`.
+///
+/// The full Auto Profile flow runs whenever the caller supplies a source
+/// AND `model.profile == Profile::Auto` AND the JPEG extraction + curve
+/// fit succeeds.
+pub fn render_from_raw_with_quality_and_source(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
-    raw_path: Option<&Path>,
+    raw_source: Option<RawInput<'_>>,
 ) -> Result<(u32, u32, Vec<u8>)> {
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
@@ -80,9 +98,11 @@ pub fn render_from_raw_with_quality_and_path(
     // result than plain Neutral (test_0013 regressed from 8.82 → 16.98 dE
     // before this guard was added).
     let auto_will_fit = model.profile == Profile::Auto
-        && raw_path
-            .map(|p| auto_profile::preview::extract_preview(p).is_some())
-            .unwrap_or(false);
+        && match &raw_source {
+            Some(RawInput::Path(p)) => auto_profile::preview::extract_preview(p).is_some(),
+            Some(RawInput::Bytes(b)) => auto_profile::preview::extract_preview_from_bytes(b).is_some(),
+            None => false,
+        };
     let auto_model;
     let active_model: &AdjustmentModel = if auto_will_fit {
         auto_model = AdjustmentModel {
@@ -104,15 +124,27 @@ pub fn render_from_raw_with_quality_and_path(
     // and saturation. Remaining gap to JPEG (0.636 → 1.0) is owned by
     // Section 4 cross-channel matrix (Phase 2).
     //
-    // Falls back to plain AgX when there's no RAW path (WASM callers,
+    // Falls back to plain AgX when there's no RAW source (legacy
     // `maple_render_bytes` FFI) or the fit fails (no JPEG / too small /
     // degenerate histogram). Both branches end in DisplayLinearRec2020.
-    let used_auto = match (model.profile, raw_path) {
-        (Profile::Auto, Some(path)) => stage("auto_profile", || {
+    let used_auto = match (model.profile, &raw_source) {
+        (Profile::Auto, Some(RawInput::Path(path))) => stage("auto_profile", || {
             scene.assert_space(ColorSpace::SceneLinearRec2020);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
             match auto_profile::fit_curve_from_raw(path, pixels, w, h, raw.orientation) {
+                Some(curve) => {
+                    auto_profile::apply_curve(pixels, &curve);
+                    true
+                }
+                None => false,
+            }
+        }),
+        (Profile::Auto, Some(RawInput::Bytes(bytes))) => stage("auto_profile", || {
+            scene.assert_space(ColorSpace::SceneLinearRec2020);
+            let (w, h) = (scene.width as usize, scene.height as usize);
+            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+            match auto_profile::fit_curve_from_bytes(bytes, pixels, w, h, raw.orientation) {
                 Some(curve) => {
                     auto_profile::apply_curve(pixels, &curve);
                     true
