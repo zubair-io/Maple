@@ -246,16 +246,13 @@ mod fit_tests {
         use super::super::fit_curve_from_bytes;
         let raw_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../test-fixtures/raws/test_0017.dng");
-        if !raw_path.exists() {
-            return;
-        }
         let raw_bytes = std::fs::read(&raw_path).expect("read raw bytes");
         let w = 256_usize;
         let h = 256_usize;
         let source: Vec<f32> = (0..w * h * 3).map(|i| (i % 256) as f32 / 255.0).collect();
         let from_path = fit_curve_from_raw(&raw_path, &source, w, h, ExifOrientation::Normal)
             .expect("path fit");
-        let from_bytes = fit_curve_from_bytes(&raw_bytes, &source, w, h, ExifOrientation::Normal)
+        let from_bytes = fit_curve_from_bytes(&raw_bytes, "dng", &source, w, h, ExifOrientation::Normal)
             .expect("bytes fit");
         assert_eq!(from_path, from_bytes);
     }
