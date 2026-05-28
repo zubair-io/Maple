@@ -100,7 +100,7 @@ struct CloudServerSection: View {
           .foregroundStyle(MapleTokens.textMuted)
           .rotationEffect(.degrees(isExpanded ? 0 : -90))
         Text(displayName.uppercased())
-          .font(MapleTokens.Typography.sectionHeader)
+          .font(MapleTokens.Typography.eyebrow)
           .tracking(1.4)
           .foregroundStyle(MapleTokens.textMuted)
           .lineLimit(1)

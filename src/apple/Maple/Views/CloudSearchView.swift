@@ -140,7 +140,7 @@ struct CloudSearchView: View {
       ScrollView {
         HStack {
           Text(countLabel)
-            .font(MapleTokens.Typography.meta)
+            .font(MapleTokens.Typography.body)
             .foregroundStyle(MapleTokens.textMuted)
           Spacer()
         }
@@ -186,10 +186,10 @@ struct CloudSearchView: View {
         .font(.system(size: 40))
         .foregroundStyle(MapleTokens.textMuted)
       Text(title)
-        .font(MapleTokens.Typography.emptyPrimary)
+        .font(MapleTokens.Typography.sheetTitle)
         .foregroundStyle(MapleTokens.textMain)
       Text(detail)
-        .font(MapleTokens.Typography.emptySecondary)
+        .font(MapleTokens.Typography.rowLabel)
         .foregroundStyle(MapleTokens.textMuted)
         .multilineTextAlignment(.center)
         .frame(maxWidth: 360)
