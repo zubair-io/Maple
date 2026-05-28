@@ -23,7 +23,7 @@ const CDF_BINS: usize = 256;
 /// Anchors are stored as `(input, output)` pairs sorted by input ascending.
 /// Input values are evenly spaced in `[0, 1]` at construction time, which
 /// lets `eval_channel` skip a binary search.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChannelCurve {
     pub anchors: [(f32, f32); ANCHORS],
 }
@@ -48,7 +48,7 @@ impl ChannelCurve {
 /// construction a 1D curve can't change channel ratios at equal
 /// input). Fit by least squares from curve-corrected source pixels
 /// against the embedded JPEG target. Identity = no matrix correction.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProfileCurve {
     pub r: ChannelCurve,
     pub g: ChannelCurve,
