@@ -92,6 +92,7 @@ export * from './lib/components/scopes/vectorscope.component';
 export * from './lib/auth/auth.service';
 export * from './lib/auth/auth.guard';
 export * from './lib/auth/auth.interceptor';
+export * from './lib/auth/auth-bootstrap';
 
 // Timeline view (web — Self-Hosted only).
 export * from './lib/state/timeline-state.service';
