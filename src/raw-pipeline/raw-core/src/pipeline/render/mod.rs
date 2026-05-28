@@ -97,20 +97,36 @@ pub fn render_from_raw_with_quality_and_source(
     // single fitted curve can't absorb it. RawTherapee's histmatching.cc
     // fits the same way: from a neutral render with no auto-exposure.
     //
-    // Probe the embedded JPEG first — if extraction would fail (rawler
-    // doesn't yet handle every RAW format; iPhone LinearRGB DNGs are the
-    // current miss), DO NOT disable AE. Otherwise the fit-fail fallback
-    // runs AgX on un-AE-normalized scene-linear and produces a much worse
-    // result than plain Neutral (test_0013 regressed from 8.82 → 16.98 dE
-    // before this guard was added).
-    let auto_will_fit = model.profile == Profile::Auto
-        && match &raw_source {
-            Some(RawInput::Path(p)) => auto_profile::preview::extract_preview(p).is_some(),
-            Some(RawInput::Bytes { bytes, ext }) => {
-                auto_profile::preview::extract_preview_from_bytes(bytes, ext).is_some()
+    // Build the cache key first — a hit on the LRU implies the fit
+    // already succeeded for this RAW, so we know `auto_will_fit = true`
+    // without paying the JPEG extraction cost. Miss falls through to the
+    // existing probe (`extract_preview` does a full JPEG decode; on a
+    // cold path we still need it to gate `auto_will_fit`, otherwise the
+    // fit-fail fallback runs AgX on un-AE-normalized scene-linear and
+    // regressed test_0013 from 8.82 → 16.98 dE before the guard).
+    let auto_cache_key = if model.profile == Profile::Auto {
+        match &raw_source {
+            Some(RawInput::Path(p)) => auto_profile::cache::CacheKey::from_path(p),
+            Some(RawInput::Bytes { bytes, .. }) => {
+                Some(auto_profile::cache::CacheKey::from_bytes(bytes))
             }
-            None => false,
-        };
+            None => None,
+        }
+    } else {
+        None
+    };
+    let cached_curve = auto_cache_key
+        .as_ref()
+        .and_then(auto_profile::cache::get);
+    let auto_will_fit = cached_curve.is_some()
+        || (model.profile == Profile::Auto
+            && match &raw_source {
+                Some(RawInput::Path(p)) => auto_profile::preview::extract_preview(p).is_some(),
+                Some(RawInput::Bytes { bytes, ext }) => {
+                    auto_profile::preview::extract_preview_from_bytes(bytes, ext).is_some()
+                }
+                None => false,
+            });
     let auto_model;
     let active_model: &AdjustmentModel = if auto_will_fit {
         auto_model = AdjustmentModel {
@@ -140,9 +156,21 @@ pub fn render_from_raw_with_quality_and_source(
             scene.assert_space(ColorSpace::SceneLinearRec2020);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            match auto_profile::fit_curve_from_raw(path, pixels, w, h, raw.orientation) {
-                Some(curve) => {
-                    auto_profile::apply_curve(pixels, &curve);
+            let curve = match cached_curve.clone() {
+                Some(c) => Some(c),
+                None => {
+                    let fitted = auto_profile::fit_curve_from_raw(
+                        path, pixels, w, h, raw.orientation,
+                    );
+                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
+                        auto_profile::cache::insert(key, c.clone());
+                    }
+                    fitted
+                }
+            };
+            match curve {
+                Some(c) => {
+                    auto_profile::apply_curve(pixels, &c);
                     true
                 }
                 None => false,
@@ -152,9 +180,21 @@ pub fn render_from_raw_with_quality_and_source(
             scene.assert_space(ColorSpace::SceneLinearRec2020);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            match auto_profile::fit_curve_from_bytes(bytes, ext, pixels, w, h, raw.orientation) {
-                Some(curve) => {
-                    auto_profile::apply_curve(pixels, &curve);
+            let curve = match cached_curve.clone() {
+                Some(c) => Some(c),
+                None => {
+                    let fitted = auto_profile::fit_curve_from_bytes(
+                        bytes, ext, pixels, w, h, raw.orientation,
+                    );
+                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
+                        auto_profile::cache::insert(key, c.clone());
+                    }
+                    fitted
+                }
+            };
+            match curve {
+                Some(c) => {
+                    auto_profile::apply_curve(pixels, &c);
                     true
                 }
                 None => false,
