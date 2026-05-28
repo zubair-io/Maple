@@ -52,12 +52,18 @@ pub enum CacheKey {
 
 impl CacheKey {
     /// Build a [`CacheKey::Path`] from a RAW file path. Returns `None`
-    /// if the file is missing or `metadata`/`modified()` fail (file
-    /// without an mtime, e.g. some virtual filesystems).
+    /// if the file is missing, can't be canonicalized, or `metadata` /
+    /// `modified()` fail (file without an mtime, e.g. some virtual
+    /// filesystems).
+    ///
+    /// Canonicalization resolves symlinks and `..` segments so two callers
+    /// referring to the same file through different paths share a cache
+    /// entry — matches the module doc's "canonical path" claim.
     pub fn from_path(path: &Path) -> Option<Self> {
-        let meta = std::fs::metadata(path).ok()?;
+        let canonical = std::fs::canonicalize(path).ok()?;
+        let meta = std::fs::metadata(&canonical).ok()?;
         let mtime = meta.modified().ok()?;
-        Some(CacheKey::Path { path: path.to_path_buf(), mtime })
+        Some(CacheKey::Path { path: canonical, mtime })
     }
 
     /// Build a [`CacheKey::Bytes`] from in-memory RAW bytes. Uses a 64-bit
@@ -67,7 +73,12 @@ impl CacheKey {
         let mut hasher = blake3::Hasher::new();
         let head_end = bytes.len().min(HASH_WINDOW);
         hasher.update(&bytes[..head_end]);
-        if bytes.len() > HASH_WINDOW * 2 {
+        // Hash the tail HASH_WINDOW bytes whenever the input is longer
+        // than the prefix window — even when overlapping (HASH_WINDOW < len
+        // <= 2*HASH_WINDOW). Pre-fix gate `> HASH_WINDOW * 2` let inputs
+        // in that range skip the tail entirely, so two slices with matching
+        // prefix + length but differing tails collided to the same key.
+        if bytes.len() > HASH_WINDOW {
             let tail_start = bytes.len() - HASH_WINDOW;
             hasher.update(&bytes[tail_start..]);
         }
@@ -274,6 +285,21 @@ mod tests {
         assert_ne!(ka, kb);
         // Different length → different key.
         assert_ne!(ka, kc);
+    }
+
+    /// Regression for the pre-fix `> HASH_WINDOW * 2` collision range:
+    /// two slices identical in the first HASH_WINDOW bytes and identical
+    /// in length but differing in the tail used to collide. After the fix
+    /// the tail is hashed whenever `len > HASH_WINDOW`.
+    #[test]
+    fn bytes_key_includes_tail_for_medium_length_inputs() {
+        let len = HASH_WINDOW + HASH_WINDOW / 2; // 96 KB — in the broken range.
+        let mut a = vec![0u8; len];
+        let mut b = vec![0u8; len];
+        // Differ only in the very last byte. Prefix + length identical.
+        a[len - 1] = 1;
+        b[len - 1] = 2;
+        assert_ne!(CacheKey::from_bytes(&a), CacheKey::from_bytes(&b));
     }
 
     #[test]
