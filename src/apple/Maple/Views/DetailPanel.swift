@@ -148,7 +148,7 @@ struct InfoTab: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Stars")
-                            .font(MapleTokens.Typography.meta)
+                            .font(MapleTokens.Typography.body)
                             .foregroundStyle(MapleTokens.textMuted)
                         Spacer()
                         StarView(count: session?.culling.stars ?? 0, size: 14)
@@ -156,7 +156,7 @@ struct InfoTab: View {
                     }
                     HStack {
                         Text("Flag")
-                            .font(MapleTokens.Typography.meta)
+                            .font(MapleTokens.Typography.body)
                             .foregroundStyle(MapleTokens.textMuted)
                         Spacer()
                         FlagBadge(flag: session?.culling.flag ?? .none)
@@ -202,11 +202,11 @@ struct InfoRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Text(label)
-                .font(MapleTokens.Typography.meta)
+                .font(MapleTokens.Typography.body)
                 .foregroundStyle(MapleTokens.textMuted)
                 .frame(width: 96, alignment: .trailing)
             Text(value)
-                .font(MapleTokens.Typography.row)
+                .font(MapleTokens.Typography.rowLabel)
                 .foregroundStyle(MapleTokens.textMain)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(3)
@@ -223,7 +223,7 @@ struct SectionHeader: View {
 
     var body: some View {
         Text(title.uppercased())
-            .font(MapleTokens.Typography.sectionHeader)
+            .font(MapleTokens.Typography.eyebrow)
             .foregroundStyle(MapleTokens.textMuted)
             .tracking(1.4)
             .padding(.horizontal, MapleTokens.Spacing.panelInset)
