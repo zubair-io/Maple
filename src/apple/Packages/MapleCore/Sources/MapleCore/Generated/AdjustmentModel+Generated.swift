@@ -44,6 +44,7 @@ extension AdjustmentModel {
         case highlightRecovery = "highlight_recovery"
         case autoExposure = "auto_exposure"
         case look = "look"
+        case profile = "profile"
         case toneCurveMode = "tone_curve_mode"
     }
 
