@@ -26,6 +26,7 @@ import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection, geocodeCacheCollection } from '../db/client.ts';
 import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
+import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
 import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { quantizedKey } from '../enrichment/coordinate-cache.ts';
 import { child as childLogger } from '../log.ts';
@@ -33,7 +34,6 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const log = childLogger('backup-ingest');
-const CHUNK_DIR = process.env.MAPLE_BACKUP_TMP ?? '/tmp/maple-backup-chunks';
 
 /** Move src to dst atomically. Falls back to copy+unlink on EXDEV (cross-device). */
 async function atomicMove(src: string, dst: string): Promise<void> {
@@ -203,8 +203,8 @@ export const backupIngestRoutes = new Elysia().post(
     const resolvedTargetRelPath = session.target_rel_path;
 
     // Write chunk to a per-session tmp file.
-    const tmpFile = path.join(CHUNK_DIR, `${session._id.toHexString()}.part`);
-    await fs.mkdir(CHUNK_DIR, { recursive: true });
+    const tmpFile = path.join(BACKUP_CHUNK_DIR, `${session._id.toHexString()}.part`);
+    await fs.mkdir(BACKUP_CHUNK_DIR, { recursive: true });
 
     // The session was reset in place (metadata mismatch self-heal). Clear any
     // stale tmp bytes from the previous attempt so the next appendFile starts
