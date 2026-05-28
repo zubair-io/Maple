@@ -5,6 +5,8 @@
 
 use std::path::Path;
 
+use image::DynamicImage;
+
 use crate::image::ExifOrientation;
 
 use super::apply::compress_input;
@@ -32,21 +34,46 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
     source_rgb: &[f32],
     source_w: usize,
     source_h: usize,
-    _orientation: ExifOrientation,
+    orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
     let path_ref = raw_path.as_ref();
     let preview = preview::extract_preview(path_ref)?;
+    // Re-enable Adobe RGB detection. With the CS-aware harness, this
+    // is the slightly-better path (test_0003 5.06 → 4.90). Detection
+    // is pure-Rust via rawler.
+    let cs = preview::detect_jpeg_color_space(path_ref);
+    fit_curve_from_preview(preview, cs, source_rgb, source_w, source_h, orientation)
+}
+
+/// Bytes-based mirror of [`fit_curve_from_raw`] for the WASM render
+/// entry. Uses [`preview::extract_preview_from_bytes`] (no exiftool
+/// fallback) plus [`preview::detect_jpeg_color_space_from_bytes`].
+pub fn fit_curve_from_bytes(
+    raw_bytes: &[u8],
+    source_rgb: &[f32],
+    source_w: usize,
+    source_h: usize,
+    orientation: ExifOrientation,
+) -> Option<ProfileCurve> {
+    let preview = preview::extract_preview_from_bytes(raw_bytes)?;
+    let cs = preview::detect_jpeg_color_space_from_bytes(raw_bytes);
+    fit_curve_from_preview(preview, cs, source_rgb, source_w, source_h, orientation)
+}
+
+fn fit_curve_from_preview(
+    preview: DynamicImage,
+    cs: JpegColorSpace,
+    source_rgb: &[f32],
+    source_w: usize,
+    source_h: usize,
+    _orientation: ExifOrientation,
+) -> Option<ProfileCurve> {
     let preview_rgb = preview.to_rgb8();
     let target_w_px = preview_rgb.width() as usize;
     let target_h_px = preview_rgb.height() as usize;
     if target_w_px < 256 || target_h_px < 256 {
         return None;
     }
-
-    // Re-enable Adobe RGB detection. With the CS-aware harness, this
-    // is the slightly-better path (test_0003 5.06 → 4.90). Detection
-    // is pure-Rust via rawler.
-    let cs = preview::detect_jpeg_color_space(path_ref);
 
     // Keep both source and target in sensor frame — embedded JPEGs are
     // stored sensor-aligned on all 14 fixtures verified, and pairing for

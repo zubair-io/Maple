@@ -235,4 +235,28 @@ mod fit_tests {
         let result = fit_curve_from_raw(path, &dummy, 1, 1, ExifOrientation::Normal);
         assert!(result.is_none());
     }
+
+    /// PR-B (#555) parity: the bytes-based fit path used by `raw-wasm` must
+    /// produce the same `ProfileCurve` as the path-based fit on the same
+    /// RAW + identical source pixels. Confirms the helper factoring in
+    /// `preview.rs` and `fit.rs` didn't introduce a behavioural delta.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn fit_bytes_matches_fit_path() {
+        use super::super::fit_curve_from_bytes;
+        let raw_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0017.dng");
+        if !raw_path.exists() {
+            return;
+        }
+        let raw_bytes = std::fs::read(&raw_path).expect("read raw bytes");
+        let w = 256_usize;
+        let h = 256_usize;
+        let source: Vec<f32> = (0..w * h * 3).map(|i| (i % 256) as f32 / 255.0).collect();
+        let from_path = fit_curve_from_raw(&raw_path, &source, w, h, ExifOrientation::Normal)
+            .expect("path fit");
+        let from_bytes = fit_curve_from_bytes(&raw_bytes, &source, w, h, ExifOrientation::Normal)
+            .expect("bytes fit");
+        assert_eq!(from_path, from_bytes);
+    }
 }

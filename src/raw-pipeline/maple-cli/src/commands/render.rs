@@ -5,7 +5,7 @@
 //! render — same defaults, same view tail).
 
 use raw_core::decode::decode_bytes;
-use raw_core::pipeline::{render_from_raw_with_quality_and_path, RenderQuality};
+use raw_core::pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality};
 use raw_core::xmp;
 use std::path::Path;
 
@@ -23,11 +23,11 @@ pub(super) fn render_path(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    Ok(render_from_raw_with_quality_and_path(
+    Ok(render_from_raw_with_quality_and_source(
         &raw,
         model,
         RenderQuality::Full,
-        Some(raw_path),
+        Some(RawInput::Path(raw_path)),
     )?)
 }
 
@@ -44,11 +44,11 @@ fn render_path_with_quality(
     let bytes = std::fs::read(raw_path)?;
     let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
     let raw = decode_bytes(&bytes, ext)?;
-    Ok(render_from_raw_with_quality_and_path(
+    Ok(render_from_raw_with_quality_and_source(
         &raw,
         model,
         quality,
-        Some(raw_path),
+        Some(RawInput::Path(raw_path)),
     )?)
 }
 

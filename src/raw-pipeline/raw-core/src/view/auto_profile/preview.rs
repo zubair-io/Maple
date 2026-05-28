@@ -17,8 +17,8 @@ use std::path::Path;
 use std::process::Command;
 
 use image::DynamicImage;
-use rawler::analyze::extract_preview_pixels;
 use rawler::decoders::RawDecodeParams;
+use rawler::rawsource::RawSource;
 
 /// Color space of the embedded preview JPEG. Cameras shoot in different
 /// color spaces; the embedded JPEG inherits that setting. Decoding an
@@ -42,11 +42,29 @@ pub enum JpegColorSpace {
 /// `exiftool -b -JpgFromRaw`. Returns `None` for any failure or when
 /// exiftool is unavailable.
 pub fn extract_preview<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
-    let params = RawDecodeParams::default();
-    if let Ok(img) = extract_preview_pixels(path.as_ref(), &params) {
-        return Some(img);
+    if let Ok(src) = RawSource::new(path.as_ref()) {
+        if let Some(img) = extract_preview_from_rawsource(&src) {
+            return Some(img);
+        }
     }
     extract_preview_via_exiftool(path.as_ref())
+}
+
+/// Bytes-based mirror of [`extract_preview`] for the WASM render entry,
+/// which has the RAW file's bytes in memory but no filesystem path.
+/// No exiftool fallback — WASM has no subprocess access.
+pub fn extract_preview_from_bytes(bytes: &[u8]) -> Option<DynamicImage> {
+    let src = RawSource::new_from_slice(bytes);
+    extract_preview_from_rawsource(&src)
+}
+
+fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
+    let params = RawDecodeParams::default();
+    let decoder = rawler::get_decoder(src).ok()?;
+    if let Ok(Some(img)) = decoder.preview_image(src, &params) {
+        return Some(img);
+    }
+    decoder.full_image(src, &params).ok().flatten()
 }
 
 /// Detect the embedded preview JPEG's color space from the RAW's EXIF
@@ -68,17 +86,25 @@ pub fn extract_preview<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
 /// `Canon + Uncalibrated → Adobe RGB` heuristic covers the case. sRGB
 /// Canon shooting writes `ColorSpace = 1` and is detected correctly.
 pub fn detect_jpeg_color_space<P: AsRef<Path>>(path: P) -> JpegColorSpace {
-    use rawler::decoders::RawDecodeParams;
-    use rawler::rawsource::RawSource;
-    let raw_src = match RawSource::new(path.as_ref()) {
-        Ok(r) => r,
-        Err(_) => return JpegColorSpace::SRgb,
-    };
-    let decoder = match rawler::get_decoder(&raw_src) {
+    match RawSource::new(path.as_ref()) {
+        Ok(src) => detect_jpeg_color_space_from_rawsource(&src),
+        Err(_) => JpegColorSpace::SRgb,
+    }
+}
+
+/// Bytes-based mirror of [`detect_jpeg_color_space`] for WASM. Same EXIF
+/// rules; returns [`JpegColorSpace::SRgb`] on any rawler failure.
+pub fn detect_jpeg_color_space_from_bytes(bytes: &[u8]) -> JpegColorSpace {
+    let src = RawSource::new_from_slice(bytes);
+    detect_jpeg_color_space_from_rawsource(&src)
+}
+
+fn detect_jpeg_color_space_from_rawsource(raw_src: &RawSource) -> JpegColorSpace {
+    let decoder = match rawler::get_decoder(raw_src) {
         Ok(d) => d,
         Err(_) => return JpegColorSpace::SRgb,
     };
-    let meta = match decoder.raw_metadata(&raw_src, &RawDecodeParams::default()) {
+    let meta = match decoder.raw_metadata(raw_src, &RawDecodeParams::default()) {
         Ok(m) => m,
         Err(_) => return JpegColorSpace::SRgb,
     };
