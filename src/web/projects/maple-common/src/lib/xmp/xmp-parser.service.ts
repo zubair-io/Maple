@@ -7,7 +7,7 @@
 import { Injectable } from '@angular/core';
 import type { XmpCulling, XmpFlag, XmpColorLabel, PassthroughBucket } from './xmp.types';
 import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-model';
-import type { Look } from '../generated/adjustment-model.generated';
+import type { Look, Profile } from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 
 /**
@@ -53,6 +53,8 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   // sidecars carrying `papp:Look` round-trip cleanly into the model
   // (field is a no-op at the pipeline level post-#443).
   'papp:Look',
+  // Auto Profile (Phase 1, #536) — canonical successor to `papp:Look`.
+  'papp:Profile',
   // structural / bookkeeping
   'rdf:about',
   'crs:Version',
@@ -165,6 +167,13 @@ export class XmpParserService {
     // `papp:CaptureSharpeningRadius` are present, sigma always wins.
     const canonicallyApplied = new Set<keyof AdjustmentModel>();
 
+    // Auto Profile (#536): the new `papp:Profile` wins over the legacy
+    // `papp:Look` migration when both appear on the same element, regardless
+    // of document order. Mirrors raw-core's `profile_seen` flag pattern in
+    // `xmp/mod.rs` — Profile always overwrites when seen; the flag blocks a
+    // later Look from clobbering an earlier Profile.
+    let profileSeen = false;
+
     // Pass 1: walk attributes, applying canonical fields and remembering
     // legacy-aliased attributes for a second pass.
     const legacyDeferred: Array<{ name: string; value: string }> = [];
@@ -199,6 +208,13 @@ export class XmpParserService {
       // dropped so older sidecars never block sidecar load — the field
       // then takes its default ('Default'). The field is a no-op at the
       // pipeline level post-#443; parsed purely for sidecar back-compat.
+      //
+      // Auto Profile (#536): when `papp:Profile` has not yet been seen on
+      // this element, `papp:Look` also migrates into the new `profile`
+      // field — Default/Auto → 'Auto', Neutral → 'Neutral'. The migration
+      // reads `attr.value` (not `parsed`) because `Look="Auto"` is a valid
+      // legacy value that doesn't have a TS Look variant; we still want
+      // it to migrate. Mirrors raw-core's `xmp/mod.rs` Look→Profile arm.
       if (name === 'papp:Look') {
         const v = attr.value.toLowerCase();
         const parsed: Look | undefined =
@@ -206,6 +222,27 @@ export class XmpParserService {
         if (parsed !== undefined) {
           model.look = parsed;
         }
+        if (!profileSeen) {
+          if (v === 'default' || v === 'auto') {
+            model.profile = 'Auto';
+          } else if (v === 'neutral') {
+            model.profile = 'Neutral';
+          }
+        }
+        continue;
+      }
+
+      // Auto Profile (Phase 1, #536). Canonical render-shaping profile.
+      // Case-insensitive parse matches raw-core. Unknown values fall back
+      // to 'Auto' so a forward-compat sidecar from a newer build doesn't
+      // block sidecar load. Setting `profileSeen` blocks the legacy
+      // `papp:Look` migration from clobbering this value if Look appears
+      // later in the same attribute set.
+      if (name === 'papp:Profile') {
+        profileSeen = true;
+        const v = attr.value.toLowerCase();
+        const parsed: Profile = v === 'neutral' ? 'Neutral' : 'Auto';
+        model.profile = parsed;
         continue;
       }
     }
