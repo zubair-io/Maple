@@ -22,10 +22,17 @@ public struct MapleTokens {
 
     // Borders
     static let border        = Color(hex: "#44403c")
+    /// Active ticks (drag-bar center tick), grab handles. Responsive-program
+    /// S0a (#581). One tier up from `border` to preserve contrast headroom.
+    static let borderHi      = Color(hex: "#5a5552")
 
     // Accent
     static let primary       = Color(hex: "#c4493a")
     static let primaryDim    = Color(hex: "#422016")
+
+    /// Low-confidence signals (e.g. person detection chips). Tailwind amber-400.
+    /// Responsive-program S0a (#581).
+    static let warn          = Color(hex: "#fbbf24")
 
     // Hover / active overlays (rgba)
     static let bgHover       = Color.white.opacity(0.06)
@@ -85,6 +92,30 @@ public struct MapleTokens {
         static let sectionGap: CGFloat    = 16
         /// Horizontal padding for section content (panel inset).
         static let panelInset: CGFloat    = 16
+    }
+
+    // MARK: - Motion
+    //
+    // Responsive-program S0a (#581). Duration + easing tokens for shell
+    // transitions, sheet present/dismiss, group/tool swap, chrome hide,
+    // filter fade. Web mirrors these as paired --motion-X-ms /
+    // --motion-X-ease CSS custom properties in motion.scss.
+    enum Motion {
+        /// Drawer open/close (240ms, ease-default). Sidebar collapse on
+        /// tablet/desktop; not used on phone (tab-bar shell has no drawer).
+        static let drawer = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)
+        /// Push transition (320ms, iOS system / .snappy).
+        static let push = Animation.snappy(duration: 0.32)
+        /// Sheet present (320ms).
+        static let sheetPresent = Animation.snappy(duration: 0.32)
+        /// Sheet dismiss (280ms).
+        static let sheetDismiss = Animation.snappy(duration: 0.28)
+        /// Editor group/tool tab swap (120ms ease-in-out).
+        static let groupSwap = Animation.easeInOut(duration: 0.12)
+        /// Loupe chrome auto-hide (180ms ease-out).
+        static let chromeHide = Animation.easeOut(duration: 0.18)
+        /// Library filter chip change cross-fade (120ms linear).
+        static let filterFade = Animation.linear(duration: 0.12)
     }
 }
 

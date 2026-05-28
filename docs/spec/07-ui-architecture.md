@@ -11,8 +11,7 @@ The data types that flow through the UI are in [`01-data-model.md`](./01-data-mo
 - **macOS**: three resizable columns (source tree / image grid / detail inspector), NavigationSplitView-driven, native toolbar and menu bar.
 - **iPadOS**: same three columns; left panel slides in as a drawer in portrait.
 - **iPhone**: single column with a bottom tab bar (Library / Albums / Folders) and a swipe-up detail sheet.
-- **Web (editor)**: two-column (image + detail) — no persistent browse shell; navigation via the separate `browse` Angular project.
-- **Web (browse)**: three columns mirroring the Apple shell, in Angular.
+- **Web (responsive)**: each Angular app (`projects/maple`, `projects/maple-syrup`) renders a single responsive shell driven by `LayoutService.layout()` (maple-common). Phone tier (<768pt) → tab-bar shell; tablet (768–1024pt) and desktop (>1024pt) → three-column pane shell.
 
 All shells implement two modes: **Browse** (grid) and **Full Image** (large preview with filmstrip). The transition is a 180ms ease-out layout shift where the panels stay in place and only the center column crossfades.
 
@@ -61,7 +60,7 @@ The layout invariants from `docs/maple-prd.md` (visual design appendix) that thi
 
 - **Minimum widths**: left 200px, right 280px. Center has an absolute minimum of 300px; if dragging would push it below, the panel being dragged snaps back.
 - **User drag persists across sessions.** Widths are saved per device.
-- **Breakpoints**: below 900px window width, left panel collapses to icons-only; below 700px, it collapses to a drawer.
+- **Breakpoints** (responsive-program S0a, #581 — supersedes the previous 700/900 values): `<768pt` = phone-tier (tab-bar shell on Apple; tab-bar layout on web). `768–1024pt` = tablet (pane shell, sidebar + main + collapsible inspector). `>1024pt` = desktop (all three columns expanded). Layout signal: `@Environment(\.mapleLayout)` (Apple) / `LayoutService.layout()` signal (web). Shell selection on Apple goes through `MapleShellKind.current` (iPhone idiom → `.phoneTab`; iPad/Mac → `.pane`); direct `UIDevice.userInterfaceIdiom` reads outside `MapleCore/Layout/MapleLayout.swift` are forbidden.
 
 ---
 
@@ -95,6 +94,27 @@ Every photo app that tries to push edit state into a central store ends up re-re
 - Grid cells observe `asset.cullingState` only.
 
 When a slider moves, only the detail panel re-renders its own slider and the image view re-renders the pixels. The grid, the source tree, the toolbar are untouched.
+
+---
+
+## Persistence keys (`cm.*`)
+
+Per-device UI state persists under the `cm.*` namespace (UserDefaults on Apple, `localStorage` on web). Existing keys stay; new keys added by the responsive program are documented here. Implementations land in each sub-project (S2–S6) that owns the key.
+
+| Key | Type | Owner | Status |
+| --- | --- | --- | --- |
+| `cm.tab` | string | existing | reuse |
+| `cm.sort` | string | existing | reuse |
+| `cm.filter` | string (chip id) | S2 (Library) | reuse |
+| `cm.leftHidden` | bool (sidebar visibility, tablet/desktop) | S3 (Sidebar) | reuse |
+| `cm.detailHidden` | bool (inspector visibility, tablet/desktop) | S6 (Inspector) | reuse |
+| `cm.folderOpen` | bool | existing | reuse |
+| `cm.source` | string (source id) | S2 | **new** |
+| `cm.full.id` | string (image id) | S4 (Loupe) | **new** |
+| `cm.editor.armed` | JSON `Record<imageId, {group, tool}>` | S5 (Editor) | **new** |
+| `cm.filmstrip` | bool | S5 | **new** |
+
+The `cm.m.*` namespace proposed in the original mobile spec is **not used** — the responsive program evolves the existing apps rather than building separate mobile apps, so the `m` prefix would be misleading.
 
 ---
 
