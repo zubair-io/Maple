@@ -31,11 +31,12 @@ pub fn compress_input(x: f32) -> f32 {
 /// Apply a `ProfileCurve` to a packed RGB f32 buffer in place.
 ///
 /// Buffer layout: row-major `[R, G, B, R, G, B, ...]`. Each pixel is
-/// Reinhard-compressed (`x/(1+x)`) before evaluating the per-channel
-/// curve, then the optional `matrix` applies a cross-channel 3×3
-/// correction. The compression mirrors what `fit_curve_from_raw` did
-/// to the source distribution at fit time — without it, HDR values
-/// >1.0 would skip the curve's domain and produce the wrong output.
+/// passed through [`compress_input`] (negatives clamp to 0; soft-knee
+/// asymptote above `KNEE=0.95`) before evaluating the per-channel curve,
+/// then the optional `matrix` applies a cross-channel 3×3 correction.
+/// The compression mirrors what [`super::fit::fit_curve_from_raw`] did to
+/// the source distribution at fit time — without it, HDR values >1.0
+/// would skip the curve's domain and produce the wrong output.
 pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
     use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
     let m = &curve.matrix;

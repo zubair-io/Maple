@@ -59,27 +59,21 @@ pub(super) fn solve_3x3_lsq(a: &[[f32; 3]], b: &[[f32; 3]]) -> [[f32; 3]; 3] {
         if !m1.is_finite() || !m2.is_finite() {
             return IDENTITY_MATRIX;
         }
-        // Clamp off-diagonals; diagonal absorbs the slack so row sum stays 1.
-        let (mut a0, mut a1, mut a2) = match j {
-            0 => (m1 as f32, m2 as f32, (1.0 - m1 - m2) as f32),
-            1 => (m1 as f32, m2 as f32, (1.0 - m1 - m2) as f32),
-            _ => (m1 as f32, m2 as f32, (1.0 - m1 - m2) as f32),
-        };
-        // Clamp the OFF-diagonal entries for this row (indices != j) to
-        // ±cap; reassign the slack to the diagonal so the row sum stays 1.
-        let row = [&mut a0, &mut a1, &mut a2];
-        let mut slack = 0.0_f32;
-        for (i, entry) in row.into_iter().enumerate() {
-            if i == j {
-                continue;
-            }
-            let clamped = entry.clamp(-MATRIX_OFFDIAG_CAP, MATRIX_OFFDIAG_CAP);
-            slack += *entry - clamped;
-            *entry = clamped;
-        }
-        let _ = slack; // re-borrow workaround
-        // Rebuild the row with the clamped off-diagonals; diagonal = 1 − sum(off).
-        let mut row_out = [a0, a1, a2];
+        // Build the row from the LSQ result (m1, m2 = the two solved
+        // coefficients; the third = 1 − m1 − m2 to enforce row-sum=1).
+        // Then clamp every off-diagonal (i != j) once and set the
+        // diagonal so the row sum stays 1.0.
+        //
+        // NOTE: the LSQ derivation always treats the THIRD input channel
+        // as the dependent (eliminates column 2), regardless of which
+        // output row j we are fitting. For j != 2 the row's diagonal is
+        // therefore not the strict minimizer of the constrained problem
+        // — it's `1 − m1 − m2` and then re-clamped here. The matrix is
+        // currently gated by a 15% held-out residual cut and rejected
+        // on the entire 14-fixture suite, so the empirical impact is
+        // zero today; the right fix is to eliminate column j (not 2)
+        // per row, tracked separately.
+        let mut row_out = [m1 as f32, m2 as f32, (1.0 - m1 - m2) as f32];
         let mut off_sum = 0.0_f32;
         for (i, v) in row_out.iter_mut().enumerate() {
             if i == j {

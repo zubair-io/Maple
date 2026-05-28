@@ -43,14 +43,19 @@ def load_float(path):
 
 
 def match_geometry(src, tgt):
-    """Resize src to tgt's resolution if they differ. Returns possibly-resized src.
-    When sizes differ the reference is usually the smaller/rendered one, so we
-    bring the RAW down to it (downscaling is lossy-safe; upscaling invents data)."""
+    """Resize src to tgt's resolution if they differ.
+
+    Returns ``(resized_src, did_resize)``. When sizes differ the reference is
+    usually the smaller/rendered one, so we bring the RAW down to it
+    (downscaling is lossy-safe; upscaling invents data). Callers use the
+    ``did_resize`` flag to know whether to apply ``low_freq_mask`` — once
+    src has been resampled to tgt's shape the equality check downstream
+    would always be true, so the flag has to be captured pre-resize."""
     if src.shape[:2] == tgt.shape[:2]:
-        return src
+        return src, False
     h, w = tgt.shape[:2]
     print(f"  [geometry] resizing src {src.shape[:2]} -> {(h, w)} (area interp)")
-    return cv2.resize(src, (w, h), interpolation=cv2.INTER_AREA)
+    return cv2.resize(src, (w, h), interpolation=cv2.INTER_AREA), True
 
 
 # ----------------------------------------------------------------------
@@ -142,9 +147,10 @@ def main():
 
     src = load_float(args.raw)
     tgt = load_float(args.reference)
-    src = match_geometry(src, tgt)
+    src, resampled = match_geometry(src, tgt)
 
-    resampled = src.shape[:2] != tgt.shape[:2]  # (already matched, but flag intent)
+    # Resampling smears color at edges; skip high-frequency regions when
+    # we had to resize. When sizes already matched, every pixel is usable.
     mask = low_freq_mask(src) if resampled else np.ones(src.shape[:2], bool)
     print(f"  sampling {mask.sum():,} / {mask.size:,} pixels")
 

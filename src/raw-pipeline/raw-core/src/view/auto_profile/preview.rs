@@ -6,8 +6,10 @@
 //! 2. exiftool subprocess — fallback for formats rawler chokes on, even
 //!    when the file contains a standard JPEG (verified: iPhone 12 Pro
 //!    LinearDNG and pre-2020 Adobe DNG both miss rawler but extract via
-//!    exiftool). One-time cost per RAW open; the auto-profile fit is
-//!    cached against the RAW's mtime so slider ticks don't pay it.
+//!    exiftool). Subprocess cost is paid per render call today — a
+//!    per-RAW-mtime cache for the fitted [`super::curve::ProfileCurve`]
+//!    is the Phase 5 follow-up (`.claude/plans/crystalline-sparking-sun.md`)
+//!    that will short-circuit the extract + fit on slider ticks.
 //!
 //! Returns `None` on any extraction error or when exiftool is absent.
 
