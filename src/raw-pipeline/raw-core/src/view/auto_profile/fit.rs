@@ -96,7 +96,7 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
         tgt_b.push(c[2]);
     }
 
-    // Source values pass through Reinhard compression `x/(1+x)` before
+    // Source values pass through soft-knee compression (compress_input) before
     // CDF binning. HDR scene-linear values above 1.0 used to all clamp
     // into the top CDF bin (`build_cdf` clips to [0, 1]) and the fitted
     // curve produced a flat highlight tail. Compression maps `[0, +∞)`
@@ -179,10 +179,10 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
     //
     // Split pairs 80/20 into train/validate (every 5th cell to validate).
     // Fit the matrix on train. Apply only if validation residual drops
-    // at least 5% vs identity — catches overfit cases where matrix fits
-    // training pairs well but degrades on a held-out region (measured:
-    // test_0009 / test_0010 over-saturated when the matrix was applied
-    // unconditionally).
+    // at least 15% vs identity (see gate below) — catches overfit cases
+    // where matrix fits training pairs well but degrades on a held-out
+    // region (measured: test_0009 / test_0010 over-saturated when the
+    // matrix was applied unconditionally).
     //
     // Curves are applied to the source AFTER averaging — averaging is
     // (approximately) linear and the curve is non-linear, but pre-curve
@@ -251,7 +251,7 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
             let tg = tg * inv_tn;
             let tb = tb * inv_tn;
 
-            // Apply per-channel curves to the Reinhard-compressed
+            // Apply per-channel curves to the soft-knee-compressed
             // source-cell average after white balance normalization.
             let cr = curve::eval_channel(&r_curve, compress_input(sr));
             let cg = curve::eval_channel(&g_curve, compress_input(sg));
@@ -270,7 +270,7 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
     let candidate = solve_3x3_lsq(&a_train, &b_train);
 
     // Validation gate: only adopt the candidate matrix if it cuts
-    // the held-out residual by at least 5% vs identity. Catches
+    // the held-out residual by at least 15% vs identity. Catches
     // overfits where LSQ chases training noise into wide-swinging
     // off-diagonals that don't generalize.
     let res_identity: f32 = a_val
@@ -295,10 +295,11 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
     // Measured: at 5% gate the matrix slipped through and over-fit
     // test_0008/0009/0010; at 15% gate it's only adopted on fixtures
     // where per-channel-curve residual on validation pairs is genuinely
-    // higher than matrix-applied residual. With the α=0.85 curve blend
-    // upstream, fewer fixtures need the matrix at all — it's rejected
-    // for every fixture in the current 14-fixture suite, but kept
-    // wired for fixtures where it would help.
+    // higher than matrix-applied residual. With the α=0.2 curve blend
+    // upstream (lower than α=0.85 because the luminance curve carries
+    // more of the tone now), fewer fixtures need the matrix at all —
+    // it's rejected for every fixture in the current 14-fixture suite,
+    // but kept wired for fixtures where it would help.
     let matrix = if res_candidate < 0.85 * res_identity {
         candidate
     } else {
@@ -431,10 +432,13 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
         if band_l_count[i] > 50 {
             let count = band_l_count[i] as f64;
             let band_l = (band_l_diff_sum[i] / count) as f32;
-            // Loosened cap to ±0.04 Oklab (~4 CIELab L units) so shadow-
-            // heavy fixtures like test_0005 (shadow lift +0.10 in sRGB
-            // bytes ≈ +0.025 Oklab L) can be fully corrected. ±0.02 was
-            // clipping; correction was hitting the cap.
+            // Per-band L cap at ±0.02 Oklab (~2 CIELab L). Tighter than
+            // the global lightness_offset cap (±0.03) because per-band
+            // fits draw on fewer samples and overshoot more easily.
+            // Earlier sweep tested ±0.04 (loosened to give shadow-heavy
+            // fixtures like test_0005 more headroom), then ±0.015 and
+            // ±0.005 — ±0.02 was the best trade vs the residual the
+            // global offset already absorbs.
             band_offsets[i] = (band_l - lightness_offset).clamp(-0.02, 0.02);
             // a*/b* band offsets need to ZERO the post-chain residual:
             //   apply chain: cand_ab * chroma_boost + chroma_offset + band_corr

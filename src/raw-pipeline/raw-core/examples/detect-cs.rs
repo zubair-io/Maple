@@ -4,8 +4,17 @@ fn main() {
     let path_str = std::env::args().nth(1).expect("usage: detect-cs <RAW>");
     let path = Path::new(&path_str);
     
+    // Derive the decoder extension hint from the path so any RAW format
+    // works (CR2/CR3/ARW/RAF/NEF/DNG/…). Falls back to "DNG" if the path
+    // has no extension.
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_uppercase())
+        .unwrap_or_else(|| "DNG".to_string());
+
     let bytes = std::fs::read(path).unwrap();
-    let raw_image = raw_core::decode::decode_bytes(&bytes, "CR2").unwrap();
+    let raw_image = raw_core::decode::decode_bytes(&bytes, &ext).unwrap();
     
     println!("camera_make: {:?}", raw_image.camera_make);
     println!("camera_model: {:?}", raw_image.camera_model);

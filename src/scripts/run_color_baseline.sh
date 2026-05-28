@@ -35,13 +35,24 @@ mkdir -p "$OUT"/{auto_png,auto_jpg,neutral_png,neutral_jpg,embedded_jpeg,analysi
 # ─── 2. Render ────────────────────────────────────────────────────────────
 echo "==> Rendering 17 fixtures × (Auto+Neutral) × (PNG+JPG)"
 
+# Cap concurrency: each `maple-cli render` on a 100MP frame can hold ~1 GB
+# resident, and unconstrained backgrounding spawns 4 × N_FIXTURES jobs at
+# once. Default to the number of logical CPUs (override via JOBS=).
+: "${JOBS:=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
+
+throttle() {
+    while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do
+        wait -n 2>/dev/null || sleep 0.1
+    done
+}
+
 for raw in "$RAWS"/test_*.{DNG,dng,RAW,CR2,RAF,raf,ARW,NEF,fff}; do
     [ -f "$raw" ] || continue
     stem=$(basename "$raw" | sed -E 's/\..*$//')
-    "$CLI" render "$raw" --profile auto    --out "$OUT/auto_png/${stem}.png"    2>/dev/null &
-    "$CLI" render "$raw" --profile auto    --out "$OUT/auto_jpg/${stem}.jpg"    2>/dev/null &
-    "$CLI" render "$raw" --profile neutral --out "$OUT/neutral_png/${stem}.png" 2>/dev/null &
-    "$CLI" render "$raw" --profile neutral --out "$OUT/neutral_jpg/${stem}.jpg" 2>/dev/null &
+    throttle; "$CLI" render "$raw" --profile auto    --out "$OUT/auto_png/${stem}.png"    2>/dev/null &
+    throttle; "$CLI" render "$raw" --profile auto    --out "$OUT/auto_jpg/${stem}.jpg"    2>/dev/null &
+    throttle; "$CLI" render "$raw" --profile neutral --out "$OUT/neutral_png/${stem}.png" 2>/dev/null &
+    throttle; "$CLI" render "$raw" --profile neutral --out "$OUT/neutral_jpg/${stem}.jpg" 2>/dev/null &
 done
 wait
 

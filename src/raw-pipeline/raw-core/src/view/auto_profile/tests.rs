@@ -173,17 +173,24 @@ mod fit_tests {
     use std::path::Path;
     #[test]
     #[cfg_attr(not(feature = "fixtures"), ignore)]
-    fn fit_curve_respects_exif_orientation() {
-        // Use a portrait RAW where EXIF orientation is Rotate90 (or similar).
+    fn fit_curve_accepts_orientation_arg_and_returns_non_identity() {
+        // Smoke test: `fit_curve_from_raw` accepts an `ExifOrientation`
+        // argument (currently unused — both source and target are kept in
+        // sensor frame because embedded JPEGs are sensor-aligned on every
+        // verified fixture). The orientation parameter is retained for
+        // API stability; this test only confirms the call signature
+        // accepts it and that a non-identity curve falls out.
+        //
+        // When orientation handling becomes real (paired source/JPEG in
+        // upright space), replace this with a test that rotates the source
+        // 90° and asserts the fit changes by a measurable amount.
         let raw_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../test-fixtures/raws/test_0003.CR2");
         let w = 256_usize;
         let h = 256_usize;
         let source: Vec<f32> = (0..w * h * 3).map(|i| (i % 256) as f32 / 255.0).collect();
-        // Orientation should be detected from metadata.
         let curve = fit_curve_from_raw(&raw_path, &source, w, h, ExifOrientation::Rotate90)
-            .expect("preview with orientation should produce a curve");
-        // Ensure at least one anchor deviates from identity, indicating fitting occurred.
+            .expect("preview should produce a curve");
         let mut differs = false;
         for (in_v, out_v) in &curve.r.anchors {
             if (in_v - out_v).abs() > 0.01 {
@@ -191,7 +198,7 @@ mod fit_tests {
                 break;
             }
         }
-        assert!(differs, "fit produced identity despite orientation");
+        assert!(differs, "fit produced identity — extraction probably failed silently");
     }
 
 
