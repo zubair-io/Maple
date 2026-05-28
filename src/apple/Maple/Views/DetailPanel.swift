@@ -477,29 +477,6 @@ private struct DisabledDevelopTab: View {
     }
 }
 
-// MARK: - ProfilePicker
-
-/// Two-segment Auto/Neutral picker for `AdjustmentModel.profile`. Lives in
-/// `DetailPanel.swift` because that's the only consumer; if a second site
-/// adopts it, lift to its own file. Uses `.segmented` style so both choices
-/// are visible at rest — a menu picker would hide Auto behind a tap.
-struct ProfilePicker: View {
-    @Binding var selection: Profile
-
-    var body: some View {
-        Picker("Profile", selection: $selection) {
-            Text("Auto").tag(Profile.auto)
-                .accessibilityLabel("Auto profile")
-            Text("Neutral").tag(Profile.neutral)
-                .accessibilityLabel("Neutral profile")
-        }
-        .labelsHidden()
-        .pickerStyle(.segmented)
-        .accessibilityIdentifier("picker-profile")
-        .accessibilityLabel("Profile selector")
-    }
-}
-
 // MARK: - CollapsibleSection
 
 struct CollapsibleSection<Content: View>: View {
