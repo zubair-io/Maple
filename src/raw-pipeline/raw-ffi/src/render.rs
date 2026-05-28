@@ -15,7 +15,7 @@ use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::{
     decode::decode_bytes,
-    pipeline::{render_from_raw_with_quality, render_from_raw_with_quality_and_path, RenderQuality},
+    pipeline::{render_from_raw_with_quality, render_from_raw_with_quality_and_source, RenderQuality},
 };
 use std::ffi::{CStr, c_char};
 
@@ -80,8 +80,8 @@ pub unsafe extern "C" fn maple_render_file(
         // embedded JPEG. `maple_render_file` is the file-backed entry —
         // the path is guaranteed to be valid; `maple_render_bytes` below
         // is bytes-only and runs AgX unconditionally.
-        let (w, h, bytes) = match render_from_raw_with_quality_and_path(
-            &raw_img, &model, quality, Some(raw_path),
+        let (w, h, bytes) = match render_from_raw_with_quality_and_source(
+            &raw_img, &model, quality, Some(raw_core::pipeline::RawInput::Path(raw_path)),
         ) {
             Ok(t) => t,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }

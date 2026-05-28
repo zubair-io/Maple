@@ -20,7 +20,7 @@ pub mod preview;
 
 pub use apply::{apply_curve, compress_input};
 pub use curve::{eval_channel, fit_channel_curve, ChannelCurve, ProfileCurve, IDENTITY_MATRIX};
-pub use fit::fit_curve_from_raw;
+pub use fit::{fit_curve_from_bytes, fit_curve_from_raw};
 pub use preview::JpegColorSpace;
 
 #[cfg(test)]

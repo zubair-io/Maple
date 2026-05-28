@@ -127,7 +127,12 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
         model.tint = as_shot_tint;
     }
 
-    let (w, h, bytes) = raw_core::pipeline::render_from_raw(&raw_img, &model)
+    let (w, h, bytes) = raw_core::pipeline::render_from_raw_with_quality_and_source(
+        &raw_img,
+        &model,
+        raw_core::pipeline::RenderQuality::Full,
+        Some(raw_core::pipeline::RawInput::Bytes(raw)),
+    )
         .map_err(|e| JsError::new(&e.to_string()))?;
     Ok(MapleRender {
         width: w,
