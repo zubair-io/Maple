@@ -21,7 +21,7 @@ use crate::{
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
     stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance},
-    types::adjustment::Profile,
+    types::adjustment::{AutoExposureMode, Profile},
     view::{agx, auto_profile, encode, look},
     xmp::AdjustmentModel,
 };
@@ -64,19 +64,55 @@ pub fn render_from_raw_with_quality_and_path(
     quality: RenderQuality,
     raw_path: Option<&Path>,
 ) -> Result<(u32, u32, Vec<u8>)> {
-    let mut scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
-    // View transform — Auto Profile (#537) or AgX-Neutral. Auto Profile
-    // needs the RAW path to read the embedded JPEG; when the path is
-    // absent or the fit fails we fall back to AgX so output is always
-    // defined. Both branches transition the buffer from
-    // `SceneLinearRec2020` to `DisplayLinearRec2020` so the downstream
-    // `rec2020_to_srgb` stage's space-assert stays satisfied.
+    // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
+    // will actually fit a curve, force AutoExposureMode::Off so the fitted
+    // curve owns the entire scene→JPEG brightness relationship. Otherwise
+    // we double-normalize — Maple's mid-gray-anchor lift stacks on top of
+    // the camera's already-baked AE, and the residual offset varies per
+    // fixture (each scene has a different mid-gray geometric mean), so a
+    // single fitted curve can't absorb it. RawTherapee's histmatching.cc
+    // fits the same way: from a neutral render with no auto-exposure.
+    //
+    // Probe the embedded JPEG first — if extraction would fail (rawler
+    // doesn't yet handle every RAW format; iPhone LinearRGB DNGs are the
+    // current miss), DO NOT disable AE. Otherwise the fit-fail fallback
+    // runs AgX on un-AE-normalized scene-linear and produces a much worse
+    // result than plain Neutral (test_0013 regressed from 8.82 → 16.98 dE
+    // before this guard was added).
+    let auto_will_fit = model.profile == Profile::Auto
+        && raw_path
+            .map(|p| auto_profile::preview::extract_preview(p).is_some())
+            .unwrap_or(false);
+    let auto_model;
+    let active_model: &AdjustmentModel = if auto_will_fit {
+        auto_model = AdjustmentModel {
+            auto_exposure: AutoExposureMode::Off,
+            ..model.clone()
+        };
+        &auto_model
+    } else {
+        model
+    };
+    let mut scene = develop_scene_linear_from_raw_with_quality(raw, active_model, quality)?;
+    // View transform — Auto Profile (#537) per-channel curves OR AgX-Neutral.
+    //
+    // Auto Profile fits per-channel R/G/B curves from the embedded JPEG
+    // and applies them to the raw scene-linear buffer (replacing AgX).
+    // Measured: this preserves more chroma (sat_ratio 0.636 on
+    // test_0003) than the AgX-skeleton-with-plug-in alternative (0.519)
+    // because per-channel stretching captures some camera-grading WB
+    // and saturation. Remaining gap to JPEG (0.636 → 1.0) is owned by
+    // Section 4 cross-channel matrix (Phase 2).
+    //
+    // Falls back to plain AgX when there's no RAW path (WASM callers,
+    // `maple_render_bytes` FFI) or the fit fails (no JPEG / too small /
+    // degenerate histogram). Both branches end in DisplayLinearRec2020.
     let used_auto = match (model.profile, raw_path) {
         (Profile::Auto, Some(path)) => stage("auto_profile", || {
             scene.assert_space(ColorSpace::SceneLinearRec2020);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            match auto_profile::fit_curve_from_raw(path, pixels, w, h) {
+            match auto_profile::fit_curve_from_raw(path, pixels, w, h, raw.orientation) {
                 Some(curve) => {
                     auto_profile::apply_curve(pixels, &curve);
                     true
@@ -87,9 +123,6 @@ pub fn render_from_raw_with_quality_and_path(
         _ => false,
     };
     if used_auto {
-        // Auto Profile is the view transform on this branch — mark the
-        // buffer as display-linear so the next stage's space-assert sees
-        // the same invariant the AgX branch establishes.
         scene.space = ColorSpace::DisplayLinearRec2020;
     } else {
         stage("agx", || agx::apply(&mut scene, model.contrast));

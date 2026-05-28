@@ -68,12 +68,9 @@ pub use lut::{LUT_B, LUT_G, LUT_R};
 /// See module-level docs for the placement rationale and scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Look {
-    /// Identity — pure scene-referred output. Bit-identical to the
-    /// pre-#371 canonical pipeline (no LUT applied).
+    /// Legacy "Neutral" — migrated to `Profile::Neutral` on XMP read.
     Neutral,
-    /// Empirical LUT derived from 14 (Maple, ACR) training fixtures.
-    /// Closes ~65% of the bias-to-ACR gap (3x MAE reduction on training,
-    /// 2x on held-out). The new-user default.
+    /// Legacy "Default" — migrated to `Profile::Auto` on XMP read.
     Default,
 }
 
@@ -112,28 +109,18 @@ impl From<u8> for Look {
 /// Buffer layout: row-major, 3 lanes/pixel `[R, G, B, R, G, B, ...]`.
 /// `Look::Neutral` short-circuits — no work, no allocations,
 /// bit-identical to the input.
-pub fn apply(rgb: &mut [f32], look: Look) {
-    match look {
-        Look::Neutral => {}
-        Look::Default => {
-            for chunk in rgb.chunks_exact_mut(3) {
-                chunk[0] = sample(&lut::LUT_R, chunk[0]);
-                chunk[1] = sample(&lut::LUT_G, chunk[1]);
-                chunk[2] = sample(&lut::LUT_B, chunk[2]);
-            }
-        }
-    }
-}
-
-#[inline(always)]
-fn sample(lut: &[u8; 256], v: f32) -> f32 {
-    let idx = v.clamp(0.0, 1.0) * 255.0;
-    let lo = idx.floor() as usize;
-    let hi = (lo + 1).min(255);
-    let t = idx - lo as f32;
-    let lo_v = lut[lo] as f32 / 255.0;
-    let hi_v = lut[hi] as f32 / 255.0;
-    lo_v + (hi_v - lo_v) * t
+/// No-op post-#538 (Auto Profile Phase 1, T7).
+///
+/// Auto Profile in `view::auto_profile` is now the per-image view-shaping
+/// stage; `Profile::Neutral` runs strict AgX. The empirical `Look::Default`
+/// LUT no longer shapes pixels. The function and the `Look` enum stay only
+/// for XMP back-compat — legacy sidecars that carry `papp:Look="Default"`
+/// migrate to `papp:Profile="Auto"` in the XMP parser (#536 T5). The
+/// `LUT_R/G/B` constants remain `pub` because out-of-crate consumers
+/// (raw-ffi, raw-wasm) still read them to seed GPU 1D-LUT textures on the
+/// platform view-transform path.
+pub fn apply(_rgb: &mut [f32], _look: Look) {
+    // intentionally empty — see view::auto_profile for the new path.
 }
 
 #[cfg(test)]
@@ -165,6 +152,20 @@ mod tests {
     }
 
     #[test]
+    fn apply_is_no_op_for_both_variants() {
+        // Post-#538 (T7): Auto Profile (`view::auto_profile`) owns the
+        // view transform. `look::apply` is intentionally a no-op for
+        // every variant — the function and enum stay only for XMP
+        // back-compat (legacy `papp:Look` migrates to `papp:Profile`).
+        let original = [0.1_f32, 0.4, 0.7];
+        let mut buf = original;
+        super::apply(&mut buf, super::Look::Neutral);
+        assert_eq!(buf, original);
+        super::apply(&mut buf, super::Look::Default);
+        assert_eq!(buf, original, "Look::Default no longer shapes pixels post-T7");
+    }
+
+    #[test]
     fn neutral_is_bit_identical_to_input() {
         let mut buf = vec![0.0f32; 3 * 64];
         for (i, v) in buf.iter_mut().enumerate() {
@@ -173,39 +174,6 @@ mod tests {
         let original = buf.clone();
         apply(&mut buf, Look::Neutral);
         assert_eq!(buf, original, "Neutral must be a bit-identical no-op");
-    }
-
-    #[test]
-    fn default_lut_changes_buffer_for_non_default_input() {
-        // Mid-gray sweep — the LUT is non-identity at most input values.
-        let mut buf: Vec<f32> = (0u8..=255)
-            .flat_map(|v| {
-                let f = v as f32 / 255.0;
-                [f, f, f]
-            })
-            .collect();
-        let original = buf.clone();
-        apply(&mut buf, Look::Default);
-        assert_ne!(
-            buf, original,
-            "Default LUT must transform a non-trivial buffer"
-        );
-    }
-
-    #[test]
-    fn default_lut_per_channel_independent() {
-        // R, G, B at the same input value should map to (potentially)
-        // different outputs because each channel has its own LUT.
-        let mid = 128.0f32 / 255.0;
-        let mut buf = vec![mid, mid, mid];
-        apply(&mut buf, Look::Default);
-        let r = buf[0];
-        let g = buf[1];
-        let b = buf[2];
-        assert!(
-            (r - g).abs() > 1e-6 || (g - b).abs() > 1e-6,
-            "Per-channel LUTs collapsed to identical output: ({r}, {g}, {b})"
-        );
     }
 
     #[test]
@@ -243,80 +211,5 @@ mod tests {
         assert!(lut::LUT_R[255] > 200, "R[255] = {}", lut::LUT_R[255]);
         assert!(lut::LUT_G[255] > 200, "G[255] = {}", lut::LUT_G[255]);
         assert!(lut::LUT_B[255] > 200, "B[255] = {}", lut::LUT_B[255]);
-    }
-
-    #[test]
-    fn buffer_with_partial_pixel_is_safe() {
-        // `chunks_exact_mut(3)` skips any trailing lanes that don't fill a
-        // full pixel — the function must not panic on a length-mismatched
-        // buffer (defensive: real callers always pass `3 * w * h`).
-        let mut buf = vec![10.0f32 / 255.0, 20.0 / 255.0, 30.0 / 255.0, 40.0 / 255.0];
-        let stray_original = buf[3];
-        apply(&mut buf, Look::Default);
-        // Stray lane at index 3 is left untouched.
-        assert_eq!(buf[3], stray_original);
-    }
-
-    #[test]
-    fn sample_at_half_step_averages_neighbors() {
-        // Linear LUT: lut[i] = i. Sampling at 100.5/255 should land
-        // exactly between lut[100]/255 and lut[101]/255 — i.e. 100.5/255.
-        let mut lut = [0u8; 256];
-        for (i, slot) in lut.iter_mut().enumerate() {
-            *slot = i as u8;
-        }
-        let v = sample(&lut, 100.5 / 255.0);
-        let expected = 100.5 / 255.0;
-        assert!(
-            (v - expected).abs() < 1e-4,
-            "sample at half-step: got {v}, expected {expected}"
-        );
-    }
-
-    #[test]
-    fn default_lut_no_histogram_gaps_on_linear_ramp() {
-        // 4096-step linear ramp — finer than 256 so the pre-#519
-        // `u8 → u8` LUT would have collapsed runs of inputs into the
-        // same output bin, leaving u8 indices empty (visible banding
-        // signature). With f32 linear interpolation, the LUT output
-        // sweeps continuously through every reachable u8 bin in the
-        // interior of its range.
-        let ramp: Vec<f32> = (0..4096).map(|i| i as f32 / 4095.0).collect();
-        let mut rgb: Vec<f32> = ramp.iter().flat_map(|&v| [v, v, v]).collect();
-        apply(&mut rgb, Look::Default);
-        let mut hist = [0u32; 256];
-        for chunk in rgb.chunks_exact(3) {
-            let q = (chunk[0].clamp(0.0, 1.0) * 255.0).round() as u8;
-            hist[q as usize] += 1;
-        }
-        // Interior of the curve's reachable range. The empirical LUT
-        // lifts shadows (`LUT_R[0]` ~ 7) and ceils highlights
-        // (`LUT_R[255]` ~ 250), so we skip the first few bins and the
-        // tail — those are correctly empty by construction.
-        for i in 25..240 {
-            assert!(
-                hist[i] > 0,
-                "histogram gap at {i} (banding bug returned) — hist={:?}",
-                &hist[i.saturating_sub(2)..(i + 3).min(256)]
-            );
-        }
-    }
-
-    #[test]
-    fn default_lut_endpoints_match_table_entries() {
-        // The f32 sampler at exactly 0 / 1 must return the LUT's first /
-        // last entry verbatim — the linear interpolation should not
-        // bias the endpoints.
-        let mut buf = vec![0.0f32, 0.0, 0.0];
-        apply(&mut buf, Look::Default);
-        assert!((buf[0] - lut::LUT_R[0] as f32 / 255.0).abs() < 1e-6);
-        assert!((buf[1] - lut::LUT_G[0] as f32 / 255.0).abs() < 1e-6);
-        assert!((buf[2] - lut::LUT_B[0] as f32 / 255.0).abs() < 1e-6);
-
-        let mut buf = vec![1.0f32, 1.0, 1.0];
-        apply(&mut buf, Look::Default);
-        assert!((buf[0] - lut::LUT_R[255] as f32 / 255.0).abs() < 1e-6);
-        assert!((buf[1] - lut::LUT_G[255] as f32 / 255.0).abs() < 1e-6);
-        assert!((buf[2] - lut::LUT_B[255] as f32 / 255.0).abs() < 1e-6);
     }
 }

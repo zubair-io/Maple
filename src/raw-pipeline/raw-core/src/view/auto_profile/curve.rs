@@ -40,13 +40,71 @@ impl ChannelCurve {
     }
 }
 
-/// Per-RGB-channel tone curve bundle.
+/// Per-RGB-channel tone curve bundle plus an optional cross-channel
+/// 3×3 matrix applied AFTER the curves.
+///
+/// The matrix corrects color casts and saturation deltas that 1D
+/// per-channel curves cannot reach (cross-channel coupling — by
+/// construction a 1D curve can't change channel ratios at equal
+/// input). Fit by least squares from curve-corrected source pixels
+/// against the embedded JPEG target. Identity = no matrix correction.
 #[derive(Clone, Debug)]
 pub struct ProfileCurve {
     pub r: ChannelCurve,
     pub g: ChannelCurve,
     pub b: ChannelCurve,
+    pub matrix: [[f32; 3]; 3],
+    /// Per-image Oklab chroma multiplier applied AFTER curves + matrix.
+    /// Closes the saturation deficit that 1D per-channel curves leave
+    /// behind — per-channel curves on the source distribution preserve
+    /// (or even reduce) chroma relative to the source, but the JPEG
+    /// target may be more saturated than what curves alone produce.
+    /// Fit by comparing post-curve mean chroma to target mean chroma.
+    /// 1.0 = no boost (identity).
+    pub chroma_boost: f32,
+    /// Per-image Oklab (a, b) offset applied AFTER chroma_boost.
+    /// Corrects residual hue casts left by the per-channel curves —
+    /// test_0010 had a fixed −6.7 / +2.7 a/b shift (yellow-green
+    /// cast) that no chroma scale could correct because chroma scale
+    /// preserves hue. Fit from the mean (a, b) difference between
+    /// curve-corrected source and target on the same paired cells.
+    /// Bounded to ±5 Lab units to prevent pathological estimates.
+    pub chroma_offset: [f32; 2],
+    /// Per-image Oklab L offset. Corrects residual global brightness
+    /// shift left by the per-channel curves — test_0009 had +2.3
+    /// CIELab L bias uniformly across shadow and highlight bands
+    /// (a constant additive lift, not a curve-shape problem). Fit
+    /// from the mean L difference between curve-corrected source
+    /// and target. Bounded to ±0.03 Oklab units (~3 CIELab L).
+    pub lightness_offset: f32,
+    /// Per-image L-band correction LUT (5 anchors at L=0.0/0.25/
+    /// 0.50/0.75/1.0 in Oklab L space, each carrying an Oklab L
+    /// offset). Applied AFTER `lightness_offset` via piecewise-
+    /// linear interpolation on the pixel's Oklab L. Closes the
+    /// "shadow-lift but highlight-not" pattern the global L
+    /// offset can't reach — measured: test_0000 (CONTRAST_LOW:
+    /// shadows +0.12, highlights −0.14) and test_0010 (CONTRAST_HIGH:
+    /// shadows −0.07, highlights +0.06) need opposite per-band
+    /// fixes. Each anchor bounded to ±0.03 Oklab L. Identity is
+    /// all zeros.
+    pub lightness_band_offsets: [f32; 5],
+    /// Per-image (a, b) chromaticity correction LUT, same 5-anchor
+    /// structure as `lightness_band_offsets`. Each anchor carries
+    /// an Oklab (a, b) offset, applied AFTER `chroma_offset` via
+    /// piecewise-linear interp on the pixel's Oklab L. Catches the
+    /// localized hue casts the global `chroma_offset` averages
+    /// away — measured: test_0003 had OPPOSITE tilts in shadows
+    /// (yellow-green) vs highlights (MAGENTA) that cancel to a
+    /// small global average. Each (a, b) bounded to ±0.02 Oklab
+    /// (~2 Lab units). Identity = all zeros.
+    pub ab_band_offsets: [[f32; 2]; 5],
 }
+
+pub const IDENTITY_MATRIX: [[f32; 3]; 3] = [
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0],
+];
 
 impl ProfileCurve {
     pub fn identity() -> Self {
@@ -54,6 +112,12 @@ impl ProfileCurve {
             r: ChannelCurve::identity(),
             g: ChannelCurve::identity(),
             b: ChannelCurve::identity(),
+            matrix: IDENTITY_MATRIX,
+            chroma_boost: 1.0,
+            chroma_offset: [0.0, 0.0],
+            lightness_offset: 0.0,
+            lightness_band_offsets: [0.0; 5],
+            ab_band_offsets: [[0.0, 0.0]; 5],
         }
     }
 }
