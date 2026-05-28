@@ -827,31 +827,35 @@ extension PipelineRenderer {
         // chain runs non-identity, which is what shifts the post-D65 image
         // into a colour cast.
         pipelineLog.notice("makeParams MODEL: temp=\(model.temperature, format: .fixed(precision: 0)) tint=\(model.tint, format: .fixed(precision: 1)) exposure=\(model.exposure, format: .fixed(precision: 2)) contrast=\(model.contrast, format: .fixed(precision: 0)) highlights=\(model.highlights, format: .fixed(precision: 0)) shadows=\(model.shadows, format: .fixed(precision: 0)) whites=\(model.whites, format: .fixed(precision: 0)) blacks=\(model.blacks, format: .fixed(precision: 0)) vib=\(model.vibrance, format: .fixed(precision: 0)) sat=\(model.saturation, format: .fixed(precision: 0)) clarity=\(model.clarity, format: .fixed(precision: 0)) texture=\(model.texture, format: .fixed(precision: 0)) dehaze=\(model.dehaze, format: .fixed(precision: 0)) nr_lum=\(model.nrLuminance, format: .fixed(precision: 0)) | dec_temp=\(decodedTemperature, format: .fixed(precision: 0)) dec_tint=\(decodedTint, format: .fixed(precision: 1)) skip_agx=\(skipAgX)")
-        return MapleAdjustmentParams(
-            temperature: Float(model.temperature),
-            tint: Float(model.tint),
-            exposure: Float(model.exposure),
-            contrast: Float(model.contrast),
-            highlights: Float(model.highlights),
-            shadows: Float(model.shadows),
-            whites: Float(model.whites),
-            blacks: Float(model.blacks),
-            vibrance: Float(model.vibrance),
-            saturation: Float(model.saturation),
-            clarity: Float(model.clarity),
-            texture: Float(model.texture),
-            nr_luminance: Float(model.nrLuminance),
-            dehaze: Float(model.dehaze),
-            decoded_temperature: Float(decodedTemperature),
-            decoded_tint: Float(decodedTint),
-            skip_agx: skipAgX ? 1 : 0,
-            // L3 (#515) added `look_mode: u8` to the C-ABI struct. Hard-
-            // coded to `1` = `Look::Default` here as a syntactic
-            // compile-fix — L4 (#509) replaces the literal with
-            // `UInt8(model.look.rawValue)` (or equivalent) so the Swift
-            // shell actually surfaces the user's Look selection.
-            look_mode: 1
-        )
+        // Per-statement assignment (not a single ~18-arg initializer call):
+        // the Swift expression-type-checker hit its complexity ceiling on
+        // the literal-init form during xcodebuild after #515 grew the
+        // struct to 18 fields. See #565.
+        var params = MapleAdjustmentParams()
+        params.temperature = Float(model.temperature)
+        params.tint = Float(model.tint)
+        params.exposure = Float(model.exposure)
+        params.contrast = Float(model.contrast)
+        params.highlights = Float(model.highlights)
+        params.shadows = Float(model.shadows)
+        params.whites = Float(model.whites)
+        params.blacks = Float(model.blacks)
+        params.vibrance = Float(model.vibrance)
+        params.saturation = Float(model.saturation)
+        params.clarity = Float(model.clarity)
+        params.texture = Float(model.texture)
+        params.nr_luminance = Float(model.nrLuminance)
+        params.dehaze = Float(model.dehaze)
+        params.decoded_temperature = Float(decodedTemperature)
+        params.decoded_tint = Float(decodedTint)
+        params.skip_agx = skipAgX ? 1 : 0
+        // L3 (#515) added `look_mode: u8` to the C-ABI struct. Hard-
+        // coded to `1` = `Look::Default` here as a syntactic
+        // compile-fix — L4 (#509) replaces the literal with
+        // `UInt8(model.look.rawValue)` (or equivalent) so the Swift
+        // shell actually surfaces the user's Look selection.
+        params.look_mode = 1
+        return params
     }
 
     /// Run the Rust per-tick scene-linear chain (white_balance → tone →
