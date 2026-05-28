@@ -48,6 +48,33 @@ async function sha1HeadHex(absPath: string): Promise<string> {
 
 const log = childLogger('folders');
 
+// In-process serialization for the upload route's post-write critical
+// section (stat → trash → rename → upsert), keyed by destination abs
+// path. Two concurrent uploads to the same target previously raced inside
+// `findOneAndUpdate({fileinfo match}, ..., {upsert:true})` — without the
+// unique `(folder_id, filename)` index that the drop-abs-path-2026-05-21
+// migration retired, both ops can miss the find and each insert a doc,
+// yielding two live rows for one path. Serializing by `absPath` makes
+// the second request observe the first's freshly-written file + asset
+// row and go down the duplicate-replace branch (trash + upsert reuse)
+// instead. Cross-replica races still need a database-level constraint;
+// this lock only covers a single bun instance.
+const uploadLocks = new Map<string, Promise<unknown>>();
+async function withUploadLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prior = uploadLocks.get(key) ?? Promise.resolve();
+  // `prior.then(fn, fn)` runs `fn` whether the prior link resolved or
+  // rejected — a failed earlier upload shouldn't wedge the chain.
+  const next = prior.then(fn, fn) as Promise<T>;
+  uploadLocks.set(key, next);
+  try {
+    return await next;
+  } finally {
+    if (uploadLocks.get(key) === next) {
+      uploadLocks.delete(key);
+    }
+  }
+}
+
 /**
  * Decode + validate one percent-encoded relative-path header. `label`
  * names the header in error messages. Returns a discriminated result —
@@ -426,258 +453,265 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         };
       }
 
-      // If a file already lives at the target, move it to trash (RAW +
-      // paired sidecars, with `.N` collision suffix) before the rename
-      // overwrites it. Tracks the trashed doc's id + prefix-hash + size
-      // so the post-write step can purge the trash entry when the new
-      // upload is byte-identical to what we just moved aside.
-      //
-      // Concurrent-upload race: another request to the same target may
-      // move the file between our `stat` and our `moveToTrash`. If
-      // `moveToTrash` fails AND the file is now gone, treat it as
-      // benign (the peer handled the trash + doc update); otherwise
-      // surface the error.
-      type Trashed = { docId: ObjectId; newAbsPath: string; sha1_head?: string; size?: number };
-      let trashed: Trashed | undefined;
-      // Non-media files have no AssetDoc and no trash semantics — a
-      // re-upload simply overwrites the bytes via the atomic rename below.
-      if (isMedia)
-        try {
-          await stat(absPath);
-          // Pre-compute the target fileinfo entry that's about to be
-          // overwritten so we can look up the existing row by `(library_id,
-          // path, filename)` instead of the retired `abs_path` field.
-          const preRelDirRaw = nodePath.dirname(target);
-          const preRelDir =
-            preRelDirRaw === '.' || preRelDirRaw === ''
-              ? ''
-              : preRelDirRaw.split(nodePath.sep).join('/');
-          const existing = await assets.findOne({
-            fileinfo: {
-              $elemMatch: { library_id: folderId, path: preRelDir, filename },
-            },
-            deleted_at: null,
-          });
-          const moved = await moveToTrash(absPath, folder.path);
-          if (moved.kind === 'ok') {
-            if (existing) {
-              const existingFields = existing as { sha1_head?: string; size?: number };
-              // Rewrite the primary fileinfo entry to point at the trash
-              // destination so cache resolution + restore can find the row.
-              const trashRelDirRaw = nodePath.relative(
-                folder.path,
-                nodePath.dirname(moved.newAbsPath),
-              );
-              const trashRelDir =
-                trashRelDirRaw === '.' || trashRelDirRaw === ''
-                  ? ''
-                  : trashRelDirRaw.split(nodePath.sep).join('/');
-              const trashFilename = nodePath.basename(moved.newAbsPath);
-              await assets.updateOne(
-                { _id: existing._id },
-                {
-                  $set: {
-                    fileinfo: [
-                      {
-                        library_id: folderId,
-                        path: trashRelDir,
-                        filename: trashFilename,
-                        deleted_at: null,
-                      },
-                    ],
-                    deleted_at: new Date().toISOString(),
-                    original_path: absPath,
+      // Serialize the post-write critical section per destination path
+      // so two concurrent requests don't both miss the asset-doc upsert
+      // and double-insert. The streaming write to the unique tmp above
+      // is safe in parallel — only the stat→trash→rename→upsert chain
+      // needs ordering. See `withUploadLock` for the rationale.
+      return await withUploadLock(absPath, async () => {
+        // If a file already lives at the target, move it to trash (RAW +
+        // paired sidecars, with `.N` collision suffix) before the rename
+        // overwrites it. Tracks the trashed doc's id + prefix-hash + size
+        // so the post-write step can purge the trash entry when the new
+        // upload is byte-identical to what we just moved aside.
+        //
+        // Concurrent-upload race: another request to the same target may
+        // move the file between our `stat` and our `moveToTrash`. If
+        // `moveToTrash` fails AND the file is now gone, treat it as
+        // benign (the peer handled the trash + doc update); otherwise
+        // surface the error.
+        type Trashed = { docId: ObjectId; newAbsPath: string; sha1_head?: string; size?: number };
+        let trashed: Trashed | undefined;
+        // Non-media files have no AssetDoc and no trash semantics — a
+        // re-upload simply overwrites the bytes via the atomic rename below.
+        if (isMedia)
+          try {
+            await stat(absPath);
+            // Pre-compute the target fileinfo entry that's about to be
+            // overwritten so we can look up the existing row by `(library_id,
+            // path, filename)` instead of the retired `abs_path` field.
+            const preRelDirRaw = nodePath.dirname(target);
+            const preRelDir =
+              preRelDirRaw === '.' || preRelDirRaw === ''
+                ? ''
+                : preRelDirRaw.split(nodePath.sep).join('/');
+            const existing = await assets.findOne({
+              fileinfo: {
+                $elemMatch: { library_id: folderId, path: preRelDir, filename },
+              },
+              deleted_at: null,
+            });
+            const moved = await moveToTrash(absPath, folder.path);
+            if (moved.kind === 'ok') {
+              if (existing) {
+                const existingFields = existing as { sha1_head?: string; size?: number };
+                // Rewrite the primary fileinfo entry to point at the trash
+                // destination so cache resolution + restore can find the row.
+                const trashRelDirRaw = nodePath.relative(
+                  folder.path,
+                  nodePath.dirname(moved.newAbsPath),
+                );
+                const trashRelDir =
+                  trashRelDirRaw === '.' || trashRelDirRaw === ''
+                    ? ''
+                    : trashRelDirRaw.split(nodePath.sep).join('/');
+                const trashFilename = nodePath.basename(moved.newAbsPath);
+                await assets.updateOne(
+                  { _id: existing._id },
+                  {
+                    $set: {
+                      fileinfo: [
+                        {
+                          library_id: folderId,
+                          path: trashRelDir,
+                          filename: trashFilename,
+                          deleted_at: null,
+                        },
+                      ],
+                      deleted_at: new Date().toISOString(),
+                      original_path: absPath,
+                    },
                   },
-                },
-              );
-              trashed = {
-                docId: existing._id as ObjectId,
-                newAbsPath: moved.newAbsPath,
-                sha1_head: existingFields.sha1_head,
-                size: existingFields.size,
-              };
-              // Mirror the DELETE route: emit a delete change so consumers
-              // (e.g. WorkingSetEnumerator, which removes items only on
-              // `.delete`) drop the pre-existing asset. The subsequent
-              // `create` for the new bytes still publishes below.
-              await recordAndPublishAssetChange({
-                kind: 'delete',
-                asset_id: existing._id as ObjectId,
-                folder_id: folderId,
-                abs_path: absPath,
-              }).catch(() => {});
+                );
+                trashed = {
+                  docId: existing._id as ObjectId,
+                  newAbsPath: moved.newAbsPath,
+                  sha1_head: existingFields.sha1_head,
+                  size: existingFields.size,
+                };
+                // Mirror the DELETE route: emit a delete change so consumers
+                // (e.g. WorkingSetEnumerator, which removes items only on
+                // `.delete`) drop the pre-existing asset. The subsequent
+                // `create` for the new bytes still publishes below.
+                await recordAndPublishAssetChange({
+                  kind: 'delete',
+                  asset_id: existing._id as ObjectId,
+                  folder_id: folderId,
+                  abs_path: absPath,
+                }).catch(() => {});
+              }
+            } else {
+              let stillThere = false;
+              try {
+                await stat(absPath);
+                stillThere = true;
+              } catch {}
+              if (stillThere) {
+                try {
+                  await unlink(tmp);
+                } catch {}
+                set.status = 500;
+                return { error: `Upload trash failed: ${moved.error}` };
+              }
+              // Benign race — peer moved the file, peer owns its trash + doc
+              // update. We proceed to rename our tmp into place.
             }
-          } else {
-            let stillThere = false;
-            try {
-              await stat(absPath);
-              stillThere = true;
-            } catch {}
-            if (stillThere) {
+          } catch (err) {
+            if ((err as { code?: string }).code !== 'ENOENT') {
               try {
                 await unlink(tmp);
               } catch {}
               set.status = 500;
-              return { error: `Upload trash failed: ${moved.error}` };
+              return {
+                error: `Upload pre-trash failed: ${err instanceof Error ? err.message : String(err)}`,
+              };
             }
-            // Benign race — peer moved the file, peer owns its trash + doc
-            // update. We proceed to rename our tmp into place.
           }
+
+        try {
+          await rename(tmp, absPath);
         } catch (err) {
-          if ((err as { code?: string }).code !== 'ENOENT') {
-            try {
-              await unlink(tmp);
-            } catch {}
-            set.status = 500;
-            return {
-              error: `Upload pre-trash failed: ${err instanceof Error ? err.message : String(err)}`,
-            };
+          try {
+            await unlink(tmp);
+          } catch {}
+          set.status = 500;
+          return {
+            error: `Upload rename failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
+
+        const st = await stat(absPath);
+        const mtimeHeader = headers['x-maple-file-mtime'];
+        if (typeof mtimeHeader === 'string' && /^\d+$/.test(mtimeHeader)) {
+          const epoch = parseInt(mtimeHeader, 10);
+          try {
+            await utimes(absPath, epoch, epoch);
+          } catch {}
+        }
+
+        // Non-media: bytes are stored + synced, but we create no AssetDoc and
+        // emit no asset change-feed event. Respond without an `asset_id`.
+        if (!isMedia) {
+          set.status = 201;
+          return {
+            abs_path: absPath,
+            size: st.size,
+            mtime: new Date(st.mtimeMs).toISOString(),
+          };
+        }
+
+        // If the file we just trashed had the same prefix-hash and size
+        // as the new upload, the trash entry would be a redundant copy
+        // of the freshly-written file — discard it (RAW + any paired
+        // sidecars that `moveToTrash` relocated alongside).
+        if (trashed && typeof trashed.sha1_head === 'string' && typeof trashed.size === 'number') {
+          try {
+            const newHead = await sha1HeadHex(absPath);
+            if (newHead === trashed.sha1_head && st.size === trashed.size) {
+              const sidecars = await listPairedSidecars(trashed.newAbsPath);
+              try {
+                await unlink(trashed.newAbsPath);
+              } catch {}
+              for (const sidecar of sidecars) {
+                try {
+                  await unlink(sidecar);
+                } catch {}
+              }
+              await assets.deleteOne({ _id: trashed.docId });
+              trashed = undefined;
+            }
+          } catch (err) {
+            log.warn(
+              { absPath, err: err instanceof Error ? err.message : String(err) },
+              'duplicate-upload identical-content check failed — leaving trash entry in place',
+            );
           }
         }
 
-      try {
-        await rename(tmp, absPath);
-      } catch (err) {
-        try {
-          await unlink(tmp);
-        } catch {}
-        set.status = 500;
-        return {
-          error: `Upload rename failed: ${err instanceof Error ? err.message : String(err)}`,
+        const nowIso = new Date().toISOString();
+        // fileinfo[0] mirrors the validated target path split into
+        // (library-relative directory, filename, library_id). POSIX-normalize
+        // `path.sep` → `/` so the stored path obeys the FileInfo docstring
+        // contract on every host.
+        const relDirRaw = nodePath.dirname(target);
+        const relDir =
+          relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(nodePath.sep).join('/');
+        const fileinfoEntry = {
+          path: relDir,
+          filename,
+          library_id: folderId,
+          deleted_at: null,
         };
-      }
-
-      const st = await stat(absPath);
-      const mtimeHeader = headers['x-maple-file-mtime'];
-      if (typeof mtimeHeader === 'string' && /^\d+$/.test(mtimeHeader)) {
-        const epoch = parseInt(mtimeHeader, 10);
+        // Upsert by `(library_id, path, filename)` from fileinfo to race-safely
+        // cooperate with the discover watcher. If the watcher's chokidar tick
+        // observed the just-written file first and already created an asset
+        // row, our `$setOnInsert` is a no-op and we update size/mtime over the
+        // top. If we win the race, we own the insert.
+        let assetID: ObjectId;
         try {
-          await utimes(absPath, epoch, epoch);
-        } catch {}
-      }
+          const updated = await assets.findOneAndUpdate(
+            {
+              fileinfo: {
+                $elemMatch: { library_id: folderId, path: relDir, filename },
+              },
+            },
+            {
+              $set: {
+                size: st.size,
+                mtime: st.mtimeMs,
+                indexed_at: nowIso,
+                deleted_at: null,
+              },
+              $setOnInsert: {
+                fileinfo: [fileinfoEntry],
+                rating: 0,
+                flag: 0,
+                color_label: '',
+                exif: null,
+                stages: blankStagesSkeleton(),
+              },
+            },
+            { upsert: true, returnDocument: 'after' },
+          );
+          if (!updated) {
+            throw new Error('upsert returned no document');
+          }
+          assetID = updated._id as ObjectId;
+        } catch (err) {
+          // Schema validation or anything else: undo the file move so we
+          // don't leak an orphan file with no asset doc backing it. The
+          // duplicate-key race is already handled by the upsert above.
+          try {
+            await unlink(absPath);
+          } catch {}
+          set.status = 500;
+          return {
+            error: `Upload metadata failed: ${err instanceof Error ? err.message : String(err)}`,
+          };
+        }
 
-      // Non-media: bytes are stored + synced, but we create no AssetDoc and
-      // emit no asset change-feed event. Respond without an `asset_id`.
-      if (!isMedia) {
+        // Best-effort change-feed emit so File Provider clients see the
+        // new asset without waiting for the discover watcher to notice
+        // the file. `.catch(() => {})` honours the Phase 5b guarantee
+        // that change-feed failure is non-fatal to the primary write.
+        await recordAndPublishAssetChange({
+          kind: 'create',
+          asset_id: assetID,
+          folder_id: folderId,
+          abs_path: absPath,
+        }).catch(() => {});
+
         set.status = 201;
+        // `mtime` is emitted as an ISO-8601 string (matches the rest of
+        // the API and the Swift `Date` decoder); the raw `st.mtimeMs`
+        // float would corrupt an `Int64` decoder client-side.
         return {
+          asset_id: assetID.toHexString(),
           abs_path: absPath,
           size: st.size,
           mtime: new Date(st.mtimeMs).toISOString(),
         };
-      }
-
-      // If the file we just trashed had the same prefix-hash and size
-      // as the new upload, the trash entry would be a redundant copy
-      // of the freshly-written file — discard it (RAW + any paired
-      // sidecars that `moveToTrash` relocated alongside).
-      if (trashed && typeof trashed.sha1_head === 'string' && typeof trashed.size === 'number') {
-        try {
-          const newHead = await sha1HeadHex(absPath);
-          if (newHead === trashed.sha1_head && st.size === trashed.size) {
-            const sidecars = await listPairedSidecars(trashed.newAbsPath);
-            try {
-              await unlink(trashed.newAbsPath);
-            } catch {}
-            for (const sidecar of sidecars) {
-              try {
-                await unlink(sidecar);
-              } catch {}
-            }
-            await assets.deleteOne({ _id: trashed.docId });
-            trashed = undefined;
-          }
-        } catch (err) {
-          log.warn(
-            { absPath, err: err instanceof Error ? err.message : String(err) },
-            'duplicate-upload identical-content check failed — leaving trash entry in place',
-          );
-        }
-      }
-
-      const nowIso = new Date().toISOString();
-      // fileinfo[0] mirrors the validated target path split into
-      // (library-relative directory, filename, library_id). POSIX-normalize
-      // `path.sep` → `/` so the stored path obeys the FileInfo docstring
-      // contract on every host.
-      const relDirRaw = nodePath.dirname(target);
-      const relDir =
-        relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(nodePath.sep).join('/');
-      const fileinfoEntry = {
-        path: relDir,
-        filename,
-        library_id: folderId,
-        deleted_at: null,
-      };
-      // Upsert by `(library_id, path, filename)` from fileinfo to race-safely
-      // cooperate with the discover watcher. If the watcher's chokidar tick
-      // observed the just-written file first and already created an asset
-      // row, our `$setOnInsert` is a no-op and we update size/mtime over the
-      // top. If we win the race, we own the insert.
-      let assetID: ObjectId;
-      try {
-        const updated = await assets.findOneAndUpdate(
-          {
-            fileinfo: {
-              $elemMatch: { library_id: folderId, path: relDir, filename },
-            },
-          },
-          {
-            $set: {
-              size: st.size,
-              mtime: st.mtimeMs,
-              indexed_at: nowIso,
-              deleted_at: null,
-            },
-            $setOnInsert: {
-              fileinfo: [fileinfoEntry],
-              rating: 0,
-              flag: 0,
-              color_label: '',
-              exif: null,
-              stages: blankStagesSkeleton(),
-            },
-          },
-          { upsert: true, returnDocument: 'after' },
-        );
-        if (!updated) {
-          throw new Error('upsert returned no document');
-        }
-        assetID = updated._id as ObjectId;
-      } catch (err) {
-        // Schema validation or anything else: undo the file move so we
-        // don't leak an orphan file with no asset doc backing it. The
-        // duplicate-key race is already handled by the upsert above.
-        try {
-          await unlink(absPath);
-        } catch {}
-        set.status = 500;
-        return {
-          error: `Upload metadata failed: ${err instanceof Error ? err.message : String(err)}`,
-        };
-      }
-
-      // Best-effort change-feed emit so File Provider clients see the
-      // new asset without waiting for the discover watcher to notice
-      // the file. `.catch(() => {})` honours the Phase 5b guarantee
-      // that change-feed failure is non-fatal to the primary write.
-      await recordAndPublishAssetChange({
-        kind: 'create',
-        asset_id: assetID,
-        folder_id: folderId,
-        abs_path: absPath,
-      }).catch(() => {});
-
-      set.status = 201;
-      // `mtime` is emitted as an ISO-8601 string (matches the rest of
-      // the API and the Swift `Date` decoder); the raw `st.mtimeMs`
-      // float would corrupt an `Int64` decoder client-side.
-      return {
-        asset_id: assetID.toHexString(),
-        abs_path: absPath,
-        size: st.size,
-        mtime: new Date(st.mtimeMs).toISOString(),
-      };
+      });
     },
     {
       // Skip Elysia body parsing — the handler consumes `request.body`
