@@ -3,6 +3,8 @@
  */
 
 export * from './lib/tokens';
+export * from './lib/motion';
+export * from './lib/layout-service';
 export * from './lib/models/asset';
 export * from './lib/models/folder';
 export * from './lib/models/adjustment-model';

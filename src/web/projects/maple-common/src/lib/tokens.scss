@@ -28,10 +28,17 @@
 
   /* Borders */
   --color-border: #44403c;
+  /* Active ticks (drag-bar center tick), grab handles.
+     Responsive-program S0a (#581). */
+  --color-border-hi: #5a5552;
 
   /* Accent */
   --color-primary: #c4493a;
   --color-primary-dim: #422016;
+
+  /* Low-confidence signals (e.g. person detection). Tailwind amber-400.
+     Responsive-program S0a (#581). */
+  --color-warn: #fbbf24;
 
   /* Hover / active overlays */
   --color-bg-hover: rgba(255, 255, 255, 0.06);
@@ -69,9 +76,11 @@ $color-text-main: #e7e5e4;
 $color-text-muted: #a8a29e;
 
 $color-border: #44403c;
+$color-border-hi: #5a5552;
 
 $color-primary: #c4493a;
 $color-primary-dim: #422016;
+$color-warn: #fbbf24;
 
 $color-bg-hover: rgba(255, 255, 255, 0.06);
 $color-bg-active: rgba(255, 255, 255, 0.1);
