@@ -4,6 +4,7 @@
 // iPhone: TabView collapse in AppShell.
 
 import SwiftUI
+import CoreText
 import MapleCore
 import MapleBackup
 import OSLog
@@ -22,6 +23,7 @@ struct MapleApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        Self.registerBundledFonts()
         Self.installMemoryPressureObserver()
         BGTaskRegistration.register()
 
@@ -133,6 +135,32 @@ struct MapleApp: App {
             SettingsView()
         }
         #endif
+    }
+
+    /// Register bundled .ttf font faces with the OS so `Font.custom("…", size:)`
+    /// resolves them. `INFOPLIST_KEY_UIAppFonts` exists in build settings (and
+    /// is the spec's preferred path on iOS), but the Info.plist synthesizer
+    /// for this Xcode/SDK pair does not emit the key into the built plist —
+    /// the synthesizer recognizes only a fixed allowlist of `INFOPLIST_KEY_*`
+    /// names and `UIAppFonts` is not on it as of Xcode 17 / SDK 26.4. macOS
+    /// never had a synthesizer-supported font-registration key.
+    ///
+    /// Core Text registration sidesteps the plist path entirely and works on
+    /// both platforms. `CTFontManagerRegisterFontsForURL` is idempotent per
+    /// process; the error pointer is intentionally nil — we silently skip
+    /// duplicate registrations.
+    ///
+    /// Files live under `Maple/Resources/Fonts/` in source; the filesystem-
+    /// synchronized group flattens those into `Contents/Resources/` at build
+    /// time, so the bundle lookup uses bare filenames.
+    private static func registerBundledFonts() {
+        let names = ["Lato-Regular", "Lato-Bold", "Merriweather-Bold"]
+        for name in names {
+            guard let url = Bundle.main.url(forResource: name, withExtension: "ttf") else {
+                continue
+            }
+            CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+        }
     }
 
     /// Forward memory-pressure / low-memory signals to the thumbnail loader so

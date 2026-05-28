@@ -233,7 +233,7 @@ private struct FolderCell: View {
                             .foregroundStyle(MapleTokens.primary.opacity(0.85))
                     }
                 Text(url.lastPathComponent)
-                    .font(MapleTokens.Typography.caption)
+                    .font(MapleTokens.Typography.body)
                     .foregroundStyle(MapleTokens.textMain)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -275,7 +275,7 @@ private struct BrowseEmptyState: View {
                 .foregroundStyle(MapleTokens.textMuted)
 
             Text(primaryTitle)
-                .font(MapleTokens.Typography.emptyPrimary)
+                .font(MapleTokens.Typography.sheetTitle)
                 .foregroundStyle(MapleTokens.textMain)
 
             secondary
@@ -320,7 +320,7 @@ private struct BrowseEmptyState: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("Loading…")
-                    .font(MapleTokens.Typography.emptySecondary)
+                    .font(MapleTokens.Typography.rowLabel)
                     .foregroundStyle(MapleTokens.textMuted)
             }
         case .loadError:
@@ -338,12 +338,12 @@ private struct BrowseEmptyState: View {
             }
         case .sourceHasNoRaws:
             Text("This folder has no supported RAW files.")
-                .font(MapleTokens.Typography.emptySecondary)
+                .font(MapleTokens.Typography.rowLabel)
                 .foregroundStyle(MapleTokens.textMuted)
                 .multilineTextAlignment(.center)
         case .noSourcePicked:
             Text("Pick a folder or Photos Library filter in the sidebar.")
-                .font(MapleTokens.Typography.emptySecondary)
+                .font(MapleTokens.Typography.rowLabel)
                 .foregroundStyle(MapleTokens.textMuted)
                 .multilineTextAlignment(.center)
         }

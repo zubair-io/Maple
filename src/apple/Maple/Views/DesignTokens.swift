@@ -47,32 +47,39 @@ public struct MapleTokens {
 
     // MARK: - Typography
     //
-    // Use these everywhere instead of `.font(.system(size: …))` calls so
-    // hierarchy stays consistent. Mirrors the web's tailwind type scale —
-    // section headers up-cased + tracking, body sized for one-handed
-    // reading on iPhone, callouts subordinate.
+    // Bundled type scale per docs/spec/responsive-program-s0-primitives.md
+    // §3.4. Fonts registered via INFOPLIST_KEY_UIAppFonts in the Maple app
+    // target; .ttf files live in Maple/Resources/Fonts/. SF Mono is system-
+    // provided on Apple (no bundle needed); web ships JetBrains Mono for
+    // cross-browser consistency.
+    //
+    // Naming vocabulary mirrors the spec table — `sourceTitle`, `sheetTitle`,
+    // `body`, `rowLabel`, `eyebrow`, `chipLabel`, `toolLabel`, `valueChip`,
+    // `filename`. Avoid `.font(.system(size: …))` at call sites so the type
+    // hierarchy stays in one place.
     enum Typography {
-        /// Big screen title (rare; used for Settings-style stacks).
-        static let title = Font.system(size: 28, weight: .bold)
-        /// Section heading inside a panel (e.g. "FILE", "CULLING").
-        /// Up-case at the call site; the type is sized for the all-caps
-        /// presentation already.
-        static let sectionHeader = Font.system(size: 11, weight: .semibold).leading(.tight)
-        /// Server / library group header in the sidebar.
-        static let groupHeader = Font.system(size: 17, weight: .semibold)
-        /// Default row label — sidebar entries, info-row labels, list items.
-        /// 16pt is iOS standard list size; readable, not cramped.
-        static let row = Font.system(size: 16, weight: .regular)
-        /// Compact row variant for nested tree depths and dense panels.
-        static let rowDense = Font.system(size: 15, weight: .regular)
-        /// Secondary metadata next to a row label (counts, dates, hints).
-        static let meta = Font.system(size: 13, weight: .regular)
-        /// Caption — thumbnail filename, dim secondary captions.
-        static let caption = Font.system(size: 12, weight: .regular)
-        /// Empty-state primary text ("No assets yet").
-        static let emptyPrimary = Font.system(size: 17, weight: .semibold)
-        /// Empty-state secondary explainer text.
-        static let emptySecondary = Font.system(size: 14, weight: .regular)
+        /// Big serif title for source / library headers (Library, Pictures, etc).
+        /// Apply `.tracking(-0.5)` at call site per spec.
+        static let sourceTitle = Font.custom("Merriweather-Bold", size: 28)
+        /// Sheet title — info sheet header, modal headers.
+        static let sheetTitle = Font.custom("Merriweather-Bold", size: 17)
+        /// Generic body text — secondary metadata, hints, descriptive copy.
+        static let body = Font.custom("Lato-Regular", size: 13)
+        /// Default row label — sidebar entries, info-row values, list items.
+        static let rowLabel = Font.custom("Lato-Regular", size: 14)
+        /// Tool / pill labels in the editor row.
+        static let toolLabel = Font.custom("Lato-Regular", size: 10)
+        /// Chip label — filter chips, status pills.
+        static let chipLabel = Font.custom("Lato-Bold", size: 11)
+        /// Eyebrow / section header. Apply `.tracking(...)` and `.uppercased()`
+        /// at the call site (already up-cased) so the SCSS / Tailwind variants
+        /// stay in lockstep.
+        static let eyebrow = Font.custom("Lato-Bold", size: 10)
+        /// Mono numeric chip — slider value readouts. Pair with
+        /// `.monospacedDigit()` at the call site.
+        static let valueChip = Font.system(size: 11, weight: .regular, design: .monospaced)
+        /// Filenames in chrome (filmstrip captions, EXIF "File name" row).
+        static let filename = Font.system(size: 12, weight: .regular, design: .monospaced)
     }
 
     // MARK: - Spacing

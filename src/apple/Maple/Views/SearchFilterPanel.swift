@@ -60,12 +60,12 @@ struct SearchFilterPanel: View {
   private var header: some View {
     HStack {
       Text("Filters")
-        .font(MapleTokens.Typography.groupHeader)
+        .font(MapleTokens.Typography.sheetTitle)
         .foregroundStyle(MapleTokens.textMain)
       Spacer()
       if vm.hasActiveFilters {
         Button("Clear all") { vm.clearFilters() }
-          .font(MapleTokens.Typography.meta)
+          .font(MapleTokens.Typography.body)
           .buttonStyle(.plain)
           .foregroundStyle(MapleTokens.primary)
           .accessibilityIdentifier("search-clear-filters")
@@ -95,7 +95,7 @@ struct SearchFilterPanel: View {
         }
         if vm.params.rating != nil {
           Text("& up")
-            .font(MapleTokens.Typography.caption)
+            .font(MapleTokens.Typography.body)
             .foregroundStyle(MapleTokens.textMuted)
         }
       }
@@ -326,7 +326,7 @@ struct SearchFilterPanel: View {
                                       @ViewBuilder content: () -> Content) -> some View {
     VStack(alignment: .leading, spacing: 8) {
       Text(title.uppercased())
-        .font(MapleTokens.Typography.sectionHeader)
+        .font(MapleTokens.Typography.eyebrow)
         .foregroundStyle(MapleTokens.textMuted)
       content()
     }
@@ -335,7 +335,7 @@ struct SearchFilterPanel: View {
   private func chip(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
     Button(action: action) {
       Text(label)
-        .font(MapleTokens.Typography.caption)
+        .font(MapleTokens.Typography.body)
         .foregroundStyle(selected ? .white : MapleTokens.textMain)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
@@ -402,7 +402,7 @@ struct SearchFilterPanel: View {
   private func menuLabel(_ text: String) -> some View {
     HStack {
       Text(text)
-        .font(MapleTokens.Typography.row)
+        .font(MapleTokens.Typography.rowLabel)
         .foregroundStyle(MapleTokens.textMain)
         .lineLimit(1)
       Spacer()
