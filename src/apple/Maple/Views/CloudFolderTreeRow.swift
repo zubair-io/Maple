@@ -119,7 +119,7 @@ struct CloudFolderTreeRow: View {
               .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
               .frame(width: 22, alignment: .center)
             Text(displayName)
-              .font(depth == 0 ? MapleTokens.Typography.row : MapleTokens.Typography.rowDense)
+              .font(depth == 0 ? MapleTokens.Typography.rowLabel : MapleTokens.Typography.body)
               .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMain)
               .lineLimit(1)
               .truncationMode(.middle)
@@ -155,14 +155,14 @@ struct CloudFolderTreeRow: View {
           HStack {
             ProgressView().controlSize(.small)
             Text("Loading…")
-              .font(MapleTokens.Typography.meta)
+              .font(MapleTokens.Typography.body)
               .foregroundStyle(MapleTokens.textMuted)
           }
           .padding(.leading, indent + MapleTokens.Spacing.treeIndent)
           .padding(.vertical, 4)
         } else if loadFailed {
           Text("Couldn't load")
-            .font(MapleTokens.Typography.meta)
+            .font(MapleTokens.Typography.body)
             .foregroundStyle(.red)
             .padding(.leading, indent + MapleTokens.Spacing.treeIndent)
             .padding(.vertical, 4)
