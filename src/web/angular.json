@@ -37,6 +37,11 @@
                 "output": "assets"
               },
               {
+                "glob": "**/*.woff2",
+                "input": "projects/maple-common/src/assets/fonts",
+                "output": "/assets/fonts"
+              },
+              {
                 "glob": "manifest.webmanifest",
                 "input": "projects/maple-syrup/src",
                 "output": "/"
@@ -141,6 +146,11 @@
                 "glob": "**/*",
                 "input": "projects/maple/src/assets",
                 "output": "assets"
+              },
+              {
+                "glob": "**/*.woff2",
+                "input": "projects/maple-common/src/assets/fonts",
+                "output": "/assets/fonts"
               },
               {
                 "glob": "manifest.webmanifest",
