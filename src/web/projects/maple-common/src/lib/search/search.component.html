@@ -1,0 +1,24 @@
+<div class="search" data-testid="search-root">
+  <app-search-bar
+    [query]="query()"
+    (queryChange)="onQueryChange($event)"
+    (clear)="onClear()"
+    (submit)="onSubmit()"
+  />
+  <app-search-scope-chips [scope]="scope()" (scopeChange)="onScopeChange($event)" />
+
+  @if (showRecents()) {
+    <app-recent-queries [recent]="recent()" (recentTap)="onRecentTap($event)" />
+  } @else {
+    <app-top-hits-section [hits]="topHits()" [query]="query()" (hitTap)="onTopHitTap($event)" />
+    <app-photo-results-section
+      [results]="results()"
+      [total]="total()"
+      [isStale]="isStale()"
+      [hasQuery]="hasQuery() && !isStale()"
+      [query]="query()"
+      (resultTap)="onPhotoTap($event)"
+      (seeAll)="onSeeAll()"
+    />
+  }
+</div>
