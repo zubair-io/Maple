@@ -4,6 +4,7 @@ import {
   EditorPageComponent,
   EditorShellComponent,
   PhoneSettingsStubComponent,
+  ProtocolHandlerComponent,
 } from '@maple-common';
 import { LibraryPageComponent } from './library-page.component';
 // authGuard is not yet exported from @maple-common's public-api (see Task C6);
@@ -42,6 +43,15 @@ export const routes: Routes = [
   // wired directly to EditorPageComponent for the stacked #652 work.
   { path: 'library/loupe/:id', redirectTo: 'library/editor/:id' },
   { path: 'library/editor/:id', canActivate: [authGuard], component: EditorPageComponent },
+  // PWA `protocol_handlers` landing route — see manifest.webmanifest and
+  // ProtocolHandlerComponent. The browser substitutes the entire
+  // `web+maple://…` URL into `?url=…` (percent-encoded); the component
+  // decodes it and redirects to the canonical Angular route.
+  {
+    path: 'protocol-handler',
+    canActivate: [authGuard],
+    component: ProtocolHandlerComponent,
+  },
   // `/settings` lands on Workers. The card-grid landing was replaced by
   // the sidebar shell in v0.2. Non-owners hit authGuard inside
   // settings/workers and bounce; making the redirect role-aware (Account

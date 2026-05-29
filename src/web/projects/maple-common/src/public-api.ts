@@ -83,6 +83,7 @@ export * from './lib/shells/root-shell.component';
 export * from './lib/shells/phone-library-stub.component';
 export * from './lib/shells/phone-search-stub.component';
 export * from './lib/shells/phone-settings-stub.component';
+export * from './lib/shells/protocol-handler.component';
 
 // Responsive-program S2 (#623) — responsive Library grid (3 / 5 / auto-fill).
 export * from './lib/library/library-grid.component';
