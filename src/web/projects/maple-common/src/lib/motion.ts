@@ -2,45 +2,31 @@
 //
 // Web mirror of Apple's MapleTokens.Motion enum (DesignTokens.swift).
 // Duration + easing tokens for shell transitions, sheet present/dismiss,
-// group/tool swap, chrome hide, filter fade. Values must stay in sync
-// with the Swift side and with motion.scss.
+// group/tool swap, chrome hide, filter fade.
+//
+// Ticket #606: the canonical duration + easing pairs live in
+// `raw_core::ui_tokens::MOTION_TOKENS` and are emitted to
+// `./generated/ui-tokens.ts` by `tools/codegen.sh`. This file preserves the
+// stable `MapleMotion` API surface — every consumer keeps importing from
+// `maple-common` and gets the same shape as before.
+
+import { MAPLE_UI_MOTION } from './generated/ui-tokens';
 
 export const MapleMotion = {
   /** Drawer open/close (sidebar collapse on tablet/desktop). */
-  drawer: {
-    ms: 240,
-    ease: 'cubic-bezier(0.22, 1, 0.36, 1)' as const,
-  },
+  drawer: MAPLE_UI_MOTION.drawer,
   /** Push transition (iOS-system feel). */
-  push: {
-    ms: 320,
-    ease: 'cubic-bezier(0.32, 0.72, 0, 1)' as const,
-  },
+  push: MAPLE_UI_MOTION.push,
   /** Sheet present. */
-  sheetPresent: {
-    ms: 320,
-    ease: 'cubic-bezier(0.32, 0.72, 0, 1)' as const,
-  },
+  sheetPresent: MAPLE_UI_MOTION.sheetPresent,
   /** Sheet dismiss. */
-  sheetDismiss: {
-    ms: 280,
-    ease: 'cubic-bezier(0.32, 0.72, 0, 1)' as const,
-  },
+  sheetDismiss: MAPLE_UI_MOTION.sheetDismiss,
   /** Editor group/tool tab swap. */
-  groupSwap: {
-    ms: 120,
-    ease: 'ease-in-out' as const,
-  },
+  groupSwap: MAPLE_UI_MOTION.groupSwap,
   /** Loupe chrome auto-hide. */
-  chromeHide: {
-    ms: 180,
-    ease: 'ease-out' as const,
-  },
+  chromeHide: MAPLE_UI_MOTION.chromeHide,
   /** Library filter chip change cross-fade. */
-  filterFade: {
-    ms: 120,
-    ease: 'linear' as const,
-  },
+  filterFade: MAPLE_UI_MOTION.filterFade,
 } as const;
 
 export type MapleMotionKey = keyof typeof MapleMotion;
