@@ -28,13 +28,16 @@ export class App implements OnInit {
 
   constructor() {
     // Cold-boot deep-link dispatch. Same shape as the Self-Hosted
-    // app (see projects/maple/src/app/app.ts). The PWA protocol
-    // handler expands `maple://image/{id}` to
-    // `/library/editor/<encoded maple://…>`; DeepLinkService
-    // unwraps that internally. Silent fallback per spec §2.
+    // app (see projects/maple/src/app/app.ts). The PWA's
+    // `protocol_handlers` manifest entry registers
+    // `/library/editor/%s` (path expansion), so `maple://image/{id}`
+    // lands as `/library/editor/<encoded maple://…>`; DeepLinkService
+    // unwraps that internally. `?image=`/`?source=` are the direct
+    // HTTPS query forms for in-app callers. Silent fallback per
+    // spec §2.
     if (typeof window === 'undefined') return;
     const href = window.location.href;
-    if (href.startsWith('maple://') || /[?&](image|source|url)=/.test(href)) {
+    if (href.startsWith('maple://') || /[?&](image|source)=/.test(href)) {
       inject(DeepLinkService).resolve(href);
     }
   }
