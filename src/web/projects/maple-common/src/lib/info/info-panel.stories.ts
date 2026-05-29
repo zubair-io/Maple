@@ -30,14 +30,14 @@ const STUB_ASSET: Asset = {
   city: 'Paris',
 };
 
+// Minimal stub. The story renders a static `asset` input — flag/star
+// taps invoke these no-ops but the visible pill/star state is bound to
+// the input, not to this service's internal state, so it stays fixed.
+// For interactive flag/star behaviour wire up a host-component story
+// that mutates the asset input in response to setFlag / setRating.
 class FakeLibraryStateService {
-  // Mutable signal so the user can poke flags + stars in Storybook and
-  // see the chip / star fill state respond.
-  private _flag = signal<'pick' | 'unflagged' | 'reject'>('pick');
-  private _rating = signal(4);
-
-  setFlag = (_id: string, flag: 'pick' | 'unflagged' | 'reject') => this._flag.set(flag);
-  setRating = (_id: string, rating: number) => this._rating.set(rating);
+  setFlag = (_id: string, _flag: 'pick' | 'unflagged' | 'reject') => {};
+  setRating = (_id: string, _rating: number) => {};
   focusedAssetId = signal<string | undefined>('asset-storybook-1');
 }
 
