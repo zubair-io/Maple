@@ -10,11 +10,11 @@ Three tickets — **S5a Editor shell + chrome**, **S5b Drag bar primitive**, **S
 
 ## 1. Overview & deliverable map
 
-| Ticket | What ships | Files touched | Blocks |
-|---|---|---|---|
-| **S5a** | `EditorView` shell + chrome (header w/ back/undo/share/info + canvas region + filmstrip from S4 + group tabs + tool pill row stubs). Value chip overlay (top-center, sticky-glass). Tab-bar hide on push. Info modal via `mapleBottomSheet` (S1c). Undo ring buffer (32 entries). Debounced XMP save (500ms after last edit) — reuses existing `EditSession.debouncedSidecarWrite`. Keyboard shortcuts on desktop. | New `src/apple/Maple/Views/EditorView.swift`, new `src/apple/Maple/Views/EditorHeader.swift`, new `src/apple/Maple/Views/ValueChipOverlay.swift`, new `src/apple/Maple/Views/GroupTabsView.swift`, new `src/apple/Maple/Views/ToolPillRow.swift`, new `src/web/projects/maple-common/src/lib/editor/editor.component.{ts,html,scss,spec.ts}` + sibling files, route `/library/editor/:id` in both web apps | S5b / S5c |
-| **S5b** | `DragBar` primitive — 21 ticks at 5% increments, 14pt center tick (`borderHi`), 6pt other ticks (`border`), 2pt × 22pt accent marker. Drag mappings: bar 1:1, canvas 0.5:1, fine mode (long-press marker) 0.25:1. Double-tap reset. Haptics (zero-cross/extreme/reset/switch). Wired into `ValueChipOverlay` and `EditorView` for the armed tool. | New `src/apple/Maple/Views/DragBar.swift`, new `src/web/projects/maple-common/src/lib/editor/drag-bar.component.{ts,html,scss,spec.ts}` | S5c |
-| **S5c** | Tool model state machine (`EditorState`: armed tool, values, undo/redo stacks, dirty flag, fineMode). 22 tool glyphs designed (closes [#587](https://github.com/zubair-io/Maple/issues/587)). Tool pill row populated per group (Light: 6 tools, Color: 5, Effects: 6, Detail: 5). Each tool wired to its `AdjustmentModel` field with the value range/mapping per spec. | `src/apple/Sources/MapleCore/Editor/EditorState.swift` (new), `src/apple/Maple/Views/ToolPillRow.swift` (populated), `src/apple/Maple/Resources/ToolGlyphs/` (new SVGs or SF Symbol mappings), `src/web/projects/maple-common/src/lib/editor/editor-state.service.ts` (new), web ToolGlyphs added to `maple-icon` | — |
+| Ticket  | What ships                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Files touched                                                                                                                                                                                                                                                                                                                                                                                                                                | Blocks    |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| **S5a** | `EditorView` shell + chrome (header w/ back/undo/share/info + canvas region + filmstrip from S4 + group tabs + tool pill row stubs). Value chip overlay (top-center, sticky-glass). Tab-bar hide on push. Info modal via `mapleBottomSheet` (S1c). Undo ring buffer (32 entries). Debounced XMP save (750ms after last edit) — reuses the existing store-level debounce in `XMPSidecarStore.update` (Apple) and `CloudSidecarStore.update` / `LibraryFetchService.scheduleSidecarWrite` (web). Keyboard shortcuts on desktop. | New `src/apple/Maple/Views/EditorView.swift`, new `src/apple/Maple/Views/EditorHeader.swift`, new `src/apple/Maple/Views/ValueChipOverlay.swift`, new `src/apple/Maple/Views/GroupTabsView.swift`, new `src/apple/Maple/Views/ToolPillRow.swift`, new `src/web/projects/maple-common/src/lib/editor/editor.component.{ts,html,scss,spec.ts}` + sibling files, route `/library/editor/:id` in both web apps                                   | S5b / S5c |
+| **S5b** | `DragBar` primitive — 21 ticks at 5% increments, 14pt center tick (`borderHi`), 6pt other ticks (`border`), 2pt × 22pt accent marker. Drag mappings: bar 1:1, canvas 0.5:1, fine mode (long-press marker) 0.25:1. Double-tap reset. Haptics (zero-cross/extreme/reset/switch). Wired into `ValueChipOverlay` and `EditorView` for the armed tool.                                                                                                                                                                             | New `src/apple/Maple/Views/DragBar.swift`, new `src/web/projects/maple-common/src/lib/editor/drag-bar.component.{ts,html,scss,spec.ts}`                                                                                                                                                                                                                                                                                                      | S5c       |
+| **S5c** | Tool model state machine (`EditorState`: armed tool, values, undo/redo stacks, dirty flag, fineMode). 22 tool glyphs designed (closes [#587](https://github.com/zubair-io/Maple/issues/587)). Tool pill row populated per group (Light: 6 tools, Color: 5, Effects: 6, Detail: 5). Each tool wired to its `AdjustmentModel` field with the value range/mapping per spec.                                                                                                                                                      | `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/EditorState.swift` (new — `Editor/` subdir is new; the file must land inside the `MapleCore` package source tree so it compiles), `src/apple/Maple/Views/ToolPillRow.swift` (populated), `src/apple/Maple/Resources/ToolGlyphs/` (new SVGs or SF Symbol mappings), `src/web/projects/maple-common/src/lib/editor/editor-state.service.ts` (new), web ToolGlyphs added to `maple-icon` | —         |
 
 S5a depends on S0a/S0b/S0c, S1a, S1c, S4. S5b depends on S5a + S0a (motion). S5c depends on S5a + S5b.
 
@@ -49,12 +49,12 @@ Vertical stack top → bottom:
 
 ### Groups & tools
 
-| Group | Tools |
-|---|---|
-| Light | Exposure · Contrast · Highlights · Shadows · Whites · Blacks |
-| Color | Temp · Tint · Vibrance · Saturation · HSL |
-| Effects | Clarity · Texture · Dehaze · Vignette · Grain · Split tone |
-| Detail | Sharpen · Noise · Color NR · Crop · Presets |
+| Group   | Tools                                                        |
+| ------- | ------------------------------------------------------------ |
+| Light   | Exposure · Contrast · Highlights · Shadows · Whites · Blacks |
+| Color   | Temp · Tint · Vibrance · Saturation · HSL                    |
+| Effects | Clarity · Texture · Dehaze · Vignette · Grain · Split tone   |
+| Detail  | Sharpen · Noise · Color NR · Crop · Presets                  |
 
 ### Tool pill states
 
@@ -78,6 +78,7 @@ Vertical stack top → bottom:
 - **2pt × 22pt accent marker** at `50 + value/2 %` of bar width (mapping `[-100, +100]` linearly).
 
 **Drag behavior:**
+
 - Drag anywhere on the **canvas** OR the bar — both hit-test active.
 - Bar drag = **1:1**. Canvas drag = **0.5:1** (finer).
 - Vertical drag is **ignored** (no axis-lock affordance).
@@ -86,23 +87,23 @@ Vertical stack top → bottom:
 
 **Value ranges (internal `[-100, +100]`, display per tool):**
 
-| Tool | Display range | Step | Suffix |
-|---|---|---|---|
-| Exposure | EV ±4.0 | 0.05 | EV |
-| Temp | 2000–12000 K | 50 | K |
-| Tint | -100 to +100 | 1 | |
-| Other tools | -100 to +100 | 1 | |
+| Tool        | Display range | Step | Suffix |
+| ----------- | ------------- | ---- | ------ |
+| Exposure    | EV ±4.0       | 0.05 | EV     |
+| Temp        | 2000–12000 K  | 50   | K      |
+| Tint        | -100 to +100  | 1    |        |
+| Other tools | -100 to +100  | 1    |        |
 
 Display value computed from internal value at the call site (`ValueChipOverlay`); the drag bar itself only knows the internal `[-100, +100]` linear scale.
 
 **Haptics:**
 
-| Event | iOS | Web (Vibration API) |
-|---|---|---|
-| Cross zero | `.impact(.light)` | `navigator.vibrate(8)` |
-| Hit ±100 | `.impact(.medium)` | `navigator.vibrate(12)` |
-| Reset (double-tap) | `.selection` | `navigator.vibrate(4)` |
-| Switch tool/group | `.selection` | `navigator.vibrate(4)` |
+| Event              | iOS                | Web (Vibration API)     |
+| ------------------ | ------------------ | ----------------------- |
+| Cross zero         | `.impact(.light)`  | `navigator.vibrate(8)`  |
+| Hit ±100           | `.impact(.medium)` | `navigator.vibrate(12)` |
+| Reset (double-tap) | `.selection`       | `navigator.vibrate(4)`  |
+| Switch tool/group  | `.selection`       | `navigator.vibrate(4)`  |
 
 ---
 
@@ -114,8 +115,8 @@ Display value computed from internal value at the call site (`ValueChipOverlay`)
 type EditorState = {
   imageId: string;
   armed: { group: GroupId; tool: ToolId };
-  values: Record<ToolId, number>;   // internal [-100, +100]
-  undoStack: Snapshot[];            // ring buffer, cap 32
+  values: Record<ToolId, number>; // internal [-100, +100]
+  undoStack: Snapshot[]; // ring buffer, cap 32
   redoStack: Snapshot[];
   isDirty: boolean;
   fineMode: boolean;
@@ -123,7 +124,7 @@ type EditorState = {
 ```
 
 - **Undo commit boundaries**: slider release · keyboard shortcut (P/X/0–5) · WB preset · eyedropper · copy-paste · revert. **Not per-frame.**
-- **Save**: 500ms debounce after last edit → `EditSession.debouncedSidecarWrite` (existing). Synchronous flush on `endEditing`.
+- **Save**: piggy-backs on the existing **store-level 750ms debounce**. On Apple, `EditSession` already routes mutations through `XMPSidecarStore.update(...)` (debounceInterval = 750ms; resets the timer on each call; flushes on shutdown). On web, mutations route through `LibraryStateService` → `LibraryFetchService.scheduleSidecarWrite(id)` which holds its own debounce before the POST. S5 does **not** introduce a new `EditorState`-level debounce; it just calls the existing `EditSession` mutators on slider commit and lets the store coalesce the write. Synchronous flush on editor dismissal uses `XMPSidecarStore.flush()` (Apple) / the equivalent web flush.
 
 ### Persistence (`cm.*`)
 
@@ -136,7 +137,7 @@ type EditorState = {
 
 ### Files
 
-- **New** `src/apple/Sources/MapleCore/Editor/EditorState.swift` — `@Observable` class with the type above; methods for `arm(tool:)`, `setValue(_:)`, `undo()`, `redo()`, `reset()`, `commit()`. Mirrors existing `EditSession` patterns.
+- **New** `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/EditorState.swift` — `@Observable` class with the type above; methods for `arm(tool:)`, `setValue(_:)`, `undo()`, `redo()`, `reset()`, `commit()`. Mirrors existing `EditSession` patterns. (`MapleCore` lives under `src/apple/Packages/MapleCore/`; the `Editor/` subdirectory is new and ships with this PR so the file is picked up by the SPM target.)
 - **New** `src/apple/Maple/Views/EditorView.swift` — top-level `View` composing the seven regions.
 - **New** `src/apple/Maple/Views/EditorHeader.swift` — back/filename/undo/share/info row.
 - **New** `src/apple/Maple/Views/ValueChipOverlay.swift` — always-rendered overlay reading from `EditorState.armed` and `.values[armed.tool]`. Display formatting per tool (`Exposure +0.25 EV`, `Temp 5800 K`, etc.).
@@ -197,12 +198,13 @@ Haptic via `navigator.vibrate(ms)` with feature-detection fallback (no-op on bro
 
 ### EditorView (S5a)
 
-- Apple: `XCTest` for undo ring (cap 32, FIFO), debounced save (500ms via `Task.sleep` mock), keyboard shortcut routing.
+- Apple: `XCTest` for undo ring (cap 32, FIFO), store-level debounced save (the existing `XMPSidecarStore` 750ms debounce — assert via the existing test helpers in `XMPSidecarStoreTests`, not a new editor-side mock), keyboard shortcut routing.
 - Web: `editor.component.spec.ts` — renders 7 regions; tap undo invokes `editorState.undo()`; long-press triggers redo; Info icon opens bottom-sheet.
 
 ### CI gates
 
 Same as S0/S1 baseline plus:
+
 - Slider tick performance: synthetic test renders 60Hz drag over 2 seconds; assert no frame drops above 25ms (per CLAUDE.md "16ms slider, 50ms hard limit"). Hard to automate fully on web; defer to manual smoke + perf budget reminder in PR.
 
 ### Visual verification
@@ -218,7 +220,7 @@ Same as S0/S1 baseline plus:
 1. **Drag-bar gesture conflict with horizontal swipe** — canvas drag horizontally for value changes vs swipe between images. Resolution: in Editor mode, the swipe-between gesture is DISABLED (per prompt §5.5; back-arrow is the navigation). Phone Loupe (S4) has swipe-between; Editor doesn't. Document explicitly.
 2. **Tool glyphs** — 22 custom glyphs need design. Closes [#587](https://github.com/zubair-io/Maple/issues/587). Designer must produce these as SVG paths matching prompt stroke conventions (1.6 stroke, round caps/joins). Block S5c until they exist.
 3. **`AdjustmentModel` field naming alignment** — `EditorState.values[ToolId]` keys must match `AdjustmentModel` fields. Audit: existing model has exposure, contrast, highlights, shadows, whites, blacks, temperature, tint, vibrance, saturation, clarity, texture, dehaze. Detail (sharpen, noise) exists. HSL, vignette, grain, split-tone, color-NR, crop, presets — some may not exist on `AdjustmentModel` yet. File follow-up tickets for missing fields.
-4. **500ms debounce + undo ring race** — slider release fires both `commit()` (undo snapshot) and `scheduleSidecarWrite(500ms)`. If user undoes within 500ms, the sidecar write fires with the pre-undo value. Existing `EditSession` handles this — verify pattern reuse.
+4. **Store-level debounce + undo ring race** — slider release fires both `commit()` (undo snapshot) and an `EditSession` mutator that resets the 750ms timer inside `XMPSidecarStore.update` (Apple) / `LibraryFetchService.scheduleSidecarWrite` (web). If the user undoes within 750ms the undo path itself is another `EditSession` mutation that flows through the same store, so the next-scheduled write is the post-undo value — the store coalesces on `(assetId)` and only the latest call's payload reaches disk. Two things to lock down at PR time: (a) the editor's `undo()`/`redo()` paths really do route through the same store-level mutator (not a side-channel write), and (b) the editor-dismissal flush calls `XMPSidecarStore.flush()` before the view tears down so an undo-then-leave sequence persists the right value. No new 500ms `EditSession.scheduleSidecarWrite` path is introduced.
 5. **Keyboard shortcuts on iPad with hardware keyboard** — tablet-class device; per §5b.5 only `←/→`, `Esc`, `Cmd+S`, `Cmd+Z` are bound on tablet. Skip `1-5`/`P`/`X`/`E`/`I` because they conflict with hardware-keyboard text input. Test on iPad sim with attached keyboard.
 6. **`Cmd+Z` undo via existing UndoManager** — Apple has a system `UndoManager`. EditorState's custom ring vs system manager: use the custom ring (per existing `EditSession` pattern); document.
 
