@@ -125,6 +125,10 @@ export * from './lib/auth/auth.guard';
 export * from './lib/auth/auth.interceptor';
 export * from './lib/auth/auth-bootstrap';
 
+// Deep links (responsive-program #624) — maple:// scheme + HTTPS
+// shim resolved to Angular Router navigations.
+export * from './lib/deep-link/deep-link.service';
+
 // Timeline view (web — Self-Hosted only).
 export * from './lib/state/timeline-state.service';
 export * from './lib/components/timeline-view/timeline-view.component';
