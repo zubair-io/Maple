@@ -4,7 +4,6 @@ import {
   BrowseShellComponent,
   EditorPageComponent,
   EditorShellComponent,
-  PhoneSearchStubComponent,
   PhoneSettingsStubComponent,
 } from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
@@ -21,14 +20,19 @@ const baseRoutes: Routes = [
   { path: '', component: LandingComponent },
   { path: 'browse', component: BrowseShellComponent },
   { path: 'edit/:id', component: EditorShellComponent },
-  // Responsive-program S1a (#597) / S2 (#623) / S5 (#625) — phone-tier
-  // tab routes shared with RootShellComponent. The Library tab now
-  // renders the responsive grid; loupe redirects to the S5 Editor (S4
-  // dropped per #619 — the Editor canvas IS the full-image view).
+  // Responsive-program S1a (#597) / S2 (#623) / S5 (#625) / S7 (#622)
+  // — phone-tier tab routes shared with RootShellComponent. The Library
+  // tab renders the responsive grid; loupe redirects to the S5 Editor
+  // (S4 dropped per #619 — the Editor canvas IS the full-image view);
+  // search is the lazy-loaded S7 page.
   { path: 'library', component: LibraryPageComponent },
   { path: 'library/loupe/:id', redirectTo: 'library/editor/:id' },
   { path: 'library/editor/:id', component: EditorPageComponent },
-  { path: 'search', component: PhoneSearchStubComponent },
+  {
+    path: 'search',
+    loadComponent: () =>
+      import('./search-page.component').then((m) => m.SearchPageComponent),
+  },
   { path: 'settings', component: PhoneSettingsStubComponent },
 ];
 
