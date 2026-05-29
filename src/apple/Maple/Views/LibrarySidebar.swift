@@ -83,18 +83,29 @@ struct LibrarySidebar: View {
     /// view's lifetime so we can unsubscribe in `.task`'s cancellation.
     @State private var photosChangeToken: UUID?
 
+    /// S7 follow-up (#645): tablet/desktop sidebar search pill —
+    /// triggers an anchored overlay that hosts `SearchView` once #629
+    /// merges. Until then, the overlay shows a placeholder.
+    @State private var isSearchOverlayOpen: Bool = false
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                cloudServersSection
-                if !registry.servers.isEmpty { separator }
-                foldersSection
-                separator
-                photosSection
-                separator
-                connectionsSection
+        VStack(alignment: .leading, spacing: 0) {
+            LibrarySidebarSearchPill(
+                isPresented: $isSearchOverlayOpen,
+                widthPt: 320
+            )
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    cloudServersSection
+                    if !registry.servers.isEmpty { separator }
+                    foldersSection
+                    separator
+                    photosSection
+                    separator
+                    connectionsSection
+                }
+                .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
         }
         .background(MapleTokens.sidebar)
         .task {
