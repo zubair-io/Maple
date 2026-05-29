@@ -20,7 +20,12 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 74vh;
+  // Extend height by the home-indicator inset so the visible 74vh of content
+  // remains usable when the sheet sits flush against the bottom of a PWA
+  // viewport. Padding below pushes the projected `.content` clear of the
+  // indicator. PWA polish (#620).
+  height: calc(74vh + var(--safe-area-inset-bottom, 0px));
+  padding-bottom: var(--safe-area-inset-bottom, 0px);
   background: var(--color-surface);
   border-top-left-radius: 18px;
   border-top-right-radius: 18px;

@@ -55,7 +55,10 @@
 }
 
 .drawer-header {
-  padding: 18px 16px 12px;
+  // Top padding lifts the eyebrow row past the iOS notch / dynamic island when
+  // installed as a PWA. `--safe-area-inset-top` is `0px` outside PWA contexts
+  // so non-installed browser sessions keep the original 18px. PWA polish (#620).
+  padding: calc(18px + var(--safe-area-inset-top, 0px)) 16px 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -156,7 +159,9 @@
   // (header + search pill + separator) stays pinned.
   overflow-y: auto;
   flex: 1 1 auto;
-  padding: 8px 0;
+  // Bottom padding clears the home indicator inset under iOS PWA install.
+  // PWA polish (#620).
+  padding: 8px 0 calc(8px + var(--safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
 }
