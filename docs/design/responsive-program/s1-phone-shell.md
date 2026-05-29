@@ -10,11 +10,11 @@ The phone-tier UX is grounded in `/Users/riabuz/Projects/_Maple/mobile/Maple Mob
 
 ## 1. Overview & deliverable map
 
-| Ticket | What ships | Files touched | Blocks |
-|---|---|---|---|
+| Ticket  | What ships                                                                                                                                                                                                                                                                                                                                                                                                                                        | Files touched                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Blocks             |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
 | **S1a** | `PhoneTabShell` (Apple TabView with 3 tabs; web custom bottom-nav). Per-tab NavigationStack preserving push depth. Routed via `MapleShellKind.current == .phoneTab` on Apple / `LayoutService.layout() === 'phone'` on web; pane shell stays for tablet/desktop. Stubs in each tab — S2/S7/S8 fill real content. Tab bar hides during Loupe/Editor push via `.toolbar(.hidden, for: .tabBar)` (Apple) and `TabBarVisibilityService` signal (web). | `src/apple/Maple/Views/{PhoneTabShell,PhoneLibraryStub,PhoneSearchStub}.swift` (new), `src/apple/Maple/Views/AppShell.swift`, `src/apple/Maple/Views/AppShellIPhoneShell.swift` (rewire), `src/web/projects/maple-common/src/lib/shells/{phone-tab-shell,root-shell,tab-bar-visibility.service}.{ts,html,scss,spec.ts}`, `src/web/projects/maple/src/app/app.routes.ts`, `src/web/projects/maple-syrup/src/app/app.routes.ts`, `src/web/projects/{maple,maple-syrup}/src/app/app.component.ts`, `docs/spec/07-ui-architecture.md` | S2, S4, S5, S7, S8 |
-| **S1b** | Source-picker drawer rewired from phone-shell-level to Library-tab-scoped. 326pt width, HTML-frame-01 content (LIBRARY eyebrow + connection identity + search pill + Folders / Photos Library / Albums tree). Web equivalent in `maple-common`. | `src/apple/Maple/Views/AppShellIPhoneDrawer.swift` (rewire), `src/apple/Maple/Views/PhoneLibraryStub.swift`, `src/web/projects/maple-common/src/lib/shells/source-picker-drawer.component.{ts,html,scss,spec.ts}` | S2 |
-| **S1c** | Bottom-sheet primitive. Apple = `.sheet` + `.presentationDetents([.fraction(0.74)])` extension (`mapleBottomSheet`). Web = hand-rolled component with PointerEvents drag-to-dismiss matching spec exactly (35% scrim, 38×4pt grab handle, 25%/1000 px/s dismiss threshold). | `src/apple/Maple/Views/BottomSheet.swift` (new), `src/web/projects/maple-common/src/lib/shells/bottom-sheet.component.{ts,html,scss,spec.ts}` | S4, S5, S6 |
+| **S1b** | Source-picker drawer rewired from phone-shell-level to Library-tab-scoped. 326pt width, HTML-frame-01 content (LIBRARY eyebrow + connection identity + search pill + Folders / Photos Library / Albums tree). Web equivalent in `maple-common`.                                                                                                                                                                                                   | `src/apple/Maple/Views/AppShellIPhoneDrawer.swift` (rewire), `src/apple/Maple/Views/PhoneLibraryStub.swift`, `src/web/projects/maple-common/src/lib/shells/source-picker-drawer.component.{ts,html,scss,spec.ts}`                                                                                                                                                                                                                                                                                                                 | S2                 |
+| **S1c** | Bottom-sheet primitive. Apple = `.sheet` + `.presentationDetents([.fraction(0.74)])` extension (`mapleBottomSheet`). Web = hand-rolled component with PointerEvents drag-to-dismiss matching spec exactly (35% scrim, 38×4pt grab handle, 25%/1000 px/s dismiss threshold).                                                                                                                                                                       | `src/apple/Maple/Views/BottomSheet.swift` (new), `src/web/projects/maple-common/src/lib/shells/bottom-sheet.component.{ts,html,scss,spec.ts}`                                                                                                                                                                                                                                                                                                                                                                                     | S4, S5, S6         |
 
 S1a depends on S0a (`MapleLayout`/`MapleShellKind`). S1b builds on S1a's `PhoneLibraryStub` host. S1c is independent of S1a/S1b. S1a unblocks S2/S4/S5/S7/S8.
 
@@ -139,7 +139,7 @@ S4/S5 route components call `hidden.set(true)` on init, `.set(false)` on destroy
   { path: 'library/editor/:id', loadComponent: () => import('...future S5 component') },
   { path: 'search', loadComponent: () => import('...future S7 component') },
   { path: 'settings', loadComponent: () => import('...future S8 component') },
-]
+];
 ```
 
 **Shell selection at top level** — new `RootShellComponent` in `maple-common/shells/`:
@@ -148,7 +148,7 @@ S4/S5 route components call `hidden.set(true)` on init, `.set(false)` on destroy
 @Component({
   selector: 'app-root-shell',
   standalone: true,
-  imports: [PhoneTabShellComponent, /* existing pane shell component */],
+  imports: [PhoneTabShellComponent /* existing pane shell component */],
   template: `
     @if (layout() === 'phone') {
       <app-phone-tab-shell />
@@ -167,8 +167,8 @@ Each app (`maple`, `maple-syrup`) updates `app.component.ts` to render `<app-roo
 
 ### 2.3 Persistence
 
-| Key | Type | Used by | Status |
-|---|---|---|---|
+| Key      | Type                                               | Used by        | Status                                                                                                                                                                     |
+| -------- | -------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `cm.tab` | string (`"library"` \| `"search"` \| `"settings"`) | both platforms | reuse existing — **audit at PR time** for collision with Detail-panel tab (Risk §6.1; if collision, introduce `cm.tab.shell` for phone and keep `cm.tab` for Detail panel) |
 
 ### 2.4 Spec doc edits — `docs/spec/07-ui-architecture.md`
@@ -182,22 +182,22 @@ Each app (`maple`, `maple-syrup`) updates `app.component.ts` to render `<app-roo
 
 ### 3.1 Apple — rewire existing `AppShellIPhoneDrawer.swift`
 
-| Change | Was | After S1b |
-|---|---|---|
-| Scope | phone-shell-level (overlays entire iPhone shell) | Library-tab-scoped (overlays Library tab content only) |
-| Width | 280pt | **326pt** (HTML spec; ~81% of viewport) |
-| Pan-left dismiss threshold | (existing impl varies) | **≥ 30% of drawer width** |
-| Trailing edge | (existing) | `borderTopRightRadius / borderBottomRightRadius: 18pt`; shadow `12px 0 40px rgba(0,0,0,0.5)` |
-| Open transition | (existing) | `MapleTokens.Motion.drawer` (240ms, S0a token) |
-| Scrim | (existing) | 45% black over Library tab grid; tap-anywhere dismisses |
+| Change                     | Was                                              | After S1b                                                                                    |
+| -------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| Scope                      | phone-shell-level (overlays entire iPhone shell) | Library-tab-scoped (overlays Library tab content only)                                       |
+| Width                      | 280pt                                            | **326pt** (HTML spec; ~81% of viewport)                                                      |
+| Pan-left dismiss threshold | (existing impl varies)                           | **≥ 30% of drawer width**                                                                    |
+| Trailing edge              | (existing)                                       | `borderTopRightRadius / borderBottomRightRadius: 18pt`; shadow `12px 0 40px rgba(0,0,0,0.5)` |
+| Open transition            | (existing)                                       | `MapleTokens.Motion.drawer` (240ms, S0a token)                                               |
+| Scrim                      | (existing)                                       | 45% black over Library tab grid; tap-anywhere dismisses                                      |
 
 **Content** — reuses existing `LibrarySidebar` for source-tree rendering (no duplicate source-tree code). Drawer adds only the chrome frame and the search pill above the tree:
 
-| Region | Contents |
-|---|---|
-| Header | `LIBRARY` eyebrow (Lato 10pt/700, 0.14em, uppercase) + close X (top-right). Connection identity (e.g. `maple.lawrence.io`) + chevron (stub for v0.1 — Maple-instance switcher is out of scope). Tertiary line: total photos + last sync. |
-| Search pill | Pill input. **Tap → `activeTab = "search"`, dismiss drawer, post `.focusSearch` event so S7's search field auto-focuses on mount.** Not a no-op text input. |
-| Source tree | Existing `LibrarySidebar` view, scoped to source tree only (no detail panel chrome). FOLDERS / PHOTOS LIBRARY / ALBUMS sections per HTML frame 01. |
+| Region      | Contents                                                                                                                                                                                                                                 |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Header      | `LIBRARY` eyebrow (Lato 10pt/700, 0.14em, uppercase) + close X (top-right). Connection identity (e.g. `maple.lawrence.io`) + chevron (stub for v0.1 — Maple-instance switcher is out of scope). Tertiary line: total photos + last sync. |
+| Search pill | Pill input. **Tap → `activeTab = "search"`, dismiss drawer, post `.focusSearch` event so S7's search field auto-focuses on mount.** Not a no-op text input.                                                                              |
+| Source tree | Existing `LibrarySidebar` view, scoped to source tree only (no detail panel chrome). FOLDERS / PHOTOS LIBRARY / ALBUMS sections per HTML frame 01.                                                                                       |
 
 **Interactions:**
 
@@ -254,12 +254,16 @@ SCSS:
 
 ```scss
 .scrim {
-  position: fixed; inset: 0;
+  position: fixed;
+  inset: 0;
   background: rgba(0, 0, 0, 0.45);
   z-index: 90;
 }
 .drawer {
-  position: fixed; top: 0; bottom: 0; left: 0;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
   width: min(326px, 81vw);
   background: var(--color-surface);
   border-top-right-radius: 18px;
@@ -269,20 +273,22 @@ SCSS:
   transition: transform var(--motion-drawer-ms) var(--motion-drawer-ease);
   z-index: 91;
 }
-.drawer.dragging { transition: none; }
+.drawer.dragging {
+  transition: none;
+}
 ```
 
 `PhoneLibraryStub` (Angular) hosts the drawer + a header with hamburger; consumes `LibraryStateService` for source data.
 
 ### 3.3 Files touched (S1b PR)
 
-| File | Change |
-|---|---|
-| `src/apple/Maple/Views/AppShellIPhoneDrawer.swift` | rewire (width, dismiss, motion, search-pill callback) |
-| `src/apple/Maple/Views/PhoneLibraryStub.swift` | expand header + drawer host |
-| `src/apple/Maple/Views/LibrarySidebar.swift` | extract source-tree sub-view if needed for reuse — audit at PR time |
-| `src/web/projects/maple-common/src/lib/shells/source-picker-drawer.component.{ts,html,scss,spec.ts}` | **new** |
-| `src/web/projects/maple-common/src/public-api.ts` | export |
+| File                                                                                                 | Change                                                              |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `src/apple/Maple/Views/AppShellIPhoneDrawer.swift`                                                   | rewire (width, dismiss, motion, search-pill callback)               |
+| `src/apple/Maple/Views/PhoneLibraryStub.swift`                                                       | expand header + drawer host                                         |
+| `src/apple/Maple/Views/LibrarySidebar.swift`                                                         | extract source-tree sub-view if needed for reuse — audit at PR time |
+| `src/web/projects/maple-common/src/lib/shells/source-picker-drawer.component.{ts,html,scss,spec.ts}` | **new**                                                             |
+| `src/web/projects/maple-common/src/public-api.ts`                                                    | export                                                              |
 
 ---
 
@@ -322,11 +328,11 @@ content
 
 **Deviations from spec** (acceptable — visible-but-minor, noted in PR description):
 
-| Spec wants | Native gives | Mitigation |
-|---|---|---|
-| Scrim 35% dim | System ~50% dim | None via public API |
-| Grab handle 38×4pt, `borderHi` color | System default | Hide native + draw custom inside content view if visual review demands |
-| Dismiss at 25% height OR 1000 px/s | Native ~50% threshold | Hand-rolled sheet required for exact match (~150 LOC) |
+| Spec wants                           | Native gives          | Mitigation                                                             |
+| ------------------------------------ | --------------------- | ---------------------------------------------------------------------- |
+| Scrim 35% dim                        | System ~50% dim       | None via public API                                                    |
+| Grab handle 38×4pt, `borderHi` color | System default        | Hide native + draw custom inside content view if visual review demands |
+| Dismiss at 25% height OR 1000 px/s   | Native ~50% threshold | Hand-rolled sheet required for exact match (~150 LOC)                  |
 
 If design review pushes back, file follow-up KTLO to hand-roll. v1 ships native.
 
@@ -351,15 +357,19 @@ Template (`bottom-sheet.component.html`):
 
 ```html
 @if (isOpen()) {
-  <div class="scrim" (click)="isOpen.set(false)" role="presentation"></div>
-  <div class="sheet" role="dialog" aria-modal="true"
-       [class.dragging]="isDragging()"
-       (pointerdown)="onPointerDown($event)"
-       (pointermove)="onPointerMove($event)"
-       (pointerup)="onPointerUp($event)">
-    <div class="grab-handle" aria-hidden="true"></div>
-    <ng-content />
-  </div>
+<div class="scrim" (click)="isOpen.set(false)" role="presentation"></div>
+<div
+  class="sheet"
+  role="dialog"
+  aria-modal="true"
+  [class.dragging]="isDragging()"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event)"
+  (pointerup)="onPointerUp($event)"
+>
+  <div class="grab-handle" aria-hidden="true"></div>
+  <ng-content />
+</div>
 }
 ```
 
@@ -367,12 +377,16 @@ SCSS:
 
 ```scss
 .scrim {
-  position: fixed; inset: 0;
+  position: fixed;
+  inset: 0;
   background: rgba(0, 0, 0, 0.35);
   z-index: 100;
 }
 .sheet {
-  position: fixed; bottom: 0; left: 0; right: 0;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
   height: 74vh;
   background: var(--color-surface);
   border-top-left-radius: 18px;
@@ -382,9 +396,12 @@ SCSS:
   transform: translateY(0);
   transition: transform var(--motion-sheet-present-ms) var(--motion-sheet-present-ease);
 }
-.sheet.dragging { transition: none; }
+.sheet.dragging {
+  transition: none;
+}
 .grab-handle {
-  width: 38px; height: 4px;
+  width: 38px;
+  height: 4px;
   background: var(--color-border-hi);
   border-radius: 2px;
   margin: 8px auto 4px;
@@ -395,11 +412,11 @@ Pan-to-dismiss: `pointerdown/move/up` handlers inline — at `pointerup`, dismis
 
 ### 4.3 Files touched (S1c PR)
 
-| File | Change |
-|---|---|
-| `src/apple/Maple/Views/BottomSheet.swift` | **new** — `mapleBottomSheet` extension + `#Preview` |
-| `src/web/projects/maple-common/src/lib/shells/bottom-sheet.component.{ts,html,scss,spec.ts}` | **new** |
-| `src/web/projects/maple-common/src/public-api.ts` | export |
+| File                                                                                         | Change                                              |
+| -------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `src/apple/Maple/Views/BottomSheet.swift`                                                    | **new** — `mapleBottomSheet` extension + `#Preview` |
+| `src/web/projects/maple-common/src/lib/shells/bottom-sheet.component.{ts,html,scss,spec.ts}` | **new**                                             |
+| `src/web/projects/maple-common/src/public-api.ts`                                            | export                                              |
 
 ---
 
