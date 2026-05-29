@@ -74,7 +74,7 @@ final class MapleLayoutTests: XCTestCase {
 
     // MARK: Macro coverage on the host platform
 
-    func testCurrentShellOnMacIsPane() {
+    func testCurrentShellOnMacIsPane() throws {
         #if os(macOS)
         XCTAssertEqual(MapleShellKind.current, .pane)
         #else
