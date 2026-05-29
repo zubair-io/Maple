@@ -1,13 +1,13 @@
-import { describe, test, expect, afterEach } from "bun:test";
+import { describe, test, expect, afterEach } from 'bun:test';
 import {
   resolveBackupLocation,
   setIngestGeocodeDepsForTests,
-} from "../src/backup/ingest-geocode.ts";
-import type { CoordinateCache } from "../src/enrichment/coordinate-cache.ts";
-import { quantizedKey } from "../src/enrichment/coordinate-cache.ts";
-import type { NominatimClient } from "../src/enrichment/nominatim-client.ts";
-import type { Place } from "../src/db/schema.ts";
-import type { NominatimReverseResponse } from "../src/enrichment/place-parser.ts";
+} from '../src/backup/ingest-geocode.ts';
+import type { CoordinateCache } from '../src/enrichment/coordinate-cache.ts';
+import { quantizedKey } from '../src/enrichment/coordinate-cache.ts';
+import type { NominatimClient } from '../src/enrichment/nominatim-client.ts';
+import type { Place } from '../src/db/schema.ts';
+import type { NominatimReverseResponse } from '../src/enrichment/place-parser.ts';
 
 // Mongo-free coverage for the ingest-path geocoder. The end-to-end "GPS →
 // geocoded path" assertion lives in backup-ingest.test.ts (which needs a live
@@ -38,15 +38,13 @@ function fakeCache() {
 
 /** Stub NominatimClient whose reverse() returns a canned response after a
  * microtask (so concurrent callers actually overlap), counting calls. */
-function fakeClient(
-  response: NominatimReverseResponse | (() => Promise<never>),
-) {
+function fakeClient(response: NominatimReverseResponse | (() => Promise<never>)) {
   let calls = 0;
   const client = {
     async reverse(): Promise<NominatimReverseResponse> {
       calls++;
       await Promise.resolve();
-      if (typeof response === "function") return response();
+      if (typeof response === 'function') return response();
       return response;
     },
   };
@@ -54,14 +52,14 @@ function fakeClient(
 }
 
 const PARIS: NominatimReverseResponse = {
-  display_name: "Paris, France",
-  address: { city: "Paris", country_code: "fr" },
+  display_name: 'Paris, France',
+  address: { city: 'Paris', country_code: 'fr' },
 } as unknown as NominatimReverseResponse;
 
 afterEach(() => setIngestGeocodeDepsForTests(null));
 
-describe("resolveBackupLocation", () => {
-  test("non-finite coordinates → null, no lookup", async () => {
+describe('resolveBackupLocation', () => {
+  test('non-finite coordinates → null, no lookup', async () => {
     const c = fakeClient(PARIS);
     setIngestGeocodeDepsForTests({
       client: c.client,
@@ -71,32 +69,32 @@ describe("resolveBackupLocation", () => {
     expect(c.calls()).toBe(0);
   });
 
-  test("warm cache hit → name, no live lookup", async () => {
+  test('warm cache hit → name, no live lookup', async () => {
     const fc = fakeCache();
     await fc.cache.set(48.8566, 2.3522, {
-      pois: [{ name: "Louvre" }],
-      rollups: { locality: "Paris" },
+      pois: [{ name: 'Louvre' }],
+      rollups: { locality: 'Paris' },
     } as unknown as Place);
     const c = fakeClient(PARIS);
     setIngestGeocodeDepsForTests({ client: c.client, cache: fc.cache });
 
-    expect(await resolveBackupLocation(48.8566, 2.3522)).toBe("Louvre");
+    expect(await resolveBackupLocation(48.8566, 2.3522)).toBe('Louvre');
     expect(c.calls()).toBe(0);
   });
 
-  test("cache miss → live geocode resolves locality + caches it", async () => {
+  test('cache miss → live geocode resolves locality + caches it', async () => {
     const fc = fakeCache();
     const c = fakeClient(PARIS);
     setIngestGeocodeDepsForTests({ client: c.client, cache: fc.cache });
 
-    expect(await resolveBackupLocation(48.8566, 2.3522)).toBe("Paris");
+    expect(await resolveBackupLocation(48.8566, 2.3522)).toBe('Paris');
     expect(c.calls()).toBe(1);
     // Cached for next time — a second call doesn't hit the client.
-    expect(await resolveBackupLocation(48.8566, 2.3522)).toBe("Paris");
+    expect(await resolveBackupLocation(48.8566, 2.3522)).toBe('Paris');
     expect(c.calls()).toBe(1);
   });
 
-  test("concurrent misses for one location share a single live lookup", async () => {
+  test('concurrent misses for one location share a single live lookup', async () => {
     const fc = fakeCache();
     const c = fakeClient(PARIS);
     setIngestGeocodeDepsForTests({ client: c.client, cache: fc.cache });
@@ -106,29 +104,29 @@ describe("resolveBackupLocation", () => {
       resolveBackupLocation(48.8566, 2.3522),
       resolveBackupLocation(48.8566, 2.3522),
     ]);
-    expect([a, b, d]).toEqual(["Paris", "Paris", "Paris"]);
+    expect([a, b, d]).toEqual(['Paris', 'Paris', 'Paris']);
     expect(c.calls()).toBe(1);
   });
 
-  test("live geocode failure → null (soft), upload not blocked", async () => {
+  test('live geocode failure → null (soft), upload not blocked', async () => {
     const fc = fakeCache();
-    const c = fakeClient(() => Promise.reject(new Error("nominatim down")));
+    const c = fakeClient(() => Promise.reject(new Error('nominatim down')));
     setIngestGeocodeDepsForTests({ client: c.client, cache: fc.cache });
 
     expect(await resolveBackupLocation(48.8566, 2.3522)).toBeNull();
     expect(c.calls()).toBe(1);
   });
 
-  test("no geocoder configured → cache miss returns null (date-only path)", async () => {
+  test('no geocoder configured → cache miss returns null (date-only path)', async () => {
     const fc = fakeCache();
     setIngestGeocodeDepsForTests({ client: null, cache: fc.cache });
     expect(await resolveBackupLocation(48.8566, 2.3522)).toBeNull();
   });
 
-  test("unresolvable location (Nominatim error stub) → null, still cached", async () => {
+  test('unresolvable location (Nominatim error stub) → null, still cached', async () => {
     const fc = fakeCache();
     const c = fakeClient({
-      error: "Unable to geocode",
+      error: 'Unable to geocode',
     } as unknown as NominatimReverseResponse);
     setIngestGeocodeDepsForTests({ client: c.client, cache: fc.cache });
 
