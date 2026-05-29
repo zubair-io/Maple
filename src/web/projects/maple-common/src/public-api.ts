@@ -101,6 +101,19 @@ export * from './lib/info/rating-flags-row.component';
 export * from './lib/info/histogram.component';
 export * from './lib/info/camera-location-grid.component';
 export * from './lib/info/keyword-chips-row.component';
+
+// S5 (#625) — Editor (shell + drag bar + tool model + placeholder glyphs).
+export * from './lib/editor/tool-model';
+export * from './lib/editor/tool-glyph';
+export * from './lib/editor/drag-bar-math';
+export * from './lib/editor/editor-state.service';
+export * from './lib/editor/drag-bar.component';
+export * from './lib/editor/editor-header.component';
+export * from './lib/editor/value-chip.component';
+export * from './lib/editor/group-tabs.component';
+export * from './lib/editor/tool-pill-row.component';
+export * from './lib/editor/editor.component';
+export * from './lib/editor/editor-page.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';

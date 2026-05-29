@@ -1,0 +1,76 @@
+// EditorHeader.swift — responsive-program S5a (#625).
+//
+// 44pt header. From left to right:
+//   ‹  back
+//   filename (SF Mono 12pt, ellipsized, center-justified)
+//   ↺  undo  (tap=undo, long-press=redo, 32-entry ring on EditSession)
+//   ⇪  share (stub for v0.1 — opens nothing)
+//   ⓘ  info  (S6 / phone bottom-sheet)
+//
+// Spec: docs/design/responsive-program/s5-editor.md §2.
+
+import SwiftUI
+import MapleCore
+
+struct EditorHeader: View {
+    @Bindable var state: EditorState
+    let onBack: () -> Void
+    let onShare: () -> Void
+    let onInfo: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(MapleTokens.textMain)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+            .accessibilityIdentifier("editor-back")
+
+            Spacer(minLength: 0)
+
+            Text(state.session.asset.displayName)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(MapleTokens.textMuted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .accessibilityIdentifier("editor-filename")
+
+            Spacer(minLength: 0)
+
+            Button(action: { state.undo() }) {
+                Image(systemName: "arrow.uturn.backward")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(state.canUndo ? MapleTokens.textMain : MapleTokens.textMuted)
+            }
+            .buttonStyle(.plain)
+            .disabled(!state.canUndo)
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in state.redo() })
+            .accessibilityLabel("Undo")
+            .accessibilityIdentifier("editor-undo")
+
+            Button(action: onShare) {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(MapleTokens.textMain)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Share")
+            .accessibilityIdentifier("editor-share")
+
+            Button(action: onInfo) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(MapleTokens.textMain)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Info")
+            .accessibilityIdentifier("editor-info")
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 44)
+        .background(MapleTokens.bg)
+    }
+}
