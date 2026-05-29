@@ -94,6 +94,14 @@ struct MapleApp: App {
     var body: some Scene {
         WindowGroup {
             AppShell(sessionFor: { server in session(for: server) })
+                .onOpenURL { url in
+                    // `maple://image/{id}` and `maple://source/{id}` —
+                    // routed by the AppShell `.task` after
+                    // `restoreLastSource()` (cold start) and by an
+                    // `.onChange(of: DeepLinkRouter.shared.pendingDestination)`
+                    // observer (warm launch). Spec: docs/design/responsive-program/deep-links.md.
+                    DeepLinkRouter.shared.handle(url)
+                }
                 .task {
                     guard let settings = BackupSettings.load(), settings.isConfigured,
                           let serverBaseURL = URL(string: settings.serverURL) else { return }

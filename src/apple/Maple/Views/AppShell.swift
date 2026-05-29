@@ -119,6 +119,18 @@ struct AppShell: View {
     /// (and therefore this sheet) is only reachable in Full-image mode —
     /// Browse drops the panel entirely.
     @State private var iPhoneInfoSheet: Bool = false
+    #endif
+
+    /// Observable singleton that captures incoming `maple://` URLs at
+    /// the `MapleApp` scene level. SwiftUI's `.onChange(of:)` only
+    /// re-evaluates an `@Observable` property when SOME view in the
+    /// body actually reads it during render, so the binding here is
+    /// load-bearing — without it the warm-launch path (a second
+    /// `.onOpenURL` after the app is up) would never fire `consume()`.
+    /// Spec: docs/design/responsive-program/deep-links.md §2.
+    @State private var deepLinkRouter = DeepLinkRouter.shared
+
+    #if os(iOS)
 
     /// iPhone drawer snapped state. `dragOffset` (the in-flight finger
     /// translation) lives inside `AppShellIPhoneDrawer` as private
@@ -291,6 +303,22 @@ struct AppShell: View {
                 validServerURLs: CloudServerRegistry.shared.servers)
             // Restore last-used source on cold start.
             await restoreLastSource()
+            // Cold-start deep link wins over the restored source. The
+            // URL was captured by `.onOpenURL` at `MapleApp` level
+            // before this `.task` ran; consume now that the restored
+            // selection has settled so the navigation lands on the
+            // deep-link destination, not the restored grid.
+            // Implementation: AppShell+DeepLink.swift.
+            consumePendingDeepLink()
+        }
+        // Warm-launch delivery. An `.onOpenURL` while the app is
+        // already foregrounded sets `pendingDestination`; we observe
+        // via the `@State`-bound singleton so SwiftUI registers the
+        // dependency and re-evaluates `.onChange(of:)` on each write.
+        // Spec §2.
+        .onChange(of: deepLinkRouter.pendingDestination) { _, newValue in
+            guard newValue != nil else { return }
+            consumePendingDeepLink()
         }
     }
 
