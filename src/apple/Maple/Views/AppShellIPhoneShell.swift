@@ -81,6 +81,19 @@ struct AppShellIPhoneShell<SidebarContent: View, ToolbarContentT: ToolbarContent
         AppShellIPhoneDrawer(
             isDrawerOpen: $isDrawerOpen,
             mode: mode,
+            // libraryTitle is the active source label (e.g. "All Photos" or a
+            // folder name). The drawer's connection-identity row is a stub for
+            // v0.1 — the Maple-instance switcher isn't built yet — so we feed
+            // it the active source label as the closest available identity hint.
+            // S1a / future work will surface the real `maple.lawrence.io` style
+            // connection identity from the selected source.
+            connectionIdentity: libraryTitle,
+            tertiarySummary: "",
+            // S1a (PR pending) wires this to flip the bottom-tab to "search".
+            // Until then the existing iPhone shell has no Search tab to switch
+            // to, so the callback is a no-op; the drawer still posts
+            // .mapleFocusSearch for any future listener.
+            onSearchPillTap: {},
             mainContent: {
                 // Responsive-program S1a (#597): the surrounding
                 // PhoneTabShell already provides a per-tab
