@@ -10,11 +10,12 @@ One ticket — **S4** — shipped as one PR.
 
 ## 1. Overview & deliverable map
 
-| Ticket | What ships | Files touched | Blocks |
-|---|---|---|---|
+| Ticket | What ships                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Files touched                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Blocks                                  |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
 | **S4** | Responsive `LoupeView` (full-screen image with auto-hiding chrome, zoom/pan, swipe-between, matched-geometry dismiss). On phone, push from any tab's grid; tab bar hidden via S1a pattern. On tablet/desktop, replaces existing `FullImage` view's pane-shell center column. Filmstrip (shared with S5) on tablet/desktop default-on, phone toggleable via `cm.filmstrip`. Info `i` icon opens `mapleBottomSheet` (S1c) on phone, expands existing Inspector pane (S6) on tablet/desktop. Edit pill pushes to S5. | New `src/apple/Maple/Views/LoupeView.swift`, new `src/apple/Maple/Views/FilmstripView.swift` (shared with S5), `src/apple/Maple/Views/PhoneLibraryView.swift` (S2 — wires `.navigationDestination`), edits to `src/apple/Maple/Views/AppShellMacLayout.swift` (pane-shell Loupe surface), new `src/web/projects/maple-common/src/lib/loupe/loupe.component.{ts,html,scss,spec.ts}`, new `src/web/projects/maple-common/src/lib/loupe/filmstrip.component.{ts,html,scss,spec.ts}`, `src/web/projects/maple/src/app/loupe-page.component.ts`, `src/web/projects/maple-syrup/src/app/loupe-page.component.ts` | S5 (Editor pushes from Loupe Edit pill) |
 
 S4 depends on:
+
 - S0a — `MapleLayout` env
 - S1a — `TabBarVisibilityService` for tab-bar hide on push
 - S1c — `mapleBottomSheet` for Info modal
@@ -83,7 +84,11 @@ struct LoupeView: View {
 
             if chromeVisible || layout != .phone {
                 LoupeHeader(
-                    filename: asset.filename,
+                    // `AssetRef` exposes `displayName` (derived from primaryURL
+                    // or an explicit override) — there is no `filename`
+                    // property on the current model. Use `displayName` so the
+                    // sample compiles against `MapleCore` as shipped.
+                    title: asset.displayName,
                     onBack: { /* pop nav */ },
                     onEdit: { /* push to S5 EditorView */ },
                     onInfo: { isInfoOpen.toggle() }
@@ -138,6 +143,7 @@ Existing `AppShellMacLayout.swift` already has a Full-image mode in the center p
 Standalone Angular component, signals. Inputs: `asset` and `filteredAssets`. Renders the canvas + chrome + filmstrip + info modal.
 
 Tab-bar hide on enter:
+
 ```ts
 constructor() {
   effect(() => {
@@ -154,6 +160,7 @@ Auto-hide chrome on phone via signal + RxJS-free `setTimeout` reset on tap.
 Gestures via PointerEvents directives — write inline rather than pulling a library. Pinch/pan/double-tap/swipe handlers. Velocity tracking via 100ms window.
 
 Matched-geometry dismiss (FLIP technique):
+
 ```ts
 private animateDismissToCell() {
   const cellRect = this.libraryState.getCellRect(this.asset().id);  // grid cell bounding rect cached

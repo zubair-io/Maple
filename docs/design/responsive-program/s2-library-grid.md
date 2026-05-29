@@ -10,11 +10,12 @@ This doc is the contract for one ticket — **S2** — shipped as one PR.
 
 ## 1. Overview & deliverable map
 
-| Ticket | What ships | Files touched | Blocks |
-|---|---|---|---|
+| Ticket | What ships                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Files touched                                                                                                                                                                                                                                                                                                                                                                                                                      | Blocks                      |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
 | **S2** | Responsive `LibraryGrid` view replacing the existing PhoneLibraryStub placeholder. Phone (<768pt): 3-col edge-bleed (2pt gaps, 2pt horizontal padding, 0 vertical), title (Merriweather 28pt/700), filter chips (`All / Picks / 4+ stars / Edited`), cell badges (pick dot top-left, ≥4★ stars bottom-left). Tablet (768–1024pt): 5-col with 4pt gaps + 8pt outer padding. Desktop (>1024pt): `auto-fill minmax(180pt, 1fr)` with 4pt gaps + 12pt padding. Cell selection haptic (`.selection` on iOS, `navigator.vibrate(4)` on web). Cell→Loupe push triggers tab-bar hide on phone. | `src/apple/Maple/Views/PhoneLibraryStub.swift` (rename → `PhoneLibraryView.swift`), new `src/apple/Maple/Views/LibraryGrid.swift`, `src/apple/Maple/Views/BrowseGrid.swift` (extract shared cell), new `src/web/projects/maple-common/src/lib/library/library-grid.component.{ts,html,scss,spec.ts}`, `src/web/projects/maple/src/app/library-page.component.ts`, `src/web/projects/maple-syrup/src/app/library-page.component.ts` | S4 (Loupe push integration) |
 
 S2 depends on:
+
 - S0a — `MapleLayout` env signal
 - S1a — `PhoneLibraryStub` placeholder it replaces
 - S1b — `cm.source` persistence for "currently-viewed source"
@@ -53,6 +54,7 @@ S2 unblocks S4 (Loupe pushes from grid cell tap).
 
 - **Rename** `src/apple/Maple/Views/PhoneLibraryStub.swift` → `PhoneLibraryView.swift`. Replaces the "Grid placeholder" Text with `LibraryGrid()`.
 - **New** `src/apple/Maple/Views/LibraryGrid.swift`:
+
   ```swift
   struct LibraryGrid: View {
       @Environment(\.mapleLayout) private var layout
@@ -60,15 +62,30 @@ S2 unblocks S4 (Loupe pushes from grid cell tap).
       @AppStorage("cm.filter") private var filter: String = "all"
 
       var body: some View {
-          let columns = layout == .phone ? 3 : (layout == .tablet ? 5 : 6)
           let gap: CGFloat = layout == .phone ? 2 : 4
           let outerPad: CGFloat = layout == .phone ? 2 : (layout == .tablet ? 8 : 12)
+
+          // Phone: 3 fixed columns. Tablet: 5 fixed columns. Desktop: adaptive
+          // tracks at minmax(180pt, 1fr) — matches the web `minmax(180px, 1fr)`
+          // rule above, so wide windows pack more cells instead of capping at
+          // an arbitrary count. Existing `BrowseGrid` already uses an adaptive
+          // GridItem; this mirrors that pattern at a 180pt minimum.
+          let columns: [GridItem] = {
+              switch layout {
+              case .phone:
+                  return Array(repeating: GridItem(.flexible(), spacing: gap), count: 3)
+              case .tablet:
+                  return Array(repeating: GridItem(.flexible(), spacing: gap), count: 5)
+              default:
+                  return [GridItem(.adaptive(minimum: 180), spacing: gap)]
+              }
+          }()
 
           ScrollView {
               VStack(alignment: .leading, spacing: 0) {
                   LibraryHeader(title: browseVM.sourceTitle)
                   FilterChipRow(active: $filter)
-                  LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: gap), count: columns), spacing: gap) {
+                  LazyVGrid(columns: columns, spacing: gap) {
                       ForEach(filteredAssets) { asset in
                           LibraryCell(asset: asset)
                               .onTapGesture { /* push to Loupe — S4 destination */ }
@@ -80,21 +97,23 @@ S2 unblocks S4 (Loupe pushes from grid cell tap).
       }
   }
   ```
+
 - **New** `src/apple/Maple/Views/LibraryCell.swift` — extracted from existing `BrowseGrid.swift` cell code; renders thumbnail + pick dot + star row badges. `aspect-ratio: 1/1`, center-cover crop.
 - **Edit** `src/apple/Maple/Views/BrowseGrid.swift` — Apple desktop's existing grid; refactored to use the new `LibraryCell` (shared with phone). Existing cell logic moves to `LibraryCell`.
 
 ### Persistence
 
-- `cm.filter` (existing): which chip is active (`"all"` | `"picks"` | `"fourPlusStars"` | `"edited"`).
+- `cm.filter` (existing): which chip is active. The current `BrowsePreferencesService.CullFilter` enum (web) accepts `"all" | "picks" | "4stars"`; S2 reuses those values verbatim so existing persisted preferences continue to work. The fourth chip (`"edited"`) is **new** — landing it requires extending `CullFilter` (and the Apple `@AppStorage` mirror) to `"all" | "picks" | "4stars" | "edited"` in the same PR. Older clients reading the new value fall through to `"all"` via the existing default.
 - `cm.source` (S0a): which source is currently shown (drives grid content).
 
 ### Filter implementation
 
-`filteredAssets` computed from `browseVM.assets` filtered by `cm.filter`:
+`filteredAssets` computed from `browseVM.assets` filtered by `cm.filter` (string matches the persisted `CullFilter` value above):
+
 - `"all"` → no filter
 - `"picks"` → `assets.filter { $0.cullingState.flag == .pick }`
-- `"fourPlusStars"` → `assets.filter { $0.cullingState.starCount >= 4 }`
-- `"edited"` → `assets.filter { $0.hasEdits }` — requires a `hasEdits` computed property on `AssetRef` (audit; if missing, file a follow-up to populate).
+- `"4stars"` → `assets.filter { $0.cullingState.stars >= 4 }`
+- `"edited"` → `assets.filter { $0.hasEdits }` — requires a `hasEdits` computed property on `AssetRef` (audit; if missing, file a follow-up to populate). Also requires the `CullFilter` schema extension noted above.
 
 ---
 
@@ -104,12 +123,12 @@ S2 unblocks S4 (Loupe pushes from grid cell tap).
 
 - **New** `src/web/projects/maple-common/src/lib/library/library-grid.component.{ts,html,scss}` — standalone, signals, separate templates per CLAUDE.md.
   ```ts
-  @Component({ selector: 'app-library-grid', standalone: true, /* ... */ })
+  @Component({ selector: 'app-library-grid', standalone: true /* ... */ })
   export class LibraryGridComponent {
     private layoutService = inject(LayoutService);
-    private libraryState = inject(LibraryStateService);  // existing
+    private libraryState = inject(LibraryStateService); // existing
     protected readonly layout = this.layoutService.layout;
-    protected readonly assets = this.libraryState.filteredAssets;  // computed signal
+    protected readonly assets = this.libraryState.filteredAssets; // computed signal
     protected readonly activeFilter = signal<string>(localStorage.getItem('cm.filter') ?? 'all');
   }
   ```
@@ -148,6 +167,7 @@ Standalone `<app-filter-chips>` component, single-select, emits `filterChange` e
 ### Hover affordance (desktop only)
 
 CSS-only:
+
 ```scss
 @media (min-width: 1025px) and (pointer: fine) {
   .library-cell:hover {
