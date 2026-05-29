@@ -143,7 +143,7 @@ New `MapleTokens.Motion` (Swift) and `motion.scss` / `motion.ts` (web). Token na
 | `sheetPresent` | 320ms    | iOS system                                                          |
 | `sheetDismiss` | 280ms    | iOS system                                                          |
 | `groupSwap`    | 120ms    | `ease-in-out`                                                       |
-| `chromeHide`   | 180ms    | `ease-out`                                                          |
+| `chromeHide`   | 180ms    | `ease-out` (Editor chrome auto-hide)                                |
 | `filterFade`   | 120ms    | `linear`                                                            |
 
 Apple wires as `Animation` factories. Web exposes paired `--motion-X-ms` and `--motion-X-ease` CSS custom properties.
@@ -156,7 +156,6 @@ Documented here; implementations land in S1+ as each consumer is built. No code 
 | ----------------- | ------------------------------------- | -------------- | -------------- |
 | `cm.source`       | string (source id)                    | S2 (Library)   | **new**        |
 | `cm.filter`       | string (chip id)                      | S2             | reuse existing |
-| `cm.full.id`      | string (image id)                     | S4 (Loupe)     | **new**        |
 | `cm.editor.armed` | JSON `Record<imageId, {group, tool}>` | S5 (Editor)    | **new**        |
 | `cm.filmstrip`    | boolean                               | S5             | **new**        |
 | `cm.detailHidden` | boolean (inspector visibility)        | S6 (Inspector) | reuse existing |
@@ -289,13 +288,13 @@ Lives at `docs/design/responsive-program/s0-icons.md` (created by S0c PR). Forma
 
 | Spec name              | Used in                      | Apple (SF Symbol)            | Web (maple-icon name)            |
 | ---------------------- | ---------------------------- | ---------------------------- | -------------------------------- |
-| `back`                 | Editor / Loupe header        | `chevron.left`               | `chevron-left`                   |
+| `back`                 | Editor header                | `chevron.left`               | `chevron-left`                   |
 | `overflow`             | Library header right         | `ellipsis`                   | `ellipsis-horizontal`            |
 | `close-x`              | Sidebar collapse, Info sheet | `xmark`                      | `close-x`                        |
-| `share`                | Loupe / Editor header (stub) | `square.and.arrow.up`        | `share-up-square`                |
+| `share`                | Editor header (stub)         | `square.and.arrow.up`        | `share-up-square`                |
 | `undo`                 | Editor header                | `arrow.uturn.backward`       | `undo-uturn`                     |
 | `redo`                 | Editor header (long-press)   | `arrow.uturn.forward`        | `redo-uturn`                     |
-| `info`                 | Loupe / Editor header        | `info.circle`                | `info-circle`                    |
+| `info`                 | Editor header                | `info.circle`                | `info-circle`                    |
 | `search`               | Sidebar pill                 | `magnifyingglass`            | `magnifying-glass`               |
 | `clear-circle`         | Search field trailing        | `xmark.circle.fill`          | `clear-circle-fill`              |
 | `plus`                 | Add album header             | `plus`                       | `plus`                           |
