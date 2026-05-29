@@ -67,6 +67,8 @@ export * from './lib/components/editor-sidecar-status-badge/editor-sidecar-statu
 // P7: Unified SPA shells + all components (moved from browse + editor apps)
 export * from './lib/shells/browse-shell/browse-shell.component';
 export * from './lib/shells/editor-shell/editor-shell.component';
+// S1c (#599) — phone bottom-sheet primitive (consumed by S4 Loupe / S5 Editor / S6 phone Detail).
+export * from './lib/shells/bottom-sheet.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';
