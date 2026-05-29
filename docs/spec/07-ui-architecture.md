@@ -124,7 +124,6 @@ Per-device UI state persists under the `cm.*` namespace (UserDefaults on Apple, 
 | `cm.detailHidden` | bool (inspector visibility, tablet/desktop) | S6 (Inspector) | reuse   |
 | `cm.folderOpen`   | bool                                        | existing       | reuse   |
 | `cm.source`       | string (source id)                          | S2             | **new** |
-| `cm.full.id`      | string (image id)                           | S4 (Loupe)     | **new** |
 | `cm.editor.armed` | JSON `Record<imageId, {group, tool}>`       | S5 (Editor)    | **new** |
 | `cm.filmstrip`    | bool                                        | S5             | **new** |
 
