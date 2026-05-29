@@ -193,7 +193,35 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     const siblingPath = path.join(targetDir, 'IMG_COLLISION-1.HEIC');
     expect((await fs.readFile(siblingPath)).equals(Buffer.alloc(64, 11))).toBe(true);
 
+    // The asset row's fileinfo points at the DISAMBIGUATED basename, not the
+    // original colliding header name — otherwise downstream abs_path
+    // reconstruction would resolve back to the other file.
+    const { assetsCollection } = await import('../src/db/client.ts');
+    const assets = await assetsCollection();
+    const row = await assets.findOne({ maple_id: 'collision-maple-id' });
+    expect(row).not.toBeNull();
+    expect(row!.fileinfo[0].path).toBe('2024/07/04');
+    expect(row!.fileinfo[0].filename).toBe('IMG_COLLISION-1.HEIC');
+
+    // A retry after a downstream (sidecar/rendered) failure must short-circuit
+    // to the RESOLVED sibling path, not the original colliding one — so the
+    // device writes companions next to the file it actually uploaded.
+    const rRetry = await app.handle(
+      ingest(Buffer.alloc(64, 11), {
+        'X-Maple-Device-Id': deviceId,
+        'X-Maple-Phasset-Id': 'ABC/L0/COLLIDE',
+        'X-Maple-Capture-Date': captureDate,
+        'X-Maple-Filename': fname,
+        'X-Maple-Total-Bytes': '64',
+        'X-Maple-Maple-Id': 'collision-maple-id',
+        'Content-Range': 'bytes 0-63/64',
+      }),
+    );
+    expect(rRetry.status).toBe(200);
+    expect((await rRetry.json()).target_rel_path).toBe('2024/07/04/IMG_COLLISION-1.HEIC');
+
     // Clean up
+    await assets.deleteMany({ maple_id: 'collision-maple-id' });
     await fs.unlink(preExistingPath);
     await fs.unlink(siblingPath);
   });

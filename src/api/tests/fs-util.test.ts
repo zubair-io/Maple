@@ -2,7 +2,12 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { atomicMove, filesIdentical, firstFreeSiblingPath } from '../src/backup/fs-util.ts';
+import {
+  atomicMove,
+  filesIdentical,
+  firstFreeSiblingPath,
+  moveNoClobber,
+} from '../src/backup/fs-util.ts';
 
 // Mongo-free unit coverage for the backup filesystem helpers. The end-to-end
 // path-collision behaviour lives in backup-ingest-errors.test.ts (which needs
@@ -107,5 +112,33 @@ describe('atomicMove', () => {
       srcGone = true;
     }
     expect(srcGone).toBe(true);
+  });
+});
+
+describe('moveNoClobber', () => {
+  test('moves into a free path and returns true', async () => {
+    const src = path.join(dir, 'nc-src.bin');
+    const dst = path.join(dir, 'nc-free.bin');
+    await fs.writeFile(src, Buffer.alloc(16, 4));
+    expect(await moveNoClobber(src, dst)).toBe(true);
+    expect((await fs.readFile(dst)).equals(Buffer.alloc(16, 4))).toBe(true);
+    let srcGone = false;
+    try {
+      await fs.stat(src);
+    } catch {
+      srcGone = true;
+    }
+    expect(srcGone).toBe(true);
+  });
+
+  test('refuses to clobber an existing dst: returns false, leaves both files', async () => {
+    const src = path.join(dir, 'nc-src2.bin');
+    const dst = path.join(dir, 'nc-taken.bin');
+    await fs.writeFile(src, Buffer.alloc(16, 1));
+    await fs.writeFile(dst, Buffer.alloc(16, 2)); // already taken, different bytes
+    expect(await moveNoClobber(src, dst)).toBe(false);
+    // dst untouched, src still present (caller will pick another name).
+    expect((await fs.readFile(dst)).equals(Buffer.alloc(16, 2))).toBe(true);
+    expect((await fs.readFile(src)).equals(Buffer.alloc(16, 1))).toBe(true);
   });
 });

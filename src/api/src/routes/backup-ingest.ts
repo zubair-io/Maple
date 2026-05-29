@@ -27,7 +27,12 @@ import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
 import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
-import { atomicMove, filesIdentical, firstFreeSiblingPath } from '../backup/fs-util.ts';
+import {
+  atomicMove,
+  filesIdentical,
+  firstFreeSiblingPath,
+  moveNoClobber,
+} from '../backup/fs-util.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
@@ -174,7 +179,11 @@ export const backupIngestRoutes = new Elysia().post(
       set.status = 200;
       return {
         maple_id: session.maple_id,
-        target_rel_path: session.target_rel_path,
+        // Hand back where the bytes actually landed: a disambiguated collision
+        // stores its real path in `resolved_rel_path` while `target_rel_path`
+        // stays the device-computed key. Companions (sidecar / rendered) must
+        // be written next to the real file, not the path that collided.
+        target_rel_path: session.resolved_rel_path ?? session.target_rel_path,
       };
     }
 
@@ -322,7 +331,14 @@ export const backupIngestRoutes = new Elysia().post(
         } catch {
           /* already gone */
         }
-        await uploadSessions.complete({ sessionId: session._id, mapleId });
+        // Reconstruct this library's rel path so the device knows where the
+        // canonical copy lives (used to route subsequent change-feed updates).
+        const liveRelPath = relFromFileInfo(liveInThisLibrary);
+        await uploadSessions.complete({
+          sessionId: session._id,
+          mapleId,
+          resolvedRelPath: liveRelPath,
+        });
         await backupSessionsRepo.upsertProgress({
           libraryId,
           deviceId,
@@ -331,11 +347,9 @@ export const backupIngestRoutes = new Elysia().post(
         });
         log.debug({ phid, mapleId, dedup: true }, 'ingest complete (dedup, same library)');
         set.status = 200;
-        // Reconstruct this library's rel path so the device knows where the
-        // canonical copy lives (used to route subsequent change-feed updates).
         return {
           maple_id: mapleId,
-          target_rel_path: relFromFileInfo(liveInThisLibrary),
+          target_rel_path: liveRelPath,
         };
       }
 
@@ -387,7 +401,11 @@ export const backupIngestRoutes = new Elysia().post(
       }
       await a.updateOne({ _id: existing._id }, update);
 
-      await uploadSessions.complete({ sessionId: session._id, mapleId });
+      await uploadSessions.complete({
+        sessionId: session._id,
+        mapleId,
+        resolvedRelPath: resolvedTargetRelPath,
+      });
       await backupSessionsRepo.upsertProgress({
         libraryId,
         deviceId,
@@ -408,12 +426,10 @@ export const backupIngestRoutes = new Elysia().post(
       return { maple_id: mapleId, target_rel_path: resolvedTargetRelPath };
     }
 
-    // 2. No existing row — move tmp into the final destination.
-    let finalPath = path.join(folder.path, resolvedTargetRelPath);
-    await fs.mkdir(path.dirname(finalPath), { recursive: true });
-
-    // A file may already sit at the target path with no Mongo row referencing
-    // it. Two situations produce that, and they need opposite handling:
+    // 2. No existing row — place the assembled tmp file at its destination.
+    //
+    // A file may already sit at the computed path with no Mongo row, and two
+    // situations produce that with opposite handling:
     //
     //   (a) A half-finished prior attempt for THIS asset moved its bytes into
     //       place but the process died before the asset row was inserted (or
@@ -427,59 +443,83 @@ export const backupIngestRoutes = new Elysia().post(
     //       on a cold geocode cache, no) location. Clobbering would lose a
     //       photo; failing would strand this one. Move to the next free
     //       sibling path and report the adjusted path back to the device.
-    let needMove = true;
-    try {
-      await fs.stat(finalPath);
-      if (await filesIdentical(finalPath, tmpFile)) {
-        // (a) Recovery — the canonical bytes are already in place.
-        needMove = false;
-        try {
-          await fs.unlink(tmpFile);
-        } catch {
-          /* already gone */
+    //
+    // The loop makes this race-safe: every placement is a no-clobber move, and
+    // a concurrent upload that grabs our chosen sibling first just sends us
+    // around again to compare-or-disambiguate against whatever landed. Sibling
+    // numbering always derives from the original computed path, never the
+    // already-suffixed one.
+    const baseRelPath = resolvedTargetRelPath;
+    let finalPath = path.join(folder.path, resolvedTargetRelPath);
+    let placed = false;
+    for (let attempt = 0; !placed; attempt++) {
+      if (attempt > 10_000) {
+        throw new Error(`could not place upload for ${baseRelPath} after ${attempt} attempts`);
+      }
+      await fs.mkdir(path.dirname(finalPath), { recursive: true });
+
+      let occupied = false;
+      try {
+        await fs.stat(finalPath);
+        occupied = true;
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e;
+      }
+
+      if (occupied) {
+        if (await filesIdentical(finalPath, tmpFile)) {
+          // (a) Recovery — the canonical bytes are already in place. Drop tmp.
+          try {
+            await fs.unlink(tmpFile);
+          } catch {
+            /* already gone */
+          }
+          log.debug(
+            { phid, mapleId, targetRelPath: resolvedTargetRelPath },
+            'ingest recovery (matching bytes already on disk, no row) — adopting',
+          );
+          placed = true;
+          break;
         }
-        log.debug(
-          { phid, mapleId, targetRelPath: resolvedTargetRelPath },
-          'ingest recovery (matching bytes already on disk, no row) — adopting',
-        );
-      } else {
-        // (b) Real collision — disambiguate to a free sibling path.
-        const free = await firstFreeSiblingPath(folder.path, resolvedTargetRelPath);
+        // (b) Real collision — pick the next free sibling (numbered off the
+        // original path) and loop to claim it atomically.
+        const free = await firstFreeSiblingPath(folder.path, baseRelPath);
         log.warn(
-          {
-            phid,
-            mapleId,
-            collidedRelPath: resolvedTargetRelPath,
-            resolvedRelPath: free.relPath,
-          },
-          'ingest path collision (different bytes) — disambiguated',
+          { phid, mapleId, collidedRelPath: resolvedTargetRelPath, resolvedRelPath: free.relPath },
+          'ingest path collision (different bytes) — disambiguating',
         );
         resolvedTargetRelPath = free.relPath;
         finalPath = free.absPath;
-        await fs.mkdir(path.dirname(finalPath), { recursive: true });
+        continue;
       }
-    } catch (e: any) {
-      if (e?.code !== 'ENOENT') throw e;
-      // ENOENT is expected — the path is free.
-    }
 
-    if (needMove) {
-      await atomicMove(tmpFile, finalPath);
+      // Path looked free — claim it without clobbering. If another upload won
+      // the race (EEXIST) we loop and re-evaluate the now-occupied path.
+      if (await moveNoClobber(tmpFile, finalPath)) {
+        placed = true;
+      }
     }
-    await uploadSessions.complete({ sessionId: session._id, mapleId });
+    await uploadSessions.complete({
+      sessionId: session._id,
+      mapleId,
+      resolvedRelPath: resolvedTargetRelPath,
+    });
 
     // fileinfo[0] mirrors the resolved target path split into
-    // (directory relative to library, filename, library_id).
-    // FileInfo.path is documented as POSIX-separated; normalize sep
-    // here so a host with `\` as path.sep doesn't store backslashes.
-    const relDirRaw = path.dirname(resolvedTargetRelPath);
-    const relDir = relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(path.sep).join('/');
+    // (directory relative to library, filename, library_id). Both the dir and
+    // the filename come from `resolvedTargetRelPath` (NOT the request header)
+    // so a disambiguated `-N` name is what downstream `abs_path` reconstruction
+    // sees. FileInfo.path is documented as POSIX-separated; normalize sep so a
+    // host with `\` as path.sep doesn't store backslashes.
+    const relDirRaw = path.posix.dirname(resolvedTargetRelPath);
+    const relDir = relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw;
+    const relFilename = path.posix.basename(resolvedTargetRelPath);
     await a.insertOne({
       _id: new ObjectId(),
       fileinfo: [
         {
           path: relDir,
-          filename,
+          filename: relFilename,
           library_id: libraryId,
           deleted_at: null,
         },
