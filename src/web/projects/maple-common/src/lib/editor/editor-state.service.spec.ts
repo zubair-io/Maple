@@ -141,6 +141,15 @@ describe('EditorStateService', () => {
       svc.undo();
       expect(lib.adjustmentFor(ID)().temperature).toBe(7500);
     });
+
+    it('resetArmedTool returns Color NR to its canonical 25 default', () => {
+      svc.armTool('colorNR');
+      svc.setArmedDisplayValue(80);
+      svc.resetArmedTool();
+      // Default is 25, NOT 0. Routing reset through `defaultDisplayValue`
+      // keeps a fresh asset reading as "unmodified" after reset.
+      expect(lib.adjustmentFor(ID)().nrColor).toBe(25);
+    });
   });
 
   describe('tool catalog', () => {
@@ -171,6 +180,8 @@ describe('EditorStateService', () => {
       expect(defaultDisplayValue('exposure')).toBe(0);
       expect(defaultDisplayValue('temp')).toBe(6500);
       expect(defaultDisplayValue('sharpen')).toBe(40);
+      // Color NR defaults to 25 per the generated AdjustmentModel.
+      expect(defaultDisplayValue('colorNR')).toBe(25);
     });
   });
 });

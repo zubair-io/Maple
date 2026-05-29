@@ -128,6 +128,26 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(session.model.temperature, 7500, accuracy: 1e-9)
     }
 
+    func testResetArmedToolReturnsColorNRToCanonicalDefault() {
+        // Color NR defaults to 25 on AdjustmentModel — resetting must
+        // land on 25, not 0, so a fresh asset reads as unmodified after
+        // reset.
+        let session = makeSession()
+        let state = EditorState(session: session)
+        state.arm(tool: .colorNR)
+        state.setArmedDisplayValue(80)
+        state.resetArmedTool()
+        XCTAssertEqual(session.model.nrColor, 25, accuracy: 1e-9)
+    }
+
+    func testCanonicalDefaultsMatchAdjustmentModel() {
+        XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .exposure), 0, accuracy: 1e-9)
+        XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .temp), 6500, accuracy: 1e-9)
+        XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .sharpen), 40, accuracy: 1e-9)
+        XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .colorNR), 25, accuracy: 1e-9)
+        XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .noise), 0, accuracy: 1e-9)
+    }
+
     // MARK: - Undo cap
 
     func testUndoStackCapsAtThirtyTwo() {

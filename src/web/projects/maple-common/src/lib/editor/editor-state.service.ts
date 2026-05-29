@@ -179,11 +179,15 @@ export class EditorStateService {
     this.setArmedDisplayValue(displayValueFromInternal(tool, internal));
   }
 
+  /** Reset the armed tool to its canonical default and fire the reset
+   *  haptic. The haptic lives here so every reset entry point (drag-bar
+   *  double-tap, keyboard `0`) gets consistent feedback. */
   resetArmedTool(): void {
     const tool = this.armedTool();
     if (!isWired(tool)) return;
     this.commit();
     this.setArmedDisplayValue(defaultDisplayValue(tool));
+    this.haptic('reset');
   }
 
   // ── Haptics (web — Vibration API w/ feature detection) ───────────────────
