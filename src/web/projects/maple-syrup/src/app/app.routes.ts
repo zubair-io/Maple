@@ -4,7 +4,6 @@ import {
   BrowseShellComponent,
   EditorShellComponent,
   PhoneLibraryStubComponent,
-  PhoneSearchStubComponent,
   PhoneSettingsStubComponent,
 } from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
@@ -25,7 +24,12 @@ const baseRoutes: Routes = [
   { path: 'library', component: PhoneLibraryStubComponent },
   { path: 'library/loupe/:id', component: PhoneLibraryStubComponent },
   { path: 'library/editor/:id', component: PhoneLibraryStubComponent },
-  { path: 'search', component: PhoneSearchStubComponent },
+  // S7 (#622) — responsive-program search experience replaces the S1a stub.
+  {
+    path: 'search',
+    loadComponent: () =>
+      import('./search-page.component').then((m) => m.SearchPageComponent),
+  },
   { path: 'settings', component: PhoneSettingsStubComponent },
 ];
 

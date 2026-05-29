@@ -1,0 +1,19 @@
+@if (recent().length > 0) {
+  <section class="section" data-testid="recent-queries-section">
+    <h3 class="eyebrow">RECENT</h3>
+    <ul class="row">
+      @for (q of recent(); track trackQuery($index, q)) {
+        <li>
+          <button
+            type="button"
+            class="chip"
+            (click)="onChipClick(q)"
+            [attr.data-testid]="'recent-chip-' + q"
+          >
+            {{ q }}
+          </button>
+        </li>
+      }
+    </ul>
+  </section>
+}

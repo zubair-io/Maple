@@ -1,0 +1,96 @@
+// PhotoResultsSectionComponent — 3-col preview grid.
+//
+// Spec: docs/design/responsive-program/s7-search.md §2.
+
+:host {
+  display: block;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eyebrow-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.eyebrow {
+  margin: 0;
+  font:
+    10px/1 'Lato',
+    sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+}
+
+.see-all {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font:
+    11px/1 'Lato',
+    sans-serif;
+  font-weight: 700;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.see-all:hover {
+  text-decoration: underline;
+}
+
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  transition: opacity 120ms linear;
+}
+
+.grid.stale {
+  opacity: 0.6;
+}
+
+.tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  background: var(--color-surface-alt);
+  border: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.tile-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+.tile-fallback svg {
+  width: 32px;
+  height: 32px;
+  opacity: 0.5;
+}
+
+.empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  font:
+    13px/1.4 'Lato',
+    sans-serif;
+  padding: 24px 12px;
+}
