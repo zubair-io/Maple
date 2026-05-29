@@ -195,6 +195,20 @@ public enum ToolValueMapping {
         }
     }
 
+    /// Canonical default display value per tool. Matches the
+    /// `AdjustmentModel` field defaults — `colorNR` is 25, `sharpen` is
+    /// 40, `temp` is 6500 K, everything else is 0. Used by reset
+    /// semantics and by the modified-dot check, so a default asset never
+    /// reads as "modified".
+    public static func defaultDisplayValue(for tool: Tool) -> Double {
+        switch tool {
+        case .temp:    return 6500
+        case .sharpen: return 40
+        case .colorNR: return 25
+        default:       return 0
+        }
+    }
+
     /// Mutate the wired `AdjustmentModel` field from a display-range value.
     public static func apply(_ value: Double, to model: inout AdjustmentModel, tool: Tool) {
         switch tool {
@@ -310,17 +324,15 @@ public final class EditorState {
     public func undo() { session.undo() }
     public func redo() { session.redo() }
 
-    /// Reset only the armed tool to its default (typically 0).
+    /// Reset only the armed tool to its canonical default. Defaults
+    /// mirror the generated `AdjustmentModel` field defaults (Color NR =
+    /// 25, Sharpen = 40, Temp = 6500) so a fresh asset never reads as
+    /// "modified" and reset returns to the same value the model was
+    /// born with.
     public func resetArmedTool() {
         guard armedTool.isWired else { return }
         commit()
-        let defaultDisplay: Double
-        switch armedTool {
-        case .temp:    defaultDisplay = 6500
-        case .sharpen: defaultDisplay = 40
-        default:       defaultDisplay = 0
-        }
-        setArmedDisplayValue(defaultDisplay)
+        setArmedDisplayValue(ToolValueMapping.defaultDisplayValue(for: armedTool))
     }
 
     /// Reset to the snapshot at session open (clears all sliders).
