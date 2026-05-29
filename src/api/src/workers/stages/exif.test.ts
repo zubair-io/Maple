@@ -203,6 +203,27 @@ describe('exif handler', () => {
   });
 });
 
+describe('readExif — failures are retryable, not swallowed', () => {
+  // Regression: readExif used to catch every parse/IO error and return null,
+  // so a file that was merely half-copied (truncated header) got stamped
+  // exif:null and the stage marked itself permanently done. It now lets the
+  // throw propagate so the stage runner retries — a transient truncation
+  // succeeds on the next pass instead of silently losing all metadata.
+  it('rethrows when exifr cannot read the file at all', async () => {
+    const { readExif } = await import('../../indexer/exif.ts');
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'exif-rethrow-'));
+    try {
+      const file = path.join(dir, 'half-copied.jpg');
+      // Not a JPEG — exifr throws "Unknown file format" rather than returning
+      // undefined. Stands in for a truncated/transient read.
+      await writeFile(file, Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33]));
+      await expect(readExif(file)).rejects.toThrow();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('readExif — video extension short-circuit', () => {
   // Regression for the log-spam noticed in production: the backup-ingest
   // route doesn't filter by extension, so .mov/.mp4 assets reach the exif
