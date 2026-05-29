@@ -8,12 +8,17 @@
     tabindex="-1"
     [class.dragging]="isDragging()"
     [style.transform]="'translateY(' + dragOffsetPx() + 'px)'"
-    (pointerdown)="onPointerDown($event)"
-    (pointermove)="onPointerMove($event)"
-    (pointerup)="onPointerUp($event)"
-    (pointercancel)="onPointerCancel($event)"
   >
-    <div class="grab-handle" aria-hidden="true"></div>
+    <div
+      class="drag-area"
+      aria-hidden="true"
+      (pointerdown)="onPointerDown($event)"
+      (pointermove)="onPointerMove($event)"
+      (pointerup)="onPointerUp($event)"
+      (pointercancel)="onPointerCancel($event)"
+    >
+      <div class="grab-handle"></div>
+    </div>
     <div class="content">
       <ng-content />
     </div>
