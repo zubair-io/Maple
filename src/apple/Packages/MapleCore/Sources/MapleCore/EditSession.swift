@@ -141,6 +141,12 @@ public final class EditSession {
     public var canUndo: Bool { !undoStack.isEmpty }
     public var canRedo: Bool { !redoStack.isEmpty }
 
+    /// Ring-buffer cap on the undo/redo stacks. S5 Editor (#625) bounds
+    /// the editor's undo history to 32 entries per spec §4; older entries
+    /// roll off the bottom (FIFO drop on push). The same cap is honored
+    /// on `redo()` to keep the two stacks symmetric.
+    public static let undoStackCap: Int = 32
+
     // MARK: Internals (shared across EditSession+* extensions)
 
     @ObservationIgnored let pipeline: ImageEditPipeline
@@ -284,26 +290,51 @@ public final class EditSession {
     // MARK: - Public lifecycle
 
     /// Push the current model to the undo stack before a user gesture.
+    /// Trims to `undoStackCap` (FIFO) so the editor's history stays bounded.
     public func beginEdit() {
         undoStack.append(model)
+        if undoStack.count > Self.undoStackCap {
+            undoStack.removeFirst(undoStack.count - Self.undoStackCap)
+        }
         redoStack.removeAll()
     }
 
     public func undo() {
         guard let prev = undoStack.popLast() else { return }
         redoStack.append(model)
+        if redoStack.count > Self.undoStackCap {
+            redoStack.removeFirst(redoStack.count - Self.undoStackCap)
+        }
         model = prev
     }
 
     public func redo() {
         guard let next = redoStack.popLast() else { return }
         undoStack.append(model)
+        if undoStack.count > Self.undoStackCap {
+            undoStack.removeFirst(undoStack.count - Self.undoStackCap)
+        }
         model = next
     }
 
     public func resetToOriginal() {
         beginEdit()
         model = originalModel
+    }
+
+    /// Force an immediate flush of any pending sidecar write. Call before
+    /// tearing the editor down so an undo-then-leave sequence persists
+    /// the right value (spec § S5 risk #4b). No-op when there's no store
+    /// (e.g. preview session, in-memory test).
+    public func flushPendingSidecarWrite() async {
+        guard let store = sidecarStore else { return }
+        if let xmp = store as? XMPSidecarStore {
+            await xmp.flush()
+        }
+        // Other SidecarStoreProtocol conformers (CloudSidecarStore) have
+        // their own flush semantics — they coalesce per-request and
+        // there's no synchronous "force now" call. Their inflight POST
+        // either lands or doesn't on the next request cycle.
     }
 
     // MARK: - Preview
