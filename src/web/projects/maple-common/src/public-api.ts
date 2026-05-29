@@ -80,6 +80,9 @@ export * from './lib/shells/root-shell.component';
 export * from './lib/shells/phone-library-stub.component';
 export * from './lib/shells/phone-search-stub.component';
 export * from './lib/shells/phone-settings-stub.component';
+
+// S1b (#598): phone-tier source picker drawer.
+export * from './lib/shells/source-picker-drawer/source-picker-drawer.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';
