@@ -1,8 +1,10 @@
 // deep-link.service.ts — resolve `maple://image/{id}` and
 // `maple://source/{id}` to an Angular Router navigation, plus the
-// equivalent HTTPS query-string forms a PWA `protocol_handlers`
-// registration delivers (Chromium dispatches `?url=maple://…` against
-// the registered template, which lands here as `?image=…`/`?source=…`).
+// PWA `protocol_handlers` delivery shape and the equivalent
+// HTTPS query-string fallback. The web app's manifests register
+// `/library/editor/%s` (path expansion), so Chromium lands a
+// `maple://…` invocation at `/library/editor/<URL-encoded maple://…>`;
+// the service unwraps that wrapper below and recurses.
 //
 // Same routes as Apple — keeps the two platforms shoulder-to-shoulder
 // per the spec's "shared DeepLinkResolver" goal:
@@ -10,9 +12,9 @@
 //   • maple://image/{id} ↔ /library/editor/{id}
 //   • maple://source/{id} ↔ /library?source={id}
 //
-// HTTPS deep links land at `/library?image=…` or `/library?source=…`
-// via the `url` template; the equivalent `image=`/`source=` query
-// params drop straight into the resolver.
+// HTTPS deep links also accept bare `?image=…`/`?source=…` query
+// params (in-app callers that pre-build the route); those drop
+// straight into the resolver without the wrapping step.
 //
 // Spec: docs/design/responsive-program/deep-links.md §4.
 // Closes #624.
