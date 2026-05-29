@@ -115,8 +115,11 @@ export class SearchComponent implements AfterViewInit {
     topHitsFromResults(this.results() as readonly SearchResult[], 3),
   );
 
-  /** Display state for the recents section — hidden once the user types. */
-  protected readonly showRecents = computed(() => this.query().length === 0);
+  /** Display state for the recents section — hidden once the user types.
+   * Uses `trim()` so whitespace-only input behaves like an empty query
+   * (matching the search effect + `hasQuery`); otherwise typing spaces
+   * would hide recents while neither results nor the empty-state render. */
+  protected readonly showRecents = computed(() => this.query().trim().length === 0);
 
   /** Whether the host has issued at least one query against the API.
    * Drives the "No matches" empty state in the photos section. */
