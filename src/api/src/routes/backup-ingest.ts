@@ -23,11 +23,7 @@
  */
 import { Elysia, t } from "elysia";
 import { ObjectId } from "mongodb";
-import {
-  assetsCollection,
-  foldersCollection,
-  geocodeCacheCollection,
-} from "../db/client.ts";
+import { assetsCollection, foldersCollection } from "../db/client.ts";
 import {
   uploadSessions,
   BusyElsewhereError,
@@ -39,25 +35,13 @@ import {
   filesIdentical,
   firstFreeSiblingPath,
 } from "../backup/fs-util.ts";
+import { resolveBackupLocation } from "../backup/ingest-geocode.ts";
 import { backupSessionsRepo } from "../db/backup-sessions.repo.ts";
-import { quantizedKey } from "../enrichment/coordinate-cache.ts";
 import { child as childLogger } from "../log.ts";
 import fs from "node:fs/promises";
 import path from "node:path";
 
 const log = childLogger("backup-ingest");
-
-/** Resolve a location name from the geocode cache. Returns null on miss. */
-async function resolveLocation(
-  lat: number,
-  lon: number,
-): Promise<string | null> {
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  const coll = await geocodeCacheCollection();
-  const row = await coll.findOne({ _id: quantizedKey(lat, lon) });
-  if (!row) return null;
-  return row.place.pois[0]?.name ?? row.place.rollups?.locality ?? null;
-}
 
 export const backupIngestRoutes = new Elysia().post(
   "/api/libraries/:libraryId/backup/ingest",
@@ -142,10 +126,13 @@ export const backupIngestRoutes = new Elysia().post(
       return { error: "invalid X-Maple-Capture-Date" };
     }
 
-    // Resolve GPS → location name (cache miss is a soft failure — path falls back to date-only layout).
+    // Resolve GPS → location name. Warm-cache hit first, then a live Nominatim
+    // lookup when configured (so a cold cache on a fresh bulk import still gets
+    // a geocoded path). Any miss/failure is soft — path falls back to the
+    // date-only layout.
     const lat = parseFloat(latRaw ?? "NaN");
     const lon = parseFloat(lonRaw ?? "NaN");
-    const location = await resolveLocation(lat, lon);
+    const location = await resolveBackupLocation(lat, lon);
 
     // Compute the destination relative path.
     let targetRelPath: string;
