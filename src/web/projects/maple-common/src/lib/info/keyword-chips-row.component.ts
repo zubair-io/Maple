@@ -9,7 +9,9 @@
 // "S6 keyword editing — XMP dc:subject round-trip + setKeywords".
 //
 // What renders today:
-//   • Existing keywords from `asset.keywords` as 11pt rounded chips.
+//   • Existing keywords from `asset.keywords` as non-interactive 11pt
+//     rounded chips (`<span>`s — no remove handler to avoid a fake
+//     interactive control until the editing path lands).
 //   • A trailing dashed `+ Add` chip that opens an inline stub message.
 //     Keeps the affordance visible for design review without mutating
 //     state.
@@ -46,7 +48,8 @@ export class KeywordChipsRowComponent {
     this.showStubHint.set(false);
   }
 
-  protected removeKeyword(_keyword: string): void {
-    // TODO(s6-keyword-editing): state.setKeywords(asset.id, keywords.filter(...))
-  }
+  // TODO(s6-keyword-editing): when LibraryStateService.setKeywords lands,
+  // re-add a removeKeyword(k) that calls state.setKeywords(asset.id,
+  // keywords.filter(...)) and flip the chips back to <button> with the
+  // "tap to remove" aria-label.
 }

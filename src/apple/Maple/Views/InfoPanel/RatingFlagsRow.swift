@@ -28,6 +28,12 @@ struct RatingFlagsRow: View {
       StarsTapRow(session: session)
     }
     .padding(.vertical, 4)
+    // SwiftUI `.disabled` carries the a11y "unavailable" trait through to
+    // VoiceOver and blocks keyboard focus on child buttons — pointer +
+    // assistive tech see the same state. The explicit opacity keeps the
+    // visual dim consistent with the design (the default disabled tint on
+    // macOS is too subtle for the inspector pane).
+    .disabled(session == nil)
     .opacity(session == nil ? 0.5 : 1.0)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("info-panel-rating-flags")
