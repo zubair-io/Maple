@@ -40,13 +40,19 @@ struct EditorHeader: View {
 
             Spacer(minLength: 0)
 
+            // Tap = undo, long-press = redo. Keep the button enabled
+            // whenever either action is reachable so the long-press redo
+            // path is still usable after the user undoes their only edit
+            // (canUndo=false, canRedo=true). `state.undo()` is a no-op
+            // when there's nothing to undo, so a stray tap in that state
+            // is harmless.
             Button(action: { state.undo() }) {
                 Image(systemName: "arrow.uturn.backward")
                     .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(state.canUndo ? MapleTokens.textMain : MapleTokens.textMuted)
+                    .foregroundStyle((state.canUndo || state.canRedo) ? MapleTokens.textMain : MapleTokens.textMuted)
             }
             .buttonStyle(.plain)
-            .disabled(!state.canUndo)
+            .disabled(!state.canUndo && !state.canRedo)
             .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in state.redo() })
             .accessibilityLabel("Undo")
             .accessibilityIdentifier("editor-undo")
