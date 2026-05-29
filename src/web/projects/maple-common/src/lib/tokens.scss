@@ -60,13 +60,18 @@
   --color-error-text: #f87171;
   --color-star: #ef9f27;
 
-  /* Typography — bundled per docs/spec/responsive-program-s0-primitives.md §3.3 */
+  /* Typography — bundled per docs/design/responsive-program/s0-primitives.md §3.3 */
   --font-sans:
     'Lato', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
   --font-serif: 'Merriweather', Georgia, 'Times New Roman', serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
 
-  /* Tailwind text-* utility classes per spec §3.4 mapping table. */
+  /* Tailwind text-* size/weight tokens per spec §3.4. Tailwind v4's `--text-*`
+   * theme namespace only honors `--line-height`, `--letter-spacing`, and
+   * `--font-weight` modifiers — `--font-family` is NOT a supported modifier
+   * (see tailwindcss/dist/lib.mjs ≈ "--font-weight"/"--letter-spacing"/
+   * "--line-height" trio). Family is wired into each utility via the
+   * `@utility` blocks below so consumers get the whole stack from one class. */
   --text-source-title: 28px;
   --text-source-title--line-height: 1.1;
   --text-source-title--font-weight: 700;
@@ -107,6 +112,41 @@
 
   /* Motion */
   --ease-default: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+// Typography utilities that bundle font-family with size/weight/line-height/
+// tracking, per spec §3.4. Tailwind v4 `--text-*` theme tokens cannot carry a
+// family modifier (see comment above), so each utility class overrides the
+// generated `text-<name>` to add `font-family`. Consumers apply a single
+// class (e.g. `class="text-source-title"`) and get the whole stack — no need
+// to remember to pair `font-serif` or `font-mono` alongside.
+@utility text-source-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-source-title);
+  line-height: var(--text-source-title--line-height);
+  font-weight: var(--text-source-title--font-weight);
+  letter-spacing: var(--text-source-title--letter-spacing);
+}
+
+@utility text-sheet-title {
+  font-family: var(--font-serif);
+  font-size: var(--text-sheet-title);
+  line-height: var(--text-sheet-title--line-height);
+  font-weight: var(--text-sheet-title--font-weight);
+}
+
+@utility text-value-chip {
+  font-family: var(--font-mono);
+  font-size: var(--text-value-chip);
+  line-height: var(--text-value-chip--line-height);
+  font-weight: var(--text-value-chip--font-weight);
+}
+
+@utility text-filename {
+  font-family: var(--font-mono);
+  font-size: var(--text-filename);
+  line-height: var(--text-filename--line-height);
+  font-weight: var(--text-filename--font-weight);
 }
 
 // SCSS variable aliases — use in cases where CSS custom properties don't

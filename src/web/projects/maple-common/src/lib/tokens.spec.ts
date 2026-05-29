@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest';
 import { MapleFont, MapleMono, MapleSerif, MapleTokens } from './tokens';
 
 // Sanity-level checks on the typography stacks per
-// docs/spec/responsive-program-s0-primitives.md §3.3. The runtime font
+// docs/design/responsive-program/s0-primitives.md §3.3. The runtime font
 // load is verified by the Playwright spec at src/web/e2e/fonts.spec.ts —
 // here we only assert that the family stacks themselves declare the
 // bundled face first (so falling back to the system font requires the

@@ -47,11 +47,13 @@ public struct MapleTokens {
 
     // MARK: - Typography
     //
-    // Bundled type scale per docs/spec/responsive-program-s0-primitives.md
-    // §3.4. Fonts registered via INFOPLIST_KEY_UIAppFonts in the Maple app
-    // target; .ttf files live in Maple/Resources/Fonts/. SF Mono is system-
-    // provided on Apple (no bundle needed); web ships JetBrains Mono for
-    // cross-browser consistency.
+    // Bundled type scale per docs/design/responsive-program/s0-primitives.md
+    // §3.4. Fonts registered via CTFontManagerRegisterFontsForURL in
+    // MapleApp.init (today's Xcode 17 / SDK 26.4 Info.plist synthesizer does
+    // not emit INFOPLIST_KEY_UIAppFonts into the built plist, so Core Text
+    // is the working loader); .ttf files live in Maple/Resources/Fonts/. SF
+    // Mono is system-provided on Apple (no bundle needed); web ships
+    // JetBrains Mono for cross-browser consistency.
     //
     // Naming vocabulary mirrors the spec table — `sourceTitle`, `sheetTitle`,
     // `body`, `rowLabel`, `eyebrow`, `chipLabel`, `toolLabel`, `valueChip`,
