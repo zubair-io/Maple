@@ -83,6 +83,16 @@ export * from './lib/shells/phone-settings-stub.component';
 
 // S1b (#598): phone-tier source picker drawer.
 export * from './lib/shells/source-picker-drawer/source-picker-drawer.component';
+
+// S6 (#621) — Info content (rating + flags + histogram + camera/location + keywords).
+// Lean Info renderer for the phone bottom-sheet + tablet/desktop inspector slots.
+// Lives alongside `<maple-info-tab>` (heavy Self-Hosted enrichment surface);
+// consolidation is a follow-up.
+export * from './lib/info/info-panel.component';
+export * from './lib/info/rating-flags-row.component';
+export * from './lib/info/histogram.component';
+export * from './lib/info/camera-location-grid.component';
+export * from './lib/info/keyword-chips-row.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';
