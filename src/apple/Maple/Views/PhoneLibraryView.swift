@@ -78,14 +78,12 @@ struct PhoneLibraryView<SidebarContent: View, ToolbarContentT: ToolbarContent>: 
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback
         )
-        // Tab-bar hide-on-push contract for the phone shell. S5 will
-        // replace the destination body with the real Editor view (no
-        // separate Loupe — the Editor canvas IS the full-image view;
-        // see PR #619 spec drop).
-        .navigationDestination(for: AssetRef.self) { _ in
-            Text("Editor — coming in S5")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Tab-bar hide-on-push contract for the phone shell. S4 was
+        // dropped (#619); cell tap pushes straight into the S5 Editor
+        // (#625) — the Editor canvas IS the full-image view (no
+        // separate Loupe).
+        .navigationDestination(for: AssetRef.self) { ref in
+            EditorDestination(asset: ref, sessions: $sessions)
                 .toolbar(.hidden, for: .tabBar)
         }
     }

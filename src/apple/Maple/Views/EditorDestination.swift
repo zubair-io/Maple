@@ -1,0 +1,58 @@
+// EditorDestination.swift — responsive-program S5 (#625).
+//
+// Push destination for the iPhone Library tab. Resolves (or creates)
+// the per-asset `EditSession`, hands it to an `EditorState`, and renders
+// the editor. On dismiss, flushes any pending XMP write so an
+// undo-then-leave sequence persists the right value (spec §8 risk #4b).
+//
+// Lives in the app target so it can touch `EditSession` + `XMPSidecarStore`
+// without expanding MapleCore's SwiftUI surface.
+
+#if os(iOS)
+
+import SwiftUI
+import MapleCore
+
+struct EditorDestination: View {
+    let asset: AssetRef
+    @Binding var sessions: [AssetRef.ID: EditSession]
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var state: EditorState?
+
+    var body: some View {
+        Group {
+            if let state {
+                EditorView(
+                    state: state,
+                    onDismiss: { dismiss() },
+                    onShare: {},
+                    onInfo: {}
+                )
+            } else {
+                Color.clear
+            }
+        }
+        .task(id: asset.id) {
+            // Build (or reuse) the EditSession + EditorState. EditSession.init
+            // is async (loads sidecar / as-shot WB).
+            if let existing = sessions[asset.id] {
+                self.state = EditorState(session: existing)
+                return
+            }
+            let session = await EditSession(asset: asset)
+            sessions[asset.id] = session
+            self.state = EditorState(session: session)
+        }
+        .onDisappear {
+            // Per S5 spec risk #4b — flush pending XMP write before tear-down
+            // so an undo-then-leave persists the right value, not the stale
+            // pre-undo value sitting in the debounce window.
+            if let session = state?.session {
+                Task.detached { await session.flushPendingSidecarWrite() }
+            }
+        }
+    }
+}
+
+#endif
