@@ -12,6 +12,11 @@
 // Single source of truth: this file is the only place tokens are defined.
 // Both maple-syrup and maple import it via their `styles.scss`.
 
+// Forward the motion vocabulary so consumers that `@use 'tokens'` also get
+// `--motion-*` custom properties emitted at `:root` (without needing a
+// separate import). Responsive-program S0a (#581).
+@forward './motion';
+
 @theme {
   /* Surfaces */
   --color-bg: #1c1917;
@@ -53,8 +58,7 @@
 
   /* Typography */
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue',
-    sans-serif;
+    -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif;
   --font-mono: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
 
   /* Motion */
