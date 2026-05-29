@@ -4,10 +4,11 @@
 // library is empty until the user picks a photo or a folder from the
 // landing page.
 //
-// Responsive-program S1a (#597).
+// Responsive-program S1a (#597). Deep-link cold-boot dispatch added
+// in #624 — see DeepLinkService.
 
 import { Component, inject, OnInit } from '@angular/core';
-import { LibraryStateService, RootShellComponent } from '@maple-common';
+import { DeepLinkService, LibraryStateService, RootShellComponent } from '@maple-common';
 
 @Component({
   selector: 'app-root',
@@ -24,6 +25,19 @@ import { LibraryStateService, RootShellComponent } from '@maple-common';
 })
 export class App implements OnInit {
   private state = inject(LibraryStateService);
+
+  constructor() {
+    // Cold-boot deep-link dispatch. Same shape as the Self-Hosted
+    // app (see projects/maple/src/app/app.ts). The PWA protocol
+    // handler expands `maple://image/{id}` to
+    // `/library/editor/<encoded maple://…>`; DeepLinkService
+    // unwraps that internally. Silent fallback per spec §2.
+    if (typeof window === 'undefined') return;
+    const href = window.location.href;
+    if (href.startsWith('maple://') || /[?&](image|source|url)=/.test(href)) {
+      inject(DeepLinkService).resolve(href);
+    }
+  }
 
   ngOnInit(): void {
     // Seed an empty Folders section so addImportedAsset and openFolder can

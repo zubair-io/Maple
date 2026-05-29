@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Minimal Info.plist — exists ONLY to host CFBundleURLTypes for the
+  `maple://` URL scheme (responsive-program deep links, #624).
+
+  The Xcode 17 / SDK 26.4 Info.plist synthesizer doesn't allowlist
+  `INFOPLIST_KEY_CFBundleURLTypes`, so the equivalent
+  INFOPLIST_KEY_* build setting is silently dropped (same pattern as
+  `UIAppFonts`, `NSBonjourServices`, `NSHighResolutionCapable` —
+  verified empirically against a built `Maple Exposure.app/Contents/Info.plist`).
+  URL schemes have no runtime registration API (unlike fonts, which
+  use `CTFontManagerRegisterFontsForURL` from `MapleApp.init`), so the
+  scheme MUST land in the built plist for LaunchServices to associate
+  `maple://` with the bundle id.
+
+  `GENERATE_INFOPLIST_FILE = YES` remains on — Xcode merges this file
+  with the synthesized keys. Add unsupported-by-synthesizer keys here;
+  everything else stays in `project.pbxproj` as `INFOPLIST_KEY_*`.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.justmaple.aperture</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>maple</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>
