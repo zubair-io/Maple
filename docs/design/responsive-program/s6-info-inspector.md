@@ -10,9 +10,9 @@ One ticket — **S6** — shipped as one PR.
 
 ## 1. Overview & deliverable map
 
-| Ticket | What ships | Files touched | Blocks |
-|---|---|---|---|
-| **S6** | `InfoPanelView` (Apple) / `InfoPanelComponent` (web) — single component, two slots. Renders: rating + flags row, server-rendered histogram (SVG), camera + location grid, keyword chips. Phone consumes via S1c's `mapleBottomSheet`. Tablet/desktop renders directly inside the existing pane shell's Inspector column (replaces the existing Info-tab content). `cm.detailHidden` persistence (existing) controls inspector visibility on tablet/desktop. | New `src/apple/Maple/Views/InfoPanelView.swift`, edits to `src/apple/Maple/Views/DetailPanel.swift` (Info tab uses InfoPanelView), new `src/web/projects/maple-common/src/lib/info/info-panel.component.{ts,html,scss,spec.ts}` + sibling `histogram.component.ts`, `src/web/projects/maple/src/app/detail-pane.component.ts` consumes | — |
+| Ticket | What ships                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Files touched                                                                                                                                                                                                                                                                                                                          | Blocks |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| **S6** | `InfoPanelView` (Apple) / `InfoPanelComponent` (web) — single component, two slots. Renders: rating + flags row, server-rendered histogram (SVG), camera + location grid, keyword chips. Phone consumes via S1c's `mapleBottomSheet`. Tablet/desktop renders directly inside the existing pane shell's Inspector column (replaces the existing Info-tab content). `cm.detailHidden` persistence (existing) controls inspector visibility on tablet/desktop. | New `src/apple/Maple/Views/InfoPanelView.swift`, edits to `src/apple/Maple/Views/DetailPanel.swift` (Info tab uses InfoPanelView), new `src/web/projects/maple-common/src/lib/info/info-panel.component.{ts,html,scss,spec.ts}` + sibling `histogram.component.ts`, `src/web/projects/maple/src/app/detail-pane.component.ts` consumes | —      |
 
 S6 depends on S1c (`mapleBottomSheet`), reuses existing `DetailPanel` Info tab on Apple desktop.
 
@@ -30,7 +30,7 @@ Top → bottom inside sheet:
 2. **Header**: "Info" (Merriweather 17pt/700 — `MapleTokens.Typography.sheetTitle`) left, close X right.
 3. **Rating & flags row**:
    - 3 pill circles (24pt): Pick (green P) · Unflagged (—) · Reject (✕). Active state visible on selected one.
-   - Right: 5-star row, gold filled vs muted outline based on `cullingState.starCount`. Tap a star to set rating (1–5).
+   - Right: 5-star row, gold filled vs muted outline based on `cullingState.stars` (the rating field on `CullingState` — see `AdjustmentModel.swift`). Tap a star to set rating (1–5).
 4. **Histogram** — 56pt block. Server-rendered RGB curves SVG/PNG. Top-left aligned. 0.5pt border, 6pt radius, `surface` bg.
 5. **Camera / Location** — 2-col grid (label left muted, value right mono). 0.5pt rule between rows. Fields: Body (camera + model), Lens, Aperture, Shutter, ISO, Focal · Coords (lat/lon), City (reverse-geocode if available).
 6. **Keywords** — wrap of 11pt rounded chips on `surfaceAlt`. Trailing `+` add chip is dashed-outline; tap opens keyboard with a single-line input docked above.
@@ -73,6 +73,7 @@ struct InfoPanelView: View {
 ### Consumers
 
 **Phone (S4 Loupe / S5 Editor)** — already wired via S1c:
+
 ```swift
 content.mapleBottomSheet(isPresented: $isInfoOpen) {
     InfoPanelView(asset: asset, cullingState: ..., isInsideSheet: true)
@@ -80,6 +81,7 @@ content.mapleBottomSheet(isPresented: $isInfoOpen) {
 ```
 
 **Tablet/Desktop (existing `DetailPanel` Info tab)** — replace existing Info-tab body:
+
 ```swift
 case .info:
     InfoPanelView(asset: asset, cullingState: ..., isInsideSheet: false)
@@ -135,8 +137,8 @@ export class InfoPanelComponent {
 ### Apple
 
 - `XCTest`:
-  - `RatingFlagsRowTests` — tap each pill flips `cullingState.flag` correctly; tap a star sets `cullingState.starCount`; tap same star clears (toggles).
-  - `KeywordChipsRowTests` — add/remove a keyword updates `asset.keywords`.
+  - `RatingFlagsRowTests` — tap each pill flips `cullingState.flag` correctly; tap a star sets `cullingState.stars`; tap same star clears (toggles).
+  - `KeywordChipsRowTests` — renders existing keywords from `AssetRef.metadata` (read-only in v0.1; editing affordance is a stub pending the keyword-model follow-up — see §6 Risks). When the chip-editing scope is taken on (option (b) in §6), this test gains add/remove cases that go through `EditSession.setKeywords(_:)`.
 - `#Preview` for `InfoPanelView` in both modes (`isInsideSheet: true` / `false`).
 
 ### Web
@@ -158,7 +160,7 @@ Same as S0/S1 baseline.
 
 1. **Existing `DetailPanel.swift`** is the largest View file in the project (per CLAUDE.md mentions of file-size budget; mentioned at 594 lines in S1b agent's report). Replacing the Info tab body may push it further over soft budget. Mitigation: extract the Info-tab section into its own file (`DetailPanelInfoTab.swift`) as part of S6 — small refactor.
 2. **Histogram endpoint** may not exist server-side yet. Audit `src/api` for `/histogram/:assetId` or equivalent; if missing, file a follow-up ticket to add the endpoint, and S6 ships with a placeholder rectangle until then.
-3. **Keyword editing** writes to XMP — uses existing `EditSession.addKeyword`/`removeKeyword`. Verify pattern reuse; do NOT bypass the existing debounced save.
+3. **Keyword editing — NEW model + sidecar work.** `EditSession` does **not** currently expose `addKeyword`/`removeKeyword` (verified against `EditSession.swift` and `+Hydration.swift`), and `AdjustmentModel` / the XMP serializer don't carry a keyword field today. S6 has two options: (a) defer the chip-editing UX to a follow-up ticket and ship S6 with the keyword row as read-only (rendering whatever's already in `AssetRef.metadata`); or (b) include the new model field + serializer round-trip + `EditSession` mutators (`setKeywords(_:)` is the cleaner shape, routed through the existing 750ms `XMPSidecarStore.update` debounce) inside S6's scope. Default plan: **(a) — defer.** Treat the chip-editing affordance as a stub for v0.1 and file the model work as a follow-up. Do NOT bypass the existing debounced save when (b) is picked up.
 4. **Rating star tap semantics** — single-tap to set, tap-same-star to clear? Existing desktop behavior should be mirrored. Confirm at PR time.
 5. **Camera/location field mapping** — existing `AssetRef.metadata` may not have all 8 fields. Use `?? "—"` fallback for missing ones; don't crash on absent EXIF.
 
