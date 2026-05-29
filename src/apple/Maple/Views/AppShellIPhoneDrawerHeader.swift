@@ -35,7 +35,7 @@ struct AppShellIPhoneDrawerHeader: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center) {
                 Text("LIBRARY")
-                    .font(MapleTokens.Typography.sectionHeader)
+                    .font(MapleTokens.Typography.eyebrow)
                     .tracking(1.4) // ~0.14em on 10pt
                     .foregroundStyle(MapleTokens.textMuted)
                 Spacer()
@@ -53,7 +53,7 @@ struct AppShellIPhoneDrawerHeader: View {
             if !connectionIdentity.isEmpty {
                 HStack(spacing: 4) {
                     Text(connectionIdentity)
-                        .font(MapleTokens.Typography.row)
+                        .font(MapleTokens.Typography.rowLabel)
                         .foregroundStyle(MapleTokens.textMain)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -68,7 +68,7 @@ struct AppShellIPhoneDrawerHeader: View {
             }
             if !tertiarySummary.isEmpty {
                 Text(tertiarySummary)
-                    .font(MapleTokens.Typography.meta)
+                    .font(MapleTokens.Typography.body)
                     .foregroundStyle(MapleTokens.textMuted)
                     .lineLimit(1)
             }
@@ -95,7 +95,7 @@ struct AppShellIPhoneDrawerSearchPill: View {
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(MapleTokens.textMuted)
                 Text("Search photos")
-                    .font(MapleTokens.Typography.row)
+                    .font(MapleTokens.Typography.rowLabel)
                     .foregroundStyle(MapleTokens.textMuted)
                 Spacer()
             }
