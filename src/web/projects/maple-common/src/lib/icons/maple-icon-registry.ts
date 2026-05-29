@@ -63,6 +63,13 @@ interface ShapeBase {
    * 90° corners must stay sharp; rounded joins would visibly bevel the
    * 3×3 / 4.5×4.5 cells. */
   sharp?: boolean;
+  /** Override the SVG fill-rule. `evenodd` lets a single filled <path>
+   * combine an outer shape with inner cut-outs (e.g. `clear-circle-fill`'s
+   * filled disc with an X-shaped hole that knocks out the disc fill, so
+   * the X reads against the page background rather than being painted in
+   * `currentColor` over a same-colored disc). Only meaningful when
+   * `filled: true`. */
+  fillRule?: 'evenodd' | 'nonzero';
 }
 
 export type IconShape =
@@ -196,10 +203,29 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
   'undo-uturn': [path('M2.5 6.5L5 4l2.5 2.5'), path('M5 4v4a3 3 0 003 3h5.5')],
   // Mirror of undo — U-turn returning to the right (redo).
   'redo-uturn': [path('M13.5 6.5L11 4 8.5 6.5'), path('M11 4v4a3 3 0 01-3 3H2.5')],
-  // Filled disc with stroked X overlay — search-field clear button.
+  // Filled disc with an X-shaped knockout — search-field clear button.
+  // Single <path fill-rule="evenodd">: subpath 1 draws the disc (clockwise),
+  // subpath 2 traces the X glyph outline as a 12-vertex pinwheel polygon.
+  // evenodd subtracts the X interior from the disc so the cut-out reads as
+  // the page background, not as `currentColor` over `currentColor` (which
+  // would render as a solid disc — see PR #589 review thread).
+  // The X is a 1.5-thick crossed-rectangle pair whose union is traced as
+  // one closed polygon; tips are perpendicular (blunt) for a clean read at
+  // 16px. Crotches sit at distance 0.75/sin(45°) ≈ 1.06 from center on the
+  // cardinal axes; tip corners at ±0.53 offset along each axis from the
+  // tip centerline.
   'clear-circle-fill': [
-    { kind: 'circle', cx: 8, cy: 8, r: 5.5, filled: true },
-    path('M6 6l4 4M10 6l-4 4'),
+    {
+      kind: 'path',
+      d:
+        // Outer disc — clockwise.
+        'M2.5 8A5.5 5.5 0 1 0 13.5 8A5.5 5.5 0 1 0 2.5 8Z' +
+        // X cutout — counterclockwise traversal of the X outline.
+        'M8 6.94L9.97 4.97L11.03 6.03L9.06 8L11.03 9.97L9.97 11.03' +
+        'L8 9.06L6.03 11.03L4.97 9.97L6.94 8L4.97 6.03L6.03 4.97Z',
+      filled: true,
+      fillRule: 'evenodd',
+    },
   ],
   // Wand staff with a sparkle accent — "smart" / generated source.
   'smart-source-wand': [

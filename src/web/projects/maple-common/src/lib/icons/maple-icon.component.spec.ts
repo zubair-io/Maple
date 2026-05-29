@@ -116,21 +116,34 @@ describe('MapleIconComponent', () => {
   });
 
   describe('clear-circle-fill (new in S0c)', () => {
-    it('renders a filled disc with an X overlay', () => {
+    it('renders a single filled path with evenodd fill-rule (X cut out)', () => {
+      // The disc + X are merged into one filled <path> with fill-rule=evenodd
+      // so the X subtracts from the disc fill and reads as the page background
+      // (otherwise both the disc and the X would render in `currentColor` and
+      // the X would disappear into the disc — see PR #589 review thread).
       const svg = render('clear-circle-fill');
-      const circles = svg.querySelectorAll('circle');
       const paths = svg.querySelectorAll('path');
-      expect(circles.length).toBe(1);
-      // X is two stroked segments joined into a single path "M…M…".
+      const circles = svg.querySelectorAll('circle');
       expect(paths.length).toBe(1);
-      expect(circles[0].getAttribute('cx')).toBe('8');
-      expect(circles[0].getAttribute('cy')).toBe('8');
-      expect(circles[0].getAttribute('r')).toBe('5.5');
-      // Disc is filled.
-      expect(circles[0].getAttribute('stroke')).toBeNull();
-      // X path is stroked.
-      expect(paths[0].getAttribute('stroke')).not.toBeNull();
-      expect(paths[0].getAttribute('d')).toBe('M6 6l4 4M10 6l-4 4');
+      expect(circles.length).toBe(0);
+      const p = paths[0];
+      // Filled, not stroked.
+      expect(p.getAttribute('fill')).not.toBe('none');
+      expect(p.getAttribute('stroke')).toBeNull();
+      // evenodd is what makes the cutout work.
+      expect(p.getAttribute('fill-rule')).toBe('evenodd');
+      // Path data has two subpaths: the disc (begins with M2.5 8 + arc) and
+      // the X polygon (begins with a later M…). Both end with Z.
+      const d = p.getAttribute('d') ?? '';
+      expect(d.startsWith('M2.5 8A5.5 5.5 0 1 0 13.5 8')).toBe(true);
+      // Two subpaths → exactly two Z terminators.
+      expect((d.match(/Z/g) ?? []).length).toBe(2);
+      // The X subpath traces 12 vertices through the cardinal crotches
+      // (8, 6.94) / (9.06, 8) / (8, 9.06) / (6.94, 8).
+      expect(d).toContain('M8 6.94');
+      expect(d).toContain('9.06 8');
+      expect(d).toContain('8 9.06');
+      expect(d).toContain('6.94 8');
     });
   });
 
