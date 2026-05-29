@@ -31,11 +31,11 @@ import MapleCore
                 sidebarContent: {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("FOLDERS").font(MapleTokens.Typography.sectionHeader)
+                            Text("FOLDERS").font(MapleTokens.Typography.eyebrow)
                                 .foregroundStyle(MapleTokens.textMuted)
                                 .tracking(1.4)
                             ForEach(["Trip 2026", "Wedding · Aug", "Studio · Sept"], id: \.self) {
-                                Text($0).font(MapleTokens.Typography.row)
+                                Text($0).font(MapleTokens.Typography.rowLabel)
                                     .foregroundStyle(MapleTokens.textMain)
                             }
                         }
@@ -68,11 +68,11 @@ import MapleCore
                 sidebarContent: {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("FOLDERS").font(MapleTokens.Typography.sectionHeader)
+                            Text("FOLDERS").font(MapleTokens.Typography.eyebrow)
                                 .foregroundStyle(MapleTokens.textMuted)
                                 .tracking(1.4)
                             ForEach(["Trip 2026", "Wedding · Aug", "Studio · Sept"], id: \.self) {
-                                Text($0).font(MapleTokens.Typography.row)
+                                Text($0).font(MapleTokens.Typography.rowLabel)
                                     .foregroundStyle(MapleTokens.textMain)
                             }
                         }
