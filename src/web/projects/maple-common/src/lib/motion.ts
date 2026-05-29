@@ -23,7 +23,7 @@ export const MapleMotion = {
   sheetDismiss: MAPLE_UI_MOTION.sheetDismiss,
   /** Editor group/tool tab swap. */
   groupSwap: MAPLE_UI_MOTION.groupSwap,
-  /** Loupe chrome auto-hide. */
+  /** Editor chrome auto-hide. */
   chromeHide: MAPLE_UI_MOTION.chromeHide,
   /** Library filter chip change cross-fade. */
   filterFade: MAPLE_UI_MOTION.filterFade,

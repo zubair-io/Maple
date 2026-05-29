@@ -143,7 +143,7 @@ public struct MapleTokens {
         static let sheetDismiss = Animation.snappy(duration: MapleUITokens.Motion.sheetDismiss.seconds)
         /// Editor group/tool tab swap (120ms ease-in-out).
         static let groupSwap = Animation.easeInOut(duration: MapleUITokens.Motion.groupSwap.seconds)
-        /// Loupe chrome auto-hide (180ms ease-out).
+        /// Editor chrome auto-hide (180ms ease-out).
         static let chromeHide = Animation.easeOut(duration: MapleUITokens.Motion.chromeHide.seconds)
         /// Library filter chip change cross-fade (120ms linear).
         static let filterFade = Animation.linear(duration: MapleUITokens.Motion.filterFade.seconds)
