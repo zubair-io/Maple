@@ -18,14 +18,14 @@ to use.
 
 A note on shape: Maple is **three apps over one core**.
 
-- **Maple (native)** — Swift + SwiftUI on Mac/iPad/iPhone. Deliberately *not* a
+- **Maple (native)** — Swift + SwiftUI on Mac/iPad/iPhone. Deliberately _not_ a
   DAM: no server, no face recognition, no auto-tagging. It browses, culls, and
   develops RAWs against local folders, Apple Photos, SMB shares, and a File
   Provider mount.
 - **Maple Hosted / Local editor** — Angular in the browser, Rust core compiled
   to WASM, edits entirely client-side. No server needed to develop a file.
 - **Maple Self Hosted** — a Bun/Elysia + MongoDB backend that serves the same
-  Angular app and adds the *library intelligence*: the indexer, geocoding,
+  Angular app and adds the _library intelligence_: the indexer, geocoding,
   descriptions, face clustering, and semantic search.
 
 That split is why some features (geocode, describe, faces, search) live only in
@@ -38,7 +38,7 @@ three.
 
 **Why I wanted it.** A working photographer's library doesn't live in one app's
 sandbox — it lives in folders, on a NAS, in the cloud. I wanted Maple's catalog
-to show up *inside Finder and the iOS Files app* as a normal mounted volume, so
+to show up _inside Finder and the iOS Files app_ as a normal mounted volume, so
 a server-hosted library feels like a local drive: browse it, Quick Look it, drag
 files in, and have edits flow back. No "import" step, no second copy of the
 truth.
@@ -106,7 +106,7 @@ open func item(for identifier: NSFileProviderItemIdentifier,
 ## 2. PhotoKit Browser Access
 
 **Why I wanted it.** On a Mac and especially on iPhone/iPad, most people's
-photos *are* the Apple Photos library. If Maple couldn't browse and develop
+photos _are_ the Apple Photos library. If Maple couldn't browse and develop
 straight out of Photos, it would be a non-starter on mobile. I wanted Photos to
 be a first-class source alongside folders and shares — and I wanted it to stay
 fast on a 100k-image library.
@@ -213,7 +213,7 @@ public func open(folderURL: URL) throws {
 
 **Why I wanted it.** "Where was this?" is the second question after "who's in
 it?" GPS coordinates in EXIF are useless to a human — nobody searches for
-`37.81, -122.47`. I wanted photos to be findable and foldered by *place names*:
+`37.81, -122.47`. I wanted photos to be findable and foldered by _place names_:
 "Golden Gate," "Lisbon," "the lacrosse field" — without shipping a giant offline
 geo database or hammering a public API on every photo.
 
@@ -264,7 +264,7 @@ public actor GeocodeClient {
 
 ## 5. Description (qwen2.5-vl vision → structured VisionDoc)
 
-**Why I wanted it.** A caption isn't the goal — *findability* is. I wanted every
+**Why I wanted it.** A caption isn't the goal — _findability_ is. I wanted every
 photo to carry a structured description I could search and facet on: subjects,
 scene type, activity, mood, dominant colors, and any readable text. And I wanted
 one local vision model to produce all of it (including OCR), so there's no API
@@ -272,10 +272,10 @@ bill and nothing leaves the box. The earlier design ran Tesseract separately for
 text; that was removed in #158 because qwen reads text fine via `text_visible`.
 
 **What it does.** Runs `qwen2.5-vl:7b` (via Ollama) over a 1280px preview JPEG
-and returns a strict-validated `VisionDoc` JSON: caption, subjects, scene_type,
+and returns a strict-validated `VisionDoc` JSON: caption, subjects, scene*type,
 setting, activity, time_of_day, lighting, weather, mood, colors, composition,
 text_visible (OCR), notable_objects, shot_type, is_screenshot. Stored in Mongo —
-**never** in XMP, because it's *derived*, not user-authored.
+**never** in XMP, because it's \_derived*, not user-authored.
 
 **How it's built.** A Self Hosted enrichment stage depending on the `preview`
 stage. Spec: `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`.
@@ -302,23 +302,23 @@ Key decisions:
 ```typescript
 // db/schema.ts — the structured output contract
 export interface VisionDoc {
-  caption: string;                 // 1–2 sentence, search-oriented
+  caption: string; // 1–2 sentence, search-oriented
   subjects: string[];
-  scene_type: 'indoor'|'outdoor'|'aerial'|'macro'|'studio'|'mixed';
+  scene_type: 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
   activity: string | null;
   mood: string;
-  colors: string[];                // max 5
-  text_visible: string | null;     // OCR — replaces the old Tesseract stage
-  notable_objects: string[];       // max 8
+  colors: string[]; // max 5
+  text_visible: string | null; // OCR — replaces the old Tesseract stage
+  notable_objects: string[]; // max 8
   is_screenshot: boolean;
   // …time_of_day, lighting, weather, composition, shot_type, indoor_outdoor
 }
 
 // describe.ts — the patch written back (note: DB only, not XMP)
 const patch = {
-  description: vision.caption,                 // legacy free-text mirror
-  vision,                                      // the full structured doc
-  ocr_text: vision.text_visible ?? '',         // OCR mirrored from vision
+  description: vision.caption, // legacy free-text mirror
+  vision, // the full structured doc
+  ocr_text: vision.text_visible ?? '', // OCR mirrored from vision
   is_screenshot: vision.is_screenshot,
   vision_meta: { provider, model, prompt_version, generated_at: now },
 };
@@ -329,7 +329,7 @@ const patch = {
 ## 6. Face Detection
 
 **Why I wanted it.** "Show me photos of my kid" is the single most common library
-query. Names beat folders. But I had two hard rules: it had to be a *Self Hosted*
+query. Names beat folders. But I had two hard rules: it had to be a _Self Hosted_
 capability (the native app is explicitly not a DAM and does no face recognition),
 and it had to cluster on-box with no cloud face API.
 
@@ -348,7 +348,7 @@ in Mongo under `asset.faces[]` — again, never in XMP.
 Key decisions:
 
 - **Embeddings, not just boxes.** Apple's Vision gives boxes but no embeddings,
-  so clustering is impossible on-device — that's *why* faces is server-only.
+  so clustering is impossible on-device — that's _why_ faces is server-only.
 - **Online clustering** with a cosine-similarity threshold (~0.5): assign to the
   nearest centroid if above threshold (streaming-mean update), else start a new
   cluster. Deterministic given the same seed set and input order.
@@ -361,17 +361,25 @@ Key decisions:
 // cluster-embeddings.ts — assign-or-create against centroids
 for (const raw of embeddings) {
   const face = l2Normalise(raw);
-  let bestIdx = -1, bestScore = -Infinity;
+  let bestIdx = -1,
+    bestScore = -Infinity;
   for (let k = 0; k < clusters.length; k++) {
-    const score = dotProduct(face, clusters[k].centroid);   // cosine (both unit)
-    if (score > bestScore) { bestScore = score; bestIdx = k; }
+    const score = dotProduct(face, clusters[k].centroid); // cosine (both unit)
+    if (score > bestScore) {
+      bestScore = score;
+      bestIdx = k;
+    }
   }
-  if (bestIdx >= 0 && bestScore >= threshold) {             // ~0.5
-    clusters[bestIdx].centroid = updateCentroid(clusters[bestIdx].centroid, face,
-                                                clusters[bestIdx].face_count++);
+  if (bestIdx >= 0 && bestScore >= threshold) {
+    // ~0.5
+    clusters[bestIdx].centroid = updateCentroid(
+      clusters[bestIdx].centroid,
+      face,
+      clusters[bestIdx].face_count++,
+    );
     assignments.push(bestIdx);
   } else {
-    clusters.push({ centroid: face, face_count: 1 });        // new person
+    clusters.push({ centroid: face, face_count: 1 }); // new person
     assignments.push(clusters.length - 1);
   }
 }
@@ -382,7 +390,7 @@ for (const raw of embeddings) {
 ## 7. Semantic Search
 
 **Why I wanted it.** Photographers don't remember filenames or dates — they
-remember *what a photo was*. "The foggy morning at the coast," "kids playing
+remember _what a photo was_. "The foggy morning at the coast," "kids playing
 lacrosse," "that receipt." I wanted the search box to understand meaning, not
 just match strings, while still working out of the box without any vector
 infra configured.
@@ -404,11 +412,11 @@ configured it falls back to a Mongo `$text` index over a denormalized
 Key decisions:
 
 - **Keyword is the default; semantic is opt-in.** `search_blob` (place + caption
-  + OCR + subjects + setting + activity + notable_objects + people names,
-  tokenized/deduped/sorted) feeds Mongo `$text`. Always works, no GPU.
+  - OCR + subjects + setting + activity + notable_objects + people names,
+    tokenized/deduped/sorted) feeds Mongo `$text`. Always works, no GPU.
 - **Hybrid blend** when Meili + Ollama embedder are on:
   `score = (1-ratio)·keyword + ratio·vector`, default `semanticRatio = 0.5`.
-- **Meili embeds documents *and* queries** via an Ollama HTTP embedder block, so
+- **Meili embeds documents _and_ queries** via an Ollama HTTP embedder block, so
   there's one embedding source for both sides.
 - **Facets are orthogonal to search:** `vision.scene_type` (exact),
   `vision.activity` (exact), `vision.subjects` (`$in`), `is_screenshot`, people.
@@ -437,7 +445,7 @@ return [...tokens].sort().join(' ');
 **Why I wanted it.** This is the trust contract. A photographer will not adopt an
 editor that might touch their negatives. The rule is absolute: **the original
 file is never modified.** Every edit is a recipe written to a sidecar; the pixels
-you see are *derived* from RAW + recipe at render time. That also means edits are
+you see are _derived_ from RAW + recipe at render time. That also means edits are
 portable (the `.xmp` round-trips to Lightroom) and infinitely revertible.
 
 **What it does.** All 17 develop sliders plus culling metadata (rating, flag,
@@ -467,8 +475,8 @@ Key decisions:
   Lightroom masks/history aren't clobbered.
 - **Legacy-key precedence flags.** When both a new key
   (`papp:CaptureSharpeningSigma`) and a retired one
-  (`papp:CaptureSharpeningRadius`) are present, the new one wins *regardless of
-  document order* (same for `papp:Profile` vs legacy `papp:Look`).
+  (`papp:CaptureSharpeningRadius`) are present, the new one wins _regardless of
+  document order_ (same for `papp:Profile` vs legacy `papp:Look`).
 
 **Code spec.**
 
@@ -502,7 +510,7 @@ public actor XMPSidecarStore {
 ```
 
 The round-trip is a merge gate: Swift `serialize → parse` and TS
-`serialize → parse` must agree, *and* Swift↔TS must produce byte-identical XMP.
+`serialize → parse` must agree, _and_ Swift↔TS must produce byte-identical XMP.
 
 ---
 
@@ -530,7 +538,7 @@ in scene-linear f32, with one view transform at the very end.
 
 Key decisions:
 
-- **Two-phase render.** A **fast** pass renders at *viewport* resolution
+- **Two-phase render.** A **fast** pass renders at _viewport_ resolution
   immediately (a 25MP RAW at full res is 400 MB in f32 — infeasible per frame; a
   2K viewport is ~8–32 MB and renders in <20 ms). A **refine** pass, debounced
   150 ms, does full resolution only after the drag settles.
@@ -545,7 +553,7 @@ Key decisions:
 - **Lazy CIFilter / WebGL graph.** Parameter updates are microseconds; nothing
   computes until `startTask(toRender:)`. Default (no-op) stages cost nothing.
 - **Scene-linear Rec.2020 D65 f32 throughout**, with the AgX view transform as
-  the *only* display-domain op — so swapping looks is a shader parameter, and
+  the _only_ display-domain op — so swapping looks is a shader parameter, and
   nothing before it clips.
 - **Hard rule:** no feature may add allocation in the render loop, or a
   WASM-boundary round-trip per slider tick.
@@ -589,7 +597,7 @@ two-frame budget at 60 Hz.
 
 **Why I wanted it.** Not everyone wants their library in someone else's cloud. I
 wanted a single binary a photographer (or a small studio) can run on their own
-box — a NAS, a mini PC — that serves the same web editor *and* adds the library
+box — a NAS, a mini PC — that serves the same web editor _and_ adds the library
 intelligence (indexing, geocode, descriptions, faces, search) using local
 models, so nothing leaves the building.
 
@@ -613,8 +621,8 @@ Key decisions:
 - **JWT secret canonicalized in Mongo** (file fallback, in-memory last resort),
   with a SHA-256 fingerprint logged so mismatched instances are obvious — lets
   you run multiple stateless instances behind a load balancer.
-- **Two-tier indexing.** A *fast tier* lands a skeleton asset row in ~200 ms
-  (exif/hash/thumb) so browse is instant; *slow-tier* workers (describe,
+- **Two-tier indexing.** A _fast tier_ lands a skeleton asset row in ~200 ms
+  (exif/hash/thumb) so browse is instant; _slow-tier_ workers (describe,
   geocode, face, meili) patch asynchronously via a `findOneAndUpdate` claim
   query with leases + retries + dead-lettering.
 - **COOP/COEP on every response** to enable `SharedArrayBuffer`, so the WASM
@@ -722,7 +730,7 @@ they're load-bearing for the story even though they weren't in your bullet list:
 - **RAW Develop / the adjustment sliders** — the actual editing: exposure, WB
   (temp/tint + presets + eyedropper), contrast, highlights/shadows, whites/blacks,
   vibrance/saturation, clarity/texture, dehaze, capture sharpening, NR. This is
-  arguably *the* product; non-destructive and fast are how it's delivered.
+  arguably _the_ product; non-destructive and fast are how it's delivered.
 - **The scene-referred color pipeline** — linear Rec.2020 D65 f32, exposure as a
   linear multiply, a single AgX view transform at the end, gated against the
   Rust reference with a CIEDE2000 parity harness. This is the "color a
@@ -732,7 +740,7 @@ they're load-bearing for the story even though they weren't in your bullet list:
   step that keeps every constant identical across Rust/Swift/TS. The spine of
   the whole architecture.
 - **The Indexer** — the two-tier fast/slow worker engine (`docs/indexer-enrichment.md`)
-  that *powers* Description, Geocoding, Faces, and Search. You listed the leaves;
+  that _powers_ Description, Geocoding, Faces, and Search. You listed the leaves;
   this is the trunk, and it's a great "how it scales" episode (claim queries,
   leases, dead-letters, versioned re-runs).
 - **The `.maple/` folder cache** — the cross-app interop contract
