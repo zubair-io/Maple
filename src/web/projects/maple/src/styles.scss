@@ -6,6 +6,9 @@
 
 @use 'tailwindcss';
 @use '../../maple-common/src/lib/tokens';
+// Emits `--safe-area-inset-{top,right,bottom,left}` at :root — one canonical
+// name for every shell surface that hugs a screen edge. PWA polish (#620).
+@use '../../maple-common/src/lib/safe-area';
 
 // ── Reset ────────────────────────────────────────────────────────────────────
 // Wrap the universal margin/padding reset in `@layer base` so Tailwind v4

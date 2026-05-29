@@ -1,0 +1,17 @@
+// Safe-area inset tokens — responsive-program PWA polish (#620).
+//
+// Wraps `env(safe-area-inset-*)` in a single set of CSS custom properties so
+// every shell surface references one canonical name (`--safe-area-inset-*`)
+// instead of repeating the `env(..., 0px)` fallback dance. The `0px` fallback
+// covers desktop / non-PWA browsers where the env variables are undefined.
+//
+// Pair with `<meta name="viewport" content="..., viewport-fit=cover">` in
+// `index.html` — without `viewport-fit=cover`, the browser confines the
+// layout to the safe inset rectangle and these values report as 0.
+
+:root {
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+}
