@@ -2,15 +2,9 @@
 
 <div class="chips">
   @for (k of keywords(); track k) {
-    <button
-      type="button"
-      class="chip"
-      [attr.data-testid]="'info-keyword-' + k"
-      [attr.aria-label]="'Keyword: ' + k + '. Tap to remove.'"
-      (click)="removeKeyword(k)"
-    >
+    <span class="chip" [attr.data-testid]="'info-keyword-' + k" [attr.aria-label]="'Keyword: ' + k">
       {{ k }}
-    </button>
+    </span>
   }
   <button
     type="button"
