@@ -12,10 +12,13 @@
 
 import * as path from 'node:path';
 import type { AssetExif } from '../db/schema.ts';
-import { child as childLogger } from '../log.ts';
 import exifr from 'exifr';
+import { readHeicExifTiff } from './heic-exif.ts';
 
-const log = childLogger('indexer:exif');
+/** HEIC/HEIF containers — exifr's `canHandle` rejects modern (>50-byte ftyp)
+ * variants, so these go through our own box walker in `heic-exif.ts`, which
+ * slices the embedded TIFF and feeds it back to exifr. */
+const HEIC_EXTS = new Set(['.heic', '.heif']);
 
 /** Extensions that exifr cannot parse. Assets with these extensions arrive
  * via the backup ingest route (no extension filter there). Return null
@@ -164,23 +167,42 @@ export function normalizeExif(raw: LooseRecord): AssetExif {
   };
 }
 
+const EXIFR_PARSE_OPTS = {
+  pick: EXIF_PICK_TAGS as unknown as string[],
+  gps: true,
+  // Keep dates as Date objects so we can format them ourselves.
+  // exifr's default `reviveValues` already does this.
+};
+
 /**
- * Parse EXIF for one file. Returns null if the file has no readable EXIF
- * (parser threw, returned undefined, or the extension is unsupported).
+ * Parse EXIF for one file.
+ *
+ * Returns null for the *expected* no-metadata cases: an unsupported
+ * extension, or a file the parser read cleanly but that simply carries no
+ * EXIF. Those are terminal — the stage records `exif: null` and advances.
+ *
+ * It deliberately does NOT swallow parse/IO failures any more. A throw here
+ * (truncated header from a half-copied file, a transient FS error like EBUSY)
+ * is propagated so the stage runner's retry/backoff path gets another pass
+ * once the file settles, instead of permanently stamping `exif: null` on a
+ * file that will read fine seconds later. Genuinely unreadable files still
+ * dead-letter after `maxAttempts`, which surfaces them rather than silently
+ * dropping their metadata.
  */
 export async function readExif(absPath: string): Promise<AssetExif | null> {
-  if (EXIFR_UNSUPPORTED_EXTS.has(path.extname(absPath).toLowerCase())) return null;
-  try {
-    const raw = (await exifr.parse(absPath, {
-      pick: EXIF_PICK_TAGS as unknown as string[],
-      gps: true,
-      // Keep dates as Date objects so we can format them ourselves.
-      // exifr's default `reviveValues` already does this.
-    })) as LooseRecord | undefined;
-    if (!raw) return null;
-    return normalizeExif(raw);
-  } catch (err) {
-    log.warn({ absPath, err: err instanceof Error ? err.message : err }, 'exifr failed');
-    return null;
+  const ext = path.extname(absPath).toLowerCase();
+  if (EXIFR_UNSUPPORTED_EXTS.has(ext)) return null;
+
+  if (HEIC_EXTS.has(ext)) {
+    // exifr can't get past its ftyp gate for these — extract the TIFF block
+    // ourselves, then let exifr parse that as a bare TIFF.
+    const tiff = await readHeicExifTiff(absPath);
+    if (!tiff) return null;
+    const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
+    return raw ? normalizeExif(raw) : null;
   }
+
+  const raw = (await exifr.parse(absPath, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
+  if (!raw) return null;
+  return normalizeExif(raw);
 }

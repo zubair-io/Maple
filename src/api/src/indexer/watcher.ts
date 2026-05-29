@@ -82,6 +82,19 @@ export class Watcher {
       usePolling: true,
       interval: 60_000,
       binaryInterval: 300_000,
+      // Don't emit `add`/`change` until the file has stopped growing. A photo
+      // copied into a watched library (AirDrop, rsync, Finder, a phone import)
+      // lands incrementally; firing on first sight hands the exif/thumb stages
+      // a truncated header, which fails the parse and — before readExif
+      // started rethrowing — got stamped as a permanent `exif: null`. We wait
+      // for two consecutive stable stats before treating the file as ready.
+      // `pollInterval` here is chokidar's *stability* poll (size re-check),
+      // independent of the top-level `interval`/`binaryInterval` discovery
+      // cadence above.
+      awaitWriteFinish: {
+        stabilityThreshold: 2_000,
+        pollInterval: 500,
+      },
       ignored: (p: string) => {
         const base = path.basename(p);
         if (base.startsWith(".")) return true; // hides .maple/, dotfiles
