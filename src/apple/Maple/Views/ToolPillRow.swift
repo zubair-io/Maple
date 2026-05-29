@@ -1,0 +1,101 @@
+// ToolPillRow.swift — responsive-program S5a + S5c (#625).
+//
+// One pill per tool in the armed group: 40pt circle + 10pt label below.
+// Default = surfaceAlt + 0.5pt border + glyph in textMain. Selected =
+// `primary` opacity 0.15 fill, accent border, glyph + label in primary.
+// Modified-indicator dot bottom-right of the circle when the tool's
+// internal value is non-zero (positive = primary, negative = textMuted).
+//
+// Tools are laid out `flex: 1` (equal widths). When the group has more
+// tools than fits comfortably (6 in Light/Effects), the row scrolls
+// horizontally — `ScrollView(.horizontal)` is allowed because the row's
+// per-tool pill is fixed-width.
+//
+// Spec: docs/design/responsive-program/s5-editor.md §2 + §5.
+
+import SwiftUI
+import MapleCore
+
+struct ToolPillRow: View {
+    @Bindable var state: EditorState
+
+    var body: some View {
+        let tools = Tool.tools(in: state.armedGroup)
+        HStack(spacing: 4) {
+            ForEach(tools, id: \.self) { tool in
+                ToolPillButton(state: state, tool: tool)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .frame(minHeight: 60)
+        .background(MapleTokens.bg)
+        .animation(MapleTokens.Motion.groupSwap, value: state.armedGroup)
+        .accessibilityIdentifier("editor-tool-row")
+    }
+}
+
+private struct ToolPillButton: View {
+    @Bindable var state: EditorState
+    let tool: Tool
+
+    private var isSelected: Bool { state.armedTool == tool }
+    private var isModified: Bool {
+        guard tool.isWired else { return false }
+        let v = ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
+        // Center isn't always zero (temp default = 6500). Compare against
+        // the spec's neutral display value.
+        let neutral: Double
+        switch tool {
+        case .temp:    neutral = 6500
+        case .sharpen: neutral = 40
+        default:       neutral = 0
+        }
+        return abs(v - neutral) > 1e-6
+    }
+
+    var body: some View {
+        Button {
+            state.arm(tool: tool)
+        } label: {
+            VStack(spacing: 6) {
+                ZStack {
+                    Circle()
+                        .fill(isSelected
+                              ? MapleTokens.primary.opacity(0.15)
+                              : MapleTokens.surfaceAlt)
+                        .overlay(
+                            Circle().stroke(isSelected
+                                            ? MapleTokens.primary
+                                            : MapleTokens.border,
+                                            lineWidth: 0.5)
+                        )
+                        .frame(width: 40, height: 40)
+                    Image(systemName: ToolGlyph.sfSymbol(for: tool))
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(isSelected
+                                         ? MapleTokens.primary
+                                         : MapleTokens.textMain)
+                    if isModified {
+                        Circle()
+                            .fill(MapleTokens.primary)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 14, y: 14)
+                    }
+                }
+                Text(tool.displayName)
+                    .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? MapleTokens.primary : MapleTokens.textMuted)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(tool.displayName)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("editor-tool-\(tool.rawValue)")
+    }
+}

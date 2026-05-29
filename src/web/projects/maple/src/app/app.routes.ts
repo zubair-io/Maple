@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import {
   BrowseShellComponent,
+  EditorPageComponent,
   EditorShellComponent,
   PhoneSearchStubComponent,
   PhoneSettingsStubComponent,
@@ -36,11 +37,12 @@ export const routes: Routes = [
   // links point at `/library`, `/search`, `/settings`; the loupe and
   // editor entries are placeholders that S4 / S5 will replace.
   { path: 'library', canActivate: [authGuard], component: LibraryPageComponent },
-  // S2 (#623): the loupe sub-route is gone — the Editor canvas IS the
-  // full-image view, per PR #619 spec drop. Keep the redirect for any
-  // existing bookmark and let S5 wire the editor sub-route directly.
-  { path: 'library/loupe/:id', redirectTo: 'edit/:id' },
-  { path: 'library/editor/:id', redirectTo: 'edit/:id' },
+  // S2 (#623) / S5 (#625): the loupe sub-route is gone — the Editor
+  // canvas IS the full-image view (per PR #619 spec drop). Loupe
+  // bookmarks redirect into the S5 Editor; the editor sub-route is
+  // wired directly to EditorPageComponent for the stacked #652 work.
+  { path: 'library/loupe/:id', redirectTo: 'library/editor/:id' },
+  { path: 'library/editor/:id', canActivate: [authGuard], component: EditorPageComponent },
   // `/settings` lands on Workers. The card-grid landing was replaced by
   // the sidebar shell in v0.2. Non-owners hit authGuard inside
   // settings/workers and bounce; making the redirect role-aware (Account

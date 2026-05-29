@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { isDevMode } from '@angular/core';
 import {
   BrowseShellComponent,
+  EditorPageComponent,
   EditorShellComponent,
   PhoneSearchStubComponent,
   PhoneSettingsStubComponent,
@@ -20,13 +21,13 @@ const baseRoutes: Routes = [
   { path: '', component: LandingComponent },
   { path: 'browse', component: BrowseShellComponent },
   { path: 'edit/:id', component: EditorShellComponent },
-  // Responsive-program S1a (#597) / S2 (#623) — phone-tier tab routes
-  // shared with RootShellComponent. The Library tab now renders the
-  // responsive grid; the legacy loupe / editor sub-routes redirect to
-  // /edit (the Editor canvas IS the full-image view, per PR #619).
+  // Responsive-program S1a (#597) / S2 (#623) / S5 (#625) — phone-tier
+  // tab routes shared with RootShellComponent. The Library tab now
+  // renders the responsive grid; loupe redirects to the S5 Editor (S4
+  // dropped per #619 — the Editor canvas IS the full-image view).
   { path: 'library', component: LibraryPageComponent },
-  { path: 'library/loupe/:id', redirectTo: 'edit/:id' },
-  { path: 'library/editor/:id', redirectTo: 'edit/:id' },
+  { path: 'library/loupe/:id', redirectTo: 'library/editor/:id' },
+  { path: 'library/editor/:id', component: EditorPageComponent },
   { path: 'search', component: PhoneSearchStubComponent },
   { path: 'settings', component: PhoneSettingsStubComponent },
 ];
