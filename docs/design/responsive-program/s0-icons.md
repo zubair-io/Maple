@@ -1,6 +1,6 @@
 # Responsive Program — S0c: Icon Parity Table
 
-Companion to the S0 primitives spec (`docs/spec/responsive-program-s0-primitives.md` §4). Establishes the canonical mapping from each chrome glyph used by S1–S7 to its Apple (SF Symbol) and Web (`maple-icon` registry name) implementations.
+Companion to the S0 primitives spec (`docs/design/responsive-program/s0-primitives.md` §4). Establishes the canonical mapping from each chrome glyph used by S1–S7 to its Apple (SF Symbol) and Web (`maple-icon` registry name) implementations.
 
 Two categories live in the responsive program:
 
