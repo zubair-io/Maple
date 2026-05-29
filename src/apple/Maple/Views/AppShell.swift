@@ -8,9 +8,10 @@
 //                            callbacks fanned out (file: AppShellSidebar.swift)
 //   • AppShellMacLayout    — Mac/iPad NavigationSplitView, Browse +
 //                            Full-image variants  (file: AppShellMacLayout.swift)
-//   • AppShellIPhoneShell  — iPhone overlay drawer + center column + Info /
-//                            Settings sheets (file: AppShellIPhoneShell.swift,
-//                            #if os(iOS); wraps AppShellIPhoneDrawer)
+//   • PhoneTabShell        — iPhone bottom-tab shell (Library / Search /
+//                            Settings) with a per-tab NavigationStack.
+//                            (file: PhoneTabShell.swift, #if os(iOS);
+//                            wraps PhoneLibraryStub → AppShellIPhoneShell)
 //
 // Action methods live in sibling extensions (slice 3):
 //   • AppShell+FolderActions   — local folder source + sandbox scope
@@ -195,14 +196,15 @@ struct AppShell: View {
             // Shell selection goes through `MapleShellKind.current`
             // (responsive-program S0a, #581). Direct `UIDevice.userInterfaceIdiom`
             // calls are forbidden elsewhere — grep should show zero hits outside
-            // MapleCore/Layout/MapleLayout.swift. `adaptiveShell` is `#if os(iOS)`
-            // only (it's the iPhone tab-bar shell), so the macOS branch never
-            // references it and always renders the pane shell directly.
+            // MapleCore/Layout/MapleLayout.swift. `phoneTabShell` is `#if os(iOS)`
+            // only (it's the iPhone tab-bar shell from S1a, #597), so the macOS
+            // branch never references it and always renders the pane shell directly.
             #if os(iOS)
             if MapleShellKind.current == .phoneTab {
-                // iPhone idiom → tab-bar shell. Always phone-tier; no
+                // iPhone idiom → bottom-tab shell (Library / Search / Settings),
+                // each tab a NavigationStack. Always phone-tier; no
                 // GeometryReader needed (width is implicitly <768pt).
-                adaptiveShell
+                phoneTabShell
                     .environment(\.mapleLayout, .phone)
             } else {
                 paneShellWithLayout
@@ -410,18 +412,19 @@ struct AppShell: View {
     // MARK: - iPhone
 
     #if os(iOS)
-    /// iPhone shell — overlay drawer wrapping the center column, plus the
-    /// Info + Settings sheets. Composed in `AppShellIPhoneShell.swift`
-    /// alongside the iPhone-only toolbar items in `AppShellIPhoneToolbar`.
+    /// iPhone tab-bar shell (responsive-program S1a, #597) — bottom
+    /// `TabView` with three per-tab NavigationStacks (Library / Search /
+    /// Settings). Library tab content is `PhoneLibraryStub`, which wraps
+    /// the existing `AppShellIPhoneShell` drawer + center column. Search
+    /// is `PhoneSearchStub`; Settings embeds the existing `SettingsView`.
     @ViewBuilder
-    private var adaptiveShell: some View {
-        AppShellIPhoneShell(
+    private var phoneTabShell: some View {
+        PhoneTabShell(
             isDrawerOpen: $isDrawerOpen,
             mode: mode,
             selectedSession: selectedSession,
             libraryTitle: libraryTitle,
             iPhoneInfoSheet: $iPhoneInfoSheet,
-            showSettings: $showSettings,
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
             cloudTimelineThumbCache: cloudTimelineThumbCache,
