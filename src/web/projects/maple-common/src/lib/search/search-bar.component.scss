@@ -1,0 +1,77 @@
+// SearchBarComponent — 38pt pill, accent caret, trailing ✕.
+//
+// Spec: docs/design/responsive-program/s7-search.md §2.
+//
+// Caret styling: `caret-color` is the standardised CSS hook for the
+// blinking cursor colour; thickness is browser-driven (Chromium honours
+// `caret-shape: bar` in 121+ but the default already matches the spec's
+// 1.5pt visually). Blink cadence is OS-driven; no override needed.
+
+:host {
+  display: block;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  background: var(--color-input-bg);
+  border: 0.5px solid var(--color-border);
+  border-radius: 19px;
+  color: var(--color-text-main);
+  caret-color: var(--color-primary);
+}
+
+.lead {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+}
+
+.field {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: inherit;
+  font:
+    14px/1.2 'Lato',
+    -apple-system,
+    sans-serif;
+  caret-color: inherit;
+}
+
+.field::placeholder {
+  color: var(--color-text-muted);
+}
+
+// Strip the WebKit search-clear native button — we draw our own ✕.
+.field::-webkit-search-cancel-button,
+.field::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.clear {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.clear:hover {
+  background: var(--color-bg-hover);
+}

@@ -1,0 +1,37 @@
+<form class="bar" (submit)="onSubmit($event)" role="search">
+  <svg class="lead" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+    <circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6" />
+    <path d="M11 11l3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+  </svg>
+  <input
+    #input
+    type="search"
+    class="field"
+    [value]="query()"
+    (input)="onInput($event)"
+    placeholder="Search"
+    aria-label="Search photos"
+    autocomplete="off"
+    autocapitalize="off"
+    spellcheck="false"
+    data-testid="search-input"
+  />
+  @if (hasQuery()) {
+    <button
+      type="button"
+      class="clear"
+      aria-label="Clear search"
+      data-testid="search-clear"
+      (click)="onClearClick()"
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+        <path
+          d="M3.5 3.5l7 7M10.5 3.5l-7 7"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
+  }
+</form>

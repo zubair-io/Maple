@@ -3,7 +3,6 @@ import {
   BrowseShellComponent,
   EditorPageComponent,
   EditorShellComponent,
-  PhoneSearchStubComponent,
   PhoneSettingsStubComponent,
 } from '@maple-common';
 import { LibraryPageComponent } from './library-page.component';
@@ -70,8 +69,19 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/workers/workers.component').then((m) => m.WorkersComponent),
   },
+  // S7 (#622) — responsive-program search experience. `/search` lands on
+  // the new `<app-search>` (phone tab content + tablet/desktop overlay
+  // payload). The rich Self-Hosted filter page (cameras, lenses, EXIF
+  // ranges, vision facets) moves to `/search/advanced` so it stays
+  // reachable from the responsive page's "See all" link.
   {
     path: 'search',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./search-page.component').then((m) => m.SearchPageComponent),
+  },
+  {
+    path: 'search/advanced',
     canActivate: [authGuard],
     loadComponent: () => import('./search/search.component').then((m) => m.SearchComponent),
   },
