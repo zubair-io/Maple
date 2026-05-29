@@ -1,6 +1,6 @@
 // BottomSheet.swift — phone Info modal primitive (S1c, #599 / KTLO #602).
 //
-// Spec: docs/spec/responsive-program-s1-phone-shell.md §4.
+// Spec: docs/design/responsive-program/s1-phone-shell.md §4.
 //
 // Hand-rolled SwiftUI sheet, not `.sheet`. Replaces the v1 thin wrapper
 // (PR #601) so the iOS sheet matches the design spec exactly, on parity
@@ -61,17 +61,25 @@ private struct MapleBottomSheetModifier<SheetContent: View>: ViewModifier {
             // `.allowsHitTesting(isPresented)` keeps host taps live while
             // the sheet is dismissed, even though the overlay still occupies
             // the layer tree.
+            //
+            // Scrim and sheet sit in SIBLING `if isPresented` branches —
+            // not wrapped in a single conditional container — so each can
+            // own its own transition. The scrim fades (`.opacity`) and
+            // stays stationary; the sheet slides (`.move(edge: .bottom)`).
+            // Wrapping them in a single conditional would force a shared
+            // transition on the container, which slid the scrim too.
             ZStack(alignment: .bottom) {
+                if isPresented {
+                    MapleBottomSheetScrim(onTap: dismiss)
+                        .transition(.opacity)
+                }
                 if isPresented {
                     MapleBottomSheetContainer(
                         isPresented: $isPresented,
                         dismissAnimation: dismissAnimation,
                         sheetContent: sheetContent
                     )
-                    // Transition lives on the conditionally-rendered view
-                    // directly so the slide-in / slide-out is symmetric
-                    // and reliably tied to the `if isPresented` boundary.
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .transition(.move(edge: .bottom))
                 }
             }
             .ignoresSafeArea()
@@ -84,6 +92,29 @@ private struct MapleBottomSheetModifier<SheetContent: View>: ViewModifier {
             .animation(isPresented ? presentAnimation : dismissAnimation,
                        value: isPresented)
         }
+    }
+
+    private func dismiss() {
+        withAnimation(dismissAnimation) {
+            isPresented = false
+        }
+    }
+}
+
+// MARK: - Scrim
+
+/// Tap-to-dismiss scrim. Lives at modifier scope (not inside the container)
+/// so the scrim can carry its own `.opacity` transition while the sheet
+/// carries `.move(edge: .bottom)` — see modifier comment.
+private struct MapleBottomSheetScrim: View {
+    let onTap: () -> Void
+
+    var body: some View {
+        Color.black.opacity(0.35)
+            .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTap)
+            .accessibilityHidden(true)
     }
 }
 
@@ -100,6 +131,11 @@ private struct MapleBottomSheetContainer<SheetContent: View>: View {
     @State private var dragOffset: CGFloat = 0
     /// Wall-clock start of the current drag for velocity computation.
     @State private var dragStart: Date?
+
+    /// Points-to-pixels conversion factor (2.0 on @2x, 3.0 on @3x). Used to
+    /// convert `DragGesture.translation` (which is in points) into pixels
+    /// for the px/s velocity threshold from spec §4.1.
+    @Environment(\.displayScale) private var displayScale
 
     /// Spec §4.1: dismiss if drag-down ≥ 25% of sheet height.
     private let dismissFraction: CGFloat = 0.25
@@ -120,16 +156,9 @@ private struct MapleBottomSheetContainer<SheetContent: View>: View {
         GeometryReader { proxy in
             let sheetHeight = proxy.size.height * heightFraction
 
-            ZStack(alignment: .bottom) {
-                // Scrim — tap anywhere outside the sheet dismisses.
-                Color.black.opacity(0.35)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture { dismiss() }
-                    .transition(.opacity)
-                    .accessibilityHidden(true)
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
 
-                // Sheet.
                 VStack(spacing: 0) {
                     RoundedRectangle(cornerRadius: handleHeight / 2)
                         .fill(handleColor)
@@ -152,7 +181,10 @@ private struct MapleBottomSheetContainer<SheetContent: View>: View {
                         topTrailingRadius: cornerRadius
                     )
                 )
-                // Spec §4.1: 0 -8px 30px rgba(0,0,0,0.6).
+                // Spec §4.1 (CSS): `box-shadow: 0 -8px 30px rgba(0,0,0,0.6)`.
+                // SwiftUI `.shadow(radius:)` is the Gaussian σ; CSS blur
+                // is ~2σ. Match the visual via the standard CSS→SwiftUI
+                // conversion (`radius ≈ blur / 2`) — hence 15, not 30.
                 .shadow(color: Color.black.opacity(0.6), radius: 15, x: 0, y: -8)
                 .offset(y: max(0, dragOffset))
                 .gesture(
@@ -169,6 +201,7 @@ private struct MapleBottomSheetContainer<SheetContent: View>: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityAddTraits(.isModal)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -179,13 +212,25 @@ private struct MapleBottomSheetContainer<SheetContent: View>: View {
         let downward = max(0, translation)
         let distanceTriggered = sheetHeight > 0 && downward >= sheetHeight * dismissFraction
 
-        // Velocity in px/s: total drag divided by elapsed wall-clock.
-        // Web ref samples a 100ms tail window; for v1 the total-drag
-        // average is fine — the 1000 px/s threshold is high enough that
-        // a flick still registers and a slow drag still doesn't.
-        let elapsed = max(0.001, Date().timeIntervalSince(start ?? Date()))
-        let velocity = downward / CGFloat(elapsed)
-        let velocityTriggered = velocity >= dismissVelocity
+        // Velocity in px/s. `translation.height` is in points; spec
+        // threshold (1000 px/s) is in pixels — convert via `displayScale`.
+        // If `dragStart` was never recorded (no `onChanged` ever fired),
+        // treat as "no velocity trigger" rather than synthesizing an
+        // elapsed of ~0 (which would yield infinite velocity and
+        // spuriously dismiss).
+        let velocityTriggered: Bool
+        if let start {
+            let elapsed = Date().timeIntervalSince(start)
+            if elapsed > 0 {
+                let downwardPixels = downward * displayScale
+                let velocity = downwardPixels / CGFloat(elapsed)
+                velocityTriggered = velocity >= dismissVelocity
+            } else {
+                velocityTriggered = false
+            }
+        } else {
+            velocityTriggered = false
+        }
 
         if distanceTriggered || velocityTriggered {
             dismiss()
@@ -202,9 +247,10 @@ private struct MapleBottomSheetContainer<SheetContent: View>: View {
         withAnimation(dismissAnimation) {
             isPresented = false
         }
-        // The scrim's transition handles its own fade; the sheet's
-        // `.move(edge: .bottom)` carries the slide-out. dragOffset resets
-        // automatically when the container is rebuilt next presentation.
+        // The scrim's transition handles its own fade (modifier scope);
+        // the container's `.move(edge: .bottom)` carries the slide-out.
+        // dragOffset resets automatically when the container is rebuilt
+        // next presentation.
     }
 }
 
