@@ -235,7 +235,7 @@ export const uploadSessions = {
       if (!totalChanged && !pathChanged && existing.maple_id) {
         return { session: existing, reset: false, alreadyComplete: true };
       }
-      const unsetFields: Record<string, ''> = { maple_id: '' };
+      const unsetFields: Record<string, ''> = { maple_id: '', resolved_rel_path: '' };
       if (args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined) {
         unsetFields.phasset_cloud_id = '';
       }
@@ -265,7 +265,7 @@ export const uploadSessions = {
       // Reopen in place — inserting a new row would collide with the unique
       // resume-key index. The route treats reset:true as "clear stale tmp
       // bytes" so the next chunk starts at offset 0 cleanly.
-      const unsetFields: Record<string, ''> = { maple_id: '' };
+      const unsetFields: Record<string, ''> = { maple_id: '', resolved_rel_path: '' };
       if (args.phassetCloudId === undefined && existing.phasset_cloud_id !== undefined) {
         unsetFields.phasset_cloud_id = '';
       }
@@ -320,12 +320,34 @@ export const uploadSessions = {
     );
   },
 
-  async complete(args: { sessionId: ObjectId; mapleId: string }): Promise<void> {
+  async complete(args: {
+    sessionId: ObjectId;
+    mapleId: string;
+    /** The path the bytes actually landed at. Persisted only when it differs
+     * from the session's device-computed `target_rel_path` (a disambiguated
+     * collision), so the `alreadyComplete` short-circuit can hand a retrying
+     * device the real location. */
+    resolvedRelPath?: string;
+  }): Promise<void> {
     const coll = await uploadSessionsCollection();
-    await coll.updateOne(
-      { _id: args.sessionId },
-      { $set: { state: 'completed', maple_id: args.mapleId, updated_at: new Date() } },
-    );
+    const set: Record<string, unknown> = {
+      state: 'completed',
+      maple_id: args.mapleId,
+      updated_at: new Date(),
+    };
+    const update: Record<string, unknown> = { $set: set };
+    if (args.resolvedRelPath !== undefined) {
+      // Only store a divergent resolved path; a session whose bytes landed at
+      // the computed path keeps `resolved_rel_path` unset (and clears any stale
+      // value from a prior, differently-resolved attempt on the same key).
+      const session = await coll.findOne({ _id: args.sessionId });
+      if (session && args.resolvedRelPath !== session.target_rel_path) {
+        set.resolved_rel_path = args.resolvedRelPath;
+      } else {
+        update.$unset = { resolved_rel_path: '' };
+      }
+    }
+    await coll.updateOne({ _id: args.sessionId }, update);
   },
 
   async findById(id: ObjectId): Promise<UploadSessionDoc | null> {
