@@ -1,45 +1,53 @@
 // TypeScript mirror of tokens.scss — for use in component logic (not styles).
-// Values must stay in sync with tokens.scss.
+//
+// Ticket #606: the color hex strings live in `raw_core::ui_tokens` and are
+// emitted to `./generated/ui-tokens.ts` by `tools/codegen.sh`. This file
+// stays as the public `MapleTokens` entry point so call sites and the
+// `public-api.ts` export surface don't change.
+
+import { MAPLE_UI_COLORS } from './generated/ui-tokens';
 
 export const MapleTokens = {
   // Surfaces
-  bg: '#1c1917',
-  surface: '#262524',
-  surfaceAlt: '#2e2c2a',
-  surfaceHover: '#3a3836',
-  sidebar: '#292524',
-  inputBg: '#1c1917',
-  imageCanvas: '#141210',
+  bg: MAPLE_UI_COLORS.bg,
+  surface: MAPLE_UI_COLORS.surface,
+  surfaceAlt: MAPLE_UI_COLORS.surfaceAlt,
+  surfaceHover: MAPLE_UI_COLORS.surfaceHover,
+  sidebar: MAPLE_UI_COLORS.sidebar,
+  inputBg: MAPLE_UI_COLORS.inputBg,
+  imageCanvas: MAPLE_UI_COLORS.imageCanvas,
 
   // Text
-  textMain: '#e7e5e4',
-  textMuted: '#a8a29e',
+  textMain: MAPLE_UI_COLORS.textMain,
+  textMuted: MAPLE_UI_COLORS.textMuted,
 
   // Borders
-  border: '#44403c',
+  border: MAPLE_UI_COLORS.border,
   // Active ticks (drag-bar center tick), grab handles. Responsive-program S0a (#581).
-  borderHi: '#5a5552',
+  borderHi: MAPLE_UI_COLORS.borderHi,
 
   // Accent
-  primary: '#c4493a',
-  primaryDim: '#422016',
+  primary: MAPLE_UI_COLORS.primary,
+  primaryDim: MAPLE_UI_COLORS.primaryDim,
 
   // Low-confidence signals (e.g. person detection). Tailwind amber-400.
   // Responsive-program S0a (#581).
-  warn: '#fbbf24',
+  warn: MAPLE_UI_COLORS.warn,
 
   // Hover/active overlays
-  bgHover: 'rgba(255, 255, 255, 0.06)',
-  bgActive: 'rgba(255, 255, 255, 0.10)',
+  bgHover: MAPLE_UI_COLORS.bgHover,
+  bgActive: MAPLE_UI_COLORS.bgActive,
 
   // Semantic
-  successBg: 'rgba(34, 197, 94, 0.15)',
-  successText: '#4ade80',
-  errorBg: 'rgba(239, 68, 68, 0.15)',
-  errorText: '#f87171',
-  star: '#EF9F27',
+  successBg: MAPLE_UI_COLORS.successBg,
+  successText: MAPLE_UI_COLORS.successText,
+  errorBg: MAPLE_UI_COLORS.errorBg,
+  errorText: MAPLE_UI_COLORS.errorText,
+  star: MAPLE_UI_COLORS.star,
 
-  // Motion
+  // Motion. Kept here for back-compat — the canonical motion-token table
+  // lives on `MapleMotion` (see motion.ts) and reads from the same
+  // generated source.
   ease: 'cubic-bezier(0.22, 1, 0.36, 1)',
 } as const;
 

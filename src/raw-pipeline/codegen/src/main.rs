@@ -1,33 +1,58 @@
-//! Cross-platform codegen for `raw-core::types::AdjustmentModel`.
+//! Cross-platform codegen for raw-core canonical schemas.
 //!
-//! Reads `ADJUSTMENT_SCHEMA` from `raw_core::types` (the canonical schema
-//! landed in #117) and emits Swift + TypeScript shape declarations to keep
-//! the platform mirrors from drifting. Driven from `tools/codegen.sh`.
+//! Two schemas today:
 //!
-//! Per #118: emit ranges, field names, the TS interface, and a TS default
-//! factory. Do NOT emit Swift defaults — Apple's `AdjustmentModel` keeps
-//! its defaults hand-written so the per-field doc-comments can live next
-//! to each `let`. Defaults converge with raw-core's canonical values
-//! (sharpen 40 / radius 1.0 / detail 25 / masking 0, per #326).
+//! - `adjustment` (`raw_core::types::ADJUSTMENT_SCHEMA`, ticket #118) — slider
+//!   range constants, the canonical field-name enum, the TS interface, and
+//!   the TS default factory. Swift defaults stay hand-written in
+//!   `AdjustmentModel.swift` so per-field doc-comments can live next to
+//!   each `let` (per #326, sharpen converges to 40 / 1.0 / 25 / 0).
+//! - `ui-tokens` (`raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS}`,
+//!   ticket #606) — design-system colors + motion specs. Emitter lives in
+//!   `ui_tokens.rs` next to this file.
+//!
+//! Driven from `tools/codegen.sh`. The codegen-drift CI gate
+//! (`.github/workflows/cross.yml`) runs the script then `git diff
+//! --exit-code` so hand-edits to `Generated/` files fail fast.
+
+mod ui_tokens;
 
 use std::fs;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
 use raw_core::types::{FieldKind, FieldSpec, ADJUSTMENT_SCHEMA};
+use raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS};
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum Target {
     Swift,
     Ts,
+    /// SCSS / CSS custom-property output. Only valid for `--schema ui-tokens`;
+    /// the adjustment schema has no SCSS surface.
+    Scss,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
+enum Schema {
+    /// `raw_core::types::ADJUSTMENT_SCHEMA` — slider ranges, field-name enums,
+    /// TS interface + default factory.
+    Adjustment,
+    /// `raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS}` — design-system
+    /// color hex strings + motion duration/easing pairs. Ticket #606.
+    UiTokens,
 }
 
 #[derive(Parser, Debug)]
 #[command(
     name = "codegen",
-    about = "Emit Swift + TS shape declarations from raw_core::types::ADJUSTMENT_SCHEMA"
+    about = "Emit Swift / TS / SCSS shape declarations from raw-core canonical schemas"
 )]
 struct Cli {
+    /// Which canonical schema to emit. Defaults to `adjustment` for back-compat
+    /// with the original single-schema codegen.
+    #[arg(long, value_enum, default_value_t = Schema::Adjustment)]
+    schema: Schema,
     #[arg(long, value_enum)]
     target: Target,
     #[arg(long)]
@@ -44,9 +69,16 @@ const BANNER_TS: &str =
 
 fn main() {
     let cli = Cli::parse();
-    let out = match cli.target {
-        Target::Swift => emit_swift(ADJUSTMENT_SCHEMA),
-        Target::Ts => emit_ts(ADJUSTMENT_SCHEMA),
+    let out = match (cli.schema, cli.target) {
+        (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),
+        (Schema::Adjustment, Target::Ts) => emit_ts(ADJUSTMENT_SCHEMA),
+        (Schema::Adjustment, Target::Scss) => {
+            eprintln!("codegen: --schema adjustment has no SCSS target");
+            std::process::exit(2);
+        }
+        (Schema::UiTokens, Target::Swift) => ui_tokens::emit_swift(COLOR_TOKENS, MOTION_TOKENS),
+        (Schema::UiTokens, Target::Ts) => ui_tokens::emit_ts(COLOR_TOKENS, MOTION_TOKENS),
+        (Schema::UiTokens, Target::Scss) => ui_tokens::emit_scss(COLOR_TOKENS, MOTION_TOKENS),
     };
     if let Some(parent) = cli.out.parent() {
         fs::create_dir_all(parent).expect("create parent dir");
@@ -73,7 +105,7 @@ fn f(v: f32) -> String {
 
 /// snake_case -> camelCase. `temperature` -> `temperature`,
 /// `sharpen_amount` -> `sharpenAmount`.
-fn camel_case(snake: &str) -> String {
+pub(crate) fn camel_case(snake: &str) -> String {
     let mut out = String::with_capacity(snake.len());
     let mut upper_next = false;
     for ch in snake.chars() {
@@ -335,6 +367,7 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     s.push_str("}\n");
     s
 }
+
 
 #[cfg(test)]
 mod tests {

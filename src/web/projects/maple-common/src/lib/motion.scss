@@ -4,55 +4,64 @@
 // and Apple's MapleTokens.Motion enum (DesignTokens.swift).
 // Imported once from tokens.scss; consumers reference via var() or via
 // the SCSS aliases at the bottom.
+//
+// Ticket #606: the canonical ms + ease values live in
+// `raw_core::ui_tokens::MOTION_TOKENS` and are emitted to
+// `./generated/_ui-tokens.scss` by `tools/codegen.sh`. This file wires
+// those into the `:root { --motion-*-ms / --motion-*-ease }` custom
+// properties and re-aliases them under the legacy `$motion-*` names so
+// existing call sites don't change.
+
+@use 'generated/ui-tokens' as ui;
 
 :root {
   /* Drawer open/close (sidebar collapse on tablet/desktop). */
-  --motion-drawer-ms: 240ms;
-  --motion-drawer-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-drawer-ms: #{ui.$maple-motion-drawer-ms};
+  --motion-drawer-ease: #{ui.$maple-motion-drawer-ease};
 
   /* Push transition (iOS-system feel). */
-  --motion-push-ms: 320ms;
-  --motion-push-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-push-ms: #{ui.$maple-motion-push-ms};
+  --motion-push-ease: #{ui.$maple-motion-push-ease};
 
   /* Sheet present. */
-  --motion-sheet-present-ms: 320ms;
-  --motion-sheet-present-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-sheet-present-ms: #{ui.$maple-motion-sheet-present-ms};
+  --motion-sheet-present-ease: #{ui.$maple-motion-sheet-present-ease};
 
   /* Sheet dismiss. */
-  --motion-sheet-dismiss-ms: 280ms;
-  --motion-sheet-dismiss-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-sheet-dismiss-ms: #{ui.$maple-motion-sheet-dismiss-ms};
+  --motion-sheet-dismiss-ease: #{ui.$maple-motion-sheet-dismiss-ease};
 
   /* Editor group/tool tab swap. */
-  --motion-group-swap-ms: 120ms;
-  --motion-group-swap-ease: ease-in-out;
+  --motion-group-swap-ms: #{ui.$maple-motion-group-swap-ms};
+  --motion-group-swap-ease: #{ui.$maple-motion-group-swap-ease};
 
   /* Loupe chrome auto-hide. */
-  --motion-chrome-hide-ms: 180ms;
-  --motion-chrome-hide-ease: ease-out;
+  --motion-chrome-hide-ms: #{ui.$maple-motion-chrome-hide-ms};
+  --motion-chrome-hide-ease: #{ui.$maple-motion-chrome-hide-ease};
 
   /* Library filter chip change cross-fade. */
-  --motion-filter-fade-ms: 120ms;
-  --motion-filter-fade-ease: linear;
+  --motion-filter-fade-ms: #{ui.$maple-motion-filter-fade-ms};
+  --motion-filter-fade-ease: #{ui.$maple-motion-filter-fade-ease};
 }
 
 // SCSS variable aliases (for @if branches, media query interpolation, etc.)
-$motion-drawer-ms: 240ms;
-$motion-drawer-ease: cubic-bezier(0.22, 1, 0.36, 1);
+$motion-drawer-ms: ui.$maple-motion-drawer-ms;
+$motion-drawer-ease: ui.$maple-motion-drawer-ease;
 
-$motion-push-ms: 320ms;
-$motion-push-ease: cubic-bezier(0.32, 0.72, 0, 1);
+$motion-push-ms: ui.$maple-motion-push-ms;
+$motion-push-ease: ui.$maple-motion-push-ease;
 
-$motion-sheet-present-ms: 320ms;
-$motion-sheet-present-ease: cubic-bezier(0.32, 0.72, 0, 1);
+$motion-sheet-present-ms: ui.$maple-motion-sheet-present-ms;
+$motion-sheet-present-ease: ui.$maple-motion-sheet-present-ease;
 
-$motion-sheet-dismiss-ms: 280ms;
-$motion-sheet-dismiss-ease: cubic-bezier(0.32, 0.72, 0, 1);
+$motion-sheet-dismiss-ms: ui.$maple-motion-sheet-dismiss-ms;
+$motion-sheet-dismiss-ease: ui.$maple-motion-sheet-dismiss-ease;
 
-$motion-group-swap-ms: 120ms;
-$motion-group-swap-ease: ease-in-out;
+$motion-group-swap-ms: ui.$maple-motion-group-swap-ms;
+$motion-group-swap-ease: ui.$maple-motion-group-swap-ease;
 
-$motion-chrome-hide-ms: 180ms;
-$motion-chrome-hide-ease: ease-out;
+$motion-chrome-hide-ms: ui.$maple-motion-chrome-hide-ms;
+$motion-chrome-hide-ease: ui.$maple-motion-chrome-hide-ease;
 
-$motion-filter-fade-ms: 120ms;
-$motion-filter-fade-ease: linear;
+$motion-filter-fade-ms: ui.$maple-motion-filter-fade-ms;
+$motion-filter-fade-ease: ui.$maple-motion-filter-fade-ease;
