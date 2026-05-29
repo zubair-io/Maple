@@ -3,20 +3,27 @@
 //
 // What's in here:
 //   • `AppShellIPhoneShell` — the iPhone `adaptiveShell` (drawer overlay
-//     wrapping a NavigationStack-hosted center column) plus the Info and
-//     Settings sheets that hang off it. The drawer-stay-open + tap-outside-
+//     wrapping a NavigationStack-hosted center column) plus the Info
+//     sheet that hangs off it. The drawer-stay-open + tap-outside-
 //     dismiss behaviour lives inside `AppShellIPhoneDrawer`; this struct
 //     just composes the drawer, the center column, the iPhone-specific
-//     toolbar items, and the iPhone-specific sheets.
+//     toolbar items, and the iPhone-specific Info sheet.
+//
+// Responsive-program S1a (#597): Settings used to be a modal sheet
+// presented from this shell. Settings is now a top-level tab in
+// `PhoneTabShell`, so the `showSettings` binding + `.sheet` wiring
+// have been removed. This struct is also no longer mounted from
+// `AppShell.body` directly — `PhoneLibraryStub` (the Library tab's
+// content) wraps it. We keep the standalone struct so the drawer-+-
+// center-column composition still has a single owner.
 //
 // State surface: the iPhone shell takes a pre-built `sharedSidebar`
 // (`AppShellSidebar`) plus the same bindings + closures the Mac shell
-// gets, and one extra pair of iPhone-only flags (`iPhoneInfoSheet` for
-// the Info detail sheet, `showSettings` reused from the Mac path). Wiring
-// the iPhone-only toolbar items (hamburger + Info) is delegated to
-// `AppShellIPhoneToolbar`; the shared Browse/Full-image content is taken
-// as a `toolbarContent` builder so the call site can hand in
-// `browseToolbarContent` unchanged.
+// gets, and one iPhone-only flag (`iPhoneInfoSheet` for the Info
+// detail sheet). Wiring the iPhone-only toolbar items (hamburger +
+// Info) is delegated to `AppShellIPhoneToolbar`; the shared Browse/
+// Full-image content is taken as a `toolbarContent` builder so the
+// call site can hand in `browseToolbarContent` unchanged.
 
 #if os(iOS)
 import SwiftUI
@@ -40,9 +47,6 @@ struct AppShellIPhoneShell<SidebarContent: View, ToolbarContentT: ToolbarContent
     // button → modal sheet, since the iPhone shell can't accommodate a
     // right-hand inspector column.
     @Binding var iPhoneInfoSheet: Bool
-    // Settings sheet — same flag as the Mac shell reuses; on iPhone it
-    // presents with `.large` detents instead of a fixed window frame.
-    @Binding var showSettings: Bool
 
     // Center-column state — forwarded straight to `AppShellCenterColumn`.
     let cloudTimelineVM: CloudTimelineViewModel?
@@ -78,10 +82,12 @@ struct AppShellIPhoneShell<SidebarContent: View, ToolbarContentT: ToolbarContent
             isDrawerOpen: $isDrawerOpen,
             mode: mode,
             mainContent: {
-                NavigationStack {
-                    iPhoneMain
-                }
-                .accentColor(MapleTokens.primary)
+                // Responsive-program S1a (#597): the surrounding
+                // PhoneTabShell already provides a per-tab
+                // NavigationStack, so this struct no longer wraps its
+                // own. Toolbar items + nav-title attach directly to the
+                // center column.
+                iPhoneMain
             },
             sidebarContent: {
                 // Drawer-stay-open by design: the user wants to drill down a
@@ -104,10 +110,8 @@ struct AppShellIPhoneShell<SidebarContent: View, ToolbarContentT: ToolbarContent
             }
             .presentationDetents([.medium, .large])
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-                .presentationDetents([.large])
-        }
+        // Settings sheet dropped in responsive-program S1a (#597) — Settings
+        // is now a top-level tab in PhoneTabShell.
     }
 
     @ViewBuilder
