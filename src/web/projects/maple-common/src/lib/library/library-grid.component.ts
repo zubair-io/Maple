@@ -18,7 +18,15 @@
 // + `localStorage.setItem('cm.filter', ...)` so phone/desktop share
 // the same persistence key.
 
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  viewChild,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import { Asset } from '../models/asset';
 import { BrowsePreferencesService, CullFilter } from '../state/browse-preferences.service';
@@ -41,6 +49,29 @@ export class LibraryGridComponent {
 
   /** Currently-active filter chip. */
   readonly filter = this.prefs.filter;
+
+  /** Reference to the `.grid` element so the filter-swap cross-fade can
+   *  be restarted imperatively. CSS `animation` only runs on element
+   *  insert, and `@for` only re-creates the cells (not the parent), so
+   *  there is no way to retrigger the keyframe declaratively. The
+   *  Apple side uses `.id("library-grid-\(filter)")` to remount the
+   *  grid; the web equivalent is the class toggle + reflow below. */
+  private readonly gridEl = viewChild<ElementRef<HTMLElement>>('grid');
+
+  constructor() {
+    effect(() => {
+      // Track the filter signal so the effect re-runs on every change.
+      this.filter();
+      const el = this.gridEl()?.nativeElement;
+      if (!el) return;
+      // Remove → force reflow → re-add to restart the keyframe. The
+      // `offsetWidth` read is the canonical way to flush layout so the
+      // browser treats the next class addition as a fresh insert.
+      el.classList.remove('is-fading');
+      void el.offsetWidth;
+      el.classList.add('is-fading');
+    });
+  }
 
   /** Filtered + sorted asset list. The service computes the filter +
    *  search + sort from `BrowsePreferencesService.filter()` already. */

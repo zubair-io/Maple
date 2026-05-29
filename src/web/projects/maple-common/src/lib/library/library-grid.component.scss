@@ -42,12 +42,6 @@
   grid-template-columns: repeat(3, 1fr);
   gap: 2px;
   padding: 0 2px;
-  // Cross-fade on filter change. The 120ms linear timing comes from
-  // the S0a motion token (`--motion-filter-fade-ms`); re-keying the
-  // grid on the active filter via `data-active-filter` lets the
-  // attribute-driven keyframe restart the animation. Soft visual
-  // affordance — animation is a tiny opacity blip, not a layout move.
-  animation: library-grid-fade var(--motion-filter-fade-ms, 120ms) linear;
 
   @media (min-width: 768px) {
     grid-template-columns: repeat(5, 1fr);
@@ -58,6 +52,17 @@
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 4px;
     padding: 0 12px;
+  }
+
+  // Cross-fade on filter change. The 120ms linear timing comes from
+  // the S0a motion token (`--motion-filter-fade-ms`). CSS `animation`
+  // only runs on element insert — the component toggles `.is-fading`
+  // off → forces a reflow → toggles it back on whenever `filter()`
+  // changes, which is how the keyframe restarts without remounting
+  // the grid. Soft visual affordance — a small opacity blip, not a
+  // layout move.
+  &.is-fading {
+    animation: library-grid-fade var(--motion-filter-fade-ms, 120ms) linear;
   }
 }
 
