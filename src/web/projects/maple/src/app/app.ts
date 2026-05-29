@@ -27,16 +27,19 @@ import { DeepLinkService, RootShellComponent } from '@maple-common';
 export class App {
   constructor() {
     // Cold-boot deep-link dispatch. Three shapes are accepted:
-    //   • `maple://image/{id}` — set when the PWA's protocol_handler
-    //     fires (Chromium); the registration template lands the URL
-    //     as `?url=maple%3A%2F%2F…` against the browser tab.
-    //   • `?image={id}` / `?source={id}` — direct HTTPS form.
-    //   • `/library/editor/<encoded maple://…>` — PWA expansion of
-    //     the `%s` template, unwrapped inside the service.
+    //   • `maple://image/{id}` — direct custom-scheme, e.g. from a
+    //     native handler that re-dispatched into the browser.
+    //   • `/library/editor/<encoded maple://…>` — what the PWA's
+    //     `protocol_handlers` manifest entry expands to: the template
+    //     is `/library/editor/%s` (path segment), and `%s` is replaced
+    //     with the URL-encoded `maple://…` href. DeepLinkService
+    //     unwraps that internally.
+    //   • `?image={id}` / `?source={id}` — direct HTTPS query form
+    //     for in-app callers that pre-build the route.
     // Silent fallback per spec §2 — bad input never navigates.
     if (typeof window === 'undefined') return;
     const href = window.location.href;
-    if (href.startsWith('maple://') || /[?&](image|source|url)=/.test(href)) {
+    if (href.startsWith('maple://') || /[?&](image|source)=/.test(href)) {
       inject(DeepLinkService).resolve(href);
     }
   }

@@ -477,6 +477,28 @@ struct AppShell: View {
     }
     #endif
 
+    // MARK: - Deep-link helpers
+
+    /// Reset every transient piece of UI (sheets + iPhone drawer)
+    /// so a deep-link destination renders cleanly. Lives here, not
+    /// in `AppShell+DeepLink.swift`, because several of the state
+    /// vars below (`showSettings`, `showExport`, `iPhoneInfoSheet`,
+    /// `isDrawerOpen`) are `private` to this file — keeping the
+    /// helper internal-but-file-local lets the extension delegate
+    /// without widening their access. Per spec §2 warm-launch
+    /// behavior.
+    @MainActor
+    func dismissAllTransientUI() {
+        showSMBSheet = false
+        addCloudSheetTarget = nil
+        showSettings = false
+        showExport = false
+        #if os(iOS)
+        iPhoneInfoSheet = false
+        isDrawerOpen = false
+        #endif
+    }
+
     // MARK: - Toolbar
 
     /// Wires `AppShell` state into `AppShellToolbar` (defined in
