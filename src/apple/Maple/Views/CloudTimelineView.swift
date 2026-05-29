@@ -62,7 +62,14 @@ struct CloudTimelineView: View {
             // apart, and the server has a bug where `buckets` reports a
             // count > 0 but `/search` returns []. Without this, those
             // months would spin forever.
-            hasLoaded: vm.pagesByBucket[bucketKey] != nil,
+            //
+            // Merged cells count as "loaded" too: a PhotoKit-only month (or
+            // one whose cloud page is still in flight / offline) renders its
+            // local cells from `mergedPagesByBucket` before any cloud page
+            // resolves, so we must not show a spinner next to a populated
+            // local grid.
+            hasLoaded: vm.pagesByBucket[bucketKey] != nil
+              || vm.mergedPagesByBucket[bucketKey] != nil,
             thumbClient: thumbClient,
             thumbCache: thumbCache,
             // Same port-aware key the buckets/pages caches use, so all
