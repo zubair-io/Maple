@@ -51,19 +51,22 @@ import {
   writeRecents,
 } from './search-types';
 
-/** Map a UI scope chip to the backend `SearchParams`. v0.1 only `all` and
- * `photos` issue a real call; `places` / `people` / `albums` need a
- * server-side scope param — see spec §6 Risks. Exposed for unit tests. */
+/** Map a UI scope chip to the backend `SearchParams`. `all` keeps the
+ * default no-scope request (the backend returns the full live set);
+ * every other chip populates the `scope` param so the server filters by
+ * the underlying field. `albums` is recognised end-to-end but the
+ * backend currently returns `notImplemented: true` because no album
+ * field exists yet — the FE keeps the chip enabled so the UI affordance
+ * is uniform. See `#644` and `routes/search/query.ts`. */
 export function scopeToParams(scope: SearchScope): Partial<SearchParams> {
   switch (scope) {
     case 'all':
-    case 'photos':
       return {};
+    case 'photos':
     case 'places':
     case 'people':
     case 'albums':
-      // Stubbed until backend scopes land.
-      return {};
+      return { scope };
   }
 }
 

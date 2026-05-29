@@ -9,7 +9,7 @@
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
-import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { Observable, Subject, of } from 'rxjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SearchComponent, scopeToParams } from './search.component';
@@ -328,9 +328,133 @@ describe('splitLabel', () => {
 });
 
 describe('scopeToParams', () => {
-  it('maps every scope to an object', () => {
-    for (const s of ['all', 'photos', 'places', 'people', 'albums'] as const) {
-      expect(scopeToParams(s)).toEqual({});
-    }
+  it('maps "all" to an empty SearchParams (default server set)', () => {
+    expect(scopeToParams('all')).toEqual({});
+  });
+
+  it('forwards the chip value as the server-side scope param', () => {
+    expect(scopeToParams('photos')).toEqual({ scope: 'photos' });
+    expect(scopeToParams('places')).toEqual({ scope: 'places' });
+    expect(scopeToParams('people')).toEqual({ scope: 'people' });
+    expect(scopeToParams('albums')).toEqual({ scope: 'albums' });
+  });
+});
+
+describe('SearchComponent scope flow', () => {
+  let fixture: ComponentFixture<SearchComponent>;
+  let stubService: StubSearchService;
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    stubService = new StubSearchService();
+    localStorage.removeItem(RECENT_QUERIES_KEY);
+    await TestBed.configureTestingModule({
+      imports: [SearchComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: API_BASE_URL, useValue: '/api' },
+        { provide: SearchService, useValue: stubService },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(SearchComponent);
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.removeItem(RECENT_QUERIES_KEY);
+  });
+
+  it('tapping the Places chip re-issues the query with scope=places', () => {
+    typeInput(fixture, 'paris');
+    vi.advanceTimersByTime(300);
+    stubService.resolveLatest();
+    fixture.detectChanges();
+    expect(stubService.calls.length).toBe(1);
+    expect(stubService.calls[0]!.scope).toBeUndefined();
+
+    const placesChip = fixture.nativeElement.querySelector(
+      '[data-testid="search-scope-places"]',
+    ) as HTMLElement;
+    placesChip.click();
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    expect(stubService.calls.length).toBe(2);
+    expect(stubService.calls[1]!.scope).toBe('places');
+    expect(stubService.calls[1]!.q).toBe('paris');
+  });
+
+  it('tapping the People chip sends scope=people', () => {
+    typeInput(fixture, 'beach');
+    vi.advanceTimersByTime(300);
+    stubService.resolveLatest();
+    fixture.detectChanges();
+
+    const peopleChip = fixture.nativeElement.querySelector(
+      '[data-testid="search-scope-people"]',
+    ) as HTMLElement;
+    peopleChip.click();
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    expect(stubService.calls.at(-1)!.scope).toBe('people');
+  });
+
+  it('tapping the Albums chip sends scope=albums', () => {
+    typeInput(fixture, 'trip');
+    vi.advanceTimersByTime(300);
+    stubService.resolveLatest();
+    fixture.detectChanges();
+
+    const albumsChip = fixture.nativeElement.querySelector(
+      '[data-testid="search-scope-albums"]',
+    ) as HTMLElement;
+    albumsChip.click();
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    expect(stubService.calls.at(-1)!.scope).toBe('albums');
+  });
+});
+
+describe('SearchService param serialisation', () => {
+  it('serialises SearchParams.scope onto the HTTP query', async () => {
+    let captured: HttpTestingController | null = null;
+    await TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: API_BASE_URL, useValue: '/api' },
+        SearchService,
+      ],
+    }).compileComponents();
+
+    const svc = TestBed.inject(SearchService);
+    captured = TestBed.inject(HttpTestingController);
+
+    svc.search({ q: 'paris', scope: 'places' }).subscribe();
+    const req = captured.expectOne((r) => r.url === '/api/search');
+    expect(req.request.params.get('scope')).toBe('places');
+    expect(req.request.params.get('q')).toBe('paris');
+    req.flush({ total: 0, page: 0, limit: 100, results: [] });
+    captured.verify();
+  });
+
+  it('omits the scope param when SearchParams.scope is undefined', async () => {
+    await TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: API_BASE_URL, useValue: '/api' },
+        SearchService,
+      ],
+    }).compileComponents();
+
+    const svc = TestBed.inject(SearchService);
+    const ctrl = TestBed.inject(HttpTestingController);
+    svc.search({ q: 'paris' }).subscribe();
+    const req = ctrl.expectOne((r) => r.url === '/api/search');
+    expect(req.request.params.has('scope')).toBe(false);
+    req.flush({ total: 0, page: 0, limit: 100, results: [] });
+    ctrl.verify();
   });
 });

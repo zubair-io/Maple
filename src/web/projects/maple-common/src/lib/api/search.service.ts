@@ -12,6 +12,11 @@ export type SearchSort = 'captured_desc' | 'captured_asc' | 'name' | 'rating';
 export type SearchFlag = 'pick' | 'reject' | 'none';
 export type SearchColor = '' | 'red' | 'yellow' | 'green' | 'blue' | 'purple';
 export type SearchSceneType = '' | 'indoor' | 'outdoor' | 'aerial' | 'macro' | 'studio' | 'mixed';
+/** Server-side scope from the S7 search chips. `photos` is the default
+ * (full live set); `places`/`people` narrow by underlying field presence;
+ * `albums` is recognised but the backend has no album field today and
+ * returns `{ results: [], notImplemented: true }`. */
+export type SearchScopeParam = 'photos' | 'places' | 'people' | 'albums';
 
 /** Query params for /api/search and /api/search/facets. All optional. */
 export interface SearchParams {
@@ -65,6 +70,8 @@ export interface SearchParams {
   /** Tri-state screenshot filter: `true` → screenshots only, `false` →
    * photographs only, `undefined` → both. */
   isScreenshot?: boolean;
+  /** S7 search chip scope. See `SearchScopeParam`. */
+  scope?: SearchScopeParam;
 }
 
 /** Single hit returned by /api/search. */
@@ -95,6 +102,10 @@ export interface SearchResponse {
   page: number;
   limit: number;
   results: SearchResult[];
+  /** Set to `true` by the backend when the requested `scope` has no
+   * underlying field today (currently only `albums`). The grid is empty
+   * by definition; UIs surface "Coming soon" instead of "No matches". */
+  notImplemented?: boolean;
 }
 
 export interface SearchFacets {
@@ -168,6 +179,7 @@ function paramsFrom(p: SearchParams): HttpParams {
     set('subjects', p.subjects.join(','));
   }
   if (p.isScreenshot !== undefined) set('isScreenshot', p.isScreenshot ? 'true' : 'false');
+  set('scope', p.scope);
   return h;
 }
 
