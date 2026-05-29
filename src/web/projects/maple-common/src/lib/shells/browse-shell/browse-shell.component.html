@@ -116,13 +116,64 @@
 
   <!-- Body -->
   <div class="flex-1 flex min-h-0 min-w-0 bg-bg">
-    <!-- Left: folder tree -->
+    <!-- Left: sidebar (search pill + folder tree). S7 follow-up (#645):
+         the search pill triggers an anchored overlay (320pt tablet /
+         480pt desktop) that hosts `<app-search>`. Until #629 merges, the
+         overlay renders a placeholder stub — flipping to the real search
+         component is a one-line template change. -->
     <div
-      class="flex-shrink-0 overflow-hidden relative transition-[width] duration-[220ms] ease-default"
+      class="flex-shrink-0 overflow-hidden relative transition-[width] duration-[220ms] ease-default flex flex-col"
       [style.width]="state.sidebarVisible() ? '220px' : '0px'"
     >
-      <app-folder-tree />
+      <!-- Search pill is Self-Hosted-only for parity with the toolbar
+           filter input above: Hosted has no server-side search index, so
+           opening the search overlay on Hosted would launch a UI that
+           has nothing to query. When #629 merges and `<app-search>`
+           slots into the overlay, the gate keeps that real surface from
+           landing on Hosted. -->
+      @if (state.backend === 'self-hosted') {
+        <button
+          #searchPillBtn
+          type="button"
+          class="search-pill mx-3 mt-3 mb-2 flex items-center gap-2 h-8 px-3 rounded-full bg-input-bg border-[0.5px] border-border text-text-muted text-[12px] text-left cursor-pointer hover:bg-surface-hover"
+          data-testid="sidebar-search-pill"
+          aria-label="Search photos"
+          [attr.aria-expanded]="searchOverlayOpen()"
+          (click)="onSearchPillClick()"
+        >
+          <maple-icon name="search" [size]="12" color="var(--color-text-muted)" />
+          <span>Search photos</span>
+        </button>
+      }
+      <div class="flex-1 min-h-0 overflow-hidden">
+        <app-folder-tree />
+      </div>
     </div>
+
+    <!-- S7 anchored overlay — opened by the sidebar search pill on
+         tablet / desktop. Width follows breakpoint (320 / 480). The
+         `<app-search>` slot lands when #629 merges; this PR ships a
+         placeholder stub so the primitive is exercised end-to-end. -->
+    @if (searchPillRef(); as anchor) {
+      <app-anchored-overlay
+        [(isOpen)]="searchOverlayOpen"
+        [anchor]="anchor"
+        [widthPx]="overlayWidthPx()"
+      >
+        <div class="search-overlay-stub p-3 flex flex-col gap-2" data-testid="search-overlay-stub">
+          <input
+            type="text"
+            class="w-full h-9 px-3 rounded-full bg-input-bg border-[0.5px] border-border text-text-main text-[14px] placeholder:text-text-muted"
+            placeholder="Search photos"
+            data-testid="overlay-search-input"
+            aria-label="Search photos"
+          />
+          <p class="text-text-muted text-[12px] m-0">
+            Search results land in #629 (S7). This overlay is the #645 primitive.
+          </p>
+        </div>
+      </app-anchored-overlay>
+    }
 
     <!-- Center: asset grid (Folder mode) or timeline (Timeline mode) -->
     <div class="flex-1 flex flex-col min-w-0">

@@ -71,6 +71,9 @@ export * from './lib/shells/browse-shell/browse-shell.component';
 export * from './lib/shells/editor-shell/editor-shell.component';
 // S1c (#599) — phone bottom-sheet primitive (consumed by S4 Loupe / S5 Editor / S6 phone Detail).
 export * from './lib/shells/bottom-sheet.component';
+// S7 follow-up (#645) — tablet/desktop anchored-overlay primitive (consumed
+// by the search-pill flow, with `<app-search>` content landing via #629).
+export * from './lib/shells/anchored-overlay.component';
 
 // Responsive-program S1a (#597) — phone-tier tab shell + the root shell
 // switcher that dispatches phone vs pane based on LayoutService.layout().
