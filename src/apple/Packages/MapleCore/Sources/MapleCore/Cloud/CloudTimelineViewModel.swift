@@ -114,11 +114,15 @@ public final class CloudTimelineViewModel {
   }
 
   /// Rebuild the public `buckets` union from the last-known `cloudBuckets`
-  /// plus the PhotoKit local month buckets. A month present in either
-  /// stream gets a section; the displayed count is the larger of the two
-  /// (the deduped union size isn't known until that month's page loads, and
-  /// `max` never under-reports a month that actually has photos). Sorted
-  /// year/month descending to match the cloud feed's ordering.
+  /// plus the PhotoKit local month buckets. A month present in either stream
+  /// gets a section. The displayed count is a best-effort header estimate —
+  /// `max(cloudCount, localCount)` — and is NOT the true union size: when the
+  /// two streams hold different photos (local not-yet-uploaded + cloud-only
+  /// from another device) the real union is larger, so this can under-report.
+  /// The deduped union size isn't known until that month's page loads and the
+  /// merge runs; `max` is the cheap estimate that's at least never zero for a
+  /// month that has photos in either stream. Sorted year/month descending to
+  /// match the cloud feed's ordering.
   private func recomputeBuckets() {
     var counts: [BucketKey: Int] = [:]
     for b in cloudBuckets {
@@ -135,33 +139,28 @@ public final class CloudTimelineViewModel {
       .sorted { ($0.year, $0.month) > ($1.year, $1.month) }
   }
 
-  /// Re-build `mergedPagesByBucket` for every bucket we've already fetched
-  /// from the server. Triggered when the PhotoKit cache warms up so the
-  /// timeline updates in place instead of waiting for the user to scroll
-  /// away and back.
+  /// Re-build `mergedPagesByBucket` for every bucket we've already fetched a
+  /// cloud page for, and re-union the section list. Triggered when the
+  /// PhotoKit cache warms up so already-loaded months pick up their local
+  /// cells in place instead of waiting for the user to scroll away and back.
+  ///
+  /// Deliberately scoped to months that ALREADY have a cloud page — it does
+  /// NOT eagerly merge every local month. Months newly added to the union by
+  /// `recomputeBuckets()` (local-only / not-yet-backed-up) get their cells
+  /// lazily from `loadPage(...)` when their section appears, so warm-up on a
+  /// large library doesn't do O(library) synchronous merge work on the
+  /// MainActor.
   private func remergeLoadedBuckets() {
     guard let merge = photoKitMerge else { return }
     // Warm-up may have discovered months the cloud doesn't have (local-only)
-    // — re-union so they gain sections in place.
+    // — re-union so they gain sections; their cells fill in via loadPage.
     recomputeBuckets()
-    // Re-merge every month we've already fetched a cloud page for, so synced
-    // / local cells appear without the user scrolling away and back.
+    // Re-merge only the months we've already fetched a cloud page for, so
+    // synced / local cells appear without the user scrolling away and back.
     for (key, results) in pagesByBucket {
       let localRefs = merge.assetsForMonth(year: key.year, month: key.month)
       let cloudRefs = results.map { Self.searchAssetToImageRef($0) }
       mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: cloudRefs)
-    }
-    // Also surface local cells for any unioned month that now has PhotoKit
-    // content but whose cloud page hasn't loaded (or returned nothing). These
-    // are the local-only / not-yet-backed-up months — without this they'd
-    // stay blank until scrolled into view.
-    for bucket in buckets {
-      let key = BucketKey(year: bucket.year, month: bucket.month)
-      guard pagesByBucket[key] == nil else { continue }
-      let localRefs = merge.assetsForMonth(year: key.year, month: key.month)
-      if !localRefs.isEmpty {
-        mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: [])
-      }
     }
   }
 
@@ -241,7 +240,14 @@ public final class CloudTimelineViewModel {
     if let merge = photoKitMerge, g == generation {
       let localRefs = merge.assetsForMonth(year: year, month: month)
       if !localRefs.isEmpty, mergedPagesByBucket[key] == nil {
-        mergedPagesByBucket[key] = MergedTimelineSource.merge(local: localRefs, cloud: [])
+        // Cheap local-only seed: map straight to `.localOnly` cells rather
+        // than calling `merge(local:cloud:)`, which would build lookup maps
+        // and re-sort the whole month on the MainActor before any await.
+        // `assetsForMonth` is already capture-date descending (PhotoKit fetch
+        // order, preserved through the disk cache), so the order matches what
+        // the full merge would produce. The cache/network reads below run the
+        // real merge once cloud rows arrive.
+        mergedPagesByBucket[key] = localRefs.map { MergedTimelineCell.localOnly($0) }
       }
     }
 
