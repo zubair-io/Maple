@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-// Verify bundled webfonts (per docs/spec/responsive-program-s0-primitives.md
+// Verify bundled webfonts (per docs/design/responsive-program/s0-primitives.md
 // §3.3 / §5.2) load successfully in the running app.
 //
 // `document.fonts.check('400 14px Lato')` returns `true` only when a face
