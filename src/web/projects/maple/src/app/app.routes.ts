@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 import {
   BrowseShellComponent,
+  EditorPageComponent,
   EditorShellComponent,
   PhoneLibraryStubComponent,
   PhoneSearchStubComponent,
@@ -37,7 +38,7 @@ export const routes: Routes = [
   // editor entries are placeholders that S4 / S5 will replace.
   { path: 'library', canActivate: [authGuard], component: PhoneLibraryStubComponent },
   { path: 'library/loupe/:id', canActivate: [authGuard], component: PhoneLibraryStubComponent },
-  { path: 'library/editor/:id', canActivate: [authGuard], component: PhoneLibraryStubComponent },
+  { path: 'library/editor/:id', canActivate: [authGuard], component: EditorPageComponent },
   // `/settings` lands on Workers. The card-grid landing was replaced by
   // the sidebar shell in v0.2. Non-owners hit authGuard inside
   // settings/workers and bounce; making the redirect role-aware (Account

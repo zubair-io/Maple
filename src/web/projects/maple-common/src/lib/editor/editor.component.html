@@ -1,0 +1,23 @@
+<div class="editor" data-testid="editor-view">
+  <app-editor-header
+    [filename]="currentFilename()"
+    (back)="dismiss.emit()"
+    (share)="share.emit()"
+    (info)="info.emit()"
+  ></app-editor-header>
+
+  <div class="canvas-region">
+    <div class="canvas-placeholder" data-testid="editor-canvas-placeholder">
+      <!-- v0.1: real image render wires onto the existing ImageCanvas
+           pipeline (used by EditorShellComponent at /edit/:id) in a
+           follow-up consolidation pass. -->
+    </div>
+    <div class="chip-anchor">
+      <app-value-chip></app-value-chip>
+    </div>
+  </div>
+
+  <app-drag-bar></app-drag-bar>
+  <app-group-tabs></app-group-tabs>
+  <app-tool-pill-row></app-tool-pill-row>
+</div>

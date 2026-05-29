@@ -1,0 +1,38 @@
+:host {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: var(--mpl-bg, #1c1917);
+  color: var(--mpl-text-main, #e8e6e3);
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.canvas-region {
+  flex: 1 1 auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  min-height: 200px;
+}
+
+.canvas-placeholder {
+  width: 88%;
+  aspect-ratio: 3 / 2;
+  background: var(--mpl-surface-alt, #2c2825);
+  border-radius: 4px;
+}
+
+.chip-anchor {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+}

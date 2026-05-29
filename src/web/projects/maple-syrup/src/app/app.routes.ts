@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { isDevMode } from '@angular/core';
 import {
   BrowseShellComponent,
+  EditorPageComponent,
   EditorShellComponent,
   PhoneLibraryStubComponent,
   PhoneSearchStubComponent,
@@ -24,7 +25,7 @@ const baseRoutes: Routes = [
   // RootShellComponent. S4 / S5 / S7 / S8 will replace the stubs.
   { path: 'library', component: PhoneLibraryStubComponent },
   { path: 'library/loupe/:id', component: PhoneLibraryStubComponent },
-  { path: 'library/editor/:id', component: PhoneLibraryStubComponent },
+  { path: 'library/editor/:id', component: EditorPageComponent },
   { path: 'search', component: PhoneSearchStubComponent },
   { path: 'settings', component: PhoneSettingsStubComponent },
 ];

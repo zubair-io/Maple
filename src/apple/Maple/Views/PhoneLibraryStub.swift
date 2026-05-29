@@ -78,12 +78,10 @@ struct PhoneLibraryStub<SidebarContent: View, ToolbarContentT: ToolbarContent>: 
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback
         )
-        // Tab-bar hide-on-push contract for the phone shell. S4 will
-        // replace the destination body with the real Loupe.
-        .navigationDestination(for: AssetRef.self) { _ in
-            Text("Loupe — coming in S4")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Tab-bar hide-on-push contract for the phone shell. S4 was
+        // dropped — cell tap pushes straight into the S5 Editor (#625).
+        .navigationDestination(for: AssetRef.self) { ref in
+            EditorDestination(asset: ref, sessions: $sessions)
                 .toolbar(.hidden, for: .tabBar)
         }
     }
