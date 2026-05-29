@@ -7,13 +7,13 @@
  * similarity inside a per-folder debounce buffer.
  */
 
-import chokidar, { type FSWatcher } from "chokidar";
-import * as path from "node:path";
-import { child as childLogger } from "../log.ts";
+import chokidar, { type FSWatcher } from 'chokidar';
+import * as path from 'node:path';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("watcher");
+const log = childLogger('watcher');
 
-export type WatchKind = "created" | "modified" | "renamed" | "removed";
+export type WatchKind = 'created' | 'modified' | 'renamed' | 'removed';
 
 export interface WatchEvent {
   kind: WatchKind;
@@ -97,16 +97,16 @@ export class Watcher {
       },
       ignored: (p: string) => {
         const base = path.basename(p);
-        if (base.startsWith(".")) return true; // hides .maple/, dotfiles
+        if (base.startsWith('.')) return true; // hides .maple/, dotfiles
         return false;
       },
     });
 
-    this.watcher.on("add", (p) => this.enqueue("add", p));
-    this.watcher.on("change", (p) => this.enqueue("change", p));
-    this.watcher.on("unlink", (p) => this.enqueue("unlink", p));
-    this.watcher.on("error", (err) => {
-      log.warn({ err: err instanceof Error ? err.message : err }, "error");
+    this.watcher.on('add', (p) => this.enqueue('add', p));
+    this.watcher.on('change', (p) => this.enqueue('change', p));
+    this.watcher.on('unlink', (p) => this.enqueue('unlink', p));
+    this.watcher.on('error', (err) => {
+      log.warn({ err: err instanceof Error ? err.message : err }, 'error');
     });
   }
 
@@ -115,10 +115,10 @@ export class Watcher {
     return this.include.has(path.extname(p).toLowerCase());
   }
 
-  private enqueue(kind: "add" | "change" | "unlink", p: string): void {
+  private enqueue(kind: 'add' | 'change' | 'unlink', p: string): void {
     if (!this.allowed(p)) return;
-    if (kind === "add") this.pending.add.add(p);
-    else if (kind === "change") this.pending.change.add(p);
+    if (kind === 'add') this.pending.add.add(p);
+    else if (kind === 'change') this.pending.change.add(p);
     else this.pending.unlink.add(p);
 
     if (this.timer) return;
@@ -146,11 +146,11 @@ export class Watcher {
     }
 
     for (const [from, to] of renamed) {
-      this.onEvent({ kind: "renamed", absPath: to, fromPath: from });
+      this.onEvent({ kind: 'renamed', absPath: to, fromPath: from });
     }
-    for (const p of batch.add) this.onEvent({ kind: "created", absPath: p });
-    for (const p of batch.change) this.onEvent({ kind: "modified", absPath: p });
-    for (const p of batch.unlink) this.onEvent({ kind: "removed", absPath: p });
+    for (const p of batch.add) this.onEvent({ kind: 'created', absPath: p });
+    for (const p of batch.change) this.onEvent({ kind: 'modified', absPath: p });
+    for (const p of batch.unlink) this.onEvent({ kind: 'removed', absPath: p });
   }
 
   async close(): Promise<void> {
