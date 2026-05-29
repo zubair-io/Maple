@@ -23,8 +23,10 @@ import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
 } from "../../enrichment/enrichment-config.repo.ts";
+import { GEOCODE_HANDLER_VERSION } from "../../enrichment/geocode-version.ts";
 
-export const GEOCODE_HANDLER_VERSION = 1;
+// Re-exported so existing importers keep finding it here.
+export { GEOCODE_HANDLER_VERSION };
 
 interface GeocodeDeps {
   client: NominatimClient;
@@ -37,12 +39,15 @@ async function getDeps(): Promise<GeocodeDeps> {
   if (_deps) return _deps;
   const dbConfig = await loadEnrichmentConfig();
   const cfg = resolveEnrichmentConfig(dbConfig);
-  if (!cfg.nominatim_url) throw new Error("geocode: nominatim URL not configured");
+  if (!cfg.nominatim_url)
+    throw new Error("geocode: nominatim URL not configured");
   const client = new NominatimClient({
     baseUrl: cfg.nominatim_url,
     rateLimitPerSec: cfg.nominatim_rate_limit_per_sec,
   });
-  const cache = new CoordinateCache({ geocoderVersion: GEOCODE_HANDLER_VERSION });
+  const cache = new CoordinateCache({
+    geocoderVersion: GEOCODE_HANDLER_VERSION,
+  });
   _deps = { client, cache };
   return _deps;
 }
@@ -67,7 +72,13 @@ export async function geocodeHandler(
     return { patch: { place: cached } };
   }
   const raw = await client.reverse(lat, lng);
-  const place = parseNominatimResponse(raw, lat, lng, GEOCODE_HANDLER_VERSION, () => new Date());
+  const place = parseNominatimResponse(
+    raw,
+    lat,
+    lng,
+    GEOCODE_HANDLER_VERSION,
+    () => new Date(),
+  );
   await cache.set(lat, lng, place);
   return { patch: { place } };
 }
