@@ -12,7 +12,7 @@ This doc is the contract for three sub-tickets — **S0a Foundation**, **S0b Typ
 |---|---|---|---|
 | **S0a** | `MapleLayout` env (Apple) + `LayoutService` signal (web) backed by size class + matchMedia. `MapleTokens` / `tokens.scss` / `tokens.ts` gain `borderHi`, `warn`. New `motion.{swift,scss,ts}` with the prompt §4 duration + easing table. `docs/spec/07-ui-architecture.md` updated (breakpoints 768/1024; persistence schema; tab-bar canonical for iPhone). | `src/apple/Sources/MapleCore/Layout/MapleLayout.swift` (new), `src/apple/Maple/Views/DesignTokens.swift`, `src/apple/Maple/Views/AppShell.swift`, `src/web/projects/maple-common/src/lib/{tokens.scss,tokens.ts,layout-service.ts,motion.{ts,scss}}`, `docs/spec/07-ui-architecture.md` | S1–S7 |
 | **S0b** | Lato 400 / Lato 700 / Merriweather 700 bundled. Apple registers via `INFOPLIST_KEY_UIAppFonts`. Web `@font-face` with `font-display: swap`. `MapleTokens.Typography` and `tokens.scss` font families switch from SF-fallback to Lato / Merriweather / SF Mono / JetBrains Mono. | `src/apple/Maple/Resources/Fonts/{Lato-Regular,Lato-Bold,Merriweather-Bold}.ttf` (new), `src/apple/Maple.xcodeproj/project.pbxproj` (INFOPLIST_KEY_UIAppFonts), `src/apple/Maple/Views/DesignTokens.swift` Typography, `src/web/projects/maple-common/src/assets/fonts/` (new), `src/web/projects/maple-common/src/lib/{fonts.scss,tokens.scss,tokens.ts}` | none |
-| **S0c** | Parity table doc mapping each chrome glyph to (SF Symbol, web SVG primitive). Web `maple-icon` gains missing glyphs. Tool glyphs (22) deferred to S5. | `docs/spec/responsive-program-s0-icons.md` (new), `src/web/projects/maple-common/src/lib/icons/maple-icon.component.ts` | none |
+| **S0c** | Parity table doc mapping each chrome glyph to (SF Symbol, web SVG primitive). Web `maple-icon` gains missing glyphs. Tool glyphs (22) deferred to S5. | `docs/design/responsive-program/s0-icons.md` (new), `src/web/projects/maple-common/src/lib/icons/maple-icon.component.ts` | none |
 
 S0a unblocks S1–S7. S0b and S0c are independent — can ship in parallel with S1.
 
@@ -283,7 +283,7 @@ Two icon categories in the program:
 
 ### 4.2 Parity table
 
-Lives at `docs/spec/responsive-program-s0-icons.md` (created by S0c PR). Format:
+Lives at `docs/design/responsive-program/s0-icons.md` (created by S0c PR). Format:
 
 | Spec name | Used in | Apple (SF Symbol) | Web (maple-icon name) |
 |---|---|---|---|
@@ -322,7 +322,7 @@ S0c PR creates GH issue: *"Design 22 photo-tool glyphs for editor pill row (Expo
 
 | File | Change |
 |---|---|
-| `docs/spec/responsive-program-s0-icons.md` | **new** — full parity table |
+| `docs/design/responsive-program/s0-icons.md` | **new** — full parity table |
 | `src/web/projects/maple-common/src/lib/icons/maple-icon.component.ts` | add missing SVG paths (specific list audited when writing PR) |
 
 ---
