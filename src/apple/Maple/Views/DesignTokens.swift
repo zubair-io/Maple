@@ -1,5 +1,12 @@
-// DesignTokens.swift — Swift port of the Maple Hosted tokens.ts
-// Source: src/web/projects/maple-common/src/lib/tokens.ts
+// DesignTokens.swift — SwiftUI bindings for the raw-core canonical UI tokens.
+//
+// Ticket #606: the color hex strings + motion specs live in
+// `raw_core::ui_tokens` and are emitted to
+// `Packages/MapleCore/Sources/MapleCore/Generated/UITokens.swift` by
+// `tools/codegen.sh`. This file is a thin SwiftUI wrapper that preserves
+// the historical `MapleTokens` API surface (so call sites don't change)
+// but sources every value from `MapleUITokens` instead of duplicating
+// hand-written hex literals.
 
 import SwiftUI
 import MapleCore
@@ -7,43 +14,52 @@ import MapleCore
 // MARK: - MapleTokens
 
 public struct MapleTokens {
-    // Surfaces
-    static let bg            = Color(hex: "#1c1917")
-    static let surface       = Color(hex: "#262524")
-    static let surfaceAlt    = Color(hex: "#2e2c2a")
-    static let surfaceHover  = Color(hex: "#3a3836")
-    static let sidebar       = Color(hex: "#292524")
-    static let inputBg       = Color(hex: "#1c1917")
-    static let imageCanvas   = Color(hex: "#141210")
+    // Surfaces (sourced from raw_core::ui_tokens::COLOR_TOKENS via UITokens.swift)
+    static let bg            = Color(token: MapleUITokens.bg)
+    static let surface       = Color(token: MapleUITokens.surface)
+    static let surfaceAlt    = Color(token: MapleUITokens.surfaceAlt)
+    static let surfaceHover  = Color(token: MapleUITokens.surfaceHover)
+    static let sidebar       = Color(token: MapleUITokens.sidebar)
+    static let inputBg       = Color(token: MapleUITokens.inputBg)
+    static let imageCanvas   = Color(token: MapleUITokens.imageCanvas)
 
     // Text
-    static let textMain      = Color(hex: "#e7e5e4")
-    static let textMuted     = Color(hex: "#a8a29e")
+    static let textMain      = Color(token: MapleUITokens.textMain)
+    static let textMuted     = Color(token: MapleUITokens.textMuted)
 
     // Borders
-    static let border        = Color(hex: "#44403c")
+    static let border        = Color(token: MapleUITokens.border)
     /// Active ticks (drag-bar center tick), grab handles. Responsive-program
     /// S0a (#581). One tier up from `border` to preserve contrast headroom.
-    static let borderHi      = Color(hex: "#5a5552")
+    static let borderHi      = Color(token: MapleUITokens.borderHi)
 
     // Accent
-    static let primary       = Color(hex: "#c4493a")
-    static let primaryDim    = Color(hex: "#422016")
+    static let primary       = Color(token: MapleUITokens.primary)
+    static let primaryDim    = Color(token: MapleUITokens.primaryDim)
 
     /// Low-confidence signals (e.g. person detection chips). Tailwind amber-400.
     /// Responsive-program S0a (#581).
-    static let warn          = Color(hex: "#fbbf24")
+    static let warn          = Color(token: MapleUITokens.warn)
 
     // Hover / active overlays (rgba)
-    static let bgHover       = Color.white.opacity(0.06)
-    static let bgActive      = Color.white.opacity(0.10)
+    static let bgHover       = Color(token: MapleUITokens.bgHover)
+    static let bgActive      = Color(token: MapleUITokens.bgActive)
 
     // Semantic
+    //
+    // `successBg` and `errorBg` deliberately are NOT sourced from
+    // `MapleUITokens`. Pre-#606 the Swift side used SwiftUI's system
+    // `Color.green` / `Color.red` at 15% alpha; the web side uses
+    // Tailwind green-500 / red-500 at the same alpha. That platform drift
+    // pre-dates #606 — closing it is a value change, and this ticket is
+    // value-flow only (consolidating the value choice is a follow-up).
+    // Hex colors (`successText`, `errorText`, `star`) DO match exactly
+    // across platforms, so they flow through `MapleUITokens` as expected.
     static let successBg     = Color.green.opacity(0.15)
-    static let successText   = Color(hex: "#4ade80")
+    static let successText   = Color(token: MapleUITokens.successText)
     static let errorBg       = Color.red.opacity(0.15)
-    static let errorText     = Color(hex: "#f87171")
-    static let star          = Color(hex: "#EF9F27")
+    static let errorText     = Color(token: MapleUITokens.errorText)
+    static let star          = Color(token: MapleUITokens.star)
 
     // MARK: - Typography
     //
@@ -107,30 +123,54 @@ public struct MapleTokens {
     //
     // Responsive-program S0a (#581). Duration + easing tokens for shell
     // transitions, sheet present/dismiss, group/tool swap, chrome hide,
-    // filter fade. Web mirrors these as paired --motion-X-ms /
-    // --motion-X-ease CSS custom properties in motion.scss.
+    // filter fade. Ticket #606: durations + easing strings now come from
+    // `MapleUITokens.Motion` (generated from raw_core::ui_tokens).
+    // SwiftUI translation lives here — `cubic-bezier(...)` strings map to
+    // `Animation.timingCurve(...)`, named CSS easings to the matching
+    // `Animation.easeInOut` / `easeOut` / `linear` constructors.
     enum Motion {
         /// Drawer open/close (240ms, ease-default). Sidebar collapse on
         /// tablet/desktop; not used on phone (tab-bar shell has no drawer).
-        static let drawer = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.24)
+        static let drawer = Animation.timingCurve(
+            0.22, 1, 0.36, 1,
+            duration: MapleUITokens.Motion.drawer.seconds
+        )
         /// Push transition (320ms, iOS system / .snappy).
-        static let push = Animation.snappy(duration: 0.32)
+        static let push = Animation.snappy(duration: MapleUITokens.Motion.push.seconds)
         /// Sheet present (320ms).
-        static let sheetPresent = Animation.snappy(duration: 0.32)
+        static let sheetPresent = Animation.snappy(duration: MapleUITokens.Motion.sheetPresent.seconds)
         /// Sheet dismiss (280ms).
-        static let sheetDismiss = Animation.snappy(duration: 0.28)
+        static let sheetDismiss = Animation.snappy(duration: MapleUITokens.Motion.sheetDismiss.seconds)
         /// Editor group/tool tab swap (120ms ease-in-out).
-        static let groupSwap = Animation.easeInOut(duration: 0.12)
+        static let groupSwap = Animation.easeInOut(duration: MapleUITokens.Motion.groupSwap.seconds)
         /// Loupe chrome auto-hide (180ms ease-out).
-        static let chromeHide = Animation.easeOut(duration: 0.18)
+        static let chromeHide = Animation.easeOut(duration: MapleUITokens.Motion.chromeHide.seconds)
         /// Library filter chip change cross-fade (120ms linear).
-        static let filterFade = Animation.linear(duration: 0.12)
+        static let filterFade = Animation.linear(duration: MapleUITokens.Motion.filterFade.seconds)
     }
 }
 
-// MARK: - Color hex
+// MARK: - Color from token string
+//
+// `MapleUITokens` exposes raw CSS-style strings — either `#rrggbb` (or
+// `#RRGGBB`) hex literals, or `rgba(r, g, b, a)` with integer 0-255
+// components and a 0-1 alpha. This initializer handles both forms so
+// generated tokens flow straight in.
 
 extension Color {
+    /// Build a SwiftUI `Color` from a `MapleUITokens` string. Accepts either
+    /// `#rrggbb` hex or `rgba(R, G, B, A)`. Falls back to opaque magenta on
+    /// a parse failure so the bug is loud, not silent.
+    init(token: String) {
+        if token.hasPrefix("#") {
+            self = Color(hex: token)
+        } else if let rgba = Color.parseRgba(token) {
+            self.init(red: rgba.r, green: rgba.g, blue: rgba.b, opacity: rgba.a)
+        } else {
+            self = Color(red: 1, green: 0, blue: 1) // magenta on parse failure
+        }
+    }
+
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         let scanner = Scanner(string: hex)
@@ -140,6 +180,22 @@ extension Color {
         let g = Double((int >> 8)  & 0xFF) / 255.0
         let b = Double(int         & 0xFF) / 255.0
         self.init(red: r, green: g, blue: b)
+    }
+
+    /// Parse `rgba(R, G, B, A)` where R/G/B are 0-255 integers and A is a
+    /// 0-1 decimal. Whitespace flexibility matches CSS.
+    fileprivate static func parseRgba(_ s: String) -> (r: Double, g: Double, b: Double, a: Double)? {
+        let trimmed = s.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("rgba(") && trimmed.hasSuffix(")") else { return nil }
+        let inside = trimmed.dropFirst("rgba(".count).dropLast()
+        let parts = inside.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        guard parts.count == 4,
+              let ri = Int(parts[0]),
+              let gi = Int(parts[1]),
+              let bi = Int(parts[2]),
+              let a = Double(parts[3])
+        else { return nil }
+        return (Double(ri) / 255.0, Double(gi) / 255.0, Double(bi) / 255.0, a)
     }
 }
 
