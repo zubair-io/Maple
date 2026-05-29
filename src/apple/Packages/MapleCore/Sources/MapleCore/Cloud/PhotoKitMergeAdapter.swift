@@ -137,6 +137,16 @@ public final class PhotoKitMergeAdapter {
         bucketsByMonth[BucketKey(year: year, month: month)] ?? []
     }
 
+    /// Every month currently cached, with its local asset count. Synchronous
+    /// — reflects whatever's loaded (disk cache at init, refreshed by
+    /// `warmUp()`). Drives the local half of the timeline's bucket union so
+    /// months that exist ONLY in PhotoKit (e.g. not yet backed up, or backup
+    /// paused) still get a section instead of being invisible until the
+    /// cloud catches up. The timeline unions these with the cloud buckets.
+    public func localBuckets() -> [(key: BucketKey, count: Int)] {
+        bucketsByMonth.map { (key: $0.key, count: $0.value.count) }
+    }
+
     /// Refresh the cache from PhotoKit. Idempotent and coalesced — concurrent
     /// callers share the same in-flight Task. PHAsset enumeration runs on a
     /// detached Task so it never blocks the UI. After this returns, the
