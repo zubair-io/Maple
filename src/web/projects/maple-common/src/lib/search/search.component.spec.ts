@@ -133,6 +133,21 @@ describe('SearchComponent', () => {
     expect(photoSec).toBeNull();
   });
 
+  it('keeps the recents-only state when the user types only whitespace', () => {
+    // Whitespace-only input must behave like an empty query — the search
+    // effect trims before hitting the API, and `showRecents` / `hasQuery`
+    // must agree so the body isn't blank (no recents, no results, no empty
+    // state). Regression guard for the Copilot review on #629.
+    typeInput(fixture, '   ');
+    vi.advanceTimersByTime(300);
+    fixture.detectChanges();
+    expect(stubService.calls.length).toBe(0);
+    const noResults = fixture.nativeElement.querySelector('[data-testid="search-no-results"]');
+    const photoSec = fixture.nativeElement.querySelector('[data-testid="photo-results-section"]');
+    expect(noResults).toBeNull();
+    expect(photoSec).toBeNull();
+  });
+
   it('debounces rapid keystrokes into one fetch after 250ms', () => {
     typeInput(fixture, 'p');
     vi.advanceTimersByTime(50);
