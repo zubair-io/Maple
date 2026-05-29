@@ -16,6 +16,7 @@ import {
   output,
 } from '@angular/core';
 
+import { ImageCanvasComponent } from '../components/image-canvas/image-canvas.component';
 import { LayoutService } from '../layout-service';
 import { LibraryStateService } from '../state/library-state.service';
 import { TabBarVisibilityService } from '../shells/tab-bar-visibility.service';
@@ -35,6 +36,7 @@ import { TOOLS_IN_GROUP, type ToolGroup, type ToolId, groupOf } from './tool-mod
     DragBarComponent,
     EditorHeaderComponent,
     GroupTabsComponent,
+    ImageCanvasComponent,
     ToolPillRowComponent,
     ValueChipComponent,
   ],
@@ -58,7 +60,15 @@ export class EditorComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.tabBar.hidden.set(true);
-    this.state.bind(this.assetId());
+    const id = this.assetId();
+    this.state.bind(id);
+    // Sync LibraryStateService focus so the ImageCanvas (which observes
+    // `state.focusedAsset()`) renders the bound asset. `selectAsset` is
+    // unconditional — if the id isn't in `assets()` yet (direct URL load
+    // without hydration), the canvas falls back to its gradient placeholder
+    // until the asset hydrates. Cold-load hydration is editor-shell's job
+    // today; mirroring it under /library/editor/:id is a follow-up.
+    this.library.selectAsset(id);
   }
 
   ngOnDestroy(): void {
