@@ -57,14 +57,21 @@ describe('BottomSheetComponent', () => {
     expect(sheet!.getAttribute('aria-modal')).toBe('true');
   });
 
-  it('renders the grab handle inside the sheet', () => {
+  it('renders the grab handle inside a top drag-area', () => {
     const fixture = TestBed.createComponent(HostComponent);
     fixture.componentInstance.open = true;
     fixture.detectChanges();
 
-    const handle = (fixture.nativeElement as HTMLElement).querySelector('.grab-handle');
+    const dragArea = (fixture.nativeElement as HTMLElement).querySelector('.drag-area');
+    expect(dragArea).not.toBeNull();
+    expect(dragArea!.getAttribute('aria-hidden')).toBe('true');
+
+    const handle = dragArea!.querySelector('.grab-handle');
     expect(handle).not.toBeNull();
-    expect(handle!.getAttribute('aria-hidden')).toBe('true');
+    // Drag-area, not the sheet body, owns the pan gesture (prevents
+    // projected scrollables from triggering an accidental dismiss).
+    const sheet = (fixture.nativeElement as HTMLElement).querySelector('.sheet') as HTMLElement;
+    expect(sheet.contains(dragArea)).toBe(true);
   });
 
   it('projects host content via <ng-content>', () => {
@@ -107,15 +114,36 @@ describe('BottomSheetComponent', () => {
     expect(fixture.componentInstance.open).toBe(true);
   });
 
-  it('Escape key on the sheet dismisses it', () => {
+  it('Escape key dismisses regardless of focus (document-level listener)', () => {
     const fixture = TestBed.createComponent(HostComponent);
     fixture.componentInstance.open = true;
     fixture.detectChanges();
 
-    const sheet = (fixture.nativeElement as HTMLElement).querySelector('.sheet') as HTMLElement;
-    sheet.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // Dispatch on document.body — simulates focus sitting on the opener
+    // button behind the scrim, not on the sheet (which is `tabindex="-1"`
+    // and never auto-focused).
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     fixture.detectChanges();
 
     expect(fixture.componentInstance.open).toBe(false);
+  });
+
+  it('pointerdown on projected content does NOT initiate a drag', () => {
+    const fixture = TestBed.createComponent(HostComponent);
+    fixture.componentInstance.open = true;
+    fixture.detectChanges();
+
+    const projected = (fixture.nativeElement as HTMLElement).querySelector(
+      '[data-testid="projected"]',
+    ) as HTMLElement;
+    projected.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, clientY: 100, pointerId: 1, button: 0 }),
+    );
+    fixture.detectChanges();
+
+    // Drag-only-from-drag-area: the sheet must not enter the dragging state
+    // when the gesture starts inside projected scrollable content.
+    const sheet = (fixture.nativeElement as HTMLElement).querySelector('.sheet') as HTMLElement;
+    expect(sheet.classList.contains('dragging')).toBe(false);
   });
 });

@@ -5,10 +5,11 @@
 // Phone-tier Info modal (consumed by S4 Loupe, S5 Editor, S6 phone Detail
 // reuse). Hand-rolled so the Web matches the design spec exactly:
 //   - 35% scrim, 74vh sheet, 18px top corners.
-//   - 38×4px grab handle in muted grey.
-//   - Pan-down to dismiss: drag distance ≥ 25% of sheet height OR
-//     pointer velocity ≥ 1000 px/s at release.
-//   - Scrim tap + Escape key also dismiss.
+//   - 38×4px grab handle in muted grey, inside a top `.drag-area` band.
+//   - Pan-down to dismiss is initiated only from the top `.drag-area`,
+//     keeping projected content scrollable without gesture conflicts.
+//     Distance ≥ 25% of sheet height OR velocity ≥ 1000 px/s at release.
+//   - Scrim tap + document-level Escape also dismiss.
 //
 // Apple ships a thinner `mapleBottomSheet` View extension wrapping
 // `.sheet(.presentationDetents([.fraction(0.74)]))` — see
@@ -21,7 +22,6 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
-  HostListener,
   ViewChild,
   model,
   signal,
@@ -40,6 +40,12 @@ const VELOCITY_WINDOW_MS = 100;
   templateUrl: './bottom-sheet.component.html',
   styleUrl: './bottom-sheet.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: {
+    // Document-level Escape so the sheet dismisses regardless of where focus
+    // sits (typically still on the opener button behind the scrim, since the
+    // sheet is `tabindex="-1"` and not auto-focused on open).
+    '(document:keydown.escape)': 'onEscape($event)',
+  },
 })
 export class BottomSheetComponent {
   /** Two-way: parent owns whether the sheet is presented. */
@@ -62,8 +68,7 @@ export class BottomSheetComponent {
     this.isOpen.set(false);
   }
 
-  /** Escape key on the focused sheet dismisses (keyboard parity with the scrim). */
-  @HostListener('keydown.escape', ['$event'])
+  /** Document-level Escape dismisses (keyboard parity with the scrim). */
   protected onEscape(event: Event): void {
     if (!this.isOpen()) return;
     event.preventDefault();
@@ -80,7 +85,11 @@ export class BottomSheetComponent {
     this.lastSampleTimestamp = event.timeStamp;
     this.isDragging.set(true);
     this.dragOffsetPx.set(0);
-    (event.target as Element).setPointerCapture?.(event.pointerId);
+    // Capture on the listener-bound element (`.drag-area`), not the raw
+    // event target — `event.target` may be a nested node (e.g. the grab
+    // handle) and setPointerCapture on that node won't deliver subsequent
+    // move/up events to this handler reliably.
+    (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
   }
 
   protected onPointerMove(event: PointerEvent): void {
