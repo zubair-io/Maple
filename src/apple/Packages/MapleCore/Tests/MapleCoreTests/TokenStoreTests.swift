@@ -1,4 +1,5 @@
 // TokenStoreTests.swift
+import Security
 import XCTest
 @testable import MapleCore
 
@@ -15,11 +16,15 @@ final class TokenStoreTests: XCTestCase {
   /// failing with `errSecMissingEntitlement` (-34018). Mirrors the
   /// pattern in `SMBCredentialStoreTests.testSaveAndFetch`. On a CI
   /// runner with entitlements this just performs the save normally.
+  /// Narrowed catch: only the entitlement-missing case becomes
+  /// `XCTSkip`; any other error (unexpected OSStatus, etc.) propagates
+  /// so the test fails with real signal.
   private func saveOrSkip(_ tokens: AuthTokens, server: URL) throws {
     do {
       try TokenStore.save(tokens, server: server)
-    } catch {
-      throw XCTSkip("Keychain not writeable: \(error)")
+    } catch let nsErr as NSError
+      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement) {
+      throw XCTSkip("Keychain entitlement not granted: \(nsErr)")
     }
   }
 
@@ -27,8 +32,9 @@ final class TokenStoreTests: XCTestCase {
   private func loadOrSkip(server: URL) throws -> AuthTokens? {
     do {
       return try TokenStore.load(server: server)
-    } catch {
-      throw XCTSkip("Keychain not readable: \(error)")
+    } catch let nsErr as NSError
+      where nsErr.domain == "TokenStore" && nsErr.code == Int(errSecMissingEntitlement) {
+      throw XCTSkip("Keychain entitlement not granted: \(nsErr)")
     }
   }
 
