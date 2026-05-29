@@ -10,9 +10,9 @@ One ticket — **S7** — shipped as one PR.
 
 ## 1. Overview & deliverable map
 
-| Ticket | What ships | Files touched | Blocks |
-|---|---|---|---|
-| **S7** | `SearchView` (Apple) / `SearchComponent` (web) populating Search tab on phone, and as an anchored overlay on tablet/desktop. Search bar with caret + `✕` clear. Scope chips (All / Photos / Places / People / Albums). Sections: Top Hits (≤3 mixed-kind), Photos · count (3-col preview grid + "See all" link to filtered grid), Recents (chip row of last 10 queries). Empty/no-results/stale states per spec. Auto-focus when entered via S1b drawer's search pill (`searchPillTap` event). | New `src/apple/Maple/Views/SearchView.swift`, new `src/apple/Maple/Views/SearchScopeChips.swift`, new `src/apple/Maple/Views/SearchTopHitRow.swift`, edits to `src/apple/Maple/Views/PhoneSearchStub.swift` (replace placeholder with `SearchView`), new `src/web/projects/maple-common/src/lib/search/search.component.{ts,html,scss,spec.ts}`, new `src/web/projects/maple/src/app/search-page.component.ts`, new `src/web/projects/maple-syrup/src/app/search-page.component.ts`, edits to web pane shell for the anchored overlay | — |
+| Ticket | What ships                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Files touched                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Blocks |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| **S7** | `SearchView` (Apple) / `SearchComponent` (web) populating Search tab on phone, and as an anchored overlay on tablet/desktop. Search bar with caret + `✕` clear. Scope chips (All / Photos / Places / People / Albums). Sections: Top Hits (≤3 mixed-kind), Photos · count (3-col preview grid + "See all" link to filtered grid), Recents (chip row of last 10 queries). Empty/no-results/stale states per spec. Auto-focus when entered via S1b drawer's search pill (`searchPillTap` event). | New `src/apple/Maple/Views/SearchView.swift`, new `src/apple/Maple/Views/SearchScopeChips.swift`, new `src/apple/Maple/Views/SearchTopHitRow.swift`, edits to `src/apple/Maple/Views/PhoneSearchStub.swift` (replace placeholder with `SearchView`), new `src/web/projects/maple-common/src/lib/search/search.component.{ts,html,scss,spec.ts}`, new `src/web/projects/maple/src/app/search-page.component.ts`, new `src/web/projects/maple-syrup/src/app/search-page.component.ts`, edits to web pane shell for the anchored overlay | —      |
 
 S7 depends on S1a (Search tab routing), S1b (search-pill-tap event), existing `SearchService` (web — `src/web/projects/maple-common/src/lib/api/search.service.ts`).
 
@@ -25,7 +25,7 @@ S7 depends on S1a (Search tab routing), S1b (search-pill-tap event), existing `S
 Inside Search tab (no push, no Cancel link):
 
 - **Search bar** (38pt). Caret: `MapleTokens.primary`, 1.5pt wide, 500ms blink. Trailing `✕` clear-circle (`MapleTokens.surfaceAlt` fill + `MapleTokens.textMuted` glyph) appears once query has ≥1 char. Auto-focuses on tab activation OR when the searchPillTap event fires from S1b drawer.
-- **Scope chips**: All / Photos / Places / People / Albums. Single-select. Refilters in place — no refetch on scope change (filter the already-fetched result set client-side).
+- **Scope chips**: All / Photos / Places / People / Albums. Single-select. Each scope change issues a **new** `SearchService.search()` call with the scope mapped into `SearchParams` — the API is paginated + scope-parameterized, so a client-side filter on the already-fetched page would silently drop matches that live on other pages and produce wrong counts. (Today's `SearchParams` doesn't have a single `scope` enum, so "Photos" maps to a no-op against the default search, and "Places"/"People"/"Albums" need either a per-scope endpoint or a new server-side `scope` param — see §6 Risks. For v0.1 ship "All" + "Photos" as the same call and stub the other three until the API supports them.)
 - **Sections** (top → bottom, conditionally rendered):
   - **TOP HITS** (eyebrow + up to 3 hits): 36pt rounded thumb (or kind-icon if no thumb), label with the query token wrapped in `MapleTokens.primary` 600-weight, sub-label, kind tag (PLACE / ALBUM / KEYWORD / PERSON). Tap a top-hit → navigates to that resource (album → its grid, place → photos at that place, etc.).
   - **PHOTOS · {count}**: eyebrow + "See all" trailing accent link. 3-col, 9-tile preview grid (or fewer if results <9). Tap a photo → push to Loupe (S4) inside Search tab's NavStack. Tap "See all" → push to a full filtered grid view (in-tab).
@@ -59,8 +59,11 @@ struct SearchView: View {
     @Environment(\.mapleLayout) private var layout
     @State private var query: String = ""
     @State private var scope: SearchScope = .all
-    @State private var topHits: [SearchHit] = []
+    // Single results stream from the API; the top-hits row picks off the
+    // head until a dedicated `tophits` endpoint exists. See web §4 and §6
+    // Risks for the matching wire-format note.
     @State private var photoResults: [AssetRef] = []
+    private var topHits: [AssetRef] { Array(photoResults.prefix(3)) }
     @AppStorage("cm.search.recent") private var recentJSON: String = "[]"
     @FocusState private var searchFocused: Bool
 
@@ -117,35 +120,71 @@ The pane shell has a sidebar with a search pill (per spec §5b.4). Tap → prese
   styleUrl: './search.component.scss',
 })
 export class SearchComponent {
-  private searchService = inject(SearchService);  // existing
+  private searchService = inject(SearchService); // existing
   protected readonly query = signal<string>('');
   protected readonly scope = signal<SearchScope>('all');
-  protected readonly topHits = signal<SearchHit[]>([]);
+  // `topHits` is intentionally NOT a separate signal — the real
+  // `SearchResponse` exposes a single `results` array (no top-hits split on
+  // the wire). The component derives the top-hits row from the head of
+  // `photoResults` until a dedicated endpoint exists. See §6 Risks.
   protected readonly photoResults = signal<AssetRef[]>([]);
   protected readonly recent = signal<string[]>(
     JSON.parse(localStorage.getItem('cm.search.recent') ?? '[]'),
   );
   @ViewChild('searchInput') searchInput!: ElementRef<HTMLInputElement>;
 
+  private destroyRef = inject(DestroyRef);
+
   constructor() {
-    // Debounced search effect
+    // Debounced search effect. `SearchService.search(...)` is an `Observable`
+    // (RxJS) — subscribe per query, cancel in flight on re-issue, unsub on
+    // teardown. Don't await it — it isn't a Promise.
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let inFlight: Subscription | null = null;
     effect(() => {
       const q = this.query();
+      const sc = this.scope();
       if (timer) clearTimeout(timer);
+      inFlight?.unsubscribe();
       if (q.length === 0) {
-        this.topHits.set([]);
         this.photoResults.set([]);
         return;
       }
-      timer = setTimeout(() => this.fetch(q), 250);
+      timer = setTimeout(() => {
+        const params: SearchParams = { q, ...this.scopeToParams(sc) };
+        inFlight = this.searchService.search(params).subscribe((res) => {
+          // Real shape: `SearchResponse { total, page, limit, results: SearchResult[] }`.
+          // `results` is the photo list — feed it through an adapter to the
+          // grid's `AssetRef` shape (id keyed `"fs:"+abs_path`, displayName
+          // = filename). There is NO `topHits`/`photos` split on the wire
+          // today: top-hits and photo previews come from the same `results`
+          // page, with top-hits picked off the head by the component until a
+          // dedicated `/api/search/tophits` (or facets-derived buckets) lands.
+          this.photoResults.set(res.results.map(toAssetRef));
+        });
+      }, 250);
+    });
+    this.destroyRef.onDestroy(() => {
+      if (timer) clearTimeout(timer);
+      inFlight?.unsubscribe();
     });
   }
 
-  private async fetch(q: string) {
-    const results = await this.searchService.search(q, this.scope());
-    this.topHits.set(results.topHits);
-    this.photoResults.set(results.photos);
+  /** Map the UI scope chip to backend `SearchParams`. v0.1 only "all" and
+   * "photos" are real; the others are no-ops pending the API extension
+   * called out in §6 Risks. */
+  private scopeToParams(scope: SearchScope): Partial<SearchParams> {
+    switch (scope) {
+      case 'photos':
+      case 'all':
+      default:
+        return {};
+      case 'places':
+      case 'people':
+      case 'albums':
+        // Stubbed until backend scopes land.
+        return {};
+    }
   }
 
   ngAfterViewInit() {
@@ -153,6 +192,8 @@ export class SearchComponent {
   }
 }
 ```
+
+> **Note:** the snippet drops the `topHits` signal from the previous draft of this spec — the existing `SearchResponse` does not split results into `topHits` / `photos`, so the component derives top-hits from the head of `results` (or wires a separate facets call once one exists). If you re-introduce a `topHits` signal, source it from a real endpoint, not a property that doesn't exist on `SearchResponse`.
 
 ### Search page
 
@@ -199,7 +240,7 @@ Same as S0/S1 baseline. Add a search-API integration test: `SearchService.search
 
 ### Risks
 
-1. **`SearchService` API shape** — existing `search.service.ts` in `maple-common`. Audit its return type: does it already split into top-hits / photos / etc.? If not, either extend the service (small change) or post-process in the component.
+1. **`SearchService` API shape — confirmed:** `search(params: SearchParams): Observable<SearchResponse>` where `SearchResponse = { total, page, limit, results: SearchResult[] }`. There is **no** `topHits`/`photos` split, and there is **no** single `scope` enum on `SearchParams`. S7 wires what exists: the top-hits row is derived from `results` head-of-list until a dedicated endpoint (or a facets-derived bucket) lands, and "Places / People / Albums" scopes are stubbed/no-op'd. File a follow-up ticket for: (a) a `/api/search/tophits` endpoint or a documented head-of-`results` contract; (b) a `scope` param (or per-scope endpoints) so non-photo scopes return real data.
 2. **Apple `SearchService` parity** — does Apple have an equivalent search service? Existing `BrowseViewModel` / `SourcesStore` handle library data; search across all sources is a separate concern. Check `MapleCore` for a search facility; if absent, file a follow-up ticket to add it (out of S7 scope; S7 ships UI scaffold + stubs in that case).
 3. **Top-hit query-token highlighting** — wrapping the matched substring in `MapleTokens.primary` 600-weight requires `AttributedString` on Apple and `<mark>` styling on web. Implement carefully — substring matching is case-insensitive, multi-word.
 4. **Auto-focus on tab switch + iPad keyboard** — on iPad with hardware keyboard, auto-focusing the search field on tab activation may steal focus from elsewhere. Test on iPad sim.

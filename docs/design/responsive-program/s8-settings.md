@@ -10,9 +10,9 @@ One ticket — **S8** — shipped as one PR.
 
 ## 1. Overview & deliverable map
 
-| Ticket | What ships | Files touched | Blocks |
-|---|---|---|---|
-| **S8** | `PhoneSettingsView` — replaces S1a's `SettingsView()` placeholder in the Settings tab. iOS Settings.app-style: grouped List with rows (icon + label + chevron + secondary text). Each row pushes to a sub-view in the Settings tab's NavStack. Sub-views are the existing General / Backup / Self Hosted / Files tabs from desktop `SettingsView`, each rendered as a stand-alone screen. Web equivalent. Tablet/desktop Settings unchanged (still modal `SettingsView()` from existing Mac path). | Edit `src/apple/Maple/Views/PhoneTabShell.swift` (Settings tab uses new `PhoneSettingsView`), new `src/apple/Maple/Views/PhoneSettingsView.swift`, new sub-view glue files (extract from existing `SettingsView` into stand-alone Views), new `src/web/projects/maple-common/src/lib/settings/phone-settings.component.{ts,html,scss,spec.ts}`, sub-view route components, web `settings-page.component.ts` | — |
+| Ticket | What ships                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Files touched                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Blocks |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| **S8** | `PhoneSettingsView` — replaces S1a's `SettingsView()` placeholder in the Settings tab. iOS Settings.app-style: grouped List with rows (icon + label + chevron + secondary text). Each row pushes to a sub-view in the Settings tab's NavStack. Sub-views are the existing General / Backup / Self Hosted / Files tabs from desktop `SettingsView`, each rendered as a stand-alone screen. Web equivalent. Tablet/desktop Settings unchanged (still modal `SettingsView()` from existing Mac path). | Edit `src/apple/Maple/Views/PhoneTabShell.swift` (Settings tab uses new `PhoneSettingsView`), new `src/apple/Maple/Views/PhoneSettingsView.swift`, **extract `SelfHostedSettingsTab` out of `src/apple/Maple/MapleApp.swift` (currently a `private struct`) to a new `src/apple/Maple/Views/SelfHostedSettingsTab.swift` (internal access)** so the phone List can reference it, new `src/web/projects/maple-common/src/lib/settings/phone-settings.component.{ts,html,scss,spec.ts}`, sub-view route components, web `settings-page.component.ts` | —      |
 
 S8 depends on S1a (Settings tab routing slot).
 
@@ -27,16 +27,19 @@ Grouped List, each row 56pt tall with leading icon (24pt SF Symbol), label (Lato
 Sections (proposed):
 
 **Account**
+
 - Profile (icon: person.circle) — push to account settings
 - Maple Cloud (icon: cloud) — sign-in status, server list — push to Self Hosted sub-view
 - Sign out (destructive; only if signed-in)
 
 **Library**
+
 - Sources (icon: folder.badge.plus) — push to source management (add folder, add SMB, etc.)
 - Backup (icon: icloud.and.arrow.up) — push to Backup sub-view
 - Files (icon: folder) — push to FileProvider sub-view (iOS-specific)
 
 **App**
+
 - Appearance (icon: paintpalette) — placeholder for theme switcher (out of scope v0.1; reads-only "Dark")
 - Notifications (icon: bell) — push to notifications settings (stub)
 - About (icon: info.circle) — version + acknowledgements
@@ -57,6 +60,7 @@ The phone push-detail screens (e.g., `BackupSettingsView`) are the SAME views as
 ### Files
 
 - **New** `src/apple/Maple/Views/PhoneSettingsView.swift`:
+
   ```swift
   struct PhoneSettingsView: View {
       var body: some View {
@@ -108,13 +112,15 @@ The phone push-detail screens (e.g., `BackupSettingsView`) are the SAME views as
       }
   }
   ```
+
 - **Edit** `src/apple/Maple/Views/PhoneTabShell.swift` — Settings tab renders `PhoneSettingsView()` instead of `SettingsView()`:
   ```swift
   NavigationStack { PhoneSettingsView() }
       .tabItem { Label("Settings", systemImage: "gearshape") }
       .tag("settings")
   ```
-- **Existing sub-views reused**: `AccountSettingsView`, `BackupSettingsView`, `SelfHostedSettingsTab`, `FileProviderSettingsViewIOS` — make them stand-alone (already are, mostly). Audit at PR time.
+- **Existing sub-views reused**: `AccountSettingsView`, `BackupSettingsView`, `FileProviderSettingsViewIOS` — already stand-alone; audit at PR time.
+- **Sub-view requiring extraction first**: `SelfHostedSettingsTab` is currently declared as a `private struct` **inside `src/apple/Maple/MapleApp.swift`** (verified — sole declaration site). `PhoneSettingsView.swift` can't reference it as written. S8 must, in the same PR, lift it to a stand-alone view at `src/apple/Maple/Views/SelfHostedSettingsTab.swift` and drop the `private` so both `MapleApp` (the existing desktop tab consumer) and `PhoneSettingsView` (the new consumer) can instantiate it. Keep the type name the same to avoid touching the desktop call site.
 - **New stubs**: `SourcesManagementView` (full source-add UI; defer to a follow-up if too much), `AboutView` (version + acknowledgements), `DiagnosticsView` (#if DEBUG; log dump, cache stats).
 
 ### Tablet/Desktop unchanged
