@@ -10,10 +10,24 @@ The data types that flow through the UI are in [`01-data-model.md`](./01-data-mo
 
 - **macOS**: three resizable columns (source tree / image grid / detail inspector), NavigationSplitView-driven, native toolbar and menu bar.
 - **iPadOS**: same three columns; left panel slides in as a drawer in portrait.
-- **iPhone**: single column with a bottom tab bar (Library / Albums / Folders) and a swipe-up detail sheet.
+- **iPhone**: single column with a bottom tab bar (Library / Search / Settings) and a swipe-up detail sheet. Each tab owns a `NavigationStack`; Loupe / Editor are push destinations that hide the tab bar via `.toolbar(.hidden, for: .tabBar)`. The source-picker drawer is Library-tab-scoped (overlays the Library tab content only — not the tab bar). See **Phone navigation** below.
 - **Web (responsive)**: each Angular app (`projects/maple`, `projects/maple-syrup`) renders a single responsive shell driven by `LayoutService.layout()` (maple-common). Phone tier (<768pt) → tab-bar shell; tablet (768–1024pt) and desktop (>1024pt) → three-column pane shell.
 
 All shells implement two modes: **Browse** (grid) and **Full Image** (large preview with filmstrip). The transition is a 180ms ease-out layout shift where the panels stay in place and only the center column crossfades.
+
+---
+
+## Phone navigation
+
+The iPhone tab-bar shell ships in responsive-program S1a (#597). Surface:
+
+- **Three tabs.** `Library` (`photo.on.rectangle.angled`), `Search` (`magnifyingglass`), `Settings` (`gearshape`). Selected tab persists across cold restart via `@AppStorage("cm.tab.shell")` on Apple. The web mirror uses route-driven selection (`routerLinkActive`) — the URL is the source of truth.
+- **Per-tab NavigationStack.** Each tab owns its own stack so push depth is preserved when switching tabs and returning. The Library tab's stack hosts the source-picker drawer (S1b) over the responsive library grid (S2); the Loupe (S4) and Editor (S5) screens are push destinations on the Library stack.
+- **Tab-bar hide on push.** Loupe and Editor pushes call `.toolbar(.hidden, for: .tabBar)` (Apple) so the chrome retracts when content goes full-screen. The web equivalent is `TabBarVisibilityService.hidden.set(true)` from a route component's `ngOnInit`; the bottom-nav reads the signal and slides off. PhoneLibraryStub demonstrates the wiring with a placeholder destination today.
+- **Source-picker drawer (S1b) is Library-tab-scoped.** Hamburger → drawer overlays the Library tab content only. The tab bar stays visible above the drawer scrim; switching to another tab dismisses the drawer.
+- **Settings is a tab, not a modal.** The pre-S1a iPhone shell presented `SettingsView` as a `.sheet` from the toolbar gear button; S1a embeds the same `SettingsView` directly in the Settings tab's `NavigationStack`. S8 will replace it with an iOS Settings-style List grouping General / Backup / Self Hosted / Files.
+
+Shell dispatch on Apple goes through `MapleShellKind.current == .phoneTab`. On web, `RootShellComponent` reads `LayoutService.layout()` and renders either `<app-phone-tab-shell>` (phone tier) or the existing `<router-outlet />` (tablet / desktop).
 
 ---
 
