@@ -5,6 +5,7 @@ import {
   EditorPageComponent,
   EditorShellComponent,
   PhoneSettingsStubComponent,
+  ProtocolHandlerComponent,
 } from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
 import { LibraryPageComponent } from './library-page.component';
@@ -28,6 +29,11 @@ const baseRoutes: Routes = [
   { path: 'library', component: LibraryPageComponent },
   { path: 'library/loupe/:id', redirectTo: 'library/editor/:id' },
   { path: 'library/editor/:id', component: EditorPageComponent },
+  // PWA `protocol_handlers` landing route — see manifest.webmanifest and
+  // ProtocolHandlerComponent. The browser substitutes the entire
+  // `web+maple://…` URL into `?url=…` (percent-encoded); the component
+  // decodes it and redirects to the canonical Angular route.
+  { path: 'protocol-handler', component: ProtocolHandlerComponent },
   {
     path: 'search',
     loadComponent: () => import('./search-page.component').then((m) => m.SearchPageComponent),
