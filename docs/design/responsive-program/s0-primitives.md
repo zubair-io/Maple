@@ -8,11 +8,11 @@ This doc is the contract for three sub-tickets — **S0a Foundation**, **S0b Typ
 
 ## 1. Overview & deliverable map
 
-| Ticket | What ships | Files touched | Blocks |
-|---|---|---|---|
-| **S0a** | `MapleLayout` env (Apple) + `LayoutService` signal (web) backed by size class + matchMedia. `MapleTokens` / `tokens.scss` / `tokens.ts` gain `borderHi`, `warn`. New `motion.{swift,scss,ts}` with the prompt §4 duration + easing table. `docs/spec/07-ui-architecture.md` updated (breakpoints 768/1024; persistence schema; tab-bar canonical for iPhone). | `src/apple/Sources/MapleCore/Layout/MapleLayout.swift` (new), `src/apple/Maple/Views/DesignTokens.swift`, `src/apple/Maple/Views/AppShell.swift`, `src/web/projects/maple-common/src/lib/{tokens.scss,tokens.ts,layout-service.ts,motion.{ts,scss}}`, `docs/spec/07-ui-architecture.md` | S1–S7 |
-| **S0b** | Lato 400 / Lato 700 / Merriweather 700 bundled. Apple registers via `INFOPLIST_KEY_UIAppFonts`. Web `@font-face` with `font-display: swap`. `MapleTokens.Typography` and `tokens.scss` font families switch from SF-fallback to Lato / Merriweather / SF Mono / JetBrains Mono. | `src/apple/Maple/Resources/Fonts/{Lato-Regular,Lato-Bold,Merriweather-Bold}.ttf` (new), `src/apple/Maple.xcodeproj/project.pbxproj` (INFOPLIST_KEY_UIAppFonts), `src/apple/Maple/Views/DesignTokens.swift` Typography, `src/web/projects/maple-common/src/assets/fonts/` (new), `src/web/projects/maple-common/src/lib/{fonts.scss,tokens.scss,tokens.ts}` | none |
-| **S0c** | Parity table doc mapping each chrome glyph to (SF Symbol, web SVG primitive). Web `maple-icon` gains missing glyphs. Tool glyphs (22) deferred to S5. | `docs/design/responsive-program/s0-icons.md` (new), `src/web/projects/maple-common/src/lib/icons/maple-icon.component.ts` | none |
+| Ticket  | What ships                                                                                                                                                                                                                                                                                                                                                    | Files touched                                                                                                                                                                                                                                                                                                                                                          | Blocks |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| **S0a** | `MapleLayout` env (Apple) + `LayoutService` signal (web) backed by size class + matchMedia. `MapleTokens` / `tokens.scss` / `tokens.ts` gain `borderHi`, `warn`. New `motion.{swift,scss,ts}` with the prompt §4 duration + easing table. `docs/spec/07-ui-architecture.md` updated (breakpoints 768/1024; persistence schema; tab-bar canonical for iPhone). | `src/apple/Packages/MapleCore/Sources/MapleCore/Layout/MapleLayout.swift` (new), `src/apple/Maple/Views/MapleLayoutEnvironment.swift` (new), `src/apple/Maple/Views/DesignTokens.swift`, `src/apple/Maple/Views/AppShell.swift`, `src/web/projects/maple-common/src/lib/{tokens.scss,tokens.ts,layout-service.ts,motion.{ts,scss}}`, `docs/spec/07-ui-architecture.md` | S1–S7  |
+| **S0b** | Lato 400 / Lato 700 / Merriweather 700 bundled. Apple registers via `INFOPLIST_KEY_UIAppFonts`. Web `@font-face` with `font-display: swap`. `MapleTokens.Typography` and `tokens.scss` font families switch from SF-fallback to Lato / Merriweather / SF Mono / JetBrains Mono.                                                                               | `src/apple/Maple/Resources/Fonts/{Lato-Regular,Lato-Bold,Merriweather-Bold}.ttf` (new), `src/apple/Maple.xcodeproj/project.pbxproj` (INFOPLIST_KEY_UIAppFonts), `src/apple/Maple/Views/DesignTokens.swift` Typography, `src/web/projects/maple-common/src/assets/fonts/` (new), `src/web/projects/maple-common/src/lib/{fonts.scss,tokens.scss,tokens.ts}`             | none   |
+| **S0c** | Parity table doc mapping each chrome glyph to (SF Symbol, web SVG primitive). Web `maple-icon` gains missing glyphs. Tool glyphs (22) deferred to S5.                                                                                                                                                                                                         | `docs/design/responsive-program/s0-icons.md` (new), `src/web/projects/maple-common/src/lib/icons/maple-icon.component.ts`                                                                                                                                                                                                                                              | none   |
 
 S0a unblocks S1–S7. S0b and S0c are independent — can ship in parallel with S1.
 
@@ -26,8 +26,8 @@ S0a unblocks S1–S7. S0b and S0c are independent — can ship in parallel with 
 
 Two concepts, not one:
 
-- **`MapleShellKind`** — *which* shell renders. `.phoneTab` (iPhone) or `.pane` (iPad, Mac, web ≥768pt).
-- **`MapleLayout`** — *what density* the pane renders at. `.phone` (<768pt), `.tablet` (768–1024pt), `.desktop` (>1024pt).
+- **`MapleShellKind`** — _which_ shell renders. `.phoneTab` (iPhone) or `.pane` (iPad, Mac, web ≥768pt).
+- **`MapleLayout`** — _what density_ the pane renders at. `.phone` (<768pt), `.tablet` (768–1024pt), `.desktop` (>1024pt).
 
 Apple distinguishes the two: iPhone is always `phoneTab` (regardless of width); iPad / Mac is always `pane`; the pane's density depends on width. A Mac window dragged below 768pt collapses sidebars but **stays pane** (idiom signal beats width signal for power-user resize). Web has no clean idiom signal — web uses `MapleLayout` only, meaning Mac browser <768pt would get the tab-bar shell. Acceptable edge case for v0.1.
 
@@ -125,10 +125,10 @@ protected readonly layout = this.layoutService.layout;
 
 Added to all three of `DesignTokens.swift`, `tokens.scss`, `tokens.ts` (kept in lockstep manually, as today):
 
-| Token | Value | Use |
-|---|---|---|
+| Token      | Value     | Use                                                                                                                                                                             |
+| ---------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `borderHi` | `#5a5552` | Active ticks (drag-bar center tick), grab handles. Derived one tier up from existing `border = #44403c`. Provisional; designer eyeball during PR may push to a different shade. |
-| `warn` | `#fbbf24` | Low-confidence person detection chips, future warning states. Tailwind amber-400. |
+| `warn`     | `#fbbf24` | Low-confidence person detection chips, future warning states. Tailwind amber-400.                                                                                               |
 
 No rename of existing tokens. No value re-tier of `bg`, `surface`, `primary`, etc.
 
@@ -136,15 +136,15 @@ No rename of existing tokens. No value re-tier of `bg`, `surface`, `primary`, et
 
 New `MapleTokens.Motion` (Swift) and `motion.scss` / `motion.ts` (web). Token names + values per prompt §4:
 
-| Token | Duration | Easing |
-|---|---|---|
-| `drawer` | 240ms | `cubic-bezier(0.22, 1, 0.36, 1)` (already `--ease-default`) |
-| `push` | 320ms | iOS system: SwiftUI `.snappy`; web `cubic-bezier(0.32, 0.72, 0, 1)` |
-| `sheetPresent` | 320ms | iOS system |
-| `sheetDismiss` | 280ms | iOS system |
-| `groupSwap` | 120ms | `ease-in-out` |
-| `chromeHide` | 180ms | `ease-out` |
-| `filterFade` | 120ms | `linear` |
+| Token          | Duration | Easing                                                              |
+| -------------- | -------- | ------------------------------------------------------------------- |
+| `drawer`       | 240ms    | `cubic-bezier(0.22, 1, 0.36, 1)` (already `--ease-default`)         |
+| `push`         | 320ms    | iOS system: SwiftUI `.snappy`; web `cubic-bezier(0.32, 0.72, 0, 1)` |
+| `sheetPresent` | 320ms    | iOS system                                                          |
+| `sheetDismiss` | 280ms    | iOS system                                                          |
+| `groupSwap`    | 120ms    | `ease-in-out`                                                       |
+| `chromeHide`   | 180ms    | `ease-out`                                                          |
+| `filterFade`   | 120ms    | `linear`                                                            |
 
 Apple wires as `Animation` factories. Web exposes paired `--motion-X-ms` and `--motion-X-ease` CSS custom properties.
 
@@ -152,35 +152,36 @@ Apple wires as `Animation` factories. Web exposes paired `--motion-X-ms` and `--
 
 Documented here; implementations land in S1+ as each consumer is built. No code in S0a.
 
-| Key | Type | Used by | Reuse / new |
-|---|---|---|---|
-| `cm.source` | string (source id) | S2 (Library) | **new** |
-| `cm.filter` | string (chip id) | S2 | reuse existing |
-| `cm.full.id` | string (image id) | S4 (Loupe) | **new** |
-| `cm.editor.armed` | JSON `Record<imageId, {group, tool}>` | S5 (Editor) | **new** |
-| `cm.filmstrip` | boolean | S5 | **new** |
-| `cm.detailHidden` | boolean (inspector visibility) | S6 (Inspector) | reuse existing |
-| `cm.leftHidden` | boolean (sidebar visibility) | S3 (Sidebar) | reuse existing |
+| Key               | Type                                  | Used by        | Reuse / new    |
+| ----------------- | ------------------------------------- | -------------- | -------------- |
+| `cm.source`       | string (source id)                    | S2 (Library)   | **new**        |
+| `cm.filter`       | string (chip id)                      | S2             | reuse existing |
+| `cm.full.id`      | string (image id)                     | S4 (Loupe)     | **new**        |
+| `cm.editor.armed` | JSON `Record<imageId, {group, tool}>` | S5 (Editor)    | **new**        |
+| `cm.filmstrip`    | boolean                               | S5             | **new**        |
+| `cm.detailHidden` | boolean (inspector visibility)        | S6 (Inspector) | reuse existing |
+| `cm.leftHidden`   | boolean (sidebar visibility)          | S3 (Sidebar)   | reuse existing |
 
 ### 2.7 Spec doc edits — `docs/spec/07-ui-architecture.md`
 
 1. **Line 13** (iPhone shell description) — no change. Already says tab bar + swipe-up detail sheet.
-2. **Line 14** (Web shell description) — replace with: *"Web: single responsive shell. Phone tier (<768pt) renders the tab-bar shell; tablet (768–1024pt) and desktop (>1024pt) render the three-column pane shell. `LayoutService` (maple-common) is the single source of truth for breakpoint."*
-3. **Line 64** (Resize rules) — replace with: *"Breakpoints: <768pt = phone (tab-bar shell); 768–1024pt = tablet (pane shell, sidebar + main + collapsible inspector); >1024pt = desktop (all three columns expanded). Layout signal: `MapleLayout` env (Apple) / `LayoutService.layout()` signal (web)."*
+2. **Line 14** (Web shell description) — replace with: _"Web: single responsive shell. Phone tier (<768pt) renders the tab-bar shell; tablet (768–1024pt) and desktop (>1024pt) render the three-column pane shell. `LayoutService` (maple-common) is the single source of truth for breakpoint."_
+3. **Line 64** (Resize rules) — replace with: _"Breakpoints: <768pt = phone (tab-bar shell); 768–1024pt = tablet (pane shell, sidebar + main + collapsible inspector); >1024pt = desktop (all three columns expanded). Layout signal: `MapleLayout` env (Apple) / `LayoutService.layout()` signal (web)."_
 4. **New "Persistence keys" section** below state-ownership — the table in §2.6.
 
 ### 2.8 Files touched (S0a PR)
 
-| File | Change |
-|---|---|
-| `src/apple/Sources/MapleCore/Layout/MapleLayout.swift` | **new** — types in §2.2 |
-| `src/apple/Maple/Views/DesignTokens.swift` | add `borderHi`, `warn` to `MapleTokens`; add `MapleTokens.Motion` |
-| `src/apple/Maple/Views/AppShell.swift` | wire `GeometryReader` + `.environment(\.mapleLayout, ...)`; no shell rewrite |
-| `src/web/projects/maple-common/src/lib/tokens.scss` | add `--color-border-hi`, `--color-warn`, SCSS aliases |
-| `src/web/projects/maple-common/src/lib/tokens.ts` | mirror additions |
-| `src/web/projects/maple-common/src/lib/layout-service.ts` | **new** |
-| `src/web/projects/maple-common/src/lib/motion.ts` + `motion.scss` | **new** |
-| `docs/spec/07-ui-architecture.md` | edits 1–4 above |
+| File                                                                      | Change                                                                                                                                   |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/apple/Packages/MapleCore/Sources/MapleCore/Layout/MapleLayout.swift` | **new** — pure enums in §2.2 (no SwiftUI dependency)                                                                                     |
+| `src/apple/Maple/Views/MapleLayoutEnvironment.swift`                      | **new** — SwiftUI `EnvironmentKey` + `EnvironmentValues.mapleLayout` extension (kept in the app target so MapleCore stays headless-safe) |
+| `src/apple/Maple/Views/DesignTokens.swift`                                | add `borderHi`, `warn` to `MapleTokens`; add `MapleTokens.Motion`                                                                        |
+| `src/apple/Maple/Views/AppShell.swift`                                    | wire `GeometryReader` + `.environment(\.mapleLayout, ...)`; no shell rewrite                                                             |
+| `src/web/projects/maple-common/src/lib/tokens.scss`                       | add `--color-border-hi`, `--color-warn`, SCSS aliases                                                                                    |
+| `src/web/projects/maple-common/src/lib/tokens.ts`                         | mirror additions                                                                                                                         |
+| `src/web/projects/maple-common/src/lib/layout-service.ts`                 | **new**                                                                                                                                  |
+| `src/web/projects/maple-common/src/lib/motion.ts` + `motion.scss`         | **new**                                                                                                                                  |
+| `docs/spec/07-ui-architecture.md`                                         | edits 1–4 above                                                                                                                          |
 
 S0a is non-behavioral on rendered UI. Env / signal exists; no view branches on it yet.
 
@@ -190,12 +191,12 @@ S0a is non-behavioral on rendered UI. Env / signal exists; no view branches on i
 
 ### 3.1 Fonts to bundle
 
-| Face | Weight | License | Apple | Web |
-|---|---|---|---|---|
-| Lato-Regular | 400 | SIL OFL 1.1 | bundle .ttf (~74KB) | bundle .woff2 (~25KB Latin subset) |
-| Lato-Bold | 700 | SIL OFL 1.1 | bundle .ttf (~73KB) | bundle .woff2 (~24KB Latin subset) |
-| Merriweather-Bold | 700 | SIL OFL 1.1 | bundle .ttf (~76KB) | bundle .woff2 (~30KB Latin subset) |
-| JetBrains Mono Regular | 400 | Apache 2.0 | not bundled (SF Mono via system) | bundle .woff2 (~30KB Latin subset) |
+| Face                   | Weight | License     | Apple                            | Web                                |
+| ---------------------- | ------ | ----------- | -------------------------------- | ---------------------------------- |
+| Lato-Regular           | 400    | SIL OFL 1.1 | bundle .ttf (~74KB)              | bundle .woff2 (~25KB Latin subset) |
+| Lato-Bold              | 700    | SIL OFL 1.1 | bundle .ttf (~73KB)              | bundle .woff2 (~24KB Latin subset) |
+| Merriweather-Bold      | 700    | SIL OFL 1.1 | bundle .ttf (~76KB)              | bundle .woff2 (~30KB Latin subset) |
+| JetBrains Mono Regular | 400    | Apache 2.0  | not bundled (SF Mono via system) | bundle .woff2 (~30KB Latin subset) |
 
 Apple bundle weight: ~223KB. Web first-paint critical: ~109KB woff2. Sources: Google Fonts (Lato, Merriweather) and the JetBrains Mono repo. Subset to Latin only via `pyftsubset` or equivalent.
 
@@ -221,7 +222,8 @@ Apple bundle weight: ~223KB. Web first-paint critical: ~109KB woff2. Sources: Go
 - `font-display: swap` (W3C-recommended; overrides the prompt's "first paint never falls back" wording — see §6).
 - `tokens.scss` font families updated:
   ```scss
-  --font-sans: 'Lato', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
+  --font-sans:
+    'Lato', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', sans-serif;
   --font-serif: 'Merriweather', Georgia, 'Times New Roman', serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace;
   ```
@@ -231,17 +233,17 @@ Apple bundle weight: ~223KB. Web first-paint critical: ~109KB woff2. Sources: Go
 
 Apple `MapleTokens.Typography` after S0b:
 
-| Name | Family | Size | Weight | Notes |
-|---|---|---|---|---|
-| `sourceTitle` | Merriweather-Bold | 28 | 700 | tracking -0.5 at call site via `.tracking(-0.5)` |
-| `sheetTitle` | Merriweather-Bold | 17 | 700 | |
-| `body` | Lato-Regular | 13 | 400 | |
-| `rowLabel` | Lato-Regular | 14 | 400 | |
-| `toolLabel` | Lato-Regular | 10 | 400 | |
-| `chipLabel` | Lato-Bold | 11 | 700 | |
-| `eyebrow` | Lato-Bold | 10 | 700 | 0.14em tracking, uppercase at call site |
-| `valueChip` | SF Mono | 11 | 400 | `.monospacedDigit()` |
-| `filename` | SF Mono | 12 | 400 | |
+| Name          | Family            | Size | Weight | Notes                                            |
+| ------------- | ----------------- | ---- | ------ | ------------------------------------------------ |
+| `sourceTitle` | Merriweather-Bold | 28   | 700    | tracking -0.5 at call site via `.tracking(-0.5)` |
+| `sheetTitle`  | Merriweather-Bold | 17   | 700    |                                                  |
+| `body`        | Lato-Regular      | 13   | 400    |                                                  |
+| `rowLabel`    | Lato-Regular      | 14   | 400    |                                                  |
+| `toolLabel`   | Lato-Regular      | 10   | 400    |                                                  |
+| `chipLabel`   | Lato-Bold         | 11   | 700    |                                                  |
+| `eyebrow`     | Lato-Bold         | 10   | 700    | 0.14em tracking, uppercase at call site          |
+| `valueChip`   | SF Mono           | 11   | 400    | `.monospacedDigit()`                             |
+| `filename`    | SF Mono           | 12   | 400    |                                                  |
 
 Web equivalents are Tailwind `--text-*` theme tokens with matching family/size/weight.
 
@@ -255,20 +257,20 @@ Web equivalents are Tailwind `--text-*` theme tokens with matching family/size/w
 
 ### 3.6 Files touched (S0b PR)
 
-| File | Change |
-|---|---|
-| `src/apple/Maple/Resources/Fonts/Lato-Regular.ttf` | **new** |
-| `src/apple/Maple/Resources/Fonts/Lato-Bold.ttf` | **new** |
-| `src/apple/Maple/Resources/Fonts/Merriweather-Bold.ttf` | **new** |
-| `src/apple/Maple.xcodeproj/project.pbxproj` | `INFOPLIST_KEY_UIAppFonts` entries |
-| `src/apple/Maple/Views/DesignTokens.swift` | Typography enum migrated per §3.4 |
-| `src/web/projects/maple-common/src/assets/fonts/Lato-Regular.woff2` | **new** |
-| `src/web/projects/maple-common/src/assets/fonts/Lato-Bold.woff2` | **new** |
-| `src/web/projects/maple-common/src/assets/fonts/Merriweather-Bold.woff2` | **new** |
-| `src/web/projects/maple-common/src/assets/fonts/JetBrainsMono-Regular.woff2` | **new** |
-| `src/web/projects/maple-common/src/lib/fonts.scss` | **new** — `@font-face` block |
-| `src/web/projects/maple-common/src/lib/tokens.scss` | font-family vars updated; import fonts.scss; new `--text-*` tokens |
-| `src/web/projects/maple-common/src/lib/tokens.ts` | mirror updates |
+| File                                                                         | Change                                                             |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `src/apple/Maple/Resources/Fonts/Lato-Regular.ttf`                           | **new**                                                            |
+| `src/apple/Maple/Resources/Fonts/Lato-Bold.ttf`                              | **new**                                                            |
+| `src/apple/Maple/Resources/Fonts/Merriweather-Bold.ttf`                      | **new**                                                            |
+| `src/apple/Maple.xcodeproj/project.pbxproj`                                  | `INFOPLIST_KEY_UIAppFonts` entries                                 |
+| `src/apple/Maple/Views/DesignTokens.swift`                                   | Typography enum migrated per §3.4                                  |
+| `src/web/projects/maple-common/src/assets/fonts/Lato-Regular.woff2`          | **new**                                                            |
+| `src/web/projects/maple-common/src/assets/fonts/Lato-Bold.woff2`             | **new**                                                            |
+| `src/web/projects/maple-common/src/assets/fonts/Merriweather-Bold.woff2`     | **new**                                                            |
+| `src/web/projects/maple-common/src/assets/fonts/JetBrainsMono-Regular.woff2` | **new**                                                            |
+| `src/web/projects/maple-common/src/lib/fonts.scss`                           | **new** — `@font-face` block                                       |
+| `src/web/projects/maple-common/src/lib/tokens.scss`                          | font-family vars updated; import fonts.scss; new `--text-*` tokens |
+| `src/web/projects/maple-common/src/lib/tokens.ts`                            | mirror updates                                                     |
 
 ---
 
@@ -285,28 +287,28 @@ Two icon categories in the program:
 
 Lives at `docs/design/responsive-program/s0-icons.md` (created by S0c PR). Format:
 
-| Spec name | Used in | Apple (SF Symbol) | Web (maple-icon name) |
-|---|---|---|---|
-| `back` | Editor / Loupe header | `chevron.left` | `chevron-left` |
-| `overflow` | Library header right | `ellipsis` | `ellipsis-horizontal` |
-| `close-x` | Sidebar collapse, Info sheet | `xmark` | `close-x` |
-| `share` | Loupe / Editor header (stub) | `square.and.arrow.up` | `share-up-square` |
-| `undo` | Editor header | `arrow.uturn.backward` | `undo-uturn` |
-| `redo` | Editor header (long-press) | `arrow.uturn.forward` | `redo-uturn` |
-| `info` | Loupe / Editor header | `info.circle` | `info-circle` |
-| `search` | Sidebar pill | `magnifyingglass` | `magnifying-glass` |
-| `clear-circle` | Search field trailing | `xmark.circle.fill` | `clear-circle-fill` |
-| `plus` | Add album header | `plus` | `plus` |
-| `eyedropper` | Color tab WB | `eyedropper` | `eyedropper` |
-| `folder-source` | Sidebar | `folder` | `folder-source` |
-| `smart-source` | Sidebar | `wand.and.stars` | `smart-source-wand` |
-| `album` | Sidebar | `rectangle.stack.fill` | `album-stack` |
-| `place` | Search top hit | `mappin.circle.fill` | `place-pin` |
-| `keyword` | Search top hit, Info chip | `number` | `keyword-hash` |
-| `person` | Search top hit | `person.crop.circle.fill` | `person-circle` |
-| `pick-dot` (primitive) | Grid badge, Info pill | drawn as `Circle`, no glyph | drawn as `<div>`, no glyph |
-| `star` (existing) | Grid badge, ratings | `star.fill` (in `StarView`) | (existing) |
-| `flag-pick` (existing) | Info pill | `flag.fill` (in `FlagBadge`) | (existing or new web equivalent) |
+| Spec name              | Used in                      | Apple (SF Symbol)            | Web (maple-icon name)            |
+| ---------------------- | ---------------------------- | ---------------------------- | -------------------------------- |
+| `back`                 | Editor / Loupe header        | `chevron.left`               | `chevron-left`                   |
+| `overflow`             | Library header right         | `ellipsis`                   | `ellipsis-horizontal`            |
+| `close-x`              | Sidebar collapse, Info sheet | `xmark`                      | `close-x`                        |
+| `share`                | Loupe / Editor header (stub) | `square.and.arrow.up`        | `share-up-square`                |
+| `undo`                 | Editor header                | `arrow.uturn.backward`       | `undo-uturn`                     |
+| `redo`                 | Editor header (long-press)   | `arrow.uturn.forward`        | `redo-uturn`                     |
+| `info`                 | Loupe / Editor header        | `info.circle`                | `info-circle`                    |
+| `search`               | Sidebar pill                 | `magnifyingglass`            | `magnifying-glass`               |
+| `clear-circle`         | Search field trailing        | `xmark.circle.fill`          | `clear-circle-fill`              |
+| `plus`                 | Add album header             | `plus`                       | `plus`                           |
+| `eyedropper`           | Color tab WB                 | `eyedropper`                 | `eyedropper`                     |
+| `folder-source`        | Sidebar                      | `folder`                     | `folder-source`                  |
+| `smart-source`         | Sidebar                      | `wand.and.stars`             | `smart-source-wand`              |
+| `album`                | Sidebar                      | `rectangle.stack.fill`       | `album-stack`                    |
+| `place`                | Search top hit               | `mappin.circle.fill`         | `place-pin`                      |
+| `keyword`              | Search top hit, Info chip    | `number`                     | `keyword-hash`                   |
+| `person`               | Search top hit               | `person.crop.circle.fill`    | `person-circle`                  |
+| `pick-dot` (primitive) | Grid badge, Info pill        | drawn as `Circle`, no glyph  | drawn as `<div>`, no glyph       |
+| `star` (existing)      | Grid badge, ratings          | `star.fill` (in `StarView`)  | (existing)                       |
+| `flag-pick` (existing) | Info pill                    | `flag.fill` (in `FlagBadge`) | (existing or new web equivalent) |
 
 `hamburger` (`line.3.horizontal`) is N/A: phone uses tab bar, tablet/desktop sidebar is always-on.
 
@@ -316,13 +318,13 @@ For glyphs added to `maple-icon`: viewBox `"0 0 16 16"`, `stroke="currentColor"`
 
 ### 4.4 Follow-up issue
 
-S0c PR creates GH issue: *"Design 22 photo-tool glyphs for editor pill row (Exposure, Contrast, Highlights, …)"* — owned by S5 (Editor). S0c is not blocked on this.
+S0c PR creates GH issue: _"Design 22 photo-tool glyphs for editor pill row (Exposure, Contrast, Highlights, …)"_ — owned by S5 (Editor). S0c is not blocked on this.
 
 ### 4.5 Files touched (S0c PR)
 
-| File | Change |
-|---|---|
-| `docs/design/responsive-program/s0-icons.md` | **new** — full parity table |
+| File                                                                  | Change                                                        |
+| --------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `docs/design/responsive-program/s0-icons.md`                          | **new** — full parity table                                   |
 | `src/web/projects/maple-common/src/lib/icons/maple-icon.component.ts` | add missing SVG paths (specific list audited when writing PR) |
 
 ---
