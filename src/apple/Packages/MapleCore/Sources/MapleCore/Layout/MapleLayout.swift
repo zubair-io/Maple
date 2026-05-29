@@ -6,14 +6,20 @@
 //   • MapleLayout      — *what density* the pane renders at (.phone <768pt,
 //                        .tablet 768-1024pt, .desktop >1024pt). Width-based.
 //
-// All shell decisions on Apple go through `MapleShellKind.current` — a
-// grep for `UIDevice.userInterfaceIdiom` outside this file should return
-// zero hits. Width-based density decisions (sidebar collapse, grid column
-// count) read `@Environment(\.mapleLayout)`.
+// New code routes all idiom checks through `MapleShellKind.current` so
+// the platform call is made exactly once per process. One legacy call
+// site remains in `src/apple/Maple/Views/DetailPanelWidth.swift`, pending
+// migration in a follow-up.
 //
-// Spec: docs/spec/responsive-program-s0-primitives.md §2.
+// SwiftUI Environment plumbing for `MapleLayout` lives in the app target
+// (`src/apple/Maple/Views/MapleLayoutEnvironment.swift`) so this module
+// stays free of a SwiftUI dependency and can be consumed in headless
+// contexts. Width-based density decisions read `@Environment(\.mapleLayout)`
+// from there.
+//
+// Spec: docs/design/responsive-program/s0-primitives.md §2.
 
-import SwiftUI
+import CoreGraphics
 #if os(iOS)
 import UIKit
 #endif
@@ -55,9 +61,11 @@ public enum MapleShellKind: Equatable, Sendable {
         idiom == .phone ? .phoneTab : .pane
     }
 
-    /// The platform-derived idiom for the current process. macOS always
-    /// reports `.mac`; iOS uses `UIDevice.current.userInterfaceIdiom`.
-    public static var currentIdiom: MapleDeviceIdiom {
+    /// The platform-derived idiom for the current process. Resolved once at
+    /// first access and cached for the process lifetime — idiom is constant
+    /// per process, so re-reading `UIDevice.current.userInterfaceIdiom` from
+    /// the view tree would be wasted work.
+    public static let currentIdiom: MapleDeviceIdiom = {
         #if os(macOS)
         return .mac
         #elseif os(iOS)
@@ -70,27 +78,11 @@ public enum MapleShellKind: Equatable, Sendable {
         #else
         return .other
         #endif
-    }
+    }()
 
     /// The shell to render on this process. Read this — do not call
     /// `UIDevice.userInterfaceIdiom` directly elsewhere.
     public static var current: MapleShellKind {
         from(idiom: currentIdiom)
-    }
-}
-
-// MARK: - SwiftUI Environment plumbing
-
-private struct MapleLayoutKey: EnvironmentKey {
-    /// Defaults to `.desktop` so views composed without a shell wrapper
-    /// (e.g., in `#Preview` blocks) render their widest variant — safer
-    /// than collapsing to a phone-tier fallback that hides chrome.
-    static let defaultValue: MapleLayout = .desktop
-}
-
-public extension EnvironmentValues {
-    var mapleLayout: MapleLayout {
-        get { self[MapleLayoutKey.self] }
-        set { self[MapleLayoutKey.self] = newValue }
     }
 }
