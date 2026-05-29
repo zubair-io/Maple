@@ -1,5 +1,11 @@
 import { Routes } from '@angular/router';
-import { BrowseShellComponent, EditorShellComponent } from '@maple-common';
+import {
+  BrowseShellComponent,
+  EditorShellComponent,
+  PhoneLibraryStubComponent,
+  PhoneSearchStubComponent,
+  PhoneSettingsStubComponent,
+} from '@maple-common';
 // authGuard is not yet exported from @maple-common's public-api (see Task C6);
 // imported via deep relative path in the meantime so this task can land
 // independently of C6.
@@ -24,6 +30,14 @@ export const routes: Routes = [
   { path: '', canActivate: [authGuard], component: BrowseShellComponent },
   { path: 'browse', redirectTo: '', pathMatch: 'full' },
   { path: 'edit/:id', canActivate: [authGuard], component: EditorShellComponent },
+  // Responsive-program S1a (#597) — phone-tier tab routes. The same
+  // router serves both shells; RootShellComponent picks which wrapper
+  // to render based on LayoutService.layout(). On phone the bottom-nav
+  // links point at `/library`, `/search`, `/settings`; the loupe and
+  // editor entries are placeholders that S4 / S5 will replace.
+  { path: 'library', canActivate: [authGuard], component: PhoneLibraryStubComponent },
+  { path: 'library/loupe/:id', canActivate: [authGuard], component: PhoneLibraryStubComponent },
+  { path: 'library/editor/:id', canActivate: [authGuard], component: PhoneLibraryStubComponent },
   // `/settings` lands on Workers. The card-grid landing was replaced by
   // the sidebar shell in v0.2. Non-owners hit authGuard inside
   // settings/workers and bounce; making the redirect role-aware (Account

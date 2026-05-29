@@ -1,15 +1,19 @@
-// Root component — Hosted variant. No mock data; the library is empty until
-// the user picks a photo or a folder from the landing page.
+// Root component — Hosted variant. Wraps the router-outlet in
+// RootShellComponent so the phone-tier vs pane-tier shell switch (driven
+// by LayoutService.layout()) happens at the root. No mock data; the
+// library is empty until the user picks a photo or a folder from the
+// landing page.
+//
+// Responsive-program S1a (#597).
 
 import { Component, inject, OnInit } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
-import { LibraryStateService } from '@maple-common';
+import { LibraryStateService, RootShellComponent } from '@maple-common';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet],
-  template: `<router-outlet />`,
+  imports: [RootShellComponent],
+  template: `<app-root-shell />`,
   styles: [
     `
       :host {

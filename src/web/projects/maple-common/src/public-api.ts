@@ -71,6 +71,15 @@ export * from './lib/shells/browse-shell/browse-shell.component';
 export * from './lib/shells/editor-shell/editor-shell.component';
 // S1c (#599) — phone bottom-sheet primitive (consumed by S4 Loupe / S5 Editor / S6 phone Detail).
 export * from './lib/shells/bottom-sheet.component';
+
+// Responsive-program S1a (#597) — phone-tier tab shell + the root shell
+// switcher that dispatches phone vs pane based on LayoutService.layout().
+export * from './lib/shells/tab-bar-visibility.service';
+export * from './lib/shells/phone-tab-shell.component';
+export * from './lib/shells/root-shell.component';
+export * from './lib/shells/phone-library-stub.component';
+export * from './lib/shells/phone-search-stub.component';
+export * from './lib/shells/phone-settings-stub.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';
