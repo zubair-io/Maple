@@ -1,0 +1,117 @@
+@if (isOpen()) {
+  <!-- Scrim — opacity tracks the drawer's visible width so a drag-back-and-
+       release halfway through fades the dim alongside the slide. Tap
+       anywhere on the dim to close. -->
+  <div
+    class="scrim"
+    role="presentation"
+    [style.opacity]="0.45 * scrimOpacity()"
+    (click)="onClose()"
+  ></div>
+
+  <!-- Drawer. Pointer handlers live on the drawer itself so the pan-left
+       gesture follows the user's finger. -->
+  <aside
+    class="drawer"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Library"
+    data-testid="source-picker-drawer"
+    [class.dragging]="dragDx() !== null"
+    [style.transform]="drawerTransform()"
+    (pointerdown)="onPointerDown($event)"
+    (pointermove)="onPointerMove($event)"
+    (pointerup)="onPointerUp($event)"
+    (pointercancel)="onPointerUp($event)"
+  >
+    <header class="drawer-header">
+      <div class="eyebrow-row">
+        <span class="eyebrow">LIBRARY</span>
+        <button
+          type="button"
+          class="close-btn"
+          aria-label="Close library"
+          data-testid="source-picker-drawer-close"
+          (click)="onClose()"
+        >
+          <!-- Inline X glyph; no icon dep needed for a single button. -->
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              d="M3 3l10 10M13 3L3 13"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+
+      @if (connectionIdentity()) {
+        <div class="identity-row">
+          <span class="identity">{{ connectionIdentity() }}</span>
+          <!-- Chevron is a stub for v0.1 — Maple-instance switcher is out
+               of scope. Rendered to match the HTML mockup so the visual is
+               complete; tap is a no-op. -->
+          <svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
+            <path
+              d="M2 4l3.5 3.5L9 4"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              fill="none"
+            />
+          </svg>
+        </div>
+      }
+
+      @if (tertiarySummary()) {
+        <div class="tertiary">{{ tertiarySummary() }}</div>
+      }
+    </header>
+
+    <!-- Search pill — visually an input, behaviourally a button. Tap
+         switches the host to the Search tab; the drawer dismisses itself
+         before emitting so the host doesn't have to remember to do it. -->
+    <button
+      type="button"
+      class="search-pill"
+      data-testid="source-picker-drawer-search-pill"
+      (click)="onSearchPillTap()"
+    >
+      <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+        <circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.5" fill="none" />
+        <path
+          d="M9.5 9.5L12.5 12.5"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        />
+      </svg>
+      <span>Search photos</span>
+    </button>
+
+    <hr class="separator" />
+
+    <!-- Source tree — rendered from the input. Section / subheader rows
+         are visual group headers; tapping them does nothing. -->
+    <nav class="source-tree" aria-label="Source tree">
+      @for (entry of sourceTree(); track entry.id) {
+        @if (entry.kind === 'section' || entry.kind === 'subheader') {
+          <h3 class="section-header">{{ entry.label }}</h3>
+        } @else {
+          <button
+            type="button"
+            class="source-row"
+            [attr.data-testid]="'source-row-' + entry.id"
+            (click)="onSelectSource(entry, $event)"
+          >
+            <span class="source-label">{{ entry.label }}</span>
+            @if (entry.count !== null && entry.count !== undefined) {
+              <span class="source-count">{{ entry.count }}</span>
+            }
+          </button>
+        }
+      }
+    </nav>
+  </aside>
+}
