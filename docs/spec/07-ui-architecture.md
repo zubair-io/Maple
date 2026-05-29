@@ -101,18 +101,18 @@ When a slider moves, only the detail panel re-renders its own slider and the ima
 
 Per-device UI state persists under the `cm.*` namespace (UserDefaults on Apple, `localStorage` on web). Existing keys stay; new keys added by the responsive program are documented here. Implementations land in each sub-project (S2–S6) that owns the key.
 
-| Key | Type | Owner | Status |
-| --- | --- | --- | --- |
-| `cm.tab` | string | existing | reuse |
-| `cm.sort` | string | existing | reuse |
-| `cm.filter` | string (chip id) | S2 (Library) | reuse |
-| `cm.leftHidden` | bool (sidebar visibility, tablet/desktop) | S3 (Sidebar) | reuse |
-| `cm.detailHidden` | bool (inspector visibility, tablet/desktop) | S6 (Inspector) | reuse |
-| `cm.folderOpen` | bool | existing | reuse |
-| `cm.source` | string (source id) | S2 | **new** |
-| `cm.full.id` | string (image id) | S4 (Loupe) | **new** |
-| `cm.editor.armed` | JSON `Record<imageId, {group, tool}>` | S5 (Editor) | **new** |
-| `cm.filmstrip` | bool | S5 | **new** |
+| Key               | Type                                        | Owner          | Status  |
+| ----------------- | ------------------------------------------- | -------------- | ------- |
+| `cm.tab`          | string                                      | existing       | reuse   |
+| `cm.sort`         | string                                      | existing       | reuse   |
+| `cm.filter`       | string (chip id)                            | S2 (Library)   | reuse   |
+| `cm.leftHidden`   | bool (sidebar visibility, tablet/desktop)   | S3 (Sidebar)   | reuse   |
+| `cm.detailHidden` | bool (inspector visibility, tablet/desktop) | S6 (Inspector) | reuse   |
+| `cm.folderOpen`   | bool                                        | existing       | reuse   |
+| `cm.source`       | string (source id)                          | S2             | **new** |
+| `cm.full.id`      | string (image id)                           | S4 (Loupe)     | **new** |
+| `cm.editor.armed` | JSON `Record<imageId, {group, tool}>`       | S5 (Editor)    | **new** |
+| `cm.filmstrip`    | bool                                        | S5             | **new** |
 
 The `cm.m.*` namespace proposed in the original mobile spec is **not used** — the responsive program evolves the existing apps rather than building separate mobile apps, so the `m` prefix would be misleading.
 
