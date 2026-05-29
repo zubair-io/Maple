@@ -1,6 +1,12 @@
 import { Routes } from '@angular/router';
 import { isDevMode } from '@angular/core';
-import { BrowseShellComponent, EditorShellComponent } from '@maple-common';
+import {
+  BrowseShellComponent,
+  EditorShellComponent,
+  PhoneLibraryStubComponent,
+  PhoneSearchStubComponent,
+  PhoneSettingsStubComponent,
+} from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
 
 // Hosted: `/` is the Landing page with two CTAs. Users enter Browse or the
@@ -14,6 +20,13 @@ const baseRoutes: Routes = [
   { path: '', component: LandingComponent },
   { path: 'browse', component: BrowseShellComponent },
   { path: 'edit/:id', component: EditorShellComponent },
+  // Responsive-program S1a (#597) — phone-tier tab routes shared with
+  // RootShellComponent. S4 / S5 / S7 / S8 will replace the stubs.
+  { path: 'library', component: PhoneLibraryStubComponent },
+  { path: 'library/loupe/:id', component: PhoneLibraryStubComponent },
+  { path: 'library/editor/:id', component: PhoneLibraryStubComponent },
+  { path: 'search', component: PhoneSearchStubComponent },
+  { path: 'settings', component: PhoneSettingsStubComponent },
 ];
 
 const devRoutes: Routes = isDevMode()
@@ -24,15 +37,11 @@ const devRoutes: Routes = isDevMode()
         // re-export surface. Tree-shaken away when isDevMode() is false
         // in a production build.
         loadComponent: () =>
-          import(
-            '../../../maple-common/src/lib/webgl/dev/webgl-test-page.component'
-          ).then((m) => m.WebglTestPageComponent),
+          import('../../../maple-common/src/lib/webgl/dev/webgl-test-page.component').then(
+            (m) => m.WebglTestPageComponent,
+          ),
       },
     ]
   : [];
 
-export const routes: Routes = [
-  ...baseRoutes,
-  ...devRoutes,
-  { path: '**', redirectTo: '' },
-];
+export const routes: Routes = [...baseRoutes, ...devRoutes, { path: '**', redirectTo: '' }];
