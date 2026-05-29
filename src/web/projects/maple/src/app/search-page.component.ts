@@ -20,7 +20,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult } from '@maple-common';
+import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
 
 @Component({
   selector: 'maple-search-page',
@@ -65,10 +65,12 @@ export class SearchPageComponent implements AfterViewInit {
     void this.router.navigate(['/edit', r.id]);
   }
 
-  protected onSeeAll(payload: { query: string }): void {
+  protected onSeeAll(payload: { query: string; scope: SearchScope }): void {
     // Until a filtered grid lands, route "See all" into the rich filter
     // page so the user can drill further. The rich page sits at
-    // `/search/advanced` (alias) and accepts `?q=` on entry.
+    // `/search/advanced` (alias) and accepts `?q=` on entry. The scope
+    // is preserved in the payload type so a future filtered-grid landing
+    // can read it without changing the `<app-search>` contract.
     void this.router.navigate(['/search/advanced'], {
       queryParams: payload.query ? { q: payload.query } : {},
     });

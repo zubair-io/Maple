@@ -70,9 +70,13 @@ private struct FlowChips: View {
 
 /// Decode the JSON-encoded `cm.search.recent` blob from `@AppStorage`.
 /// Returns `[]` on any decode failure so the UI degrades gracefully.
+/// Caps to 10 entries on read so a hand-edited / older persisted value
+/// with more than the spec's last-10 never bleeds into the UI before
+/// `pushRecent` runs (which only caps after a user interaction).
 func decodeRecents(_ json: String) -> [String] {
     guard let data = json.data(using: .utf8) else { return [] }
-    return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    let decoded = (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    return Array(decoded.prefix(10))
 }
 
 /// Encode a recents list back to JSON for storage. Truncates to 10 so

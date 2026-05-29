@@ -30,8 +30,7 @@ const baseRoutes: Routes = [
   { path: 'library/editor/:id', component: EditorPageComponent },
   {
     path: 'search',
-    loadComponent: () =>
-      import('./search-page.component').then((m) => m.SearchPageComponent),
+    loadComponent: () => import('./search-page.component').then((m) => m.SearchPageComponent),
   },
   { path: 'settings', component: PhoneSettingsStubComponent },
 ];

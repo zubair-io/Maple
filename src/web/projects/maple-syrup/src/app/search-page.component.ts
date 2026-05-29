@@ -15,7 +15,7 @@ import {
   inject,
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { SearchComponent, SearchResult } from '@maple-common';
+import { SearchComponent, SearchResult, SearchScope } from '@maple-common';
 
 @Component({
   selector: 'maple-syrup-search-page',
@@ -55,9 +55,10 @@ export class SearchPageComponent implements AfterViewInit {
     void this.router.navigate(['/edit', r.id]);
   }
 
-  protected onSeeAll(_payload: { query: string }): void {
+  protected onSeeAll(_payload: { query: string; scope: SearchScope }): void {
     // Hosted has no rich filter page today; the button is a no-op so the
     // component output stays connected. Wiring lands when a filtered grid
-    // experience exists.
+    // experience exists. Payload typed to match `<app-search>` output so
+    // template type-checking stays sound.
   }
 }

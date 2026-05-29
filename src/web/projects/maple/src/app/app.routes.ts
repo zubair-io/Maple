@@ -77,8 +77,7 @@ export const routes: Routes = [
   {
     path: 'search',
     canActivate: [authGuard],
-    loadComponent: () =>
-      import('./search-page.component').then((m) => m.SearchPageComponent),
+    loadComponent: () => import('./search-page.component').then((m) => m.SearchPageComponent),
   },
   {
     path: 'search/advanced',
