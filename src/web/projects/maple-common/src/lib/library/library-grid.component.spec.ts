@@ -99,12 +99,51 @@ describe('LibraryGridComponent', () => {
   });
 
   it('writes filter changes back to BrowsePreferencesService + localStorage', () => {
-    const filterChip = fixture.nativeElement.querySelectorAll(
-      'button.chip',
-    )[1] as HTMLButtonElement;
-    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
-    filterChip.click();
-    expect(filter()).toBe('picks');
-    expect(setItemSpy).toHaveBeenCalledWith('cm.filter', '"picks"');
+    // vitest's jsdom env (Angular CLI unit-test builder) ships an
+    // empty `localStorage` placeholder — `globalThis.localStorage`
+    // is a bare object with no `setItem`/`getItem` methods and no
+    // `Storage` prototype attached. The component's `setItem` call
+    // throws and is swallowed by its own try/catch, so a
+    // `Storage.prototype.setItem` spy never fires (#649).
+    //
+    // Replace the placeholder with a minimal in-memory Storage stub
+    // we can spy on directly. The previous value is restored in the
+    // `finally` block so other specs see the original env.
+    const store = new Map<string, string>();
+    const stub = {
+      getItem: (k: string) => (store.has(k) ? (store.get(k) as string) : null),
+      setItem: (k: string, v: string) => {
+        store.set(k, String(v));
+      },
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+      clear: () => store.clear(),
+      key: (i: number) => Array.from(store.keys())[i] ?? null,
+      get length() {
+        return store.size;
+      },
+    };
+    const original = (globalThis as { localStorage?: unknown }).localStorage;
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: stub,
+    });
+    try {
+      const setItemSpy = vi.spyOn(stub, 'setItem');
+      const filterChip = fixture.nativeElement.querySelectorAll(
+        'button.chip',
+      )[1] as HTMLButtonElement;
+      filterChip.click();
+      expect(filter()).toBe('picks');
+      expect(setItemSpy).toHaveBeenCalledWith('cm.filter', '"picks"');
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
+    }
   });
 });
