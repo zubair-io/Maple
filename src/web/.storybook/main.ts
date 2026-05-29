@@ -7,6 +7,13 @@
 // components under `projects/**/*.stories.ts` so any project (maple,
 // maple-common, maple-syrup) can contribute without further config
 // changes.
+//
+// `staticDirs` mirrors the runtime Angular asset glob from `angular.json`
+// (which copies `projects/maple-common/src/assets/fonts/*.woff2` to
+// `/assets/fonts/`). Without this mapping, the `@font-face` URLs in
+// `maple-common/lib/fonts.scss` 404 inside Storybook and stories render
+// with fallback fonts instead of Lato/Merriweather/JetBrains Mono — a
+// silent visual regression on every story.
 
 import type { StorybookConfig } from '@storybook/angular';
 
@@ -17,6 +24,7 @@ const config: StorybookConfig = {
     name: '@storybook/angular',
     options: {},
   },
+  staticDirs: [{ from: '../projects/maple-common/src/assets', to: '/assets' }],
   docs: {},
 };
 
