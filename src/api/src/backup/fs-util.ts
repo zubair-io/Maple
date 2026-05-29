@@ -5,6 +5,7 @@
  * own.
  */
 import fs from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 
 /** Move src to dst atomically. Falls back to copy+unlink on EXDEV (cross-device). */
@@ -18,6 +19,38 @@ export async function atomicMove(src: string, dst: string): Promise<void> {
     } else {
       throw e;
     }
+  }
+}
+
+/**
+ * Move `src` onto `dst` only if `dst` does not already exist. Returns true on
+ * success, false (leaving `src` in place) when `dst` is already taken — so a
+ * caller racing another upload for the same name can pick the next sibling.
+ *
+ * Unlike `atomicMove`/`rename`, this never clobbers: it `link`s (which fails
+ * `EEXIST` if the target exists) then unlinks the source on the same device,
+ * and falls back to an exclusive `copyFile` (`COPYFILE_EXCL`) across devices
+ * (`EXDEV`). The check-and-create is a single atomic syscall, closing the
+ * TOCTOU window a `stat` + `rename` would leave open.
+ */
+export async function moveNoClobber(src: string, dst: string): Promise<boolean> {
+  try {
+    await fs.link(src, dst);
+    await fs.unlink(src);
+    return true;
+  } catch (e: any) {
+    if (e?.code === 'EEXIST') return false;
+    if (e?.code === 'EXDEV') {
+      try {
+        await fs.copyFile(src, dst, fsConstants.COPYFILE_EXCL);
+      } catch (e2: any) {
+        if (e2?.code === 'EEXIST') return false;
+        throw e2;
+      }
+      await fs.unlink(src);
+      return true;
+    }
+    throw e;
   }
 }
 

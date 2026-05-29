@@ -767,8 +767,17 @@ export interface UploadSessionDoc {
   library_id: ObjectId;
   device_id: string;
   phasset_local_id: string;
-  /** Target path under the library root, decided by the device pre-upload. */
+  /** Target path under the library root, decided by the device pre-upload.
+   * Stays the device-computed value so a retry that recomputes the same path
+   * from its headers still matches and short-circuits — even when the bytes
+   * actually landed at a disambiguated sibling (see `resolved_rel_path`). */
   target_rel_path: string;
+  /** Where the bytes were ACTUALLY written, when it differs from
+   * `target_rel_path` (a path collision was disambiguated to a `-N` sibling).
+   * The `alreadyComplete` short-circuit returns this so a retrying device
+   * writes its sidecar / rendered companions next to the real file. Unset in
+   * the common case where the computed path was free. */
+  resolved_rel_path?: string;
   total_bytes: number;
   received_bytes: number;
   chunk_size: number;
