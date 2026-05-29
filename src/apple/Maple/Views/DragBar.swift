@@ -110,8 +110,11 @@ struct DragBar: View {
     }
 
     private func resetTapped() {
-        state.commit()
-        state.setArmedInternalValue(0)
+        // Route through resetArmedTool so each tool snaps to its canonical
+        // default (e.g. Color NR → 25, Sharpen → 40, Temp → 6500). The old
+        // "internal 0" path mapped one-sided tools to their midpoint, not
+        // their default. `resetArmedTool` also handles the undo snapshot.
+        state.resetArmedTool()
         emitSelectionHaptic()
     }
 

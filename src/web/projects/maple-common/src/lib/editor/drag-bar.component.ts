@@ -86,16 +86,19 @@ export class DragBarComponent {
   private longPressTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
-    // Track host resize so the marker position stays in sync.
-    effect(() => {
+    // Track host resize so the marker position stays in sync. The
+    // ResizeObserver holds a strong ref to the host via its callback, so
+    // disconnect it explicitly when the effect tears down (route change,
+    // component destroy) — relying on GC leaked the host element across
+    // editor entries.
+    effect((onCleanup) => {
       const el = this.host.nativeElement;
       const ro = new ResizeObserver((entries) => {
         for (const e of entries) this._width.set(e.contentRect.width);
       });
       ro.observe(el);
       this._width.set(el.getBoundingClientRect().width);
-      // Cleanup is handled by the effect's lifecycle when the host is
-      // destroyed; ResizeObserver is GC'd with the closure.
+      onCleanup(() => ro.disconnect());
     });
   }
 
@@ -148,9 +151,10 @@ export class DragBarComponent {
 
   @HostListener('dblclick', ['$event'])
   onDoubleClick(_ev: MouseEvent): void {
-    this.state.commit();
-    this.state.setArmedInternalValue(0);
-    this.state.haptic('reset');
+    // Route through resetArmedTool so each tool snaps to its canonical
+    // default (e.g. Color NR → 25, Sharpen → 40, Temp → 6500), not the
+    // internal-zero point that drifts off-default for one-sided tools.
+    this.state.resetArmedTool();
   }
 
   // ── Internals ────────────────────────────────────────────────────────────
