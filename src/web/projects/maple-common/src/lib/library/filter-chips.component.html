@@ -1,0 +1,14 @@
+<div class="chip-row" role="tablist" aria-label="Library filter">
+  @for (chip of chips(); track chip.value) {
+    <button
+      type="button"
+      class="chip"
+      role="tab"
+      [class.active]="active() === chip.value"
+      [attr.aria-selected]="active() === chip.value"
+      (click)="onChipClick(chip.value)"
+    >
+      {{ chip.label }}
+    </button>
+  }
+</div>

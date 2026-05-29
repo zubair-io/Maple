@@ -26,9 +26,7 @@ import { GridFolderItem } from '../../models/folder';
 import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
 import { FolderTileComponent } from '../folder-tile/folder-tile.component';
 
-export type GridItem =
-  | { kind: 'folder'; folder: GridFolderItem }
-  | { kind: 'image'; asset: Asset };
+export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'image'; asset: Asset };
 
 interface GridRow {
   items: GridItem[];
@@ -56,8 +54,7 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     return head.kind === 'image' ? head.asset.id : head.folder.id;
   };
 
-  itemKey = (item: GridItem): string =>
-    item.kind === 'image' ? item.asset.id : item.folder.id;
+  itemKey = (item: GridItem): string => (item.kind === 'image' ? item.asset.id : item.folder.id);
 
   itemAspectRatio = (item: GridItem): number =>
     item.kind === 'image' ? item.asset.aspectRatio : item.folder.aspectRatio;
@@ -115,6 +112,7 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
     const f = this.state.filter();
     if (f === 'picks') return 'Picks';
     if (f === '4stars') return '4+ stars';
+    if (f === 'edited') return 'Edited';
     return 'All';
   });
 

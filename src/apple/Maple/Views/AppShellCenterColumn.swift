@@ -18,6 +18,12 @@ import SwiftUI
 import MapleCore
 
 struct AppShellCenterColumn: View {
+    /// Layout density signal from AppShell. The iPhone shell renders the
+    /// responsive S2 `LibraryGrid`; iPad / Mac keep the mature
+    /// `BrowseGrid` (folders, error banner, keyboard shortcuts) to avoid
+    /// regressing desktop behaviour in this PR.
+    @Environment(\.mapleLayout) private var layout
+
     /// True iff AppShell is in Full-image mode. The view renders the
     /// editor in that case; otherwise it renders the explorer grid (or
     /// the cloud timeline, when one is active).
@@ -36,6 +42,11 @@ struct AppShellCenterColumn: View {
     let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
+    /// Active source label (e.g. "France trip"). Drives the in-content
+    /// header on the phone `LibraryGrid` — desktop / iPad still use the
+    /// nav-bar title, so this parameter is optional with a sensible
+    /// default for callers that haven't been updated to thread it.
+    var libraryTitle: String = "Library"
     @Binding var sessions: [AssetRef.ID: EditSession]
 
     // Center-column callbacks — forward into AppShell action methods.
@@ -88,6 +99,37 @@ struct AppShellCenterColumn: View {
                     onSelectLocalAsset: onSelectLocalAsset
                 )
             } else {
+                // Responsive-program S2 (#623): on phone, the Library tab
+                // renders the new responsive 3-col edge-bleed grid with
+                // filter chips. iPad / Mac keep BrowseGrid for now to
+                // preserve folder navigation, the error banner, and the
+                // existing keyboard-cull shortcuts. The two share the
+                // `LibraryCell` thumbnail component so visual chrome stays
+                // consistent. A follow-up will unify the tablet / desktop
+                // paths onto `LibraryGrid`.
+                #if os(iOS)
+                if layout == .phone {
+                    LibraryGrid(
+                        vm: browseVM,
+                        source: browseVM.currentSource,
+                        title: libraryTitle,
+                        sessions: $sessions,
+                        displayMode: $browseDisplayMode,
+                        onOpenEditor: onOpenEditor,
+                        onPrimeSession: onPrimeSession
+                    )
+                } else {
+                    BrowseGrid(
+                        vm: browseVM,
+                        sessions: $sessions,
+                        displayMode: $browseDisplayMode,
+                        onGrantPhotosAccess: onGrantPhotosAccess,
+                        onNavigateFolder: onNavigateFolder,
+                        onOpenEditor: onOpenEditor,
+                        onPrimeSession: onPrimeSession
+                    )
+                }
+                #else
                 BrowseGrid(
                     vm: browseVM,
                     sessions: $sessions,
@@ -97,6 +139,7 @@ struct AppShellCenterColumn: View {
                     onOpenEditor: onOpenEditor,
                     onPrimeSession: onPrimeSession
                 )
+                #endif
             }
         }
     }

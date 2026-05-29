@@ -1,0 +1,71 @@
+// library-grid.component.scss — S2 (#623). Responsive grid breakpoints
+// are CSS-only per spec §4 "leaf components must not branch on layout".
+
+:host {
+  display: block;
+  color: var(--color-text-main);
+}
+
+.library-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.library-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  // Phone defaults — match the grid edge-bleed: 2px horizontal padding.
+  padding: 8px 2px 4px;
+
+  @media (min-width: 768px) {
+    padding: 12px 8px 6px;
+  }
+  @media (min-width: 1025px) {
+    padding: 16px 12px 8px;
+  }
+}
+
+.source-title {
+  font-family: var(--font-merriweather-bold, 'Merriweather Bold', serif);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  margin: 0 8px;
+  color: var(--color-text-main);
+}
+
+.grid {
+  display: grid;
+  // Phone default — 3 columns, 2px gap, 2px horizontal padding.
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 0 2px;
+  // Cross-fade on filter change. The 120ms linear timing comes from
+  // the S0a motion token (`--motion-filter-fade-ms`); re-keying the
+  // grid on the active filter via `data-active-filter` lets the
+  // attribute-driven keyframe restart the animation. Soft visual
+  // affordance — animation is a tiny opacity blip, not a layout move.
+  animation: library-grid-fade var(--motion-filter-fade-ms, 120ms) linear;
+
+  @media (min-width: 768px) {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    padding: 0 8px;
+  }
+  @media (min-width: 1025px) {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 4px;
+    padding: 0 12px;
+  }
+}
+
+@keyframes library-grid-fade {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
+}

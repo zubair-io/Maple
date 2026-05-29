@@ -11,7 +11,7 @@
 //   • PhoneTabShell        — iPhone bottom-tab shell (Library / Search /
 //                            Settings) with a per-tab NavigationStack.
 //                            (file: PhoneTabShell.swift, #if os(iOS);
-//                            wraps PhoneLibraryStub → AppShellIPhoneShell)
+//                            wraps PhoneLibraryView → AppShellIPhoneShell)
 //
 // Action methods live in sibling extensions (slice 3):
 //   • AppShell+FolderActions   — local folder source + sandbox scope
@@ -414,7 +414,7 @@ struct AppShell: View {
     #if os(iOS)
     /// iPhone tab-bar shell (responsive-program S1a, #597) — bottom
     /// `TabView` with three per-tab NavigationStacks (Library / Search /
-    /// Settings). Library tab content is `PhoneLibraryStub`, which wraps
+    /// Settings). Library tab content is `PhoneLibraryView`, which wraps
     /// the existing `AppShellIPhoneShell` drawer + center column. Search
     /// is `PhoneSearchStub`; Settings embeds the existing `SettingsView`.
     @ViewBuilder

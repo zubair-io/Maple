@@ -132,11 +132,12 @@ struct BrowseGrid: View {
                                 }
                             }
                             ForEach(vm.assets) { asset in
-                                ThumbnailCell(asset: asset,
-                                              isSelected: vm.selectedID == asset.id,
-                                              session: sessions[asset.id],
-                                              source: vm.currentSource,
-                                              displayMode: resolvedDisplayMode)
+                                LibraryCell(asset: asset,
+                                            isSelected: vm.selectedID == asset.id,
+                                            session: sessions[asset.id],
+                                            source: vm.currentSource,
+                                            displayMode: resolvedDisplayMode,
+                                            style: .desktop)
                                     .id(asset.id)
                                     // Pin hit testing to the cell rectangle. In
                                     // .fill mode the inner Image's resizable
@@ -391,105 +392,6 @@ private struct ErrorBanner: View {
                 )
         )
     }
-}
-
-// MARK: - ThumbnailCell
-
-struct ThumbnailCell: View {
-    let asset: AssetRef
-    let isSelected: Bool
-    let session: EditSession?
-    /// The source the asset came from. Used by sourceless assets (PhotoKit,
-    /// SelfHosted) to call `ImageSource.thumb(for:)` before falling back to a
-    /// full RAW render. `nil` for the URL-keyed filesystem path.
-    let source: (any ImageSource)?
-    /// Cell layout — fill (cropped to square) vs fit (letterboxed inside
-    /// the square). Cell shape is always 1:1; only the image's content
-    /// mode changes.
-    let displayMode: GridDisplayMode
-
-    /// JPEG bytes from `ThumbnailLoader`. `nil` while the cell is loading or
-    /// the render failed; in both cases we keep the placeholder visible.
-    @State private var thumbData: Data?
-    /// In-flight load task — cancelled on `.onDisappear` so scrolling past a
-    /// 1000-image folder doesn't queue up 1000 decodes.
-    @State private var loadTask: Task<Void, Never>?
-    /// Memoise the asset id we last loaded for, so cells reused via SwiftUI's
-    /// recycle pool don't re-render the same thumb when they re-appear.
-    @State private var loadedForID: AssetRef.ID?
-
-    var body: some View {
-        VStack(spacing: 4) {
-            ZStack(alignment: .bottomLeading) {
-                // `thumbnailImage` already enforces 1:1 aspect ratio and
-                // clips to the rounded rectangle — see its docs for why.
-                thumbnailImage
-
-                // Culling badges
-                if let session {
-                    HStack(spacing: 2) {
-                        FlagBadge(flag: session.culling.flag)
-                        if session.culling.stars > 0 {
-                            StarView(count: session.culling.stars)
-                        }
-                    }
-                    .padding(4)
-                }
-            }
-            .overlay {
-                if isSelected {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(MapleTokens.primary, lineWidth: 2)
-                }
-            }
-
-        }
-        // UITest harness selector. `app.otherElements["thumb-test_0017"]`
-        // resolves the cell containing the asset whose displayName is
-        // `test_0017`. See .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
-        .accessibilityIdentifier("thumb-\(asset.displayName)")
-        .onAppear { startLoad() }
-        .onDisappear {
-            loadTask?.cancel()
-            loadTask = nil
-        }
-    }
-
-    // MARK: - Image
-
-    @ViewBuilder
-    private var thumbnailImage: some View {
-        ThumbnailImage(jpegData: thumbData, displayMode: displayMode)
-    }
-
-    // MARK: - Loading
-
-    private func startLoad() {
-        // Memoised: if we've already produced bytes for this exact asset id,
-        // don't re-queue when the cell scrolls back into view.
-        if loadedForID == asset.id, thumbData != nil { return }
-        guard loadTask == nil else { return }
-        let capturedAsset = asset
-        let capturedSource = source
-        loadTask = Task { @MainActor in
-            let data = await ThumbnailLoader.shared.load(
-                for: capturedAsset, from: capturedSource
-            )
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.18)) {
-                thumbData = data
-                loadedForID = capturedAsset.id
-            }
-            loadTask = nil
-        }
-    }
-
-    // MARK: - Data → CGImage
-
-    /// Build a CGImage from JPEG bytes. Re-reads on every body evaluation —
-    /// the caller (`thumbnailImage`) is inside a View, so this is cheap in
-    // CG decode hoisted into ThumbnailImage.cgImage so the cloud Timeline
-    // can share the helper without dragging it in via a private extension.
 }
 
 // MARK: - Keyboard shortcuts via ViewModifier

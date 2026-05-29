@@ -1,26 +1,26 @@
-// PhoneLibraryStub.swift — content for the Library tab of the iPhone
-// tab-bar shell (responsive-program S1a, #597).
+// PhoneLibraryView.swift — content for the Library tab of the iPhone
+// tab-bar shell (responsive-program S1a, #597; S2, #623).
 //
 // Thin wrapper around the existing `AppShellIPhoneShell` (drawer-over-
-// center-column). The drawer body continues to use the shared sidebar
-// as a placeholder host so the Library tab is fully usable end-to-end
-// while we stage the rest of the phone shell. S1b will replace the
-// drawer with the spec'd 326pt Library-tab-scoped overlay; S2 will
-// replace the center column with the real responsive library grid.
+// center-column). The center column renders the S2 `LibraryGrid`
+// (responsive 3-col edge-bleed on phone) via `AppShellCenterColumn`'s
+// layout-aware switch — the original "stub" placeholder text has been
+// retired.
 //
 // We also demonstrate the **tab-bar hide on push** contract: any
 // `NavigationLink(value: AssetRef)` resolves through the
 // `.navigationDestination(for: AssetRef.self)` here and the pushed view
-// calls `.toolbar(.hidden, for: .tabBar)`. S4 will replace the
-// placeholder body with the real Loupe; the modifier pattern is the
-// contract that all push destinations in the phone shell must follow.
+// calls `.toolbar(.hidden, for: .tabBar)`. Until S5 lands the
+// destination is a placeholder Text; S5 will replace it with the
+// Editor view. The modifier pattern is the contract that all push
+// destinations in the phone shell must follow.
 
 #if os(iOS)
 
 import SwiftUI
 import MapleCore
 
-struct PhoneLibraryStub<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
+struct PhoneLibraryView<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
     @Binding var isDrawerOpen: Bool
     let mode: AppShell.Mode
     let selectedSession: EditSession?
@@ -78,10 +78,12 @@ struct PhoneLibraryStub<SidebarContent: View, ToolbarContentT: ToolbarContent>: 
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback
         )
-        // Tab-bar hide-on-push contract for the phone shell. S4 will
-        // replace the destination body with the real Loupe.
+        // Tab-bar hide-on-push contract for the phone shell. S5 will
+        // replace the destination body with the real Editor view (no
+        // separate Loupe — the Editor canvas IS the full-image view;
+        // see PR #619 spec drop).
         .navigationDestination(for: AssetRef.self) { _ in
-            Text("Loupe — coming in S4")
+            Text("Editor — coming in S5")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .toolbar(.hidden, for: .tabBar)

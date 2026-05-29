@@ -81,6 +81,11 @@ export * from './lib/shells/phone-library-stub.component';
 export * from './lib/shells/phone-search-stub.component';
 export * from './lib/shells/phone-settings-stub.component';
 
+// Responsive-program S2 (#623) — responsive Library grid (3 / 5 / auto-fill).
+export * from './lib/library/library-grid.component';
+export * from './lib/library/library-cell.component';
+export * from './lib/library/filter-chips.component';
+
 // S1b (#598): phone-tier source picker drawer.
 export * from './lib/shells/source-picker-drawer/source-picker-drawer.component';
 export * from './lib/components/folder-tree/folder-tree.component';

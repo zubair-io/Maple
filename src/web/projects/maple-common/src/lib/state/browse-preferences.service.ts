@@ -33,7 +33,10 @@
 import { Injectable, effect, signal } from '@angular/core';
 
 export type SortKey = 'date' | 'name';
-export type CullFilter = 'all' | 'picks' | '4stars';
+// `'edited'` added in responsive-program S2 (#623) to back the new
+// Library-grid "Edited" filter chip. Older clients reading the new
+// value fall through to `'all'` via the existing default.
+export type CullFilter = 'all' | 'picks' | '4stars' | 'edited';
 export type DetailTab = 'info' | 'develop';
 export type BrowseViewMode = 'folder' | 'timeline';
 
