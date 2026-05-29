@@ -38,6 +38,17 @@ export const COLOR_LABELS = new Set(['', 'red', 'yellow', 'green', 'blue', 'purp
 
 export const SCENE_TYPES = new Set(['indoor', 'outdoor', 'aerial', 'macro', 'studio', 'mixed']);
 
+/** UI scope chip values. `photos` (the default) returns the full live set;
+ * the others narrow the result set to assets whose underlying field is
+ * non-empty. `albums` has no backing field today — see `list.ts` for the
+ * short-circuit + `notImplemented` flag.
+ *
+ * The set is exported so the route schema and tests share one source of
+ * truth and a typo on the wire surfaces as a 400 instead of being silently
+ * ignored. */
+export const SEARCH_SCOPES = new Set(['photos', 'places', 'people', 'albums']);
+export type SearchScope = 'photos' | 'places' | 'people' | 'albums';
+
 export const FLAG_BY_NAME: Record<string, -1 | 0 | 1> = {
   pick: 1,
   none: 0,
@@ -167,6 +178,14 @@ export interface SearchQuery {
    * the Meilisearch `people` filterable attribute; the Mongo `$text`
    * fallback already covers names via `search_blob`. */
   people?: string;
+  /** UI scope chip from the responsive-program S7 search surface.
+   * `photos` (or absent) is the default and matches the full live set;
+   * `places` narrows to assets with EXIF GPS; `people` narrows to assets
+   * with at least one detected face; `albums` is a no-op today (returns
+   * `{ results: [], notImplemented: true }`) because the schema has no
+   * album field — see `.archived-plans/specs/2026-05-19-qwen-vision-ocr-design.md`
+   * and `db/schema.ts` `AssetDoc`. */
+  scope?: string;
   page?: string;
   limit?: string;
   sort?: string;
@@ -197,6 +216,7 @@ export const SearchQueryT = t.Object({
   subjects: t.Optional(t.String()),
   isScreenshot: t.Optional(t.String()),
   people: t.Optional(t.String()),
+  scope: t.Optional(t.String()),
   page: t.Optional(t.String()),
   limit: t.Optional(t.String()),
   sort: t.Optional(t.String()),
@@ -429,6 +449,35 @@ export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string 
         $options: 'i',
       };
     }
+  }
+
+  // Scope (S7 chip). `photos` and absent are no-ops — the default search
+  // already returns the full live photo set. `places` and `people` narrow
+  // by underlying field presence. `albums` is validated here but its
+  // short-circuit lives in the route handler (we don't want to build a
+  // pointless filter; the handler returns `notImplemented: true`).
+  if (q.scope !== undefined && q.scope !== '') {
+    if (!SEARCH_SCOPES.has(q.scope)) {
+      return { error: `Invalid scope: ${q.scope}` };
+    }
+    if (q.scope === 'places') {
+      // Use `exif.gps` (set by the EXIF stage at index time) rather than
+      // the post-geocode `place` field — `place` only populates once the
+      // Phase 2 geocode worker has run, so filtering on it would hide
+      // every freshly indexed photo until the worker catches up. The
+      // text-search path against geocoded place names is the separate
+      // `placeQuery` param.
+      (filter as Record<string, unknown>)['exif.gps'] = { $ne: null };
+    } else if (q.scope === 'people') {
+      // Any detected face counts — not just identified ones. Identity
+      // assignment only happens after the face-embed + clustering jobs
+      // run; gating on `person_id` would empty the People scope for
+      // every photo whose face hasn't been clustered yet.
+      (filter as Record<string, unknown>)['faces.0'] = { $exists: true };
+    }
+    // `albums` falls through here with no filter added — the handler
+    // short-circuits before reaching Mongo.
+    // `photos` falls through with no filter added (the default set).
   }
 
   return filter;

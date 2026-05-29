@@ -22,6 +22,7 @@ import {
   buildFilter,
   clampInt,
   extractDatesFromQuery,
+  SEARCH_SCOPES,
   SearchQueryT,
   type SearchQuery,
 } from './query.ts';
@@ -46,6 +47,27 @@ export const listRoute = new Elysia().get(
 
     const page = clampInt(query.page, 0, Number.MAX_SAFE_INTEGER, 0);
     const limit = clampInt(query.limit, 1, 200, 100);
+
+    // S7 scope chip: `albums` has no backing field today (PhotoKit
+    // assetCollection ids are not stored on AssetDoc). Short-circuit
+    // BEFORE the Mongo round-trip so an empty result is cheap, and stamp
+    // `notImplemented: true` so the client can surface "Coming soon"
+    // instead of an empty grid. `buildFilter` already validated the
+    // enum, so we know `query.scope === 'albums'` is the only path here.
+    if (
+      typeof query.scope === 'string' &&
+      query.scope !== '' &&
+      SEARCH_SCOPES.has(query.scope) &&
+      query.scope === 'albums'
+    ) {
+      return {
+        total: 0,
+        page,
+        limit,
+        results: [],
+        notImplemented: true as const,
+      };
+    }
     const sort = query.sort && SORT_OPTIONS.has(query.sort) ? query.sort : 'captured_desc';
     const skip = page * limit;
 
