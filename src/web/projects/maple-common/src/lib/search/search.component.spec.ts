@@ -1,0 +1,321 @@
+// SearchComponent — unit tests for responsive-program S7 (#622).
+//
+// Spec: docs/design/responsive-program/s7-search.md §5.
+//
+// We use vitest's fake timers (vi.useFakeTimers / advanceTimersByTime) to
+// pump the 250ms debounce — Angular's `fakeAsync` requires zone-testing,
+// which the @angular/build:unit-test runner does NOT bundle. Pattern
+// matches `library-state.service.spec.ts` already in the repo.
+
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { Observable, Subject, of } from 'rxjs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SearchComponent, scopeToParams } from './search.component';
+import { SearchParams, SearchResponse, SearchResult, SearchService } from '../api/search.service';
+import { API_BASE_URL } from '../api/api-base-url.token';
+import {
+  RECENT_QUERIES_KEY,
+  pushRecent,
+  readRecents,
+  topHitsFromResults,
+  writeRecents,
+} from './search-types';
+import { splitLabel } from './top-hits-section.component';
+
+/** In-memory SearchService stub. Tracks every call so tests can assert
+ * debounce + cancel-in-flight + scope behaviour. */
+class StubSearchService {
+  readonly calls: SearchParams[] = [];
+  /** Subjects keyed by call index — tests can complete or error each one. */
+  readonly subjects: Subject<SearchResponse>[] = [];
+  /** Default response when no test override. */
+  defaultResponse: SearchResponse = { total: 0, page: 0, limit: 30, results: [] };
+
+  search(params: SearchParams): Observable<SearchResponse> {
+    this.calls.push(params);
+    const subj = new Subject<SearchResponse>();
+    this.subjects.push(subj);
+    return new Observable((subscriber) => {
+      const sub = subj.subscribe({
+        next: (r) => subscriber.next(r),
+        complete: () => subscriber.complete(),
+        error: (e) => subscriber.error(e),
+      });
+      return () => sub.unsubscribe();
+    });
+  }
+
+  /** Resolve the most recent call with the default response. */
+  resolveLatest(response?: SearchResponse): void {
+    const subj = this.subjects[this.subjects.length - 1];
+    subj.next(response ?? this.defaultResponse);
+    subj.complete();
+  }
+
+  facets() {
+    return of({});
+  }
+  buckets() {
+    return of({});
+  }
+}
+
+function makeResult(id: string, filename: string): SearchResult {
+  return {
+    id: `fs:/path/${id}`,
+    _id: id,
+    folder_id: 'f1',
+    abs_path: `/path/${filename}`,
+    filename,
+    size: 1000,
+    mtime: 0,
+    captured_at: null,
+    camera: { make: 'Hasselblad', model: 'L3D-100c' },
+    lens: null,
+    iso: null,
+    aperture: null,
+    shutter: null,
+    focal_length: null,
+    rating: 0,
+    flag: 0,
+    color_label: '',
+  };
+}
+
+function typeInput(fixture: ComponentFixture<SearchComponent>, value: string): void {
+  const bar = fixture.nativeElement.querySelector(
+    '[data-testid="search-input"]',
+  ) as HTMLInputElement;
+  bar.value = value;
+  bar.dispatchEvent(new Event('input'));
+  fixture.detectChanges();
+}
+
+describe('SearchComponent', () => {
+  let fixture: ComponentFixture<SearchComponent>;
+  let component: SearchComponent;
+  let stubService: StubSearchService;
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    stubService = new StubSearchService();
+    localStorage.removeItem(RECENT_QUERIES_KEY);
+    await TestBed.configureTestingModule({
+      imports: [SearchComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: API_BASE_URL, useValue: '/api' },
+        { provide: SearchService, useValue: stubService },
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(SearchComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.removeItem(RECENT_QUERIES_KEY);
+  });
+
+  it('renders the search root', () => {
+    const root = fixture.nativeElement.querySelector('[data-testid="search-root"]');
+    expect(root).toBeTruthy();
+  });
+
+  it('shows only recents when query is empty', () => {
+    const noResults = fixture.nativeElement.querySelector('[data-testid="search-no-results"]');
+    const photoSec = fixture.nativeElement.querySelector('[data-testid="photo-results-section"]');
+    expect(noResults).toBeNull();
+    expect(photoSec).toBeNull();
+  });
+
+  it('debounces rapid keystrokes into one fetch after 250ms', () => {
+    typeInput(fixture, 'p');
+    vi.advanceTimersByTime(50);
+    typeInput(fixture, 'pa');
+    vi.advanceTimersByTime(50);
+    typeInput(fixture, 'par');
+    vi.advanceTimersByTime(50);
+    typeInput(fixture, 'pari');
+    vi.advanceTimersByTime(50);
+    typeInput(fixture, 'paris');
+
+    expect(stubService.calls.length).toBe(0); // still inside debounce window
+    vi.advanceTimersByTime(250);
+    expect(stubService.calls.length).toBe(1);
+    expect(stubService.calls[0].q).toBe('paris');
+    stubService.resolveLatest();
+  });
+
+  it('renders no-results message when results are empty', () => {
+    typeInput(fixture, 'paris');
+    vi.advanceTimersByTime(300);
+    stubService.resolveLatest();
+    fixture.detectChanges();
+    const empty = fixture.nativeElement.querySelector('[data-testid="search-no-results"]');
+    expect(empty).toBeTruthy();
+    expect((empty as HTMLElement).textContent).toContain('paris');
+  });
+
+  it('renders photo grid when results arrive', () => {
+    typeInput(fixture, 'paris');
+    vi.advanceTimersByTime(300);
+    stubService.resolveLatest({
+      total: 12,
+      page: 0,
+      limit: 30,
+      results: [makeResult('a', 'a.dng'), makeResult('b', 'b.dng')],
+    });
+    fixture.detectChanges();
+    const section = fixture.nativeElement.querySelector('[data-testid="photo-results-section"]');
+    expect(section).toBeTruthy();
+    expect((section as HTMLElement).textContent).toContain('12');
+    const tiles = fixture.nativeElement.querySelectorAll('[data-testid^="search-tile-"]');
+    expect(tiles.length).toBe(2);
+  });
+
+  it('emits photoTap and persists recent on tile click', () => {
+    let captured: SearchResult | null = null;
+    component.photoTap.subscribe((r) => {
+      captured = r;
+    });
+    typeInput(fixture, 'paris');
+    vi.advanceTimersByTime(300);
+    stubService.resolveLatest({
+      total: 1,
+      page: 0,
+      limit: 30,
+      results: [makeResult('a', 'a.dng')],
+    });
+    fixture.detectChanges();
+    const tile = fixture.nativeElement.querySelector(
+      '[data-testid="search-tile-fs:/path/a"]',
+    ) as HTMLElement;
+    tile.click();
+    expect(captured).not.toBeNull();
+    expect((captured as unknown as SearchResult).filename).toBe('a.dng');
+    expect(readRecents()).toEqual(['paris']);
+  });
+
+  it('issues a new search on scope change', () => {
+    typeInput(fixture, 'paris');
+    vi.advanceTimersByTime(300);
+    stubService.resolveLatest();
+    fixture.detectChanges();
+    expect(stubService.calls.length).toBe(1);
+
+    const photosChip = fixture.nativeElement.querySelector(
+      '[data-testid="search-scope-photos"]',
+    ) as HTMLElement;
+    photosChip.click();
+    fixture.detectChanges();
+    vi.advanceTimersByTime(300);
+    expect(stubService.calls.length).toBe(2);
+  });
+
+  it('clears query and results when ✕ tapped', () => {
+    typeInput(fixture, 'paris');
+    vi.advanceTimersByTime(300);
+    stubService.resolveLatest({
+      total: 1,
+      page: 0,
+      limit: 30,
+      results: [makeResult('a', 'a.dng')],
+    });
+    fixture.detectChanges();
+    const clear = fixture.nativeElement.querySelector(
+      '[data-testid="search-clear"]',
+    ) as HTMLElement;
+    clear.click();
+    fixture.detectChanges();
+    const empty = fixture.nativeElement.querySelector('[data-testid="search-no-results"]');
+    expect(empty).toBeNull();
+  });
+});
+
+describe('search-types helpers', () => {
+  beforeEach(() => localStorage.removeItem(RECENT_QUERIES_KEY));
+  afterEach(() => localStorage.removeItem(RECENT_QUERIES_KEY));
+
+  it('caps recents at 10 with most-recent first', () => {
+    let list: string[] = [];
+    for (let i = 0; i < 15; i++) list = pushRecent(list, `q${i}`);
+    expect(list.length).toBe(10);
+    expect(list[0]).toBe('q14');
+    expect(list[9]).toBe('q5');
+  });
+
+  it('dedups recent queries', () => {
+    let list = pushRecent([], 'paris');
+    list = pushRecent(list, 'london');
+    list = pushRecent(list, 'paris');
+    expect(list).toEqual(['paris', 'london']);
+  });
+
+  it('ignores empty / whitespace queries', () => {
+    expect(pushRecent(['a'], '')).toEqual(['a']);
+    expect(pushRecent(['a'], '   ')).toEqual(['a']);
+  });
+
+  it('round-trips through localStorage', () => {
+    writeRecents(['paris', 'london']);
+    expect(readRecents()).toEqual(['paris', 'london']);
+  });
+
+  it('derives top hits from results head', () => {
+    const r = [1, 2, 3, 4, 5].map((i) => ({
+      id: `id${i}`,
+      _id: `${i}`,
+      folder_id: 'f',
+      abs_path: `/p/${i}`,
+      filename: `${i}.dng`,
+      size: 0,
+      mtime: 0,
+      captured_at: null,
+      camera: null,
+      lens: null,
+      iso: null,
+      aperture: null,
+      shutter: null,
+      focal_length: null,
+      rating: 0,
+      flag: 0 as const,
+      color_label: '',
+    }));
+    const top = topHitsFromResults(r);
+    expect(top.length).toBe(3);
+    expect(top.every((h) => h.kind === 'photo')).toBe(true);
+  });
+});
+
+describe('splitLabel', () => {
+  it('returns one non-highlight segment when query is empty', () => {
+    expect(splitLabel('Paris', '')).toEqual([{ text: 'Paris', highlight: false }]);
+  });
+
+  it('highlights a case-insensitive substring match', () => {
+    const segs = splitLabel('Old Paris', 'paris');
+    expect(segs).toEqual([
+      { text: 'Old ', highlight: false },
+      { text: 'Paris', highlight: true },
+    ]);
+  });
+
+  it('highlights each whitespace-separated token', () => {
+    const segs = splitLabel('Old Paris Streets', 'old streets');
+    expect(segs[0]).toEqual({ text: 'Old', highlight: true });
+    expect(segs[segs.length - 1]).toEqual({ text: 'Streets', highlight: true });
+  });
+});
+
+describe('scopeToParams', () => {
+  it('maps every scope to an object', () => {
+    for (const s of ['all', 'photos', 'places', 'people', 'albums'] as const) {
+      expect(scopeToParams(s)).toEqual({});
+    }
+  });
+});

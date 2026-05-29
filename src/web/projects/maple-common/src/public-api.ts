@@ -150,3 +150,12 @@ export * from './lib/state/timeline-state.service';
 export * from './lib/components/timeline-view/timeline-view.component';
 export * from './lib/components/timeline-view/timeline-filter-row.component';
 export * from './lib/components/timeline-view/timeline-scrubber.component';
+
+// S7 (#622) — Search experience (phone tab content + tablet/desktop overlay).
+export * from './lib/search/search-types';
+export * from './lib/search/search-bar.component';
+export * from './lib/search/search-scope-chips.component';
+export * from './lib/search/top-hits-section.component';
+export * from './lib/search/photo-results-section.component';
+export * from './lib/search/recent-queries.component';
+export * from './lib/search/search.component';
