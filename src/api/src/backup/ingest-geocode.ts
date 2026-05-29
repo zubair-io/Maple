@@ -21,21 +21,20 @@
  *   - Concurrent ingests for the same not-yet-cached location share one
  *     in-flight lookup (in-process dedup) instead of stampeding Nominatim.
  */
-import {
-  CoordinateCache,
-  quantizedKey,
-} from "../enrichment/coordinate-cache.ts";
-import { NominatimClient } from "../enrichment/nominatim-client.ts";
-import { parseNominatimResponse } from "../enrichment/place-parser.ts";
+import { CoordinateCache, quantizedKey } from '../enrichment/coordinate-cache.ts';
+import { NominatimClient } from '../enrichment/nominatim-client.ts';
+import { parseNominatimResponse } from '../enrichment/place-parser.ts';
 import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
-} from "../enrichment/enrichment-config.repo.ts";
-import { GEOCODE_HANDLER_VERSION } from "../enrichment/geocode-version.ts";
-import { child as childLogger } from "../log.ts";
-import type { Place } from "../db/schema.ts";
+} from '../enrichment/enrichment-config.repo.ts';
+// Share the worker's handler version so ingest-written cache rows interoperate
+// with the async geocode worker's (same key, same version → no re-fetch).
+import { GEOCODE_HANDLER_VERSION } from '../workers/stages/geocode.ts';
+import { child as childLogger } from '../log.ts';
+import type { Place } from '../db/schema.ts';
 
-const log = childLogger("backup-ingest-geocode");
+const log = childLogger('backup-ingest-geocode');
 
 // The cache needs no Nominatim config, so it's always available for warm
 // reads. The client is built lazily and only when Nominatim is configured.
@@ -51,8 +50,7 @@ let _clientUnconfigured = false;
 const inflight = new Map<string, Promise<Place | null>>();
 
 function getCache(): CoordinateCache {
-  if (!_cache)
-    _cache = new CoordinateCache({ geocoderVersion: GEOCODE_HANDLER_VERSION });
+  if (!_cache) _cache = new CoordinateCache({ geocoderVersion: GEOCODE_HANDLER_VERSION });
   return _cache;
 }
 
@@ -75,10 +73,7 @@ async function getClient(): Promise<NominatimClient | null> {
     });
     return _client;
   } catch (err) {
-    log.warn(
-      { err: errMsg(err) },
-      "could not resolve geocode config — date-only paths",
-    );
+    log.warn({ err: errMsg(err) }, 'could not resolve geocode config — date-only paths');
     _clientUnconfigured = true;
     return null;
   }
@@ -103,13 +98,7 @@ async function liveGeocode(
 ): Promise<Place | null> {
   try {
     const raw = await client.reverse(lat, lon);
-    const place = parseNominatimResponse(
-      raw,
-      lat,
-      lon,
-      GEOCODE_HANDLER_VERSION,
-      () => new Date(),
-    );
+    const place = parseNominatimResponse(raw, lat, lon, GEOCODE_HANDLER_VERSION, () => new Date());
     // Cache even an unresolvable result (empty pois/rollups) — the worker does
     // the same, and it stops every sibling photo from re-querying a location
     // Nominatim has no name for.
@@ -118,7 +107,7 @@ async function liveGeocode(
   } catch (err) {
     log.warn(
       { err: errMsg(err), lat, lon },
-      "live geocode failed — falling back to date-only path",
+      'live geocode failed — falling back to date-only path',
     );
     return null;
   }
@@ -130,10 +119,7 @@ async function liveGeocode(
  * "use the date-only path" — for non-finite input, a cold cache with no
  * geocoder, or any geocode failure.
  */
-export async function resolveBackupLocation(
-  lat: number,
-  lon: number,
-): Promise<string | null> {
+export async function resolveBackupLocation(lat: number, lon: number): Promise<string | null> {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
 
   const cache = getCache();
