@@ -12,9 +12,11 @@
 // codebase has zero `@AppStorage("cm.tab")` use, so this is forward-
 // compatible only.
 //
-// S2 swaps PhoneLibraryStub's center column for the real responsive
-// library grid. S7 fills PhoneSearchStub. S8 will replace the embedded
-// SettingsView with an iOS Settings-style List.
+// S2 (#623) swaps the center column for the responsive `LibraryGrid`
+// (chosen by AppShellCenterColumn based on the layout env), and the
+// `PhoneLibraryStub` wrapper has been renamed `PhoneLibraryView` now
+// that the stub text is gone. S7 fills PhoneSearchStub. S8 will
+// replace the embedded SettingsView with an iOS Settings-style List.
 
 #if os(iOS)
 
@@ -58,7 +60,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     var body: some View {
         TabView(selection: $activeTab) {
             NavigationStack {
-                PhoneLibraryStub(
+                PhoneLibraryView(
                     isDrawerOpen: $isDrawerOpen,
                     mode: mode,
                     selectedSession: selectedSession,

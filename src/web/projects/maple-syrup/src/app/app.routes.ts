@@ -3,11 +3,11 @@ import { isDevMode } from '@angular/core';
 import {
   BrowseShellComponent,
   EditorShellComponent,
-  PhoneLibraryStubComponent,
   PhoneSearchStubComponent,
   PhoneSettingsStubComponent,
 } from '@maple-common';
 import { LandingComponent } from './landing/landing.component';
+import { LibraryPageComponent } from './library-page.component';
 
 // Hosted: `/` is the Landing page with two CTAs. Users enter Browse or the
 // Editor explicitly from there.
@@ -20,11 +20,13 @@ const baseRoutes: Routes = [
   { path: '', component: LandingComponent },
   { path: 'browse', component: BrowseShellComponent },
   { path: 'edit/:id', component: EditorShellComponent },
-  // Responsive-program S1a (#597) — phone-tier tab routes shared with
-  // RootShellComponent. S4 / S5 / S7 / S8 will replace the stubs.
-  { path: 'library', component: PhoneLibraryStubComponent },
-  { path: 'library/loupe/:id', component: PhoneLibraryStubComponent },
-  { path: 'library/editor/:id', component: PhoneLibraryStubComponent },
+  // Responsive-program S1a (#597) / S2 (#623) — phone-tier tab routes
+  // shared with RootShellComponent. The Library tab now renders the
+  // responsive grid; the legacy loupe / editor sub-routes redirect to
+  // /edit (the Editor canvas IS the full-image view, per PR #619).
+  { path: 'library', component: LibraryPageComponent },
+  { path: 'library/loupe/:id', redirectTo: 'edit/:id' },
+  { path: 'library/editor/:id', redirectTo: 'edit/:id' },
   { path: 'search', component: PhoneSearchStubComponent },
   { path: 'settings', component: PhoneSettingsStubComponent },
 ];

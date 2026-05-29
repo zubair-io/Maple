@@ -13,7 +13,7 @@
 // presented from this shell. Settings is now a top-level tab in
 // `PhoneTabShell`, so the `showSettings` binding + `.sheet` wiring
 // have been removed. This struct is also no longer mounted from
-// `AppShell.body` directly — `PhoneLibraryStub` (the Library tab's
+// `AppShell.body` directly — `PhoneLibraryView` (the Library tab's
 // content) wraps it. We keep the standalone struct so the drawer-+-
 // center-column composition still has a single owner.
 //
@@ -141,6 +141,7 @@ struct AppShellIPhoneShell<SidebarContent: View, ToolbarContentT: ToolbarContent
             searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
+            libraryTitle: libraryTitle,
             sessions: $sessions,
             onSelectCloudAsset: onSelectCloudAsset,
             onCloseSearch: onCloseSearch,

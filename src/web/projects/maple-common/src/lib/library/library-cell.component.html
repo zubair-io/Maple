@@ -1,0 +1,25 @@
+@let a = asset();
+@let url = thumbUrl();
+<button
+  type="button"
+  class="library-cell"
+  [attr.aria-label]="'Open ' + a.filename"
+  [style.background-image]="url ? '' : 'url(' + a.thumbnailGradient + ')'"
+  (click)="onClick()"
+>
+  @if (url) {
+    <img class="thumb" [src]="url" [alt]="a.filename" loading="lazy" decoding="async" />
+  }
+
+  @if (isPick()) {
+    <span class="pick-dot" aria-hidden="true"></span>
+  }
+
+  @if (showStars()) {
+    <span class="stars" aria-hidden="true">
+      @for (i of starIndices(); track i) {
+        <maple-icon name="star-filled" [size]="6" color="var(--color-star)" />
+      }
+    </span>
+  }
+</button>

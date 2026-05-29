@@ -54,6 +54,10 @@ export class LibrarySelection {
     const f = this.prefs.filter();
     if (f === 'picks') list = list.filter((a) => a.flag === 'pick');
     if (f === '4stars') list = list.filter((a) => a.rating >= 4);
+    // Responsive-program S2 (#623): "Edited" chip keys off the
+    // optional `Asset.edited` boolean already populated by the
+    // server / sidecar pass.
+    if (f === 'edited') list = list.filter((a) => a.edited === true);
 
     // Filename substring filter from the toolbar search input.
     // Pragmatic scope: filename only — structured search lives on /search.
