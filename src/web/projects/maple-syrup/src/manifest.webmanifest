@@ -17,5 +17,5 @@
       "purpose": "maskable"
     }
   ],
-  "protocol_handlers": [{ "protocol": "web+maple", "url": "/library/editor/%s" }]
+  "protocol_handlers": [{ "protocol": "web+maple", "url": "/protocol-handler?url=%s" }]
 }
