@@ -1,0 +1,21 @@
+@if (isOpen()) {
+  <div class="scrim" (click)="onScrimClick()" role="presentation"></div>
+  <div
+    #sheetEl
+    class="sheet"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    [class.dragging]="isDragging()"
+    [style.transform]="'translateY(' + dragOffsetPx() + 'px)'"
+    (pointerdown)="onPointerDown($event)"
+    (pointermove)="onPointerMove($event)"
+    (pointerup)="onPointerUp($event)"
+    (pointercancel)="onPointerCancel($event)"
+  >
+    <div class="grab-handle" aria-hidden="true"></div>
+    <div class="content">
+      <ng-content />
+    </div>
+  </div>
+}
