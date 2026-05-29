@@ -2,10 +2,10 @@ import { Routes } from '@angular/router';
 import {
   BrowseShellComponent,
   EditorShellComponent,
-  PhoneLibraryStubComponent,
   PhoneSearchStubComponent,
   PhoneSettingsStubComponent,
 } from '@maple-common';
+import { LibraryPageComponent } from './library-page.component';
 // authGuard is not yet exported from @maple-common's public-api (see Task C6);
 // imported via deep relative path in the meantime so this task can land
 // independently of C6.
@@ -35,9 +35,12 @@ export const routes: Routes = [
   // to render based on LayoutService.layout(). On phone the bottom-nav
   // links point at `/library`, `/search`, `/settings`; the loupe and
   // editor entries are placeholders that S4 / S5 will replace.
-  { path: 'library', canActivate: [authGuard], component: PhoneLibraryStubComponent },
-  { path: 'library/loupe/:id', canActivate: [authGuard], component: PhoneLibraryStubComponent },
-  { path: 'library/editor/:id', canActivate: [authGuard], component: PhoneLibraryStubComponent },
+  { path: 'library', canActivate: [authGuard], component: LibraryPageComponent },
+  // S2 (#623): the loupe sub-route is gone — the Editor canvas IS the
+  // full-image view, per PR #619 spec drop. Keep the redirect for any
+  // existing bookmark and let S5 wire the editor sub-route directly.
+  { path: 'library/loupe/:id', redirectTo: 'edit/:id' },
+  { path: 'library/editor/:id', redirectTo: 'edit/:id' },
   // `/settings` lands on Workers. The card-grid landing was replaced by
   // the sidebar shell in v0.2. Non-owners hit authGuard inside
   // settings/workers and bounce; making the redirect role-aware (Account

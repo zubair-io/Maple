@@ -1,0 +1,12 @@
+<div class="library-page">
+  <header class="library-header">
+    <h1 class="source-title">{{ sourceLabel() }}</h1>
+    <app-filter-chips [active]="filter()" (filterChange)="onFilterChange($event)" />
+  </header>
+
+  <div class="grid" [attr.data-active-filter]="filter()">
+    @for (asset of assets(); track trackAsset($index, asset)) {
+      <app-library-cell [asset]="asset" (cellTap)="onCellTap($event)" />
+    }
+  </div>
+</div>
