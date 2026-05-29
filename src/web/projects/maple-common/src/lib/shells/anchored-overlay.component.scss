@@ -1,0 +1,67 @@
+// AnchoredOverlay visual spec — responsive-program s7-search §2 (tablet
+// + desktop overlay anchored to the source-picker sidebar's search pill).
+//
+// The scrim geometry is computed in TypeScript (component file) because
+// it depends on the live anchor + inspector bounding rects — CSS alone
+// can't address "everything except the sidebar column" without painting
+// over the pill.
+//
+// The transition is `MapleMotion.sheetPresent` (320ms snappy ease), wired
+// via the existing `--motion-sheet-present-*` custom properties from
+// motion.scss.
+
+:host {
+  // No layout role; scrim + overlay position themselves fixed to the viewport.
+  display: contents;
+}
+
+.scrim {
+  z-index: 100;
+  // Animate the alpha fade alongside the panel scale.
+  transition: opacity var(--motion-sheet-present-ms) var(--motion-sheet-present-ease);
+}
+
+.overlay {
+  position: fixed;
+  background: var(--color-surface);
+  color: var(--color-text-main);
+  border-radius: 12px;
+  border: 0.5px solid var(--color-border);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  z-index: 101;
+  outline: none;
+  // Scale-from-anchor + fade. The 8pt scale-from-anchor referenced in the
+  // task description is expressed as a small scale (overlay grows from
+  // 96% to 100%) combined with a brief slide; transform-origin is set to
+  // top-left in the template to match the anchor placement.
+  transform: scale(1);
+  opacity: 1;
+  transition:
+    transform var(--motion-sheet-present-ms) var(--motion-sheet-present-ease),
+    opacity var(--motion-sheet-present-ms) var(--motion-sheet-present-ease);
+  // Constrain height so a tall overlay (full search column with results)
+  // doesn't run off the viewport bottom — internal scroll instead.
+  max-height: calc(100vh - 24px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+// Entry animation — Angular doesn't ship a built-in fade-from-zero
+// without `@angular/animations`. Use a CSS keyframe so the overlay
+// scales + fades in the first time it mounts via the @if arm.
+@keyframes maple-anchored-overlay-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.overlay {
+  animation: maple-anchored-overlay-enter var(--motion-sheet-present-ms)
+    var(--motion-sheet-present-ease) both;
+}

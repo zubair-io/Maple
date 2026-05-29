@@ -1,0 +1,39 @@
+@if (isOpen()) {
+  <!-- Main-pane scrim — covers everything to the right of the anchor's
+       container (typically the sidebar). Tap dismisses. The sidebar itself
+       stays bright so the anchor pill remains visible. -->
+  <div
+    class="scrim scrim-main"
+    role="presentation"
+    [style]="mainScrimStyle()"
+    (click)="onMainScrimClick()"
+  ></div>
+
+  <!-- Inspector scrim — desktop-only, opt-in via `inspectorAnchor` input. -->
+  @if (inspectorAnchor()) {
+    <div
+      class="scrim scrim-inspector"
+      role="presentation"
+      [style]="inspectorScrimStyle()"
+      (click)="onInspectorScrimClick()"
+    ></div>
+  }
+
+  <!-- Overlay panel — anchored just below + left-aligned to the anchor.
+       Scale-from-anchor + fade transition via SCSS. Focus trap + initial
+       focus capture are wired in the component class via an effect that
+       watches the viewChild signal. -->
+  <div
+    #overlayEl
+    class="overlay"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    data-testid="anchored-overlay"
+    [style.top.px]="overlayPosition().top"
+    [style.left.px]="overlayPosition().left"
+    [style.width.px]="widthPx()"
+  >
+    <ng-content />
+  </div>
+}
