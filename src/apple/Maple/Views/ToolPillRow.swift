@@ -44,14 +44,10 @@ private struct ToolPillButton: View {
     private var isModified: Bool {
         guard tool.isWired else { return false }
         let v = ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
-        // Center isn't always zero (temp default = 6500). Compare against
-        // the spec's neutral display value.
-        let neutral: Double
-        switch tool {
-        case .temp:    neutral = 6500
-        case .sharpen: neutral = 40
-        default:       neutral = 0
-        }
+        // Neutral display value isn't always zero (temp default = 6500,
+        // Color NR default = 25). Pull from the canonical defaults table
+        // so a fresh asset never shows the modified dot.
+        let neutral = ToolValueMapping.defaultDisplayValue(for: tool)
         return abs(v - neutral) > 1e-6
     }
 

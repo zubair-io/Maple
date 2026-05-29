@@ -192,13 +192,18 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
   }
 }
 
-/** Default display value (where the tool's marker sits at internal v=0). */
+/** Canonical default display value per tool. Matches the generated
+ *  `defaultGeneratedAdjustmentModel()` field defaults (e.g. Color NR = 25,
+ *  Sharpen = 40, Temp = 6500). Used by reset semantics and by the
+ *  modified-dot check, so a default asset never reads as "modified". */
 export function defaultDisplayValue(tool: ToolId): number {
   switch (tool) {
     case 'temp':
       return 6500;
     case 'sharpen':
       return 40;
+    case 'colorNR':
+      return 25;
     default:
       return 0;
   }
