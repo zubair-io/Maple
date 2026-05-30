@@ -27,7 +27,8 @@ function makeTiff(make: string): Buffer {
 /** Build a synthetic HEIC: a 52-byte ftyp (9 brands → over exifr's 50-byte
  * cap), a meta box (iinf/infe Exif + iloc), and an mdat holding the Exif item
  * payload (`exif_tiff_header_offset` = 0, then the TIFF). */
-function buildHeic(tiff: Buffer): Buffer {
+function buildHeic(tiff: Buffer, opts: { baseOffset?: boolean } = {}): Buffer {
+  const baseOffsetSize = opts.baseOffset ? 4 : 0;
   const ftyp = (() => {
     const brands = ['mif1', 'MiHB', 'MiHA', 'heix', 'MiHE', 'MiPr', 'miaf', 'heic', 'tmap'];
     const b = Buffer.alloc(16 + brands.length * 4);
@@ -60,12 +61,15 @@ function buildHeic(tiff: Buffer): Buffer {
     return b;
   })();
 
-  // iloc with a placeholder extent_offset, patched once we know mdat's spot.
-  const ilocLen = 8 + 4 + 1 + 1 + 2 + (2 + 2 + 2 + 2 + 4 + 4);
+  // iloc layout; item length grows by base_offset_size when a base is used.
+  const ilocLen = 8 + 4 + 1 + 1 + 2 + (2 + 2 + 2 + baseOffsetSize + 2 + 4 + 4);
   const metaLen = 8 + 4 + iinf.length + ilocLen;
   const payload = Buffer.concat([Buffer.from([0, 0, 0, 0]), tiff]); // nameSize=0 + TIFF
   const mdatOffset = ftyp.length + metaLen;
-  const extentOffset = mdatOffset + 8; // mdat body
+  const mdatBody = mdatOffset + 8; // absolute offset of the Exif payload
+  // base_offset + extent_offset must resolve to mdatBody either way.
+  const baseOffsetValue = opts.baseOffset ? mdatBody : 0;
+  const extentOffset = opts.baseOffset ? 0 : mdatBody;
 
   const iloc = (() => {
     const b = Buffer.alloc(ilocLen);
@@ -77,7 +81,7 @@ function buildHeic(tiff: Buffer): Buffer {
     b.writeUInt32BE(0x01000000, o); // version 1, flags 0
     o += 4;
     b.writeUInt8(0x44, o++); // offset_size=4, length_size=4
-    b.writeUInt8(0x00, o++); // base_offset_size=0, index_size=0
+    b.writeUInt8((baseOffsetSize << 4) | 0, o++); // base_offset_size, index_size=0
     b.writeUInt16BE(1, o); // item_count
     o += 2;
     b.writeUInt16BE(1, o); // item_ID
@@ -86,9 +90,13 @@ function buildHeic(tiff: Buffer): Buffer {
     o += 2;
     b.writeUInt16BE(0, o); // data_reference_index
     o += 2;
+    if (baseOffsetSize === 4) {
+      b.writeUInt32BE(baseOffsetValue, o); // base_offset
+      o += 4;
+    }
     b.writeUInt16BE(1, o); // extent_count
     o += 2;
-    b.writeUInt32BE(extentOffset, o); // extent_offset
+    b.writeUInt32BE(extentOffset, o); // extent_offset (relative to base_offset)
     o += 4;
     b.writeUInt32BE(payload.length, o); // extent_length
     return b;
@@ -142,6 +150,16 @@ describe('extractHeicExifTiff', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it('resolves extents against a non-zero iloc base_offset', () => {
+    // extent_offset is stored relative to a per-item base_offset; the absolute
+    // location is base_offset + extent_offset. Dropping the base would slice
+    // the wrong bytes (or false-throw truncation).
+    const tiff = makeTiff('BaseCam');
+    const out = extractHeicExifTiff(buildHeic(tiff, { baseOffset: true }));
+    expect(out).not.toBeNull();
+    expect((out as Buffer).equals(tiff)).toBe(true);
   });
 
   it('returns null when there is no meta box (not a HEIC)', () => {
