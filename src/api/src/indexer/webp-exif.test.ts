@@ -56,7 +56,9 @@ describe('extractWebpExifTiff', () => {
     const webp = buildWebp(tiff, { leadingChunk: true });
     const sliced = extractWebpExifTiff(webp);
     expect(sliced).not.toBeNull();
-    const parsed = (await exifr.parse(sliced as Buffer, { pick: ['Make'] })) as { Make?: string };
+    const parsed = (await exifr.parse(sliced as Buffer, {
+      pick: ['Make'],
+    })) as { Make?: string };
     expect(parsed.Make).toBe('Canon');
   });
 
@@ -68,7 +70,9 @@ describe('extractWebpExifTiff', () => {
     expect(sliced).not.toBeNull();
     // The slice must start on the TIFF byte-order mark, not the marker.
     expect(sliced!.toString('latin1', 0, 2)).toBe('MM');
-    const parsed = (await exifr.parse(sliced as Buffer, { pick: ['Make'] })) as { Make?: string };
+    const parsed = (await exifr.parse(sliced as Buffer, {
+      pick: ['Make'],
+    })) as { Make?: string };
     expect(parsed.Make).toBe('Nikon');
   });
 
@@ -105,7 +109,9 @@ describe('readWebpExifTiff', () => {
       await writeFile(file, buildWebp(makeTiff('FUJIFILM')));
       const tiff = await readWebpExifTiff(file);
       expect(tiff).not.toBeNull();
-      const parsed = (await exifr.parse(tiff as Buffer, { pick: ['Make'] })) as { Make?: string };
+      const parsed = (await exifr.parse(tiff as Buffer, {
+        pick: ['Make'],
+      })) as { Make?: string };
       expect(parsed.Make).toBe('FUJIFILM');
     } finally {
       await rm(dir, { recursive: true, force: true });
