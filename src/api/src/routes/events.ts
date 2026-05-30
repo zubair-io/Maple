@@ -17,9 +17,10 @@
  * after a fetch failure until reachable again.
  */
 
-import { Elysia, t } from "elysia";
-import { stageRegistry } from "../workers/registry.ts";
-import { verifyAccessToken } from "../auth/tokens.ts";
+import { Elysia, t } from 'elysia';
+import { stageRegistry } from '../workers/registry.ts';
+import { workersStatusBroadcaster } from '../workers/status-broadcast.ts';
+import { verifyAccessToken } from '../auth/tokens.ts';
 
 /** Snapshot of all live stage statuses, keyed by stage name. */
 function supervisorState(): ReturnType<typeof stageRegistry.statuses> {
@@ -28,7 +29,7 @@ function supervisorState(): ReturnType<typeof stageRegistry.statuses> {
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
-  if (!s || s.length < 16) throw new Error("MAPLE_JWT_SECRET unset or too short");
+  if (!s || s.length < 16) throw new Error('MAPLE_JWT_SECRET unset or too short');
   return s;
 }
 
@@ -38,7 +39,7 @@ function jwtSecret(): string {
  * `status` because the parent passes the child's JSON through verbatim.
  */
 export interface StatusFrame {
-  type: "status";
+  type: 'status';
   status: Record<string, unknown> & {
     paused?: boolean;
     [k: string]: unknown;
@@ -46,7 +47,7 @@ export interface StatusFrame {
   ts: number;
 }
 
-const LEGACY_STAGES = ["discover", "hash", "exif", "thumb", "ai", "mongo"] as const;
+const LEGACY_STAGES = ['discover', 'hash', 'exif', 'thumb', 'ai', 'mongo'] as const;
 
 const FAST_POLL_MS = 250;
 const SLOW_POLL_MS = 2_000;
@@ -73,14 +74,17 @@ async function fetchStatus(): Promise<ChildStatus | null> {
     const state = supervisorState();
     const pools = {} as Record<LegacyStageName, number>;
     const channels = {} as Record<LegacyStageName, { depth: number; capacity: number }>;
-    const stagesOut = {} as Record<LegacyStageName, { inFlight: number; errors: number; deadLetter: number }>;
+    const stagesOut = {} as Record<
+      LegacyStageName,
+      { inFlight: number; errors: number; deadLetter: number }
+    >;
 
     let anyRunning = false;
 
     for (const name of LEGACY_STAGES) {
       const s = state[name];
       if (s) {
-        if (s.status === "running") anyRunning = true;
+        if (s.status === 'running') anyRunning = true;
         pools[name] = s.inFlight > 0 ? s.inFlight : 1;
         channels[name] = { depth: 0, capacity: 0 };
         stagesOut[name] = { inFlight: s.inFlight, errors: 0, deadLetter: 0 };
@@ -92,8 +96,7 @@ async function fetchStatus(): Promise<ChildStatus | null> {
     }
 
     const stateValues = Object.values(state);
-    const allPaused = stateValues.length > 0 &&
-      stateValues.every((s) => s.status === "paused");
+    const allPaused = stateValues.length > 0 && stateValues.every((s) => s.status === 'paused');
 
     const status: ChildStatus = {
       paused: allPaused,
@@ -115,7 +118,7 @@ async function fetchStatus(): Promise<ChildStatus | null> {
   }
 }
 
-export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
+export const eventsRoutes = new Elysia({ prefix: '/api' }).ws('/events', {
   // Browser `new WebSocket()` can't send Authorization headers, so the
   // standard pattern is a query-string token. Elysia runs `beforeHandle`
   // during the HTTP-side handshake — rejecting here means the upgrade
@@ -125,13 +128,13 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
     const token = query.token;
     if (!token) {
       set.status = 401;
-      return { error: "missing token" };
+      return { error: 'missing token' };
     }
     try {
       verifyAccessToken(token, jwtSecret());
     } catch {
       set.status = 401;
-      return { error: "invalid token" };
+      return { error: 'invalid token' };
     }
   },
 
@@ -149,7 +152,7 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
         // Supervisor has no running stages — emit a process frame and back off.
         if (lastReachable) {
           try {
-            ws.send({ type: "process", state: supervisorState() });
+            ws.send({ type: 'process', state: supervisorState() });
           } catch {
             /* socket may have closed mid-send */
           }
@@ -166,7 +169,7 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
       try {
         for (const st of LEGACY_STAGES) {
           ws.send({
-            type: "progress",
+            type: 'progress',
             stage: st,
             queueDepth: status.channels[st]?.depth ?? 0,
             inFlight: status.stages[st]?.inFlight ?? 0,
@@ -175,7 +178,7 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
           });
         }
         // Full snapshot.
-        ws.send({ type: "status", status, ts: Date.now() });
+        ws.send({ type: 'status', status, ts: Date.now() });
       } catch {
         // The socket likely closed underneath us; the close handler will
         // clear the timer. Silence the throw so we don't crash the loop.
@@ -187,10 +190,24 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
     // On open: emit one process snapshot so the UI knows the supervisor
     // state before the first /status comes back.
     try {
-      ws.send({ type: "process", state: supervisorState() });
+      ws.send({ type: 'process', state: supervisorState() });
     } catch {
       /* ignore */
     }
+
+    // Subscribe this socket to the shared workers-status broadcaster. The
+    // expensive pending/ready/blocked/dead counts now run on ONE shared timer
+    // gated on having ≥1 subscriber and broadcast once to all sockets — strictly
+    // fewer queries than each tab polling `GET /workers/status` independently.
+    // The Workers settings page consumes the `workers-status` frame instead of
+    // HTTP polling (#674); `GET /status` stays as a non-WS fallback.
+    const unsubscribeWorkers = workersStatusBroadcaster.subscribe((frame) => {
+      try {
+        ws.send(frame);
+      } catch {
+        /* socket may have closed mid-send */
+      }
+    });
 
     // Stash the cleanup function on the socket so close() can find it.
     (ws.data as Record<string, unknown>).__cleanup = (): void => {
@@ -199,6 +216,7 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
         clearTimeout(timer);
         timer = null;
       }
+      unsubscribeWorkers();
     };
 
     // Kick off the polling loop.
@@ -207,6 +225,6 @@ export const eventsRoutes = new Elysia({ prefix: "/api" }).ws("/events", {
 
   close(ws) {
     const cleanup = (ws.data as Record<string, unknown>).__cleanup;
-    if (typeof cleanup === "function") cleanup();
+    if (typeof cleanup === 'function') cleanup();
   },
 });
