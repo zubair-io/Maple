@@ -28,6 +28,7 @@ const fakePayload: WorkersStatusPayload = {
       batchSize: 10,
     },
   ],
+  damaged: 0,
 };
 
 describe('cheapStatus', () => {
