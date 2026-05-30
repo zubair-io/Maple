@@ -126,6 +126,8 @@ describe("StageRegistry.statuses() pre-registration", () => {
     // Re-register with a new targetVersion only — deps must survive.
     stageRegistry.preregister("thumb", 3);
     expect(stageRegistry.statuses().thumb!.targetVersion).toBe(3);
-    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([{ name: "exif", minVersion: 1 }]);
+    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([
+      { name: "exif", minVersion: 1 },
+    ]);
   });
 });
