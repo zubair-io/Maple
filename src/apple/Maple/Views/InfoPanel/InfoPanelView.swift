@@ -20,14 +20,16 @@
 //   3. CameraLocationGrid  — Body / Lens / Aperture / Shutter / ISO / Focal /
 //                            Coords / City. Pulled from ImageMetadataReader
 //                            EXIF entries, async-loaded into @State.
-//   4. KeywordChipsRow     — read-only in v0.1; chip-editing affordance is
-//                            stubbed pending the keyword model follow-up
-//                            (see spec §6 risk 3, default plan (a)).
+//   4. KeywordChipsRow     — editable via `EditSession.setKeywords` (#632).
+//                            Tap a chip to remove; tap `+ Add` to dock an
+//                            inline TextField, submit on Return.
 //
 // Field-name notes (PR #609 review):
 //   • `CullingState.stars` (NOT `starCount`).
 //   • `AssetRef.displayName` (NOT `filename`).
-//   • `EditSession` does NOT expose `addKeyword`/`removeKeyword`.
+//   • `EditSession.setKeywords(_:)` replaces the full list — there's no
+//     `addKeyword`/`removeKeyword` (the chip row diffs against the live
+//     `session.culling.keywords` and rewrites the full list on change).
 //
 // Phone consumer (when S5 Editor lands):
 //
@@ -73,7 +75,7 @@ struct InfoPanelView: View {
         RatingFlagsRow(session: session)
         HistogramBlock(asset: session?.asset)
         CameraLocationGrid(asset: session?.asset)
-        KeywordChipsRow(asset: session?.asset)
+        KeywordChipsRow(session: session)
       }
       .padding(MapleTokens.Spacing.panelInset)
       // 16pt bottom inset on the sheet so the last chip row clears the

@@ -3,9 +3,15 @@
 // Fields, defaults, and ranges match spec § 01 and the Rust source in
 // src/raw-pipeline/raw-core/src/xmp.rs exactly.
 //
-// XMP parsing is handled by the pure-Swift `XMPParser` below, which reads the
-// same XMP attributes as the Rust `parse()` function so that sidecar files
-// produced by either Lightroom or Maple are interchangeable.
+// This file owns the value types only:
+//   • `HighlightRecoveryMode`, `Look`, `Profile` — pipeline-shaping enums
+//   • `AdjustmentModel`                          — per-image develop knobs
+//   • `CullingState`, `CullFlag`                 — culling + IPTC keywords
+//
+// The XMP read/write surface lives next door in `XMPSerialization.swift`
+// (`XMPParser` + `XMPSerializer`); the split happened during #632 once the
+// extra `dc:subject` handling pushed this file past `CONTRIBUTING.md`'s
+// 600-line hard budget.
 
 import Foundation
 
@@ -249,14 +255,49 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
 
 // MARK: - CullingState
 
-/// Per-image culling metadata (stars, pick/reject). Matches spec § 01.
+/// Per-image metadata persisted alongside the develop model. The name is
+/// historical — the struct covers culling (stars / pick / reject) **and**
+/// IPTC keywords (#632). Both classes of metadata share the same XMP write
+/// path and have zero pixel impact, so they ride together instead of
+/// spawning a third payload through every `SidecarStoreProtocol` method.
 public struct CullingState: Codable, Sendable, Equatable, Hashable {
     public var stars: Int        // 0..5
     public var flag: CullFlag    // pick / reject / none
 
-    public init(stars: Int = 0, flag: CullFlag = .none) {
+    /// IPTC keywords (#632). Round-tripped through the XMP `dc:subject`
+    /// element as `<dc:subject><rdf:Bag><rdf:li>kw</rdf:li>…</rdf:Bag></dc:subject>`
+    /// per the Dublin Core schema. Order is preserved on the write path so
+    /// the chip row renders the same sequence the user typed; the on-disk
+    /// `rdf:Bag` is unordered per spec but every consumer (Lightroom, the
+    /// reference renderer, the Maple parsers) honours `<rdf:li>` source
+    /// order, so the preservation is in practice safe.
+    public var keywords: [String]
+
+    public init(stars: Int = 0, flag: CullFlag = .none, keywords: [String] = []) {
         self.stars = stars
         self.flag = flag
+        self.keywords = keywords
+    }
+
+    // MARK: Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case stars
+        case flag
+        case keywords
+    }
+
+    /// Custom `init(from:)` so any previously-persisted JSON encoded
+    /// before the `keywords` field existed decodes cleanly — the
+    /// synthesised init would throw `.keyNotFound`. The XMP read path
+    /// already defaults to `[]` when `dc:subject` is absent; this matches
+    /// that contract for the JSON-Codable path too (caches, eventual
+    /// settings exports, etc.).
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.stars = try container.decodeIfPresent(Int.self, forKey: .stars) ?? 0
+        self.flag = try container.decodeIfPresent(CullFlag.self, forKey: .flag) ?? .none
+        self.keywords = try container.decodeIfPresent([String].self, forKey: .keywords) ?? []
     }
 }
 
