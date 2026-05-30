@@ -201,16 +201,20 @@ function findExtent(buf: Buffer, iloc: Box, wantedId: number): [number, number] 
   while (itemCount-- > 0) {
     need(buf, offset, itemIdSize + constMethodSize + 2 + baseOffsetSize + 2, 'iloc item');
     const itemId = getUintBytes(buf, offset, itemIdSize);
-    // Skip item_id + construction_method + data_reference_index + base_offset.
+    // base_offset sits after item_id + construction_method + data_reference_index.
+    const baseOffset = getUintBytes(buf, offset + itemIdSize + constMethodSize + 2, baseOffsetSize);
     offset += itemIdSize + constMethodSize + 2 + baseOffsetSize;
     const extentCount = buf.readUInt16BE(offset);
     offset += 2;
     if (itemId === wantedId) {
       need(buf, offset, indexSize + offsetSize + lengthSize, 'iloc extent');
-      return [
-        getUintBytes(buf, offset + indexSize, offsetSize),
-        getUintBytes(buf, offset + indexSize + offsetSize, lengthSize),
-      ];
+      // The extent's absolute file offset is base_offset + extent_offset
+      // (ISO/IEC 14496-12). Cameras usually leave base_offset_size 0, but
+      // some encoders store a per-item base with extent_offset relative to
+      // it — dropping the base slices the wrong bytes / false-throws.
+      const extentOffset = getUintBytes(buf, offset + indexSize, offsetSize);
+      const extentLength = getUintBytes(buf, offset + indexSize + offsetSize, lengthSize);
+      return [baseOffset + extentOffset, extentLength];
     }
     offset += extentCount * extentSize;
   }
