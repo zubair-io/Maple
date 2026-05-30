@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { type Collection, ObjectId, type UpdateResult } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import {
   _test,
   buildClaimQuery,
@@ -8,168 +8,9 @@ import {
   type ImageDoc,
   type StageState,
 } from './run-stage.ts';
-import type { WorkerConfigDoc } from './worker-config.repo.ts';
+import { makeConfigMock, makeImagesMock } from './run-stage.test-helpers.ts';
 
 const { bootConfig, versionBumpReset } = _test;
-
-// ---------------------------------------------------------------------------
-// Hand-rolled mock for Collection<WorkerConfigDoc>
-// ---------------------------------------------------------------------------
-
-function makeConfigMock(): Collection<WorkerConfigDoc> {
-  const store = new Map<string, WorkerConfigDoc>();
-  return {
-    async findOne(filter: Record<string, unknown>) {
-      const name = filter['name'] as string | undefined;
-      if (!name) return null;
-      return store.get(name) ?? null;
-    },
-    async updateOne(
-      filter: Record<string, unknown>,
-      update: Record<string, unknown>,
-      opts?: { upsert?: boolean },
-    ) {
-      const name = filter['name'] as string;
-      const setDoc = (update['$set'] ?? {}) as Partial<WorkerConfigDoc>;
-      if (opts?.upsert) {
-        const existing = store.get(name);
-        store.set(name, { ...(existing ?? {}), ...setDoc } as WorkerConfigDoc);
-      } else {
-        const existing = store.get(name);
-        if (existing) store.set(name, { ...existing, ...setDoc });
-      }
-      return {
-        matchedCount: 1,
-        modifiedCount: 1,
-        upsertedCount: 0,
-        upsertedId: null,
-        acknowledged: true,
-      } as UpdateResult;
-    },
-  } as unknown as Collection<WorkerConfigDoc>;
-}
-
-// ---------------------------------------------------------------------------
-// Hand-rolled mock for Collection<ImageDoc>
-// ---------------------------------------------------------------------------
-
-function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
-  const store: ImageDoc[] = [...initial];
-  return {
-    async updateMany(filter: Record<string, unknown>, update: Record<string, unknown>) {
-      let modified = 0;
-      for (const doc of store) {
-        if (matchesFilter(doc, filter)) {
-          applySet(doc, (update['$set'] ?? {}) as Record<string, unknown>);
-          modified++;
-        }
-      }
-      return {
-        matchedCount: modified,
-        modifiedCount: modified,
-        upsertedCount: 0,
-        upsertedId: null,
-        acknowledged: true,
-      } as UpdateResult;
-    },
-    find(filter: Record<string, unknown>) {
-      let matched = store.filter((d) => matchesFilter(d, filter));
-      return {
-        limit(n: number) {
-          matched = matched.slice(0, n);
-          return this;
-        },
-        async toArray() {
-          return [...matched];
-        },
-      };
-    },
-    async findOne(filter: Record<string, unknown>, _opts?: unknown) {
-      return store.find((d) => matchesFilter(d, filter)) ?? null;
-    },
-    async insertOne(doc: ImageDoc) {
-      store.push(doc);
-      return { insertedId: (doc as unknown as { _id: unknown })._id, acknowledged: true };
-    },
-    async insertMany(docs: ImageDoc[]) {
-      store.push(...docs);
-      return { insertedCount: docs.length, insertedIds: {}, acknowledged: true };
-    },
-    async updateOne(filter: Record<string, unknown>, update: Record<string, unknown>) {
-      const doc = store.find((d) => matchesFilter(d, filter));
-      if (doc) applySet(doc, (update['$set'] ?? {}) as Record<string, unknown>);
-      return {
-        matchedCount: doc ? 1 : 0,
-        modifiedCount: doc ? 1 : 0,
-        upsertedCount: 0,
-        upsertedId: null,
-        acknowledged: true,
-      } as UpdateResult;
-    },
-    async countDocuments() {
-      return store.length;
-    },
-  } as unknown as Collection<ImageDoc>;
-}
-
-function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
-  for (const [key, val] of Object.entries(filter)) {
-    if (key === '$or') {
-      const arr = val as Record<string, unknown>[];
-      if (!arr.some((subFilter) => matchesFilter(doc, subFilter))) return false;
-      continue;
-    }
-
-    const docVal = getNestedValue(doc as Record<string, unknown>, key);
-    if (val !== null && typeof val === 'object') {
-      const op = val as Record<string, unknown>;
-      if ('$lt' in op) {
-        const limit = op['$lt'] as number;
-        if (docVal === undefined) continue;
-        if (!(typeof docVal === 'number' && docVal < limit)) return false;
-      }
-      if ('$gte' in op) {
-        if (docVal === undefined) return false;
-        if (!(typeof docVal === 'number' && docVal >= (op['$gte'] as number))) return false;
-      }
-      if ('$ne' in op && docVal === op['$ne']) return false;
-      if ('$nin' in op) {
-        const arr = op['$nin'] as unknown[];
-        if (arr.includes(docVal)) return false;
-      }
-      if ('$exists' in op) {
-        const expected = op['$exists'] as boolean;
-        if (expected === false && docVal !== undefined) return false;
-        if (expected === true && docVal === undefined) return false;
-      }
-    } else {
-      if (docVal !== val) return false;
-    }
-  }
-  return true;
-}
-
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const parts = path.split('.');
-  let cur: unknown = obj;
-  for (const p of parts) {
-    if (cur == null || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[p];
-  }
-  return cur;
-}
-
-function applySet(doc: unknown, setDoc: Record<string, unknown>): void {
-  for (const [path, value] of Object.entries(setDoc)) {
-    const parts = path.split('.');
-    let cur = doc as Record<string, unknown>;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (cur[parts[i]] == null) cur[parts[i]] = {};
-      cur = cur[parts[i]] as Record<string, unknown>;
-    }
-    cur[parts[parts.length - 1]] = value;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -272,9 +113,18 @@ describe('versionBumpReset', () => {
       dead: false,
     };
     const images = makeImagesMock([
-      { abs_path: '/a.raw', stages: { hash: deadState } } as unknown as ImageDoc,
-      { abs_path: '/b.raw', stages: { hash: deadState } } as unknown as ImageDoc,
-      { abs_path: '/c.raw', stages: { hash: doneState } } as unknown as ImageDoc,
+      {
+        abs_path: '/a.raw',
+        stages: { hash: deadState },
+      } as unknown as ImageDoc,
+      {
+        abs_path: '/b.raw',
+        stages: { hash: deadState },
+      } as unknown as ImageDoc,
+      {
+        abs_path: '/c.raw',
+        stages: { hash: doneState },
+      } as unknown as ImageDoc,
     ]);
 
     await versionBumpReset(baseStage, 1, images);
@@ -294,7 +144,13 @@ describe('versionBumpReset', () => {
       {
         abs_path: '/a.raw',
         stages: {
-          hash: { version: 1, attempts: 5, last_error: 'x', processed_at: null, dead: true },
+          hash: {
+            version: 1,
+            attempts: 5,
+            last_error: 'x',
+            processed_at: null,
+            dead: true,
+          },
         },
       } as unknown as ImageDoc,
     ]);
@@ -326,7 +182,9 @@ describe('buildClaimQuery', () => {
 
   it('adds dependency version predicates using dep.minVersion', () => {
     const q = buildClaimQuery('exif', 1, [{ name: 'hash', minVersion: 1 }], new Set());
-    expect((q as Record<string, unknown>)['stages.hash.version']).toEqual({ $gte: 1 });
+    expect((q as Record<string, unknown>)['stages.hash.version']).toEqual({
+      $gte: 1,
+    });
   });
 
   it('excludes in-flight _ids', () => {
@@ -368,13 +226,25 @@ describe('buildClaimQuery', () => {
       {
         abs_path: '/dep-stale.raw',
         stages: {
-          hash: { version: 1, attempts: 0, last_error: null, processed_at: null, dead: false },
+          hash: {
+            version: 1,
+            attempts: 0,
+            last_error: null,
+            processed_at: null,
+            dead: false,
+          },
         },
       } as unknown as ImageDoc,
       {
         abs_path: '/dep-ready.raw',
         stages: {
-          hash: { version: 2, attempts: 0, last_error: null, processed_at: null, dead: false },
+          hash: {
+            version: 2,
+            attempts: 0,
+            last_error: null,
+            processed_at: null,
+            dead: false,
+          },
         },
       } as unknown as ImageDoc,
     ]);
@@ -499,7 +369,12 @@ describe('poll loop integration', () => {
     });
 
     const { runOnce } = _test;
-    const cfg = { concurrency: 1, maxAttempts: 2, paused: false, last_seen_target_version: 1 };
+    const cfg = {
+      concurrency: 1,
+      maxAttempts: 2,
+      paused: false,
+      last_seen_target_version: 1,
+    };
     // First failure: attempts 1 < 2 → not dead yet, so no damaged tag.
     await runOnce(testStage, cfg, images, configColl);
     let doc = (await images.find({}).toArray())[0] as unknown as ImageDoc;
@@ -541,7 +416,12 @@ describe('poll loop integration', () => {
     const { runOnce } = _test;
     await runOnce(
       testStage,
-      { concurrency: 1, maxAttempts: 1, paused: false, last_seen_target_version: 1 },
+      {
+        concurrency: 1,
+        maxAttempts: 1,
+        paused: false,
+        last_seen_target_version: 1,
+      },
       images,
       configColl,
     );

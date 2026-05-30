@@ -226,7 +226,9 @@ async function fetchStatusDbState(
   // index) — same shape + rationale as the missing-reaper count above.
   if (assets) {
     try {
-      damagedTotal = await assets.countDocuments({ 'damaged.since': { $type: 'string' } });
+      damagedTotal = await assets.countDocuments({
+        'damaged.since': { $type: 'string' },
+      });
     } catch (err) {
       log.warn({ err }, 'countDocuments failed for damaged count — leaving 0');
     }
@@ -406,10 +408,8 @@ export function workerRoutes(): Elysia {
       })
 
       // Damaged files — assets tagged `damaged` (unreadable bytes) by a
-      // file-reading stage that exhausted its retries. Collection-level (not
-      // per-stage): one list across the whole pipeline. Each row carries the
-      // maple_id so an operator can query the asset in the DB, plus the path,
-      // the tagging stage, the reason, and when it was tagged.
+      // file-reading stage that exhausted its retries. Collection-level: one
+      // list across the whole pipeline, each row keyed by maple_id.
       .get('/damaged', async ({ query, set }) => {
         const requested = Number(query.limit ?? DEAD_LIST_LIMIT_DEFAULT);
         const limit = Number.isFinite(requested)
@@ -448,12 +448,10 @@ export function workerRoutes(): Elysia {
         }
       })
 
-      // Clear the `damaged` tag so the pipeline re-processes the file. Pass an
-      // `id` (asset _id hex) to clear one; omit it to clear ALL damaged assets.
-      // Un-tagging alone re-arms the asset for every stage's claim query, but
-      // the tagging stage(s) may still hold `dead: true` from the original
-      // failure — reset those too so the file actually gets retried rather than
-      // sitting un-parked but un-claimed.
+      // Clear the `damaged` tag so the pipeline re-processes the file. `id`
+      // (asset _id hex) clears one; omit it to clear all. Also resets the
+      // tagging stages' dead/attempt bookkeeping so the file is actually
+      // re-tried, not just un-parked.
       .post(
         '/damaged/clear',
         async ({ body, set }) => {
@@ -482,7 +480,9 @@ export function workerRoutes(): Elysia {
               stageResets[`stages.${stageName}.attempts`] = 0;
               stageResets[`stages.${stageName}.last_error`] = null;
             }
-            const result = await images.updateMany(filter, { $set: stageResets });
+            const result = await images.updateMany(filter, {
+              $set: stageResets,
+            });
             invalidateStatusCache();
             return { ok: true, cleared: result.modifiedCount };
           } catch (err) {
