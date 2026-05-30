@@ -88,15 +88,20 @@ struct AppShellToolbar: ToolbarContent {
             .disabled(!hasSelection)
             .keyboardShortcut("e", modifiers: .command)
         }
-        // ⌘O still works even though the button has moved into the sidebar.
-        ToolbarItem(placement: .automatic) {
-            Button("Open Folder", systemImage: "folder.badge.plus") {
-                onOpenFolder()
+        // ⌘O keyboard shortcut — desktop only. Omitted on the compact (iPhone)
+        // shell: there's no hardware ⌘O there, and a hidden trailing item would
+        // otherwise render as an empty glass capsule (iOS 26 groups toolbar
+        // items into capsules) now that the Settings gear has moved out. #692.
+        if !isCompact {
+            ToolbarItem(placement: .automatic) {
+                Button("Open Folder", systemImage: "folder.badge.plus") {
+                    onOpenFolder()
+                }
+                .keyboardShortcut("o", modifiers: .command)
+                // Hide from the visible toolbar — keyboard shortcut only.
+                .hidden()
+                .accessibilityHidden(true)
             }
-            .keyboardShortcut("o", modifiers: .command)
-            // Hide from the visible toolbar — keyboard shortcut only.
-            .hidden()
-            .accessibilityHidden(true)
         }
         // Trailing primary nav — desktop (Mac / iPad) only. iPhone gets these
         // three as the bottom tab bar (Library / Search / Settings), so the
