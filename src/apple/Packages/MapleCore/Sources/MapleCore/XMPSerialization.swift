@@ -8,10 +8,15 @@
 //   • `XMPParser.parse(xml: String)` → `(AdjustmentModel, CullingState)`
 //   • `XMPSerializer.serialize(model:culling:)` → `String`
 //
-// Both sides match the Rust `raw_core::xmp` module and the TypeScript
-// `XmpParserService` / `XmpSerializerService` byte-for-byte (modulo the
-// canonical-order ticket that's still open). When you add a new
-// `crs:` or `papp:` attribute, mirror it in all three.
+// Both sides round-trip semantically with the Rust `raw_core::xmp`
+// module and the TypeScript `XmpParserService` / `XmpSerializerService`
+// — same fields, same value semantics, same legacy-alias precedence.
+// The output is *not* byte-canonical: attribute ordering, the `papp:`
+// namespace URI, and whitespace around the `rdf:Description` differ
+// across the three serializers (TS calls this out in its own header,
+// Rust ships only a fragment serializer). The canonical-form ticket is
+// still open. When you add a new `crs:` or `papp:` attribute, mirror
+// it in all three.
 
 import Foundation
 
@@ -83,6 +88,10 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
     /// `currentLi` accumulates the running text content of the active
     /// `rdf:li` element (XMLParser may deliver characters in multiple
     /// chunks for long text, so we concatenate until `didEndElement`).
+    /// Duplicates are dropped during accumulation so the parse output
+    /// matches `EditSession.setKeywords`'s "unique, first-occurrence wins"
+    /// invariant — necessary because callers (e.g. `KeywordChipsRow`)
+    /// iterate `culling.keywords` with `ForEach(id: \.self)`.
     var inDCSubject: Bool = false
     var currentLi: String?
     var parsedKeywords: [String] = []
@@ -98,18 +107,21 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
                 qualifiedName qName: String?,
                 attributes attributeDict: [String: String]) {
         // dc:subject — nested keyword bag. Enter the subtree on the opening
-        // `<dc:subject>` tag; track `<rdf:li>` children inside it. Matching
-        // is done on the qualified name so the XML namespace prefix the
-        // sidecar uses (`dc:`, conventionally) is respected without forcing
-        // a specific namespace URI binding.
+        // `<dc:subject>` tag; track `<rdf:li>` children inside it. The XML
+        // namespace *prefix* the sidecar binds to Dublin Core / RDF isn't
+        // stable (any sidecar may rebind `dc` / `rdf` to a different prefix
+        // and still be valid), so match on the qName's local-name suffix
+        // — `:subject` / `:li` or the bare local name. Namespace processing
+        // stays OFF on `XMLParser` because the rest of this delegate keys
+        // every attribute lookup on prefixed names (`crs:Temperature` etc.).
         let qual = qName ?? elementName
-        if qual == "dc:subject" {
+        if Self.isLocalName(qual, "subject") {
             inDCSubject = true
             parsedKeywords.removeAll(keepingCapacity: true)
             return
         }
         if inDCSubject {
-            if qual == "rdf:li" {
+            if Self.isLocalName(qual, "li") {
                 currentLi = ""
             }
             // `rdf:Bag` / `rdf:Seq` / `rdf:Alt` wrappers carry no value of
@@ -159,17 +171,33 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
                 qualifiedName qName: String?) {
         let qual = qName ?? elementName
         if inDCSubject {
-            if qual == "rdf:li", let text = currentLi {
+            if Self.isLocalName(qual, "li"), let text = currentLi {
                 // Per IPTC convention keywords are non-empty; drop blanks.
+                // Dedupe at parse time so the model/UI invariant of unique
+                // keywords (also enforced on the write path by
+                // `EditSession.setKeywords`) holds even for hand-edited or
+                // foreign sidecars. First occurrence wins so source order
+                // is preserved.
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty { parsedKeywords.append(trimmed) }
+                if !trimmed.isEmpty, !parsedKeywords.contains(trimmed) {
+                    parsedKeywords.append(trimmed)
+                }
                 currentLi = nil
-            } else if qual == "dc:subject" {
+            } else if Self.isLocalName(qual, "subject") {
                 culling.keywords = parsedKeywords
                 parsedKeywords = []
                 inDCSubject = false
             }
         }
+    }
+
+    /// True if `qual` matches the namespaced element `local` regardless of
+    /// the bound prefix — i.e. either the bare local name or any `*:local`
+    /// form. Used so the parser doesn't silently ignore `dc:subject` /
+    /// `rdf:li` content when a sidecar binds the namespaces to non-default
+    /// prefixes.
+    private static func isLocalName(_ qual: String, _ local: String) -> Bool {
+        qual == local || qual.hasSuffix(":" + local)
     }
 
     private func applyAttribute(key: String, value: String) {
@@ -298,7 +326,9 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
 // MARK: - XMP Serializer
 
 /// Emit an XMP sidecar string compatible with the `crs:` schema from a model + culling state.
-/// Output is byte-for-byte interchangeable with Lightroom / Maple Hosted.
+/// Output is semantically round-trippable with Lightroom / Maple Hosted (same fields,
+/// same value semantics) but is not byte-canonical — attribute ordering and the
+/// `papp:` namespace URI differ across the Apple / Web / Rust serializers today.
 public struct XMPSerializer {
     private init() {}
 
