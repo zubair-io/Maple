@@ -36,6 +36,14 @@ export * from './lib/api/filesystem-browse.service';
 export * from './lib/api/search.service';
 export * from './lib/api/workers-api.service';
 export * from './lib/api/worker-events.service';
+
+// #713 — Observability (SigNoz / OpenTelemetry). Config model + IndexedDB
+// cache + the SDK-wiring service + the global Angular error handler.
+export * from './lib/observability/observability-config.model';
+export * from './lib/observability/observability-config-cache';
+export * from './lib/observability/observability.service';
+export * from './lib/observability/maple-error-handler';
+
 export * from './lib/components/loading-banner/loading-banner.component';
 export * from './lib/components/error-banner/error-banner.component';
 export * from './lib/components/library-picker/library-picker.component';

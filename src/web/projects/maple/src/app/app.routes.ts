@@ -79,6 +79,18 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/workers/workers.component').then((m) => m.WorkersComponent),
   },
+  // #713 — SigNoz / OpenTelemetry config + toggle. Uses `authGuard` like the
+  // other settings routes; owner-only visibility is handled by the settings
+  // nav (same convention as settings/users + settings/workers), not a route
+  // guard. The server endpoint sits behind requireAuth.
+  {
+    path: 'settings/observability',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/observability/observability.component').then(
+        (m) => m.ObservabilityComponent,
+      ),
+  },
   // S7 (#622) — responsive-program search experience. `/search` lands on
   // the new `<app-search>` (phone tab content + tablet/desktop overlay
   // payload). The rich Self-Hosted filter page (cameras, lenses, EXIF

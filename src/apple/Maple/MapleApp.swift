@@ -103,6 +103,13 @@ struct MapleApp: App {
                     DeepLinkRouter.shared.handle(url)
                 }
                 .task {
+                    // Start telemetry first: reads the disk-cached SigNoz
+                    // config and bootstraps swift-otel synchronously (no
+                    // network), then background-refreshes. Never blocks launch.
+                    // Ticket #713.
+                    ObservabilityController.shared.start()
+                }
+                .task {
                     guard let settings = BackupSettings.load(), settings.isConfigured,
                           let serverBaseURL = URL(string: settings.serverURL) else { return }
                     await EngineHost.shared.start(settings: settings)
@@ -215,6 +222,8 @@ struct SettingsView: View {
                 .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
             SelfHostedSettingsTab()
                 .tabItem { Label("Self Hosted", systemImage: "cloud") }
+            ObservabilitySettingsTab()
+                .tabItem { Label("Observability", systemImage: "waveform.path.ecg") }
             #if os(macOS)
             FileProviderSettingsView()
                 .tabItem { Label("Finder", systemImage: "folder") }
