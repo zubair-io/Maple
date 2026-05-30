@@ -24,6 +24,21 @@
         <span class="chip-val">{{ summary().pending | number }}</span>
         <span class="chip-label">Pending</span>
       </span>
+      <button
+        type="button"
+        class="chip chip-btn"
+        [class.err]="damagedCount() > 0"
+        data-testid="damaged-chip"
+        [title]="
+          damagedCount() > 0
+            ? 'Files that could not be read after every retry — click to inspect'
+            : 'No damaged files'
+        "
+        (click)="openDamaged()"
+      >
+        <span class="chip-val">{{ damagedCount() | number }}</span>
+        <span class="chip-label">Damaged</span>
+      </button>
     </div>
   </header>
 
@@ -723,6 +738,96 @@
                 @if (item.processed_at) {
                   <span>{{ formatDate(item.processed_at) }}</span>
                 }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+}
+
+@if (damagedLog(); as log) {
+  <div
+    class="log-backdrop"
+    data-testid="damaged-backdrop"
+    (click)="closeDamaged()"
+    role="presentation"
+  >
+    <div
+      class="log-drawer"
+      data-testid="damaged-drawer"
+      (click)="$event.stopPropagation()"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="damaged-drawer-title"
+    >
+      <div class="log-header">
+        <div class="log-title" id="damaged-drawer-title">
+          <maple-settings-icon name="x" [size]="14" [color]="'#f87171'" />
+          <span>Damaged files</span>
+          @if (!log.loading) {
+            <span class="log-subtitle">
+              {{
+                log.items.length === 0
+                  ? 'None'
+                  : log.items.length + ' file' + (log.items.length === 1 ? '' : 's')
+              }}
+            </span>
+          }
+        </div>
+        <div class="log-actions">
+          @if (!log.loading && log.items.length > 0) {
+            <button
+              type="button"
+              class="btn-ghost danger"
+              data-testid="clear-all-damaged-btn"
+              [disabled]="log.clearing"
+              (click)="clearDamaged()"
+            >
+              <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
+              {{ log.clearing ? 'Clearing…' : 'Clear all & re-queue' }}
+            </button>
+          }
+          <button type="button" class="log-close" (click)="closeDamaged()" aria-label="Close">
+            <maple-settings-icon name="x" [size]="14" [color]="'#a8a29e'" />
+          </button>
+        </div>
+      </div>
+
+      @if (log.loading) {
+        <div class="log-empty">Loading…</div>
+      } @else if (log.error) {
+        <div class="log-error">{{ log.error }}</div>
+      } @else if (log.items.length === 0) {
+        <div class="log-empty">No damaged files. The pipeline can read every indexed file.</div>
+      } @else {
+        <div class="log-list">
+          @for (item of log.items; track item.id) {
+            <div class="log-entry" data-testid="damaged-entry">
+              <div class="log-entry-path">{{ item.abs_path ?? item.id }}</div>
+              @if (item.reason) {
+                <div class="log-entry-err">{{ item.reason }}</div>
+              }
+              <div class="log-entry-meta">
+                <span class="mono" data-testid="damaged-maple-id">{{
+                  item.maple_id ?? item.id
+                }}</span>
+                @if (item.stage) {
+                  <span>{{ item.stage }}</span>
+                }
+                @if (item.since) {
+                  <span>{{ formatDate(item.since) }}</span>
+                }
+                <button
+                  type="button"
+                  class="link-btn"
+                  data-testid="clear-damaged-btn"
+                  [disabled]="log.clearing"
+                  (click)="clearDamaged(item.id)"
+                >
+                  Clear & re-queue
+                </button>
               </div>
             </div>
           }

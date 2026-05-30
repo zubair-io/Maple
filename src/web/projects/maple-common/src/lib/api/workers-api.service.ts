@@ -43,6 +43,10 @@ export interface StageStatus {
 
 export interface WorkersStatusResponse {
   stages: StageStatus[];
+  /** Collection-level count of assets tagged `damaged` (unreadable bytes,
+   * parked out of every stage). Optional so a stale frame without it reads as
+   * 0 rather than NaN. */
+  damaged?: number;
 }
 
 /** One row in the dead-letter list — returned by GET /api/workers/:name/dead. */
@@ -59,6 +63,26 @@ export interface DeadListResponse {
   items: DeadDoc[];
 }
 
+/** One row in the damaged-files list — returned by GET /api/workers/damaged. */
+export interface DamagedDoc {
+  /** Asset `_id` (hex) — the queryable handle into the assets collection. */
+  id: string;
+  /** Content hash; the stable id an operator greps for. Null on rows that
+   * never reached the exif stage that upgrades the id. */
+  maple_id: string | null;
+  abs_path: string | null;
+  /** Stage that exhausted retries and tagged the file. */
+  stage: string | null;
+  /** Last error message that made the file unreadable. */
+  reason: string | null;
+  /** ISO 8601 timestamp the file was first tagged damaged. */
+  since: string | null;
+}
+
+export interface DamagedListResponse {
+  items: DamagedDoc[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class WorkersApiService {
   private readonly http = inject(HttpClient);
@@ -71,6 +95,21 @@ export class WorkersApiService {
   listDead(name: string, limit = 50): Observable<DeadListResponse> {
     return this.http.get<DeadListResponse>(
       `${this.base}/workers/${encodeURIComponent(name)}/dead?limit=${limit}`,
+    );
+  }
+
+  /** List assets tagged `damaged` (unreadable bytes, parked out of every
+   * stage). Collection-level — not per-stage. */
+  listDamaged(limit = 200): Observable<DamagedListResponse> {
+    return this.http.get<DamagedListResponse>(`${this.base}/workers/damaged?limit=${limit}`);
+  }
+
+  /** Clear the `damaged` tag and re-queue. Pass an asset id to clear one;
+   * omit it to clear every damaged asset. */
+  clearDamaged(id?: string): Observable<{ ok: boolean; cleared: number }> {
+    return this.http.post<{ ok: boolean; cleared: number }>(
+      `${this.base}/workers/damaged/clear`,
+      id ? { id } : {},
     );
   }
 

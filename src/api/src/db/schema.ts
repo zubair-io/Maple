@@ -333,6 +333,41 @@ export interface AssetDoc {
    * bytes vanished from disk underneath the index.
    */
   missing_since?: string | null;
+  /**
+   * "Damaged file" tag. Set by a file-reading stage (exif / thumb / preview —
+   * those with `tagsDamagedOnDeadLetter`) the moment it EXHAUSTS its retries
+   * (`attempts >= maxAttempts`) on an error that means the bytes themselves are
+   * unreadable: a corrupt/truncated original, or a format no decoder on the
+   * box can parse. The file was retried `maxAttempts` times and still failed,
+   * so further attempts are futile.
+   *
+   * Like `missing_since`, the tag PARKS the asset out of EVERY stage's claim
+   * query (see `buildClaimQuery`) so the rest of the pipeline stops burning
+   * cycles on a file it can never process. Unlike `missing_since`, there is no
+   * automatic reaper: a damaged file still exists on disk, so it's surfaced in
+   * the Workers UI (the "Damaged" pill + list) for an operator to inspect,
+   * replace, or clear. Re-running `retry-dead` on the tagging stage does NOT
+   * clear it — the dedicated clear path (`POST /api/workers/damaged/clear`)
+   * does, which both un-tags and re-queues the file.
+   *
+   * Distinct from `dead` (per-stage, one stage gave up but the file may still
+   * be fine for other stages) and from `missing_since` (bytes gone from disk).
+   */
+  damaged?: DamagedInfo | null;
+}
+
+/**
+ * Provenance for the {@link AssetDoc.damaged} tag. Captured once, on first
+ * detection (first-write-wins, so repeated stage runs can't rewrite `since`).
+ */
+export interface DamagedInfo {
+  /** ISO 8601 timestamp the asset was first tagged damaged. */
+  since: string;
+  /** Name of the stage that exhausted its retries and tagged the file. */
+  stage: string;
+  /** The stage's last error message (what made it unreadable), truncated for
+   * storage so a giant decoder dump can't bloat the row. */
+  reason: string;
 }
 
 export type AssetWithId = WithId<AssetDoc>;

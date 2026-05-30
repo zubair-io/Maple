@@ -36,6 +36,9 @@ const previewStage = defineStage({
   // Reads the original file — an ENOENT means it vanished from disk, so the
   // runner tags `missing_since` for the missing-reaper.
   tagsMissingOnEnoent: true,
+  // A non-ENOENT failure that survives all retries means the bytes are
+  // unreadable — tag `damaged` so the pipeline parks the file (see exif stage).
+  tagsDamagedOnDeadLetter: true,
   defaults: {
     concurrency: 2,
     maxAttempts: 5,

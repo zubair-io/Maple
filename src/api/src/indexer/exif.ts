@@ -14,16 +14,36 @@ import * as path from 'node:path';
 import type { AssetExif } from '../db/schema.ts';
 import exifr from 'exifr';
 import { readHeicExifTiff } from './heic-exif.ts';
+import { readWebpExifTiff } from './webp-exif.ts';
 
 /** HEIC/HEIF containers — exifr's `canHandle` rejects modern (>50-byte ftyp)
  * variants, so these go through our own box walker in `heic-exif.ts`, which
  * slices the embedded TIFF and feeds it back to exifr. */
 const HEIC_EXTS = new Set(['.heic', '.heif']);
 
-/** Extensions that exifr cannot parse. Assets with these extensions arrive
- * via the backup ingest route (no extension filter there). Return null
- * without attempting a parse — no warning needed, this is expected. */
-const EXIFR_UNSUPPORTED_EXTS = new Set([
+/** WebP containers — exifr 7.1.3 has no WebP parser, so it rejects `.webp`
+ * with "Unknown file format" before reaching any tag extraction. WebP can
+ * carry a full EXIF block in a RIFF `EXIF` chunk, so these go through our own
+ * RIFF walker in `webp-exif.ts`, which slices the embedded TIFF and feeds it
+ * back to exifr (same strategy as HEIC). */
+const WEBP_EXTS = new Set(['.webp']);
+
+/** Extensions with no extractable EXIF that we nonetheless ingest (via the
+ * backup route, which has no extension filter, or a library that holds mixed
+ * media). exifr can't parse them, so a parse attempt would throw "Unknown
+ * file format" and dead-letter the asset as if it were damaged. Instead we
+ * return null without attempting a parse — terminal and warning-free, the
+ * expected "this kind of file simply has no camera metadata" outcome.
+ *
+ * Two buckets:
+ *   - Video containers — never carried EXIF the exif stage reads.
+ *   - Raster formats exifr has no parser for and that in practice carry no
+ *     usable EXIF: animated/static GIF (incl. the `*-ANIMATION.gif` Motion
+ *     Photo exports) and BMP. (WebP is handled above; PNG is parsed by exifr
+ *     directly and is deliberately NOT here.)
+ */
+const NO_EXIF_EXTS = new Set([
+  // Video
   '.mov',
   '.mp4',
   '.m4v',
@@ -33,6 +53,9 @@ const EXIFR_UNSUPPORTED_EXTS = new Set([
   '.mts',
   '.m2ts',
   '.3gp',
+  // Raster formats with no usable EXIF and no exifr parser
+  '.gif',
+  '.bmp',
 ]);
 
 /**
@@ -191,12 +214,21 @@ const EXIFR_PARSE_OPTS = {
  */
 export async function readExif(absPath: string): Promise<AssetExif | null> {
   const ext = path.extname(absPath).toLowerCase();
-  if (EXIFR_UNSUPPORTED_EXTS.has(ext)) return null;
+  if (NO_EXIF_EXTS.has(ext)) return null;
 
   if (HEIC_EXTS.has(ext)) {
     // exifr can't get past its ftyp gate for these — extract the TIFF block
     // ourselves, then let exifr parse that as a bare TIFF.
     const tiff = await readHeicExifTiff(absPath);
+    if (!tiff) return null;
+    const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
+    return raw ? normalizeExif(raw) : null;
+  }
+
+  if (WEBP_EXTS.has(ext)) {
+    // exifr has no WebP parser — pull the TIFF out of the RIFF `EXIF` chunk
+    // ourselves, then let exifr parse that as a bare TIFF.
+    const tiff = await readWebpExifTiff(absPath);
     if (!tiff) return null;
     const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
     return raw ? normalizeExif(raw) : null;
