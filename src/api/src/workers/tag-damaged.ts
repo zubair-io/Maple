@@ -40,7 +40,12 @@ export async function tagDamaged(
 ): Promise<void> {
   const trimmed = reason.length > MAX_REASON_LEN ? `${reason.slice(0, MAX_REASON_LEN)}…` : reason;
   log.warn(
-    { event: 'asset.damaged', asset_id: id.toHexString(), stage, reason: trimmed },
+    {
+      event: 'asset.damaged',
+      asset_id: id.toHexString(),
+      stage,
+      reason: trimmed,
+    },
     `asset ${id.toHexString()} tagged damaged after ${stage} exhausted retries`,
   );
   await images

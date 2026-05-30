@@ -107,7 +107,12 @@ class WorkersStatusBroadcaster {
   subscribe(send: Send): () => void {
     this.subscribers.add(send);
     try {
-      send({ type: 'workers-status', status: cheapStatus(), counted: false, ts: Date.now() });
+      send({
+        type: 'workers-status',
+        status: cheapStatus(),
+        counted: false,
+        ts: Date.now(),
+      });
     } catch {
       /* socket may already be gone */
     }
@@ -158,7 +163,12 @@ class WorkersStatusBroadcaster {
     } finally {
       this.tickInFlight = false;
     }
-    this.broadcast({ type: 'workers-status', status, counted: true, ts: Date.now() });
+    this.broadcast({
+      type: 'workers-status',
+      status,
+      counted: true,
+      ts: Date.now(),
+    });
   }
 
   private broadcast(frame: WorkersStatusFrame): void {

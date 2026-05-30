@@ -34,6 +34,7 @@ import { stageRegistry } from './registry.ts';
 import { POLL_INTERVAL_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
 import { tagMissingSince } from './tag-missing.ts';
 import { tagDamaged } from './tag-damaged.ts';
+import { dispatchPool } from './dispatch-pool.ts';
 
 // ---------------------------------------------------------------------------
 // Public types — load-bearing for every stage file and stage test.
@@ -250,32 +251,6 @@ export function buildClaimQuery(
     (filter as Record<string, unknown>)['_id'] = { $nin: [...inFlight] };
   }
   return filter;
-}
-
-// ---------------------------------------------------------------------------
-// Worker-slot pool — bounded concurrency for the per-tick dispatch.
-// ---------------------------------------------------------------------------
-
-async function dispatchPool<T>(
-  items: T[],
-  limit: number,
-  run: (item: T) => Promise<void>,
-): Promise<void> {
-  const queue = [...items];
-  const workers: Promise<void>[] = [];
-  const concurrency = Math.max(1, Math.min(limit, queue.length));
-  for (let i = 0; i < concurrency; i++) {
-    workers.push(
-      (async () => {
-        while (queue.length > 0) {
-          const item = queue.shift();
-          if (item === undefined) return;
-          await run(item);
-        }
-      })(),
-    );
-  }
-  await Promise.all(workers);
 }
 
 /**
