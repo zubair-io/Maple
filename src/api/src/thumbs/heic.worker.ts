@@ -14,10 +14,10 @@
 // (`heic-pool.ts`). Same discipline as the FFI histogram path, which bins the
 // ~300 MB render buffer in-worker and ships back only the 4 KB result.
 
-import { renderHeicThumbToFile } from "./render.ts";
+import { renderHeicThumbToFile } from './render.ts';
 
 interface DecodeRequest {
-  type: "decodeHeic";
+  type: 'decodeHeic';
   id: number;
   srcPath: string;
   thumbPath: string;
@@ -25,29 +25,43 @@ interface DecodeRequest {
 }
 
 interface DecodeResponse {
-  type: "decodeHeic";
+  type: 'decodeHeic';
   id: number;
   ok: boolean;
   error?: string;
 }
 
-self.addEventListener("message", async (event: MessageEvent) => {
-  const req = event.data as DecodeRequest;
-  if (req?.type !== "decodeHeic") return;
+// Serialize renders inside the worker. The sibling FFI/cluster workers get
+// one-at-a-time for free because their handlers are SYNCHRONOUS — the worker
+// event loop runs each message to completion before picking up the next. The
+// HEIC chain has real awaits (readFile → heic-convert → sharp), so an `async`
+// handler would yield at the first await and let a second message start a
+// second render, leaving multiple large input + intermediate-JPEG buffers
+// resident during a burst. Instead the handler is synchronous: it appends the
+// job to a promise chain and returns immediately. Only the running link
+// allocates buffers, so peak memory stays at one input + one intermediate
+// regardless of burst depth; queued jobs sit in the chain as tiny closures.
+let tail: Promise<void> = Promise.resolve();
 
-  try {
-    await renderHeicThumbToFile(req.srcPath, req.thumbPath, req.sizePx);
-    self.postMessage({
-      type: "decodeHeic",
-      id: req.id,
-      ok: true,
-    } satisfies DecodeResponse);
-  } catch (e) {
-    self.postMessage({
-      type: "decodeHeic",
-      id: req.id,
-      ok: false,
-      error: e instanceof Error ? e.message : String(e),
-    } satisfies DecodeResponse);
-  }
+self.addEventListener('message', (event: MessageEvent) => {
+  const req = event.data as DecodeRequest;
+  if (req?.type !== 'decodeHeic') return;
+
+  tail = tail.then(async () => {
+    try {
+      await renderHeicThumbToFile(req.srcPath, req.thumbPath, req.sizePx);
+      self.postMessage({
+        type: 'decodeHeic',
+        id: req.id,
+        ok: true,
+      } satisfies DecodeResponse);
+    } catch (e) {
+      self.postMessage({
+        type: 'decodeHeic',
+        id: req.id,
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      } satisfies DecodeResponse);
+    }
+  });
 });
