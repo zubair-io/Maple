@@ -25,13 +25,11 @@ const MOCK_STATUS: WorkersStatusResponse = {
       lastError: null,
       config: {
         concurrency: 4,
-        pollIntervalMs: 1000,
-        batchSize: 10,
         maxAttempts: 5,
         paused: false,
         last_seen_target_version: 0,
       },
-      batchSize: 10,
+      batchSize: 20,
     },
   ],
 };
@@ -98,7 +96,12 @@ describe('WorkersApiService', () => {
     expect(req.request.body).toEqual({ concurrency: 8 });
     req.flush({
       ok: true,
-      config: { concurrency: 8, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 },
+      config: {
+        concurrency: 8,
+        maxAttempts: 5,
+        paused: false,
+        last_seen_target_version: 0,
+      },
     });
     expect(result?.ok).toBe(true);
     expect(result?.config?.concurrency).toBe(8);

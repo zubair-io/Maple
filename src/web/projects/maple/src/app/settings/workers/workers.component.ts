@@ -3,14 +3,16 @@
 // Combined Workers + Enrichment surface per the v0.2 spec. One row per
 // pipeline stage, grouped Ingest / Enrich / Index. Clicking a row reveals
 // an inline panel with the generic stage runtime config (concurrency,
-// poll, batch, max-attempts) plus, for enrichment stages, the domain
+// max-attempts) plus, for enrichment stages, the domain
 // config (Ollama URL + model, Nominatim URL + rate, face model dir +
 // download URLs). Pause replaces the old "Enable" checkbox; the spec
 // makes paused and disabled the same state.
 //
 // Two data sources are merged here:
-//   - WorkersApiService.getStatus() polls /api/workers/status for live
-//     status / counters / per-stage config.
+//   - WorkerEventsService.workersStatus$ streams live status / counters /
+//     per-stage config over the /api/events WS bridge (#674). A one-shot
+//     WorkersApiService.getStatus() paints the page before the WS handshake
+//     and serves as a non-WS fallback.
 //   - BunApiBackendService.getEnrichmentConfig() supplies the domain
 //     config for describe/geocode/face stages plus the live face-model
 //     loader banner.
@@ -36,6 +38,7 @@ import {
   BunApiBackendService,
   type DeadDoc,
   type EnrichmentConfigResponse,
+  WorkerEventsService,
   WorkersApiService,
   type StageStatus,
   type WorkersStatusResponse,
@@ -43,9 +46,7 @@ import {
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import {
-  ERROR_POLL_MS,
   FIXED_DESCRIBE_MODEL,
-  POLL_MS,
   STAGE_META,
   blankEnrichment,
   blankRuntime,
@@ -80,6 +81,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly fixedDescribeModel = FIXED_DESCRIBE_MODEL;
 
   private readonly api = inject(WorkersApiService);
+  private readonly events = inject(WorkerEventsService);
   private readonly enrichmentApi = inject(BunApiBackendService);
 
   protected readonly status = signal<WorkersStatusResponse | null>(null);
@@ -131,12 +133,19 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   protected readonly summary = computed(() => summarizeStages(this.stages()));
 
-  private pollSub: Subscription | null = null;
-  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private statusSub: Subscription | null = null;
+  private fallbackSub: Subscription | null = null;
   private destroyed = false;
+  /** Set once the WS stream delivers its first *counted* frame, so the
+   * one-shot HTTP fallback never clobbers live WS data with a slower in-flight
+   * response. Gated on `counted` so the cheap registry-only snapshot pushed on
+   * connect (zeroed counts, `config:null`) does NOT disable the fallback — that
+   * fallback carries the real counts + per-stage config that seed the forms. */
+  private gotWsFrame = false;
 
   ngOnInit(): void {
-    this.fetchStatus();
+    this.subscribeStatus();
+    this.fetchStatusFallback();
     this.fetchEnrichmentConfig();
     this.fetchReaperPruneWindow();
   }
@@ -202,32 +211,47 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.destroyed = true;
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer);
-      this.pollTimer = null;
-    }
-    this.pollSub?.unsubscribe();
-    this.pollSub = null;
+    this.statusSub?.unsubscribe();
+    this.statusSub = null;
+    this.fallbackSub?.unsubscribe();
+    this.fallbackSub = null;
   }
 
-  private fetchStatus(): void {
+  /** Live status comes from the `/api/events` WS stream (#674) — the server
+   * pushes a `workers-status` frame instead of the page polling
+   * `GET /workers/status` every ~2s. */
+  private subscribeStatus(): void {
     if (this.destroyed) return;
-    this.pollSub = this.api.getStatus().subscribe({
-      next: (data) => {
-        this.status.set(data);
+    this.statusSub = this.events.workersStatus$.subscribe({
+      next: ({ status, counted }) => {
+        // Always paint the latest frame, but only a counted frame (real
+        // DB-derived counts + per-stage config) is authoritative enough to
+        // suppress the HTTP fallback. A registry-only snapshot would otherwise
+        // set `gotWsFrame` and let the cheap zeroed/`config:null` data win.
+        if (counted) this.gotWsFrame = true;
+        this.status.set(status);
         this.error.set(null);
-        this.scheduleNextPoll(POLL_MS);
       },
       error: (err) => {
         this.error.set(errorMessage(err) ?? 'Failed to load worker status.');
-        this.scheduleNextPoll(ERROR_POLL_MS);
       },
     });
   }
 
-  private scheduleNextPoll(delay: number): void {
+  /** One-shot HTTP fetch so the page paints immediately even before the WS
+   * handshake completes (and as a fallback for non-WS clients). Skipped once a
+   * WS frame has already landed so it can't overwrite fresher live data. */
+  private fetchStatusFallback(): void {
     if (this.destroyed) return;
-    this.pollTimer = setTimeout(() => this.fetchStatus(), delay);
+    this.fallbackSub = this.api.getStatus().subscribe({
+      next: (data) => {
+        if (this.gotWsFrame || this.destroyed) return;
+        this.status.set(data);
+      },
+      error: () => {
+        /* WS is the primary source; ignore the fallback's failure. */
+      },
+    });
   }
 
   // ── Row interactions ────────────────────────────────────────────────────

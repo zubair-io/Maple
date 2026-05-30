@@ -58,6 +58,19 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     let onFullImageFallback: () -> Void
 
     var body: some View {
+        // The LIBRARY drawer wraps the whole tab view so it overlays the
+        // footer tab bar AND the per-tab top bars at full device height
+        // (#692). The Library tab's hamburger writes `isDrawerOpen`; the
+        // drawer reads it, slides over everything, and dims the tab view.
+        AppShellIPhoneDrawer(
+            isDrawerOpen: $isDrawerOpen,
+            mode: mode,
+            mainContent: { tabView },
+            sidebarContent: sidebar
+        )
+    }
+
+    private var tabView: some View {
         TabView(selection: $activeTab) {
             NavigationStack {
                 PhoneLibraryView(
@@ -76,7 +89,6 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     browseDisplayMode: $browseDisplayMode,
                     browseVM: browseVM,
                     sessions: $sessions,
-                    sidebar: sidebar,
                     toolbarContent: toolbarContent,
                     onSelectCloudAsset: onSelectCloudAsset,
                     onCloseSearch: onCloseSearch,

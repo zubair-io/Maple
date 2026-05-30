@@ -221,7 +221,10 @@ extension AppShell {
                     photoKitMerge: photoKitMerge)
                 cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
                 cloudTimelineThumbCache = CloudThumbCache()
-                libraryTitle = (serverID.host ?? serverID.absoluteString) + " — Timeline"
+                // Title is just the library name (the host). The " — Timeline"
+                // suffix was dropped in #692 — it truncated in the compact nav
+                // bar ("maple.lawrence.io — Time…") and added no information.
+                libraryTitle = serverID.host ?? serverID.absoluteString
                 mode = .browse
             }
         }

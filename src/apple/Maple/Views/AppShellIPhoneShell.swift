@@ -2,12 +2,11 @@
 // AppShell.swift as part of the multi-PR split tracked in #123 (slice 6).
 //
 // What's in here:
-//   • `AppShellIPhoneShell` — the iPhone `adaptiveShell` (drawer overlay
-//     wrapping a NavigationStack-hosted center column) plus the Info
-//     sheet that hangs off it. The drawer-stay-open + tap-outside-
-//     dismiss behaviour lives inside `AppShellIPhoneDrawer`; this struct
-//     just composes the drawer, the center column, the iPhone-specific
-//     toolbar items, and the iPhone-specific Info sheet.
+//   • `AppShellIPhoneShell` — the Library tab's center column + its
+//     iPhone-specific toolbar items, plus the Info sheet that hangs off
+//     it. The LIBRARY drawer that overlays the whole tab view (footer +
+//     top bar, full device height) is hosted one level up in
+//     `PhoneTabShell` (#692); this struct just renders the center column.
 //
 // Responsive-program S1a (#597): Settings used to be a modal sheet
 // presented from this shell. Settings is now a top-level tab in
@@ -29,7 +28,7 @@
 import SwiftUI
 import MapleCore
 
-struct AppShellIPhoneShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
+struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
     /// Drawer-snapped state; the hamburger writes this with a spring
     /// animation, the drawer reads it to decide rest-state.
     @Binding var isDrawerOpen: Bool
@@ -60,8 +59,6 @@ struct AppShellIPhoneShell<SidebarContent: View, ToolbarContentT: ToolbarContent
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
-    /// Pre-built sidebar — the drawer renders this as its overlay content.
-    let sidebar: () -> SidebarContent
     /// Pre-built shared toolbar content — composed alongside the iPhone-
     /// only hamburger + Info items inside the NavigationStack's `.toolbar`.
     let toolbarContent: () -> ToolbarContentT
@@ -78,39 +75,12 @@ struct AppShellIPhoneShell<SidebarContent: View, ToolbarContentT: ToolbarContent
     let onFullImageFallback: () -> Void
 
     var body: some View {
-        AppShellIPhoneDrawer(
-            isDrawerOpen: $isDrawerOpen,
-            mode: mode,
-            // libraryTitle is the active source label (e.g. "All Photos" or a
-            // folder name). The drawer's connection-identity row is a stub for
-            // v0.1 — the Maple-instance switcher isn't built yet — so we feed
-            // it the active source label as the closest available identity hint.
-            // S1a / future work will surface the real `maple.lawrence.io` style
-            // connection identity from the selected source.
-            connectionIdentity: libraryTitle,
-            tertiarySummary: "",
-            // S1a (PR pending) wires this to flip the bottom-tab to "search".
-            // Until then the existing iPhone shell has no Search tab to switch
-            // to, so the callback is a no-op; the drawer still posts
-            // .mapleFocusSearch for any future listener.
-            onSearchPillTap: {},
-            mainContent: {
-                // Responsive-program S1a (#597): the surrounding
-                // PhoneTabShell already provides a per-tab
-                // NavigationStack, so this struct no longer wraps its
-                // own. Toolbar items + nav-title attach directly to the
-                // center column.
-                iPhoneMain
-            },
-            sidebarContent: {
-                // Drawer-stay-open by design: the user wants to drill down a
-                // cloud folder tree and toggle expand/collapse without the
-                // drawer collapsing on every selection. Selection still updates
-                // the underlying browse grid; the user closes the drawer
-                // manually via tap-on-dim or drag-back when ready to look at it.
-                sidebar()
-            }
-        )
+        // The LIBRARY drawer is hosted one level up, in `PhoneTabShell`, so it
+        // overlays the whole tab view (footer + top bar) at full device height
+        // (#692). This struct just renders the Library tab's center column +
+        // its toolbar; the surrounding `PhoneTabShell` provides the per-tab
+        // NavigationStack and the drawer.
+        iPhoneMain
         .sheet(isPresented: $iPhoneInfoSheet) {
             NavigationStack {
                 DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)

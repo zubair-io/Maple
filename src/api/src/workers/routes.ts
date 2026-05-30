@@ -25,7 +25,7 @@ import { Elysia, t } from 'elysia';
 import { getDb } from '../db/client.ts';
 import { WorkerConfigRepo } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
-import { buildClaimQuery } from './run-stage.ts';
+import { buildClaimQuery, deriveBatchSize } from './run-stage.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
 import type { StageStatusSnapshot } from './registry.ts';
@@ -51,6 +51,10 @@ const CLAIM_STAGE_NAMES = new Set<string>(ALL_STAGE_NAMES);
 
 const DEAD_LIST_LIMIT_DEFAULT = 50;
 const DEAD_LIST_LIMIT_MAX = 500;
+
+/** Config knobs removed in #674. PATCH rejects these with a 400 so a stale
+ * client that still sends them gets a clear signal instead of a silent no-op. */
+const REMOVED_CONFIG_KEYS = ['pollIntervalMs', 'batchSize'] as const;
 
 // Short-TTL cache for the DB-derived half of /status. Holds worker_config rows
 // and per-stage pending/ready/dead counts; the registry-derived fields (status,
@@ -95,6 +99,22 @@ function invalidateStatusCache(): void {
   statusCache = null;
 }
 
+/**
+ * Pick only the live `WorkerConfig` fields off a raw `worker_config` Mongo doc.
+ * Existing docs may still carry removed knobs (`pollIntervalMs` / `batchSize`,
+ * dropped in #674); without this projection those stale keys would leak back
+ * out through GET /status and the WS `workers-status` frame. Mirrors
+ * `WorkerConfigRepo.load`'s explicit field list so the two never drift.
+ */
+export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
+  return {
+    concurrency: doc.concurrency,
+    maxAttempts: doc.maxAttempts,
+    paused: doc.paused,
+    last_seen_target_version: doc.last_seen_target_version,
+  };
+}
+
 /** Test-only: drop the cached /status snapshot so tests don't see prior state. */
 export function _resetStatusCacheForTests(): void {
   invalidateStatusCache();
@@ -115,7 +135,9 @@ async function fetchStatusDbState(
     assets = db.collection('assets') as import('mongodb').Collection<import('mongodb').Document>;
     const configColl = db.collection<WorkerConfigDoc>('worker_config');
     const allConfigs = await configColl.find({}).toArray();
-    for (const cfg of allConfigs) configMap.set(cfg.name, cfg);
+    // Sanitize before exposing: strip any removed knobs that linger on older
+    // docs so they don't leak through /status or the WS status frame.
+    for (const cfg of allConfigs) configMap.set(cfg.name, sanitizeWorkerConfig(cfg));
   } catch {
     // DB unavailable — counts remain zeros, configMap empty.
   }
@@ -188,54 +210,96 @@ async function fetchStatusDbState(
   return { configMap, pendingByStage, readyByStage, deadByStage };
 }
 
+/** One stage row in the `/status` response (and the WS `workers-status` frame). */
+export interface StageStatusRow {
+  name: string;
+  status: StageStatusSnapshot['status'];
+  inFlight: number;
+  configured: number;
+  pending: number;
+  ready: number;
+  blocked: number;
+  dead: number;
+  throughput: number;
+  lastError: string | null;
+  config: WorkerConfig | null;
+  batchSize: number;
+}
+
+export interface WorkersStatusPayload {
+  stages: StageStatusRow[];
+}
+
+/**
+ * Resolve the DB-derived half of `/status` through the short-TTL cache. Exposed
+ * so the WS broadcaster (routes/events.ts) reuses the exact same cache + count
+ * queries instead of duplicating ~4×nStages `countDocuments` per tab.
+ */
+export async function getStatusDbStateCached(
+  stageNames: string[],
+  statuses: Record<string, StageStatusSnapshot>,
+): Promise<StatusDbState> {
+  const cacheKey = statusCacheKey(stageNames, statuses);
+  const now = Date.now();
+  if (statusCache && statusCache.key === cacheKey && statusCache.expiresAt > now) {
+    return statusCache.data;
+  }
+  const dbState = await fetchStatusDbState(stageNames, statuses);
+  statusCache = { key: cacheKey, data: dbState, expiresAt: now + STATUS_CACHE_TTL_MS };
+  return dbState;
+}
+
+/** Compose the per-stage status rows from the live registry + DB-derived
+ * counts. Pure assembly — no I/O. Shared by the `/status` route and the WS
+ * `workers-status` frame so both render identically. */
+export function assembleWorkersStatus(
+  statuses: Record<string, StageStatusSnapshot>,
+  dbState: StatusDbState,
+): WorkersStatusPayload {
+  const stages = Object.entries(statuses).map(([name, s]) => {
+    const pending = dbState.pendingByStage.get(name) ?? 0;
+    const ready = dbState.readyByStage.get(name) ?? 0;
+    // pending and ready are counted by separate (non-atomic) queries, so
+    // clamp the derived blocked count to avoid a transient negative.
+    const blocked = Math.max(0, pending - ready);
+    const dead = dbState.deadByStage.get(name) ?? 0;
+    const config = dbState.configMap.get(name) ?? null;
+    const configured = config?.concurrency ?? 0;
+    // batchSize is no longer a knob — it's derived as 5×concurrency at the
+    // claim site (#674). Surface the derived value so the UI's
+    // "inFlight / batchSize" cell stays meaningful.
+    const batchSize = deriveBatchSize(configured);
+    return {
+      name,
+      status: s.status,
+      inFlight: s.inFlight,
+      configured,
+      pending,
+      ready,
+      blocked,
+      dead,
+      throughput: s.throughput,
+      lastError: s.lastError,
+      config,
+      batchSize,
+    };
+  });
+  return { stages };
+}
+
+/** Full `/status` payload, resolving the DB half through the shared cache. */
+export async function computeWorkersStatus(): Promise<WorkersStatusPayload> {
+  const statuses = stageRegistry.statuses();
+  const stageNames = Object.keys(statuses);
+  const dbState = await getStatusDbStateCached(stageNames, statuses);
+  return assembleWorkersStatus(statuses, dbState);
+}
+
 export function workerRoutes(): Elysia {
   return new Elysia({ prefix: '/api/workers' })
 
     .get('/status', async () => {
-      const statuses = stageRegistry.statuses();
-      const stageNames = Object.keys(statuses);
-      const cacheKey = statusCacheKey(stageNames, statuses);
-      const now = Date.now();
-
-      let dbState: StatusDbState;
-      if (statusCache && statusCache.key === cacheKey && statusCache.expiresAt > now) {
-        dbState = statusCache.data;
-      } else {
-        dbState = await fetchStatusDbState(stageNames, statuses);
-        statusCache = {
-          key: cacheKey,
-          data: dbState,
-          expiresAt: now + STATUS_CACHE_TTL_MS,
-        };
-      }
-
-      const stages = Object.entries(statuses).map(([name, s]) => {
-        const pending = dbState.pendingByStage.get(name) ?? 0;
-        const ready = dbState.readyByStage.get(name) ?? 0;
-        // pending and ready are counted by separate (non-atomic) queries, so
-        // clamp the derived blocked count to avoid a transient negative.
-        const blocked = Math.max(0, pending - ready);
-        const dead = dbState.deadByStage.get(name) ?? 0;
-        const config = dbState.configMap.get(name) ?? null;
-        const configured = config?.concurrency ?? 0;
-        const batchSize = config?.batchSize ?? 0;
-        return {
-          name,
-          status: s.status,
-          inFlight: s.inFlight,
-          configured,
-          pending,
-          ready,
-          blocked,
-          dead,
-          throughput: s.throughput,
-          lastError: s.lastError,
-          config,
-          batchSize,
-        };
-      });
-
-      return { stages };
+      return computeWorkersStatus();
     })
 
     // Missing-reaper prune window (hours an original must be missing before the
@@ -365,6 +429,17 @@ export function workerRoutes(): Elysia {
           set.status = 404;
           return { error: `unknown stage: ${params.name}` };
         }
+        // `pollIntervalMs` / `batchSize` were removed as knobs (#674) — the
+        // poll cadence is a global constant and batch size is derived as
+        // 5×concurrency. Elysia strips unknown keys before the typed `body`
+        // reaches us, so reject them explicitly from the raw payload rather
+        // than silently ignoring a caller that still sends them.
+        const raw = body as Record<string, unknown>;
+        const removed = REMOVED_CONFIG_KEYS.filter((k) => k in raw);
+        if (removed.length > 0) {
+          set.status = 400;
+          return { error: `removed config keys not accepted: ${removed.join(', ')}` };
+        }
         try {
           const db = await getDb();
           const coll = db.collection('worker_config');
@@ -381,12 +456,16 @@ export function workerRoutes(): Elysia {
         }
       },
       {
+        // Loosely-typed body (`additionalProperties: true`, the default) so the
+        // removed knobs survive normalization and the handler can 400 on them.
+        // The accepted fields are still bounds-validated here; concurrency's
+        // ceiling rose 32 → 100 (#674).
         body: t.Object({
-          concurrency: t.Optional(t.Integer({ minimum: 1, maximum: 32 })),
-          pollIntervalMs: t.Optional(t.Integer({ minimum: 100, maximum: 60000 })),
-          batchSize: t.Optional(t.Integer({ minimum: 1, maximum: 100 })),
+          concurrency: t.Optional(t.Integer({ minimum: 1, maximum: 100 })),
           maxAttempts: t.Optional(t.Integer({ minimum: 1, maximum: 20 })),
           paused: t.Optional(t.Boolean()),
+          pollIntervalMs: t.Optional(t.Unknown()),
+          batchSize: t.Optional(t.Unknown()),
         }),
       },
     );

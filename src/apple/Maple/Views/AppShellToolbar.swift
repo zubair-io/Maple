@@ -19,17 +19,23 @@ struct AppShellToolbar: ToolbarContent {
     let isFullImage: Bool
     /// True when an `EditSession` is selected — gates the Export button.
     let hasSelection: Bool
+    /// True on the compact (iPhone) shell, where Library / Search / Settings
+    /// live in the bottom tab bar. Desktop (Mac / iPad) renders them as a
+    /// trailing toolbar group instead.
+    let isCompact: Bool
     /// True when search can run — i.e. a Maple Cloud library is selected.
-    /// Gates (disables) the search button on local / PhotoKit / SMB sources.
+    /// Gates (disables) the desktop Search button.
     let searchAvailable: Bool
-    /// True when the search UI is currently showing — drives the button tint.
+    /// True when the search UI is currently showing — drives the Search tint.
     let isSearchActive: Bool
     /// Grid fill/fit toggle — toolbar both reads (icon) and writes (tap).
     @Binding var browseDisplayMode: GridDisplayMode
     /// Tapped when the user hits the Back chevron in Full-image mode.
     let onBack: () -> Void
-    /// Toggles the cloud search UI on/off.
-    let onToggleSearch: () -> Void
+    /// Desktop only — toggles the sources sidebar column (the "Library" button).
+    let onToggleSidebar: () -> Void
+    /// Desktop only — opens the cloud search view (the "Search" button).
+    let onOpenSearch: () -> Void
     /// Tapped when the user hits Export (also keyboard ⌘E).
     let onExport: () -> Void
     /// Triggered by the hidden ⌘O keyboard shortcut.
@@ -45,27 +51,16 @@ struct AppShellToolbar: ToolbarContent {
         // image name." Per UX request: back/share/zoom controls live in
         // the header next to the menu button rather than at the trailing
         // edge after the title.
-        ToolbarItem(placement: .navigation) {
-            if isFullImage {
+        // Back chevron — Full-image only. The library-search magnifying glass
+        // was removed in #692; search is now a top-level destination (bottom
+        // tab on iPhone, the trailing Library/Search/Settings group on desktop).
+        if isFullImage {
+            ToolbarItem(placement: .navigation) {
                 Button("Back", systemImage: "chevron.left") {
                     onBack()
                 }
                 .keyboardShortcut(.escape, modifiers: [])
                 .accessibilityLabel("Back to Library")
-            } else {
-                // Library search — Maple-Cloud-only (the /api/search endpoint
-                // is server-backed + auth-gated), so it's disabled unless a
-                // cloud library is selected.
-                Button {
-                    onToggleSearch()
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(isSearchActive
-                                         ? MapleTokens.primary : MapleTokens.textMuted)
-                }
-                .disabled(!searchAvailable)
-                .accessibilityLabel("Search")
-                .accessibilityIdentifier("search-toggle")
             }
         }
         // Grid fill/fit toggle — only relevant in browse mode. Persists for
@@ -93,25 +88,55 @@ struct AppShellToolbar: ToolbarContent {
             .disabled(!hasSelection)
             .keyboardShortcut("e", modifiers: .command)
         }
-        // ⌘O still works even though the button has moved into the sidebar.
-        ToolbarItem(placement: .automatic) {
-            Button("Open Folder", systemImage: "folder.badge.plus") {
-                onOpenFolder()
+        // ⌘O keyboard shortcut — desktop only. Omitted on the compact (iPhone)
+        // shell: there's no hardware ⌘O there, and a hidden trailing item would
+        // otherwise render as an empty glass capsule (iOS 26 groups toolbar
+        // items into capsules) now that the Settings gear has moved out. #692.
+        if !isCompact {
+            ToolbarItem(placement: .automatic) {
+                Button("Open Folder", systemImage: "folder.badge.plus") {
+                    onOpenFolder()
+                }
+                .keyboardShortcut("o", modifiers: .command)
+                // Hide from the visible toolbar — keyboard shortcut only.
+                .hidden()
+                .accessibilityHidden(true)
             }
-            .keyboardShortcut("o", modifiers: .command)
-            // Hide from the visible toolbar — keyboard shortcut only.
-            .hidden()
-            .accessibilityHidden(true)
         }
-        ToolbarItem(placement: .automatic) {
-            Button("Settings", systemImage: "gear") {
-                onSettings()
+        // Trailing primary nav — desktop (Mac / iPad) only. iPhone gets these
+        // three as the bottom tab bar (Library / Search / Settings), so the
+        // compact shell renders nothing here. Mirrors the iOS footer. #692.
+        if !isCompact {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    onToggleSidebar()
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .foregroundStyle(MapleTokens.textMuted)
+                }
+                .accessibilityLabel("Library")
+                .accessibilityIdentifier("library-toggle")
+
+                Button {
+                    onOpenSearch()
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(isSearchActive
+                                         ? MapleTokens.primary : MapleTokens.textMuted)
+                }
+                .disabled(!searchAvailable)
+                .accessibilityLabel("Search")
+                .accessibilityIdentifier("search-toggle")
+
+                Button("Settings", systemImage: "gear") {
+                    onSettings()
+                }
+                .accessibilityLabel("Settings")
+                .accessibilityIdentifier("settings-button")
+                #if os(macOS)
+                .keyboardShortcut(",", modifiers: .command)
+                #endif
             }
-            .accessibilityLabel("Settings")
-            .accessibilityIdentifier("settings-button")
-            #if os(macOS)
-            .keyboardShortcut(",", modifiers: .command)
-            #endif
         }
     }
 }

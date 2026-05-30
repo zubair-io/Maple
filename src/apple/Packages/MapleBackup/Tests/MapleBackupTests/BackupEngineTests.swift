@@ -30,6 +30,7 @@ private actor FailingAssetReader: AssetReader {
     }
 }
 
+
 final class BackupEngineTests: XCTestCase {
 
     override func setUp() {
@@ -59,6 +60,31 @@ final class BackupEngineTests: XCTestCase {
         let engine = BackupEngine(queue: queue, state: state, upload: upload,
                                   sidecars: sidecars, reader: reader)
         return (engine, queue, state, sidecars, reader, tmpRoot)
+    }
+
+    /// Variant exposing the #700 `companionBackoff` injection point. Returns the
+    /// 5 handles the companion tests need (the reader stub is not inspected).
+    private func freshHarness(
+        companionBackoff: @escaping @Sendable (Int) -> TimeInterval
+    ) throws -> (BackupEngine, InProcessBackupQueue, BackupStateStore, AppSupportSidecarStore, URL) {
+        let tmpRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+
+        let queue = InProcessBackupQueue()
+        let state = try BackupStateStore(databaseURL: stateURL)
+        let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+        let reader = StubAssetReader()
+        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
+                                  libraryId: "lib", deviceId: "d",
+                                  session: stubSession())
+        let engine = BackupEngine(queue: queue, state: state, upload: upload,
+                                  sidecars: sidecars, reader: reader,
+                                  companionBackoff: companionBackoff)
+        return (engine, queue, state, sidecars, tmpRoot)
     }
 
     // Convenience: a sequence stub for the standard two-request happy path
@@ -346,4 +372,221 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertEqual(reEnqueuedRetryCount, 0,
             "busy-elsewhere is coordination, not failure — retryCount must not be burned")
     }
+
+    // MARK: - #700: best-effort companions
+
+    /// Count recorded requests whose URL path contains `needle`.
+    private func requestCount(containing needle: String) -> Int {
+        StubURLProtocol.recordedRequests.filter {
+            $0.url?.path.contains(needle) == true
+        }.count
+    }
+
+    /// Poll until `predicate` holds or the deadline elapses. Avoids sleeping a
+    /// fixed duration when waiting on the detached companion-retry path.
+    private func wait(timeout: TimeInterval = 2.0,
+                      until predicate: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    /// A sidecar (companion) failure must leave the PHOTO uploaded, must NOT
+    /// re-upload the bytes, and must retry the sidecar separately until it
+    /// lands. The discriminator for "bytes not re-uploaded" is that retries
+    /// hit `/sidecar`, never `/ingest` — so the ingest request count stays 1.
+    func testCompanionFailureLeavesPhotoUploadedAndRetriesSidecar() async throws {
+        // ingest 200+json → sidecar 500 (inline) → sidecar 200 (retry).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+            .status(200),
+        ])
+        let (engine, queue, state, sidecars, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 0 })
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        // Cancel any lingering companion-retry task so it can't leak into the
+        // next test's global StubURLProtocol state.
+        let engineRef = engine
+        defer { Task { await engineRef.stop() } }
+
+        // Seed a local-edit sidecar so the durability-critical path is exercised
+        // and we can assert delete-only-after-it-lands.
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        // processOne returns once the inline sidecar attempt fails (no throw).
+        try await engine.processOne()
+
+        // The photo is uploaded despite the sidecar hiccup.
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .uploaded,
+            "a companion failure must not fail the photo")
+
+        // The sidecar retry eventually lands (2nd sidecar request).
+        await wait { self.requestCount(containing: "backup/sidecar") >= 2 }
+        XCTAssertGreaterThanOrEqual(requestCount(containing: "backup/sidecar"), 2,
+            "the sidecar companion must be retried separately until it lands")
+
+        // Bytes were never re-uploaded — exactly one ingest request total.
+        XCTAssertEqual(requestCount(containing: "backup/ingest"), 1,
+            "a companion failure must NOT re-upload the photo bytes")
+
+        // The local-edit sidecar is deleted only after the retry succeeds.
+        await wait { (try? sidecars.read(phassetLocalId: "P1")) == nil }
+        XCTAssertNil(try sidecars.read(phassetLocalId: "P1"),
+            "local sidecar should be deleted once the sidecar upload finally lands")
+    }
+
+    /// Sidecar-idempotency invariant: while the sidecar upload is still failing,
+    /// the local-edit XMP must remain on disk so a retry re-derives correctly.
+    func testLocalSidecarRetainedUntilSidecarUploadSucceeds() async throws {
+        // ingest 200+json → sidecar 500 forever (sequence exhausts → 500).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+        ])
+        // Hold the companion retry off (large backoff) so the inline 500 is the
+        // only sidecar attempt during the assertion window.
+        let (engine, queue, state, sidecars, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 999 })
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let engineRef = engine
+        defer { Task { await engineRef.stop() } }
+
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        // Photo uploaded, but the sidecar upload failed — the local XMP must
+        // survive so the bounded retry (and any future walk) can re-derive it.
+        let rowState = try await state.find(id)?.state
+        XCTAssertEqual(rowState, .uploaded)
+        XCTAssertNotNil(try sidecars.read(phassetLocalId: "P1"),
+            "local sidecar must NOT be deleted before the sidecar upload lands")
+    }
+
+    // MARK: - #702: companion-pending / -resolved events
+
+    /// Thread-safe sink that drains a queue's event stream into a list so a test
+    /// can assert which companion-lifecycle events fired and in what order.
+    private final class EventSink: @unchecked Sendable {
+        private let lock = NSLock()
+        private var events: [BackupQueueEvent] = []
+        private var task: Task<Void, Never>?
+
+        func attach(to queue: InProcessBackupQueue) async {
+            let stream = await queue.observe()
+            task = Task { [weak self] in
+                for await event in stream {
+                    guard let self else { return }
+                    self.lock.lock(); self.events.append(event); self.lock.unlock()
+                }
+            }
+        }
+        func stop() { task?.cancel() }
+        var snapshot: [BackupQueueEvent] {
+            lock.lock(); defer { lock.unlock() }; return events
+        }
+        func count(where pred: (BackupQueueEvent) -> Bool) -> Int {
+            snapshot.filter(pred).count
+        }
+    }
+
+    /// When a companion falls into its bounded retry path, the engine emits
+    /// `.companionPending` once; when the last companion lands on a retry it
+    /// emits `.companionsResolved` once. The photo's `.completed` must precede
+    /// both (bytes land before companion work).
+    func testCompanionPendingThenResolvedOnRetrySuccess() async throws {
+        // ingest 200+json → sidecar 500 (inline fail) → sidecar 200 (retry lands).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+            .status(200),
+        ])
+        let (engine, queue, state, sidecars, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 0 })
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let engineRef = engine
+        defer { Task { await engineRef.stop() } }
+
+        let sink = EventSink()
+        await sink.attach(to: queue)
+        defer { sink.stop() }
+
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        // Inline sidecar failed → pending fired (once).
+        await wait { sink.count { if case .companionPending(let e) = $0 { return e == id }; return false } == 1 }
+        // Retry lands → resolved fired (once).
+        await wait { sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false } == 1 }
+
+        let events = sink.snapshot
+        let completedIdx = events.firstIndex { if case .completed(let e, _) = $0 { return e == id }; return false }
+        let pendingIdx = events.firstIndex { if case .companionPending(let e) = $0 { return e == id }; return false }
+        let resolvedIdx = events.firstIndex { if case .companionsResolved(let e) = $0 { return e == id }; return false }
+        XCTAssertNotNil(completedIdx)
+        XCTAssertNotNil(pendingIdx)
+        XCTAssertNotNil(resolvedIdx)
+        XCTAssertLessThan(completedIdx!, pendingIdx!, ".completed must precede .companionPending")
+        XCTAssertLessThan(pendingIdx!, resolvedIdx!, ".companionPending must precede .companionsResolved")
+        XCTAssertEqual(sink.count { if case .companionPending(let e) = $0 { return e == id }; return false }, 1,
+                       "exactly one pending signal regardless of retries")
+        XCTAssertEqual(sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false }, 1,
+                       "exactly one resolved signal at the →0 terminus")
+    }
+
+    /// A derived companion (no local edit → derivedCompanionRetries=2) that
+    /// never succeeds must still emit `.companionsResolved` when its budget
+    /// exhausts — otherwise the photo leaks as permanently "pending".
+    func testCompanionResolvedFiresOnExhaustion() async throws {
+        // ingest 200+json → sidecar 500 forever (sequence exhausts → 500).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+        ])
+        let (engine, queue, state, _, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 0 })
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let engineRef = engine
+        defer { Task { await engineRef.stop() } }
+
+        let sink = EventSink()
+        await sink.attach(to: queue)
+        defer { sink.stop() }
+
+        // No local-edit sidecar written → derived path, 2 attempts then drop.
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        await wait { sink.count { if case .companionPending(let e) = $0 { return e == id }; return false } == 1 }
+        await wait { sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false } == 1 }
+
+        XCTAssertEqual(sink.count { if case .companionPending(let e) = $0 { return e == id }; return false }, 1,
+                       "pending fires once on the inline failure")
+        XCTAssertEqual(sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false }, 1,
+                       "resolved must fire when the derived companion exhausts its budget, not leak")
+    }
+
 }

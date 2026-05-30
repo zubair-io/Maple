@@ -10,8 +10,8 @@
  * process, no IPC.
  */
 
-import type { Collection } from "mongodb";
-import type { WorkerConfig } from "./run-stage.ts";
+import type { Collection } from 'mongodb';
+import type { WorkerConfig } from './run-stage.ts';
 
 export interface WorkerConfigDoc extends WorkerConfig {
   /** Stage name — the unique key for this collection. */
@@ -27,8 +27,6 @@ export class WorkerConfigRepo {
     if (!doc) return null;
     return {
       concurrency: doc.concurrency,
-      pollIntervalMs: doc.pollIntervalMs,
-      batchSize: doc.batchSize,
       maxAttempts: doc.maxAttempts,
       paused: doc.paused,
       last_seen_target_version: doc.last_seen_target_version,
@@ -37,11 +35,7 @@ export class WorkerConfigRepo {
 
   /** Upsert (insert-or-replace) a stage config. */
   async upsert(name: string, config: WorkerConfig): Promise<void> {
-    await this.coll.updateOne(
-      { name },
-      { $set: { name, ...config } },
-      { upsert: true },
-    );
+    await this.coll.updateOne({ name }, { $set: { name, ...config } }, { upsert: true });
   }
 
   /** Patch only the supplied fields on an existing config doc.

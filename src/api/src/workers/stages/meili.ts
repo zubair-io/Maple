@@ -178,8 +178,6 @@ const meiliStage = defineStage({
   dependsOn: ['exif', 'thumb'],
   defaults: {
     concurrency: 2,
-    pollIntervalMs: 1000,
-    batchSize: 20,
     maxAttempts: 5,
     paused: false,
     last_seen_target_version: 0,

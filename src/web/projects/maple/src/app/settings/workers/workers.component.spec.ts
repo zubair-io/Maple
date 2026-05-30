@@ -3,14 +3,25 @@ import { provideHttpClientTesting, HttpTestingController } from '@angular/common
 import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { Subject } from 'rxjs';
 import { WorkersComponent } from './workers.component';
-import { API_BASE_URL } from '@maple-common';
-import type { WorkersStatusResponse, EnrichmentConfigResponse } from '@maple-common';
+import { API_BASE_URL, WorkerEventsService } from '@maple-common';
+import type {
+  WorkersStatusResponse,
+  WorkersStatusUpdate,
+  EnrichmentConfigResponse,
+} from '@maple-common';
+
+// Stub the WS events service so the component renders from a `workers-status`
+// frame (#674) without opening a real socket. The Subject lets each test push a
+// status update ({ status, counted }) deterministically.
+const wsFrames = new Subject<WorkersStatusUpdate>();
+const workerEventsStub: Pick<WorkerEventsService, 'workersStatus$'> = {
+  workersStatus$: wsFrames.asObservable(),
+};
 
 const MOCK_CONFIG = {
   concurrency: 4,
-  pollIntervalMs: 1000,
-  batchSize: 10,
   maxAttempts: 5,
   paused: false,
   last_seen_target_version: 1,
@@ -45,13 +56,11 @@ const MOCK_STATUS: WorkersStatusResponse = {
       lastError: null,
       config: {
         concurrency: 2,
-        pollIntervalMs: 1000,
-        batchSize: 5,
         maxAttempts: 5,
         paused: false,
         last_seen_target_version: 1,
       },
-      batchSize: 5,
+      batchSize: 10,
     },
     {
       name: 'describe',
@@ -66,13 +75,11 @@ const MOCK_STATUS: WorkersStatusResponse = {
       lastError: 'API key invalid',
       config: {
         concurrency: 2,
-        pollIntervalMs: 1000,
-        batchSize: 5,
         maxAttempts: 5,
         paused: false,
         last_seen_target_version: 1,
       },
-      batchSize: 5,
+      batchSize: 10,
     },
   ],
 };
@@ -129,6 +136,7 @@ describe('WorkersComponent', () => {
         provideHttpClientTesting(),
         provideRouter([]),
         { provide: API_BASE_URL, useValue: '/api' },
+        { provide: WorkerEventsService, useValue: workerEventsStub },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(WorkersComponent);
@@ -142,15 +150,19 @@ describe('WorkersComponent', () => {
   });
 
   function initWithMock(): void {
-    // ngOnInit fires both polls — flush both so HttpTestingController.verify()
-    // doesn't complain at teardown.
+    // ngOnInit subscribes to the WS stream and fires a one-shot HTTP fallback
+    // (#674). Push the status frame over the WS stub so it drives rendering;
+    // flush the fallback GET (ignored once the WS frame lands) + enrichment so
+    // HttpTestingController.verify() is satisfied at teardown.
     fixture.detectChanges();
+    // A counted frame is authoritative and suppresses the HTTP fallback.
+    wsFrames.next({ status: MOCK_STATUS, counted: true });
     http.expectOne('/api/workers/status').flush(MOCK_STATUS);
     http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
     fixture.detectChanges();
   }
 
-  it('fetches status on init and renders one row per stage', () => {
+  it('renders one row per stage from the WS status frame', () => {
     initWithMock();
     const rows = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
     expect(rows.length).toBe(3);
@@ -267,6 +279,42 @@ describe('WorkersComponent', () => {
     expect(hashRow.querySelector('.expanded')).toBeTruthy();
     // Save + Reset buttons exist in the footer.
     expect(hashRow.querySelector('.btn-primary')?.textContent?.trim()).toContain('Save');
+  });
+
+  it('lets the HTTP fallback win after only an uncounted (registry-only) WS frame', () => {
+    // The server's initial cheap snapshot: zeroed counts, config:null. It must
+    // NOT disable the fallback, or the page would seed forms from defaults.
+    const cheap: WorkersStatusResponse = {
+      stages: [
+        {
+          name: 'hash',
+          status: 'running',
+          inFlight: 0,
+          configured: 0,
+          pending: 0,
+          ready: 0,
+          blocked: 0,
+          dead: 0,
+          throughput: 0,
+          lastError: null,
+          config: null,
+          batchSize: 0,
+        },
+      ],
+    };
+    fixture.detectChanges();
+    wsFrames.next({ status: cheap, counted: false });
+    // Fallback flushes the real status — and because the WS frame was
+    // uncounted, the component accepts it instead of ignoring it.
+    http.expectOne('/api/workers/status').flush(MOCK_STATUS);
+    http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
+    fixture.detectChanges();
+
+    const rows = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
+    expect(rows.length).toBe(3);
+    const hashRow = Array.from<HTMLElement>(rows).find((r) => r.textContent?.includes('hash'))!;
+    // Real configured value from the fallback, not the cheap snapshot's 0.
+    expect(hashRow.querySelector('[data-testid="workers"]')?.textContent?.trim()).toBe('4');
   });
 
   // ── Open logs drawer ──────────────────────────────────────────────────
