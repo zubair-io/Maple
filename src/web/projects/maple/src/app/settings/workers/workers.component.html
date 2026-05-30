@@ -92,8 +92,8 @@
                 <span data-testid="pending-ready">{{ s.ready | number }}</span>
                 @if (s.blocked > 0) {
                   <span class="dim" data-testid="pending-blocked">
-                    · {{ s.blocked | number }} blkd</span
-                  >
+                    · {{ s.blocked | number }} blkd
+                  </span>
                 }
               </span>
               <span class="mono r dead-cell" data-testid="dead-cell" [class.has-dead]="s.dead > 0">

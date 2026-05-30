@@ -13,11 +13,7 @@
  * level singleton — there is only one API server.
  */
 
-export type StageStatus =
-  | "running"
-  | "paused"
-  | "stopped"
-  | "error";
+export type StageStatus = "running" | "paused" | "stopped" | "error";
 
 /** A stage's upstream dependency, resolved to its concrete minimum version.
  * Mirrors the shape `buildClaimQuery` consumes in run-stage.ts. */
@@ -68,7 +64,10 @@ class StageRegistry {
    * WS bridge. Matches the old multi-process supervisor's behaviour where
    * `addStage()` registered every stage immediately with `status: "stopped"`.
    */
-  private readonly known = new Map<string, { targetVersion: number; dependsOn: ResolvedDep[] }>();
+  private readonly known = new Map<
+    string,
+    { targetVersion: number; dependsOn: ResolvedDep[] }
+  >();
 
   /**
    * Declare a stage the orchestrator plans to start so `statuses()` reports
@@ -76,7 +75,11 @@ class StageRegistry {
    * times — updates `targetVersion` / `dependsOn` and leaves any existing
    * live entry / recorded error untouched.
    */
-  preregister(name: string, targetVersion: number, dependsOn: ResolvedDep[] = []): void {
+  preregister(
+    name: string,
+    targetVersion: number,
+    dependsOn: ResolvedDep[] = [],
+  ): void {
     this.known.set(name, { targetVersion, dependsOn });
   }
 
@@ -144,7 +147,10 @@ class StageRegistry {
       await entry.pause();
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
@@ -155,7 +161,10 @@ class StageRegistry {
       await entry.resume();
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
@@ -170,14 +179,19 @@ class StageRegistry {
     this.known.clear();
   }
 
-  async notifyConfigChanged(name: string): Promise<{ ok: boolean; error?: string }> {
+  async notifyConfigChanged(
+    name: string,
+  ): Promise<{ ok: boolean; error?: string }> {
     const entry = this.entries.get(name);
     if (!entry) return { ok: false, error: `unknown stage: ${name}` };
     try {
       await entry.reloadConfig();
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 }
