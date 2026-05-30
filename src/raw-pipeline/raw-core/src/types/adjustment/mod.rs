@@ -317,6 +317,34 @@ pub struct AdjustmentModel {
     pub nr_luminance: f32,   // 0..100, default 0 (spec § 3.11)
     pub nr_color: f32,       // 0..100, default 25 (default = the reference renderer's default)
     pub dehaze: f32,         // -100..100, default 0
+
+    // S5 effects fields (ticket #643). Identity-stub scalars: model + UI
+    // wiring only — no pipeline stage consumes these yet, so defaults are
+    // chosen so that an absent-attribute sidecar (or a freshly-created
+    // model) produces bit-identical output to the pre-#643 pipeline.
+    // Follow-up tickets track the actual pipeline math.
+    //
+    // Vignette (§ 3.12). Drag-bar drives `vignette_amount`; `vignette_feather`
+    // is exposed for XMP round-trip and future direct UI control.
+    pub vignette_amount: f32,        // -100..100, default 0 (negative = darken corners)
+    pub vignette_feather: f32,       // 0..100, default 50 (transition softness)
+
+    // Grain (§ 3.13). Drag-bar drives `grain_amount`; size + roughness are
+    // exposed for XMP round-trip and future direct UI control.
+    pub grain_amount: f32,           // 0..100, default 0
+    pub grain_size: f32,             // 0..100, default 25
+    pub grain_roughness: f32,        // 0..100, default 50
+
+    // Split toning (§ 3.14). Drag-bar drives `split_tone_balance` (the
+    // shadow/highlight blend point); the four hue/sat scalars are exposed
+    // for XMP round-trip and future direct UI control. Hue is in degrees
+    // (Lightroom convention); saturation is `[0, 100]`.
+    pub split_tone_shadow_hue: f32,         // 0..360, default 0
+    pub split_tone_shadow_saturation: f32,  // 0..100, default 0
+    pub split_tone_highlight_hue: f32,      // 0..360, default 0
+    pub split_tone_highlight_saturation: f32, // 0..100, default 0
+    pub split_tone_balance: f32,            // -100..100, default 0
+
     pub highlight_recovery: HighlightRecoveryMode,
 
     /// Per-image auto-exposure mode (ticket #429). Default `On` — places
@@ -413,6 +441,18 @@ impl Default for AdjustmentModel {
             nr_luminance: 0.0,
             nr_color: 25.0,
             dehaze: 0.0,
+            // Per-#643: S5 effects fields (vignette / grain / split tone).
+            // Identity-stub defaults so first-open output is unchanged.
+            vignette_amount: 0.0,
+            vignette_feather: 50.0,
+            grain_amount: 0.0,
+            grain_size: 25.0,
+            grain_roughness: 50.0,
+            split_tone_shadow_hue: 0.0,
+            split_tone_shadow_saturation: 0.0,
+            split_tone_highlight_hue: 0.0,
+            split_tone_highlight_saturation: 0.0,
+            split_tone_balance: 0.0,
             highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
             // Per-#429: scene-anchor on by default — places mid-gray at
             // 0.18 before AgX. Users can opt out per-image for strict
@@ -490,6 +530,25 @@ mod tests {
         // Per ticket #371: new users get the empirical Look, not Neutral.
         let m = AdjustmentModel::default();
         assert_eq!(m.look, Look::Default);
+    }
+
+    #[test]
+    fn s5_effects_fields_default_to_identity_stubs() {
+        // Per ticket #643: vignette / grain / split-tone fields added so
+        // the S5 tool pills can wire to the model. Defaults are chosen so
+        // the pipeline (which doesn't consume these yet) produces
+        // bit-identical output to the pre-#643 baseline.
+        let m = AdjustmentModel::default();
+        assert_eq!(m.vignette_amount, 0.0);
+        assert_eq!(m.vignette_feather, 50.0);
+        assert_eq!(m.grain_amount, 0.0);
+        assert_eq!(m.grain_size, 25.0);
+        assert_eq!(m.grain_roughness, 50.0);
+        assert_eq!(m.split_tone_shadow_hue, 0.0);
+        assert_eq!(m.split_tone_shadow_saturation, 0.0);
+        assert_eq!(m.split_tone_highlight_hue, 0.0);
+        assert_eq!(m.split_tone_highlight_saturation, 0.0);
+        assert_eq!(m.split_tone_balance, 0.0);
     }
 
     #[test]

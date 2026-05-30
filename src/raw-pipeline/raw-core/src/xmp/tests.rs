@@ -214,3 +214,64 @@ fn parse_texture_min() {
     let m = parse(&xml).unwrap();
     assert_eq!(m.texture, -100.0);
 }
+
+/// S5 effects fields (ticket #643): vignette / grain / split-tone scalars
+/// parse from Lightroom-compatible `crs:` keys (PostCropVignette*, Grain*,
+/// SplitToning*). `crs:GrainFrequency` lands on `grain_roughness` — Maple's
+/// name for LR's third grain knob.
+#[test]
+fn parse_s5_effects_fields() {
+    let xml = r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+              crs:PostCropVignetteAmount="-40"
+              crs:PostCropVignetteFeather="70"
+              crs:GrainAmount="35"
+              crs:GrainSize="40"
+              crs:GrainFrequency="55"
+              crs:SplitToningShadowHue="220"
+              crs:SplitToningShadowSaturation="30"
+              crs:SplitToningHighlightHue="40"
+              crs:SplitToningHighlightSaturation="25"
+              crs:SplitToningBalance="-15"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.vignette_amount, -40.0);
+    assert_eq!(m.vignette_feather, 70.0);
+    assert_eq!(m.grain_amount, 35.0);
+    assert_eq!(m.grain_size, 40.0);
+    assert_eq!(m.grain_roughness, 55.0);
+    assert_eq!(m.split_tone_shadow_hue, 220.0);
+    assert_eq!(m.split_tone_shadow_saturation, 30.0);
+    assert_eq!(m.split_tone_highlight_hue, 40.0);
+    assert_eq!(m.split_tone_highlight_saturation, 25.0);
+    assert_eq!(m.split_tone_balance, -15.0);
+}
+
+/// Absent S5 effects attributes round-trip as the identity-stub defaults
+/// — vignetteFeather=50, grainSize=25, grainRoughness=50, everything else
+/// 0. Guards the "default-shaped sidecar produces the canonical default
+/// model" invariant.
+#[test]
+fn parse_no_s5_attrs_leaves_defaults() {
+    let xml = r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="0"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+    let m = parse(xml).unwrap();
+    let d = AdjustmentModel::default();
+    assert_eq!(m.vignette_amount, d.vignette_amount);
+    assert_eq!(m.vignette_feather, d.vignette_feather);
+    assert_eq!(m.grain_amount, d.grain_amount);
+    assert_eq!(m.grain_size, d.grain_size);
+    assert_eq!(m.grain_roughness, d.grain_roughness);
+    assert_eq!(m.split_tone_shadow_hue, d.split_tone_shadow_hue);
+    assert_eq!(m.split_tone_shadow_saturation, d.split_tone_shadow_saturation);
+    assert_eq!(m.split_tone_highlight_hue, d.split_tone_highlight_hue);
+    assert_eq!(m.split_tone_highlight_saturation, d.split_tone_highlight_saturation);
+    assert_eq!(m.split_tone_balance, d.split_tone_balance);
+}
