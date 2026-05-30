@@ -104,13 +104,19 @@ struct BackupStatusPanel: View {
           HStack(spacing: 8) {
             ForEach(progress.inFlight.prefix(3)) { item in
               VStack(spacing: 2) {
-                ThumbnailTile(localIdentifier: item.id.phassetLocalId)
+                // `size:` is pinned to the same constant that drives
+                // `uploadRowHeight` so the tile and the reserved row height
+                // can't drift apart (review on #711).
+                ThumbnailTile(localIdentifier: item.id.phassetLocalId, size: Self.uploadTileSize)
                 // Always reserve the label line so a tile's height is stable
-                // whether or not a fraction has arrived yet.
+                // whether or not a fraction has arrived yet. The placeholder
+                // is hidden from VoiceOver so the blank line isn't an empty
+                // accessibility element (review on #711).
                 Text(item.fractionDone.map { "\(Int($0 * 100))%" } ?? " ")
                   .font(.system(size: Self.uploadLabelFontSize))
                   .foregroundStyle(.secondary)
                   .monospacedDigit()
+                  .accessibilityHidden(item.fractionDone == nil)
               }
             }
             Spacer()
