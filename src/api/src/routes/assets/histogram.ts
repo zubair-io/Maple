@@ -12,11 +12,13 @@
  * Pipeline:
  *   1. Resolve `id` → AssetCoreInfo (Mongo ObjectId hex).
  *   2. Resolve RAW abs-path + (optional) XMP sidecar.
- *   3. Compute the cache key `max(raw_mtime, sidecar_mtime)` so a re-edit
- *      invalidates without a flush. The histogram lives at
- *      `.maple/histograms/<maple_id>.json`; the JSON includes the key in
- *      a `key` field, so a stale on-disk file is detected by reading
- *      it back without re-rendering.
+ *   3. Compute the cache key as the tuple `<raw_mtime_ms>-<xmp_mtime_ms_or_none>`
+ *      so a re-edit invalidates without a flush. The histogram lives at
+ *      `<lib>/<rel>/.maple/previews/<maple_id>_histogram.json` (composed via
+ *      `cachePathForAsset(.., 'previews', 'histogram')` with the trailing
+ *      `.jpg` swapped to `.json`); the JSON includes the key in a `key`
+ *      field, so a stale on-disk file is detected by reading it back
+ *      without re-rendering.
  *   4. Cache miss → ffiPool().computeHistogram(raw, xmp).
  *   5. Persist + serve.
  *
@@ -71,12 +73,19 @@ async function readCached(jsonPath: string, expectedKey: string): Promise<Histog
     const raw = await readFile(jsonPath, 'utf-8');
     const parsed = JSON.parse(raw) as Partial<CachedHistogram>;
     if (parsed?.key !== expectedKey) return null;
-    if (!parsed.bins || !Array.isArray(parsed.bins.r) || !Array.isArray(parsed.bins.g) ||
-        !Array.isArray(parsed.bins.b)) {
+    if (
+      !parsed.bins ||
+      !Array.isArray(parsed.bins.r) ||
+      !Array.isArray(parsed.bins.g) ||
+      !Array.isArray(parsed.bins.b)
+    ) {
       return null;
     }
-    if (parsed.bins.r.length !== 256 || parsed.bins.g.length !== 256 ||
-        parsed.bins.b.length !== 256) {
+    if (
+      parsed.bins.r.length !== 256 ||
+      parsed.bins.g.length !== 256 ||
+      parsed.bins.b.length !== 256
+    ) {
       return null;
     }
     return { r: parsed.bins.r, g: parsed.bins.g, b: parsed.bins.b };
@@ -91,7 +100,10 @@ async function writeCached(jsonPath: string, payload: CachedHistogram): Promise<
   try {
     const allowed = await safeWriteAllowed(jsonPath);
     if (!allowed.ok) {
-      assetsLog.warn({ jsonPath, error: allowed.error }, 'histogram cache outside MAPLE_ROOTS — skipping persist');
+      assetsLog.warn(
+        { jsonPath, error: allowed.error },
+        'histogram cache outside MAPLE_ROOTS — skipping persist',
+      );
       return;
     }
     await mkdir(path.dirname(jsonPath), { recursive: true });
@@ -104,111 +116,114 @@ async function writeCached(jsonPath: string, payload: CachedHistogram): Promise<
   }
 }
 
-export const histogramRoutes = new Elysia().get('/:id/histogram', async ({ params, headers, set }) => {
-  const id = parseAssetId(params.id);
-  if (!id) {
-    set.status = 400;
-    return { error: 'Invalid asset id' };
-  }
-
-  const info = await findCoreInfoById(id);
-  if (!info) {
-    set.status = 404;
-    return { error: 'Asset not found' };
-  }
-
-  const libs = await loadLibraryRoots();
-  const rawPath = assetAbsPath(info, libs);
-  if (!rawPath) {
-    set.status = 404;
-    return { error: 'Asset has no resolvable location' };
-  }
-
-  let rawStat;
-  try {
-    rawStat = await stat(rawPath);
-  } catch {
-    set.status = 404;
-    return { error: 'RAW file missing on disk' };
-  }
-
-  // Resolve the sidecar's mtime (if any) so a re-edit advances the key.
-  const xmpPath = xmpSidecarPath(rawPath);
-  let xmpMtimeMs: number | null = null;
-  try {
-    const s = await stat(xmpPath);
-    xmpMtimeMs = s.mtimeMs;
-  } catch {
-    xmpMtimeMs = null;
-  }
-
-  const key = buildCacheKey(rawStat.mtimeMs, xmpMtimeMs);
-  const etag = etagFor(key);
-
-  // 304 short-circuit — never read the cache JSON or touch the dylib.
-  const ifNoneMatch = headers['if-none-match'];
-  if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
-    return new Response(null, {
-      status: 304,
-      headers: { ETag: etag, 'Cache-Control': CACHE_CONTROL },
-    });
-  }
-
-  // Disk-cache lookup. `cachePathForAsset(.., 'previews', 'histogram')`
-  // composes `<lib>/<rel>/.maple/previews/<maple_id>_histogram.jpg` —
-  // we override the extension by swapping `.jpg` for `.json` below.
-  // The function asserts `maple_id` is present; without it we still
-  // can answer, just without the on-disk memo.
-  const previewPath = cachePathForAsset(
-    { maple_id: info.maple_id ?? undefined, fileinfo: info.fileinfo },
-    libs,
-    'previews',
-    'histogram',
-  );
-  const jsonPath = previewPath ? previewPath.replace(/\.jpg$/, '.json') : null;
-
-  if (jsonPath) {
-    const cached = await readCached(jsonPath, key);
-    if (cached) {
-      set.headers['ETag'] = etag;
-      set.headers['Cache-Control'] = CACHE_CONTROL;
-      set.headers['Content-Type'] = 'application/json';
-      return cached;
+export const histogramRoutes = new Elysia().get(
+  '/:id/histogram',
+  async ({ params, headers, set }) => {
+    const id = parseAssetId(params.id);
+    if (!id) {
+      set.status = 400;
+      return { error: 'Invalid asset id' };
     }
-  }
 
-  // Cache miss — compute via the worker. Dylib-missing → 503.
-  let bins: HistogramBins;
-  try {
-    bins = await ffiPool().computeHistogram(rawPath, xmpMtimeMs === null ? null : xmpPath);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/dylib not available/.test(msg)) {
-      assetsLog.warn({ rawPath }, 'libraw_ffi dylib not available — returning 503');
-      set.status = 503;
-      return { error: 'Histogram rendering unavailable' };
+    const info = await findCoreInfoById(id);
+    if (!info) {
+      set.status = 404;
+      return { error: 'Asset not found' };
     }
-    assetsLog.error({ rawPath, msg }, 'histogram compute failed');
-    set.status = 500;
-    return { error: 'Histogram compute failed' };
-  }
 
-  // Cheap structural sanity — guards against an unexpected worker
-  // response shape (e.g. a future protocol change). Loud-fails the
-  // request rather than poisoning the disk cache.
-  if (bins.r.length !== 256 || bins.g.length !== 256 || bins.b.length !== 256) {
-    assetsLog.error({}, 'worker returned malformed bins');
-    set.status = 500;
-    return { error: 'Histogram validation failed' };
-  }
+    const libs = await loadLibraryRoots();
+    const rawPath = assetAbsPath(info, libs);
+    if (!rawPath) {
+      set.status = 404;
+      return { error: 'Asset has no resolvable location' };
+    }
 
-  // Persist (best-effort). Doesn't block the response.
-  if (jsonPath) {
-    void writeCached(jsonPath, { key, bins });
-  }
+    let rawStat;
+    try {
+      rawStat = await stat(rawPath);
+    } catch {
+      set.status = 404;
+      return { error: 'RAW file missing on disk' };
+    }
 
-  set.headers['ETag'] = etag;
-  set.headers['Cache-Control'] = CACHE_CONTROL;
-  set.headers['Content-Type'] = 'application/json';
-  return bins;
-});
+    // Resolve the sidecar's mtime (if any) so a re-edit advances the key.
+    const xmpPath = xmpSidecarPath(rawPath);
+    let xmpMtimeMs: number | null = null;
+    try {
+      const s = await stat(xmpPath);
+      xmpMtimeMs = s.mtimeMs;
+    } catch {
+      xmpMtimeMs = null;
+    }
+
+    const key = buildCacheKey(rawStat.mtimeMs, xmpMtimeMs);
+    const etag = etagFor(key);
+
+    // 304 short-circuit — never read the cache JSON or touch the dylib.
+    const ifNoneMatch = headers['if-none-match'];
+    if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
+      return new Response(null, {
+        status: 304,
+        headers: { ETag: etag, 'Cache-Control': CACHE_CONTROL },
+      });
+    }
+
+    // Disk-cache lookup. `cachePathForAsset(.., 'previews', 'histogram')`
+    // composes `<lib>/<rel>/.maple/previews/<maple_id>_histogram.jpg` —
+    // we override the extension by swapping `.jpg` for `.json` below.
+    // The function asserts `maple_id` is present; without it we still
+    // can answer, just without the on-disk memo.
+    const previewPath = cachePathForAsset(
+      { maple_id: info.maple_id ?? undefined, fileinfo: info.fileinfo },
+      libs,
+      'previews',
+      'histogram',
+    );
+    const jsonPath = previewPath ? previewPath.replace(/\.jpg$/, '.json') : null;
+
+    if (jsonPath) {
+      const cached = await readCached(jsonPath, key);
+      if (cached) {
+        set.headers['ETag'] = etag;
+        set.headers['Cache-Control'] = CACHE_CONTROL;
+        set.headers['Content-Type'] = 'application/json';
+        return cached;
+      }
+    }
+
+    // Cache miss — compute via the worker. Dylib-missing → 503.
+    let bins: HistogramBins;
+    try {
+      bins = await ffiPool().computeHistogram(rawPath, xmpMtimeMs === null ? null : xmpPath);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/dylib not available/.test(msg)) {
+        assetsLog.warn({ rawPath }, 'libraw_ffi dylib not available — returning 503');
+        set.status = 503;
+        return { error: 'Histogram rendering unavailable' };
+      }
+      assetsLog.error({ rawPath, msg }, 'histogram compute failed');
+      set.status = 500;
+      return { error: 'Histogram compute failed' };
+    }
+
+    // Cheap structural sanity — guards against an unexpected worker
+    // response shape (e.g. a future protocol change). Loud-fails the
+    // request rather than poisoning the disk cache.
+    if (bins.r.length !== 256 || bins.g.length !== 256 || bins.b.length !== 256) {
+      assetsLog.error({}, 'worker returned malformed bins');
+      set.status = 500;
+      return { error: 'Histogram validation failed' };
+    }
+
+    // Persist (best-effort). Doesn't block the response.
+    if (jsonPath) {
+      void writeCached(jsonPath, { key, bins });
+    }
+
+    set.headers['ETag'] = etag;
+    set.headers['Cache-Control'] = CACHE_CONTROL;
+    set.headers['Content-Type'] = 'application/json';
+    return bins;
+  },
+);

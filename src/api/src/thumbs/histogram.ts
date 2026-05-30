@@ -34,11 +34,7 @@ export interface HistogramBins {
  * `width * height * 3 === rgb.length` and throws if not. This catches the
  * "stride is 4, not 3" foot-gun cleanly (#633 review hint).
  */
-export function computeHistogram(
-  rgb: Uint8Array,
-  width?: number,
-  height?: number,
-): HistogramBins {
+export function computeHistogram(rgb: Uint8Array, width?: number, height?: number): HistogramBins {
   if (rgb.length % 3 !== 0) {
     throw new Error(
       `computeHistogram: buffer length ${rgb.length} is not a multiple of 3 (expected RGB888 stride)`,
