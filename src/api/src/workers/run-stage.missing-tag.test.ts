@@ -31,7 +31,11 @@ function makeConfigMock(): Collection<WorkerConfigDoc> {
       if (existing || opts?.upsert) {
         store.set(name, { ...(existing ?? {}), ...setDoc } as WorkerConfigDoc);
       }
-      return { matchedCount: 1, modifiedCount: 1, acknowledged: true } as UpdateResult;
+      return {
+        matchedCount: 1,
+        modifiedCount: 1,
+        acknowledged: true,
+      } as UpdateResult;
     },
   } as unknown as Collection<WorkerConfigDoc>;
 }
@@ -116,8 +120,6 @@ function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
 
 const cfg = {
   concurrency: 1,
-  pollIntervalMs: 50,
-  batchSize: 10,
   maxAttempts: 3,
   paused: false,
   last_seen_target_version: 1,
@@ -131,15 +133,15 @@ function originalFileStage(name = 'exif', tags = true) {
     tagsMissingOnEnoent: tags,
     defaults: {
       concurrency: 1,
-      pollIntervalMs: 50,
-      batchSize: 10,
       maxAttempts: 3,
       paused: false,
       pausedOnFirstBoot: false,
       last_seen_target_version: 0,
     },
     handler: async () => {
-      throw Object.assign(new Error("ENOENT: no such file, stat '/gone.raw'"), { code: 'ENOENT' });
+      throw Object.assign(new Error("ENOENT: no such file, stat '/gone.raw'"), {
+        code: 'ENOENT',
+      });
     },
   });
 }
