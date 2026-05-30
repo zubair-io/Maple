@@ -124,8 +124,6 @@ const faceEmbedStage = defineStage({
   dependsOn: [{ name: 'face-detect', minVersion: FACE_DETECT_TARGET_VERSION }],
   defaults: {
     concurrency: 1,
-    pollIntervalMs: 1000,
-    batchSize: 5,
     maxAttempts: 5,
     paused: false,
     last_seen_target_version: 0,

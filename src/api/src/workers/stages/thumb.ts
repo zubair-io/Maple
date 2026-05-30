@@ -34,8 +34,6 @@ const thumbStage = defineStage({
   dependsOn: ['exif'],
   defaults: {
     concurrency: 2,
-    batchSize: 5,
-    pollIntervalMs: 1000,
     maxAttempts: 5,
     paused: false,
     pausedOnFirstBoot: false,

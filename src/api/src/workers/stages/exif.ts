@@ -76,8 +76,6 @@ const exifStage = defineStage({
   dependsOn: [],
   defaults: {
     concurrency: 4,
-    batchSize: 10,
-    pollIntervalMs: 1000,
     maxAttempts: 5,
     pausedOnFirstBoot: false,
     paused: false,
