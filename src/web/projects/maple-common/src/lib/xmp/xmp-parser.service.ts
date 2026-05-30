@@ -1,8 +1,12 @@
 // XmpParserService — P6 extension: reads full AdjustmentModel + passthrough bucket.
 //
-// parseCulling()         — unchanged P5 path: rating / flag / colorLabel.
-// parseAdjustmentModel() — new: reads all crs: numeric fields + WhiteBalance preset,
-//                          and captures unknown attributes / nested elements for passthrough.
+// parseCulling()         — rating / flag / colorLabel + IPTC `dc:subject`
+//                          keyword bag (#632).
+// parseAdjustmentModel() — reads all crs: numeric fields + WhiteBalance preset,
+//                          and captures unknown attributes / nested elements
+//                          for passthrough — `dc:subject` is explicitly
+//                          excluded from the passthrough child list so the
+//                          serializer doesn't double-emit it.
 
 import { Injectable } from '@angular/core';
 import type { XmpCulling, XmpFlag, XmpColorLabel, PassthroughBucket } from './xmp.types';
@@ -18,6 +22,11 @@ import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-f
  * alias table.
  */
 const LEGACY_READ_ALIASES_MAP = new Map(LEGACY_READ_ALIASES.map((a) => [a.xmpKey, a]));
+
+/** Dublin Core namespace URI — owns `dc:subject` (the IPTC keyword bag). */
+const DC_NAMESPACE = 'http://purl.org/dc/elements/1.1/';
+/** RDF namespace URI — owns `rdf:Bag` and `rdf:li`. */
+const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#';
 
 /** XMP xmp:Label words → Maple colorLabel values. */
 const LABEL_MAP: Record<string, XmpColorLabel> = {
@@ -75,6 +84,7 @@ export class XmpParserService {
       rating: 0,
       flag: 'unflagged',
       colorLabel: null,
+      keywords: [],
     };
 
     let desc: Element | null = null;
@@ -120,6 +130,28 @@ export class XmpParserService {
     const mapleLabel = this._attr(desc, ['maple:ColorLabel', 'papp:ColorLabel', 'ColorLabel']);
     if (mapleLabel !== null && this._isValidColorLabel(mapleLabel)) {
       result.colorLabel = mapleLabel as XmpColorLabel;
+    }
+
+    // dc:subject — IPTC keyword bag (#632). Walks
+    // `<dc:subject><rdf:Bag><rdf:li>kw</rdf:li>…</rdf:Bag></dc:subject>`
+    // and extracts `rdf:li` text content in source order. Blank entries
+    // are dropped — `dc:subject` rejects empty `rdf:li` content on the
+    // write path too. Uses `getElementsByTagNameNS` so the prefix the
+    // sidecar binds to the Dublin Core namespace (conventionally `dc:`)
+    // isn't load-bearing; `getElementsByTagName('dc:subject')` is the
+    // fallback for parsers that hand us prefix-only matches.
+    const subjectEls = desc.getElementsByTagNameNS(DC_NAMESPACE, 'subject');
+    const subjectEl =
+      subjectEls.length > 0 ? subjectEls[0] : desc.getElementsByTagName('dc:subject')[0];
+    if (subjectEl) {
+      const keywords: string[] = [];
+      const liElsNS = subjectEl.getElementsByTagNameNS(RDF_NAMESPACE, 'li');
+      const liEls = liElsNS.length > 0 ? liElsNS : subjectEl.getElementsByTagName('rdf:li');
+      for (let i = 0; i < liEls.length; i++) {
+        const text = (liEls[i].textContent ?? '').trim();
+        if (text.length > 0) keywords.push(text);
+      }
+      result.keywords = keywords;
     }
 
     return result;
@@ -271,9 +303,21 @@ export class XmpParserService {
     }
 
     // Collect unknown child elements (ToneCurve, MaskGroupBasedCorrections, etc.).
+    //
+    // `dc:subject` is explicitly skipped — the keyword bag round-trips
+    // through `parseCulling` + `XmpSerializerService.serialize`'s keywords
+    // block. If we left it in `unknownNodes` it would emit twice: once as
+    // the canonical block, once via the passthrough pipe. Match by both
+    // namespaced and prefix-only forms because DOMParser normalisation
+    // varies across browsers.
     const unknownNodes: string[] = [];
     for (let i = 0; i < desc.children.length; i++) {
-      unknownNodes.push(desc.children[i].outerHTML);
+      const child = desc.children[i];
+      const isDcSubject =
+        (child.namespaceURI === DC_NAMESPACE && child.localName === 'subject') ||
+        child.tagName === 'dc:subject';
+      if (isDcSubject) continue;
+      unknownNodes.push(child.outerHTML);
     }
 
     return {

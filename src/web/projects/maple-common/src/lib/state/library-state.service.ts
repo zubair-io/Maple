@@ -237,6 +237,30 @@ export class LibraryStateService {
     this.fetch_.scheduleSidecarWrite(id);
   }
 
+  /**
+   * Replace the IPTC keyword list on the asset (#632). Routes through the
+   * same debounced sidecar-write the rating/flag/colorLabel mutators use —
+   * keywords have zero pixel impact, so the develop render path is
+   * intentionally not kicked. Duplicates are stripped preserving
+   * first-occurrence order; whitespace-only entries are dropped (the
+   * parser drops them on the read path too, so writing them would just
+   * round-trip into a desync).
+   */
+  setKeywords(id: AssetId, keywords: readonly string[]): void {
+    const seen = new Set<string>();
+    const deduped: string[] = [];
+    for (const raw of keywords) {
+      const trimmed = raw.trim();
+      if (!trimmed || seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      deduped.push(trimmed);
+    }
+    this.store.assets.update((list) =>
+      list.map((a) => (a.id === id ? { ...a, keywords: deduped } : a)),
+    );
+    this.fetch_.scheduleSidecarWrite(id);
+  }
+
   // ── XMP write flush ───────────────────────────────────────────────────────
   flushPendingXmpWrites(): Promise<void> {
     return this.fetch_.flushPendingXmpWrites();

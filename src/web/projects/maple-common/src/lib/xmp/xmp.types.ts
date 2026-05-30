@@ -8,6 +8,15 @@ export interface XmpCulling {
   rating: number; // 0..5, defaults to 0
   flag: XmpFlag;
   colorLabel: XmpColorLabel;
+  /**
+   * IPTC keywords (#632). Round-tripped through the XMP `dc:subject`
+   * element as `<dc:subject><rdf:Bag><rdf:li>kw</rdf:li>…</rdf:Bag></dc:subject>`
+   * per the Dublin Core schema. Optional so callers that don't carry
+   * keyword data (legacy snapshots, mock fixtures) don't have to touch
+   * an empty array — the parser/serializer treat `undefined` and `[]`
+   * identically: emit no element on write, parse-back to empty.
+   */
+  keywords?: string[];
 }
 
 /**

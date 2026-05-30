@@ -29,7 +29,13 @@ export class XmpSerializerService {
   serialize(
     model: AdjustmentModel,
     passthrough?: PassthroughBucket,
-    culling?: { rating?: number; flag?: Flag | string; colorLabel?: ColorLabel | string | null },
+    culling?: {
+      rating?: number;
+      flag?: Flag | string;
+      colorLabel?: ColorLabel | string | null;
+      /** IPTC keywords (#632) — emitted as a nested `dc:subject` element. */
+      keywords?: readonly string[];
+    },
   ): string {
     const parts: string[] = [];
 
@@ -93,7 +99,35 @@ export class XmpSerializerService {
 
     // Passthrough: unknown nested nodes (ToneCurve, etc.) — indented inside rdf:Description.
     const nestedNodes = (passthrough?.unknownNodes ?? []).map((n) => `  ${n}`).join('\n');
-    const nestedSection = nestedNodes ? `\n${nestedNodes}\n` : '\n';
+
+    // dc:subject — IPTC keyword bag (#632). Emitted as a nested
+    // `<dc:subject><rdf:Bag><rdf:li>…</rdf:Bag></dc:subject>` block when
+    // the culling object carries any keywords. An empty / undefined list
+    // omits the element so the round-trip empty → no element → empty
+    // matches the read path's "no element" default and matches Apple's
+    // `XMPSerializer` behaviour.
+    const keywords = (culling?.keywords ?? []).filter((k) => k && k.trim().length > 0);
+    const keywordsBlock =
+      keywords.length === 0
+        ? ''
+        : [
+            '  <dc:subject>',
+            '   <rdf:Bag>',
+            ...keywords.map((k) => `    <rdf:li>${this._escapeText(k)}</rdf:li>`),
+            '   </rdf:Bag>',
+            '  </dc:subject>',
+          ].join('\n');
+
+    // Compose nested children: keywords first (canonical content), then
+    // any unknown passthrough nodes the source sidecar carried.
+    const childBlocks = [keywordsBlock, nestedNodes].filter((b) => b.length > 0).join('\n');
+    const nestedSection = childBlocks ? `\n${childBlocks}\n` : '\n';
+
+    // The `dc:` namespace declaration is only added when keywords are
+    // present — keeps the attribute list quiet for the common "no
+    // keywords" sidecar and avoids advertising namespaces we don't use.
+    const dcNamespaceLine =
+      keywords.length > 0 ? '\n    xmlns:dc="http://purl.org/dc/elements/1.1/"' : '';
 
     return [
       '<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>',
@@ -102,12 +136,21 @@ export class XmpSerializerService {
       '  <rdf:Description rdf:about=""',
       '    xmlns:xmp="http://ns.adobe.com/xap/1.0/"',
       '    xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"',
-      '    xmlns:papp="http://ns.justmaple.app/photo/1.0/"',
+      `    xmlns:papp="http://ns.justmaple.app/photo/1.0/"${dcNamespaceLine}`,
       `${attrsBlock}>${nestedSection}  </rdf:Description>`,
       ' </rdf:RDF>',
       '</x:xmpmeta>',
       '<?xpacket end="w"?>',
     ].join('\n');
+  }
+
+  /**
+   * Minimal XML text-content escaping for `rdf:li` content (not attribute
+   * content — attributes use `_escapeAttr` because `"` and `'` matter
+   * there). Only `&`, `<`, `>` are strictly required between tags.
+   */
+  private _escapeText(value: string): string {
+    return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
   }
 
   private _escapeAttr(value: string): string {

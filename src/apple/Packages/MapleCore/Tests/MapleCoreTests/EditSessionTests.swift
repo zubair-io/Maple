@@ -166,4 +166,52 @@ final class EditSessionTests: XCTestCase {
         XCTAssertNil(session.renderError)
         XCTAssertFalse(session.isRendering)
     }
+
+    // MARK: - setKeywords (#632)
+
+    /// `setKeywords` updates the culling list and the change persists
+    /// across an `XMPSidecarStore` flush + reload — the same write path
+    /// the rating/flag mutators use.
+    func testSetKeywordsRoutesThroughSidecarStore() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let rawURL = dir.appendingPathComponent("kw.dng")
+        try Data("placeholder".utf8).write(to: rawURL)
+
+        let session = EditSession(asset: AssetRef(url: rawURL))
+        session.setKeywords(["paris", "travel"])
+        XCTAssertEqual(session.culling.keywords, ["paris", "travel"])
+
+        // `culling.didSet` spawns a detached Task that calls `store.update`.
+        // Yield enough times for that Task to land its scheduled write
+        // before we flush; otherwise `flush()` cancels the pending Task
+        // before it ever calls `update()`, and nothing reaches disk.
+        for _ in 0..<5 { await Task.yield() }
+        await session.flushPendingSidecarWrite()
+
+        let fresh = XMPSidecarStore(rawURL: rawURL)
+        let (_, c) = try await fresh.load()
+        XCTAssertEqual(c.keywords, ["paris", "travel"])
+    }
+
+    /// Duplicate + blank entries are normalized out before the list
+    /// hits `culling.keywords` so the sidecar never carries
+    /// `<rdf:li></rdf:li>` blanks or repeated bag members.
+    func testSetKeywordsDedupesAndDropsBlanks() {
+        let session = EditSession(asset: AssetRef.preview())
+        session.setKeywords(["a", "  ", "b", "a", " b ", ""])
+        XCTAssertEqual(session.culling.keywords, ["a", "b"])
+    }
+
+    /// No-op writes (same list) don't bump anything — verified by
+    /// confirming the equality short-circuit.
+    func testSetKeywordsIsIdempotent() {
+        let session = EditSession(asset: AssetRef.preview())
+        session.setKeywords(["a", "b"])
+        let before = session.culling
+        session.setKeywords(["a", "b"])
+        XCTAssertEqual(session.culling, before)
+    }
 }

@@ -310,6 +310,142 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(c2.flag, .pick)
     }
 
+    // MARK: - Keywords (dc:subject) round-trip — #632
+
+    /// Default `CullingState` carries an empty keyword list — matches the
+    /// "no `dc:subject` element on the wire" sidecar default.
+    func testDefaultKeywordsIsEmpty() {
+        XCTAssertEqual(CullingState().keywords, [])
+    }
+
+    /// Empty list omits the `<dc:subject>` element entirely so the
+    /// round-trip empty → no element → empty matches the default.
+    func testSerializerOmitsEmptyKeywordsBlock() {
+        let xml = XMPSerializer.serialize(model: .default, culling: CullingState())
+        XCTAssertFalse(xml.contains("dc:subject"),
+                       "Empty keyword list should not emit a dc:subject element")
+        XCTAssertFalse(xml.contains("xmlns:dc="),
+                       "Empty keyword list should not declare the dc: namespace")
+    }
+
+    /// Non-empty list emits `<dc:subject><rdf:Bag><rdf:li>…</rdf:Bag></dc:subject>`
+    /// and the parser pulls every `rdf:li` back out in source order.
+    func testKeywordsRoundTrip() throws {
+        let c = CullingState(
+            stars: 3,
+            flag: .pick,
+            keywords: ["travel", "paris", "2026", "golden hour"]
+        )
+        let xml = XMPSerializer.serialize(model: .default, culling: c)
+        XCTAssertTrue(xml.contains("<dc:subject>"))
+        XCTAssertTrue(xml.contains("<rdf:Bag>"))
+        XCTAssertTrue(xml.contains("<rdf:li>travel</rdf:li>"))
+        XCTAssertTrue(xml.contains("<rdf:li>golden hour</rdf:li>"))
+        XCTAssertTrue(xml.contains(#"xmlns:dc="http://purl.org/dc/elements/1.1/""#))
+
+        let (_, c2) = try XMPParser.parse(xml)
+        XCTAssertEqual(c2.keywords, ["travel", "paris", "2026", "golden hour"])
+        XCTAssertEqual(c2.stars, 3)
+        XCTAssertEqual(c2.flag, .pick)
+    }
+
+    /// Single-keyword case — easy to regress to an empty `Bag`.
+    func testSingleKeywordRoundTrip() throws {
+        let c = CullingState(keywords: ["solo"])
+        let xml = XMPSerializer.serialize(model: .default, culling: c)
+        let (_, c2) = try XMPParser.parse(xml)
+        XCTAssertEqual(c2.keywords, ["solo"])
+    }
+
+    /// XML-special characters in keyword text must be escaped on the
+    /// write path and re-decoded on the read path.
+    func testKeywordsEscapeXMLSpecials() throws {
+        let c = CullingState(keywords: ["fish & chips", "<tag>", "5 > 3"])
+        let xml = XMPSerializer.serialize(model: .default, culling: c)
+        XCTAssertTrue(xml.contains("fish &amp; chips"))
+        XCTAssertTrue(xml.contains("&lt;tag&gt;"))
+        let (_, c2) = try XMPParser.parse(xml)
+        XCTAssertEqual(c2.keywords, ["fish & chips", "<tag>", "5 > 3"])
+    }
+
+    /// A sidecar that doesn't carry `dc:subject` at all parses with the
+    /// default empty keyword list (no false-positive injection).
+    func testParseSidecarWithoutDcSubject() throws {
+        let xml = xmp(attrs: #"crs:Exposure2012="1.0""#)
+        let (_, c) = try XMPParser.parse(xml)
+        XCTAssertEqual(c.keywords, [])
+    }
+
+    /// Whitespace-only keywords are dropped on the read path — `dc:subject`
+    /// rejects blank `rdf:li` entries.
+    func testParseKeywordsDropsBlankLi() throws {
+        let xml = """
+        <?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description
+              xmlns:dc="http://purl.org/dc/elements/1.1/">
+              <dc:subject>
+                <rdf:Bag>
+                  <rdf:li>real</rdf:li>
+                  <rdf:li>   </rdf:li>
+                  <rdf:li></rdf:li>
+                  <rdf:li>also real</rdf:li>
+                </rdf:Bag>
+              </dc:subject>
+            </rdf:Description>
+          </rdf:RDF>
+        </x:xmpmeta>
+        """
+        let (_, c) = try XMPParser.parse(xml)
+        XCTAssertEqual(c.keywords, ["real", "also real"])
+    }
+
+    /// Legacy JSON blobs encoded before #632 (no `keywords` field) still
+    /// decode — the custom `init(from:)` defaults the missing key to `[]`
+    /// rather than throwing `.keyNotFound`. Guards against breakage of any
+    /// cache layer that persists `CullingState` via Codable.
+    func testCullingStateCodableDecodesLegacyJSONWithoutKeywordsKey() throws {
+        let legacy = #"{"stars":3,"flag":"pick"}"#
+        let decoded = try JSONDecoder().decode(CullingState.self, from: Data(legacy.utf8))
+        XCTAssertEqual(decoded.stars, 3)
+        XCTAssertEqual(decoded.flag, .pick)
+        XCTAssertEqual(decoded.keywords, [])
+    }
+
+    /// Round-trip through JSONEncoder/JSONDecoder preserves keywords.
+    func testCullingStateCodableRoundTrip() throws {
+        let original = CullingState(stars: 4, flag: .pick, keywords: ["a", "b", "c"])
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(CullingState.self, from: data)
+        XCTAssertEqual(decoded, original)
+    }
+
+    /// `XMPSidecarStore` write → read carries the keyword list across
+    /// the on-disk boundary.
+    func testSidecarStoreRoundTripKeywords() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("dng")
+        defer {
+            let xmpURL = tmp.deletingPathExtension().appendingPathExtension("xmp")
+            try? FileManager.default.removeItem(at: xmpURL)
+        }
+
+        let store = XMPSidecarStore(rawURL: tmp)
+        await store.update(
+            model: .default,
+            culling: CullingState(stars: 1, keywords: ["a", "b", "c"])
+        )
+        await store.flush()
+
+        // Drop the in-memory cache so the read actually goes to disk.
+        let fresh = XMPSidecarStore(rawURL: tmp)
+        let (_, c2) = try await fresh.load()
+        XCTAssertEqual(c2.keywords, ["a", "b", "c"])
+        XCTAssertEqual(c2.stars, 1)
+    }
+
     // MARK: - XMPSidecarStore
 
     func testSidecarStoreWriteAndRead() async throws {
