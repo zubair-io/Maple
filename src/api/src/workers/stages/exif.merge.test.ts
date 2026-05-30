@@ -35,6 +35,19 @@ beforeAll(async () => {
   await db.dropDatabase();
   const { closeDb } = await import('../../db/client.ts');
   await closeDb();
+
+  // Mirror the production unique partial index on `maple_id` (see
+  // db/client.ts `maple_id_gt_1`). Without it the merge could transiently
+  // hold the same primary id on two rows and silently pass — exactly the
+  // gap that let the E11000-on-upgrade ordering bug ship. With the index in
+  // place the "loser is survivor" case fails loudly unless the condemned row
+  // is deleted before the survivor claims the id.
+  await db
+    .collection('assets')
+    .createIndex(
+      { maple_id: 1 },
+      { name: 'maple_id_gt_1', unique: true, partialFilterExpression: { maple_id: { $gt: '' } } },
+    );
 });
 
 afterAll(async () => {
