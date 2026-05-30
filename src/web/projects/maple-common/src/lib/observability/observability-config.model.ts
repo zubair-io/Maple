@@ -6,12 +6,13 @@
 // traces + logs directly to the self-hosted SigNoz OTLP/HTTP endpoint.
 
 /** Where each resolved field came from — surfaced in the Settings UI so the
- * operator can see whether a value was set in the DB, fell back to an env var,
- * or is unset. The API may add keys, so the record is open-ended. */
+ * operator can see whether a value was saved in the DB or is a built-in
+ * default. (Config is DB-only; there is no env-var fallback.) The API may add
+ * keys, so the record is open-ended. */
 export interface ObservabilityConfigSource {
-  endpoint: 'db' | 'env' | 'unset';
-  ingestion_key: 'db' | 'env' | 'unset';
-  [key: string]: 'db' | 'env' | 'unset' | string;
+  endpoint: 'db' | 'unset';
+  ingestion_key: 'db' | 'unset';
+  [key: string]: 'db' | 'default' | 'unset' | string;
 }
 
 export interface ObservabilityConfigResponse {
@@ -35,6 +36,21 @@ export interface ObservabilityConfigResponse {
   /** Trace head-sampling ratio in `[0, 1]`. `1.0` keeps every trace. */
   sample_ratio: number;
   source: ObservabilityConfigSource;
+}
+
+/** Editable subset sent to `PUT /api/observability/config`. Patch semantics:
+ * every field is optional; only the ones provided are changed. `ingestion_key`
+ * is write-only — a non-empty string sets it, `null` clears it, omitting it
+ * leaves the saved key untouched. */
+export interface ObservabilityConfigPatch {
+  enabled?: boolean | null;
+  endpoint?: string | null;
+  ingestion_key?: string | null;
+  service_namespace?: string | null;
+  traces_enabled?: boolean | null;
+  logs_enabled?: boolean | null;
+  metrics_enabled?: boolean | null;
+  sample_ratio?: number | null;
 }
 
 /** Returns true when two configs would produce an identical OTel runtime —

@@ -16,13 +16,9 @@ import {
   type ObservabilityConfig,
 } from '../src/observability/observability-config.repo.ts';
 
-// An env with all MAPLE_SIGNOZ_* unset, so default-precedence cases are
-// deterministic regardless of the ambient shell.
-const EMPTY_ENV: NodeJS.ProcessEnv = {};
-
-describe('resolveObservabilityConfig — defaults (no db, no env)', () => {
+describe('resolveObservabilityConfig — defaults (no db row)', () => {
   it('returns the documented defaults', () => {
-    const r = resolveObservabilityConfig(null, EMPTY_ENV);
+    const r = resolveObservabilityConfig(null);
     expect(r.enabled).toBe(true);
     expect(r.endpoint).toBeNull();
     expect(r.ingestion_key).toBeNull();
@@ -44,57 +40,8 @@ describe('resolveObservabilityConfig — defaults (no db, no env)', () => {
   });
 });
 
-describe('resolveObservabilityConfig — env fallback', () => {
-  it('reads every field from env when no db row exists', () => {
-    const env: NodeJS.ProcessEnv = {
-      MAPLE_SIGNOZ_ENABLED: 'true',
-      MAPLE_SIGNOZ_ENDPOINT: 'https://ingest.signoz.test:4318/',
-      MAPLE_SIGNOZ_INGESTION_KEY: 'env-key',
-      MAPLE_SIGNOZ_SERVICE_NAMESPACE: 'maple-staging',
-      MAPLE_SIGNOZ_TRACES_ENABLED: 'true',
-      MAPLE_SIGNOZ_LOGS_ENABLED: 'false',
-      MAPLE_SIGNOZ_METRICS_ENABLED: 'true',
-      MAPLE_SIGNOZ_SAMPLE_RATIO: '0.25',
-    };
-    const r = resolveObservabilityConfig(null, env);
-    // Trailing slash stripped on the endpoint.
-    expect(r.endpoint).toBe('https://ingest.signoz.test:4318');
-    expect(r.source.endpoint).toBe('env');
-    expect(r.ingestion_key).toBe('env-key');
-    expect(r.source.ingestion_key).toBe('env');
-    expect(r.service_namespace).toBe('maple-staging');
-    expect(r.source.service_namespace).toBe('env');
-    expect(r.logs_enabled).toBe(false);
-    expect(r.source.logs_enabled).toBe('env');
-    expect(r.metrics_enabled).toBe(true);
-    expect(r.source.metrics_enabled).toBe('env');
-    expect(r.sample_ratio).toBe(0.25);
-    expect(r.source.sample_ratio).toBe('env');
-  });
-
-  it('treats MAPLE_SIGNOZ_ENABLED=false as disabled', () => {
-    const r = resolveObservabilityConfig(null, { MAPLE_SIGNOZ_ENABLED: 'false' });
-    expect(r.enabled).toBe(false);
-    expect(r.source.enabled).toBe('env');
-  });
-
-  it('ignores an out-of-range env sample ratio (falls through to default)', () => {
-    const r = resolveObservabilityConfig(null, { MAPLE_SIGNOZ_SAMPLE_RATIO: '5' });
-    expect(r.sample_ratio).toBe(1.0);
-    expect(r.source.sample_ratio).toBe('default');
-  });
-});
-
-describe('resolveObservabilityConfig — db wins over env (db > env > default)', () => {
-  const env: NodeJS.ProcessEnv = {
-    MAPLE_SIGNOZ_ENDPOINT: 'https://from-env.test',
-    MAPLE_SIGNOZ_INGESTION_KEY: 'env-key',
-    MAPLE_SIGNOZ_SERVICE_NAMESPACE: 'from-env-ns',
-    MAPLE_SIGNOZ_SAMPLE_RATIO: '0.5',
-    MAPLE_SIGNOZ_METRICS_ENABLED: 'true',
-  };
-
-  it('prefers db values for every field present in the db row', () => {
+describe('resolveObservabilityConfig — db is the only source (db > default)', () => {
+  it('reads every field from the db row, stripping a trailing slash on the endpoint', () => {
     const db: ObservabilityConfig = {
       enabled: false,
       endpoint: 'https://from-db.test:4318/',
@@ -102,10 +49,10 @@ describe('resolveObservabilityConfig — db wins over env (db > env > default)',
       service_namespace: 'from-db-ns',
       traces_enabled: false,
       logs_enabled: true,
-      metrics_enabled: false,
+      metrics_enabled: true,
       sample_ratio: 0.1,
     };
-    const r = resolveObservabilityConfig(db, env);
+    const r = resolveObservabilityConfig(db);
     expect(r.enabled).toBe(false);
     expect(r.source.enabled).toBe('db');
     expect(r.endpoint).toBe('https://from-db.test:4318');
@@ -116,37 +63,42 @@ describe('resolveObservabilityConfig — db wins over env (db > env > default)',
     expect(r.source.service_namespace).toBe('db');
     expect(r.traces_enabled).toBe(false);
     expect(r.source.traces_enabled).toBe('db');
-    expect(r.metrics_enabled).toBe(false);
+    expect(r.metrics_enabled).toBe(true);
     expect(r.source.metrics_enabled).toBe('db');
     expect(r.sample_ratio).toBe(0.1);
     expect(r.source.sample_ratio).toBe('db');
   });
 
-  it('falls through to env for fields the db row omits', () => {
-    // Only `enabled` set in the db; every other field should resolve from env.
-    const db: ObservabilityConfig = { enabled: true };
-    const r = resolveObservabilityConfig(db, env);
+  it('falls through to defaults for fields the db row omits', () => {
+    // Only `enabled` set; every other field resolves to its built-in default.
+    const r = resolveObservabilityConfig({ enabled: false });
+    expect(r.enabled).toBe(false);
     expect(r.source.enabled).toBe('db');
-    expect(r.endpoint).toBe('https://from-env.test');
-    expect(r.source.endpoint).toBe('env');
-    expect(r.ingestion_key).toBe('env-key');
-    expect(r.source.ingestion_key).toBe('env');
-    expect(r.service_namespace).toBe('from-env-ns');
-    expect(r.source.service_namespace).toBe('env');
-    expect(r.sample_ratio).toBe(0.5);
-    expect(r.source.sample_ratio).toBe('env');
+    expect(r.endpoint).toBeNull();
+    expect(r.source.endpoint).toBe('unset');
+    expect(r.ingestion_key).toBeNull();
+    expect(r.source.ingestion_key).toBe('unset');
+    expect(r.service_namespace).toBe('maple');
+    expect(r.source.service_namespace).toBe('default');
+    expect(r.sample_ratio).toBe(1.0);
+    expect(r.source.sample_ratio).toBe('default');
   });
 
-  it('ignores an out-of-range db sample ratio, falling through to env', () => {
-    const db: ObservabilityConfig = { sample_ratio: 2 };
-    const r = resolveObservabilityConfig(db, env);
-    expect(r.sample_ratio).toBe(0.5);
-    expect(r.source.sample_ratio).toBe('env');
+  it('ignores an out-of-range db sample ratio, falling through to default', () => {
+    const r = resolveObservabilityConfig({ sample_ratio: 2 });
+    expect(r.sample_ratio).toBe(1.0);
+    expect(r.source.sample_ratio).toBe('default');
+  });
+
+  it('ignores a blank/whitespace db endpoint (resolves to unset)', () => {
+    const r = resolveObservabilityConfig({ endpoint: '   ' });
+    expect(r.endpoint).toBeNull();
+    expect(r.source.endpoint).toBe('unset');
   });
 
   it('accepts boundary sample ratios 0 and 1 from the db', () => {
-    expect(resolveObservabilityConfig({ sample_ratio: 0 }, EMPTY_ENV).sample_ratio).toBe(0);
-    expect(resolveObservabilityConfig({ sample_ratio: 1 }, EMPTY_ENV).sample_ratio).toBe(1);
+    expect(resolveObservabilityConfig({ sample_ratio: 0 }).sample_ratio).toBe(0);
+    expect(resolveObservabilityConfig({ sample_ratio: 1 }).sample_ratio).toBe(1);
   });
 });
 

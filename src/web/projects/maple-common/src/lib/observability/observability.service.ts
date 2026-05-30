@@ -47,6 +47,7 @@ import {
 } from './observability-config-cache';
 import {
   observabilityConfigEqual,
+  type ObservabilityConfigPatch,
   type ObservabilityConfigResponse,
 } from './observability-config.model';
 
