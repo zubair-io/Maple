@@ -9,13 +9,20 @@
  *   X-Maple-Target-Rel-Path — required — the relative path the original was
  *                             written to (e.g. "2024/Tokyo/03-15/IMG.HEIC").
  *                             Server writes "<that-path>.xmp".
+ *   X-Maple-Id              — optional — the content-hash dedup key
+ *                             (`maple_id`). When present, the asset is looked
+ *                             up by it first; this covers content-duplicate
+ *                             photos whose `phasset_link` for this device was
+ *                             never attached (dedup / re-import), which the
+ *                             device+phasset lookup misses (see #698).
  *
  * Body: raw XMP string (utf-8). Max size: 256 KB.
  *
  * Responses:
- *   200 — { target_rel_path: "...xmp" }
+ *   200 — { target_rel_path: "...xmp" }            — written
+ *   200 — { target_rel_path: "...xmp", skipped: true } — already on disk, not overwritten
  *   400 — missing/invalid headers, body too large, unsafe path
- *   404 — library not found, or no prior upload for this device+phasset
+ *   404 — library not found, or no prior upload (neither maple_id nor device+phasset matched)
  *   413 — body exceeds 256 KB
  */
 import { Elysia, t } from 'elysia';
@@ -74,6 +81,8 @@ export const backupSidecarRoutes = new Elysia().post(
     const deviceId = headers['x-maple-device-id'];
     const phid = headers['x-maple-phasset-id'];
     const targetRelPath = headers['x-maple-target-rel-path'];
+    // Optional content-hash dedup key. Primary lookup when present (#698).
+    const mapleId = headers['x-maple-id'];
 
     if (!deviceId || !phid || !targetRelPath) {
       set.status = 400;
@@ -102,12 +111,32 @@ export const backupSidecarRoutes = new Elysia().post(
     // `folder_id` matched nothing for a freshly-ingested asset and 404'd the
     // sidecar even though the original bytes landed. Mirrors the rendered
     // route's `fileinfo.library_id` scoping.
+    //
+    // PRIMARY lookup: by `maple_id` (content-hash dedup key) when the client
+    // sent `X-Maple-Id`. A content-duplicate photo (already uploaded by another
+    // device, or re-imported under a new PHAsset local id) won't carry THIS
+    // device's `phasset_link`, so the device+phasset query below misses and
+    // 404s even though the asset + bytes exist (#698). The maple_id is stable
+    // across devices, so it resolves the dedup case.
+    const liveFileinfo = { $elemMatch: { library_id: libraryId, deleted_at: null } };
     const a = await assetsCollection();
-    const asset = await a.findOne({
-      fileinfo: { $elemMatch: { library_id: libraryId, deleted_at: null } },
-      'phasset_links.device_id': deviceId,
-      'phasset_links.phasset_local_id': phid,
-    });
+    let asset = null;
+    if (mapleId) {
+      asset = await a.findOne({
+        maple_id: mapleId,
+        fileinfo: liveFileinfo,
+      });
+    }
+    // FALLBACK: by (device_id, phasset_local_id). Used when the client is an
+    // older build that doesn't send `X-Maple-Id`, or when the maple_id lookup
+    // missed. Preserves backwards compatibility.
+    if (!asset) {
+      asset = await a.findOne({
+        fileinfo: liveFileinfo,
+        'phasset_links.device_id': deviceId,
+        'phasset_links.phasset_local_id': phid,
+      });
+    }
     if (!asset) {
       set.status = 404;
       return { error: 'no prior upload for this device and phasset' };
@@ -134,6 +163,19 @@ export const backupSidecarRoutes = new Elysia().post(
     if (!finalPath.startsWith(folder.path + path.sep) && finalPath !== folder.path) {
       set.status = 400;
       return { error: 'path escape detected' };
+    }
+
+    // SKIP-IF-EXISTS: a dedup re-upload from a second device must not clobber
+    // the first device's (possibly already-edited) sidecar. If `<path>.xmp`
+    // already exists on disk, treat the write as a no-op (#698). An explicit
+    // edit-sync overwrite/force path is out of scope here.
+    try {
+      await fs.access(finalPath);
+      log.debug({ phid, sidecarRelPath }, 'sidecar already exists — skipping write');
+      set.status = 200;
+      return { target_rel_path: sidecarRelPath, skipped: true };
+    } catch {
+      // Not present (ENOENT) — proceed to write.
     }
 
     await fs.mkdir(path.dirname(finalPath), { recursive: true });
