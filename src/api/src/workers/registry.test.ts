@@ -4,12 +4,10 @@
  * to start, even when the stage's `bootConfig()` is still mid-retry or has
  * permanently failed. Regression-guards the fix from PR #164 review.
  */
-import { describe, it, expect, beforeEach } from "bun:test";
-import { stageRegistry, type StageRegistryEntry } from "./registry.ts";
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { stageRegistry, type StageRegistryEntry } from './registry.ts';
 
-function fakeEntry(
-  overrides: Partial<StageRegistryEntry> = {},
-): StageRegistryEntry {
+function fakeEntry(overrides: Partial<StageRegistryEntry> = {}): StageRegistryEntry {
   return {
     targetVersion: 1,
     dependsOn: [],
@@ -23,15 +21,15 @@ function fakeEntry(
   };
 }
 
-describe("StageRegistry.statuses() pre-registration", () => {
+describe('StageRegistry.statuses() pre-registration', () => {
   beforeEach(() => stageRegistry._resetForTests());
 
   it("returns a 'stopped' row for a pre-registered stage that hasn't booted", () => {
-    stageRegistry.preregister("hash", 3);
+    stageRegistry.preregister('hash', 3);
     const s = stageRegistry.statuses();
     expect(s.hash).toBeDefined();
     expect(s.hash).toEqual({
-      status: "stopped",
+      status: 'stopped',
       inFlight: 0,
       throughput: 0,
       targetVersion: 3,
@@ -41,25 +39,25 @@ describe("StageRegistry.statuses() pre-registration", () => {
   });
 
   it("returns an 'error' row when recordError fires on a pre-registered stage", () => {
-    stageRegistry.preregister("face", 2);
-    stageRegistry.recordError("face", "ONNX model missing");
+    stageRegistry.preregister('face', 2);
+    stageRegistry.recordError('face', 'ONNX model missing');
     const s = stageRegistry.statuses();
     expect(s.face).toEqual({
-      status: "error",
+      status: 'error',
       inFlight: 0,
       throughput: 0,
       targetVersion: 2,
       dependsOn: [],
-      lastError: "ONNX model missing",
+      lastError: 'ONNX model missing',
     });
   });
 
-  it("live register() supersedes the pre-registration stub", () => {
-    stageRegistry.preregister("exif", 4);
-    stageRegistry.register("exif", fakeEntry({ targetVersion: 4 }));
+  it('live register() supersedes the pre-registration stub', () => {
+    stageRegistry.preregister('exif', 4);
+    stageRegistry.register('exif', fakeEntry({ targetVersion: 4 }));
     const s = stageRegistry.statuses();
     expect(s.exif).toEqual({
-      status: "running",
+      status: 'running',
       inFlight: 0,
       throughput: 0,
       targetVersion: 4,
@@ -68,66 +66,51 @@ describe("StageRegistry.statuses() pre-registration", () => {
     });
   });
 
-  it("surfaces resolved dependsOn from both pre-registration and live register()", () => {
-    stageRegistry.preregister("thumb", 2, [{ name: "exif", minVersion: 1 }]);
-    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([
-      { name: "exif", minVersion: 1 },
-    ]);
+  it('surfaces resolved dependsOn from both pre-registration and live register()', () => {
+    stageRegistry.preregister('thumb', 2, [{ name: 'exif', minVersion: 1 }]);
+    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([{ name: 'exif', minVersion: 1 }]);
 
     stageRegistry.register(
-      "thumb",
+      'thumb',
       fakeEntry({
         targetVersion: 2,
-        dependsOn: [{ name: "exif", minVersion: 2 }],
+        dependsOn: [{ name: 'exif', minVersion: 2 }],
       }),
     );
-    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([
-      { name: "exif", minVersion: 2 },
-    ]);
+    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([{ name: 'exif', minVersion: 2 }]);
   });
 
-  it("statuses() returns every pre-registered stage even when none have booted", () => {
-    const names = [
-      "hash",
-      "exif",
-      "thumb",
-      "preview",
-      "face",
-      "describe",
-      "geocode",
-      "meili",
-    ];
+  it('statuses() returns every pre-registered stage even when none have booted', () => {
+    const names = ['hash', 'exif', 'thumb', 'preview', 'face', 'describe', 'geocode', 'meili'];
     for (const n of names) stageRegistry.preregister(n, 1);
     const s = stageRegistry.statuses();
     expect(Object.keys(s).sort()).toEqual(names.sort());
     for (const n of names) {
-      expect(s[n]!.status).toBe("stopped");
+      expect(s[n]!.status).toBe('stopped');
     }
   });
 
   it("after unregister(), the pre-registered stub re-appears with 'stopped'", () => {
-    stageRegistry.preregister("thumb", 2);
-    stageRegistry.register("thumb", fakeEntry({ targetVersion: 2 }));
-    expect(stageRegistry.statuses().thumb!.status).toBe("running");
-    stageRegistry.unregister("thumb");
+    stageRegistry.preregister('thumb', 2);
+    stageRegistry.register('thumb', fakeEntry({ targetVersion: 2 }));
+    expect(stageRegistry.statuses().thumb!.status).toBe('running');
+    stageRegistry.unregister('thumb');
     // Stage stopped — should still surface as 'stopped' so the UI shows
     // the row instead of dropping it (matches old supervisor contract).
-    expect(stageRegistry.statuses().thumb!.status).toBe("stopped");
+    expect(stageRegistry.statuses().thumb!.status).toBe('stopped');
   });
 
-  it("preregister is idempotent — re-calling updates targetVersion in place", () => {
-    stageRegistry.preregister("meili", 1);
-    stageRegistry.preregister("meili", 5);
+  it('preregister is idempotent — re-calling updates targetVersion in place', () => {
+    stageRegistry.preregister('meili', 1);
+    stageRegistry.preregister('meili', 5);
     expect(stageRegistry.statuses().meili!.targetVersion).toBe(5);
   });
 
-  it("preregister preserves previously-registered deps when re-called without them", () => {
-    stageRegistry.preregister("thumb", 2, [{ name: "exif", minVersion: 1 }]);
+  it('preregister preserves previously-registered deps when re-called without them', () => {
+    stageRegistry.preregister('thumb', 2, [{ name: 'exif', minVersion: 1 }]);
     // Re-register with a new targetVersion only — deps must survive.
-    stageRegistry.preregister("thumb", 3);
+    stageRegistry.preregister('thumb', 3);
     expect(stageRegistry.statuses().thumb!.targetVersion).toBe(3);
-    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([
-      { name: "exif", minVersion: 1 },
-    ]);
+    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([{ name: 'exif', minVersion: 1 }]);
   });
 });
