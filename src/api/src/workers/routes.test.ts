@@ -1,19 +1,17 @@
-import { describe, expect, it } from "bun:test";
-import { Elysia } from "elysia";
-import { workerRoutes } from "./routes.ts";
-import { stageRegistry } from "./registry.ts";
+import { describe, expect, it } from 'bun:test';
+import { Elysia } from 'elysia';
+import { workerRoutes } from './routes.ts';
+import { stageRegistry } from './registry.ts';
 
-describe("GET /api/workers/status", () => {
-  it("returns an empty stages array when the registry has no stages", async () => {
+describe('GET /api/workers/status', () => {
+  it('returns an empty stages array when the registry has no stages', async () => {
     stageRegistry._resetForTests();
     const app = new Elysia().use(workerRoutes());
 
-    const res = await app.handle(
-      new Request("http://localhost/api/workers/status"),
-    );
+    const res = await app.handle(new Request('http://localhost/api/workers/status'));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toHaveProperty("stages");
+    expect(body).toHaveProperty('stages');
     expect(Array.isArray(body.stages)).toBe(true);
     expect(body.stages).toHaveLength(0);
   });
@@ -26,20 +24,18 @@ describe("GET /api/workers/status", () => {
   it("surfaces pre-registered stages as 'stopped' even when none have booted", async () => {
     stageRegistry._resetForTests();
     const names = [
-      "exif",
-      "thumb",
-      "preview",
-      "face-detect",
-      "face-embed",
-      "describe",
-      "geocode",
-      "meili",
+      'exif',
+      'thumb',
+      'preview',
+      'face-detect',
+      'face-embed',
+      'describe',
+      'geocode',
+      'meili',
     ];
     for (const n of names) stageRegistry.preregister(n, 1);
     const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request("http://localhost/api/workers/status"),
-    );
+    const res = await app.handle(new Request('http://localhost/api/workers/status'));
     expect(res.status).toBe(200);
     const body = await res.json();
     const stageNames = (body.stages as Array<{ name: string; status: string }>)
@@ -47,18 +43,16 @@ describe("GET /api/workers/status", () => {
       .sort();
     expect(stageNames).toEqual(names.sort());
     for (const s of body.stages) {
-      expect(s.status).toBe("stopped");
+      expect(s.status).toBe('stopped');
     }
   });
 
-  it("includes pending/ready/blocked on every stage row (zeroed when the DB is unavailable)", async () => {
+  it('includes pending/ready/blocked on every stage row (zeroed when the DB is unavailable)', async () => {
     stageRegistry._resetForTests();
-    stageRegistry.preregister("exif", 2);
-    stageRegistry.preregister("thumb", 2, [{ name: "exif", minVersion: 1 }]);
+    stageRegistry.preregister('exif', 2);
+    stageRegistry.preregister('thumb', 2, [{ name: 'exif', minVersion: 1 }]);
     const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request("http://localhost/api/workers/status"),
-    );
+    const res = await app.handle(new Request('http://localhost/api/workers/status'));
     const body = await res.json();
     const rows = body.stages as Array<{
       name: string;
@@ -67,8 +61,8 @@ describe("GET /api/workers/status", () => {
       blocked: number;
     }>;
     for (const r of rows) {
-      expect(r).toHaveProperty("ready");
-      expect(r).toHaveProperty("blocked");
+      expect(r).toHaveProperty('ready');
+      expect(r).toHaveProperty('blocked');
       // No DB in this unit test → counts fall back to 0, and blocked is the
       // clamped pending − ready difference.
       expect(r.pending).toBe(0);
@@ -79,12 +73,10 @@ describe("GET /api/workers/status", () => {
 
   it("surfaces a pre-registered stage as 'error' once recordError fires", async () => {
     stageRegistry._resetForTests();
-    stageRegistry.preregister("face", 1);
-    stageRegistry.recordError("face", "ONNX model not found");
+    stageRegistry.preregister('face', 1);
+    stageRegistry.recordError('face', 'ONNX model not found');
     const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request("http://localhost/api/workers/status"),
-    );
+    const res = await app.handle(new Request('http://localhost/api/workers/status'));
     const body = await res.json();
     const face = (
       body.stages as Array<{
@@ -92,67 +84,65 @@ describe("GET /api/workers/status", () => {
         status: string;
         lastError: string | null;
       }>
-    ).find((s) => s.name === "face");
+    ).find((s) => s.name === 'face');
     expect(face).toBeDefined();
-    expect(face!.status).toBe("error");
-    expect(face!.lastError).toBe("ONNX model not found");
+    expect(face!.status).toBe('error');
+    expect(face!.lastError).toBe('ONNX model not found');
   });
 });
 
-describe("POST /api/workers/:name/pause", () => {
-  it("returns 404 for unknown stage", async () => {
-    expect(stageRegistry.has("nonexistent")).toBe(false);
+describe('POST /api/workers/:name/pause', () => {
+  it('returns 404 for unknown stage', async () => {
+    expect(stageRegistry.has('nonexistent')).toBe(false);
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
-      new Request("http://localhost/api/workers/nonexistent/pause", {
-        method: "POST",
+      new Request('http://localhost/api/workers/nonexistent/pause', {
+        method: 'POST',
       }),
     );
     expect(res.status).toBe(404);
   });
 });
 
-describe("POST /api/workers/:name/resume", () => {
-  it("returns 404 for unknown stage", async () => {
+describe('POST /api/workers/:name/resume', () => {
+  it('returns 404 for unknown stage', async () => {
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
-      new Request("http://localhost/api/workers/nonexistent/resume", {
-        method: "POST",
+      new Request('http://localhost/api/workers/nonexistent/resume', {
+        method: 'POST',
       }),
     );
     expect(res.status).toBe(404);
   });
 });
 
-describe("POST /api/workers/:name/retry-dead", () => {
-  it("returns 404 for unknown stage", async () => {
+describe('POST /api/workers/:name/retry-dead', () => {
+  it('returns 404 for unknown stage', async () => {
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
-      new Request("http://localhost/api/workers/nonexistent/retry-dead", {
-        method: "POST",
+      new Request('http://localhost/api/workers/nonexistent/retry-dead', {
+        method: 'POST',
       }),
     );
     expect(res.status).toBe(404);
   });
 });
 
-describe("GET /api/workers/:name/dead", () => {
-  it("returns 404 for unknown stage", async () => {
+describe('GET /api/workers/:name/dead', () => {
+  it('returns 404 for unknown stage', async () => {
     const app = new Elysia().use(workerRoutes());
-    const res = await app.handle(
-      new Request("http://localhost/api/workers/nonexistent/dead"),
-    );
+    const res = await app.handle(new Request('http://localhost/api/workers/nonexistent/dead'));
     expect(res.status).toBe(404);
   });
 });
 
-describe("PATCH /api/workers/:name/config", () => {
-  it("returns 404 for unknown stage", async () => {
+describe('PATCH /api/workers/:name/config', () => {
+  it('returns 404 for unknown stage', async () => {
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
-      new Request("http://localhost/api/workers/nonexistent/config", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
+      new Request('http://localhost/api/workers/nonexistent/config', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ concurrency: 4 }),
       }),
     );

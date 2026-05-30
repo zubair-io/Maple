@@ -13,7 +13,7 @@
  * level singleton — there is only one API server.
  */
 
-export type StageStatus = "running" | "paused" | "stopped" | "error";
+export type StageStatus = 'running' | 'paused' | 'stopped' | 'error';
 
 /** A stage's upstream dependency, resolved to its concrete minimum version.
  * Mirrors the shape `buildClaimQuery` consumes in run-stage.ts. */
@@ -64,10 +64,7 @@ class StageRegistry {
    * WS bridge. Matches the old multi-process supervisor's behaviour where
    * `addStage()` registered every stage immediately with `status: "stopped"`.
    */
-  private readonly known = new Map<
-    string,
-    { targetVersion: number; dependsOn: ResolvedDep[] }
-  >();
+  private readonly known = new Map<string, { targetVersion: number; dependsOn: ResolvedDep[] }>();
 
   /**
    * Declare a stage the orchestrator plans to start so `statuses()` reports
@@ -78,11 +75,7 @@ class StageRegistry {
    * the ready/blocked split). Leaves any existing live entry / recorded error
    * untouched.
    */
-  preregister(
-    name: string,
-    targetVersion: number,
-    dependsOn?: ResolvedDep[],
-  ): void {
+  preregister(name: string, targetVersion: number, dependsOn?: ResolvedDep[]): void {
     const existing = this.known.get(name);
     this.known.set(name, {
       targetVersion,
@@ -126,7 +119,7 @@ class StageRegistry {
       if (this.entries.has(name)) continue;
       const lastError = this.lastErrors.get(name) ?? null;
       out[name] = {
-        status: lastError !== null ? "error" : "stopped",
+        status: lastError !== null ? 'error' : 'stopped',
         inFlight: 0,
         throughput: 0,
         targetVersion,
@@ -136,7 +129,7 @@ class StageRegistry {
     }
     for (const [name, entry] of this.entries) {
       out[name] = {
-        status: entry.getPaused() ? "paused" : "running",
+        status: entry.getPaused() ? 'paused' : 'running',
         inFlight: entry.getInFlight(),
         throughput: entry.getThroughput(),
         targetVersion: entry.targetVersion,
@@ -186,9 +179,7 @@ class StageRegistry {
     this.known.clear();
   }
 
-  async notifyConfigChanged(
-    name: string,
-  ): Promise<{ ok: boolean; error?: string }> {
+  async notifyConfigChanged(name: string): Promise<{ ok: boolean; error?: string }> {
     const entry = this.entries.get(name);
     if (!entry) return { ok: false, error: `unknown stage: ${name}` };
     try {
