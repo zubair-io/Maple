@@ -26,8 +26,12 @@ export interface StageStatus {
   inFlight: number;
   /** Configured concurrency (= config.concurrency). */
   configured: number;
-  /** Claim-query count — docs waiting to be processed. */
+  /** Total docs this stage still owes work on (version < target, not dead). */
   pending: number;
+  /** Subset of `pending` whose upstream deps are met — claimable right now. */
+  ready: number;
+  /** Subset of `pending` waiting on an upstream stage (= pending − ready). */
+  blocked: number;
   /** Dead-lettered doc count. */
   dead: number;
   /** Docs completed per minute, rolling window. */

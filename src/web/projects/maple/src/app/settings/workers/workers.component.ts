@@ -53,6 +53,7 @@ import {
   formatBytes,
   formatDate,
   groupStagesByPipeline,
+  pendingTitle,
   runtimeFormToPatch,
   stageMeta,
   statusDotColor,
@@ -471,6 +472,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
   statusLabel = statusLabel;
   statusDotColor = statusDotColor;
   throughputLabel = throughputLabel;
+  pendingTitle = pendingTitle;
   formatBytes = formatBytes;
   formatDate = formatDate;
 

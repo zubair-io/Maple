@@ -13,6 +13,7 @@ import {
 function fakeEntry(overrides: Partial<StageRegistryEntry> = {}): StageRegistryEntry {
   return {
     targetVersion: 1,
+    dependsOn: [],
     getInFlight: () => 0,
     getThroughput: () => 0,
     getPaused: () => false,
@@ -35,6 +36,7 @@ describe("StageRegistry.statuses() pre-registration", () => {
       inFlight: 0,
       throughput: 0,
       targetVersion: 3,
+      dependsOn: [],
       lastError: null,
     });
   });
@@ -48,6 +50,7 @@ describe("StageRegistry.statuses() pre-registration", () => {
       inFlight: 0,
       throughput: 0,
       targetVersion: 2,
+      dependsOn: [],
       lastError: "ONNX model missing",
     });
   });
@@ -61,8 +64,20 @@ describe("StageRegistry.statuses() pre-registration", () => {
       inFlight: 0,
       throughput: 0,
       targetVersion: 4,
+      dependsOn: [],
       lastError: null,
     });
+  });
+
+  it("surfaces resolved dependsOn from both pre-registration and live register()", () => {
+    stageRegistry.preregister("thumb", 2, [{ name: "exif", minVersion: 1 }]);
+    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([{ name: "exif", minVersion: 1 }]);
+
+    stageRegistry.register(
+      "thumb",
+      fakeEntry({ targetVersion: 2, dependsOn: [{ name: "exif", minVersion: 2 }] }),
+    );
+    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([{ name: "exif", minVersion: 2 }]);
   });
 
   it("statuses() returns every pre-registered stage even when none have booted", () => {
