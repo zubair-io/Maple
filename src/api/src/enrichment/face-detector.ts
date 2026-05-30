@@ -143,12 +143,33 @@ export class OnnxFaceDetector implements FaceDetector {
   }
 }
 
-/** Singleton. Worker grabs this via `defaultFaceDetector()` so tests can
+/** Singleton. The stages grab this via `defaultFaceDetector()` so tests can
  * inject a stub without poking module internals. */
 let defaultDetector: FaceDetector | null = null;
 
+/**
+ * The default face detector the stages call through.
+ *
+ * Production returns a `PooledFaceDetector`, which runs detect/embed on a
+ * dedicated worker thread so the synchronous ONNX `session.run()` doesn't
+ * freeze the HTTP event loop (#707). The worker runs this same
+ * `OnnxFaceDetector` wholesale, so output is identical — the pool is a timing
+ * change, not a results change. A test override set via
+ * `setDefaultFaceDetectorForTests` short-circuits the pool entirely (the
+ * override is consulted first), so stage tests keep stubbing the detector on
+ * the main thread without spawning a worker.
+ *
+ * `PooledFaceDetector` is imported lazily (inside the function body, not at
+ * module top level) to keep the `face-detector ↔ face-pool` import cycle inert
+ * during module evaluation: the pool imports `OnnxFaceDetector` from here, and
+ * resolving that binding at this module's eval time would be order-sensitive.
+ */
 export function defaultFaceDetector(): FaceDetector {
-  if (!defaultDetector) defaultDetector = new OnnxFaceDetector();
+  if (!defaultDetector) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PooledFaceDetector } = require('./face-pool.ts') as typeof import('./face-pool.ts');
+    defaultDetector = new PooledFaceDetector();
+  }
   return defaultDetector;
 }
 
