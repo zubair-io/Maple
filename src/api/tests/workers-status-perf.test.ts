@@ -130,6 +130,7 @@ describe('GET /api/workers/status — counts', () => {
     const { stageRegistry } = await import('../src/workers/registry.ts');
     stageRegistry.register('exif', {
       targetVersion: tv,
+      dependsOn: [],
       getInFlight: () => 0,
       getThroughput: () => 0,
       getPaused: () => false,
@@ -157,6 +158,72 @@ describe('GET /api/workers/status — counts', () => {
     } finally {
       // Tear down the fake registration so it doesn't leak into other tests
       // even if an assertion above threw.
+      stageRegistry.unregister('exif');
+    }
+  });
+
+  it('does not count missing-tagged (reaper) docs as pending or blocked', async () => {
+    if (!mongoReachable) return;
+
+    const { closeDb, ensureStageIndexes, getDb } = await import('../src/db/client.ts');
+    await closeDb();
+    const db = mongo!.db(TEST_DB);
+    try {
+      await db.dropCollection('assets');
+    } catch {}
+    try {
+      await db.dropCollection('worker_config');
+    } catch {}
+    await db.createCollection('assets');
+    await ensureStageIndexes(db);
+
+    // 2 genuinely-pending docs (below target, untagged) + 3 docs that are below
+    // target but parked by the reaper (`missing_since` is an ISO string). The
+    // tagged docs can't be claimed by exif, so they must not show up in its
+    // pending count, and therefore must not inflate blocked = pending − ready.
+    const tv = 3;
+    const taggedAt = new Date().toISOString();
+    await db.collection('assets').insertMany([
+      { stages: { exif: { version: 1 } } },
+      { stages: {} },
+      { stages: { exif: { version: 1 } }, missing_since: taggedAt },
+      { stages: { exif: { version: 1 } }, missing_since: taggedAt },
+      { stages: {}, missing_since: taggedAt },
+    ]);
+
+    const { Elysia } = await import('elysia');
+    const { workerRoutes } = await import('../src/workers/routes.ts');
+    const { stageRegistry } = await import('../src/workers/registry.ts');
+    stageRegistry.register('exif', {
+      targetVersion: tv,
+      dependsOn: [],
+      getInFlight: () => 0,
+      getThroughput: () => 0,
+      getPaused: () => false,
+      reloadConfig: async () => {},
+      pause: async () => {},
+      resume: async () => {},
+    });
+
+    try {
+      process.env.MAPLE_MONGO_DB = TEST_DB;
+      await closeDb();
+      await getDb();
+
+      const app = new Elysia().use(workerRoutes());
+      const res = await app.handle(new Request('http://localhost/api/workers/status'));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        stages: Array<{ name: string; pending: number; ready: number; blocked: number }>;
+      };
+      const exif = body.stages.find((s) => s.name === 'exif');
+      expect(exif).toBeDefined();
+      // Only the 2 untagged docs count — the 3 reaper-tagged docs are parked.
+      expect(exif!.pending).toBe(2);
+      // exif has no upstream deps, so the 2 pending docs are all ready and
+      // nothing is blocked. The reaper backlog must not leak in here.
+      expect(exif!.blocked).toBe(0);
+    } finally {
       stageRegistry.unregister('exif');
     }
   });
@@ -208,6 +275,8 @@ describe('GET /api/workers/status — counts', () => {
           { 'stages.exif.version': { $exists: false } },
         ],
         'stages.exif.dead': { $ne: true },
+        // Mirrors the route's pending query: missing-tagged docs are parked.
+        missing_since: { $not: { $type: 'string' } },
       })
       .explain('queryPlanner');
     const winning = JSON.stringify(explain.queryPlanner?.winningPlan ?? {});
