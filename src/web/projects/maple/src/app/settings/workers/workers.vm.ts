@@ -115,8 +115,6 @@ export function stageMeta(name: string): StageMeta {
  * survive a poll without flickering. */
 export interface RuntimeForm {
   concurrency: string;
-  pollIntervalMs: string;
-  batchSize: string;
   maxAttempts: string;
 }
 
@@ -159,10 +157,12 @@ export type SaveState = 'idle' | 'saving' | 'success' | 'error';
 // validation is still authoritative.
 export const DEFAULT_RUNTIME = Object.freeze({
   concurrency: 2,
-  pollIntervalMs: 1000,
-  batchSize: 5,
   maxAttempts: 5,
 });
+
+/** Concurrency clamp ceiling. Raised 32 → 100 in #674 (pure guardrail); the
+ * server enforces the same bound. */
+export const CONCURRENCY_MAX = 100;
 
 /** Seed form values from a stage's persisted config, falling back to
  * `DEFAULT_RUNTIME` per field. */
@@ -170,8 +170,6 @@ export function blankRuntime(stage: StageStatus): RuntimeForm {
   const cfg = stage.config;
   return {
     concurrency: String(cfg?.concurrency ?? DEFAULT_RUNTIME.concurrency),
-    pollIntervalMs: String(cfg?.pollIntervalMs ?? DEFAULT_RUNTIME.pollIntervalMs),
-    batchSize: String(cfg?.batchSize ?? DEFAULT_RUNTIME.batchSize),
     maxAttempts: String(cfg?.maxAttempts ?? DEFAULT_RUNTIME.maxAttempts),
   };
 }
@@ -210,14 +208,7 @@ export function parseClampedInt(value: string, min: number, max: number, fallbac
  * field clamped to the per-knob acceptable range. */
 export function runtimeFormToPatch(form: RuntimeForm): Partial<WorkerConfig> {
   return {
-    concurrency: parseClampedInt(form.concurrency, 1, 32, DEFAULT_RUNTIME.concurrency),
-    pollIntervalMs: parseClampedInt(
-      form.pollIntervalMs,
-      100,
-      60_000,
-      DEFAULT_RUNTIME.pollIntervalMs,
-    ),
-    batchSize: parseClampedInt(form.batchSize, 1, 100, DEFAULT_RUNTIME.batchSize),
+    concurrency: parseClampedInt(form.concurrency, 1, CONCURRENCY_MAX, DEFAULT_RUNTIME.concurrency),
     maxAttempts: parseClampedInt(form.maxAttempts, 1, 20, DEFAULT_RUNTIME.maxAttempts),
   };
 }

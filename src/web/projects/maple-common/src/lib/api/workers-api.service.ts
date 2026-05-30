@@ -11,8 +11,6 @@ import { API_BASE_URL } from './api-base-url.token';
 
 export interface WorkerConfig {
   concurrency: number;
-  pollIntervalMs: number;
-  batchSize: number;
   maxAttempts: number;
   paused: boolean;
   last_seen_target_version: number;
@@ -39,7 +37,7 @@ export interface StageStatus {
   lastError: string | null;
   /** Persisted operator config for this stage. Null when not yet seeded. */
   config: WorkerConfig | null;
-  /** Batch limit (= config.batchSize). */
+  /** Claim batch limit, derived server-side as 5×concurrency (#674). */
   batchSize: number;
 }
 

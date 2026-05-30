@@ -517,43 +517,16 @@
 
                 <div class="block">
                   <div class="subhead">Stage runtime</div>
-                  <div class="grid-4col">
+                  <div class="grid-2col">
                     <div class="field">
                       <div class="field-label">Concurrency</div>
                       <div class="num-input">
                         <input
                           type="number"
                           min="1"
-                          max="32"
+                          max="100"
                           [value]="runtimeValue(s, 'concurrency')"
                           (input)="setRuntime(s, 'concurrency', $any($event.target).value)"
-                        />
-                      </div>
-                      <div class="field-hint">1 – 32</div>
-                    </div>
-                    <div class="field">
-                      <div class="field-label">Poll interval</div>
-                      <div class="num-input">
-                        <input
-                          type="number"
-                          min="100"
-                          max="60000"
-                          [value]="runtimeValue(s, 'pollIntervalMs')"
-                          (input)="setRuntime(s, 'pollIntervalMs', $any($event.target).value)"
-                        />
-                        <span class="num-suffix">ms</span>
-                      </div>
-                      <div class="field-hint">100 – 60 000 ms</div>
-                    </div>
-                    <div class="field">
-                      <div class="field-label">Batch size</div>
-                      <div class="num-input">
-                        <input
-                          type="number"
-                          min="1"
-                          max="100"
-                          [value]="runtimeValue(s, 'batchSize')"
-                          (input)="setRuntime(s, 'batchSize', $any($event.target).value)"
                         />
                       </div>
                       <div class="field-hint">1 – 100</div>

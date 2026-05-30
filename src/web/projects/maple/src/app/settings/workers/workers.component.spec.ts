@@ -3,14 +3,21 @@ import { provideHttpClientTesting, HttpTestingController } from '@angular/common
 import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { Subject } from 'rxjs';
 import { WorkersComponent } from './workers.component';
-import { API_BASE_URL } from '@maple-common';
+import { API_BASE_URL, WorkerEventsService } from '@maple-common';
 import type { WorkersStatusResponse, EnrichmentConfigResponse } from '@maple-common';
+
+// Stub the WS events service so the component renders from a `workers-status`
+// frame (#674) without opening a real socket. The Subject lets each test push a
+// status frame deterministically.
+const wsFrames = new Subject<WorkersStatusResponse>();
+const workerEventsStub: Pick<WorkerEventsService, 'workersStatus$'> = {
+  workersStatus$: wsFrames.asObservable(),
+};
 
 const MOCK_CONFIG = {
   concurrency: 4,
-  pollIntervalMs: 1000,
-  batchSize: 10,
   maxAttempts: 5,
   paused: false,
   last_seen_target_version: 1,
@@ -45,13 +52,11 @@ const MOCK_STATUS: WorkersStatusResponse = {
       lastError: null,
       config: {
         concurrency: 2,
-        pollIntervalMs: 1000,
-        batchSize: 5,
         maxAttempts: 5,
         paused: false,
         last_seen_target_version: 1,
       },
-      batchSize: 5,
+      batchSize: 10,
     },
     {
       name: 'describe',
@@ -66,13 +71,11 @@ const MOCK_STATUS: WorkersStatusResponse = {
       lastError: 'API key invalid',
       config: {
         concurrency: 2,
-        pollIntervalMs: 1000,
-        batchSize: 5,
         maxAttempts: 5,
         paused: false,
         last_seen_target_version: 1,
       },
-      batchSize: 5,
+      batchSize: 10,
     },
   ],
 };
@@ -129,6 +132,7 @@ describe('WorkersComponent', () => {
         provideHttpClientTesting(),
         provideRouter([]),
         { provide: API_BASE_URL, useValue: '/api' },
+        { provide: WorkerEventsService, useValue: workerEventsStub },
       ],
     }).compileComponents();
     fixture = TestBed.createComponent(WorkersComponent);
@@ -142,15 +146,18 @@ describe('WorkersComponent', () => {
   });
 
   function initWithMock(): void {
-    // ngOnInit fires both polls — flush both so HttpTestingController.verify()
-    // doesn't complain at teardown.
+    // ngOnInit subscribes to the WS stream and fires a one-shot HTTP fallback
+    // (#674). Push the status frame over the WS stub so it drives rendering;
+    // flush the fallback GET (ignored once the WS frame lands) + enrichment so
+    // HttpTestingController.verify() is satisfied at teardown.
     fixture.detectChanges();
+    wsFrames.next(MOCK_STATUS);
     http.expectOne('/api/workers/status').flush(MOCK_STATUS);
     http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
     fixture.detectChanges();
   }
 
-  it('fetches status on init and renders one row per stage', () => {
+  it('renders one row per stage from the WS status frame', () => {
     initWithMock();
     const rows = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
     expect(rows.length).toBe(3);
