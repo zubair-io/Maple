@@ -34,7 +34,7 @@
             ? 'Files that could not be read after every retry — click to inspect'
             : 'No damaged files'
         "
-        (click)="openDamaged()"
+        (click)="damaged.open()"
       >
         <span class="chip-val">{{ damagedCount() | number }}</span>
         <span class="chip-label">Damaged</span>
@@ -747,11 +747,11 @@
   </div>
 }
 
-@if (damagedLog(); as log) {
+@if (damaged.drawer(); as log) {
   <div
     class="log-backdrop"
     data-testid="damaged-backdrop"
-    (click)="closeDamaged()"
+    (click)="damaged.close()"
     role="presentation"
   >
     <div
@@ -783,13 +783,13 @@
               class="btn-ghost danger"
               data-testid="clear-all-damaged-btn"
               [disabled]="log.clearing"
-              (click)="clearDamaged()"
+              (click)="damaged.clear()"
             >
               <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
               {{ log.clearing ? 'Clearing…' : 'Clear all & re-queue' }}
             </button>
           }
-          <button type="button" class="log-close" (click)="closeDamaged()" aria-label="Close">
+          <button type="button" class="log-close" (click)="damaged.close()" aria-label="Close">
             <maple-settings-icon name="x" [size]="14" [color]="'#a8a29e'" />
           </button>
         </div>
@@ -824,7 +824,7 @@
                   class="link-btn"
                   data-testid="clear-damaged-btn"
                   [disabled]="log.clearing"
-                  (click)="clearDamaged(item.id)"
+                  (click)="damaged.clear(item.id)"
                 >
                   Clear & re-queue
                 </button>
