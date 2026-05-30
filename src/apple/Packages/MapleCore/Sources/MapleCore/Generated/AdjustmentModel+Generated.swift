@@ -41,6 +41,16 @@ extension AdjustmentModel {
         case nrLuminance = "nr_luminance"
         case nrColor = "nr_color"
         case dehaze = "dehaze"
+        case vignetteAmount = "vignette_amount"
+        case vignetteFeather = "vignette_feather"
+        case grainAmount = "grain_amount"
+        case grainSize = "grain_size"
+        case grainRoughness = "grain_roughness"
+        case splitToneShadowHue = "split_tone_shadow_hue"
+        case splitToneShadowSaturation = "split_tone_shadow_saturation"
+        case splitToneHighlightHue = "split_tone_highlight_hue"
+        case splitToneHighlightSaturation = "split_tone_highlight_saturation"
+        case splitToneBalance = "split_tone_balance"
         case highlightRecovery = "highlight_recovery"
         case autoExposure = "auto_exposure"
         case look = "look"
@@ -102,4 +112,24 @@ extension AdjustmentModel {
     public static let nrColorRange: ClosedRange<Double> = 0.0...100.0
     /// Dehaze strength.
     public static let dehazeRange: ClosedRange<Double> = -100.0...100.0
+    /// Vignette amount — negative darkens corners, positive lightens them (ticket #643).
+    public static let vignetteAmountRange: ClosedRange<Double> = -100.0...100.0
+    /// Vignette transition softness from center to edge (ticket #643).
+    public static let vignetteFeatherRange: ClosedRange<Double> = 0.0...100.0
+    /// Grain intensity (ticket #643).
+    public static let grainAmountRange: ClosedRange<Double> = 0.0...100.0
+    /// Grain particle size (ticket #643).
+    public static let grainSizeRange: ClosedRange<Double> = 0.0...100.0
+    /// Grain particle roughness / variance (ticket #643).
+    public static let grainRoughnessRange: ClosedRange<Double> = 0.0...100.0
+    /// Split-tone shadow hue in degrees (ticket #643).
+    public static let splitToneShadowHueRange: ClosedRange<Double> = 0.0...360.0
+    /// Split-tone shadow saturation (ticket #643).
+    public static let splitToneShadowSaturationRange: ClosedRange<Double> = 0.0...100.0
+    /// Split-tone highlight hue in degrees (ticket #643).
+    public static let splitToneHighlightHueRange: ClosedRange<Double> = 0.0...360.0
+    /// Split-tone highlight saturation (ticket #643).
+    public static let splitToneHighlightSaturationRange: ClosedRange<Double> = 0.0...100.0
+    /// Split-tone balance — shifts the shadow/highlight split point (ticket #643). Primary drag-bar field for the Split Tone tool.
+    public static let splitToneBalanceRange: ClosedRange<Double> = -100.0...100.0
 }

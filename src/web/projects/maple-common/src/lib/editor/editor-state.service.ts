@@ -215,6 +215,7 @@ function readToolInternal(adj: AdjustmentModel, tool: ToolId): number {
       return display >= 40 ? ((display - 40) / (150 - 40)) * 100 : ((display - 40) / 40) * 100;
     case 'noise':
     case 'colorNR':
+    case 'grain':
       return ((display - 0) / (100 - 0)) * 200 - 100;
     case 'exposure':
       return (display / 4) * 100;

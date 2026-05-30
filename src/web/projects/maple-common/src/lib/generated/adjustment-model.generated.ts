@@ -77,6 +77,26 @@ export interface GeneratedAdjustmentModel {
   nrColor: number;
   /** Dehaze strength. Range: [-100.0, 100.0]. */
   dehaze: number;
+  /** Vignette amount — negative darkens corners, positive lightens them (ticket #643). Range: [-100.0, 100.0]. */
+  vignetteAmount: number;
+  /** Vignette transition softness from center to edge (ticket #643). Range: [0.0, 100.0]. */
+  vignetteFeather: number;
+  /** Grain intensity (ticket #643). Range: [0.0, 100.0]. */
+  grainAmount: number;
+  /** Grain particle size (ticket #643). Range: [0.0, 100.0]. */
+  grainSize: number;
+  /** Grain particle roughness / variance (ticket #643). Range: [0.0, 100.0]. */
+  grainRoughness: number;
+  /** Split-tone shadow hue in degrees (ticket #643). Range: [0.0, 360.0]. */
+  splitToneShadowHue: number;
+  /** Split-tone shadow saturation (ticket #643). Range: [0.0, 100.0]. */
+  splitToneShadowSaturation: number;
+  /** Split-tone highlight hue in degrees (ticket #643). Range: [0.0, 360.0]. */
+  splitToneHighlightHue: number;
+  /** Split-tone highlight saturation (ticket #643). Range: [0.0, 100.0]. */
+  splitToneHighlightSaturation: number;
+  /** Split-tone balance — shifts the shadow/highlight split point (ticket #643). Primary drag-bar field for the Split Tone tool. Range: [-100.0, 100.0]. */
+  splitToneBalance: number;
   /** Highlight reconstruction mode per spec § 3.3a. */
   highlightRecovery: HighlightRecoveryMode;
   /** Per-image auto-exposure mode (ticket #429). 'On' (default) anchors scene mid-gray to 0.18 before AgX; 'Off' is strict scene-referred. The `exposure` slider stacks additively in EV on top. */
@@ -117,6 +137,16 @@ export const ADJUSTMENT_RANGES = {
   nrLuminance: [0.0, 100.0] as const,
   nrColor: [0.0, 100.0] as const,
   dehaze: [-100.0, 100.0] as const,
+  vignetteAmount: [-100.0, 100.0] as const,
+  vignetteFeather: [0.0, 100.0] as const,
+  grainAmount: [0.0, 100.0] as const,
+  grainSize: [0.0, 100.0] as const,
+  grainRoughness: [0.0, 100.0] as const,
+  splitToneShadowHue: [0.0, 360.0] as const,
+  splitToneShadowSaturation: [0.0, 100.0] as const,
+  splitToneHighlightHue: [0.0, 360.0] as const,
+  splitToneHighlightSaturation: [0.0, 100.0] as const,
+  splitToneBalance: [-100.0, 100.0] as const,
 } as const;
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -149,6 +179,16 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     nrLuminance: 0.0,
     nrColor: 25.0,
     dehaze: 0.0,
+    vignetteAmount: 0.0,
+    vignetteFeather: 50.0,
+    grainAmount: 0.0,
+    grainSize: 25.0,
+    grainRoughness: 50.0,
+    splitToneShadowHue: 0.0,
+    splitToneShadowSaturation: 0.0,
+    splitToneHighlightHue: 0.0,
+    splitToneHighlightSaturation: 0.0,
+    splitToneBalance: 0.0,
     highlightRecovery: 'ChromaticAdaptation',
     autoExposure: 'On',
     look: 'Default',
