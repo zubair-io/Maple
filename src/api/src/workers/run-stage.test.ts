@@ -4,6 +4,7 @@ import {
   _test,
   buildClaimQuery,
   defineStage,
+  deriveBatchSize,
   ThroughputWindow,
   type ImageDoc,
   type StageState,
@@ -181,8 +182,6 @@ const baseStage = defineStage({
   dependsOn: [],
   defaults: {
     concurrency: 4,
-    pollIntervalMs: 1000,
-    batchSize: 10,
     maxAttempts: 5,
     paused: false,
     pausedOnFirstBoot: false,
@@ -222,8 +221,6 @@ describe('bootConfig', () => {
         $set: {
           name: 'hash',
           concurrency: 8,
-          pollIntervalMs: 500,
-          batchSize: 10,
           maxAttempts: 5,
           paused: true,
           last_seen_target_version: 1,
@@ -252,11 +249,9 @@ describe('bootConfig', () => {
     const cfg = await bootConfig(baseStage, coll);
 
     expect(Number.isInteger(cfg.concurrency)).toBe(true);
-    expect(Number.isInteger(cfg.pollIntervalMs)).toBe(true);
-    expect(Number.isInteger(cfg.batchSize)).toBe(true);
     expect(Number.isInteger(cfg.maxAttempts)).toBe(true);
     expect(Number.isInteger(cfg.last_seen_target_version)).toBe(true);
-    expect(cfg.batchSize).toBe(baseStage.defaults.batchSize);
+    expect(cfg.concurrency).toBe(baseStage.defaults.concurrency);
     expect(cfg.paused).toBe(false);
   });
 });
@@ -403,8 +398,6 @@ describe('poll loop integration', () => {
       dependsOn: [],
       defaults: {
         concurrency: 2,
-        pollIntervalMs: 50,
-        batchSize: 10,
         maxAttempts: 3,
         paused: false,
         pausedOnFirstBoot: false,
@@ -421,8 +414,6 @@ describe('poll loop integration', () => {
       testStage,
       {
         concurrency: 2,
-        pollIntervalMs: 50,
-        batchSize: 10,
         maxAttempts: 3,
         paused: false,
         last_seen_target_version: 1,
@@ -448,8 +439,6 @@ describe('poll loop integration', () => {
       dependsOn: [],
       defaults: {
         concurrency: 1,
-        pollIntervalMs: 50,
-        batchSize: 10,
         maxAttempts: 3,
         paused: false,
         pausedOnFirstBoot: false,
@@ -463,8 +452,6 @@ describe('poll loop integration', () => {
     const { runOnce } = _test;
     const cfg = {
       concurrency: 1,
-      pollIntervalMs: 50,
-      batchSize: 10,
       maxAttempts: 3,
       paused: false,
       last_seen_target_version: 1,
@@ -491,8 +478,6 @@ describe('poll loop integration', () => {
       dependsOn: [],
       defaults: {
         concurrency: 1,
-        pollIntervalMs: 50,
-        batchSize: 10,
         maxAttempts: 3,
         paused: false,
         pausedOnFirstBoot: false,
@@ -509,8 +494,6 @@ describe('poll loop integration', () => {
       testStage,
       {
         concurrency: 1,
-        pollIntervalMs: 50,
-        batchSize: 10,
         maxAttempts: 3,
         paused: true,
         last_seen_target_version: 1,
@@ -520,6 +503,50 @@ describe('poll loop integration', () => {
     );
 
     expect(called).toBe(false);
+  });
+
+  it('derives the claim batch size as 5×concurrency at the .limit() site', async () => {
+    // 21 eligible docs, concurrency 4 → derived batch = 20. The claim query
+    // must pull at most 20 this tick (the 21st waits for the next tick), and
+    // the full-batch signal (claimed === 20) flows back through runOnce.
+    const docs: ImageDoc[] = Array.from(
+      { length: 21 },
+      (_unused, i) => ({ abs_path: `/img${i}.raw` }) as unknown as ImageDoc,
+    );
+    const images = makeImagesMock(docs);
+    const configColl = makeConfigMock();
+
+    const testStage = defineStage({
+      name: 'hash',
+      targetVersion: 1,
+      dependsOn: [],
+      defaults: {
+        concurrency: 4,
+        maxAttempts: 3,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      // `skip` avoids the publishUpdate path (which would hit the DB), keeping
+      // this test free of a live Mongo while still exercising the claim limit.
+      handler: async (_image) => ({ skip: 'noop' }),
+    });
+
+    const { runOnce } = _test;
+    const claimed = await runOnce(
+      testStage,
+      {
+        concurrency: 4,
+        maxAttempts: 3,
+        paused: false,
+        last_seen_target_version: 1,
+      },
+      images,
+      configColl,
+    );
+
+    expect(deriveBatchSize(4)).toBe(20);
+    expect(claimed).toBe(20);
   });
 });
 
@@ -553,8 +580,6 @@ describe('defineStage', () => {
       dependsOn: [],
       defaults: {
         concurrency: 2,
-        pollIntervalMs: 1000,
-        batchSize: 5,
         maxAttempts: 3,
         paused: false,
         pausedOnFirstBoot: false,

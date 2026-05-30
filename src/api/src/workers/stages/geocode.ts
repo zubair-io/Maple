@@ -14,15 +14,15 @@
  * (Task 5) owns the Meilisearch write once all enrichment stages have run.
  */
 
-import type { ImageDoc, StageContext, StageResult } from "../run-stage.ts";
-import { defineStage, runStage, type RunStageHandle } from "../run-stage.ts";
-import { CoordinateCache } from "../../enrichment/coordinate-cache.ts";
-import { NominatimClient } from "../../enrichment/nominatim-client.ts";
-import { parseNominatimResponse } from "../../enrichment/place-parser.ts";
+import type { ImageDoc, StageContext, StageResult } from '../run-stage.ts';
+import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
+import { CoordinateCache } from '../../enrichment/coordinate-cache.ts';
+import { NominatimClient } from '../../enrichment/nominatim-client.ts';
+import { parseNominatimResponse } from '../../enrichment/place-parser.ts';
 import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
-} from "../../enrichment/enrichment-config.repo.ts";
+} from '../../enrichment/enrichment-config.repo.ts';
 
 export const GEOCODE_HANDLER_VERSION = 1;
 
@@ -37,7 +37,7 @@ async function getDeps(): Promise<GeocodeDeps> {
   if (_deps) return _deps;
   const dbConfig = await loadEnrichmentConfig();
   const cfg = resolveEnrichmentConfig(dbConfig);
-  if (!cfg.nominatim_url) throw new Error("geocode: nominatim URL not configured");
+  if (!cfg.nominatim_url) throw new Error('geocode: nominatim URL not configured');
   const client = new NominatimClient({
     baseUrl: cfg.nominatim_url,
     rateLimitPerSec: cfg.nominatim_rate_limit_per_sec,
@@ -52,14 +52,11 @@ export function setGeocodeDepsForTests(deps: GeocodeDeps | null): void {
   _deps = deps;
 }
 
-export async function geocodeHandler(
-  image: ImageDoc,
-  _ctx: StageContext,
-): Promise<StageResult> {
+export async function geocodeHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
   const { client, cache } = await getDeps();
   const gps = image.exif?.gps;
-  if (!gps || typeof gps.lat !== "number" || typeof gps.lng !== "number") {
-    return { skip: "no-gps" };
+  if (!gps || typeof gps.lat !== 'number' || typeof gps.lng !== 'number') {
+    return { skip: 'no-gps' };
   }
   const { lat, lng } = gps;
   const cached = await cache.get(lat, lng);
@@ -73,17 +70,15 @@ export async function geocodeHandler(
 }
 
 const geocodeStage = defineStage({
-  name: "geocode",
+  name: 'geocode',
   // v2: exif v2 corrects western-hemisphere longitude sign — bump so docs
   // already geocoded with the wrong-sign coords re-run against the fixed gps.
   targetVersion: 2,
   // Wait for exif v2 specifically — dep on bare "exif" would let geocode
   // run on stale v1 coords if it polls a doc before exif catches up.
-  dependsOn: [{ name: "exif", minVersion: 2 }],
+  dependsOn: [{ name: 'exif', minVersion: 2 }],
   defaults: {
     concurrency: 1,
-    pollIntervalMs: 1000,
-    batchSize: 5,
     maxAttempts: 5,
     paused: false,
     last_seen_target_version: 0,

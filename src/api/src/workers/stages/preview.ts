@@ -38,8 +38,6 @@ const previewStage = defineStage({
   tagsMissingOnEnoent: true,
   defaults: {
     concurrency: 2,
-    batchSize: 5,
-    pollIntervalMs: 1000,
     maxAttempts: 5,
     paused: false,
     pausedOnFirstBoot: false,
