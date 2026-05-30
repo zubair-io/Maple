@@ -38,7 +38,9 @@ async function tryConnect(): Promise<MongoClient | null> {
     await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch {}
+    try {
+      await c.close();
+    } catch {}
     return null;
   }
 }
@@ -130,7 +132,10 @@ describe('GET /api/assets/:id/histogram', () => {
     const { loadLibraryRoots } = await import('../indexer/libraries.cache.ts');
     const libs = await loadLibraryRoots();
     const previewPath = cachePathForAsset(
-      { maple_id: mapleId ?? undefined, fileinfo: [{ path: '', filename: 'a.dng', library_id: libraryId!, deleted_at: null }] },
+      {
+        maple_id: mapleId ?? undefined,
+        fileinfo: [{ path: '', filename: 'a.dng', library_id: libraryId!, deleted_at: null }],
+      },
       libs,
       'previews',
       'histogram',
@@ -142,7 +147,9 @@ describe('GET /api/assets/:id/histogram', () => {
     const r = new Array(256).fill(0);
     const g = new Array(256).fill(0);
     const b = new Array(256).fill(0);
-    r[100] = 10; g[100] = 10; b[100] = 10;
+    r[100] = 10;
+    g[100] = 10;
+    b[100] = 10;
     await writeFile(jsonPath, JSON.stringify({ key, bins: { r, g, b } }), 'utf-8');
 
     const app = new Elysia().use(assetsRoutes);
@@ -186,7 +193,10 @@ describe('GET /api/assets/:id/histogram', () => {
     const { loadLibraryRoots } = await import('../indexer/libraries.cache.ts');
     const libs = await loadLibraryRoots();
     const previewPath = cachePathForAsset(
-      { maple_id: mapleId ?? undefined, fileinfo: [{ path: '', filename: 'a.dng', library_id: libraryId!, deleted_at: null }] },
+      {
+        maple_id: mapleId ?? undefined,
+        fileinfo: [{ path: '', filename: 'a.dng', library_id: libraryId!, deleted_at: null }],
+      },
       libs,
       'previews',
       'histogram',
