@@ -20,7 +20,7 @@
 import SwiftUI
 import MapleCore
 
-struct PhoneLibraryView<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
+struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     @Binding var isDrawerOpen: Bool
     let mode: AppShell.Mode
     let selectedSession: EditSession?
@@ -38,7 +38,6 @@ struct PhoneLibraryView<SidebarContent: View, ToolbarContentT: ToolbarContent>: 
     let browseVM: BrowseViewModel
     @Binding var sessions: [AssetRef.ID: EditSession]
 
-    let sidebar: () -> SidebarContent
     let toolbarContent: () -> ToolbarContentT
 
     let onSelectCloudAsset: (SearchAsset, URL) -> Void
@@ -67,7 +66,6 @@ struct PhoneLibraryView<SidebarContent: View, ToolbarContentT: ToolbarContent>: 
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
             sessions: $sessions,
-            sidebar: sidebar,
             toolbarContent: toolbarContent,
             onSelectCloudAsset: onSelectCloudAsset,
             onCloseSearch: onCloseSearch,

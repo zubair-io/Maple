@@ -82,7 +82,7 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        GeometryReader { _ in
+        GeometryReader { proxy in
             ZStack(alignment: .leading) {
                 // Base — the actual Library tab content. Wrapped by the
                 // caller in a NavigationStack so navigationTitle +
@@ -109,6 +109,10 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
                 // (MapleTokens.sidebar), which we extend behind the chrome
                 // via the drawer container.
                 drawerStack
+                    // Pad the chrome below the status bar; the drawer's own
+                    // background then extends up under it (via .ignoresSafeArea
+                    // below) so the panel spans the full device height (#692).
+                    .padding(.top, proxy.safeAreaInsets.top)
                     .frame(width: Self.drawerWidth)
                     .frame(maxHeight: .infinity)
                     .background(MapleTokens.sidebar)
@@ -128,6 +132,9 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
                     )
                     .offset(x: drawerXOffset)
                     .gesture(drawerCloseDragGesture)
+                    // Span the full screen — over the tab bar + home indicator
+                    // at the bottom and under the status bar at the top (#692).
+                    .ignoresSafeArea()
             }
             // Edge-swipe to open. Only fires from the leftmost 20pt and
             // only when the drawer is closed AND we're in browse mode.
