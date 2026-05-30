@@ -201,7 +201,8 @@ public actor BackupEngine {
             try await upload.uploadSidecar(
                 phassetLocalId: task.id.phassetLocalId,
                 targetRelPath: result.targetRelPath,
-                xmp: sidecarXmp)
+                xmp: sidecarXmp,
+                mapleId: read.mapleId)
 
             // Upload the Apple-rendered companion when present.
             if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {

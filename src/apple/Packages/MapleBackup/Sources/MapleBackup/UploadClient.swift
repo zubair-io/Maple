@@ -125,10 +125,17 @@ public actor UploadClient {
     /// Upload an XMP sidecar string to the sidecar endpoint.
     /// POSTs the XMP body with device / asset / path headers. The server
     /// writes `<targetRelPath>.xmp` next to the asset bytes.
+    ///
+    /// - Parameter mapleId: Content-hash dedup key, sent as `X-Maple-Id`. The
+    ///   server uses it as the primary asset lookup so content-duplicate /
+    ///   re-imported photos (whose `phasset_link` for this device was never
+    ///   attached) resolve instead of 404'ing (#698). Optional for callers
+    ///   that don't have it; the server falls back to device+phasset.
     public func uploadSidecar(
         phassetLocalId: String,
         targetRelPath: String,
-        xmp: String
+        xmp: String,
+        mapleId: String? = nil
     ) async throws {
         let url = baseURL
             .appendingPathComponent("api")
@@ -143,6 +150,7 @@ public actor UploadClient {
         req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
         req.setValue(phassetLocalId, forHTTPHeaderField: "X-Maple-Phasset-Id")
         req.setValue(targetRelPath, forHTTPHeaderField: "X-Maple-Target-Rel-Path")
+        if let mapleId { req.setValue(mapleId, forHTTPHeaderField: "X-Maple-Id") }
         req.httpBody = Data(xmp.utf8)
 
         let (data, response) = try await session.data(for: req)
