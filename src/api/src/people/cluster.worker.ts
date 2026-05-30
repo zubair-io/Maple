@@ -19,8 +19,6 @@ interface ClusterRequest {
   options: OnlineClusterOptions;
 }
 
-declare const self: Worker;
-
 self.addEventListener('message', (event: MessageEvent) => {
   const msg = event.data as ClusterRequest;
   if (msg?.type !== 'cluster') return;
