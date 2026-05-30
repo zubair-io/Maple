@@ -24,12 +24,6 @@ import MapleCore
 // The `LibrarySidebar` is rendered both as the leading column of the
 // tablet/desktop `NavigationSplitView` (`AppShellMacLayout`) and inside the
 // iPhone drawer (`AppShellIPhoneDrawer.sidebarContent` via `AppShell.sharedSidebar`).
-// The drawer already paints its own search pill (`AppShellIPhoneDrawerSearchPill`)
-// above the sidebar content, AND phone search ships as a full-page tab per #629,
-// so the new in-sidebar pill must NOT render on `.phone`. We gate on the
-// `@Environment(\.mapleLayout)` value plumbed by `paneShellWithLayout` /
-// `phoneTabShell` instead of adding a separate opt-in flag — the env value is
-// already the single source of truth for shell-density branching here.
 
 // MARK: - LibrarySidebar
 
@@ -93,25 +87,8 @@ struct LibrarySidebar: View {
     /// view's lifetime so we can unsubscribe in `.task`'s cancellation.
     @State private var photosChangeToken: UUID?
 
-    /// S7 follow-up (#645): tablet/desktop sidebar search pill —
-    /// triggers an anchored overlay that hosts `SearchView` once #629
-    /// merges. Until then, the overlay shows a placeholder.
-    @State private var isSearchOverlayOpen: Bool = false
-
-    /// Shell-density signal published by `paneShellWithLayout` /
-    /// `phoneTabShell`. Used to suppress the sidebar search pill on
-    /// `.phone`, where the drawer already paints its own pill above the
-    /// sidebar and search is a top-level tab per #629.
-    @Environment(\.mapleLayout) private var mapleLayout
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if mapleLayout != .phone {
-                LibrarySidebarSearchPill(
-                    isPresented: $isSearchOverlayOpen,
-                    widthPt: 320
-                )
-            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     cloudServersSection
