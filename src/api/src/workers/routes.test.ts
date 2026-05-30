@@ -1,7 +1,37 @@
 import { describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
-import { workerRoutes } from './routes.ts';
+import { workerRoutes, sanitizeWorkerConfig } from './routes.ts';
+import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
+
+describe('sanitizeWorkerConfig', () => {
+  it('strips removed knobs (pollIntervalMs / batchSize) from a stale config doc', () => {
+    // A doc persisted before #674 still carries the removed knobs. The /status
+    // route + WS status frame must NOT leak them back out.
+    const stale = {
+      name: 'thumb',
+      concurrency: 4,
+      maxAttempts: 5,
+      paused: false,
+      last_seen_target_version: 2,
+      pollIntervalMs: 1000,
+      batchSize: 25,
+    } as unknown as WorkerConfigDoc;
+
+    const clean = sanitizeWorkerConfig(stale);
+
+    expect(clean).toEqual({
+      concurrency: 4,
+      maxAttempts: 5,
+      paused: false,
+      last_seen_target_version: 2,
+    });
+    expect('pollIntervalMs' in clean).toBe(false);
+    expect('batchSize' in clean).toBe(false);
+    // `name` is a Mongo key, not a WorkerConfig field — also dropped.
+    expect('name' in clean).toBe(false);
+  });
+});
 
 describe('GET /api/workers/status', () => {
   it('returns an empty stages array when the registry has no stages', async () => {

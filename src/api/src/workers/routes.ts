@@ -94,6 +94,22 @@ function invalidateStatusCache(): void {
   statusCache = null;
 }
 
+/**
+ * Pick only the live `WorkerConfig` fields off a raw `worker_config` Mongo doc.
+ * Existing docs may still carry removed knobs (`pollIntervalMs` / `batchSize`,
+ * dropped in #674); without this projection those stale keys would leak back
+ * out through GET /status and the WS `workers-status` frame. Mirrors
+ * `WorkerConfigRepo.load`'s explicit field list so the two never drift.
+ */
+export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
+  return {
+    concurrency: doc.concurrency,
+    maxAttempts: doc.maxAttempts,
+    paused: doc.paused,
+    last_seen_target_version: doc.last_seen_target_version,
+  };
+}
+
 /** Test-only: drop the cached /status snapshot so tests don't see prior state. */
 export function _resetStatusCacheForTests(): void {
   invalidateStatusCache();
@@ -114,7 +130,9 @@ async function fetchStatusDbState(
     assets = db.collection('assets') as import('mongodb').Collection<import('mongodb').Document>;
     const configColl = db.collection<WorkerConfigDoc>('worker_config');
     const allConfigs = await configColl.find({}).toArray();
-    for (const cfg of allConfigs) configMap.set(cfg.name, cfg);
+    // Sanitize before exposing: strip any removed knobs that linger on older
+    // docs so they don't leak through /status or the WS status frame.
+    for (const cfg of allConfigs) configMap.set(cfg.name, sanitizeWorkerConfig(cfg));
   } catch {
     // DB unavailable — counts remain zeros, configMap empty.
   }
