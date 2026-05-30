@@ -100,8 +100,6 @@ const faceDetectStage = defineStage({
   dependsOn: [{ name: 'thumb', minVersion: 2 }],
   defaults: {
     concurrency: 1,
-    pollIntervalMs: 1000,
-    batchSize: 5,
     maxAttempts: 5,
     paused: false,
     last_seen_target_version: 0,

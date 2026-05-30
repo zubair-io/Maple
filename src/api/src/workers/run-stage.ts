@@ -11,7 +11,7 @@
  *
  * No child processes, no IPC: everything runs in the API server process.
  * Pause/resume is implemented as "write `paused: true` to the worker_config
- * Mongo doc; the running loop notices on its next tick (≤ pollIntervalMs)".
+ * Mongo doc; the running loop notices on its next tick (≤ POLL_INTERVAL_MS)".
  *
  * Status / control surface is published into the in-process `stageRegistry`
  * (see `./registry.ts`) so `routes.ts` and `events.ts` can read live state.
@@ -30,6 +30,7 @@ import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { stageRegistry } from './registry.ts';
+import { POLL_INTERVAL_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
 
 // ---------------------------------------------------------------------------
 // Public types — load-bearing for every stage file and stage test.
@@ -54,8 +55,6 @@ export type ImageDoc = WithId<IndexerAssetDoc> & {
 
 export interface WorkerConfig {
   concurrency: number;
-  pollIntervalMs: number;
-  batchSize: number;
   maxAttempts: number;
   paused: boolean;
   /**
@@ -65,6 +64,10 @@ export interface WorkerConfig {
    */
   last_seen_target_version: number;
 }
+
+// Poll-loop timing policy lives in `./loop-policy.ts`. Re-exported here so the
+// many stage files and tests that import these from `run-stage.ts` keep working.
+export { POLL_INTERVAL_MS, BACKOFF_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
 
 export type StageResult<TPatch = Record<string, unknown>> =
   | { patch: TPatch }
@@ -146,8 +149,6 @@ export async function bootConfig(
 
   const merged: WorkerConfig = {
     concurrency: pickInt(existing?.concurrency, stage.defaults.concurrency),
-    pollIntervalMs: pickInt(existing?.pollIntervalMs, stage.defaults.pollIntervalMs),
-    batchSize: pickInt(existing?.batchSize, stage.defaults.batchSize),
     maxAttempts: pickInt(existing?.maxAttempts, stage.defaults.maxAttempts),
     paused:
       typeof existing?.paused === 'boolean' ? existing.paused : stage.defaults.pausedOnFirstBoot,
@@ -297,7 +298,10 @@ export async function runOnce(
   const claimSet = new Set<ObjectId>();
   const query = buildClaimQuery(stage.name, stage.targetVersion, resolvedDeps, claimSet);
 
-  const docs = await images.find(query).limit(config.batchSize).toArray();
+  // Batch size is derived (5× concurrency), not a knob. With the
+  // re-poll-on-full-batch loop, this only governs DB round-trip efficiency.
+  const batchSize = deriveBatchSize(config.concurrency);
+  const docs = await images.find(query).limit(batchSize).toArray();
 
   await dispatchPool(docs, config.concurrency, async (doc) => {
     const id = (doc as { _id: ObjectId })._id;
@@ -416,13 +420,11 @@ export class ThroughputWindow {
 // Test-only export — internal helpers used by run-stage.test.ts.
 // ---------------------------------------------------------------------------
 
-export const _test = { bootConfig, versionBumpReset, runOnce };
+export const _test = { bootConfig, versionBumpReset, runOnce, nextPollDelay };
 
 // ---------------------------------------------------------------------------
 // runStage — the in-process entry point. One call per stage on boot.
 // ---------------------------------------------------------------------------
-
-const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 
 export interface RunStageHandle {
   /** Cancel the poll loop and wait for in-flight docs to drain. */
@@ -504,7 +506,11 @@ export async function runStage<TPatch extends Record<string, unknown>>(
 
   const poll = async (): Promise<void> => {
     if (shuttingDown) return;
-    let delay = config.pollIntervalMs;
+    // The global idle cadence, unless a full batch (→ 0, drain backlog) or an
+    // error (→ exponential backoff) overrides it. See `nextPollDelay`. geocode
+    // throttles itself via its own token bucket, so the 0-delay path is
+    // harmless there.
+    let delay = POLL_INTERVAL_MS;
     try {
       const processedThisTick = await runOnce(
         stage,
@@ -517,6 +523,14 @@ export async function runStage<TPatch extends Record<string, unknown>>(
         throughput,
       );
       consecutiveErrors = 0;
+      // A full batch means there's almost certainly more backlog waiting —
+      // re-poll immediately; otherwise fall back to the idle cadence.
+      delay = nextPollDelay({
+        claimed: processedThisTick,
+        concurrency: config.concurrency,
+        paused: config.paused,
+        consecutiveErrors: 0,
+      });
       // Surface a clean recovery via /api/workers/status — without this the
       // last poll-loop error would linger as `lastError` indefinitely.
       stageRegistry.clearError(stage.name);
@@ -535,8 +549,12 @@ export async function runStage<TPatch extends Record<string, unknown>>(
       }
     } catch (err) {
       consecutiveErrors++;
-      const idx = Math.min(consecutiveErrors - 1, BACKOFF_MS.length - 1);
-      delay = BACKOFF_MS[idx]!;
+      delay = nextPollDelay({
+        claimed: 0,
+        concurrency: config.concurrency,
+        paused: config.paused,
+        consecutiveErrors,
+      });
       const msg = err instanceof Error ? err.message : String(err);
       // Publish into the registry so DB/claim-query failures show up on the
       // status route instead of being a silent log-only event with the stage

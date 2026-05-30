@@ -56,8 +56,6 @@ describe('WorkerConfigRepo.load', () => {
     const repo = new WorkerConfigRepo(coll);
     await repo.upsert('thumb', {
       concurrency: 4,
-      pollIntervalMs: 1000,
-      batchSize: 10,
       maxAttempts: 5,
       paused: false,
       last_seen_target_version: 1,
@@ -74,8 +72,6 @@ describe('WorkerConfigRepo.upsert', () => {
     const repo = new WorkerConfigRepo(coll);
     await repo.upsert('exif', {
       concurrency: 4,
-      pollIntervalMs: 1000,
-      batchSize: 10,
       maxAttempts: 5,
       paused: false,
       last_seen_target_version: 0,
@@ -89,16 +85,12 @@ describe('WorkerConfigRepo.upsert', () => {
     const repo = new WorkerConfigRepo(coll);
     await repo.upsert('exif', {
       concurrency: 4,
-      pollIntervalMs: 1000,
-      batchSize: 10,
       maxAttempts: 5,
       paused: false,
       last_seen_target_version: 0,
     });
     await repo.upsert('exif', {
       concurrency: 8,
-      pollIntervalMs: 500,
-      batchSize: 20,
       maxAttempts: 5,
       paused: true,
       last_seen_target_version: 1,
@@ -116,8 +108,6 @@ describe('WorkerConfigRepo.patch', () => {
     const repo = new WorkerConfigRepo(coll);
     await repo.upsert('thumb', {
       concurrency: 2,
-      pollIntervalMs: 1000,
-      batchSize: 5,
       maxAttempts: 5,
       paused: false,
       last_seen_target_version: 0,
@@ -125,7 +115,7 @@ describe('WorkerConfigRepo.patch', () => {
     await repo.patch('thumb', { concurrency: 4 });
     const result = await repo.load('thumb');
     expect(result?.concurrency).toBe(4);
-    expect(result?.batchSize).toBe(5);
+    expect(result?.maxAttempts).toBe(5);
     expect(result?.paused).toBe(false);
   });
 });
