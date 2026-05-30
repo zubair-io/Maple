@@ -87,10 +87,29 @@ public final class BackupProgressViewModel {
     /// How many distinct assets we've observed enqueued in this session.
     /// Resets if `.start(queue:)` is called against a different queue.
     public private(set) var totalEnqueued: Int = 0
-    /// How many have finished uploading.
+    /// How many have had their bytes land (`.completed`). Per #701 this is the
+    /// photo-success signal — companions land best-effort afterward. It is NOT
+    /// the "fully done" count; subtract the companions-pending set for that.
     public private(set) var totalCompleted: Int = 0
     /// How many have hit the max-retry ceiling and stopped retrying.
     public private(set) var totalFailed: Int = 0
+
+    /// Tasks whose bytes landed but which still have ≥1 best-effort companion
+    /// (sidecar / rendered / live-mov) outstanding in its bounded retry path
+    /// (#702). Driven by `.companionPending` / `.companionsResolved`. Used to
+    /// split `totalCompleted` into "done" vs "uploaded — companions pending".
+    private var pendingCompanions: Set<BackupTaskID> = []
+
+    /// Photos fully landed — bytes AND all companions. Disjoint from
+    /// `uploadedCompanionsPending` and `totalFailed`.
+    public var doneCount: Int {
+        max(0, totalCompleted - pendingCompanions.count)
+    }
+
+    /// Photos whose bytes landed but with a companion retry still outstanding.
+    public var uploadedCompanionsPendingCount: Int {
+        pendingCompanions.count
+    }
 
     /// The set of tasks currently uploading. Usually 1-4 at a time depending
     /// on engine concurrency.
@@ -106,9 +125,18 @@ public final class BackupProgressViewModel {
     /// "engine paused" vs "engine running" affordance.
     public private(set) var isRunning: Bool = false
 
+    /// Live throughput in bytes/sec over a trailing window (#702). 0 when idle.
+    public private(set) var bytesPerSecond: Double = 0
+    /// Live throughput in photos/min over a trailing window (#702). 0 when idle.
+    public private(set) var photosPerMinute: Double = 0
+
     private var observerTask: Task<Void, Never>?
     /// Track which task IDs we've counted so retries don't inflate totalEnqueued.
     private var seenEnqueued: Set<BackupTaskID> = []
+    /// Rolling-window throughput accumulator (#702). Lives in MapleBackup so the
+    /// windowing math is unit-tested there; the VM just feeds it events and
+    /// republishes the rates. Reset on pause / restart.
+    private var meter = ThroughputMeter()
 
     public init() {}
 
@@ -137,6 +165,16 @@ public final class BackupProgressViewModel {
     /// engine moves through its lifecycle.
     public func setPhase(_ newPhase: BackupRunPhase) {
         phase = newPhase
+        // Throughput is a live "right now" readout — a stopped or restarting
+        // engine has no flow, so clear the rolling window rather than letting a
+        // stale rate linger (#702). `.running` keeps whatever's accumulated.
+        if newPhase == .stopped || newPhase == .restarting {
+            resetThroughput()
+            // Same rationale as `markPaused`: a stopped/restarting engine has no
+            // outstanding companion retries (they were cancelled), so a stranded
+            // `pendingCompanions` entry would permanently skew the breakdown.
+            pendingCompanions.removeAll()
+        }
     }
 
     /// Mark the engine paused by the user: clear the "Uploading now" tiles
@@ -148,6 +186,24 @@ public final class BackupProgressViewModel {
     public func markPaused() {
         inFlight.removeAll()
         phase = .paused
+        // The in-flight uploads were cancelled, so there's no live flow — reset
+        // the rolling window so the panel doesn't show a frozen non-zero rate
+        // while paused (#702).
+        resetThroughput()
+        // `EngineHost.stop()` cancels the detached companion retries; a cancelled
+        // retry returns without emitting `.companionsResolved`, so any task that
+        // was mid-retry would otherwise stay in `pendingCompanions` for the rest
+        // of the session — permanently undercounting `doneCount` and freezing the
+        // "Finishing" bucket. No companion retry is outstanding while paused, so
+        // clear the set (#702).
+        pendingCompanions.removeAll()
+    }
+
+    /// Clear the throughput accumulator and zero the published rates.
+    private func resetThroughput() {
+        meter.reset()
+        bytesPerSecond = 0
+        photosPerMinute = 0
     }
 
     /// Computed convenience: 0.0 → 1.0 progress when totalEnqueued > 0.
@@ -160,6 +216,23 @@ public final class BackupProgressViewModel {
     public var progressLabel: String {
         if totalEnqueued == 0 { return "No photos queued" }
         return "\(totalCompleted.formatted()) of \(totalEnqueued.formatted()) photos"
+    }
+
+    /// Human-readable throughput line, e.g. "12.4 MB/s · 84 photos/min", or nil
+    /// when nothing is flowing (so the panel can hide the row). Driven by the
+    /// rolling-window meter (#702).
+    public var throughputLabel: String? {
+        guard bytesPerSecond > 0 || photosPerMinute >= 1 else { return nil }
+        var parts: [String] = []
+        if bytesPerSecond > 0 {
+            let formatted = ByteCountFormatter.string(
+                fromByteCount: Int64(bytesPerSecond), countStyle: .file)
+            parts.append("\(formatted)/s")
+        }
+        if photosPerMinute >= 1 {
+            parts.append("\(Int(photosPerMinute.rounded())) photos/min")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     // MARK: - Event reducer
@@ -180,6 +253,9 @@ public final class BackupProgressViewModel {
                 inFlight[idx].bytesSent = sent
                 inFlight[idx].bytesTotal = total
             }
+            meter.recordProgress(task: id, cumulativeSent: sent,
+                                 now: Date().timeIntervalSinceReferenceDate)
+            republishThroughput()
         case .completed(let id, let mapleId):
             inFlight.removeAll { $0.id == id }
             totalCompleted += 1
@@ -187,6 +263,9 @@ public final class BackupProgressViewModel {
             if recentCompleted.count > 10 {
                 recentCompleted.removeLast(recentCompleted.count - 10)
             }
+            meter.recordCompleted(task: id,
+                                  now: Date().timeIntervalSinceReferenceDate)
+            republishThroughput()
         case .failed(let id, let error, let willRetry):
             if !willRetry {
                 inFlight.removeAll { $0.id == id }
@@ -195,6 +274,25 @@ public final class BackupProgressViewModel {
             lastError = error
         case .cancelled(let id):
             inFlight.removeAll { $0.id == id }
+        case .companionPending(let id):
+            // Bytes already landed (`.completed` arrived first; the engine emits
+            // it before any companion work and the queue is a single actor, so
+            // stream order is preserved). Re-classify this photo from "done" to
+            // "uploaded — companions pending" (#702).
+            pendingCompanions.insert(id)
+        case .companionsResolved(let id):
+            // Last companion reached a terminal state — back to fully done.
+            pendingCompanions.remove(id)
         }
+    }
+
+    /// Recompute the published rates from the meter at "now". Called after every
+    /// `.progress` / `.completed` so the panel reads fresh throughput. Also
+    /// invoked when no event is flowing would leave a stale value — but that's
+    /// acceptable for a live panel; the next event refreshes it.
+    private func republishThroughput() {
+        let now = Date().timeIntervalSinceReferenceDate
+        bytesPerSecond = meter.bytesPerSecond(now: now)
+        photosPerMinute = meter.photosPerMinute(now: now)
     }
 }
