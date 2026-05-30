@@ -130,7 +130,35 @@ export class ObservabilityService {
       return;
     }
     this.lastError.set(null);
+    await this.ingest(fresh);
+  }
 
+  /**
+   * Persist a config patch to the server (`PUT /api/observability/config`),
+   * then apply the re-resolved result locally (cache + re-wire the SDK).
+   * Returns the fresh config so the Settings form can reseed. Throws on
+   * failure so the caller can surface it.
+   */
+  async saveConfig(patch: ObservabilityConfigPatch): Promise<ObservabilityConfigResponse> {
+    const fresh = await firstValueFrom(this.api.saveObservabilityConfig(patch));
+    this.lastError.set(null);
+    await this.ingest(fresh);
+    return fresh;
+  }
+
+  /** Probe an OTLP/HTTP endpoint (+ optional ingestion key) without saving —
+   * backs the Settings "Test connection" button. A `null` key tells the server
+   * to probe with the saved key (if one is configured). */
+  testConnection(
+    endpoint: string,
+    ingestionKey: string | null,
+  ): Promise<{ ok: boolean; status?: number; error?: string }> {
+    return firstValueFrom(this.api.testObservability({ endpoint, ingestion_key: ingestionKey }));
+  }
+
+  /** Shared tail for {@link refresh} / {@link saveConfig}: persist the config
+   * to IndexedDB and (re-)wire the SDK only when the effective config changed. */
+  private async ingest(fresh: ObservabilityConfigResponse): Promise<void> {
     const changed = !observabilityConfigEqual(this.config(), fresh);
     try {
       await this.cache.put(fresh);
@@ -142,7 +170,7 @@ export class ObservabilityService {
       this.applyConfig(fresh);
     } else {
       // Keep the signal pointed at the freshest object even when the wiring is
-      // identical (e.g. `source` provenance may have shifted db↔env).
+      // identical (e.g. `source` provenance may have shifted).
       this.config.set(fresh);
     }
   }
