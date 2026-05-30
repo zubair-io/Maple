@@ -11,23 +11,38 @@
 // Lifecycle: lazy — the worker spawns on first request, lives for the
 // process lifetime. There's no `terminate()`; bun cleans it up at exit.
 
-import { tryGetRawFfi } from "./raw_ffi.ts";
+import { tryGetRawFfi } from './raw_ffi.ts';
+import type { HistogramBins } from '../thumbs/histogram.ts';
 
 interface PendingCall {
   resolve: (ok: boolean) => void;
   reject: (err: Error) => void;
 }
 
+interface PendingHistogramCall {
+  resolve: (bins: HistogramBins) => void;
+  reject: (err: Error) => void;
+}
+
 interface RenderResponse {
-  type: "renderThumb";
+  type: 'renderThumb';
   id: number;
   ok: boolean;
+  error?: string;
+}
+
+interface HistogramResponse {
+  type: 'histogram';
+  id: number;
+  ok: boolean;
+  bins?: HistogramBins;
   error?: string;
 }
 
 class FfiWorkerPool {
   private worker: Worker | null = null;
   private pending = new Map<number, PendingCall>();
+  private pendingHistogram = new Map<number, PendingHistogramCall>();
   private nextId = 1;
   private workerLoadFailed = false;
 
@@ -40,43 +55,55 @@ class FfiWorkerPool {
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
     if (this.workerLoadFailed) {
-      throw new Error("ffi-pool: worker previously failed to start");
+      throw new Error('ffi-pool: worker previously failed to start');
     }
 
     let w: Worker;
     try {
-      w = new Worker(new URL("./raw_ffi.worker.ts", import.meta.url).href);
+      w = new Worker(new URL('./raw_ffi.worker.ts', import.meta.url).href);
     } catch (e) {
       this.workerLoadFailed = true;
       throw new Error(
-        "ffi-pool: failed to spawn worker — " +
-          (e instanceof Error ? e.message : String(e)),
+        'ffi-pool: failed to spawn worker — ' + (e instanceof Error ? e.message : String(e)),
       );
     }
 
-    w.addEventListener("message", (event) => {
-      const msg = event.data as RenderResponse;
-      if (msg?.type !== "renderThumb") return;
-      const p = this.pending.get(msg.id);
-      if (!p) return;
-      this.pending.delete(msg.id);
-      if (msg.ok) {
-        p.resolve(true);
-      } else if (msg.error) {
-        p.reject(new Error(msg.error));
-      } else {
-        p.resolve(false);
+    w.addEventListener('message', (event) => {
+      const msg = event.data as RenderResponse | HistogramResponse;
+      if (msg?.type === 'renderThumb') {
+        const p = this.pending.get(msg.id);
+        if (!p) return;
+        this.pending.delete(msg.id);
+        if (msg.ok) {
+          p.resolve(true);
+        } else if (msg.error) {
+          p.reject(new Error(msg.error));
+        } else {
+          p.resolve(false);
+        }
+        return;
+      }
+      if (msg?.type === 'histogram') {
+        const p = this.pendingHistogram.get(msg.id);
+        if (!p) return;
+        this.pendingHistogram.delete(msg.id);
+        if (msg.ok && msg.bins) {
+          p.resolve(msg.bins);
+        } else {
+          p.reject(new Error(msg.error ?? 'histogram failed'));
+        }
+        return;
       }
     });
 
-    w.addEventListener("error", (event) => {
+    w.addEventListener('error', (event) => {
       // Reject every in-flight call so callers don't hang. The next
       // request will spawn a fresh worker.
-      const err = new Error(
-        "ffi-pool: worker errored — " + (event.message || "unknown"),
-      );
+      const err = new Error('ffi-pool: worker errored — ' + (event.message || 'unknown'));
       for (const p of this.pending.values()) p.reject(err);
+      for (const p of this.pendingHistogram.values()) p.reject(err);
       this.pending.clear();
+      this.pendingHistogram.clear();
       this.worker?.terminate();
       this.worker = null;
     });
@@ -95,7 +122,7 @@ class FfiWorkerPool {
     quality = 82,
   ): Promise<boolean> {
     if (!this.available()) {
-      throw new Error("ffi-pool: raw-ffi dylib not available");
+      throw new Error('ffi-pool: raw-ffi dylib not available');
     }
 
     const id = this.nextId++;
@@ -103,7 +130,7 @@ class FfiWorkerPool {
       this.pending.set(id, { resolve, reject });
       try {
         this.ensureWorker().postMessage({
-          type: "renderThumb",
+          type: 'renderThumb',
           id,
           rawPath,
           outPath,
@@ -112,6 +139,35 @@ class FfiWorkerPool {
         });
       } catch (e) {
         this.pending.delete(id);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    });
+  }
+
+  /**
+   * Render a RAW with `xmpPath`'s adjustments applied, bin the RGB888
+   * output into 3×256 channel histograms, and return the bins. The bin
+   * step runs inside the worker so the ~300 MB intermediate buffer never
+   * crosses postMessage — only the 4 KB result does.
+   *
+   * Rejects on dylib-missing or any render failure.
+   */
+  async computeHistogram(rawPath: string, xmpPath: string | null): Promise<HistogramBins> {
+    if (!this.available()) {
+      throw new Error('ffi-pool: raw-ffi dylib not available');
+    }
+    const id = this.nextId++;
+    return new Promise<HistogramBins>((resolve, reject) => {
+      this.pendingHistogram.set(id, { resolve, reject });
+      try {
+        this.ensureWorker().postMessage({
+          type: 'histogram',
+          id,
+          rawPath,
+          xmpPath,
+        });
+      } catch (e) {
+        this.pendingHistogram.delete(id);
         reject(e instanceof Error ? e : new Error(String(e)));
       }
     });

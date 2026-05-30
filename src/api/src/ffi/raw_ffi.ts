@@ -11,11 +11,11 @@
  * callers degrade gracefully (thumbs are skipped).
  */
 
-import * as path from "node:path";
-import * as fs from "node:fs";
-import { child as childLogger } from "../log.ts";
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("raw-ffi");
+const log = childLogger('raw-ffi');
 
 // ---------------------------------------------------------------------------
 // C struct layout for MapleImageBuffer (must match raw-ffi/src/lib.rs)
@@ -44,7 +44,15 @@ interface RgbResult {
 }
 
 interface RawFfi {
-  renderToRgb(rawAbsPath: string): RgbResult | null;
+  /**
+   * Render a RAW to interleaved RGB888 in scene-referred output space.
+   *
+   * Pass `xmpAbsPath` to apply the user's sidecar edits — without it the
+   * render uses default adjustments, which makes the histogram endpoint's
+   * "invalidate on re-edit" contract incoherent. Null = default adjustments
+   * (legacy thumb behaviour).
+   */
+  renderToRgb(rawAbsPath: string, xmpAbsPath?: string | null): RgbResult | null;
   /**
    * Decode `rawAbsPath` and return a JPEG-encoded thumbnail, fitted to
    * `maxPx` on the long edge. Quality defaults to 82. Returns null on
@@ -74,13 +82,11 @@ export function tryGetRawFfi(): RawFfi | null {
 function nativeLibPath(): string {
   const dir = path.join(
     import.meta.dir, // src/ffi/
-    "..",            // src/
-    "..",            // api/
-    "native"
+    '..', // src/
+    '..', // api/
+    'native',
   );
-  const libName = process.platform === "darwin"
-    ? "libraw_ffi.dylib"
-    : "libraw_ffi.so";
+  const libName = process.platform === 'darwin' ? 'libraw_ffi.dylib' : 'libraw_ffi.so';
   return path.join(dir, libName);
 }
 
@@ -90,20 +96,21 @@ function loadFfi(): RawFfi | null {
   if (!fs.existsSync(libPath)) {
     log.warn(
       { libPath },
-      "native library not found. RAW thumbnail generation will be skipped. Run scripts/build-raw-ffi.sh to build it.",
+      'native library not found. RAW thumbnail generation will be skipped. Run scripts/build-raw-ffi.sh to build it.',
     );
     return null;
   }
 
   try {
-    const { dlopen, FFIType, ptr, toBuffer } = require("bun:ffi") as typeof import("bun:ffi");
+    const { dlopen, FFIType, ptr, toBuffer } = require('bun:ffi') as typeof import('bun:ffi');
 
     const lib = dlopen(libPath, {
       maple_render_file: {
         args: [
-          FFIType.cstring,  // raw_path
-          FFIType.cstring,  // xmp_path (nullable)
-          FFIType.ptr,      // out: *mut MapleImageBuffer
+          FFIType.cstring, // raw_path
+          FFIType.cstring, // xmp_path (nullable)
+          FFIType.i32, // quality_preview (0=Full, 1=Preview half-res)
+          FFIType.ptr, // out: *mut MapleImageBuffer
         ],
         returns: FFIType.i32,
       },
@@ -114,9 +121,9 @@ function loadFfi(): RawFfi | null {
       maple_render_thumbnail_jpeg: {
         args: [
           FFIType.cstring, // raw_path
-          FFIType.u32,     // max_px
-          FFIType.u8,      // quality
-          FFIType.ptr,     // out: *mut MapleByteBuffer
+          FFIType.u32, // max_px
+          FFIType.u8, // quality
+          FFIType.ptr, // out: *mut MapleByteBuffer
         ],
         returns: FFIType.i32,
       },
@@ -124,8 +131,8 @@ function loadFfi(): RawFfi | null {
         args: [
           FFIType.cstring, // raw_path
           FFIType.cstring, // out_path
-          FFIType.u32,     // max_px
-          FFIType.u8,      // quality
+          FFIType.u32, // max_px
+          FFIType.u8, // quality
         ],
         returns: FFIType.i32,
       },
@@ -140,22 +147,33 @@ function loadFfi(): RawFfi | null {
     });
 
     return {
-      renderToRgb(rawAbsPath: string): RgbResult | null {
+      renderToRgb(rawAbsPath: string, xmpAbsPath: string | null = null): RgbResult | null {
         // Allocate output struct on the heap (24 bytes, zero-filled).
         const outBuf = Buffer.alloc(IMAGE_BUFFER_SIZE, 0);
         const outPtr = ptr(outBuf);
 
-        const rawPathBuf = Buffer.from(rawAbsPath + "\0", "utf-8");
+        const rawPathBuf = Buffer.from(rawAbsPath + '\0', 'utf-8');
+        // The C side accepts a nullable C-string for the XMP path: when
+        // present, the sidecar's adjustments are applied; when null, the
+        // render uses pipeline defaults. Threading the user's sidecar in
+        // is what makes a (raw_mtime, sidecar_mtime)-keyed cache valid.
+        const xmpPathBuf = xmpAbsPath ? Buffer.from(xmpAbsPath + '\0', 'utf-8') : null;
 
+        // Pass 0 = RenderQuality::Full. The histogram endpoint is a disk-cached,
+        // mtime-keyed path (one render per edit, not per slider tick), so we want
+        // the authoritative full-resolution buffer — Preview (1) would return a
+        // half-res buffer and muddle the "server is the histogram's source of
+        // truth" contract for no win on a cached path.
         const rc = lib.symbols.maple_render_file(
           ptr(rawPathBuf),
-          null,   // no XMP path — use default adjustments
-          outPtr
+          xmpPathBuf ? ptr(xmpPathBuf) : null,
+          0,
+          outPtr,
         ) as number;
 
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          log.error({ rc, err: errStr }, "maple_render_file failed");
+          log.error({ rc, err: errStr }, 'maple_render_file failed');
           return null;
         }
 
@@ -183,22 +201,22 @@ function loadFfi(): RawFfi | null {
       renderThumbnailJpeg(
         rawAbsPath: string,
         maxPx: number,
-        quality: number = 82
+        quality: number = 82,
       ): Uint8Array | null {
         const outBuf = Buffer.alloc(BYTE_BUFFER_SIZE, 0);
         const outPtr = ptr(outBuf);
-        const rawPathBuf = Buffer.from(rawAbsPath + "\0", "utf-8");
+        const rawPathBuf = Buffer.from(rawAbsPath + '\0', 'utf-8');
 
         const rc = lib.symbols.maple_render_thumbnail_jpeg(
           ptr(rawPathBuf),
           maxPx >>> 0,
           quality & 0xff,
-          outPtr
+          outPtr,
         ) as number;
 
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          log.error({ rc, err: errStr }, "maple_render_thumbnail_jpeg failed");
+          log.error({ rc, err: errStr }, 'maple_render_thumbnail_jpeg failed');
           return null;
         }
 
@@ -219,7 +237,7 @@ function loadFfi(): RawFfi | null {
         const native = toBuffer(
           bytesPtrVal as unknown as Parameters<typeof toBuffer>[0],
           0,
-          lenVal
+          lenVal,
         );
         // Allocate a JS-owned buffer then copy byte-by-byte. `Buffer.from(view)`
         // SHOULD copy, but in Bun (1.3.x at least) there are reproducible
@@ -238,8 +256,8 @@ function loadFfi(): RawFfi | null {
         maxPx: number,
         quality: number = 82,
       ): boolean {
-        const rawPathBuf = Buffer.from(rawAbsPath + "\0", "utf-8");
-        const outPathBuf = Buffer.from(outAbsPath + "\0", "utf-8");
+        const rawPathBuf = Buffer.from(rawAbsPath + '\0', 'utf-8');
+        const outPathBuf = Buffer.from(outAbsPath + '\0', 'utf-8');
         const rc = lib.symbols.maple_render_thumbnail_jpeg_to_file(
           ptr(rawPathBuf),
           ptr(outPathBuf),
@@ -248,20 +266,14 @@ function loadFfi(): RawFfi | null {
         ) as number;
         if (rc !== 0) {
           const errStr = lib.symbols.maple_last_error() as unknown as string | null;
-          log.error(
-            { rc, err: errStr },
-            "maple_render_thumbnail_jpeg_to_file failed",
-          );
+          log.error({ rc, err: errStr }, 'maple_render_thumbnail_jpeg_to_file failed');
           return false;
         }
         return true;
       },
     };
   } catch (err) {
-    log.error(
-      { err: err instanceof Error ? err.message : err },
-      "failed to load native library",
-    );
+    log.error({ err: err instanceof Error ? err.message : err }, 'failed to load native library');
     return null;
   }
 }

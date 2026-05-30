@@ -28,6 +28,10 @@
   font-weight: 700;
   line-height: 1.2;
 
+  &.chip-remove {
+    cursor: pointer;
+  }
+
   &.chip-add {
     background: transparent;
     color: var(--color-text-muted);
@@ -35,28 +39,24 @@
     padding: 3px 9px;
     cursor: pointer;
   }
+
+  &.chip-input-wrap {
+    padding: 3px 9px;
+    cursor: text;
+  }
 }
 
-.stub-hint {
-  margin-top: 8px;
-  padding: 6px 10px;
-  border-radius: 4px;
-  background: var(--color-surface-alt);
-  color: var(--color-text-muted);
-  font-family: 'Lato', sans-serif;
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.chip-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--color-text-main);
+  width: 88px;
 
-  .dismiss {
-    background: transparent;
-    border: none;
-    color: var(--color-primary);
-    font-weight: 600;
-    cursor: pointer;
-    font-size: 11px;
-    padding: 0;
+  &::placeholder {
+    color: var(--color-text-muted);
   }
 }

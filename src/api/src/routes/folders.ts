@@ -122,7 +122,11 @@ function validateRelPathHeader(
       return { ok: false, status: 400, error: 'Path traversal not allowed' };
     }
     if (part.startsWith('.')) {
-      return { ok: false, status: 400, error: 'Hidden path components not allowed' };
+      return {
+        ok: false,
+        status: 400,
+        error: 'Hidden path components not allowed',
+      };
     }
   }
   return { ok: true, target, parts };
@@ -153,7 +157,11 @@ async function resolveFolderRelPath(
     return { ok: false, status: 400, error: 'missing path query param' };
   }
   if (nodePath.isAbsolute(rawPath) || rawPath.split('/').includes('..')) {
-    return { ok: false, status: 400, error: 'path must be relative and contain no ".." segments' };
+    return {
+      ok: false,
+      status: 400,
+      error: 'path must be relative and contain no ".." segments',
+    };
   }
   const abs = nodePath.join(folderPath, rawPath);
   let real: string;
@@ -222,7 +230,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const existing = await coll.findOne({ path });
       if (existing) {
         set.status = 409;
-        return { error: 'Folder already registered', id: existing._id.toHexString() };
+        return {
+          error: 'Folder already registered',
+          id: existing._id.toHexString(),
+        };
       }
 
       const now = new Date().toISOString();
@@ -314,6 +325,11 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             flag: d.flag,
             color_label: d.color_label,
             indexed_at: d.indexed_at,
+            // S2 "Edited" filter chip backing (#628) — true iff the XMP
+            // write/delete handlers (Phase 5b) have observed a sidecar
+            // next to this asset. Optional because legacy docs predate
+            // the flag; client coerces missing as `false`.
+            has_xmp: d.has_xmp ?? false,
           };
         }),
       };
@@ -360,11 +376,20 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     ).updateMany({ 'fileinfo.library_id': id }, { $set: stageResetFields });
 
     log.info(
-      { folderId: folderIdStr, path: scanRoot, modified: updateResult.modifiedCount },
+      {
+        folderId: folderIdStr,
+        path: scanRoot,
+        modified: updateResult.modifiedCount,
+      },
       'rescan: stage versions zeroed',
     );
 
-    return { ok: true, folderId: folderIdStr, path: scanRoot, reset: updateResult.modifiedCount };
+    return {
+      ok: true,
+      folderId: folderIdStr,
+      path: scanRoot,
+      reset: updateResult.modifiedCount,
+    };
   })
 
   // Streaming upload: body is raw file bytes, target path in X-Maple-Target-Path.
@@ -470,7 +495,12 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         // `moveToTrash` fails AND the file is now gone, treat it as
         // benign (the peer handled the trash + doc update); otherwise
         // surface the error.
-        type Trashed = { docId: ObjectId; newAbsPath: string; sha1_head?: string; size?: number };
+        type Trashed = {
+          docId: ObjectId;
+          newAbsPath: string;
+          sha1_head?: string;
+          size?: number;
+        };
         let trashed: Trashed | undefined;
         // Non-media files have no AssetDoc and no trash semantics — a
         // re-upload simply overwrites the bytes via the atomic rename below.
@@ -494,7 +524,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             const moved = await moveToTrash(absPath, folder.path);
             if (moved.kind === 'ok') {
               if (existing) {
-                const existingFields = existing as { sha1_head?: string; size?: number };
+                const existingFields = existing as {
+                  sha1_head?: string;
+                  size?: number;
+                };
                 // Rewrite the primary fileinfo entry to point at the trash
                 // destination so cache resolution + restore can find the row.
                 const trashRelDirRaw = nodePath.relative(
@@ -622,7 +655,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             }
           } catch (err) {
             log.warn(
-              { absPath, err: err instanceof Error ? err.message : String(err) },
+              {
+                absPath,
+                err: err instanceof Error ? err.message : String(err),
+              },
               'duplicate-upload identical-content check failed — leaving trash entry in place',
             );
           }
@@ -844,7 +880,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       await mkdir(absPath, { recursive: true });
     } catch (err) {
       set.status = 500;
-      return { error: `mkdir failed: ${err instanceof Error ? err.message : String(err)}` };
+      return {
+        error: `mkdir failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
     set.status = 201;
     return { abs_path: absPath };
@@ -928,7 +966,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     } catch (err) {
       if ((err as { code?: string }).code !== 'ENOENT') {
         set.status = 500;
-        return { error: `stat failed: ${err instanceof Error ? err.message : String(err)}` };
+        return {
+          error: `stat failed: ${err instanceof Error ? err.message : String(err)}`,
+        };
       }
     }
 
@@ -937,7 +977,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       await rename(absSource, absTarget);
     } catch (err) {
       set.status = 500;
-      return { error: `move failed: ${err instanceof Error ? err.message : String(err)}` };
+      return {
+        error: `move failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
     set.status = 200;
     return { abs_path: absTarget };
@@ -1190,7 +1232,9 @@ async function scanFolderAndDiscover(
       batch.map(async (dir) => {
         let entries: Dirent[];
         try {
-          entries = (await readdir(dir, { withFileTypes: true })) as unknown as Dirent[];
+          entries = (await readdir(dir, {
+            withFileTypes: true,
+          })) as unknown as Dirent[];
         } catch {
           return; // permission denied or not a directory
         }

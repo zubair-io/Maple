@@ -44,6 +44,11 @@ export interface SearchResult {
    * Apple client (see `MergedTimelineSource` in MapleCore). Absent when
    * the asset wasn't ingested via PhotoKit backup. */
   phasset_links?: SearchResultPHLink[];
+  /** True iff the XMP write/delete handlers (Phase 5b) have observed
+   * a sidecar next to this asset. Drives the S2 Library Grid "Edited"
+   * filter chip (#628). Optional because legacy docs predate the flag;
+   * readers coerce missing as `false`. */
+  has_xmp?: boolean;
 }
 
 export function projectAsset(
@@ -86,6 +91,8 @@ export function projectAsset(
     // internal). Use `/api/assets/:id` for the full record.
     place: d.place ?? null,
     description: d.description ?? null,
+    // S2 "Edited" filter chip backing (#628) — coerce missing to false.
+    has_xmp: d.has_xmp ?? false,
   };
   if (d.phasset_links && d.phasset_links.length > 0) {
     // Strip `device_id` and `first_seen` from the wire shape — the merged

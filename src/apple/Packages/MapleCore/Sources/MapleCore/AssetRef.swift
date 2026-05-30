@@ -62,6 +62,20 @@ public struct AssetRef: Identifiable, Sendable, Equatable, Hashable {
         primaryURL.map { $0.deletingPathExtension().appendingPathExtension("xmp") }
     }
 
+    /// True iff this asset has a persistent XMP sidecar next to its primary
+    /// URL. Used by the S2 Library Grid "Edited" filter chip (#628).
+    ///
+    /// Implementation: a single `FileManager.default.fileExists` syscall
+    /// per asset — cheap enough to run on every cell during filter without
+    /// the lazy-load budget concerns that priming `EditSession`s would
+    /// raise. For URL-less refs (PhotoKit, network) there's no sidecar
+    /// to check, so the chip never includes them — accepted for v0.1.
+    /// PhotoKit edit state is tracked separately by Photos itself.
+    public var hasEdits: Bool {
+        guard let sidecarURL else { return false }
+        return FileManager.default.fileExists(atPath: sidecarURL.path)
+    }
+
     public var displayName: String {
         if let override = displayNameOverride, !override.isEmpty {
             return override

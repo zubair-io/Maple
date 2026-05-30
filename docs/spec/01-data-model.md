@@ -188,16 +188,41 @@ Sidecar (.xmp on disk, byte-canonical)
 
 The subset of `AdjustmentModel` that lives on `ImageAsset` as a fast path for grid rendering. It is duplicated — not a reference — because grid cells must render without opening the sidecar.
 
-| Field        | Type        | Default     |
-| ------------ | ----------- | ----------- |
-| `rating`     | UInt8 (0–5) | `0`         |
-| `flag`       | enum        | `unflagged` |
-| `colorLabel` | enum?       | absent      |
+| Field        | Type        | Default     | XMP                                         |
+| ------------ | ----------- | ----------- | ------------------------------------------- |
+| `rating`     | UInt8 (0–5) | `0`         | `xmp:Rating` attribute on `rdf:Description` |
+| `flag`       | enum        | `unflagged` | `xmp:Label` / `maple:Flag` attribute        |
+| `colorLabel` | enum?       | absent      | `xmp:Label` / `maple:ColorLabel` attribute  |
+| `keywords`   | `[String]`  | `[]`        | `dc:subject` nested element (see below)     |
 
 ### Invariants
 
 1. **Sidecar is authoritative on load.** On app start, `CullingState` on the in-memory `ImageAsset` is repopulated from the sidecar, not from any database.
 2. **Writes go to both in lockstep.** Any UI action that changes culling updates the `ImageAsset` immediately (for grid refresh) and queues a sidecar write in the same transaction.
+
+### Keywords (`dc:subject`)
+
+IPTC keywords (#632) round-trip through the Dublin Core `dc:subject` element rather than an `rdf:Description` attribute, because the XMP specification requires a `<rdf:Bag>` of `<rdf:li>` items:
+
+```xml
+<rdf:Description ...
+    xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <dc:subject>
+    <rdf:Bag>
+      <rdf:li>travel</rdf:li>
+      <rdf:li>paris</rdf:li>
+    </rdf:Bag>
+  </dc:subject>
+</rdf:Description>
+```
+
+Emit rules:
+
+1. **Empty list omits the element.** No `<dc:subject>`, no `xmlns:dc=…` declaration — the default round-trip is `keywords: []` → no element → `keywords: []`. This matches the rating/flag pattern (defaults are not emitted) and the absent-by-default sidecar shape.
+2. **Order preserved on write.** `dc:subject` is semantically an unordered Bag, but every consumer (Lightroom, Maple's parsers, the reference renderer) reads `rdf:li` children in source order; emitting them in the order the user typed keeps the chip row stable across reload.
+3. **XML text-content escaping.** `&`, `<`, `>` are escaped on the write path and decoded on read. Attribute-only escapes (`"`, `'`) are not required for `rdf:li` text content.
+4. **Blank entries dropped on read and write.** Whitespace-only `<rdf:li>` content is filtered out — neither path is allowed to surface an empty keyword to the model.
+5. **Passthrough exclusion.** Parsers must not collect `dc:subject` into the `unknownNodes` passthrough bucket; the canonical block from `culling.keywords` would otherwise be emitted alongside a passthrough copy on the next write, producing two `<dc:subject>` siblings on disk.
 
 ---
 

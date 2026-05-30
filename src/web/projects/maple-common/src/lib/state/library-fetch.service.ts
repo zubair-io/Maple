@@ -43,6 +43,13 @@ const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'rating',
   'flag',
   'colorLabel',
+  // IPTC `keywords` is intentionally listed even though the field is an
+  // array and `shallowEqualByKeys` does a `===` reference compare —
+  // `setKeywords` rebuilds the list, so a new reference always means a
+  // real change and reuse-prevention is correct. Without this entry the
+  // folder-reload path would silently drop XMP-loaded keywords when an
+  // unchanged asset is merged with its previous instance (#632).
+  'keywords',
   'edited',
   'aspectRatio',
   'thumbnailGradient',
@@ -175,6 +182,11 @@ export class LibraryFetch {
       let rating: number = cached?.culling?.rating ?? 0;
       let flag: Flag = (cached?.culling?.flag ?? 'unflagged') as Flag;
       let colorLabel: ColorLabel = (cached?.culling?.colorLabel ?? null) as ColorLabel;
+      // True iff we successfully read an XMP sidecar — the v0.1 signal
+      // behind the S2 "Edited" filter chip (#628). Mirrors the Apple
+      // side's `AssetRef.hasEdits` sidecar-existence predicate.
+      let edited = false;
+      let keywords: string[] = [];
 
       // XMP sidecar is authoritative — parse both culling + full AdjustmentModel.
       const xmpName = filename.replace(/\.[^.]+$/, '.xmp');
@@ -182,11 +194,12 @@ export class LibraryFetch {
         const xmpBytes = await this.fs.readFile(folder, xmpName);
         const xmpText = new TextDecoder().decode(xmpBytes);
 
-        // Culling fields (P5).
+        // Culling fields (P5) + IPTC keywords (#632).
         const culling = this.xmpParser.parseCulling(xmpText);
         rating = culling.rating;
         flag = culling.flag;
         colorLabel = culling.colorLabel;
+        keywords = [...(culling.keywords ?? [])];
 
         // Full AdjustmentModel (P6).
         const { model, passthrough } = this.xmpParser.parseAdjustmentModel(xmpText);
@@ -195,6 +208,8 @@ export class LibraryFetch {
 
         // Cache the passthrough bucket for future writes.
         this.xmpStore.rememberPassthrough(id, passthrough);
+
+        edited = true;
       } catch {
         // No sidecar or unreadable — keep cache values, no adjustment override.
       }
@@ -206,8 +221,10 @@ export class LibraryFetch {
         rating,
         flag,
         colorLabel,
+        keywords,
         thumbnailGradient: '',
         aspectRatio: 3 / 2, // corrected after first decode
+        edited,
       };
       newAssets.push(asset);
     }
@@ -867,6 +884,9 @@ export class LibraryFetch {
       rating: asset.rating,
       flag: asset.flag,
       colorLabel: asset.colorLabel,
+      // IPTC keywords (#632) — round-tripped through dc:subject. Empty
+      // / undefined writes the same default-no-element sidecar.
+      keywords: asset.keywords ?? [],
     };
 
     if (this.store.backend === 'self-hosted') {

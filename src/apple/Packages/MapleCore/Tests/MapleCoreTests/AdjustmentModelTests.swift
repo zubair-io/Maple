@@ -310,6 +310,7 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(c2.flag, .pick)
     }
 
+
     // MARK: - XMPSidecarStore
 
     func testSidecarStoreWriteAndRead() async throws {
@@ -333,6 +334,7 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(m2.exposure, 0.75, accuracy: 0.01)
         XCTAssertEqual(c2.stars, 2)
     }
+
 
     // MARK: - Helpers
 

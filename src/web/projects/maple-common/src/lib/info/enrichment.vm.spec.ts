@@ -1,36 +1,25 @@
-// Tests for the pure VM module behind `info-tab.component.ts`.
+// Tests for the pure VM module behind the enrichment surface.
 //
-// Lives next to the component per the `*.vm.ts` co-location pattern
-// (#190). These tests pull plain functions, build minimal fixtures, and
-// assert behaviour without spinning up TestBed — that's the whole point
-// of the split.
+// Replaces the old `detail-panel/info-tab.vm.spec.ts` (file deleted in #634
+// alongside the `<maple-info-tab>` consolidation). Same shape: pull plain
+// functions, build minimal fixtures, assert behaviour without spinning up
+// TestBed — that's the whole point of the split.
 
+import { describe, it, expect } from 'vitest';
 import {
-  COLOR_LABELS,
-  HISTORY,
-  STAR_INDICES,
   detailChanged,
-  ext,
-  formatDate,
   formatRollups,
-  formatSize,
   showPlaceSection,
   skipReasonLabel,
   stageStatus,
   taggedFaces,
   untaggedFaceCount,
-  xmpName,
-} from './info-tab.vm';
-import type {
-  ApiAssetDetail,
-  ApiEnrichmentStageState,
-} from '../api/bun-api-backend.service';
+} from './enrichment.vm';
+import type { ApiAssetDetail, ApiEnrichmentStageState } from '../api/bun-api-backend.service';
 
 // ─── Fixture builders ────────────────────────────────────────────────────
 
-function stageState(
-  overrides: Partial<ApiEnrichmentStageState> = {},
-): ApiEnrichmentStageState {
+function stageState(overrides: Partial<ApiEnrichmentStageState> = {}): ApiEnrichmentStageState {
   return {
     done_at: null,
     locked_by: null,
@@ -73,100 +62,17 @@ function detail(overrides: Partial<ApiAssetDetail> = {}): ApiAssetDetail {
   };
 }
 
-// ─── Constants ───────────────────────────────────────────────────────────
-
-describe('info-tab.vm constants', () => {
-  it('exposes 5 star indices, 5 color labels, 3 history rows', () => {
-    expect(STAR_INDICES).toEqual([1, 2, 3, 4, 5]);
-    expect(COLOR_LABELS.length).toBe(5);
-    expect(COLOR_LABELS.map((c) => c.name)).toEqual([
-      'red',
-      'orange',
-      'yellow',
-      'green',
-      'blue',
-    ]);
-    expect(HISTORY.length).toBe(3);
-  });
-});
-
-// ─── ext / xmpName ───────────────────────────────────────────────────────
-
-describe('ext', () => {
-  it('returns lowercase suffix for typical filenames', () => {
-    expect(ext('IMG_0001.cr3')).toBe('cr3');
-    expect(ext('photo.tar.gz')).toBe('gz');
-  });
-  it('returns empty string when no extension', () => {
-    expect(ext('LICENSE')).toBe('LICENSE'); // pop() returns the whole string when no '.'
-  });
-});
-
-describe('xmpName', () => {
-  it('swaps the last extension for .xmp', () => {
-    expect(xmpName('IMG_0001.cr3')).toBe('IMG_0001.xmp');
-    expect(xmpName('a.b.dng')).toBe('a.b.xmp');
-  });
-  it('appends .xmp when filename has no extension (regex no-op)', () => {
-    // The current implementation only replaces an existing extension; a
-    // dotless filename stays as-is. Pinning the behaviour here.
-    expect(xmpName('LICENSE')).toBe('LICENSE');
-  });
-});
-
-// ─── formatSize / formatDate ─────────────────────────────────────────────
-
-describe('formatSize', () => {
-  it('renders em-dash for undefined / null', () => {
-    expect(formatSize(undefined)).toBe('—');
-    expect(formatSize(undefined as unknown as number)).toBe('—');
-  });
-  it('renders bytes < 1024 as integer B', () => {
-    expect(formatSize(0)).toBe('0 B');
-    expect(formatSize(512)).toBe('512 B');
-    expect(formatSize(1023)).toBe('1023 B');
-  });
-  it('renders KB / MB / GB with one or two decimals', () => {
-    expect(formatSize(1024)).toBe('1.0 KB');
-    expect(formatSize(1024 * 1024)).toBe('1.0 MB');
-    expect(formatSize(1024 * 1024 * 1024)).toBe('1.00 GB');
-    expect(formatSize(2.5 * 1024 * 1024 * 1024)).toBe('2.50 GB');
-  });
-});
-
-describe('formatDate', () => {
-  it('returns em-dash for empty/undefined', () => {
-    expect(formatDate(undefined)).toBe('—');
-    expect(formatDate('')).toBe('—');
-  });
-  it('returns the input verbatim for non-parseable strings', () => {
-    expect(formatDate('not-a-date')).toBe('not-a-date');
-  });
-  it('formats a parseable ISO string as yyyy-MM-dd HH:mm (local TZ)', () => {
-    // Construct an instant whose local representation we know exactly:
-    // build the Date in the runner's local tz, then feed its ISO string
-    // back through formatDate. This avoids tz-dependent string asserts.
-    const local = new Date(2026, 4, 19, 14, 5); // May 19 2026 14:05 local
-    const result = formatDate(local.toISOString());
-    expect(result).toBe('2026-05-19 14:05');
-  });
-});
-
 // ─── formatRollups / taggedFaces / untaggedFaceCount ─────────────────────
 
 describe('formatRollups', () => {
   it('joins locality + region with a comma', () => {
-    expect(
-      formatRollups({ locality: 'Berkeley', region: 'California' }),
-    ).toBe('Berkeley, California');
+    expect(formatRollups({ locality: 'Berkeley', region: 'California' })).toBe(
+      'Berkeley, California',
+    );
   });
   it('drops null entries', () => {
-    expect(formatRollups({ locality: 'Berkeley', region: null })).toBe(
-      'Berkeley',
-    );
-    expect(formatRollups({ locality: null, region: 'California' })).toBe(
-      'California',
-    );
+    expect(formatRollups({ locality: 'Berkeley', region: null })).toBe('Berkeley');
+    expect(formatRollups({ locality: null, region: 'California' })).toBe('California');
   });
   it('falls back to "(no rollup)" when both are null', () => {
     expect(formatRollups({ locality: null, region: null })).toBe('(no rollup)');
@@ -278,9 +184,7 @@ describe('skipReasonLabel', () => {
     expect(skipReasonLabel('no-gps')).toBe('No GPS');
     expect(skipReasonLabel('image-missing')).toBe('No thumbnail');
     expect(skipReasonLabel('thumb-missing-foo')).toBe('No thumbnail');
-    expect(skipReasonLabel('thumb-undecodable: bad PNG')).toBe(
-      'Thumbnail unreadable',
-    );
+    expect(skipReasonLabel('thumb-undecodable: bad PNG')).toBe('Thumbnail unreadable');
   });
   it('falls back to "Skipped" for unknown reasons', () => {
     expect(skipReasonLabel('mystery')).toBe('Skipped');
@@ -318,10 +222,7 @@ describe('stageStatus', () => {
   });
 
   it('returns complete (blank label) when done_at is set without errors', () => {
-    const r = stageStatus(
-      stageState({ done_at: '2026-05-19T00:00:00Z' }),
-      false,
-    );
+    const r = stageStatus(stageState({ done_at: '2026-05-19T00:00:00Z' }), false);
     expect(r.kind).toBe('complete');
     expect(r.label).toBe('');
   });

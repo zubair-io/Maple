@@ -192,6 +192,15 @@ export async function versionBumpReset(
 // Claim query.
 // ---------------------------------------------------------------------------
 
+/** Normalise a stage's `dependsOn` (bare-string or {name,minVersion}) to the
+ * concrete {name, minVersion} shape `buildClaimQuery` and the registry use.
+ * A bare string means "depends on that stage at version >= 1". */
+export function resolveStageDeps(
+  dependsOn: StageDep[],
+): Array<{ name: string; minVersion: number }> {
+  return dependsOn.map((d) => (typeof d === 'string' ? { name: d, minVersion: 1 } : d));
+}
+
 export function buildClaimQuery(
   name: string,
   targetVersion: number,
@@ -274,9 +283,7 @@ export async function runOnce(
   config: WorkerConfig,
   images: Collection<ImageDoc>,
   _configColl: Collection<WorkerConfigDoc>,
-  resolvedDeps: Array<{ name: string; minVersion: number }> = stage.dependsOn.map((d) =>
-    typeof d === 'string' ? { name: d, minVersion: 1 } : d,
-  ),
+  resolvedDeps: Array<{ name: string; minVersion: number }> = resolveStageDeps(stage.dependsOn),
   signal?: AbortSignal,
   inFlightSet?: Set<string>,
   throughput?: ThroughputWindow,
@@ -454,7 +461,9 @@ export async function runStage<TPatch extends Record<string, unknown>>(
       `${stage.name} version bump — resetting dead docs`,
     );
     await versionBumpReset(stage, config.last_seen_target_version, images);
-    await repo.patch(stage.name, { last_seen_target_version: stage.targetVersion });
+    await repo.patch(stage.name, {
+      last_seen_target_version: stage.targetVersion,
+    });
     config = { ...config, last_seen_target_version: stage.targetVersion };
   }
 
@@ -466,6 +475,7 @@ export async function runStage<TPatch extends Record<string, unknown>>(
   // live state and route pause/resume / config-changed signals back to us.
   stageRegistry.register(stage.name, {
     targetVersion: stage.targetVersion,
+    dependsOn: resolveStageDeps(stage.dependsOn),
     getInFlight: () => inFlightSet.size,
     getThroughput: () => throughput.countInWindow(),
     getPaused: () => config.paused,

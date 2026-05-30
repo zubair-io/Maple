@@ -22,7 +22,62 @@ These are the numbers every change must stay within. Missing a budget is a bug, 
 | Slider drag, fast pass       | Web             | < 50ms                             | 100ms      |
 | WASM decode (25MP DNG)       | Web             | < 2s                               | 5s         |
 
-Benchmarking uses `test_color_pipeline.sh` for correctness and a separate timing harness (not yet built — see [`09-open-questions.md`](./09-open-questions.md)) for regression detection.
+Benchmarking uses `test_color_pipeline.sh` for correctness and the slider-tick perf bench (below) for regression detection on the interactive path.
+
+---
+
+## Slider-tick perf bench
+
+Automated regression coverage for the slider-drag fast pass on both surfaces. Ticket [#641](https://github.com/zubair-io/Maple/issues/641); added after S5 Editor (#635) shipped without an automated guard against the slider-drag budgets in the "Target budgets" table above (Apple 33/50 ms; Web 50/100 ms) and the tighter CLAUDE.md product invariant (16 ms target / 50 ms hard) that sits underneath them.
+
+### What's measured
+
+**Apple** — `src/apple/Packages/MapleCore/Tests/MapleCoreTests/Performance/SliderTickPerfTests.swift`
+
+- Loads the reference RAW fixture once (`test-fixtures/raws/dji-mavic3pro-100mp.dng` if present, else `test-fixtures/raws/test_0017.dng`).
+- Decodes once through `ImageEditPipeline.decodeSceneLinear` (matches the editor's open path).
+- Warms the CIContext + Metal pipeline cache with one render (the live editor pays this cost at session open, not per tick).
+- Loops 50 ticks: mutate `model.exposure` across [-1, +1] EV → `pipeline.processSceneLinear` → render the result into a Metal-backed `MTLTexture` destination → wait on the command buffer. That's the exact synchronous work a slider tick performs in production (`EditSession+Render.swift` → `decodeAndRender` → `processSceneLinear`).
+- Splits the timer per-tick into `processSceneLinear` time vs. the destination render time, so the report attributes the per-tick cost to either the FFI round-trip (the load-bearing call) or the GPU pass for sharpen + NRColor.
+
+**Web** — `src/web/projects/maple-common/src/lib/editor/perf/slider-tick.bench.spec.ts`
+
+- Smaller scope by necessity: the web editor's per-tick render runs in WebGL2, which is not available in the headless Vitest runner. The bench measures the state-plumbing pipe only — `EditorStateService.setArmedDisplayValue` → `LibraryStateService.updateAdjustment` → signal-update — over 50 ticks. The full state + WASM + WebGL slider-tick cost needs a Playwright-backed harness; that's tracked as a follow-up.
+
+### Budgets and ceilings
+
+The "Spec target / Spec hard limit" columns below report against the **CLAUDE.md product invariant** (16 ms target / 50 ms hard) — the tightest budget the slider-tick path is held to, deliberately stricter than the per-surface rows in the "Target budgets" table above (Apple 33/50 ms; Web 50/100 ms). When a regression triages, the per-surface budgets are the first guard; the CLAUDE.md invariant is the ratchet target the bench reports against.
+
+| Surface | Spec target (CLAUDE.md) | Spec hard limit (CLAUDE.md) | Regression ceiling (today) | Notes                                                               |
+| ------- | ----------------------- | --------------------------- | -------------------------- | ------------------------------------------------------------------- |
+| Apple   | 16 ms                   | 50 ms                       | 350 ms                     | Mean ~108–120 ms today on M-series Mac w/ test_0017.dng @ 1920×1080 |
+| Web     | 16 ms                   | 50 ms                       | 5 ms                       | State pipe only — mean ~0.03 ms (microsecond-scale)                 |
+
+The spec target and hard limit are the product budget. The regression ceiling is the bench's actual assertion — set generously above today's measured floor so the bench is a regression detector, not a perma-failing test for an aspirational number. The Apple ceiling is well above today's spec hard limit because the per-tick FFI round-trip (GPU readback → Rust core → CIImage re-wrap) currently runs ~110 ms on a 5 MP fixture; closing that gap to the spec target is product work tracked separately.
+
+### How to run
+
+```bash
+# Apple
+MAPLE_PERF=1 swift test --filter SliderTickPerfTests \
+    --package-path src/apple/Packages/MapleCore
+
+# Web
+cd src/web
+MAPLE_PERF=1 npx ng test Maple-common \
+    --include='**/perf/*.bench.spec.ts'
+```
+
+Without `MAPLE_PERF=1` both benches skip-pass — the default `swift test` / `ng test` run on every PR doesn't pay the multi-second bench cost. If the reference RAW fixture is absent (CI without `test-fixtures/raws/`), the Apple bench `XCTSkip`s; the web bench has no fixture dependency.
+
+### What to do on a regression
+
+1. Look at the `[slider-tick-perf]` summary line. Apple reports `process=…ms render=…ms` — the attribution tells you whether the regression is in the FFI chain or the GPU sharpen/NRColor pass.
+2. If `process` time jumped: most likely a change to `applySceneLinearChainViaFFI` or the FFI parameter assembly. Walk the recent diff against `ImageEditPipeline.processSceneLinear` and the Rust core's scene-linear stages.
+3. If `render` time jumped: a Metal kernel change in `MetalKernels.applySceneSharpen` or `applySceneNRColor`, or a CIContext config drift.
+4. If the web state-pipe ceiling tripped: the signal-update path got more expensive — most likely an unnecessary deep clone or a new subscriber doing synchronous work on every patch.
+
+The bench is a one-way ratchet, mirroring the color budgets policy in `docs/testing.md`. When a perf win lands, lower the ceiling in the same commit so a future regression can't sneak the floor back up.
 
 ---
 

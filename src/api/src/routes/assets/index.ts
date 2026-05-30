@@ -14,6 +14,7 @@
  *   GET    /api/assets/:id                        — metadata
  *   GET    /api/assets/:id/raw                    — binary RAW bytes
  *   GET    /api/assets/:id/thumb                  — thumbnail (.maple/ cache)
+ *   GET    /api/assets/:id/histogram               — RGB histogram JSON (#633)
  *   GET    /api/assets/:id/xmp                    — read XMP sidecar
  *   PUT    /api/assets/:id/xmp                    — write XMP sidecar
  *   DELETE /api/assets/:id/xmp                    — delete XMP sidecar
@@ -24,15 +25,17 @@
  *   POST   /api/assets/:id/enrichment/requeue     — per-stage requeue
  */
 
-import { Elysia } from "elysia";
-import { metadataRoutes } from "./metadata.ts";
-import { xmpRoutes } from "./xmp.ts";
-import { trashRoutes } from "./trash.ts";
-import { overrideRoutes } from "./overrides.ts";
-import { enrichmentRoutes } from "./enrichment.ts";
+import { Elysia } from 'elysia';
+import { metadataRoutes } from './metadata.ts';
+import { xmpRoutes } from './xmp.ts';
+import { trashRoutes } from './trash.ts';
+import { overrideRoutes } from './overrides.ts';
+import { enrichmentRoutes } from './enrichment.ts';
+import { histogramRoutes } from './histogram.ts';
 
-export const assetsRoutes = new Elysia({ prefix: "/api/assets" })
+export const assetsRoutes = new Elysia({ prefix: '/api/assets' })
   .use(metadataRoutes)
+  .use(histogramRoutes)
   .use(xmpRoutes)
   .use(trashRoutes)
   .use(overrideRoutes)

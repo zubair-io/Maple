@@ -13,15 +13,21 @@
  * level singleton — there is only one API server.
  */
 
-export type StageStatus =
-  | "running"
-  | "paused"
-  | "stopped"
-  | "error";
+export type StageStatus = 'running' | 'paused' | 'stopped' | 'error';
+
+/** A stage's upstream dependency, resolved to its concrete minimum version.
+ * Mirrors the shape `buildClaimQuery` consumes in run-stage.ts. */
+export interface ResolvedDep {
+  name: string;
+  minVersion: number;
+}
 
 export interface StageRegistryEntry {
   /** Static — comes from the StageConfig. */
   targetVersion: number;
+  /** Upstream stages (resolved to {name, minVersion}) this stage waits on.
+   * Lets `/status` split `pending` into ready (deps met) vs blocked. */
+  dependsOn: ResolvedDep[];
   /** Live accessors — read on every /status call. */
   getInFlight: () => number;
   getThroughput: () => number;
@@ -42,6 +48,7 @@ export interface StageStatusSnapshot {
   inFlight: number;
   throughput: number;
   targetVersion: number;
+  dependsOn: ResolvedDep[];
   lastError: string | null;
 }
 
@@ -57,16 +64,23 @@ class StageRegistry {
    * WS bridge. Matches the old multi-process supervisor's behaviour where
    * `addStage()` registered every stage immediately with `status: "stopped"`.
    */
-  private readonly known = new Map<string, { targetVersion: number }>();
+  private readonly known = new Map<string, { targetVersion: number; dependsOn: ResolvedDep[] }>();
 
   /**
    * Declare a stage the orchestrator plans to start so `statuses()` reports
    * it even before its first successful `runStage()`. Safe to call multiple
-   * times — updates `targetVersion` and leaves any existing live entry /
-   * recorded error untouched.
+   * times — updates `targetVersion`, and updates `dependsOn` only when it is
+   * passed. Omitting `dependsOn` preserves the previously-registered deps so a
+   * targetVersion-only re-register can't silently erase them (which would skew
+   * the ready/blocked split). Leaves any existing live entry / recorded error
+   * untouched.
    */
-  preregister(name: string, targetVersion: number): void {
-    this.known.set(name, { targetVersion });
+  preregister(name: string, targetVersion: number, dependsOn?: ResolvedDep[]): void {
+    const existing = this.known.get(name);
+    this.known.set(name, {
+      targetVersion,
+      dependsOn: dependsOn ?? existing?.dependsOn ?? [],
+    });
   }
 
   register(name: string, entry: StageRegistryEntry): void {
@@ -101,23 +115,25 @@ class StageRegistry {
     // First emit any pre-registered stage whose live entry hasn't arrived
     // yet — these are stages the orchestrator declared at boot but whose
     // `runStage()` either hasn't completed or failed and is mid-retry.
-    for (const [name, { targetVersion }] of this.known) {
+    for (const [name, { targetVersion, dependsOn }] of this.known) {
       if (this.entries.has(name)) continue;
       const lastError = this.lastErrors.get(name) ?? null;
       out[name] = {
-        status: lastError !== null ? "error" : "stopped",
+        status: lastError !== null ? 'error' : 'stopped',
         inFlight: 0,
         throughput: 0,
         targetVersion,
+        dependsOn,
         lastError,
       };
     }
     for (const [name, entry] of this.entries) {
       out[name] = {
-        status: entry.getPaused() ? "paused" : "running",
+        status: entry.getPaused() ? 'paused' : 'running',
         inFlight: entry.getInFlight(),
         throughput: entry.getThroughput(),
         targetVersion: entry.targetVersion,
+        dependsOn: entry.dependsOn,
         lastError: this.lastErrors.get(name) ?? null,
       };
     }
@@ -131,7 +147,10 @@ class StageRegistry {
       await entry.pause();
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
@@ -142,7 +161,10 @@ class StageRegistry {
       await entry.resume();
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
@@ -164,7 +186,10 @@ class StageRegistry {
       await entry.reloadConfig();
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 }

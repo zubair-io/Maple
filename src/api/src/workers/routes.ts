@@ -25,6 +25,7 @@ import { Elysia, t } from 'elysia';
 import { getDb } from '../db/client.ts';
 import { WorkerConfigRepo } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
+import { buildClaimQuery } from './run-stage.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
 import type { StageStatusSnapshot } from './registry.ts';
@@ -47,15 +48,21 @@ const DEAD_LIST_LIMIT_DEFAULT = 50;
 const DEAD_LIST_LIMIT_MAX = 500;
 
 // Short-TTL cache for the DB-derived half of /status. Holds worker_config rows
-// and per-stage pending/dead counts; the registry-derived fields (status,
+// and per-stage pending/ready/dead counts; the registry-derived fields (status,
 // inFlight, throughput, lastError) are recomposed from the in-process registry
 // on every call so they stay fresh. Keyed on the stage-name + targetVersion
 // signature so a stage gaining or changing targetVersion bypasses the cache.
 // Polling FE clients (settings UI ticks every ~1-2s) hit cache on every other
-// call, reducing 14 parallel countDocuments round-trips to zero work.
+// call, reducing the per-stage countDocuments round-trips to zero work.
+//
+// `pending` counts every doc this stage still owes work on (version < target,
+// not dead). `ready` is the subset whose upstream deps are already met — i.e.
+// what the claim query would actually pick up right now. `blocked` (derived as
+// pending − ready in the response) is everything waiting on an upstream stage.
 type StatusDbState = {
   configMap: Map<string, WorkerConfig>;
   pendingByStage: Map<string, number>;
+  readyByStage: Map<string, number>;
   deadByStage: Map<string, number>;
 };
 const STATUS_CACHE_TTL_MS = 2000;
@@ -94,6 +101,7 @@ async function fetchStatusDbState(
 ): Promise<StatusDbState> {
   const configMap = new Map<string, WorkerConfig>();
   const pendingByStage = new Map<string, number>();
+  const readyByStage = new Map<string, number>();
   const deadByStage = new Map<string, number>();
   let assets: import('mongodb').Collection<import('mongodb').Document> | null = null;
 
@@ -112,6 +120,7 @@ async function fetchStatusDbState(
     const counts = await Promise.all(
       claimStageNames.flatMap((name) => {
         const tv = statuses[name]?.targetVersion ?? 1;
+        const deps = statuses[name]?.dependsOn ?? [];
         const pending = assets!
           .countDocuments({
             $or: [
@@ -125,6 +134,20 @@ async function fetchStatusDbState(
             log.warn({ stage: name, err }, 'countDocuments failed for pending — returning 0');
             return { key: 'pending' as const, name, n: 0 };
           });
+        // `ready` mirrors the claim query exactly (same base predicate + the
+        // upstream-dependency gates), so it's the subset of `pending` a worker
+        // could actually pick up right now. Empty in-flight set: the few docs
+        // momentarily in flight don't matter for an operator-facing count.
+        const readyQuery = buildClaimQuery(name, tv, deps, new Set()) as import('mongodb').Filter<
+          import('mongodb').Document
+        >;
+        const ready = assets!
+          .countDocuments(readyQuery)
+          .then((n) => ({ key: 'ready' as const, name, n }))
+          .catch((err) => {
+            log.warn({ stage: name, err }, 'countDocuments failed for ready — returning 0');
+            return { key: 'ready' as const, name, n: 0 };
+          });
         const dead = assets!
           .countDocuments({ [`stages.${name}.dead`]: true })
           .then((n) => ({ key: 'dead' as const, name, n }))
@@ -132,16 +155,17 @@ async function fetchStatusDbState(
             log.warn({ stage: name, err }, 'countDocuments failed for dead — returning 0');
             return { key: 'dead' as const, name, n: 0 };
           });
-        return [pending, dead];
+        return [pending, ready, dead];
       }),
     );
     for (const c of counts) {
       if (c.key === 'pending') pendingByStage.set(c.name, c.n);
+      else if (c.key === 'ready') readyByStage.set(c.name, c.n);
       else deadByStage.set(c.name, c.n);
     }
   }
 
-  return { configMap, pendingByStage, deadByStage };
+  return { configMap, pendingByStage, readyByStage, deadByStage };
 }
 
 export function workerRoutes(): Elysia {
@@ -167,6 +191,10 @@ export function workerRoutes(): Elysia {
 
       const stages = Object.entries(statuses).map(([name, s]) => {
         const pending = dbState.pendingByStage.get(name) ?? 0;
+        const ready = dbState.readyByStage.get(name) ?? 0;
+        // pending and ready are counted by separate (non-atomic) queries, so
+        // clamp the derived blocked count to avoid a transient negative.
+        const blocked = Math.max(0, pending - ready);
         const dead = dbState.deadByStage.get(name) ?? 0;
         const config = dbState.configMap.get(name) ?? null;
         const configured = config?.concurrency ?? 0;
@@ -177,6 +205,8 @@ export function workerRoutes(): Elysia {
           inFlight: s.inFlight,
           configured,
           pending,
+          ready,
+          blocked,
           dead,
           throughput: s.throughput,
           lastError: s.lastError,

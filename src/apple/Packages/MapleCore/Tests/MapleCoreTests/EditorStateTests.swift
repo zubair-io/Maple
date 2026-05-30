@@ -80,12 +80,35 @@ final class EditorStateTests: XCTestCase {
 
     func testStubToolWriteIsNoOp() {
         let state = EditorState(session: makeSession())
-        state.arm(tool: .vignette)
-        // No vignette field on AdjustmentModel yet — write must not crash
-        // and must not mutate any wired field.
+        state.arm(tool: .crop)
+        // No crop field on AdjustmentModel yet — write must not crash
+        // and must not mutate any wired field. (Per #643: vignette,
+        // grain, splitTone are now wired; HSL/Crop/Presets remain
+        // stubs pending their own specs.)
         let before = state.session.model
         state.setArmedDisplayValue(50)
         XCTAssertEqual(state.session.model, before)
+    }
+
+    func testS5EffectsToolsAreWired() {
+        // Per #643: vignette / grain / splitTone gained AdjustmentModel
+        // fields and are no longer stubs. Each routes to its drag-bar
+        // primary scalar (`vignetteAmount`, `grainAmount`,
+        // `splitToneBalance`).
+        let session = makeSession()
+        let state = EditorState(session: session)
+
+        state.arm(tool: .vignette)
+        state.setArmedDisplayValue(-50)
+        XCTAssertEqual(session.model.vignetteAmount, -50, accuracy: 1e-9)
+
+        state.arm(tool: .grain)
+        state.setArmedDisplayValue(40)
+        XCTAssertEqual(session.model.grainAmount, 40, accuracy: 1e-9)
+
+        state.arm(tool: .splitTone)
+        state.setArmedDisplayValue(25)
+        XCTAssertEqual(session.model.splitToneBalance, 25, accuracy: 1e-9)
     }
 
     // MARK: - Commit / undo / redo
@@ -192,17 +215,17 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(Tool.tools(in: .detail).count, 5)
     }
 
-    func testWiredToolsCoverSixteenFields() {
-        // Spec §8 risk #3: HSL/Vignette/Grain/Split-tone/Crop/Presets are
-        // stubs in v0.1 — six tools without an AdjustmentModel field.
-        // The other 16 must be wired.
+    func testWiredToolsCoverNineteenFields() {
+        // Per #643: vignette / grain / splitTone gained AdjustmentModel
+        // fields, leaving HSL/Crop/Presets as the v0.1 stubs (each tracked
+        // by its own spec ticket — #636, #638, #639).
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 16)
+        XCTAssertEqual(wired.count, 19)
         XCTAssertFalse(Tool.hsl.isWired)
-        XCTAssertFalse(Tool.vignette.isWired)
-        XCTAssertFalse(Tool.grain.isWired)
-        XCTAssertFalse(Tool.splitTone.isWired)
         XCTAssertFalse(Tool.crop.isWired)
         XCTAssertFalse(Tool.presets.isWired)
+        XCTAssertTrue(Tool.vignette.isWired)
+        XCTAssertTrue(Tool.grain.isWired)
+        XCTAssertTrue(Tool.splitTone.isWired)
     }
 }

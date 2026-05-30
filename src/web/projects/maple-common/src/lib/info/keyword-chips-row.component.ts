@@ -1,23 +1,31 @@
 // KeywordChipsRowComponent — S6 Info content section 4 (web).
 //
-// READ-ONLY in v0.1. `Asset.keywords` is already on the wire (see
-// `lib/models/asset.ts`) but no LibraryStateService method exists to
-// write through to the sidecar yet — `setKeywords` would need a new
-// XMP `dc:subject` round-trip path (XMPParser + XMPSerializer + the
-// debounced SidecarStore flush). Per spec §6 risk 3 default plan (a),
-// chip-editing is a stub for v0.1. Follow-up ticket:
-// "S6 keyword editing — XMP dc:subject round-trip + setKeywords".
+// Editable in #632. Reads `asset.keywords` and mutates it via
+// `LibraryStateService.setKeywords`, which routes through the same
+// 750ms-debounced sidecar-write path the rating/flag/colorLabel
+// mutators use — keywords have zero pixel impact, so no develop
+// render is kicked.
 //
-// What renders today:
-//   • Existing keywords from `asset.keywords` as non-interactive 11pt
-//     rounded chips (`<span>`s — no remove handler to avoid a fake
-//     interactive control until the editing path lands).
-//   • A trailing dashed `+ Add` chip that opens an inline stub message.
-//     Keeps the affordance visible for design review without mutating
-//     state.
+// UI:
+//   • Existing keywords render as 11pt rounded chips; the whole chip is
+//     a remove button (tap to delete).
+//   • A trailing dashed `+ Add` chip. Tapping it replaces the chip with
+//     an inline `<input>` that auto-focuses; the field commits on Enter
+//     (`(keydown.enter)`) and cancels on Escape (`(keydown.escape)`) or
+//     blur. Phones get the OS-default keyboard docked against the field.
 
-import { ChangeDetectionStrategy, Component, computed, input, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  ViewChild,
+  computed,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import type { Asset } from '../models/asset';
+import { LibraryStateService } from '../state/library-state.service';
 
 @Component({
   selector: 'app-keyword-chips-row',
@@ -31,25 +39,68 @@ import type { Asset } from '../models/asset';
   },
 })
 export class KeywordChipsRowComponent {
+  private readonly library = inject(LibraryStateService);
+
   readonly asset = input<Asset | null>(null);
 
   protected readonly keywords = computed<readonly string[]>(() => this.asset()?.keywords ?? []);
 
-  /** v0.1 stub flag — toggled by the `+ Add` chip to show the
-   * "feature coming soon" inline hint. Replaced with a real text input
-   * + EditSession.setKeywords mutator in the keyword-editing follow-up. */
-  protected readonly showStubHint = signal(false);
+  /** True while the inline `<input>` is mounted (the `+ Add` chip has
+   * been tapped). Tracked locally so the parent component doesn't have
+   * to know about the edit state. */
+  protected readonly isEditing = signal(false);
+
+  /** Bound to the inline input's `[value]` and read on commit / cancel.
+   * Cleared after each commit so the next add session starts fresh. */
+  protected readonly draft = signal('');
+
+  /**
+   * `@ViewChild` reference to the inline `<input>` — used to imperatively
+   * focus it after Angular mounts the element. `{ static: false }` (the
+   * default) is correct here because the input is gated on `@if isEditing()`
+   * and only exists after change-detection has run the new template.
+   */
+  @ViewChild('addInput') private addInput?: ElementRef<HTMLInputElement>;
 
   protected openAddDraft(): void {
-    this.showStubHint.set(true);
+    this.draft.set('');
+    this.isEditing.set(true);
+    // Wait one microtask for Angular to render the input element before
+    // focusing it; without the queueMicrotask wrapper the `<input>`
+    // doesn't exist yet and `focus()` is a no-op.
+    queueMicrotask(() => this.addInput?.nativeElement.focus());
   }
 
-  protected dismissStubHint(): void {
-    this.showStubHint.set(false);
+  protected onDraftInput(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    this.draft.set(target.value);
   }
 
-  // TODO(s6-keyword-editing): when LibraryStateService.setKeywords lands,
-  // re-add a removeKeyword(k) that calls state.setKeywords(asset.id,
-  // keywords.filter(...)) and flip the chips back to <button> with the
-  // "tap to remove" aria-label.
+  protected commitDraft(): void {
+    const asset = this.asset();
+    if (!asset) {
+      this.cancelDraft();
+      return;
+    }
+    const trimmed = this.draft().trim();
+    if (trimmed.length > 0) {
+      this.library.setKeywords(asset.id, [...(asset.keywords ?? []), trimmed]);
+    }
+    this.draft.set('');
+    this.isEditing.set(false);
+  }
+
+  protected cancelDraft(): void {
+    this.draft.set('');
+    this.isEditing.set(false);
+  }
+
+  protected removeKeyword(keyword: string): void {
+    const asset = this.asset();
+    if (!asset) return;
+    this.library.setKeywords(
+      asset.id,
+      (asset.keywords ?? []).filter((k) => k !== keyword),
+    );
+  }
 }

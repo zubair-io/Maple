@@ -1,7 +1,9 @@
 // InfoPanelComponent — Responsive-program S6 Info content (web side).
 //
 // Spec: docs/design/responsive-program/s6-info-inspector.md.
-// Tracking ticket: #621 (closes via PR). Epic: #577.
+// Tracking ticket: #621 (closed by PR #637). #634 follow-up consolidates
+// the former `<maple-info-tab>` enrichment surface into this component
+// (renders conditionally when `LIBRARY_BACKEND === 'self-hosted'`).
 //
 // One component, two slots:
 //   • Phone bottom sheet (`<app-bottom-sheet>`) triggered by the `i` icon
@@ -20,25 +22,18 @@
 //   4. <app-keyword-chips-row>     — read-only chips in v0.1; the `+ add`
 //                                    affordance opens a stub message until
 //                                    the keyword-editing model work lands.
-//
-// Why not just reuse `<maple-info-tab>` from `detail-panel/`?
-//   The existing `InfoTabComponent` is the heavy Self-Hosted enrichment
-//   surface (place override, description, vision, faces, requeue, polling).
-//   The S6 spec describes a lean mobile-first Info that ships in BOTH the
-//   sheet and inspector slots. Consolidating the two — porting the
-//   enrichment features into `InfoPanelComponent` — is a follow-up; for
-//   this PR the new component lives alongside `InfoTabComponent`.
-//   Editor's right pane keeps `<maple-info-tab>` for now (it carries the
-//   enrichment surface). The new component is wired into the phone
-//   bottom-sheet slot once S5 lands. See PR body for the consolidation
-//   follow-up ticket.
+//   5. <app-info-enrichment>       — Self-Hosted only: place / description /
+//                                    vision / faces. Owns the detail fetch,
+//                                    worker-status cache, requeue, polling.
 
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import type { Asset } from '../models/asset';
+import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { RatingFlagsRowComponent } from './rating-flags-row.component';
 import { InfoHistogramComponent } from './histogram.component';
 import { CameraLocationGridComponent } from './camera-location-grid.component';
 import { KeywordChipsRowComponent } from './keyword-chips-row.component';
+import { InfoEnrichmentComponent } from './info-enrichment.component';
 
 @Component({
   selector: 'app-info-panel',
@@ -48,6 +43,7 @@ import { KeywordChipsRowComponent } from './keyword-chips-row.component';
     InfoHistogramComponent,
     CameraLocationGridComponent,
     KeywordChipsRowComponent,
+    InfoEnrichmentComponent,
   ],
   templateUrl: './info-panel.component.html',
   styleUrl: './info-panel.component.scss',
@@ -59,6 +55,8 @@ import { KeywordChipsRowComponent } from './keyword-chips-row.component';
   },
 })
 export class InfoPanelComponent {
+  private readonly backend = inject(LIBRARY_BACKEND);
+
   /** Focused asset whose info to render. `null` keeps the layout stable
    * (each section degrades to placeholder values) so the panel doesn't
    * jump between empty and populated states. */
@@ -72,6 +70,11 @@ export class InfoPanelComponent {
   /** Phone-only dismiss signal for the sheet's close X. Ignored when
    * `insideSheet=false`. */
   readonly close = output<void>();
+
+  /** Self-Hosted is the only backend that serves the enrichment payload
+   * (place / description / vision / faces). Hosted browses the local
+   * FS via FSA — no server-side workers, so no enrichment surface. */
+  protected readonly showEnrichment = computed(() => this.backend === 'self-hosted');
 
   onClose(): void {
     this.close.emit();
