@@ -132,6 +132,43 @@ describe('WorkersStatusBroadcaster — single broadcast to N subscribers', () =>
     b._resetForTests();
   });
 
+  it('guards against overlapping ticks — a second tick is a no-op while one is in flight', async () => {
+    // A slow count source: resolve it manually so we can fire a second tick
+    // while the first is still pending.
+    let resolveCount: ((p: WorkersStatusPayload) => void) | null = null;
+    let calls = 0;
+    const b = new WorkersStatusBroadcaster(() => {
+      calls++;
+      return new Promise<WorkersStatusPayload>((res) => {
+        resolveCount = res;
+      });
+    });
+    b._resetForTests();
+    const frames: WorkersStatusFrame[] = [];
+    // Subscribe WITHOUT letting the auto-tick settle (its promise is pending).
+    b.subscribe((f) => frames.push(f));
+    // subscribe pushes one cheap frame synchronously; drop it.
+    frames.length = 0;
+
+    // The auto-tick from subscribe is already in flight (calls === 1, unresolved).
+    expect(calls).toBe(1);
+
+    // Fire a second tick while the first is still pending — must be skipped.
+    const second = b._tickForTests();
+    expect(calls).toBe(1); // no new count pass started
+
+    // Resolve the first pass; it broadcasts one counted frame.
+    resolveCount!(fakePayload);
+    await second;
+    await Promise.resolve();
+
+    expect(calls).toBe(1);
+    // Exactly one counted frame from the single completed pass.
+    const counted = frames.filter((f) => f.counted);
+    expect(counted).toHaveLength(1);
+    b._resetForTests();
+  });
+
   it('a failing send to one subscriber does not abort the fan-out', async () => {
     const b = new WorkersStatusBroadcaster(async () => fakePayload);
     b._resetForTests();

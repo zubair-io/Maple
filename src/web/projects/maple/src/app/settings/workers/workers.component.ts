@@ -129,8 +129,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
   private statusSub: Subscription | null = null;
   private fallbackSub: Subscription | null = null;
   private destroyed = false;
-  /** Set once the WS stream delivers its first frame, so the one-shot HTTP
-   * fallback never clobbers live WS data with a slower in-flight response. */
+  /** Set once the WS stream delivers its first *counted* frame, so the
+   * one-shot HTTP fallback never clobbers live WS data with a slower in-flight
+   * response. Gated on `counted` so the cheap registry-only snapshot pushed on
+   * connect (zeroed counts, `config:null`) does NOT disable the fallback — that
+   * fallback carries the real counts + per-stage config that seed the forms. */
   private gotWsFrame = false;
 
   ngOnInit(): void {
@@ -173,9 +176,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
   private subscribeStatus(): void {
     if (this.destroyed) return;
     this.statusSub = this.events.workersStatus$.subscribe({
-      next: (data) => {
-        this.gotWsFrame = true;
-        this.status.set(data);
+      next: ({ status, counted }) => {
+        // Always paint the latest frame, but only a counted frame (real
+        // DB-derived counts + per-stage config) is authoritative enough to
+        // suppress the HTTP fallback. A registry-only snapshot would otherwise
+        // set `gotWsFrame` and let the cheap zeroed/`config:null` data win.
+        if (counted) this.gotWsFrame = true;
+        this.status.set(status);
         this.error.set(null);
       },
       error: (err) => {

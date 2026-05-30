@@ -71,6 +71,12 @@ export function cheapStatus(): WorkersStatusPayload {
 class WorkersStatusBroadcaster {
   private readonly subscribers = new Set<Send>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** True while a `tick()` is mid-flight. `setInterval` fires on a fixed
+   * cadence regardless of whether the previous async tick has settled, so a
+   * count pass that runs longer than `COUNT_INTERVAL_MS` would otherwise stack
+   * up — multiple `countDocuments` fan-outs in flight at once, defeating the
+   * shared-count guarantee. The guard makes overlapping ticks a no-op. */
+  private tickInFlight = false;
 
   /**
    * Source of the expensive counted payload. Defaults to the real
@@ -134,12 +140,21 @@ class WorkersStatusBroadcaster {
    */
   private async tick(): Promise<void> {
     if (this.subscribers.size === 0) return;
+    // In-flight guard: if a previous count pass hasn't settled yet, skip this
+    // one rather than letting two `computeStatus()` fan-outs overlap.
+    if (this.tickInFlight) {
+      log.debug('workers-status count tick already in flight — skipping overlap');
+      return;
+    }
+    this.tickInFlight = true;
     let status: WorkersStatusPayload;
     try {
       status = await this.computeStatus();
     } catch (err) {
       log.warn({ err }, 'workers-status count tick failed — skipping broadcast');
       return;
+    } finally {
+      this.tickInFlight = false;
     }
     this.broadcast({ type: 'workers-status', status, counted: true, ts: Date.now() });
   }
