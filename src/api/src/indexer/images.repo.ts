@@ -239,3 +239,13 @@ export async function hardDelete(mapleId: string): Promise<void> {
   const c = await coll();
   await c.deleteOne({ maple_id: mapleId });
 }
+
+/** True when an error is a filesystem "no such file or directory".
+ *
+ * Used by the stage runner to decide whether a stage failure means the
+ * on-disk original vanished — in which case it stamps `missing_since` (the
+ * "pending delete" tag the missing-reaper consumes). Only stages that read
+ * the original opt in via `StageConfig.tagsMissingOnEnoent`. */
+export function isEnoentError(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === 'ENOENT';
+}
