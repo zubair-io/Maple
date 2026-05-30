@@ -5,20 +5,15 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  ElementRef,
   HostListener,
   OnInit,
-  computed,
   effect,
   inject,
-  signal,
-  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LAST_SOURCE_KEY } from '../../state/library-fetch.service';
-import { LayoutService } from '../../layout-service';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
@@ -29,7 +24,6 @@ import { MaterialIconComponent } from '../../icons/material-icon.component';
 import { LibraryPickerComponent } from '../../components/library-picker/library-picker.component';
 import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
 import { TimelineViewComponent } from '../../components/timeline-view/timeline-view.component';
-import { AnchoredOverlayComponent } from '../anchored-overlay.component';
 
 @Component({
   selector: 'browse-shell',
@@ -46,7 +40,6 @@ import { AnchoredOverlayComponent } from '../anchored-overlay.component';
     LibraryPickerComponent,
     LibraryPickerModalComponent,
     TimelineViewComponent,
-    AnchoredOverlayComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',
@@ -56,32 +49,6 @@ export class BrowseShellComponent implements OnInit {
   state = inject(LibraryStateService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
-  private layout = inject(LayoutService);
-
-  /** S7 follow-up (#645): tablet/desktop sidebar search-pill overlay
-   * open-state. Two-way bound into `<app-anchored-overlay>` so the
-   * primitive can close itself on Esc / outside-click. */
-  protected readonly searchOverlayOpen = signal(false);
-
-  /** Anchor for the search overlay. ElementRef signal so the @if in the
-   * template can guard on its existence before binding into the
-   * overlay's `anchor` (required) input. */
-  protected readonly searchPillRef = viewChild<string, ElementRef<HTMLElement>>('searchPillBtn', {
-    read: ElementRef,
-  });
-
-  /** Overlay column width per spec §2: 320pt tablet, 480pt desktop.
-   * Tracks `LayoutService.layout()` so a window-resize across the
-   * breakpoint widens / narrows the overlay live. Phone never opens
-   * this overlay (search is full-page there), but the computed still
-   * returns the tablet value as a safe default. */
-  protected readonly overlayWidthPx = computed(() =>
-    this.layout.layout() === 'desktop' ? 480 : 320,
-  );
-
-  protected onSearchPillClick(): void {
-    this.searchOverlayOpen.update((v) => !v);
-  }
 
   constructor() {
     // ── URL → selection ─────────────────────────────────────────────────────
