@@ -53,21 +53,6 @@ export interface ObservabilityConfigPatch {
   sample_ratio?: number | null;
 }
 
-/** Editable subset sent to `PUT /api/observability/config`. Patch semantics:
- * every field is optional; only the ones provided are changed. `ingestion_key`
- * is write-only — a non-empty string sets it, `null` clears it, omitting it
- * leaves the saved key untouched. */
-export interface ObservabilityConfigPatch {
-  enabled?: boolean | null;
-  endpoint?: string | null;
-  ingestion_key?: string | null;
-  service_namespace?: string | null;
-  traces_enabled?: boolean | null;
-  logs_enabled?: boolean | null;
-  metrics_enabled?: boolean | null;
-  sample_ratio?: number | null;
-}
-
 /** Returns true when two configs would produce an identical OTel runtime —
  * used to skip a needless teardown/re-init when a background refresh returns
  * the same values the cached config already initialised. */

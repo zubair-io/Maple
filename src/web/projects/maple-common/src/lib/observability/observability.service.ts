@@ -40,7 +40,10 @@ import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { registerInstrumentations } from '@opentelemetry/instrumentation';
 import { FetchInstrumentation } from '@opentelemetry/instrumentation-fetch';
-import { BunApiBackendService } from '../api/bun-api-backend.service';
+import {
+  BunApiBackendService,
+  type ObservabilityTestResponse,
+} from '../api/bun-api-backend.service';
 import {
   OBSERVABILITY_CONFIG_CACHE,
   type ObservabilityCacheRecord,
@@ -152,7 +155,7 @@ export class ObservabilityService {
   testConnection(
     endpoint: string,
     ingestionKey: string | null,
-  ): Promise<{ ok: boolean; status?: number; error?: string }> {
+  ): Promise<ObservabilityTestResponse> {
     return firstValueFrom(this.api.testObservability({ endpoint, ingestion_key: ingestionKey }));
   }
 
