@@ -5,12 +5,9 @@
  * importing the full Elysia app.
  */
 
-import type { ObjectId } from "mongodb";
-import type { AssetDoc, Place } from "../../db/schema.ts";
-import {
-  assetAbsPath,
-  assetPrimaryFileInfo,
-} from "../../indexer/images.repo.ts";
+import type { ObjectId } from 'mongodb';
+import type { AssetDoc, Place } from '../../db/schema.ts';
+import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 
 export interface SearchResultPHLink {
   phasset_local_id: string;
@@ -64,9 +61,9 @@ export function projectAsset(
       ? { make: exif.camera_make, model: exif.camera_model }
       : null;
   const primary = assetPrimaryFileInfo(d);
-  const absPath = assetAbsPath(d, libraries) ?? "";
-  const folderId = primary?.library_id.toHexString() ?? "";
-  const filename = primary?.filename ?? "";
+  const absPath = assetAbsPath(d, libraries) ?? '';
+  const folderId = primary?.library_id.toHexString() ?? '';
+  const filename = primary?.filename ?? '';
   const result: SearchResult = {
     // The editor's id format is `fs:<absPath>` (matches Hosted's
     // browser-FS-Access keys); keeping the same shape here lets the FE
