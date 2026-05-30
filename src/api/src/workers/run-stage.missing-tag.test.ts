@@ -161,6 +161,27 @@ describe('runOnce — missing_since tagging', () => {
     expect((await images.find({}).toArray())[0]!.missing_since).toBe(firstTag);
   });
 
+  it('suppresses the ENOENT churn: parks the stage dead in one attempt with a benign reason', async () => {
+    const images = makeImagesMock([{ abs_path: '/gone.raw' } as unknown as ImageDoc]);
+    const configColl = makeConfigMock();
+    const stage = originalFileStage();
+
+    await _test.runOnce(stage, cfg, images, configColl);
+    const doc = (await images.find({}).toArray())[0]! as unknown as {
+      stages: Record<string, { version?: number; dead: boolean; attempts: number; last_error: string }>;
+    };
+    const s = doc.stages['exif']!;
+    // Parked dead immediately (no maxAttempts churn), benign reason instead of a
+    // raw ENOENT, and NOT marked done — it stays a visible item of work until
+    // the reaper actually fixes it. attempts jumps straight to maxAttempts.
+    expect(s.dead).toBe(true);
+    expect(s.attempts).toBe(cfg.maxAttempts);
+    expect(s.last_error).toContain('original-missing');
+    expect(s.last_error).not.toContain('ENOENT');
+    // Not advanced to targetVersion — the asset is not "done".
+    expect(s.version).not.toBe(stage.targetVersion);
+  });
+
   it('does NOT tag missing_since for a non-ENOENT failure', async () => {
     const images = makeImagesMock([{ abs_path: '/bad.raw' } as unknown as ImageDoc]);
     const configColl = makeConfigMock();
