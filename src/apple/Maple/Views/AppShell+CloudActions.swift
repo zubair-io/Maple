@@ -317,6 +317,11 @@ extension AppShell {
             sessions[assetRef.id] = session
             Task { await session.loadSidecar() }
         }
+        // #633 — bind the histogram client to the asset's server so
+        // InfoPanel's HistogramBlock can fetch live RGB curves. Reuses
+        // the same AuthenticatedHTTPClient as the rest of the cloud
+        // session to keep the 401-refresh coalescer single-flighted.
+        cloudHistogramClient = CloudHistogramClient(server: server, httpClient: httpClient)
         browseVM.loadSingleCloudAsset(assetRef)
         mode = .fullImage
     }
