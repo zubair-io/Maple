@@ -38,6 +38,23 @@ export const SHARP_EXTENSIONS = new Set<string>([
 ]);
 
 /**
+ * Input options handed to every `sharp()` decode in this module.
+ *
+ * - `failOn: 'none'` — keep going through truncation / non-fatal warnings
+ *   rather than throwing, so a slightly damaged frame still yields a thumb.
+ * - `unlimited: true` — lift libvips' built-in denial-of-service caps. The
+ *   one that bites in practice is the TIFF loader's 50 MiB cumulated-malloc
+ *   ceiling (libtiff `TIFFOpenOptionsSetMaxCumulatedMemAlloc`): full-res
+ *   single-strip exports from cameras and editors carry one image strip
+ *   well over 50 MiB, so the loader aborts with "Cumulated memory
+ *   allocation … beyond the 52428800 cumulated byte limit". The flag also
+ *   drops the default ~0.5 GP pixel-count guard. These inputs are the
+ *   operator's own trusted library files (not untrusted uploads), so the
+ *   DoS guards cost us real decodes without buying protection here.
+ */
+const SHARP_INPUT_OPTS = { failOn: 'none', unlimited: true } as const;
+
+/**
  * The canonical HEIC/HEIF chain: read the source, decode it to an
  * intermediate JPEG via `heic-convert` (quality 0.9), then resize + re-encode
  * via sharp (quality 82, mozjpeg) and write atomically. Both the off-thread
@@ -63,7 +80,7 @@ export async function renderHeicThumbToFile(
     format: 'JPEG',
     quality: 0.9,
   })) as Buffer;
-  const buf = await sharp(jpegBuffer, { failOn: 'none' })
+  const buf = await sharp(jpegBuffer, SHARP_INPUT_OPTS)
     .rotate() // honour EXIF orientation so portraits don't render sideways
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 82, mozjpeg: true })
@@ -105,7 +122,7 @@ export async function renderImageThumbToFile(
   }
 
   const tmp = `${thumbPath}.${process.pid}.tmp`;
-  const buf = await sharp(srcPath, { failOn: 'none' })
+  const buf = await sharp(srcPath, SHARP_INPUT_OPTS)
     .rotate() // honour EXIF orientation so portraits don't render sideways
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 82, mozjpeg: true })
