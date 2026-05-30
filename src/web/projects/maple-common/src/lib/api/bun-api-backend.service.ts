@@ -241,6 +241,18 @@ export interface ApiDirListing {
   entries: ApiDirEntry[];
 }
 
+/**
+ * Server-computed RGB histogram payload. Each channel is 256 bins,
+ * unnormalised counts. Consumers normalise per-channel before drawing
+ * (so a single hot bin doesn't squash the rest of the curve). See
+ * `GET /api/assets/:id/histogram` (#633).
+ */
+export interface ApiHistogram {
+  r: number[];
+  g: number[];
+  b: number[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class BunApiBackendService {
   private readonly http = inject(HttpClient);
@@ -322,6 +334,19 @@ export class BunApiBackendService {
     return this.http.get(`${this.base}/assets/${assetId}/thumb?size=${size}`, {
       responseType: 'blob',
     });
+  }
+
+  /**
+   * Fetch the server-computed RGB histogram for an asset. Three 256-bin
+   * arrays — applied with the asset's current XMP, so the cache key on
+   * the server is `(raw_mtime, sidecar_mtime)` and a re-edit invalidates
+   * automatically (see `GET /api/assets/:id/histogram`, #633).
+   *
+   * Returns 503 on the server if the libraw_ffi dylib is unavailable;
+   * the component falls back to the placeholder block in that case.
+   */
+  getHistogram(assetId: string): Observable<ApiHistogram> {
+    return this.http.get<ApiHistogram>(`${this.base}/assets/${assetId}/histogram`);
   }
 
   /**
