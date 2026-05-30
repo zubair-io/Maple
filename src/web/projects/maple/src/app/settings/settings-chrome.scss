@@ -183,6 +183,22 @@
         color: var(--s-err);
       }
     }
+
+    // Clickable variant (e.g. the Damaged pill opens its drawer). Resets the
+    // button chrome so it reads as a chip, then adds affordance on hover.
+    &.chip-btn {
+      font: inherit;
+      cursor: pointer;
+      transition: border-color 0.12s ease;
+
+      &:hover {
+        border-color: var(--s-text-muted);
+      }
+      &:focus-visible {
+        outline: 2px solid var(--s-accent);
+        outline-offset: 1px;
+      }
+    }
   }
 
   .field {

@@ -461,6 +461,21 @@ export async function ensureIndexes(): Promise<void> {
     },
   );
 
+  // `damaged` tagging: the claim query excludes tagged rows on every tick
+  //   { "damaged.since": { $not: { $type: "string" } } }
+  // and /status + the damaged list count/iterate the tagged set
+  //   { "damaged.since": { $type: "string" } }
+  // Same shape + rationale as `missing_since_1`: live rows carry `damaged`
+  // absent/null, so a `$type: "string"` partial filter narrows the index to
+  // just the (small) set of tagged rows and keeps the scan O(tagged).
+  await db.collection('assets').createIndex(
+    { 'damaged.since': 1 },
+    {
+      name: 'damaged_since_1',
+      partialFilterExpression: { 'damaged.since': { $type: 'string' } },
+    },
+  );
+
   // Search indexes — added with EXIF support. Captured-at sorts the default
   // result list (newest first); camera + lens cover the FE's facet dropdowns.
   // Sparse where the field is optional so old rows without EXIF don't bloat

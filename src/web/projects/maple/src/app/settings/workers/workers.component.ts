@@ -36,6 +36,7 @@ import { FormsModule } from '@angular/forms';
 import { type Subscription } from 'rxjs';
 import {
   BunApiBackendService,
+  type DamagedDoc,
   type DeadDoc,
   type EnrichmentConfigResponse,
   WorkerEventsService,
@@ -108,6 +109,15 @@ export class WorkersComponent implements OnInit, OnDestroy {
     error: string | null;
   } | null>(null);
 
+  /** Damaged-files drawer (the "Damaged" pill opens it). Null when closed.
+   * `clearing` gates the per-row + "clear all" buttons against double-submit. */
+  protected readonly damagedLog = signal<{
+    items: DamagedDoc[];
+    loading: boolean;
+    error: string | null;
+    clearing: boolean;
+  } | null>(null);
+
   /** "Test connection" state for the URL field in describe/geocode rows.
    * Keyed by stage id so each row tracks its own probe independently. */
   protected readonly testStates = signal<
@@ -132,6 +142,10 @@ export class WorkersComponent implements OnInit, OnDestroy {
   >(() => groupStagesByPipeline(this.stages()));
 
   protected readonly summary = computed(() => summarizeStages(this.stages()));
+
+  /** Collection-level damaged count (not per-stage), straight off the status
+   * frame. Drives the "Damaged" pill. */
+  protected readonly damagedCount = computed(() => this.status()?.damaged ?? 0);
 
   private statusSub: Subscription | null = null;
   private fallbackSub: Subscription | null = null;
@@ -314,9 +328,53 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.deadLog.set(null);
   }
 
+  /** Open the damaged-files drawer and load the list. Collection-level, so it
+   * takes no stage argument. */
+  openDamaged(): void {
+    this.damagedLog.set({ items: [], loading: true, error: null, clearing: false });
+    this.api.listDamaged().subscribe({
+      next: (res) => {
+        this.damagedLog.update((cur) =>
+          cur ? { ...cur, items: res.items, loading: false } : cur,
+        );
+      },
+      error: (err) => {
+        this.damagedLog.update((cur) =>
+          cur ? { ...cur, loading: false, error: errorMessage(err) } : cur,
+        );
+      },
+    });
+  }
+
+  closeDamaged(): void {
+    this.damagedLog.set(null);
+  }
+
+  /** Clear the damaged tag for one asset (id given) or all (id omitted) and
+   * re-queue. Refreshes the drawer from the server on success so the cleared
+   * rows drop out. */
+  clearDamaged(id?: string): void {
+    const cur = this.damagedLog();
+    if (!cur || cur.clearing) return;
+    this.damagedLog.set({ ...cur, clearing: true });
+    this.api.clearDamaged(id).subscribe({
+      next: () => {
+        // Re-list so the drawer reflects the server (and the pill count
+        // re-syncs on the next status frame). `openDamaged` resets `clearing`.
+        this.openDamaged();
+      },
+      error: (err) => {
+        this.damagedLog.update((c) =>
+          c ? { ...c, clearing: false, error: errorMessage(err) } : c,
+        );
+      },
+    });
+  }
+
   @HostListener('document:keydown.escape')
   onEscape(): void {
     if (this.deadLog() !== null) this.closeLog();
+    if (this.damagedLog() !== null) this.closeDamaged();
   }
 
   /** Probe the URL currently typed into the describe/geocode panel —

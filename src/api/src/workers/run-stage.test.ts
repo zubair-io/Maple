@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { Collection, UpdateResult } from 'mongodb';
+import { type Collection, ObjectId, type UpdateResult } from 'mongodb';
 import {
   _test,
   buildClaimQuery,
@@ -316,6 +316,14 @@ describe('buildClaimQuery', () => {
     expect(q['stages.hash.dead']).toEqual({ $ne: true });
   });
 
+  it('parks missing + damaged assets out of every claim query', () => {
+    const q = buildClaimQuery('hash', 2, [], new Set()) as Record<string, unknown>;
+    // A tagged asset (ISO string in either field) is excluded; absent/null
+    // stays claimable. Same `$not $type string` shape for both.
+    expect(q['missing_since']).toEqual({ $not: { $type: 'string' } });
+    expect(q['damaged.since']).toEqual({ $not: { $type: 'string' } });
+  });
+
   it('adds dependency version predicates using dep.minVersion', () => {
     const q = buildClaimQuery('exif', 1, [{ name: 'hash', minVersion: 1 }], new Set());
     expect((q as Record<string, unknown>)['stages.hash.version']).toEqual({ $gte: 1 });
@@ -464,6 +472,82 @@ describe('poll loop integration', () => {
     expect(doc?.stages?.hash?.attempts).toBe(3);
     expect(doc?.stages?.hash?.dead).toBe(true);
     expect(doc?.stages?.hash?.last_error).toBe('always fail');
+  });
+
+  it('tags `damaged` when a tagsDamagedOnDeadLetter stage exhausts retries', async () => {
+    const id = new ObjectId();
+    const images = makeImagesMock([{ _id: id, abs_path: '/corrupt.cr2' } as unknown as ImageDoc]);
+    const configColl = makeConfigMock();
+
+    const testStage = defineStage({
+      name: 'exif',
+      targetVersion: 1,
+      dependsOn: [],
+      // The opt-in under test: a file-reading stage that maps "out of retries"
+      // to "the bytes are unreadable → tag the whole asset damaged".
+      tagsDamagedOnDeadLetter: true,
+      defaults: {
+        concurrency: 1,
+        maxAttempts: 2,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      handler: async () => {
+        throw new Error('Unknown file format');
+      },
+    });
+
+    const { runOnce } = _test;
+    const cfg = { concurrency: 1, maxAttempts: 2, paused: false, last_seen_target_version: 1 };
+    // First failure: attempts 1 < 2 → not dead yet, so no damaged tag.
+    await runOnce(testStage, cfg, images, configColl);
+    let doc = (await images.find({}).toArray())[0] as unknown as ImageDoc;
+    expect(doc.stages?.exif?.dead).toBe(false);
+    expect(doc.damaged ?? null).toBeNull();
+
+    // Second failure crosses maxAttempts → dead → damaged tag stamped.
+    await runOnce(testStage, cfg, images, configColl);
+    doc = (await images.find({}).toArray())[0] as unknown as ImageDoc;
+    expect(doc.stages?.exif?.dead).toBe(true);
+    expect(doc.damaged?.stage).toBe('exif');
+    expect(doc.damaged?.reason).toBe('Unknown file format');
+    expect(typeof doc.damaged?.since).toBe('string');
+  });
+
+  it('does NOT tag `damaged` when the stage lacks tagsDamagedOnDeadLetter', async () => {
+    const id = new ObjectId();
+    const images = makeImagesMock([{ _id: id, abs_path: '/slow.jpg' } as unknown as ImageDoc]);
+    const configColl = makeConfigMock();
+
+    const testStage = defineStage({
+      name: 'describe',
+      targetVersion: 1,
+      dependsOn: [],
+      // No tagsDamagedOnDeadLetter — a describe/geocode dead-letter must not
+      // imply the file itself is damaged.
+      defaults: {
+        concurrency: 1,
+        maxAttempts: 1,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      handler: async () => {
+        throw new Error('LLM timeout');
+      },
+    });
+
+    const { runOnce } = _test;
+    await runOnce(
+      testStage,
+      { concurrency: 1, maxAttempts: 1, paused: false, last_seen_target_version: 1 },
+      images,
+      configColl,
+    );
+    const doc = (await images.find({}).toArray())[0] as unknown as ImageDoc;
+    expect(doc.stages?.describe?.dead).toBe(true);
+    expect(doc.damaged ?? null).toBeNull();
   });
 
   it('skips the find when paused', async () => {
