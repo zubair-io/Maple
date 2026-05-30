@@ -54,10 +54,13 @@ self.addEventListener('message', (event: MessageEvent) => {
 });
 
 async function runPreload(id: number, config: FaceModelsConfig): Promise<void> {
-  // Relay each lifecycle transition to the main thread so the
-  // /settings/enrichment badge reflects the real state (the worker's
-  // `liveStatus` is a separate module instance the main thread can't read).
-  post({ type: 'loadStatus', kind: 'downloading' });
+  // Relay the real load outcome to the main thread so the
+  // /settings/enrichment badge reflects truth (the worker's `liveStatus` is a
+  // separate module instance the main thread can't read). We do NOT post a
+  // speculative `'downloading'` here: that status specifically means the
+  // antelopev2 auto-download branch ran (see `face-models.ts`), so emitting it
+  // unconditionally would show "downloading" even when the models are already
+  // on disk. Only the genuine terminal states get relayed.
   try {
     await loadFaceModels(config);
     post({ type: 'loadStatus', kind: 'loaded' });
