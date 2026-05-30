@@ -72,15 +72,22 @@ class StageRegistry {
   /**
    * Declare a stage the orchestrator plans to start so `statuses()` reports
    * it even before its first successful `runStage()`. Safe to call multiple
-   * times — updates `targetVersion` / `dependsOn` and leaves any existing
-   * live entry / recorded error untouched.
+   * times — updates `targetVersion`, and updates `dependsOn` only when it is
+   * passed. Omitting `dependsOn` preserves the previously-registered deps so a
+   * targetVersion-only re-register can't silently erase them (which would skew
+   * the ready/blocked split). Leaves any existing live entry / recorded error
+   * untouched.
    */
   preregister(
     name: string,
     targetVersion: number,
-    dependsOn: ResolvedDep[] = [],
+    dependsOn?: ResolvedDep[],
   ): void {
-    this.known.set(name, { targetVersion, dependsOn });
+    const existing = this.known.get(name);
+    this.known.set(name, {
+      targetVersion,
+      dependsOn: dependsOn ?? existing?.dependsOn ?? [],
+    });
   }
 
   register(name: string, entry: StageRegistryEntry): void {
