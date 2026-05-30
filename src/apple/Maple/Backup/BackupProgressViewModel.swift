@@ -237,7 +237,9 @@ public final class BackupProgressViewModel {
 
     // MARK: - Event reducer
 
-    private func apply(_ event: BackupQueueEvent) {
+    // Internal (not private) so `@testable import Maple` can drive the reducer
+    // directly in MapleTests without standing up the async event stream (#723).
+    func apply(_ event: BackupQueueEvent) {
         switch event {
         case .enqueued(let task):
             if seenEnqueued.insert(task.id).inserted {
@@ -267,10 +269,14 @@ public final class BackupProgressViewModel {
                                   now: Date().timeIntervalSinceReferenceDate)
             republishThroughput()
         case .failed(let id, let error, let willRetry):
-            if !willRetry {
-                inFlight.removeAll { $0.id == id }
-                totalFailed += 1
-            }
+            // Remove from the "Uploading now" strip regardless of `willRetry`:
+            // a backing-off photo is *pending a retry*, not actively uploading,
+            // so leaving it in `inFlight` with frozen `bytesSent/bytesTotal`
+            // reads as a stuck tile (#723). The retry's subsequent `.started`
+            // re-adds a fresh `InFlight(id:)` at 0%. Only a terminal failure
+            // (no more retries) bumps `totalFailed`.
+            inFlight.removeAll { $0.id == id }
+            if !willRetry { totalFailed += 1 }
             lastError = error
         case .cancelled(let id):
             inFlight.removeAll { $0.id == id }
