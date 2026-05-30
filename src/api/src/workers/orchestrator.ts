@@ -16,31 +16,33 @@
  * status` would otherwise report the stage as permanently missing.
  */
 
-import { child as childLogger } from '../log.ts';
-import type { RunStageHandle } from './run-stage.ts';
-import { resolveStageDeps } from './run-stage.ts';
-import { stageRegistry } from './registry.ts';
-import { stageManifest } from './stages/manifest.ts';
-import { startExifStage } from './stages/exif.ts';
-import { startThumbStage } from './stages/thumb.ts';
-import { startPreviewStage } from './stages/preview.ts';
-import { startFaceDetectStage } from './stages/face-detect.ts';
-import { startFaceEmbedStage } from './stages/face-embed.ts';
-import { startDescribeStage } from './stages/describe.ts';
-import { startGeocodeStage } from './stages/geocode.ts';
-import { startMeiliStage } from './stages/meili.ts';
+import { child as childLogger } from "../log.ts";
+import type { RunStageHandle } from "./run-stage.ts";
+import { resolveStageDeps } from "./run-stage.ts";
+import { stageRegistry } from "./registry.ts";
+import { stageManifest } from "./stages/manifest.ts";
+import { startExifStage } from "./stages/exif.ts";
+import { startThumbStage } from "./stages/thumb.ts";
+import { startPreviewStage } from "./stages/preview.ts";
+import { startFaceDetectStage } from "./stages/face-detect.ts";
+import { startFaceEmbedStage } from "./stages/face-embed.ts";
+import { startDescribeStage } from "./stages/describe.ts";
+import { startGeocodeStage } from "./stages/geocode.ts";
+import { startMeiliStage } from "./stages/meili.ts";
 
-const log = childLogger('workers:orchestrator');
+const log = childLogger("workers:orchestrator");
 
-const STAGE_STARTERS: ReadonlyArray<readonly [string, () => Promise<RunStageHandle>]> = [
-  ['exif', startExifStage],
-  ['thumb', startThumbStage],
-  ['preview', startPreviewStage],
-  ['face-detect', startFaceDetectStage],
-  ['face-embed', startFaceEmbedStage],
-  ['describe', startDescribeStage],
-  ['geocode', startGeocodeStage],
-  ['meili', startMeiliStage],
+const STAGE_STARTERS: ReadonlyArray<
+  readonly [string, () => Promise<RunStageHandle>]
+> = [
+  ["exif", startExifStage],
+  ["thumb", startThumbStage],
+  ["preview", startPreviewStage],
+  ["face-detect", startFaceDetectStage],
+  ["face-embed", startFaceEmbedStage],
+  ["describe", startDescribeStage],
+  ["geocode", startGeocodeStage],
+  ["meili", startMeiliStage],
 ];
 
 const handles = new Map<string, RunStageHandle>();
@@ -101,9 +103,15 @@ async function attemptStart(
  */
 export async function startAllStages(): Promise<void> {
   for (const stage of stageManifest) {
-    stageRegistry.preregister(stage.name, stage.targetVersion, resolveStageDeps(stage.dependsOn));
+    stageRegistry.preregister(
+      stage.name,
+      stage.targetVersion,
+      resolveStageDeps(stage.dependsOn),
+    );
   }
-  await Promise.all(STAGE_STARTERS.map(([name, starter]) => attemptStart(name, starter, 0)));
+  await Promise.all(
+    STAGE_STARTERS.map(([name, starter]) => attemptStart(name, starter, 0)),
+  );
 }
 
 /**
