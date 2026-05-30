@@ -17,10 +17,16 @@ import {
   Component,
   OnInit,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
-import { type ObservabilityConfigResponse, ObservabilityService } from '@maple-common';
+import { FormsModule } from '@angular/forms';
+import {
+  type ObservabilityConfigPatch,
+  type ObservabilityConfigResponse,
+  ObservabilityService,
+} from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
@@ -34,10 +40,22 @@ type TestState =
   | { kind: 'sent' }
   | { kind: 'error'; message: string };
 
+type SaveState =
+  | { kind: 'idle' }
+  | { kind: 'saving' }
+  | { kind: 'saved' }
+  | { kind: 'error'; message: string };
+
+type ConnState =
+  | { kind: 'idle' }
+  | { kind: 'testing' }
+  | { kind: 'ok' }
+  | { kind: 'error'; message: string };
+
 @Component({
   selector: 'maple-observability-settings',
   standalone: true,
-  imports: [SettingsShellComponent, SettingsIconComponent],
+  imports: [FormsModule, SettingsShellComponent, SettingsIconComponent],
   templateUrl: './observability.component.html',
   styleUrl: './observability.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -56,6 +74,34 @@ export class ObservabilityComponent implements OnInit {
 
   protected readonly refreshing = signal(false);
   protected readonly testState = signal<TestState>({ kind: 'idle' });
+
+  // ── Editable server config form ─────────────────────────────────────────
+  // The endpoint + key + toggles live server-side (DB only). This form writes
+  // them via PUT /api/observability/config; the page is reachable by signed-in
+  // users and gated to owners by the settings nav.
+  protected readonly fEnabled = signal(true);
+  protected readonly fEndpoint = signal('');
+  protected readonly fKey = signal('');
+  protected readonly fNamespace = signal('');
+  protected readonly fTraces = signal(true);
+  protected readonly fLogs = signal(true);
+  protected readonly fMetrics = signal(false);
+  protected readonly fRatio = signal('1');
+  /** Seed the form from the server config exactly once (first load); later
+   * background refreshes must not clobber an in-progress edit. */
+  private formSeeded = false;
+  protected readonly saveState = signal<SaveState>({ kind: 'idle' });
+  protected readonly connState = signal<ConnState>({ kind: 'idle' });
+
+  constructor() {
+    // Seed the form the first time the server config lands.
+    effect(() => {
+      const cfg = this.config();
+      if (!cfg || this.formSeeded) return;
+      this.formSeeded = true;
+      this.seedForm(cfg);
+    });
+  }
 
   /** Whether telemetry is actually flowing: server-enabled AND has an endpoint
    * AND this browser hasn't opted out AND the SDK reported it came up. */
@@ -124,6 +170,82 @@ export class ObservabilityComponent implements OnInit {
     }
   }
 
+  /** Copy server config values into the editable form fields. The key field is
+   * left blank — it's write-only; the placeholder shows whether one is set. */
+  private seedForm(cfg: ObservabilityConfigResponse): void {
+    this.fEnabled.set(cfg.enabled);
+    this.fEndpoint.set(cfg.endpoint ?? '');
+    this.fNamespace.set(cfg.service_namespace);
+    this.fTraces.set(cfg.traces_enabled);
+    this.fLogs.set(cfg.logs_enabled);
+    this.fMetrics.set(cfg.metrics_enabled);
+    this.fRatio.set(String(cfg.sample_ratio));
+    this.fKey.set('');
+  }
+
+  /** Persist the form to the server, then reseed from the re-resolved config so
+   * the inputs reflect server-side normalisation (e.g. trailing-slash strip). */
+  protected async save(): Promise<void> {
+    const ratio = Number(this.fRatio().trim());
+    if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
+      this.saveState.set({
+        kind: 'error',
+        message: 'Sample ratio must be a number between 0 and 1.',
+      });
+      return;
+    }
+    const endpoint = this.fEndpoint().trim();
+    const patch: ObservabilityConfigPatch = {
+      enabled: this.fEnabled(),
+      endpoint: endpoint.length > 0 ? endpoint : null,
+      service_namespace: this.fNamespace().trim() || null,
+      traces_enabled: this.fTraces(),
+      logs_enabled: this.fLogs(),
+      metrics_enabled: this.fMetrics(),
+      sample_ratio: ratio,
+    };
+    // Write-only key: only send it when the operator typed one. A blank field
+    // leaves the saved key untouched (it's never shown, so blank must not wipe).
+    const key = this.fKey().trim();
+    if (key.length > 0) patch.ingestion_key = key;
+
+    this.saveState.set({ kind: 'saving' });
+    try {
+      const fresh = await this.observability.saveConfig(patch);
+      this.seedForm(fresh);
+      this.saveState.set({ kind: 'saved' });
+      setTimeout(() => {
+        this.saveState.update((s) => (s.kind === 'saved' ? { kind: 'idle' } : s));
+      }, 2000);
+    } catch (err) {
+      this.saveState.set({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** Probe the typed endpoint (+ key) without saving. */
+  protected async testConnection(): Promise<void> {
+    const endpoint = this.fEndpoint().trim();
+    if (endpoint.length === 0) {
+      this.connState.set({ kind: 'error', message: 'Enter an endpoint to test.' });
+      return;
+    }
+    this.connState.set({ kind: 'testing' });
+    try {
+      const res = await this.observability.testConnection(endpoint, this.fKey().trim() || null);
+      this.connState.set(
+        res.ok ? { kind: 'ok' } : { kind: 'error', message: res.error ?? 'Connection failed.' },
+      );
+    } catch (err) {
+      this.connState.set({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   /** True iff the server reports an ingestion key is configured. The key itself
    * IS present in the response (direct-to-SigNoz clients need it for the
    * `signoz-access-token` header) — but this UI never renders the value, only
@@ -132,13 +254,21 @@ export class ObservabilityComponent implements OnInit {
     return cfg.ingestion_key !== null && cfg.ingestion_key !== '';
   }
 
-  /** Provenance label for a `source` field. */
+  /** Placeholder for the write-only key input — tells the operator whether a
+   * key is already saved (so a blank field means "keep it"). */
+  protected keyPlaceholder(): string {
+    const cfg = this.config();
+    return cfg && this.keyConfigured(cfg) ? 'configured — leave blank to keep' : 'none';
+  }
+
+  /** Provenance label for a `source` field. Config is DB-only, so a value is
+   * either saved in the database, a built-in default, or unset. */
   protected sourceLabel(kind: string | undefined): string {
     switch (kind) {
       case 'db':
-        return 'set in database';
-      case 'env':
-        return 'from environment';
+        return 'saved';
+      case 'default':
+        return 'default';
       case 'unset':
         return 'unset';
       default:

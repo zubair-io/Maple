@@ -3,12 +3,10 @@
  * enrichment-config shape: a single document in `app_settings` keyed by
  * `_id: "observability"`.
  *
- * The values here override the env vars (`MAPLE_SIGNOZ_ENDPOINT`,
- * `MAPLE_SIGNOZ_INGESTION_KEY`, `MAPLE_SIGNOZ_ENABLED`, the
- * `MAPLE_SIGNOZ_{TRACES,LOGS,METRICS}_ENABLED` family,
- * `MAPLE_SIGNOZ_SERVICE_NAMESPACE`, `MAPLE_SIGNOZ_SAMPLE_RATIO`) at boot —
- * env vars stay as a fallback so existing deployments don't break when no
- * row has been written yet.
+ * Config lives ENTIRELY in the database — set it via the web Settings →
+ * Observability page (or `PUT /api/observability/config`). There is no env-var
+ * fallback; when no row has been written the resolver returns built-in
+ * defaults (telemetry dormant until an endpoint is saved).
  *
  * Two consumers read the resolved shape:
  *   1. The API backend itself (`otel.ts`), which ships its own logs + traces
@@ -63,18 +61,17 @@ export function validateHttpUrl(raw: string | null): string | null | { error: st
 
 /**
  * DB shape. Every optional field is `null`/missing when the operator hasn't
- * saved an explicit value — the resolver then falls back to env / default.
+ * saved an explicit value — the resolver then falls back to a built-in default.
  */
 export interface ObservabilityConfig {
   /** Master switch. When false, the backend ships nothing and clients are
    * told telemetry is disabled. `null`/missing → resolver default true. */
   enabled?: boolean | null;
-  /** OTLP/HTTP base URL (no trailing slash). `null`/missing → falls back to
-   * `MAPLE_SIGNOZ_ENDPOINT` / unset. No endpoint → telemetry is a no-op. */
+  /** OTLP/HTTP base URL (no trailing slash). `null`/missing → unset (no
+   * endpoint → telemetry is a no-op). */
   endpoint?: string | null;
   /** SigNoz ingestion key. Secret: persisted but sent only to authenticated
-   * clients (Direct-to-SigNoz transport needs it). `null`/missing → falls
-   * back to `MAPLE_SIGNOZ_INGESTION_KEY`. */
+   * clients (Direct-to-SigNoz transport needs it). `null`/missing → unset. */
   ingestion_key?: string | null;
   /** `service.namespace` resource attribute. `null`/missing → default. */
   service_namespace?: string | null;
@@ -94,7 +91,8 @@ interface ObservabilityConfigDoc {
 }
 
 /** Read the persisted config. Returns `null` when no row exists yet (first
- * boot of a fresh database). The caller should fall back to env vars. */
+ * boot of a fresh database). `resolveObservabilityConfig` then supplies
+ * built-in defaults. */
 export async function loadObservabilityConfig(): Promise<ObservabilityConfig | null> {
   try {
     const db = await getDb();
@@ -140,10 +138,10 @@ export async function saveObservabilityConfig(patch: Partial<ObservabilityConfig
 }
 
 /**
- * Resolve the effective config: DB row wins; missing fields fall back to env
- * vars; missing env vars fall back to defaults (no endpoint → telemetry
- * dormant; enabled/traces/logs default true, metrics default false). Pure
- * function — no side effects, easy to test.
+ * Resolve the effective config: DB row wins; missing fields fall back to
+ * built-in defaults (no endpoint → telemetry dormant; enabled/traces/logs
+ * default true, metrics default false). Pure function — no side effects, no
+ * env reads, easy to test.
  */
 export interface ResolvedObservabilityConfig {
   enabled: boolean;
@@ -155,59 +153,51 @@ export interface ResolvedObservabilityConfig {
   metrics_enabled: boolean;
   sample_ratio: number;
   /** Where each field came from. The UI renders this so the operator knows
-   * whether they're seeing a saved value or an env-var fallback. */
+   * whether they're seeing a saved value or a built-in default. */
   source: {
-    enabled: 'db' | 'env' | 'default';
-    endpoint: 'db' | 'env' | 'unset';
-    ingestion_key: 'db' | 'env' | 'unset';
-    service_namespace: 'db' | 'env' | 'default';
-    traces_enabled: 'db' | 'env' | 'default';
-    logs_enabled: 'db' | 'env' | 'default';
-    metrics_enabled: 'db' | 'env' | 'default';
-    sample_ratio: 'db' | 'env' | 'default';
+    enabled: 'db' | 'default';
+    endpoint: 'db' | 'unset';
+    ingestion_key: 'db' | 'unset';
+    service_namespace: 'db' | 'default';
+    traces_enabled: 'db' | 'default';
+    logs_enabled: 'db' | 'default';
+    metrics_enabled: 'db' | 'default';
+    sample_ratio: 'db' | 'default';
   };
 }
 
-/** Resolve a boolean field with DB → env → default precedence. The env value
- * is "true" unless the string is exactly `"false"` — matching the geocode
- * worker's permissive convention (any non-"false" value enables). */
+/** Resolve a boolean field with DB → default precedence. */
 function resolveBool(
   dbVal: boolean | null | undefined,
-  envVal: string | undefined,
   def: boolean,
-): { value: boolean; source: 'db' | 'env' | 'default' } {
+): { value: boolean; source: 'db' | 'default' } {
   if (typeof dbVal === 'boolean') return { value: dbVal, source: 'db' };
-  if (envVal !== undefined) return { value: envVal !== 'false', source: 'env' };
   return { value: def, source: 'default' };
 }
 
-/** Resolve a secret/URL-ish string field with DB → env → unset precedence.
- * Trims and rejects empty strings so a cleared input doesn't masquerade as a
- * saved value. */
-function resolveStr(
-  dbVal: string | null | undefined,
-  envVal: string | undefined,
-): { value: string | null; source: 'db' | 'env' | 'unset' } {
+/** Resolve a secret/URL-ish string field with DB → unset precedence. Trims
+ * and rejects empty strings so a cleared input doesn't masquerade as a saved
+ * value. */
+function resolveStr(dbVal: string | null | undefined): {
+  value: string | null;
+  source: 'db' | 'unset';
+} {
   if (typeof dbVal === 'string' && dbVal.trim().length > 0) {
     return { value: dbVal.trim(), source: 'db' };
-  }
-  if (typeof envVal === 'string' && envVal.trim().length > 0) {
-    return { value: envVal.trim(), source: 'env' };
   }
   return { value: null, source: 'unset' };
 }
 
 export function resolveObservabilityConfig(
   db: ObservabilityConfig | null,
-  env: NodeJS.ProcessEnv = process.env,
 ): ResolvedObservabilityConfig {
-  const enabled = resolveBool(db?.enabled, env.MAPLE_SIGNOZ_ENABLED, true);
+  const enabled = resolveBool(db?.enabled, true);
 
-  // Endpoint: DB → env → unset. Normalise both paths through validateHttpUrl
-  // so a stray trailing slash or whitespace can't leak into the exporter URL.
-  // An invalid value (bad protocol / unparseable) resolves to unset rather
-  // than throwing — the route validates on write, so a bad value here means a
-  // hand-edited DB row or env var, and the safe degradation is "no telemetry".
+  // Endpoint: DB → unset. Normalise through validateHttpUrl so a stray trailing
+  // slash or whitespace can't leak into the exporter URL. An invalid value
+  // resolves to unset rather than throwing — the route validates on write, so a
+  // bad value here means a hand-edited DB row and the safe degradation is "no
+  // telemetry".
   let endpoint: string | null = null;
   let endpointSource: ResolvedObservabilityConfig['source']['endpoint'] = 'unset';
   if (db && typeof db.endpoint === 'string' && db.endpoint.trim().length > 0) {
@@ -217,15 +207,8 @@ export function resolveObservabilityConfig(
       endpointSource = 'db';
     }
   }
-  if (endpoint === null && env.MAPLE_SIGNOZ_ENDPOINT && env.MAPLE_SIGNOZ_ENDPOINT.length > 0) {
-    const v = validateHttpUrl(env.MAPLE_SIGNOZ_ENDPOINT);
-    if (typeof v === 'string') {
-      endpoint = v;
-      endpointSource = 'env';
-    }
-  }
 
-  const ingestionKey = resolveStr(db?.ingestion_key, env.MAPLE_SIGNOZ_INGESTION_KEY);
+  const ingestionKey = resolveStr(db?.ingestion_key);
 
   let serviceNamespace = DEFAULT_SERVICE_NAMESPACE;
   let serviceNamespaceSource: ResolvedObservabilityConfig['source']['service_namespace'] =
@@ -233,14 +216,11 @@ export function resolveObservabilityConfig(
   if (db && typeof db.service_namespace === 'string' && db.service_namespace.trim().length > 0) {
     serviceNamespace = db.service_namespace.trim();
     serviceNamespaceSource = 'db';
-  } else if (env.MAPLE_SIGNOZ_SERVICE_NAMESPACE && env.MAPLE_SIGNOZ_SERVICE_NAMESPACE.length > 0) {
-    serviceNamespace = env.MAPLE_SIGNOZ_SERVICE_NAMESPACE.trim();
-    serviceNamespaceSource = 'env';
   }
 
-  const traces = resolveBool(db?.traces_enabled, env.MAPLE_SIGNOZ_TRACES_ENABLED, true);
-  const logs = resolveBool(db?.logs_enabled, env.MAPLE_SIGNOZ_LOGS_ENABLED, true);
-  const metrics = resolveBool(db?.metrics_enabled, env.MAPLE_SIGNOZ_METRICS_ENABLED, false);
+  const traces = resolveBool(db?.traces_enabled, true);
+  const logs = resolveBool(db?.logs_enabled, true);
+  const metrics = resolveBool(db?.metrics_enabled, false);
 
   let sampleRatio = DEFAULT_SAMPLE_RATIO;
   let sampleRatioSource: ResolvedObservabilityConfig['source']['sample_ratio'] = 'default';
@@ -253,12 +233,6 @@ export function resolveObservabilityConfig(
   ) {
     sampleRatio = db.sample_ratio;
     sampleRatioSource = 'db';
-  } else if (env.MAPLE_SIGNOZ_SAMPLE_RATIO) {
-    const parsed = Number(env.MAPLE_SIGNOZ_SAMPLE_RATIO);
-    if (Number.isFinite(parsed) && parsed >= MIN_SAMPLE_RATIO && parsed <= MAX_SAMPLE_RATIO) {
-      sampleRatio = parsed;
-      sampleRatioSource = 'env';
-    }
   }
 
   return {
