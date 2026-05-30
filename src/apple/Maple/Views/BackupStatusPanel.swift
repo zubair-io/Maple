@@ -20,6 +20,30 @@ struct BackupStatusPanel: View {
   // presenting this panel multiple times always shows the same running totals.
   private var progress: BackupProgressViewModel { EngineHost.shared.progress }
 
+  // MARK: - #711 fixed-height thumbnail strips
+  //
+  // Anchored to `ThumbnailTile`'s sizes so the reserved heights can't drift
+  // from the tiles if those sizes change.
+
+  /// Default `ThumbnailTile` size used by the "Uploading now" tiles.
+  private static let uploadTileSize: CGFloat = 64
+  /// Tile size for the "Recently completed" strip (`ThumbnailTile(size:)`).
+  private static let recentTileSize: CGFloat = 44
+  /// Point size of the per-tile "%" label under an uploading tile.
+  private static let uploadLabelFontSize: CGFloat = 9
+  /// Reserved height for an "Uploading now" tile column: tile + inner VStack
+  /// spacing (2) + the always-present % label line. A 9pt system font lays out
+  /// at roughly 11pt; reserve 12 so a populated row never exceeds the frame.
+  private static let uploadRowHeight: CGFloat = uploadTileSize + 2 + 12
+
+  /// True while a backup is in any active phase (running / paused /
+  /// restarting). `.restarting` matters most here: it's exactly when the
+  /// engine tears down and `inFlight` empties, so it must keep the strip
+  /// mounted to avoid the collapse-and-snap flicker.
+  private var isBackupActive: Bool {
+    progress.phase != .stopped
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       // Run-state row — the PRIMARY fix for "the panel never tells me whether
@@ -56,7 +80,23 @@ struct BackupStatusPanel: View {
           .accessibilityIdentifier("backup.status.throughput")
       }
 
-      if !progress.inFlight.isEmpty {
+      // "Uploading now" + "Recently completed" thumbnail strips.
+      //
+      // #711: while a backup is active these rows reserve a STABLE height and
+      // toggle only their *content*, never the whole section. `inFlight` blips
+      // empty for a frame as one upload finishes before the next starts; if the
+      // `if` gated the section we'd un-render → collapse → snap back → flicker.
+      // Keeping the container mounted at a fixed height absorbs that blip.
+      //
+      // The reserved height is the row at its *tallest* (tile + % label slot),
+      // so the frame never grows when tiles/labels appear. The % label slot is
+      // always rendered (an empty placeholder when `fractionDone == nil`) so a
+      // per-tile label arriving/clearing can't change the row height either.
+      //
+      // Shown when a backup is active OR the list is non-empty: `active` covers
+      // the blip-empty flicker, `!isEmpty` keeps a finished backup's results
+      // visible after the engine returns to `.stopped`.
+      if isBackupActive || !progress.inFlight.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
           Text("Uploading now")
             .font(.caption)
@@ -65,20 +105,21 @@ struct BackupStatusPanel: View {
             ForEach(progress.inFlight.prefix(3)) { item in
               VStack(spacing: 2) {
                 ThumbnailTile(localIdentifier: item.id.phassetLocalId)
-                if let fraction = item.fractionDone {
-                  Text("\(Int(fraction * 100))%")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                }
+                // Always reserve the label line so a tile's height is stable
+                // whether or not a fraction has arrived yet.
+                Text(item.fractionDone.map { "\(Int($0 * 100))%" } ?? " ")
+                  .font(.system(size: Self.uploadLabelFontSize))
+                  .foregroundStyle(.secondary)
+                  .monospacedDigit()
               }
             }
             Spacer()
           }
+          .frame(height: Self.uploadRowHeight, alignment: .top)
         }
       }
 
-      if !progress.recentCompleted.isEmpty {
+      if isBackupActive || !progress.recentCompleted.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
           Text("Recently completed")
             .font(.caption)
@@ -86,10 +127,11 @@ struct BackupStatusPanel: View {
           ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
               ForEach(progress.recentCompleted) { item in
-                ThumbnailTile(localIdentifier: item.id.phassetLocalId, size: 44)
+                ThumbnailTile(localIdentifier: item.id.phassetLocalId, size: Self.recentTileSize)
               }
             }
           }
+          .frame(height: Self.recentTileSize, alignment: .top)
         }
       }
 
