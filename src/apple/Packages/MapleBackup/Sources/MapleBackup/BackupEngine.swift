@@ -107,6 +107,16 @@ public actor BackupEngine {
     /// companion retry path (#700).
     private var retryTasks: Set<Task<Void, Never>> = []
 
+    /// Per-task count of companions currently in their bounded detached-retry
+    /// path (#702). A companion enters this set when its inline attempt fails
+    /// (`runCompanion` catch) and leaves when it either lands on a retry or
+    /// exhausts its budget. The 0→1 transition emits `.companionPending`; the
+    /// →0 transition emits `.companionsResolved`, letting the progress VM
+    /// distinguish "uploaded, companions pending" from "done". The recursive
+    /// reschedule does NOT re-increment — increment is once per failed inline
+    /// attempt, decrement is once at each companion's terminus.
+    private var outstandingCompanions: [BackupTaskID: Int] = [:]
+
     /// Maximum retry attempts before a task is marked `.failedRetry`.
     private static let maxRetries = 8
 
@@ -187,6 +197,10 @@ public actor BackupEngine {
             task.cancel()
         }
         retryTasks.removeAll()
+        // Cancelled companion retries won't reach their decrement, so clear the
+        // outstanding-companion counters too — a fresh run starts clean and we
+        // never re-emit a stale `.companionsResolved` for a torn-down task (#702).
+        outstandingCompanions.removeAll()
     }
 
     /// Process the next task in the queue, or return without throwing if
@@ -353,6 +367,7 @@ public actor BackupEngine {
         let sidecarXmp = localEditXmp ?? PayloadAssembler.buildSidecarXMP(input: read.sidecar)
 
         await runCompanion(
+            taskId: task.id,
             label: "sidecar",
             maxAttempts: isLocalEdit ? Self.localEditCompanionRetries
                                      : Self.derivedCompanionRetries
@@ -372,7 +387,7 @@ public actor BackupEngine {
         if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
             let ext = (result.targetRelPath as NSString).pathExtension
             let renderedExt = ext.isEmpty ? "jpeg" : ext
-            await runCompanion(label: "rendered",
+            await runCompanion(taskId: task.id, label: "rendered",
                                maxAttempts: Self.derivedCompanionRetries) { [self] in
                 try await upload.uploadRendered(
                     phassetLocalId: task.id.phassetLocalId,
@@ -386,7 +401,7 @@ public actor BackupEngine {
         // Live Photo .mov twin, when present. Uses suffix-override so it lands
         // as `<base>.mov` instead of `<base>.rendered.mov`. Re-derivable → light retry.
         if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
-            await runCompanion(label: "live-mov",
+            await runCompanion(taskId: task.id, label: "live-mov",
                                maxAttempts: Self.derivedCompanionRetries) { [self] in
                 try await upload.uploadRendered(
                     phassetLocalId: task.id.phassetLocalId,
@@ -405,7 +420,8 @@ public actor BackupEngine {
     /// emits queue events. `busyElsewhere` on a companion is treated like any
     /// other transient failure here — it's coordination on a re-derivable
     /// artifact, not a reason to fail the (already-uploaded) photo.
-    private func runCompanion(label: String,
+    private func runCompanion(taskId: BackupTaskID,
+                              label: String,
                               maxAttempts: Int,
                               _ op: @escaping @Sendable () async throws -> Void) async {
         do {
@@ -413,7 +429,13 @@ public actor BackupEngine {
         } catch {
             Self.companionLog.notice(
                 "companion \(label, privacy: .public) first attempt failed, scheduling retry: \(String(describing: error), privacy: .public)")
-            scheduleCompanionRetry(label: label, attempt: 1,
+            // This companion is now outstanding — count it once. The bounded
+            // detached retry (and its recursive reschedules) decrement exactly
+            // once at the chain's terminus (success or exhaustion). Emit the
+            // 0→1 `.companionPending` signal here so the photo flips from "done"
+            // to "uploaded, companions pending" in the progress VM (#702).
+            await companionBecamePending(taskId)
+            scheduleCompanionRetry(taskId: taskId, label: label, attempt: 1,
                                    maxAttempts: maxAttempts, op: op)
         }
     }
@@ -421,13 +443,17 @@ public actor BackupEngine {
     /// Schedule the next bounded companion retry. Detached so it doesn't hold a
     /// `run()` concurrency slot; on exhaustion the re-derivable artifact is
     /// simply dropped (a future safety walk can regenerate it).
-    private func scheduleCompanionRetry(label: String,
+    private func scheduleCompanionRetry(taskId: BackupTaskID,
+                                        label: String,
                                         attempt: Int,
                                         maxAttempts: Int,
                                         op: @escaping @Sendable () async throws -> Void) {
         guard attempt < maxAttempts else {
             Self.companionLog.error(
                 "companion \(label, privacy: .public) exhausted \(maxAttempts) attempts — dropping (re-derivable artifacts can be regenerated on a future walk)")
+            // Terminal: budget exhausted. Decrement once so a dropped companion
+            // doesn't leak as permanently "pending" (#702).
+            Task { await self.companionResolved(taskId) }
             return
         }
         let backoff = companionBackoff(attempt)
@@ -436,9 +462,13 @@ public actor BackupEngine {
             if Task.isCancelled { return }
             do {
                 try await op()
+                // Terminal: the companion landed on this retry. Decrement once.
+                await self?.companionResolved(taskId)
             } catch {
                 // Bounded recursion via the actor so retryTasks stays consistent.
-                await self?.scheduleCompanionRetry(label: label, attempt: attempt + 1,
+                // No re-increment: this companion is already counted outstanding.
+                await self?.scheduleCompanionRetry(taskId: taskId, label: label,
+                                                   attempt: attempt + 1,
                                                    maxAttempts: maxAttempts, op: op)
             }
         }
@@ -451,6 +481,33 @@ public actor BackupEngine {
 
     private func removeRetryTask(_ task: Task<Void, Never>) {
         retryTasks.remove(task)
+    }
+
+    // MARK: - Outstanding-companion accounting (#702)
+
+    /// Record that one more companion for `taskId` has entered its bounded
+    /// retry path. Emits `.companionPending` only on the 0→1 transition so the
+    /// progress VM flips the photo to "uploaded, companions pending" exactly
+    /// once regardless of how many companions are outstanding.
+    private func companionBecamePending(_ taskId: BackupTaskID) async {
+        let prior = outstandingCompanions[taskId] ?? 0
+        outstandingCompanions[taskId] = prior + 1
+        if prior == 0 {
+            await queue.emit(.companionPending(taskId))
+        }
+    }
+
+    /// Record that one companion for `taskId` reached a terminal state (landed
+    /// or exhausted). Emits `.companionsResolved` only on the →0 transition so
+    /// the photo flips back to fully "done" exactly once.
+    private func companionResolved(_ taskId: BackupTaskID) async {
+        guard let prior = outstandingCompanions[taskId], prior > 0 else { return }
+        if prior == 1 {
+            outstandingCompanions.removeValue(forKey: taskId)
+            await queue.emit(.companionsResolved(taskId))
+        } else {
+            outstandingCompanions[taskId] = prior - 1
+        }
     }
 
     /// Exponential backoff capped at 1 hour. The `companionBackoff` default

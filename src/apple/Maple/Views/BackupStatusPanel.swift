@@ -46,6 +46,16 @@ struct BackupStatusPanel: View {
       }
       .progressViewStyle(.linear)
 
+      // Live throughput (#702) — rolling-window bytes/sec + photos/min from the
+      // same .progress/.completed events the counters use. Hidden when idle.
+      if let throughput = progress.throughputLabel {
+        Label(throughput, systemImage: "gauge.with.dots.needle.67percent")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .monospacedDigit()
+          .accessibilityIdentifier("backup.status.throughput")
+      }
+
       if !progress.inFlight.isEmpty {
         VStack(alignment: .leading, spacing: 4) {
           Text("Uploading now")
@@ -83,11 +93,23 @@ struct BackupStatusPanel: View {
         }
       }
 
+      // Three-way status breakdown (#702): fully done (bytes + all companions),
+      // uploaded with a companion still retrying, and truly failed (bytes
+      // exhausted). Replaces the old single Done/Failed pair.
       HStack(spacing: 16) {
-        Label("Done: \(progress.totalCompleted.formatted())", systemImage: "checkmark.circle")
+        Label("Done: \(progress.doneCount.formatted())", systemImage: "checkmark.circle")
           .foregroundStyle(.secondary)
+          .accessibilityIdentifier("backup.status.done")
+        if progress.uploadedCompanionsPendingCount > 0 {
+          Label("Finishing: \(progress.uploadedCompanionsPendingCount.formatted())",
+                systemImage: "arrow.triangle.2.circlepath")
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("backup.status.companionsPending")
+            .help("Uploaded — sidecar/rendered companions still finishing in the background.")
+        }
         Label("Failed: \(progress.totalFailed.formatted())", systemImage: "exclamationmark.triangle")
           .foregroundStyle(progress.totalFailed > 0 ? .red : .secondary)
+          .accessibilityIdentifier("backup.status.failed")
       }
       .font(.caption)
 
