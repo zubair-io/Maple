@@ -33,6 +33,18 @@ function isWorkersStatusFrame(value: unknown): value is WorkersStatusFrame {
   );
 }
 
+/**
+ * What `workersStatus$` emits. Carries the server's `counted` flag through to
+ * consumers: `false` is the cheap registry-only snapshot pushed on connect
+ * (zeroed counts, `config:null`), `true` once a DB-counted tick lands. The
+ * Workers component uses this so a registry-only frame doesn't pre-empt the
+ * HTTP fallback that carries real counts + per-stage config (#674 review).
+ */
+export interface WorkersStatusUpdate {
+  status: WorkersStatusResponse;
+  counted: boolean;
+}
+
 @Injectable({ providedIn: 'root' })
 export class WorkerEventsService {
   private readonly base = inject(API_BASE_URL);
@@ -45,10 +57,11 @@ export class WorkerEventsService {
    * Stream of worker-pipeline status frames. Cold + multicast-free: each
    * subscription owns its own socket. The component subscribes exactly once,
    * so this keeps the implementation simple and avoids a shared-socket
-   * lifecycle. Emits `WorkersStatusResponse` (the `status` field of each
-   * frame), including the immediate cheap snapshot on connect.
+   * lifecycle. Emits `WorkersStatusUpdate` ({@link WorkersStatusUpdate}) —
+   * the frame's `status` plus its `counted` flag — including the immediate
+   * cheap (uncounted) snapshot on connect.
    */
-  readonly workersStatus$: Observable<WorkersStatusResponse> = new Observable((subscriber) => {
+  readonly workersStatus$: Observable<WorkersStatusUpdate> = new Observable((subscriber) => {
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
@@ -111,7 +124,7 @@ export class WorkerEventsService {
     };
   });
 
-  private handleMessage(ev: MessageEvent, subscriber: Subscriber<WorkersStatusResponse>): void {
+  private handleMessage(ev: MessageEvent, subscriber: Subscriber<WorkersStatusUpdate>): void {
     let parsed: unknown;
     try {
       parsed = JSON.parse(typeof ev.data === 'string' ? ev.data : '');
@@ -119,7 +132,10 @@ export class WorkerEventsService {
       return; // Non-JSON / non-status frames (e.g. process/progress) are ignored.
     }
     if (isWorkersStatusFrame(parsed)) {
-      subscriber.next(parsed.status);
+      // Preserve `counted`: consumers must distinguish the cheap registry-only
+      // snapshot from a DB-counted frame so the HTTP fallback isn't disabled by
+      // a registry-only push.
+      subscriber.next({ status: parsed.status, counted: parsed.counted === true });
     }
   }
 
