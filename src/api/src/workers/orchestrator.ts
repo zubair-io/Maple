@@ -21,7 +21,6 @@ import type { RunStageHandle } from './run-stage.ts';
 import { resolveStageDeps } from './run-stage.ts';
 import { stageRegistry } from './registry.ts';
 import { stageManifest } from './stages/manifest.ts';
-import { startMissingReaper, type MissingReaperHandle } from './missing-reaper.ts';
 import { startExifStage } from './stages/exif.ts';
 import { startThumbStage } from './stages/thumb.ts';
 import { startPreviewStage } from './stages/preview.ts';
@@ -46,10 +45,6 @@ const STAGE_STARTERS: ReadonlyArray<readonly [string, () => Promise<RunStageHand
 
 const handles = new Map<string, RunStageHandle>();
 const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
-// The missing-file reaper is a library-wide interval job (not a claim stage),
-// so it's tracked separately from the per-stage `handles` map. Always starts
-// paused; started alongside the stages and stopped during drain.
-let missingReaperHandle: MissingReaperHandle | null = null;
 
 // Bounded retry schedule for failed starters. Matches the per-tick poll-loop
 // backoff in run-stage.ts so transient Mongo / dependency failures recover on
@@ -109,9 +104,6 @@ export async function startAllStages(): Promise<void> {
     stageRegistry.preregister(stage.name, stage.targetVersion, resolveStageDeps(stage.dependsOn));
   }
   await Promise.all(STAGE_STARTERS.map(([name, starter]) => attemptStart(name, starter, 0)));
-  // Boot the missing-file reaper (always paused) so it registers with the
-  // stage registry and the /api/workers/missing-reaper surface can control it.
-  if (!missingReaperHandle) missingReaperHandle = startMissingReaper();
 }
 
 /**
@@ -123,12 +115,6 @@ export async function startAllStages(): Promise<void> {
 export async function stopAllStages(): Promise<void> {
   for (const timer of retryTimers.values()) clearTimeout(timer);
   retryTimers.clear();
-  try {
-    missingReaperHandle?.stop();
-  } catch (err) {
-    log.warn({ err }, 'missing-reaper stop() raised');
-  }
-  missingReaperHandle = null;
   const entries = [...handles.entries()];
   handles.clear();
   await Promise.all(
