@@ -5,15 +5,12 @@
 // `ProfilePicker` extraction — leaf views with no fileprivate access live
 // in their own files so the parent's body reads as composition.
 //
-// Two views here:
+// One view here:
 //   • `AppShellIPhoneDrawerHeader` — LIBRARY eyebrow + close X +
 //     connection-identity row + tertiary summary row.
-//   • `AppShellIPhoneDrawerSearchPill` — search-pill button that dismisses
-//     the drawer and notifies any S7 search-tab listener.
 //
-// Both are pure inputs/outputs — no shared state with the parent. The
-// parent owns dismissal (`onClose`) and the search callback
-// (`onSearchPillTap`); these views just render and forward taps.
+// Pure inputs/outputs — no shared state with the parent. The parent owns
+// dismissal (`onClose`); this view just renders and forwards taps.
 
 #if os(iOS)
 
@@ -76,43 +73,6 @@ struct AppShellIPhoneDrawerHeader: View {
         .padding(.horizontal, 16)
         .padding(.top, 18)
         .padding(.bottom, 12)
-    }
-}
-
-/// Pill-shaped button that visually mimics a search input but acts as a
-/// navigation trigger — tapping it dismisses the drawer and hands off to
-/// the parent's `onTap` callback. The parent is responsible for switching
-/// tabs / posting the focus notification.
-struct AppShellIPhoneDrawerSearchPill: View {
-    /// Fired when the user taps the pill. The parent dismisses the drawer
-    /// and decides what to do next (e.g. switch to the Search tab).
-    let onTap: () -> Void
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(MapleTokens.textMuted)
-                Text("Search photos")
-                    .font(MapleTokens.Typography.rowLabel)
-                    .foregroundStyle(MapleTokens.textMuted)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(MapleTokens.inputBg)
-            .overlay(
-                RoundedRectangle(cornerRadius: 999, style: .continuous)
-                    .stroke(MapleTokens.border, lineWidth: 0.5)
-            )
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Search photos")
-        .accessibilityIdentifier("source-picker-drawer-search-pill")
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
     }
 }
 
