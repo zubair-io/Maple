@@ -98,21 +98,29 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     // Elysia's content-type-driven body parser must not coerce the XMP into
     // a parsed URLSearchParams-style object; the route handler expects raw
     // bytes. Regression test for sidecar uploads silently failing in prod.
+    //
+    // Uses a unique target path so the write actually happens (the route now
+    // skips-if-exists, #698) and the raw-bytes assertion stays meaningful.
+    const xmlRelPath = '2024/Tokyo/03-15/IMG_XML_CTYPE.HEIC';
     const xmp = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description maple:favorite="False"/></rdf:RDF></x:xmpmeta>`;
     const res = await app.handle(
       sidecarRequest(xmp, {
         'Content-Type': 'application/xml',
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
-        'X-Maple-Target-Rel-Path': targetRelPath,
+        'X-Maple-Target-Rel-Path': xmlRelPath,
       }),
     );
     expect(res.status).toBe(200);
-    const onDisk = await fs.readFile(path.join(tmpLib, `${targetRelPath}.xmp`), 'utf8');
+    const onDisk = await fs.readFile(path.join(tmpLib, `${xmlRelPath}.xmp`), 'utf8');
     expect(onDisk).toBe(xmp);
   });
 
-  test('second write — overwrites existing sidecar atomically', async () => {
+  test('second write to same path — skipped, first sidecar preserved (#698)', async () => {
+    // The backup route no longer overwrites an existing sidecar — a re-upload
+    // must not clobber a possibly-edited first copy. (Edit-sync force-overwrite
+    // is a separate, out-of-scope path.)
+    const v1RelPath = '2024/Tokyo/03-15/IMG_NOCLOBBER.HEIC';
     const xmp1 = `<x:xmpmeta>v1</x:xmpmeta>`;
     const xmp2 = `<x:xmpmeta>v2</x:xmpmeta>`;
 
@@ -120,22 +128,24 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
       sidecarRequest(xmp1, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
-        'X-Maple-Target-Rel-Path': targetRelPath,
+        'X-Maple-Target-Rel-Path': v1RelPath,
       }),
     );
     expect(r1.status).toBe(200);
+    expect((await r1.json()).skipped).toBeUndefined();
 
     const r2 = await app.handle(
       sidecarRequest(xmp2, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
-        'X-Maple-Target-Rel-Path': targetRelPath,
+        'X-Maple-Target-Rel-Path': v1RelPath,
       }),
     );
     expect(r2.status).toBe(200);
+    expect((await r2.json()).skipped).toBe(true);
 
-    const onDisk = await fs.readFile(path.join(tmpLib, `${targetRelPath}.xmp`), 'utf8');
-    expect(onDisk).toBe(xmp2);
+    const onDisk = await fs.readFile(path.join(tmpLib, `${v1RelPath}.xmp`), 'utf8');
+    expect(onDisk).toBe(xmp1);
   });
 
   test('missing required header → 400', async () => {
@@ -200,5 +210,101 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     expect(r.status).toBe(400);
     const body = await r.json();
     expect(body.error).toContain('unsafe');
+  });
+
+  // #698 — dedup / cross-device assets: this device's phasset_link is not
+  // attached, so the (device_id, phasset_local_id) lookup misses. The
+  // X-Maple-Id (maple_id) primary lookup must still resolve the asset.
+  describe('#698 maple_id lookup + skip-if-exists', () => {
+    // A maple_id present on the asset, but a phasset id that is NOT linked
+    // for this device — so the device+phasset fallback alone would 404.
+    const dedupRelPath = '2024/Tokyo/03-15/IMG_DEDUP.HEIC';
+    const dedupPhid = 'DEDUP/L0/NOT-LINKED';
+
+    test('maple_id resolves where device+phasset would miss → 200 + file written', async () => {
+      // Sanity: device+phasset alone (no X-Maple-Id) misses → 404, proving the
+      // phasset link for `dedupPhid` is genuinely absent.
+      const miss = await app.handle(
+        sidecarRequest('<x/>', {
+          'X-Maple-Device-Id': deviceId,
+          'X-Maple-Phasset-Id': dedupPhid,
+          'X-Maple-Target-Rel-Path': dedupRelPath,
+        }),
+      );
+      expect(miss.status).toBe(404);
+
+      // With X-Maple-Id present, the maple_id primary lookup resolves the
+      // existing asset even though `dedupPhid` isn't linked.
+      const xmp = `<x:xmpmeta>dedup</x:xmpmeta>`;
+      const res = await app.handle(
+        sidecarRequest(xmp, {
+          'X-Maple-Device-Id': deviceId,
+          'X-Maple-Phasset-Id': dedupPhid,
+          'X-Maple-Target-Rel-Path': dedupRelPath,
+          'X-Maple-Id': mapleId,
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.skipped).toBeUndefined();
+      expect(body.target_rel_path).toBe(`${dedupRelPath}.xmp`);
+
+      const onDisk = await fs.readFile(path.join(tmpLib, body.target_rel_path), 'utf8');
+      expect(onDisk).toBe(xmp);
+    });
+
+    test('existing .xmp → 200 skipped, file bytes unchanged', async () => {
+      const finalPath = path.join(tmpLib, `${dedupRelPath}.xmp`);
+      const before = await fs.readFile(finalPath, 'utf8');
+
+      // A second device re-uploads (dedup) with different XMP bytes — must NOT
+      // clobber the first device's sidecar.
+      const res = await app.handle(
+        sidecarRequest('<x:xmpmeta>SECOND-DEVICE</x:xmpmeta>', {
+          'X-Maple-Device-Id': 'other-device',
+          'X-Maple-Phasset-Id': 'OTHER/L0/999',
+          'X-Maple-Target-Rel-Path': dedupRelPath,
+          'X-Maple-Id': mapleId,
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.skipped).toBe(true);
+      expect(body.target_rel_path).toBe(`${dedupRelPath}.xmp`);
+
+      const after = await fs.readFile(finalPath, 'utf8');
+      expect(after).toBe(before);
+    });
+
+    test('no X-Maple-Id header → device+phasset fallback still 200', async () => {
+      // Older client: no maple_id header. The fallback (device_id +
+      // phasset_local_id) must still resolve the original linked asset.
+      const fallbackRelPath = '2024/Tokyo/03-15/IMG_FALLBACK.HEIC';
+      const xmp = `<x:xmpmeta>fallback</x:xmpmeta>`;
+      const res = await app.handle(
+        sidecarRequest(xmp, {
+          'X-Maple-Device-Id': deviceId,
+          'X-Maple-Phasset-Id': phid,
+          'X-Maple-Target-Rel-Path': fallbackRelPath,
+        }),
+      );
+      expect(res.status).toBe(200);
+      const onDisk = await fs.readFile(path.join(tmpLib, `${fallbackRelPath}.xmp`), 'utf8');
+      expect(onDisk).toBe(xmp);
+    });
+
+    test('neither maple_id nor device+phasset matches → 404', async () => {
+      const res = await app.handle(
+        sidecarRequest('<x/>', {
+          'X-Maple-Device-Id': 'ghost-device',
+          'X-Maple-Phasset-Id': 'GHOST/L0/000',
+          'X-Maple-Target-Rel-Path': '2024/Tokyo/03-15/IMG_GHOST.HEIC',
+          'X-Maple-Id': 'no-such-maple-id',
+        }),
+      );
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.error).toContain('no prior upload');
+    });
   });
 });
