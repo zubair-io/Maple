@@ -19,9 +19,19 @@ export type StageStatus =
   | "stopped"
   | "error";
 
+/** A stage's upstream dependency, resolved to its concrete minimum version.
+ * Mirrors the shape `buildClaimQuery` consumes in run-stage.ts. */
+export interface ResolvedDep {
+  name: string;
+  minVersion: number;
+}
+
 export interface StageRegistryEntry {
   /** Static — comes from the StageConfig. */
   targetVersion: number;
+  /** Upstream stages (resolved to {name, minVersion}) this stage waits on.
+   * Lets `/status` split `pending` into ready (deps met) vs blocked. */
+  dependsOn: ResolvedDep[];
   /** Live accessors — read on every /status call. */
   getInFlight: () => number;
   getThroughput: () => number;
@@ -42,6 +52,7 @@ export interface StageStatusSnapshot {
   inFlight: number;
   throughput: number;
   targetVersion: number;
+  dependsOn: ResolvedDep[];
   lastError: string | null;
 }
 
@@ -57,16 +68,16 @@ class StageRegistry {
    * WS bridge. Matches the old multi-process supervisor's behaviour where
    * `addStage()` registered every stage immediately with `status: "stopped"`.
    */
-  private readonly known = new Map<string, { targetVersion: number }>();
+  private readonly known = new Map<string, { targetVersion: number; dependsOn: ResolvedDep[] }>();
 
   /**
    * Declare a stage the orchestrator plans to start so `statuses()` reports
    * it even before its first successful `runStage()`. Safe to call multiple
-   * times — updates `targetVersion` and leaves any existing live entry /
-   * recorded error untouched.
+   * times — updates `targetVersion` / `dependsOn` and leaves any existing
+   * live entry / recorded error untouched.
    */
-  preregister(name: string, targetVersion: number): void {
-    this.known.set(name, { targetVersion });
+  preregister(name: string, targetVersion: number, dependsOn: ResolvedDep[] = []): void {
+    this.known.set(name, { targetVersion, dependsOn });
   }
 
   register(name: string, entry: StageRegistryEntry): void {
@@ -101,7 +112,7 @@ class StageRegistry {
     // First emit any pre-registered stage whose live entry hasn't arrived
     // yet — these are stages the orchestrator declared at boot but whose
     // `runStage()` either hasn't completed or failed and is mid-retry.
-    for (const [name, { targetVersion }] of this.known) {
+    for (const [name, { targetVersion, dependsOn }] of this.known) {
       if (this.entries.has(name)) continue;
       const lastError = this.lastErrors.get(name) ?? null;
       out[name] = {
@@ -109,6 +120,7 @@ class StageRegistry {
         inFlight: 0,
         throughput: 0,
         targetVersion,
+        dependsOn,
         lastError,
       };
     }
@@ -118,6 +130,7 @@ class StageRegistry {
         inFlight: entry.getInFlight(),
         throughput: entry.getThroughput(),
         targetVersion: entry.targetVersion,
+        dependsOn: entry.dependsOn,
         lastError: this.lastErrors.get(name) ?? null,
       };
     }

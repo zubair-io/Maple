@@ -19,6 +19,7 @@ import {
   formatDate,
   groupStagesByPipeline,
   parseClampedInt,
+  pendingTitle,
   runtimeFormToPatch,
   stageMeta,
   statusDotColor,
@@ -48,6 +49,8 @@ function stage(overrides: Partial<StageStatus> = {}): StageStatus {
     inFlight: 0,
     configured: 4,
     pending: 0,
+    ready: 0,
+    blocked: 0,
     dead: 0,
     throughput: 0,
     lastError: null,
@@ -228,6 +231,20 @@ describe('summarizeStages', () => {
 
   it('returns zeros when no stages are reported', () => {
     expect(summarizeStages([])).toEqual({ running: 0, paused: 0, dead: 0, pending: 0 });
+  });
+});
+
+describe('pendingTitle', () => {
+  it('reads "ready to run" when nothing is blocked', () => {
+    expect(pendingTitle(stage({ pending: 1247, ready: 1247, blocked: 0 }))).toBe(
+      '1,247 ready to run',
+    );
+  });
+
+  it('spells out the ready / blocked / total split when work is blocked', () => {
+    expect(pendingTitle(stage({ pending: 145253, ready: 0, blocked: 145253 }))).toBe(
+      '0 ready · 145,253 blocked on an upstream stage · 145,253 pending total',
+    );
   });
 });
 
