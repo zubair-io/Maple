@@ -16,7 +16,6 @@ export * from './lib/collapsible/maple-collapsible.component';
 export * from './lib/state/library-state.service';
 export * from './lib/state/library-status.service';
 export * from './lib/state/browse-preferences.service';
-export * from './lib/detail-panel/info-tab.component';
 export * from './lib/raw-pipeline/raw-pipeline.service';
 export * from './lib/raw-pipeline/raw-pipeline.types';
 export * from './lib/raw-pipeline/image-utils';
@@ -95,13 +94,20 @@ export * from './lib/shells/source-picker-drawer/source-picker-drawer.component'
 
 // S6 (#621) — Info content (rating + flags + histogram + camera/location + keywords).
 // Lean Info renderer for the phone bottom-sheet + tablet/desktop inspector slots.
-// Lives alongside `<maple-info-tab>` (heavy Self-Hosted enrichment surface);
-// consolidation is a follow-up.
+// #634 follow-up folded the former `<maple-info-tab>` enrichment surface into
+// `<app-info-panel>` via the `<app-info-enrichment>` orchestrator (gated on
+// `LIBRARY_BACKEND === 'self-hosted'`).
 export * from './lib/info/info-panel.component';
 export * from './lib/info/rating-flags-row.component';
 export * from './lib/info/histogram.component';
 export * from './lib/info/camera-location-grid.component';
 export * from './lib/info/keyword-chips-row.component';
+export * from './lib/info/info-enrichment.component';
+export * from './lib/info/info-place.component';
+export * from './lib/info/info-description.component';
+export * from './lib/info/info-vision.component';
+export * from './lib/info/info-faces.component';
+export * from './lib/info/enrichment-status-badge.component';
 
 // S5 (#625) — Editor (shell + drag bar + tool model + placeholder glyphs).
 export * from './lib/editor/tool-model';
