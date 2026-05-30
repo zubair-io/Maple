@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'bun:test';
 import type { Collection, UpdateResult } from 'mongodb';
-import { _test, defineStage, type ImageDoc } from './run-stage.ts';
+import { _test, buildClaimQuery, defineStage, type ImageDoc } from './run-stage.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 
 function makeConfigMock(): Collection<WorkerConfigDoc> {
@@ -161,25 +161,25 @@ describe('runOnce — missing_since tagging', () => {
     expect((await images.find({}).toArray())[0]!.missing_since).toBe(firstTag);
   });
 
-  it('suppresses the ENOENT churn: parks the stage dead in one attempt with a benign reason', async () => {
+  it('tag-only suppression: stamps missing_since and touches NO stage state', async () => {
     const images = makeImagesMock([{ abs_path: '/gone.raw' } as unknown as ImageDoc]);
     const configColl = makeConfigMock();
     const stage = originalFileStage();
 
     await _test.runOnce(stage, cfg, images, configColl);
     const doc = (await images.find({}).toArray())[0]! as unknown as {
-      stages: Record<string, { version?: number; dead: boolean; attempts: number; last_error: string }>;
+      missing_since?: string;
+      stages?: Record<string, unknown>;
     };
-    const s = doc.stages['exif']!;
-    // Parked dead immediately (no maxAttempts churn), benign reason instead of a
-    // raw ENOENT, and NOT marked done — it stays a visible item of work until
-    // the reaper actually fixes it. attempts jumps straight to maxAttempts.
-    expect(s.dead).toBe(true);
-    expect(s.attempts).toBe(cfg.maxAttempts);
-    expect(s.last_error).toContain('original-missing');
-    expect(s.last_error).not.toContain('ENOENT');
-    // Not advanced to targetVersion — the asset is not "done".
-    expect(s.version).not.toBe(stage.targetVersion);
+    // Just tagged — no dead, no attempts, no version bump. The claim-query
+    // filter (missing_since) parks it; the reaper re-enables it on resolution.
+    expect(typeof doc.missing_since).toBe('string');
+    expect(doc.stages).toBeUndefined();
+  });
+
+  it('buildClaimQuery excludes assets tagged missing_since', () => {
+    const q = buildClaimQuery('exif', 1, [], new Set()) as Record<string, unknown>;
+    expect(q['missing_since']).toEqual({ $not: { $type: 'string' } });
   });
 
   it('does NOT tag missing_since for a non-ENOENT failure', async () => {
