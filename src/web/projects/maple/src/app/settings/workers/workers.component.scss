@@ -32,17 +32,21 @@
 
 .row-grid {
   display: grid;
+  // Fractional columns so the table fills the available width and the data
+  // columns breathe instead of cramping. Each numeric column carries a
+  // min-width sized to its widest realistic value (e.g. "21,778 · 89,665
+  // blkd") so it never wraps; the `fr` weights then split the slack.
   grid-template-columns:
-    24px
-    140px
-    100px
-    80px
-    80px
-    110px
-    80px
-    minmax(0, 1fr)
-    32px
-    32px;
+    24px /* chevron */
+    minmax(140px, 1.6fr) /* stage */
+    minmax(96px, 1fr) /* status */
+    minmax(68px, 0.6fr) /* concur */
+    minmax(88px, 0.8fr) /* in flight */
+    minmax(150px, 1.4fr) /* ready / blocked */
+    minmax(76px, 0.7fr) /* dead */
+    minmax(100px, 1fr) /* throughput */
+    32px /* kebab */
+    32px; /* pause */
   align-items: center;
   gap: 12px;
   padding: 0 18px;
@@ -109,6 +113,7 @@
     font-size: 12.5px;
     font-variant-numeric: tabular-nums;
     color: var(--s-text);
+    white-space: nowrap;
   }
   .r.mid {
     color: var(--s-text-mid);
@@ -457,9 +462,9 @@
 
 // ── Responsive ─────────────────────────────────────────────────────────
 
-// Tablet (1023px): keep the 10-column grid but tighten gutters + columns
-// so it still fits next to a 196px sidebar. Throughput becomes the flex
-// column so labels keep room.
+// Tablet (1023px): keep the fractional 10-column grid but tighten gutters
+// and shrink the per-column minimums so the whole table still fits next to a
+// 196px sidebar without forcing a horizontal scrollbar.
 @media (max-width: 1023px) {
   .workers-body {
     padding: 16px 20px;
@@ -470,13 +475,13 @@
   .row-grid {
     grid-template-columns:
       20px
-      minmax(110px, 1fr)
-      88px
-      60px
-      72px
-      80px
-      60px
-      96px
+      minmax(110px, 1.6fr)
+      minmax(84px, 1fr)
+      minmax(58px, 0.6fr)
+      minmax(76px, 0.8fr)
+      minmax(120px, 1.4fr)
+      minmax(60px, 0.7fr)
+      minmax(82px, 1fr)
       28px
       28px;
     gap: 8px;
@@ -484,9 +489,10 @@
   }
 }
 
-// Mobile (767px): the row grid becomes a horizontally scrollable strip
-// inside a fixed-width frame. The page header stacks. Expanded panel
-// loses its 54px indent so forms get the full content width.
+// Mobile (767px): the table stops being a table. Each stage becomes a
+// self-contained card — name + status on top, the metrics laid out as
+// labelled tiles below — so nothing has to scroll sideways. The column
+// header is dropped (each tile carries its own label via `data-label`).
 @media (max-width: 767px) {
   .page-header {
     flex-direction: column;
@@ -507,25 +513,103 @@
     margin: 12px 16px 0;
   }
 
-  // Wrap header + every row in one horizontal-scroll container so the
-  // column header stays aligned with the rows under it.
   .workers-body {
-    padding: 8px 0;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+    padding: 8px 16px 16px;
   }
-  .col-header,
+
+  // The header row only makes sense for the grid layout — cards self-label.
+  .col-header {
+    display: none;
+  }
+  .group-label {
+    padding: 16px 2px 8px;
+  }
+
+  // Each row becomes a bordered card.
   .row {
-    min-width: 720px;
+    border: 0.5px solid var(--s-border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    background: var(--s-surface);
+
+    &.is-expanded .row-summary {
+      background: var(--s-surface2);
+    }
   }
-  .col-header,
-  .group-label {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-  .group-label {
-    padding-top: 10px;
-    padding-bottom: 4px;
+
+  // Re-flow the flat summary children into a card grid via named areas.
+  // The chevron + kebab are redundant on a tap-anywhere card, so hide them.
+  .row-summary {
+    height: auto;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+      'stage  stage    pause'
+      'status status   status'
+      'concur inflight dead'
+      'ready  ready    tput';
+    gap: 12px 10px;
+    padding: 14px;
+
+    > maple-settings-icon:first-child,
+    .kebab-btn {
+      display: none;
+    }
+
+    .stage-id {
+      grid-area: stage;
+      align-self: center;
+    }
+    .status-pill {
+      grid-area: status;
+    }
+    .pause-btn {
+      grid-area: pause;
+      justify-self: end;
+      align-self: center;
+    }
+
+    [data-testid='workers'] {
+      grid-area: concur;
+    }
+    [data-testid='in-flight'] {
+      grid-area: inflight;
+    }
+    .pending-cell {
+      grid-area: ready;
+    }
+    .dead-cell {
+      grid-area: dead;
+    }
+    .tput {
+      grid-area: tput;
+    }
+
+    // Turn each numeric cell into a labelled tile: a small uppercase caption
+    // (from data-label) on its own line, with the value row beneath it. The
+    // value stays a horizontal row so multi-part values (count + retry glyph,
+    // value + "/min", ready + "blkd") read on one line.
+    .r {
+      display: flex;
+      flex-flow: row wrap;
+      align-items: baseline;
+      justify-content: flex-start;
+      text-align: left;
+      gap: 2px 4px;
+      min-width: 0;
+
+      &::before {
+        content: attr(data-label);
+        flex-basis: 100%;
+        font-family: var(--s-font);
+        font-size: 9.5px;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--s-text-dim);
+      }
+    }
   }
 
   // Expanded panel: drop the 54px indent + stack form grids to one column.
