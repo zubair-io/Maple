@@ -152,6 +152,13 @@ async function fetchStatusDbState(
               { [`stages.${name}.version`]: { $exists: false } },
             ],
             [`stages.${name}.dead`]: { $ne: true },
+            // Park missing-tagged docs the same way the claim query (`ready`)
+            // does. Otherwise `blocked = pending - ready` absorbs the entire
+            // `missing_since` backlog (the reaper's queue) into every claim
+            // stage's blocked count, even though those docs can't be claimed
+            // here. The reaper backlog is surfaced separately on the
+            // missing-reaper row below.
+            missing_since: { $not: { $type: 'string' } },
           })
           .then((n) => ({ key: 'pending' as const, name, n }))
           .catch((err) => {
