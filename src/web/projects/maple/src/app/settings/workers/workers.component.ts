@@ -117,6 +117,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
     >
   >({});
 
+  // Missing-reaper prune window (hours). Separate from the generic per-stage
+  // runtime config — it's a reaper-only setting persisted via its own route.
+  protected readonly reaperPruneWindow = signal<string>('');
+  protected readonly reaperPruneLoaded = signal<boolean>(false);
+  protected readonly reaperPruneSaveState = signal<SaveState>('idle');
+  protected readonly reaperPruneError = signal<string | null>(null);
+
   protected readonly stages = computed<StageStatus[]>(() => this.status()?.stages ?? []);
 
   /** Stages grouped + sorted in pipeline order. */
@@ -140,6 +147,46 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.subscribeStatus();
     this.fetchStatusFallback();
     this.fetchEnrichmentConfig();
+    this.fetchReaperPruneWindow();
+  }
+
+  private fetchReaperPruneWindow(): void {
+    this.api.getReaperPruneWindow().subscribe({
+      next: ({ hours }) => {
+        this.reaperPruneWindow.set(String(hours));
+        this.reaperPruneLoaded.set(true);
+      },
+      error: (err: unknown) => this.reaperPruneError.set(errorMessage(err)),
+    });
+  }
+
+  /** Template binding for the prune-window input (routes through a method to
+   * match the house pattern, e.g. setRuntime). */
+  protected setReaperPruneWindow(value: string): void {
+    this.reaperPruneWindow.set(value);
+  }
+
+  protected saveReaperPruneWindow(): void {
+    const hours = Number(this.reaperPruneWindow().trim());
+    if (!Number.isFinite(hours) || hours < 1) {
+      this.reaperPruneError.set('Enter a whole number of hours (≥ 1).');
+      return;
+    }
+    this.reaperPruneSaveState.set('saving');
+    this.reaperPruneError.set(null);
+    this.api.setReaperPruneWindow(Math.round(hours)).subscribe({
+      next: ({ hours: saved }) => {
+        this.reaperPruneWindow.set(String(saved));
+        this.reaperPruneSaveState.set('success');
+        setTimeout(() => {
+          if (this.reaperPruneSaveState() === 'success') this.reaperPruneSaveState.set('idle');
+        }, 1500);
+      },
+      error: (err: unknown) => {
+        this.reaperPruneSaveState.set('error');
+        this.reaperPruneError.set(errorMessage(err));
+      },
+    });
   }
 
   /** Pulls the enrichment config that seeds the describe/geocode/face
