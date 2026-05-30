@@ -1,19 +1,33 @@
 // 56pt block per spec §2.4 — surface bg, 0.5pt border, 6pt radius.
-// Placeholder until the server-rendered endpoint lands.
+// Same chrome for live data and the placeholder; only the inner SVG
+// swaps.
 
-.block {
+:host {
+  display: block;
+}
+
+.placeholder,
+svg.live {
   position: relative;
   height: 56px;
   background: var(--color-surface);
   border: 0.5px solid var(--color-border);
   border-radius: 6px;
   overflow: hidden;
+}
+
+.placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.curves {
+svg.live {
+  display: block;
+  width: 100%;
+}
+
+.placeholder .curves {
   position: absolute;
   inset: 0;
   width: 100%;

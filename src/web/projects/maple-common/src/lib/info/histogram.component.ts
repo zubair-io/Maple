@@ -1,23 +1,35 @@
 // InfoHistogramComponent — S6 Info content section 2 (web).
 //
-// v0.1 PLACEHOLDER. Spec calls for a server-rendered RGB curves SVG/PNG
-// fetched from the API; the endpoint does not exist yet in `src/api/`
-// (audited 2026-05-29 — no `/histogram/:assetId` route). Follow-up ticket:
-// "API: server-rendered RGB histogram endpoint for InfoPanel".
+// Fetches the server-computed RGB histogram from
+// `GET /api/assets/:id/histogram` (#633) when an asset is bound, and
+// renders three overlaid line plots as inline SVG polylines. Falls back
+// to the decorative placeholder during the fetch and on any error
+// (network, 4xx, 5xx — including the 503 the server returns when the
+// libraw_ffi dylib is unavailable).
 //
-// Until that lands we render a 56px-tall surface block with three faint
-// Gaussian humps (red/green/blue) so the placeholder telegraphs "RGB
-// histogram coming here" without claiming to be real data.
+// Why line plots, not filled stacked bars: at 56px tall the typical
+// histogram has too few vertical pixels to read stacks; overlapping
+// thin lines (`stroke-width=1, opacity=0.7`) keep all three channels
+// legible even when two overlap closely.
 //
-// Note: maple-common already ships a `<maple-histogram>` in
-// `components/scopes/` — that one renders LIVE pixel-data histograms
-// from a `DecodedImage` and lives in the Develop tab Scopes panel.
-// This `<app-info-histogram>` is the lighter inspector/sheet version
-// that will switch to a server-rendered image fetch when the endpoint
-// is ready. Separate selector + path so the two don't collide.
+// Why SVG over Canvas: the SVG payload for 3×256-bin polylines is
+// ~6 KB raw, GZIPs to <2 KB, and is fully accessible to AT in the
+// DOM. Canvas would need a separate ARIA description anyway. The
+// equivalent Apple block uses `SwiftUI.Canvas` for the same shape —
+// platform-idiomatic on each side.
 
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
+import { catchError, of } from 'rxjs';
 import type { Asset } from '../models/asset';
+import { BunApiBackendService, type ApiHistogram } from '../api/bun-api-backend.service';
 
 @Component({
   selector: 'app-info-histogram',
@@ -31,5 +43,69 @@ import type { Asset } from '../models/asset';
   },
 })
 export class InfoHistogramComponent {
+  private readonly api = inject(BunApiBackendService);
+
   readonly asset = input<Asset | null>(null);
+
+  /** Histogram data, or null when not yet loaded / failed / no asset. */
+  readonly histogram = signal<ApiHistogram | null>(null);
+
+  /** Polyline `points` strings for each channel — recomputed when the
+   *  fetched histogram lands. Empty when there's no histogram, which
+   *  short-circuits the template back to the decorative placeholder. */
+  readonly polylines = computed(() => {
+    const h = this.histogram();
+    if (!h) return null;
+    return {
+      r: toPolylinePoints(h.r),
+      g: toPolylinePoints(h.g),
+      b: toPolylinePoints(h.b),
+    };
+  });
+
+  constructor() {
+    // Refetch whenever the bound asset changes. The reactive read inside
+    // the `effect` re-binds the signal automatically. The `untracked`
+    // boundary isn't needed here — we WANT to refetch when the asset
+    // changes, and the request lifecycle is contained in the subscribe.
+    effect((onCleanup) => {
+      const a = this.asset();
+      this.histogram.set(null);
+      if (!a?.id) return;
+      const sub = this.api
+        .getHistogram(a.id)
+        .pipe(
+          catchError(() => {
+            // Network / 4xx / 5xx — fall back to the placeholder. The
+            // 503 path (dylib unavailable on the server) lands here.
+            return of(null);
+          }),
+        )
+        .subscribe((h) => {
+          this.histogram.set(h);
+        });
+      onCleanup(() => sub.unsubscribe());
+    });
+  }
+}
+
+/**
+ * Build an SVG `points` attribute for one channel — `viewBox` is
+ * `0 0 256 100`, so x = bin index and y = 100 * (1 - normalised count).
+ *
+ * Normalisation is per-channel by max so the curve fills the box
+ * regardless of pixel count. A flat-zero channel renders as the
+ * baseline (y = 100); the `?? 1` guard is a defensive no-op for that
+ * shape so we don't divide by zero.
+ */
+function toPolylinePoints(bins: number[]): string {
+  let max = 0;
+  for (const v of bins) if (v > max) max = v;
+  const denom = max > 0 ? max : 1;
+  const out: string[] = [];
+  for (let i = 0; i < bins.length; i++) {
+    const y = 100 - (bins[i] / denom) * 100;
+    out.push(`${i},${y.toFixed(2)}`);
+  }
+  return out.join(' ');
 }

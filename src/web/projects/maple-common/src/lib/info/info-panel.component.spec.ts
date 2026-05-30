@@ -58,6 +58,13 @@ class FakeBunApiBackendService {
   setAssetPlaceOverride = vi.fn();
   setAssetDescriptionOverride = vi.fn();
   requeueEnrichmentStage = vi.fn();
+  // InfoHistogramComponent injects BunApiBackendService now (#633) — stub
+  // getHistogram so the InfoPanel spec doesn't pull the real HttpClient surface.
+  getHistogram = vi
+    .fn()
+    .mockReturnValue(
+      of({ r: new Array(256).fill(0), g: new Array(256).fill(0), b: new Array(256).fill(0) }),
+    );
 }
 
 function makeFixture(

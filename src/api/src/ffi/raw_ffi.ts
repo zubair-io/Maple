@@ -44,7 +44,15 @@ interface RgbResult {
 }
 
 interface RawFfi {
-  renderToRgb(rawAbsPath: string): RgbResult | null;
+  /**
+   * Render a RAW to interleaved RGB888 in scene-referred output space.
+   *
+   * Pass `xmpAbsPath` to apply the user's sidecar edits — without it the
+   * render uses default adjustments, which makes the histogram endpoint's
+   * "invalidate on re-edit" contract incoherent. Null = default adjustments
+   * (legacy thumb behaviour).
+   */
+  renderToRgb(rawAbsPath: string, xmpAbsPath?: string | null): RgbResult | null;
   /**
    * Decode `rawAbsPath` and return a JPEG-encoded thumbnail, fitted to
    * `maxPx` on the long edge. Quality defaults to 82. Returns null on
@@ -140,16 +148,26 @@ function loadFfi(): RawFfi | null {
     });
 
     return {
-      renderToRgb(rawAbsPath: string): RgbResult | null {
+      renderToRgb(
+        rawAbsPath: string,
+        xmpAbsPath: string | null = null,
+      ): RgbResult | null {
         // Allocate output struct on the heap (24 bytes, zero-filled).
         const outBuf = Buffer.alloc(IMAGE_BUFFER_SIZE, 0);
         const outPtr = ptr(outBuf);
 
         const rawPathBuf = Buffer.from(rawAbsPath + "\0", "utf-8");
+        // The C side accepts a nullable C-string for the XMP path: when
+        // present, the sidecar's adjustments are applied; when null, the
+        // render uses pipeline defaults. Threading the user's sidecar in
+        // is what makes a (raw_mtime, sidecar_mtime)-keyed cache valid.
+        const xmpPathBuf = xmpAbsPath
+          ? Buffer.from(xmpAbsPath + "\0", "utf-8")
+          : null;
 
         const rc = lib.symbols.maple_render_file(
           ptr(rawPathBuf),
-          null,   // no XMP path — use default adjustments
+          xmpPathBuf ? ptr(xmpPathBuf) : null,
           outPtr
         ) as number;
 
