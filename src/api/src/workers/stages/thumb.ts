@@ -32,6 +32,9 @@ const thumbStage = defineStage({
   // on-disk thumbs in `.maple/thumbs/` get rewritten upright.
   targetVersion: 2,
   dependsOn: ['exif'],
+  // Reads the original file — an ENOENT means it vanished from disk, so the
+  // runner tags `missing_since` for the missing-reaper.
+  tagsMissingOnEnoent: true,
   defaults: {
     concurrency: 2,
     batchSize: 5,
@@ -56,6 +59,8 @@ const thumbStage = defineStage({
     if (!thumbPath || !absPath) {
       return { skip: 'no-resolvable-location' };
     }
+    // An ENOENT here (original gone) is tagged `missing_since` by the runner
+    // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     await generateThumb(absPath, thumbPath);
     return { patch: { thumb_path: thumbPath } };
   },

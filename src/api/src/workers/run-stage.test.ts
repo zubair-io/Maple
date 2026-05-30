@@ -480,6 +480,127 @@ describe('poll loop integration', () => {
     expect(doc?.stages?.hash?.last_error).toBe('always fail');
   });
 
+  it('tags missing_since on an ENOENT failure when tagsMissingOnEnoent is set', async () => {
+    const images = makeImagesMock([{ abs_path: '/gone.raw' } as unknown as ImageDoc]);
+    const configColl = makeConfigMock();
+
+    const enoent = Object.assign(new Error("ENOENT: no such file, stat '/gone.raw'"), {
+      code: 'ENOENT',
+    });
+    const testStage = defineStage({
+      name: 'exif',
+      targetVersion: 1,
+      dependsOn: [],
+      tagsMissingOnEnoent: true,
+      defaults: {
+        concurrency: 1,
+        pollIntervalMs: 50,
+        batchSize: 10,
+        maxAttempts: 3,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      handler: async () => {
+        throw enoent;
+      },
+    });
+
+    const { runOnce } = _test;
+    const cfg = {
+      concurrency: 1,
+      pollIntervalMs: 50,
+      batchSize: 10,
+      maxAttempts: 3,
+      paused: false,
+      last_seen_target_version: 1,
+    };
+    await runOnce(testStage, cfg, images, configColl);
+
+    const doc = (await images.find({}).toArray())[0]!;
+    expect(typeof doc.missing_since).toBe('string');
+    const firstTag = doc.missing_since;
+
+    // First-detection wins: a second ENOENT tick must NOT push the timestamp
+    // forward (the reaper's boot-time age-gate depends on it being stable).
+    await runOnce(testStage, cfg, images, configColl);
+    expect((await images.find({}).toArray())[0]!.missing_since).toBe(firstTag);
+  });
+
+  it('does NOT tag missing_since for a non-ENOENT failure', async () => {
+    const images = makeImagesMock([{ abs_path: '/bad.raw' } as unknown as ImageDoc]);
+    const configColl = makeConfigMock();
+
+    const testStage = defineStage({
+      name: 'exif',
+      targetVersion: 1,
+      dependsOn: [],
+      tagsMissingOnEnoent: true,
+      defaults: {
+        concurrency: 1,
+        pollIntervalMs: 50,
+        batchSize: 10,
+        maxAttempts: 3,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      handler: async () => {
+        throw new Error('decode blew up'); // no ENOENT code
+      },
+    });
+
+    const { runOnce } = _test;
+    const cfg = {
+      concurrency: 1,
+      pollIntervalMs: 50,
+      batchSize: 10,
+      maxAttempts: 3,
+      paused: false,
+      last_seen_target_version: 1,
+    };
+    await runOnce(testStage, cfg, images, configColl);
+
+    expect((await images.find({}).toArray())[0]!.missing_since).toBeUndefined();
+  });
+
+  it('does NOT tag missing_since when tagsMissingOnEnoent is unset, even on ENOENT', async () => {
+    const images = makeImagesMock([{ abs_path: '/gone.raw' } as unknown as ImageDoc]);
+    const configColl = makeConfigMock();
+
+    const enoent = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    const testStage = defineStage({
+      name: 'meili', // a stage that does NOT read the original file
+      targetVersion: 1,
+      dependsOn: [],
+      defaults: {
+        concurrency: 1,
+        pollIntervalMs: 50,
+        batchSize: 10,
+        maxAttempts: 3,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      handler: async () => {
+        throw enoent;
+      },
+    });
+
+    const { runOnce } = _test;
+    const cfg = {
+      concurrency: 1,
+      pollIntervalMs: 50,
+      batchSize: 10,
+      maxAttempts: 3,
+      paused: false,
+      last_seen_target_version: 1,
+    };
+    await runOnce(testStage, cfg, images, configColl);
+
+    expect((await images.find({}).toArray())[0]!.missing_since).toBeUndefined();
+  });
+
   it('skips the find when paused', async () => {
     const images = makeImagesMock([{ abs_path: '/img.raw' } as unknown as ImageDoc]);
     const configColl = makeConfigMock();
