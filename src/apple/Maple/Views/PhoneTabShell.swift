@@ -65,10 +65,6 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
         AppShellIPhoneDrawer(
             isDrawerOpen: $isDrawerOpen,
             mode: mode,
-            // Active source label as the drawer's identity hint — the
-            // Maple-instance switcher isn't built yet (v0.1 stub).
-            connectionIdentity: libraryTitle,
-            tertiarySummary: "",
             mainContent: { tabView },
             sidebarContent: sidebar
         )
