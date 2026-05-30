@@ -50,9 +50,145 @@
       </div>
     </section>
 
-    <!-- Pulled server config ----------------------------------------------- -->
+    <!-- Editable server config --------------------------------------------- -->
     <section>
-      <div class="subhead">Server configuration</div>
+      <div class="subhead">Configuration</div>
+      <p class="section-hint">
+        Stored on the server (in the database) and pulled by every client. Set the SigNoz OTLP/HTTP
+        endpoint and, if your instance requires one, an ingestion key.
+      </p>
+      <div class="form-grid">
+        <label class="field">
+          <span class="flabel">OTLP/HTTP endpoint</span>
+          <input
+            type="url"
+            class="finput mono"
+            placeholder="https://signoz.example.com:4318"
+            autocomplete="off"
+            [ngModel]="fEndpoint()"
+            (ngModelChange)="fEndpoint.set($event)"
+          />
+        </label>
+
+        <label class="field">
+          <span class="flabel">Ingestion key</span>
+          <input
+            type="password"
+            class="finput mono"
+            autocomplete="off"
+            [placeholder]="keyPlaceholder()"
+            [ngModel]="fKey()"
+            (ngModelChange)="fKey.set($event)"
+          />
+          <span class="fhint">
+            Sent as the <code>signoz-access-token</code> header. Leave blank to keep the saved key.
+          </span>
+        </label>
+
+        <label class="field">
+          <span class="flabel">Service namespace</span>
+          <input
+            class="finput mono"
+            autocomplete="off"
+            [ngModel]="fNamespace()"
+            (ngModelChange)="fNamespace.set($event)"
+          />
+        </label>
+
+        <label class="field">
+          <span class="flabel">Trace sample ratio</span>
+          <input
+            class="finput mono"
+            inputmode="decimal"
+            autocomplete="off"
+            [ngModel]="fRatio()"
+            (ngModelChange)="fRatio.set($event)"
+          />
+          <span class="fhint">Between 0 and 1. 1 keeps every trace.</span>
+        </label>
+      </div>
+
+      <div class="check-row">
+        <label class="check">
+          <input
+            type="checkbox"
+            [checked]="fEnabled()"
+            (change)="fEnabled.set($any($event.target).checked)"
+          />
+          Enabled (server-wide)
+        </label>
+        <label class="check">
+          <input
+            type="checkbox"
+            [checked]="fTraces()"
+            (change)="fTraces.set($any($event.target).checked)"
+          />
+          Traces
+        </label>
+        <label class="check">
+          <input
+            type="checkbox"
+            [checked]="fLogs()"
+            (change)="fLogs.set($any($event.target).checked)"
+          />
+          Logs
+        </label>
+        <label class="check">
+          <input
+            type="checkbox"
+            [checked]="fMetrics()"
+            (change)="fMetrics.set($any($event.target).checked)"
+          />
+          Metrics
+        </label>
+      </div>
+
+      <div class="form-actions">
+        <button
+          type="button"
+          class="btn-primary"
+          [disabled]="saveState().kind === 'saving'"
+          (click)="save()"
+        >
+          {{ saveState().kind === 'saving' ? 'Saving…' : 'Save configuration' }}
+        </button>
+        <button
+          type="button"
+          class="btn-ghost"
+          [disabled]="connState().kind === 'testing'"
+          (click)="testConnection()"
+        >
+          {{ connState().kind === 'testing' ? 'Testing…' : 'Test connection' }}
+        </button>
+
+        @if (saveState(); as ss) {
+          @if (ss.kind === 'saved') {
+            <span class="test-ok"><maple-settings-icon name="check" [size]="13" /> Saved.</span>
+          }
+          @if (ss.kind === 'error') {
+            <span class="test-err"
+              ><maple-settings-icon name="x" [size]="13" /> {{ ss.message }}</span
+            >
+          }
+        }
+        @if (connState(); as cs) {
+          @if (cs.kind === 'ok') {
+            <span class="test-ok">
+              <maple-settings-icon name="check" [size]="13" /> Endpoint reachable.
+            </span>
+          }
+          @if (cs.kind === 'error') {
+            <span class="test-err"
+              ><maple-settings-icon name="x" [size]="13" /> {{ cs.message }}</span
+            >
+          }
+        }
+      </div>
+    </section>
+
+    <!-- Pulled server config (resolved + provenance) ----------------------- -->
+    <section>
+      <div class="subhead">Current (resolved)</div>
       @if (config(); as cfg) {
         <dl class="config-grid">
           <dt>Server enabled</dt>
