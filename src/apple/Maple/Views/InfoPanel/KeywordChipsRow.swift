@@ -67,6 +67,21 @@ struct KeywordChipsRow: View {
     .opacity(session == nil ? 0.5 : 1.0)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("info-panel-keywords")
+    // Collapse the inline add field when it loses focus (iOS/iPadOS
+    // "empty-blur" path called out in the header doc). The `isEditing`
+    // guard stops `openAddDraft`'s async focus-grab from firing this
+    // closure before the field has actually mounted, and stops
+    // `applyAddDraft` / `cancelAddDraft` (which also drop focus) from
+    // re-entering. A non-empty draft commits; an empty draft cancels.
+    .onChange(of: fieldFocused) { _, focused in
+      guard isEditing, !focused else { return }
+      let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+      if trimmed.isEmpty {
+        cancelAddDraft()
+      } else {
+        applyAddDraft()
+      }
+    }
   }
 
   private func openAddDraft() {

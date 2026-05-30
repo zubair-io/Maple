@@ -144,12 +144,21 @@ export class XmpParserService {
     const subjectEl =
       subjectEls.length > 0 ? subjectEls[0] : desc.getElementsByTagName('dc:subject')[0];
     if (subjectEl) {
+      // Dedupe at parse time (first occurrence wins, preserves source
+      // order) so external / hand-edited sidecars carrying duplicate
+      // `rdf:li` entries don't violate the uniqueness invariant the UI
+      // depends on (e.g. Angular `@for ... track k`, Apple
+      // `ForEach(id: \.self)`). Matches the write path's normalisation
+      // and the Apple parser's dedup in `XMPSerialization.swift`.
       const keywords: string[] = [];
+      const seen = new Set<string>();
       const liElsNS = subjectEl.getElementsByTagNameNS(RDF_NAMESPACE, 'li');
       const liEls = liElsNS.length > 0 ? liElsNS : subjectEl.getElementsByTagName('rdf:li');
       for (let i = 0; i < liEls.length; i++) {
         const text = (liEls[i].textContent ?? '').trim();
-        if (text.length > 0) keywords.push(text);
+        if (text.length === 0 || seen.has(text)) continue;
+        seen.add(text);
+        keywords.push(text);
       }
       result.keywords = keywords;
     }
