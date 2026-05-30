@@ -10,11 +10,11 @@
 // still runs to completion before the next can start). Throughput is
 // gated by the dylib, not the pool size.
 
-import { tryGetRawFfi } from "./raw_ffi.ts";
-import { computeHistogram, type HistogramBins } from "../thumbs/histogram.ts";
+import { tryGetRawFfi } from './raw_ffi.ts';
+import { computeHistogram, type HistogramBins } from '../thumbs/histogram.ts';
 
 interface RenderRequest {
-  type: "renderThumb";
+  type: 'renderThumb';
   id: number;
   rawPath: string;
   outPath: string;
@@ -23,7 +23,7 @@ interface RenderRequest {
 }
 
 interface HistogramRequest {
-  type: "histogram";
+  type: 'histogram';
   id: number;
   rawPath: string;
   /** Optional XMP sidecar path — applied to the render so a re-edit
@@ -33,14 +33,14 @@ interface HistogramRequest {
 }
 
 interface RenderResponse {
-  type: "renderThumb";
+  type: 'renderThumb';
   id: number;
   ok: boolean;
   error?: string;
 }
 
 interface HistogramResponse {
-  type: "histogram";
+  type: 'histogram';
   id: number;
   ok: boolean;
   bins?: HistogramBins;
@@ -51,35 +51,30 @@ type WorkerRequest = RenderRequest | HistogramRequest;
 
 const ffi = tryGetRawFfi();
 
-self.addEventListener("message", (event: MessageEvent) => {
+self.addEventListener('message', (event: MessageEvent) => {
   const req = event.data as WorkerRequest;
 
-  if (req?.type === "renderThumb") {
+  if (req?.type === 'renderThumb') {
     if (!ffi) {
       self.postMessage({
-        type: "renderThumb",
+        type: 'renderThumb',
         id: req.id,
         ok: false,
-        error: "raw-ffi dylib not loaded in worker",
+        error: 'raw-ffi dylib not loaded in worker',
       } satisfies RenderResponse);
       return;
     }
     try {
-      const ok = ffi.renderThumbnailJpegToFile(
-        req.rawPath,
-        req.outPath,
-        req.maxPx,
-        req.quality,
-      );
+      const ok = ffi.renderThumbnailJpegToFile(req.rawPath, req.outPath, req.maxPx, req.quality);
       self.postMessage({
-        type: "renderThumb",
+        type: 'renderThumb',
         id: req.id,
         ok,
-        error: ok ? undefined : "render-failed (see worker stderr)",
+        error: ok ? undefined : 'render-failed (see worker stderr)',
       } satisfies RenderResponse);
     } catch (e) {
       self.postMessage({
-        type: "renderThumb",
+        type: 'renderThumb',
         id: req.id,
         ok: false,
         error: e instanceof Error ? e.message : String(e),
@@ -88,13 +83,13 @@ self.addEventListener("message", (event: MessageEvent) => {
     return;
   }
 
-  if (req?.type === "histogram") {
+  if (req?.type === 'histogram') {
     if (!ffi) {
       self.postMessage({
-        type: "histogram",
+        type: 'histogram',
         id: req.id,
         ok: false,
-        error: "raw-ffi dylib not loaded in worker",
+        error: 'raw-ffi dylib not loaded in worker',
       } satisfies HistogramResponse);
       return;
     }
@@ -107,23 +102,23 @@ self.addEventListener("message", (event: MessageEvent) => {
       const result = ffi.renderToRgb(req.rawPath, req.xmpPath ?? null);
       if (!result) {
         self.postMessage({
-          type: "histogram",
+          type: 'histogram',
           id: req.id,
           ok: false,
-          error: "render-failed (see worker stderr)",
+          error: 'render-failed (see worker stderr)',
         } satisfies HistogramResponse);
         return;
       }
       const bins = computeHistogram(result.data, result.width, result.height);
       self.postMessage({
-        type: "histogram",
+        type: 'histogram',
         id: req.id,
         ok: true,
         bins,
       } satisfies HistogramResponse);
     } catch (e) {
       self.postMessage({
-        type: "histogram",
+        type: 'histogram',
         id: req.id,
         ok: false,
         error: e instanceof Error ? e.message : String(e),
