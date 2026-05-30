@@ -25,7 +25,11 @@
 // How to run:
 //
 //   cd src/web
-//   MAPLE_PERF=1 npx ng test maple-common --include='**/perf/*.bench.spec.ts'
+//   MAPLE_PERF=1 npx ng test Maple-common --include='**/perf/*.bench.spec.ts'
+//
+// Note: the Angular project name is `Maple-common` (capital M) per
+// `src/web/angular.json`. Lowercase `maple-common` fails case-sensitive
+// lookups on Linux CI runners.
 //
 // Without `MAPLE_PERF=1` the suite skip-passes (mirrors the Apple gate).
 //
@@ -43,9 +47,10 @@ import { defaultAdjustmentModel, type AdjustmentModel } from '../../models/adjus
  * Minimal LibraryStateService stand-in (copy of the harness in
  * `editor-state.service.spec.ts`) — holds a signal-backed
  * `AdjustmentModel` per asset id and applies `updateAdjustment` patches
- * in place. Real `LibraryStateService` writes also schedule a sidecar
- * persist; the perf bench wants only the synchronous state-plumbing
- * cost, so the stub omits the network/IDB side effects.
+ * as a shallow merge (`{ ...m, ...patch }`) into the signal value. Real
+ * `LibraryStateService` writes also schedule a sidecar persist; the perf
+ * bench wants only the synchronous state-plumbing cost, so the stub omits
+ * the network/IDB side effects.
  */
 class LibraryStub {
   private models = new Map<string, ReturnType<typeof signal<AdjustmentModel>>>();
