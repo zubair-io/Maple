@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import {
-  provideHttpClient,
-} from '@angular/common/http';
-import {
-  HttpTestingController,
-  provideHttpClientTesting,
-} from '@angular/common/http/testing';
-import { WorkersApiService, type WorkersStatusResponse, type WorkerConfig, type DeadListResponse } from './workers-api.service';
+  WorkersApiService,
+  type WorkersStatusResponse,
+  type WorkerConfig,
+  type DeadListResponse,
+} from './workers-api.service';
 import { API_BASE_URL } from './api-base-url.token';
 
 const MOCK_STATUS: WorkersStatusResponse = {
@@ -18,6 +18,8 @@ const MOCK_STATUS: WorkersStatusResponse = {
       inFlight: 3,
       configured: 4,
       pending: 1247,
+      ready: 1200,
+      blocked: 47,
       dead: 0,
       throughput: 18,
       lastError: null,
@@ -63,21 +65,27 @@ describe('WorkersApiService', () => {
   it('pause() POST /api/workers/hash/pause', () => {
     let called = false;
     svc.pause('hash').subscribe(() => (called = true));
-    http.expectOne({ method: 'POST', url: '/api/workers/hash/pause' }).flush(null, { status: 204, statusText: 'No Content' });
+    http
+      .expectOne({ method: 'POST', url: '/api/workers/hash/pause' })
+      .flush(null, { status: 204, statusText: 'No Content' });
     expect(called).toBe(true);
   });
 
   it('resume() POST /api/workers/hash/resume', () => {
     let called = false;
     svc.resume('hash').subscribe(() => (called = true));
-    http.expectOne({ method: 'POST', url: '/api/workers/hash/resume' }).flush(null, { status: 204, statusText: 'No Content' });
+    http
+      .expectOne({ method: 'POST', url: '/api/workers/hash/resume' })
+      .flush(null, { status: 204, statusText: 'No Content' });
     expect(called).toBe(true);
   });
 
   it('retryDead() POST /api/workers/face/retry-dead returns { ok, reset }', () => {
     let result: { ok: boolean; reset: number } | undefined;
     svc.retryDead('face').subscribe((r) => (result = r));
-    http.expectOne({ method: 'POST', url: '/api/workers/face/retry-dead' }).flush({ ok: true, reset: 3 });
+    http
+      .expectOne({ method: 'POST', url: '/api/workers/face/retry-dead' })
+      .flush({ ok: true, reset: 3 });
     expect(result?.ok).toBe(true);
     expect(result?.reset).toBe(3);
   });
@@ -88,7 +96,10 @@ describe('WorkersApiService', () => {
     const req = http.expectOne('/api/workers/exif/config');
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ concurrency: 8 });
-    req.flush({ ok: true, config: { concurrency: 8, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 } });
+    req.flush({
+      ok: true,
+      config: { concurrency: 8, pollIntervalMs: 1000, batchSize: 10, maxAttempts: 5 },
+    });
     expect(result?.ok).toBe(true);
     expect(result?.config?.concurrency).toBe(8);
   });
@@ -100,7 +111,13 @@ describe('WorkersApiService', () => {
     expect(req.request.method).toBe('GET');
     const payload: DeadListResponse = {
       items: [
-        { id: 'abc', abs_path: '/photos/a.dng', last_error: 'OOM', attempts: 5, processed_at: '2026-05-11T12:00:00Z' },
+        {
+          id: 'abc',
+          abs_path: '/photos/a.dng',
+          last_error: 'OOM',
+          attempts: 5,
+          processed_at: '2026-05-11T12:00:00Z',
+        },
       ],
     };
     req.flush(payload);

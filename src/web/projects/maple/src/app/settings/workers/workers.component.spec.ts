@@ -24,6 +24,8 @@ const MOCK_STATUS: WorkersStatusResponse = {
       inFlight: 3,
       configured: 4,
       pending: 1247,
+      ready: 1247,
+      blocked: 0,
       dead: 0,
       throughput: 18,
       lastError: null,
@@ -36,6 +38,8 @@ const MOCK_STATUS: WorkersStatusResponse = {
       inFlight: 1,
       configured: 2,
       pending: 842,
+      ready: 800,
+      blocked: 42,
       dead: 3,
       throughput: 6,
       lastError: null,
@@ -55,6 +59,8 @@ const MOCK_STATUS: WorkersStatusResponse = {
       inFlight: 0,
       configured: 2,
       pending: 842,
+      ready: 0,
+      blocked: 842,
       dead: 0,
       throughput: 0,
       lastError: 'API key invalid',
@@ -182,13 +188,31 @@ describe('WorkersComponent', () => {
     ).toBe('3 / 10');
   });
 
-  it('renders Pending count with thousands separator', () => {
+  it('renders the ready count with a thousands separator and no blocked suffix when nothing is blocked', () => {
     initWithMock();
     const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
       '[data-testid="worker-row"]',
     );
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
-    expect(hashRow.querySelector('[data-testid="pending"]')?.textContent?.trim()).toBe('1,247');
+    expect(hashRow.querySelector('[data-testid="pending-ready"]')?.textContent?.trim()).toBe(
+      '1,247',
+    );
+    expect(hashRow.querySelector('[data-testid="pending-blocked"]')).toBeNull();
+  });
+
+  it('renders ready and blocked side by side when a stage has blocked work', () => {
+    initWithMock();
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
+    const faceRow = Array.from(rows).find((r) => r.textContent?.includes('face'))!;
+    expect(faceRow.querySelector('[data-testid="pending-ready"]')?.textContent?.trim()).toBe('800');
+    expect(
+      faceRow
+        .querySelector('[data-testid="pending-blocked"]')
+        ?.textContent?.replace(/\s+/g, ' ')
+        .trim(),
+    ).toBe('· 42 blkd');
   });
 
   it('renders Dead count with retry-affordance icon when dead > 0', () => {
