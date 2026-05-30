@@ -3,6 +3,12 @@
 // in #632 once the additional `dc:subject` handling pushed the file past
 // the 600-line hard budget (see `CONTRIBUTING.md` / `tools/budget-allowlist.txt`).
 //
+// This file is the single owner of the XMP wire format. The parallel split
+// from #643 (`AdjustmentModel+XMP.swift`) was a duplicate created by a
+// concurrent branch and was folded back in here — it now owns the S5
+// effects keys (vignette / grain / split-tone) alongside the `dc:subject`
+// keyword bag.
+//
 // Read the file header on `AdjustmentModel.swift` first — that's the
 // type contract. This file owns the on-disk byte format:
 //   • `XMPParser.parse(xml: String)` → `(AdjustmentModel, CullingState)`
@@ -236,6 +242,18 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             }
         case "crs:LuminanceSmoothing":  model.nrLuminance    = d(value) ?? model.nrLuminance
         case "crs:ColorNoiseReduction": model.nrColor        = d(value) ?? model.nrColor
+        // S5 effects (#643) — Lightroom-compatible `crs:` keys.
+        case "crs:PostCropVignetteAmount":   model.vignetteAmount  = d(value) ?? model.vignetteAmount
+        case "crs:PostCropVignetteFeather":  model.vignetteFeather = d(value) ?? model.vignetteFeather
+        case "crs:GrainAmount":              model.grainAmount     = d(value) ?? model.grainAmount
+        case "crs:GrainSize":                model.grainSize       = d(value) ?? model.grainSize
+        // Lightroom: "GrainFrequency"; Maple: `grainRoughness` (S5 § 3.13).
+        case "crs:GrainFrequency":           model.grainRoughness  = d(value) ?? model.grainRoughness
+        case "crs:SplitToningShadowHue":         model.splitToneShadowHue          = d(value) ?? model.splitToneShadowHue
+        case "crs:SplitToningShadowSaturation":  model.splitToneShadowSaturation   = d(value) ?? model.splitToneShadowSaturation
+        case "crs:SplitToningHighlightHue":      model.splitToneHighlightHue       = d(value) ?? model.splitToneHighlightHue
+        case "crs:SplitToningHighlightSaturation": model.splitToneHighlightSaturation = d(value) ?? model.splitToneHighlightSaturation
+        case "crs:SplitToningBalance":           model.splitToneBalance            = d(value) ?? model.splitToneBalance
         case "crs:WhiteBalance":
             if let (t, ti) = wbPreset(value) {
                 model.temperature = t
@@ -362,6 +380,43 @@ public struct XMPSerializer {
         ]
         if culling.flag != .none {
             attrs.append(("xmp:Label", culling.flag == .pick ? "Red" : "Rejected"))
+        }
+        // S5 effects fields (#643) — emit only when non-default so sidecars
+        // produced before this PR remain byte-identical for users who never
+        // touch the vignette / grain / split-tone tools. Defaults are:
+        // vignetteAmount=0, vignetteFeather=50, grainAmount=0, grainSize=25,
+        // grainRoughness=50, all split-tone scalars=0. Appended to the shared
+        // `attrs` list so they land in both the self-closing and the
+        // keyword-bearing open/close `rdf:Description` forms below.
+        if model.vignetteAmount != 0 {
+            attrs.append(("crs:PostCropVignetteAmount", String(format: "%.0f", model.vignetteAmount)))
+        }
+        if model.vignetteFeather != 50 {
+            attrs.append(("crs:PostCropVignetteFeather", String(format: "%.0f", model.vignetteFeather)))
+        }
+        if model.grainAmount != 0 {
+            attrs.append(("crs:GrainAmount", String(format: "%.0f", model.grainAmount)))
+        }
+        if model.grainSize != 25 {
+            attrs.append(("crs:GrainSize", String(format: "%.0f", model.grainSize)))
+        }
+        if model.grainRoughness != 50 {
+            attrs.append(("crs:GrainFrequency", String(format: "%.0f", model.grainRoughness)))
+        }
+        if model.splitToneShadowHue != 0 {
+            attrs.append(("crs:SplitToningShadowHue", String(format: "%.0f", model.splitToneShadowHue)))
+        }
+        if model.splitToneShadowSaturation != 0 {
+            attrs.append(("crs:SplitToningShadowSaturation", String(format: "%.0f", model.splitToneShadowSaturation)))
+        }
+        if model.splitToneHighlightHue != 0 {
+            attrs.append(("crs:SplitToningHighlightHue", String(format: "%.0f", model.splitToneHighlightHue)))
+        }
+        if model.splitToneHighlightSaturation != 0 {
+            attrs.append(("crs:SplitToningHighlightSaturation", String(format: "%.0f", model.splitToneHighlightSaturation)))
+        }
+        if model.splitToneBalance != 0 {
+            attrs.append(("crs:SplitToningBalance", String(format: "%.0f", model.splitToneBalance)))
         }
         if model.highlightRecovery != .chromaticAdaptation {
             attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
