@@ -106,13 +106,30 @@ export async function startFaceWorker(): Promise<null> {
     return null;
   }
 
-  const ok = await preloadFaceModelsOffThread({
-    modelDir: resolved.face_model_dir,
-    detectorUrl: resolved.face_detector_url,
-    detectorSha256: resolved.face_detector_sha256,
-    recognizerUrl: resolved.face_recognizer_url,
-    recognizerSha256: resolved.face_recognizer_sha256,
-  });
+  // `preloadFaceModelsOffThread` resolves false on a model-load failure
+  // (missing file + no URL, download error, …), but it can still REJECT on a
+  // transport-level fault — a worker that crashes on spawn, or a
+  // response/pending kind mismatch (see `face-pool.ts`). This function is
+  // documented "Never throws", and the call site in `index.ts` treats a face
+  // preload failure as isolated/non-fatal (log + continue), so a reject must
+  // not bubble out of bootstrap. Catch it, log, and fall through to the
+  // failure branch below — identical to the pre-#707 main-thread preload,
+  // which only ever logged on failure.
+  let ok = false;
+  try {
+    ok = await preloadFaceModelsOffThread({
+      modelDir: resolved.face_model_dir,
+      detectorUrl: resolved.face_detector_url,
+      detectorSha256: resolved.face_detector_sha256,
+      recognizerUrl: resolved.face_recognizer_url,
+      recognizerSha256: resolved.face_recognizer_sha256,
+    });
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'face model preload threw; first inference will retry. Fix via /settings/enrichment.',
+    );
+  }
 
   if (ok) {
     log.info('face models loaded in worker (stage controller will handle detection)');
