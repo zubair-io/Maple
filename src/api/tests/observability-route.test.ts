@@ -6,10 +6,11 @@
  * The SigNoz `/v1/traces` probe is faked by stubbing `globalThis.fetch` for
  * the duration of each test — no network calls.
  *
- * `MAPLE_SIGNOZ_ENABLED=false` keeps the route's post-save `applyOtelConfig`
- * call a no-op so no background SDK + batch-exporter timers spin up during the
- * test process (which would otherwise hang `bun test`). `shutdownOtel` runs in
- * afterAll as belt-and-braces.
+ * Config is DB-only (no env fallback), and these tests never save an enabled
+ * config with an endpoint (every PUT that writes an endpoint also sets
+ * `enabled: false`), so the route's post-save `applyOtelConfig` is always a
+ * no-op — no background SDK + batch-exporter timers spin up during the test
+ * process. `shutdownOtel` runs in afterAll as belt-and-braces.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach } from 'bun:test';
@@ -45,12 +46,6 @@ async function tryConnect(): Promise<MongoClient | null> {
 }
 
 beforeAll(async () => {
-  // Keep the OTel SDK dormant so the post-save apply is a no-op (no batch
-  // exporter timers leaking past the test run).
-  process.env.MAPLE_SIGNOZ_ENABLED = 'false';
-  delete process.env.MAPLE_SIGNOZ_ENDPOINT;
-  delete process.env.MAPLE_SIGNOZ_INGESTION_KEY;
-
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
@@ -133,7 +128,7 @@ describe('GET /api/observability/config', () => {
     const r = await get('/api/observability/config');
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({
-      enabled: false, // env override MAPLE_SIGNOZ_ENABLED=false
+      enabled: true, // resolver default (config is DB-only; no row yet)
       endpoint: null,
       service_namespace: 'maple',
       source: { endpoint: 'unset' },
