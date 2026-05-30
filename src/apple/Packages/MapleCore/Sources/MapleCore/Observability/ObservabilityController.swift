@@ -47,8 +47,9 @@ import Observation
 import os
 import OTel
 import Logging
+import ServiceLifecycle
 
-private let log = os.Logger(subsystem: "app.justmaple.aperture", category: "observability")
+private let osLog = os.Logger(subsystem: "app.justmaple.aperture", category: "observability")
 
 /// Severity for `ObservabilityController.log(_:_:)`. Maps to swift-log levels.
 public enum ObservabilityLogLevel: Sendable {
@@ -136,23 +137,23 @@ public final class ObservabilityController {
     /// refresh. Safe to call more than once — only the first call bootstraps.
     public func start() {
         guard !didStart else {
-            log.debug("start() called again — already started, ignoring")
+            osLog.debug("start() called again — already started, ignoring")
             return
         }
         didStart = true
 
         guard let server = selectedServerURL else {
-            log.info("observability: no server selected — telemetry inactive")
+            osLog.info("observability: no server selected — telemetry inactive")
             return
         }
 
         // 1. Disk cache → immediate bootstrap (never touches the network).
         if let cached = ObservabilityConfigCache.load(server: server) {
             cachedConfig = cached
-            log.info("observability: loaded cached config for \(server.host ?? server.absoluteString, privacy: .public) (enabled=\(cached.enabled, privacy: .public) endpointSet=\(cached.normalizedEndpoint != nil, privacy: .public))")
+            osLog.info("observability: loaded cached config for \(server.host ?? server.absoluteString, privacy: .public) (enabled=\(cached.enabled, privacy: .public) endpointSet=\(cached.normalizedEndpoint != nil, privacy: .public))")
             bootstrapIfPossible(with: cached)
         } else {
-            log.info("observability: no cached config for \(server.host ?? server.absoluteString, privacy: .public) — will fetch in background")
+            osLog.info("observability: no cached config for \(server.host ?? server.absoluteString, privacy: .public) — will fetch in background")
         }
 
         // 2. Background refresh — updates the cache and (if nothing was
@@ -220,14 +221,14 @@ public final class ObservabilityController {
             // Superseded by a newer selectServer/start while we were in
             // flight — drop this result so we don't clobber newer state.
             guard gen == generation, selectedServerURL == server else {
-                log.debug("observability: refresh superseded — discarding result")
+                osLog.debug("observability: refresh superseded — discarding result")
                 return
             }
 
             ObservabilityConfigCache.save(fresh, server: server)
             cachedConfig = fresh
             lastRefresh = Date()
-            log.info("observability: refreshed config for \(server.host ?? server.absoluteString, privacy: .public) (enabled=\(fresh.enabled, privacy: .public) traces=\(fresh.tracesEnabled, privacy: .public) logs=\(fresh.logsEnabled, privacy: .public))")
+            osLog.info("observability: refreshed config for \(server.host ?? server.absoluteString, privacy: .public) (enabled=\(fresh.enabled, privacy: .public) traces=\(fresh.tracesEnabled, privacy: .public) logs=\(fresh.logsEnabled, privacy: .public))")
 
             if !isExporting {
                 // First config we've seen this process — bootstrap from it.
@@ -238,7 +239,7 @@ public final class ObservabilityController {
         } catch {
             guard gen == generation else { return }
             lastRefreshError = error.localizedDescription
-            log.error("observability: refresh failed: \(error.localizedDescription, privacy: .public)")
+            osLog.error("observability: refresh failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -273,11 +274,11 @@ public final class ObservabilityController {
     private func bootstrapIfPossible(with config: ObservabilityConfig) {
         guard !isExporting else { return }
         guard settings.enabled else {
-            log.info("observability: local toggle off — not bootstrapping")
+            osLog.info("observability: local toggle off — not bootstrapping")
             return
         }
         guard config.isExportable else {
-            log.info("observability: config not exportable (enabled=\(config.enabled, privacy: .public) endpointSet=\(config.normalizedEndpoint != nil, privacy: .public)) — not bootstrapping")
+            osLog.info("observability: config not exportable (enabled=\(config.enabled, privacy: .public) endpointSet=\(config.normalizedEndpoint != nil, privacy: .public)) — not bootstrapping")
             return
         }
 
@@ -286,7 +287,7 @@ public final class ObservabilityController {
         do {
             otelConfiguration = try exporter.makeConfiguration()
         } catch {
-            log.error("observability: failed to build OTel configuration: \(error.localizedDescription, privacy: .public)")
+            osLog.error("observability: failed to build OTel configuration: \(error.localizedDescription, privacy: .public)")
             return
         }
 
@@ -296,7 +297,7 @@ public final class ObservabilityController {
         } catch {
             // bootstrap throws if all signals are disabled or it was already
             // called — both are recoverable: just stay inactive.
-            log.error("observability: OTel.bootstrap failed: \(error.localizedDescription, privacy: .public)")
+            osLog.error("observability: OTel.bootstrap failed: \(error.localizedDescription, privacy: .public)")
             return
         }
 
@@ -312,14 +313,14 @@ public final class ObservabilityController {
             do {
                 try await group.run()
             } catch {
-                log.error("observability: OTel service group exited with error: \(error.localizedDescription, privacy: .public)")
+                osLog.error("observability: OTel service group exited with error: \(error.localizedDescription, privacy: .public)")
             }
         }
 
         isExporting = true
         bootstrappedConfig = config
         pendingConfigChange = false
-        log.info("observability: exporter bootstrapped → \(config.normalizedEndpoint ?? "<none>", privacy: .public) (service.namespace=\(config.serviceNamespace, privacy: .public))")
+        osLog.info("observability: exporter bootstrapped → \(config.normalizedEndpoint ?? "<none>", privacy: .public) (service.namespace=\(config.serviceNamespace, privacy: .public))")
     }
 
     /// Recompute whether the live (cached) config diverges from the one we
@@ -331,7 +332,7 @@ public final class ObservabilityController {
         }
         let diverged = cachedConfig != bootstrapped
         if diverged && !pendingConfigChange {
-            log.notice("observability: live config diverged from bootstrapped config — relaunch to apply")
+            osLog.notice("observability: live config diverged from bootstrapped config — relaunch to apply")
         }
         pendingConfigChange = diverged
     }
