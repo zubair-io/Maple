@@ -51,6 +51,7 @@ import { assetsCollection } from '../db/client.ts';
 import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
+import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import { stageRegistry } from './registry.ts';
@@ -149,7 +150,7 @@ export async function runMissingReaperOnce(
   const candidates = await coll
     .find(
       { missing_since: { $type: 'string', $lt: opts.startedAtIso, $ne: null } },
-      { projection: { _id: 1, fileinfo: 1 } },
+      { projection: { _id: 1, fileinfo: 1, maple_id: 1 } },
     )
     .limit(batchSize)
     .toArray();
@@ -197,6 +198,20 @@ export async function runMissingReaperOnce(
       const primary = assetPrimaryFileInfo(doc);
       await coll.deleteOne({ _id: doc._id });
       summary.reaped++;
+      // Tombstone the Meilisearch document. Unlike a trashed asset (whose
+      // prior soft-delete already tombstoned it), a reaped row was never
+      // soft-deleted, so without this the search index keeps surfacing an
+      // asset whose Mongo row and on-disk file are both gone until the next
+      // full backfill. Best-effort + keyed on maple_id, mirroring
+      // `softDelete()` in images.repo.ts. The client log-and-swallows on its
+      // own; the catch is defensive against a programmer-error throw.
+      if (doc.maple_id) {
+        try {
+          await meilisearchClient().tombstone(doc.maple_id);
+        } catch {
+          /* best-effort — Mongo is canonical, search self-heals on rebuild */
+        }
+      }
       await recordAndPublishAssetChange({
         kind: 'delete',
         asset_id: doc._id as ObjectId,
