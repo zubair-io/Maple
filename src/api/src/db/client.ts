@@ -833,7 +833,11 @@ export async function ensureIndexes(): Promise<void> {
   // are still present. On a fresh DB the `assets` collection doesn't exist
   // yet — calling `.indexes()` on a missing namespace throws
   // `NamespaceNotFound` (Mongo error 26); treat that as an empty list.
-  type IndexShape = { name?: unknown; unique?: unknown; partialFilterExpression?: unknown };
+  type IndexShape = {
+    name?: unknown;
+    unique?: unknown;
+    partialFilterExpression?: unknown;
+  };
   const assetIndexesPostFolderRebuild: IndexShape[] = await db
     .collection('assets')
     .indexes()
