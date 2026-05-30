@@ -19,6 +19,7 @@ Treat these as invariants. If you're about to violate one, stop and ask.
 3. **One Rust core, three native pipelines.** Color math (decode, demosaic, calibration, LUT generation, dehaze, deconvolution) lives in `src/raw-pipeline/crates/raw-core`. That crate compiles once as a static library for Apple (via C-FFI) and once as WebAssembly for browsers. Platform GPU paths (Metal, WebGL2) are idiomatic on each platform but gated against the Rust reference.
 4. **Parity before features.** Pixel parity between Apple and Web is a merge gate, not an aspiration. See `docs/testing.md` for the harness.
 5. **Performance is a product feature.** Target: slider tick renders a new preview inside 16ms on supported hardware. No feature ships that breaks that budget on the reference scene set.
+6. **Finish the work — no placeholder shortcuts.** Ship complete, working implementations. Never leave stubs, `TODO`/`FIXME` gaps, hard-coded fake data, empty handlers, or "wire this up later" holes dressed up to look done. If something genuinely can't be completed in one pass, **stop and say what's blocking** — don't paper over it. The only allowed exception is deliberate, incremental staging that is tracked by a referenced ticket and called out explicitly in the code (e.g. an overlay gated behind `#629` with a comment saying so); a silent placeholder is never acceptable. When in doubt, do the real thing.
 
 ## Tech stack
 
