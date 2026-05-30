@@ -1,0 +1,36 @@
+@let d = detail();
+@if (d) {
+  @if (showPlace() && placeStatus()) {
+    <app-info-place
+      [detail]="d"
+      [status]="placeStatus()!"
+      [errorMessage]="placeError()"
+      [stale]="placeStale()"
+      (save)="onPlaceSave($event)"
+      (requeue)="onRequeue('geocode')"
+    />
+  }
+
+  @if (describeStatus()) {
+    <app-info-description
+      [detail]="d"
+      [status]="describeStatus()!"
+      [errorMessage]="describeError()"
+      [stale]="describeStale()"
+      (save)="onDescriptionSave($event)"
+      (requeue)="onRequeue('describe')"
+    />
+  }
+
+  <app-info-vision [detail]="d" />
+
+  @if (faceStatus()) {
+    <app-info-faces
+      [detail]="d"
+      [status]="faceStatus()!"
+      [errorMessage]="faceError()"
+      [stale]="faceStale()"
+      (requeue)="onRequeue('face')"
+    />
+  }
+}

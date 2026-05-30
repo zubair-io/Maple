@@ -25,4 +25,7 @@
   <app-info-histogram [asset]="asset()" />
   <app-camera-location-grid [asset]="asset()" />
   <app-keyword-chips-row [asset]="asset()" />
+  @if (showEnrichment()) {
+    <app-info-enrichment />
+  }
 </div>
