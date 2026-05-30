@@ -84,11 +84,18 @@
                 <span class="status-label" data-testid="status">{{ statusLabel(s) }}</span>
               </span>
 
-              <span class="mono r" data-testid="workers">{{ s.configured }}</span>
-              <span class="mono r mid" data-testid="in-flight">
+              <span class="mono r" data-testid="workers" data-label="Concur">{{
+                s.configured
+              }}</span>
+              <span class="mono r mid" data-testid="in-flight" data-label="In flight">
                 {{ s.inFlight }}<span class="dim"> / {{ s.batchSize }}</span>
               </span>
-              <span class="mono r pending-cell" data-testid="pending" [title]="pendingTitle(s)">
+              <span
+                class="mono r pending-cell"
+                data-testid="pending"
+                data-label="Ready / blocked"
+                [title]="pendingTitle(s)"
+              >
                 <span data-testid="pending-ready">{{ s.ready | number }}</span>
                 @if (s.blocked > 0) {
                   <span class="dim" data-testid="pending-blocked">
@@ -96,13 +103,18 @@
                   </span>
                 }
               </span>
-              <span class="mono r dead-cell" data-testid="dead-cell" [class.has-dead]="s.dead > 0">
+              <span
+                class="mono r dead-cell"
+                data-testid="dead-cell"
+                data-label="Dead"
+                [class.has-dead]="s.dead > 0"
+              >
                 <span data-testid="dead-count">{{ s.dead | number }}</span>
                 @if (s.dead > 0) {
                   <maple-settings-icon name="retry" [size]="11" [color]="'#f87171'" />
                 }
               </span>
-              <span class="mono r tput">
+              <span class="mono r tput" data-label="Throughput">
                 @if (s.throughput > 0) {
                   <span class="tput-val">{{ throughputLabel(s) }}</span>
                   <span class="dim"> /min</span>
