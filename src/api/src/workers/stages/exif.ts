@@ -243,12 +243,13 @@ async function tryMergeWithExistingPrimary(
     survivorPatch.exif = loserContribution.exif;
     survivorPatch.is_screenshot = loserContribution.is_screenshot;
   }
-  // If the survivor is the LOSER (we're keeping this stage's row), it also
-  // needs the upgraded maple_id since the orchestrator's writeback path on
-  // `skip` won't apply our patch.
-  if (!otherIsOlder) {
-    survivorPatch.maple_id = newMapleId;
-  }
+  // NOTE: `maple_id` is deliberately NOT part of `survivorPatch`. When the
+  // survivor is the loser we must claim `newMapleId` for it, but the
+  // condemned row still holds that id until we delete it below. Writing it
+  // onto the survivor here would collide with the condemned row on the
+  // unique `maple_id_gt_1` partial index (E11000) — the exact failure that
+  // dead-lettered duplicate uploads. The id upgrade therefore happens AFTER
+  // `deleteOne(condemned)` frees the key. See the post-delete block below.
   if (Object.keys(survivorPatch).length > 0) {
     await assets.updateOne({ _id: survivor._id }, { $set: survivorPatch });
   }
@@ -260,10 +261,28 @@ async function tryMergeWithExistingPrimary(
   // arrayFilters. Mirrors the discover dedup-append pattern in
   // handle-event.ts so concurrent discover $pushes can't be clobbered by a
   // wholesale fileinfo replacement.
+  //
+  // Done BEFORE the delete (and from the in-memory `condemned.fileinfo`) so a
+  // crash between the merge and the delete leaves both rows alive with
+  // overlapping fileinfo — the idempotent re-merge on the next retry heals it.
   for (const entry of (condemned.fileinfo ?? []) as FileInfo[]) {
     await mergeFileinfoEntry(assets, survivor._id, entry);
   }
   await assets.deleteOne({ _id: condemned._id });
+
+  // Now that the condemned row is gone the primary id is free. If the
+  // survivor is the LOSER (we're keeping this stage's row) it still carries
+  // the fallback id and needs the upgrade, since the orchestrator's `skip`
+  // writeback won't apply our handler patch. Setting it here — strictly
+  // after the delete — cannot collide on the unique index.
+  //
+  // Crash-safety: a crash between the delete and this update leaves the
+  // survivor on its fallback id with the condemned row already gone; the next
+  // exif retry re-derives `newMapleId`, finds no other holder, and the normal
+  // upgrade path (handler `patch.maple_id`) completes it.
+  if (!otherIsOlder) {
+    await assets.updateOne({ _id: survivor._id }, { $set: { maple_id: newMapleId } });
+  }
 
   // Publish change events so File Provider / SSE clients don't go stale.
   // Best-effort — recordAndPublishAssetChange swallows its own errors so a
