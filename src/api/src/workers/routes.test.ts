@@ -148,4 +148,62 @@ describe('PATCH /api/workers/:name/config', () => {
     );
     expect(res.status).toBe(404);
   });
+
+  // Register a fake live entry so the route's `has()` check passes and the
+  // body schema (not the 404) is what gates the request.
+  function registerFakeStage(name: string): void {
+    stageRegistry._resetForTests();
+    stageRegistry.register(name, {
+      targetVersion: 1,
+      dependsOn: [],
+      getInFlight: () => 0,
+      getThroughput: () => 0,
+      getPaused: () => false,
+      reloadConfig: async () => {},
+      pause: async () => {},
+      resume: async () => {},
+    });
+  }
+
+  async function patch(name: string, body: unknown): Promise<Response> {
+    const app = new Elysia().use(workerRoutes());
+    return app.handle(
+      new Request(`http://localhost/api/workers/${name}/config`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  it('rejects concurrency above the new 100 ceiling (422)', async () => {
+    registerFakeStage('thumb');
+    const res = await patch('thumb', { concurrency: 101 });
+    expect(res.status).toBe(422);
+  });
+
+  it('accepts concurrency at the new 100 ceiling (passes body validation)', async () => {
+    registerFakeStage('thumb');
+    const res = await patch('thumb', { concurrency: 100 });
+    // No DB in this unit test, so the handler may 500 on getDb — but it must
+    // NOT be the 422 a schema violation would produce. The point is the
+    // 1–100 clamp now admits 100 (the old ceiling was 32).
+    expect(res.status).not.toBe(422);
+  });
+
+  it('rejects the removed pollIntervalMs knob with 400', async () => {
+    registerFakeStage('thumb');
+    const res = await patch('thumb', { pollIntervalMs: 1000 });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(String(body.error)).toContain('pollIntervalMs');
+  });
+
+  it('rejects the removed batchSize knob with 400', async () => {
+    registerFakeStage('thumb');
+    const res = await patch('thumb', { batchSize: 5 });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(String(body.error)).toContain('batchSize');
+  });
 });
