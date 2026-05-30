@@ -264,6 +264,9 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
 
   stageRegistry.register(MISSING_REAPER_NAME, {
     targetVersion: 1,
+    // Not a claim stage — no upstream dependencies. The /status ready/blocked
+    // split (and its buildClaimQuery) is gated to real claim stages anyway.
+    dependsOn: [],
     getInFlight: () => (running ? 1 : 0),
     getThroughput: () => throughput.countInWindow(),
     getPaused: () => paused,
