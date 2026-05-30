@@ -10,6 +10,10 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
+// `ObservabilityConfigResponse` lives in `../observability/observability-config.model`
+// and is re-exported from the library's public-api barrel; we only need the type
+// here for the method signatures below.
+import type { ObservabilityConfigResponse } from '../observability/observability-config.model';
 
 export interface ApiFolder {
   id: string;
@@ -475,6 +479,48 @@ export class BunApiBackendService {
   }
 
   // -------------------------------------------------------------------------
+  // Observability — SigNoz / OpenTelemetry config (#713). The web client pulls
+  // this, caches it to IndexedDB, and wires the OTel web SDK to export traces +
+  // logs DIRECTLY to the self-hosted SigNoz OTLP/HTTP endpoint. The `source`
+  // field says whether each value came from the DB row, an env var, or is unset.
+  // -------------------------------------------------------------------------
+
+  /** Resolved SigNoz target for the web client (OTLP/HTTP base + ingestion
+   * key + per-signal toggles). Read on startup, then cached to IndexedDB so a
+   * subsequent cold load can init telemetry without waiting on the network. */
+  getObservabilityConfig(): Observable<ObservabilityConfigResponse> {
+    return this.http.get<ObservabilityConfigResponse>(`${this.base}/observability/config`);
+  }
+
+  /** Save the observability config (persisted server-side, behind requireAuth)
+   * and get the re-resolved view back. The PUT is patch semantics — every
+   * field is optional: send only the ones you want to change. `ingestion_key`
+   * is write-only: a non-empty string sets it, `null` clears it back to env,
+   * omitting it leaves the saved key untouched. */
+  saveObservabilityConfig(body: {
+    enabled?: boolean | null;
+    endpoint?: string | null;
+    ingestion_key?: string | null;
+    service_namespace?: string | null;
+    traces_enabled?: boolean | null;
+    logs_enabled?: boolean | null;
+    metrics_enabled?: boolean | null;
+    sample_ratio?: number | null;
+  }): Observable<ObservabilityConfigResponse> {
+    return this.http.put<ObservabilityConfigResponse>(`${this.base}/observability/config`, body);
+  }
+
+  /** Health-check an OTLP/HTTP endpoint (+ optional ingestion key) without
+   * saving. Backs the "Send test event" / connection-probe affordance in the
+   * Settings page. The key is write-only — never echoed back. */
+  testObservability(body: {
+    endpoint: string;
+    ingestion_key?: string | null;
+  }): Observable<ObservabilityTestResponse> {
+    return this.http.post<ObservabilityTestResponse>(`${this.base}/observability/test`, body);
+  }
+
+  // -------------------------------------------------------------------------
   // People — face-cluster identities. The `/people` UI consumes these.
   // -------------------------------------------------------------------------
 
@@ -672,6 +718,14 @@ export interface EnrichmentTestResponse {
 export interface EnrichmentTestDescribeResponse {
   ok: boolean;
   info?: { provider: DescribeProviderName; model: string | null };
+  error?: string;
+  status?: number | null;
+}
+
+/** Result of probing a SigNoz OTLP/HTTP endpoint (`POST /observability/test`). */
+export interface ObservabilityTestResponse {
+  ok: boolean;
+  endpoint?: string;
   error?: string;
   status?: number | null;
 }
