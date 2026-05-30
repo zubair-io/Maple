@@ -509,6 +509,118 @@ final class BackupEngineTests: XCTestCase {
             "local sidecar must NOT be deleted before the sidecar upload lands")
     }
 
+    // MARK: - #702: companion-pending / -resolved events
+
+    /// Thread-safe sink that drains a queue's event stream into a list so a test
+    /// can assert which companion-lifecycle events fired and in what order.
+    private final class EventSink: @unchecked Sendable {
+        private let lock = NSLock()
+        private var events: [BackupQueueEvent] = []
+        private var task: Task<Void, Never>?
+
+        func attach(to queue: InProcessBackupQueue) async {
+            let stream = await queue.observe()
+            task = Task { [weak self] in
+                for await event in stream {
+                    guard let self else { return }
+                    self.lock.lock(); self.events.append(event); self.lock.unlock()
+                }
+            }
+        }
+        func stop() { task?.cancel() }
+        var snapshot: [BackupQueueEvent] {
+            lock.lock(); defer { lock.unlock() }; return events
+        }
+        func count(where pred: (BackupQueueEvent) -> Bool) -> Int {
+            snapshot.filter(pred).count
+        }
+    }
+
+    /// When a companion falls into its bounded retry path, the engine emits
+    /// `.companionPending` once; when the last companion lands on a retry it
+    /// emits `.companionsResolved` once. The photo's `.completed` must precede
+    /// both (bytes land before companion work).
+    func testCompanionPendingThenResolvedOnRetrySuccess() async throws {
+        // ingest 200+json → sidecar 500 (inline fail) → sidecar 200 (retry lands).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+            .status(200),
+        ])
+        let (engine, queue, state, sidecars, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 0 })
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let engineRef = engine
+        defer { Task { await engineRef.stop() } }
+
+        let sink = EventSink()
+        await sink.attach(to: queue)
+        defer { sink.stop() }
+
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        // Inline sidecar failed → pending fired (once).
+        await wait { sink.count { if case .companionPending(let e) = $0 { return e == id }; return false } == 1 }
+        // Retry lands → resolved fired (once).
+        await wait { sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false } == 1 }
+
+        let events = sink.snapshot
+        let completedIdx = events.firstIndex { if case .completed(let e, _) = $0 { return e == id }; return false }
+        let pendingIdx = events.firstIndex { if case .companionPending(let e) = $0 { return e == id }; return false }
+        let resolvedIdx = events.firstIndex { if case .companionsResolved(let e) = $0 { return e == id }; return false }
+        XCTAssertNotNil(completedIdx)
+        XCTAssertNotNil(pendingIdx)
+        XCTAssertNotNil(resolvedIdx)
+        XCTAssertLessThan(completedIdx!, pendingIdx!, ".completed must precede .companionPending")
+        XCTAssertLessThan(pendingIdx!, resolvedIdx!, ".companionPending must precede .companionsResolved")
+        XCTAssertEqual(sink.count { if case .companionPending(let e) = $0 { return e == id }; return false }, 1,
+                       "exactly one pending signal regardless of retries")
+        XCTAssertEqual(sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false }, 1,
+                       "exactly one resolved signal at the →0 terminus")
+    }
+
+    /// A derived companion (no local edit → derivedCompanionRetries=2) that
+    /// never succeeds must still emit `.companionsResolved` when its budget
+    /// exhausts — otherwise the photo leaks as permanently "pending".
+    func testCompanionResolvedFiresOnExhaustion() async throws {
+        // ingest 200+json → sidecar 500 forever (sequence exhausts → 500).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+        ])
+        let (engine, queue, state, _, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 0 })
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let engineRef = engine
+        defer { Task { await engineRef.stop() } }
+
+        let sink = EventSink()
+        await sink.attach(to: queue)
+        defer { sink.stop() }
+
+        // No local-edit sidecar written → derived path, 2 attempts then drop.
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        await wait { sink.count { if case .companionPending(let e) = $0 { return e == id }; return false } == 1 }
+        await wait { sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false } == 1 }
+
+        XCTAssertEqual(sink.count { if case .companionPending(let e) = $0 { return e == id }; return false }, 1,
+                       "pending fires once on the inline failure")
+        XCTAssertEqual(sink.count { if case .companionsResolved(let e) = $0 { return e == id }; return false }, 1,
+                       "resolved must fire when the derived companion exhausts its budget, not leak")
+    }
+
     /// The `maxConcurrency` override caps how many `process(task:)` runs proceed
     /// in parallel inside `run()`. With cap=2 and 6 queued tasks, the gating
     /// reader's peak concurrent-read count must saturate at exactly 2.
