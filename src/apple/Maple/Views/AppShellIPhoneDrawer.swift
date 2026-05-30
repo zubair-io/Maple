@@ -17,9 +17,7 @@
 //     Once S0a (PR #586) lands, swap to `MapleTokens.Motion.drawer`.
 //   • Scrim still 45% black; tap-anywhere dismisses (unchanged).
 //   • New header overlay above the supplied sidebar content: LIBRARY eyebrow
-//     + close X, connection-identity row, search pill that dismisses the
-//     drawer and notifies any listener via `onSearchPillTap` so S7 can
-//     switch tabs + focus its search field.
+//     + close X, connection-identity row.
 //
 // File split (ticket #604 — soft budget): chrome subviews live in
 // `AppShellIPhoneDrawerHeader.swift`; static geometry constants + drag
@@ -35,9 +33,6 @@
 //     from the viewer (legacy design doc open question 5).
 //   • `connectionIdentity` / `tertiarySummary` — display-only strings the
 //     caller computes (e.g. `"maple.lawrence.io"` / `"12,481 photos · 2m"`).
-//   • `onSearchPillTap` — fired when the user taps the search pill. The
-//     drawer dismisses itself first; the caller decides what to do next
-//     (S7 listens via Notification → autofocuses its search field).
 //   • Two `@ViewBuilder`s: the main content and the sidebar content. The
 //     sidebar content is what the user *scrolls* inside the drawer below
 //     the chrome header; the chrome is owned here.
@@ -71,10 +66,6 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
     /// Display-only summary under the identity row (e.g. `"12,481 photos · 2m"`).
     /// Empty string hides the row.
     var tertiarySummary: String = ""
-    /// Fired when the user taps the search pill. Drawer dismisses itself
-    /// first; caller switches to the Search tab and lets S7 take over via
-    /// the `.mapleFocusSearch` Notification.
-    var onSearchPillTap: () -> Void = {}
     @ViewBuilder let mainContent: () -> MainContent
     @ViewBuilder let sidebarContent: () -> SidebarContent
 
@@ -112,9 +103,9 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
                         .accessibilityHidden(true)
                 }
 
-                // The drawer itself. Chrome header (eyebrow + identity +
-                // search pill) is painted here; sidebar content slot fills
-                // the rest. `LibrarySidebar` paints its own background
+                // The drawer itself. Chrome header (eyebrow + identity) is
+                // painted here; sidebar content slot fills the rest.
+                // `LibrarySidebar` paints its own background
                 // (MapleTokens.sidebar), which we extend behind the chrome
                 // via the drawer container.
                 drawerStack
@@ -158,7 +149,6 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
                 tertiarySummary: tertiarySummary,
                 onClose: closeDrawer
             )
-            AppShellIPhoneDrawerSearchPill(onTap: handleSearchPillTap)
             // Hairline that visually separates the chrome from the source
             // tree below — matches HTML frame 01.
             Rectangle()
@@ -168,16 +158,6 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
                 .padding(.top, 8)
             sidebarContent()
         }
-    }
-
-    private func handleSearchPillTap() {
-        // Dismiss the drawer first so the Library tab animates out from
-        // under the Search tab swap. The post happens on the same hop —
-        // S7 reads it after its View mounts, so timing-wise the auto-
-        // focus fires once the Search field is in the hierarchy.
-        closeDrawer()
-        onSearchPillTap()
-        NotificationCenter.default.post(name: .mapleFocusSearch, object: nil)
     }
 
     // MARK: drawer actions
