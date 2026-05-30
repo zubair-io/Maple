@@ -126,7 +126,7 @@ describe('GET /api/workers/status — counts', () => {
     // thrown assertion below can't leak the registration into later route
     // tests (the registry is a process-wide singleton).
     const { Elysia } = await import('elysia');
-    const { workerRoutes } = await import('../src/workers/routes.ts');
+    const { workerRoutes, _resetStatusCacheForTests } = await import('../src/workers/routes.ts');
     const { stageRegistry } = await import('../src/workers/registry.ts');
     stageRegistry.register('exif', {
       targetVersion: tv,
@@ -145,6 +145,10 @@ describe('GET /api/workers/status — counts', () => {
       await closeDb();
       await getDb();
 
+      // /status caches DB-derived counts for STATUS_CACHE_TTL_MS (2s), keyed on
+      // stage name + targetVersion. Another test in this file uses the same
+      // `exif:3` key, so drop the cache to force a fresh count for this seed.
+      _resetStatusCacheForTests();
       const app = new Elysia().use(workerRoutes());
       const res = await app.handle(new Request('http://localhost/api/workers/status'));
       expect(res.status).toBe(200);
@@ -183,16 +187,18 @@ describe('GET /api/workers/status — counts', () => {
     // pending count, and therefore must not inflate blocked = pending − ready.
     const tv = 3;
     const taggedAt = new Date().toISOString();
-    await db.collection('assets').insertMany([
-      { stages: { exif: { version: 1 } } },
-      { stages: {} },
-      { stages: { exif: { version: 1 } }, missing_since: taggedAt },
-      { stages: { exif: { version: 1 } }, missing_since: taggedAt },
-      { stages: {}, missing_since: taggedAt },
-    ]);
+    await db
+      .collection('assets')
+      .insertMany([
+        { stages: { exif: { version: 1 } } },
+        { stages: {} },
+        { stages: { exif: { version: 1 } }, missing_since: taggedAt },
+        { stages: { exif: { version: 1 } }, missing_since: taggedAt },
+        { stages: {}, missing_since: taggedAt },
+      ]);
 
     const { Elysia } = await import('elysia');
-    const { workerRoutes } = await import('../src/workers/routes.ts');
+    const { workerRoutes, _resetStatusCacheForTests } = await import('../src/workers/routes.ts');
     const { stageRegistry } = await import('../src/workers/registry.ts');
     stageRegistry.register('exif', {
       targetVersion: tv,
@@ -210,6 +216,11 @@ describe('GET /api/workers/status — counts', () => {
       await closeDb();
       await getDb();
 
+      // Drop the 2s /status cache so this seed isn't shadowed by a prior
+      // /status call sharing the same `exif:3` cache key (see the count test
+      // above). Without this the inserted missing_since docs may not be
+      // reflected in the returned counts.
+      _resetStatusCacheForTests();
       const app = new Elysia().use(workerRoutes());
       const res = await app.handle(new Request('http://localhost/api/workers/status'));
       expect(res.status).toBe(200);
