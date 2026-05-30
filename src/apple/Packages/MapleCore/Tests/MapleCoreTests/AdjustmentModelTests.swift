@@ -334,6 +334,87 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertEqual(c2.stars, 2)
     }
 
+    // MARK: - S5 effects fields (#643)
+
+    /// Parses Lightroom-compatible `crs:` keys for vignette / grain /
+    /// split-tone into the new model fields.
+    func testParseS5EffectsFields() throws {
+        let attrs = #"""
+        crs:PostCropVignetteAmount="-40"
+        crs:PostCropVignetteFeather="70"
+        crs:GrainAmount="35"
+        crs:GrainSize="40"
+        crs:GrainFrequency="55"
+        crs:SplitToningShadowHue="220"
+        crs:SplitToningShadowSaturation="30"
+        crs:SplitToningHighlightHue="40"
+        crs:SplitToningHighlightSaturation="25"
+        crs:SplitToningBalance="-15"
+        """#
+        let (m, _) = try XMPParser.parse(xmp(attrs: attrs))
+        XCTAssertEqual(m.vignetteAmount, -40)
+        XCTAssertEqual(m.vignetteFeather, 70)
+        XCTAssertEqual(m.grainAmount, 35)
+        XCTAssertEqual(m.grainSize, 40)
+        XCTAssertEqual(m.grainRoughness, 55)
+        XCTAssertEqual(m.splitToneShadowHue, 220)
+        XCTAssertEqual(m.splitToneShadowSaturation, 30)
+        XCTAssertEqual(m.splitToneHighlightHue, 40)
+        XCTAssertEqual(m.splitToneHighlightSaturation, 25)
+        XCTAssertEqual(m.splitToneBalance, -15)
+    }
+
+    /// S5 effects fields round-trip through serialize → parse, and
+    /// non-default values emit `crs:` keys. Pre-existing default-shaped
+    /// sidecars stay byte-identical because the serializer only emits
+    /// non-default values (guarded by `testS5EffectsDefaultsNotSerialized`
+    /// below).
+    func testS5EffectsRoundTrip() throws {
+        var m = AdjustmentModel()
+        m.vignetteAmount = -35
+        m.vignetteFeather = 80
+        m.grainAmount = 25
+        m.grainSize = 40
+        m.grainRoughness = 60
+        m.splitToneShadowHue = 200
+        m.splitToneShadowSaturation = 20
+        m.splitToneHighlightHue = 45
+        m.splitToneHighlightSaturation = 15
+        m.splitToneBalance = -10
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"crs:PostCropVignetteAmount="-35""#))
+        XCTAssertTrue(xml.contains(#"crs:GrainFrequency="60""#))
+        XCTAssertTrue(xml.contains(#"crs:SplitToningBalance="-10""#))
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.vignetteAmount, -35)
+        XCTAssertEqual(m2.vignetteFeather, 80)
+        XCTAssertEqual(m2.grainAmount, 25)
+        XCTAssertEqual(m2.grainSize, 40)
+        XCTAssertEqual(m2.grainRoughness, 60)
+        XCTAssertEqual(m2.splitToneShadowHue, 200)
+        XCTAssertEqual(m2.splitToneShadowSaturation, 20)
+        XCTAssertEqual(m2.splitToneHighlightHue, 45)
+        XCTAssertEqual(m2.splitToneHighlightSaturation, 15)
+        XCTAssertEqual(m2.splitToneBalance, -10)
+    }
+
+    /// Default-valued S5 effects fields MUST NOT emit any `crs:` keys, so
+    /// sidecars produced before #643 remain byte-identical for users who
+    /// never touch the new tools.
+    func testS5EffectsDefaultsNotSerialized() {
+        let xml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(xml.contains("crs:PostCropVignetteAmount"))
+        XCTAssertFalse(xml.contains("crs:PostCropVignetteFeather"))
+        XCTAssertFalse(xml.contains("crs:GrainAmount"))
+        XCTAssertFalse(xml.contains("crs:GrainSize"))
+        XCTAssertFalse(xml.contains("crs:GrainFrequency"))
+        XCTAssertFalse(xml.contains("crs:SplitToningShadowHue"))
+        XCTAssertFalse(xml.contains("crs:SplitToningShadowSaturation"))
+        XCTAssertFalse(xml.contains("crs:SplitToningHighlightHue"))
+        XCTAssertFalse(xml.contains("crs:SplitToningHighlightSaturation"))
+        XCTAssertFalse(xml.contains("crs:SplitToningBalance"))
+    }
+
     // MARK: - Helpers
 
     private func xmp(attrs: String) -> String {
