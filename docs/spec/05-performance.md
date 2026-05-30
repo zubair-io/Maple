@@ -28,7 +28,7 @@ Benchmarking uses `test_color_pipeline.sh` for correctness and the slider-tick p
 
 ## Slider-tick perf bench
 
-Automated regression coverage for the slider-drag fast pass on both surfaces. Ticket [#641](https://github.com/zubair-io/Maple/issues/641); added after S5 Editor (#635) shipped without an automated guard against the 16 / 50 ms budget above.
+Automated regression coverage for the slider-drag fast pass on both surfaces. Ticket [#641](https://github.com/zubair-io/Maple/issues/641); added after S5 Editor (#635) shipped without an automated guard against the slider-drag budgets in the "Target budgets" table above (Apple 33/50 ms; Web 50/100 ms) and the tighter CLAUDE.md product invariant (16 ms target / 50 ms hard) that sits underneath them.
 
 ### What's measured
 
@@ -46,10 +46,12 @@ Automated regression coverage for the slider-drag fast pass on both surfaces. Ti
 
 ### Budgets and ceilings
 
-| Surface | Spec target | Spec hard limit | Regression ceiling (today) | Notes                                                              |
-| ------- | ----------- | --------------- | -------------------------- | ------------------------------------------------------------------ |
-| Apple   | 16 ms       | 50 ms           | 350 ms                     | Mean ~108–120 ms today on M-series Mac w/ test_0017.dng @ 1920×1080 |
-| Web     | 16 ms       | 50 ms           | 5 ms                       | State pipe only — mean ~0.03 ms (microsecond-scale)                |
+The "Spec target / Spec hard limit" columns below report against the **CLAUDE.md product invariant** (16 ms target / 50 ms hard) — the tightest budget the slider-tick path is held to, deliberately stricter than the per-surface rows in the "Target budgets" table above (Apple 33/50 ms; Web 50/100 ms). When a regression triages, the per-surface budgets are the first guard; the CLAUDE.md invariant is the ratchet target the bench reports against.
+
+| Surface | Spec target (CLAUDE.md) | Spec hard limit (CLAUDE.md) | Regression ceiling (today) | Notes                                                               |
+| ------- | ----------------------- | --------------------------- | -------------------------- | ------------------------------------------------------------------- |
+| Apple   | 16 ms                   | 50 ms                       | 350 ms                     | Mean ~108–120 ms today on M-series Mac w/ test_0017.dng @ 1920×1080 |
+| Web     | 16 ms                   | 50 ms                       | 5 ms                       | State pipe only — mean ~0.03 ms (microsecond-scale)                 |
 
 The spec target and hard limit are the product budget. The regression ceiling is the bench's actual assertion — set generously above today's measured floor so the bench is a regression detector, not a perma-failing test for an aspirational number. The Apple ceiling is well above today's spec hard limit because the per-tick FFI round-trip (GPU readback → Rust core → CIImage re-wrap) currently runs ~110 ms on a 5 MP fixture; closing that gap to the spec target is product work tracked separately.
 
