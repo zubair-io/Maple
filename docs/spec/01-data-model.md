@@ -188,12 +188,12 @@ Sidecar (.xmp on disk, byte-canonical)
 
 The subset of `AdjustmentModel` that lives on `ImageAsset` as a fast path for grid rendering. It is duplicated — not a reference — because grid cells must render without opening the sidecar.
 
-| Field        | Type        | Default     | XMP                                        |
-| ------------ | ----------- | ----------- | ------------------------------------------ |
+| Field        | Type        | Default     | XMP                                         |
+| ------------ | ----------- | ----------- | ------------------------------------------- |
 | `rating`     | UInt8 (0–5) | `0`         | `xmp:Rating` attribute on `rdf:Description` |
-| `flag`       | enum        | `unflagged` | `xmp:Label` / `maple:Flag` attribute       |
-| `colorLabel` | enum?       | absent      | `xmp:Label` / `maple:ColorLabel` attribute |
-| `keywords`   | `[String]`  | `[]`        | `dc:subject` nested element (see below)    |
+| `flag`       | enum        | `unflagged` | `xmp:Label` / `maple:Flag` attribute        |
+| `colorLabel` | enum?       | absent      | `xmp:Label` / `maple:ColorLabel` attribute  |
+| `keywords`   | `[String]`  | `[]`        | `dc:subject` nested element (see below)     |
 
 ### Invariants
 

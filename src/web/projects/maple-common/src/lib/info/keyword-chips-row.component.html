@@ -1,7 +1,7 @@
 <h3 class="eyebrow">Keywords</h3>
 
 <div class="chips">
-  @for (k of keywords(); track k) {
+  @for (k of keywords(); track $index) {
     <button
       type="button"
       class="chip chip-remove"
