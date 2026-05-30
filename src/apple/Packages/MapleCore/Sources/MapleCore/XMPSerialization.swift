@@ -236,6 +236,18 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             }
         case "crs:LuminanceSmoothing":  model.nrLuminance    = d(value) ?? model.nrLuminance
         case "crs:ColorNoiseReduction": model.nrColor        = d(value) ?? model.nrColor
+        // S5 effects (#643) — Lightroom-compatible `crs:` keys.
+        case "crs:PostCropVignetteAmount":   model.vignetteAmount  = d(value) ?? model.vignetteAmount
+        case "crs:PostCropVignetteFeather":  model.vignetteFeather = d(value) ?? model.vignetteFeather
+        case "crs:GrainAmount":              model.grainAmount     = d(value) ?? model.grainAmount
+        case "crs:GrainSize":                model.grainSize       = d(value) ?? model.grainSize
+        // Lightroom: "GrainFrequency"; Maple: `grainRoughness` (S5 § 3.13).
+        case "crs:GrainFrequency":           model.grainRoughness  = d(value) ?? model.grainRoughness
+        case "crs:SplitToningShadowHue":         model.splitToneShadowHue          = d(value) ?? model.splitToneShadowHue
+        case "crs:SplitToningShadowSaturation":  model.splitToneShadowSaturation   = d(value) ?? model.splitToneShadowSaturation
+        case "crs:SplitToningHighlightHue":      model.splitToneHighlightHue       = d(value) ?? model.splitToneHighlightHue
+        case "crs:SplitToningHighlightSaturation": model.splitToneHighlightSaturation = d(value) ?? model.splitToneHighlightSaturation
+        case "crs:SplitToningBalance":           model.splitToneBalance            = d(value) ?? model.splitToneBalance
         case "crs:WhiteBalance":
             if let (t, ti) = wbPreset(value) {
                 model.temperature = t
@@ -362,6 +374,39 @@ public struct XMPSerializer {
         ]
         if culling.flag != .none {
             attrs.append(("xmp:Label", culling.flag == .pick ? "Red" : "Rejected"))
+        }
+        // S5 effects (#643). Defaults: vignetteAmount=0, vignetteFeather=50,
+        // grainAmount=0, grainSize=25, grainRoughness=50, all split-tone
+        // scalars=0. Pre-#643 sidecars stay byte-identical when defaults hold.
+        if model.vignetteAmount != 0 {
+            attrs.append(("crs:PostCropVignetteAmount", String(format: "%.0f", model.vignetteAmount)))
+        }
+        if model.vignetteFeather != 50 {
+            attrs.append(("crs:PostCropVignetteFeather", String(format: "%.0f", model.vignetteFeather)))
+        }
+        if model.grainAmount != 0 {
+            attrs.append(("crs:GrainAmount", String(format: "%.0f", model.grainAmount)))
+        }
+        if model.grainSize != 25 {
+            attrs.append(("crs:GrainSize", String(format: "%.0f", model.grainSize)))
+        }
+        if model.grainRoughness != 50 {
+            attrs.append(("crs:GrainFrequency", String(format: "%.0f", model.grainRoughness)))
+        }
+        if model.splitToneShadowHue != 0 {
+            attrs.append(("crs:SplitToningShadowHue", String(format: "%.0f", model.splitToneShadowHue)))
+        }
+        if model.splitToneShadowSaturation != 0 {
+            attrs.append(("crs:SplitToningShadowSaturation", String(format: "%.0f", model.splitToneShadowSaturation)))
+        }
+        if model.splitToneHighlightHue != 0 {
+            attrs.append(("crs:SplitToningHighlightHue", String(format: "%.0f", model.splitToneHighlightHue)))
+        }
+        if model.splitToneHighlightSaturation != 0 {
+            attrs.append(("crs:SplitToningHighlightSaturation", String(format: "%.0f", model.splitToneHighlightSaturation)))
+        }
+        if model.splitToneBalance != 0 {
+            attrs.append(("crs:SplitToningBalance", String(format: "%.0f", model.splitToneBalance)))
         }
         if model.highlightRecovery != .chromaticAdaptation {
             attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
