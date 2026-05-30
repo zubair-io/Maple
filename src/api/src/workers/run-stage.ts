@@ -28,6 +28,7 @@ import {
 } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
+import { ThroughputWindow } from './throughput-window.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { stageRegistry } from './registry.ts';
 import { POLL_INTERVAL_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
@@ -399,26 +400,12 @@ export async function runOnce(
 
 // ---------------------------------------------------------------------------
 // ThroughputWindow — rolling completion counter for the status API.
+// Extracted to ./throughput-window.ts to keep this file under the 600-line
+// budget; re-exported so the existing import surface
+// (`import { ThroughputWindow } from './run-stage.ts'`) is unchanged.
 // ---------------------------------------------------------------------------
 
-export class ThroughputWindow {
-  private timestamps: number[] = [];
-  private readonly windowMs: number;
-
-  constructor(windowMs: number = 300_000) {
-    this.windowMs = windowMs;
-  }
-
-  record(processedAt: Date): void {
-    this.timestamps.push(processedAt.getTime());
-  }
-
-  countInWindow(nowMs: number = Date.now()): number {
-    const cutoff = nowMs - this.windowMs;
-    this.timestamps = this.timestamps.filter((t) => t >= cutoff);
-    return this.timestamps.length;
-  }
-}
+export { ThroughputWindow };
 
 // ---------------------------------------------------------------------------
 // Test-only export — internal helpers used by run-stage.test.ts.
