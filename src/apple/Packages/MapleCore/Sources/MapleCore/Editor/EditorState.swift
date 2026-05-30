@@ -88,9 +88,14 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// True when this tool is wired to an `AdjustmentModel` field. The
     /// remaining "v0.1 stub" tools render in the pill row but route to
     /// "Coming soon" — follow-up tickets track field additions.
+    ///
+    /// Per #643: vignette / grain / splitTone are now wired to the
+    /// canonical drag-bar fields (`vignetteAmount`, `grainAmount`,
+    /// `splitToneBalance`). HSL (#636), Crop (#638), and Presets (#639)
+    /// remain stubs pending their own specs.
     public var isWired: Bool {
         switch self {
-        case .hsl, .vignette, .grain, .splitTone, .crop, .presets:
+        case .hsl, .crop, .presets:
             return false
         default:
             return true
@@ -122,6 +127,12 @@ public enum ToolValueMapping {
             return -100...100
         case .sharpen:  return 0...150
         case .noise, .colorNR: return 0...100
+        // S5 effects (#643): drag-bar primaries — symmetric ±100 around
+        // 0 for vignette amount / split-tone balance, one-sided 0..100
+        // for grain amount.
+        case .vignette: return -100...100
+        case .grain:    return 0...100
+        case .splitTone: return -100...100
         default:        return nil
         }
     }
@@ -142,9 +153,10 @@ public enum ToolValueMapping {
             // 0..150, default 40 at v=0.
             return v >= 0 ? 40 + (v / 100.0) * (150 - 40)
                           : 40 + (v / 100.0) * 40
-        case .noise, .colorNR:
+        case .noise, .colorNR, .grain:
             // 0..100, default 0 at v=-100 / 25 at v=0 for colorNR? We keep
             // the simple symmetric mapping: 0 at v=-100, 100 at v=+100.
+            // Grain shares the one-sided 0..100 layout per #643.
             let lo = r.lowerBound, hi = r.upperBound
             return lo + ((v + 100) / 200.0) * (hi - lo)
         default:
@@ -163,7 +175,7 @@ public enum ToolValueMapping {
         case .sharpen:
             return d >= 40 ? ((d - 40) / (150 - 40)) * 100
                            : ((d - 40) / 40) * 100
-        case .noise, .colorNR:
+        case .noise, .colorNR, .grain:
             let lo = r.lowerBound, hi = r.upperBound
             return ((d - lo) / (hi - lo)) * 200 - 100
         default:
@@ -190,6 +202,10 @@ public enum ToolValueMapping {
         case .sharpen:    return model.sharpenAmount
         case .noise:      return model.nrLuminance
         case .colorNR:    return model.nrColor
+        // S5 effects (#643) — drag-bar primaries.
+        case .vignette:   return model.vignetteAmount
+        case .grain:      return model.grainAmount
+        case .splitTone:  return model.splitToneBalance
         // Stub tools — not wired.
         default:          return 0
         }
@@ -200,6 +216,12 @@ public enum ToolValueMapping {
     /// 40, `temp` is 6500 K, everything else is 0. Used by reset
     /// semantics and by the modified-dot check, so a default asset never
     /// reads as "modified".
+    ///
+    /// Per #643: vignette / grain / splitTone all default to 0 on their
+    /// drag-bar primary scalars (`vignetteAmount`, `grainAmount`,
+    /// `splitToneBalance`) — the non-zero defaults on the schema
+    /// (`vignetteFeather` = 50, `grainSize` = 25, `grainRoughness` = 50)
+    /// belong to the satellite scalars, not the drag-bar field.
     public static func defaultDisplayValue(for tool: Tool) -> Double {
         switch tool {
         case .temp:    return 6500
@@ -228,6 +250,10 @@ public enum ToolValueMapping {
         case .sharpen:    model.sharpenAmount = value
         case .noise:      model.nrLuminance = value
         case .colorNR:    model.nrColor = value
+        // S5 effects (#643) — drag-bar primaries.
+        case .vignette:   model.vignetteAmount = value
+        case .grain:      model.grainAmount = value
+        case .splitTone:  model.splitToneBalance = value
         // Stub tools — no-op.
         default: break
         }

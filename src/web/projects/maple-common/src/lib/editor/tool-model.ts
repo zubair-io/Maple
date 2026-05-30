@@ -88,7 +88,10 @@ export function groupOf(tool: ToolId): ToolGroup {
   throw new Error(`unknown tool: ${tool}`);
 }
 
-const STUB_TOOLS = new Set<ToolId>(['hsl', 'vignette', 'grain', 'splitTone', 'crop', 'presets']);
+// Per #643: vignette / grain / splitTone gained AdjustmentModel fields and
+// are no longer stubs. HSL (#636), Crop (#638), Presets (#639) remain
+// stubs pending their own specs.
+const STUB_TOOLS = new Set<ToolId>(['hsl', 'crop', 'presets']);
 
 export function isWired(tool: ToolId): boolean {
   return !STUB_TOOLS.has(tool);
@@ -114,6 +117,10 @@ const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   sharpen: [0, 150],
   noise: [0, 100],
   colorNR: [0, 100],
+  // S5 effects (#643) — drag-bar primary scalars.
+  vignette: [-100, 100],
+  grain: [0, 100],
+  splitTone: [-100, 100],
 };
 
 export function displayRange(tool: ToolId): readonly [number, number] | null {
@@ -129,7 +136,7 @@ export function displayValueFromInternal(tool: ToolId, v: number): number {
   if (tool === 'sharpen') {
     return v >= 0 ? 40 + (v / 100) * (150 - 40) : 40 + (v / 100) * 40;
   }
-  if (tool === 'noise' || tool === 'colorNR') {
+  if (tool === 'noise' || tool === 'colorNR' || tool === 'grain') {
     const [lo, hi] = r;
     return lo + ((v + 100) / 200) * (hi - lo);
   }
@@ -145,7 +152,7 @@ export function internalValueFromDisplay(tool: ToolId, d: number): number {
   if (tool === 'sharpen') {
     return d >= 40 ? ((d - 40) / (150 - 40)) * 100 : ((d - 40) / 40) * 100;
   }
-  if (tool === 'noise' || tool === 'colorNR') {
+  if (tool === 'noise' || tool === 'colorNR' || tool === 'grain') {
     const [lo, hi] = r;
     return ((d - lo) / (hi - lo)) * 200 - 100;
   }
@@ -187,6 +194,13 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
       return 'nrLuminance';
     case 'colorNR':
       return 'nrColor';
+    // S5 effects (#643) — drag-bar primary scalars.
+    case 'vignette':
+      return 'vignetteAmount';
+    case 'grain':
+      return 'grainAmount';
+    case 'splitTone':
+      return 'splitToneBalance';
     default:
       return null;
   }

@@ -49,6 +49,16 @@ fn schema_matches_struct() {
         nr_luminance,
         nr_color,
         dehaze,
+        vignette_amount,
+        vignette_feather,
+        grain_amount,
+        grain_size,
+        grain_roughness,
+        split_tone_shadow_hue,
+        split_tone_shadow_saturation,
+        split_tone_highlight_hue,
+        split_tone_highlight_saturation,
+        split_tone_balance,
         highlight_recovery,
         auto_exposure,
         look,
@@ -88,6 +98,16 @@ fn schema_matches_struct() {
         "nr_luminance",
         "nr_color",
         "dehaze",
+        "vignette_amount",
+        "vignette_feather",
+        "grain_amount",
+        "grain_size",
+        "grain_roughness",
+        "split_tone_shadow_hue",
+        "split_tone_shadow_saturation",
+        "split_tone_highlight_hue",
+        "split_tone_highlight_saturation",
+        "split_tone_balance",
         "highlight_recovery",
         "auto_exposure",
         "look",
@@ -135,6 +155,16 @@ fn schema_matches_struct() {
         nr_luminance,
         nr_color,
         dehaze,
+        vignette_amount,
+        vignette_feather,
+        grain_amount,
+        grain_size,
+        grain_roughness,
+        split_tone_shadow_hue,
+        split_tone_shadow_saturation,
+        split_tone_highlight_hue,
+        split_tone_highlight_saturation,
+        split_tone_balance,
         highlight_recovery,
         auto_exposure,
         look,
@@ -213,6 +243,16 @@ fn schema_f32_defaults_match_struct_default() {
             "nr_luminance" => m.nr_luminance,
             "nr_color" => m.nr_color,
             "dehaze" => m.dehaze,
+            "vignette_amount" => m.vignette_amount,
+            "vignette_feather" => m.vignette_feather,
+            "grain_amount" => m.grain_amount,
+            "grain_size" => m.grain_size,
+            "grain_roughness" => m.grain_roughness,
+            "split_tone_shadow_hue" => m.split_tone_shadow_hue,
+            "split_tone_shadow_saturation" => m.split_tone_shadow_saturation,
+            "split_tone_highlight_hue" => m.split_tone_highlight_hue,
+            "split_tone_highlight_saturation" => m.split_tone_highlight_saturation,
+            "split_tone_balance" => m.split_tone_balance,
             other => panic!("unknown f32 field {}", other),
         };
         assert_eq!(
@@ -269,6 +309,34 @@ fn tone_curve_mode_enum_spec_is_present() {
         .expect("tone_curve_mode missing from schema");
     assert!(matches!(entry.kind, FieldKind::Enum));
     assert_eq!(entry.enum_name, "ToneCurveMode");
+}
+
+/// S5 effects fields (ticket #643): vignette / grain / split-tone scalars
+/// are present in the schema with the documented ranges and defaults.
+/// Each one is an `F32`; no new enums were introduced.
+#[test]
+fn s5_effects_fields_present_in_schema() {
+    let expect: &[(&str, (f32, f32), f32)] = &[
+        ("vignette_amount", (-100.0, 100.0), 0.0),
+        ("vignette_feather", (0.0, 100.0), 50.0),
+        ("grain_amount", (0.0, 100.0), 0.0),
+        ("grain_size", (0.0, 100.0), 25.0),
+        ("grain_roughness", (0.0, 100.0), 50.0),
+        ("split_tone_shadow_hue", (0.0, 360.0), 0.0),
+        ("split_tone_shadow_saturation", (0.0, 100.0), 0.0),
+        ("split_tone_highlight_hue", (0.0, 360.0), 0.0),
+        ("split_tone_highlight_saturation", (0.0, 100.0), 0.0),
+        ("split_tone_balance", (-100.0, 100.0), 0.0),
+    ];
+    for (name, range, default) in expect {
+        let entry = ADJUSTMENT_SCHEMA
+            .iter()
+            .find(|s| s.name == *name)
+            .unwrap_or_else(|| panic!("{name} missing from ADJUSTMENT_SCHEMA"));
+        assert!(matches!(entry.kind, FieldKind::F32), "{name} should be F32");
+        assert_eq!(entry.range, *range, "range for {name}");
+        assert_eq!(entry.default_f32, *default, "default for {name}");
+    }
 }
 
 /// New PV2012 parametric region sliders are present in the schema with

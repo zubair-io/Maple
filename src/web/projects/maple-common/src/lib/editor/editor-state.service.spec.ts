@@ -94,10 +94,26 @@ describe('EditorStateService', () => {
     });
 
     it('rejects writes to stub tools', () => {
+      // Per #643: vignette / grain / splitTone are now wired, so the
+      // remaining stubs are HSL / Crop / Presets.
       const before = { ...lib.adjustmentFor(ID)() };
-      svc.armTool('vignette');
+      svc.armTool('crop');
       svc.setArmedDisplayValue(50);
       expect(lib.adjustmentFor(ID)()).toEqual(before);
+    });
+
+    it('writes to the wired S5 effects tools (#643)', () => {
+      svc.armTool('vignette');
+      svc.setArmedDisplayValue(-50);
+      expect(lib.adjustmentFor(ID)().vignetteAmount).toBe(-50);
+
+      svc.armTool('grain');
+      svc.setArmedDisplayValue(40);
+      expect(lib.adjustmentFor(ID)().grainAmount).toBe(40);
+
+      svc.armTool('splitTone');
+      svc.setArmedDisplayValue(25);
+      expect(lib.adjustmentFor(ID)().splitToneBalance).toBe(25);
     });
   });
 
@@ -161,11 +177,14 @@ describe('EditorStateService', () => {
       expect(TOOLS_IN_GROUP.detail.length).toBe(5);
     });
 
-    it('wires 16 of 22 tools in v0.1', () => {
+    it('wires 19 of 22 tools (#643 added vignette / grain / splitTone)', () => {
       const wired = ALL_TOOLS.filter(isWired);
-      expect(wired.length).toBe(16);
-      for (const t of ['hsl', 'vignette', 'grain', 'splitTone', 'crop', 'presets'] as const) {
+      expect(wired.length).toBe(19);
+      for (const t of ['hsl', 'crop', 'presets'] as const) {
         expect(isWired(t)).toBe(false);
+      }
+      for (const t of ['vignette', 'grain', 'splitTone'] as const) {
+        expect(isWired(t)).toBe(true);
       }
     });
 

@@ -118,6 +118,21 @@ fn set_field(
         "crs:LuminanceSmoothing"   => m.nr_luminance    = v()?,
         "crs:ColorNoiseReduction"  => m.nr_color        = v()?,
         "crs:Dehaze"         => m.dehaze      = v()?,
+        // S5 effects fields (ticket #643). Lightroom-compatible `crs:` keys
+        // so sidecars interchange with Lightroom for these tools. Pipeline
+        // math is a follow-up; the parser just stores the user's values so
+        // they round-trip across sessions. `grain_roughness` is mapped to
+        // LR's `crs:GrainFrequency` (Maple's naming follows the S5 spec).
+        "crs:PostCropVignetteAmount"   => m.vignette_amount  = v()?,
+        "crs:PostCropVignetteFeather"  => m.vignette_feather = v()?,
+        "crs:GrainAmount"              => m.grain_amount     = v()?,
+        "crs:GrainSize"                => m.grain_size       = v()?,
+        "crs:GrainFrequency"           => m.grain_roughness  = v()?,
+        "crs:SplitToningShadowHue"          => m.split_tone_shadow_hue            = v()?,
+        "crs:SplitToningShadowSaturation"   => m.split_tone_shadow_saturation     = v()?,
+        "crs:SplitToningHighlightHue"       => m.split_tone_highlight_hue         = v()?,
+        "crs:SplitToningHighlightSaturation" => m.split_tone_highlight_saturation = v()?,
+        "crs:SplitToningBalance"            => m.split_tone_balance               = v()?,
         "crs:WhiteBalance"   => {
             if let Some((temp, tint)) = wb_preset(value) {
                 m.temperature = temp;

@@ -188,6 +188,84 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
     parse: numericParser,
     defaultValue: () => 25,
   },
+  // ---- S5 effects fields (ticket #643) ----
+  // Vignette, Grain, Split toning. Identity-stub scalars wired through
+  // to the model + XMP so the editor pills aren't "Coming soon" and the
+  // user's adjustments round-trip across sessions. Pipeline math is a
+  // follow-up. Lightroom-compatible `crs:` keys per Adobe XMP spec so
+  // sidecars interchange with Lightroom for these tools.
+  {
+    xmpKey: 'crs:PostCropVignetteAmount',
+    modelKey: 'vignetteAmount',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 0,
+  },
+  {
+    xmpKey: 'crs:PostCropVignetteFeather',
+    modelKey: 'vignetteFeather',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 50,
+  },
+  {
+    xmpKey: 'crs:GrainAmount',
+    modelKey: 'grainAmount',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 0,
+  },
+  {
+    xmpKey: 'crs:GrainSize',
+    modelKey: 'grainSize',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 25,
+  },
+  {
+    // Lightroom names the third grain control "Frequency"; raw-core /
+    // Maple-side surfaces it as `grainRoughness` (S5 spec § 3.13).
+    xmpKey: 'crs:GrainFrequency',
+    modelKey: 'grainRoughness',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 50,
+  },
+  {
+    xmpKey: 'crs:SplitToningShadowHue',
+    modelKey: 'splitToneShadowHue',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 0,
+  },
+  {
+    xmpKey: 'crs:SplitToningShadowSaturation',
+    modelKey: 'splitToneShadowSaturation',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 0,
+  },
+  {
+    xmpKey: 'crs:SplitToningHighlightHue',
+    modelKey: 'splitToneHighlightHue',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 0,
+  },
+  {
+    xmpKey: 'crs:SplitToningHighlightSaturation',
+    modelKey: 'splitToneHighlightSaturation',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 0,
+  },
+  {
+    xmpKey: 'crs:SplitToningBalance',
+    modelKey: 'splitToneBalance',
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => 0,
+  },
 ];
 
 /** WhiteBalance preset — serialized as a string attribute, not a number. */
