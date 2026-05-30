@@ -1,17 +1,24 @@
 // InfoPanelComponent — spec coverage for the S6 web Info content.
 //
 // Covers:
-//   • All 4 sections render with a stub asset.
+//   • All 4 stock sections render with a stub asset.
 //   • insideSheet=true shows the inline header + close X; false hides it.
 //   • Close X emits `(close)`.
 //   • Null asset still renders the section shells (placeholder values).
+//   • The enrichment surface is gated by `LIBRARY_BACKEND` (#634):
+//     hidden on Hosted, rendered on Self-Hosted (orchestrator child
+//     `<app-info-enrichment>` mounts when the backend reports
+//     `self-hosted`).
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { signal } from '@angular/core';
+import { of } from 'rxjs';
 
 import { InfoPanelComponent } from './info-panel.component';
 import { LibraryStateService } from '../state/library-state.service';
+import { LIBRARY_BACKEND } from '../api/library-backend.token';
+import { BunApiBackendService } from '../api/bun-api-backend.service';
 import type { Asset } from '../models/asset';
 
 const STUB_ASSET: Asset = {
@@ -39,12 +46,34 @@ class FakeLibraryStateService {
   setFlag = vi.fn();
   setRating = vi.fn();
   focusedAssetId = signal<string | undefined>(undefined);
+  focusedAsset = signal<Asset | null>(null);
+  apiIdFor = vi.fn().mockReturnValue(undefined);
 }
 
-function makeFixture(opts: { asset?: Asset | null; insideSheet?: boolean } = {}) {
+class FakeBunApiBackendService {
+  // Empty-list status keeps the orchestrator quiet; no requeue / fetch
+  // calls fire because `apiIdFor` returns undefined on the fake state.
+  getWorkerStatus = vi.fn().mockReturnValue(of({ stages: [] }));
+  getAssetDetails = vi.fn();
+  setAssetPlaceOverride = vi.fn();
+  setAssetDescriptionOverride = vi.fn();
+  requeueEnrichmentStage = vi.fn();
+}
+
+function makeFixture(
+  opts: {
+    asset?: Asset | null;
+    insideSheet?: boolean;
+    backend?: 'hosted' | 'self-hosted';
+  } = {},
+) {
   TestBed.configureTestingModule({
     imports: [InfoPanelComponent],
-    providers: [{ provide: LibraryStateService, useValue: new FakeLibraryStateService() }],
+    providers: [
+      { provide: LibraryStateService, useValue: new FakeLibraryStateService() },
+      { provide: BunApiBackendService, useValue: new FakeBunApiBackendService() },
+      { provide: LIBRARY_BACKEND, useValue: opts.backend ?? 'hosted' },
+    ],
   });
   const fixture = TestBed.createComponent(InfoPanelComponent);
   fixture.componentRef.setInput('asset', opts.asset === undefined ? STUB_ASSET : opts.asset);
@@ -95,5 +124,17 @@ describe('InfoPanelComponent', () => {
     // Camera/Location grid still renders 8 rows with em-dashes.
     const rows = el.querySelectorAll('[data-testid^="info-row-"]');
     expect(rows.length).toBe(8);
+  });
+
+  it('hides the enrichment surface on Hosted backend', () => {
+    const fixture = makeFixture({ backend: 'hosted' });
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="info-enrichment"]')).toBeNull();
+  });
+
+  it('mounts the enrichment surface on Self-Hosted backend', () => {
+    const fixture = makeFixture({ backend: 'self-hosted' });
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="info-enrichment"]')).not.toBeNull();
   });
 });

@@ -1,9 +1,11 @@
 // Editor detail panel — Info + Develop tabs.
-// Info tab reused from maple-common; Develop tab owns sliders + scopes.
+// Info tab renders the responsive S6 `<app-info-panel>` (#634 consolidated
+// the older `<maple-info-tab>` enrichment surface into it); Develop tab
+// owns sliders + scopes.
 
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { LibraryStateService } from '../../state/library-state.service';
-import { InfoTabComponent } from '../../detail-panel/info-tab.component';
+import { InfoPanelComponent } from '../../info/info-panel.component';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { DevelopTabComponent } from './develop-tab.component';
 import { EditorSidecarStatusBadgeComponent } from '../editor-sidecar-status-badge/editor-sidecar-status-badge.component';
@@ -13,14 +15,13 @@ import { EditorSidecarStatusBadgeComponent } from '../editor-sidecar-status-badg
   standalone: true,
   imports: [
     MapleIconComponent,
-    InfoTabComponent,
+    InfoPanelComponent,
     DevelopTabComponent,
     EditorSidecarStatusBadgeComponent,
   ],
   styleUrl: './editor-detail-panel.component.scss',
   host: {
-    class:
-      'flex flex-col h-full w-[280px] min-w-[280px] bg-surface overflow-hidden',
+    class: 'flex flex-col h-full w-[280px] min-w-[280px] bg-surface overflow-hidden',
   },
   templateUrl: './editor-detail-panel.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
