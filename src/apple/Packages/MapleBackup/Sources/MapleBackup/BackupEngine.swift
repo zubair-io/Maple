@@ -20,9 +20,21 @@
 // the task is marked .failedRetry. Retry tasks are tracked in `retryTasks`
 // so stop() can cancel them cleanly.
 //
+// Best-effort companions (#700): only the PRIMARY bytes upload determines
+// photo success. Once `upload.upload(...)` lands, the photo transitions to
+// `.uploaded` and emits `.completed` — the companion artifacts (sidecar,
+// Apple-rendered twin, Live Photo .mov) are uploaded best-effort AFTER that
+// commit. A companion failure must NOT fail the photo, re-upload the bytes,
+// or burn the photo's retry budget; instead each companion retries on its
+// own bounded detached path. The local-edit sidecar is the durability-
+// critical companion (it carries the user's intentional Maple edits), so it
+// retries harder than the re-derivable generated sidecar / rendered / mov,
+// and its local copy is deleted only after the server confirms it landed.
+//
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §13, §15, §17.
 
 import Foundation
+import os
 
 /// What `BackupEngine` needs from PhotoKit. Real implementation in
 /// `PhotoKitAssetReader` (Phase 3).
@@ -57,6 +69,13 @@ public struct AssetReadResult: Sendable {
 
 public actor BackupEngine {
 
+    /// Diagnostics for the best-effort companion path (#700). Surfaces which
+    /// companion (sidecar / rendered / live-mov) is retrying or has exhausted
+    /// its bounded budget, so a stranded artifact is visible in Console.app
+    /// without failing the (already-uploaded) photo.
+    private static let companionLog = Logger(
+        subsystem: "app.justmaple.aperture", category: "backup.companion")
+
     public enum EngineError: Error, Equatable, Sendable {
         case queueEmpty
     }
@@ -69,11 +88,39 @@ public actor BackupEngine {
     private let reachability: Reachability?
     private let wifiOnly: Bool
 
+    /// How many `process(task:)` runs proceed in parallel inside `run()`.
+    /// Defaults to 8 (raised from the original hardcoded 4 in #700). The real
+    /// wall-clock parallelism comes from network I/O suspending without holding
+    /// the engine's actor isolation, so the cap mostly bounds how many assets
+    /// we read + buffer at once. Overridable per-host for fast LAN servers.
+    private let maxConcurrency: Int
+
+    /// Backoff (seconds) for the Nth companion retry attempt. Defaults to the
+    /// shared exponential schedule; tests inject a zero-delay closure so the
+    /// bounded companion retry can be observed without sleeping real backoff.
+    /// Internal (not public) — only `@testable` callers reach it; the bytes
+    /// retry path deliberately stays on the static schedule.
+    let companionBackoff: @Sendable (Int) -> TimeInterval
+
     /// In-flight retry tasks, tracked so stop() can cancel them cleanly.
+    /// Covers both the primary-bytes retry/backoff path and the best-effort
+    /// companion retry path (#700).
     private var retryTasks: Set<Task<Void, Never>> = []
 
     /// Maximum retry attempts before a task is marked `.failedRetry`.
     private static let maxRetries = 8
+
+    /// Bounded retry budget for the durability-critical local-edit sidecar
+    /// companion. Matched to `maxRetries` so an in-session local-edit upload
+    /// gets the same number of attempts the whole-task retry loop used to give
+    /// it before #700 decoupled companions from the bytes upload.
+    private static let localEditCompanionRetries = 8
+
+    /// Bounded retry budget for re-derivable companions (generated sidecar,
+    /// Apple-rendered twin, Live Photo .mov). These can be regenerated from
+    /// PHAsset state on a future walk, so they retry lightly and are dropped
+    /// on exhaustion rather than stranding a concurrency slot.
+    private static let derivedCompanionRetries = 2
 
     public init(queue: any BackupQueue,
                 state: BackupStateStore,
@@ -81,7 +128,10 @@ public actor BackupEngine {
                 sidecars: AppSupportSidecarStore,
                 reader: any AssetReader,
                 reachability: Reachability? = nil,
-                wifiOnly: Bool = false) {
+                wifiOnly: Bool = false,
+                maxConcurrency: Int = 8,
+                companionBackoff: @escaping @Sendable (Int) -> TimeInterval = { min(3600, pow(2.0, Double($0))) }) {
+        precondition(maxConcurrency > 0, "maxConcurrency must be > 0")
         self.queue = queue
         self.state = state
         self.upload = upload
@@ -89,6 +139,8 @@ public actor BackupEngine {
         self.reader = reader
         self.reachability = reachability
         self.wifiOnly = wifiOnly
+        self.maxConcurrency = maxConcurrency
+        self.companionBackoff = companionBackoff
     }
 
     /// Drive the queue until empty or until the enclosing Task is cancelled.
@@ -99,7 +151,6 @@ public actor BackupEngine {
     /// The host (MapleApp / MapleBackupAgent) runs this on a long-lived
     /// background Task.
     public func run() async {
-        let maxConcurrency = 4
         var inFlight = 0
         await withTaskGroup(of: Void.self) { group in
             while !Task.isCancelled {
@@ -167,16 +218,25 @@ public actor BackupEngine {
 
         await queue.emit(.started(task.id))
 
+        let result: UploadClient.Result
+        let read: AssetReadResult
         do {
             try await state.transition(task.id, to: .uploading)
-            let read = try await reader.read(phassetLocalId: task.id.phassetLocalId)
+            let readResult = try await reader.read(phassetLocalId: task.id.phassetLocalId)
+            read = readResult
 
             // Capture local references for the progress closure (actor-isolated
             // captures aren't permitted directly inside the async closure below).
             let queueRef = queue
             let taskId = task.id
 
-            let result = try await upload.upload(
+            // The PRIMARY bytes upload is the only step that decides photo
+            // success. Its retry/backoff/busy-elsewhere semantics are unchanged:
+            // a failure here falls into the catch blocks below, which schedule
+            // a retry (or busy re-enqueue) and rethrow. Companions are handled
+            // AFTER this do/catch — they never reach these catch blocks, so a
+            // companion failure can't fail the photo or re-upload the bytes.
+            result = try await upload.upload(
                 phassetLocalId: task.id.phassetLocalId,
                 filename: read.sidecar.originalFilename,
                 captureDate: read.sidecar.captureDate,
@@ -189,55 +249,8 @@ public actor BackupEngine {
                     await queueRef.emit(.progress(taskId, sent: sent, total: total))
                 })
 
-            // Upload the sidecar to the cloud library. Prefer the local-edit XMP if
-            // one exists in AppSupportSidecarStore (the user's intentional Maple edit
-            // wins); fall back to the Apple-metadata XMP generated from PHAsset state.
-            let sidecarXmp: String
-            if let localEdit = try? sidecars.read(phassetLocalId: task.id.phassetLocalId) {
-                sidecarXmp = localEdit
-            } else {
-                sidecarXmp = PayloadAssembler.buildSidecarXMP(input: read.sidecar)
-            }
-            try await upload.uploadSidecar(
-                phassetLocalId: task.id.phassetLocalId,
-                targetRelPath: result.targetRelPath,
-                xmp: sidecarXmp,
-                mapleId: read.mapleId)
-
-            // Upload the Apple-rendered companion when present.
-            if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
-                let ext = (result.targetRelPath as NSString).pathExtension
-                let renderedExt = ext.isEmpty ? "jpeg" : ext
-                try await upload.uploadRendered(
-                    phassetLocalId: task.id.phassetLocalId,
-                    targetRelPath: result.targetRelPath,
-                    filenameExt: renderedExt,
-                    bytes: renderedBytes,
-                    phassetCloudId: read.sidecar.phassetCloudId)
-            }
-
-            // Upload Live Photo .mov twin when present. Uses suffix-override so
-            // it lands as `<base>.mov` instead of `<base>.rendered.mov`.
-            if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
-                try await upload.uploadRendered(
-                    phassetLocalId: task.id.phassetLocalId,
-                    targetRelPath: result.targetRelPath,
-                    filenameExt: "mov",
-                    bytes: liveBytes,
-                    suffixOverride: "mov",
-                    phassetCloudId: read.sidecar.phassetCloudId)
-            }
-
-            // Local sidecar deletion is deferred until EVERY artifact (sidecar,
-            // rendered companion, Live Photo .mov) has completed. The rendered
-            // + live uploads can throw `busyElsewhere`, which requeues the
-            // whole task — on retry, `reader.read` re-derives metadata from
-            // PHAsset state, and if we'd already nuked the local-edit XMP the
-            // retry would silently regress the user's edits to generated
-            // metadata. Holding the local sidecar until success makes the
-            // retry idempotent.
-            try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
-
+            // Bytes landed — the photo counts as uploaded. Persist + emit before
+            // touching any companion so a companion hiccup can never revert this.
             try await state.transition(task.id, to: .uploaded, error: nil)
             await queue.emit(.completed(task.id, mapleId: result.mapleId))
         } catch UploadClient.UploadError.busyElsewhere(let retryAfterSeconds) {
@@ -307,13 +320,142 @@ public actor BackupEngine {
             await queue.emit(.failed(task.id, error: "\(error)", willRetry: willRetry))
             throw error
         }
+
+        // Reached only when the bytes upload above succeeded (every catch
+        // rethrows). The photo is already `.uploaded` + `.completed`. Upload
+        // the companions best-effort: an inline first attempt (so request
+        // ordering + the sidecar-delete-on-success invariant happen before
+        // this call returns, which the synchronous tests rely on), then a
+        // bounded detached retry per companion on failure. Companions never
+        // throw out of here and never emit `.failed` — a companion exhausting
+        // its budget would otherwise double-count the photo in the progress VM
+        // (already `.completed`) as failed.
+        await uploadCompanionsBestEffort(task: task, read: read, result: result)
+    }
+
+    // MARK: - Best-effort companions (#700)
+
+    /// Upload the sidecar, Apple-rendered twin, and Live Photo .mov twin for a
+    /// photo whose bytes have already landed. Each companion is attempted inline
+    /// once; on failure it schedules its own bounded detached retry. Nothing
+    /// here can fail the photo or re-upload the bytes.
+    private func uploadCompanionsBestEffort(task: BackupTask,
+                                            read: AssetReadResult,
+                                            result: UploadClient.Result) async {
+        // Sidecar: prefer the user's local-edit XMP if one exists (their
+        // intentional Maple edit wins); fall back to the Apple-metadata XMP
+        // generated from PHAsset state. Track whether this is a local edit —
+        // that's the durability-critical case: it isn't re-derivable from
+        // PHAsset state, so it retries harder and its local copy is deleted
+        // only after the server confirms it landed.
+        let localEditXmp = try? sidecars.read(phassetLocalId: task.id.phassetLocalId)
+        let isLocalEdit = localEditXmp != nil
+        let sidecarXmp = localEditXmp ?? PayloadAssembler.buildSidecarXMP(input: read.sidecar)
+
+        await runCompanion(
+            label: "sidecar",
+            maxAttempts: isLocalEdit ? Self.localEditCompanionRetries
+                                     : Self.derivedCompanionRetries
+        ) { [self] in
+            try await upload.uploadSidecar(
+                phassetLocalId: task.id.phassetLocalId,
+                targetRelPath: result.targetRelPath,
+                xmp: sidecarXmp,
+                mapleId: read.mapleId)
+            // Delete the local-edit XMP only after the sidecar actually lands on
+            // the server, so a failed attempt re-derives correctly on retry and
+            // a crash before delivery leaves the user's edit on disk.
+            try? sidecars.delete(phassetLocalId: task.id.phassetLocalId)
+        }
+
+        // Apple-rendered companion, when present. Re-derivable → light retry.
+        if let renderedBytes = read.renderedBytes, !renderedBytes.isEmpty {
+            let ext = (result.targetRelPath as NSString).pathExtension
+            let renderedExt = ext.isEmpty ? "jpeg" : ext
+            await runCompanion(label: "rendered",
+                               maxAttempts: Self.derivedCompanionRetries) { [self] in
+                try await upload.uploadRendered(
+                    phassetLocalId: task.id.phassetLocalId,
+                    targetRelPath: result.targetRelPath,
+                    filenameExt: renderedExt,
+                    bytes: renderedBytes,
+                    phassetCloudId: read.sidecar.phassetCloudId)
+            }
+        }
+
+        // Live Photo .mov twin, when present. Uses suffix-override so it lands
+        // as `<base>.mov` instead of `<base>.rendered.mov`. Re-derivable → light retry.
+        if let liveBytes = read.liveVideoBytes, !liveBytes.isEmpty {
+            await runCompanion(label: "live-mov",
+                               maxAttempts: Self.derivedCompanionRetries) { [self] in
+                try await upload.uploadRendered(
+                    phassetLocalId: task.id.phassetLocalId,
+                    targetRelPath: result.targetRelPath,
+                    filenameExt: "mov",
+                    bytes: liveBytes,
+                    suffixOverride: "mov",
+                    phassetCloudId: read.sidecar.phassetCloudId)
+            }
+        }
+    }
+
+    /// Run one companion upload best-effort: try `op` inline once; on failure
+    /// schedule a bounded, exponentially-backed-off detached retry (tracked in
+    /// `retryTasks` so `stop()` tears it down cleanly). Never throws, never
+    /// emits queue events. `busyElsewhere` on a companion is treated like any
+    /// other transient failure here — it's coordination on a re-derivable
+    /// artifact, not a reason to fail the (already-uploaded) photo.
+    private func runCompanion(label: String,
+                              maxAttempts: Int,
+                              _ op: @escaping @Sendable () async throws -> Void) async {
+        do {
+            try await op()
+        } catch {
+            Self.companionLog.notice(
+                "companion \(label, privacy: .public) first attempt failed, scheduling retry: \(String(describing: error), privacy: .public)")
+            scheduleCompanionRetry(label: label, attempt: 1,
+                                   maxAttempts: maxAttempts, op: op)
+        }
+    }
+
+    /// Schedule the next bounded companion retry. Detached so it doesn't hold a
+    /// `run()` concurrency slot; on exhaustion the re-derivable artifact is
+    /// simply dropped (a future safety walk can regenerate it).
+    private func scheduleCompanionRetry(label: String,
+                                        attempt: Int,
+                                        maxAttempts: Int,
+                                        op: @escaping @Sendable () async throws -> Void) {
+        guard attempt < maxAttempts else {
+            Self.companionLog.error(
+                "companion \(label, privacy: .public) exhausted \(maxAttempts) attempts — dropping (re-derivable artifacts can be regenerated on a future walk)")
+            return
+        }
+        let backoff = companionBackoff(attempt)
+        let retryTask = Task.detached(priority: .background) { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+            if Task.isCancelled { return }
+            do {
+                try await op()
+            } catch {
+                // Bounded recursion via the actor so retryTasks stays consistent.
+                await self?.scheduleCompanionRetry(label: label, attempt: attempt + 1,
+                                                   maxAttempts: maxAttempts, op: op)
+            }
+        }
+        retryTasks.insert(retryTask)
+        Task { [weak self] in
+            _ = await retryTask.value
+            await self?.removeRetryTask(retryTask)
+        }
     }
 
     private func removeRetryTask(_ task: Task<Void, Never>) {
         retryTasks.remove(task)
     }
 
-    /// Exponential backoff capped at 1 hour.
+    /// Exponential backoff capped at 1 hour. The `companionBackoff` default
+    /// argument inlines the same formula (a `public` init can't reference a
+    /// non-public member in a default value).
     private static func backoffSeconds(for retryCount: Int) -> TimeInterval {
         min(3600, pow(2.0, Double(retryCount)))
     }
