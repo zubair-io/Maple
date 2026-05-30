@@ -6,7 +6,12 @@
 
 <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
   @if (state.activeTab() === 'info') {
-    <maple-info-tab />
+    <!--
+      S6 #634 — `<app-info-panel>` replaced `<maple-info-tab>` here.
+      `flex-1 min-h-0` lets the panel fill the tab body and own its own
+      scroll (matches the prior info-tab behaviour).
+    -->
+    <app-info-panel class="flex-1 min-h-0" [asset]="state.focusedAsset()" />
   } @else {
     <editor-develop-tab />
   }
@@ -25,9 +30,7 @@
     <maple-icon
       name="info"
       [size]="12"
-      [color]="
-        state.activeTab() === 'info' ? 'var(--color-primary)' : 'var(--color-text-muted)'
-      "
+      [color]="state.activeTab() === 'info' ? 'var(--color-primary)' : 'var(--color-text-muted)'"
     />
     <span>Info</span>
   </div>
@@ -43,9 +46,7 @@
     <maple-icon
       name="droplet"
       [size]="12"
-      [color]="
-        state.activeTab() === 'develop' ? 'var(--color-primary)' : 'var(--color-text-muted)'
-      "
+      [color]="state.activeTab() === 'develop' ? 'var(--color-primary)' : 'var(--color-text-muted)'"
     />
     <span>Develop</span>
   </div>
