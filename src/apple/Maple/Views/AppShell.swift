@@ -157,6 +157,14 @@ struct AppShell: View {
     @State var cloudTimelineThumbClient: CloudThumbClient?
     @State var cloudTimelineThumbCache: CloudThumbCache?
 
+    /// Histogram client for the currently-open cloud asset (#633). Set
+    /// when `openCloudAsset(_:server:)` builds the editor session — the
+    /// AuthenticatedHTTPClient is reused with the existing
+    /// `cloudTimelineThumbClient` to preserve the 401-refresh coalescer.
+    /// `nil` when no cloud asset is selected, which short-circuits
+    /// `HistogramBlock` back to the placeholder.
+    @State var cloudHistogramClient: CloudHistogramClient?
+
     /// Active CloudSource for the merged Photos+Cloud timeline. Non-nil when
     /// a PhotoKit filter is active AND BackupSettings.isConfigured. Cleared
     /// when the user switches to a non-PhotoKit source.
@@ -225,6 +233,10 @@ struct AppShell: View {
             paneShellWithLayout
             #endif
         }
+        // #633 — InfoPanel/HistogramBlock reads this. nil ⇒ placeholder
+        // (local/PhotoKit assets, no cloud asset open). Set + cleared by
+        // `openCloudAsset` / the library-selection reset below.
+        .environment(\.cloudHistogramClient, cloudHistogramClient)
         .preferredColorScheme(.dark)
         .fileImporter(isPresented: $showFilePicker,
                       allowedContentTypes: [.folder]) { result in
@@ -278,6 +290,7 @@ struct AppShell: View {
                 cloudTimelineVM = nil
                 cloudTimelineThumbClient = nil
                 cloudTimelineThumbCache = nil
+                cloudHistogramClient = nil
             }
             // Merged timeline only valid while a PhotoKit filter is active.
             if case .photosFilter = newValue { /* keep mergedCloudSource */ }
