@@ -2,16 +2,13 @@
  * Missing-file reaper — hard-deletes asset rows whose on-disk original has
  * vanished from disk underneath the index.
  *
- * Two-stage, deliberately conservative, operator-gated lifecycle:
- *   1. TAG (automatic). Any file-touching stage (exif / thumb / preview)
- *      stamps `missing_since` — an ISO timestamp — the first time it hits
- *      ENOENT on the original (see `withMissingTag` in
- *      `src/indexer/images.repo.ts`). Tagging is the ONLY automatic step;
- *      nothing is ever deleted automatically.
- *   2. REAP (operator-gated). This worker, once RESUMED by an operator,
- *      periodically scans for tagged rows, re-verifies them on disk, and
- *      hard-deletes the record (emitting a `delete` change event) only when
- *      EVERY live location is genuinely gone.
+ * Lifecycle:
+ *   1. TAG (automatic). A file-touching stage (exif/thumb/preview) stamps
+ *      `missing_since` the first time it ENOENTs on the original (see
+ *      `tagMissingSince` in `./tag-missing.ts`) — the only automatic step.
+ *   2. REAP. This worker scans tagged rows each tick, re-verifies on disk, and
+ *      either recovers/prunes them or — once aged past the prune window —
+ *      hard-deletes the record (emitting a `delete` change event).
  *
  * Safety properties, all load-bearing:
  *
@@ -148,22 +145,30 @@ async function statKind(p: string): Promise<StatKind> {
   }
 }
 
-/** True when `absPath` is itself ENOENT but a case-insensitive / NFC near-match
- * of its basename exists in the parent directory — i.e. the file is actually on
- * disk under a slightly different name (a stored-path bug, NOT a deletion). Used
- * only to veto the irreversible hard-delete; the row is left for inspection. */
-async function hasNearMatchOnDisk(absPath: string): Promise<boolean> {
+type NearMatch =
+  /** A case/NFC near-match of the basename exists in the parent dir — the file
+   * is on disk under a different name (stored-path bug, NOT a deletion). */
+  | 'match'
+  /** Parent listed cleanly with no near-match — genuinely absent. */
+  | 'clear'
+  /** Parent couldn't be listed (EACCES/EIO/…) — we can't prove absence, so the
+   * caller must NOT delete this pass. */
+  | 'unreadable';
+
+/** Classify whether `absPath` (already known ENOENT) has a near-match sibling.
+ * Used only to gate the irreversible hard-delete. Only an ENOENT parent counts
+ * as genuinely gone; any other readdir error returns `unreadable` so a row is
+ * never deleted on the strength of a directory we couldn't read. */
+async function nearMatchOnDisk(absPath: string): Promise<NearMatch> {
   const dir = path.dirname(absPath);
   const target = path.basename(absPath).normalize('NFC').toLowerCase();
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
-  } catch {
-    // Parent unreadable / gone → no near-match we can prove. Caller already
-    // confirmed ENOENT, so genuinely absent.
-    return false;
+  } catch (err) {
+    return (err as { code?: string } | null)?.code === 'ENOENT' ? 'clear' : 'unreadable';
   }
-  return entries.some((e) => e.normalize('NFC').toLowerCase() === target);
+  return entries.some((e) => e.normalize('NFC').toLowerCase() === target) ? 'match' : 'clear';
 }
 
 export interface RunMissingReaperOptions {
@@ -306,23 +311,39 @@ export async function runMissingReaperOnce(
         continue;
       }
 
-      // No live location survives. Veto the irreversible delete if any entry is
-      // really on disk under a near-match name (a stored-path bug, not a
-      // deletion) — leave it tagged for a human to inspect.
-      let nameMismatch = false;
+      // No live location survives. Before the irreversible delete, list each
+      // gone entry's parent: a near-match means the file is on disk under a
+      // different name (stored-path bug → skip for inspection); an unreadable
+      // parent means we can't prove absence (→ skip, never delete).
+      let veto: 'name-mismatch' | 'unreadable' | null = null;
       for (const fi of absent) {
         const root = libs.get(fi.library_id.toHexString())!;
         const segments = fi.path === '' ? [] : fi.path.split('/');
-        if (await hasNearMatchOnDisk(path.join(root, ...segments, fi.filename))) {
-          nameMismatch = true;
+        const verdict = await nearMatchOnDisk(path.join(root, ...segments, fi.filename));
+        if (verdict === 'match') {
+          veto = 'name-mismatch';
+          break;
+        }
+        if (verdict === 'unreadable') {
+          veto = 'unreadable';
           break;
         }
       }
-      if (nameMismatch) {
+      if (veto === 'name-mismatch') {
         summary.skippedNameMismatch++;
         log.warn(
           { _id: String(doc._id) },
           'missing-reaper: stored path ENOENT but a near-match exists on disk — skipped, not deleted',
+        );
+        continue;
+      }
+      if (veto === 'unreadable') {
+        // Couldn't list a gone entry's directory — treat like an offline mount:
+        // skip rather than delete on unproven absence.
+        summary.skippedMountOffline++;
+        log.warn(
+          { _id: String(doc._id) },
+          'missing-reaper: gone entry parent dir unreadable — skipped, not deleted',
         );
         continue;
       }
@@ -386,7 +407,11 @@ export async function runMissingReaperOnce(
  * backlog from before tag-only suppression. */
 async function recoverAndPrune(
   coll: Awaited<ReturnType<typeof assetsCollection>>,
-  doc: { _id: ObjectId; fileinfo?: FileInfo[]; stages?: Record<string, { dead?: boolean }> },
+  doc: {
+    _id: ObjectId;
+    fileinfo?: FileInfo[];
+    stages?: Record<string, { dead?: boolean }>;
+  },
   absent: FileInfo[],
   summary: MissingReaperSummary,
 ): Promise<void> {
@@ -403,7 +428,11 @@ async function recoverAndPrune(
   if (absent.length > 0) {
     update['$pull'] = {
       fileinfo: {
-        $or: absent.map((a) => ({ library_id: a.library_id, path: a.path, filename: a.filename })),
+        $or: absent.map((a) => ({
+          library_id: a.library_id,
+          path: a.path,
+          filename: a.filename,
+        })),
       },
     };
   }

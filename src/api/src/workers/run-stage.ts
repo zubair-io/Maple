@@ -31,6 +31,7 @@ import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts'
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { stageRegistry } from './registry.ts';
 import { POLL_INTERVAL_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
+import { tagMissingSince } from './tag-missing.ts';
 
 // ---------------------------------------------------------------------------
 // Public types — load-bearing for every stage file and stage test.
@@ -214,11 +215,9 @@ export function buildClaimQuery(
       { [`stages.${name}.version`]: { $exists: false } },
     ],
     [`stages.${name}.dead`]: { $ne: true },
-    // Skip assets whose original is tagged missing: `missing_since` holds an ISO
-    // string while tagged, and is absent/null otherwise. A tagged asset is
-    // parked for EVERY stage until the missing-reaper resolves it (clears the
-    // tag → reprocesses, or hard-deletes the row). This is what makes "tag once,
-    // stop touching it everywhere" hold — see the ENOENT branch in runOnce.
+    // Skip assets tagged missing (`missing_since` is an ISO string while tagged,
+    // absent/null otherwise): a tagged asset is parked for EVERY stage until the
+    // missing-reaper resolves it (clears the tag, or hard-deletes the row).
     missing_since: { $not: { $type: 'string' } },
   };
   for (const dep of dependsOn) {
@@ -366,14 +365,7 @@ export async function runOnce(
       // resolves it — clears the tag (asset reprocesses, since its stages were
       // never marked done/dead) or hard-deletes the row.
       if (stage.tagsMissingOnEnoent && isEnoentError(err)) {
-        // Conditional tag → first-detection wins (the reaper's boot age-gate
-        // must not be pushed forward by re-runs). Best-effort.
-        await images
-          .updateOne(
-            { _id: id, $or: [{ missing_since: { $exists: false } }, { missing_since: null }] },
-            { $set: { missing_since: new Date().toISOString() } },
-          )
-          .catch(() => {});
+        await tagMissingSince(images, id);
         log.debug({ _id: idStr }, `${stage.name}: original missing — tagged for reaper`);
         return;
       }
