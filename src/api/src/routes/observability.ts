@@ -166,8 +166,21 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
       // request SigNoz accepts. A 2xx means the endpoint is reachable AND the
       // key (if any) authenticates.
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      // Auth header precedence, matching the form's "blank keeps the saved key"
+      // semantics: a typed key wins; otherwise fall back to the saved DB key so
+      // testing a saved-key deployment with a blank field still authenticates.
+      // The field is write-only, so the UI can't echo the key back to send it.
+      let probeKey: string | null = null;
       if (typeof body.ingestion_key === 'string' && body.ingestion_key.trim().length > 0) {
-        headers['signoz-access-token'] = body.ingestion_key.trim();
+        probeKey = body.ingestion_key.trim();
+      } else {
+        const saved = await loadObservabilityConfig();
+        if (typeof saved?.ingestion_key === 'string' && saved.ingestion_key.trim().length > 0) {
+          probeKey = saved.ingestion_key.trim();
+        }
+      }
+      if (probeKey) {
+        headers['signoz-access-token'] = probeKey;
       }
       try {
         const res = await fetch(`${validated}/v1/traces`, {
