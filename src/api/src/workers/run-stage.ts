@@ -213,6 +213,12 @@ export function buildClaimQuery(
       { [`stages.${name}.version`]: { $exists: false } },
     ],
     [`stages.${name}.dead`]: { $ne: true },
+    // Skip assets whose original is tagged missing: `missing_since` holds an ISO
+    // string while tagged, and is absent/null otherwise. A tagged asset is
+    // parked for EVERY stage until the missing-reaper resolves it (clears the
+    // tag → reprocesses, or hard-deletes the row). This is what makes "tag once,
+    // stop touching it everywhere" hold — see the ENOENT branch in runOnce.
+    missing_since: { $not: { $type: 'string' } },
   };
   for (const dep of dependsOn) {
     (filter as Record<string, unknown>)[`stages.${dep.name}.version`] = {
@@ -349,13 +355,12 @@ export async function runOnce(
       throughput?.record(new Date());
     } catch (err) {
       // Handled case: an original-file stage hit ENOENT — the on-disk original
-      // is (apparently) gone. Don't churn maxAttempts retries with a scary raw
-      // ENOENT: stamp the missing-reaper tag and park the stage dead in ONE
-      // attempt with a benign reason. We deliberately do NOT mark it done
-      // (version stays put) — the asset must remain a visible item of work
-      // until the operator-gated reaper actually re-verifies on disk and either
-      // prunes the stale fileinfo entry + re-arms this stage, or hard-deletes
-      // the row. Marking it "done" here would hide a still-broken asset.
+      // is (apparently) gone. Just TAG it (`missing_since`) and stop. We touch
+      // no stage state: the tag immediately drops the asset out of every
+      // stage's claim query (see buildClaimQuery), so there's no retry churn,
+      // no dead-letter, and no scary raw ENOENT. The missing-reaper then
+      // resolves it — clears the tag (asset reprocesses, since its stages were
+      // never marked done/dead) or hard-deletes the row.
       if (stage.tagsMissingOnEnoent && isEnoentError(err)) {
         // Conditional tag → first-detection wins (the reaper's boot age-gate
         // must not be pushed forward by re-runs). Best-effort.
@@ -365,16 +370,6 @@ export async function runOnce(
             { $set: { missing_since: new Date().toISOString() } },
           )
           .catch(() => {});
-        await images.updateOne(
-          { _id: id },
-          {
-            $set: {
-              [`stages.${stage.name}.attempts`]: config.maxAttempts,
-              [`stages.${stage.name}.last_error`]: 'original-missing (tagged for reaper)',
-              [`stages.${stage.name}.dead`]: true,
-            },
-          },
-        );
         log.debug({ _id: idStr }, `${stage.name}: original missing — tagged for reaper`);
         return;
       }

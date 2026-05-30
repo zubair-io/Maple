@@ -100,4 +100,19 @@ export class WorkersApiService {
       patch,
     );
   }
+
+  /** Read the missing-reaper prune window (hours an original must be missing
+   * before its row is hard-deleted). */
+  getReaperPruneWindow(): Observable<{ hours: number }> {
+    return this.http.get<{ hours: number }>(`${this.base}/workers/missing-reaper/prune-window`);
+  }
+
+  /** Update the missing-reaper prune window. Takes effect on the reaper's next
+   * tick (no restart). */
+  setReaperPruneWindow(hours: number): Observable<{ ok: boolean; hours: number }> {
+    return this.http.patch<{ ok: boolean; hours: number }>(
+      `${this.base}/workers/missing-reaper/prune-window`,
+      { hours },
+    );
+  }
 }

@@ -121,7 +121,7 @@ describe('runMissingReaperOnce', () => {
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
-    const summary = await runMissingReaperOnce({ startedAtIso: '2026-05-10T00:00:00.000Z' });
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
 
     expect(summary.scanned).toBe(1);
     expect(summary.reaped).toBe(1);
@@ -129,7 +129,7 @@ describe('runMissingReaperOnce', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('leaves a row whose tag is NEWER than the boot start gate', async () => {
+  it('cooldown: leaves an all-gone row that has not been missing long enough', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
     const libraryId = await seedLibrary(dir);
@@ -137,15 +137,54 @@ describe('runMissingReaperOnce', () => {
       ...ASSET_BASE,
       maple_id: 'fresh-1',
       fileinfo: [{ path: '', filename: 'gone.jpg', library_id: libraryId, deleted_at: null }],
-      missing_since: '2026-05-20T00:00:00.000Z', // newer than startedAt
+      missing_since: '2026-05-20T00:00:00.000Z', // newer than the delete cutoff
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
-    const summary = await runMissingReaperOnce({ startedAtIso: '2026-05-10T00:00:00.000Z' });
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
 
-    expect(summary.scanned).toBe(0);
+    // Scanned (no boot gate) but not deleted — still inside the prune window.
+    expect(summary.scanned).toBe(1);
+    expect(summary.skippedCooldown).toBe(1);
     expect(summary.reaped).toBe(0);
     expect(await db!.collection('assets').countDocuments({})).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('paused (allowDelete:false): skips the delete but STILL recovers a re-found file', async () => {
+    if (!mongoReachable) return;
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
+    writeFileSync(join(dir, 'back.jpg'), 'x'); // this one is present again
+    const libraryId = await seedLibrary(dir);
+    await db!.collection('assets').insertMany([
+      {
+        ...ASSET_BASE,
+        maple_id: 'paused-gone',
+        fileinfo: [{ path: '', filename: 'gone.jpg', library_id: libraryId, deleted_at: null }],
+        missing_since: '2026-05-01T00:00:00.000Z', // aged out, but deletes paused
+      },
+      {
+        ...ASSET_BASE,
+        maple_id: 'paused-back',
+        fileinfo: [{ path: '', filename: 'back.jpg', library_id: libraryId, deleted_at: null }],
+        missing_since: '2026-05-01T00:00:00.000Z',
+      },
+    ] as never);
+
+    const { runMissingReaperOnce } = await import('./missing-reaper.ts');
+    const summary = await runMissingReaperOnce({
+      deleteBeforeIso: '2026-05-10T00:00:00.000Z',
+      allowDelete: false,
+    });
+
+    // Aged-out all-gone row is NOT deleted while paused...
+    expect(summary.reaped).toBe(0);
+    expect(summary.skippedPaused).toBe(1);
+    expect(await db!.collection('assets').countDocuments({ maple_id: 'paused-gone' })).toBe(1);
+    // ...but the re-found file still recovers (tag cleared) — recovery ignores pause.
+    expect(summary.recovered).toBe(1);
+    const back = await db!.collection('assets').findOne({ maple_id: 'paused-back' });
+    expect(back!.missing_since).toBeNull();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -162,7 +201,7 @@ describe('runMissingReaperOnce', () => {
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
-    const summary = await runMissingReaperOnce({ startedAtIso: '2026-05-10T00:00:00.000Z' });
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
 
     expect(summary.reaped).toBe(0);
     expect(summary.recovered).toBe(1);
@@ -186,7 +225,7 @@ describe('runMissingReaperOnce', () => {
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
-    const summary = await runMissingReaperOnce({ startedAtIso: '2026-05-10T00:00:00.000Z' });
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
 
     expect(summary.reaped).toBe(0);
     expect(summary.skippedMountOffline).toBe(1);
@@ -211,7 +250,7 @@ describe('runMissingReaperOnce', () => {
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
-    const summary = await runMissingReaperOnce({ startedAtIso: '2026-05-10T00:00:00.000Z' });
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
 
     expect(summary.reaped).toBe(0);
     expect(summary.recovered).toBe(1);
@@ -247,7 +286,7 @@ describe('runMissingReaperOnce', () => {
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
-    const summary = await runMissingReaperOnce({ startedAtIso: '2026-05-10T00:00:00.000Z' });
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
 
     expect(summary.reaped).toBe(0);
     expect(summary.recovered).toBe(1);
@@ -264,7 +303,7 @@ describe('runMissingReaperOnce', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('does NOT re-arm stages when the pruned entry was not the primary', async () => {
+  it('does NOT re-arm a stage that is not dead (already processed) on recovery', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
     writeFileSync(join(dir, 'real.jpg'), 'x'); // primary present
@@ -273,8 +312,8 @@ describe('runMissingReaperOnce', () => {
       ...ASSET_BASE,
       maple_id: 'nonprimary-1',
       fileinfo: [
-        { path: '', filename: 'real.jpg', library_id: libraryId, deleted_at: null }, // primary, present
-        { path: '', filename: 'stale.jpg', library_id: libraryId, deleted_at: null }, // gone, non-primary
+        { path: '', filename: 'real.jpg', library_id: libraryId, deleted_at: null }, // present
+        { path: '', filename: 'stale.jpg', library_id: libraryId, deleted_at: null }, // gone
       ],
       missing_since: '2026-05-01T00:00:00.000Z',
       stages: {
@@ -283,12 +322,40 @@ describe('runMissingReaperOnce', () => {
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
-    await runMissingReaperOnce({ startedAtIso: '2026-05-10T00:00:00.000Z' });
+    await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
 
     const doc = await db!.collection('assets').findOne({ maple_id: 'nonprimary-1' });
     expect(doc!.fileinfo.map((f: { filename: string }) => f.filename)).toEqual(['real.jpg']);
-    // exif was already done against the (unchanged) primary — left untouched.
+    // exif already succeeded (not dead) — left untouched, no needless reprocess.
     expect(doc!.stages.exif.version).toBe(2);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('re-arms a dead original stage on pure recovery (file came back, nothing pruned)', async () => {
+    if (!mongoReachable) return;
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
+    writeFileSync(join(dir, 'back.jpg'), 'x'); // file is present again
+    const libraryId = await seedLibrary(dir);
+    await db!.collection('assets').insertOne({
+      ...ASSET_BASE,
+      maple_id: 'recover-rearm-1',
+      fileinfo: [{ path: '', filename: 'back.jpg', library_id: libraryId, deleted_at: null }],
+      missing_since: '2026-05-01T00:00:00.000Z',
+      stages: {
+        exif: { version: 0, attempts: 5, last_error: 'ENOENT', processed_at: null, dead: true },
+      },
+    } as never);
+
+    const { runMissingReaperOnce } = await import('./missing-reaper.ts');
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
+
+    expect(summary.recovered).toBe(1);
+    expect(summary.prunedEntries).toBe(0); // nothing absent to prune
+    const doc = await db!.collection('assets').findOne({ maple_id: 'recover-rearm-1' });
+    expect(doc!.missing_since).toBeNull();
+    // The previously-dead exif is re-queued so it reprocesses the recovered file.
+    expect(doc!.stages.exif.dead).toBe(false);
+    expect(doc!.stages.exif.version).toBe(0);
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -309,7 +376,7 @@ describe('runMissingReaperOnce', () => {
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
-    const summary = await runMissingReaperOnce({ startedAtIso: '2026-05-10T00:00:00.000Z' });
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
 
     expect(summary.reaped).toBe(0);
     // Either the mismatch veto fired (case-sensitive) or it recovered
@@ -332,7 +399,7 @@ describe('runMissingReaperOnce', () => {
     await db!.collection('assets').insertMany(docs as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
-    const summary = await runMissingReaperOnce({ startedAtIso: '2026-05-10T00:00:00.000Z' });
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: '2026-05-10T00:00:00.000Z' });
 
     expect(summary.aborted).toBe(true);
     expect(summary.reaped).toBe(0);
@@ -342,37 +409,74 @@ describe('runMissingReaperOnce', () => {
   });
 });
 
+describe('claim-query parking', () => {
+  it('a tagged (missing_since) asset is skipped by a stage claim query, and re-enters once cleared', async () => {
+    if (!mongoReachable) return;
+    const { buildClaimQuery } = await import('./run-stage.ts');
+    const assets = db!.collection('assets');
+    await assets.insertMany([
+      { ...ASSET_BASE, maple_id: 'untagged', missing_since: null } as never,
+      { ...ASSET_BASE, maple_id: 'tagged', missing_since: '2026-05-01T00:00:00.000Z' } as never,
+    ]);
+    const q = buildClaimQuery('exif', 1, [], new Set()) as Record<string, unknown>;
+
+    const claimed = await assets.find(q).toArray();
+    expect(claimed.map((d) => d.maple_id).sort()).toEqual(['untagged']);
+
+    // Clearing the tag (what the reaper does on resolution) re-admits it.
+    await assets.updateOne({ maple_id: 'tagged' }, { $set: { missing_since: null } });
+    const after = await assets.find(q).toArray();
+    expect(after.map((d) => d.maple_id).sort()).toEqual(['tagged', 'untagged']);
+  });
+});
+
 describe('startMissingReaper', () => {
-  it('always boots paused and registers a controllable worker', async () => {
+  it('registers a controllable worker whose pause/resume flip live state', async () => {
     const { stageRegistry } = await import('./registry.ts');
     const { startMissingReaper, MISSING_REAPER_NAME } = await import('./missing-reaper.ts');
     // Long interval so no tick fires during the test.
     const handle = startMissingReaper({ intervalMs: 3_600_000 });
+    await handle.ready.catch(() => undefined);
     try {
-      const status = stageRegistry.statuses()[MISSING_REAPER_NAME];
-      expect(status).toBeDefined();
-      expect(status!.status).toBe('paused');
-
-      // Resume / pause flips the live state via the same registry surface the
-      // routes use.
-      await stageRegistry.resume(MISSING_REAPER_NAME);
-      expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('running');
+      expect(stageRegistry.statuses()[MISSING_REAPER_NAME]).toBeDefined();
+      // pause/resume flip live state via the same registry surface the routes
+      // use (in-memory flip is synchronous; persistence is best-effort).
       await stageRegistry.pause(MISSING_REAPER_NAME);
       expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('paused');
+      await stageRegistry.resume(MISSING_REAPER_NAME);
+      expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('running');
     } finally {
       handle.stop();
     }
     expect(stageRegistry.statuses()[MISSING_REAPER_NAME]).toBeUndefined();
   });
 
-  it('boots running when auto-run is opted in', async () => {
+  it('persists pause across restarts (worker_config), running by default', async () => {
+    if (!mongoReachable) return;
     const { stageRegistry } = await import('./registry.ts');
     const { startMissingReaper, MISSING_REAPER_NAME } = await import('./missing-reaper.ts');
-    const handle = startMissingReaper({ intervalMs: 3_600_000, autoRun: true });
-    try {
-      expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('running');
-    } finally {
-      handle.stop();
-    }
+    await db!.collection('worker_config').deleteMany({ name: MISSING_REAPER_NAME });
+
+    // First lifetime: no stored config → boots running by default. Pause it.
+    const h1 = startMissingReaper({ intervalMs: 3_600_000 });
+    await h1.ready;
+    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('running');
+    await stageRegistry.pause(MISSING_REAPER_NAME);
+    await new Promise((r) => setTimeout(r, 100)); // let the best-effort persist flush
+    h1.stop();
+
+    // Second lifetime: adopts the stored paused state.
+    const h2 = startMissingReaper({ intervalMs: 3_600_000 });
+    await h2.ready;
+    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('paused');
+    await stageRegistry.resume(MISSING_REAPER_NAME);
+    await new Promise((r) => setTimeout(r, 100));
+    h2.stop();
+
+    // Third lifetime: resume persisted → boots running again.
+    const h3 = startMissingReaper({ intervalMs: 3_600_000 });
+    await h3.ready;
+    expect(stageRegistry.statuses()[MISSING_REAPER_NAME]!.status).toBe('running');
+    h3.stop();
   });
 });

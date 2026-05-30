@@ -143,6 +143,48 @@
                   <span class="group-tag">{{ meta(s).group }}</span>
                 </div>
 
+                @if (s.name === 'missing-reaper') {
+                  <div class="block">
+                    <div class="subhead">Missing-file cleanup</div>
+                    <div class="field">
+                      <div class="field-label">Prune window</div>
+                      <div class="num-input">
+                        <input
+                          type="number"
+                          min="1"
+                          max="8760"
+                          [value]="reaperPruneWindow()"
+                          (input)="setReaperPruneWindow($any($event.target).value)"
+                          data-testid="reaper-prune-window"
+                        />
+                        <span class="num-suffix">hours</span>
+                      </div>
+                      <div class="field-hint">
+                        Only delete a record after its original file has been missing this long
+                        (default 12 h). Recovery of a re-found file is never delayed, and pausing this
+                        worker suspends only deletion — never recovery.
+                      </div>
+                    </div>
+                    <div class="row-footer">
+                      <span class="footer-spacer"></span>
+                      @if (reaperPruneError(); as msg) {
+                        <span class="save-error">{{ msg }}</span>
+                      } @else if (reaperPruneSaveState() === 'success') {
+                        <span class="save-ok">Saved.</span>
+                      }
+                      <button
+                        type="button"
+                        class="btn-primary"
+                        [disabled]="reaperPruneSaveState() === 'saving' || !reaperPruneLoaded()"
+                        (click)="saveReaperPruneWindow()"
+                        data-testid="reaper-prune-save"
+                      >
+                        {{ reaperPruneSaveState() === 'saving' ? 'Saving…' : 'Save' }}
+                      </button>
+                    </div>
+                  </div>
+                }
+
                 @if (meta(s).enrichment) {
                   <div class="block">
                     <div class="subhead">
