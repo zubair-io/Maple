@@ -162,13 +162,11 @@ struct LibraryGrid: View {
         case .fourStars:
             return assets.filter { (sessions[$0.id]?.culling.stars ?? 0) >= 4 }
         case .edited:
-            // `AssetRef.hasEdits` is tracked at #628 (no model field
-            // today). Returning empty until that lands keeps the chip
-            // selectable but content-free, matching the doc'd v0.1 stub
-            // behaviour. The companion `LibraryGridFilterTests` case
-            // gets flipped from "asserts empty" to a real assertion in
-            // the same PR that adds the field.
-            return []
+            // `AssetRef.hasEdits` (#628) checks for an XMP sidecar next
+            // to the primary URL. Cheap stat-per-cell. URL-less refs
+            // (PhotoKit, network) never satisfy the predicate — accepted
+            // v0.1 contract since PhotoKit tracks its own edit state.
+            return assets.filter(\.hasEdits)
         }
     }
 }
