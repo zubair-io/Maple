@@ -13,11 +13,12 @@
  *      hard-deletes the record (emitting a `delete` change event) only when
  *      EVERY live location is genuinely gone.
  *
- * Three safety properties, all load-bearing:
+ * Safety properties, all load-bearing:
  *
- *   - Always starts PAUSED. Boot never auto-resumes it, regardless of any
- *     stored state — deleting DB rows is destructive, so a human flips it on
- *     from /settings/workers each server start.
+ *   - Paused by default. Boot never auto-resumes from stored state. Auto-run is
+ *     an explicit deployment opt-in (`MAPLE_REAPER_AUTORUN` / `opts.autoRun`);
+ *     a plain deploy stays operator-gated and a human flips it on from
+ *     /settings/workers.
  *
  *   - Boot-time start gate. `startedAt` is captured when the loop boots; only
  *     rows whose `missing_since` PREDATES `startedAt` are eligible. A row can
@@ -32,10 +33,22 @@
  *     is SKIPPED (never deleted). A whole offline share must not be mistaken
  *     for a pile of deleted files.
  *
- * Per-row re-verification: every LIVE `fileinfo` entry is re-stat'd. If any
- * still exists the file came back → `missing_since` is cleared (recovered).
- * If a library is offline / unregistered / unreadable → skip. Only when all
- * live locations confirm ENOENT does the row get hard-deleted.
+ *   - Name-mismatch veto. Before the irreversible hard-delete, each gone
+ *     location's parent dir is listed; a case/Unicode near-match means the file
+ *     is on disk under a different name (a stored-path bug), so the row is
+ *     SKIPPED for inspection rather than deleted.
+ *
+ *   - Circuit breaker. A pass that would hard-delete a large fraction of what
+ *     it scanned aborts WITHOUT deleting — a systemic mis-detection guard.
+ *
+ * Per-row re-verification: every LIVE `fileinfo` entry is re-stat'd.
+ *   - Any location still present → the row SURVIVES: its gone sibling entries
+ *     are pruned ($pull), `missing_since` is cleared, and — only if the pruned
+ *     set included the primary location — the original-file stages (exif /
+ *     thumb / preview) are re-queued so they reprocess the corrected primary.
+ *   - A library offline / unregistered / unreadable → skip.
+ *   - Only when EVERY live location confirms ENOENT (and no near-match veto)
+ *     does the row get hard-deleted.
  *
  * Registered into the in-process `stageRegistry` so the existing
  * `/api/workers/missing-reaper/{status,pause,resume}` surface controls it,
@@ -70,17 +83,46 @@ export interface MissingReaperSummary {
   scanned: number;
   /** Rows hard-deleted (all live locations confirmed gone). */
   reaped: number;
-  /** Rows whose file turned out to still be present → tag cleared. */
+  /** Rows that kept at least one live location → tag cleared (and any gone
+   * sibling entries pruned). */
   recovered: number;
+  /** fileinfo entries pruned ($pull) across all recovered rows this pass. */
+  prunedEntries: number;
   /** Rows skipped because a library was offline / unregistered / unreadable. */
   skippedMountOffline: number;
+  /** Rows whose only location stat'd ENOENT but a case/Unicode near-match
+   * exists on disk — left untouched for human inspection, never deleted. */
+  skippedNameMismatch: number;
+  /** True when the circuit breaker tripped and the pass aborted without
+   * executing any hard-deletes (a systemic mis-detection guard). */
+  aborted: boolean;
   /** Rows that raised an unexpected error during the pass. */
   errors: number;
 }
 
+/**
+ * Stages that read the ORIGINAL file (StageConfig.tagsMissingOnEnoent). When
+ * the reaper prunes the entry that was serving as the primary location, these
+ * are re-queued (version 0, dead cleared) so they reprocess against the
+ * corrected primary instead of staying dead/skipped on the vanished path.
+ * Kept in sync with the tagsMissingOnEnoent stages.
+ */
+const ORIGINAL_FILE_STAGES = ['exif', 'thumb', 'preview'] as const;
+
+/** Circuit breaker: abort a pass without deleting if it would hard-delete more
+ * than BREAKER_MIN rows AND more than BREAKER_FRACTION of those scanned. Bounds
+ * the blast radius of a systemic mis-detection (e.g. a root that stats present
+ * but whose children all ENOENT). */
+const BREAKER_MIN = 25;
+const BREAKER_FRACTION = 0.5;
+
 /** Live (non-tombstoned) on-disk locations for an asset. */
 function liveFileInfos(fileinfo: FileInfo[] | undefined): FileInfo[] {
   return (fileinfo ?? []).filter((f) => !f.deleted_at);
+}
+
+function sameEntry(a: FileInfo, b: FileInfo): boolean {
+  return a.library_id.equals(b.library_id) && a.path === b.path && a.filename === b.filename;
 }
 
 type StatKind = 'present' | 'absent' | 'error';
@@ -95,6 +137,24 @@ async function statKind(p: string): Promise<StatKind> {
   } catch (err) {
     return (err as { code?: string } | null)?.code === 'ENOENT' ? 'absent' : 'error';
   }
+}
+
+/** True when `absPath` is itself ENOENT but a case-insensitive / NFC near-match
+ * of its basename exists in the parent directory — i.e. the file is actually on
+ * disk under a slightly different name (a stored-path bug, NOT a deletion). Used
+ * only to veto the irreversible hard-delete; the row is left for inspection. */
+async function hasNearMatchOnDisk(absPath: string): Promise<boolean> {
+  const dir = path.dirname(absPath);
+  const target = path.basename(absPath).normalize('NFC').toLowerCase();
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch {
+    // Parent unreadable / gone → no near-match we can prove. Caller already
+    // confirmed ENOENT, so genuinely absent.
+    return false;
+  }
+  return entries.some((e) => e.normalize('NFC').toLowerCase() === target);
 }
 
 export interface RunMissingReaperOptions {
@@ -141,7 +201,10 @@ export async function runMissingReaperOnce(
     scanned: 0,
     reaped: 0,
     recovered: 0,
+    prunedEntries: 0,
     skippedMountOffline: 0,
+    skippedNameMismatch: 0,
+    aborted: false,
     errors: 0,
   };
 
@@ -155,12 +218,18 @@ export async function runMissingReaperOnce(
     .limit(batchSize)
     .toArray();
 
+  // Hard-deletes are deferred: we classify every candidate first (executing the
+  // safe prune/recover writes inline), then gate the irreversible deletes
+  // behind the circuit breaker before running them.
+  const toDelete: typeof candidates = [];
+
   for (const doc of candidates) {
     summary.scanned++;
     try {
       const lives = liveFileInfos(doc.fileinfo);
+      const present: FileInfo[] = [];
+      const absent: FileInfo[] = [];
       let cannotVerify = false;
-      let stillPresent = false;
 
       for (const fi of lives) {
         const libIdHex = fi.library_id.toHexString();
@@ -172,12 +241,10 @@ export async function runMissingReaperOnce(
         const segments = fi.path === '' ? [] : fi.path.split('/');
         const abs = path.join(root, ...segments, fi.filename);
         const kind = await statKind(abs);
-        if (kind === 'present') {
-          stillPresent = true;
-          break;
-        }
-        if (kind === 'error') {
-          // Couldn't confirm the file is gone — be safe and skip the row.
+        if (kind === 'present') present.push(fi);
+        else if (kind === 'absent') absent.push(fi);
+        else {
+          // Couldn't confirm the file is gone (EACCES/EIO/…) — skip the row.
           cannotVerify = true;
           break;
         }
@@ -187,37 +254,36 @@ export async function runMissingReaperOnce(
         summary.skippedMountOffline++;
         continue;
       }
-      if (stillPresent) {
-        await coll.updateOne({ _id: doc._id }, { $set: { missing_since: null } });
-        summary.recovered++;
+
+      if (present.length > 0) {
+        // At least one copy survives: prune the gone entries, clear the tag,
+        // and (only if the entry we pruned was serving as the primary) re-arm
+        // the original-file stages so they reprocess against the new primary.
+        await recoverAndPrune(coll, doc, absent, summary);
         continue;
       }
 
-      // Every live location confirmed ENOENT (or the row had none left) —
-      // hard-delete and publish a delete event for FP / SSE consumers.
-      const primary = assetPrimaryFileInfo(doc);
-      await coll.deleteOne({ _id: doc._id });
-      summary.reaped++;
-      // Tombstone the Meilisearch document. Unlike a trashed asset (whose
-      // prior soft-delete already tombstoned it), a reaped row was never
-      // soft-deleted, so without this the search index keeps surfacing an
-      // asset whose Mongo row and on-disk file are both gone until the next
-      // full backfill. Best-effort + keyed on maple_id, mirroring
-      // `softDelete()` in images.repo.ts. The client log-and-swallows on its
-      // own; the catch is defensive against a programmer-error throw.
-      if (doc.maple_id) {
-        try {
-          await meilisearchClient().tombstone(doc.maple_id);
-        } catch {
-          /* best-effort — Mongo is canonical, search self-heals on rebuild */
+      // No live location survives. Veto the irreversible delete if any entry is
+      // really on disk under a near-match name (a stored-path bug, not a
+      // deletion) — leave it tagged for a human to inspect.
+      let nameMismatch = false;
+      for (const fi of absent) {
+        const root = libs.get(fi.library_id.toHexString())!;
+        const segments = fi.path === '' ? [] : fi.path.split('/');
+        if (await hasNearMatchOnDisk(path.join(root, ...segments, fi.filename))) {
+          nameMismatch = true;
+          break;
         }
       }
-      await recordAndPublishAssetChange({
-        kind: 'delete',
-        asset_id: doc._id as ObjectId,
-        folder_id: primary?.library_id ?? null,
-        abs_path: null,
-      });
+      if (nameMismatch) {
+        summary.skippedNameMismatch++;
+        log.warn(
+          { _id: String(doc._id) },
+          'missing-reaper: stored path ENOENT but a near-match exists on disk — skipped, not deleted',
+        );
+        continue;
+      }
+      toDelete.push(doc);
     } catch (err) {
       summary.errors++;
       log.warn(
@@ -227,8 +293,91 @@ export async function runMissingReaperOnce(
     }
   }
 
+  // Circuit breaker: a pass that wants to hard-delete a large fraction of what
+  // it scanned is far more likely a systemic mis-detection than that many real
+  // deletions. Abort without deleting and surface it loudly.
+  if (toDelete.length > BREAKER_MIN && toDelete.length > summary.scanned * BREAKER_FRACTION) {
+    summary.aborted = true;
+    log.error(
+      { wouldDelete: toDelete.length, scanned: summary.scanned },
+      'missing-reaper: circuit breaker tripped — too many hard-deletes in one pass; aborting WITHOUT deleting',
+    );
+    return summary;
+  }
+
+  for (const doc of toDelete) {
+    try {
+      await hardDeleteRow(coll, doc);
+      summary.reaped++;
+    } catch (err) {
+      summary.errors++;
+      log.warn(
+        { _id: String(doc._id), err: err instanceof Error ? err.message : err },
+        'missing-reaper: hard-delete failed',
+      );
+    }
+  }
+
   if (summary.scanned > 0) log.info(summary, 'missing-reaper pass complete');
   return summary;
+}
+
+/** A surviving row: $pull the gone entries, clear the tag, and re-arm the
+ * original-file stages iff the pruned set included the primary location. */
+async function recoverAndPrune(
+  coll: Awaited<ReturnType<typeof assetsCollection>>,
+  doc: { _id: ObjectId; fileinfo?: FileInfo[] },
+  absent: FileInfo[],
+  summary: MissingReaperSummary,
+): Promise<void> {
+  const set: Record<string, unknown> = { missing_since: null };
+  const primary = assetPrimaryFileInfo(doc as never);
+  const primaryPruned = primary != null && absent.some((a) => sameEntry(a, primary));
+  if (primaryPruned) {
+    for (const name of ORIGINAL_FILE_STAGES) {
+      set[`stages.${name}.version`] = 0;
+      set[`stages.${name}.attempts`] = 0;
+      set[`stages.${name}.last_error`] = null;
+      set[`stages.${name}.dead`] = false;
+    }
+  }
+  const update: Record<string, unknown> = { $set: set };
+  if (absent.length > 0) {
+    update['$pull'] = {
+      fileinfo: {
+        $or: absent.map((a) => ({ library_id: a.library_id, path: a.path, filename: a.filename })),
+      },
+    };
+  }
+  await coll.updateOne({ _id: doc._id }, update as never);
+  summary.recovered++;
+  summary.prunedEntries += absent.length;
+}
+
+/** Hard-delete a row whose every live location is gone, tombstone its search
+ * doc, and publish a delete event. */
+async function hardDeleteRow(
+  coll: Awaited<ReturnType<typeof assetsCollection>>,
+  doc: { _id: ObjectId; fileinfo?: FileInfo[]; maple_id?: string },
+): Promise<void> {
+  const primary = assetPrimaryFileInfo(doc as never);
+  await coll.deleteOne({ _id: doc._id });
+  // Tombstone the Meilisearch document. A reaped row was never soft-deleted,
+  // so without this the search index keeps surfacing an asset whose Mongo row
+  // and on-disk file are both gone until the next full backfill. Best-effort.
+  if (doc.maple_id) {
+    try {
+      await meilisearchClient().tombstone(doc.maple_id);
+    } catch {
+      /* best-effort — Mongo is canonical, search self-heals on rebuild */
+    }
+  }
+  await recordAndPublishAssetChange({
+    kind: 'delete',
+    asset_id: doc._id,
+    folder_id: primary?.library_id ?? null,
+    abs_path: null,
+  });
 }
 
 export interface MissingReaperHandle {
@@ -241,23 +390,38 @@ export interface StartMissingReaperOptions {
   /** Test seam — override the boot start time. Production omits it so the
    * gate is anchored to actual process boot. */
   startedAtIso?: string;
+  /**
+   * Opt into auto-run: the reaper boots RUNNING instead of paused. Defaults to
+   * the `MAPLE_REAPER_AUTORUN` env flag (`1`/`true`). Safe-by-default stays the
+   * code default (paused) so a plain deploy never auto-deletes; an operator
+   * sets the env var once on a deployment they want self-cleaning. The
+   * boot-gate, mount guard, name-mismatch veto and circuit breaker still apply.
+   */
+  autoRun?: boolean;
+}
+
+function autoRunFromEnv(): boolean {
+  const v = process.env.MAPLE_REAPER_AUTORUN;
+  return v === '1' || v === 'true';
 }
 
 /**
  * Start the reaper's interval loop and register it with the stage registry.
  *
- * ALWAYS starts paused. The returned handle's `stop()` cancels the loop and
- * unregisters from the registry. The first tick is NOT fired eagerly (it would
- * be a no-op while paused anyway) — the operator resumes it deliberately.
+ * Boots PAUSED by default (destructive work stays operator-gated); opt into
+ * auto-run via `opts.autoRun` / `MAPLE_REAPER_AUTORUN`. The returned handle's
+ * `stop()` cancels the loop and unregisters from the registry.
  */
 export function startMissingReaper(opts: StartMissingReaperOptions = {}): MissingReaperHandle {
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const batchSize = opts.batchSize ?? DEFAULT_BATCH;
   const startedAtIso = opts.startedAtIso ?? new Date().toISOString();
+  const autoRun = opts.autoRun ?? autoRunFromEnv();
 
-  // Always paused on boot — destructive + operator-gated. Never read a stored
-  // value here: a deliberate human action must re-arm it every server start.
-  let paused = true;
+  // Paused unless auto-run is explicitly opted in. A stored value is never read
+  // here: enabling auto-run is a deliberate deployment decision (env/opts), not
+  // something a prior resume silently re-arms.
+  let paused = !autoRun;
   let running = false;
   let stopped = false;
   const throughput = new ThroughputWindow();
@@ -308,7 +472,10 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     void tick();
   }, intervalMs);
 
-  log.info({ intervalMs, startedAtIso }, 'missing-reaper started (paused)');
+  log.info(
+    { intervalMs, startedAtIso, paused },
+    `missing-reaper started (${paused ? 'paused' : 'auto-run'})`,
+  );
 
   return {
     stop: () => {

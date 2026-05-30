@@ -348,6 +348,36 @@ export async function runOnce(
       }
       throughput?.record(new Date());
     } catch (err) {
+      // Handled case: an original-file stage hit ENOENT — the on-disk original
+      // is (apparently) gone. Don't churn maxAttempts retries with a scary raw
+      // ENOENT: stamp the missing-reaper tag and park the stage dead in ONE
+      // attempt with a benign reason. We deliberately do NOT mark it done
+      // (version stays put) — the asset must remain a visible item of work
+      // until the operator-gated reaper actually re-verifies on disk and either
+      // prunes the stale fileinfo entry + re-arms this stage, or hard-deletes
+      // the row. Marking it "done" here would hide a still-broken asset.
+      if (stage.tagsMissingOnEnoent && isEnoentError(err)) {
+        // Conditional tag → first-detection wins (the reaper's boot age-gate
+        // must not be pushed forward by re-runs). Best-effort.
+        await images
+          .updateOne(
+            { _id: id, $or: [{ missing_since: { $exists: false } }, { missing_since: null }] },
+            { $set: { missing_since: new Date().toISOString() } },
+          )
+          .catch(() => {});
+        await images.updateOne(
+          { _id: id },
+          {
+            $set: {
+              [`stages.${stage.name}.attempts`]: config.maxAttempts,
+              [`stages.${stage.name}.last_error`]: 'original-missing (tagged for reaper)',
+              [`stages.${stage.name}.dead`]: true,
+            },
+          },
+        );
+        log.debug({ _id: idStr }, `${stage.name}: original missing — tagged for reaper`);
+        return;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       const current = await images.findOne(
         { _id: id },
@@ -365,19 +395,6 @@ export async function runOnce(
           },
         },
       );
-      // Tag the asset for the missing-reaper when an original-file stage
-      // failed because the file is gone. Conditional so the timestamp
-      // reflects FIRST detection — the reaper's "older than boot" age-gate
-      // must not be reset forward by each retry. Best-effort: a failure here
-      // must not mask the stage error above.
-      if (stage.tagsMissingOnEnoent && isEnoentError(err)) {
-        await images
-          .updateOne(
-            { _id: id, $or: [{ missing_since: { $exists: false } }, { missing_since: null }] },
-            { $set: { missing_since: new Date().toISOString() } },
-          )
-          .catch(() => {});
-      }
     } finally {
       inFlightSet?.delete(idStr);
     }
