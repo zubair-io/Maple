@@ -95,6 +95,10 @@ export interface SearchResult {
   rating: number;
   flag: -1 | 0 | 1;
   color_label: string;
+  /** True iff the XMP write/delete handlers have observed a sidecar
+   * next to this asset. Drives the S2 Library Grid "Edited" filter
+   * chip (#628). Missing on legacy docs — readers coerce to `false`. */
+  has_xmp?: boolean;
 }
 
 export interface SearchResponse {
