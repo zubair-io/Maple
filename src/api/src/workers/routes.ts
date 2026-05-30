@@ -30,6 +30,10 @@ import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
 import type { StageStatusSnapshot } from './registry.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
+import {
+  loadPruneWindowHours,
+  savePruneWindowHours,
+} from './missing-reaper-config.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
@@ -297,6 +301,27 @@ export function workerRoutes(): Elysia {
     .get('/status', async () => {
       return computeWorkersStatus();
     })
+
+    // Missing-reaper prune window (hours an original must be missing before the
+    // reaper hard-deletes the row). The reaper re-reads this each tick, so a
+    // PATCH takes effect on the next pass without a restart.
+    .get('/missing-reaper/prune-window', async () => {
+      return { hours: await loadPruneWindowHours() };
+    })
+
+    .patch(
+      '/missing-reaper/prune-window',
+      async ({ body, set }) => {
+        try {
+          const hours = await savePruneWindowHours((body as { hours: number }).hours);
+          return { ok: true, hours };
+        } catch (err) {
+          set.status = 500;
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+      { body: t.Object({ hours: t.Number({ minimum: 1, maximum: 8760 }) }) },
+    )
 
     .get('/:name/dead', async ({ params, query, set }) => {
       if (!stageRegistry.has(params.name)) {

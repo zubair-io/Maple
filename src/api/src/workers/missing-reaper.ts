@@ -15,18 +15,19 @@
  *
  * Safety properties, all load-bearing:
  *
- *   - Paused by default. Boot never auto-resumes from stored state. Auto-run is
- *     an explicit deployment opt-in (`MAPLE_REAPER_AUTORUN` / `opts.autoRun`);
- *     a plain deploy stays operator-gated and a human flips it on from
- *     /settings/workers.
+ *   - Controlled like every other worker. Its paused state lives in
+ *     `worker_config.paused`; pause/resume persist it, so a pause STICKS across
+ *     restarts. But "paused" suspends ONLY the irreversible hard-delete —
+ *     recovery/prune (re-found files, stale-entry cleanup, tag clearing) keeps
+ *     running every tick, so a moved/re-copied file reconciles even while
+ *     paused. On boot it stays paused only until the stored state is read, so a
+ *     config-store blip can't run a sweep against an operator's prior pause.
  *
- *   - Boot-time start gate. `startedAt` is captured when the loop boots; only
- *     rows whose `missing_since` PREDATES `startedAt` are eligible. A row can
- *     never be reaped in the same process lifetime it was tagged, so a
- *     mass-unmount that happens after boot is never swept by the running
- *     reaper — those fresh tags wait for the next restart's later
- *     `startedAt`. This is the cool-down crux: it bounds how much a single
- *     bad event can delete.
+ *   - Age window (cool-down), not a boot gate. An all-gone row is hard-deleted
+ *     only once it has been missing for at least `prune_window_hours` (default
+ *     12h, in `app_settings`, env `MAPLE_REAPER_PRUNE_HOURS`). This bounds how
+ *     fast a transient mass-unmount can turn into deletions and doesn't depend
+ *     on process restarts. Recovery is never age-gated.
  *
  *   - Mount guard. If an asset's library root is unregistered, or its mount
  *     point isn't present on disk, or a location can't be stat'd, the asset
@@ -69,6 +70,8 @@ import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
+import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
+import { loadPruneWindowHours } from './missing-reaper-config.repo.ts';
 
 const log = childLogger('missing-reaper');
 
@@ -93,6 +96,12 @@ export interface MissingReaperSummary {
   /** Rows whose only location stat'd ENOENT but a case/Unicode near-match
    * exists on disk — left untouched for human inspection, never deleted. */
   skippedNameMismatch: number;
+  /** All-gone rows left because they haven't been missing long enough yet
+   * (`missing_since` newer than the prune window). */
+  skippedCooldown: number;
+  /** All-gone, aged-out rows left because deletes are paused (recovery still
+   * runs while paused — only the irreversible hard-delete is suspended). */
+  skippedPaused: number;
   /** True when the circuit breaker tripped and the pass aborted without
    * executing any hard-deletes (a systemic mis-detection guard). */
   aborted: boolean;
@@ -160,9 +169,19 @@ async function hasNearMatchOnDisk(absPath: string): Promise<boolean> {
 export interface RunMissingReaperOptions {
   /** Max tagged rows to examine in one pass. */
   batchSize?: number;
-  /** Only rows whose `missing_since` is strictly before this ISO timestamp
-   * are eligible (the boot-time start gate). */
-  startedAtIso: string;
+  /**
+   * Hard-delete an all-gone row only if its `missing_since` is strictly before
+   * this ISO timestamp — i.e. it has been missing for at least the prune
+   * window. The interval loop passes `now - pruneWindowHours`. Recovery/prune
+   * of rows whose file is still present is NOT gated by this.
+   */
+  deleteBeforeIso: string;
+  /**
+   * When false, eligible deletes are skipped (counted `skippedPaused`) but
+   * recovery/prune still runs — so a re-found file reconciles even while the
+   * reaper is "paused". The loop passes `!paused`. Defaults to true.
+   */
+  allowDelete?: boolean;
 }
 
 /** One reap pass. Exported for tests + driven by the interval loop. */
@@ -197,6 +216,7 @@ export async function runMissingReaperOnce(
     return status;
   };
 
+  const allowDelete = opts.allowDelete ?? true;
   const summary: MissingReaperSummary = {
     scanned: 0,
     reaped: 0,
@@ -204,17 +224,40 @@ export async function runMissingReaperOnce(
     prunedEntries: 0,
     skippedMountOffline: 0,
     skippedNameMismatch: 0,
+    skippedCooldown: 0,
+    skippedPaused: 0,
     aborted: false,
     errors: 0,
   };
 
-  // `$type: "string"` lets the planner use the `missing_since_1` partial
-  // index instead of a COLLSCAN — same pattern as trash-gc's deleted_at query.
+  // Every tagged row is examined each pass (no boot gate) — recovery is prompt.
+  // The age window + pause only gate the irreversible hard-delete below.
+  // `$type: "string"` lets the planner use the `missing_since_1` partial index
+  // instead of a COLLSCAN — same pattern as trash-gc's deleted_at query.
   const candidates = await coll
     .find(
-      { missing_since: { $type: 'string', $lt: opts.startedAtIso, $ne: null } },
-      { projection: { _id: 1, fileinfo: 1, maple_id: 1 } },
+      { missing_since: { $type: 'string', $ne: null } },
+      {
+        projection: {
+          _id: 1,
+          fileinfo: 1,
+          maple_id: 1,
+          missing_since: 1,
+          // Dead flags for the original-file stages — so recovery can re-arm
+          // ones that dead-lettered against the vanished path (drains the
+          // legacy backlog from before tag-only suppression).
+          'stages.exif.dead': 1,
+          'stages.thumb.dead': 1,
+          'stages.preview.dead': 1,
+        },
+      },
     )
+    // Oldest-missing first. With a backlog larger than `batchSize` the scan
+    // order is load-bearing: an unsorted limit could starve aged-out /
+    // recoverable rows behind a wall of still-in-cooldown ones. Sorting on the
+    // partial-indexed field keeps filter+sort index-backed and prioritises the
+    // longest-missing for both recovery and deletion.
+    .sort({ missing_since: 1 })
     .limit(batchSize)
     .toArray();
 
@@ -283,6 +326,19 @@ export async function runMissingReaperOnce(
         );
         continue;
       }
+
+      // Genuinely all-gone. Gate the irreversible delete:
+      //  - age window: must have been missing for >= the prune window.
+      //  - pause: deletes suspended (recovery already ran above regardless).
+      const tag = (doc as { missing_since?: string }).missing_since ?? '';
+      if (!(tag < opts.deleteBeforeIso)) {
+        summary.skippedCooldown++;
+        continue;
+      }
+      if (!allowDelete) {
+        summary.skippedPaused++;
+        continue;
+      }
       toDelete.push(doc);
     } catch (err) {
       summary.errors++;
@@ -322,19 +378,21 @@ export async function runMissingReaperOnce(
   return summary;
 }
 
-/** A surviving row: $pull the gone entries, clear the tag, and re-arm the
- * original-file stages iff the pruned set included the primary location. */
+/** A surviving row: $pull the gone entries, clear the tag, and re-arm any
+ * original-file stage that dead-lettered against the vanished path so it
+ * reprocesses the corrected primary. Tag-only-parked stages (the new path) were
+ * never marked dead, so clearing `missing_since` is enough for them — they
+ * re-enter the claim query on their own. The re-arm is for the legacy `dead`
+ * backlog from before tag-only suppression. */
 async function recoverAndPrune(
   coll: Awaited<ReturnType<typeof assetsCollection>>,
-  doc: { _id: ObjectId; fileinfo?: FileInfo[] },
+  doc: { _id: ObjectId; fileinfo?: FileInfo[]; stages?: Record<string, { dead?: boolean }> },
   absent: FileInfo[],
   summary: MissingReaperSummary,
 ): Promise<void> {
   const set: Record<string, unknown> = { missing_since: null };
-  const primary = assetPrimaryFileInfo(doc as never);
-  const primaryPruned = primary != null && absent.some((a) => sameEntry(a, primary));
-  if (primaryPruned) {
-    for (const name of ORIGINAL_FILE_STAGES) {
+  for (const name of ORIGINAL_FILE_STAGES) {
+    if (doc.stages?.[name]?.dead === true) {
       set[`stages.${name}.version`] = 0;
       set[`stages.${name}.attempts`] = 0;
       set[`stages.${name}.last_error`] = null;
@@ -382,49 +440,65 @@ async function hardDeleteRow(
 
 export interface MissingReaperHandle {
   stop: () => void;
+  /** Resolves once the persisted pause state has been read on boot. Tests await
+   * this so they observe the adopted state; production ignores it. */
+  ready: Promise<void>;
 }
 
 export interface StartMissingReaperOptions {
   intervalMs?: number;
   batchSize?: number;
-  /** Test seam — override the boot start time. Production omits it so the
-   * gate is anchored to actual process boot. */
-  startedAtIso?: string;
-  /**
-   * Opt into auto-run: the reaper boots RUNNING instead of paused. Defaults to
-   * the `MAPLE_REAPER_AUTORUN` env flag (`1`/`true`). Safe-by-default stays the
-   * code default (paused) so a plain deploy never auto-deletes; an operator
-   * sets the env var once on a deployment they want self-cleaning. The
-   * boot-gate, mount guard, name-mismatch veto and circuit breaker still apply.
-   */
-  autoRun?: boolean;
-}
-
-function autoRunFromEnv(): boolean {
-  const v = process.env.MAPLE_REAPER_AUTORUN;
-  return v === '1' || v === 'true';
 }
 
 /**
  * Start the reaper's interval loop and register it with the stage registry.
  *
- * Boots PAUSED by default (destructive work stays operator-gated); opt into
- * auto-run via `opts.autoRun` / `MAPLE_REAPER_AUTORUN`. The returned handle's
- * `stop()` cancels the loop and unregisters from the registry.
+ * Controlled exactly like every other worker: paused state persists in
+ * `worker_config.paused` via pause/resume, so it RUNS by default and a pause
+ * sticks across restarts. The returned handle's `stop()` cancels the loop and
+ * unregisters; `ready` resolves once the persisted state has been adopted.
  */
 export function startMissingReaper(opts: StartMissingReaperOptions = {}): MissingReaperHandle {
   const intervalMs = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const batchSize = opts.batchSize ?? DEFAULT_BATCH;
-  const startedAtIso = opts.startedAtIso ?? new Date().toISOString();
-  const autoRun = opts.autoRun ?? autoRunFromEnv();
 
-  // Paused unless auto-run is explicitly opted in. A stored value is never read
-  // here: enabling auto-run is a deliberate deployment decision (env/opts), not
-  // something a prior resume silently re-arms.
-  let paused = !autoRun;
+  // Paused only until the persisted control state is read — a config-store blip
+  // on boot must not run a destructive sweep against an operator's prior pause.
+  let paused = true;
   let running = false;
   let stopped = false;
   const throughput = new ThroughputWindow();
+
+  // Persisted pause/resume, the same surface every other worker uses.
+  let repoPromise: Promise<WorkerConfigRepo> | null = null;
+  const getRepo = (): Promise<WorkerConfigRepo> => {
+    if (!repoPromise) {
+      repoPromise = (async () => {
+        const { getDb } = await import('../db/client.ts');
+        const db = await getDb();
+        return new WorkerConfigRepo(db.collection<WorkerConfigDoc>('worker_config'));
+      })();
+    }
+    return repoPromise;
+  };
+  const loadPaused = async (): Promise<void> => {
+    try {
+      const cfg = await (await getRepo()).load(MISSING_REAPER_NAME);
+      paused = cfg?.paused ?? false; // default running on first boot
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        'missing-reaper: could not load persisted pause state — staying paused',
+      );
+    }
+  };
+  const persistPaused = (value: boolean): void => {
+    void getRepo()
+      .then((r) => r.patch(MISSING_REAPER_NAME, { paused: value }))
+      .catch(() => {
+        /* best-effort — in-memory state already applied; next boot re-reads */
+      });
+  };
 
   stageRegistry.register(MISSING_REAPER_NAME, {
     targetVersion: 1,
@@ -435,26 +509,36 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     getThroughput: () => throughput.countInWindow(),
     getPaused: () => paused,
     reloadConfig: async () => {
-      /* no tunable config persisted — interval/batch are process constants */
+      await loadPaused();
     },
     pause: async () => {
       paused = true;
+      persistPaused(true);
       log.info('missing-reaper paused');
     },
     resume: async () => {
       paused = false;
-      log.warn(
-        { startedAtIso },
-        'missing-reaper RESUMED — rows tagged missing before boot are now eligible for hard delete',
-      );
+      persistPaused(false);
+      log.warn('missing-reaper RESUMED — aged-out missing rows are now eligible for hard delete');
     },
   });
 
+  // Adopt the persisted control state shortly after boot.
+  const ready = loadPaused();
+
   const tick = async (): Promise<void> => {
-    if (stopped || paused || running) return;
+    // Runs even when paused — recovery/prune (re-found files) must keep working;
+    // only the hard-delete is gated by `allowDelete: !paused` below.
+    if (stopped || running) return;
     running = true;
     try {
-      const summary = await runMissingReaperOnce({ batchSize, startedAtIso });
+      const pruneWindowHours = await loadPruneWindowHours();
+      const deleteBeforeIso = new Date(Date.now() - pruneWindowHours * 3_600_000).toISOString();
+      const summary = await runMissingReaperOnce({
+        batchSize,
+        deleteBeforeIso,
+        allowDelete: !paused,
+      });
       for (let i = 0; i < summary.reaped; i++) throughput.record(new Date());
       stageRegistry.clearError(MISSING_REAPER_NAME);
     } catch (err) {
@@ -472,10 +556,7 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     void tick();
   }, intervalMs);
 
-  log.info(
-    { intervalMs, startedAtIso, paused },
-    `missing-reaper started (${paused ? 'paused' : 'auto-run'})`,
-  );
+  log.info({ intervalMs }, 'missing-reaper started');
 
   return {
     stop: () => {
@@ -483,5 +564,6 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
       clearInterval(timer);
       stageRegistry.unregister(MISSING_REAPER_NAME);
     },
+    ready,
   };
 }

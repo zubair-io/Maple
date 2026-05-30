@@ -447,8 +447,9 @@ export async function ensureIndexes(): Promise<void> {
   );
 
   // Missing-reaper sweeper queries
-  //   { missing_since: { $type: "string", $lt: startedAtIso, $ne: null } }
-  // every interval. Same shape + rationale as `deleted_at_1`: live rows are
+  //   { missing_since: { $type: "string", $ne: null } }
+  // every interval (and /status counts the same set). Same shape + rationale as
+  // `deleted_at_1`: live rows are
   // written with `missing_since` absent/null, so a `$type: "string"` partial
   // filter narrows the index to just the (small) set of tagged rows and keeps
   // the scan O(tagged) instead of COLLSCANning the whole collection.
