@@ -33,6 +33,7 @@ import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { stageRegistry } from './registry.ts';
 import { POLL_INTERVAL_MS, deriveBatchSize, nextPollDelay } from './loop-policy.ts';
 import { tagMissingSince } from './tag-missing.ts';
+import { tagDamaged } from './tag-damaged.ts';
 
 // ---------------------------------------------------------------------------
 // Public types — load-bearing for every stage file and stage test.
@@ -114,6 +115,20 @@ export interface StageConfig<TPatch = Record<string, unknown>> {
    * re-stats on disk and clears the tag when the file is actually present.
    */
   tagsMissingOnEnoent?: boolean;
+  /**
+   * When true, a handler failure that EXHAUSTS retries (the attempt that pushes
+   * `attempts >= maxAttempts`, i.e. the stage dead-letters) additionally stamps
+   * `damaged` on the asset. That tag parks the file out of EVERY stage's claim
+   * query (see `buildClaimQuery`) — the bytes can't be read, so the rest of the
+   * pipeline stops retrying it — and surfaces it in the Workers "Damaged" list.
+   *
+   * Set ONLY on stages that read the ORIGINAL bytes and fail because those
+   * bytes are unreadable (exif / thumb / preview). NEVER set it on a stage
+   * whose dead-letter means something else (a describe LLM timeout, a geocode
+   * HTTP 5xx) — those failures don't imply the file is damaged. ENOENT is
+   * handled separately by `tagsMissingOnEnoent` and never reaches this path.
+   */
+  tagsDamagedOnDeadLetter?: boolean;
   handler: (image: ImageDoc, ctx: StageContext) => Promise<StageResult<TPatch>>;
   /**
    * Optional per-tick progress hook, invoked by the poll loop after each
@@ -220,6 +235,11 @@ export function buildClaimQuery(
     // absent/null otherwise): a tagged asset is parked for EVERY stage until the
     // missing-reaper resolves it (clears the tag, or hard-deletes the row).
     missing_since: { $not: { $type: 'string' } },
+    // Skip assets tagged damaged (`damaged.since` is an ISO string while
+    // tagged): the bytes are unreadable, so the file is parked for EVERY stage
+    // until an operator clears the tag from the Workers UI. Same absent/null →
+    // claimable shape as `missing_since`.
+    'damaged.since': { $not: { $type: 'string' } },
   };
   for (const dep of dependsOn) {
     (filter as Record<string, unknown>)[`stages.${dep.name}.version`] = {
@@ -387,6 +407,15 @@ export async function runOnce(
           },
         },
       );
+      // A file-reading stage that just exhausted its retries means the bytes
+      // are unreadable (corrupt original, or an undecodable format). Tag the
+      // asset `damaged` so the rest of the pipeline parks it instead of each
+      // stage independently grinding to its own dead-letter — and so it
+      // surfaces in the Workers "Damaged" list. The structured `asset.damaged`
+      // log inside `tagDamaged` reaches SigNoz via the pino→OTel bridge.
+      if (dead && stage.tagsDamagedOnDeadLetter) {
+        await tagDamaged(images, id, stage.name, msg);
+      }
     } finally {
       inFlightSet?.delete(idStr);
     }

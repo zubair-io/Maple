@@ -65,7 +65,9 @@ export function cheapStatus(): WorkersStatusPayload {
     config: null,
     batchSize: deriveBatchSize(0),
   }));
-  return { stages };
+  // No DB in the cheap path — the real damaged count lands on the next counted
+  // tick (computeWorkersStatus). Zero until then, like the other counts.
+  return { stages, damaged: 0 };
 }
 
 class WorkersStatusBroadcaster {

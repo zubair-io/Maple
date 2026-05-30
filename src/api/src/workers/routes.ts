@@ -22,6 +22,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import { type Filter, ObjectId } from 'mongodb';
 import { getDb } from '../db/client.ts';
 import { WorkerConfigRepo } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
@@ -49,6 +50,12 @@ const CLAIM_STAGE_NAMES = new Set<string>(ALL_STAGE_NAMES);
 const DEAD_LIST_LIMIT_DEFAULT = 50;
 const DEAD_LIST_LIMIT_MAX = 500;
 
+/** Stages that stamp the `damaged` tag (those with `tagsDamagedOnDeadLetter`).
+ * `POST /damaged/clear` resets their dead/attempt bookkeeping when un-tagging
+ * so a cleared file is genuinely re-tried. Kept in sync with the stage configs
+ * in `stages/{exif,thumb,preview}.ts`. */
+const DAMAGE_TAGGING_STAGES = ['exif', 'thumb', 'preview'] as const;
+
 /** Config knobs removed in #674. PATCH rejects these with a 400 so a stale
  * client that still sends them gets a clear signal instead of a silent no-op. */
 const REMOVED_CONFIG_KEYS = ['pollIntervalMs', 'batchSize'] as const;
@@ -70,6 +77,10 @@ type StatusDbState = {
   pendingByStage: Map<string, number>;
   readyByStage: Map<string, number>;
   deadByStage: Map<string, number>;
+  /** Collection-level count of assets tagged `damaged` (parked out of every
+   * stage). Not per-stage — a damaged file is global state, surfaced as the
+   * "Damaged" pill in the Workers UI. */
+  damagedTotal: number;
 };
 const STATUS_CACHE_TTL_MS = 2000;
 let statusCache: {
@@ -125,6 +136,7 @@ async function fetchStatusDbState(
   const pendingByStage = new Map<string, number>();
   const readyByStage = new Map<string, number>();
   const deadByStage = new Map<string, number>();
+  let damagedTotal = 0;
   let assets: import('mongodb').Collection<import('mongodb').Document> | null = null;
 
   try {
@@ -216,7 +228,18 @@ async function fetchStatusDbState(
     }
   }
 
-  return { configMap, pendingByStage, readyByStage, deadByStage };
+  // Collection-level damaged count. `$type: "string"` on `damaged.since`
+  // matches exactly the tagged rows (and uses the `damaged_since_1` partial
+  // index) — same shape + rationale as the missing-reaper count above.
+  if (assets) {
+    try {
+      damagedTotal = await assets.countDocuments({ 'damaged.since': { $type: 'string' } });
+    } catch (err) {
+      log.warn({ err }, 'countDocuments failed for damaged count — leaving 0');
+    }
+  }
+
+  return { configMap, pendingByStage, readyByStage, deadByStage, damagedTotal };
 }
 
 /** One stage row in the `/status` response (and the WS `workers-status` frame). */
@@ -237,6 +260,9 @@ export interface StageStatusRow {
 
 export interface WorkersStatusPayload {
   stages: StageStatusRow[];
+  /** Collection-level count of assets tagged `damaged` (unreadable bytes,
+   * parked out of every stage). Drives the "Damaged" pill in the Workers UI. */
+  damaged: number;
 }
 
 /**
@@ -297,7 +323,7 @@ export function assembleWorkersStatus(
       batchSize,
     };
   });
-  return { stages };
+  return { stages, damaged: dbState.damagedTotal };
 }
 
 /** Full `/status` payload, resolving the DB half through the shared cache. */
@@ -385,6 +411,94 @@ export function workerRoutes(): Elysia {
           return { error: err instanceof Error ? err.message : String(err) };
         }
       })
+
+      // Damaged files — assets tagged `damaged` (unreadable bytes) by a
+      // file-reading stage that exhausted its retries. Collection-level (not
+      // per-stage): one list across the whole pipeline. Each row carries the
+      // maple_id so an operator can query the asset in the DB, plus the path,
+      // the tagging stage, the reason, and when it was tagged.
+      .get('/damaged', async ({ query, set }) => {
+        const requested = Number(query.limit ?? DEAD_LIST_LIMIT_DEFAULT);
+        const limit = Number.isFinite(requested)
+          ? Math.max(1, Math.min(DEAD_LIST_LIMIT_MAX, Math.floor(requested)))
+          : DEAD_LIST_LIMIT_DEFAULT;
+        try {
+          const db = await getDb();
+          const assets = db.collection<ImageDoc>('assets');
+          const docs = await assets
+            .find(
+              { 'damaged.since': { $type: 'string' } },
+              {
+                projection: { _id: 1, maple_id: 1, fileinfo: 1, damaged: 1 },
+              },
+            )
+            .sort({ 'damaged.since': -1 })
+            .limit(limit)
+            .toArray();
+          const libs = await loadLibraryRoots();
+          const items = docs.map((doc) => {
+            const damaged = (doc as { damaged?: { since: string; stage: string; reason: string } })
+              .damaged;
+            return {
+              id: String(doc._id),
+              maple_id: (doc as { maple_id?: string }).maple_id ?? null,
+              abs_path: assetAbsPath(doc, libs),
+              stage: damaged?.stage ?? null,
+              reason: damaged?.reason ?? null,
+              since: damaged?.since ?? null,
+            };
+          });
+          return { items };
+        } catch (err) {
+          set.status = 500;
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      })
+
+      // Clear the `damaged` tag so the pipeline re-processes the file. Pass an
+      // `id` (asset _id hex) to clear one; omit it to clear ALL damaged assets.
+      // Un-tagging alone re-arms the asset for every stage's claim query, but
+      // the tagging stage(s) may still hold `dead: true` from the original
+      // failure — reset those too so the file actually gets retried rather than
+      // sitting un-parked but un-claimed.
+      .post(
+        '/damaged/clear',
+        async ({ body, set }) => {
+          try {
+            const db = await getDb();
+            const images = db.collection<ImageDoc>('assets');
+            const id = (body as { id?: string } | null)?.id;
+            let filter: Filter<ImageDoc>;
+            if (id) {
+              let oid: ObjectId;
+              try {
+                oid = new ObjectId(id);
+              } catch {
+                set.status = 400;
+                return { error: `invalid asset id: ${id}` };
+              }
+              filter = { _id: oid, 'damaged.since': { $type: 'string' } };
+            } else {
+              filter = { 'damaged.since': { $type: 'string' } };
+            }
+            // Reset the dead/attempt bookkeeping on the file-reading stages so a
+            // cleared file is genuinely re-tried, then drop the tag.
+            const stageResets: Record<string, unknown> = { damaged: null };
+            for (const stageName of DAMAGE_TAGGING_STAGES) {
+              stageResets[`stages.${stageName}.dead`] = false;
+              stageResets[`stages.${stageName}.attempts`] = 0;
+              stageResets[`stages.${stageName}.last_error`] = null;
+            }
+            const result = await images.updateMany(filter, { $set: stageResets });
+            invalidateStatusCache();
+            return { ok: true, cleared: result.modifiedCount };
+          } catch (err) {
+            set.status = 500;
+            return { error: err instanceof Error ? err.message : String(err) };
+          }
+        },
+        { body: t.Optional(t.Object({ id: t.Optional(t.String()) })) },
+      )
 
       .post('/:name/pause', async ({ params, set }) => {
         if (!stageRegistry.has(params.name)) {
