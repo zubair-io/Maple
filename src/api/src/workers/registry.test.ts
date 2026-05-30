@@ -5,12 +5,11 @@
  * permanently failed. Regression-guards the fix from PR #164 review.
  */
 import { describe, it, expect, beforeEach } from "bun:test";
-import {
-  stageRegistry,
-  type StageRegistryEntry,
-} from "./registry.ts";
+import { stageRegistry, type StageRegistryEntry } from "./registry.ts";
 
-function fakeEntry(overrides: Partial<StageRegistryEntry> = {}): StageRegistryEntry {
+function fakeEntry(
+  overrides: Partial<StageRegistryEntry> = {},
+): StageRegistryEntry {
   return {
     targetVersion: 1,
     dependsOn: [],
@@ -71,13 +70,20 @@ describe("StageRegistry.statuses() pre-registration", () => {
 
   it("surfaces resolved dependsOn from both pre-registration and live register()", () => {
     stageRegistry.preregister("thumb", 2, [{ name: "exif", minVersion: 1 }]);
-    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([{ name: "exif", minVersion: 1 }]);
+    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([
+      { name: "exif", minVersion: 1 },
+    ]);
 
     stageRegistry.register(
       "thumb",
-      fakeEntry({ targetVersion: 2, dependsOn: [{ name: "exif", minVersion: 2 }] }),
+      fakeEntry({
+        targetVersion: 2,
+        dependsOn: [{ name: "exif", minVersion: 2 }],
+      }),
     );
-    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([{ name: "exif", minVersion: 2 }]);
+    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([
+      { name: "exif", minVersion: 2 },
+    ]);
   });
 
   it("statuses() returns every pre-registered stage even when none have booted", () => {
@@ -113,5 +119,13 @@ describe("StageRegistry.statuses() pre-registration", () => {
     stageRegistry.preregister("meili", 1);
     stageRegistry.preregister("meili", 5);
     expect(stageRegistry.statuses().meili!.targetVersion).toBe(5);
+  });
+
+  it("preregister preserves previously-registered deps when re-called without them", () => {
+    stageRegistry.preregister("thumb", 2, [{ name: "exif", minVersion: 1 }]);
+    // Re-register with a new targetVersion only — deps must survive.
+    stageRegistry.preregister("thumb", 3);
+    expect(stageRegistry.statuses().thumb!.targetVersion).toBe(3);
+    expect(stageRegistry.statuses().thumb!.dependsOn).toEqual([{ name: "exif", minVersion: 1 }]);
   });
 });
