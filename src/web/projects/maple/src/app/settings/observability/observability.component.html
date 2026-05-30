@@ -1,0 +1,160 @@
+<maple-settings-shell section="observability">
+  <header class="page-header">
+    <div class="titles">
+      <h1>Observability</h1>
+      <p>
+        Export traces and logs from this browser directly to your self-hosted SigNoz instance over
+        OTLP/HTTP. The configuration is pulled from the server and cached locally so telemetry
+        starts on load without waiting on the network.
+      </p>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn-ghost" [disabled]="refreshing()" (click)="onRefresh()">
+        <maple-settings-icon name="retry" [size]="12" />
+        {{ refreshing() ? 'Refreshing…' : 'Refresh' }}
+      </button>
+    </div>
+  </header>
+
+  <div class="obs-body">
+    <!-- Master local toggle ------------------------------------------------ -->
+    <section>
+      <div class="toggle-row">
+        <div class="toggle-text">
+          <div class="toggle-title">Telemetry in this browser</div>
+          <div class="toggle-sub">
+            A per-browser opt-out. Turning this off stops this session from exporting, independent
+            of the deployment-wide server setting.
+          </div>
+        </div>
+        <button
+          type="button"
+          class="switch"
+          role="switch"
+          [class.on]="localEnabled()"
+          [attr.aria-checked]="localEnabled()"
+          aria-label="Toggle telemetry in this browser"
+          (click)="toggleLocal()"
+        >
+          <span class="knob"></span>
+        </button>
+      </div>
+
+      <div class="status-line" [class.ok]="active()">
+        <maple-settings-icon [name]="active() ? 'check' : 'dot'" [size]="13" />
+        @if (active()) {
+          <span>Telemetry is active — traces and logs are exporting to SigNoz.</span>
+        } @else {
+          <span>Telemetry is inactive in this session.</span>
+        }
+      </div>
+    </section>
+
+    <!-- Pulled server config ----------------------------------------------- -->
+    <section>
+      <div class="subhead">Server configuration</div>
+      @if (config(); as cfg) {
+        <dl class="config-grid">
+          <dt>Server enabled</dt>
+          <dd>{{ cfg.enabled ? 'Yes' : 'No' }}</dd>
+
+          <dt>Endpoint</dt>
+          <dd class="mono">
+            @if (cfg.endpoint) {
+              {{ cfg.endpoint }}
+            } @else {
+              <span class="muted">not set</span>
+            }
+            <span class="prov">({{ sourceLabel(cfg.source.endpoint) }})</span>
+          </dd>
+
+          <dt>Ingestion key</dt>
+          <dd>
+            @if (keyConfigured(cfg)) {
+              <span class="badge-ok">configured</span>
+            } @else {
+              <span class="muted">none</span>
+            }
+            <span class="prov">({{ sourceLabel(cfg.source.ingestion_key) }})</span>
+          </dd>
+
+          <dt>Service namespace</dt>
+          <dd class="mono">{{ cfg.service_namespace }}</dd>
+
+          <dt>Service name</dt>
+          <dd class="mono">maple-web</dd>
+
+          <dt>Signals</dt>
+          <dd>
+            <span class="pill" [class.on]="cfg.traces_enabled">traces</span>
+            <span class="pill" [class.on]="cfg.logs_enabled">logs</span>
+            <span
+              class="pill"
+              [class.on]="cfg.metrics_enabled"
+              title="Metrics are not exported from the web client yet"
+              >metrics</span
+            >
+          </dd>
+
+          <dt>Sample ratio</dt>
+          <dd class="mono">{{ cfg.sample_ratio }}</dd>
+        </dl>
+      } @else if (lastError(); as e) {
+        <p class="error">Failed to load config: {{ e }}</p>
+      } @else {
+        <p class="muted">Loading configuration…</p>
+      }
+    </section>
+
+    <!-- Cache status ------------------------------------------------------- -->
+    <section>
+      <div class="subhead">Local cache</div>
+      <div class="cache-line">
+        <maple-settings-icon name="thumb" [size]="14" />
+        @if (cachedAtLabel(); as ts) {
+          <span>Configuration cached in IndexedDB · last refreshed {{ ts }}</span>
+        } @else {
+          <span>No cached configuration yet — it will be written on first load.</span>
+        }
+      </div>
+    </section>
+
+    <!-- Test event --------------------------------------------------------- -->
+    <section>
+      <div class="subhead">Test</div>
+      <div class="test-row">
+        <button
+          type="button"
+          class="btn-primary"
+          [disabled]="testState().kind === 'sending'"
+          (click)="sendTestEvent()"
+        >
+          <maple-settings-icon name="test" [size]="12" />
+          {{ testState().kind === 'sending' ? 'Sending…' : 'Send test event' }}
+        </button>
+        @switch (testState().kind) {
+          @case ('sent') {
+            <span class="test-ok">
+              <maple-settings-icon name="check" [size]="13" />
+              Sent — check the SigNoz logs view for "Maple web test event".
+            </span>
+          }
+          @case ('error') {
+            @if (testState(); as st) {
+              @if (st.kind === 'error') {
+                <span class="test-err">
+                  <maple-settings-icon name="x" [size]="13" />
+                  {{ st.message }}
+                </span>
+              }
+            }
+          }
+        }
+      </div>
+    </section>
+
+    @if (lastError(); as e) {
+      <p class="error">{{ e }}</p>
+    }
+  </div>
+</maple-settings-shell>

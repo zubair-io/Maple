@@ -9,7 +9,7 @@ import { RouterLink } from '@angular/router';
 import { AuthService } from '@maple-common';
 import { SettingsIconComponent, type SettingsIconName } from './settings-icon.component';
 
-export type SettingsSection = 'account' | 'workers' | 'people' | 'users';
+export type SettingsSection = 'account' | 'workers' | 'people' | 'users' | 'observability';
 
 interface NavItem {
   readonly id: SettingsSection;
@@ -31,6 +31,14 @@ const ITEMS: readonly NavItem[] = [
     sub: 'Pipeline + enrichment',
   },
   { id: 'people', label: 'People', icon: 'people', link: '/settings/people', ownerOnly: true },
+  {
+    id: 'observability',
+    label: 'Observability',
+    icon: 'globe',
+    link: '/settings/observability',
+    ownerOnly: true,
+    sub: 'SigNoz telemetry',
+  },
   { id: 'users', label: 'Users', icon: 'key', link: '/settings/users', ownerOnly: true },
 ];
 

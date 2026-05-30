@@ -35,6 +35,25 @@
  *                        cgroup-restricted containers.
  *   MAPLE_FACE_ORT_INTER_OP_THREADS — inter-op thread count for the same.
  *                        Defaults to 1 (sequential execution mode).
+ *   MAPLE_SIGNOZ_ENDPOINT — OTLP/HTTP base URL of a SigNoz collector (no
+ *                        trailing slash). Backend ships traces to
+ *                        `${endpoint}/v1/traces` and logs to
+ *                        `${endpoint}/v1/logs`. Telemetry is a no-op when
+ *                        unset (DB row + this var both empty).
+ *   MAPLE_SIGNOZ_INGESTION_KEY — SigNoz ingestion key, sent as the
+ *                        `signoz-access-token` header. Optional (keyless
+ *                        self-hosted SigNoz works without it).
+ *   MAPLE_SIGNOZ_ENABLED — master switch. Set to "false" to disable all
+ *                        telemetry even when an endpoint is set. Default on.
+ *   MAPLE_SIGNOZ_TRACES_ENABLED / MAPLE_SIGNOZ_LOGS_ENABLED /
+ *   MAPLE_SIGNOZ_METRICS_ENABLED — per-signal toggles. Traces/logs default
+ *                        on, metrics default off.
+ *   MAPLE_SIGNOZ_SERVICE_NAMESPACE — `service.namespace` resource attribute
+ *                        grouping every Maple signal. Default "maple".
+ *   MAPLE_SIGNOZ_SAMPLE_RATIO — parent-based trace sample ratio in [0, 1].
+ *                        Default 1.0. All MAPLE_SIGNOZ_* vars are overridden
+ *                        by a saved DB row and are tunable at runtime via
+ *                        PUT /api/observability/config.
  */
 
 import { Elysia } from 'elysia';
@@ -53,6 +72,7 @@ import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
 import { searchRoutes } from './routes/search.ts';
 import { jobsRoutes } from './routes/jobs.ts';
 import { enrichmentRoutes } from './routes/enrichment.ts';
+import { observabilityRoutes } from './routes/observability.ts';
 import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
 import { peopleRoutes } from './routes/people.ts';
 import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
@@ -83,6 +103,11 @@ import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
 } from './enrichment/enrichment-config.repo.ts';
+import {
+  loadObservabilityConfig,
+  resolveObservabilityConfig,
+} from './observability/observability-config.repo.ts';
+import { initOtel, shutdownOtel } from './otel.ts';
 import { startJobRunner, stopJobRunner } from './job-runner/runner.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 import { tryGetRawFfi } from './ffi/raw_ffi.ts';
@@ -191,6 +216,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(searchRoutes)
         .use(jobsRoutes)
         .use(enrichmentRoutes)
+        .use(observabilityRoutes)
         .use(meilisearchBackfillRoutes)
         .use(peopleRoutes)
         .use(changesRoutes)
@@ -390,6 +416,18 @@ async function start(): Promise<void> {
     }
 
     try {
+      // OpenTelemetry → SigNoz. The backend ships its own logs + traces over
+      // OTLP/HTTP. Config is DB-backed (operator can set it via
+      // /api/observability/config); a saved value wins over the MAPLE_SIGNOZ_*
+      // env vars. initOtel is a no-op when telemetry is disabled or no endpoint
+      // is configured.
+      const resolvedObs = resolveObservabilityConfig(await loadObservabilityConfig());
+      await initOtel(resolvedObs);
+    } catch (err) {
+      log.warn({ err }, 'OpenTelemetry init failed; continuing without telemetry');
+    }
+
+    try {
       // JobRunner — sibling subsystem to the indexer pipeline for
       // user-triggered long-running work (export, batch reprocess).
       startJobRunner();
@@ -502,6 +540,13 @@ async function shutdown(signal: string): Promise<void> {
     await stopJobRunner();
   } catch (e) {
     log.warn({ err: e }, 'error stopping job runner');
+  }
+  // Flush + shut down the OpenTelemetry SDK so its batch exporters drain and
+  // its timers stop keeping the event loop alive.
+  try {
+    await shutdownOtel();
+  } catch (e) {
+    log.warn({ err: e }, 'error stopping OpenTelemetry SDK');
   }
   try {
     await closeDb();
