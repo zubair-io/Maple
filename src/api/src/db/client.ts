@@ -446,6 +446,20 @@ export async function ensureIndexes(): Promise<void> {
     },
   );
 
+  // Missing-reaper sweeper queries
+  //   { missing_since: { $type: "string", $lt: startedAtIso, $ne: null } }
+  // every interval. Same shape + rationale as `deleted_at_1`: live rows are
+  // written with `missing_since` absent/null, so a `$type: "string"` partial
+  // filter narrows the index to just the (small) set of tagged rows and keeps
+  // the scan O(tagged) instead of COLLSCANning the whole collection.
+  await db.collection('assets').createIndex(
+    { missing_since: 1 },
+    {
+      name: 'missing_since_1',
+      partialFilterExpression: { missing_since: { $type: 'string' } },
+    },
+  );
+
   // Search indexes — added with EXIF support. Captured-at sorts the default
   // result list (newest first); camera + lens cover the FE's facet dropdowns.
   // Sparse where the field is optional so old rows without EXIF don't bloat

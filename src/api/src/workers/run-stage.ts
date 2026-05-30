@@ -17,12 +17,13 @@
  * (see `./registry.ts`) so `routes.ts` and `events.ts` can read live state.
  */
 
-import type { Collection, Filter, ObjectId } from 'mongodb';
+import type { Collection, Filter, ObjectId, WithId } from 'mongodb';
 import type { Logger } from 'pino';
 import { child as childLogger } from '../log.ts';
 import {
   assetAbsPath,
   assetPrimaryFileInfo,
+  isEnoentError,
   type IndexerAssetDoc,
 } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
@@ -47,7 +48,7 @@ export interface StageState {
   dead: boolean;
 }
 
-export type ImageDoc = IndexerAssetDoc & {
+export type ImageDoc = WithId<IndexerAssetDoc> & {
   stages?: Record<string, StageState>;
 };
 
@@ -97,6 +98,17 @@ export interface StageConfig<TPatch = Record<string, unknown>> {
      */
     pausedOnFirstBoot: boolean;
   };
+  /**
+   * When true, a handler failure whose error is ENOENT is taken to mean the
+   * on-disk original vanished: the runner stamps `missing_since` on the asset
+   * (the "pending delete" tag the operator-gated missing-reaper consumes) in
+   * addition to the normal attempts / dead bookkeeping. Set ONLY on stages
+   * that read the original file (exif / thumb / preview) — never on stages
+   * that read a derived artefact (a missing thumbnail must not be mistaken
+   * for a missing original). A spurious tag is self-correcting: the reaper
+   * re-stats on disk and clears the tag when the file is actually present.
+   */
+  tagsMissingOnEnoent?: boolean;
   handler: (image: ImageDoc, ctx: StageContext) => Promise<StageResult<TPatch>>;
   /**
    * Optional per-tick progress hook, invoked by the poll loop after each
@@ -353,6 +365,19 @@ export async function runOnce(
           },
         },
       );
+      // Tag the asset for the missing-reaper when an original-file stage
+      // failed because the file is gone. Conditional so the timestamp
+      // reflects FIRST detection — the reaper's "older than boot" age-gate
+      // must not be reset forward by each retry. Best-effort: a failure here
+      // must not mask the stage error above.
+      if (stage.tagsMissingOnEnoent && isEnoentError(err)) {
+        await images
+          .updateOne(
+            { _id: id, $or: [{ missing_since: { $exists: false } }, { missing_since: null }] },
+            { $set: { missing_since: new Date().toISOString() } },
+          )
+          .catch(() => {});
+      }
     } finally {
       inFlightSet?.delete(idStr);
     }

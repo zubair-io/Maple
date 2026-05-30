@@ -315,6 +315,24 @@ export interface AssetDoc {
    * relative path to clients. Cleared on restore.
    */
   original_path?: string | null;
+  /**
+   * "Pending delete" tag. Set (as an ISO timestamp) by any file-touching
+   * stage — exif / thumb / preview — the first time it finds the on-disk
+   * original gone (ENOENT) and so can no longer process the asset. Tagging
+   * is the only automatic step; deletion is owned by the operator-gated
+   * `missing-reaper` worker (`src/workers/missing-reaper.ts`).
+   *
+   * The timestamp doubles as the tag and its age: the reaper only
+   * hard-deletes rows whose `missing_since` PREDATES its boot-time start,
+   * so a record can never be reaped in the same process lifetime it was
+   * tagged. Cleared back to `null` by the reaper when the file turns out to
+   * still be on disk (e.g. a transient unmount that recovered).
+   *
+   * Distinct from `deleted_at`: that is a soft-delete to trash (user / File
+   * Provider action) with a retention window; `missing_since` means the
+   * bytes vanished from disk underneath the index.
+   */
+  missing_since?: string | null;
 }
 
 export type AssetWithId = WithId<AssetDoc>;

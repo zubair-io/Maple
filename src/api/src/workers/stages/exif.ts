@@ -74,6 +74,9 @@ const exifStage = defineStage({
   // wrote western-hemisphere longitudes as positive. Bumping forces re-extract.
   targetVersion: 2,
   dependsOn: [],
+  // Reads the original file — an ENOENT means it vanished from disk, so the
+  // runner tags `missing_since` for the missing-reaper.
+  tagsMissingOnEnoent: true,
   defaults: {
     concurrency: 4,
     batchSize: 10,
@@ -100,7 +103,9 @@ const exifStage = defineStage({
 
     // Stat the file first — throws ENOENT when it doesn't exist, satisfying
     // the "throws when the file does not exist" test contract before we even
-    // attempt to open it for reading.
+    // attempt to open it for reading. The runner tags `missing_since` on that
+    // ENOENT (this stage sets `tagsMissingOnEnoent`); the missing-reaper later
+    // verifies + deletes.
     await fs.stat(absPath);
 
     const exif = await readExif(absPath);

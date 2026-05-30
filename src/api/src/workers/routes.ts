@@ -31,9 +31,18 @@ import { stageRegistry } from './registry.ts';
 import type { StageStatusSnapshot } from './registry.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { child } from '../log.ts';
 
 const log = child('workers:routes');
+
+// Names of the version-claim pipeline stages. Other registry entries (e.g.
+// the `missing-reaper`, which is registered for pause/resume/status control
+// but is NOT a per-asset claim stage) carry no `stages.<name>` subdocument, so
+// the pending / dead `countDocuments` below is meaningless for them — and the
+// `version: { $exists: false }` branch would match the ENTIRE collection. Gate
+// the counts to real claim stages; everything else reports pending/dead 0.
+const CLAIM_STAGE_NAMES = new Set<string>(ALL_STAGE_NAMES);
 
 const DEAD_LIST_LIMIT_DEFAULT = 50;
 const DEAD_LIST_LIMIT_MAX = 500;
@@ -106,9 +115,10 @@ async function fetchStatusDbState(
     // DB unavailable — counts remain zeros, configMap empty.
   }
 
-  if (assets && stageNames.length > 0) {
+  const claimStageNames = stageNames.filter((name) => CLAIM_STAGE_NAMES.has(name));
+  if (assets && claimStageNames.length > 0) {
     const counts = await Promise.all(
-      stageNames.flatMap((name) => {
+      claimStageNames.flatMap((name) => {
         const tv = statuses[name]?.targetVersion ?? 1;
         const deps = statuses[name]?.dependsOn ?? [];
         const pending = assets!
