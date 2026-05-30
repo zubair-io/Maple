@@ -73,6 +73,7 @@ import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { getDb, ensureIndexes, closeDb, foldersCollection } from './db/client.ts';
 import { startTrashGc, type TrashGcHandle } from './workers/trash-gc.ts';
+import { startMissingReaper, type MissingReaperHandle } from './workers/missing-reaper.ts';
 import { startAllStages, stopAllStages } from './workers/orchestrator.ts';
 import { stageRegistry } from './workers/registry.ts';
 import { startDiscover, type DiscoverHandle } from './workers/discover/index.ts';
@@ -322,6 +323,7 @@ export const app = buildApp({ stageNames: [] });
 
 /** Background handles whose lifecycle is owned by start()/shutdown(). */
 let _trashGcHandle: TrashGcHandle | null = null;
+let _missingReaperHandle: MissingReaperHandle | null = null;
 let _discoverHandle: DiscoverHandle | null = null;
 
 async function start(): Promise<void> {
@@ -512,6 +514,10 @@ async function start(): Promise<void> {
   // Phase 3 trash-gc — fire once at boot, then once a day. The handle's
   // stop() is invoked during shutdown so a clean exit cancels the timer.
   _trashGcHandle = startTrashGc({});
+  // Missing-file reaper — always starts PAUSED; its boot-time start gate is
+  // captured here. An operator resumes it from /settings/workers to hard-delete
+  // records whose on-disk original vanished. stop() is invoked during shutdown.
+  _missingReaperHandle = startMissingReaper();
   // shutdown() handles stage drain via stopAllStages(); no separate hook needed.
 }
 
@@ -531,6 +537,13 @@ async function shutdown(signal: string): Promise<void> {
     _trashGcHandle = null;
   } catch (e) {
     log.warn({ err: e }, 'error stopping trash-gc');
+  }
+  // Stop the missing-reaper loop so its interval timer doesn't fire mid-shutdown.
+  try {
+    _missingReaperHandle?.stop();
+    _missingReaperHandle = null;
+  } catch (e) {
+    log.warn({ err: e }, 'error stopping missing-reaper');
   }
   // Stop the file-system watcher so it stops producing new docs while we drain.
   try {
