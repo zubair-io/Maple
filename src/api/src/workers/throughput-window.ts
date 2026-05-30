@@ -12,13 +12,21 @@
  * completions have been recorded, replacing the old `number[]` + `.filter()`
  * that grew to 10^5–10^6 entries and cost 10–50ms per read.
  *
- * Each slot is tagged with the ABSOLUTE second-bucket it currently holds, so
- * the ring is robust to:
- *   - out-of-order / backdated records (the entry's own timestamp picks the
- *     slot, not a moving head),
- *   - ring wraparound (a stale slot is lazily zeroed when its bucket id no
- *     longer matches before we add to it),
- *   - reads that exclude future-dated (clock-skewed) buckets.
+ * Contract: `record()` takes the current wall-clock time of a just-finished
+ * completion. Both production callers pass `new Date()`, so the input stream is
+ * monotonic and always lands inside the trailing window. Within that contract
+ * the ring is exact:
+ *   - out-of-order records inside the window land in their own second's slot
+ *     (the entry's own timestamp picks the slot, not a moving head),
+ *   - ring wraparound is handled — a stale slot is lazily zeroed when its
+ *     bucket id no longer matches before we add to it,
+ *   - reads exclude future-dated buckets via the `nowBucket` cap in
+ *     `countInWindow`, so a clock-skewed read can't inflate the count.
+ *
+ * Not designed for: an out-of-window `record()` (a timestamp more than one
+ * ring-span in the future or past). With `slotCount` slots, such a bucket
+ * aliases onto a live in-window slot and would overwrite it; the monotonic
+ * current-time contract above is what keeps that case from arising.
  */
 
 export class ThroughputWindow {
