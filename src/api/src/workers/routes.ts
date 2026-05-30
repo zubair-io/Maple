@@ -29,6 +29,7 @@ import { buildClaimQuery, deriveBatchSize } from './run-stage.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
 import type { StageStatusSnapshot } from './registry.ts';
+import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
@@ -184,6 +185,21 @@ async function fetchStatusDbState(
       if (c.key === 'pending') pendingByStage.set(c.name, c.n);
       else if (c.key === 'ready') readyByStage.set(c.name, c.n);
       else deadByStage.set(c.name, c.n);
+    }
+  }
+
+  // The missing-reaper is NOT a claim stage, so the loop above leaves its
+  // counts at 0 — which reads as "nothing to do" even while it's actively
+  // pruning a large `missing_since` backlog. Surface the real tagged count as
+  // its `pending` so the Workers UI reflects the work queue instead of 0/0/0.
+  if (assets && stageNames.includes(MISSING_REAPER_NAME)) {
+    try {
+      pendingByStage.set(
+        MISSING_REAPER_NAME,
+        await assets.countDocuments({ missing_since: { $ne: null } }),
+      );
+    } catch (err) {
+      log.warn({ err }, 'countDocuments failed for missing-reaper tagged count — leaving 0');
     }
   }
 
