@@ -72,7 +72,7 @@ import { assetsListRoutes } from './routes/assets-list.ts';
 import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { getDb, ensureIndexes, closeDb, foldersCollection } from './db/client.ts';
-import { startTrashGc, type TrashGcHandle } from './workers/trash-gc.ts';
+import { startMaintenanceJobs, stopMaintenanceJobs } from './workers/maintenance.ts';
 import { startAllStages, stopAllStages } from './workers/orchestrator.ts';
 import { stageRegistry } from './workers/registry.ts';
 import { startDiscover, type DiscoverHandle } from './workers/discover/index.ts';
@@ -321,7 +321,6 @@ export const app = buildApp({ stageNames: [] });
 // ---------------------------------------------------------------------------
 
 /** Background handles whose lifecycle is owned by start()/shutdown(). */
-let _trashGcHandle: TrashGcHandle | null = null;
 let _discoverHandle: DiscoverHandle | null = null;
 
 async function start(): Promise<void> {
@@ -509,10 +508,10 @@ async function start(): Promise<void> {
 
   const app = buildApp();
   app.listen(PORT);
-  // Phase 3 trash-gc — fire once at boot, then once a day. The handle's
-  // stop() is invoked during shutdown so a clean exit cancels the timer.
-  _trashGcHandle = startTrashGc({});
-  // shutdown() handles stage drain via stopAllStages(); no separate hook needed.
+  // Library-wide maintenance jobs (trash-gc + missing-reaper). Started
+  // unconditionally — independent of MAPLE_INDEXER_AUTOSTART — and stopped in
+  // shutdown(). Stage drain is handled separately via stopAllStages().
+  startMaintenanceJobs();
 }
 
 // Graceful shutdown.
@@ -525,12 +524,12 @@ async function shutdown(signal: string): Promise<void> {
   } catch (e) {
     log.warn({ err: e }, 'error stopping change feed tailer');
   }
-  // Stop the trash-gc loop next so its daily timer doesn't fire mid-shutdown.
+  // Stop the maintenance jobs (trash-gc + missing-reaper) next so their timers
+  // don't fire mid-shutdown.
   try {
-    _trashGcHandle?.stop();
-    _trashGcHandle = null;
+    stopMaintenanceJobs();
   } catch (e) {
-    log.warn({ err: e }, 'error stopping trash-gc');
+    log.warn({ err: e }, 'error stopping maintenance jobs');
   }
   // Stop the file-system watcher so it stops producing new docs while we drain.
   try {
