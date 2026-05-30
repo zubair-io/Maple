@@ -1,28 +1,21 @@
 // KeywordChipsRow.swift — S6 Info content, section 4.
 //
-// READ-ONLY in v0.1. `EditSession` does not expose a `setKeywords(_:)`
-// method today; `AdjustmentModel` doesn't carry a keywords field; and
-// `XMPParser` round-trips Adobe `crs:` attributes but not `dc:subject`
-// (the IPTC keyword bag). Shipping write-through would mean adding:
-//   • a new XMP namespace serialization path,
-//   • a new field on the model + culling round-trip,
-//   • a new EditSession mutator that routes through the existing 750ms
-//     `XMPSidecarStore.update` debounce.
-// Per spec §6 risk 3, default plan (a): chip-editing affordance is a
-// stub. Follow-up ticket: "S6 keyword editing — XMP dc:subject round-
-// trip + EditSession.setKeywords".
+// Editable in #632. The component reads the live `culling.keywords` list
+// off the EditSession and mutates it through `setKeywords(_:)`, which
+// routes through `culling.didSet` → the existing 750ms-debounced
+// `XMPSidecarStore.update` write. There's no separate render kick because
+// keywords have zero pixel impact.
 //
-// What renders in v0.1:
-//   • Existing keywords (an empty list today; the model doesn't surface
-//     any yet) as 11pt rounded chips on `surfaceAlt`.
-//   • A trailing dashed `+` add-chip that opens an alert explaining the
-//     feature isn't wired yet. Keeps the affordance visible so users +
-//     reviewers can see where it lands, but doesn't mutate state.
-//
-// When the model work lands, the `+` chip switches to docking a single-
-// line text input above the keyboard and the chips become tappable for
-// removal. The `applyAddDraft` / `removeKeyword` private methods below
-// are the no-op stubs that the follow-up replaces.
+// What renders:
+//   • Existing keywords (`session.culling.keywords`) as 11pt rounded chips
+//     on `surfaceAlt`. Tapping a chip removes it — the whole chip is the
+//     button so the hit target stays comfortable at 11pt type.
+//   • A trailing dashed `+ Add` chip. Tapping it expands an inline
+//     `TextField` docked next to the chip row; the field auto-focuses,
+//     submits on Return / commit, and collapses again. On phones the
+//     keyboard docks against the field automatically (SwiftUI's default
+//     `TextField` keyboard-docking behaviour applies — no manual
+//     `.keyboardType` / `.submitLabel` overrides needed beyond `.done`).
 
 import MapleCore
 import SwiftUI
@@ -30,24 +23,25 @@ import SwiftUI
 // MARK: - KeywordChipsRow
 
 struct KeywordChipsRow: View {
-  let asset: AssetRef?
+  /// Live session — `nil` when no asset is focused. Render-disabled state
+  /// matches `RatingFlagsRow`'s pattern so the inspector layout doesn't
+  /// jump while waiting for hydration.
+  let session: EditSession?
 
-  /// Local draft text for the future "+ add" input. Wired up now so
-  /// the follow-up ticket only swaps the alert for an inline field.
+  /// Draft text for the inline add field. Only non-empty while the user
+  /// is mid-type; cleared on submit / cancel.
   @State private var draft: String = ""
-  @State private var showStubAlert: Bool = false
 
-  /// v0.1 keywords source. Today this is always empty — the model
-  /// doesn't carry a keywords field and we don't read `dc:subject`
-  /// from the sidecar. Surfacing the existing-data hook here keeps
-  /// the wiring honest: the day the model gains keywords, this is
-  /// the only line that changes.
+  /// Visibility of the inline add field. `true` after tapping the `+`
+  /// chip; collapses on submit / cancel / focus loss.
+  @State private var isEditing: Bool = false
+
+  /// Focus binding so the field auto-focuses when it appears and so
+  /// `.onSubmit` can clear focus alongside committing the draft.
+  @FocusState private var fieldFocused: Bool
+
   private var keywords: [String] {
-    // TODO(s6-keyword-editing): read from session/model once the
-    // dc:subject round-trip lands. Returning [] today produces a
-    // chips row with just the "+" affordance, which matches the
-    // current XMP read path (no keywords parsed = no chips shown).
-    []
+    session?.culling.keywords ?? []
   }
 
   var body: some View {
@@ -57,31 +51,55 @@ struct KeywordChipsRow: View {
         ForEach(keywords, id: \.self) { keyword in
           KeywordChip(text: keyword, onTap: { removeKeyword(keyword) })
         }
-        AddKeywordChip(onTap: openAddDraft)
+        if isEditing {
+          AddKeywordField(
+            draft: $draft,
+            focused: $fieldFocused,
+            onSubmit: applyAddDraft,
+            onCancel: cancelAddDraft
+          )
+        } else {
+          AddKeywordChip(onTap: openAddDraft)
+        }
       }
     }
-    .alert("Keyword editing coming soon", isPresented: $showStubAlert) {
-      Button("OK", role: .cancel) {}
-    } message: {
-      Text("XMP keyword round-trip lands in a follow-up ticket.")
-    }
+    .disabled(session == nil)
+    .opacity(session == nil ? 0.5 : 1.0)
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("info-panel-keywords")
   }
 
-  /// v0.1 stub. Replace with sheet/inline input + EditSession mutator
-  /// in the follow-up.
   private func openAddDraft() {
     draft = ""
-    showStubAlert = true
+    isEditing = true
+    // Defer focus by one runloop pass so SwiftUI mounts the TextField
+    // before the focus binding tries to claim it. Without the dispatch
+    // the very first `+` tap sometimes ends up with no keyboard.
+    DispatchQueue.main.async {
+      fieldFocused = true
+    }
   }
 
   private func applyAddDraft() {
-    // TODO(s6-keyword-editing): session.setKeywords(keywords + [draft]).
+    let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let session else { return }
+    if !trimmed.isEmpty {
+      session.setKeywords(session.culling.keywords + [trimmed])
+    }
+    draft = ""
+    isEditing = false
+    fieldFocused = false
+  }
+
+  private func cancelAddDraft() {
+    draft = ""
+    isEditing = false
+    fieldFocused = false
   }
 
   private func removeKeyword(_ keyword: String) {
-    // TODO(s6-keyword-editing): session.setKeywords(keywords.filter { $0 != keyword }).
+    guard let session else { return }
+    session.setKeywords(session.culling.keywords.filter { $0 != keyword })
   }
 
   private func sectionHeader(_ title: String) -> some View {
@@ -140,6 +158,62 @@ struct AddKeywordChip: View {
     .buttonStyle(.plain)
     .accessibilityLabel("Add keyword")
     .accessibilityIdentifier("info-panel-keyword-add")
+  }
+}
+
+// MARK: - AddKeywordField
+
+/// Inline draft input that replaces the `+` chip while the user is
+/// typing a new keyword. Submits on Return (`.done` keyboard submit),
+/// cancels on Escape (macOS) or on empty-blur (iOS/iPadOS). Width is
+/// content-sized rather than fixed so the field flows naturally inside
+/// `FlowLayout` next to the existing chips.
+struct AddKeywordField: View {
+  @Binding var draft: String
+  var focused: FocusState<Bool>.Binding
+  let onSubmit: () -> Void
+  let onCancel: () -> Void
+
+  var body: some View {
+    HStack(spacing: 3) {
+      TextField("New keyword", text: $draft)
+        .textFieldStyle(.plain)
+        .font(MapleTokens.Typography.chipLabel)
+        .foregroundStyle(MapleTokens.textMain)
+        .focused(focused)
+        .submitLabel(.done)
+        .onSubmit(onSubmit)
+        .frame(minWidth: 48)
+        .fixedSize(horizontal: true, vertical: false)
+        // macOS catches Escape via `onExitCommand`; iOS doesn't ship that
+        // modifier. The iOS dismissal path is keyboard-down or empty-blur.
+        .modifier(EscapeCancelModifier(onCancel: onCancel))
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 4)
+    .background(
+      Capsule()
+        .stroke(
+          MapleTokens.borderHi,
+          style: StrokeStyle(lineWidth: 1, dash: [3, 2])
+        )
+    )
+    .accessibilityLabel("New keyword")
+    .accessibilityIdentifier("info-panel-keyword-input")
+  }
+}
+
+/// Hosts the macOS-only Escape-to-cancel modifier behind an `#if`. iOS
+/// builds get a no-op so the call site doesn't need a platform branch.
+private struct EscapeCancelModifier: ViewModifier {
+  let onCancel: () -> Void
+
+  func body(content: Content) -> some View {
+    #if os(macOS)
+    content.onExitCommand(perform: onCancel)
+    #else
+    content
+    #endif
   }
 }
 
@@ -208,8 +282,8 @@ struct FlowLayout: Layout {
 
 // MARK: - Previews
 
-#Preview("KeywordChipsRow — empty (v0.1 default)") {
-  KeywordChipsRow(asset: .preview())
+#Preview("KeywordChipsRow — empty") {
+  KeywordChipsRow(session: nil)
     .frame(width: 280)
     .padding()
     .background(MapleTokens.bg)
