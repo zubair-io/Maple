@@ -26,9 +26,9 @@ import {
   DEFAULT_SIMILARITY_THRESHOLD,
   EMBEDDING_DIM,
   l2Normalise,
-  clusterEmbeddings,
   type ClusterSeed,
 } from './cluster-embeddings.ts';
+import { clusterEmbeddingsOffThread } from './cluster-pool.ts';
 
 const log = childLogger('people:clustering');
 
@@ -131,7 +131,11 @@ export async function runOnlineClustering(
     face_count: c.face_count,
   }));
   const seedCount = seeds.length;
-  const result = clusterEmbeddings(
+  // Run the synchronous O(N·K·D) clustering pass on a Worker thread so it
+  // never blocks the HTTP event loop. Output is identical to the in-process
+  // call — the worker runs the same pure core (`clusterEmbeddings`). See
+  // `cluster-pool.ts`.
+  const result = await clusterEmbeddingsOffThread(
     faces.map((f) => f.embedding),
     { similarityThreshold: threshold, seeds },
   );
