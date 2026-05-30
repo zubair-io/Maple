@@ -551,6 +551,43 @@ final class AdjustmentModelTests: XCTestCase {
         XCTAssertFalse(xml.contains("crs:SplitToningBalance"))
     }
 
+    // MARK: - S5 effects + keywords interaction (#632 / #643 merge)
+
+    /// The reconciliation of the two XMP file-splits introduces one case
+    /// neither `testS5EffectsRoundTrip` (empty culling) nor
+    /// `testKeywordsRoundTrip` (default model) exercises: S5 effect
+    /// attributes living inside the open/close `rdf:Description` form
+    /// *alongside* the `dc:subject` keyword bag. Setting both in one
+    /// sidecar proves the S5 attrs were appended to the shared `attrs`
+    /// list (so they survive the keyword-bearing output branch) and that
+    /// the keyword sub-parser still recovers the bag when S5 attributes
+    /// precede it.
+    func testS5EffectsAndKeywordsRoundTripTogether() throws {
+        var m = AdjustmentModel()
+        m.vignetteAmount = -35
+        m.grainAmount = 25
+        m.splitToneShadowHue = 200
+        m.splitToneBalance = -10
+        let c = CullingState(stars: 3, flag: .pick, keywords: ["travel", "paris", "2026"])
+
+        let xml = XMPSerializer.serialize(model: m, culling: c)
+        // S5 attrs must appear in the keyword-bearing (open/close) form.
+        XCTAssertTrue(xml.contains(#"crs:PostCropVignetteAmount="-35""#))
+        XCTAssertTrue(xml.contains(#"crs:SplitToningBalance="-10""#))
+        XCTAssertTrue(xml.contains("<dc:subject>"))
+
+        let (m2, c2) = try XMPParser.parse(xml)
+        // S5 fields survive.
+        XCTAssertEqual(m2.vignetteAmount, -35)
+        XCTAssertEqual(m2.grainAmount, 25)
+        XCTAssertEqual(m2.splitToneShadowHue, 200)
+        XCTAssertEqual(m2.splitToneBalance, -10)
+        // Keywords + culling survive.
+        XCTAssertEqual(c2.keywords, ["travel", "paris", "2026"])
+        XCTAssertEqual(c2.stars, 3)
+        XCTAssertEqual(c2.flag, .pick)
+    }
+
     // MARK: - Helpers
 
     private func xmp(attrs: String) -> String {
