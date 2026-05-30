@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import type { EnrichmentConfigResponse, StageStatus, WorkerConfig } from '@maple-common';
 import {
+  CONCURRENCY_MAX,
   DEFAULT_RUNTIME,
   ERROR_POLL_MS,
   POLL_MS,
@@ -33,8 +34,6 @@ import {
 function workerConfig(overrides: Partial<WorkerConfig> = {}): WorkerConfig {
   return {
     concurrency: 4,
-    pollIntervalMs: 1000,
-    batchSize: 10,
     maxAttempts: 5,
     paused: false,
     last_seen_target_version: 1,
@@ -119,18 +118,28 @@ describe('parseClampedInt', () => {
 
 describe('runtimeFormToPatch', () => {
   it('produces a WorkerConfig patch with each knob clamped to its range', () => {
+    // Concurrency ceiling is now 100 (#674); pollIntervalMs / batchSize knobs
+    // were removed entirely and must not appear in the patch.
     const patch = runtimeFormToPatch({
-      concurrency: '99', // > 32 → 32
-      pollIntervalMs: '50', // < 100 → 100
-      batchSize: '7',
+      concurrency: '250', // > 100 → 100
       maxAttempts: 'oops',
     });
     expect(patch).toEqual({
-      concurrency: 32,
-      pollIntervalMs: 100,
-      batchSize: 7,
+      concurrency: 100,
       maxAttempts: DEFAULT_RUNTIME.maxAttempts,
     });
+    expect('pollIntervalMs' in patch).toBe(false);
+    expect('batchSize' in patch).toBe(false);
+  });
+
+  it('clamps a sane concurrency through unchanged', () => {
+    const patch = runtimeFormToPatch({ concurrency: '64', maxAttempts: '7' });
+    expect(patch).toEqual({ concurrency: 64, maxAttempts: 7 });
+  });
+
+  it('admits concurrency up to the new 100 ceiling', () => {
+    expect(CONCURRENCY_MAX).toBe(100);
+    expect(runtimeFormToPatch({ concurrency: '100', maxAttempts: '5' }).concurrency).toBe(100);
   });
 });
 
@@ -140,7 +149,7 @@ describe('blankRuntime', () => {
   it('seeds from the stage config when present', () => {
     const form = blankRuntime(stage({ config: workerConfig({ concurrency: 12 }) }));
     expect(form.concurrency).toBe('12');
-    expect(form.pollIntervalMs).toBe('1000');
+    expect(form.maxAttempts).toBe('5');
   });
 
   it('falls back to DEFAULT_RUNTIME when config is null', () => {
