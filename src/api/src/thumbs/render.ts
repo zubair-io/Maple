@@ -16,25 +16,25 @@
  * resize/encode already runs off-thread on the libvips threadpool.
  */
 
-import { readFile, rename, writeFile } from "node:fs/promises";
-import sharp from "sharp";
-import heicConvert from "heic-convert";
-import { decodeHeicThumbOffThread } from "./heic-pool.ts";
+import { readFile, rename, writeFile } from 'node:fs/promises';
+import sharp from 'sharp';
+import heicConvert from 'heic-convert';
+import { decodeHeicThumbOffThread } from './heic-pool.ts';
 
 /** Extensions this module knows how to decode. Lowercase, no leading dot.
  * Mirrors the gate in `routes/fs-thumbs.ts` and the indexer's non-RAW
  * branch. */
 export const SHARP_EXTENSIONS = new Set<string>([
-  "jpg",
-  "jpeg",
-  "png",
-  "webp",
-  "gif",
-  "tif",
-  "tiff",
-  "heic",
-  "heif",
-  "avif",
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+  'avif',
 ]);
 
 /**
@@ -60,12 +60,12 @@ export async function renderHeicThumbToFile(
   // at quality 82 so the intermediate doesn't bloat the cache.
   const jpegBuffer = (await heicConvert({
     buffer: inputBuffer,
-    format: "JPEG",
+    format: 'JPEG',
     quality: 0.9,
   })) as Buffer;
-  const buf = await sharp(jpegBuffer, { failOn: "none" })
+  const buf = await sharp(jpegBuffer, { failOn: 'none' })
     .rotate() // honour EXIF orientation so portraits don't render sideways
-    .resize(sizePx, sizePx, { fit: "inside", withoutEnlargement: true })
+    .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 82, mozjpeg: true })
     .toBuffer();
   const tmp = `${thumbPath}.${process.pid}.tmp`;
@@ -93,21 +93,21 @@ export async function renderImageThumbToFile(
   sizePx: number,
   ext: string,
 ): Promise<boolean> {
-  if (ext === "heic" || ext === "heif") {
+  if (ext === 'heic' || ext === 'heif') {
     // Off-thread: the libheif/WASM decode would otherwise freeze the loop
     // for ~500–2000 ms. The pool keeps the input buffer + intermediate JPEG
     // inside the worker; only `{ ok, error? }` crosses postMessage.
     const result = await decodeHeicThumbOffThread(srcPath, thumbPath, sizePx);
     if (!result.ok) {
-      throw new Error(result.error ?? "heic decode failed");
+      throw new Error(result.error ?? 'heic decode failed');
     }
     return true;
   }
 
   const tmp = `${thumbPath}.${process.pid}.tmp`;
-  const buf = await sharp(srcPath, { failOn: "none" })
+  const buf = await sharp(srcPath, { failOn: 'none' })
     .rotate() // honour EXIF orientation so portraits don't render sideways
-    .resize(sizePx, sizePx, { fit: "inside", withoutEnlargement: true })
+    .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 82, mozjpeg: true })
     .toBuffer();
   await writeFile(tmp, buf);
