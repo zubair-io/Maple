@@ -30,6 +30,39 @@ private actor FailingAssetReader: AssetReader {
     }
 }
 
+/// Reader that tracks the peak number of concurrent `read(...)` calls, so a
+/// test can assert the engine's `maxConcurrency` cap holds. The increment is
+/// synchronous-on-entry (before the first `await`), so reentrancy during the
+/// sleep registers overlapping reads in `peak`.
+private actor CountingAssetReader: AssetReader {
+    private(set) var current = 0
+    private(set) var peak = 0
+    private let holdNanos: UInt64
+
+    init(holdMillis: UInt64 = 50) { self.holdNanos = holdMillis * 1_000_000 }
+
+    func read(phassetLocalId: String) async throws -> AssetReadResult {
+        current += 1
+        peak = max(peak, current)
+        try? await Task.sleep(nanoseconds: holdNanos)
+        current -= 1
+        return AssetReadResult(
+            originalBytes: Data(count: 256),
+            renderedBytes: nil,
+            sidecar: PayloadAssembler.SidecarInput(
+                phassetLocalId: phassetLocalId,
+                deviceId: "d",
+                captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+                latitude: nil, longitude: nil,
+                favorite: false, caption: nil,
+                keywords: [], tags: [],
+                livePhotoCompanion: nil, burstStackId: nil,
+                originalFilename: "IMG.heic",
+                mtime: 0),
+            mapleId: "hash-\(phassetLocalId)")
+    }
+}
+
 final class BackupEngineTests: XCTestCase {
 
     override func setUp() {
@@ -59,6 +92,31 @@ final class BackupEngineTests: XCTestCase {
         let engine = BackupEngine(queue: queue, state: state, upload: upload,
                                   sidecars: sidecars, reader: reader)
         return (engine, queue, state, sidecars, reader, tmpRoot)
+    }
+
+    /// Variant exposing the #700 `companionBackoff` injection point. Returns the
+    /// 5 handles the companion tests need (the reader stub is not inspected).
+    private func freshHarness(
+        companionBackoff: @escaping @Sendable (Int) -> TimeInterval
+    ) throws -> (BackupEngine, InProcessBackupQueue, BackupStateStore, AppSupportSidecarStore, URL) {
+        let tmpRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("engine-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+
+        let queue = InProcessBackupQueue()
+        let state = try BackupStateStore(databaseURL: stateURL)
+        let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+        let reader = StubAssetReader()
+        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
+                                  libraryId: "lib", deviceId: "d",
+                                  session: stubSession())
+        let engine = BackupEngine(queue: queue, state: state, upload: upload,
+                                  sidecars: sidecars, reader: reader,
+                                  companionBackoff: companionBackoff)
+        return (engine, queue, state, sidecars, tmpRoot)
     }
 
     // Convenience: a sequence stub for the standard two-request happy path
@@ -345,5 +403,195 @@ final class BackupEngineTests: XCTestCase {
         XCTAssertTrue(sawReEnqueue, "expected the task to be re-enqueued")
         XCTAssertEqual(reEnqueuedRetryCount, 0,
             "busy-elsewhere is coordination, not failure — retryCount must not be burned")
+    }
+
+    // MARK: - #700: best-effort companions
+
+    /// Count recorded requests whose URL path contains `needle`.
+    private func requestCount(containing needle: String) -> Int {
+        StubURLProtocol.recordedRequests.filter {
+            $0.url?.path.contains(needle) == true
+        }.count
+    }
+
+    /// Poll until `predicate` holds or the deadline elapses. Avoids sleeping a
+    /// fixed duration when waiting on the detached companion-retry path.
+    private func wait(timeout: TimeInterval = 2.0,
+                      until predicate: () -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
+    /// A sidecar (companion) failure must leave the PHOTO uploaded, must NOT
+    /// re-upload the bytes, and must retry the sidecar separately until it
+    /// lands. The discriminator for "bytes not re-uploaded" is that retries
+    /// hit `/sidecar`, never `/ingest` — so the ingest request count stays 1.
+    func testCompanionFailureLeavesPhotoUploadedAndRetriesSidecar() async throws {
+        // ingest 200+json → sidecar 500 (inline) → sidecar 200 (retry).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+            .status(200),
+        ])
+        let (engine, queue, state, sidecars, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 0 })
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        // Cancel any lingering companion-retry task so it can't leak into the
+        // next test's global StubURLProtocol state.
+        let engineRef = engine
+        defer { Task { await engineRef.stop() } }
+
+        // Seed a local-edit sidecar so the durability-critical path is exercised
+        // and we can assert delete-only-after-it-lands.
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        // processOne returns once the inline sidecar attempt fails (no throw).
+        try await engine.processOne()
+
+        // The photo is uploaded despite the sidecar hiccup.
+        let row = try await state.find(id)
+        XCTAssertEqual(row?.state, .uploaded,
+            "a companion failure must not fail the photo")
+
+        // The sidecar retry eventually lands (2nd sidecar request).
+        await wait { self.requestCount(containing: "backup/sidecar") >= 2 }
+        XCTAssertGreaterThanOrEqual(requestCount(containing: "backup/sidecar"), 2,
+            "the sidecar companion must be retried separately until it lands")
+
+        // Bytes were never re-uploaded — exactly one ingest request total.
+        XCTAssertEqual(requestCount(containing: "backup/ingest"), 1,
+            "a companion failure must NOT re-upload the photo bytes")
+
+        // The local-edit sidecar is deleted only after the retry succeeds.
+        await wait { (try? sidecars.read(phassetLocalId: "P1")) == nil }
+        XCTAssertNil(try sidecars.read(phassetLocalId: "P1"),
+            "local sidecar should be deleted once the sidecar upload finally lands")
+    }
+
+    /// Sidecar-idempotency invariant: while the sidecar upload is still failing,
+    /// the local-edit XMP must remain on disk so a retry re-derives correctly.
+    func testLocalSidecarRetainedUntilSidecarUploadSucceeds() async throws {
+        // ingest 200+json → sidecar 500 forever (sequence exhausts → 500).
+        StubURLProtocol.stub = .sequence([
+            .ok(json: #"{"maple_id":"hash-P1","target_rel_path":"2024/03/15/IMG.heic"}"#),
+            .status(500),
+        ])
+        // Hold the companion retry off (large backoff) so the inline 500 is the
+        // only sidecar attempt during the assertion window.
+        let (engine, queue, state, sidecars, tmpRoot) =
+            try freshHarness(companionBackoff: { _ in 999 })
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let engineRef = engine
+        defer { Task { await engineRef.stop() } }
+
+        try sidecars.write(phassetLocalId: "P1", xmp: "<x:edit/>")
+
+        let id = BackupTaskID(deviceId: "d", phassetLocalId: "P1")
+        let task = BackupTask(id: id, state: .pending, priority: .background)
+        try await state.upsert(task)
+        await queue.enqueue(task, priority: .background)
+
+        try await engine.processOne()
+
+        // Photo uploaded, but the sidecar upload failed — the local XMP must
+        // survive so the bounded retry (and any future walk) can re-derive it.
+        let rowState = try await state.find(id)?.state
+        XCTAssertEqual(rowState, .uploaded)
+        XCTAssertNotNil(try sidecars.read(phassetLocalId: "P1"),
+            "local sidecar must NOT be deleted before the sidecar upload lands")
+    }
+
+    /// The `maxConcurrency` override caps how many `process(task:)` runs proceed
+    /// in parallel inside `run()`. With cap=2 and 6 queued tasks, the gating
+    /// reader's peak concurrent-read count must saturate at exactly 2.
+    func testConcurrencyCapIsRespected() async throws {
+        // Single always-200 stub: every /ingest returns the maple_id JSON and
+        // every /sidecar returns 200 — no companion retries linger, so run()
+        // terminates once the queue drains.
+        StubURLProtocol.stub = .ok(
+            json: #"{"maple_id":"m","target_rel_path":"2024/03/15/IMG.heic"}"#)
+
+        let tmpRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("engine-conc-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+
+        let queue = InProcessBackupQueue()
+        let state = try BackupStateStore(databaseURL: stateURL)
+        let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+        let reader = CountingAssetReader(holdMillis: 60)
+        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
+                                  libraryId: "lib", deviceId: "d",
+                                  session: stubSession())
+        let engine = BackupEngine(queue: queue, state: state, upload: upload,
+                                  sidecars: sidecars, reader: reader,
+                                  maxConcurrency: 2)
+
+        for i in 0..<6 {
+            let id = BackupTaskID(deviceId: "d", phassetLocalId: "P\(i)")
+            let t = BackupTask(id: id, state: .pending, priority: .background)
+            try await state.upsert(t)
+            await queue.enqueue(t, priority: .background)
+        }
+
+        await engine.run()
+
+        let peak = await reader.peak
+        XCTAssertLessThanOrEqual(peak, 2,
+            "engine must not exceed the maxConcurrency=2 cap")
+        XCTAssertEqual(peak, 2,
+            "with 6 tasks and a gating reader the cap should actually be reached")
+    }
+
+    /// The default concurrency is 8 (raised from 4 in #700). Exercised via the
+    /// gating reader with 12 queued tasks against the default-constructed engine.
+    func testDefaultConcurrencyIsEight() async throws {
+        StubURLProtocol.stub = .ok(
+            json: #"{"maple_id":"m","target_rel_path":"2024/03/15/IMG.heic"}"#)
+
+        let tmpRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("engine-conc8-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpRoot) }
+        let stateURL = tmpRoot.appendingPathComponent("state.sqlite")
+        let sidecarRoot = tmpRoot.appendingPathComponent("sidecars", isDirectory: true)
+        try FileManager.default.createDirectory(at: sidecarRoot, withIntermediateDirectories: true)
+
+        let queue = InProcessBackupQueue()
+        let state = try BackupStateStore(databaseURL: stateURL)
+        let sidecars = AppSupportSidecarStore(root: sidecarRoot)
+        let reader = CountingAssetReader(holdMillis: 60)
+        let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
+                                  libraryId: "lib", deviceId: "d",
+                                  session: stubSession())
+        // Default init — no maxConcurrency override.
+        let engine = BackupEngine(queue: queue, state: state, upload: upload,
+                                  sidecars: sidecars, reader: reader)
+
+        for i in 0..<12 {
+            let id = BackupTaskID(deviceId: "d", phassetLocalId: "Q\(i)")
+            let t = BackupTask(id: id, state: .pending, priority: .background)
+            try await state.upsert(t)
+            await queue.enqueue(t, priority: .background)
+        }
+
+        await engine.run()
+
+        let peak = await reader.peak
+        XCTAssertLessThanOrEqual(peak, 8,
+            "default cap must be 8 — never more")
+        XCTAssertEqual(peak, 8,
+            "with 12 tasks the default cap of 8 should be reached")
     }
 }
