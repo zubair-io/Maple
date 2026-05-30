@@ -30,10 +30,7 @@ import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
 import type { StageStatusSnapshot } from './registry.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
-import {
-  loadPruneWindowHours,
-  savePruneWindowHours,
-} from './missing-reaper-config.repo.ts';
+import { loadPruneWindowHours, savePruneWindowHours } from './missing-reaper-config.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
@@ -196,11 +193,16 @@ async function fetchStatusDbState(
   // counts at 0 — which reads as "nothing to do" even while it's actively
   // pruning a large `missing_since` backlog. Surface the real tagged count as
   // its `pending` so the Workers UI reflects the work queue instead of 0/0/0.
+  // `$type: "string"` matches the reaper's own query exactly: it counts only
+  // tagged rows (not absent/null) AND lets the planner use the
+  // `missing_since_1` partial index instead of COLLSCANning every asset.
   if (assets && stageNames.includes(MISSING_REAPER_NAME)) {
     try {
       pendingByStage.set(
         MISSING_REAPER_NAME,
-        await assets.countDocuments({ missing_since: { $ne: null } }),
+        await assets.countDocuments({
+          missing_since: { $type: 'string', $ne: null },
+        }),
       );
     } catch (err) {
       log.warn({ err }, 'countDocuments failed for missing-reaper tagged count — leaving 0');
@@ -245,7 +247,11 @@ export async function getStatusDbStateCached(
     return statusCache.data;
   }
   const dbState = await fetchStatusDbState(stageNames, statuses);
-  statusCache = { key: cacheKey, data: dbState, expiresAt: now + STATUS_CACHE_TTL_MS };
+  statusCache = {
+    key: cacheKey,
+    data: dbState,
+    expiresAt: now + STATUS_CACHE_TTL_MS,
+  };
   return dbState;
 }
 
@@ -296,177 +302,181 @@ export async function computeWorkersStatus(): Promise<WorkersStatusPayload> {
 }
 
 export function workerRoutes(): Elysia {
-  return new Elysia({ prefix: '/api/workers' })
+  return (
+    new Elysia({ prefix: '/api/workers' })
 
-    .get('/status', async () => {
-      return computeWorkersStatus();
-    })
+      .get('/status', async () => {
+        return computeWorkersStatus();
+      })
 
-    // Missing-reaper prune window (hours an original must be missing before the
-    // reaper hard-deletes the row). The reaper re-reads this each tick, so a
-    // PATCH takes effect on the next pass without a restart.
-    .get('/missing-reaper/prune-window', async () => {
-      return { hours: await loadPruneWindowHours() };
-    })
+      // Missing-reaper prune window (hours an original must be missing before the
+      // reaper hard-deletes the row). The reaper re-reads this each tick, so a
+      // PATCH takes effect on the next pass without a restart.
+      .get('/missing-reaper/prune-window', async () => {
+        return { hours: await loadPruneWindowHours() };
+      })
 
-    .patch(
-      '/missing-reaper/prune-window',
-      async ({ body, set }) => {
-        try {
-          const hours = await savePruneWindowHours((body as { hours: number }).hours);
-          return { ok: true, hours };
-        } catch (err) {
-          set.status = 500;
-          return { error: err instanceof Error ? err.message : String(err) };
-        }
-      },
-      { body: t.Object({ hours: t.Number({ minimum: 1, maximum: 8760 }) }) },
-    )
+      .patch(
+        '/missing-reaper/prune-window',
+        async ({ body, set }) => {
+          try {
+            const hours = await savePruneWindowHours((body as { hours: number }).hours);
+            return { ok: true, hours };
+          } catch (err) {
+            set.status = 500;
+            return { error: err instanceof Error ? err.message : String(err) };
+          }
+        },
+        { body: t.Object({ hours: t.Number({ minimum: 1, maximum: 8760 }) }) },
+      )
 
-    .get('/:name/dead', async ({ params, query, set }) => {
-      if (!stageRegistry.has(params.name)) {
-        set.status = 404;
-        return { error: `unknown stage: ${params.name}` };
-      }
-      const requested = Number(query.limit ?? DEAD_LIST_LIMIT_DEFAULT);
-      const limit = Number.isFinite(requested)
-        ? Math.max(1, Math.min(DEAD_LIST_LIMIT_MAX, Math.floor(requested)))
-        : DEAD_LIST_LIMIT_DEFAULT;
-      try {
-        const db = await getDb();
-        const assets = db.collection<ImageDoc>('assets');
-        const stageKey = `stages.${params.name}`;
-        const docs = await assets
-          .find(
-            { [`${stageKey}.dead`]: true },
-            {
-              projection: {
-                _id: 1,
-                abs_path: 1,
-                fileinfo: 1,
-                folder_id: 1,
-                [`${stageKey}.last_error`]: 1,
-                [`${stageKey}.attempts`]: 1,
-                [`${stageKey}.processed_at`]: 1,
-              },
-            },
-          )
-          .sort({ [`${stageKey}.processed_at`]: -1 })
-          .limit(limit)
-          .toArray();
-        const libs = await loadLibraryRoots();
-        const items = docs.map((doc) => {
-          const stage = doc.stages?.[params.name];
-          return {
-            id: String(doc._id),
-            abs_path: assetAbsPath(doc, libs),
-            last_error: stage?.last_error ?? null,
-            attempts: stage?.attempts ?? 0,
-            processed_at: stage?.processed_at ? new Date(stage.processed_at).toISOString() : null,
-          };
-        });
-        return { items };
-      } catch (err) {
-        set.status = 500;
-        return { error: err instanceof Error ? err.message : String(err) };
-      }
-    })
-
-    .post('/:name/pause', async ({ params, set }) => {
-      if (!stageRegistry.has(params.name)) {
-        set.status = 404;
-        return { error: `unknown stage: ${params.name}` };
-      }
-      const result = await stageRegistry.pause(params.name);
-      if (!result.ok) {
-        return { ok: false, error: result.error };
-      }
-      return { ok: true };
-    })
-
-    .post('/:name/resume', async ({ params, set }) => {
-      if (!stageRegistry.has(params.name)) {
-        set.status = 404;
-        return { error: `unknown stage: ${params.name}` };
-      }
-      const result = await stageRegistry.resume(params.name);
-      if (!result.ok) {
-        return { ok: false, error: result.error };
-      }
-      return { ok: true };
-    })
-
-    .post('/:name/retry-dead', async ({ params, set }) => {
-      if (!stageRegistry.has(params.name)) {
-        set.status = 404;
-        return { error: `unknown stage: ${params.name}` };
-      }
-      try {
-        const db = await getDb();
-        const images = db.collection<ImageDoc>('assets');
-        const result = await images.updateMany(
-          { [`stages.${params.name}.dead`]: true },
-          {
-            $set: {
-              [`stages.${params.name}.dead`]: false,
-              [`stages.${params.name}.attempts`]: 0,
-              [`stages.${params.name}.last_error`]: null,
-            },
-          },
-        );
-        invalidateStatusCache();
-        return { ok: true, reset: result.modifiedCount };
-      } catch (err) {
-        set.status = 500;
-        return { error: err instanceof Error ? err.message : String(err) };
-      }
-    })
-
-    .patch(
-      '/:name/config',
-      async ({ params, body, set }) => {
+      .get('/:name/dead', async ({ params, query, set }) => {
         if (!stageRegistry.has(params.name)) {
           set.status = 404;
           return { error: `unknown stage: ${params.name}` };
         }
-        // `pollIntervalMs` / `batchSize` were removed as knobs (#674) — the
-        // poll cadence is a global constant and batch size is derived as
-        // 5×concurrency. Elysia strips unknown keys before the typed `body`
-        // reaches us, so reject them explicitly from the raw payload rather
-        // than silently ignoring a caller that still sends them.
-        const raw = body as Record<string, unknown>;
-        const removed = REMOVED_CONFIG_KEYS.filter((k) => k in raw);
-        if (removed.length > 0) {
-          set.status = 400;
-          return { error: `removed config keys not accepted: ${removed.join(', ')}` };
-        }
+        const requested = Number(query.limit ?? DEAD_LIST_LIMIT_DEFAULT);
+        const limit = Number.isFinite(requested)
+          ? Math.max(1, Math.min(DEAD_LIST_LIMIT_MAX, Math.floor(requested)))
+          : DEAD_LIST_LIMIT_DEFAULT;
         try {
           const db = await getDb();
-          const coll = db.collection('worker_config');
-          const repo = new WorkerConfigRepo(coll as never);
-          await repo.patch(params.name, body as Partial<WorkerConfig>);
-          // Tell the running poll loop to re-read its config from Mongo.
-          await stageRegistry.notifyConfigChanged(params.name);
-          const savedConfig = await repo.load(params.name);
-          invalidateStatusCache();
-          return { ok: true, config: savedConfig };
+          const assets = db.collection<ImageDoc>('assets');
+          const stageKey = `stages.${params.name}`;
+          const docs = await assets
+            .find(
+              { [`${stageKey}.dead`]: true },
+              {
+                projection: {
+                  _id: 1,
+                  abs_path: 1,
+                  fileinfo: 1,
+                  folder_id: 1,
+                  [`${stageKey}.last_error`]: 1,
+                  [`${stageKey}.attempts`]: 1,
+                  [`${stageKey}.processed_at`]: 1,
+                },
+              },
+            )
+            .sort({ [`${stageKey}.processed_at`]: -1 })
+            .limit(limit)
+            .toArray();
+          const libs = await loadLibraryRoots();
+          const items = docs.map((doc) => {
+            const stage = doc.stages?.[params.name];
+            return {
+              id: String(doc._id),
+              abs_path: assetAbsPath(doc, libs),
+              last_error: stage?.last_error ?? null,
+              attempts: stage?.attempts ?? 0,
+              processed_at: stage?.processed_at ? new Date(stage.processed_at).toISOString() : null,
+            };
+          });
+          return { items };
         } catch (err) {
           set.status = 500;
           return { error: err instanceof Error ? err.message : String(err) };
         }
-      },
-      {
-        // Loosely-typed body (`additionalProperties: true`, the default) so the
-        // removed knobs survive normalization and the handler can 400 on them.
-        // The accepted fields are still bounds-validated here; concurrency's
-        // ceiling rose 32 → 100 (#674).
-        body: t.Object({
-          concurrency: t.Optional(t.Integer({ minimum: 1, maximum: 100 })),
-          maxAttempts: t.Optional(t.Integer({ minimum: 1, maximum: 20 })),
-          paused: t.Optional(t.Boolean()),
-          pollIntervalMs: t.Optional(t.Unknown()),
-          batchSize: t.Optional(t.Unknown()),
-        }),
-      },
-    );
+      })
+
+      .post('/:name/pause', async ({ params, set }) => {
+        if (!stageRegistry.has(params.name)) {
+          set.status = 404;
+          return { error: `unknown stage: ${params.name}` };
+        }
+        const result = await stageRegistry.pause(params.name);
+        if (!result.ok) {
+          return { ok: false, error: result.error };
+        }
+        return { ok: true };
+      })
+
+      .post('/:name/resume', async ({ params, set }) => {
+        if (!stageRegistry.has(params.name)) {
+          set.status = 404;
+          return { error: `unknown stage: ${params.name}` };
+        }
+        const result = await stageRegistry.resume(params.name);
+        if (!result.ok) {
+          return { ok: false, error: result.error };
+        }
+        return { ok: true };
+      })
+
+      .post('/:name/retry-dead', async ({ params, set }) => {
+        if (!stageRegistry.has(params.name)) {
+          set.status = 404;
+          return { error: `unknown stage: ${params.name}` };
+        }
+        try {
+          const db = await getDb();
+          const images = db.collection<ImageDoc>('assets');
+          const result = await images.updateMany(
+            { [`stages.${params.name}.dead`]: true },
+            {
+              $set: {
+                [`stages.${params.name}.dead`]: false,
+                [`stages.${params.name}.attempts`]: 0,
+                [`stages.${params.name}.last_error`]: null,
+              },
+            },
+          );
+          invalidateStatusCache();
+          return { ok: true, reset: result.modifiedCount };
+        } catch (err) {
+          set.status = 500;
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      })
+
+      .patch(
+        '/:name/config',
+        async ({ params, body, set }) => {
+          if (!stageRegistry.has(params.name)) {
+            set.status = 404;
+            return { error: `unknown stage: ${params.name}` };
+          }
+          // `pollIntervalMs` / `batchSize` were removed as knobs (#674) — the
+          // poll cadence is a global constant and batch size is derived as
+          // 5×concurrency. Elysia strips unknown keys before the typed `body`
+          // reaches us, so reject them explicitly from the raw payload rather
+          // than silently ignoring a caller that still sends them.
+          const raw = body as Record<string, unknown>;
+          const removed = REMOVED_CONFIG_KEYS.filter((k) => k in raw);
+          if (removed.length > 0) {
+            set.status = 400;
+            return {
+              error: `removed config keys not accepted: ${removed.join(', ')}`,
+            };
+          }
+          try {
+            const db = await getDb();
+            const coll = db.collection('worker_config');
+            const repo = new WorkerConfigRepo(coll as never);
+            await repo.patch(params.name, body as Partial<WorkerConfig>);
+            // Tell the running poll loop to re-read its config from Mongo.
+            await stageRegistry.notifyConfigChanged(params.name);
+            const savedConfig = await repo.load(params.name);
+            invalidateStatusCache();
+            return { ok: true, config: savedConfig };
+          } catch (err) {
+            set.status = 500;
+            return { error: err instanceof Error ? err.message : String(err) };
+          }
+        },
+        {
+          // Loosely-typed body (`additionalProperties: true`, the default) so the
+          // removed knobs survive normalization and the handler can 400 on them.
+          // The accepted fields are still bounds-validated here; concurrency's
+          // ceiling rose 32 → 100 (#674).
+          body: t.Object({
+            concurrency: t.Optional(t.Integer({ minimum: 1, maximum: 100 })),
+            maxAttempts: t.Optional(t.Integer({ minimum: 1, maximum: 20 })),
+            paused: t.Optional(t.Boolean()),
+            pollIntervalMs: t.Optional(t.Unknown()),
+            batchSize: t.Optional(t.Unknown()),
+          }),
+        },
+      )
+  );
 }
