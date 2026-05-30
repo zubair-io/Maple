@@ -18,7 +18,6 @@ import MapleCore
                 mode: .browse,
                 connectionIdentity: "maple.lawrence.io",
                 tertiarySummary: "12,481 photos · synced 2m ago",
-                onSearchPillTap: {},
                 mainContent: {
                     ZStack {
                         MapleTokens.bg.ignoresSafeArea()
@@ -57,7 +56,6 @@ import MapleCore
                 mode: .browse,
                 connectionIdentity: "maple.lawrence.io",
                 tertiarySummary: "12,481 photos · synced 2m ago",
-                onSearchPillTap: {},
                 mainContent: {
                     ZStack {
                         MapleTokens.bg.ignoresSafeArea()

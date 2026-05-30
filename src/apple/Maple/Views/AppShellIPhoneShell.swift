@@ -93,7 +93,6 @@ struct AppShellIPhoneShell<SidebarContent: View, ToolbarContentT: ToolbarContent
             // Until then the existing iPhone shell has no Search tab to switch
             // to, so the callback is a no-op; the drawer still posts
             // .mapleFocusSearch for any future listener.
-            onSearchPillTap: {},
             mainContent: {
                 // Responsive-program S1a (#597): the surrounding
                 // PhoneTabShell already provides a per-tab

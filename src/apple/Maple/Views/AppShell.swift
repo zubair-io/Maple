@@ -518,16 +518,33 @@ struct AppShell: View {
     /// `AppShellToolbar.swift`). Kept as a small computed property so each
     /// call site can write `.toolbar { browseToolbarContent }` without
     /// repeating the parameter list.
+    /// True on the iPhone tab-bar shell, where Library / Search / Settings
+    /// live in the bottom tab bar (so the toolbar omits them). Mirrors the
+    /// `MapleShellKind.current` check in `body`. Always false on macOS.
+    private var isCompactShell: Bool {
+        #if os(iOS)
+        return MapleShellKind.current == .phoneTab
+        #else
+        return false
+        #endif
+    }
+
     @ToolbarContentBuilder
     private var browseToolbarContent: some ToolbarContent {
         AppShellToolbar(
             isFullImage: mode == .fullImage,
             hasSelection: selectedSession != nil,
+            isCompact: isCompactShell,
             searchAvailable: searchAvailable,
             isSearchActive: isSearchActive,
             browseDisplayMode: $browseDisplayMode,
             onBack: { mode = .browse },
-            onToggleSearch: { toggleSearch() },
+            onToggleSidebar: {
+                withAnimation {
+                    columnVisibility = (columnVisibility == .detailOnly ? .all : .detailOnly)
+                }
+            },
+            onOpenSearch: { toggleSearch() },
             onExport: { showExport = true },
             onOpenFolder: { showFilePicker = true },
             onSettings: { showSettings = true }
