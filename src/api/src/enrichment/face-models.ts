@@ -212,6 +212,26 @@ export function getFaceModelsStatus(): {
   return { kind: liveStatus.kind, errorDetail: liveStatus.errorDetail ?? null };
 }
 
+/**
+ * Relay a model-load status update into this process's `liveStatus`.
+ *
+ * The ONNX sessions now load inside the face worker thread (see
+ * `face-pool.ts` / `face-pool.worker.ts`), so the worker's `loadFaceModels`
+ * runs against a *separate* module instance whose `liveStatus` the main
+ * thread can't read. The worker posts its load-status transitions back over
+ * `postMessage`; the pool calls this to mirror them into the main-thread
+ * `liveStatus` so `getFaceModelsStatus()` (which powers the
+ * /settings/enrichment badge) reflects the real state instead of being
+ * stuck on `idle`. No-op on the worker side — there it's set directly by
+ * `loadFaceModels`.
+ */
+export function relayFaceModelsStatus(
+  kind: FaceModelsLoadStatus,
+  errorDetail?: string | null,
+): void {
+  liveStatus = errorDetail ? { kind, errorDetail } : { kind };
+}
+
 /** Inspect a model directory without loading anything. Reports whether
  * each ONNX file is on disk and how big it is. The route uses this to
  * tell the operator "files are ready, will load on worker enable" vs.

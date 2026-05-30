@@ -33,7 +33,7 @@
 
 import { child as childLogger } from '../log.ts';
 import { loadEnrichmentConfig, resolveEnrichmentConfig } from './enrichment-config.repo.ts';
-import { loadFaceModels } from './face-models.ts';
+import { preloadFaceModelsOffThread } from './face-pool.ts';
 import { workerConfigCollection } from '../db/client.ts';
 
 const log = childLogger('face');
@@ -80,9 +80,17 @@ async function applyPausedToFaceStages(paused: boolean): Promise<void> {
  * The bespoke FaceWorker class has been retired (face-worker.ts deleted).
  * Face detection is now handled by the unified stage-controller runtime
  * (src/api/src/workers/stages/face-detect.ts + face-embed.ts). This
- * bootstrap retains the model-
- * preload side-effect so the ONNX session is warm before the first claim
- * arrives. The start/stop interface is kept so index.ts doesn't need editing.
+ * bootstrap retains the model-preload side-effect so the ONNX session is warm
+ * before the first claim arrives. The start/stop interface is kept so
+ * index.ts doesn't need editing.
+ *
+ * The preload now runs INSIDE the face worker thread (#707): the ONNX
+ * sessions live on the worker, so warming them on the main thread would
+ * double-load ~hundreds of MB. `preloadFaceModelsOffThread` posts the load to
+ * the worker, which relays its status back so the /settings/enrichment badge
+ * (`getFaceModelsStatus`) stays accurate. If no Worker can spawn, the pool
+ * degrades to an in-process preload — same warm-on-boot behaviour, on the main
+ * thread.
  */
 
 /** Attempt to preload the face ONNX models so they are warm on first claim.
@@ -98,20 +106,26 @@ export async function startFaceWorker(): Promise<null> {
     return null;
   }
 
-  try {
-    await loadFaceModels({
-      modelDir: resolved.face_model_dir,
-      detectorUrl: resolved.face_detector_url,
-      detectorSha256: resolved.face_detector_sha256,
-      recognizerUrl: resolved.face_recognizer_url,
-      recognizerSha256: resolved.face_recognizer_sha256,
-    });
-    log.info('face models loaded (stage controller will handle detection)');
+  const ok = await preloadFaceModelsOffThread({
+    modelDir: resolved.face_model_dir,
+    detectorUrl: resolved.face_detector_url,
+    detectorSha256: resolved.face_detector_sha256,
+    recognizerUrl: resolved.face_recognizer_url,
+    recognizerSha256: resolved.face_recognizer_sha256,
+  });
+
+  if (ok) {
+    log.info('face models loaded in worker (stage controller will handle detection)');
     await applyPausedToFaceStages(false);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  } else {
+    // Preload failed (missing model + no URL, download error, …). Don't touch
+    // the paused state — a fresh install is already paused via
+    // `pausedOnFirstBoot`, and re-pausing here would fight an operator who
+    // manually unpaused. The first inference will retry the load and surface
+    // the real error to the operator via the /settings/enrichment badge. This
+    // mirrors the pre-#707 behaviour (the old main-thread preload only logged
+    // on failure).
     log.warn(
-      { err: msg },
       'face model preload failed; first inference will attempt load. Fix via /settings/enrichment.',
     );
   }
