@@ -5,9 +5,12 @@
  * importing the full Elysia app.
  */
 
-import type { ObjectId } from 'mongodb';
-import type { AssetDoc, Place } from '../../db/schema.ts';
-import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import type { ObjectId } from "mongodb";
+import type { AssetDoc, Place } from "../../db/schema.ts";
+import {
+  assetAbsPath,
+  assetPrimaryFileInfo,
+} from "../../indexer/images.repo.ts";
 
 export interface SearchResultPHLink {
   phasset_local_id: string;
@@ -44,6 +47,11 @@ export interface SearchResult {
    * Apple client (see `MergedTimelineSource` in MapleCore). Absent when
    * the asset wasn't ingested via PhotoKit backup. */
   phasset_links?: SearchResultPHLink[];
+  /** True iff the XMP write/delete handlers (Phase 5b) have observed
+   * a sidecar next to this asset. Drives the S2 Library Grid "Edited"
+   * filter chip (#628). Optional because legacy docs predate the flag;
+   * readers coerce missing as `false`. */
+  has_xmp?: boolean;
 }
 
 export function projectAsset(
@@ -56,9 +64,9 @@ export function projectAsset(
       ? { make: exif.camera_make, model: exif.camera_model }
       : null;
   const primary = assetPrimaryFileInfo(d);
-  const absPath = assetAbsPath(d, libraries) ?? '';
-  const folderId = primary?.library_id.toHexString() ?? '';
-  const filename = primary?.filename ?? '';
+  const absPath = assetAbsPath(d, libraries) ?? "";
+  const folderId = primary?.library_id.toHexString() ?? "";
+  const filename = primary?.filename ?? "";
   const result: SearchResult = {
     // The editor's id format is `fs:<absPath>` (matches Hosted's
     // browser-FS-Access keys); keeping the same shape here lets the FE
@@ -86,6 +94,8 @@ export function projectAsset(
     // internal). Use `/api/assets/:id` for the full record.
     place: d.place ?? null,
     description: d.description ?? null,
+    // S2 "Edited" filter chip backing (#628) — coerce missing to false.
+    has_xmp: d.has_xmp ?? false,
   };
   if (d.phasset_links && d.phasset_links.length > 0) {
     // Strip `device_id` and `first_seen` from the wire shape — the merged

@@ -9,9 +9,10 @@
 // sessions are currently primed". That trade-off is exercised here
 // alongside the trivial "all" / "picks" / "4stars" cases.
 //
-// The "edited" filter is a stub today (no `AssetRef.hasEdits`) — the
-// test asserts it returns an empty list so a future implementation
-// flips the assertion to whatever real behaviour lands.
+// The "edited" filter (#628) checks `AssetRef.hasEdits` — the URL-based
+// sidecar-existence predicate. The test stages a temp directory with
+// a real `.xmp` next to one asset and asserts the filter keeps only
+// that one.
 
 #if os(iOS)
 
@@ -117,13 +118,40 @@ final class LibraryGridFilterTests: XCTestCase {
 
     // MARK: - "edited"
 
-    func testEditedFilterReturnsEmptyTodayUntilHasEditsLands() {
-        // `AssetRef.hasEdits` is a tracked follow-up — the chip is
-        // selectable but the filter has no model field to consult. The
-        // safe behaviour is to return empty. Flip this assertion when
-        // the model field lands.
-        let a1 = makeAsset("would-be-edited")
-        let result = LibraryGrid.applyFilter("edited", to: [a1], sessions: [:])
+    func testEditedFilterKeepsAssetsWithSidecar() throws {
+        // Stage two URL-based assets in a temp dir; write a `.xmp`
+        // next to ONE of them. The filter should keep only that one.
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("maple-edited-filter-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let editedURL = tempDir.appendingPathComponent("IMG_0001.dng")
+        let plainURL = tempDir.appendingPathComponent("IMG_0002.dng")
+        // Touch primary URLs (don't need real RAW bytes — only sidecar
+        // existence is checked).
+        try Data().write(to: editedURL)
+        try Data().write(to: plainURL)
+        // Stage the `.xmp` sidecar next to the edited asset only.
+        try Data("<x:xmpmeta/>".utf8)
+            .write(to: editedURL.deletingPathExtension().appendingPathExtension("xmp"))
+
+        let edited = AssetRef(url: editedURL)
+        let plain = AssetRef(url: plainURL)
+
+        let result = LibraryGrid.applyFilter(
+            "edited",
+            to: [edited, plain],
+            sessions: [:]
+        )
+        XCTAssertEqual(result.map(\.id), [edited.id])
+    }
+
+    func testEditedFilterExcludesURLLessRefs() {
+        // PhotoKit / network refs have no sidecar URL to check — the
+        // v0.1 contract is "URL-less refs never appear in 'edited'".
+        let urlLess = makeAsset("photokit-asset")
+        let result = LibraryGrid.applyFilter("edited", to: [urlLess], sessions: [:])
         XCTAssertTrue(result.isEmpty)
     }
 }

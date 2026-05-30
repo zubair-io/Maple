@@ -6,47 +6,63 @@
  * GET  /api/folders/:id/assets — paged asset list for a folder
  */
 
-import { Elysia, t } from 'elysia';
-import { ObjectId } from 'mongodb';
-import { readdir, open, rename, stat, unlink, mkdir, utimes, realpath } from 'node:fs/promises';
-import type { Dirent } from 'node:fs';
-import * as nodePath from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { sha1 } from '@noble/hashes/legacy.js';
-import { foldersCollection, assetsCollection } from '../db/client.ts';
-import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
-import { validateRoot } from '../fs/root.ts';
-import { RAW_EXTENSIONS, isUnderRoot } from '../fs/browse.ts';
-import { SHARP_EXTENSIONS } from '../thumbs/render.ts';
-import { moveToTrash } from '../fs/trash.ts';
-import { listPairedSidecars } from '../fs/xmp.ts';
-import { child as childLogger } from '../log.ts';
-import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
-import { handleEvent } from '../workers/discover/index.ts';
-import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { assetAbsPath } from '../indexer/images.repo.ts';
-import type { AssetDoc, AssetWithId } from '../db/schema.ts';
-import { stageManifest, blankStagesSkeleton } from '../workers/stages/manifest.ts';
+import { Elysia, t } from "elysia";
+import { ObjectId } from "mongodb";
+import {
+  readdir,
+  open,
+  rename,
+  stat,
+  unlink,
+  mkdir,
+  utimes,
+  realpath,
+} from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import * as nodePath from "node:path";
+import { randomUUID } from "node:crypto";
+import { sha1 } from "@noble/hashes/legacy.js";
+import { foldersCollection, assetsCollection } from "../db/client.ts";
+import { recordAndPublishAssetChange } from "../db/changes.repo.ts";
+import { validateRoot } from "../fs/root.ts";
+import { RAW_EXTENSIONS, isUnderRoot } from "../fs/browse.ts";
+import { SHARP_EXTENSIONS } from "../thumbs/render.ts";
+import { moveToTrash } from "../fs/trash.ts";
+import { listPairedSidecars } from "../fs/xmp.ts";
+import { child as childLogger } from "../log.ts";
+import { computeBodyETag, ifNoneMatchEqual } from "../runtime/http-etag.ts";
+import { handleEvent } from "../workers/discover/index.ts";
+import {
+  invalidateLibraryRoots,
+  loadLibraryRoots,
+} from "../indexer/libraries.cache.ts";
+import { assetAbsPath } from "../indexer/images.repo.ts";
+import type { AssetDoc, AssetWithId } from "../db/schema.ts";
+import {
+  stageManifest,
+  blankStagesSkeleton,
+} from "../workers/stages/manifest.ts";
 
 // Mirror of the hash stage's prefix-SHA-1: first 64 KB. Reused here so a
 // duplicate upload whose content is byte-identical to the file being
 // replaced can drop the trash entry instead of leaving a redundant copy.
 const SHA1_HEAD_BYTES = 64 * 1024;
 async function sha1HeadHex(absPath: string): Promise<string> {
-  const fd = await open(absPath, 'r');
+  const fd = await open(absPath, "r");
   try {
     const buf = new Uint8Array(SHA1_HEAD_BYTES);
     const { bytesRead } = await fd.read(buf, 0, buf.length, 0);
     const digest = sha1(buf.subarray(0, bytesRead));
-    let s = '';
-    for (let i = 0; i < digest.length; i++) s += digest[i]!.toString(16).padStart(2, '0');
+    let s = "";
+    for (let i = 0; i < digest.length; i++)
+      s += digest[i]!.toString(16).padStart(2, "0");
     return s;
   } finally {
     await fd.close();
   }
 }
 
-const log = childLogger('folders');
+const log = childLogger("folders");
 
 // In-process serialization for the upload route's post-write critical
 // section (stat → trash → rename → upsert), keyed by destination abs
@@ -60,7 +76,10 @@ const log = childLogger('folders');
 // instead. Cross-replica races still need a database-level constraint;
 // this lock only covers a single bun instance.
 const uploadLocks = new Map<string, Promise<unknown>>();
-async function withUploadLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+async function withUploadLock<T>(
+  key: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   const prior = uploadLocks.get(key) ?? Promise.resolve();
   // `prior.then(fn, fn)` runs `fn` whether the prior link resolved or
   // rejected — a failed earlier upload shouldn't wedge the chain.
@@ -90,8 +109,10 @@ async function withUploadLock<T>(key: string, fn: () => Promise<T>): Promise<T> 
 function validateRelPathHeader(
   raw: string | undefined,
   label: string,
-): { ok: true; target: string; parts: string[] } | { ok: false; status: number; error: string } {
-  if (typeof raw !== 'string' || raw.length === 0) {
+):
+  | { ok: true; target: string; parts: string[] }
+  | { ok: false; status: number; error: string } {
+  if (typeof raw !== "string" || raw.length === 0) {
     return { ok: false, status: 400, error: `Missing ${label}` };
   }
   let target: string;
@@ -107,22 +128,26 @@ function validateRelPathHeader(
   // breakdown on any non-POSIX host. FileInfo.path is POSIX-only by
   // contract, so refusing backslashes here keeps the writer side
   // honest. Mirrors the discover watcher's POSIX-normalization invariant.
-  if (target.includes('\\')) {
-    return { ok: false, status: 400, error: 'Backslashes not allowed in path' };
+  if (target.includes("\\")) {
+    return { ok: false, status: 400, error: "Backslashes not allowed in path" };
   }
-  if (target.startsWith('/')) {
-    return { ok: false, status: 400, error: 'Path must be relative' };
+  if (target.startsWith("/")) {
+    return { ok: false, status: 400, error: "Path must be relative" };
   }
-  const parts = target.split('/').filter((p) => p.length > 0);
+  const parts = target.split("/").filter((p) => p.length > 0);
   if (parts.length === 0) {
-    return { ok: false, status: 400, error: 'Empty path' };
+    return { ok: false, status: 400, error: "Empty path" };
   }
   for (const part of parts) {
-    if (part === '..' || part === '.') {
-      return { ok: false, status: 400, error: 'Path traversal not allowed' };
+    if (part === ".." || part === ".") {
+      return { ok: false, status: 400, error: "Path traversal not allowed" };
     }
-    if (part.startsWith('.')) {
-      return { ok: false, status: 400, error: 'Hidden path components not allowed' };
+    if (part.startsWith(".")) {
+      return {
+        ok: false,
+        status: 400,
+        error: "Hidden path components not allowed",
+      };
     }
   }
   return { ok: true, target, parts };
@@ -134,8 +159,13 @@ function validateRelPathHeader(
  */
 function decodeAndValidateTargetPath(
   headers: Record<string, string | undefined>,
-): { ok: true; target: string; parts: string[] } | { ok: false; status: number; error: string } {
-  return validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
+):
+  | { ok: true; target: string; parts: string[] }
+  | { ok: false; status: number; error: string } {
+  return validateRelPathHeader(
+    headers["x-maple-target-path"],
+    "X-Maple-Target-Path",
+  );
 }
 
 /**
@@ -148,19 +178,25 @@ function decodeAndValidateTargetPath(
 async function resolveFolderRelPath(
   folderPath: string,
   rawPath: string | undefined,
-): Promise<{ ok: true; real: string } | { ok: false; status: number; error: string }> {
-  if (typeof rawPath !== 'string' || rawPath === '') {
-    return { ok: false, status: 400, error: 'missing path query param' };
+): Promise<
+  { ok: true; real: string } | { ok: false; status: number; error: string }
+> {
+  if (typeof rawPath !== "string" || rawPath === "") {
+    return { ok: false, status: 400, error: "missing path query param" };
   }
-  if (nodePath.isAbsolute(rawPath) || rawPath.split('/').includes('..')) {
-    return { ok: false, status: 400, error: 'path must be relative and contain no ".." segments' };
+  if (nodePath.isAbsolute(rawPath) || rawPath.split("/").includes("..")) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'path must be relative and contain no ".." segments',
+    };
   }
   const abs = nodePath.join(folderPath, rawPath);
   let real: string;
   try {
     real = await realpath(abs);
   } catch {
-    return { ok: false, status: 404, error: 'file not found' };
+    return { ok: false, status: 404, error: "file not found" };
   }
   // Resolve the library root to its realpath as well, so a symlinked root
   // prefix (e.g. `/var` → `/private/var` on macOS) doesn't falsely reject a
@@ -174,15 +210,15 @@ async function resolveFolderRelPath(
     /* keep the configured path */
   }
   if (!isUnderRoot(real, realRoot)) {
-    return { ok: false, status: 400, error: 'path escapes the library root' };
+    return { ok: false, status: 400, error: "path escapes the library root" };
   }
   return { ok: true, real };
 }
 
-export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
+export const foldersRoutes = new Elysia({ prefix: "/api/folders" })
   // List all folders. Body-hash ETag + If-None-Match short-circuit so the
   // File Provider extension can revalidate cheaply on cold Finder open.
-  .get('/', async ({ headers }) => {
+  .get("/", async ({ headers }) => {
     const coll = await foldersCollection();
     const docs = await coll.find({}).sort({ created_at: 1 }).toArray();
     const payload = docs.map((d) => ({
@@ -195,19 +231,24 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     }));
     const body = JSON.stringify(payload);
     const etag = computeBodyETag(body);
-    const ifNoneMatch = headers['if-none-match'];
-    if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
+    const ifNoneMatch = headers["if-none-match"];
+    if (
+      ifNoneMatchEqual(
+        typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+        etag,
+      )
+    ) {
       return new Response(null, { status: 304, headers: { ETag: etag } });
     }
     return new Response(body, {
       status: 200,
-      headers: { ETag: etag, 'Content-Type': 'application/json' },
+      headers: { ETag: etag, "Content-Type": "application/json" },
     });
   })
 
   // Register a new folder
   .post(
-    '/',
+    "/",
     async ({ body, set }) => {
       const { path, label } = body;
 
@@ -222,13 +263,16 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const existing = await coll.findOne({ path });
       if (existing) {
         set.status = 409;
-        return { error: 'Folder already registered', id: existing._id.toHexString() };
+        return {
+          error: "Folder already registered",
+          id: existing._id.toHexString(),
+        };
       }
 
       const now = new Date().toISOString();
       const doc = {
         path,
-        label: label ?? path.split('/').filter(Boolean).pop() ?? path,
+        label: label ?? path.split("/").filter(Boolean).pop() ?? path,
         last_scan: null as string | null,
         file_count: 0,
         created_at: now,
@@ -250,7 +294,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       void scanFolderAndDiscover(path, folderId, path).catch((err) =>
         log.warn(
           { path, err: err instanceof Error ? err.message : err },
-          'initial folder scan failed — files will be indexed on next watcher tick',
+          "initial folder scan failed — files will be indexed on next watcher tick",
         ),
       );
 
@@ -274,14 +318,14 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
 
   // Paged asset list for a folder
   .get(
-    '/:id/assets',
+    "/:id/assets",
     async ({ params, query, set }) => {
       let folderId: ObjectId;
       try {
         folderId = new ObjectId(params.id);
       } catch {
         set.status = 400;
-        return { error: 'Invalid folder id' };
+        return { error: "Invalid folder id" };
       }
 
       const page = Math.max(1, Number(query.page ?? 1));
@@ -289,12 +333,17 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const skip = (page - 1) * limit;
 
       const coll = await assetsCollection();
-      const filter = { 'fileinfo.library_id': folderId };
+      const filter = { "fileinfo.library_id": folderId };
       const [docs, total] = await Promise.all([
         // Multikey path (no positional `.0.`) so the `fileinfo_filename_1`
         // index satisfies the sort. See `routes/search/sort.ts` for the
         // semantics note on multi-entry fileinfo arrays.
-        coll.find(filter).sort({ 'fileinfo.filename': 1 }).skip(skip).limit(limit).toArray(),
+        coll
+          .find(filter)
+          .sort({ "fileinfo.filename": 1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
         coll.countDocuments(filter),
       ]);
 
@@ -304,16 +353,22 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         limit,
         total,
         assets: docs.map((d) => {
-          const primary = (d.fileinfo ?? []).find((e) => !e.deleted_at) ?? d.fileinfo?.[0];
+          const primary =
+            (d.fileinfo ?? []).find((e) => !e.deleted_at) ?? d.fileinfo?.[0];
           return {
             id: d._id.toHexString(),
-            filename: primary?.filename ?? '',
+            filename: primary?.filename ?? "",
             size: d.size,
             mtime: d.mtime,
             rating: d.rating,
             flag: d.flag,
             color_label: d.color_label,
             indexed_at: d.indexed_at,
+            // S2 "Edited" filter chip backing (#628) — true iff the XMP
+            // write/delete handlers (Phase 5b) have observed a sidecar
+            // next to this asset. Optional because legacy docs predate
+            // the flag; client coerces missing as `false`.
+            has_xmp: d.has_xmp ?? false,
           };
         }),
       };
@@ -329,18 +384,18 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Rescan a folder — resets stages.*.version to 0 (and clears dead/attempts/
   // last_error) for every asset doc whose primary fileinfo entry is in the
   // library. The stage controllers pick them up on their next poll cycle.
-  .post('/:id/rescan', async ({ params, set }) => {
+  .post("/:id/rescan", async ({ params, set }) => {
     const folderIdStr = params.id;
     if (!ObjectId.isValid(folderIdStr)) {
       set.status = 400;
-      return { ok: false, error: 'Invalid folderId' };
+      return { ok: false, error: "Invalid folderId" };
     }
     const id = new ObjectId(folderIdStr);
     const folders = await foldersCollection();
     const folder = await folders.findOne({ _id: id });
     if (!folder) {
       set.status = 404;
-      return { ok: false, error: 'Folder not found' };
+      return { ok: false, error: "Folder not found" };
     }
     const scanRoot = folder.path;
 
@@ -356,15 +411,26 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
 
     const assets = await assetsCollection();
     const updateResult = await (
-      assets as unknown as import('mongodb').Collection<import('mongodb').Document>
-    ).updateMany({ 'fileinfo.library_id': id }, { $set: stageResetFields });
+      assets as unknown as import("mongodb").Collection<
+        import("mongodb").Document
+      >
+    ).updateMany({ "fileinfo.library_id": id }, { $set: stageResetFields });
 
     log.info(
-      { folderId: folderIdStr, path: scanRoot, modified: updateResult.modifiedCount },
-      'rescan: stage versions zeroed',
+      {
+        folderId: folderIdStr,
+        path: scanRoot,
+        modified: updateResult.modifiedCount,
+      },
+      "rescan: stage versions zeroed",
     );
 
-    return { ok: true, folderId: folderIdStr, path: scanRoot, reset: updateResult.modifiedCount };
+    return {
+      ok: true,
+      folderId: folderIdStr,
+      path: scanRoot,
+      reset: updateResult.modifiedCount,
+    };
   })
 
   // Streaming upload: body is raw file bytes, target path in X-Maple-Target-Path.
@@ -376,21 +442,21 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // spiked server RSS by 1 GB. Streaming keeps the working set bounded
   // to a few KB regardless of file size.
   .post(
-    '/:id/upload',
+    "/:id/upload",
     async ({ params, headers, request, set }) => {
       let folderId: ObjectId;
       try {
         folderId = new ObjectId(params.id);
       } catch {
         set.status = 400;
-        return { error: 'Invalid folder id' };
+        return { error: "Invalid folder id" };
       }
 
       const folders = await foldersCollection();
       const folder = await folders.findOne({ _id: folderId });
       if (!folder) {
         set.status = 404;
-        return { error: 'Folder not found' };
+        return { error: "Folder not found" };
       }
 
       const validated = decodeAndValidateTargetPath(headers);
@@ -400,8 +466,8 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       }
       const { target, parts } = validated;
       const filename = parts[parts.length - 1]!;
-      const dot = filename.lastIndexOf('.');
-      const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : '';
+      const dot = filename.lastIndexOf(".");
+      const ext = dot >= 0 ? filename.slice(dot + 1).toLowerCase() : "";
       // Any file type may be uploaded and stored on disk so the File
       // Provider can sync everything. Only image files get an `AssetDoc`
       // — the catalog stays image-only. Everything else (video, documents,
@@ -423,7 +489,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       try {
         const stream = request.body as ReadableStream<Uint8Array> | null;
         if (stream === null) {
-          const fh = await open(tmp, 'w');
+          const fh = await open(tmp, "w");
           await fh.close();
         } else {
           const sink = Bun.file(tmp).writer();
@@ -470,7 +536,12 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         // `moveToTrash` fails AND the file is now gone, treat it as
         // benign (the peer handled the trash + doc update); otherwise
         // surface the error.
-        type Trashed = { docId: ObjectId; newAbsPath: string; sha1_head?: string; size?: number };
+        type Trashed = {
+          docId: ObjectId;
+          newAbsPath: string;
+          sha1_head?: string;
+          size?: number;
+        };
         let trashed: Trashed | undefined;
         // Non-media files have no AssetDoc and no trash semantics — a
         // re-upload simply overwrites the bytes via the atomic rename below.
@@ -482,9 +553,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             // path, filename)` instead of the retired `abs_path` field.
             const preRelDirRaw = nodePath.dirname(target);
             const preRelDir =
-              preRelDirRaw === '.' || preRelDirRaw === ''
-                ? ''
-                : preRelDirRaw.split(nodePath.sep).join('/');
+              preRelDirRaw === "." || preRelDirRaw === ""
+                ? ""
+                : preRelDirRaw.split(nodePath.sep).join("/");
             const existing = await assets.findOne({
               fileinfo: {
                 $elemMatch: { library_id: folderId, path: preRelDir, filename },
@@ -492,9 +563,12 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
               deleted_at: null,
             });
             const moved = await moveToTrash(absPath, folder.path);
-            if (moved.kind === 'ok') {
+            if (moved.kind === "ok") {
               if (existing) {
-                const existingFields = existing as { sha1_head?: string; size?: number };
+                const existingFields = existing as {
+                  sha1_head?: string;
+                  size?: number;
+                };
                 // Rewrite the primary fileinfo entry to point at the trash
                 // destination so cache resolution + restore can find the row.
                 const trashRelDirRaw = nodePath.relative(
@@ -502,9 +576,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
                   nodePath.dirname(moved.newAbsPath),
                 );
                 const trashRelDir =
-                  trashRelDirRaw === '.' || trashRelDirRaw === ''
-                    ? ''
-                    : trashRelDirRaw.split(nodePath.sep).join('/');
+                  trashRelDirRaw === "." || trashRelDirRaw === ""
+                    ? ""
+                    : trashRelDirRaw.split(nodePath.sep).join("/");
                 const trashFilename = nodePath.basename(moved.newAbsPath);
                 await assets.updateOne(
                   { _id: existing._id },
@@ -534,7 +608,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
                 // `.delete`) drop the pre-existing asset. The subsequent
                 // `create` for the new bytes still publishes below.
                 await recordAndPublishAssetChange({
-                  kind: 'delete',
+                  kind: "delete",
                   asset_id: existing._id as ObjectId,
                   folder_id: folderId,
                   abs_path: absPath,
@@ -557,7 +631,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
               // update. We proceed to rename our tmp into place.
             }
           } catch (err) {
-            if ((err as { code?: string }).code !== 'ENOENT') {
+            if ((err as { code?: string }).code !== "ENOENT") {
               try {
                 await unlink(tmp);
               } catch {}
@@ -581,8 +655,8 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         }
 
         const st = await stat(absPath);
-        const mtimeHeader = headers['x-maple-file-mtime'];
-        if (typeof mtimeHeader === 'string' && /^\d+$/.test(mtimeHeader)) {
+        const mtimeHeader = headers["x-maple-file-mtime"];
+        if (typeof mtimeHeader === "string" && /^\d+$/.test(mtimeHeader)) {
           const epoch = parseInt(mtimeHeader, 10);
           try {
             await utimes(absPath, epoch, epoch);
@@ -604,7 +678,11 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         // as the new upload, the trash entry would be a redundant copy
         // of the freshly-written file — discard it (RAW + any paired
         // sidecars that `moveToTrash` relocated alongside).
-        if (trashed && typeof trashed.sha1_head === 'string' && typeof trashed.size === 'number') {
+        if (
+          trashed &&
+          typeof trashed.sha1_head === "string" &&
+          typeof trashed.size === "number"
+        ) {
           try {
             const newHead = await sha1HeadHex(absPath);
             if (newHead === trashed.sha1_head && st.size === trashed.size) {
@@ -622,8 +700,11 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
             }
           } catch (err) {
             log.warn(
-              { absPath, err: err instanceof Error ? err.message : String(err) },
-              'duplicate-upload identical-content check failed — leaving trash entry in place',
+              {
+                absPath,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              "duplicate-upload identical-content check failed — leaving trash entry in place",
             );
           }
         }
@@ -635,7 +716,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         // contract on every host.
         const relDirRaw = nodePath.dirname(target);
         const relDir =
-          relDirRaw === '.' || relDirRaw === '' ? '' : relDirRaw.split(nodePath.sep).join('/');
+          relDirRaw === "." || relDirRaw === ""
+            ? ""
+            : relDirRaw.split(nodePath.sep).join("/");
         const fileinfoEntry = {
           path: relDir,
           filename,
@@ -666,15 +749,15 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
                 fileinfo: [fileinfoEntry],
                 rating: 0,
                 flag: 0,
-                color_label: '',
+                color_label: "",
                 exif: null,
                 stages: blankStagesSkeleton(),
               },
             },
-            { upsert: true, returnDocument: 'after' },
+            { upsert: true, returnDocument: "after" },
           );
           if (!updated) {
-            throw new Error('upsert returned no document');
+            throw new Error("upsert returned no document");
           }
           assetID = updated._id as ObjectId;
         } catch (err) {
@@ -695,7 +778,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         // the file. `.catch(() => {})` honours the Phase 5b guarantee
         // that change-feed failure is non-fatal to the primary write.
         await recordAndPublishAssetChange({
-          kind: 'create',
+          kind: "create",
           asset_id: assetID,
           folder_id: folderId,
           abs_path: absPath,
@@ -718,25 +801,25 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // as a ReadableStream directly so it can stream to disk without
       // buffering. With no `type:` / `parse:` set, Elysia leaves the
       // body untouched.
-      parse: 'none',
+      parse: "none",
     },
   )
 
   // Stream the raw bytes of a file addressed by its library-relative path.
   // Used by the File Provider to materialize non-indexed files (which have
   // no AssetDoc, so the `/api/assets/:id/raw` route can't reach them).
-  .get('/:id/file', async ({ params, query, set }) => {
+  .get("/:id/file", async ({ params, query, set }) => {
     let folderId: ObjectId;
     try {
       folderId = new ObjectId(params.id);
     } catch {
       set.status = 400;
-      return { error: 'Invalid folder id' };
+      return { error: "Invalid folder id" };
     }
     const folder = await (await foldersCollection()).findOne({ _id: folderId });
     if (!folder) {
       set.status = 404;
-      return { error: 'Folder not found' };
+      return { error: "Folder not found" };
     }
     const resolved = await resolveFolderRelPath(folder.path, query.path);
     if (!resolved.ok) {
@@ -748,18 +831,18 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       st = await stat(resolved.real);
     } catch {
       set.status = 404;
-      return { error: 'file not found' };
+      return { error: "file not found" };
     }
     if (!st.isFile()) {
       set.status = 404;
-      return { error: 'not a regular file' };
+      return { error: "not a regular file" };
     }
     return new Response(Bun.file(resolved.real).stream(), {
       status: 200,
       headers: {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': String(st.size),
-        'Last-Modified': new Date(st.mtimeMs).toUTCString(),
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(st.size),
+        "Last-Modified": new Date(st.mtimeMs).toUTCString(),
       },
     });
   })
@@ -767,18 +850,18 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Stat a file addressed by its library-relative path. Lets the File
   // Provider resolve a bare `.file(folderID, relativePath)` identifier to an
   // item (size + mtime) without downloading the bytes.
-  .get('/:id/file-meta', async ({ params, query, set }) => {
+  .get("/:id/file-meta", async ({ params, query, set }) => {
     let folderId: ObjectId;
     try {
       folderId = new ObjectId(params.id);
     } catch {
       set.status = 400;
-      return { error: 'Invalid folder id' };
+      return { error: "Invalid folder id" };
     }
     const folder = await (await foldersCollection()).findOne({ _id: folderId });
     if (!folder) {
       set.status = 404;
-      return { error: 'Folder not found' };
+      return { error: "Folder not found" };
     }
     const resolved = await resolveFolderRelPath(folder.path, query.path);
     if (!resolved.ok) {
@@ -790,20 +873,20 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       st = await stat(resolved.real);
     } catch {
       set.status = 404;
-      return { error: 'file not found' };
+      return { error: "file not found" };
     }
     if (!st.isFile()) {
       set.status = 404;
-      return { error: 'not a regular file' };
+      return { error: "not a regular file" };
     }
     const name = nodePath.basename(resolved.real);
-    const dot = name.lastIndexOf('.');
+    const dot = name.lastIndexOf(".");
     return {
       name,
       path: resolved.real,
       size: st.size,
       mtime: new Date(st.mtimeMs).toISOString(),
-      ext: dot >= 0 ? name.slice(dot + 1).toLowerCase() : '',
+      ext: dot >= 0 ? name.slice(dot + 1).toLowerCase() : "",
     };
   })
 
@@ -818,20 +901,20 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // folder as parent). Without an explicit mkdir hook the folder
   // createItem fell into featureUnsupported and the whole drag aborted
   // before any child file got a chance to upload.
-  .post('/:id/mkdir', async ({ params, headers, set }) => {
+  .post("/:id/mkdir", async ({ params, headers, set }) => {
     let folderId: ObjectId;
     try {
       folderId = new ObjectId(params.id);
     } catch {
       set.status = 400;
-      return { error: 'Invalid folder id' };
+      return { error: "Invalid folder id" };
     }
 
     const folders = await foldersCollection();
     const folder = await folders.findOne({ _id: folderId });
     if (!folder) {
       set.status = 404;
-      return { error: 'Folder not found' };
+      return { error: "Folder not found" };
     }
 
     const validated = decodeAndValidateTargetPath(headers);
@@ -844,7 +927,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       await mkdir(absPath, { recursive: true });
     } catch (err) {
       set.status = 500;
-      return { error: `mkdir failed: ${err instanceof Error ? err.message : String(err)}` };
+      return {
+        error: `mkdir failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
     set.status = 201;
     return { abs_path: absPath };
@@ -864,28 +949,34 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // `.parentItemIdentifier`). Without it, folder rename returned
   // featureUnsupported and Finder surfaced an error while leaving the
   // freshly-created "untitled folder" stranded on the server.
-  .post('/:id/move', async ({ params, headers, set }) => {
+  .post("/:id/move", async ({ params, headers, set }) => {
     let folderId: ObjectId;
     try {
       folderId = new ObjectId(params.id);
     } catch {
       set.status = 400;
-      return { error: 'Invalid folder id' };
+      return { error: "Invalid folder id" };
     }
 
     const folders = await foldersCollection();
     const folder = await folders.findOne({ _id: folderId });
     if (!folder) {
       set.status = 404;
-      return { error: 'Folder not found' };
+      return { error: "Folder not found" };
     }
 
-    const source = validateRelPathHeader(headers['x-maple-source-path'], 'X-Maple-Source-Path');
+    const source = validateRelPathHeader(
+      headers["x-maple-source-path"],
+      "X-Maple-Source-Path",
+    );
     if (!source.ok) {
       set.status = source.status;
       return { error: source.error };
     }
-    const target = validateRelPathHeader(headers['x-maple-target-path'], 'X-Maple-Target-Path');
+    const target = validateRelPathHeader(
+      headers["x-maple-target-path"],
+      "X-Maple-Target-Path",
+    );
     if (!target.ok) {
       set.status = target.status;
       return { error: target.error };
@@ -898,9 +989,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     // would either be a no-op or an `fs.rename` error, and silently
     // mangles the tree if it ever succeeded.
     const rel = nodePath.relative(absSource, absTarget);
-    if (rel === '' || (!rel.startsWith('..') && !nodePath.isAbsolute(rel))) {
+    if (rel === "" || (!rel.startsWith("..") && !nodePath.isAbsolute(rel))) {
       set.status = 400;
-      return { error: 'Cannot move a folder into itself or its own subtree' };
+      return { error: "Cannot move a folder into itself or its own subtree" };
     }
 
     let srcStat;
@@ -908,11 +999,11 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       srcStat = await stat(absSource);
     } catch {
       set.status = 404;
-      return { error: 'Source folder not found' };
+      return { error: "Source folder not found" };
     }
     if (!srcStat.isDirectory()) {
       set.status = 400;
-      return { error: 'Source is not a directory' };
+      return { error: "Source is not a directory" };
     }
 
     // Refuse to clobber an existing destination. `fs.rename` would
@@ -924,11 +1015,13 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     try {
       await stat(absTarget);
       set.status = 409;
-      return { error: 'Target already exists' };
+      return { error: "Target already exists" };
     } catch (err) {
-      if ((err as { code?: string }).code !== 'ENOENT') {
+      if ((err as { code?: string }).code !== "ENOENT") {
         set.status = 500;
-        return { error: `stat failed: ${err instanceof Error ? err.message : String(err)}` };
+        return {
+          error: `stat failed: ${err instanceof Error ? err.message : String(err)}`,
+        };
       }
     }
 
@@ -937,7 +1030,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       await rename(absSource, absTarget);
     } catch (err) {
       set.status = 500;
-      return { error: `move failed: ${err instanceof Error ? err.message : String(err)}` };
+      return {
+        error: `move failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
     set.status = 200;
     return { abs_path: absTarget };
@@ -949,21 +1044,21 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
   // Filters require both deleted_at and original_path so vanished
   // (watcher-removed) assets stay out of Trash.
   .get(
-    '/:id/trash',
+    "/:id/trash",
     async ({ params, query, set }) => {
       let folderId: ObjectId;
       try {
         folderId = new ObjectId(params.id);
       } catch {
         set.status = 400;
-        return { error: 'Invalid folder id' };
+        return { error: "Invalid folder id" };
       }
 
       const folders = await foldersCollection();
       const folder = await folders.findOne({ _id: folderId });
       if (!folder) {
         set.status = 404;
-        return { error: 'Folder not found' };
+        return { error: "Folder not found" };
       }
 
       // Parse + validate `limit`. `Number("abc")` is `NaN`, which
@@ -972,16 +1067,18 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       // and clamp valid values into [1, 500].
       const limitRaw = query.limit;
       let limit = 100;
-      if (typeof limitRaw === 'string' && limitRaw.length > 0) {
+      if (typeof limitRaw === "string" && limitRaw.length > 0) {
         const parsed = Number.parseInt(limitRaw, 10);
         if (!Number.isFinite(parsed) || parsed < 1) {
           set.status = 400;
-          return { error: 'Invalid limit — must be a positive integer' };
+          return { error: "Invalid limit — must be a positive integer" };
         }
         limit = Math.min(500, parsed);
       }
       const cursor =
-        typeof query.cursor === 'string' && query.cursor.length > 0 ? query.cursor : null;
+        typeof query.cursor === "string" && query.cursor.length > 0
+          ? query.cursor
+          : null;
       const filter = buildTrashListFilter(folderId, cursor);
 
       const assets = await assetsCollection();
@@ -998,7 +1095,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
           ? `${(last as unknown as { deleted_at: string }).deleted_at}|${last._id.toHexString()}`
           : null;
 
-      const rootPrefix = folder.path.endsWith('/') ? folder.path : folder.path + '/';
+      const rootPrefix = folder.path.endsWith("/")
+        ? folder.path
+        : folder.path + "/";
       const libs = await loadLibraryRoots();
       const items: Array<{
         asset_id: string;
@@ -1015,10 +1114,13 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
           deleted_at: string;
           original_path: string;
         };
-        const primary = (doc.fileinfo ?? []).find((e) => !e.deleted_at) ?? doc.fileinfo?.[0];
+        const primary =
+          (doc.fileinfo ?? []).find((e) => !e.deleted_at) ?? doc.fileinfo?.[0];
         if (!primary) continue;
         const orig = doc.original_path;
-        const originalRel = orig.startsWith(rootPrefix) ? orig.slice(rootPrefix.length) : orig;
+        const originalRel = orig.startsWith(rootPrefix)
+          ? orig.slice(rootPrefix.length)
+          : orig;
         const absPath = assetAbsPath(doc, libs);
         if (!absPath) continue;
         const trashRel = absPath.startsWith(rootPrefix)
@@ -1029,7 +1131,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         // earlier rows. Always emit ISO-8601 over the wire so the Swift
         // `Date` decoder works regardless.
         const mtimeIso =
-          typeof doc.mtime === 'number' ? new Date(doc.mtime).toISOString() : doc.mtime;
+          typeof doc.mtime === "number"
+            ? new Date(doc.mtime).toISOString()
+            : doc.mtime;
         items.push({
           asset_id: doc._id.toHexString(),
           filename: primary.filename,
@@ -1080,17 +1184,17 @@ export function buildTrashListFilter(
   // explicit clause for legacy rows that may have been written with
   // odd shapes.
   const trashPredicate = {
-    deleted_at: { $type: 'string' as const, $ne: null },
+    deleted_at: { $type: "string" as const, $ne: null },
     original_path: { $ne: null },
   };
 
   const filter: Record<string, unknown> = {
-    'fileinfo.library_id': folderId,
+    "fileinfo.library_id": folderId,
     ...trashPredicate,
   };
 
   if (!cursor) return filter;
-  const sepIdx = cursor.lastIndexOf('|');
+  const sepIdx = cursor.lastIndexOf("|");
   if (sepIdx <= 0) return filter;
   const iso = cursor.slice(0, sepIdx);
   const hex = cursor.slice(sepIdx + 1);
@@ -1106,14 +1210,14 @@ export function buildTrashListFilter(
   // planner unions the index-eligibility analysis across both sides of
   // an $and, so dropping it on the cursor branch reintroduces the bug.
   return {
-    'fileinfo.library_id': folderId,
+    "fileinfo.library_id": folderId,
     $and: [
       trashPredicate,
       {
         $or: [
-          { deleted_at: { $type: 'string' as const, $lt: iso } },
+          { deleted_at: { $type: "string" as const, $lt: iso } },
           {
-            deleted_at: { $type: 'string' as const, $eq: iso },
+            deleted_at: { $type: "string" as const, $eq: iso },
             _id: { $lt: cursorId },
           },
         ],
@@ -1124,27 +1228,27 @@ export function buildTrashListFilter(
 
 /** Supported image extensions (lowercase with leading dot). */
 const SUPPORTED_EXTS = new Set([
-  '.dng',
-  '.cr2',
-  '.cr3',
-  '.nef',
-  '.arw',
-  '.raf',
-  '.orf',
-  '.rw2',
-  '.pef',
-  '.srw',
-  '.x3f',
-  '.3fr',
-  '.mef',
-  '.erf',
-  '.mrw',
-  '.jpg',
-  '.jpeg',
-  '.tif',
-  '.tiff',
-  '.heic',
-  '.heif',
+  ".dng",
+  ".cr2",
+  ".cr3",
+  ".nef",
+  ".arw",
+  ".raf",
+  ".orf",
+  ".rw2",
+  ".pef",
+  ".srw",
+  ".x3f",
+  ".3fr",
+  ".mef",
+  ".erf",
+  ".mrw",
+  ".jpg",
+  ".jpeg",
+  ".tif",
+  ".tiff",
+  ".heic",
+  ".heif",
 ]);
 
 /**
@@ -1158,12 +1262,15 @@ async function dispatchPool<T>(
   run: (i: T) => Promise<void>,
 ): Promise<void> {
   let idx = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (idx < items.length) {
-      const item = items[idx++]!;
-      await run(item).catch(() => {});
-    }
-  });
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (idx < items.length) {
+        const item = items[idx++]!;
+        await run(item).catch(() => {});
+      }
+    },
+  );
   await Promise.all(workers);
 }
 
@@ -1190,13 +1297,15 @@ async function scanFolderAndDiscover(
       batch.map(async (dir) => {
         let entries: Dirent[];
         try {
-          entries = (await readdir(dir, { withFileTypes: true })) as unknown as Dirent[];
+          entries = (await readdir(dir, {
+            withFileTypes: true,
+          })) as unknown as Dirent[];
         } catch {
           return; // permission denied or not a directory
         }
         for (const entry of entries) {
           const entryName = entry.name as unknown as string;
-          if (entryName.startsWith('.')) continue;
+          if (entryName.startsWith(".")) continue;
           const absPath = nodePath.join(dir, entryName);
           if (entry.isDirectory()) {
             queue.push(absPath);
@@ -1211,10 +1320,14 @@ async function scanFolderAndDiscover(
 
     // Dispatch the files found in this directory batch with bounded concurrency.
     await dispatchPool(fileBatch, CONCURRENCY, async (absPath) => {
-      await handleEvent({ kind: 'created', absPath }, folderId, libraryRoot).catch((err) =>
+      await handleEvent(
+        { kind: "created", absPath },
+        folderId,
+        libraryRoot,
+      ).catch((err) =>
         log.warn(
           { absPath, err: err instanceof Error ? err.message : err },
-          'discover upsert failed during initial folder scan',
+          "discover upsert failed during initial folder scan",
         ),
       );
     });
