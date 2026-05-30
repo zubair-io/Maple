@@ -62,4 +62,26 @@ describe('clusterEmbeddingsOffThread', () => {
     expect(embeddings[1].length).toBe(DIM);
     expect(embeddings[0][3]).toBeCloseTo(1 - 0.05, 5);
   });
+
+  // The parity assertions above pass even if the Worker silently fell back to
+  // the in-process path (output is identical either way), so they can't prove
+  // the work actually left the main thread. This one can: a Worker round-trip
+  // completes on a `message` event — a macrotask — so it cannot settle while we
+  // only drain the microtask queue. The in-process fallback resolves a
+  // `Promise.resolve(value)`, which WOULD settle within microtasks, so a broken
+  // worker URL / spawn regression makes this assertion fail.
+  it('runs genuinely off-thread (does not settle within the microtask queue)', async () => {
+    let settled = false;
+    const p = clusterEmbeddingsOffThread([nearAxis(0, 0.05)], {}).then((r) => {
+      settled = true;
+      return r;
+    });
+    // Drain microtasks only — never yields to a macrotask, so the worker's
+    // reply can't have been delivered yet.
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    expect(settled).toBe(false);
+    // Awaiting the real promise lets the event loop process the worker message.
+    await p;
+    expect(settled).toBe(true);
+  });
 });
