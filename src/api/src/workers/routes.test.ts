@@ -47,6 +47,30 @@ describe('GET /api/workers/status', () => {
     }
   });
 
+  it('includes pending/ready/blocked on every stage row (zeroed when the DB is unavailable)', async () => {
+    stageRegistry._resetForTests();
+    stageRegistry.preregister('exif', 2);
+    stageRegistry.preregister('thumb', 2, [{ name: 'exif', minVersion: 1 }]);
+    const app = new Elysia().use(workerRoutes());
+    const res = await app.handle(new Request('http://localhost/api/workers/status'));
+    const body = await res.json();
+    const rows = body.stages as Array<{
+      name: string;
+      pending: number;
+      ready: number;
+      blocked: number;
+    }>;
+    for (const r of rows) {
+      expect(r).toHaveProperty('ready');
+      expect(r).toHaveProperty('blocked');
+      // No DB in this unit test → counts fall back to 0, and blocked is the
+      // clamped pending − ready difference.
+      expect(r.pending).toBe(0);
+      expect(r.ready).toBe(0);
+      expect(r.blocked).toBe(0);
+    }
+  });
+
   it("surfaces a pre-registered stage as 'error' once recordError fires", async () => {
     stageRegistry._resetForTests();
     stageRegistry.preregister('face', 1);

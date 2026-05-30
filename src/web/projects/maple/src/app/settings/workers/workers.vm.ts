@@ -291,6 +291,19 @@ export function throughputLabel(s: StageStatus): string {
   return s.throughput > 0 ? `${s.throughput}` : '—';
 }
 
+/** Tooltip for the Pending cell — spells out the ready vs blocked split so an
+ * operator can tell "nothing to do" apart from "stalled behind an upstream
+ * stage" without opening the row. */
+export function pendingTitle(s: StageStatus): string {
+  const ready = s.ready.toLocaleString();
+  if (s.blocked === 0) {
+    return `${ready} ready to run`;
+  }
+  const blocked = s.blocked.toLocaleString();
+  const total = s.pending.toLocaleString();
+  return `${ready} ready · ${blocked} blocked on an upstream stage · ${total} pending total`;
+}
+
 /** Format a byte count compactly: 13478912 → "12.9 MB". */
 export function formatBytes(bytes: number | undefined | null): string {
   if (!bytes || bytes <= 0) return '0 B';

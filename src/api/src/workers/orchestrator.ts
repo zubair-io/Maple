@@ -18,6 +18,7 @@
 
 import { child as childLogger } from '../log.ts';
 import type { RunStageHandle } from './run-stage.ts';
+import { resolveStageDeps } from './run-stage.ts';
 import { stageRegistry } from './registry.ts';
 import { stageManifest } from './stages/manifest.ts';
 import { startExifStage } from './stages/exif.ts';
@@ -100,7 +101,7 @@ async function attemptStart(
  */
 export async function startAllStages(): Promise<void> {
   for (const stage of stageManifest) {
-    stageRegistry.preregister(stage.name, stage.targetVersion);
+    stageRegistry.preregister(stage.name, stage.targetVersion, resolveStageDeps(stage.dependsOn));
   }
   await Promise.all(STAGE_STARTERS.map(([name, starter]) => attemptStart(name, starter, 0)));
 }
