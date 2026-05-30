@@ -16,8 +16,6 @@ import MapleCore
             AppShellIPhoneDrawer(
                 isDrawerOpen: $open,
                 mode: .browse,
-                connectionIdentity: "maple.lawrence.io",
-                tertiarySummary: "12,481 photos · synced 2m ago",
                 mainContent: {
                     ZStack {
                         MapleTokens.bg.ignoresSafeArea()
@@ -54,8 +52,6 @@ import MapleCore
             AppShellIPhoneDrawer(
                 isDrawerOpen: $open,
                 mode: .browse,
-                connectionIdentity: "maple.lawrence.io",
-                tertiarySummary: "12,481 photos · synced 2m ago",
                 mainContent: {
                     ZStack {
                         MapleTokens.bg.ignoresSafeArea()

@@ -16,11 +16,11 @@
 //   • Open transition uses an explicit 240ms cubic-bezier(0.22, 1, 0.36, 1).
 //     Once S0a (PR #586) lands, swap to `MapleTokens.Motion.drawer`.
 //   • Scrim still 45% black; tap-anywhere dismisses (unchanged).
-//   • New header overlay above the supplied sidebar content: LIBRARY eyebrow
-//     + close X, connection-identity row.
+//   • No chrome header — the drawer is just the supplied sidebar content
+//     (the source tree). The LIBRARY eyebrow + identity row + close X were
+//     removed in #692; the drawer closes via tap-on-dim or drag-back.
 //
-// File split (ticket #604 — soft budget): chrome subviews live in
-// `AppShellIPhoneDrawerHeader.swift`; static geometry constants + drag
+// File split (ticket #604 — soft budget): static geometry constants + drag
 // math + the two gestures live in `AppShellIPhoneDrawerGeometry.swift`;
 // `#Preview` blocks live in `AppShellIPhoneDrawer+Previews.swift`. This
 // file owns the top-level view: state surface, body composition, and the
@@ -31,11 +31,8 @@
 //     drawer reads-and-writes it on gesture-end snaps + close button taps.
 //   • `mode` (read-only) — gates edge-open so the drawer is unreachable
 //     from the viewer (legacy design doc open question 5).
-//   • `connectionIdentity` / `tertiarySummary` — display-only strings the
-//     caller computes (e.g. `"maple.lawrence.io"` / `"12,481 photos · 2m"`).
 //   • Two `@ViewBuilder`s: the main content and the sidebar content. The
-//     sidebar content is what the user *scrolls* inside the drawer below
-//     the chrome header; the chrome is owned here.
+//     sidebar content (the source tree) is what fills the drawer.
 //   • `dragOffset` is transient `@State`. Declared `internal` (not
 //     `private`) so the geometry extension in the sibling file can mutate
 //     it from gesture closures — `private` is file-scoped in Swift and
@@ -60,12 +57,6 @@ extension Notification.Name {
 struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
     @Binding var isDrawerOpen: Bool
     let mode: AppShell.Mode
-    /// Display-only string in the header (e.g. `"maple.lawrence.io"`).
-    /// Empty string hides the row.
-    var connectionIdentity: String = ""
-    /// Display-only summary under the identity row (e.g. `"12,481 photos · 2m"`).
-    /// Empty string hides the row.
-    var tertiarySummary: String = ""
     @ViewBuilder let mainContent: () -> MainContent
     @ViewBuilder let sidebarContent: () -> SidebarContent
 
@@ -150,21 +141,12 @@ struct AppShellIPhoneDrawer<MainContent: View, SidebarContent: View>: View {
 
     @ViewBuilder
     private var drawerStack: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            AppShellIPhoneDrawerHeader(
-                connectionIdentity: connectionIdentity,
-                tertiarySummary: tertiarySummary,
-                onClose: closeDrawer
-            )
-            // Hairline that visually separates the chrome from the source
-            // tree below — matches HTML frame 01.
-            Rectangle()
-                .fill(MapleTokens.border)
-                .frame(height: 0.5)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-            sidebarContent()
-        }
+        // The LIBRARY header (eyebrow + connection-identity row + close X) was
+        // removed in #692 — the drawer is just the source tree now. It closes
+        // via tap-on-dim or drag-back; the status-bar inset is applied in
+        // `body` via `proxy.safeAreaInsets.top`.
+        sidebarContent()
+            .padding(.top, 8)
     }
 
     // MARK: drawer actions
