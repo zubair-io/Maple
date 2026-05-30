@@ -175,6 +175,10 @@ export class LibraryFetch {
       let rating: number = cached?.culling?.rating ?? 0;
       let flag: Flag = (cached?.culling?.flag ?? 'unflagged') as Flag;
       let colorLabel: ColorLabel = (cached?.culling?.colorLabel ?? null) as ColorLabel;
+      // True iff we successfully read an XMP sidecar — the v0.1 signal
+      // behind the S2 "Edited" filter chip (#628). Mirrors the Apple
+      // side's `AssetRef.hasEdits` sidecar-existence predicate.
+      let edited = false;
 
       // XMP sidecar is authoritative — parse both culling + full AdjustmentModel.
       const xmpName = filename.replace(/\.[^.]+$/, '.xmp');
@@ -195,6 +199,8 @@ export class LibraryFetch {
 
         // Cache the passthrough bucket for future writes.
         this.xmpStore.rememberPassthrough(id, passthrough);
+
+        edited = true;
       } catch {
         // No sidecar or unreadable — keep cache values, no adjustment override.
       }
@@ -208,6 +214,7 @@ export class LibraryFetch {
         colorLabel,
         thumbnailGradient: '',
         aspectRatio: 3 / 2, // corrected after first decode
+        edited,
       };
       newAssets.push(asset);
     }

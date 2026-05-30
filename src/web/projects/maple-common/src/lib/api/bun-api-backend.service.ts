@@ -33,6 +33,10 @@ export interface ApiAsset {
   rating: number;
   flag: 'unflagged' | 'pick' | 'reject';
   colorLabel: string | null;
+  /** True iff the XMP write/delete handlers have observed a sidecar
+   * next to this asset. Drives the S2 "Edited" filter chip (#628).
+   * Missing on legacy rows; converter coerces to `false`. */
+  has_xmp?: boolean;
 }
 
 export interface ApiAssetPage {
