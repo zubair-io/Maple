@@ -59,6 +59,19 @@ async function resolveJailed(
   return { ok: true, real };
 }
 
+/** True when `a` and `b` are the same directory or one contains the other.
+ * Both should be absolute, normalized (realpath) paths. */
+function pathsOverlap(a: string, b: string): boolean {
+  const x = a.replace(/\/+$/, '') || '/';
+  const y = b.replace(/\/+$/, '') || '/';
+  if (x === y) return true;
+  // `/` is a prefix of everything; otherwise add the separator so `/a` isn't
+  // treated as a parent of `/ab`.
+  const xPrefix = x === '/' ? '/' : x + '/';
+  const yPrefix = y === '/' ? '/' : y + '/';
+  return y.startsWith(xPrefix) || x.startsWith(yPrefix);
+}
+
 interface ImportView {
   id: string;
   status: ImportStatus;
@@ -151,6 +164,17 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
       if (!folder) {
         set.status = 404;
         return { error: 'Library not found' };
+      }
+
+      // Refuse to import from inside (or a parent of) the target library —
+      // copying a folder into a library it already lives under produces
+      // duplicates / a copy-into-self. Compare realpaths so symlinks can't
+      // sneak past it.
+      if (pathsOverlap(jail.real, folder.path)) {
+        set.status = 400;
+        return {
+          error: 'Source folder overlaps the target library. Pick a source outside the library.',
+        };
       }
 
       const labels: Record<string, string> = body.labels ?? {};
