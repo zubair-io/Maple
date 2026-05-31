@@ -42,7 +42,6 @@
     </div>
   </header>
 
-  <maple-imports-panel />
 
   @if (error()) {
     <div class="banner-error">
@@ -774,6 +773,88 @@
           </div>
         }
       }
+    }
+
+    <!-- Import — its own pipeline group, rendered last (ticket #755). Rows
+         expand in place to show src → library + the per-file list. -->
+    <div class="group-label import-group">
+      <span>Import</span>
+      <a class="new-import-link" routerLink="/settings/imports">+ New import</a>
+    </div>
+    @if (imports.error(); as e) {
+      <p class="import-error">{{ e }}</p>
+    }
+    @for (j of imports.jobs(); track j.id) {
+      <div class="row" [class.is-expanded]="imports.isExpanded(j.id)" data-testid="import-row">
+        <div
+          class="row-grid row-summary import-summary"
+          (click)="imports.toggle(j.id)"
+          role="button"
+          [attr.aria-expanded]="imports.isExpanded(j.id)"
+          tabindex="0"
+          (keydown.enter)="imports.toggle(j.id)"
+          (keydown.space)="imports.toggle(j.id); $event.preventDefault()"
+        >
+          <maple-settings-icon
+            [name]="imports.isExpanded(j.id) ? 'chev-d' : 'chev-r'"
+            [size]="12"
+            [stroke]="2"
+            [color]="'#a8a29e'"
+          />
+          <span class="stage-id">
+            <maple-settings-icon name="copy" [size]="14" [color]="'#a8a29e'" />
+            <span class="mono" [title]="j.source_root">{{ imports.basename(j.source_root) }}</span>
+          </span>
+          <span class="status-pill">
+            <span class="status-dot" [style.background]="imports.statusColor(j.status)"></span>
+            <span class="status-label">{{ j.status }}</span>
+          </span>
+          <span class="import-counts mono">
+            @if (imports.active(j)) {
+              {{ j.progress.current }} / {{ j.progress.total }} ·
+            }
+            {{ j.counts.copied }} copied · {{ j.counts.skipped }} skipped
+            @if (j.counts.failed > 0) {
+              · <span class="has-dead">{{ j.counts.failed }} failed</span>
+            }
+          </span>
+        </div>
+
+        @if (imports.isExpanded(j.id)) {
+          <div class="expanded">
+            @if (imports.detailLoading()) {
+              <p class="import-detail-hint">Loading…</p>
+            } @else if (imports.detail(); as d) {
+              <div class="import-detail">
+                <div class="import-detail-head">
+                  <code class="mono" [title]="d.source_root">{{ d.source_root }}</code>
+                  <maple-settings-icon name="chev-r" [size]="12" [color]="'#78706a'" />
+                  <span class="lib-name">{{ imports.libraryName(d) }}</span>
+                </div>
+                <div class="import-files">
+                  <div class="import-file head">
+                    <span>Source</span><span>Destination</span><span class="r">Status</span>
+                  </div>
+                  @for (f of d.files.slice(0, imports.maxFilesShown); track f.src) {
+                    <div class="import-file">
+                      <span class="mono" [title]="f.src">{{ imports.basename(f.src) }}</span>
+                      <span class="mono" [title]="f.dest">{{ f.dest }}</span>
+                      <span class="r file-state" [attr.data-state]="f.state">{{ f.state }}</span>
+                    </div>
+                  }
+                </div>
+                @if (d.files.length > imports.maxFilesShown) {
+                  <p class="import-detail-hint">
+                    Showing first {{ imports.maxFilesShown }} of {{ d.files.length }} files.
+                  </p>
+                }
+              </div>
+            }
+          </div>
+        }
+      </div>
+    } @empty {
+      <p class="import-empty">No imports yet.</p>
     }
 
     @if (stages().length === 0 && !error()) {
