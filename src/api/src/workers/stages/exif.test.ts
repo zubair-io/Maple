@@ -117,6 +117,27 @@ describe('exif handler', () => {
     await expect(exifStage.handler(doc as never, {} as never)).rejects.toThrow();
   });
 
+  it('returns { damaged } for a 0-byte file instead of throwing through retries', async () => {
+    // A zero-byte original (interrupted copy / unmaterialized sync placeholder)
+    // is deterministically unreadable — the watcher's awaitWriteFinish means a
+    // file that reaches the stage empty isn't mid-copy. The handler tags it
+    // damaged up front rather than throwing maxAttempts times to get there
+    // (and rather than letting exifr emit its opaque getUint16 crash).
+    const file = path.join(dir, 'DJI_interrupted_0430_D.DNG');
+    await writeFile(file, Buffer.alloc(0));
+    const doc = makeDoc(file, libraryId, dir);
+    const result = await exifStage.handler(doc as never, {} as never);
+    expect('damaged' in result).toBe(true);
+    expect((result as { damaged: string }).damaged).toMatch(/empty \(0 bytes\)/i);
+  });
+
+  it('declares damage-tagging so the runner honors a { damaged } result', () => {
+    // The runner only acts on { damaged } for stages with this flag (otherwise
+    // the damaged-clear path wouldn't reset this stage's state). Guards against
+    // someone dropping the flag while the handler still returns { damaged }.
+    expect(exifStage.tagsDamagedOnDeadLetter).toBe(true);
+  });
+
   // exifr's `pick` filter only reads listed tags. If GPSLatitudeRef /
   // GPSLongitudeRef are not picked, exifr's internal DMS-to-DD conversion
   // sees direction=undefined and never negates — every western/southern
