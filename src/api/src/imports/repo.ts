@@ -71,9 +71,7 @@ export async function getImport(id: ObjectId): Promise<ImportWithId | null> {
 }
 
 /** List imports filtered by status, newest first. Hard-capped at 200. */
-export async function listImports(
-  filter: ListImportsFilter,
-): Promise<ImportWithId[]> {
+export async function listImports(filter: ListImportsFilter): Promise<ImportWithId[]> {
   const c = await importsCollection();
   const q: Record<string, unknown> = {};
   if (filter.status) q.status = filter.status;
@@ -91,6 +89,15 @@ export async function listImports(
  * lock, OR a `running` import whose lease expired (the previous worker died
  * mid-copy). Bumps `locked_by` + `lease_expires_at` + status in one op;
  * Mongo guarantees a single winner.
+ *
+ * Exclusivity is PER DOCUMENT, not global: only one runner ever processes a
+ * given import, but if the API ever runs as multiple processes each with an
+ * `ImportRunner`, two *different* pending imports may run concurrently. That
+ * is safe by construction — copies are no-clobber (`copy.ts`) and per-file
+ * dedup is an atomic `assets` lookup — so concurrent imports into the same
+ * library never lose a file. The API is single-process today, so in practice
+ * imports run one at a time. A global "one import at a time" gate would be
+ * over-restrictive and is intentionally not imposed here.
  */
 export async function claimImport(
   workerId: string,
@@ -167,6 +174,27 @@ export async function updateImportProgress(
         updated_at: nowDate.toISOString(),
       },
     },
+  );
+}
+
+/**
+ * Extend the claim's lease without recording file progress. Called on a timer
+ * by the worker so a single long file copy (a large movie) can't outlive the
+ * lease and let a sibling runner reclaim the import mid-copy. Scoped to the
+ * holding worker so it can't accidentally extend a lease another runner has
+ * already taken over.
+ */
+export async function renewImportLease(
+  id: ObjectId,
+  leaseMs: number,
+  now: () => Date = () => new Date(),
+): Promise<void> {
+  const c = await importsCollection();
+  const nowDate = now();
+  const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
+  await c.updateOne(
+    { _id: id, status: 'running' },
+    { $set: { lease_expires_at: leaseExpiresAt, updated_at: nowDate.toISOString() } },
   );
 }
 
@@ -250,10 +278,7 @@ export async function requestImportCancel(
 
 export async function isImportCancelRequested(id: ObjectId): Promise<boolean> {
   const c = await importsCollection();
-  const doc = await c.findOne(
-    { _id: id },
-    { projection: { cancel_requested: 1 } },
-  );
+  const doc = await c.findOne({ _id: id }, { projection: { cancel_requested: 1 } });
   return doc?.cancel_requested === true;
 }
 
@@ -263,19 +288,10 @@ export async function isImportCancelRequested(id: ObjectId): Promise<boolean> {
  * `sha1_head`, meaning the image is already in the library and the import
  * should skip it.
  */
-export async function assetExistsForHash(
-  maple_id: string,
-  sha1_head: string,
-): Promise<boolean> {
+export async function assetExistsForHash(maple_id: string, sha1_head: string): Promise<boolean> {
   const c = await assetsCollection();
-  const byId = await c.findOne(
-    { maple_id },
-    { projection: { _id: 1 } },
-  );
+  const byId = await c.findOne({ maple_id }, { projection: { _id: 1 } });
   if (byId) return true;
-  const byHash = await c.findOne(
-    { sha1_head },
-    { projection: { _id: 1 } },
-  );
+  const byHash = await c.findOne({ sha1_head }, { projection: { _id: 1 } });
   return byHash != null;
 }

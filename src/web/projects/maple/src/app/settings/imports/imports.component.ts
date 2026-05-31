@@ -24,7 +24,7 @@ import {
   type ApiFolder,
   type FsDirListing,
   type ImportScanResult,
-  type ImportView,
+  type ImportSummary,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -62,7 +62,7 @@ export class ImportsComponent implements OnInit, OnDestroy {
   protected readonly labels = signal<Record<string, string>>({});
 
   // --- Progress ------------------------------------------------------------
-  protected readonly active = signal<ImportView | null>(null);
+  protected readonly active = signal<ImportSummary | null>(null);
   private poll: Subscription | null = null;
 
   protected readonly percent = computed(() => {
@@ -179,7 +179,7 @@ export class ImportsComponent implements OnInit, OnDestroy {
   private startPolling(id: string): void {
     this.poll?.unsubscribe();
     this.poll = timer(0, 1500)
-      .pipe(switchMap(() => this.api.get(id)))
+      .pipe(switchMap(() => this.api.poll(id)))
       .subscribe({
         next: (doc) => {
           this.active.set(doc);

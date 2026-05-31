@@ -8,15 +8,7 @@
  * (already-copied files stay).
  */
 
-import {
-  describe,
-  it,
-  test,
-  expect,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from 'bun:test';
+import { describe, it, test, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -102,10 +94,7 @@ function mk(dest: string, kind: ImportFileEntry['kind']): ImportFileEntry {
 }
 
 /** Stage source files in a fresh src dir; return their absolute paths. */
-async function stageSources(
-  sub: string,
-  names: string[],
-): Promise<Record<string, string>> {
+async function stageSources(sub: string, names: string[]): Promise<Record<string, string>> {
   const dir = path.join(tmp, sub, 'src');
   await fs.mkdir(dir, { recursive: true });
   const out: Record<string, string> = {};
@@ -121,11 +110,7 @@ describe('ImportRunner.tick', () => {
   it('copies files, hands images (not movies) to the indexer', async () => {
     if (!mongoReachable) return;
     const repo = await import('./repo.ts');
-    const src = await stageSources('happy', [
-      'IMG.dng',
-      'IMG.xmp',
-      'clip.mov',
-    ]);
+    const src = await stageSources('happy', ['IMG.dng', 'IMG.xmp', 'clip.mov']);
     const lib = path.join(tmp, 'happy', 'lib');
     const libId = new ObjectId();
 
@@ -209,9 +194,7 @@ describe('ImportRunner.tick', () => {
     expect(res.kind).toBe('done');
 
     // Nothing copied; no indexer hand-off.
-    await expect(
-      fs.stat(path.join(lib, '2024/03/IMG.dng')),
-    ).rejects.toThrow();
+    await expect(fs.stat(path.join(lib, '2024/03/IMG.dng'))).rejects.toThrow();
     expect(handed).toBe(0);
 
     const doc = (await repo.listImports({}))[0];
@@ -292,9 +275,7 @@ describe('ImportRunner.tick', () => {
     expect(res.kind).toBe('cancelled');
 
     // First image copied and stays; second never copied.
-    expect(await fs.readFile(path.join(lib, '2024/03/A.dng'), 'utf8')).toBe(
-      'bytes-cancel-A.dng',
-    );
+    expect(await fs.readFile(path.join(lib, '2024/03/A.dng'), 'utf8')).toBe('bytes-cancel-A.dng');
     await expect(fs.stat(path.join(lib, '2024/03/B.dng'))).rejects.toThrow();
 
     const doc = await repo.getImport(created._id);
@@ -303,10 +284,6 @@ describe('ImportRunner.tick', () => {
   });
 });
 
-function entry(
-  src: string,
-  dest: string,
-  kind: ImportFileEntry['kind'],
-): ImportFileEntry {
+function entry(src: string, dest: string, kind: ImportFileEntry['kind']): ImportFileEntry {
   return { src, dest, size: 1, mtime: 0, kind, state: 'pending', error: null };
 }

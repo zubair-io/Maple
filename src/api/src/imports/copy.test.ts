@@ -30,7 +30,7 @@ afterEach(async () => {
 describe('copyFileAtomic', () => {
   test('creates parent dirs and copies bytes, leaving the source intact', async () => {
     const dest = path.join(lib, '2024', '03', 'src.dng');
-    await copyFileAtomic(src, dest);
+    expect(await copyFileAtomic(src, dest)).toBe(true);
     expect(await fs.readFile(dest, 'utf8')).toBe('the original bytes');
     expect(await fs.readFile(src, 'utf8')).toBe('the original bytes');
   });
@@ -41,6 +41,16 @@ describe('copyFileAtomic', () => {
     await copyFileAtomic(src, dest);
     const entries = await fs.readdir(destDir);
     expect(entries).toEqual(['src.dng']);
+  });
+
+  test('never clobbers — returns false when the destination already exists', async () => {
+    const dest = path.join(lib, '2024', '03', 'src.dng');
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.writeFile(dest, 'a pre-existing file');
+    expect(await copyFileAtomic(src, dest)).toBe(false);
+    // The existing file is untouched, and no temp sibling is left behind.
+    expect(await fs.readFile(dest, 'utf8')).toBe('a pre-existing file');
+    expect(await fs.readdir(path.dirname(dest))).toEqual(['src.dng']);
   });
 });
 

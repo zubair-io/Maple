@@ -83,9 +83,9 @@ describe('isSafeLabel', () => {
 
 describe('destRelPath', () => {
   test('assembles <year>/<label>/<filename>', () => {
-    expect(
-      destRelPath({ year: '2024', label: '03', filename: 'IMG_0001.dng' }),
-    ).toBe('2024/03/IMG_0001.dng');
+    expect(destRelPath({ year: '2024', label: '03', filename: 'IMG_0001.dng' })).toBe(
+      '2024/03/IMG_0001.dng',
+    );
     expect(
       destRelPath({
         year: '2024',
@@ -96,17 +96,11 @@ describe('destRelPath', () => {
   });
 
   test('throws on an unsafe label', () => {
-    expect(() =>
-      destRelPath({ year: '2024', label: '../etc', filename: 'a.dng' }),
-    ).toThrow();
+    expect(() => destRelPath({ year: '2024', label: '../etc', filename: 'a.dng' })).toThrow();
   });
 
   test('throws on an unsafe filename', () => {
-    expect(() =>
-      destRelPath({ year: '2024', label: '03', filename: '../a.dng' }),
-    ).toThrow();
-    expect(() =>
-      destRelPath({ year: '2024', label: '03', filename: 'a/b.dng' }),
-    ).toThrow();
+    expect(() => destRelPath({ year: '2024', label: '03', filename: '../a.dng' })).toThrow();
+    expect(() => destRelPath({ year: '2024', label: '03', filename: 'a/b.dng' })).toThrow();
   });
 });
