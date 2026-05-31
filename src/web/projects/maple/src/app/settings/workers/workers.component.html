@@ -257,18 +257,18 @@
                 @if (s.name === 'migration') {
                   <div class="block">
                     <div class="subhead">Migrations</div>
-                    @if (migrationsError(); as msg) {
+                    @if (migration.error(); as msg) {
                       <p class="save-error">{{ msg }}</p>
                     }
-                    @for (m of migrations(); track m.id) {
+                    @for (m of migration.list(); track m.id) {
                       <div class="migration-row" [attr.data-testid]="'migration-' + m.id">
                         <div class="migration-main">
                           <label class="migration-toggle">
                             <input
                               type="checkbox"
                               [checked]="m.enabled"
-                              [disabled]="migrationIsBusy(m.id)"
-                              (change)="toggleMigration(m, $event)"
+                              [disabled]="migration.isBusy(m.id)"
+                              (change)="migration.toggle(m, $event)"
                               [attr.data-testid]="'migration-toggle-' + m.id"
                             />
                             <span class="migration-title">{{ m.title }}</span>
@@ -288,8 +288,8 @@
                             <button
                               type="button"
                               class="migration-reset"
-                              [disabled]="migrationIsBusy(m.id)"
-                              (click)="resetMigration(m)"
+                              [disabled]="migration.isBusy(m.id)"
+                              (click)="migration.reset(m)"
                               [attr.data-testid]="'migration-reset-' + m.id"
                             >
                               Reset

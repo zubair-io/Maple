@@ -239,7 +239,10 @@ export class WorkersApiService {
 
   /** Toggle a migration on/off. Enabling arms a fresh run; the worker picks it
    * up on its next tick (no restart). */
-  setMigrationEnabled(id: string, enabled: boolean): Observable<{ ok: boolean; state: MigrationState }> {
+  setMigrationEnabled(
+    id: string,
+    enabled: boolean,
+  ): Observable<{ ok: boolean; state: MigrationState }> {
     return this.http.patch<{ ok: boolean; state: MigrationState }>(
       `${this.base}/workers/migration/migrations/${encodeURIComponent(id)}`,
       { enabled },

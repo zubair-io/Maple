@@ -13,10 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { stageRegistry } from './registry.ts';
 import { startMigration, MIGRATION_WORKER_NAME, runMigrationTickOnce } from './migration.ts';
-import {
-  computeEnabledTransition,
-  defaultMigrationState,
-} from './migration-config.repo.ts';
+import { computeEnabledTransition, defaultMigrationState } from './migration-config.repo.ts';
 
 describe('startMigration — registration & control', () => {
   beforeEach(() => stageRegistry._resetForTests());
@@ -57,7 +54,12 @@ describe('computeEnabledTransition', () => {
   });
 
   test('disabling keeps progress and idles (unless already done)', () => {
-    const running = { ...defaultMigrationState(), enabled: true, status: 'running' as const, processed: 5 };
+    const running = {
+      ...defaultMigrationState(),
+      enabled: true,
+      status: 'running' as const,
+      processed: 5,
+    };
     const off = computeEnabledTransition(running, false, '2026-05-31T00:00:00Z');
     expect(off.enabled).toBe(false);
     expect(off.status).toBe('idle');
@@ -125,7 +127,10 @@ describe('migration end-to-end (restructure)', () => {
       await setMigrationEnabled('restructure-backup-folders', true, new Date().toISOString());
       await runMigrationTickOnce(50, new Date().toISOString());
 
-      const doc = (await assets.findOne({ _id })) as { fileinfo?: { path: string; filename: string }[]; stages?: Record<string, { version: number }> } | null;
+      const doc = (await assets.findOne({ _id })) as {
+        fileinfo?: { path: string; filename: string }[];
+        stages?: Record<string, { version: number }>;
+      } | null;
       expect(doc?.fileinfo?.[0].path).toBe('2024/Tokyo');
       expect(doc?.fileinfo?.[0].filename).toBe('IMG_E2E.HEIC');
       // Cache stage versions reset so workers regenerate at the new path.
@@ -174,7 +179,9 @@ describe('migration end-to-end (restructure)', () => {
       _id: id,
       maple_id: `mid-${id.toHexString()}`,
       fileinfo: [{ path: rel, filename: 'DUP.HEIC', library_id: libId, deleted_at: null }],
-      phasset_links: [{ device_id: 'd', phasset_local_id: id.toHexString(), first_seen: new Date() }],
+      phasset_links: [
+        { device_id: 'd', phasset_local_id: id.toHexString(), first_seen: new Date() },
+      ],
       size: 9,
       mtime: Date.now(),
       rating: 0,
@@ -190,9 +197,9 @@ describe('migration end-to-end (restructure)', () => {
       await setMigrationEnabled('restructure-backup-folders', true, new Date().toISOString());
       await runMigrationTickOnce(50, new Date().toISOString());
 
-      const docs = (await assets
-        .find({ _id: { $in: [idA, idB] } })
-        .toArray()) as { fileinfo: { path: string; filename: string }[] }[];
+      const docs = (await assets.find({ _id: { $in: [idA, idB] } }).toArray()) as {
+        fileinfo: { path: string; filename: string }[];
+      }[];
       // Both now live under 2024/Tokyo; filenames are DUP.HEIC and DUP.1.HEIC.
       for (const d of docs) expect(d.fileinfo[0].path).toBe('2024/Tokyo');
       const names = docs.map((d) => d.fileinfo[0].filename).sort();
