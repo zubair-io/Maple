@@ -79,6 +79,13 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/workers/workers.component').then((m) => m.WorkersComponent),
   },
+  // #742 — Imports: copy a server-local folder into a registered library.
+  {
+    path: 'settings/imports',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/imports/imports.component').then((m) => m.ImportsComponent),
+  },
   // #713 — SigNoz / OpenTelemetry config + toggle. Uses `authGuard` like the
   // other settings routes; owner-only visibility is handled by the settings
   // nav (same convention as settings/users + settings/workers), not a route

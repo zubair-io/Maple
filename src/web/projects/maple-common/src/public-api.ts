@@ -36,6 +36,7 @@ export * from './lib/api/filesystem-browse.service';
 export * from './lib/api/search.service';
 export * from './lib/api/workers-api.service';
 export * from './lib/api/worker-events.service';
+export * from './lib/api/imports-api.service';
 
 // #713 — Observability (SigNoz / OpenTelemetry). Config model + IndexedDB
 // cache + the SDK-wiring service + the global Angular error handler.
