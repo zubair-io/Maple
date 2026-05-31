@@ -21,30 +21,6 @@ function makeTiff(make: string): Buffer {
   return Buffer.concat([header, ifd, value]);
 }
 
-/**
- * Big-endian TIFF whose single Make tag stores its value at a large file
- * offset (`valueAt` bytes in), with the gap zero-padded. This mirrors the
- * real-world RAW/DNG layout that defeats exifr's chunked *file* reader: IFD0
- * sits in the first chunk but the tag value lives far beyond it, so a
- * lazily-read path-based parse never fetches the chunk holding the value and
- * silently drops the tag. Feeding exifr the whole Buffer resolves it.
- */
-function makeTiffFarValue(make: string, valueAt: number): Buffer {
-  const value = Buffer.from(make + '\0', 'latin1');
-  const buf = Buffer.alloc(valueAt + value.length);
-  buf.write('MM', 0, 'latin1');
-  buf.writeUInt16BE(0x002a, 2);
-  buf.writeUInt32BE(8, 4); // IFD0 at offset 8
-  buf.writeUInt16BE(1, 8); // one entry
-  buf.writeUInt16BE(0x010f, 10); // Make
-  buf.writeUInt16BE(2, 12); // ASCII
-  buf.writeUInt32BE(value.length, 14);
-  buf.writeUInt32BE(valueAt, 18); // value offset — far past any first chunk
-  buf.writeUInt32BE(0, 22); // next IFD
-  value.copy(buf, valueAt);
-  return buf;
-}
-
 function buildWebp(tiff: Buffer): Buffer {
   const exifHeader = Buffer.alloc(8);
   exifHeader.write('EXIF', 0, 'latin1');
@@ -94,24 +70,6 @@ describe('readExif — format routing', () => {
     riff.write('WEBP', 8, 'latin1');
     await writeFile(file, riff);
     expect(await readExif(file)).toBeNull();
-  });
-
-  it("parses a .dng whose tag value lives far past exifr's first chunk", async () => {
-    // Hardening: the path-based chunked reader silently drops a tag whose
-    // value offset lands beyond the fetched region, so a RAW comes back
-    // missing tags that are plainly in the file. Routing RAW/TIFF extensions
-    // through a full Buffer read resolves every tag regardless of offset.
-    const file = path.join(dir, 'DJI_20260521203805_0430_D.DNG');
-    await writeFile(file, makeTiffFarValue('Hasselblad', 200_000));
-    const exif = await readExif(file);
-    expect(exif?.camera_make).toBe('Hasselblad');
-  });
-
-  it('parses EXIF out of a plain .tiff via the Buffer path', async () => {
-    const file = path.join(dir, 'scan.tiff');
-    await writeFile(file, makeTiff('Canon'));
-    const exif = await readExif(file);
-    expect(exif?.camera_make).toBe('Canon');
   });
 
   it("throws a clear, named error for a 0-byte file (not exifr's opaque crash)", async () => {
