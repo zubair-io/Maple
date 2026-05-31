@@ -1,0 +1,224 @@
+// ImportsComponent — `/settings/imports` (auth-gated, owner-only via nav).
+//
+// Four-step flow (ticket #742): pick a server-local folder → choose a target
+// library → scan into editable YEAR/MM buckets → import, then watch progress.
+// Originals are copied, never moved. The server jails the source to
+// MAPLE_ROOTS and re-validates every bucket label, so the UI's edits are a
+// convenience, not the security boundary.
+
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { firstValueFrom, Subscription, timer, switchMap } from 'rxjs';
+import {
+  BunApiBackendService,
+  FilesystemBrowseService,
+  ImportsApiService,
+  type ApiFolder,
+  type FsDirListing,
+  type ImportScanResult,
+  type ImportView,
+} from '@maple-common';
+import { SettingsShellComponent } from '../settings-shell.component';
+import { SettingsIconComponent } from '../settings-icon.component';
+
+type Step = 'pick' | 'review' | 'progress';
+
+@Component({
+  selector: 'maple-imports',
+  standalone: true,
+  imports: [FormsModule, SettingsShellComponent, SettingsIconComponent],
+  templateUrl: './imports.component.html',
+  styleUrl: './imports.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class ImportsComponent implements OnInit, OnDestroy {
+  private readonly api = inject(ImportsApiService);
+  private readonly fsBrowse = inject(FilesystemBrowseService);
+  private readonly backend = inject(BunApiBackendService);
+
+  protected readonly step = signal<Step>('pick');
+  protected readonly busy = signal(false);
+  protected readonly error = signal<string | null>(null);
+
+  // --- Folder picker -------------------------------------------------------
+  protected readonly libraries = signal<ApiFolder[]>([]);
+  /** Current browse listing, or null while at the library-roots level. */
+  protected readonly listing = signal<FsDirListing | null>(null);
+  protected readonly currentPath = computed(() => this.listing()?.path ?? null);
+  protected readonly selectedSource = signal<string | null>(null);
+
+  // --- Target + scan -------------------------------------------------------
+  protected readonly targetLibraryId = signal<string>('');
+  protected readonly scan = signal<ImportScanResult | null>(null);
+  /** Editable per-bucket labels, keyed on the `${year}/${mm}` bucket key. */
+  protected readonly labels = signal<Record<string, string>>({});
+
+  // --- Progress ------------------------------------------------------------
+  protected readonly active = signal<ImportView | null>(null);
+  private poll: Subscription | null = null;
+
+  protected readonly percent = computed(() => {
+    const a = this.active();
+    if (!a || a.progress.total === 0) return 0;
+    return Math.round((a.progress.current / a.progress.total) * 100);
+  });
+  protected readonly terminal = computed(() => {
+    const s = this.active()?.status;
+    return s === 'done' || s === 'failed' || s === 'cancelled';
+  });
+
+  async ngOnInit(): Promise<void> {
+    try {
+      this.libraries.set(await firstValueFrom(this.backend.listFolders()));
+    } catch (e) {
+      this.error.set(this.msg(e));
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.poll?.unsubscribe();
+  }
+
+  // --- Picker actions ------------------------------------------------------
+
+  async open(absPath: string): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      this.listing.set(await firstValueFrom(this.fsBrowse.listDir(absPath)));
+    } catch (e) {
+      this.error.set(this.msg(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  /** Go up one level; back to the library roots when parent is null. */
+  async up(): Promise<void> {
+    const parent = this.listing()?.parent;
+    if (parent) await this.open(parent);
+    else this.listing.set(null);
+  }
+
+  useFolder(absPath: string): void {
+    this.selectedSource.set(absPath);
+  }
+
+  clearSource(): void {
+    this.selectedSource.set(null);
+  }
+
+  /** Reset to the library-roots level of the picker. */
+  toRoots(): void {
+    this.listing.set(null);
+  }
+
+  // --- Scan ----------------------------------------------------------------
+
+  async runScan(): Promise<void> {
+    const src = this.selectedSource();
+    if (!src || !this.targetLibraryId()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const result = await firstValueFrom(this.api.scan(src));
+      if (result.totals.files === 0) {
+        this.error.set('No importable photos, sidecars, or movies in that folder.');
+        return;
+      }
+      const labels: Record<string, string> = {};
+      for (const b of result.buckets) labels[b.key] = b.mm;
+      this.scan.set(result);
+      this.labels.set(labels);
+      this.step.set('review');
+    } catch (e) {
+      this.error.set(this.msg(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  setLabel(key: string, value: string): void {
+    this.labels.update((m) => ({ ...m, [key]: value }));
+  }
+
+  backToPick(): void {
+    this.scan.set(null);
+    this.step.set('pick');
+  }
+
+  // --- Import + progress ---------------------------------------------------
+
+  async startImport(): Promise<void> {
+    const src = this.selectedSource();
+    const lib = this.targetLibraryId();
+    if (!src || !lib) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      const { id } = await firstValueFrom(
+        this.api.create({ source_root: src, library_id: lib, labels: this.labels() }),
+      );
+      this.step.set('progress');
+      this.startPolling(id);
+    } catch (e) {
+      this.error.set(this.msg(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  private startPolling(id: string): void {
+    this.poll?.unsubscribe();
+    this.poll = timer(0, 1500)
+      .pipe(switchMap(() => this.api.get(id)))
+      .subscribe({
+        next: (doc) => {
+          this.active.set(doc);
+          if (this.terminal()) this.poll?.unsubscribe();
+        },
+        error: (e) => this.error.set(this.msg(e)),
+      });
+  }
+
+  async cancel(): Promise<void> {
+    const a = this.active();
+    if (!a) return;
+    try {
+      await firstValueFrom(this.api.cancel(a.id));
+    } catch (e) {
+      this.error.set(this.msg(e));
+    }
+  }
+
+  /** Start over with a fresh pick. */
+  reset(): void {
+    this.poll?.unsubscribe();
+    this.active.set(null);
+    this.scan.set(null);
+    this.selectedSource.set(null);
+    this.labels.set({});
+    this.error.set(null);
+    this.step.set('pick');
+  }
+
+  protected libraryLabel(id: string): string {
+    return this.libraries().find((l) => l.id === id)?.label ?? id;
+  }
+
+  private msg(e: unknown): string {
+    if (e && typeof e === 'object' && 'error' in e) {
+      const inner = (e as { error?: { error?: string } }).error;
+      if (inner?.error) return inner.error;
+    }
+    return e instanceof Error ? e.message : String(e);
+  }
+}

@@ -1,0 +1,226 @@
+@use '../settings-chrome' as chrome;
+
+:host {
+  @include chrome.settings-vars;
+}
+:host {
+  @include chrome.settings-atoms;
+}
+
+.imports-body {
+  padding: 24px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  max-width: 820px;
+
+  section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+.error {
+  color: var(--s-danger, #d6453f);
+  font-size: 13px;
+  margin: 0;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.dim {
+  color: var(--s-text-muted);
+}
+.hint,
+.empty {
+  color: var(--s-text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+// --- Folder picker ---------------------------------------------------------
+
+.picked-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  code {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.browser {
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--s-surface-2, rgba(0, 0, 0, 0.03));
+  border-bottom: 1px solid var(--s-border);
+
+  .path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.card-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.row-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--s-border);
+  color: var(--s-text);
+  cursor: pointer;
+  font-size: 13px;
+
+  &:hover:not(:disabled) {
+    background: var(--s-surface-2, rgba(0, 0, 0, 0.04));
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .name {
+    font-weight: 500;
+  }
+  code {
+    margin-left: auto;
+  }
+}
+
+.use-here {
+  margin: 12px;
+  align-self: flex-start;
+}
+
+.lib-select {
+  appearance: auto;
+  padding: 8px 10px;
+  font-size: 13px;
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+  background: var(--s-surface, #fff);
+  color: var(--s-text);
+  max-width: 520px;
+}
+
+// --- Bucket review table ---------------------------------------------------
+
+.summary {
+  font-size: 13px;
+  color: var(--s-text-muted);
+  margin: 0;
+
+  .ok {
+    color: var(--s-success, #2e9e57);
+  }
+  .bad {
+    color: var(--s-danger, #d6453f);
+  }
+}
+
+.bucket-table {
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.bucket-head,
+.bucket-row {
+  display: grid;
+  grid-template-columns: 64px 1fr 70px 70px 80px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+.bucket-head {
+  background: var(--s-surface-2, rgba(0, 0, 0, 0.03));
+  border-bottom: 1px solid var(--s-border);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--s-text-muted);
+}
+.bucket-row {
+  border-bottom: 1px solid var(--s-border);
+  &:last-child {
+    border-bottom: none;
+  }
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.label-input {
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+  background: var(--s-surface, #fff);
+  color: var(--s-text);
+  width: 100%;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+// --- Progress --------------------------------------------------------------
+
+.progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--s-surface-2, rgba(0, 0, 0, 0.08));
+  overflow: hidden;
+}
+.fill {
+  height: 100%;
+  background: var(--s-accent, #3b82f6);
+  transition: width 0.3s ease;
+}
+.pct {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  min-width: 38px;
+  text-align: right;
+}
+.status-line {
+  font-size: 13px;
+  margin: 0;
+
+  .bad {
+    color: var(--s-danger, #d6453f);
+  }
+}
