@@ -11,9 +11,13 @@
 //      config back through the IDB cache, and — only if the wiring actually
 //      changed — tears the providers down and re-initialises them.
 //
-// Export targets (OTLP/HTTP, direct to SigNoz):
-//   traces → `${endpoint}/v1/traces`,  logs → `${endpoint}/v1/logs`
-//   header `signoz-access-token: <ingestion_key>` when a key is set.
+// Export targets (OTLP/HTTP) go through the Maple API's authenticated proxy,
+// NOT direct to SigNoz — the proxy injects the SigNoz ingestion key server-side
+// (the key never reaches the browser):
+//   traces → `${apiBase}/observability/otlp/v1/traces`
+//   logs   → `${apiBase}/observability/otlp/v1/logs`
+//   auth: `Authorization: Bearer <access token>` via a dynamic headers factory
+//         (re-read each export so a token refresh is picked up).
 //   resource: service.name = "maple-web", service.namespace = service_namespace.
 //
 // Zoneless app: we deliberately use the default stack context manager (NOT
@@ -44,6 +48,8 @@ import {
   BunApiBackendService,
   type ObservabilityTestResponse,
 } from '../api/bun-api-backend.service';
+import { API_BASE_URL } from '../api/api-base-url.token';
+import { AuthService } from '../auth/auth.service';
 import {
   OBSERVABILITY_CONFIG_CACHE,
   type ObservabilityCacheRecord,
@@ -61,6 +67,12 @@ const SERVICE_NAME = 'maple-web';
 /** Instrumentation-scope name for tracer + logger. */
 const SCOPE_NAME = '@maple/web';
 
+/** Escape a string for safe use inside a `RegExp` (the proxy path goes into a
+ * FetchInstrumentation `ignoreUrls` pattern). */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Live OTel runtime for one config. Held together so teardown is atomic. */
 interface OtelRuntime {
   readonly tracerProvider: WebTracerProvider | null;
@@ -74,6 +86,8 @@ interface OtelRuntime {
 export class ObservabilityService {
   private readonly api = inject(BunApiBackendService);
   private readonly cache = inject(OBSERVABILITY_CONFIG_CACHE);
+  private readonly apiBase = inject(API_BASE_URL);
+  private readonly auth = inject(AuthService);
 
   /** The config currently driving the SDK (or the last one seen). */
   readonly config = signal<ObservabilityConfigResponse | null>(null);
@@ -250,11 +264,28 @@ export class ObservabilityService {
    * them with the global OTel API so `trace.getTracer` / `logs.getLogger`
    * resolve to them. `endpoint` is guaranteed non-null by the caller. */
   private buildRuntime(cfg: ObservabilityConfigResponse): OtelRuntime {
-    const endpoint = cfg.endpoint as string;
-    const base = endpoint.replace(/\/+$/, '');
-    const headers: Record<string, string> = cfg.ingestion_key
-      ? { 'signoz-access-token': cfg.ingestion_key }
-      : {};
+    // Telemetry is exported through the Maple API's authenticated OTLP proxy —
+    // NOT direct to SigNoz. The proxy injects the SigNoz ingestion key
+    // server-side (the key is never sent to the browser), so the client only
+    // needs to authenticate to Maple. We post to
+    // `${apiBase}/observability/otlp/v1/{traces,logs}`.
+    //
+    // `cfg.endpoint` here is display-only (where the server ultimately
+    // forwards); the exporter never uses it.
+    const base = this.apiBase.replace(/\/+$/, '');
+    const proxyBase = `${base}/observability/otlp/v1`;
+
+    // The OTLP exporters issue their own fetch() calls — they do NOT go through
+    // Angular's HttpClient, so the auth interceptor never sees them. Attach the
+    // bearer via a dynamic headers factory so a token refresh mid-session is
+    // picked up on the next batch flush (the header is re-read each export);
+    // a static header would pin a stale token and start 401-ing after refresh.
+    const headers = (): Promise<Record<string, string>> => {
+      const bearer = this.auth.bearer;
+      const h: Record<string, string> = {};
+      if (bearer) h['Authorization'] = `Bearer ${bearer}`;
+      return Promise.resolve(h);
+    };
 
     const resource = resourceFromAttributes({
       [ATTR_SERVICE_NAME]: SERVICE_NAME,
@@ -265,7 +296,7 @@ export class ObservabilityService {
     let tracerProvider: WebTracerProvider | null = null;
     let unregisterInstrumentations: (() => void) | null = null;
     if (cfg.traces_enabled) {
-      const traceExporter = new OTLPTraceExporter({ url: `${base}/v1/traces`, headers });
+      const traceExporter = new OTLPTraceExporter({ url: `${proxyBase}/traces`, headers });
       // Head sampling. ParentBased keeps a child span whenever its parent was
       // sampled, otherwise applies the ratio — the standard production sampler.
       const ratio = Number.isFinite(cfg.sample_ratio)
@@ -281,15 +312,21 @@ export class ObservabilityService {
 
       // HttpClient runs on the fetch backend (provideHttpClient(withFetch())),
       // so FetchInstrumentation turns every API call into a span automatically.
+      // Ignore the OTLP proxy path itself — otherwise each telemetry export
+      // would generate a span, which generates another export, ad infinitum.
       unregisterInstrumentations = registerInstrumentations({
         tracerProvider,
-        instrumentations: [new FetchInstrumentation()],
+        instrumentations: [
+          new FetchInstrumentation({
+            ignoreUrls: [new RegExp(escapeRegExp(proxyBase))],
+          }),
+        ],
       });
     }
 
     let loggerProvider: LoggerProvider | null = null;
     if (cfg.logs_enabled) {
-      const logExporter = new OTLPLogExporter({ url: `${base}/v1/logs`, headers });
+      const logExporter = new OTLPLogExporter({ url: `${proxyBase}/logs`, headers });
       loggerProvider = new LoggerProvider({
         resource,
         processors: [new BatchLogRecordProcessor(logExporter)],
