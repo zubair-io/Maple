@@ -722,3 +722,96 @@
     }
   }
 }
+
+// Import group (#755) — last pipeline group; reuses .group-label/.row/.row-summary.
+.import-group {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.new-import-link {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  color: var(--s-accent);
+  text-decoration: none;
+  &:hover {
+    text-decoration: underline;
+  }
+}
+.import-summary .import-counts {
+  grid-column: 4 / -1;
+  font-family: var(--s-mono);
+  font-size: 12.5px;
+  color: var(--s-text-mid);
+  white-space: nowrap;
+  .has-dead {
+    color: var(--s-err);
+  }
+}
+.import-error,
+.import-empty,
+.import-detail-hint {
+  padding: 8px 18px;
+  font-size: 12.5px;
+  color: var(--s-text-dim);
+  margin: 0;
+}
+.import-error {
+  color: var(--s-err);
+}
+.import-detail {
+  padding: 2px 24px 10px 54px;
+}
+.import-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  code {
+    font-size: 12px;
+    color: var(--s-text-mid);
+  }
+  .lib-name {
+    font-size: 12.5px;
+    color: var(--s-text);
+    font-weight: 500;
+  }
+}
+.import-files {
+  border: 0.5px solid var(--s-border);
+  border-radius: 8px;
+  overflow: hidden auto;
+  max-height: 320px;
+}
+.import-file {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  gap: 14px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-top: 0.5px solid var(--s-border);
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .r {
+    text-align: right;
+  }
+  &.head {
+    position: sticky;
+    top: 0;
+    border-top: none;
+    background: var(--s-surface2);
+    color: var(--s-text-dim);
+    text-transform: uppercase;
+    font-size: 10px;
+  }
+}
+.file-state[data-state='copied'] {
+  color: var(--s-ok);
+}
+.file-state[data-state='failed'] {
+  color: var(--s-err);
+}
