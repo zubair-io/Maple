@@ -21,6 +21,8 @@ import {
   type ObservabilityConfigCache,
 } from './observability-config-cache';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
+import { API_BASE_URL } from '../api/api-base-url.token';
+import { AuthService } from '../auth/auth.service';
 import type { ObservabilityConfigResponse } from './observability-config.model';
 
 /** Build the service against an explicit injector — no Angular TestBed env
@@ -35,6 +37,11 @@ function makeService(
     providers: [
       { provide: OBSERVABILITY_CONFIG_CACHE, useValue: cache },
       { provide: BunApiBackendService, useValue: api },
+      { provide: API_BASE_URL, useValue: '/api' },
+      // The service injects AuthService only to read `bearer` when building the
+      // OTLP exporter headers; these tests never reach an active export (configs
+      // are inactive), so a stub with a null bearer is sufficient.
+      { provide: AuthService, useValue: { bearer: null } },
     ],
   });
   return runInInjectionContext(injector, () => new ObservabilityService());
@@ -46,7 +53,7 @@ function makeConfig(
   return {
     enabled: false,
     endpoint: null,
-    ingestion_key: null,
+    ingestion_key_set: false,
     service_namespace: 'maple',
     traces_enabled: true,
     logs_enabled: true,

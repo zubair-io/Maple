@@ -246,12 +246,11 @@ export class ObservabilityComponent implements OnInit {
     }
   }
 
-  /** True iff the server reports an ingestion key is configured. The key itself
-   * IS present in the response (direct-to-SigNoz clients need it for the
-   * `signoz-access-token` header) — but this UI never renders the value, only
-   * whether one is set. */
+  /** True iff the server reports an ingestion key is configured. The key value
+   * is never sent to the client (the OTLP proxy injects it server-side); the
+   * response carries only this boolean. */
   protected keyConfigured(cfg: ObservabilityConfigResponse): boolean {
-    return cfg.ingestion_key !== null && cfg.ingestion_key !== '';
+    return cfg.ingestion_key_set;
   }
 
   /** Placeholder for the write-only key input — tells the operator whether a
