@@ -25,7 +25,9 @@
           <span class="job-status" [attr.data-status]="j.status">{{ j.status }}</span>
           <span class="job-progress">
             @if (active(j)) {
-              <span class="mini-bar"><span class="mini-fill" [style.width.%]="percent(j)"></span></span>
+              <span class="mini-bar"
+                ><span class="mini-fill" [style.width.%]="percent(j)"></span
+              ></span>
               {{ j.progress.current }}/{{ j.progress.total }}
             } @else {
               {{ j.counts.copied }} copied · {{ j.counts.skipped }} skipped
