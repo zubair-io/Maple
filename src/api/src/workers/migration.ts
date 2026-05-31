@@ -195,7 +195,10 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
       for (let i = 0; i < processed; i++) throughput.record(new Date());
       stageRegistry.clearError(MIGRATION_WORKER_NAME);
     } catch (err) {
-      stageRegistry.recordError(MIGRATION_WORKER_NAME, err instanceof Error ? err.message : String(err));
+      stageRegistry.recordError(
+        MIGRATION_WORKER_NAME,
+        err instanceof Error ? err.message : String(err),
+      );
       log.error({ err }, 'migration tick crashed');
     } finally {
       running = false;

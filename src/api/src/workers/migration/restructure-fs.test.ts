@@ -238,7 +238,13 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
 
   test('never removes a dir at/above the library root', async () => {
     // oldDirAbs == libRoot must be a no-op even if "empty".
-    await finalize({ libRoot: root, oldDirAbs: root, mapleId: undefined, filename: 'x.HEIC', sourcesToDelete: [] });
+    await finalize({
+      libRoot: root,
+      oldDirAbs: root,
+      mapleId: undefined,
+      filename: 'x.HEIC',
+      sourcesToDelete: [],
+    });
     expect(await exists('')).toBe(true); // root still there
   });
 
@@ -265,7 +271,9 @@ describe('finalize — delete sources, drop cache, reclaim folder', () => {
     });
 
     // Legacy cache cleared and the day-folder reclaimed.
-    expect(await exists(`2024/Tokyo/03-15/.maple/thumbs/${sha256Prefix16('IMG.HEIC')}.jpg`)).toBe(false);
+    expect(await exists(`2024/Tokyo/03-15/.maple/thumbs/${sha256Prefix16('IMG.HEIC')}.jpg`)).toBe(
+      false,
+    );
     expect(await exists('2024/Tokyo/03-15/.maple/previews/IMG_1280.jpg')).toBe(false);
     expect(await exists('2024/Tokyo/03-15')).toBe(false);
   });
