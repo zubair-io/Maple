@@ -1,8 +1,10 @@
 /**
- * `damaged` tagging — the write a file-reading stage makes when it exhausts
- * its retries on an unreadable original (corrupt/truncated bytes, or a format
- * no decoder can parse). Extracted from run-stage.ts to keep that file under
- * the size budget, mirroring `tag-missing.ts`.
+ * `damaged` tagging — the write a file-reading stage makes when an original is
+ * unreadable (corrupt/truncated bytes, or a format no decoder can parse). The
+ * runner calls it down two paths: when a stage exhausts its retries, and when a
+ * stage classifies the bytes as unreadable up front via a `{ damaged }` result
+ * (e.g. a 0-byte file). Extracted from run-stage.ts to keep that file under the
+ * size budget, mirroring `tag-missing.ts`.
  *
  * Observability: every tag emits a structured `asset.damaged` log record. The
  * backend's pino logger is bridged into OpenTelemetry by `otel.ts`
@@ -39,6 +41,10 @@ export async function tagDamaged(
   reason: string,
 ): Promise<void> {
   const trimmed = reason.length > MAX_REASON_LEN ? `${reason.slice(0, MAX_REASON_LEN)}…` : reason;
+  // Neutral wording on purpose: this is called both when a stage exhausts its
+  // retries and when a stage classifies the bytes as unreadable up front (the
+  // `{ damaged }` fast-path). The `reason` field carries what actually went
+  // wrong, so the message must not assert "exhausted retries" for either case.
   log.warn(
     {
       event: 'asset.damaged',
@@ -46,7 +52,7 @@ export async function tagDamaged(
       stage,
       reason: trimmed,
     },
-    `asset ${id.toHexString()} tagged damaged after ${stage} exhausted retries`,
+    `asset ${id.toHexString()} tagged damaged by ${stage}: ${trimmed}`,
   );
   await images
     .updateOne(
