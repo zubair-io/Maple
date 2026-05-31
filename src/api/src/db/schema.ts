@@ -718,6 +718,74 @@ export interface JobDoc {
 export type JobWithId = WithId<JobDoc>;
 
 // ---------------------------------------------------------------------------
+// Imports (ticket #742)
+//
+// Copy a server-local folder into a registered Library, laid out as
+// `<LibRoot>/<YEAR>/<MM-or-label>/<filename>`. The `imports` collection IS
+// the work queue — claim/lease fields live on the doc, mirroring `JobDoc`.
+// See `docs/plans/2026-05-31-imports-feature.md`.
+// ---------------------------------------------------------------------------
+
+/** Lifecycle: pending → running → (done | failed | cancelled). */
+export type ImportStatus =
+  | 'pending'
+  | 'running'
+  | 'done'
+  | 'failed'
+  | 'cancelled';
+
+/** How the import worker treats each file:
+ *   - `image`   — copied AND handed to the indexer via `handleEvent`.
+ *   - `sidecar` — copied alongside its parent image; never indexed directly.
+ *   - `movie`   — copied but NOT indexed (the watcher is image-only, v1). */
+export type ImportFileKind = 'image' | 'sidecar' | 'movie';
+
+/** Per-file outcome, filled in by the worker as it copies. */
+export type ImportFileState =
+  | 'pending'
+  | 'copied'
+  | 'skipped_duplicate'
+  | 'failed';
+
+export interface ImportFileEntry {
+  /** Absolute source path on the server. */
+  src: string;
+  /** Destination RELATIVE to the target library root (POSIX-separated). */
+  dest: string;
+  size: number;
+  /** Source mtime epoch-ms — the bucketing basis, retained for audit. */
+  mtime: number;
+  kind: ImportFileKind;
+  state: ImportFileState;
+  /** Failure detail when `state === 'failed'`. */
+  error: string | null;
+}
+
+export interface ImportDoc {
+  status: ImportStatus;
+  /** Absolute source folder the user picked (jailed to MAPLE_ROOTS). */
+  source_root: string;
+  /** Target library — a registered FolderDoc: id + path snapshot. */
+  library_id: ObjectId;
+  library_root: string;
+  files: ImportFileEntry[];
+  /** Coarse progress; `total` === files.length. */
+  progress: { current: number; total: number };
+  counts: { copied: number; skipped: number; failed: number };
+  error: string | null;
+  /** Worker id holding the claim; null when available. */
+  locked_by: string | null;
+  /** Lease expiry (ISO). A crashed worker's claim auto-releases. */
+  lease_expires_at: string | null;
+  /** Cancellation flag; observed between files. */
+  cancel_requested: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ImportWithId = WithId<ImportDoc>;
+
+// ---------------------------------------------------------------------------
 // User
 // ---------------------------------------------------------------------------
 
