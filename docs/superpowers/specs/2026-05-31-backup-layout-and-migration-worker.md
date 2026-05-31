@@ -15,10 +15,10 @@ Two related changes to the device-backup ("iPhone backup") library layout:
 
 `formatBackupPath` (TS) / `PathFormatter.format` (Swift) — a byte-parity pair.
 
-| | Old | New |
-| --- | --- | --- |
-| With location | `<year>/<loc>/<MM>-<DD>/<file>` | `<year>/<loc>/<file>` |
-| Without location | `<year>/<MM>/<DD>/<file>` | `<year>/<MM>/<file>` |
+|                  | Old                             | New                   |
+| ---------------- | ------------------------------- | --------------------- |
+| With location    | `<year>/<loc>/<MM>-<DD>/<file>` | `<year>/<loc>/<file>` |
+| Without location | `<year>/<MM>/<DD>/<file>`       | `<year>/<MM>/<file>`  |
 
 Only the **day** grouping is dropped. Without a place, month stays as the
 grouping level. All other behaviour (location slash→`_`, leading-dot / `..` →
@@ -50,10 +50,10 @@ A static array of named migrations:
 
 ```ts
 interface Migration {
-  id: string;            // stable key, e.g. "restructure-backup-folders"
-  title: string;         // UI label
-  description: string;   // UI blurb
-  countRemaining(): Promise<number>;            // work still to do (drives status + done-detection)
+  id: string; // stable key, e.g. "restructure-backup-folders"
+  title: string; // UI label
+  description: string; // UI blurb
+  countRemaining(): Promise<number>; // work still to do (drives status + done-detection)
   runBatch(batchSize: number): Promise<MigrationBatchResult>; // one bounded pass
 }
 ```
@@ -128,7 +128,7 @@ The formatters only ever produce a **3-segment dir for old layout** and a
   **new dir = first two segments** (drop the 3rd).
 - Anything else → not recognized → skip (never touch).
 
-This kills the date-named-location bug: a *new-layout* path like
+This kills the date-named-location bug: a _new-layout_ path like
 `2024/12-25/IMG.HEIC` (location literally "12-25") is 2 segments → skipped.
 
 ### Per-asset move — crash-safe ordering
@@ -184,7 +184,7 @@ a move fires `unlink(old)` + `add(new)`.
   invariant across the exif `maple_id` upgrade), finding the already-repointed
   row instead of inserting a new one. Verified.
 - **Duplicate `fileinfo` entry (race):** if the watcher processes `add(new)`
-  *before* our DB repoint, it can push a second `fileinfo` entry for the new
+  _before_ our DB repoint, it can push a second `fileinfo` entry for the new
   path. Both then stat present, so the missing-reaper never prunes them. The
   migration therefore runs a **post-finalize `fileinfo` dedup** (collapse exact-
   duplicate live entries). It is stable: by then the old source is deleted and

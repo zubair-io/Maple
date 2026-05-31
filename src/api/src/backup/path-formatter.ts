@@ -20,9 +20,9 @@
  * with no path separators, no `..` segments, and no leading dot. */
 export function isSafeFilename(name: string): boolean {
   if (!name || name.length === 0 || name.length > 255) return false;
-  if (name.includes("/") || name.includes("\\")) return false;
-  if (name === "." || name === "..") return false;
-  if (name.startsWith(".")) return false;
+  if (name.includes('/') || name.includes('\\')) return false;
+  if (name === '.' || name === '..') return false;
+  if (name.startsWith('.')) return false;
   return true;
 }
 
@@ -35,14 +35,14 @@ export function formatBackupPath(args: {
     throw new Error(`unsafe filename: ${args.filename}`);
   }
 
-  const y = args.captureDate.getUTCFullYear().toString().padStart(4, "0");
-  const m = (args.captureDate.getUTCMonth() + 1).toString().padStart(2, "0");
+  const y = args.captureDate.getUTCFullYear().toString().padStart(4, '0');
+  const m = (args.captureDate.getUTCMonth() + 1).toString().padStart(2, '0');
 
   let loc: string | null = null;
   if (args.location && args.location.trim().length > 0) {
-    const replaced = args.location.replaceAll("/", "_");
+    const replaced = args.location.replaceAll('/', '_');
     // If the sanitised location starts with `.` or equals `..`, treat as null.
-    if (!replaced.startsWith(".") && replaced !== "..") {
+    if (!replaced.startsWith('.') && replaced !== '..') {
       loc = replaced;
     }
   }

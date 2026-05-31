@@ -151,7 +151,10 @@ async function moveOne(
 
 /** Collapse exact-duplicate LIVE fileinfo entries (same library_id/path/
  * filename), keeping the first. A no-op when there are none. */
-async function dedupeLiveFileinfo(coll: Collection<AssetDoc>, id: WithId<AssetDoc>['_id']): Promise<void> {
+async function dedupeLiveFileinfo(
+  coll: Collection<AssetDoc>,
+  id: WithId<AssetDoc>['_id'],
+): Promise<void> {
   const fresh = await coll.findOne({ _id: id }, { projection: { fileinfo: 1 } });
   const list = fresh?.fileinfo;
   if (!list || list.length < 2) return;
@@ -217,7 +220,10 @@ export const restructureBackupFolders: Migration = {
       } catch (err) {
         if (err instanceof SourceMissingError) {
           // Source gone from disk — nothing to move. Left for the reaper.
-          log.warn({ _id: String(doc._id), err: err.message }, 'restructure: source missing — skipped');
+          log.warn(
+            { _id: String(doc._id), err: err.message },
+            'restructure: source missing — skipped',
+          );
           continue;
         }
         errors++;

@@ -41,7 +41,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.maple_id).toBe('abc123');
-    expect(body.target_rel_path).toBe('2024/Tokyo/03-15/IMG_0420.HEIC');
+    expect(body.target_rel_path).toBe('2024/Tokyo/IMG_0420.HEIC');
 
     const onDisk = await fs.readFile(path.join(suite.handle.tmpLib, body.target_rel_path));
     expect(onDisk.byteLength).toBe(256);
