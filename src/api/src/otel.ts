@@ -175,6 +175,12 @@ async function stopSdk(): Promise<void> {
   const current = sdk;
   sdk = null;
   activeKey = null;
+  // ALWAYS clear the pino log tap first — independent of whether a trace
+  // NodeSDK exists. A logs-only config runs no NodeSDK (`current` is null), so
+  // gating this behind `current` would leave the tap exporting with the old
+  // config after logs are disabled / the process shuts down. This also flushes
+  // buffered records (setOtelLogTarget(null) tears the exporter down cleanly).
+  await setOtelLogTarget(null);
   if (!current) return;
   try {
     await current.shutdown();

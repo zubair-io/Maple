@@ -86,7 +86,7 @@ function stubFetch(handler: (url: string) => { status?: number; body?: unknown }
     const r = handler(url);
     if (r instanceof Error) throw r;
     return new Response(JSON.stringify(r.body ?? {}), { status: r.status ?? 200 });
-  }) as typeof fetch;
+  }) as unknown as typeof fetch;
 }
 
 async function get(path: string): Promise<{ status: number; body: unknown }> {
@@ -228,14 +228,19 @@ describe('PUT /api/observability/config — sample_ratio validation', () => {
 });
 
 describe('PUT/GET /api/observability/config — ingestion_key write semantics', () => {
-  it('a non-empty string sets the key and GET echoes it', async () => {
+  it('a non-empty string sets the key, persists it, but never echoes it', async () => {
     if (!mongoReachable) return;
     const r = await put('/api/observability/config', { ingestion_key: 'set-me' });
     expect(r.status).toBe(200);
-    expect((r.body as { ingestion_key: string }).ingestion_key).toBe('set-me');
+    // The key value is redacted on the wire (clients use the /otlp/* proxy);
+    // only `ingestion_key_set` is reported. `source` still tracks provenance.
+    expect((r.body as { ingestion_key?: string }).ingestion_key).toBeUndefined();
+    expect((r.body as { ingestion_key_set: boolean }).ingestion_key_set).toBe(true);
     expect((r.body as { source: { ingestion_key: string } }).source.ingestion_key).toBe('db');
     const got = await get('/api/observability/config');
-    expect((got.body as { ingestion_key: string }).ingestion_key).toBe('set-me');
+    expect((got.body as { ingestion_key?: string }).ingestion_key).toBeUndefined();
+    expect((got.body as { ingestion_key_set: boolean }).ingestion_key_set).toBe(true);
+    // Persisted in the DB even though it's never returned.
     const saved = await db!
       .collection('app_settings')
       .findOne<{ config: { ingestion_key?: string } }>({ _id: 'observability' } as never);
@@ -273,7 +278,7 @@ describe('POST /api/observability/test', () => {
       const headers = new Headers(init?.headers);
       sawToken = headers.get('signoz-access-token') === 'probe-key';
       return new Response('{}', { status: 200 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     const r = await post('/api/observability/test', {
       endpoint: 'https://ingest.signoz.test:4318/',
       ingestion_key: 'probe-key',
@@ -314,5 +319,126 @@ describe('POST /api/observability/test', () => {
     if (!mongoReachable) return;
     const r = await post('/api/observability/test', { endpoint: 'not-a-url' });
     expect(r.status).toBe(400);
+  });
+});
+
+describe('POST /api/observability/otlp/v1/:signal — client telemetry proxy', () => {
+  /** Seed an enabled DB config so the proxy forwards. Signals default on
+   * except metrics; override per test. */
+  async function seedConfig(over: Record<string, unknown> = {}): Promise<void> {
+    await db!.collection('app_settings').updateOne(
+      { _id: 'observability' } as never,
+      {
+        $set: {
+          config: {
+            enabled: true,
+            endpoint: 'https://signoz.test:4318',
+            ingestion_key: 'server-key',
+            traces_enabled: true,
+            logs_enabled: true,
+            metrics_enabled: false,
+            updated_at: 1,
+            ...over,
+          },
+        },
+      },
+      { upsert: true },
+    );
+  }
+
+  /** POST raw bytes (the proxy uses `parse: 'arrayBuffer'`). */
+  async function postRaw(
+    path: string,
+    bytes: Uint8Array,
+    contentType = 'application/x-protobuf',
+  ): Promise<{ status: number; bodyText: string; res: Response }> {
+    const res = await app!.handle(
+      new Request(`http://localhost${path}`, {
+        method: 'POST',
+        headers: { 'content-type': contentType },
+        // `BodyInit` accepts a BufferSource; the lib DOM type wants an
+        // ArrayBuffer-backed view, so hand it the underlying buffer.
+        body: bytes.buffer as ArrayBuffer,
+      }),
+    );
+    return { status: res.status, bodyText: await res.clone().text(), res };
+  }
+
+  it('forwards the body to ${endpoint}/v1/<signal>, injecting the server key, mirroring status', async () => {
+    if (!mongoReachable) return;
+    await seedConfig();
+    let calledUrl = '';
+    let sawToken = false;
+    let sawCT = '';
+    let fwdBody = new Uint8Array();
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calledUrl = typeof input === 'string' ? input : input.toString();
+      const headers = new Headers(init?.headers);
+      sawToken = headers.get('signoz-access-token') === 'server-key';
+      sawCT = headers.get('content-type') ?? '';
+      fwdBody = new Uint8Array((init?.body as ArrayBuffer | Uint8Array) ?? new Uint8Array());
+      return new Response('{"partialSuccess":{}}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as unknown as typeof fetch;
+
+    const payload = new Uint8Array([1, 2, 3, 4]);
+    const r = await postRaw('/api/observability/otlp/v1/traces', payload);
+
+    expect(r.status).toBe(200);
+    expect(calledUrl).toBe('https://signoz.test:4318/v1/traces');
+    // The CLIENT never sends the SigNoz key — the proxy injects it server-side.
+    expect(sawToken).toBe(true);
+    expect(sawCT).toBe('application/x-protobuf');
+    // Body forwarded byte-for-byte.
+    expect(Array.from(fwdBody)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('returns 503 when the requested signal is disabled', async () => {
+    if (!mongoReachable) return;
+    await seedConfig({ logs_enabled: false });
+    let forwarded = false;
+    globalThis.fetch = (async () => {
+      forwarded = true;
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    const r = await postRaw('/api/observability/otlp/v1/logs', new Uint8Array([0]));
+    expect(r.status).toBe(503);
+    // Must NOT forward a disabled signal upstream.
+    expect(forwarded).toBe(false);
+  });
+
+  it('returns 503 when telemetry is disabled entirely', async () => {
+    if (!mongoReachable) return;
+    await seedConfig({ enabled: false });
+    const r = await postRaw('/api/observability/otlp/v1/traces', new Uint8Array([0]));
+    expect(r.status).toBe(503);
+  });
+
+  it('returns 502 when the upstream forward throws', async () => {
+    if (!mongoReachable) return;
+    await seedConfig();
+    globalThis.fetch = (async () => {
+      throw new Error('ECONNREFUSED');
+    }) as unknown as typeof fetch;
+    const r = await postRaw('/api/observability/otlp/v1/traces', new Uint8Array([0]));
+    expect(r.status).toBe(502);
+  });
+
+  it('mirrors a non-2xx upstream status (e.g. 429) so the client retries', async () => {
+    if (!mongoReachable) return;
+    await seedConfig();
+    globalThis.fetch = (async () =>
+      new Response('rate limited', { status: 429 })) as unknown as typeof fetch;
+    const r = await postRaw('/api/observability/otlp/v1/traces', new Uint8Array([0]));
+    expect(r.status).toBe(429);
+  });
+
+  it('returns 404 for an unknown signal', async () => {
+    if (!mongoReachable) return;
+    await seedConfig();
+    const r = await postRaw('/api/observability/otlp/v1/bogus', new Uint8Array([0]));
+    expect(r.status).toBe(404);
   });
 });
