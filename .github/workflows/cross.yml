@@ -27,7 +27,12 @@ concurrency:
 jobs:
   format-check:
     name: format-check (prettier)
-    runs-on: ubuntu-latest
+    # Fork guard: keep fork PRs off the self-hosted runner — only pushes
+    # and PRs from branches in this repo (never a fork) may run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +95,11 @@ jobs:
 
   file-budget:
     name: file-budget (400 soft / 600 hard LOC)
-    runs-on: ubuntu-latest
+    # Fork guard: keep fork PRs off the self-hosted runner.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
@@ -117,8 +126,12 @@ jobs:
   allowlist-shrinks-only:
     name: allowlist-shrinks-only
     # Only meaningful on PRs — needs a merge base to diff against.
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    # Fork guard: the PR must originate from a branch in this repo, not a
+    # fork, before it touches the self-hosted runner.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
         with:
@@ -187,7 +200,11 @@ jobs:
 
   codegen-drift:
     name: codegen-drift (regenerated outputs are committed)
-    runs-on: ubuntu-latest
+    # Fork guard: keep fork PRs off the self-hosted runner.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
@@ -221,7 +238,11 @@ jobs:
 
   gitleaks:
     name: gitleaks (full history)
-    runs-on: ubuntu-latest
+    # Fork guard: keep fork PRs off the self-hosted runner.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
         with:

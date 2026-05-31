@@ -41,7 +41,12 @@ concurrency:
 jobs:
   face-clustering-quality:
     name: face-clustering (test_face_clustering.sh)
-    runs-on: ubuntu-latest
+    # Fork guard: keep fork PRs off the self-hosted runner — only pushes
+    # and PRs from branches in this repo (never a fork) may run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 

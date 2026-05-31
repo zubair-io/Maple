@@ -58,7 +58,12 @@ concurrency:
 jobs:
   web-build:
     name: web-build (ng build maple)
-    runs-on: ubuntu-latest
+    # Fork guard: keep fork PRs off the self-hosted runner — only pushes
+    # and PRs from branches in this repo (never a fork) may run.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
@@ -112,7 +117,11 @@ jobs:
 
   web-test:
     name: web-test (ng test maple)
-    runs-on: ubuntu-latest
+    # Fork guard: keep fork PRs off the self-hosted runner.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: self-hosted
     # Single-run on CI (the @angular/build:unit-test builder is non-watch in a
     # non-interactive env). `timeout-minutes` is a backstop against any
     # accidental watch-mode hang burning the full job budget.
