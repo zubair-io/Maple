@@ -131,7 +131,7 @@ struct ObservabilitySettingsTab: View {
           }
 
           LabeledContent("Ingestion key") {
-            Text(config.ingestionKey?.isEmpty == false ? "Set" : "Not set")
+            Text(config.ingestionKeySet ? "Set" : "Not set")
               .foregroundStyle(.secondary)
           }
           .accessibilityIdentifier("observability.status.key")
