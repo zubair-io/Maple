@@ -728,6 +728,9 @@ export interface ObservabilityTestResponse {
   endpoint?: string;
   error?: string;
   status?: number | null;
+  /** Actionable hint when the probe looks misconfigured — e.g. "use :4318".
+   * Already folded into `error`; exposed separately so a UI can highlight it. */
+  recommendation?: string;
 }
 
 // ── People (face clusters) ─────────────────────────────────────────────────
