@@ -1,5 +1,15 @@
 // Single-worker clustering pool. Off-main-thread online clustering so the
-// synchronous O(N·K·D) `clusterEmbeddings` pass doesn't block HTTP handlers.
+// synchronous O(N·K·D) `clusterEmbeddings` pass AND the O(N·D) embedding
+// load + normalize never block HTTP handlers.
+//
+// What runs on the worker (since #710): the WHOLE load + compute stage —
+// `recomputeCentroids`, `loadCentroids`, `loadUnassignedFaces`, and
+// `clusterEmbeddings`. The worker opens its OWN Mongo connection (env passed
+// in the dispatch message), so the embeddings are decoded, normalised, and
+// clustered entirely off the main thread. Only a small serializable result
+// crosses back (assignments + updated centroids + per-face envelopes) — the
+// embeddings themselves NEVER cross `postMessage`, which retires the old
+// structured-clone-of-Float32Array[] cost by construction.
 //
 // Why one worker (not N): the online pass is order-sensitive and inherently
 // sequential — a face competes against every cluster opened by earlier
@@ -9,32 +19,54 @@
 // in-flight call. One worker, lazily spawned, lives for the process.
 //
 // Fallback: if Bun's `Worker` can't spawn (unsupported runtime, sandbox),
-// `clusterEmbeddingsOffThread` degrades to running the pure function
-// in-process. That re-introduces the event-loop block, but it's correct,
-// and it keeps environments without Worker support (some test/CI shells)
-// working rather than hard-failing. The worker runs the same pure core, so
-// either path returns identical output.
+// `prepareClusteringPassOffThread` degrades to running the same load+compute
+// stage in-process. That re-introduces the event-loop block, but it's
+// correct, and it keeps environments without Worker support (some test/CI
+// shells) working rather than hard-failing. The worker runs the SAME pure
+// core against the SAME Mongo, so either path returns identical output.
 
 import { child as childLogger } from '../log.ts';
-import {
-  clusterEmbeddings,
-  type OnlineClusterOptions,
-  type OnlineClusterResult,
-} from './cluster-embeddings.ts';
+import { prepareClusteringPass, type PreparedClusteringPass } from './cluster-load.ts';
+import { DEFAULT_SIMILARITY_THRESHOLD } from './cluster-embeddings.ts';
 
 const log = childLogger('people:cluster-pool');
 
+/** A prepared pass plus execution telemetry. `viaWorker` is true when the
+ *  load + compute genuinely ran on the Worker thread, false when it degraded
+ *  to the in-process (event-loop-blocking) fallback because no Worker could
+ *  spawn. Lets callers — and the off-thread test — distinguish the two paths
+ *  instead of inferring from timing. */
+export interface PrepareResult {
+  pass: PreparedClusteringPass;
+  viaWorker: boolean;
+}
+
+/** Mongo connection params handed to the worker so it can open its own
+ *  handle. Resolved on the main thread (env is read here, not in the worker,
+ *  so per-test `MAPLE_MONGO_DB` overrides reach the worker correctly). */
+export interface WorkerMongoConfig {
+  uri: string;
+  dbName: string;
+}
+
 interface PendingCall {
-  resolve: (result: OnlineClusterResult) => void;
+  resolve: (result: PreparedClusteringPass) => void;
   reject: (err: Error) => void;
 }
 
-interface ClusterResponse {
-  type: 'cluster';
+interface PrepareResponse {
+  type: 'prepare';
   id: number;
   ok: boolean;
-  result?: OnlineClusterResult;
+  result?: PreparedClusteringPass;
   error?: string;
+}
+
+function resolveMongoConfig(): WorkerMongoConfig {
+  return {
+    uri: process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017',
+    dbName: process.env.MAPLE_MONGO_DB ?? 'maple',
+  };
 }
 
 class ClusterWorkerPool {
@@ -62,8 +94,8 @@ class ClusterWorkerPool {
     }
 
     w.addEventListener('message', (event) => {
-      const msg = event.data as ClusterResponse;
-      if (msg?.type !== 'cluster') return;
+      const msg = event.data as PrepareResponse;
+      if (msg?.type !== 'prepare') return;
       const p = this.pending.get(msg.id);
       if (!p) return;
       this.pending.delete(msg.id);
@@ -88,11 +120,11 @@ class ClusterWorkerPool {
     return w;
   }
 
-  /** Dispatch one clustering pass to the worker. Resolves with the worker's
-   *  result, or (when no worker can spawn) runs the pure function in-process.
-   *  Rejects only on a genuine worker runtime error — never silently falls
-   *  back to the blocking path once a worker is up. */
-  run(embeddings: Float32Array[], options: OnlineClusterOptions): Promise<OnlineClusterResult> {
+  /** Dispatch one load + compute pass to the worker. Resolves with the
+   *  worker's result, or (when no worker can spawn) runs the same stage
+   *  in-process. Rejects only on a genuine worker runtime error — never
+   *  silently falls back to the blocking path once a worker is up. */
+  run(similarityThreshold: number): Promise<PrepareResult> {
     let worker: Worker;
     try {
       worker = this.ensureWorker();
@@ -101,22 +133,27 @@ class ClusterWorkerPool {
         { err: e instanceof Error ? e.message : String(e) },
         'cluster worker unavailable — clustering in-process (blocks the event loop)',
       );
-      return Promise.resolve(clusterEmbeddings(embeddings, options));
+      return prepareClusteringPass(similarityThreshold).then((pass) => ({
+        pass,
+        viaWorker: false,
+      }));
     }
 
     const id = this.nextId++;
-    return new Promise<OnlineClusterResult>((resolve, reject) => {
+    const mongo = resolveMongoConfig();
+    return new Promise<PreparedClusteringPass>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       try {
-        // Structured-clone copy (not transfer): the caller reuses each
-        // `embedding` buffer after clustering (e.g. seeding a new person's
-        // centroid), so the originals must stay intact on this thread.
-        worker.postMessage({ type: 'cluster', id, embeddings, options });
+        // No embeddings cross here — only the threshold + Mongo params. The
+        // worker reads, normalises, and clusters the embeddings itself, then
+        // returns a small serializable result. This is what eliminates the
+        // structured-clone-of-Float32Array[] cost from the prior design.
+        worker.postMessage({ type: 'prepare', id, similarityThreshold, mongo });
       } catch (e) {
         this.pending.delete(id);
         reject(e instanceof Error ? e : new Error(String(e)));
       }
-    });
+    }).then((pass) => ({ pass, viaWorker: true }));
   }
 }
 
@@ -129,15 +166,15 @@ function clusterPool(): ClusterWorkerPool {
 }
 
 /**
- * Run `clusterEmbeddings` off the main thread on a persistent Worker so the
- * synchronous O(N·K·D) loop never freezes the HTTP event loop. Output is
- * identical to calling `clusterEmbeddings` directly — the worker runs the
- * same pure core. Degrades to in-process execution only when no Worker can
- * spawn.
+ * Run the full clustering load + compute stage off the main thread on a
+ * persistent Worker so neither the synchronous O(N·K·D) loop nor the O(N·D)
+ * embedding decode/normalise ever freezes the HTTP event loop. Output is
+ * identical to running `prepareClusteringPass` in-process — the worker runs
+ * the same core against the same Mongo. Degrades to in-process execution only
+ * when no Worker can spawn.
  */
-export function clusterEmbeddingsOffThread(
-  embeddings: Float32Array[],
-  options: OnlineClusterOptions = {},
-): Promise<OnlineClusterResult> {
-  return clusterPool().run(embeddings, options);
+export function prepareClusteringPassOffThread(
+  similarityThreshold: number = DEFAULT_SIMILARITY_THRESHOLD,
+): Promise<PrepareResult> {
+  return clusterPool().run(similarityThreshold);
 }
