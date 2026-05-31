@@ -17,47 +17,48 @@
     <!-- ──────────────────────────── STEP 1: pick ─────────────────────── -->
     @if (step() === 'pick') {
       <section>
-        <div class="subhead">1 · Source folder</div>
+        <div class="subhead">1 · Target library</div>
+        <select
+          class="lib-select"
+          [ngModel]="targetLibraryId()"
+          (ngModelChange)="onLibraryChange($event)"
+        >
+          <option value="" disabled>Choose a library…</option>
+          @for (lib of libraries(); track lib.id) {
+            <option [value]="lib.id">{{ lib.label }} — {{ lib.path }}</option>
+          }
+        </select>
+      </section>
 
-        @if (selectedSource(); as src) {
-          <div class="picked-row">
-            <maple-settings-icon name="check" [size]="14" />
-            <code class="mono">{{ src }}</code>
-            <button type="button" class="btn-ghost" (click)="clearSource()">Change</button>
-          </div>
-        } @else {
-          <div class="browser">
-            <div class="browser-bar">
-              @if (listing()) {
-                <button type="button" class="btn-ghost" [disabled]="busy()" (click)="up()">
+      @if (targetLibraryId()) {
+        <section>
+          <div class="subhead">2 · Source folder</div>
+
+          @if (selectedSource(); as src) {
+            <div class="picked-row">
+              <maple-settings-icon name="check" [size]="14" />
+              <code class="mono">{{ src }}</code>
+              <button type="button" class="btn-ghost" (click)="clearSource()">Change</button>
+            </div>
+            <button type="button" class="btn-primary" [disabled]="busy()" (click)="runScan()">
+              {{ busy() ? 'Scanning…' : 'Scan folder' }}
+            </button>
+          } @else {
+            <div class="browser">
+              <div class="browser-bar">
+                <button
+                  type="button"
+                  class="btn-ghost"
+                  [disabled]="busy() || atRoot()"
+                  (click)="up()"
+                >
                   <maple-settings-icon name="back" [size]="12" /> Up
                 </button>
-                <code class="mono path">{{ currentPath() }}</code>
-              } @else {
-                <span class="hint">Pick a library to browse, then drill into a subfolder.</span>
-              }
-            </div>
-
-            @if (!listing()) {
-              <div class="card-list">
-                @for (lib of libraries(); track lib.id) {
-                  <button
-                    type="button"
-                    class="row-btn"
-                    [disabled]="busy()"
-                    (click)="open(lib.path)"
-                  >
-                    <maple-settings-icon name="copy" [size]="14" />
-                    <span class="name">{{ lib.label }}</span>
-                    <code class="mono dim">{{ lib.path }}</code>
-                  </button>
-                } @empty {
-                  <p class="empty">No registered libraries to browse.</p>
-                }
+                <code class="mono path">{{ currentPath() ?? '/' }}</code>
               </div>
-            } @else {
+
               <div class="card-list">
-                @for (d of listing()!.dirs; track d.path) {
+                @for (d of listing()?.dirs ?? []; track d.path) {
                   <button type="button" class="row-btn" [disabled]="busy()" (click)="open(d.path)">
                     <maple-settings-icon name="chev-r" [size]="14" />
                     <span class="name">{{ d.name }}</span>
@@ -66,41 +67,22 @@
                   <p class="empty">No subfolders here.</p>
                 }
               </div>
+
+              @if (currentBlocked()) {
+                <p class="hint blocked">
+                  This folder is inside the target library — pick a source outside it.
+                </p>
+              }
               <button
                 type="button"
                 class="btn-primary use-here"
-                [disabled]="busy()"
+                [disabled]="busy() || currentBlocked() || !currentPath()"
                 (click)="useFolder(currentPath()!)"
               >
                 Use this folder
               </button>
-            }
-          </div>
-        }
-      </section>
-
-      @if (selectedSource()) {
-        <section>
-          <div class="subhead">2 · Target library</div>
-          <select
-            class="lib-select"
-            [ngModel]="targetLibraryId()"
-            (ngModelChange)="targetLibraryId.set($event)"
-          >
-            <option value="" disabled>Choose a library…</option>
-            @for (lib of libraries(); track lib.id) {
-              <option [value]="lib.id">{{ lib.label }} — {{ lib.path }}</option>
-            }
-          </select>
-
-          <button
-            type="button"
-            class="btn-primary"
-            [disabled]="busy() || !targetLibraryId()"
-            (click)="runScan()"
-          >
-            {{ busy() ? 'Scanning…' : 'Scan folder' }}
-          </button>
+            </div>
+          }
         </section>
       }
     }
@@ -148,49 +130,53 @@
     }
 
     <!-- ───────────────────────── STEP 3: progress ─────────────────────── -->
-    @if (step() === 'progress' && active(); as a) {
+    @if (step() === 'progress') {
       <section>
         <div class="subhead">Importing</div>
-        <div class="progress-wrap">
-          <div
-            class="bar"
-            role="progressbar"
-            aria-label="Import progress"
-            [attr.aria-valuenow]="percent()"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            [attr.aria-valuetext]="a.progress.current + ' of ' + a.progress.total + ' files'"
-          >
-            <div class="fill" [style.width.%]="percent()"></div>
-          </div>
-          <span class="pct">{{ percent() }}%</span>
-        </div>
-        <p class="summary">
-          {{ a.progress.current }} / {{ a.progress.total }} files ·
-          <span class="ok">{{ a.counts.copied }} copied</span> · {{ a.counts.skipped }} skipped ·
-          <span [class.bad]="a.counts.failed > 0">{{ a.counts.failed }} failed</span>
-        </p>
-        <p class="status-line">
-          Status: <strong>{{ a.status }}</strong>
-          @if (a.error) {
-            <span class="bad"> — {{ a.error }}</span>
-          }
-        </p>
-
-        <div class="actions">
-          @if (!terminal()) {
-            <button
-              type="button"
-              class="btn-ghost"
-              [disabled]="a.cancel_requested"
-              (click)="cancel()"
+        @if (active(); as a) {
+          <div class="progress-wrap">
+            <div
+              class="bar"
+              role="progressbar"
+              aria-label="Import progress"
+              [attr.aria-valuenow]="percent()"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              [attr.aria-valuetext]="a.progress.current + ' of ' + a.progress.total + ' files'"
             >
-              {{ a.cancel_requested ? 'Cancelling…' : 'Cancel' }}
-            </button>
-          } @else {
-            <button type="button" class="btn-primary" (click)="reset()">New import</button>
-          }
-        </div>
+              <div class="fill" [style.width.%]="percent()"></div>
+            </div>
+            <span class="pct">{{ percent() }}%</span>
+          </div>
+          <p class="summary">
+            {{ a.progress.current }} / {{ a.progress.total }} files ·
+            <span class="ok">{{ a.counts.copied }} copied</span> · {{ a.counts.skipped }} skipped ·
+            <span [class.bad]="a.counts.failed > 0">{{ a.counts.failed }} failed</span>
+          </p>
+          <p class="status-line">
+            Status: <strong>{{ a.status }}</strong>
+            @if (a.error) {
+              <span class="bad"> — {{ a.error }}</span>
+            }
+          </p>
+
+          <div class="actions">
+            @if (!terminal()) {
+              <button
+                type="button"
+                class="btn-ghost"
+                [disabled]="a.cancel_requested"
+                (click)="cancel()"
+              >
+                {{ a.cancel_requested ? 'Cancelling…' : 'Cancel' }}
+              </button>
+            } @else {
+              <button type="button" class="btn-primary" (click)="reset()">New import</button>
+            }
+          </div>
+        } @else {
+          <p class="empty">Loading import status…</p>
+        }
       </section>
     }
   </div>

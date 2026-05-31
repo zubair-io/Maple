@@ -1,10 +1,14 @@
 // ImportsComponent — `/settings/imports` (auth-gated, owner-only via nav).
 //
-// Four-step flow (ticket #742): pick a server-local folder → choose a target
-// library → scan into editable YEAR/MM buckets → import, then watch progress.
-// Originals are copied, never moved. The server jails the source to
-// MAPLE_ROOTS and re-validates every bucket label, so the UI's edits are a
-// convenience, not the security boundary.
+// Flow (ticket #742): choose a target library → browse a server-local folder
+// (starting at the filesystem root, never inside the library) → scan into
+// editable YEAR/MM buckets → import, then watch progress. Originals are
+// copied, never moved. The server jails the source to MAPLE_ROOTS, rejects a
+// source that overlaps the target library, and re-validates every bucket
+// label — the UI's checks are a convenience, not the security boundary.
+//
+// Deep link: `/settings/imports?job=<id>` jumps straight to a running
+// import's live status (the link the Workers page hands out).
 
 import {
   ChangeDetectionStrategy,
@@ -16,6 +20,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router } from '@angular/router';
 import { firstValueFrom, Subscription, timer, switchMap } from 'rxjs';
 import {
   BunApiBackendService,
@@ -31,6 +36,16 @@ import { SettingsIconComponent } from '../settings-icon.component';
 
 type Step = 'pick' | 'review' | 'progress';
 
+/** True when `a` and `b` are the same dir or one contains the other. */
+function pathsOverlap(a: string, b: string): boolean {
+  const x = a.replace(/\/+$/, '') || '/';
+  const y = b.replace(/\/+$/, '') || '/';
+  if (x === y) return true;
+  const xPrefix = x === '/' ? '/' : x + '/';
+  const yPrefix = y === '/' ? '/' : y + '/';
+  return y.startsWith(xPrefix) || x.startsWith(yPrefix);
+}
+
 @Component({
   selector: 'maple-imports',
   standalone: true,
@@ -43,20 +58,36 @@ export class ImportsComponent implements OnInit, OnDestroy {
   private readonly api = inject(ImportsApiService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly backend = inject(BunApiBackendService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   protected readonly step = signal<Step>('pick');
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
-  // --- Folder picker -------------------------------------------------------
+  // --- Target library (chosen FIRST) ---------------------------------------
   protected readonly libraries = signal<ApiFolder[]>([]);
-  /** Current browse listing, or null while at the library-roots level. */
+  protected readonly targetLibraryId = signal<string>('');
+  protected readonly libRoot = computed(
+    () => this.libraries().find((l) => l.id === this.targetLibraryId())?.path ?? null,
+  );
+
+  // --- Source folder picker (starts at the filesystem root) ----------------
+  private readonly roots = signal<string[]>([]);
   protected readonly listing = signal<FsDirListing | null>(null);
   protected readonly currentPath = computed(() => this.listing()?.path ?? null);
+  protected readonly atRoot = computed(() => this.listing()?.parent == null);
   protected readonly selectedSource = signal<string | null>(null);
 
-  // --- Target + scan -------------------------------------------------------
-  protected readonly targetLibraryId = signal<string>('');
+  /** The folder the picker is sitting in can't be used as the source when it
+   * overlaps the target library (copy-into-self / duplicates). */
+  protected readonly currentBlocked = computed(() => {
+    const p = this.currentPath();
+    const lib = this.libRoot();
+    return !!p && !!lib && pathsOverlap(p, lib);
+  });
+
+  // --- Scan ----------------------------------------------------------------
   protected readonly scan = signal<ImportScanResult | null>(null);
   /** Editable per-bucket labels, keyed on the `${year}/${mm}` bucket key. */
   protected readonly labels = signal<Record<string, string>>({});
@@ -77,9 +108,21 @@ export class ImportsComponent implements OnInit, OnDestroy {
 
   async ngOnInit(): Promise<void> {
     try {
-      this.libraries.set(await firstValueFrom(this.backend.listFolders()));
+      const [libs, roots] = await Promise.all([
+        firstValueFrom(this.backend.listFolders()),
+        firstValueFrom(this.fsBrowse.roots()),
+      ]);
+      this.libraries.set(libs);
+      this.roots.set(roots);
     } catch (e) {
       this.error.set(this.msg(e));
+    }
+
+    // Deep link to a specific import's status (the Workers-page link).
+    const job = this.route.snapshot.queryParamMap.get('job');
+    if (job) {
+      this.step.set('progress');
+      this.startPolling(job);
     }
   }
 
@@ -87,7 +130,17 @@ export class ImportsComponent implements OnInit, OnDestroy {
     this.poll?.unsubscribe();
   }
 
-  // --- Picker actions ------------------------------------------------------
+  // --- Library + picker actions --------------------------------------------
+
+  async onLibraryChange(id: string): Promise<void> {
+    this.targetLibraryId.set(id);
+    this.selectedSource.set(null);
+    this.error.set(null);
+    // Open the picker at the filesystem root so the source is chosen from `/`,
+    // not from inside a library.
+    const start = this.roots()[0] ?? '/';
+    await this.open(start);
+  }
 
   async open(absPath: string): Promise<void> {
     this.busy.set(true);
@@ -101,24 +154,19 @@ export class ImportsComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Go up one level; back to the library roots when parent is null. */
+  /** Go up one level; no-op at the jail root (parent is null). */
   async up(): Promise<void> {
     const parent = this.listing()?.parent;
     if (parent) await this.open(parent);
-    else this.listing.set(null);
   }
 
   useFolder(absPath: string): void {
+    if (this.currentBlocked()) return;
     this.selectedSource.set(absPath);
   }
 
   clearSource(): void {
     this.selectedSource.set(null);
-  }
-
-  /** Reset to the library-roots level of the picker. */
-  toRoots(): void {
-    this.listing.set(null);
   }
 
   // --- Scan ----------------------------------------------------------------
@@ -167,6 +215,12 @@ export class ImportsComponent implements OnInit, OnDestroy {
       const { id } = await firstValueFrom(
         this.api.create({ source_root: src, library_id: lib, labels: this.labels() }),
       );
+      // Put the job id in the URL so this becomes a shareable status page.
+      await this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { job: id },
+        queryParamsHandling: 'merge',
+      });
       this.step.set('progress');
       this.startPolling(id);
     } catch (e) {
@@ -200,7 +254,7 @@ export class ImportsComponent implements OnInit, OnDestroy {
   }
 
   /** Start over with a fresh pick. */
-  reset(): void {
+  async reset(): Promise<void> {
     this.poll?.unsubscribe();
     this.active.set(null);
     this.scan.set(null);
@@ -208,6 +262,10 @@ export class ImportsComponent implements OnInit, OnDestroy {
     this.labels.set({});
     this.error.set(null);
     this.step.set('pick');
+    await this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: {},
+    });
   }
 
   protected libraryLabel(id: string): string {

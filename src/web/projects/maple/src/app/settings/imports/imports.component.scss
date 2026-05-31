@@ -40,6 +40,10 @@
   font-size: 13px;
   margin: 0;
 }
+.hint.blocked {
+  color: var(--s-danger, #d6453f);
+  padding: 0 12px;
+}
 
 // --- Folder picker ---------------------------------------------------------
 
