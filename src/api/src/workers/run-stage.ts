@@ -76,7 +76,13 @@ export { POLL_INTERVAL_MS, BACKOFF_MS, deriveBatchSize, nextPollDelay } from './
 export type StageResult<TPatch = Record<string, unknown>> =
   | { patch: TPatch }
   | { wrote: true }
-  | { skip: string };
+  | { skip: string }
+  // The handler determined the bytes are unreadable up front and no retry can
+  // change that (e.g. a 0-byte file) — tag the asset `damaged` immediately
+  // instead of throwing maxAttempts times to reach the same place. Only honored
+  // for stages with `tagsDamagedOnDeadLetter`; the string is the operator-facing
+  // reason recorded on the damaged tag (and the stage's last_error).
+  | { damaged: string };
 
 export interface StageContext {
   log: Logger;
@@ -350,6 +356,32 @@ export async function runOnce(
             },
           },
         );
+      } else if ('damaged' in result) {
+        // Deterministically-unreadable bytes (the handler already knows retries
+        // are futile). Land in exactly the state the dead-letter path would
+        // after maxAttempts: this stage marked dead, and the asset tagged
+        // `damaged` so it parks out of every stage's claim query and shows up
+        // in the Workers "Damaged" list. We do NOT bump version — if an
+        // operator clears the tag (which resets dead/attempts on the
+        // damage-tagging stages), the asset reprocesses from here. Guarded on
+        // `tagsDamagedOnDeadLetter` so a stage whose state the clear path
+        // doesn't reset can't strand the asset.
+        if (!stage.tagsDamagedOnDeadLetter) {
+          throw new Error(
+            `stage '${stage.name}' returned { damaged } but is not a damage-tagging stage`,
+          );
+        }
+        await images.updateOne(
+          { _id: id },
+          {
+            $set: {
+              [`stages.${stage.name}.attempts`]: config.maxAttempts,
+              [`stages.${stage.name}.last_error`]: result.damaged,
+              [`stages.${stage.name}.dead`]: true,
+            },
+          },
+        );
+        await tagDamaged(images, id, stage.name, result.damaged);
       }
       throughput?.record(new Date());
     } catch (err) {

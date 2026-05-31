@@ -108,7 +108,21 @@ const exifStage = defineStage({
     // attempt to open it for reading. The runner tags `missing_since` on that
     // ENOENT (this stage sets `tagsMissingOnEnoent`); the missing-reaper later
     // verifies + deletes.
-    await fs.stat(absPath);
+    const stat = await fs.stat(absPath);
+
+    // A 0-byte file is deterministically unreadable: an interrupted copy that
+    // never completed, or a cloud-sync placeholder whose bytes never landed.
+    // The watcher only emits a file after `awaitWriteFinish` (size stable for
+    // 2s), so a file that reaches here empty isn't mid-copy — retrying can't
+    // help. Tag it `damaged` now rather than throwing through all 5 attempts to
+    // reach the same place. (Handed an empty file, exifr would otherwise crash
+    // with the opaque "undefined is not an object (evaluating
+    // 'this.dataView.getUint16')".)
+    if (stat.size === 0) {
+      return {
+        damaged: 'file is empty (0 bytes) — incomplete copy or unmaterialized sync placeholder',
+      };
+    }
 
     const exif = await readExif(absPath);
 
