@@ -1,0 +1,101 @@
+# .github/workflows/web.yml
+#
+# Web build gate. Compiles the Angular app the way a release does
+# (`bun run build` in src/web == `ng build maple`) and fails the check on
+# any TypeScript / template compile error. Closes the CI gap that let #749
+# (a web build that doesn't type-check) ship to `main` undetected — nothing
+# in CI previously ran `ng build`. `cross.yml`'s format-check only runs
+# Prettier; `ng test` (Karma) isn't wired in either.
+#
+# Why this job is heavier than the other cross-cutting jobs:
+#
+#   The web build has a hard dependency on the Rust -> WASM `pkg/`. The
+#   pipeline consumer imports it directly —
+#     projects/maple-common/.../raw-pipeline/raw-wasm-init.ts:
+#       import init, { install_panic_hook, initThreadPool } from './pkg/raw_wasm';
+#   — and that synced `pkg/` is gitignored (built artifact). `ng build`
+#   therefore fails at module resolution unless the WASM is built first.
+#   `bun run build`'s `prebuild` lifecycle hook builds it via
+#   `raw-wasm/build.sh` -> `wasm-pack build --features parallel
+#   -Z build-std=panic_abort,std`, which needs nightly Rust + rust-src +
+#   the wasm32 target + wasm-pack. `initThreadPool` only exists with
+#   `--features parallel` (wasm-bindgen-rayon), so a plain `wasm-pack build`
+#   is not enough — the canonical build is required.
+#
+#   So this gate provisions a Rust + wasm toolchain (unlike the lightweight
+#   cross.yml jobs) and builds the WASM explicitly before `ng build`. We run
+#   `bun run raw-wasm` ourselves first so it builds + syncs + writes the
+#   build stamp; the subsequent `prebuild` hook then no-ops off that stamp
+#   (no double build) and correctness doesn't depend on whether bun fires
+#   the lifecycle hook.
+#
+# Trigger: every push to `main` and every PR, with NO path filter. The web
+# app imports types from `src/api`, so an API type change can break the web
+# build without touching `src/web` — narrowing the filter would let that
+# class of break through, which is the opposite of this gate's purpose.
+
+name: web
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: web-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  web-build:
+    name: web-build (ng build maple)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Pinned to match raw-wasm/rust-toolchain.toml. rustup would resolve
+      # the toolchain file automatically when wasm-pack runs from raw-wasm/,
+      # but installing it explicitly makes the version visible and lets the
+      # components/target install happen once, up front.
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-10-01
+          components: rust-src
+          targets: wasm32-unknown-unknown
+
+      # Prebuilt binary — `cargo install wasm-pack` would add a ~2-minute
+      # compile to every run.
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      # `-Z build-std` rebuilds the standard library, which is slow uncached.
+      # Mirror raw-pipeline.yml's cache step.
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: web-wasm-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+
+      - name: Install web deps
+        working-directory: src/web
+        run: bun install --frozen-lockfile
+
+      # Build + sync the WASM pkg/ explicitly. Writes the build stamp so the
+      # `prebuild` hook fired by `bun run build` below no-ops (no double
+      # build), and the WASM is built even if bun skips the lifecycle hook.
+      - name: Build raw-wasm (pkg/)
+        working-directory: src/web
+        run: bun run raw-wasm
+
+      # The real gate. `ng build maple` exits non-zero on any TS / template
+      # compile error; a plain `run:` step propagates that exit code.
+      - name: Production web build (ng build maple)
+        working-directory: src/web
+        run: bun run build
