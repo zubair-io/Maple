@@ -52,26 +52,25 @@ import {
   FIXED_DESCRIBE_MODEL,
   groupStagesByPipeline,
   summarizeStages,
-  type EnrichmentForm,
-  type SaveState,
-  type StageGroup,
-} from './workers.vm.ts';
-import {
   stageMeta,
   statusLabel,
   statusDotColor,
   throughputLabel,
   pendingTitle,
-} from './workers.vm.ts';
-import {
   formatBytes,
   formatDate,
   parseClampedInt,
   runtimeFormToPatch,
   blankRuntime,
   blankEnrichment,
-} from './workers.vm.ts';
-import { errorMessage } from './workers-vm.ts';
+  errorMessage,
+  type EnrichmentForm,
+  type EnrichmentKind,
+  type RuntimeForm,
+  type SaveState,
+  type StageGroup,
+  type StageMeta,
+} from './workers.vm';
 
 @Component({
   selector: 'maple-workers-settings',
@@ -416,12 +415,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
     const meta = stageMeta(stage.name);
     const finishOk = () => {
       this.saveStates.update((cur) => ({ ...cur, [stage.name]: 'success' }));
-      setTimeout(
-        () => {
-          if (this.saveStates() === 'success') this.saveStates.set('idle');
-        },
-        this.saveStates()?.[stage.name] === 'success' ? 1500 : 0,
-      );
+      setTimeout(() => {
+        if (this.saveStates()[stage.name] === 'success') {
+          this.saveStates.update((cur) => ({ ...cur, [stage.name]: 'idle' }));
+        }
+      }, 1500);
     };
     const finishErr = (err: unknown) => {
       this.saveStates.update((cur) => ({ ...cur, [stage.name]: 'error' }));
