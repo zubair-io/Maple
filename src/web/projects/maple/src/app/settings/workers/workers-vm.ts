@@ -5,11 +5,7 @@
  * formatting, form defaults, error normalisation, clamped int parsing.
  */
 
-import type {
-  EnrichmentConfigResponse,
-  StageStatus,
-  WorkersStatusResponse,
-} from '@maple-common';
+import type { EnrichmentConfigResponse, StageStatus, WorkersStatusResponse } from '@maple-common';
 import type { StageStatusRow } from '../../../../../../api/src/workers/routes.ts';
 
 // Fixed model for describe stages
@@ -160,7 +156,9 @@ export function formatDate(dateStr: string | null): string | null {
   return date.toLocaleString();
 }
 
-export function groupStagesByPipeline(stages: StageStatus[]): { group: StageGroup; rows: StageStatus[] }[] {
+export function groupStagesByPipeline(
+  stages: StageStatus[],
+): { group: StageGroup; rows: StageStatus[] }[] {
   const groups: Record<StageGroup, StageStatus[]> = {
     Ingest: [],
     Enrich: [],
@@ -169,7 +167,12 @@ export function groupStagesByPipeline(stages: StageStatus[]): { group: StageGrou
 
   for (const stage of stages) {
     const meta = STAGE_META[stage.name];
-    if (meta?.enrichment === 'describe' || meta?.enrichment === 'geocode' || meta?.enrichment === 'face' || meta?.enrichment === 'meili') {
+    if (
+      meta?.enrichment === 'describe' ||
+      meta?.enrichment === 'geocode' ||
+      meta?.enrichment === 'face' ||
+      meta?.enrichment === 'meili'
+    ) {
       if (meta.enrichment === 'describe') groups.Enrich.push(stage);
       else if (meta.enrichment === 'geocode') groups.Enrich.push(stage);
       else if (meta.enrichment === 'face') groups.Enrich.push(stage);
@@ -181,10 +184,12 @@ export function groupStagesByPipeline(stages: StageStatus[]): { group: StageGrou
     }
   }
 
-  return (Object.keys(groups) as StageGroup[]).map((group) => ({
-    group,
-    rows: groups[group],
-  })).filter((g) => g.rows.length > 0);
+  return (Object.keys(groups) as StageGroup[])
+    .map((group) => ({
+      group,
+      rows: groups[group],
+    }))
+    .filter((g) => g.rows.length > 0);
 }
 
 export function summarizeStages(stages: StageStatus[]): {
@@ -244,12 +249,7 @@ export function pendingTitle(stageStatus: StageStatus): string {
   return `${stageStatus.pending} pending`;
 }
 
-export function parseClampedInt(
-  value: string,
-  min: number,
-  max: number,
-  fallback: number,
-): number {
+export function parseClampedInt(value: string, min: number, max: number, fallback: number): number {
   const parsed = parseInt(value.trim(), 10);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, parsed));

@@ -55,8 +55,21 @@ import {
   type SaveState,
   type StageGroup,
 } from './workers.vm.ts';
-import { stageMeta, statusLabel, statusDotColor, throughputLabel, pendingTitle } from './workers.vm.ts';
-import { formatBytes, formatDate, parseClampedInt, runtimeFormToPatch, blankRuntime, blankEnrichment } from './workers.vm.ts';
+import {
+  stageMeta,
+  statusLabel,
+  statusDotColor,
+  throughputLabel,
+  pendingTitle,
+} from './workers.vm.ts';
+import {
+  formatBytes,
+  formatDate,
+  parseClampedInt,
+  runtimeFormToPatch,
+  blankRuntime,
+  blankEnrichment,
+} from './workers.vm.ts';
 import { errorMessage } from './workers-vm.ts';
 
 @Component({
@@ -261,7 +274,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
     event.stopPropagation();
     const next: StageStatus['status'] = stage.status === 'paused' ? 'running' : 'paused';
     this.setLocalStatus(stage.name, next);
-    const obs = stage.status === 'paused' ? this.api.resume(stage.name) : this.api.pause(stage.name);
+    const obs =
+      stage.status === 'paused' ? this.api.resume(stage.name) : this.api.pause(stage.name);
     obs.subscribe({
       next: () => {},
       error: () => this.setLocalStatus(stage.name, stage.status),
@@ -284,7 +298,9 @@ export class WorkersComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.deadLog.update((cur) =>
-          cur?.stage.name === stage.name ? { ...cur, loading: false, error: errorMessage(err) } : cur,
+          cur?.stage.name === stage.name
+            ? { ...cur, loading: false, error: errorMessage(err) }
+            : cur,
         );
       },
     });
@@ -309,7 +325,10 @@ export class WorkersComponent implements OnInit, OnDestroy {
     const finishOk = () =>
       this.testStates.update((cur) => ({ ...cur, [stage.name]: { kind: 'ok' } }));
     const finishErr = (err: unknown) =>
-      this.testStates.update((cur) => ({ ...cur, [stage.name]: { kind: 'error', message: errorMessage(err) } }));
+      this.testStates.update((cur) => ({
+        ...cur,
+        [stage.name]: { kind: 'error', message: errorMessage(err) },
+      }));
 
     if (meta.enrichment === 'geocode') {
       const url = form.nominatim_url.trim();
@@ -318,30 +337,32 @@ export class WorkersComponent implements OnInit, OnDestroy {
         return;
       }
       this.enrichmentApi.testNominatim(url).subscribe({
-        next: (res) => (res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed'))),
+        next: (res) =>
+          res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
         error: finishErr,
       });
     } else if (meta.enrichment === 'describe') {
-      this.enrichmentApi.testDescribeProvider({
-        provider: 'ollama',
-        url: form.describe_provider_url.trim() || null,
-        model: FIXED_DESCRIBE_MODEL,
-        api_key: null,
-      }).subscribe({
-        next: (res) => (res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed'))),
-        error: finishErr,
-      });
+      this.enrichmentApi
+        .testDescribeProvider({
+          provider: 'ollama',
+          url: form.describe_provider_url.trim() || null,
+          model: FIXED_DESCRIBE_MODEL,
+          api_key: null,
+        })
+        .subscribe({
+          next: (res) =>
+            res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
+          error: finishErr,
+        });
     } else if (meta.enrichment === 'meili') {
       const url = form.meilisearch_url.trim();
       if (url.length === 0) {
         finishErr(new Error('Enter a URL to test.'));
         return;
       }
-      this.enrichmentApi.testMeilisearch(
-        url,
-        form.meilisearch_api_key.trim() || null,
-      ).subscribe({
-        next: (res) => (res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed'))),
+      this.enrichmentApi.testMeilisearch(url, form.meilisearch_api_key.trim() || null).subscribe({
+        next: (res) =>
+          res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
         error: finishErr,
       });
     }
@@ -423,7 +444,9 @@ export class WorkersComponent implements OnInit, OnDestroy {
     }
     const current = this.enrichmentConfig();
     if (!current) {
-      onErr(new Error('Enrichment config not loaded — refusing to save (would clobber other fields).'));
+      onErr(
+        new Error('Enrichment config not loaded — refusing to save (would clobber other fields).'),
+      );
       return;
     }
     const body: Parameters<BunApiBackendService['saveEnrichmentConfig']>[0] = {
