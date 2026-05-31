@@ -38,6 +38,7 @@ import {
   BunApiBackendService,
   type DeadDoc,
   type EnrichmentConfigResponse,
+  type PerformanceConfig,
   WorkerEventsService,
   WorkersApiService,
   type StageStatus,
@@ -55,6 +56,7 @@ import {
   formatBytes,
   formatDate,
   groupStagesByPipeline,
+  parseClampedInt,
   pendingTitle,
   runtimeFormToPatch,
   stageMeta,
@@ -99,6 +101,17 @@ export class WorkersComponent implements OnInit, OnDestroy {
    * "load errored" so the save button can stay safely disabled in both
    * cases but the operator gets the right hint. */
   protected readonly enrichmentConfigError = signal<string | null>(null);
+
+  // ── RAW decode-pool size (ticket #673) ──────────────────────────────────
+  // The header control reads/writes `ffi_workers` (clamp 1–16). Pure opt-in:
+  // default 1 = the historical single-decode behaviour. Only affects RAW
+  // thumb/preview decode parallelism — it has no effect on JPEG/HEIC sources.
+  protected readonly perfConfig = signal<PerformanceConfig | null>(null);
+  /** Edited value bound to the numeric input, as a string (mirrors the
+   * runtime-form pattern so it survives the periodic status poll). */
+  protected readonly ffiWorkersDraft = signal<string>('');
+  protected readonly perfSaveState = signal<SaveState>('idle');
+  protected readonly perfSaveError = signal<string | null>(null);
 
   // Per-stage form state — keyed by stage id. Empty until the row expands.
   protected readonly runtimeForms = signal<Record<string, RuntimeForm>>({});
@@ -157,6 +170,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.fetchStatusFallback();
     this.fetchEnrichmentConfig();
     this.fetchReaperPruneWindow();
+    this.fetchPerformanceConfig();
   }
 
   private fetchReaperPruneWindow(): void {
@@ -194,6 +208,55 @@ export class WorkersComponent implements OnInit, OnDestroy {
       error: (err: unknown) => {
         this.reaperPruneSaveState.set('error');
         this.reaperPruneError.set(errorMessage(err));
+      },
+    });
+  }
+
+  /** Load the effective RAW decode-pool size + clamp bounds, seeding the
+   * header control's draft value. Failure leaves the control hidden (the
+   * template guards on `perfConfig()`), so an old server without the route
+   * degrades cleanly. */
+  private fetchPerformanceConfig(): void {
+    this.api.getPerformanceConfig().subscribe({
+      next: (cfg) => {
+        this.perfConfig.set(cfg);
+        // Only seed the draft if the operator hasn't started editing — never
+        // clobber an in-progress edit on a background refresh.
+        if (this.ffiWorkersDraft() === '') this.ffiWorkersDraft.set(String(cfg.ffi_workers));
+      },
+      error: () => {
+        /* Route unavailable (older server) — leave the control hidden. */
+      },
+    });
+  }
+
+  protected setFfiWorkersDraft(value: string): void {
+    this.ffiWorkersDraft.set(value);
+  }
+
+  /** Persist the RAW decode-worker count. The server clamps to [1, 16],
+   * writes the `performance` settings doc, and resizes the live pool. */
+  protected savePerformance(): void {
+    const cfg = this.perfConfig();
+    if (!cfg) return;
+    const n = parseClampedInt(this.ffiWorkersDraft(), cfg.min, cfg.max, cfg.ffi_workers);
+    this.perfSaveState.set('saving');
+    this.perfSaveError.set(null);
+    this.api.patchPerformanceConfig(n).subscribe({
+      next: (res) => {
+        // Reflect the server's clamped value back into the control + stats.
+        this.perfConfig.update((cur) =>
+          cur ? { ...cur, ffi_workers: res.ffi_workers, source: res.source, pool: res.pool } : cur,
+        );
+        this.ffiWorkersDraft.set(String(res.ffi_workers));
+        this.perfSaveState.set('success');
+        setTimeout(() => {
+          if (this.perfSaveState() === 'success') this.perfSaveState.set('idle');
+        }, 1500);
+      },
+      error: (err: unknown) => {
+        this.perfSaveState.set('error');
+        this.perfSaveError.set(errorMessage(err));
       },
     });
   }

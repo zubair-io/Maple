@@ -83,6 +83,39 @@ export interface DamagedListResponse {
   items: DamagedDoc[];
 }
 
+/** Live FFI decode-pool snapshot (GET /api/workers/performance). */
+export interface FfiPoolStats {
+  /** Configured target pool size. */
+  target: number;
+  /** Workers actually spawned (lazy — ≤ target). */
+  spawned: number;
+  /** Workers with an in-flight decode. */
+  busy: number;
+  /** Requests waiting for a free worker. */
+  queued: number;
+}
+
+/** Effective performance config + clamp bounds + live pool state. */
+export interface PerformanceConfig {
+  /** Effective RAW decode-worker count, clamped to [min, max]. */
+  ffi_workers: number;
+  /** Where the effective value came from. */
+  source: 'db' | 'env' | 'default';
+  /** Hard clamp lower bound (1). */
+  min: number;
+  /** Hard clamp upper bound (16). */
+  max: number;
+  pool: FfiPoolStats;
+}
+
+/** Response to PATCH /api/workers/performance. */
+export interface PatchPerformanceResponse {
+  ok: boolean;
+  ffi_workers: number;
+  source: 'db' | 'env' | 'default';
+  pool: FfiPoolStats;
+}
+
 @Injectable({ providedIn: 'root' })
 export class WorkersApiService {
   private readonly http = inject(HttpClient);
@@ -151,5 +184,18 @@ export class WorkersApiService {
       `${this.base}/workers/missing-reaper/prune-window`,
       { hours },
     );
+  }
+
+  /** Read the effective FFI decode-pool size + live pool stats. */
+  getPerformanceConfig(): Observable<PerformanceConfig> {
+    return this.http.get<PerformanceConfig>(`${this.base}/workers/performance`);
+  }
+
+  /** Set the RAW decode-worker count. The server clamps to [1, 16], persists
+   * to the `performance` settings doc, and resizes the live pool immediately. */
+  patchPerformanceConfig(ffiWorkers: number): Observable<PatchPerformanceResponse> {
+    return this.http.patch<PatchPerformanceResponse>(`${this.base}/workers/performance`, {
+      ffi_workers: ffiWorkers,
+    });
   }
 }
