@@ -281,8 +281,22 @@ public final class ObservabilityController {
             osLog.info("observability: config not exportable (enabled=\(config.enabled, privacy: .public) endpointSet=\(config.normalizedEndpoint != nil, privacy: .public)) — not bootstrapping")
             return
         }
+        // Telemetry exports through the Maple API's OTLP proxy on the selected
+        // server — NOT direct to SigNoz. We need the server base URL (to build
+        // the proxy endpoint) and the access token (to authenticate to Maple).
+        guard let server = selectedServerURL else {
+            osLog.info("observability: no server selected — not bootstrapping")
+            return
+        }
+        guard let tokens = try? TokenStore.load(server: server), !tokens.access.isEmpty else {
+            // Not signed in yet. The background refresh will retry; once signed
+            // in, a later config apply / relaunch bootstraps with a token.
+            osLog.info("observability: no access token for \(server.host ?? server.absoluteString, privacy: .public) — not bootstrapping (will retry)")
+            return
+        }
 
-        let exporter = OTelExporterConfig(config: config)
+        let exporter = OTelExporterConfig(
+            config: config, server: server, accessToken: tokens.access)
         let otelConfiguration: OTel.Configuration
         do {
             otelConfiguration = try exporter.makeConfiguration()
@@ -320,7 +334,7 @@ public final class ObservabilityController {
         isExporting = true
         bootstrappedConfig = config
         pendingConfigChange = false
-        osLog.info("observability: exporter bootstrapped → \(config.normalizedEndpoint ?? "<none>", privacy: .public) (service.namespace=\(config.serviceNamespace, privacy: .public))")
+        osLog.info("observability: exporter bootstrapped via Maple proxy on \(server.host ?? server.absoluteString, privacy: .public) → SigNoz \(config.normalizedEndpoint ?? "<none>", privacy: .public) (service.namespace=\(config.serviceNamespace, privacy: .public))")
     }
 
     /// Recompute whether the live (cached) config diverges from the one we
@@ -375,6 +389,11 @@ public final class ObservabilityController {
 /// swift-otel 1.2.1 API lives here so the integration is auditable against the
 /// docs in one place.
 ///
+/// Telemetry is exported through the Maple API's authenticated OTLP proxy
+/// (`<server>/api/observability/otlp`) — NOT direct to SigNoz. The proxy injects
+/// the SigNoz ingestion key server-side, so the app authenticates to Maple with
+/// its access token (`Authorization: Bearer`) instead of carrying the SigNoz key.
+///
 /// API reference (swift-otel 1.2.1, `Sources/OTel/OTelAPI/OTel+Configuration.swift`):
 ///   • `OTel.Configuration.default` — base value.
 ///   • `.serviceName: String`, `.resourceAttributes: [String: String]`.
@@ -386,8 +405,17 @@ public final class ObservabilityController {
 ///     appends `/v1/traces` and `/v1/logs` itself — so the base must have NO
 ///     trailing slash), `.protocol: Protocol` (`.httpProtobuf`),
 ///     `.headers: [(String, String)]`, `.compression: Compression`.
+///
+/// Auth note: the bearer is captured at bootstrap. The access token TTL is long
+/// (30 days) — comfortably longer than a process lifetime — and the controller
+/// re-bootstraps on each launch, so a static header is sufficient here; there's
+/// no in-process token rotation to track (unlike the web client).
 struct OTelExporterConfig {
     let config: ObservabilityConfig
+    /// The paired self-hosted server whose OTLP proxy receives the export.
+    let server: URL
+    /// Maple access token, sent as `Authorization: Bearer` to the proxy.
+    let accessToken: String
 
     enum BuildError: Error, CustomStringConvertible {
         case noEndpoint
@@ -399,12 +427,21 @@ struct OTelExporterConfig {
     }
 
     /// Map our DTO onto swift-otel's `OTel.Configuration`, configured for
-    /// OTLP/HTTP+protobuf direct-to-SigNoz. Enables only the signals the
+    /// OTLP/HTTP+protobuf through the Maple proxy. Enables only the signals the
     /// server turned on. Caller must have already verified `config.isExportable`.
     func makeConfiguration() throws -> OTel.Configuration {
-        guard let endpoint = config.normalizedEndpoint else {
+        // `endpoint` must be present for telemetry to be meaningful (it's where
+        // the SERVER forwards), even though the app posts to the proxy. Gate on
+        // it so a config with no SigNoz target stays a no-op.
+        guard config.normalizedEndpoint != nil else {
             throw BuildError.noEndpoint
         }
+
+        // The proxy base. swift-otel appends `/v1/traces` and `/v1/logs`, so we
+        // give it `<server>/api/observability/otlp` with no trailing slash.
+        let proxyBase =
+            server.appending(path: "/api/observability/otlp").absoluteString
+            .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
 
         var otel = OTel.Configuration.default
         otel.serviceName = "maple-apple"
@@ -412,17 +449,13 @@ struct OTelExporterConfig {
             "service.namespace": config.serviceNamespace,
         ]
 
-        // Shared per-signal OTLP/HTTP exporter settings: base endpoint (no
-        // trailing slash), HTTP+protobuf, and the SigNoz access-token header
-        // when an ingestion key is present.
-        var headers: [(String, String)] = []
-        if let key = config.ingestionKey?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !key.isEmpty {
-            headers.append(("signoz-access-token", key))
-        }
+        // Shared per-signal OTLP/HTTP exporter settings: proxy base (no trailing
+        // slash), HTTP+protobuf, and the Maple bearer (the proxy injects the
+        // SigNoz key itself; we never carry it).
+        let headers: [(String, String)] = [("Authorization", "Bearer \(accessToken)")]
 
         func applyExporter(_ exporter: inout OTel.Configuration.OTLPExporterConfiguration) {
-            exporter.endpoint = endpoint
+            exporter.endpoint = proxyBase
             exporter.protocol = .httpProtobuf
             exporter.headers = headers
         }

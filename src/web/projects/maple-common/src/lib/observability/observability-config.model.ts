@@ -3,7 +3,10 @@
 //
 // The web client pulls this config, caches it to IndexedDB (so startup isn't
 // blocked on the network), and initialises the OpenTelemetry web SDK to export
-// traces + logs directly to the self-hosted SigNoz OTLP/HTTP endpoint.
+// traces + logs through the Maple API's OTLP proxy
+// (`POST /api/observability/otlp/v1/*`), which injects the SigNoz ingestion key
+// server-side. The key is therefore NEVER sent to the client — the response
+// reports only `ingestion_key_set`.
 
 /** Where each resolved field came from — surfaced in the Settings UI so the
  * operator can see whether a value was saved in the DB or is a built-in
@@ -19,13 +22,13 @@ export interface ObservabilityConfigResponse {
   /** Master switch. When false the client tears down any live SDK and exports
    * nothing, regardless of the other fields. */
   enabled: boolean;
-  /** OTLP/HTTP base URL (e.g. `https://signoz.example.com:4318`). Traces post
-   * to `${endpoint}/v1/traces`, logs to `${endpoint}/v1/logs`. `null` when the
-   * operator hasn't configured an endpoint — the client then stays dormant. */
+  /** SigNoz OTLP/HTTP base URL the SERVER ultimately forwards to. Display-only
+   * for the client — the web SDK posts to the Maple proxy, not here. `null`
+   * when the operator hasn't configured an endpoint (telemetry stays dormant). */
   endpoint: string | null;
-  /** SigNoz ingestion key, sent as the `signoz-access-token` header. `null`
-   * when unset (a self-hosted SigNoz with no ingestion auth doesn't need it). */
-  ingestion_key: string | null;
+  /** Whether a SigNoz ingestion key is configured server-side. The key value
+   * itself is never sent to the client (the proxy injects it). */
+  ingestion_key_set: boolean;
   /** `service.namespace` resource attribute. */
   service_namespace: string;
   traces_enabled: boolean;
@@ -65,7 +68,8 @@ export function observabilityConfigEqual(
   return (
     a.enabled === b.enabled &&
     a.endpoint === b.endpoint &&
-    a.ingestion_key === b.ingestion_key &&
+    // ingestion_key is no longer client-visible (the proxy injects it), so it's
+    // not part of the client's OTel wiring and doesn't force a re-init.
     a.service_namespace === b.service_namespace &&
     a.traces_enabled === b.traces_enabled &&
     a.logs_enabled === b.logs_enabled &&
