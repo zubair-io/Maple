@@ -92,6 +92,14 @@ export const STAGE_META: Record<string, StageMeta> = {
     enrichment: 'meili',
     description: 'Pushes enriched assets to Meilisearch so they show up in the library search.',
   },
+  migration: {
+    id: 'migration',
+    group: 'Ingest',
+    icon: 'gear',
+    enrichment: null,
+    description:
+      'Runs one-shot library migrations. Each migration has its own toggle in the panel below; the worker idles until one is enabled.',
+  },
 };
 
 /** Fallback used when the server reports a stage we don't have metadata for —

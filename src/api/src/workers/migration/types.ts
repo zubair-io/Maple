@@ -1,0 +1,32 @@
+/**
+ * The contract every named migration implements. A migration is a one-shot,
+ * library-wide transform owned by the `migration` worker (see
+ * `workers/migration.ts`). Flipping its toggle on (per-migration `enabled`
+ * state in `migration-config.repo.ts`) runs it batch-by-batch until
+ * `countRemaining()` reaches 0, then it idles.
+ *
+ * Done-detection is count-based: the worker stops when nothing remains, never
+ * off a stored counter — so a re-run after new data appears just resumes.
+ */
+export interface MigrationBatchResult {
+  /** Items successfully transformed (moved / deduped) this batch. */
+  processed: number;
+  /** Items that errored this batch (logged, left in place for re-try). */
+  errors: number;
+}
+
+export interface Migration {
+  /** Stable registry key — also the toggle key in `app_settings.migration`. */
+  readonly id: string;
+  /** Short UI label. */
+  readonly title: string;
+  /** UI blurb describing what the migration does. */
+  readonly description: string;
+  /** How many items still need transforming. Drives both the Workers-UI
+   * "pending" count and done-detection (0 ⇒ done). Must be cheap (a count
+   * query), not a full scan. */
+  countRemaining(): Promise<number>;
+  /** Transform at most `batchSize` items. Returns per-batch progress. Must be
+   * idempotent: a re-run over already-migrated items is a no-op. */
+  runBatch(batchSize: number): Promise<MigrationBatchResult>;
+}
