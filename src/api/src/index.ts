@@ -89,6 +89,7 @@ import {
   resolveObservabilityConfig,
 } from './observability/observability-config.repo.ts';
 import { initOtel, shutdownOtel } from './otel.ts';
+import { bootstrapFfiPool } from './ffi/ffi-pool-bootstrap.ts';
 import { startJobRunner, stopJobRunner } from './job-runner/runner.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 import { tryGetRawFfi } from './ffi/raw_ffi.ts';
@@ -350,6 +351,7 @@ async function start(): Promise<void> {
       }
     }
 
+    await bootstrapFfiPool(); // size the FFI decode pool (DB > env > default 1)
     // Slow-tier enrichment workers run in-process. Each one's failure is
     // isolated — the operator recovers via /settings/enrichment without a
     // restart.

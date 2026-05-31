@@ -7,6 +7,8 @@ import {
   type WorkersStatusResponse,
   type WorkerConfig,
   type DeadListResponse,
+  type PerformanceConfig,
+  type PatchPerformanceResponse,
 } from './workers-api.service';
 import { API_BASE_URL } from './api-base-url.token';
 
@@ -105,6 +107,38 @@ describe('WorkersApiService', () => {
     });
     expect(result?.ok).toBe(true);
     expect(result?.config?.concurrency).toBe(8);
+  });
+
+  it('getPerformanceConfig() GET /api/workers/performance', () => {
+    let result: PerformanceConfig | undefined;
+    svc.getPerformanceConfig().subscribe((r) => (result = r));
+    const req = http.expectOne('/api/workers/performance');
+    expect(req.request.method).toBe('GET');
+    const payload: PerformanceConfig = {
+      ffi_workers: 4,
+      source: 'db',
+      min: 1,
+      max: 16,
+      pool: { target: 4, spawned: 2, busy: 1, queued: 0 },
+    };
+    req.flush(payload);
+    expect(result).toEqual(payload);
+  });
+
+  it('patchPerformanceConfig() PATCH /api/workers/performance sends { ffi_workers }', () => {
+    let result: PatchPerformanceResponse | undefined;
+    svc.patchPerformanceConfig(8).subscribe((r) => (result = r));
+    const req = http.expectOne('/api/workers/performance');
+    expect(req.request.method).toBe('PATCH');
+    expect(req.request.body).toEqual({ ffi_workers: 8 });
+    req.flush({
+      ok: true,
+      ffi_workers: 8,
+      source: 'db',
+      pool: { target: 8, spawned: 0, busy: 0, queued: 0 },
+    });
+    expect(result?.ok).toBe(true);
+    expect(result?.ffi_workers).toBe(8);
   });
 
   it('listDead() GET /api/workers/face/dead?limit=N returns the items array', () => {
