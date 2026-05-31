@@ -67,11 +67,7 @@ export function isSafeLabel(label: string): boolean {
  * destination goes through here, so an unsafe segment can never reach the
  * filesystem.
  */
-export function destRelPath(args: {
-  year: string;
-  label: string;
-  filename: string;
-}): string {
+export function destRelPath(args: { year: string; label: string; filename: string }): string {
   if (!isSafeLabel(args.label)) {
     throw new Error(`unsafe import bucket label: ${JSON.stringify(args.label)}`);
   }

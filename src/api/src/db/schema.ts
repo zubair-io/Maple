@@ -727,12 +727,7 @@ export type JobWithId = WithId<JobDoc>;
 // ---------------------------------------------------------------------------
 
 /** Lifecycle: pending → running → (done | failed | cancelled). */
-export type ImportStatus =
-  | 'pending'
-  | 'running'
-  | 'done'
-  | 'failed'
-  | 'cancelled';
+export type ImportStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
 
 /** How the import worker treats each file:
  *   - `image`   — copied AND handed to the indexer via `handleEvent`.
@@ -741,11 +736,7 @@ export type ImportStatus =
 export type ImportFileKind = 'image' | 'sidecar' | 'movie';
 
 /** Per-file outcome, filled in by the worker as it copies. */
-export type ImportFileState =
-  | 'pending'
-  | 'copied'
-  | 'skipped_duplicate'
-  | 'failed';
+export type ImportFileState = 'pending' | 'copied' | 'skipped_duplicate' | 'failed';
 
 export interface ImportFileEntry {
   /** Absolute source path on the server. */
