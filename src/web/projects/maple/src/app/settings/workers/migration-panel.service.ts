@@ -9,7 +9,7 @@
 
 import { Injectable, inject, signal } from '@angular/core';
 import { type MigrationInfo, WorkersApiService } from '@maple-common';
-import { errorMessage } from './workers.vm.ts';
+import { errorMessage } from './workers.vm';
 
 @Injectable()
 export class MigrationPanelService {
