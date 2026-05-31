@@ -19,7 +19,7 @@ import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 import { child as childLogger } from '../../log.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 import { OLD_LAYOUT_DIR_RE, restructureDir } from './restructure-path.ts';
-import { finalize, planAndPlace, SourceMissingError } from './restructure-fs.ts';
+import { finalize, planAndPlace, revertCreated, SourceMissingError } from './restructure-fs.ts';
 
 const log = childLogger('migration:restructure');
 
@@ -36,18 +36,18 @@ function candidateFilter() {
   } as const;
 }
 
-/** Build the surgical `$set` that repoints the canonical fileinfo entry to its
- * new (path, filename) and resets the cache stages. Mirrors `markSoftDeleted`'s
- * positional-arrayFilter update so a multi-location asset's other entries are
- * preserved. */
+/** Build the surgical `$set` that repoints the matched fileinfo entry (the
+ * positional `$` from the query's `$elemMatch`) to its new (path, filename) and
+ * resets the cache stages. Updating only the matched element preserves a
+ * multi-location asset's other entries. */
 function buildRepointUpdate(args: {
   newPath: string;
   newFilename: string;
   newRenderedRel: string | null;
 }) {
   const set: Record<string, unknown> = {
-    'fileinfo.$[entry].path': args.newPath,
-    'fileinfo.$[entry].filename': args.newFilename,
+    'fileinfo.$.path': args.newPath,
+    'fileinfo.$.filename': args.newFilename,
     apple_rendered_path: args.newRenderedRel,
   };
   for (const stage of CACHE_STAGES) {
@@ -80,12 +80,26 @@ async function moveOne(
     renderedRelOld: doc.apple_rendered_path ?? null,
   });
 
-  // 2. Repoint the DB to the new location (between verify and delete).
+  // 2. Repoint the DB to the new location (between verify and delete). The
+  //    fileinfo entry is matched in the QUERY ($elemMatch) so `matchedCount`
+  //    tells us whether it still existed — if a concurrent op (watcher / reaper
+  //    / trash) moved or removed it between our read and this write, the repoint
+  //    is a no-op and we must NOT delete the source. The positional `$` then
+  //    updates exactly that matched element, preserving any sibling entries.
   const lastSlash = plan.newRelPath.lastIndexOf('/');
   const newPath = lastSlash === -1 ? '' : plan.newRelPath.slice(0, lastSlash);
   const newFilename = lastSlash === -1 ? plan.newRelPath : plan.newRelPath.slice(lastSlash + 1);
-  await coll.updateOne(
-    { _id: doc._id },
+  const res = await coll.updateOne(
+    {
+      _id: doc._id,
+      fileinfo: {
+        $elemMatch: {
+          library_id: primary.library_id,
+          path: primary.path,
+          filename: primary.filename,
+        },
+      },
+    },
     {
       $set: buildRepointUpdate({
         newPath,
@@ -93,16 +107,20 @@ async function moveOne(
         newRenderedRel: plan.newRenderedRel,
       }),
     } as never,
-    {
-      arrayFilters: [
-        {
-          'entry.library_id': primary.library_id,
-          'entry.path': primary.path,
-          'entry.filename': primary.filename,
-        },
-      ],
-    },
   );
+
+  if (res.matchedCount === 0) {
+    // The entry changed under us — the repoint didn't apply. Roll back the
+    // copies we made (the source + row are still consistent) and skip; a later
+    // pass re-attempts from the current state. Crucially, we never reach
+    // finalize/delete on this path.
+    await revertCreated(plan.createdPaths);
+    log.warn(
+      { _id: String(doc._id) },
+      'restructure: fileinfo entry changed concurrently — reverted copy, left original + row intact',
+    );
+    return 'skipped';
+  }
 
   if (plan.outcome === 'deduped') {
     log.info(

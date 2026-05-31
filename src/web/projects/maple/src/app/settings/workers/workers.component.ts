@@ -152,14 +152,24 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.migrationsTimer = setInterval(() => this.fetchMigrations(), 4000);
   }
 
+  private migrationsFetchInFlight = false;
+
   private fetchMigrations(): void {
-    if (this.destroyed) return;
+    // Skip if destroyed or a prior request is still in flight — prevents the
+    // 4s interval from stacking overlapping calls whose responses could race
+    // (an older response overwriting newer progress).
+    if (this.destroyed || this.migrationsFetchInFlight) return;
+    this.migrationsFetchInFlight = true;
     this.api.listMigrations().subscribe({
       next: ({ migrations }) => {
+        this.migrationsFetchInFlight = false;
         this.migrations.set(migrations);
         this.migrationsError.set(null);
       },
-      error: (err: unknown) => this.migrationsError.set(errorMessage(err)),
+      error: (err: unknown) => {
+        this.migrationsFetchInFlight = false;
+        this.migrationsError.set(errorMessage(err));
+      },
     });
   }
 

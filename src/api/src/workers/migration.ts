@@ -21,8 +21,10 @@ import { ThroughputWindow } from './run-stage.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { MIGRATIONS } from './migration/index.ts';
 import {
+  loadAllMigrationStates,
   loadMigrationState,
   patchMigrationState,
+  defaultMigrationState,
   type MigrationState,
 } from './migration-config.repo.ts';
 
@@ -39,14 +41,20 @@ const DEFAULT_BATCH = 50;
 /** Sum of remaining work across all ENABLED migrations — surfaced as the
  * worker's `pending` count in `/api/workers/status`. */
 export async function migrationPendingCount(): Promise<number> {
+  // Load all per-migration state in ONE read, then only count enabled ones.
+  let states: Record<string, MigrationState>;
+  try {
+    states = await loadAllMigrationStates();
+  } catch {
+    return 0; // best-effort for the status pill
+  }
   let total = 0;
   for (const m of MIGRATIONS) {
+    if (!(states[m.id] ?? defaultMigrationState()).enabled) continue;
     try {
-      const state = await loadMigrationState(m.id);
-      if (!state.enabled) continue;
       total += await m.countRemaining();
     } catch {
-      /* count is best-effort for the status pill */
+      /* best-effort */
     }
   }
   return total;
@@ -98,6 +106,9 @@ export async function runMigrationTickOnce(batchSize: number, nowIso: string): P
       processed: state.processed + batch.processed,
       errors: state.errors + batch.errors,
       status: remainingAfter === 0 ? 'done' : 'running',
+      // Clear any stale crash message once a batch completes cleanly, so the UI
+      // doesn't keep showing an old error after the migration has recovered.
+      last_error: null,
     };
     if (remainingAfter === 0) next.finished_at = nowIso;
     await patchMigrationState(migration.id, next);

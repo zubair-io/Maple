@@ -34,7 +34,8 @@ import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { loadPruneWindowHours, savePruneWindowHours } from './missing-reaper-config.repo.ts';
 import { MIGRATIONS, getMigration } from './migration/index.ts';
 import {
-  loadMigrationState,
+  loadAllMigrationStates,
+  defaultMigrationState,
   setMigrationEnabled,
   resetMigrationState,
 } from './migration-config.repo.ts';
@@ -102,9 +103,11 @@ export function workerRoutes(): Elysia {
 
       .get('/migration/migrations', async ({ set }) => {
         try {
+          // One DB read for all per-migration state, indexed by id below.
+          const states = await loadAllMigrationStates();
           const migrations = await Promise.all(
             MIGRATIONS.map(async (m) => {
-              const state = await loadMigrationState(m.id);
+              const state = states[m.id] ?? defaultMigrationState();
               let remaining = 0;
               try {
                 remaining = await m.countRemaining();
