@@ -135,7 +135,7 @@ describe('GET /api/observability/config', () => {
     });
   });
 
-  it('returns the saved DB row when present, INCLUDING the ingestion key', async () => {
+  it('returns the saved DB row but REDACTS the ingestion key', async () => {
     if (!mongoReachable) return;
     await db!.collection('app_settings').insertOne({
       _id: 'observability',
@@ -149,14 +149,16 @@ describe('GET /api/observability/config', () => {
     expect(r.status).toBe(200);
     const body = r.body as {
       endpoint: string;
-      ingestion_key: string;
+      ingestion_key?: string;
+      ingestion_key_set: boolean;
       source: { endpoint: string };
     };
     expect(body.endpoint).toBe('https://from-db.test:4318');
     expect(body.source.endpoint).toBe('db');
-    // Unlike the meilisearch key, the ingestion key IS echoed (direct-to-SigNoz
-    // clients need it; the route is bearer-gated in production).
-    expect(body.ingestion_key).toBe('db-secret-key');
+    // Clients now POST to the /otlp/* proxy (key injected server-side), so the
+    // key is NEVER echoed — only the boolean "is a key set" indicator.
+    expect(body.ingestion_key).toBeUndefined();
+    expect(body.ingestion_key_set).toBe(true);
   });
 });
 
