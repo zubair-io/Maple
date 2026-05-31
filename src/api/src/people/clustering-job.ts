@@ -22,13 +22,14 @@ import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc } from '../db/schema.ts';
 import { markAssetIdsForMeiliReindexBestEffort } from './people-search-reindex.ts';
 import { child as childLogger } from '../log.ts';
+import { DEFAULT_SIMILARITY_THRESHOLD, EMBEDDING_DIM } from './cluster-embeddings.ts';
 import {
-  DEFAULT_SIMILARITY_THRESHOLD,
-  EMBEDDING_DIM,
-  l2Normalise,
-  type ClusterSeed,
-} from './cluster-embeddings.ts';
-import { clusterEmbeddingsOffThread } from './cluster-pool.ts';
+  loadCentroids,
+  loadUnassignedFaces,
+  maxAutoNameIndex,
+  recomputeCentroids,
+} from './cluster-load.ts';
+import { prepareClusteringPassOffThread } from './cluster-pool.ts';
 
 const log = childLogger('people:clustering');
 
@@ -51,6 +52,10 @@ export type {
   OnlineClusterOptions,
   OnlineClusterResult,
 } from './cluster-embeddings.ts';
+// `recomputeCentroids` moved to ./cluster-load.ts (it runs on the worker now)
+// but stays part of this module's public surface — the route + tests import
+// it from here.
+export { recomputeCentroids } from './cluster-load.ts';
 
 export interface RunOnlineClusteringOptions {
   /** Cosine threshold to merge a face into an existing cluster. Faces
@@ -71,10 +76,10 @@ export interface RunOnlineClusteringResult {
 interface FaceRef {
   asset_id: ObjectId;
   face_index: number;
-  embedding: Float32Array;
-  /** Carried alongside the embedding so brand-new "Person N" rows can
-   * capture the seeding face's bbox as the cover crop without a second
-   * DB round-trip per new person. */
+  /** Carried so brand-new "Person N" rows can capture the seeding face's
+   * bbox as the cover crop without a second DB round-trip per new person.
+   * The embedding is NOT carried here — clustering happens off-thread and
+   * the embeddings never cross back into this (main-thread) write path. */
   bbox: Bbox;
 }
 
@@ -115,30 +120,39 @@ export async function runOnlineClustering(
   options: RunOnlineClusteringOptions = {},
 ): Promise<RunOnlineClusteringResult> {
   const threshold = options.similarityThreshold ?? DEFAULT_SIMILARITY_THRESHOLD;
-  // Refresh centroids from the current assignment state. Cheap and means
-  // we never trust a stale cached centroid (e.g. after a merge).
-  await recomputeCentroids();
 
-  const centroids = await loadCentroids();
-  let nextAutoIndex = await maxAutoNameIndex();
-  const faces = await loadUnassignedFaces();
+  // Run the WHOLE load + compute stage off the main thread: the worker
+  // recomputes centroids, loads + normalises every centroid and unassigned
+  // face embedding, and runs the synchronous O(N·K·D) clustering pass — all
+  // against its own Mongo handle. Output is identical to running the stage
+  // in-process (same core, same data, same order); only a small serializable
+  // result crosses back (assignments + updated centroids + per-face
+  // envelopes). The embeddings themselves never reach this thread, so there
+  // is no main-thread O(N·D) decode/normalize/marshal pass. See
+  // `cluster-pool.ts` / `cluster-load.ts`.
+  const { pass } = await prepareClusteringPassOffThread(threshold);
+  const seedCount = pass.seedCount;
 
-  // Hand the embedding batch to the pure clustering core. The seeds
-  // array carries our existing centroids in stable order so the
-  // assignment indices we get back map 1:1 back onto `centroids[i]`.
-  const seeds: ClusterSeed[] = centroids.map((c) => ({
-    centroid: c.centroid,
-    face_count: c.face_count,
+  // Reconstruct the live centroid entries (with ObjectIds) from the
+  // serializable result. Seeds 0..seedCount-1 map 1:1 onto the loaded
+  // person ids; new clusters (k ≥ seedCount) get a person id once they're
+  // materialised below.
+  const centroids: CentroidEntry[] = [];
+  for (let k = 0; k < seedCount; k += 1) {
+    centroids.push({
+      person_id: new ObjectId(pass.seedPersonIds[k]),
+      centroid: Float32Array.from(pass.clusters[k].centroid),
+      face_count: pass.clusters[k].face_count,
+    });
+  }
+  // Per-face envelopes (no embedding) carry the asset id + bbox the write
+  // side needs.
+  const faces: FaceRef[] = pass.faces.map((f) => ({
+    asset_id: new ObjectId(f.asset_id_hex),
+    face_index: f.face_index,
+    bbox: f.bbox,
   }));
-  const seedCount = seeds.length;
-  // Run the synchronous O(N·K·D) clustering pass on a Worker thread so it
-  // never blocks the HTTP event loop. Output is identical to the in-process
-  // call — the worker runs the same pure core (`clusterEmbeddings`). See
-  // `cluster-pool.ts`.
-  const result = await clusterEmbeddingsOffThread(
-    faces.map((f) => f.embedding),
-    { similarityThreshold: threshold, seeds },
-  );
+  let nextAutoIndex = pass.maxAutoIndex;
 
   let assigned = 0;
   let newPeople = 0;
@@ -155,21 +169,26 @@ export async function runOnlineClustering(
 
   for (let i = 0; i < faces.length; i += 1) {
     const face = faces[i];
-    const clusterIdx = result.assignments[i];
+    const clusterIdx = pass.assignments[i];
     let personId: ObjectId;
     if (clusterIdx < seedCount) {
       // Matched an existing person — reuse its ObjectId.
       personId = centroids[clusterIdx].person_id;
     } else {
       // Brand-new cluster. Materialise a `PersonDoc` on first contact;
-      // subsequent faces in the same new cluster reuse that ObjectId.
+      // subsequent faces in the same new cluster reuse that ObjectId. The
+      // seed centroid is the cluster's centroid from the pass (it equals
+      // the seeding face for a 1-member cluster, the streaming mean for a
+      // multi-member one) — `persistCentroids` rewrites it with the same
+      // value below, so the final stored centroid is unchanged.
       const cached = newPersonIds.get(clusterIdx);
       if (cached) {
         personId = cached;
       } else {
         nextAutoIndex += 1;
         const name = `Person ${nextAutoIndex}`;
-        personId = await createAutoPerson(name, face.embedding, face.asset_id, face.bbox);
+        const seedCentroid = Float32Array.from(pass.clusters[clusterIdx].centroid);
+        personId = await createAutoPerson(name, seedCentroid, face.asset_id, face.bbox);
         newPersonIds.set(clusterIdx, personId);
         newPeople += 1;
       }
@@ -190,21 +209,18 @@ export async function runOnlineClustering(
     await assets.updateOne({ _id: entry.assetId }, { $set: set });
   }
 
-  // Persist refreshed centroids so subsequent runs converge. The pure
-  // core returned updated seeds (positions 0..seedCount-1) followed by
-  // any newly-created clusters — fold those back into the live entries
-  // before writing.
-  for (let k = 0; k < seedCount; k += 1) {
-    centroids[k].centroid = result.clusters[k].centroid;
-    centroids[k].face_count = result.clusters[k].face_count;
-  }
-  for (let k = seedCount; k < result.clusters.length; k += 1) {
+  // Persist refreshed centroids so subsequent runs converge. The pass
+  // returned updated seeds (positions 0..seedCount-1) followed by any
+  // newly-created clusters — fold those back into the live entries before
+  // writing. The seed entries already hold `pass.clusters[k]` (set during
+  // reconstruction above), so only the new clusters need appending.
+  for (let k = seedCount; k < pass.clusters.length; k += 1) {
     const personId = newPersonIds.get(k);
     if (!personId) continue;
     centroids.push({
       person_id: personId,
-      centroid: result.clusters[k].centroid,
-      face_count: result.clusters[k].face_count,
+      centroid: Float32Array.from(pass.clusters[k].centroid),
+      face_count: pass.clusters[k].face_count,
     });
   }
   await persistCentroids(centroids);
@@ -227,164 +243,23 @@ export async function runOnlineClustering(
   return { assigned, newPeople, scanned: faces.length };
 }
 
-/**
- * Recompute every person's centroid from current `asset.faces` assignments.
- * Pure helper — no decision-making; just refreshes the stored mean.
- *
- * Skips people whose stored `centroid_face_count` matches the live count
- * (i.e. nothing changed since the last recompute), which keeps repeat runs
- * cheap.
- */
-export async function recomputeCentroids(): Promise<number> {
-  const peopleC = await peopleCollection();
-  const assets = await assetsCollection();
-  // Seed query is intentionally NOT filtered on `hidden`: a hidden (soft-
-  // deleted) person must remain a clustering seed so its newly-detected
-  // matching faces keep flowing into it and it STAYS hidden, rather than
-  // reforming as a fresh visible "Person N". Do not add a `hidden` filter
-  // here — see `hidePerson` in people.repo.ts.
-  const livePeople = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
-  let updated = 0;
-  for (const person of livePeople) {
-    const personHex = person._id.toHexString();
-    // Pull the embedding off every face assigned to this person. Two
-    // $match stages around $unwind narrow each side: the first lets the
-    // planner skip docs that don't have any matching face, and the
-    // second drops the unwound rows whose `person_id` is for someone
-    // else.
-    const cursor = assets.aggregate<{ embedding: number[] }>([
-      { $match: { 'faces.person_id': personHex } },
-      { $unwind: '$faces' },
-      { $match: { 'faces.person_id': personHex } },
-      // Hidden faces are out of clustering — they should not contribute
-      // to the centroid even if they somehow still carry a `person_id`.
-      { $match: { 'faces.hidden': { $ne: true } } },
-      { $match: { 'faces.embedding': { $exists: true, $ne: [] } } },
-      { $project: { embedding: '$faces.embedding' } },
-    ]);
-    let count = 0;
-    let mean: Float32Array | null = null;
-    for await (const row of cursor) {
-      if (!Array.isArray(row.embedding) || row.embedding.length !== EMBEDDING_DIM) continue;
-      const e = Float32Array.from(row.embedding);
-      if (mean === null) {
-        mean = new Float32Array(EMBEDDING_DIM);
-        for (let i = 0; i < EMBEDDING_DIM; i += 1) mean[i] = e[i];
-      } else {
-        for (let i = 0; i < EMBEDDING_DIM; i += 1) mean[i] += e[i];
-      }
-      count += 1;
-    }
-    if (count === 0 || mean === null) {
-      // Nobody assigned — clear the centroid so it doesn't bias future runs.
-      await peopleC.updateOne(
-        { _id: person._id },
-        { $set: { centroid: [], centroid_face_count: 0 } },
-      );
-      continue;
-    }
-    for (let i = 0; i < EMBEDDING_DIM; i += 1) mean[i] /= count;
-    const normalised = l2Normalise(mean);
-    if (
-      (person.centroid_face_count ?? -1) === count &&
-      person.centroid &&
-      person.centroid.length === EMBEDDING_DIM
-    ) {
-      // Centroid unchanged — skip the write.
-      continue;
-    }
-    await peopleC.updateOne(
-      { _id: person._id },
-      {
-        $set: {
-          centroid: Array.from(normalised),
-          centroid_face_count: count,
-        },
-      },
-    );
-    updated += 1;
-  }
-  return updated;
-}
-
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
-
-async function loadCentroids(): Promise<CentroidEntry[]> {
-  const peopleC = await peopleCollection();
-  // Seed query is intentionally NOT filtered on `hidden`: hidden persons
-  // stay clustering seeds so their new faces keep being absorbed (the person
-  // stays hidden) instead of spawning a new visible cluster. Do not add a
-  // `hidden` filter here — see `hidePerson` in people.repo.ts.
-  const rows = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
-  const out: CentroidEntry[] = [];
-  for (const r of rows) {
-    if (!r.centroid || r.centroid.length !== EMBEDDING_DIM) continue;
-    out.push({
-      person_id: r._id,
-      centroid: l2Normalise(Float32Array.from(r.centroid)),
-      face_count: r.centroid_face_count ?? 0,
-    });
-  }
-  return out;
-}
-
-async function loadUnassignedFaces(): Promise<FaceRef[]> {
-  const assets = await assetsCollection();
-  const cursor = assets.aggregate<{
-    _id: ObjectId;
-    face_index: number;
-    embedding: number[];
-    bbox: Bbox;
-  }>([
-    { $match: { faces: { $exists: true, $ne: [] } } },
-    { $unwind: { path: '$faces', includeArrayIndex: 'face_index' } },
-    { $match: { 'faces.person_id': null } },
-    // Operator-hidden faces stay out of clustering — re-running shouldn't
-    // re-assign them to anyone.
-    { $match: { 'faces.hidden': { $ne: true } } },
-    { $match: { 'faces.embedding': { $exists: true, $ne: [] } } },
-    {
-      $project: {
-        face_index: 1,
-        embedding: '$faces.embedding',
-        bbox: '$faces.bbox',
-      },
-    },
-  ]);
-  const out: FaceRef[] = [];
-  for await (const row of cursor) {
-    if (!Array.isArray(row.embedding) || row.embedding.length !== EMBEDDING_DIM) continue;
-    out.push({
-      asset_id: row._id,
-      face_index: row.face_index,
-      embedding: l2Normalise(Float32Array.from(row.embedding)),
-      bbox: row.bbox,
-    });
-  }
-  return out;
-}
-
-/** Highest "Person N" suffix currently in the DB so brand-new auto-names
- * extend the sequence rather than collide. Returns 0 when no auto-named
- * person exists. */
-async function maxAutoNameIndex(): Promise<number> {
-  const peopleC = await peopleCollection();
-  const cursor = peopleC.find({ name: { $regex: /^Person \d+$/ } } as Filter<PersonDoc>);
-  let maxIdx = 0;
-  for await (const row of cursor) {
-    const m = /^Person (\d+)$/.exec(row.name);
-    if (!m) continue;
-    const n = Number.parseInt(m[1], 10);
-    if (Number.isFinite(n) && n > maxIdx) maxIdx = n;
-  }
-  return maxIdx;
-}
+//
+// The Mongo LOAD + COMPUTE stage (`recomputeCentroids`, `loadCentroids`,
+// `loadUnassignedFaces`, `maxAutoNameIndex`, `clusterEmbeddings`) moved to
+// `./cluster-load.ts` so it can run on the cluster Worker off the main
+// thread — see #710. This file keeps only the cheap, write-side Mongo
+// concerns below.
 
 async function createAutoPerson(
   name: string,
-  embedding: Float32Array,
+  /** The new cluster's centroid from the clustering pass — already
+   * L2-normalised by `clusterEmbeddings` (it equals `l2Normalise(face)` for
+   * a 1-member cluster). Written as-is; `persistCentroids` rewrites it with
+   * the same value later in this run, so re-normalising would be a no-op. */
+  seedCentroid: Float32Array,
   coverAssetId: ObjectId,
   coverBbox: Bbox,
 ): Promise<ObjectId> {
@@ -394,7 +269,7 @@ async function createAutoPerson(
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     merged_into: null,
-    centroid: Array.from(l2Normalise(embedding)),
+    centroid: Array.from(seedCentroid),
     centroid_face_count: 1,
     cover_asset_id: coverAssetId.toHexString(),
     cover_bbox: coverBbox,
