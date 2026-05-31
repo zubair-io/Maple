@@ -44,6 +44,20 @@ const MOCK_STATUS: WorkersStatusResponse = {
       batchSize: 10,
     },
     {
+      name: 'preview',
+      status: 'running',
+      inFlight: 2,
+      configured: 4,
+      pending: 500,
+      ready: 500,
+      blocked: 0,
+      dead: 0,
+      throughput: 12,
+      lastError: null,
+      config: MOCK_CONFIG,
+      batchSize: 10,
+    },
+    {
       name: 'face',
       status: 'running',
       inFlight: 1,
@@ -179,7 +193,7 @@ describe('WorkersComponent', () => {
   it('renders one row per stage from the WS status frame', () => {
     initWithMock();
     const rows = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
-    expect(rows.length).toBe(3);
+    expect(rows.length).toBe(4);
   });
 
   it('renders Status column correctly', () => {
@@ -432,8 +446,20 @@ describe('WorkersComponent', () => {
   });
 
   // ── RAW decode-pool control (ticket #673) ──────────────────────────────
+  // The control now lives inside the expanded "preview" stage panel, so each
+  // test must expand that row before the input is in the DOM.
+  function expandPreviewRow(): void {
+    const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
+      '[data-testid="worker-row"]',
+    );
+    const previewRow = Array.from(rows).find((r) => r.textContent?.includes('preview'))!;
+    previewRow.querySelector<HTMLElement>('.row-summary')?.click();
+    fixture.detectChanges();
+  }
+
   it('renders the RAW decode workers control seeded from the performance config', () => {
     initWithMock();
+    expandPreviewRow();
     const input = fixture.nativeElement.querySelector('#ffi-workers-input') as HTMLInputElement;
     expect(input).not.toBeNull();
     expect(input.value).toBe('1');
@@ -444,6 +470,7 @@ describe('WorkersComponent', () => {
 
   it('PATCHes the clamped worker count when Apply is clicked', () => {
     initWithMock();
+    expandPreviewRow();
     const input = fixture.nativeElement.querySelector('#ffi-workers-input') as HTMLInputElement;
     input.value = '99';
     input.dispatchEvent(new Event('input'));
@@ -473,7 +500,8 @@ describe('WorkersComponent', () => {
 
   it('hides the control when the performance route is unavailable', () => {
     // Flush status + enrichment + prune-window, but error the performance GET
-    // (older server) — the control must stay hidden.
+    // (older server) — the control must stay hidden even with the preview row
+    // expanded.
     fixture.detectChanges();
     http.expectOne('/api/workers/status').flush(MOCK_STATUS);
     http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
@@ -482,6 +510,7 @@ describe('WorkersComponent', () => {
       .expectOne('/api/workers/performance')
       .flush({ error: 'not found' }, { status: 404, statusText: 'Not Found' });
     fixture.detectChanges();
+    expandPreviewRow();
     expect(fixture.nativeElement.querySelector('#ffi-workers-input')).toBeNull();
   });
 });
