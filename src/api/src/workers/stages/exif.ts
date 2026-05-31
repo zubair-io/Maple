@@ -114,9 +114,9 @@ const exifStage = defineStage({
     // never completed, or a cloud-sync placeholder whose bytes never landed.
     // The watcher only emits a file after `awaitWriteFinish` (size stable for
     // 2s), so a file that reaches here empty isn't mid-copy — retrying can't
-    // help. Tag it `damaged` now rather than throwing through all 5 attempts to
-    // reach the same place. (Handed an empty file, exifr would otherwise crash
-    // with the opaque "undefined is not an object (evaluating
+    // help. Tag it `damaged` now rather than throwing through the stage's whole
+    // retry budget to reach the same place. (Handed an empty file, exifr would
+    // otherwise crash with the opaque "undefined is not an object (evaluating
     // 'this.dataView.getUint16')".)
     if (stat.size === 0) {
       return {

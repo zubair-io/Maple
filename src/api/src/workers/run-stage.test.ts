@@ -416,6 +416,9 @@ describe('poll loop integration', () => {
     await _test.runOnce(testStage, cfg, images, configColl);
     const doc = (await images.find({}).toArray())[0] as unknown as ImageDoc;
     expect(doc.stages?.exif?.dead).toBe(true);
+    // Honest bookkeeping: one attempt that classified the file, NOT maxAttempts
+    // — this path never retried, so it must not look exhausted.
+    expect(doc.stages?.exif?.attempts).toBe(1);
     expect(doc.damaged?.stage).toBe('exif');
     expect(doc.damaged?.reason).toBe('file is empty (0 bytes)');
     expect(typeof doc.damaged?.since).toBe('string');
