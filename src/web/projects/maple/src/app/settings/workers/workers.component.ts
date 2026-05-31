@@ -9,13 +9,13 @@
 // makes paused and disabled the same state.
 //
 // Two data sources are merged here:
-//   - WorkerEventsService.workersStatus$ streams live status / counters /
-//     per-stage config over the /api/events WS bridge (#674). A one-shot
-//     WorkersApiService.getStatus() paints the page before the WS handshake
-//     and serves as a non-WS fallback.
-//   - BunApiBackendService.getEnrichmentConfig() supplies the domain
-//     config for describe/geocode/face stages plus the live face-model
-//     loader banner.
+//    - WorkerEventsService.workersStatus$ streams live status / counters /
+//      per-stage config over the /api/events WS bridge (#674). A one-shot
+//      WorkersApiService.getStatus() paints the page before the WS handshake
+//      and serves as a non-WS fallback.
+//    - BunApiBackendService.getEnrichmentConfig() supplies the domain
+//      config for describe/geocode/face stages plus the live face-model
+//      loader banner.
 //
 // All pure logic (stage metadata, grouping, summarisation, formatting,
 // form defaults, error normalisation, clamped int parsing) lives in
@@ -49,28 +49,15 @@ import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import {
   FIXED_DESCRIBE_MODEL,
-  STAGE_META,
-  blankEnrichment,
-  blankRuntime,
-  errorMessage,
-  formatBytes,
-  formatDate,
   groupStagesByPipeline,
-  parseClampedInt,
-  pendingTitle,
-  runtimeFormToPatch,
-  stageMeta,
-  statusDotColor,
-  statusLabel,
   summarizeStages,
-  throughputLabel,
   type EnrichmentForm,
-  type EnrichmentKind,
-  type RuntimeForm,
   type SaveState,
   type StageGroup,
-  type StageMeta,
-} from './workers.vm';
+} from './workers.vm.ts';
+import { stageMeta, statusLabel, statusDotColor, throughputLabel, pendingTitle } from './workers.vm.ts';
+import { formatBytes, formatDate, parseClampedInt, runtimeFormToPatch, blankRuntime, blankEnrichment } from './workers.vm.ts';
+import { errorMessage } from './workers-vm.ts';
 
 @Component({
   selector: 'maple-workers-settings',
@@ -78,16 +65,12 @@ import {
   imports: [DecimalPipe, FormsModule, SettingsShellComponent, SettingsIconComponent],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
-  // Component-scoped: the damaged-drawer state is ephemeral UI for this page.
   providers: [DamagedPanelService],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly fixedDescribeModel = FIXED_DESCRIBE_MODEL;
-
-  /** Owns the "Damaged files" drawer (pill → open). Template-bound. */
   protected readonly damaged = inject(DamagedPanelService);
-
   private readonly api = inject(WorkersApiService);
   private readonly events = inject(WorkerEventsService);
   private readonly enrichmentApi = inject(BunApiBackendService);
@@ -96,73 +79,44 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly error = signal<string | null>(null);
   protected readonly expanded = signal<Record<string, boolean>>({});
   protected readonly enrichmentConfig = signal<EnrichmentConfigResponse | null>(null);
-  /** Tracks whether `GET /enrichment/config` failed. Used together with
-   * `enrichmentConfig === null` to distinguish "still loading" from
-   * "load errored" so the save button can stay safely disabled in both
-   * cases but the operator gets the right hint. */
   protected readonly enrichmentConfigError = signal<string | null>(null);
 
-  // ── RAW decode-pool size (ticket #673) ──────────────────────────────────
-  // The header control reads/writes `ffi_workers` (clamp 1–16). Pure opt-in:
-  // default 1 = the historical single-decode behaviour. Only affects RAW
-  // thumb/preview decode parallelism — it has no effect on JPEG/HEIC sources.
   protected readonly perfConfig = signal<PerformanceConfig | null>(null);
-  /** Edited value bound to the numeric input, as a string (mirrors the
-   * runtime-form pattern so it survives the periodic status poll). */
   protected readonly ffiWorkersDraft = signal<string>('');
   protected readonly perfSaveState = signal<SaveState>('idle');
   protected readonly perfSaveError = signal<string | null>(null);
 
-  // Per-stage form state — keyed by stage id. Empty until the row expands.
   protected readonly runtimeForms = signal<Record<string, RuntimeForm>>({});
   protected readonly enrichmentForms = signal<Record<string, EnrichmentForm>>({});
-
   protected readonly saveStates = signal<Record<string, SaveState>>({});
   protected readonly saveErrors = signal<Record<string, string | null>>({});
-
   protected readonly deadLog = signal<{
     stage: StageStatus;
     items: DeadDoc[];
     loading: boolean;
     error: string | null;
   } | null>(null);
-
-  /** "Test connection" state for the URL field in describe/geocode rows.
-   * Keyed by stage id so each row tracks its own probe independently. */
   protected readonly testStates = signal<
     Record<
       string,
       { kind: 'idle' } | { kind: 'testing' } | { kind: 'ok' } | { kind: 'error'; message: string }
     >
   >({});
-
-  // Missing-reaper prune window (hours). Separate from the generic per-stage
-  // runtime config — it's a reaper-only setting persisted via its own route.
   protected readonly reaperPruneWindow = signal<string>('');
   protected readonly reaperPruneLoaded = signal<boolean>(false);
   protected readonly reaperPruneSaveState = signal<SaveState>('idle');
   protected readonly reaperPruneError = signal<string | null>(null);
 
   protected readonly stages = computed<StageStatus[]>(() => this.status()?.stages ?? []);
-
-  /** Stages grouped + sorted in pipeline order. */
   protected readonly groupedStages = computed<
     readonly { group: StageGroup; rows: StageStatus[] }[]
   >(() => groupStagesByPipeline(this.stages()));
-
   protected readonly summary = computed(() => summarizeStages(this.stages()));
-
-  /** Collection-level damaged count — drives the "Damaged" pill. */
   protected readonly damagedCount = computed(() => this.status()?.damaged ?? 0);
 
   private statusSub: Subscription | null = null;
   private fallbackSub: Subscription | null = null;
   private destroyed = false;
-  /** Set once the WS stream delivers its first *counted* frame, so the
-   * one-shot HTTP fallback never clobbers live WS data with a slower in-flight
-   * response. Gated on `counted` so the cheap registry-only snapshot pushed on
-   * connect (zeroed counts, `config:null`) does NOT disable the fallback — that
-   * fallback carries the real counts + per-stage config that seed the forms. */
   private gotWsFrame = false;
 
   ngOnInit(): void {
@@ -183,8 +137,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Template binding for the prune-window input (routes through a method to
-   * match the house pattern, e.g. setRuntime). */
   protected setReaperPruneWindow(value: string): void {
     this.reaperPruneWindow.set(value);
   }
@@ -212,21 +164,13 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Load the effective RAW decode-pool size + clamp bounds, seeding the
-   * header control's draft value. Failure leaves the control hidden (the
-   * template guards on `perfConfig()`), so an old server without the route
-   * degrades cleanly. */
   private fetchPerformanceConfig(): void {
     this.api.getPerformanceConfig().subscribe({
       next: (cfg) => {
         this.perfConfig.set(cfg);
-        // Only seed the draft if the operator hasn't started editing — never
-        // clobber an in-progress edit on a background refresh.
         if (this.ffiWorkersDraft() === '') this.ffiWorkersDraft.set(String(cfg.ffi_workers));
       },
-      error: () => {
-        /* Route unavailable (older server) — leave the control hidden. */
-      },
+      error: () => {},
     });
   }
 
@@ -234,8 +178,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.ffiWorkersDraft.set(value);
   }
 
-  /** Persist the RAW decode-worker count. The server clamps to [1, 16],
-   * writes the `performance` settings doc, and resizes the live pool. */
   protected savePerformance(): void {
     const cfg = this.perfConfig();
     if (!cfg) return;
@@ -244,7 +186,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.perfSaveError.set(null);
     this.api.patchPerformanceConfig(n).subscribe({
       next: (res) => {
-        // Reflect the server's clamped value back into the control + stats.
         this.perfConfig.update((cur) =>
           cur ? { ...cur, ffi_workers: res.ffi_workers, source: res.source, pool: res.pool } : cur,
         );
@@ -261,11 +202,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Pulls the enrichment config that seeds the describe/geocode/face
-   * row forms and gates the Save button on those rows. The Ingest runtime
-   * rows don't depend on this config and remain savable regardless of its
-   * load state. Stored as a method so {@link retryEnrichmentConfig} can
-   * re-arm the button after a transient failure without a page reload. */
   private fetchEnrichmentConfig(): void {
     this.enrichmentConfigError.set(null);
     this.enrichmentApi.getEnrichmentConfig().subscribe({
@@ -274,9 +210,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Retry handler exposed to the template — re-runs the enrichment
-   * config GET so the operator can re-enable save without a page reload
-   * after a transient API hiccup. */
   protected retryEnrichmentConfig(): void {
     this.fetchEnrichmentConfig();
   }
@@ -289,17 +222,10 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.fallbackSub = null;
   }
 
-  /** Live status comes from the `/api/events` WS stream (#674) — the server
-   * pushes a `workers-status` frame instead of the page polling
-   * `GET /workers/status` every ~2s. */
   private subscribeStatus(): void {
     if (this.destroyed) return;
     this.statusSub = this.events.workersStatus$.subscribe({
       next: ({ status, counted }) => {
-        // Always paint the latest frame, but only a counted frame (real
-        // DB-derived counts + per-stage config) is authoritative enough to
-        // suppress the HTTP fallback. A registry-only snapshot would otherwise
-        // set `gotWsFrame` and let the cheap zeroed/`config:null` data win.
         if (counted) this.gotWsFrame = true;
         this.status.set(status);
         this.error.set(null);
@@ -310,30 +236,21 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** One-shot HTTP fetch so the page paints immediately even before the WS
-   * handshake completes (and as a fallback for non-WS clients). Skipped once a
-   * WS frame has already landed so it can't overwrite fresher live data. */
   private fetchStatusFallback(): void {
     if (this.destroyed) return;
-    this.fallbackSub = this.api.getStatus().subscribe({
+    this.statusSub = this.api.getStatus().subscribe({
       next: (data) => {
         if (this.gotWsFrame || this.destroyed) return;
         this.status.set(data);
       },
-      error: () => {
-        /* WS is the primary source; ignore the fallback's failure. */
-      },
+      error: () => {},
     });
   }
-
-  // ── Row interactions ────────────────────────────────────────────────────
 
   toggleExpanded(stage: StageStatus): void {
     const next = !(this.expanded()[stage.name] ?? false);
     this.expanded.update((cur) => ({ ...cur, [stage.name]: next }));
-    if (next) {
-      this.ensureForm(stage);
-    }
+    if (next) this.ensureForm(stage);
   }
 
   isExpanded(stage: StageStatus): boolean {
@@ -344,23 +261,16 @@ export class WorkersComponent implements OnInit, OnDestroy {
     event.stopPropagation();
     const next: StageStatus['status'] = stage.status === 'paused' ? 'running' : 'paused';
     this.setLocalStatus(stage.name, next);
-    const obs =
-      stage.status === 'paused' ? this.api.resume(stage.name) : this.api.pause(stage.name);
+    const obs = stage.status === 'paused' ? this.api.resume(stage.name) : this.api.pause(stage.name);
     obs.subscribe({
-      next: () => {
-        /* next poll will sync */
-      },
+      next: () => {},
       error: () => this.setLocalStatus(stage.name, stage.status),
     });
   }
 
   retryDead(stage: StageStatus, event: Event): void {
     event.stopPropagation();
-    this.api.retryDead(stage.name).subscribe({
-      next: () => {
-        /* poll syncs */
-      },
-    });
+    this.api.retryDead(stage.name).subscribe({ next: () => {} });
   }
 
   openLogs(stage: StageStatus, event: Event): void {
@@ -374,9 +284,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         this.deadLog.update((cur) =>
-          cur?.stage.name === stage.name
-            ? { ...cur, loading: false, error: errorMessage(err) }
-            : cur,
+          cur?.stage.name === stage.name ? { ...cur, loading: false, error: errorMessage(err) } : cur,
         );
       },
     });
@@ -392,11 +300,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
     if (this.damaged.drawer() !== null) this.damaged.close();
   }
 
-  /** Probe the URL currently typed into the describe/geocode panel —
-   * does NOT save. The server's health-check on save is still the
-   * authoritative gate; this is a convenience for the operator. */
   testConnection(stage: StageStatus): void {
-    const meta = STAGE_META[stage.name];
+    const meta = stageMeta(stage.name);
     if (!meta?.enrichment) return;
     const form = this.enrichmentForms()[stage.name];
     if (!form) return;
@@ -404,10 +309,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
     const finishOk = () =>
       this.testStates.update((cur) => ({ ...cur, [stage.name]: { kind: 'ok' } }));
     const finishErr = (err: unknown) =>
-      this.testStates.update((cur) => ({
-        ...cur,
-        [stage.name]: { kind: 'error', message: errorMessage(err) },
-      }));
+      this.testStates.update((cur) => ({ ...cur, [stage.name]: { kind: 'error', message: errorMessage(err) } }));
 
     if (meta.enrichment === 'geocode') {
       const url = form.nominatim_url.trim();
@@ -416,36 +318,30 @@ export class WorkersComponent implements OnInit, OnDestroy {
         return;
       }
       this.enrichmentApi.testNominatim(url).subscribe({
-        next: (res) =>
-          res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
+        next: (res) => (res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed'))),
         error: finishErr,
       });
     } else if (meta.enrichment === 'describe') {
-      this.enrichmentApi
-        .testDescribeProvider({
-          provider: 'ollama',
-          url: form.describe_provider_url.trim() || null,
-          // Locked at runtime — pass the fixed model so the probe reflects
-          // what the worker actually pulls.
-          model: FIXED_DESCRIBE_MODEL,
-          api_key: null,
-        })
-        .subscribe({
-          next: (res) =>
-            res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
-          error: finishErr,
-        });
+      this.enrichmentApi.testDescribeProvider({
+        provider: 'ollama',
+        url: form.describe_provider_url.trim() || null,
+        model: FIXED_DESCRIBE_MODEL,
+        api_key: null,
+      }).subscribe({
+        next: (res) => (res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed'))),
+        error: finishErr,
+      });
     } else if (meta.enrichment === 'meili') {
       const url = form.meilisearch_url.trim();
       if (url.length === 0) {
         finishErr(new Error('Enter a URL to test.'));
         return;
       }
-      // Probe with the typed key if present; otherwise the server falls back
-      // to the saved key / env var.
-      this.enrichmentApi.testMeilisearch(url, form.meilisearch_api_key.trim() || null).subscribe({
-        next: (res) =>
-          res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed')),
+      this.enrichmentApi.testMeilisearch(
+        url,
+        form.meilisearch_api_key.trim() || null,
+      ).subscribe({
+        next: (res) => (res.ok ? finishOk() : finishErr(new Error(res.error ?? 'Health check failed'))),
         error: finishErr,
       });
     }
@@ -455,15 +351,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
     return this.testStates()[stage.name] ?? { kind: 'idle' as const };
   }
 
-  /** Lazy: seed form values the first time a row expands. */
   private ensureForm(stage: StageStatus): void {
     if (!this.runtimeForms()[stage.name]) {
-      this.runtimeForms.update((cur) => ({
-        ...cur,
-        [stage.name]: blankRuntime(stage),
-      }));
+      this.runtimeForms.update((cur) => ({ ...cur, [stage.name]: blankRuntime(stage) }));
     }
-    const meta = STAGE_META[stage.name];
+    const meta = stageMeta(stage.name);
     if (meta?.enrichment && !this.enrichmentForms()[stage.name]) {
       this.enrichmentForms.update((cur) => ({
         ...cur,
@@ -494,14 +386,15 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.saveStates.update((cur) => ({ ...cur, [stage.name]: 'saving' }));
     this.saveErrors.update((cur) => ({ ...cur, [stage.name]: null }));
 
-    const meta = STAGE_META[stage.name];
+    const meta = stageMeta(stage.name);
     const finishOk = () => {
       this.saveStates.update((cur) => ({ ...cur, [stage.name]: 'success' }));
-      setTimeout(() => {
-        this.saveStates.update((cur) =>
-          cur[stage.name] === 'success' ? { ...cur, [stage.name]: 'idle' } : cur,
-        );
-      }, 1500);
+      setTimeout(
+        () => {
+          if (this.saveStates() === 'success') this.saveStates.set('idle');
+        },
+        this.saveStates()?.[stage.name] === 'success' ? 1500 : 0,
+      );
     };
     const finishErr = (err: unknown) => {
       this.saveStates.update((cur) => ({ ...cur, [stage.name]: 'error' }));
@@ -510,12 +403,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
     this.api.patchConfig(stage.name, patch).subscribe({
       next: () => {
-        if (meta?.enrichment) {
-          // Roll enrichment-form changes into the same save.
-          this.saveEnrichment(stage, meta.enrichment, finishOk, finishErr);
-        } else {
-          finishOk();
-        }
+        if (meta?.enrichment) this.saveEnrichment(stage, meta.enrichment, finishOk, finishErr);
+        else finishOk();
       },
       error: finishErr,
     });
@@ -532,21 +421,9 @@ export class WorkersComponent implements OnInit, OnDestroy {
       onOk();
       return;
     }
-    // The save endpoint is whole-config PUT — any field we omit OR set to
-    // null gets cleared server-side. Seed the body from the latest server
-    // config so editing the describe row doesn't accidentally wipe the
-    // Nominatim URL (or vice versa). Then mutate only the fields owned by
-    // the row the user is saving.
-    //
-    // Bail if the seed hasn't arrived — without it we'd clobber every
-    // unrelated field on the server. The template guards the Save button
-    // against this via `saveDisabled()`, so reaching here means a
-    // programmatic call slipped past the gate.
     const current = this.enrichmentConfig();
     if (!current) {
-      onErr(
-        new Error('Enrichment config not loaded — refusing to save (would clobber other fields).'),
-      );
+      onErr(new Error('Enrichment config not loaded — refusing to save (would clobber other fields).'));
       return;
     }
     const body: Parameters<BunApiBackendService['saveEnrichmentConfig']>[0] = {
@@ -555,9 +432,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
     };
     if (kind === 'describe') {
       body.describe_provider_url = form.describe_provider_url.trim() || null;
-      // describe_model is intentionally omitted — the runtime hardcodes
-      // qwen2.5-VL (see FIXED_DESCRIBE_MODEL in workers.vm.ts), so
-      // anything we'd send is dropped server-side.
     } else if (kind === 'geocode') {
       body.nominatim_url = form.nominatim_url.trim() || null;
       const rate = Number(form.nominatim_rate_limit_per_sec.trim());
@@ -570,9 +444,6 @@ export class WorkersComponent implements OnInit, OnDestroy {
       body.face_mobilefacenet_sha256 = form.face_mobilefacenet_sha256.trim() || null;
     } else if (kind === 'meili') {
       body.meilisearch_url = form.meilisearch_url.trim() || null;
-      // Write-only key: only send it when the operator typed something.
-      // Blank → omit → server leaves the saved key unchanged (it's masked
-      // in the UI, so a blank field must not wipe it).
       const key = form.meilisearch_api_key.trim();
       if (key.length > 0) body.meilisearch_api_key = key;
     }
@@ -585,21 +456,21 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  // ── Form bindings (the template binds via these so changes survive
-  //    polls that overwrite stage.config). ──────────────────────────────
-
   runtimeValue(stage: StageStatus, field: keyof RuntimeForm): string {
     return this.runtimeForms()[stage.name]?.[field] ?? '';
   }
+
   setRuntime(stage: StageStatus, field: keyof RuntimeForm, value: string): void {
     this.runtimeForms.update((cur) => {
       const cur1 = cur[stage.name] ?? blankRuntime(stage);
       return { ...cur, [stage.name]: { ...cur1, [field]: value } };
     });
   }
+
   enrichmentValue(stage: StageStatus, field: keyof EnrichmentForm): string {
     return this.enrichmentForms()[stage.name]?.[field] ?? '';
   }
+
   setEnrichment(stage: StageStatus, field: keyof EnrichmentForm, value: string): void {
     this.enrichmentForms.update((cur) => {
       const cur1 = cur[stage.name] ?? blankEnrichment(this.enrichmentConfig());
@@ -607,12 +478,10 @@ export class WorkersComponent implements OnInit, OnDestroy {
     });
   }
 
-  // ── Display helpers (thin re-exports so the template keeps reading
-  //    `meta(s)` / `statusLabel(s)` / etc.). ────────────────────────────
-
   meta(stage: StageStatus): StageMeta {
     return stageMeta(stage.name);
   }
+
   statusLabel = statusLabel;
   statusDotColor = statusDotColor;
   throughputLabel = throughputLabel;
@@ -621,33 +490,22 @@ export class WorkersComponent implements OnInit, OnDestroy {
   formatDate = formatDate;
 
   saveState(s: StageStatus): SaveState {
-    return this.saveStates()[s.name] ?? 'idle';
-  }
-  saveError(s: StageStatus): string | null {
-    return this.saveErrors()[s.name] ?? null;
+    return this.saveStates()?.[s.name] ?? 'idle';
   }
 
-  /** Save button disabled when:
-   *   - a save is in flight (`saving`), OR
-   *   - this row writes enrichment config but that config hasn't been
-   *     fetched yet (initial GET pending) or failed (`null` either way).
-   * Without the second guard, saving would PUT a body seeded from
-   * fallback defaults and clobber every unrelated operator setting on
-   * the server. The Ingest rows (no `enrichment` kind) are never blocked
-   * by config load. */
+  saveError(s: StageStatus): string | null {
+    return this.saveErrors()?.[s.name] ?? null;
+  }
+
   saveDisabled(s: StageStatus): boolean {
     if (this.saveState(s) === 'saving') return true;
-    const meta = STAGE_META[s.name];
+    const meta = stageMeta(s.name);
     if (meta?.enrichment && !this.enrichmentConfig()) return true;
     return false;
   }
 
-  /** Operator-facing reason rendered next to the disabled save button.
-   * Only emitted for the enrichment-config-load case — the in-flight
-   * `saving` case is communicated by the button label flipping to
-   * "Saving…", so it doesn't need a sibling hint. */
   saveDisabledReason(s: StageStatus): string | null {
-    const meta = STAGE_META[s.name];
+    const meta = stageMeta(s.name);
     if (!meta?.enrichment || this.enrichmentConfig()) return null;
     const err = this.enrichmentConfigError();
     return err ? `Enrichment config failed to load: ${err}` : 'Loading enrichment config…';
