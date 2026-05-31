@@ -31,10 +31,28 @@ import {
   resolveObservabilityConfig,
   saveObservabilityConfig,
   validateHttpUrl,
+  type ResolvedObservabilityConfig,
 } from '../observability/observability-config.repo.ts';
 import { applyOtelConfig } from '../otel.ts';
 
 const log = childLogger('observability:routes');
+
+/** Strip the secret ingestion key from a resolved config before it goes over
+ * HTTP, replacing it with a boolean "is a key set" indicator. Clients no longer
+ * talk to SigNoz directly (they POST to the `/otlp/*` proxy on this server,
+ * which injects the key server-side), so the key must never leave the server.
+ * `source.ingestion_key` (db / unset) is safe to keep — it's provenance, not
+ * the secret. */
+function toPublicConfig(resolved: ResolvedObservabilityConfig) {
+  const { ingestion_key, ...safe } = resolved;
+  return {
+    ...safe,
+    ingestion_key_set: typeof ingestion_key === 'string' && ingestion_key.length > 0,
+  };
+}
+
+/** OTLP signals the proxy forwards. Anything else 404s. */
+const OTLP_SIGNALS = new Set(['traces', 'logs', 'metrics']);
 
 const ConfigBody = t.Object({
   /** Master switch. `null` clears back to env/default; omitted leaves the
@@ -65,10 +83,11 @@ const TestBody = t.Object({
 
 export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
   .get('/config', async () => {
+    // The ingestion key is NEVER returned — clients send telemetry through the
+    // `/otlp/*` proxy below, which injects the key server-side. We expose only
+    // `ingestion_key_set` so the UI can show whether one is configured.
     const dbConfig = await loadObservabilityConfig();
-    // The ingestion key IS returned here — direct-to-SigNoz clients need it.
-    // Access is gated by the requireAuth wrapper this route mounts behind.
-    return resolveObservabilityConfig(dbConfig);
+    return toPublicConfig(resolveObservabilityConfig(dbConfig));
   })
 
   .put(
@@ -145,7 +164,7 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
         log.error({ err: msg }, 'applyOtelConfig failed after save');
       }
 
-      return resolved;
+      return toPublicConfig(resolved);
     },
     { body: ConfigBody },
   )
@@ -197,4 +216,78 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
       }
     },
     { body: TestBody },
+  )
+
+  // ── OTLP proxy ────────────────────────────────────────────────────────────
+  // `POST /api/observability/otlp/v1/:signal` (signal ∈ traces|logs|metrics).
+  // Clients (web, native) export telemetry HERE instead of straight to SigNoz,
+  // so the ingestion key never leaves the server. We forward the raw OTLP body
+  // verbatim to `${endpoint}/v1/<signal>`, injecting the `signoz-access-token`
+  // header. This route is bearer-gated by the `requireAuth` wrapper it mounts
+  // behind (see index.ts), so only signed-in clients can push telemetry.
+  //
+  // `parse: 'arrayBuffer'` so Elysia hands us the body bytes untouched — the
+  // payload may be OTLP/JSON or OTLP/protobuf depending on the client exporter,
+  // and we forward whichever Content-Type the client sent.
+  .post(
+    '/otlp/v1/:signal',
+    async ({ params, body, headers, set }) => {
+      const signal = params.signal;
+      if (!OTLP_SIGNALS.has(signal)) {
+        set.status = 404;
+        return { error: `Unknown OTLP signal: ${signal}` };
+      }
+
+      const resolved = resolveObservabilityConfig(await loadObservabilityConfig());
+
+      // Telemetry off, no endpoint, or this specific signal disabled → 503.
+      // The client's batch processor will retry later; a disabled signal is not
+      // an error the operator needs to see per-request.
+      const signalEnabled =
+        signal === 'traces'
+          ? resolved.traces_enabled
+          : signal === 'logs'
+            ? resolved.logs_enabled
+            : resolved.metrics_enabled;
+      if (!resolved.enabled || resolved.endpoint === null || !signalEnabled) {
+        set.status = 503;
+        return { error: 'observability disabled for this signal' };
+      }
+
+      const upstreamUrl = `${resolved.endpoint}/v1/${signal}`;
+      const fwdHeaders: Record<string, string> = {
+        'content-type': headers['content-type'] ?? 'application/json',
+      };
+      // Forward the client's content-encoding (e.g. gzip) so we don't have to
+      // decode/re-encode — the body bytes pass through untouched.
+      if (headers['content-encoding']) {
+        fwdHeaders['content-encoding'] = headers['content-encoding'];
+      }
+      if (resolved.ingestion_key) {
+        fwdHeaders['signoz-access-token'] = resolved.ingestion_key;
+      }
+
+      const bytes = body instanceof Uint8Array ? body : new Uint8Array(body as ArrayBuffer);
+      try {
+        const res = await fetch(upstreamUrl, {
+          method: 'POST',
+          headers: fwdHeaders,
+          body: bytes,
+        });
+        // Mirror the upstream status + body so the client's exporter sees a real
+        // OTLP response (it inspects the status to decide retry/drop).
+        set.status = res.status;
+        const respType = res.headers.get('content-type');
+        if (respType) set.headers['content-type'] = respType;
+        return new Uint8Array(await res.arrayBuffer());
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn({ signal, err: msg }, 'OTLP proxy forward failed');
+        // 502: upstream unreachable. The client exporter treats 5xx as
+        // retryable and will resend on the next batch.
+        set.status = 502;
+        return { error: `upstream forward failed: ${msg}` };
+      }
+    },
+    { parse: 'arrayBuffer' },
   );

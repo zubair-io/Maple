@@ -10,14 +10,17 @@
  *
  * Signals:
  *   - Traces: OTLP/HTTP trace exporter → `${endpoint}/v1/traces`. Sampled by a
- *     parent-based ratio sampler driven by `sample_ratio`.
- *   - Logs:   pino records are bridged to the OTel Logs SDK by
- *     `@opentelemetry/instrumentation-pino` (`disableLogSending: false`), and a
- *     batched OTLP/HTTP log exporter ships them to `${endpoint}/v1/logs`. This
- *     is the supported path for "backend logs → SigNoz" — the existing pino
- *     logger (`log.ts`) needs no changes; its records are picked up
- *     automatically once the SDK starts, and each record carries the active
- *     trace/span id for log↔trace correlation.
+ *     parent-based ratio sampler driven by `sample_ratio`. Carried by a
+ *     traces-only `NodeSDK` (started only when `traces_enabled`).
+ *   - Logs:   shipped by `otel-logs.ts`, which taps pino's output stream
+ *     directly (wired in `log.ts` via `pino.multistream`) and POSTs OTLP/JSON
+ *     to `${endpoint}/v1/logs`. This replaces `@opentelemetry/instrumentation-
+ *     pino`, whose require-in-the-middle monkey-patch is unreliable under Bun
+ *     and missed every line logged before the SDK started (the whole startup
+ *     sequence). `startSdk` / `stopSdk` drive it via `setOtelLogTarget`.
+ *
+ * Backend telemetry goes DIRECT to SigNoz (the server holds the ingestion key).
+ * Client telemetry instead proxies through `POST /api/observability/otlp/*`.
  *
  * Instrumentation: HTTP (inbound/outbound) + MongoDB, so every request and DB
  * call becomes a span without manual annotation.
@@ -37,13 +40,11 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_NAMESPACE } from '@opentelemetry/semantic-conventions';
 import { ParentBasedSampler, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-base';
-import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { MongoDBInstrumentation } from '@opentelemetry/instrumentation-mongodb';
-import { PinoInstrumentation } from '@opentelemetry/instrumentation-pino';
 import { child as childLogger } from './log.ts';
+import { setOtelLogTarget } from './otel-logs.ts';
 import type { ResolvedObservabilityConfig } from './observability/observability-config.repo.ts';
 
 const log = childLogger('otel');
@@ -113,29 +114,20 @@ function buildSdk(c: ResolvedObservabilityConfig): NodeSDK {
     root: new TraceIdRatioBasedSampler(c.sample_ratio),
   });
 
-  const traceExporter = c.traces_enabled
-    ? new OTLPTraceExporter({ url: `${endpoint}/v1/traces`, headers })
-    : undefined;
+  const traceExporter = new OTLPTraceExporter({ url: `${endpoint}/v1/traces`, headers });
 
-  const logRecordProcessors = c.logs_enabled
-    ? [new BatchLogRecordProcessor(new OTLPLogExporter({ url: `${endpoint}/v1/logs`, headers }))]
-    : [];
-
-  // Pino instrumentation bridges pino log records into the OTel Logs SDK
-  // (disableLogSending defaults false). Combined with the log exporter +
-  // processor above, every `log.*()` call in the backend lands in SigNoz,
-  // tagged with the active trace/span id for correlation.
-  const instrumentations = [
-    new HttpInstrumentation(),
-    new MongoDBInstrumentation(),
-    new PinoInstrumentation(),
-  ];
+  // Logs are NOT handled by the NodeSDK. The OTel `instrumentation-pino` bridge
+  // is a require-in-the-middle monkey-patch that's unreliable under Bun and only
+  // captures loggers created after the SDK starts — so it dropped the entire
+  // startup sequence. We ship logs ourselves via `otel-logs.ts`, which taps
+  // pino's output stream directly (see `startSdk` / `stopSdk`). This NodeSDK is
+  // traces-only: HTTP + Mongo spans exported to `${endpoint}/v1/traces`.
+  const instrumentations = [new HttpInstrumentation(), new MongoDBInstrumentation()];
 
   return new NodeSDK({
     resource,
     sampler,
-    ...(traceExporter ? { traceExporter } : {}),
-    logRecordProcessors,
+    traceExporter,
     instrumentations,
   });
 }
@@ -145,9 +137,24 @@ function buildSdk(c: ResolvedObservabilityConfig): NodeSDK {
  * exporter setup internally; failures there surface on first export, not here,
  * so we wrap the start in try/catch and log. */
 function startSdk(c: ResolvedObservabilityConfig): void {
-  const next = buildSdk(c);
-  next.start();
-  sdk = next;
+  // Traces: NodeSDK (HTTP + Mongo spans). Only started when traces are on —
+  // a logs-only config runs no NodeSDK.
+  if (c.traces_enabled) {
+    const next = buildSdk(c);
+    next.start();
+    sdk = next;
+  }
+  // Logs: pino-tap bridge, direct to SigNoz (the server holds the key; only
+  // client telemetry proxies). `null` when logs are off.
+  void setOtelLogTarget(
+    c.logs_enabled
+      ? {
+          endpoint: c.endpoint as string,
+          ingestionKey: c.ingestion_key,
+          serviceNamespace: c.service_namespace,
+        }
+      : null,
+  );
   activeKey = fingerprint(c);
   log.info(
     {
@@ -158,7 +165,7 @@ function startSdk(c: ResolvedObservabilityConfig): void {
       sample_ratio: c.sample_ratio,
       auth: c.ingestion_key !== null,
     },
-    'OpenTelemetry SDK started (shipping to SigNoz)',
+    'OpenTelemetry started (shipping to SigNoz)',
   );
 }
 
