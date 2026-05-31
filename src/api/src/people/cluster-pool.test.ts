@@ -181,11 +181,13 @@ describe('prepareClusteringPassOffThread', () => {
 
   // The parity assertions above pass even if the Worker silently fell back to
   // the in-process path (output is identical either way), so they can't prove
-  // the load + compute actually left the main thread. This one can: a Worker
-  // round-trip completes on a `message` event — a macrotask — so it cannot
-  // settle while we only drain the microtask queue. The in-process fallback
-  // resolves within microtasks, so a broken worker URL / spawn regression
-  // makes this assertion fail. It also asserts `viaWorker` directly.
+  // the load + compute actually left the main thread. The `viaWorker` assertion
+  // below is the definitive proof of that. The microtask-drain check is a
+  // secondary guard that the work is not synchronous: a Worker round-trip only
+  // completes on a `message` event (a macrotask), so its result cannot settle
+  // while we drain only microtasks. (The in-process fallback also does async
+  // Mongo I/O and likewise wouldn't settle within microtasks, so the drain
+  // alone isn't conclusive — `viaWorker` is what distinguishes the two paths.)
   it('runs genuinely off-thread (does not settle within the microtask queue)', async () => {
     if (!mongoReachable) return;
     await insertFaces([face(nearAxis(3, 0.05))]);
