@@ -23,12 +23,7 @@ import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc } from '../db/schema.ts';
 import { markAssetIdsForMeiliReindexBestEffort } from './people-search-reindex.ts';
 import { child as childLogger } from '../log.ts';
 import { DEFAULT_SIMILARITY_THRESHOLD, EMBEDDING_DIM } from './cluster-embeddings.ts';
-import {
-  loadCentroids,
-  loadUnassignedFaces,
-  maxAutoNameIndex,
-  recomputeCentroids,
-} from './cluster-load.ts';
+import { loadCentroids, loadUnassignedFaces, maxAutoNameIndex } from './cluster-load.ts';
 import { prepareClusteringPassOffThread } from './cluster-pool.ts';
 
 const log = childLogger('people:clustering');
