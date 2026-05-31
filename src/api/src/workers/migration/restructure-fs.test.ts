@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { planAndPlace, finalize, SourceMissingError } from './restructure-fs.ts';
+import { planAndPlace, finalize, revertCreated, SourceMissingError } from './restructure-fs.ts';
 
 let root: string;
 
@@ -67,6 +67,29 @@ describe('planAndPlace — crash-safe ordering', () => {
     });
     expect(plan.newRenderedRel).toBe('2024/Tokyo/IMG.rendered.JPEG');
     expect(await exists('2024/Tokyo/IMG.rendered.JPEG')).toBe(true);
+  });
+
+  test('reports createdPaths; revertCreated rolls them back leaving sources intact', async () => {
+    await write('2024/Tokyo/03-15/IMG.HEIC', 'pixels');
+    await write('2024/Tokyo/03-15/IMG.xmp', 'edits');
+
+    const plan = await planAndPlace({
+      libRoot: root,
+      oldDir: '2024/Tokyo/03-15',
+      filename: 'IMG.HEIC',
+      newDir: '2024/Tokyo',
+      renderedRelOld: null,
+    });
+    // The new copies are tracked for rollback (primary + sidecar).
+    expect(plan.createdPaths).toContain(path.join(root, '2024/Tokyo/IMG.HEIC'));
+    expect(plan.createdPaths).toContain(path.join(root, '2024/Tokyo/IMG.xmp'));
+
+    // Simulate a failed DB repoint: roll back. Originals must survive.
+    await revertCreated(plan.createdPaths);
+    expect(await exists('2024/Tokyo/IMG.HEIC')).toBe(false);
+    expect(await exists('2024/Tokyo/IMG.xmp')).toBe(false);
+    expect(await read('2024/Tokyo/03-15/IMG.HEIC')).toBe('pixels'); // source intact
+    expect(await read('2024/Tokyo/03-15/IMG.xmp')).toBe('edits');
   });
 
   test('throws SourceMissingError when the original is gone', async () => {

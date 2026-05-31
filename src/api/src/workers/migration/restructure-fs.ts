@@ -43,6 +43,11 @@ export interface PlacePlan {
   newRenderedRel: string | null;
   /** Absolute source paths to unlink once the DB has been repointed. */
   sourcesToDelete: string[];
+  /** Absolute paths of the NEW copies this call created (primary + companions).
+   * Empty for a dedupe (no copy made). Used to revert cleanly if the DB repoint
+   * turns out to be a no-op (concurrent change) — we delete these instead of the
+   * source, leaving the row + original untouched. */
+  createdPaths: string[];
   /** The old day-folder (absolute), for emptiness cleanup in `finalize`. */
   oldDirAbs: string;
 }
@@ -61,6 +66,18 @@ async function exists(p: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Delete the new copies `planAndPlace` created — used to roll back when the DB
+ * repoint turns out to be a no-op (a concurrent change moved the fileinfo entry
+ * between our read and write), so the original + row are left untouched and we
+ * don't strand an orphan at the new path. Best-effort. */
+export async function revertCreated(createdPaths: string[]): Promise<void> {
+  for (const p of createdPaths) {
+    await fs.unlink(p).catch((err) => {
+      log.warn({ p, err: err instanceof Error ? err.message : err }, 'revert unlink failed');
+    });
   }
 }
 
@@ -120,6 +137,7 @@ export async function planAndPlace(args: {
         newRelPath: `${newDir}/${filename}`,
         newRenderedRel: renderedRelOld, // no rendered move on a dedupe of a bare original
         sourcesToDelete: [oldAbs],
+        createdPaths: [], // no copy made — nothing to revert
         oldDirAbs,
       };
     }
@@ -136,6 +154,7 @@ export async function planAndPlace(args: {
   const oldBase = path.basename(oldAbs, path.extname(oldAbs));
   const newBase = path.basename(targetAbs, path.extname(targetAbs));
   const sourcesToDelete: string[] = [oldAbs];
+  const createdPaths: string[] = [targetAbs];
 
   // ── Copy + verify sidecars (canonical + conflict copies) ─────────────────
   for (const sidecar of sidecars) {
@@ -145,6 +164,7 @@ export async function planAndPlace(args: {
     const dst = await pickFreePath(path.join(path.dirname(targetAbs), renamed));
     await copyVerified(sidecar, dst);
     sourcesToDelete.push(sidecar);
+    createdPaths.push(dst);
   }
 
   // ── Copy + verify the apple_rendered_path companion ──────────────────────
@@ -156,6 +176,7 @@ export async function planAndPlace(args: {
     await copyVerified(renderedAbsOld, dst);
     newRenderedRel = toPosixRel(libRoot, dst);
     sourcesToDelete.push(renderedAbsOld);
+    createdPaths.push(dst);
   }
 
   return {
@@ -163,6 +184,7 @@ export async function planAndPlace(args: {
     newRelPath: toPosixRel(libRoot, targetAbs),
     newRenderedRel,
     sourcesToDelete,
+    createdPaths,
     oldDirAbs,
   };
 }
