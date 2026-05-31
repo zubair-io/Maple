@@ -463,55 +463,12 @@
 }
 
 // ── RAW decode-pool control (ticket #673) ──────────────────────────────
-.perf-control {
-  margin: 0 24px 12px;
-  padding: 12px 16px;
-  border: 1px solid var(--s-border);
-  border-radius: 8px;
-  background: var(--s-surface-2, transparent);
-}
-.perf-control-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.perf-label {
-  font-weight: 600;
-  font-size: 13px;
-}
-.perf-input {
-  width: 64px;
-  padding: 4px 8px;
-  font-size: 13px;
-}
-.perf-save {
-  padding: 4px 12px;
-  font-size: 13px;
-  cursor: pointer;
-}
-.perf-save:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-.perf-ok {
-  font-size: 12.5px;
-  color: var(--s-ok, #2e7d32);
-}
+// Lives inside the expanded "preview" stage panel and reuses the shared
+// `.block` / `.field` / `.row-footer` styling; only the source label needs
+// a dedicated rule.
 .perf-source {
   font-size: 12px;
   opacity: 0.7;
-}
-.perf-hint {
-  margin: 8px 0 0;
-  font-size: 12px;
-  opacity: 0.75;
-  max-width: 64ch;
-}
-.perf-error {
-  margin: 6px 0 0;
-  font-size: 12.5px;
-  color: var(--s-err);
 }
 
 // ── Responsive ─────────────────────────────────────────────────────────

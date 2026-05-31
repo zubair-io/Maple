@@ -42,48 +42,6 @@
     </div>
   </header>
 
-  @if (perfConfig(); as perf) {
-    <section class="perf-control" aria-label="RAW decode workers">
-      <div class="perf-control-row">
-        <label class="perf-label" for="ffi-workers-input">RAW decode workers</label>
-        <input
-          id="ffi-workers-input"
-          class="perf-input"
-          type="number"
-          [min]="perf.min"
-          [max]="perf.max"
-          step="1"
-          [value]="ffiWorkersDraft()"
-          (input)="setFfiWorkersDraft($any($event.target).value)"
-          aria-label="RAW decode workers"
-        />
-        <button
-          type="button"
-          class="perf-save"
-          [disabled]="perfSaveState() === 'saving'"
-          (click)="savePerformance()"
-        >
-          {{ perfSaveState() === 'saving' ? 'Saving…' : 'Apply' }}
-        </button>
-        @if (perfSaveState() === 'success') {
-          <span class="perf-ok" role="status">Applied</span>
-        }
-        <span class="perf-source">source: {{ perf.source }}</span>
-      </div>
-      <p class="perf-hint">
-        Number of native RAW decodes that run in parallel (range {{ perf.min }}–{{ perf.max }}).
-        Higher values speed up RAW thumbnail and preview generation across CPU cores at the cost of
-        more memory per worker — each worker loads its own decoder and holds decode buffers. Only
-        affects RAW thumb/preview decode; JPEG and HEIC sources go through a separate
-        already-multithreaded path. Default is 1; a value around your core count (typically 4) is a
-        good starting point for faster ingest.
-      </p>
-      @if (perfSaveState() === 'error' && perfSaveError()) {
-        <p class="perf-error">{{ perfSaveError() }}</p>
-      }
-    </section>
-  }
-
   <maple-imports-panel />
 
   @if (error()) {
@@ -306,6 +264,56 @@
                       <p class="field-hint">No migrations registered.</p>
                     }
                   </div>
+                }
+
+                @if (s.name === 'preview') {
+                  @if (perfConfig(); as perf) {
+                    <div class="block">
+                      <div class="subhead">RAW decode workers</div>
+                      <div class="field">
+                        <div class="field-label">Parallel RAW decodes</div>
+                        <div class="num-input">
+                          <input
+                            id="ffi-workers-input"
+                            type="number"
+                            [min]="perf.min"
+                            [max]="perf.max"
+                            step="1"
+                            [value]="ffiWorkersDraft()"
+                            (input)="setFfiWorkersDraft($any($event.target).value)"
+                            aria-label="RAW decode workers"
+                          />
+                          <span class="num-suffix">workers</span>
+                        </div>
+                        <div class="field-hint">
+                          Number of native RAW decodes that run in parallel (range
+                          {{ perf.min }}–{{ perf.max }}). Higher values speed up RAW thumbnail and
+                          preview generation across CPU cores at the cost of more memory per worker
+                          — each worker loads its own decoder and holds decode buffers. Only affects
+                          RAW thumb/preview decode; JPEG and HEIC sources go through a separate
+                          already-multithreaded path. Default is 1; a value around your core count
+                          (typically 4) is a good starting point for faster ingest.
+                        </div>
+                      </div>
+                      <div class="row-footer">
+                        <span class="perf-source">source: {{ perf.source }}</span>
+                        <span class="footer-spacer"></span>
+                        @if (perfSaveState() === 'error' && perfSaveError()) {
+                          <span class="save-error">{{ perfSaveError() }}</span>
+                        } @else if (perfSaveState() === 'success') {
+                          <span class="save-ok" role="status">Applied</span>
+                        }
+                        <button
+                          type="button"
+                          class="btn-primary perf-save"
+                          [disabled]="perfSaveState() === 'saving'"
+                          (click)="savePerformance()"
+                        >
+                          {{ perfSaveState() === 'saving' ? 'Saving…' : 'Apply' }}
+                        </button>
+                      </div>
+                    </div>
+                  }
                 }
 
                 @if (meta(s).enrichment) {
