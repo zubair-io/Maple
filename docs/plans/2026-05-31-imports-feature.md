@@ -100,7 +100,7 @@ All paths under `src/api/src/imports/` unless noted.
 | `imports/scan.ts` | Walk `source_root` (+ subfolders, jailed to `MAPLE_ROOTS`), classify files (image / sidecar / movie / ignore), pair sidecars to images, group into buckets by mtime, return `ScanResult` (buckets with default `MM` labels). |
 | `imports/copy.ts` | Copy one file atomically (temp-then-rename into the dest dir, `mkdir -p`). Dedup: `hashFileForId(src)` → look up `maple_id` then `sha1_head` in `assets`; skip if present. Returns per-file outcome. |
 | `imports/repo.ts` | Typed Mongo ops: `createImport`, `getImport`, `listImports`, `claimImport`, `updateImportProgress`, `completeImport`, `failImport`, `markImportCancelled`, `requestImportCancel`, `isImportCancelRequested`. Mirrors `jobs.repo.ts` claim/lease. |
-| `imports/worker.ts` | `ImportRunner` class mirroring `JobRunner`: claim → resolve target `FolderDoc` → per-file copy loop → `handleEvent` hand-off for images → progress/lease renewal → cancel-between-files. `start/stop` singleton glue + `startImportRunner()`/`stopImportRunner()` wired in `index.ts`. Tunables (poll/lease/enabled) read from `worker_config` collection (`name: 'import'`). |
+| `imports/worker.ts` | `ImportRunner` class mirroring `JobRunner`: claim → per-file copy loop (image first so sidecars follow its resolved stem) → `handleEvent` hand-off for images → progress/lease renewal → cancel-between-files. `start/stop` singleton glue + `startImportRunner()`/`stopImportRunner()` wired in `index.ts`. Poll/lease are constants in v1 (no env vars, no operator config); a future pause/concurrency knob would live in `worker_config` (`name: 'import'`) with a `/settings/workers` control. |
 | `routes/imports.ts` | `POST /api/imports/scan`, `POST /api/imports`, `GET /api/imports`, `GET /api/imports/:id`, `POST /api/imports/:id/cancel`. Server-side re-validation of every bucket label + source-folder jail check. Registered in the auth-gated sub-app in `index.ts`. |
 
 ### Web (`src/web`)
@@ -158,9 +158,10 @@ Real temp dirs and a real `maple_test_*` Mongo DB (no sidecar/db mocks — repo 
 ## Open decisions — resolved to the proposed defaults
 
 - **Bucketing timezone:** UTC (matches `formatBackupPath`).
-- **Worker concurrency:** single import at a time (matches `JobRunner`'s v1 stance);
-  tunables live in `worker_config` (`name: 'import'`), not env vars, so they're
-  operator-toggleable.
+- **Worker concurrency:** single import at a time (matches `JobRunner`'s v1 stance).
+  Poll/lease are compile-time constants in v1 — no env vars and no operator config
+  yet; if a pause/concurrency knob is wanted it belongs in `worker_config`
+  (`name: 'import'`) with a `/settings/workers` control, not an env var.
 - **Cancel granularity:** between files only; already-copied files stay.
 
 ## v2 (out of scope)
