@@ -22,6 +22,7 @@ import type {
   GeocodeCacheDoc,
   IndexerTaskDoc,
   JobDoc,
+  ImportDoc,
   PersonDoc,
   StageHandlerDoc,
   UserDoc,
@@ -114,6 +115,10 @@ export async function indexerQueueCollection(): Promise<Collection<IndexerTaskDo
 
 export async function jobsCollection(): Promise<Collection<JobDoc>> {
   return (await getDb()).collection<JobDoc>('jobs');
+}
+
+export async function importsCollection(): Promise<Collection<ImportDoc>> {
+  return (await getDb()).collection<ImportDoc>('imports');
 }
 
 export async function stageHandlersCollection(): Promise<Collection<StageHandlerDoc>> {
@@ -673,6 +678,17 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('jobs')
     .createIndex({ kind: 1, status: 1, created_at: -1 }, { name: 'jobs_list' });
+
+  // imports (ImportRunner, ticket #742) — same claim shape as jobs:
+  //   { status: "pending"/"running",
+  //     $or: [ {locked_by: null}, {lease_expires_at: { $lt: now }} ] }
+  // Plus list-by-status for GET /api/imports (sorted newest-first).
+  await db
+    .collection('imports')
+    .createIndex({ status: 1, lease_expires_at: 1 }, { name: 'imports_claim' });
+  await db
+    .collection('imports')
+    .createIndex({ status: 1, created_at: -1 }, { name: 'imports_list' });
 
   // Geocode worker — claim query is:
   //   { exif.gps.lat: $ne null, enrichment.geocode.done_at: null,
