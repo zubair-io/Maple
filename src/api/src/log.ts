@@ -36,10 +36,11 @@
  * any log-collection pipeline.
  */
 
-import pino, { type Logger } from "pino";
+import pino, { type Logger } from 'pino';
+import { otelLogStream } from './otel-logs.ts';
 
-const LEVEL = process.env.MAPLE_LOG_LEVEL ?? "info";
-const IS_PROD = process.env.NODE_ENV === "production";
+const LEVEL = process.env.MAPLE_LOG_LEVEL ?? 'info';
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 const baseOptions = {
   level: LEVEL,
@@ -50,15 +51,13 @@ async function buildPrettyStream(): Promise<NodeJS.WritableStream | null> {
   try {
     // Dynamic import (resolves at runtime) so the static module graph
     // doesn't require pino-pretty in production.
-    const mod = await import("pino-pretty");
-    const pinoPretty = (mod.default ?? mod) as unknown as (
-      opts: object,
-    ) => NodeJS.WritableStream;
+    const mod = await import('pino-pretty');
+    const pinoPretty = (mod.default ?? mod) as unknown as (opts: object) => NodeJS.WritableStream;
     return pinoPretty({
       colorize: true,
-      translateTime: "HH:MM:ss.l",
-      ignore: "pid,hostname",
-      messageFormat: "{component} {msg}",
+      translateTime: 'HH:MM:ss.l',
+      ignore: 'pid,hostname',
+      messageFormat: '{component} {msg}',
       sync: true,
     });
   } catch {
@@ -70,9 +69,21 @@ async function buildPrettyStream(): Promise<NodeJS.WritableStream | null> {
 }
 
 const prettyStream = await buildPrettyStream();
-const logger: Logger = prettyStream
-  ? pino(baseOptions, prettyStream)
-  : pino(baseOptions);
+
+// Fan out every record to two destinations via pino.multistream:
+//   1. stdout — pretty (dev) or JSON (prod), exactly as before.
+//   2. otelLogStream — the SigNoz log bridge (inert until otel.ts configures a
+//      target). Tapping pino's own output here means EVERY line is captured,
+//      including the startup sequence emitted before the OTel SDK starts —
+//      which the old instrumentation-pino monkey-patch silently dropped.
+const stdoutDest: NodeJS.WritableStream = prettyStream ?? process.stdout;
+const logger: Logger = pino(
+  baseOptions,
+  pino.multistream([
+    { level: LEVEL, stream: stdoutDest },
+    { level: LEVEL, stream: otelLogStream as unknown as NodeJS.WritableStream },
+  ]),
+);
 
 /**
  * Singleton root logger. Prefer `child(component)` over the root for
