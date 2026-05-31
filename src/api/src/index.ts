@@ -52,6 +52,7 @@ import { fsRoutes } from './routes/fs.ts';
 import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
 import { searchRoutes } from './routes/search.ts';
 import { jobsRoutes } from './routes/jobs.ts';
+import { importsRoutes } from './routes/imports.ts';
 import { enrichmentRoutes } from './routes/enrichment.ts';
 import { observabilityRoutes } from './routes/observability.ts';
 import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
@@ -197,6 +198,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(fsThumbsRoutes)
         .use(searchRoutes)
         .use(jobsRoutes)
+        .use(importsRoutes)
         .use(enrichmentRoutes)
         .use(observabilityRoutes)
         .use(meilisearchBackfillRoutes)

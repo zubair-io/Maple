@@ -1,0 +1,185 @@
+/**
+ * routes/imports.ts integration tests. Real Mongo + real temp dirs
+ * (skip-pass when Mongo is unreachable).
+ *
+ * Covers: scan happy path, jail rejection, create (happy + label-traversal
+ * rejection + unknown library), list/get/cancel, and bad-ObjectId 400s.
+ */
+
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from 'bun:test';
+import { Elysia } from 'elysia';
+import { ObjectId, type Db } from 'mongodb';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { importsRoutes } from './imports.ts';
+import { getDb, isDbConnected } from '../db/client.ts';
+
+let db: Db | null = null;
+let mongoReachable = false;
+const app = new Elysia().use(importsRoutes);
+let sourceRoot: string;
+let libraryId: ObjectId;
+
+async function put(rel: string, mtimeUtc: string): Promise<void> {
+  const abs = path.join(sourceRoot, rel);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, `c-${rel}`);
+  const when = new Date(mtimeUtc);
+  await fs.utimes(abs, when, when);
+}
+
+beforeAll(async () => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-routes-'));
+  sourceRoot = await realpath(tmp);
+  // Jail the whole tmpdir so the source folder resolves inside MAPLE_ROOTS.
+  process.env.MAPLE_ROOTS = await realpath(os.tmpdir());
+  await put('IMG_0001.dng', '2024-03-09T12:00:00Z');
+  await put('IMG_0001.xmp', '2024-03-09T12:00:00Z');
+  await put('clip.mov', '2024-03-20T00:00:00Z');
+
+  try {
+    db = await getDb();
+    mongoReachable = isDbConnected();
+  } catch {
+    mongoReachable = false;
+  }
+});
+
+beforeEach(async () => {
+  if (!mongoReachable || !db) return;
+  await db.collection('imports').deleteMany({});
+  await db.collection('folders').deleteMany({});
+  libraryId = new ObjectId();
+  await db.collection('folders').insertOne({
+    _id: libraryId,
+    path: '/srv/lib',
+    label: 'Lib',
+    last_scan: null,
+    file_count: 0,
+    created_at: '2026-05-31T00:00:00Z',
+  } as never);
+});
+
+afterAll(async () => {
+  await fs.rm(sourceRoot, { recursive: true, force: true }).catch(() => {});
+});
+
+async function post(url: string, body: unknown): Promise<Response> {
+  return app.handle(
+    new Request(`http://localhost${url}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+describe('POST /api/imports/scan', () => {
+  it('returns mtime-bucketed groups', async () => {
+    const res = await post('/api/imports/scan', { source_root: sourceRoot });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { buckets: { key: string }[] };
+    expect(body.buckets.map((b) => b.key)).toEqual(['2024/03']);
+  });
+
+  it('rejects a path outside MAPLE_ROOTS', async () => {
+    const res = await post('/api/imports/scan', { source_root: '/etc' });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/imports', () => {
+  it('creates a pending import with resolved destinations', async () => {
+    if (!mongoReachable) return;
+    const res = await post('/api/imports', {
+      source_root: sourceRoot,
+      library_id: libraryId.toHexString(),
+      labels: { '2024/03': 'Spring' },
+    });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+
+    const getRes = await app.handle(
+      new Request(`http://localhost/api/imports/${id}`),
+    );
+    const doc = (await getRes.json()) as {
+      status: string;
+      files: { dest: string }[];
+    };
+    expect(doc.status).toBe('pending');
+    expect(doc.files.some((f) => f.dest === '2024/Spring/IMG_0001.dng')).toBe(
+      true,
+    );
+  });
+
+  it('rejects a traversal bucket label server-side', async () => {
+    if (!mongoReachable) return;
+    const res = await post('/api/imports', {
+      source_root: sourceRoot,
+      library_id: libraryId.toHexString(),
+      labels: { '2024/03': '../escape' },
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('404s an unknown library', async () => {
+    if (!mongoReachable) return;
+    const res = await post('/api/imports', {
+      source_root: sourceRoot,
+      library_id: new ObjectId().toHexString(),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('400s an invalid library_id', async () => {
+    if (!mongoReachable) return;
+    const res = await post('/api/imports', {
+      source_root: sourceRoot,
+      library_id: 'not-an-id',
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('GET/cancel lifecycle', () => {
+  it('lists, gets, and cancels', async () => {
+    if (!mongoReachable) return;
+    const created = await post('/api/imports', {
+      source_root: sourceRoot,
+      library_id: libraryId.toHexString(),
+    });
+    const { id } = (await created.json()) as { id: string };
+
+    const list = await app.handle(
+      new Request('http://localhost/api/imports?status=pending'),
+    );
+    const listBody = (await list.json()) as { imports: { id: string }[] };
+    expect(listBody.imports.some((i) => i.id === id)).toBe(true);
+
+    const cancel = await post(`/api/imports/${id}/cancel`, {});
+    expect(cancel.status).toBe(200);
+    expect(((await cancel.json()) as { ok: boolean }).ok).toBe(true);
+
+    const after = await app.handle(
+      new Request(`http://localhost/api/imports/${id}`),
+    );
+    expect(((await after.json()) as { cancel_requested: boolean })
+      .cancel_requested).toBe(true);
+  });
+
+  it('400s a bad import id', async () => {
+    const res = await app.handle(
+      new Request('http://localhost/api/imports/not-an-id'),
+    );
+    expect(res.status).toBe(400);
+  });
+});
