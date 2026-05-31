@@ -92,6 +92,7 @@ import {
 import { initOtel, shutdownOtel } from './otel.ts';
 import { bootstrapFfiPool } from './ffi/ffi-pool-bootstrap.ts';
 import { startJobRunner, stopJobRunner } from './job-runner/runner.ts';
+import { startImportRunner, stopImportRunner } from './imports/worker.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 import { tryGetRawFfi } from './ffi/raw_ffi.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
@@ -418,6 +419,14 @@ async function start(): Promise<void> {
     } catch (err) {
       log.warn({ err }, 'JobRunner failed to start');
     }
+
+    try {
+      // ImportRunner — claims pending `imports` and copies server-local
+      // folders into a library (ticket #742).
+      startImportRunner();
+    } catch (err) {
+      log.warn({ err }, 'ImportRunner failed to start');
+    }
   })();
 
   // Wipe leftover chunk-staging files from any previous run before we
@@ -524,6 +533,11 @@ async function shutdown(signal: string): Promise<void> {
     await stopJobRunner();
   } catch (e) {
     log.warn({ err: e }, 'error stopping job runner');
+  }
+  try {
+    await stopImportRunner();
+  } catch (e) {
+    log.warn({ err: e }, 'error stopping import runner');
   }
   // Flush + shut down the OpenTelemetry SDK so its batch exporters drain and
   // its timers stop keeping the event loop alive.
