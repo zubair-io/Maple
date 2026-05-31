@@ -1,15 +1,12 @@
 /**
  * Status computation utilities for worker routes.
- * 
+ *
  * Handles caching, DB state fetching, and status assembly for the /status endpoint.
  */
 
 import { type Collection } from 'mongodb';
 import { getDb } from '../db/client.ts';
-import {
-  WorkerConfigDoc,
-  sanitizeWorkerConfig,
-} from './worker-config.repo.ts';
+import { WorkerConfigDoc, sanitizeWorkerConfig } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
 import type { StageStatusSnapshot } from './registry.ts';
 import { child } from '../log.ts';
@@ -247,7 +244,7 @@ export function buildClaimQuery(
 ): import('mongodb').Filter<Document> {
   type Document = import('mongodb').Document;
   type Filter = import('mongodb').Filter<Document>;
-  
+
   const filter: Filter = {
     $or: [
       { [`stages.${name}.version`]: { $lt: targetVersion } },
