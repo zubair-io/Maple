@@ -269,7 +269,7 @@ describe('PUT/GET /api/observability/config — ingestion_key write semantics', 
 });
 
 describe('POST /api/observability/test', () => {
-  it('returns ok:true on a 2xx from the SigNoz traces endpoint', async () => {
+  it('returns ok:true on a 2xx OTLP (application/json) response', async () => {
     if (!mongoReachable) return;
     let calledUrl = '';
     let sawToken = false;
@@ -277,7 +277,8 @@ describe('POST /api/observability/test', () => {
       calledUrl = typeof input === 'string' ? input : input.toString();
       const headers = new Headers(init?.headers);
       sawToken = headers.get('signoz-access-token') === 'probe-key';
-      return new Response('{}', { status: 200 });
+      // A real OTLP/HTTP receiver answers JSON.
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
     }) as unknown as typeof fetch;
     const r = await post('/api/observability/test', {
       endpoint: 'https://ingest.signoz.test:4318/',
@@ -291,6 +292,24 @@ describe('POST /api/observability/test', () => {
     expect(sawToken).toBe(true);
   });
 
+  it('returns ok:false + a :4318 recommendation when a 2xx is HTML (wrong UI port)', async () => {
+    if (!mongoReachable) return;
+    // SigNoz UI/query port (8080) answers 200 with an HTML SPA page, NOT OTLP.
+    globalThis.fetch = (async () =>
+      new Response('<!doctype html><html></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      })) as unknown as typeof fetch;
+    const r = await post('/api/observability/test', {
+      endpoint: 'http://signoz.test:8080',
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as { ok: boolean; error: string; recommendation?: string };
+    expect(body.ok).toBe(false);
+    expect(body.error).toMatch(/4318/);
+    expect(body.recommendation).toMatch(/4318/);
+  });
+
   it('returns ok:false with the status on a non-2xx', async () => {
     if (!mongoReachable) return;
     stubFetch(() => ({ status: 401 }));
@@ -301,6 +320,20 @@ describe('POST /api/observability/test', () => {
     const body = r.body as { ok: boolean; status: number };
     expect(body.ok).toBe(false);
     expect(body.status).toBe(401);
+  });
+
+  it('flags a 404 on a non-OTLP port with a :4318 recommendation', async () => {
+    if (!mongoReachable) return;
+    stubFetch(() => ({ status: 404 }));
+    const r = await post('/api/observability/test', {
+      endpoint: 'http://signoz.test:8080',
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as { ok: boolean; status: number; error: string; recommendation?: string };
+    expect(body.ok).toBe(false);
+    expect(body.status).toBe(404);
+    expect(body.error).toMatch(/4318/);
+    expect(body.recommendation).toMatch(/4318/);
   });
 
   it('returns ok:false with an error when the fetch throws', async () => {
