@@ -1,0 +1,347 @@
+/**
+ * Status computation utilities for worker routes.
+ * 
+ * Handles caching, DB state fetching, and status assembly for the /status endpoint.
+ */
+
+import { type Collection } from 'mongodb';
+import { getDb } from '../db/client.ts';
+import {
+  WorkerConfigDoc,
+  sanitizeWorkerConfig,
+} from './worker-config.repo.ts';
+import type { WorkerConfig, ImageDoc } from './run-stage.ts';
+import type { StageStatusSnapshot } from './registry.ts';
+import { child } from '../log.ts';
+
+const log = child('workers:routes:status');
+
+// Names of the version-claim pipeline stages. Other registry entries (e.g.
+// the `missing-reaper`, which is registered for pause/resume/status control
+// but is NOT a per-asset claim stage) carry no `stages.<name>` subdocument, so
+// the pending / dead `countDocuments` below is meaningless for them — and the
+// `version: { $exists: false }` branch would match the ENTIRE collection. Gate
+// the counts to real claim stages; everything else reports pending/dead 0.
+export const CLAIM_STAGE_NAMES = new Set<string>();
+
+export const DEAD_LIST_LIMIT_DEFAULT = 50;
+export const DEAD_LIST_LIMIT_MAX = 500;
+
+/**
+ * Config knobs removed in #674. PATCH rejects these with a 400 so a stale
+ * client that still sends them gets a clear signal instead of a silent no-op.
+ */
+export const REMOVED_CONFIG_KEYS = ['pollIntervalMs', 'batchSize'] as const;
+
+// Short-TTL cache for the DB-derived half of /status. Holds worker_config rows
+// and per-stage pending/ready/dead counts; the registry-derived fields (status,
+// inFlight, throughput, lastError) are recomposed from the in-process registry
+// on every call so they stay fresh. Keyed on the stage-name + targetVersion
+// signature so a stage gaining or changing targetVersion bypasses the cache.
+// Polling FE clients (settings UI ticks every ~1-2s) hit cache on every other
+// call, reducing the per-stage countDocuments round-trips to zero work.
+//
+// `pending` counts every doc this stage still owes work on (version < target,
+// not dead). `ready` is the subset whose upstream deps are already met — i.e.
+// what the claim query would actually pick up right now. `blocked` (derived as
+// pending − ready in the response) is everything waiting on an upstream stage.
+type StatusDbState = {
+  configMap: Map<string, WorkerConfig>;
+  pendingByStage: Map<string, number>;
+  readyByStage: Map<string, number>;
+  deadByStage: Map<string, number>;
+  /** Collection-level count of assets tagged `damaged` (parked out of every
+   * stage). Not per-stage — a damaged file is global state, surfaced as the
+   * "Damaged" pill in the Workers UI. */
+  damagedTotal: number;
+};
+export const STATUS_CACHE_TTL_MS = 2000;
+let statusCache: {
+  key: string;
+  data: StatusDbState;
+  expiresAt: number;
+} | null = null;
+
+export function statusCacheKey(
+  stageNames: string[],
+  statuses: Record<string, StageStatusSnapshot>,
+): string {
+  // Sort so the key is stable even if `statuses()` iteration order shifts
+  // when stages transition from preregistered to registered (the registry
+  // unions two Maps, and insertion order across those Maps is not stable).
+  return stageNames
+    .slice()
+    .sort()
+    .map((n) => `${n}:${statuses[n]?.targetVersion ?? 1}`)
+    .join('|');
+}
+
+export function invalidateStatusCache(): void {
+  statusCache = null;
+}
+
+/**
+ * Pick only the live `WorkerConfig` fields off a raw `worker_config` Mongo doc.
+ * Existing docs may still carry removed knobs (`pollIntervalMs` / `batchSize`,
+ * dropped in #674); without this projection those stale keys would leak back
+ * out through GET /status and the WS `workers-status` frame. Mirrors
+ * `WorkerConfigRepo.load`'s explicit field list so the two never drift.
+ */
+export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
+  return {
+    concurrency: doc.concurrency,
+    maxAttempts: doc.maxAttempts,
+    paused: doc.paused,
+    last_seen_target_version: doc.last_seen_target_version,
+  };
+}
+
+/** Test-only: drop the cached /status snapshot so tests don't see prior state. */
+export function resetStatusCacheForTests(): void {
+  invalidateStatusCache();
+}
+
+export async function fetchStatusDbState(
+  stageNames: string[],
+  statuses: Record<string, StageStatusSnapshot>,
+): Promise<StatusDbState> {
+  const configMap = new Map<string, WorkerConfig>();
+  const pendingByStage = new Map<string, number>();
+  const readyByStage = new Map<string, number>();
+  const deadByStage = new Map<string, number>();
+  let damagedTotal = 0;
+  let assets: Collection<Document> | null = null;
+  type Document = import('mongodb').Document;
+
+  try {
+    const db = await getDb();
+    assets = db.collection<Document>('assets') as Collection<Document>;
+    const configColl = db.collection<WorkerConfigDoc>('worker_config');
+    const allConfigs = await configColl.find({}).toArray();
+    // Sanitize before exposing: strip any removed knobs that linger on older
+    // docs so they don't leak through /status or the WS status frame.
+    for (const cfg of allConfigs) configMap.set(cfg.name, sanitizeWorkerConfig(cfg));
+  } catch {
+    // DB unavailable — counts remain zeros, configMap empty.
+  }
+
+  const claimStageNames = stageNames.filter((name) => CLAIM_STAGE_NAMES.has(name));
+  if (assets && claimStageNames.length > 0) {
+    const counts = await Promise.all(
+      claimStageNames.flatMap((name) => {
+        const tv = statuses[name]?.targetVersion ?? 1;
+        const deps = statuses[name]?.dependsOn ?? [];
+        const pending = assets!
+          .countDocuments({
+            $or: [
+              { [`stages.${name}.version`]: { $lt: tv } },
+              { [`stages.${name}.version`]: { $exists: false } },
+            ],
+            [`stages.${name}.dead`]: { $ne: true },
+            // Park missing-tagged docs the same way the claim query (`ready`)
+            // does. Otherwise `blocked = pending - ready` absorbs the entire
+            // `missing_since` backlog (the reaper's queue) into every claim
+            // stage's blocked count, even though those docs can't be claimed
+            // here. The reaper backlog is surfaced separately on the
+            // missing-reaper row below.
+            missing_since: { $not: { $type: 'string' } },
+          })
+          .then((n) => ({ key: 'pending' as const, name, n }))
+          .catch((err) => {
+            log.warn({ stage: name, err }, 'countDocuments failed for pending — returning 0');
+            return { key: 'pending' as const, name, n: 0 };
+          });
+        // `ready` mirrors the claim query exactly (same base predicate + the
+        // upstream-dependency gates), so it's the subset of `pending` a worker
+        // could actually pick up right now. Empty in-flight set: the few docs
+        // momentarily in flight don't matter for an operator-facing count.
+        const readyQuery = buildClaimQuery(name, tv, deps, new Set()) as Filter<Document>;
+        const ready = assets!
+          .countDocuments(readyQuery)
+          .then((n) => ({ key: 'ready' as const, name, n }))
+          .catch((err) => {
+            log.warn({ stage: name, err }, 'countDocuments failed for ready — returning 0');
+            return { key: 'ready' as const, name, n: 0 };
+          });
+        const dead = assets!
+          .countDocuments({ [`stages.${name}.dead`]: true })
+          .then((n) => ({ key: 'dead' as const, name, n }))
+          .catch((err) => {
+            log.warn({ stage: name, err }, 'countDocuments failed for dead — returning 0');
+            return { key: 'dead' as const, name, n: 0 };
+          });
+        return [pending, ready, dead];
+      }),
+    );
+    for (const c of counts) {
+      if (c.key === 'pending') pendingByStage.set(c.name, c.n);
+      else if (c.key === 'ready') readyByStage.set(c.name, c.n);
+      else deadByStage.set(c.name, c.n);
+    }
+  }
+
+  // The missing-reaper is NOT a claim stage, so the loop above leaves its
+  // counts at 0 — which reads as "nothing to do" even while it's actively
+  // pruning a large `missing_since` backlog. Surface the real tagged count as
+  // its `pending` so the Workers UI reflects the work queue instead of 0/0/0.
+  // `$type: "string"` matches the reaper's own query exactly: it counts only
+  // tagged rows (not absent/null) AND lets the planner use the
+  // `missing_since_1` partial index instead of COLLSCANning every asset.
+  if (assets && stageNames.includes('missing-reaper')) {
+    try {
+      pendingByStage.set(
+        'missing-reaper',
+        await assets.countDocuments({
+          missing_since: { $type: 'string', $ne: null },
+        }),
+      );
+    } catch (err) {
+      log.warn({ err }, 'countDocuments failed for missing-reaper tagged count — leaving 0');
+    }
+  }
+
+  // Collection-level damaged count. `$type: "string"` on `damaged.since`
+  // matches exactly the tagged rows (and uses the `damaged_since_1` partial
+  // index) — same shape + rationale as the missing-reaper count above.
+  if (assets) {
+    try {
+      damagedTotal = await assets.countDocuments({
+        'damaged.since': { $type: 'string' },
+      });
+    } catch (err) {
+      log.warn({ err }, 'countDocuments failed for damaged count — leaving 0');
+    }
+  }
+
+  return { configMap, pendingByStage, readyByStage, deadByStage, damagedTotal };
+}
+
+/** One stage row in the `/status` response (and the WS `workers-status` frame). */
+export interface StageStatusRow {
+  name: string;
+  status: StageStatusSnapshot['status'];
+  inFlight: number;
+  configured: number;
+  pending: number;
+  ready: number;
+  blocked: number;
+  dead: number;
+  throughput: number;
+  lastError: string | null;
+  config: WorkerConfig | null;
+  batchSize: number;
+}
+
+export interface WorkersStatusPayload {
+  stages: StageStatusRow[];
+  /** Collection-level count of assets tagged `damaged` (unreadable bytes,
+   * parked out of every stage). Drives the "Damaged" pill in the Workers UI. */
+  damaged: number;
+}
+
+export function buildClaimQuery(
+  name: string,
+  targetVersion: number,
+  dependsOn: Array<{ name: string; minVersion: number }>,
+  inFlight: Set<import('mongodb').ObjectId>,
+): import('mongodb').Filter<Document> {
+  type Document = import('mongodb').Document;
+  type Filter = import('mongodb').Filter<Document>;
+  
+  const filter: Filter = {
+    $or: [
+      { [`stages.${name}.version`]: { $lt: targetVersion } },
+      { [`stages.${name}.version`]: { $exists: false } },
+    ],
+    [`stages.${name}.dead`]: { $ne: true },
+    // Skip assets tagged missing (`missing_since` is an ISO string while tagged,
+    // absent/null otherwise): a tagged asset is parked for EVERY stage until the
+    // missing-reaper resolves it (clears the tag, or hard-deletes the row).
+    missing_since: { $not: { $type: 'string' } },
+    // Skip assets tagged damaged (`damaged.since` is an ISO string while
+    // tagged): the bytes are unreadable, so the file is parked for EVERY stage
+    // until an operator clears the tag from the Workers UI. Same absent/null →
+    // claimable shape as `missing_since`.
+    'damaged.since': { $not: { $type: 'string' } },
+  };
+  for (const dep of dependsOn) {
+    (filter as Record<string, unknown>)[`stages.${dep.name}.version`] = {
+      $gte: dep.minVersion,
+    };
+  }
+  if (inFlight.size > 0) {
+    (filter as Record<string, unknown>)._id = { $nin: [...inFlight] };
+  }
+  return filter;
+}
+
+/**
+ * Resolve the DB-derived half of `/status` through the shared cache. Exposed
+ * so the WS broadcaster (routes/events.ts) reuses the exact same cache + count
+ * queries instead of duplicating ~4×nStages countDocuments per tab.
+ */
+export async function getStatusDbStateCached(
+  stageNames: string[],
+  statuses: Record<string, StageStatusSnapshot>,
+): Promise<StatusDbState> {
+  const cacheKey = statusCacheKey(stageNames, statuses);
+  const now = Date.now();
+  if (statusCache && statusCache.key === cacheKey && statusCache.expiresAt > now) {
+    return statusCache.data;
+  }
+  const dbState = await fetchStatusDbState(stageNames, statuses);
+  statusCache = {
+    key: cacheKey,
+    data: dbState,
+    expiresAt: now + STATUS_CACHE_TTL_MS,
+  };
+  return dbState;
+}
+
+/** Compose the per-stage status rows from the live registry + DB-derived
+ * counts. Pure assembly — no I/O. Shared by the `/status` route and the WS
+ * `workers-status` frame so both render identically. */
+export function assembleWorkersStatus(
+  statuses: Record<string, StageStatusSnapshot>,
+  dbState: StatusDbState,
+): WorkersStatusPayload {
+  const stages = Object.entries(statuses).map(([name, s]) => {
+    const pending = dbState.pendingByStage.get(name) ?? 0;
+    const ready = dbState.readyByStage.get(name) ?? 0;
+    // pending and ready are counted by separate (non-atomic) queries, so
+    // clamp the derived blocked count to avoid a transient negative.
+    const blocked = Math.max(0, pending - ready);
+    const dead = dbState.deadByStage.get(name) ?? 0;
+    const config = dbState.configMap.get(name) ?? null;
+    const configured = config?.concurrency ?? 0;
+    // batchSize is no longer a knob — it's derived as 5×concurrency at the
+    // claim site (#674). Surface the derived value so the UI's
+    // "inFlight / batchSize" cell stays meaningful.
+    const { deriveBatchSize } = require('./run-stage.ts');
+    const batchSize = deriveBatchSize(configured);
+    return {
+      name,
+      status: s.status,
+      inFlight: s.inFlight,
+      configured,
+      pending,
+      ready,
+      blocked,
+      dead,
+      throughput: s.throughput,
+      lastError: s.lastError,
+      config,
+      batchSize,
+    };
+  });
+  return { stages, damaged: dbState.damagedTotal };
+}
+
+/** Full `/status` payload, resolving the DB half through the shared cache. */
+export async function computeWorkersStatus(
+  statuses: Record<string, StageStatusSnapshot>,
+): Promise<WorkersStatusPayload> {
+  const stageNames = Object.keys(statuses);
+  const dbState = await getStatusDbStateCached(stageNames, statuses);
+  return assembleWorkersStatus(statuses, dbState);
+}
