@@ -54,6 +54,42 @@ function toPublicConfig(resolved: ResolvedObservabilityConfig) {
 /** OTLP signals the proxy forwards. Anything else 404s. */
 const OTLP_SIGNALS = new Set(['traces', 'logs', 'metrics']);
 
+/** SigNoz's OTLP/HTTP receiver listens on 4318 by default. A very common
+ * misconfiguration is pointing at the UI/query port (3301/8080) or the gRPC
+ * port (4317), which answer HTTP but are NOT the OTLP/HTTP collector — so an
+ * empty-batch probe gets a 2xx (or an HTML page) and looks "reachable" while no
+ * telemetry is ever ingested. When a probe looks wrong, we surface a hint. */
+const OTLP_HTTP_DEFAULT_PORT = '4318';
+const NON_OTLP_PORTS = new Set(['3301', '8080', '4317', '80', '443']);
+
+/** Build a "did you mean :4318?" recommendation for an endpoint whose port is a
+ * known non-OTLP-HTTP service, or `null` when the port already looks right (or
+ * is absent, so we can't tell). */
+function portRecommendation(endpoint: string): string | null {
+  let port: string;
+  try {
+    port = new URL(endpoint).port;
+  } catch {
+    return null;
+  }
+  if (port === '' || port === OTLP_HTTP_DEFAULT_PORT) return null;
+  if (NON_OTLP_PORTS.has(port)) {
+    return `Port :${port} is not SigNoz's OTLP/HTTP receiver — that's usually the UI/query (3301/8080) or gRPC (4317) port. Use :${OTLP_HTTP_DEFAULT_PORT} for OTLP/HTTP.`;
+  }
+  return `Port :${port} is unusual for OTLP/HTTP — SigNoz's OTLP/HTTP receiver defaults to :${OTLP_HTTP_DEFAULT_PORT}.`;
+}
+
+/** A real OTLP/HTTP receiver answers with an OTLP body (JSON `{}` /
+ * `{"partialSuccess":…}` or protobuf), tagged `application/json` or
+ * `application/x-protobuf`. The SigNoz UI port instead returns `text/html` (the
+ * SPA), which `res.ok` alone can't distinguish from a real accept. Returns
+ * `true` when the response content-type looks like OTLP. */
+function looksLikeOtlpResponse(contentType: string | null): boolean {
+  if (!contentType) return false;
+  const ct = contentType.toLowerCase();
+  return ct.includes('application/json') || ct.includes('application/x-protobuf');
+}
+
 const ConfigBody = t.Object({
   /** Master switch. `null` clears back to env/default; omitted leaves the
    * saved value alone. */
@@ -201,18 +237,51 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
       if (probeKey) {
         headers['signoz-access-token'] = probeKey;
       }
+      const portHint = portRecommendation(validated);
       try {
         const res = await fetch(`${validated}/v1/traces`, {
           method: 'POST',
           headers,
           body: JSON.stringify({ resourceSpans: [] }),
         });
-        return res.ok
-          ? { ok: true, status: res.status }
-          : { ok: false, status: res.status, error: `SigNoz returned HTTP ${res.status}` };
+        const contentType = res.headers.get('content-type');
+
+        if (!res.ok) {
+          // Non-2xx. A 404 most often means "right host, wrong port" — the
+          // endpoint answered HTTP but has no /v1/traces route. Lead with the
+          // port hint when we have one.
+          const base = `SigNoz returned HTTP ${res.status}`;
+          const error =
+            res.status === 404 && portHint
+              ? `${base}. ${portHint}`
+              : portHint
+                ? `${base}. ${portHint}`
+                : base;
+          return { ok: false, status: res.status, error, recommendation: portHint ?? undefined };
+        }
+
+        // 2xx — but a 2xx from the UI/query port (an HTML SPA page) is NOT a
+        // real OTLP accept. Only treat it as success when the response actually
+        // looks like OTLP (JSON / protobuf). Otherwise flag it + recommend 4318.
+        if (!looksLikeOtlpResponse(contentType)) {
+          return {
+            ok: false,
+            status: res.status,
+            error:
+              `Endpoint replied ${res.status} but with "${contentType ?? 'no content-type'}", not an OTLP response — this is probably not SigNoz's OTLP/HTTP receiver. ` +
+              (portHint ?? `SigNoz's OTLP/HTTP receiver defaults to :${OTLP_HTTP_DEFAULT_PORT}.`),
+            recommendation: portHint ?? `Use SigNoz's OTLP/HTTP port :${OTLP_HTTP_DEFAULT_PORT}.`,
+          };
+        }
+        return { ok: true, status: res.status };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        return { ok: false, error: msg };
+        // Connection refused on a wrong port is also a strong signal.
+        return {
+          ok: false,
+          error: portHint ? `${msg}. ${portHint}` : msg,
+          recommendation: portHint ?? undefined,
+        };
       }
     },
     { body: TestBody },
@@ -272,7 +341,8 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
         const res = await fetch(upstreamUrl, {
           method: 'POST',
           headers: fwdHeaders,
-          body: bytes,
+          // `BodyInit` wants an ArrayBuffer-backed view; hand it the buffer.
+          body: bytes.buffer as ArrayBuffer,
         });
         // Mirror the upstream status + body so the client's exporter sees a real
         // OTLP response (it inspects the status to decide retry/drop).

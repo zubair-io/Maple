@@ -18,6 +18,27 @@
 
 const SERVICE_NAME = 'maple-api';
 
+/** SigNoz's OTLP/HTTP receiver defaults to :4318. A wrong port (UI/query 3301/
+ * 8080, or gRPC 4317) answers HTTP but isn't the collector, so exports fail
+ * with a 404 while everything "looks" configured. When a failing endpoint uses
+ * one of those ports we append a "use :4318" hint to the diagnostic. */
+const OTLP_HTTP_DEFAULT_PORT = '4318';
+const NON_OTLP_PORTS = new Set(['3301', '8080', '4317', '80', '443']);
+
+function portHint(endpoint: string): string {
+  let port = '';
+  try {
+    port = new URL(endpoint).port;
+  } catch {
+    return '';
+  }
+  if (port === '' || port === OTLP_HTTP_DEFAULT_PORT) return '';
+  if (NON_OTLP_PORTS.has(port)) {
+    return ` — port :${port} is not SigNoz's OTLP/HTTP receiver (that's usually the UI/query or gRPC port); use :${OTLP_HTTP_DEFAULT_PORT}`;
+  }
+  return ` — port :${port} is unusual for OTLP/HTTP (SigNoz defaults to :${OTLP_HTTP_DEFAULT_PORT})`;
+}
+
 /** Active export target, or `null` when log export is off. */
 interface LogTarget {
   endpoint: string; // no trailing slash
@@ -54,6 +75,34 @@ const FLUSH_MS = 2000;
 
 let buffer: OtlpLogRecord[] = [];
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Diagnostics for a failing export. A logging sink must never throw into the
+// app, but it also must not fail SILENTLY — a swallowed error here is exactly
+// why "no logs in SigNoz" is undebuggable. We surface failures on `console.*`
+// (NOT pino — that would feed back through this very stream and loop), throttled
+// so a persistently-bad endpoint doesn't spam stderr every flush.
+let consecutiveFailures = 0;
+let lastFailureLogMs = 0;
+const FAILURE_LOG_THROTTLE_MS = 30_000;
+
+function reportFailure(detail: string): void {
+  consecutiveFailures += 1;
+  const now = Date.now();
+  // Always log the first failure of a streak immediately; throttle the rest.
+  if (consecutiveFailures === 1 || now - lastFailureLogMs >= FAILURE_LOG_THROTTLE_MS) {
+    lastFailureLogMs = now;
+    console.error(
+      `[otel-logs] SigNoz log export failing (${consecutiveFailures} consecutive): ${detail}`,
+    );
+  }
+}
+
+function reportRecovery(): void {
+  if (consecutiveFailures > 0) {
+    console.error(`[otel-logs] SigNoz log export recovered after ${consecutiveFailures} failures`);
+    consecutiveFailures = 0;
+  }
+}
 
 /** Convert a parsed pino record to an OTLP log record. Non-string attribute
  * values are JSON-stringified so the OTLP/JSON `stringValue` shape always
@@ -114,15 +163,32 @@ export async function flush(): Promise<void> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (t.ingestionKey) headers['signoz-access-token'] = t.ingestionKey;
 
+  const url = `${t.endpoint}/v1/logs`;
   try {
-    await fetch(`${t.endpoint}/v1/logs`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
     });
-  } catch {
-    // Swallow — a logging sink must never throw into the app. The dropped batch
-    // is acceptable (same contract as OTLP BatchLogRecordProcessor on error).
+    if (!res.ok) {
+      // A non-2xx means SigNoz rejected the batch (wrong port/path → 404,
+      // bad/missing key → 401/403, malformed payload → 400). The batch is
+      // dropped (same contract as OTLP BatchLogRecordProcessor), but we make
+      // the failure visible so "no logs in SigNoz" is diagnosable. A 404 is
+      // very often the wrong port, so lead with the :4318 hint.
+      const hint = res.status === 404 ? portHint(t.endpoint) : '';
+      const bodyPreview = (await res.text().catch(() => '')).slice(0, 200);
+      reportFailure(
+        `POST ${url} → HTTP ${res.status}${hint}${bodyPreview ? ` — ${bodyPreview}` : ''}`,
+      );
+    } else {
+      reportRecovery();
+    }
+  } catch (err) {
+    // Transport error (DNS, connection refused, TLS). Never throw into the app
+    // — a logging sink must stay silent to the caller — but surface it on
+    // stderr so a misconfigured endpoint is debuggable.
+    reportFailure(`POST ${url} threw: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
