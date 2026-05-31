@@ -138,7 +138,7 @@ describe('POST /api/imports', () => {
     expect(res.status).toBe(400);
   });
 
-  it('rejects a source that overlaps the target library', async () => {
+  it('rejects a source that is the target library itself', async () => {
     if (!mongoReachable) return;
     // Register a library rooted at the source folder itself, then try to
     // import that same folder into it.
@@ -156,6 +156,29 @@ describe('POST /api/imports', () => {
       library_id: overlapId.toHexString(),
     });
     expect(res.status).toBe(400);
+  });
+
+  it('allows a source that is a PARENT of the target library', async () => {
+    if (!mongoReachable) return;
+    // Library lives in a subfolder of the source. Importing the parent is
+    // fine — the library's own files dedup-skip; this must NOT be blocked
+    // (regression: a parent like `/` was wrongly rejected).
+    const libPath = `${sourceRoot}/Library`;
+    await fs.mkdir(libPath, { recursive: true }); // exists so realpath resolves it
+    const childId = new ObjectId();
+    await db!.collection('folders').insertOne({
+      _id: childId,
+      path: libPath, // inside the source
+      label: 'Child',
+      last_scan: null,
+      file_count: 0,
+      created_at: '2026-05-31T00:00:00Z',
+    } as never);
+    const res = await post('/api/imports', {
+      source_root: sourceRoot,
+      library_id: childId.toHexString(),
+    });
+    expect(res.status).toBe(201);
   });
 
   it('rejects a source that overlaps a library registered via a symlink', async () => {

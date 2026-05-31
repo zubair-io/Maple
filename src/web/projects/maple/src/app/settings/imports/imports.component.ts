@@ -36,14 +36,16 @@ import { SettingsIconComponent } from '../settings-icon.component';
 
 type Step = 'pick' | 'review' | 'progress';
 
-/** True when `a` and `b` are the same dir or one contains the other. */
-function pathsOverlap(a: string, b: string): boolean {
-  const x = a.replace(/\/+$/, '') || '/';
-  const y = b.replace(/\/+$/, '') || '/';
-  if (x === y) return true;
-  const xPrefix = x === '/' ? '/' : x + '/';
-  const yPrefix = y === '/' ? '/' : y + '/';
-  return y.startsWith(xPrefix) || x.startsWith(yPrefix);
+/** True when `source` IS the library or sits INSIDE it. We only block this
+ * direction — a parent of the library (e.g. `/`) is a fine place to browse
+ * from and to import loose files out of; the library's own files dedup-skip.
+ * Blocking ancestors would wrongly flag every folder on the way down from `/`. */
+function isInsideLibrary(source: string, lib: string): boolean {
+  const s = source.replace(/\/+$/, '') || '/';
+  const l = lib.replace(/\/+$/, '') || '/';
+  if (s === l) return true;
+  const lPrefix = l === '/' ? '/' : l + '/';
+  return s.startsWith(lPrefix);
 }
 
 @Component({
@@ -80,11 +82,12 @@ export class ImportsComponent implements OnInit, OnDestroy {
   protected readonly selectedSource = signal<string | null>(null);
 
   /** The folder the picker is sitting in can't be used as the source when it
-   * overlaps the target library (copy-into-self / duplicates). */
+   * is the target library itself or a folder inside it (copy-into-self /
+   * duplicates). Ancestors like `/` are fine. */
   protected readonly currentBlocked = computed(() => {
     const p = this.currentPath();
     const lib = this.libRoot();
-    return !!p && !!lib && pathsOverlap(p, lib);
+    return !!p && !!lib && isInsideLibrary(p, lib);
   });
 
   // --- Scan ----------------------------------------------------------------
