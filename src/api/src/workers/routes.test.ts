@@ -237,3 +237,46 @@ describe('PATCH /api/workers/:name/config', () => {
     expect(String(body.error)).toContain('batchSize');
   });
 });
+
+describe('migration routes', () => {
+  const app = new Elysia().use(workerRoutes());
+
+  it('GET /migration/migrations lists the registry (works without DB)', async () => {
+    const res = await app.handle(new Request('http://localhost/api/workers/migration/migrations'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body.migrations)).toBe(true);
+    const restructure = body.migrations.find(
+      (m: { id: string }) => m.id === 'restructure-backup-folders',
+    );
+    expect(restructure).toBeDefined();
+    expect(restructure).toMatchObject({
+      title: expect.any(String),
+      description: expect.any(String),
+      enabled: expect.any(Boolean),
+      status: expect.any(String),
+    });
+  });
+
+  it('PATCH /migration/migrations/:id → 404 for an unknown migration', async () => {
+    const res = await app.handle(
+      new Request('http://localhost/api/workers/migration/migrations/nope', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled: true }),
+      }),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it('PATCH /migration/migrations/:id → 400 when neither enabled nor reset given', async () => {
+    const res = await app.handle(
+      new Request('http://localhost/api/workers/migration/migrations/restructure-backup-folders', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+});

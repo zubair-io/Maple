@@ -116,6 +116,39 @@ export interface PatchPerformanceResponse {
   pool: FfiPoolStats;
 }
 
+/** One registered migration (GET /api/workers/migration/migrations). */
+export interface MigrationInfo {
+  id: string;
+  title: string;
+  description: string;
+  /** Operator toggle — a migration only runs while enabled. */
+  enabled: boolean;
+  status: 'idle' | 'running' | 'done' | 'error';
+  /** Items moved/deduped since last enabled. */
+  processed: number;
+  errors: number;
+  /** Items still needing transformation. */
+  remaining: number;
+  last_error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface MigrationsResponse {
+  migrations: MigrationInfo[];
+}
+
+/** Persisted per-migration state echoed back by PATCH. */
+export interface MigrationState {
+  enabled: boolean;
+  status: 'idle' | 'running' | 'done' | 'error';
+  processed: number;
+  errors: number;
+  last_error: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class WorkersApiService {
   private readonly http = inject(HttpClient);
@@ -197,5 +230,27 @@ export class WorkersApiService {
     return this.http.patch<PatchPerformanceResponse>(`${this.base}/workers/performance`, {
       ffi_workers: ffiWorkers,
     });
+  }
+
+  /** List the registered one-shot migrations with their state + remaining work. */
+  listMigrations(): Observable<MigrationsResponse> {
+    return this.http.get<MigrationsResponse>(`${this.base}/workers/migration/migrations`);
+  }
+
+  /** Toggle a migration on/off. Enabling arms a fresh run; the worker picks it
+   * up on its next tick (no restart). */
+  setMigrationEnabled(id: string, enabled: boolean): Observable<{ ok: boolean; state: MigrationState }> {
+    return this.http.patch<{ ok: boolean; state: MigrationState }>(
+      `${this.base}/workers/migration/migrations/${encodeURIComponent(id)}`,
+      { enabled },
+    );
+  }
+
+  /** Reset a migration's progress back to idle/disabled. */
+  resetMigration(id: string): Observable<{ ok: boolean; state: MigrationState }> {
+    return this.http.patch<{ ok: boolean; state: MigrationState }>(
+      `${this.base}/workers/migration/migrations/${encodeURIComponent(id)}`,
+      { reset: true },
+    );
   }
 }
