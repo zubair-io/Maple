@@ -18,7 +18,14 @@ describe('isVideoFilename', () => {
   });
 
   it('does not match still-image or RAW extensions', () => {
-    for (const name of ['photo.jpg', 'photo.jpeg', 'scan.tiff', 'frame.heic', 'shot.dng', 'a.cr3']) {
+    for (const name of [
+      'photo.jpg',
+      'photo.jpeg',
+      'scan.tiff',
+      'frame.heic',
+      'shot.dng',
+      'a.cr3',
+    ]) {
       expect(isVideoFilename(name)).toBe(false);
     }
   });
