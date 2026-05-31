@@ -390,6 +390,65 @@ describe('poll loop integration', () => {
     expect(typeof doc.damaged?.since).toBe('string');
   });
 
+  it('tags `damaged` immediately when a handler returns { damaged } (no retries)', async () => {
+    const id = new ObjectId();
+    const images = makeImagesMock([{ _id: id, abs_path: '/empty.dng' } as unknown as ImageDoc]);
+    const configColl = makeConfigMock();
+
+    const testStage = defineStage({
+      name: 'exif',
+      targetVersion: 1,
+      dependsOn: [],
+      tagsDamagedOnDeadLetter: true,
+      defaults: {
+        concurrency: 1,
+        maxAttempts: 5,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      // Deterministically-unreadable: report it instead of throwing 5x.
+      handler: async () => ({ damaged: 'file is empty (0 bytes)' }),
+    });
+
+    const cfg = { concurrency: 1, maxAttempts: 5, paused: false, last_seen_target_version: 1 };
+    // ONE tick is enough — no waiting for maxAttempts.
+    await _test.runOnce(testStage, cfg, images, configColl);
+    const doc = (await images.find({}).toArray())[0] as unknown as ImageDoc;
+    expect(doc.stages?.exif?.dead).toBe(true);
+    expect(doc.damaged?.stage).toBe('exif');
+    expect(doc.damaged?.reason).toBe('file is empty (0 bytes)');
+    expect(typeof doc.damaged?.since).toBe('string');
+  });
+
+  it('rejects a { damaged } result from a stage without tagsDamagedOnDeadLetter', async () => {
+    const id = new ObjectId();
+    const images = makeImagesMock([{ _id: id, abs_path: '/x.jpg' } as unknown as ImageDoc]);
+    const configColl = makeConfigMock();
+
+    const testStage = defineStage({
+      name: 'meili', // not a damage-tagging stage
+      targetVersion: 1,
+      dependsOn: [],
+      defaults: {
+        concurrency: 1,
+        maxAttempts: 2,
+        paused: false,
+        pausedOnFirstBoot: false,
+        last_seen_target_version: 0,
+      },
+      handler: async () => ({ damaged: 'should not be honored' }),
+    });
+
+    const cfg = { concurrency: 1, maxAttempts: 2, paused: false, last_seen_target_version: 1 };
+    // The runner throws inside the work unit (caught → counts as a failed
+    // attempt); the asset is never tagged damaged by a non-damage-tagging stage.
+    await _test.runOnce(testStage, cfg, images, configColl);
+    const doc = (await images.find({}).toArray())[0] as unknown as ImageDoc;
+    expect(doc.damaged ?? null).toBeNull();
+    expect(doc.stages?.meili?.last_error).toMatch(/not a damage-tagging stage/);
+  });
+
   it('does NOT tag `damaged` when the stage lacks tagsDamagedOnDeadLetter', async () => {
     const id = new ObjectId();
     const images = makeImagesMock([{ _id: id, abs_path: '/slow.jpg' } as unknown as ImageDoc]);
