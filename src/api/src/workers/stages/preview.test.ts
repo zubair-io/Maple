@@ -170,6 +170,37 @@ describe('preview handler — bitmap path', () => {
     expect(stat2.mtimeMs).toBe(stat1.mtimeMs);
   });
 
+  it("returns { skip: 'video-file' } for a .MOV and writes no preview", async () => {
+    // A video container can land in a mixed-media library. The handler must
+    // skip it rather than fall through to the copy-as-is path, which would
+    // leave raw .MOV bytes under a .jpg name for the describe stage to ship
+    // to the vision model.
+    const file = path.join(dir, 'IMG_3087.MOV');
+    await writeFile(file, Buffer.from('not really a video, just bytes'));
+
+    // Unique maple_id — the preview cache path is keyed on it, so reusing the
+    // default would collide with previews other tests in this block wrote.
+    const doc = makeDoc(file, libraryId, dir, 'e'.repeat(32));
+    const result = await previewStage.handler(doc as never, {} as never);
+    expect((result as { skip: string }).skip).toBe('video-file');
+
+    // No preview artefact was produced.
+    const { cachePathForAsset } = await import('../../fs/xmp.ts');
+    const previewPath = cachePathForAsset(
+      doc as never,
+      new Map([[libraryId.toHexString(), dir]]),
+      'previews',
+      PREVIEW_SIZE_KEY,
+    );
+    let exists = true;
+    try {
+      await stat(previewPath as string);
+    } catch {
+      exists = false;
+    }
+    expect(exists).toBe(false);
+  });
+
   it('returns { patch: { preview_path } } for a RAW when the FFI is unavailable (soft pass)', async () => {
     // Mirrors the thumb stage test: the handler must never throw when the
     // FFI dylib is absent; downstream stages skip via ENOENT.
