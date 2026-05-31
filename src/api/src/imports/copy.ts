@@ -12,24 +12,27 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { filesIdentical, firstFreeSiblingPath } from '../backup/fs-util.ts';
+import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/fs-util.ts';
 
 let _tmpCounter = 0;
 
 /**
- * Copy `src` to `destAbs` atomically. Creates parent dirs, copies to a temp
- * sibling, fsyncs, then renames into place. Never clobbers via a partial
- * write — the rename is the only moment `destAbs` appears.
+ * Copy `src` to `destAbs` without ever clobbering an existing file. Creates
+ * parent dirs, copies to a temp sibling, fsyncs, then publishes with an
+ * atomic no-clobber step (`link` / `COPYFILE_EXCL` via `moveNoClobber`).
+ *
+ * Returns `true` when the file was published, `false` when `destAbs` was
+ * created by another writer between `resolveDest` and the publish (a
+ * cross-process race). The caller re-resolves a free sibling and retries — a
+ * plain `rename` would silently overwrite the racer's file, violating the
+ * non-destructive invariant. The temp sibling is always cleaned up.
  */
-export async function copyFileAtomic(
-  src: string,
-  destAbs: string,
-): Promise<void> {
+export async function copyFileAtomic(src: string, destAbs: string): Promise<boolean> {
   await fs.mkdir(path.dirname(destAbs), { recursive: true });
   const tmp = `${destAbs}.import.tmp.${process.pid}.${_tmpCounter++}`;
   await fs.copyFile(src, tmp);
-  // Durably flush the copied bytes before the rename so a power loss between
-  // rename and writeback can't surface a zero-length file.
+  // Durably flush the copied bytes before the publish so a power loss can't
+  // surface a zero-length file.
   try {
     const fh = await fs.open(tmp, 'r+');
     try {
@@ -42,10 +45,11 @@ export async function copyFileAtomic(
     // (some network mounts) must not fail the copy.
   }
   try {
-    await fs.rename(tmp, destAbs);
-  } catch (e) {
+    // Links tmp → destAbs (fails EEXIST) then unlinks tmp, so the source
+    // stays untouched and an existing destination is never lost.
+    return await moveNoClobber(tmp, destAbs);
+  } finally {
     await fs.rm(tmp, { force: true });
-    throw e;
   }
 }
 

@@ -22,12 +22,7 @@ import { foldersCollection } from '../db/client.ts';
 import { browseRoots, isUnderRoot } from '../fs/browse.ts';
 import { scanFolder, buildImportFiles } from '../imports/scan.ts';
 import { isSafeLabel } from '../imports/dest.ts';
-import {
-  createImport,
-  getImport,
-  listImports,
-  requestImportCancel,
-} from '../imports/repo.ts';
+import { createImport, getImport, listImports, requestImportCancel } from '../imports/repo.ts';
 
 const KNOWN_STATUSES: ReadonlySet<ImportStatus> = new Set([
   'pending',
@@ -79,14 +74,18 @@ interface ImportView {
   updated_at: string;
 }
 
-function projectImport(doc: ImportWithId): ImportView {
+/** Everything except the per-file `files` array — the only field that grows
+ * with file count. List views and progress polling use this so they never
+ * transfer a tens-of-thousands-entry array. */
+type ImportSummaryView = Omit<ImportView, 'files'>;
+
+function projectImportSummary(doc: ImportWithId): ImportSummaryView {
   return {
     id: doc._id.toHexString(),
     status: doc.status,
     source_root: doc.source_root,
     library_id: doc.library_id.toHexString(),
     library_root: doc.library_root,
-    files: doc.files,
     progress: doc.progress,
     counts: doc.counts,
     error: doc.error,
@@ -94,6 +93,10 @@ function projectImport(doc: ImportWithId): ImportView {
     created_at: doc.created_at,
     updated_at: doc.updated_at,
   };
+}
+
+function projectImport(doc: ImportWithId): ImportView {
+  return { ...projectImportSummary(doc), files: doc.files };
 }
 
 const ScanBody = t.Object({ source_root: t.String() });
@@ -108,6 +111,11 @@ const CreateBody = t.Object({
 const ListQuery = t.Object({
   status: t.Optional(t.String()),
   limit: t.Optional(t.String()),
+});
+
+const DetailQuery = t.Object({
+  /** `1` → return the lightweight summary (no per-file `files` array). */
+  summary: t.Optional(t.String()),
 });
 
 export const importsRoutes = new Elysia({ prefix: '/api/imports' })
@@ -200,23 +208,30 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
         filter.limit = Math.min(200, Math.floor(n));
       }
       const docs = await listImports(filter);
-      return { imports: docs.map(projectImport) };
+      // List omits `files` — only summary fields are needed here.
+      return { imports: docs.map(projectImportSummary) };
     },
     { query: ListQuery },
   )
 
-  .get('/:id', async ({ params, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'Invalid import id' };
-    }
-    const doc = await getImport(new ObjectId(params.id));
-    if (!doc) {
-      set.status = 404;
-      return { error: 'Import not found' };
-    }
-    return projectImport(doc);
-  })
+  .get(
+    '/:id',
+    async ({ params, query, set }) => {
+      if (!ObjectId.isValid(params.id)) {
+        set.status = 400;
+        return { error: 'Invalid import id' };
+      }
+      const doc = await getImport(new ObjectId(params.id));
+      if (!doc) {
+        set.status = 404;
+        return { error: 'Import not found' };
+      }
+      // `?summary=1` returns just status/progress/counts — the shape progress
+      // polling needs, without the (potentially huge) per-file `files` array.
+      return query.summary === '1' ? projectImportSummary(doc) : projectImport(doc);
+    },
+    { query: DetailQuery },
+  )
 
   .post('/:id/cancel', async ({ params, set }) => {
     if (!ObjectId.isValid(params.id)) {

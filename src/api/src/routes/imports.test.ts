@@ -6,14 +6,7 @@
  * rejection + unknown library), list/get/cancel, and bad-ObjectId 400s.
  */
 
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-} from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId, type Db } from 'mongodb';
 import fs from 'node:fs/promises';
@@ -108,17 +101,13 @@ describe('POST /api/imports', () => {
     expect(res.status).toBe(201);
     const { id } = (await res.json()) as { id: string };
 
-    const getRes = await app.handle(
-      new Request(`http://localhost/api/imports/${id}`),
-    );
+    const getRes = await app.handle(new Request(`http://localhost/api/imports/${id}`));
     const doc = (await getRes.json()) as {
       status: string;
       files: { dest: string }[];
     };
     expect(doc.status).toBe('pending');
-    expect(doc.files.some((f) => f.dest === '2024/Spring/IMG_0001.dng')).toBe(
-      true,
-    );
+    expect(doc.files.some((f) => f.dest === '2024/Spring/IMG_0001.dng')).toBe(true);
   });
 
   it('rejects a traversal bucket label server-side', async () => {
@@ -159,27 +148,32 @@ describe('GET/cancel lifecycle', () => {
     });
     const { id } = (await created.json()) as { id: string };
 
-    const list = await app.handle(
-      new Request('http://localhost/api/imports?status=pending'),
-    );
-    const listBody = (await list.json()) as { imports: { id: string }[] };
-    expect(listBody.imports.some((i) => i.id === id)).toBe(true);
+    const list = await app.handle(new Request('http://localhost/api/imports?status=pending'));
+    const listBody = (await list.json()) as {
+      imports: { id: string; files?: unknown }[];
+    };
+    const summary = listBody.imports.find((i) => i.id === id);
+    expect(summary).toBeDefined();
+    // List is a summary — it must NOT carry the per-file array.
+    expect('files' in summary!).toBe(false);
+
+    // ?summary=1 on the detail route is likewise file-free; the plain detail
+    // route still includes files.
+    const polled = await app.handle(new Request(`http://localhost/api/imports/${id}?summary=1`));
+    expect('files' in ((await polled.json()) as object)).toBe(false);
+    const detail = await app.handle(new Request(`http://localhost/api/imports/${id}`));
+    expect('files' in ((await detail.json()) as object)).toBe(true);
 
     const cancel = await post(`/api/imports/${id}/cancel`, {});
     expect(cancel.status).toBe(200);
     expect(((await cancel.json()) as { ok: boolean }).ok).toBe(true);
 
-    const after = await app.handle(
-      new Request(`http://localhost/api/imports/${id}`),
-    );
-    expect(((await after.json()) as { cancel_requested: boolean })
-      .cancel_requested).toBe(true);
+    const after = await app.handle(new Request(`http://localhost/api/imports/${id}`));
+    expect(((await after.json()) as { cancel_requested: boolean }).cancel_requested).toBe(true);
   });
 
   it('400s a bad import id', async () => {
-    const res = await app.handle(
-      new Request('http://localhost/api/imports/not-an-id'),
-    );
+    const res = await app.handle(new Request('http://localhost/api/imports/not-an-id'));
     expect(res.status).toBe(400);
   });
 });

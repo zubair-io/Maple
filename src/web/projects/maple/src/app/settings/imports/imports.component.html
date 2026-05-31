@@ -2,7 +2,10 @@
   <header class="page-header">
     <div class="titles">
       <h1>Imports</h1>
-      <p>Copy a server-local folder — photos, sidecars, and movies — into a library. Originals are never moved.</p>
+      <p>
+        Copy a server-local folder — photos, sidecars, and movies — into a library. Originals are
+        never moved.
+      </p>
     </div>
   </header>
 
@@ -38,7 +41,12 @@
             @if (!listing()) {
               <div class="card-list">
                 @for (lib of libraries(); track lib.id) {
-                  <button type="button" class="row-btn" [disabled]="busy()" (click)="open(lib.path)">
+                  <button
+                    type="button"
+                    class="row-btn"
+                    [disabled]="busy()"
+                    (click)="open(lib.path)"
+                  >
                     <maple-settings-icon name="copy" [size]="14" />
                     <span class="name">{{ lib.label }}</span>
                     <code class="mono dim">{{ lib.path }}</code>
@@ -58,7 +66,12 @@
                   <p class="empty">No subfolders here.</p>
                 }
               </div>
-              <button type="button" class="btn-primary use-here" [disabled]="busy()" (click)="useFolder(currentPath()!)">
+              <button
+                type="button"
+                class="btn-primary use-here"
+                [disabled]="busy()"
+                (click)="useFolder(currentPath()!)"
+              >
                 Use this folder
               </button>
             }
@@ -69,7 +82,11 @@
       @if (selectedSource()) {
         <section>
           <div class="subhead">2 · Target library</div>
-          <select class="lib-select" [ngModel]="targetLibraryId()" (ngModelChange)="targetLibraryId.set($event)">
+          <select
+            class="lib-select"
+            [ngModel]="targetLibraryId()"
+            (ngModelChange)="targetLibraryId.set($event)"
+          >
             <option value="" disabled>Choose a library…</option>
             @for (lib of libraries(); track lib.id) {
               <option [value]="lib.id">{{ lib.label }} — {{ lib.path }}</option>
@@ -120,7 +137,9 @@
         </div>
 
         <div class="actions">
-          <button type="button" class="btn-ghost" [disabled]="busy()" (click)="backToPick()">Back</button>
+          <button type="button" class="btn-ghost" [disabled]="busy()" (click)="backToPick()">
+            Back
+          </button>
           <button type="button" class="btn-primary" [disabled]="busy()" (click)="startImport()">
             {{ busy() ? 'Starting…' : 'Import ' + s.totals.files + ' files' }}
           </button>
@@ -133,23 +152,39 @@
       <section>
         <div class="subhead">Importing</div>
         <div class="progress-wrap">
-          <div class="bar"><div class="fill" [style.width.%]="percent()"></div></div>
+          <div
+            class="bar"
+            role="progressbar"
+            aria-label="Import progress"
+            [attr.aria-valuenow]="percent()"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            [attr.aria-valuetext]="a.progress.current + ' of ' + a.progress.total + ' files'"
+          >
+            <div class="fill" [style.width.%]="percent()"></div>
+          </div>
           <span class="pct">{{ percent() }}%</span>
         </div>
         <p class="summary">
           {{ a.progress.current }} / {{ a.progress.total }} files ·
-          <span class="ok">{{ a.counts.copied }} copied</span> ·
-          {{ a.counts.skipped }} skipped ·
+          <span class="ok">{{ a.counts.copied }} copied</span> · {{ a.counts.skipped }} skipped ·
           <span [class.bad]="a.counts.failed > 0">{{ a.counts.failed }} failed</span>
         </p>
         <p class="status-line">
           Status: <strong>{{ a.status }}</strong>
-          @if (a.error) { <span class="bad"> — {{ a.error }}</span> }
+          @if (a.error) {
+            <span class="bad"> — {{ a.error }}</span>
+          }
         </p>
 
         <div class="actions">
           @if (!terminal()) {
-            <button type="button" class="btn-ghost" [disabled]="a.cancel_requested" (click)="cancel()">
+            <button
+              type="button"
+              class="btn-ghost"
+              [disabled]="a.cancel_requested"
+              (click)="cancel()"
+            >
               {{ a.cancel_requested ? 'Cancelling…' : 'Cancel' }}
             </button>
           } @else {

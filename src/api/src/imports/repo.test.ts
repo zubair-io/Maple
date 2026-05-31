@@ -192,9 +192,7 @@ describe('imports.repo', () => {
   it('assetExistsForHash matches by maple_id and by sha1_head', async () => {
     if (!mongoReachable) return;
     const repo = await import('./repo.ts');
-    await db!
-      .collection('assets')
-      .insertOne({ maple_id: 'mid-1', sha1_head: 'sha-1' });
+    await db!.collection('assets').insertOne({ maple_id: 'mid-1', sha1_head: 'sha-1' });
 
     expect(await repo.assetExistsForHash('mid-1', 'other')).toBe(true);
     expect(await repo.assetExistsForHash('other', 'sha-1')).toBe(true);
