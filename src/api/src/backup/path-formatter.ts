@@ -4,14 +4,16 @@
  * (Phase 2 Task 2.10 adds a parity test that runs identical JSON cases
  * through both implementations and asserts byte-identical output).
  *
- * Layout:
- *   With location:    <year>/<location>/<MM>-<DD>/<filename>
- *   Without location: <year>/<MM>/<DD>/<filename>
+ * Layout (the day-subfolder was dropped in #744 — only the day grouping went;
+ * month stays the grouping level when there's no place):
+ *   With location:    <year>/<location>/<filename>
+ *   Without location: <year>/<MM>/<filename>
  *
  * `/` in the location is replaced with `_` to keep the result a single
  * directory level. An empty / whitespace-only location is treated as null.
  *
- * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9.
+ * Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9;
+ * docs/superpowers/specs/2026-05-31-backup-layout-and-migration-worker.md.
  */
 
 /** Reject filenames that could escape the library root. Allow only a basename
@@ -35,7 +37,6 @@ export function formatBackupPath(args: {
 
   const y = args.captureDate.getUTCFullYear().toString().padStart(4, "0");
   const m = (args.captureDate.getUTCMonth() + 1).toString().padStart(2, "0");
-  const d = args.captureDate.getUTCDate().toString().padStart(2, "0");
 
   let loc: string | null = null;
   if (args.location && args.location.trim().length > 0) {
@@ -46,6 +47,6 @@ export function formatBackupPath(args: {
     }
   }
 
-  if (loc) return `${y}/${loc}/${m}-${d}/${args.filename}`;
-  return `${y}/${m}/${d}/${args.filename}`;
+  if (loc) return `${y}/${loc}/${args.filename}`;
+  return `${y}/${m}/${args.filename}`;
 }

@@ -38,6 +38,7 @@ import {
   BunApiBackendService,
   type DeadDoc,
   type EnrichmentConfigResponse,
+  type MigrationInfo,
   type PerformanceConfig,
   WorkerEventsService,
   WorkersApiService,
@@ -120,6 +121,11 @@ export class WorkersComponent implements OnInit, OnDestroy {
   protected readonly reaperPruneSaveState = signal<SaveState>('idle');
   protected readonly reaperPruneError = signal<string | null>(null);
 
+  protected readonly migrations = signal<MigrationInfo[]>([]);
+  protected readonly migrationsError = signal<string | null>(null);
+  /** Per-migration in-flight flag so a toggle/reset disables its controls. */
+  protected readonly migrationBusy = signal<Record<string, boolean>>({});
+
   protected readonly stages = computed<StageStatus[]>(() => this.status()?.stages ?? []);
   protected readonly groupedStages = computed<
     readonly { group: StageGroup; rows: StageStatus[] }[]
@@ -129,6 +135,7 @@ export class WorkersComponent implements OnInit, OnDestroy {
 
   private statusSub: Subscription | null = null;
   private fallbackSub: Subscription | null = null;
+  private migrationsTimer: ReturnType<typeof setInterval> | null = null;
   private destroyed = false;
   private gotWsFrame = false;
 
@@ -138,6 +145,60 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.fetchEnrichmentConfig();
     this.fetchReaperPruneWindow();
     this.fetchPerformanceConfig();
+    this.fetchMigrations();
+    // Light poll so a running migration's progress (processed/remaining) stays
+    // current without a manual refresh. The WS status frame only carries the
+    // worker row, not per-migration detail.
+    this.migrationsTimer = setInterval(() => this.fetchMigrations(), 4000);
+  }
+
+  private fetchMigrations(): void {
+    if (this.destroyed) return;
+    this.api.listMigrations().subscribe({
+      next: ({ migrations }) => {
+        this.migrations.set(migrations);
+        this.migrationsError.set(null);
+      },
+      error: (err: unknown) => this.migrationsError.set(errorMessage(err)),
+    });
+  }
+
+  private setMigrationBusy(id: string, busy: boolean): void {
+    this.migrationBusy.update((m) => ({ ...m, [id]: busy }));
+  }
+
+  protected migrationIsBusy(id: string): boolean {
+    return this.migrationBusy()[id] ?? false;
+  }
+
+  protected toggleMigration(m: MigrationInfo, event: Event): void {
+    const enabled = (event.target as HTMLInputElement).checked;
+    this.setMigrationBusy(m.id, true);
+    this.api.setMigrationEnabled(m.id, enabled).subscribe({
+      next: () => {
+        this.setMigrationBusy(m.id, false);
+        this.fetchMigrations();
+      },
+      error: (err: unknown) => {
+        this.setMigrationBusy(m.id, false);
+        this.migrationsError.set(errorMessage(err));
+        this.fetchMigrations();
+      },
+    });
+  }
+
+  protected resetMigration(m: MigrationInfo): void {
+    this.setMigrationBusy(m.id, true);
+    this.api.resetMigration(m.id).subscribe({
+      next: () => {
+        this.setMigrationBusy(m.id, false);
+        this.fetchMigrations();
+      },
+      error: (err: unknown) => {
+        this.setMigrationBusy(m.id, false);
+        this.migrationsError.set(errorMessage(err));
+      },
+    });
   }
 
   private fetchReaperPruneWindow(): void {
@@ -233,6 +294,8 @@ export class WorkersComponent implements OnInit, OnDestroy {
     this.statusSub = null;
     this.fallbackSub?.unsubscribe();
     this.fallbackSub = null;
+    if (this.migrationsTimer) clearInterval(this.migrationsTimer);
+    this.migrationsTimer = null;
   }
 
   private subscribeStatus(): void {

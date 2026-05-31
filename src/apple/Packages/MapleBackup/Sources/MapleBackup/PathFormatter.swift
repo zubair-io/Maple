@@ -5,9 +5,10 @@
 // Task 2.10 adds a JSON-driven parity test that runs identical cases
 // through both implementations and asserts byte-identical output.
 //
-// Layout:
-//   With location:    <year>/<location>/<MM>-<DD>/<filename>
-//   Without location: <year>/<MM>/<DD>/<filename>
+// Layout (the day-subfolder was dropped in #744 — only the day grouping went;
+// month stays the grouping level when there's no place):
+//   With location:    <year>/<location>/<filename>
+//   Without location: <year>/<MM>/<filename>
 //
 // `/` in the location is replaced with `_` to keep the result a single
 // directory level. An empty / whitespace-only / `..` / leading-dot location
@@ -57,14 +58,13 @@ public enum PathFormatter {
 
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(secondsFromGMT: 0)!
-        let comps = cal.dateComponents([.year, .month, .day], from: captureDate)
+        let comps = cal.dateComponents([.year, .month], from: captureDate)
         let y = String(format: "%04d", comps.year ?? 0)
         let m = String(format: "%02d", comps.month ?? 0)
-        let d = String(format: "%02d", comps.day ?? 0)
 
         if let loc = sanitizedLocation(location) {
-            return "\(y)/\(loc)/\(m)-\(d)/\(filename)"
+            return "\(y)/\(loc)/\(filename)"
         }
-        return "\(y)/\(m)/\(d)/\(filename)"
+        return "\(y)/\(m)/\(filename)"
     }
 }

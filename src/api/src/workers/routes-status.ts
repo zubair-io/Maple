@@ -201,6 +201,18 @@ export async function fetchStatusDbState(
     }
   }
 
+  // The `migration` worker is likewise not a claim stage. Surface the sum of
+  // remaining work across its ENABLED migrations as `pending` so the Workers UI
+  // shows the live queue instead of 0/0/0 while a migration is running.
+  if (stageNames.includes('migration')) {
+    try {
+      const { migrationPendingCount } = await import('./migration.ts');
+      pendingByStage.set('migration', await migrationPendingCount());
+    } catch (err) {
+      log.warn({ err }, 'could not compute migration pending count — leaving 0');
+    }
+  }
+
   // Collection-level damaged count. `$type: "string"` on `damaged.since`
   // matches exactly the tagged rows (and uses the `damaged_since_1` partial
   // index) — same shape + rationale as the missing-reaper count above.

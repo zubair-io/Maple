@@ -691,3 +691,77 @@
     gap: 4px;
   }
 }
+
+// Migration rows (inline panel in the `migration` worker's expanded row).
+.migration-row {
+  padding: 8px 0;
+  border-bottom: 0.5px solid var(--s-border);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  .migration-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .migration-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+
+    .migration-title {
+      font-size: 13px;
+      color: var(--s-text);
+    }
+  }
+
+  .migration-status {
+    font-family: var(--s-mono);
+    font-size: 11px;
+    color: var(--s-text-dim);
+    text-transform: uppercase;
+
+    &.is-error {
+      color: var(--s-err);
+    }
+  }
+
+  .migration-desc {
+    margin: 2px 0 4px;
+    font-size: 12px;
+    color: var(--s-text-muted);
+  }
+
+  .migration-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--s-text-mid);
+
+    .is-error {
+      color: var(--s-err);
+    }
+  }
+
+  .migration-reset {
+    margin-left: auto;
+    background: none;
+    border: 0.5px solid var(--s-border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    color: var(--s-text-mid);
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+  }
+}
