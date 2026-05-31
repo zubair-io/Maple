@@ -293,6 +293,38 @@ describe('describeHandler — preview missing', () => {
   });
 });
 
+describe('describeHandler — video files are not described', () => {
+  it("returns { skip: 'video-file' } for a .MOV without calling the provider", async () => {
+    const absPath = join(tmpRoot, 'IMG_3087.MOV');
+    // Stage a preview on disk so we prove the skip fires on extension alone,
+    // not because the preview is missing.
+    const doc = stageDoc(absPath);
+    let called = false;
+    const provider: DescribeProvider = {
+      name: 'ollama',
+      async describe(): Promise<DescribeResult> {
+        called = true;
+        throw new Error('provider should not be called for a video file');
+      },
+      async health(): Promise<void> {},
+    };
+    setDescribeDepsForTests({ provider, systemPrompt: 'p', model: 'qwen2.5vl:7b' });
+
+    const result = await describeHandler(doc, fakeCtx);
+    expect((result as { skip: string }).skip).toBe('video-file');
+    expect(called).toBe(false);
+  });
+
+  it('matches the extension case-insensitively (.mp4 lowercase)', async () => {
+    const absPath = join(tmpRoot, 'clip.mp4');
+    const doc = stageDoc(absPath);
+    const provider = mockProvider(new Error('must not run'));
+    setDescribeDepsForTests({ provider, systemPrompt: 'p', model: 'qwen2.5vl:7b' });
+    const result = await describeHandler(doc, fakeCtx);
+    expect((result as { skip: string }).skip).toBe('video-file');
+  });
+});
+
 describe('describeHandler — provider errors', () => {
   it('a retryable RemoteError propagates', async () => {
     const absPath = join(tmpRoot, 'img2.dng');
