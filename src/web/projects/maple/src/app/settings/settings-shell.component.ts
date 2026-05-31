@@ -9,7 +9,13 @@ import { RouterLink } from '@angular/router';
 import { AuthService } from '@maple-common';
 import { SettingsIconComponent, type SettingsIconName } from './settings-icon.component';
 
-export type SettingsSection = 'account' | 'workers' | 'people' | 'users' | 'observability';
+export type SettingsSection =
+  | 'account'
+  | 'workers'
+  | 'imports'
+  | 'people'
+  | 'users'
+  | 'observability';
 
 interface NavItem {
   readonly id: SettingsSection;
@@ -29,6 +35,14 @@ const ITEMS: readonly NavItem[] = [
     link: '/settings/workers',
     ownerOnly: true,
     sub: 'Pipeline + enrichment',
+  },
+  {
+    id: 'imports',
+    label: 'Imports',
+    icon: 'copy',
+    link: '/settings/imports',
+    ownerOnly: true,
+    sub: 'Copy a folder into a library',
   },
   { id: 'people', label: 'People', icon: 'people', link: '/settings/people', ownerOnly: true },
   {
