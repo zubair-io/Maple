@@ -4,10 +4,14 @@
  * Handles caching, DB state fetching, and status assembly for the /status endpoint.
  */
 
-import { type Collection } from 'mongodb';
+import { type Collection, type Document, type Filter } from 'mongodb';
 import { getDb } from '../db/client.ts';
-import { WorkerConfigDoc, sanitizeWorkerConfig } from './worker-config.repo.ts';
+import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
+import { buildClaimQuery } from './run-stage.ts';
+import { deriveBatchSize } from './loop-policy.ts';
+import { ALL_STAGE_NAMES } from './stages/manifest.ts';
+import { stageRegistry } from './registry.ts';
 import type { StageStatusSnapshot } from './registry.ts';
 import { child } from '../log.ts';
 
@@ -19,7 +23,7 @@ const log = child('workers:routes:status');
 // the pending / dead `countDocuments` below is meaningless for them — and the
 // `version: { $exists: false }` branch would match the ENTIRE collection. Gate
 // the counts to real claim stages; everything else reports pending/dead 0.
-export const CLAIM_STAGE_NAMES = new Set<string>();
+export const CLAIM_STAGE_NAMES = new Set<string>(ALL_STAGE_NAMES);
 
 export const DEAD_LIST_LIMIT_DEFAULT = 50;
 export const DEAD_LIST_LIMIT_MAX = 500;
@@ -236,42 +240,6 @@ export interface WorkersStatusPayload {
   damaged: number;
 }
 
-export function buildClaimQuery(
-  name: string,
-  targetVersion: number,
-  dependsOn: Array<{ name: string; minVersion: number }>,
-  inFlight: Set<import('mongodb').ObjectId>,
-): import('mongodb').Filter<Document> {
-  type Document = import('mongodb').Document;
-  type Filter = import('mongodb').Filter<Document>;
-
-  const filter: Filter = {
-    $or: [
-      { [`stages.${name}.version`]: { $lt: targetVersion } },
-      { [`stages.${name}.version`]: { $exists: false } },
-    ],
-    [`stages.${name}.dead`]: { $ne: true },
-    // Skip assets tagged missing (`missing_since` is an ISO string while tagged,
-    // absent/null otherwise): a tagged asset is parked for EVERY stage until the
-    // missing-reaper resolves it (clears the tag, or hard-deletes the row).
-    missing_since: { $not: { $type: 'string' } },
-    // Skip assets tagged damaged (`damaged.since` is an ISO string while
-    // tagged): the bytes are unreadable, so the file is parked for EVERY stage
-    // until an operator clears the tag from the Workers UI. Same absent/null →
-    // claimable shape as `missing_since`.
-    'damaged.since': { $not: { $type: 'string' } },
-  };
-  for (const dep of dependsOn) {
-    (filter as Record<string, unknown>)[`stages.${dep.name}.version`] = {
-      $gte: dep.minVersion,
-    };
-  }
-  if (inFlight.size > 0) {
-    (filter as Record<string, unknown>)._id = { $nin: [...inFlight] };
-  }
-  return filter;
-}
-
 /**
  * Resolve the DB-derived half of `/status` through the shared cache. Exposed
  * so the WS broadcaster (routes/events.ts) reuses the exact same cache + count
@@ -314,7 +282,6 @@ export function assembleWorkersStatus(
     // batchSize is no longer a knob — it's derived as 5×concurrency at the
     // claim site (#674). Surface the derived value so the UI's
     // "inFlight / batchSize" cell stays meaningful.
-    const { deriveBatchSize } = require('./run-stage.ts');
     const batchSize = deriveBatchSize(configured);
     return {
       name,
@@ -335,9 +302,8 @@ export function assembleWorkersStatus(
 }
 
 /** Full `/status` payload, resolving the DB half through the shared cache. */
-export async function computeWorkersStatus(
-  statuses: Record<string, StageStatusSnapshot>,
-): Promise<WorkersStatusPayload> {
+export async function computeWorkersStatus(): Promise<WorkersStatusPayload> {
+  const statuses = stageRegistry.statuses();
   const stageNames = Object.keys(statuses);
   const dbState = await getStatusDbStateCached(stageNames, statuses);
   return assembleWorkersStatus(statuses, dbState);

@@ -14,7 +14,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import { type Filter, type ObjectId } from 'mongodb';
+import { type Filter, ObjectId } from 'mongodb';
 import { getDb } from '../db/client.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import {
@@ -34,7 +34,6 @@ import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { loadPruneWindowHours, savePruneWindowHours } from './missing-reaper-config.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { child } from '../log.ts';
 import {
   CLAIM_STAGE_NAMES,
@@ -65,8 +64,7 @@ export function workerRoutes(): Elysia {
       // ── Status ─────────────────────────────────────────────────────────────
 
       .get('/status', async () => {
-        const statuses = stageRegistry.statuses();
-        return computeWorkersStatus(statuses);
+        return computeWorkersStatus();
       })
 
       // Missing-reaper prune window (hours an original must be missing before the
