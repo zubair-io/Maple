@@ -37,18 +37,9 @@ export interface ImportScanResult {
   };
 }
 
-export type ImportStatus =
-  | 'pending'
-  | 'running'
-  | 'done'
-  | 'failed'
-  | 'cancelled';
+export type ImportStatus = 'pending' | 'running' | 'done' | 'failed' | 'cancelled';
 
-export type ImportFileState =
-  | 'pending'
-  | 'copied'
-  | 'skipped_duplicate'
-  | 'failed';
+export type ImportFileState = 'pending' | 'copied' | 'skipped_duplicate' | 'failed';
 
 export interface ImportFileEntry {
   src: string;
@@ -60,19 +51,25 @@ export interface ImportFileEntry {
   error: string | null;
 }
 
-export interface ImportView {
+/** List + progress-poll shape: everything except the per-file `files` array
+ * (the only field that grows with file count). */
+export interface ImportSummary {
   id: string;
   status: ImportStatus;
   source_root: string;
   library_id: string;
   library_root: string;
-  files: ImportFileEntry[];
   progress: { current: number; total: number };
   counts: { copied: number; skipped: number; failed: number };
   error: string | null;
   cancel_requested: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** Full detail shape — adds the per-file `files` array to the summary. */
+export interface ImportView extends ImportSummary {
+  files: ImportFileEntry[];
 }
 
 export interface CreateImportBody {
@@ -99,12 +96,12 @@ export class ImportsApiService {
     return this.http.post<{ id: string }>(`${this.base}/imports`, body);
   }
 
-  /** GET /api/imports — list imports (newest first). */
-  list(status?: ImportStatus, limit?: number): Observable<{ imports: ImportView[] }> {
+  /** GET /api/imports — list imports (newest first). Summaries only. */
+  list(status?: ImportStatus, limit?: number): Observable<{ imports: ImportSummary[] }> {
     let params = new HttpParams();
     if (status) params = params.set('status', status);
     if (limit !== undefined) params = params.set('limit', String(limit));
-    return this.http.get<{ imports: ImportView[] }>(`${this.base}/imports`, {
+    return this.http.get<{ imports: ImportSummary[] }>(`${this.base}/imports`, {
       params,
     });
   }
@@ -114,11 +111,16 @@ export class ImportsApiService {
     return this.http.get<ImportView>(`${this.base}/imports/${id}`);
   }
 
+  /** GET /api/imports/:id?summary=1 — lightweight status/progress for polling
+   * (no per-file `files` array, so a large import doesn't re-transfer MBs). */
+  poll(id: string): Observable<ImportSummary> {
+    return this.http.get<ImportSummary>(`${this.base}/imports/${id}`, {
+      params: new HttpParams().set('summary', '1'),
+    });
+  }
+
   /** POST /api/imports/:id/cancel — request cancel (between-files). */
   cancel(id: string): Observable<{ ok: boolean }> {
-    return this.http.post<{ ok: boolean }>(
-      `${this.base}/imports/${id}/cancel`,
-      {},
-    );
+    return this.http.post<{ ok: boolean }>(`${this.base}/imports/${id}/cancel`, {});
   }
 }
