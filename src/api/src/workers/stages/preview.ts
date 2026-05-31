@@ -22,7 +22,8 @@
  */
 import { generatePreview, resolvePreviewPath, PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
-import { assetAbsPath } from '../../indexer/images.repo.ts';
+import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { isVideoFilename } from '../../indexer/media-types.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { defineStage, runStage, type RunStageHandle, type StageResult } from '../run-stage.ts';
 
@@ -47,6 +48,16 @@ const previewStage = defineStage({
     last_seen_target_version: 0,
   },
   handler: async (image): Promise<StageResult> => {
+    // Video containers have no still frame to render. Without this guard the
+    // fall-through in `generatePreview` copies the source bytes verbatim,
+    // leaving a ".jpg" preview that is really raw .MOV data — which the
+    // describe stage would then ship to the vision model. Skip terminally;
+    // the describe stage carries the same guard as defense in depth.
+    const primary = assetPrimaryFileInfo(image as never);
+    if (primary && isVideoFilename(primary.filename)) {
+      return { skip: 'video-file' };
+    }
+
     // Let `loadLibraryRoots()` errors propagate — a transient DB hiccup
     // would otherwise yield an empty libs map, which would make
     // `assetAbsPath` return null and trip the no-resolvable-location skip

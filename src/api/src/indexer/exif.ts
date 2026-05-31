@@ -16,6 +16,7 @@ import type { AssetExif } from '../db/schema.ts';
 import exifr from 'exifr';
 import { readHeicExifTiff } from './heic-exif.ts';
 import { readWebpExifTiff } from './webp-exif.ts';
+import { VIDEO_EXTS } from './media-types.ts';
 
 /** HEIC/HEIF containers — exifr's `canHandle` rejects modern (>50-byte ftyp)
  * variants, so these go through our own box walker in `heic-exif.ts`, which
@@ -44,16 +45,10 @@ const WEBP_EXTS = new Set(['.webp']);
  *     directly and is deliberately NOT here.)
  */
 const NO_EXIF_EXTS = new Set([
-  // Video
-  '.mov',
-  '.mp4',
-  '.m4v',
-  '.avi',
-  '.mkv',
-  '.webm',
-  '.mts',
-  '.m2ts',
-  '.3gp',
+  // Video containers — never carried EXIF the exif stage reads. Sourced from
+  // the shared VIDEO_EXTS set so the describe / preview / exif stages can't
+  // disagree on what counts as a video.
+  ...VIDEO_EXTS,
   // Raster formats with no usable EXIF and no exifr parser
   '.gif',
   '.bmp',
