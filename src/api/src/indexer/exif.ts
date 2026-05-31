@@ -10,6 +10,7 @@
  * on parsing only.
  */
 
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { AssetExif } from '../db/schema.ts';
 import exifr from 'exifr';
@@ -27,6 +28,38 @@ const HEIC_EXTS = new Set(['.heic', '.heif']);
  * RIFF walker in `webp-exif.ts`, which slices the embedded TIFF and feeds it
  * back to exifr (same strategy as HEIC). */
 const WEBP_EXTS = new Set(['.webp']);
+
+/** RAW / TIFF containers, which we hand to exifr as a fully-read Buffer rather
+ * than a file path.
+ *
+ * When given a path, exifr uses its chunked file reader: it lazily reads only
+ * a small first chunk and fetches more on demand. On large TIFF-based RAWs
+ * (notably DJI DNGs) a top-level IFD pointer or a tag value offset can
+ * reference bytes the chunked reader never fetched, and exifr then dereferences
+ * an absent chunk — surfacing as `undefined is not an object (evaluating
+ * 'this.dataView.getUint16')`. That is deterministic, so the stage retries five
+ * times and dead-letters the asset with no metadata.
+ *
+ * Reading the whole file and passing the Buffer makes exifr operate over a
+ * single complete DataView (no chunked reader at all), which side-steps the
+ * crash. It is the same "feed exifr a buffer" strategy the HEIC/WebP paths
+ * already use. JPEG/PNG keep the cheaper chunked path — the bug is specific to
+ * the multi-IFD TIFF layout RAWs carry, and RAWs are big enough that exifr's
+ * lazy reader was never saving us much here anyway. */
+const RAW_TIFF_EXTS = new Set([
+  '.dng',
+  '.cr2',
+  '.cr3',
+  '.nef',
+  '.arw',
+  '.raf',
+  '.orf',
+  '.rw2',
+  '.pef',
+  '.srw',
+  '.tif',
+  '.tiff',
+]);
 
 /** Extensions with no extractable EXIF that we nonetheless ingest (via the
  * backup route, which has no extension filter, or a library that holds mixed
@@ -231,6 +264,15 @@ export async function readExif(absPath: string): Promise<AssetExif | null> {
     const tiff = await readWebpExifTiff(absPath);
     if (!tiff) return null;
     const raw = (await exifr.parse(tiff, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
+    return raw ? normalizeExif(raw) : null;
+  }
+
+  if (RAW_TIFF_EXTS.has(ext)) {
+    // Feed exifr a complete Buffer instead of the path — see RAW_TIFF_EXTS.
+    // A failed read (missing/half-copied file) throws, which is retryable and
+    // matches the rethrow contract above.
+    const buf = await fs.readFile(absPath);
+    const raw = (await exifr.parse(buf, EXIFR_PARSE_OPTS)) as LooseRecord | undefined;
     return raw ? normalizeExif(raw) : null;
   }
 
