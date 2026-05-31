@@ -94,11 +94,14 @@ export class ImportsPanelService {
     this.detailLoading.set(true);
     this.api.get(id).subscribe({
       next: (doc) => {
+        // Ignore a late response for a row the user already collapsed or
+        // swapped — it must not clear a newer expansion's loading state.
+        if (this.expandedId() !== id) return;
         this.detailLoading.set(false);
-        // Ignore a late response for a row the user already collapsed.
-        if (this.expandedId() === id) this.detail.set(doc);
+        this.detail.set(doc);
       },
       error: (e: unknown) => {
+        if (this.expandedId() !== id) return;
         this.detailLoading.set(false);
         this.error.set(e instanceof Error ? e.message : String(e));
       },

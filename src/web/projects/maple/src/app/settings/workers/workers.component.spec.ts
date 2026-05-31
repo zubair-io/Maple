@@ -187,7 +187,18 @@ describe('WorkersComponent', () => {
     http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
     http.expectOne('/api/workers/missing-reaper/prune-window').flush(MOCK_PRUNE);
     http.expectOne('/api/workers/performance').flush(MOCK_PERF);
+    flushPanelPolls();
     fixture.detectChanges();
+  }
+
+  /** Flush the one-shot GETs the side panels fire on init, so
+   * HttpTestingController.verify() is satisfied at teardown:
+   *   - Migrations panel (#748): the registry list.
+   *   - Imports group (#761): the library-label fetch + the job list. */
+  function flushPanelPolls(): void {
+    http.expectOne('/api/workers/migration/migrations').flush({ migrations: [] });
+    http.expectOne('/api/folders').flush([]);
+    http.expectOne('/api/imports?limit=25').flush({ imports: [] });
   }
 
   it('renders one row per stage from the WS status frame', () => {
@@ -339,10 +350,14 @@ describe('WorkersComponent', () => {
     http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
     http.expectOne('/api/workers/missing-reaper/prune-window').flush(MOCK_PRUNE);
     http.expectOne('/api/workers/performance').flush(MOCK_PERF);
+    flushPanelPolls();
     fixture.detectChanges();
 
     const rows = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
-    expect(rows.length).toBe(3);
+    // MOCK_STATUS has 4 stages (hash/preview/face/describe); the uncounted
+    // cheap snapshot is replaced by the fallback, so all 4 render. (The `3`
+    // here predated the `preview` stage being added to MOCK_STATUS.)
+    expect(rows.length).toBe(4);
     const hashRow = Array.from<HTMLElement>(rows).find((r) => r.textContent?.includes('hash'))!;
     // Real configured value from the fallback, not the cheap snapshot's 0.
     expect(hashRow.querySelector('[data-testid="workers"]')?.textContent?.trim()).toBe('4');
@@ -509,6 +524,7 @@ describe('WorkersComponent', () => {
     http
       .expectOne('/api/workers/performance')
       .flush({ error: 'not found' }, { status: 404, statusText: 'Not Found' });
+    flushPanelPolls();
     fixture.detectChanges();
     expandPreviewRow();
     expect(fixture.nativeElement.querySelector('#ffi-workers-input')).toBeNull();
