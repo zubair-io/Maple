@@ -358,14 +358,15 @@ export async function runOnce(
         );
       } else if ('damaged' in result) {
         // Deterministically-unreadable bytes (the handler already knows retries
-        // are futile). Land in exactly the state the dead-letter path would
-        // after maxAttempts: this stage marked dead, and the asset tagged
-        // `damaged` so it parks out of every stage's claim query and shows up
-        // in the Workers "Damaged" list. We do NOT bump version — if an
-        // operator clears the tag (which resets dead/attempts on the
-        // damage-tagging stages), the asset reprocesses from here. Guarded on
-        // `tagsDamagedOnDeadLetter` so a stage whose state the clear path
-        // doesn't reset can't strand the asset.
+        // are futile). Mark this stage dead after its single attempt and tag
+        // the asset `damaged` so it parks out of every stage's claim query and
+        // shows up in the Workers "Damaged" list. We record `attempts: 1` (it
+        // was processed once and classified, not retried to exhaustion) and
+        // rely on `dead: true` + the damaged tag to park it. We do NOT bump
+        // version — if an operator clears the tag (which resets dead/attempts
+        // on the damage-tagging stages), the asset reprocesses from here.
+        // Guarded on `tagsDamagedOnDeadLetter` so a stage whose state the clear
+        // path doesn't reset can't strand the asset.
         if (!stage.tagsDamagedOnDeadLetter) {
           throw new Error(
             `stage '${stage.name}' returned { damaged } but is not a damage-tagging stage`,
@@ -375,7 +376,7 @@ export async function runOnce(
           { _id: id },
           {
             $set: {
-              [`stages.${stage.name}.attempts`]: config.maxAttempts,
+              [`stages.${stage.name}.attempts`]: 1,
               [`stages.${stage.name}.last_error`]: result.damaged,
               [`stages.${stage.name}.dead`]: true,
             },
