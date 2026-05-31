@@ -32,7 +32,11 @@
  */
 
 import { child as childLogger } from '../log.ts';
-import { loadEnrichmentConfig, resolveEnrichmentConfig } from './enrichment-config.repo.ts';
+import {
+  loadEnrichmentConfig,
+  resolveEnrichmentConfig,
+  type ResolvedEnrichmentConfig,
+} from './enrichment-config.repo.ts';
 import { preloadFaceModelsOffThread } from './face-pool.ts';
 import { workerConfigCollection } from '../db/client.ts';
 
@@ -97,8 +101,27 @@ async function applyPausedToFaceStages(paused: boolean): Promise<void> {
  * Never throws — a missing model is a non-fatal warning; the stage handler
  * will encounter the error on first inference and dead-letter that asset. */
 export async function startFaceWorker(): Promise<null> {
-  const dbConfig = await loadEnrichmentConfig();
-  const resolved = resolveEnrichmentConfig(dbConfig);
+  // `loadEnrichmentConfig` reads the DB-backed enrichment row; `resolveEnrichmentConfig`
+  // folds it together with env fallbacks. Both can throw — `loadEnrichmentConfig` if Mongo
+  // is unreachable mid-boot (it guards internally today, but that's an implementation
+  // detail this contract must not depend on), and `resolveEnrichmentConfig` on a malformed
+  // config. This function is documented "Never throws", and the `index.ts` call site treats
+  // a face bootstrap failure as isolated/non-fatal (log + continue). Catch here, log, and
+  // leave the worker disabled by returning — identical to how the preload path below logs
+  // and falls through on failure. Don't coerce the error into `null` and continue:
+  // `resolveEnrichmentConfig(null)` is the legitimate "no DB row, use env" path, so feeding
+  // a Mongo-down boot into it could route an env-enabled preload; a throw means "leave
+  // disabled and return."
+  let resolved: ResolvedEnrichmentConfig;
+  try {
+    resolved = resolveEnrichmentConfig(await loadEnrichmentConfig());
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      'face_bootstrap: failed to load enrichment config; leaving face worker disabled. Fix via /settings/enrichment.',
+    );
+    return null;
+  }
 
   if (!resolved.face_worker_enabled) {
     log.info('face_bootstrap: face_worker_enabled=false; skipping model preload');
