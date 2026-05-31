@@ -184,7 +184,9 @@ describe('preview handler — bitmap path', () => {
     const result = await previewStage.handler(doc as never, {} as never);
     expect((result as { skip: string }).skip).toBe('video-file');
 
-    // No preview artefact was produced.
+    // No preview artefact was produced — assert the stat rejects with ENOENT
+    // specifically, so an unexpected error (permissions, transient FS) fails
+    // the test loudly instead of masquerading as "file absent".
     const { cachePathForAsset } = await import('../../fs/xmp.ts');
     const previewPath = cachePathForAsset(
       doc as never,
@@ -192,13 +194,11 @@ describe('preview handler — bitmap path', () => {
       'previews',
       PREVIEW_SIZE_KEY,
     );
-    let exists = true;
-    try {
-      await stat(previewPath as string);
-    } catch {
-      exists = false;
-    }
-    expect(exists).toBe(false);
+    const err = await stat(previewPath as string).then(
+      () => null,
+      (e: NodeJS.ErrnoException) => e,
+    );
+    expect(err?.code).toBe('ENOENT');
   });
 
   it('returns { patch: { preview_path } } for a RAW when the FFI is unavailable (soft pass)', async () => {
