@@ -19,7 +19,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, firstValueFrom } from 'rxjs';
+import { Observable, firstValueFrom, map } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 
 export interface FsDirEntry {
@@ -64,6 +64,12 @@ export class FilesystemBrowseService {
   listDir(absPath: string): Observable<FsDirListing> {
     const params = new HttpParams().set('path', absPath);
     return this.http.get<FsDirListing>(`${this.base}/fs/dir-fast`, { params });
+  }
+
+  /** GET /api/fs/roots — the MAPLE_ROOTS jail roots (default `["/"]`). A
+   * picker starts browsing here instead of at a registered library. */
+  roots(): Observable<string[]> {
+    return this.http.get<{ roots: string[] }>(`${this.base}/fs/roots`).pipe(map((r) => r.roots));
   }
 
   /**

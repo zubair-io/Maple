@@ -65,6 +65,12 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
       }),
     },
   )
+  // GET /api/fs/roots — the MAPLE_ROOTS jail roots (default ["/"]). Lets a
+  // picker start browsing at the configured filesystem root instead of a
+  // registered library.
+  .get('/roots', async () => {
+    return { roots: await browseRoots() };
+  })
   .get(
     '/dir',
     async ({ query, headers, set }) => {
