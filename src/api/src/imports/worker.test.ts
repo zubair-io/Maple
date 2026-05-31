@@ -218,6 +218,48 @@ describe('ImportRunner.tick', () => {
     expect(doc.counts).toEqual({ copied: 0, skipped: 2, failed: 0 });
   });
 
+  it('keeps a sidecar paired to its image after a collision rename', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+    const src = await stageSources('collide', ['IMG.dng', 'IMG.xmp']);
+    const lib = path.join(tmp, 'collide', 'lib');
+    // A DIFFERENT photo already occupies the computed image path.
+    await fs.mkdir(path.join(lib, '2024/03'), { recursive: true });
+    await fs.writeFile(path.join(lib, '2024/03/IMG.dng'), 'a different photo');
+
+    await repo.createImport({
+      source_root: path.join(tmp, 'collide', 'src'),
+      library_id: new ObjectId(),
+      library_root: lib,
+      files: [
+        entry(src['IMG.xmp'], '2024/03/IMG.xmp', 'sidecar'),
+        entry(src['IMG.dng'], '2024/03/IMG.dng', 'image'),
+      ],
+    });
+
+    const handed: string[] = [];
+    const runner = new ImportRunner({
+      workerId: 'w-collide',
+      deps: {
+        assetExistsForHash: async () => false,
+        handleEvent: async (ev) => {
+          handed.push((ev as { absPath: string }).absPath);
+        },
+      },
+    });
+    expect((await runner.tick()).kind).toBe('done');
+
+    // Image renamed to IMG-1.dng; the sidecar follows to IMG-1.xmp, NOT IMG.xmp.
+    expect(await fs.readFile(path.join(lib, '2024/03/IMG-1.dng'), 'utf8')).toBe(
+      'bytes-collide-IMG.dng',
+    );
+    expect(await fs.readFile(path.join(lib, '2024/03/IMG-1.xmp'), 'utf8')).toBe(
+      'bytes-collide-IMG.xmp',
+    );
+    await expect(fs.stat(path.join(lib, '2024/03/IMG.xmp'))).rejects.toThrow();
+    expect(handed).toEqual([path.join(lib, '2024/03/IMG-1.dng')]);
+  });
+
   it('cancels between files, leaving already-copied files in place', async () => {
     if (!mongoReachable) return;
     const repo = await import('./repo.ts');
