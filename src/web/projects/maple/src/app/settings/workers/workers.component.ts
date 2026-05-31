@@ -46,6 +46,7 @@ import {
 } from '@maple-common';
 import { DamagedPanelService } from './damaged-panel.service';
 import { MigrationPanelService } from './migration-panel.service';
+import { ImportsPanelComponent } from './imports-panel.component';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import {
@@ -75,7 +76,13 @@ import {
 @Component({
   selector: 'maple-workers-settings',
   standalone: true,
-  imports: [DecimalPipe, FormsModule, SettingsShellComponent, SettingsIconComponent],
+  imports: [
+    DecimalPipe,
+    FormsModule,
+    SettingsShellComponent,
+    SettingsIconComponent,
+    ImportsPanelComponent,
+  ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
   providers: [DamagedPanelService, MigrationPanelService],
