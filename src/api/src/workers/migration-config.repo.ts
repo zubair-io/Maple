@@ -102,7 +102,9 @@ export async function patchMigrationState(
   for (const [k, v] of Object.entries(partial)) set[`migrations.${id}.${k}`] = v;
   if (Object.keys(set).length === 0) return;
   const db = await getDb();
-  await db.collection<MigrationDoc>(COLL).updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
+  await db
+    .collection<MigrationDoc>(COLL)
+    .updateOne({ _id: DOC_ID }, { $set: set }, { upsert: true });
 }
 
 /**
