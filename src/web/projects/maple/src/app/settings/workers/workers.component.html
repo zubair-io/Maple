@@ -254,6 +254,58 @@
                   </div>
                 }
 
+                @if (s.name === 'migration') {
+                  <div class="block">
+                    <div class="subhead">Migrations</div>
+                    @if (migrationsError(); as msg) {
+                      <p class="save-error">{{ msg }}</p>
+                    }
+                    @for (m of migrations(); track m.id) {
+                      <div class="migration-row" [attr.data-testid]="'migration-' + m.id">
+                        <div class="migration-main">
+                          <label class="migration-toggle">
+                            <input
+                              type="checkbox"
+                              [checked]="m.enabled"
+                              [disabled]="migrationIsBusy(m.id)"
+                              (change)="toggleMigration(m, $event)"
+                              [attr.data-testid]="'migration-toggle-' + m.id"
+                            />
+                            <span class="migration-title">{{ m.title }}</span>
+                          </label>
+                          <span class="migration-status" [class.is-error]="m.status === 'error'">
+                            {{ m.status }}
+                          </span>
+                        </div>
+                        <div class="migration-desc">{{ m.description }}</div>
+                        <div class="migration-progress">
+                          <span>{{ m.processed | number }} processed</span>
+                          <span>{{ m.remaining | number }} remaining</span>
+                          @if (m.errors > 0) {
+                            <span class="is-error">{{ m.errors | number }} errors</span>
+                          }
+                          @if (m.processed > 0 || m.status !== 'idle') {
+                            <button
+                              type="button"
+                              class="migration-reset"
+                              [disabled]="migrationIsBusy(m.id)"
+                              (click)="resetMigration(m)"
+                              [attr.data-testid]="'migration-reset-' + m.id"
+                            >
+                              Reset
+                            </button>
+                          }
+                        </div>
+                        @if (m.last_error) {
+                          <div class="save-error">{{ m.last_error }}</div>
+                        }
+                      </div>
+                    } @empty {
+                      <p class="field-hint">No migrations registered.</p>
+                    }
+                  </div>
+                }
+
                 @if (meta(s).enrichment) {
                   <div class="block">
                     <div class="subhead">

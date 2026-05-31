@@ -269,7 +269,7 @@ private struct BackupPathPreview: View {
     let formatted = (try? PathFormatter.format(
       captureDate: sampleDate,
       location: "Tokyo",
-      filename: "IMG_0420.HEIC")) ?? "2024/Tokyo/03-15/IMG_0420.HEIC"
+      filename: "IMG_0420.HEIC")) ?? "2024/Tokyo/IMG_0420.HEIC"
     let trail = rootFolder.isEmpty ? formatted : "\(rootFolder)/\(formatted)"
 
     return VStack(alignment: .leading, spacing: 4) {

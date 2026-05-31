@@ -32,6 +32,12 @@ import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { loadPruneWindowHours, savePruneWindowHours } from './missing-reaper-config.repo.ts';
+import { MIGRATIONS, getMigration } from './migration/index.ts';
+import {
+  loadMigrationState,
+  setMigrationEnabled,
+  resetMigrationState,
+} from './migration-config.repo.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { child } from '../log.ts';
@@ -86,6 +92,80 @@ export function workerRoutes(): Elysia {
           }
         },
         { body: t.Object({ hours: t.Number({ minimum: 1, maximum: 8760 }) }) },
+      )
+
+      // ── Migrations ────────────────────────────────────────────────────────
+      // The `migration` worker owns a registry of named one-shot migrations,
+      // each with its own enable toggle surfaced in /settings/workers. Listing
+      // merges the static registry (id/title/description) with persisted state
+      // (enabled/status/progress) and a live `remaining` count.
+
+      .get('/migration/migrations', async ({ set }) => {
+        try {
+          const migrations = await Promise.all(
+            MIGRATIONS.map(async (m) => {
+              const state = await loadMigrationState(m.id);
+              let remaining = 0;
+              try {
+                remaining = await m.countRemaining();
+              } catch {
+                /* best-effort — surface 0 if the count query fails */
+              }
+              return {
+                id: m.id,
+                title: m.title,
+                description: m.description,
+                enabled: state.enabled,
+                status: state.status,
+                processed: state.processed,
+                errors: state.errors,
+                remaining,
+                last_error: state.last_error,
+                started_at: state.started_at,
+                finished_at: state.finished_at,
+              };
+            }),
+          );
+          return { migrations };
+        } catch (err) {
+          set.status = 500;
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      })
+
+      // Toggle a migration on/off (enabling arms a fresh run) or reset its
+      // progress back to idle. The worker re-reads state each tick, so the
+      // change takes effect on the next pass without a restart.
+      .patch(
+        '/migration/migrations/:id',
+        async ({ params, body, set }) => {
+          if (!getMigration(params.id)) {
+            set.status = 404;
+            return { error: `unknown migration: ${params.id}` };
+          }
+          const { enabled, reset } = body as { enabled?: boolean; reset?: boolean };
+          try {
+            if (reset) {
+              const state = await resetMigrationState(params.id);
+              return { ok: true, state };
+            }
+            if (typeof enabled === 'boolean') {
+              const state = await setMigrationEnabled(params.id, enabled, new Date().toISOString());
+              return { ok: true, state };
+            }
+            set.status = 400;
+            return { error: 'expected { enabled: boolean } or { reset: true }' };
+          } catch (err) {
+            set.status = 500;
+            return { error: err instanceof Error ? err.message : String(err) };
+          }
+        },
+        {
+          body: t.Object({
+            enabled: t.Optional(t.Boolean()),
+            reset: t.Optional(t.Boolean()),
+          }),
+        },
       )
 
       // ── Dead logs ───────────────────────────────────────────────────────────
