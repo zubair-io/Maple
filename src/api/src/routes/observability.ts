@@ -248,15 +248,10 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
 
         if (!res.ok) {
           // Non-2xx. A 404 most often means "right host, wrong port" — the
-          // endpoint answered HTTP but has no /v1/traces route. Lead with the
-          // port hint when we have one.
+          // endpoint answered HTTP but has no /v1/traces route. Append the port
+          // hint when we have one (applies to any non-2xx, 404 included).
           const base = `SigNoz returned HTTP ${res.status}`;
-          const error =
-            res.status === 404 && portHint
-              ? `${base}. ${portHint}`
-              : portHint
-                ? `${base}. ${portHint}`
-                : base;
+          const error = portHint ? `${base}. ${portHint}` : base;
           return { ok: false, status: res.status, error, recommendation: portHint ?? undefined };
         }
 
@@ -341,8 +336,11 @@ export const observabilityRoutes = new Elysia({ prefix: '/api/observability' })
         const res = await fetch(upstreamUrl, {
           method: 'POST',
           headers: fwdHeaders,
-          // `BodyInit` wants an ArrayBuffer-backed view; hand it the buffer.
-          body: bytes.buffer as ArrayBuffer,
+          // Forward EXACTLY the incoming bytes. Don't pass `bytes.buffer` — for a
+          // Uint8Array view (subarray) that ignores byteOffset/byteLength and
+          // would forward the whole backing buffer, corrupting the OTLP payload.
+          // `slice()` copies just the view's bytes into a standalone ArrayBuffer.
+          body: bytes.slice().buffer as ArrayBuffer,
         });
         // Mirror the upstream status + body so the client's exporter sees a real
         // OTLP response (it inspects the status to decide retry/drop).
