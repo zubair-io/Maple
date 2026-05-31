@@ -94,7 +94,7 @@ export function sanitizeWorkerConfig(doc: WorkerConfigDoc): WorkerConfig {
 }
 
 /** Test-only: drop the cached /status snapshot so tests don't see prior state. */
-export function resetStatusCacheForTests(): void {
+export function _resetStatusCacheForTests(): void {
   invalidateStatusCache();
 }
 
