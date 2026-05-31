@@ -168,9 +168,18 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
 
       // Refuse to import from inside (or a parent of) the target library —
       // copying a folder into a library it already lives under produces
-      // duplicates / a copy-into-self. Compare realpaths so symlinks can't
-      // sneak past it.
-      if (pathsOverlap(jail.real, folder.path)) {
+      // duplicates / a copy-into-self. Resolve the library path too (the
+      // source is already a realpath) so a library registered via a symlink
+      // or non-canonical path can't slip a true overlap past the check. A
+      // stale registration whose path no longer resolves falls back to the
+      // stored value.
+      let libReal = folder.path;
+      try {
+        libReal = await realpath(folder.path);
+      } catch {
+        // Library path missing on disk — compare against the stored path.
+      }
+      if (pathsOverlap(jail.real, libReal)) {
         set.status = 400;
         return {
           error: 'Source folder overlaps the target library. Pick a source outside the library.',

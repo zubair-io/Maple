@@ -157,6 +157,30 @@ describe('POST /api/imports', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it('rejects a source that overlaps a library registered via a symlink', async () => {
+    if (!mongoReachable) return;
+    // The library is registered at a symlinked path; the source resolves to
+    // the symlink's real target. Only realpath-resolving the library path
+    // catches this overlap.
+    const linkPath = `${sourceRoot}-libline`;
+    await fs.symlink(sourceRoot, linkPath, 'dir').catch(() => {});
+    const symId = new ObjectId();
+    await db!.collection('folders').insertOne({
+      _id: symId,
+      path: linkPath, // a symlink → sourceRoot, not the canonical path
+      label: 'Linked',
+      last_scan: null,
+      file_count: 0,
+      created_at: '2026-05-31T00:00:00Z',
+    } as never);
+    const res = await post('/api/imports', {
+      source_root: sourceRoot,
+      library_id: symId.toHexString(),
+    });
+    await fs.rm(linkPath, { force: true }).catch(() => {});
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('GET/cancel lifecycle', () => {
