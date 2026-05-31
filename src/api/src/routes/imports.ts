@@ -59,17 +59,18 @@ async function resolveJailed(
   return { ok: true, real };
 }
 
-/** True when `a` and `b` are the same directory or one contains the other.
- * Both should be absolute, normalized (realpath) paths. */
-function pathsOverlap(a: string, b: string): boolean {
-  const x = a.replace(/\/+$/, '') || '/';
-  const y = b.replace(/\/+$/, '') || '/';
-  if (x === y) return true;
-  // `/` is a prefix of everything; otherwise add the separator so `/a` isn't
-  // treated as a parent of `/ab`.
-  const xPrefix = x === '/' ? '/' : x + '/';
-  const yPrefix = y === '/' ? '/' : y + '/';
-  return y.startsWith(xPrefix) || x.startsWith(yPrefix);
+/** True when `source` IS `lib` or sits INSIDE it. Both should be absolute,
+ * normalized (realpath) paths. We only reject this direction — importing from
+ * a PARENT of the library (e.g. `/`) is allowed; the library's own files
+ * dedup-skip, and loose files outside it import normally. */
+function isInsideLibrary(source: string, lib: string): boolean {
+  const s = source.replace(/\/+$/, '') || '/';
+  const l = lib.replace(/\/+$/, '') || '/';
+  if (s === l) return true;
+  // `/` is a prefix of everything; otherwise add the separator so `/ab` isn't
+  // treated as inside `/a`.
+  const lPrefix = l === '/' ? '/' : l + '/';
+  return s.startsWith(lPrefix);
 }
 
 interface ImportView {
@@ -166,23 +167,24 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
         return { error: 'Library not found' };
       }
 
-      // Refuse to import from inside (or a parent of) the target library —
-      // copying a folder into a library it already lives under produces
-      // duplicates / a copy-into-self. Resolve the library path too (the
-      // source is already a realpath) so a library registered via a symlink
-      // or non-canonical path can't slip a true overlap past the check. A
-      // stale registration whose path no longer resolves falls back to the
-      // stored value.
+      // Refuse to import from the target library itself or a folder inside it
+      // — copying a library's files back into it produces duplicates /
+      // copy-into-self. Resolve the library path too (the source is already a
+      // realpath) so a library registered via a symlink or non-canonical path
+      // can't slip past the check. A stale registration whose path no longer
+      // resolves falls back to the stored value. (A PARENT of the library is
+      // allowed — the library's own files dedup-skip.)
       let libReal = folder.path;
       try {
         libReal = await realpath(folder.path);
       } catch {
         // Library path missing on disk — compare against the stored path.
       }
-      if (pathsOverlap(jail.real, libReal)) {
+      if (isInsideLibrary(jail.real, libReal)) {
         set.status = 400;
         return {
-          error: 'Source folder overlaps the target library. Pick a source outside the library.',
+          error:
+            'Source folder is the target library or inside it. Pick a source outside the library.',
         };
       }
 
