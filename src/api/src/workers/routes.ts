@@ -24,6 +24,15 @@
 import { Elysia, t } from 'elysia';
 import { type Filter, ObjectId } from 'mongodb';
 import { getDb } from '../db/client.ts';
+import { ffiPool } from '../ffi/ffi-pool.ts';
+import {
+  MAX_FFI_WORKERS,
+  MIN_FFI_WORKERS,
+  clampFfiWorkers,
+  loadPerformanceConfig,
+  resolveFfiPoolConfig,
+  savePerformanceConfig,
+} from '../ffi/ffi-pool-config.repo.ts';
 import { WorkerConfigRepo } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
 import { buildClaimQuery, deriveBatchSize } from './run-stage.ts';
@@ -596,6 +605,58 @@ export function workerRoutes(): Elysia {
             paused: t.Optional(t.Boolean()),
             pollIntervalMs: t.Optional(t.Unknown()),
             batchSize: t.Optional(t.Unknown()),
+          }),
+        },
+      )
+
+      // ── Performance: FFI decode-pool size (ticket #673) ──────────────────
+      // GET  /api/workers/performance — effective ffi_workers + source + live
+      //                                 pool stats.
+      // PATCH /api/workers/performance — clamp 1–16, persist to the
+      //                                 `performance` app_settings doc, then
+      //                                 resize the live pool immediately (no
+      //                                 restart).
+      .get('/performance', async () => {
+        const resolved = resolveFfiPoolConfig(await loadPerformanceConfig());
+        return {
+          ffi_workers: resolved.ffi_workers,
+          source: resolved.source.ffi_workers,
+          min: MIN_FFI_WORKERS,
+          max: MAX_FFI_WORKERS,
+          pool: ffiPool().stats(),
+        };
+      })
+
+      .patch(
+        '/performance',
+        async ({ body, set }) => {
+          const clamped = clampFfiWorkers(body.ffi_workers);
+          if (clamped === null) {
+            set.status = 400;
+            return {
+              error: `Invalid ffi_workers: must be a finite number (got ${body.ffi_workers})`,
+            };
+          }
+          try {
+            await savePerformanceConfig({ ffi_workers: clamped });
+          } catch (err) {
+            set.status = 500;
+            return { error: err instanceof Error ? err.message : String(err) };
+          }
+          // Re-resolve (in case the DB was unreachable and env/default applies)
+          // and resize the live pool right away.
+          const resolved = resolveFfiPoolConfig(await loadPerformanceConfig());
+          ffiPool().setPoolSize(resolved.ffi_workers);
+          return {
+            ok: true,
+            ffi_workers: resolved.ffi_workers,
+            source: resolved.source.ffi_workers,
+            pool: ffiPool().stats(),
+          };
+        },
+        {
+          body: t.Object({
+            ffi_workers: t.Number(),
           }),
         },
       )

@@ -149,16 +149,30 @@ describe('WorkersComponent', () => {
     http.verify();
   });
 
+  const MOCK_PERF = {
+    ffi_workers: 1,
+    source: 'default' as const,
+    min: 1,
+    max: 16,
+    pool: { target: 1, spawned: 0, busy: 0, queued: 0 },
+  };
+
+  const MOCK_PRUNE = { hours: 24 };
+
   function initWithMock(): void {
-    // ngOnInit subscribes to the WS stream and fires a one-shot HTTP fallback
-    // (#674). Push the status frame over the WS stub so it drives rendering;
-    // flush the fallback GET (ignored once the WS frame lands) + enrichment so
+    // ngOnInit subscribes to the WS stream and fires four GETs: the one-shot
+    // HTTP status fallback (#674), the enrichment config, the missing-reaper
+    // prune window, and the performance config (#673). Push the status frame
+    // over the WS stub so it drives rendering; flush all four GETs (the status
+    // fallback is ignored once the WS frame lands) so
     // HttpTestingController.verify() is satisfied at teardown.
     fixture.detectChanges();
     // A counted frame is authoritative and suppresses the HTTP fallback.
     wsFrames.next({ status: MOCK_STATUS, counted: true });
     http.expectOne('/api/workers/status').flush(MOCK_STATUS);
     http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
+    http.expectOne('/api/workers/missing-reaper/prune-window').flush(MOCK_PRUNE);
+    http.expectOne('/api/workers/performance').flush(MOCK_PERF);
     fixture.detectChanges();
   }
 
@@ -305,9 +319,12 @@ describe('WorkersComponent', () => {
     fixture.detectChanges();
     wsFrames.next({ status: cheap, counted: false });
     // Fallback flushes the real status — and because the WS frame was
-    // uncounted, the component accepts it instead of ignoring it.
+    // uncounted, the component accepts it instead of ignoring it. Flush the
+    // sibling ngOnInit GETs too so verify() is satisfied at teardown.
     http.expectOne('/api/workers/status').flush(MOCK_STATUS);
     http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
+    http.expectOne('/api/workers/missing-reaper/prune-window').flush(MOCK_PRUNE);
+    http.expectOne('/api/workers/performance').flush(MOCK_PERF);
     fixture.detectChanges();
 
     const rows = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
@@ -412,5 +429,59 @@ describe('WorkersComponent', () => {
       .flush({ ok: true, reset: 1 });
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[data-testid="log-drawer"]')).toBeNull();
+  });
+
+  // ── RAW decode-pool control (ticket #673) ──────────────────────────────
+  it('renders the RAW decode workers control seeded from the performance config', () => {
+    initWithMock();
+    const input = fixture.nativeElement.querySelector('#ffi-workers-input') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    expect(input.value).toBe('1');
+    // The min/max attributes reflect the server-supplied clamp bounds.
+    expect(input.getAttribute('min')).toBe('1');
+    expect(input.getAttribute('max')).toBe('16');
+  });
+
+  it('PATCHes the clamped worker count when Apply is clicked', () => {
+    initWithMock();
+    const input = fixture.nativeElement.querySelector('#ffi-workers-input') as HTMLInputElement;
+    input.value = '99';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    const applyBtn = fixture.nativeElement.querySelector('.perf-save') as HTMLButtonElement;
+    applyBtn.click();
+
+    const req = http.expectOne('/api/workers/performance');
+    expect(req.request.method).toBe('PATCH');
+    // The component clamps to [min, max] before sending.
+    expect(req.request.body).toEqual({ ffi_workers: 16 });
+    req.flush({
+      ok: true,
+      ffi_workers: 16,
+      source: 'db',
+      pool: { target: 16, spawned: 0, busy: 0, queued: 0 },
+    });
+    fixture.detectChanges();
+
+    // The control reflects the server's clamped value + new source.
+    expect(
+      (fixture.nativeElement.querySelector('#ffi-workers-input') as HTMLInputElement).value,
+    ).toBe('16');
+    expect(fixture.nativeElement.querySelector('.perf-source')?.textContent).toContain('db');
+  });
+
+  it('hides the control when the performance route is unavailable', () => {
+    // Flush status + enrichment + prune-window, but error the performance GET
+    // (older server) — the control must stay hidden.
+    fixture.detectChanges();
+    http.expectOne('/api/workers/status').flush(MOCK_STATUS);
+    http.expectOne('/api/enrichment/config').flush(MOCK_ENRICHMENT);
+    http.expectOne('/api/workers/missing-reaper/prune-window').flush(MOCK_PRUNE);
+    http
+      .expectOne('/api/workers/performance')
+      .flush({ error: 'not found' }, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('#ffi-workers-input')).toBeNull();
   });
 });
