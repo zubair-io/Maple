@@ -33,19 +33,19 @@ const WEBP_EXTS = new Set(['.webp']);
  * than a file path.
  *
  * When given a path, exifr uses its chunked file reader: it lazily reads only
- * a small first chunk and fetches more on demand. On large TIFF-based RAWs
- * (notably DJI DNGs) a top-level IFD pointer or a tag value offset can
- * reference bytes the chunked reader never fetched, and exifr then dereferences
- * an absent chunk — surfacing as `undefined is not an object (evaluating
- * 'this.dataView.getUint16')`. That is deterministic, so the stage retries five
- * times and dead-letters the asset with no metadata.
+ * a small first chunk and fetches more on demand. On large TIFF-based RAWs a
+ * tag value whose offset lands beyond the fetched region is silently dropped
+ * (the chunked reader returns nothing for it), so a RAW can come back missing
+ * camera/lens/GPS tags that are plainly present in the file.
  *
  * Reading the whole file and passing the Buffer makes exifr operate over a
- * single complete DataView (no chunked reader at all), which side-steps the
- * crash. It is the same "feed exifr a buffer" strategy the HEIC/WebP paths
- * already use. JPEG/PNG keep the cheaper chunked path — the bug is specific to
- * the multi-IFD TIFF layout RAWs carry, and RAWs are big enough that exifr's
- * lazy reader was never saving us much here anyway. */
+ * single complete DataView (no chunked reader at all), so every tag resolves
+ * regardless of where its value sits. It is the same "feed exifr a buffer"
+ * strategy the HEIC/WebP paths already use. JPEG/PNG keep the cheaper chunked
+ * path — the gap is specific to the multi-IFD layout RAWs carry, and RAWs are
+ * big enough that exifr's lazy reader was never saving us much here anyway.
+ * (The empty-file crash that surfaced this is handled separately, by the
+ * zero-byte guard at the top of readExif.) */
 const RAW_TIFF_EXTS = new Set([
   '.dng',
   '.cr2',
@@ -248,6 +248,20 @@ const EXIFR_PARSE_OPTS = {
 export async function readExif(absPath: string): Promise<AssetExif | null> {
   const ext = path.extname(absPath).toLowerCase();
   if (NO_EXIF_EXTS.has(ext)) return null;
+
+  // A real image is never 0 bytes. Handed an empty file, exifr's reader trips
+  // over the absent TIFF header and throws the opaque "undefined is not an
+  // object (evaluating 'this.dataView.getUint16')". Fail with a message that
+  // names the cause instead. This is a library-level safety net: the exif
+  // stage already short-circuits empty files to a `damaged` tag before calling
+  // readExif (see workers/stages/exif.ts), but readExif is a standalone
+  // function and must not surface exifr's opaque crash to any caller.
+  const { size } = await fs.stat(absPath);
+  if (size === 0) {
+    throw new Error(
+      `cannot read EXIF: file is empty (0 bytes), likely an incomplete copy: ${absPath}`,
+    );
+  }
 
   if (HEIC_EXTS.has(ext)) {
     // exifr can't get past its ftyp gate for these — extract the TIFF block

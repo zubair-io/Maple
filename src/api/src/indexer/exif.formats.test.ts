@@ -24,11 +24,10 @@ function makeTiff(make: string): Buffer {
 /**
  * Big-endian TIFF whose single Make tag stores its value at a large file
  * offset (`valueAt` bytes in), with the gap zero-padded. This mirrors the
- * real-world RAW/DNG layout that crashes exifr's chunked *file* reader:
- * IFD0 sits in the first chunk but the tag value lives far beyond it, so a
- * lazily-read path-based parse dereferences a chunk it never fetched
- * (`undefined is not an object (evaluating 'this.dataView.getUint16')`).
- * Feeding exifr the whole Buffer side-steps the chunked reader entirely.
+ * real-world RAW/DNG layout that defeats exifr's chunked *file* reader: IFD0
+ * sits in the first chunk but the tag value lives far beyond it, so a
+ * lazily-read path-based parse never fetches the chunk holding the value and
+ * silently drops the tag. Feeding exifr the whole Buffer resolves it.
  */
 function makeTiffFarValue(make: string, valueAt: number): Buffer {
   const value = Buffer.from(make + '\0', 'latin1');
@@ -97,11 +96,11 @@ describe('readExif — format routing', () => {
     expect(await readExif(file)).toBeNull();
   });
 
-  it('parses a .dng whose tag value lives far past exifr\'s first chunk', async () => {
-    // Regression: DJI DNGs dead-lettered with "undefined is not an object
-    // (evaluating 'this.dataView.getUint16')" because the path-based chunked
-    // reader never fetched the chunk holding the value. Routing RAW/TIFF
-    // extensions through a full Buffer read fixes it.
+  it("parses a .dng whose tag value lives far past exifr's first chunk", async () => {
+    // Hardening: the path-based chunked reader silently drops a tag whose
+    // value offset lands beyond the fetched region, so a RAW comes back
+    // missing tags that are plainly in the file. Routing RAW/TIFF extensions
+    // through a full Buffer read resolves every tag regardless of offset.
     const file = path.join(dir, 'DJI_20260521203805_0430_D.DNG');
     await writeFile(file, makeTiffFarValue('Hasselblad', 200_000));
     const exif = await readExif(file);
@@ -113,6 +112,26 @@ describe('readExif — format routing', () => {
     await writeFile(file, makeTiff('Canon'));
     const exif = await readExif(file);
     expect(exif?.camera_make).toBe('Canon');
+  });
+
+  it("throws a clear, named error for a 0-byte file (not exifr's opaque crash)", async () => {
+    // Regression: a zero-byte DNG (interrupted copy / unmaterialized sync
+    // placeholder) made exifr throw "undefined is not an object (evaluating
+    // 'this.dataView.getUint16')" and dead-letter the asset with a useless
+    // message. readExif now detects the empty file up front. The throw (vs a
+    // null return) keeps it on the retry path so a mid-copy file recovers; a
+    // permanently-empty file dead-letters with a message that names the cause.
+    const file = path.join(dir, 'DJI_interrupted_copy_0430_D.DNG');
+    await writeFile(file, Buffer.alloc(0));
+    await expect(readExif(file)).rejects.toThrow(/empty \(0 bytes\)/i);
+    // And specifically NOT the opaque exifr crash.
+    await expect(readExif(file)).rejects.not.toThrow(/getUint16/);
+  });
+
+  it('throws the empty-file error for a 0-byte .jpg too (covers all formats)', async () => {
+    const file = path.join(dir, 'truncated.jpg');
+    await writeFile(file, Buffer.alloc(0));
+    await expect(readExif(file)).rejects.toThrow(/empty \(0 bytes\)/i);
   });
 
   it('cleanup', async () => {
