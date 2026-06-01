@@ -359,6 +359,95 @@ describe('ImportRunner.tick', () => {
     expect(doc!.status).toBe('cancelled');
     expect(doc!.counts.copied).toBe(1);
   });
+
+  it('skips a pre-failed file (no copy) and completes done with the good one (#795)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+    const src = await stageSources('prefailed', ['GOOD.dng']);
+    const lib = path.join(tmp, 'prefailed', 'lib');
+
+    // BAD.dng is already `failed` (e.g. the scan couldn't build a safe dest);
+    // its `src` points at a path that does not exist, so a stray copy attempt
+    // would surface as a DIFFERENT error than the recorded one.
+    const badFailed: ImportFileEntry = {
+      src: path.join(tmp, 'prefailed', 'src', 'does-not-exist.dng'),
+      dest: '2024/03/BAD.dng',
+      size: 1,
+      mtime: 0,
+      kind: 'image',
+      state: 'failed',
+      error: 'unsafe filename: "BAD.dng"',
+    };
+
+    const created = await repo.createImport({
+      source_root: path.join(tmp, 'prefailed', 'src'),
+      library_id: new ObjectId(),
+      library_root: lib,
+      files: [badFailed, entry(src['GOOD.dng'], '2024/03/GOOD.dng', 'image')],
+    });
+
+    const runner = new ImportRunner({
+      workerId: 'w-prefailed',
+      deps: {
+        assetExistsForHash: async () => false,
+        handleEvent: async () => {},
+      },
+    });
+    const res = await runner.tick();
+    expect(res.kind).toBe('done');
+
+    const doc = await repo.getImport(created._id);
+    expect(doc!.status).toBe('done');
+    expect(doc!.counts.copied).toBe(1);
+    expect(doc!.counts.failed).toBe(1);
+    // The pre-failed file kept its ORIGINAL recorded reason — never re-copied.
+    expect(doc!.files[0].state).toBe('failed');
+    expect(doc!.files[0].error).toBe('unsafe filename: "BAD.dng"');
+    // The good file landed on disk.
+    expect(await fs.readFile(path.join(lib, '2024/03/GOOD.dng'), 'utf8')).toBe(
+      'bytes-prefailed-GOOD.dng',
+    );
+  });
+
+  it('marks an import failed when every file failed (#795)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+    const lib = path.join(tmp, 'allfailed', 'lib');
+
+    const onlyFailed: ImportFileEntry = {
+      src: '/nope/missing.dng',
+      dest: '2024/03/BAD.dng',
+      size: 1,
+      mtime: 0,
+      kind: 'image',
+      state: 'failed',
+      error: 'unsafe filename: "BAD.dng"',
+    };
+
+    const created = await repo.createImport({
+      source_root: path.join(tmp, 'allfailed', 'src'),
+      library_id: new ObjectId(),
+      library_root: lib,
+      files: [onlyFailed],
+    });
+
+    const runner = new ImportRunner({
+      workerId: 'w-allfailed',
+      deps: {
+        assetExistsForHash: async () => false,
+        handleEvent: async () => {},
+      },
+    });
+    const res = await runner.tick();
+    expect(res.kind).toBe('failed');
+
+    const doc = await repo.getImport(created._id);
+    expect(doc!.status).toBe('failed');
+    expect(doc!.error).toBeTruthy();
+    expect(doc!.counts.failed).toBe(1);
+    // Nothing was copied; the library dir was never created.
+    await expect(fs.stat(lib)).rejects.toThrow();
+  });
 });
 
 function entry(src: string, dest: string, kind: ImportFileEntry['kind']): ImportFileEntry {
