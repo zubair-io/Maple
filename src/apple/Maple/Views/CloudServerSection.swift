@@ -6,9 +6,10 @@
 // chevron, same vertical padding — so the sidebar reads as one
 // consistent tree of sections.
 //
-// Trailing element: a compact 2-icon Timeline | Folder toggle. The
-// previous segmented picker forced the cloud header to be ~32pt tall;
-// the icons fit the section-header line height (~20pt).
+// The Timeline | Folder view-mode toggle that used to sit at the
+// trailing edge of this header moved into the main browse header
+// (`AppShellToolbar`) in #782, so the section header is now just the
+// chevron + server name.
 //
 // Each library is rendered as a CloudFolderTreeRow at depth 0; its
 // children are populated on first expand via /api/fs/dir.
@@ -19,7 +20,6 @@ import MapleCore
 struct CloudServerSection: View {
   let serverURL: URL
   let folders: [CloudFolder]
-  let viewMode: CloudViewMode
   /// Display name to render in the header. Caller passes
   /// `registry.displayName(for: url) ?? url.host ?? url.absoluteString`
   /// so the header always has something readable. Up-cased on render
@@ -27,7 +27,6 @@ struct CloudServerSection: View {
   let displayName: String
   @Binding var isExpanded: Bool
   @Binding var selection: LibrarySelection
-  let onSetViewMode: (CloudViewMode) -> Void
   /// (server, folderID, absPath) — invoked when the user taps a library
   /// row OR a subfolder row. absPath is what the grid should browse.
   let onPickPath: (URL, String, String) -> Void
@@ -58,7 +57,8 @@ struct CloudServerSection: View {
     VStack(alignment: .leading, spacing: 0) {
       header
       if isExpanded {
-        ForEach(folders) { folder in
+        // Reversed to match the grid's first-level folder order (#782).
+        ForEach(Array(folders.reversed())) { folder in
           CloudFolderTreeRow(
             serverURL: serverURL,
             libraryFolderID: folder.id,
@@ -105,7 +105,6 @@ struct CloudServerSection: View {
           .foregroundStyle(MapleTokens.textMuted)
           .lineLimit(1)
         Spacer()
-        viewModeToggle
       }
       .padding(.horizontal, MapleTokens.Spacing.rowHorizontal)
       .padding(.vertical, 6)
@@ -125,38 +124,6 @@ struct CloudServerSection: View {
     }
   }
 
-  /// Compact 2-icon view-mode toggle — replaces the previous
-  /// `.segmented` Picker which forced the cloud header to be roughly
-  /// 32pt tall. Two SF Symbol buttons (calendar = Timeline,
-  /// folder = Folder); the active one is tinted primary.
-  @ViewBuilder
-  private var viewModeToggle: some View {
-    HStack(spacing: 4) {
-      Button(action: { onSetViewMode(.timeline) }) {
-        Image(systemName: "calendar")
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(viewMode == .timeline
-                           ? MapleTokens.primary
-                           : MapleTokens.textMuted)
-          .frame(width: 22, height: 22)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Timeline view")
-
-      Button(action: { onSetViewMode(.folder) }) {
-        Image(systemName: "folder")
-          .font(.system(size: 12, weight: .semibold))
-          .foregroundStyle(viewMode == .folder
-                           ? MapleTokens.primary
-                           : MapleTokens.textMuted)
-          .frame(width: 22, height: 22)
-          .contentShape(Rectangle())
-      }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Folder view")
-    }
-  }
 }
 
 // MARK: - Previews
@@ -164,17 +131,15 @@ struct CloudServerSection: View {
 // Issue #139 — sidebar section for a connected cloud server. The
 // folders array drives the inner CloudFolderTreeRow list; the listing
 // closure returns nil so children stay collapsed. Coverage: with
-// folders (loaded), no folders (empty), folder vs timeline modes.
+// folders (loaded), no folders (empty), collapsed.
 
 private struct _CloudServerSectionPreviewWrapper: View {
   let folders: [CloudFolder]
-  let viewMode: CloudViewMode
   @State private var isExpanded: Bool
   @State private var selection: LibrarySelection = .none
 
-  init(folders: [CloudFolder], viewMode: CloudViewMode, expanded: Bool = true) {
+  init(folders: [CloudFolder], expanded: Bool = true) {
     self.folders = folders
-    self.viewMode = viewMode
     self._isExpanded = State(initialValue: expanded)
   }
 
@@ -182,11 +147,9 @@ private struct _CloudServerSectionPreviewWrapper: View {
     CloudServerSection(
       serverURL: URL(string: "https://preview.maple.invalid")!,
       folders: folders,
-      viewMode: viewMode,
       displayName: "preview.maple",
       isExpanded: $isExpanded,
       selection: $selection,
-      onSetViewMode: { _ in },
       onPickPath: { _, _, _ in },
       onListDir: { _, _ in nil },
       cloudCurrentPath: nil,
@@ -200,31 +163,21 @@ private struct _CloudServerSectionPreviewWrapper: View {
   }
 }
 
-#Preview("Loaded — folder mode") {
+#Preview("Loaded") {
   _CloudServerSectionPreviewWrapper(
     folders: [
       CloudFolder(id: "1", path: "/photos", label: "Photos"),
       CloudFolder(id: "2", path: "/raws", label: "RAWs"),
-    ],
-    viewMode: .folder
-  )
-}
-
-#Preview("Loaded — timeline mode") {
-  _CloudServerSectionPreviewWrapper(
-    folders: [
-      CloudFolder(id: "1", path: "/photos", label: "Photos"),
-    ],
-    viewMode: .timeline
+    ]
   )
 }
 
 #Preview("Empty (no folders)") {
-  _CloudServerSectionPreviewWrapper(folders: [], viewMode: .folder)
+  _CloudServerSectionPreviewWrapper(folders: [])
 }
 
 #Preview("Collapsed") {
   _CloudServerSectionPreviewWrapper(folders: [
     CloudFolder(id: "1", path: "/photos", label: "Photos"),
-  ], viewMode: .folder, expanded: false)
+  ], expanded: false)
 }

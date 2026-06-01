@@ -90,6 +90,27 @@ extension AppShell {
         catch { return nil }
     }
 
+    /// Human-readable header title for an open cloud library. Returns the
+    /// FIRST available of (a fallback chain, not a concatenation):
+    ///   1. the server's registry display name (what the sidebar shows, e.g. "MAPLE"),
+    ///   2. the registered library/folder label,
+    ///   3. the last path segment of whatever the user has drilled into.
+    /// The URL host is the last resort — used only when none of the above
+    /// exist, so the header no longer shows the bare `serverID.host` (#782).
+    @MainActor
+    func cloudLibraryTitle(serverID: URL, folderID: String, libraryPath: String) -> String {
+        if let name = CloudServerRegistry.shared.displayName(for: serverID) {
+            return name
+        }
+        if let folder = CloudFoldersCache.load(server: serverID)?
+            .first(where: { $0.id == folderID }) {
+            return folder.displayName
+        }
+        let leaf = (libraryPath as NSString).lastPathComponent
+        if !leaf.isEmpty { return leaf }
+        return serverID.host ?? serverID.absoluteString
+    }
+
     @MainActor
     func loadCloudLibrary(serverID: URL, folderID: String, libraryPath: String) {
         librarySelection = .cloudLibrary(serverID: serverID, folderID: folderID)
@@ -156,7 +177,9 @@ extension AppShell {
                     }
                 }
 
-                libraryTitle = serverID.host ?? serverID.absoluteString
+                libraryTitle = cloudLibraryTitle(serverID: serverID,
+                                                 folderID: folderID,
+                                                 libraryPath: cloudCurrentPath ?? libraryPath)
                 mode = .browse
             case .timeline:
                 browseVM.clear()
@@ -221,13 +244,43 @@ extension AppShell {
                     photoKitMerge: photoKitMerge)
                 cloudTimelineThumbClient = CloudThumbClient(server: serverID, httpClient: httpClient)
                 cloudTimelineThumbCache = CloudThumbCache()
-                // Title is just the library name (the host). The " — Timeline"
-                // suffix was dropped in #692 — it truncated in the compact nav
-                // bar ("maple.lawrence.io — Time…") and added no information.
-                libraryTitle = serverID.host ?? serverID.absoluteString
+                // Title is the friendly library name, not the URL host
+                // (#782). The " — Timeline" suffix was dropped in #692 — it
+                // truncated in the compact nav bar and added no information.
+                libraryTitle = cloudLibraryTitle(serverID: serverID,
+                                                 folderID: folderID,
+                                                 libraryPath: libraryPath)
                 mode = .browse
             }
         }
+    }
+
+    // MARK: - Cloud view mode
+
+    /// Current Timeline/Folder view mode for the selected cloud library,
+    /// read from the registry. Defaults to `.folder` for non-cloud
+    /// selections (the trailing toggle that reads this is hidden then).
+    /// Accessed during `body` so Observation re-tints the toggle when the
+    /// registry's `viewMode` changes.
+    var currentCloudViewMode: CloudViewMode {
+        if case .cloudLibrary(let serverID, _) = librarySelection {
+            return CloudServerRegistry.shared.viewMode(for: serverID)
+        }
+        return .folder
+    }
+
+    /// Switch the open cloud library between Timeline and Folder view.
+    /// Persists the choice to the registry, then re-routes the current
+    /// library through the new mode (mirrors what the sidebar toggle used
+    /// to do before it moved into the header — #782). `cloudCurrentPath`
+    /// preserves any subfolder the user had drilled into.
+    @MainActor
+    func setCloudViewMode(_ mode: CloudViewMode) {
+        guard case .cloudLibrary(let serverID, let folderID) = librarySelection else { return }
+        CloudServerRegistry.shared.setViewMode(mode, for: serverID)
+        loadCloudLibrary(serverID: serverID,
+                         folderID: folderID,
+                         libraryPath: cloudCurrentPath ?? "")
     }
 
     // MARK: - Cloud search

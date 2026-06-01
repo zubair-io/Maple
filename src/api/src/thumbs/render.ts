@@ -21,21 +21,11 @@ import sharp from 'sharp';
 import heicConvert from 'heic-convert';
 import { decodeHeicThumbOffThread } from './heic-pool.ts';
 
-/** Extensions this module knows how to decode. Lowercase, no leading dot.
- * Mirrors the gate in `routes/fs-thumbs.ts` and the indexer's non-RAW
- * branch. */
-export const SHARP_EXTENSIONS = new Set<string>([
-  'jpg',
-  'jpeg',
-  'png',
-  'webp',
-  'gif',
-  'tif',
-  'tiff',
-  'heic',
-  'heif',
-  'avif',
-]);
+// The SHARP_EXTENSIONS allowlist moved to `fs/browse.ts` (a light module with
+// no renderer deps) so routes like `/api/fs/raw` can import the gate without
+// pulling in `sharp` / `heic-convert`. Re-exported here so existing
+// `thumbs/render.ts` importers keep working unchanged. (#782)
+export { SHARP_EXTENSIONS } from '../fs/browse.ts';
 
 /**
  * Input options handed to every `sharp()` decode in this module.

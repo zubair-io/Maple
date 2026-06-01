@@ -11,21 +11,16 @@
 //               12pt outer padding. Mirrors the web spec's CSS
 //               `repeat(auto-fill, minmax(180px, 1fr))` rule.
 //
-// Filter chip row sits above the grid (single-select; persisted to
-// `@AppStorage("cm.filter")`). Cell tap routes through `onOpenEditor`
-// (same callback BrowseGrid uses — the iPhone shell already pushes the
-// Editor via `.navigationDestination(for: AssetRef.self)`).
+// Cell tap routes through `onOpenEditor` (same callback BrowseGrid
+// uses — the iPhone shell already pushes the Editor via
+// `.navigationDestination(for: AssetRef.self)`).
+//
+// The in-content source title and the cull filter-chip row were removed
+// (#782): the source name lives in the nav bar, and the chips duplicated
+// cull state that belongs in the editor. The grid now renders
+// `vm.assets` unfiltered.
 //
 // Spec: docs/design/responsive-program/s2-library-grid.md.
-//
-// NOTE on filter wiring: the cull state (`stars`, `flag`) lives on
-// `EditSession`, which the iPhone shell creates lazily as cells appear
-// (`onPrimeSession`). So filters that key off culling state only see
-// sessions for cells that have appeared on screen. Acceptable v0.1
-// limitation — documented here and in the PR body — because eagerly
-// priming sessions would defeat the lazy-load budget. The "edited"
-// filter is a no-op today; `AssetRef.hasEdits` doesn't exist yet and
-// is tracked separately (KTLO follow-up). See the spec §6 risks.
 
 #if os(iOS)
 
@@ -40,34 +35,35 @@ struct LibraryGrid: View {
 
     let vm: BrowseViewModel
     let source: (any ImageSource)?
-    /// In-content title (spec §2 phone: Merriweather 28pt/700,
-    /// tracking -0.5pt, current source name). Caller passes the active
-    /// source label — typically `AppShell.libraryTitle`.
-    let title: String
     @Binding var sessions: [AssetRef.ID: EditSession]
     @Binding var displayMode: GridDisplayMode
 
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) -> Void
-
-    @AppStorage("cm.filter") private var filter: String = LibraryFilter.all.rawValue
+    /// Tap on a sub-folder tile — drills the grid into that folder.
+    /// Forwarded straight to `AppShell.navigateFolder`, which is already
+    /// cloud-aware (drills via `/api/fs/dir`) and handles local folders
+    /// via the active security-scope bookmark.
+    let onNavigateFolder: (URL) -> Void
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text(title)
-                    .font(MapleTokens.Typography.sourceTitle)
-                    .tracking(-0.5)
-                    .foregroundStyle(MapleTokens.textMain)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-                    .accessibilityIdentifier("library-grid-title")
-
-                FilterChipRow(active: $filter)
-
+                // The in-content source title and the cull filter-chip row
+                // (All / Picks / 4+ stars / Edited) were removed (#782):
+                // the source name already lives in the nav bar, and the
+                // chips duplicated cull state that belongs in the editor.
                 LazyVGrid(columns: columns, spacing: gridGap) {
-                    ForEach(filteredAssets) { asset in
+                    // Sub-folders first (Finder-style), then images — matches
+                    // the desktop BrowseGrid. `vm.subfolders` is populated by
+                    // loadFolder / loadCloudDir; without this the iPhone grid
+                    // dropped folders entirely (they loaded but were never
+                    // drawn). Order is reversed per request (#782) so the
+                    // first-level folders read newest/last-first.
+                    ForEach(Array(vm.subfolders.reversed()), id: \.self) { url in
+                        LibraryFolderCell(url: url) { onNavigateFolder(url) }
+                    }
+                    ForEach(vm.assets) { asset in
                         LibraryCell(
                             asset: asset,
                             isSelected: vm.selectedID == asset.id,
@@ -102,11 +98,6 @@ struct LibraryGrid: View {
                 }
                 .padding(.horizontal, outerHorizontalPadding)
                 .accessibilityIdentifier("library-grid")
-                // The cross-fade on filter swap; transition the grid id with
-                // the filter so SwiftUI re-mounts the content list and the
-                // 120ms linear fade lands.
-                .id("library-grid-\(filter)")
-                .transition(.opacity)
             }
         }
         .background(MapleTokens.bg)
@@ -136,38 +127,41 @@ struct LibraryGrid: View {
         case .desktop: return 12
         }
     }
+}
 
-    // MARK: - Filtering
+// MARK: - LibraryFolderCell
 
-    /// Apply the active filter to `vm.assets`. Pure on (assets, sessions,
-    /// filter) — surfaced as a top-level helper for unit tests in
-    /// `LibraryGridFilterTests`.
-    var filteredAssets: [AssetRef] {
-        Self.applyFilter(filter,
-                         to: vm.assets,
-                         sessions: sessions)
-    }
+/// Square sub-folder tile for the phone Library grid. Sized to match the
+/// square image cells (`LibraryCell`) so folder + image rows stay aligned
+/// in the edge-bleed grid. Tap drills into the folder. (BrowseGrid uses
+/// its own 3:2 `FolderCell` for the desktop explorer; the phone grid is
+/// square, so it gets this variant rather than reusing that one.)
+private struct LibraryFolderCell: View {
+    let url: URL
+    let onNavigate: () -> Void
 
-    static func applyFilter(
-        _ raw: String,
-        to assets: [AssetRef],
-        sessions: [AssetRef.ID: EditSession]
-    ) -> [AssetRef] {
-        let f = LibraryFilter(rawValue: raw) ?? .all
-        switch f {
-        case .all:
-            return assets
-        case .picks:
-            return assets.filter { sessions[$0.id]?.culling.flag == .pick }
-        case .fourStars:
-            return assets.filter { (sessions[$0.id]?.culling.stars ?? 0) >= 4 }
-        case .edited:
-            // `AssetRef.hasEdits` (#628) checks for an XMP sidecar next
-            // to the primary URL. Cheap stat-per-cell. URL-less refs
-            // (PhotoKit, network) never satisfy the predicate — accepted
-            // v0.1 contract since PhotoKit tracks its own edit state.
-            return assets.filter(\.hasEdits)
+    var body: some View {
+        Button(action: onNavigate) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(MapleTokens.surfaceAlt)
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 34))
+                        .foregroundStyle(MapleTokens.primary.opacity(0.85))
+                }
+                .overlay(alignment: .bottomLeading) {
+                    Text(url.lastPathComponent)
+                        .font(MapleTokens.Typography.body)
+                        .foregroundStyle(MapleTokens.textMain)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .padding(6)
+                }
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Folder \(url.lastPathComponent)")
     }
 }
 

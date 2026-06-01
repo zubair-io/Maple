@@ -111,7 +111,6 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
             searchThumbCache: searchThumbCache,
             browseDisplayMode: $browseDisplayMode,
             browseVM: browseVM,
-            libraryTitle: libraryTitle,
             sessions: $sessions,
             onSelectCloudAsset: onSelectCloudAsset,
             onCloseSearch: onCloseSearch,

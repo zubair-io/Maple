@@ -42,11 +42,6 @@ struct AppShellCenterColumn: View {
     let searchThumbCache: CloudThumbCache?
     @Binding var browseDisplayMode: GridDisplayMode
     let browseVM: BrowseViewModel
-    /// Active source label (e.g. "France trip"). Drives the in-content
-    /// header on the phone `LibraryGrid` — desktop / iPad still use the
-    /// nav-bar title, so this parameter is optional with a sensible
-    /// default for callers that haven't been updated to thread it.
-    var libraryTitle: String = "Library"
     @Binding var sessions: [AssetRef.ID: EditSession]
 
     // Center-column callbacks — forward into AppShell action methods.
@@ -112,11 +107,11 @@ struct AppShellCenterColumn: View {
                     LibraryGrid(
                         vm: browseVM,
                         source: browseVM.currentSource,
-                        title: libraryTitle,
                         sessions: $sessions,
                         displayMode: $browseDisplayMode,
                         onOpenEditor: onOpenEditor,
-                        onPrimeSession: onPrimeSession
+                        onPrimeSession: onPrimeSession,
+                        onNavigateFolder: onNavigateFolder
                     )
                 } else {
                     BrowseGrid(

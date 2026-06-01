@@ -13,7 +13,6 @@ import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import type { AssetExif, FileInfo } from '../db/schema.ts';
-import { SHARP_EXTENSIONS } from '../thumbs/render.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('fs/browse');
@@ -206,6 +205,23 @@ export const RAW_EXTENSIONS = new Set<string>([
   'rw2',
   'pef',
   'srw',
+]);
+
+/** Non-RAW bitmap extensions decoded via sharp / heic-convert (lowercase, no
+ * dot). Lives here next to RAW_EXTENSIONS so the lightweight allowlist can be
+ * imported without pulling in the thumbnail renderer (and its `sharp` /
+ * `heic-convert` deps). `thumbs/render.ts` re-exports it for back-compat. */
+export const SHARP_EXTENSIONS = new Set<string>([
+  'jpg',
+  'jpeg',
+  'png',
+  'webp',
+  'gif',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+  'avif',
 ]);
 
 /** All image extensions surfaced by the directory listing. Union of RAWs
