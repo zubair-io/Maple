@@ -478,9 +478,16 @@ struct AppShell: View {
             sessions: $sessions,
             sidebar: { sharedSidebar },
             toolbarContent: { browseToolbarContent },
-            onSelectCloudAsset: { asset, server in openCloudAsset(asset, server: server) },
+            // iPhone (#809): resolve the cloud / merged-PhotoKit asset's
+            // session and hand its AssetRef back to PhoneTabShell, which pushes
+            // the S5 EditorView onto the Library tab's NavigationStack — rather
+            // than the legacy `openCloudAsset` / `openLocalPhotoKitAsset`
+            // mode-flip handlers used by the Mac / iPad pane shell above. The
+            // resolution logic (bytes provider, CloudSidecarStore, histogram
+            // client) is identical — only the navigation target differs.
+            onSelectCloudAsset: { asset, server in prepareCloudSession(asset, server: server) },
             onCloseSearch: { deactivateSearch() },
-            onSelectLocalAsset: { ref in openLocalPhotoKitAsset(ref) },
+            onSelectLocalAsset: { ref in try? prepareLocalPhotoKitSession(ref) },
             onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
             onNavigateFolder: { url in navigateFolder(url) },
             onOpenEditor: { asset in openEditor(for: asset) },
