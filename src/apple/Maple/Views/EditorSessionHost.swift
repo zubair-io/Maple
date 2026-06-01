@@ -42,9 +42,24 @@ struct EditorSessionHost: View {
     /// re-renders. Rebuilt on `session.asset.id` change.
     @State private var state: EditorState?
 
+    /// The asset id the current `state` was built for. `@State` persists
+    /// across SwiftUI updates, but the `.task(id:)` that rebuilds `state`
+    /// runs *after* the new body is computed — so on the frame where
+    /// `session` flips to a sibling, `state` still holds the PREVIOUS
+    /// asset's `EditorState`. Gating `EditorView` on `builtAssetID ==
+    /// session.asset.id` means we render the placeholder (not the stale
+    /// editor) for that one transient frame, never the wrong asset.
+    /// Set together with `state` inside the same `.task` closure so the
+    /// two can never disagree.
+    @State private var builtAssetID: UUID?
+
     var body: some View {
         Group {
-            if let state {
+            // Only render the editor when `state` was built for the
+            // currently-selected asset. On a sibling switch this is false
+            // for one frame (until the `.task` below refires), so we show
+            // the neutral placeholder instead of the prior asset's edits.
+            if let state, builtAssetID == session.asset.id {
                 EditorView(
                     state: state,
                     onDismiss: onDismiss,
@@ -60,8 +75,11 @@ struct EditorSessionHost: View {
         // Build / rebuild the EditorState when the active session changes.
         // The session already exists in AppShell.sessions, so this is a
         // synchronous identity check — no async session creation here.
+        // `state` and `builtAssetID` are set together so the gate above
+        // never sees a state that doesn't match the live session.
         .task(id: session.asset.id) {
             state = EditorState(session: session)
+            builtAssetID = session.asset.id
         }
         .onDisappear {
             // S5 spec risk #4b — flush the debounced sidecar write before
