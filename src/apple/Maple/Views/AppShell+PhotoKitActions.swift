@@ -90,37 +90,49 @@ extension AppShell {
         }
     }
 
-    /// Open the FullImage editor for a `.localOnly` cell selected from the
-    /// merged cloud timeline. These are PhotoKit photos that haven't been
-    /// uploaded yet, so there is no `SearchAsset` to route through
-    /// `openCloudAsset` — instead, build a PhotoKit-backed AssetRef from
-    /// the asset's local identifier and open it in the editor with
-    /// session-local edits (matches the regular PhotoKit-filter flow).
+    /// Build a PhotoKit-backed `AssetRef` for a `.localOnly` cell selected
+    /// from the merged cloud timeline and ensure its `EditSession` exists.
+    /// These are PhotoKit photos that haven't been uploaded yet, so there is
+    /// no `SearchAsset` to route through `prepareCloudSession` — edits stay
+    /// session-local (matches the regular PhotoKit-filter flow).
+    ///
+    /// Synchronous + throwing: the only failable call is `PhotoKitSource()`.
+    /// Shared by the Mac / iPad `openLocalPhotoKitAsset` (flips
+    /// `mode = .fullImage`) and the iPhone tap that pushes the S5 editor onto
+    /// the Library tab's `NavigationStack` (#809).
+    @MainActor
+    func prepareLocalPhotoKitSession(_ ref: ImageRef) throws -> AssetRef {
+        let source = try PhotoKitSource()
+        let displayName = ref.displayName
+        let ext = (displayName as NSString).pathExtension.lowercased()
+        let assetRef = AssetRef(
+            displayName: displayName,
+            hintExtension: ext.isEmpty ? nil : ext,
+            stableID: ref.id,
+            bytesProvider: { [source, ref] in
+                try await source.rawBytes(for: ref)
+            }
+        )
+        if sessions[assetRef.id] == nil {
+            let session = EditSession(asset: assetRef)
+            sessions[assetRef.id] = session
+            Task { await session.loadSidecar() }
+        }
+        return assetRef
+    }
+
+    /// Open the legacy FullImage editor for a `.localOnly` PhotoKit cell.
+    /// Mac / iPad entry point — flips `mode = .fullImage`. iPhone routes the
+    /// same tap to the S5 `EditorView` via the Library tab's `NavigationStack`
+    /// instead (#809) and never calls this.
     @MainActor
     func openLocalPhotoKitAsset(_ ref: ImageRef) {
-        Task { @MainActor in
-            do {
-                let source = try PhotoKitSource()
-                let displayName = ref.displayName
-                let ext = (displayName as NSString).pathExtension.lowercased()
-                let assetRef = AssetRef(
-                    displayName: displayName,
-                    hintExtension: ext.isEmpty ? nil : ext,
-                    stableID: ref.id,
-                    bytesProvider: { [source, ref] in
-                        try await source.rawBytes(for: ref)
-                    }
-                )
-                if sessions[assetRef.id] == nil {
-                    let session = EditSession(asset: assetRef)
-                    sessions[assetRef.id] = session
-                    Task { await session.loadSidecar() }
-                }
-                browseVM.loadSingleCloudAsset(assetRef)
-                mode = .fullImage
-            } catch {
-                browseVM.loadError = error
-            }
+        do {
+            let assetRef = try prepareLocalPhotoKitSession(ref)
+            browseVM.loadSingleCloudAsset(assetRef)
+            mode = .fullImage
+        } catch {
+            browseVM.loadError = error
         }
     }
 

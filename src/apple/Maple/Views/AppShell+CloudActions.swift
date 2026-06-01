@@ -342,12 +342,22 @@ extension AppShell {
         }
     }
 
-    /// Open the FullImage editor for a cloud asset selected from
-    /// CloudTimelineView. Builds a bytes-providing AssetRef so the Rust
-    /// pipeline can decode without a local file, and injects a
-    /// CloudSidecarStore so XMP edits persist back to the server.
+    /// Build the bytes-providing `AssetRef` for a cloud asset and ensure its
+    /// `EditSession` exists (with a server-backed `CloudSidecarStore` so XMP
+    /// edits persist back to the server), then bind the histogram client.
+    ///
+    /// This is the asset-resolution half of opening a cloud asset, shared by
+    /// both editor entry points:
+    ///   • Mac / iPad (`openCloudAsset`) flips `mode = .fullImage` and renders
+    ///     the legacy `FullImageView` from the returned ref.
+    ///   • iPhone (#809) appends the returned ref to the Library tab's
+    ///     `NavigationStack` path so `EditorDestination → EditorView` (S5)
+    ///     opens with adjustment controls — reusing the session created here,
+    ///     including its `CloudSidecarStore` (the destination's fallback
+    ///     `EditSession(asset:)` injects no remote store, so pre-creating the
+    ///     session here is load-bearing for server-side XMP persistence).
     @MainActor
-    func openCloudAsset(_ asset: SearchAsset, server: URL) {
+    func prepareCloudSession(_ asset: SearchAsset, server: URL) -> AssetRef {
         let httpClient = makeAuthenticatedHTTPClient(server: server)
         // libraryPath is unused for this code path — we never call
         // source.images() on a single-asset open. Pass the asset's
@@ -378,6 +388,17 @@ extension AppShell {
         // the same AuthenticatedHTTPClient as the rest of the cloud
         // session to keep the 401-refresh coalescer single-flighted.
         cloudHistogramClient = CloudHistogramClient(server: server, httpClient: httpClient)
+        return assetRef
+    }
+
+    /// Open the legacy FullImage editor for a cloud asset selected from
+    /// CloudTimelineView / CloudSearchView. Mac / iPad entry point — the pane
+    /// shell has no `NavigationStack`, so it flips `mode = .fullImage`.
+    /// iPhone routes the same tap to the S5 `EditorView` via the Library
+    /// tab's `NavigationStack` instead (#809) and never calls this.
+    @MainActor
+    func openCloudAsset(_ asset: SearchAsset, server: URL) {
+        let assetRef = prepareCloudSession(asset, server: server)
         browseVM.loadSingleCloudAsset(assetRef)
         mode = .fullImage
     }
