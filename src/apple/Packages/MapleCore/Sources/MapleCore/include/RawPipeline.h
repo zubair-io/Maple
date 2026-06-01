@@ -4,6 +4,23 @@
 #include <stdlib.h>
 
 /**
+ * Maple Auto Tone result. Field order matches
+ * `raw_core::stages::auto_tone::AutoTone` and the `#[wasm_bindgen]`
+ * `AutoTone` struct in `raw-wasm`, so Swift and TypeScript see the same
+ * schema across both FFI bridges. `#[repr(C)]` is load-bearing — cbindgen
+ * emits this as a flat C struct, and Swift reads `MapleAutoTone` field
+ * offsets via that layout.
+ */
+typedef struct MapleAutoTone {
+  float exposure;
+  float contrast;
+  float whites;
+  float blacks;
+  float highlights;
+  float shadows;
+} MapleAutoTone;
+
+/**
  * Output buffer for the legacy 8-bit sRGB RGB renders
  * (`maple_render_file`, `maple_render_bytes`).
  */
@@ -150,6 +167,31 @@ typedef struct MapleAdjustmentParams {
    */
   uint32_t skip_agx;
 } MapleAdjustmentParams;
+
+/**
+ * Compute Auto Tone values from a post-WB scene-linear RGBA f32 buffer.
+ *
+ * `scene_post_wb_rgba` must be tightly packed RGBA f32 — `4 * width *
+ * height` floats, scene-linear Rec.2020 D65 (the working space the post-WB
+ * stage emits). Alpha is ignored; the underlying core analyses only the
+ * RGB triple.
+ *
+ * Phase 1a: only `out->exposure` is meaningful. The other five fields are
+ * returned as `0.0` until Phase 1b/1c expand the mapping. The flat-struct
+ * ABI is forward-compatible — adding fills in-place needs no recompile on
+ * the Swift side.
+ *
+ * Returns 0 on success, -1 on null pointer or shape mismatch.
+ *
+ * # Safety
+ * - `scene_post_wb_rgba` must point to at least `4 * width * height`
+ *   readable `f32` values.
+ * - `out` must point to a writable `MapleAutoTone`.
+ */
+int32_t maple_compute_auto_tone(const float *scene_post_wb_rgba,
+                                uint32_t width,
+                                uint32_t height,
+                                struct MapleAutoTone *out);
 
 /**
  * Free a buffer populated by `maple_render_file` or `maple_render_bytes`.

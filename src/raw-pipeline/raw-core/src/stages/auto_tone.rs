@@ -34,6 +34,7 @@
 //! Refs spec `docs/superpowers/specs/2026-05-26-auto-tone-and-looks-design.md`.
 
 use crate::image::{ColorSpace, Image};
+use serde::Serialize;
 
 /// Rec.2020 luma weights — match the working color space of the post-WB
 /// scene-linear buffer this stage analyses. Identical to
@@ -61,7 +62,13 @@ const EXPOSURE_CLAMP_EV: f32 = 5.0;
 /// "no change") and will be filled in by Phases 1b/1c. Defaulting unfilled
 /// fields to zero rather than `Option<f32>` keeps the FFI surface (#A2) a
 /// flat C struct and matches the slider rest position.
-#[derive(Clone, Copy, Debug, PartialEq)]
+///
+/// `serde::Serialize` is derived so `maple-cli auto-tone` can print the
+/// struct directly as JSON. The flat-struct field ordering matches the
+/// `MapleAutoTone` C struct in `raw-ffi/src/auto_tone.rs` and the
+/// `AutoTone` `#[wasm_bindgen]` struct in `raw-wasm/src/auto_tone.rs` so
+/// the three surfaces present an identical schema to Swift/TypeScript.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct AutoTone {
     pub exposure: f32,
     pub contrast: f32,
@@ -98,7 +105,48 @@ impl Default for AutoTone {
 pub fn compute_auto_tone(scene_post_wb: &Image, clip: f32) -> AutoTone {
     let _ = clip;
     scene_post_wb.assert_space(ColorSpace::SceneLinearRec2020);
+    compute_auto_tone_inner(scene_post_wb)
+}
 
+/// Compute Auto Tone from a flat scene-linear RGBA f32 slice.
+///
+/// Adapter for the FFI (`maple_compute_auto_tone`) and WASM
+/// (`compute_auto_tone`) entry points, which receive RGBA buffers from the
+/// per-platform render paths rather than a `raw_core::image::Image`. The
+/// alpha channel is discarded; the RGB triple is interpreted as
+/// `ColorSpace::SceneLinearRec2020` and routed through the same percentile
+/// math as the in-process [`compute_auto_tone`] entry. Keeping the strip
+/// here means both surfaces share one implementation and stay in lockstep
+/// across phases. Returns [`AutoTone::default`] if `rgba.len() < 4 * w * h`
+/// — the FFI / WASM bindings already validate shape, so this is a
+/// defensive guardrail rather than a normal control-flow path.
+pub fn compute_auto_tone_from_rgba(
+    rgba: &[f32],
+    width: usize,
+    height: usize,
+    clip: f32,
+) -> AutoTone {
+    let _ = clip;
+    let pixels = width.checked_mul(height).unwrap_or(0);
+    if pixels == 0 || rgba.len() < pixels * 4 {
+        return AutoTone::default();
+    }
+    let mut img = Image::new(width as u32, height as u32, ColorSpace::SceneLinearRec2020);
+    for (i, px) in img.pixels.iter_mut().enumerate() {
+        let base = i * 4;
+        *px = [rgba[base], rgba[base + 1], rgba[base + 2]];
+    }
+    compute_auto_tone_inner(&img)
+}
+
+/// Shared histogram → exposure heuristic, parameterised on the post-WB
+/// scene-linear `Image`. Split out from [`compute_auto_tone`] so the
+/// RGBA-slice adapter ([`compute_auto_tone_from_rgba`]) does not pay the
+/// public-entry `assert_space` cost on every FFI/WASM call — the slice
+/// adapter constructs its own `Image` with the right tag, so the assert
+/// would be a no-op at runtime but a hard `panic!` if a future refactor
+/// breaks the invariant. Mirrors the inverse of `auto_exposure::apply`.
+fn compute_auto_tone_inner(scene_post_wb: &Image) -> AutoTone {
     let mut t = AutoTone::default();
 
     let hist = build_luma_histogram(scene_post_wb);
@@ -221,5 +269,42 @@ mod tests {
         let t = compute_auto_tone(&img, 0.005);
         assert!(t.exposure <= 5.0, "got {}", t.exposure);
         assert!(t.exposure >= -5.0, "got {}", t.exposure);
+    }
+
+    #[test]
+    fn from_rgba_matches_image_entry() {
+        // The RGBA adapter must produce bit-identical exposure to the
+        // `Image` entry on the same neutral patch — the FFI/WASM surface
+        // is just a shape adapter, not a different algorithm.
+        let w = 64usize;
+        let h = 64usize;
+        let mut rgba = vec![0f32; w * h * 4];
+        for i in 0..(w * h) {
+            rgba[i * 4]     = 0.045;
+            rgba[i * 4 + 1] = 0.045;
+            rgba[i * 4 + 2] = 0.045;
+            rgba[i * 4 + 3] = 1.0;
+        }
+        let rgba_result = compute_auto_tone_from_rgba(&rgba, w, h, 0.005);
+        let img_result = compute_auto_tone(&flat_image(0.045), 0.005);
+        assert_eq!(rgba_result.exposure, img_result.exposure);
+        assert_eq!(rgba_result.contrast, 0.0);
+    }
+
+    #[test]
+    fn from_rgba_short_buffer_returns_identity() {
+        // Defensive: callers (FFI/WASM) validate shape before calling us,
+        // but if a short slice does reach the adapter we return the
+        // identity recommendation rather than panicking on an OOB read.
+        let short = vec![0.18f32; 3];
+        let t = compute_auto_tone_from_rgba(&short, 64, 64, 0.005);
+        assert_eq!(t, AutoTone::default());
+    }
+
+    #[test]
+    fn from_rgba_zero_dims_returns_identity() {
+        let rgba = vec![0.18f32; 16];
+        let t = compute_auto_tone_from_rgba(&rgba, 0, 0, 0.005);
+        assert_eq!(t, AutoTone::default());
     }
 }

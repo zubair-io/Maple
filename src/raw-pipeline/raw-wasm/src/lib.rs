@@ -15,6 +15,8 @@
 //! the decode path continues to work single-threaded — no feature detection
 //! is needed on the Rust side.
 
+pub mod auto_tone;
+
 use raw_core::xmp as xmp_mod;
 use wasm_bindgen::prelude::*;
 

@@ -21,9 +21,13 @@ sha1 = "0.10"
 # canonical `crs:GradientBasedCorrections` nested-RDF in a follow-up, this
 # dep can move back to `[dev-dependencies]` or drop entirely.
 serde_json.workspace = true
+# `stages::auto_tone::AutoTone` derives `Serialize` so `maple-cli auto-tone`
+# can print the struct as JSON. The dep is workspace-managed (1.x with
+# `derive` enabled at the workspace root) so no extra features are needed
+# here.
+serde.workspace = true
 
 [dev-dependencies]
-serde.workspace = true
 tempfile = "3"
 clap = { workspace = true }
 

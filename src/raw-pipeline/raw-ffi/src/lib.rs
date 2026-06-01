@@ -8,6 +8,9 @@
 //! (`MapleCore/Sources/MapleCore/RawCoreBridge.swift`), not here.
 //!
 //! Module map:
+//!   - `auto_tone`          — `MapleAutoTone` struct + `maple_compute_auto_tone`
+//!                            (Phase 1a exposure-only; Phases 1b/1c fill the
+//!                            remaining sliders in-place). See ticket #516.
 //!   - `error`              — `LAST_ERROR` thread-local, `with_large_stack`
 //!                            worker plumbing, `maple_last_error`.
 //!   - `buffers`            — `MapleImageBuffer` / `MapleByteBuffer` /
@@ -29,6 +32,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+mod auto_tone;
 mod buffers;
 mod error;
 mod handle;
@@ -44,6 +48,7 @@ mod thumbnail;
 // `#[no_mangle] extern "C"` functions are exported regardless of `pub use`,
 // but cbindgen also needs visibility on the `#[repr(C)]` structs to emit
 // their typedefs.
+pub use auto_tone::MapleAutoTone;
 pub use buffers::{MapleByteBuffer, MapleImageBuffer, MapleSceneLinearBuffer};
 pub use handle::MapleRawHandle;
 pub use scene_linear_chain::MapleAdjustmentParams;

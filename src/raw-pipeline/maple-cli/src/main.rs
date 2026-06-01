@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use raw_core::decode::decode_bytes;
-use raw_core::pipeline::{render_from_raw, render_from_raw_with_quality, render_from_scene_linear, render_from_scene_linear_with_chain, RenderQuality};
+use raw_core::pipeline::{develop_scene_linear_from_raw_with_quality, render_from_raw, render_from_raw_with_quality, render_from_scene_linear, render_from_scene_linear_with_chain, RenderQuality};
+use raw_core::stages::auto_tone;
 use raw_core::synthetic_input::{halo_disk, hue_patch, neutral_ramp, Primary};
 use raw_core::xmp;
 use serde::Deserialize;
@@ -159,6 +160,30 @@ enum Cmd {
         #[arg(long, default_value = "full")]
         quality: String,
     },
+    /// Compute Auto Tone slider values for a RAW (prints JSON to stdout).
+    ///
+    /// Decodes the RAW, runs the full scene-linear develop chain at
+    /// `RenderQuality::Full` against an optional XMP sidecar (or the
+    /// default model if none is supplied), and feeds the resulting
+    /// post-WB scene-linear Rec.2020 buffer into
+    /// `auto_tone::compute_auto_tone`. The JSON shape matches the
+    /// `MapleAutoTone` C struct and the `#[wasm_bindgen]` `AutoTone`:
+    /// six fields, all `f32`. Phase 1a populates `exposure`; the rest
+    /// are `0.0`.
+    ///
+    /// The buffer this entry analyses is the same buffer the UI shows
+    /// post-render — so the recommended exposure is a "fine-tune on top
+    /// of the scene-anchor" when `papp:AutoExposure="On"` (the default)
+    /// and the full compensation when it's `"Off"`.
+    AutoTone {
+        /// Path to the RAW file.
+        raw: PathBuf,
+        /// Optional XMP sidecar carrying the parameter set. When omitted,
+        /// uses `AdjustmentModel::default()` — matches the UI "first open"
+        /// state before any slider has moved.
+        #[arg(long)]
+        params: Option<PathBuf>,
+    },
     /// Generate a synthetic scene-linear input and run it through the
     /// view transform (or the slider chain, when `--params` is given).
     /// Used by the diagnostic harnesses (`test_banding.sh`,
@@ -229,6 +254,9 @@ fn main() -> ExitCode {
         Cmd::Inspect { path } => run_or_exit(do_inspect(&path)),
         Cmd::Tile { raw, params, src_x, src_y, src_w, src_h, out_w, out_h, out, quality } => {
             run_or_exit(do_tile(&raw, params.as_deref(), src_x, src_y, src_w, src_h, out_w, out_h, &out, &quality))
+        }
+        Cmd::AutoTone { raw, params } => {
+            run_or_exit(do_auto_tone(&raw, params.as_deref()))
         }
         Cmd::Synthetic { kind, primary, ev, out, width, height, params } => {
             run_or_exit(do_synthetic(kind, primary.as_deref(), ev, &out, width, height, params.as_deref()))
@@ -448,6 +476,43 @@ fn do_tile(
     // DisplayLookCurve (#371) was retired in #443 — see `render_from_raw_*`.
     let png = raw_core::png::encode(w, h, &u8_bytes)?;
     std::fs::write(out, png)?;
+    Ok(0)
+}
+
+/// Decode a RAW, run the scene-linear develop chain at `RenderQuality::Full`,
+/// pass the resulting post-WB scene-linear Rec.2020 buffer through
+/// `auto_tone::compute_auto_tone`, and print the result as JSON.
+///
+/// Mirrors the buffer the UI shows the user (default model = "no edits
+/// applied yet", default `AutoExposureMode::On`) so the printed exposure
+/// value matches what `MapleCore` / `maple-common`'s "Auto" button would
+/// produce on the same RAW. Phase 1a only populates `exposure`; the other
+/// five fields are `0.0`.
+///
+/// Output format: one JSON object on stdout, no trailing newline beyond
+/// what `println!` adds. Shape is the serde projection of
+/// `auto_tone::AutoTone` — six `f32` fields — and matches the
+/// `MapleAutoTone` / `#[wasm_bindgen] AutoTone` schemas exposed to Swift
+/// and TypeScript.
+fn do_auto_tone(
+    raw: &Path,
+    params: Option<&Path>,
+) -> Result<i32, Box<dyn std::error::Error>> {
+    let model = match params {
+        Some(p) => xmp::parse(&std::fs::read_to_string(p)?)?,
+        None => xmp::AdjustmentModel::default(),
+    };
+    let bytes = std::fs::read(raw)?;
+    let ext = raw.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let raw_img = decode_bytes(&bytes, ext)?;
+    // `develop_scene_linear_from_raw_with_quality` returns the same post-WB
+    // scene-linear Rec.2020 buffer the legacy display-encoded entry feeds
+    // into the view transform — every UI render hits this funnel, so this
+    // is the only way to keep the CLI golden in lockstep with the UI
+    // "Auto" button without duplicating the decode chain.
+    let scene = develop_scene_linear_from_raw_with_quality(&raw_img, &model, RenderQuality::Full)?;
+    let result = auto_tone::compute_auto_tone(&scene, 0.005);
+    println!("{}", serde_json::to_string(&result)?);
     Ok(0)
 }
 
