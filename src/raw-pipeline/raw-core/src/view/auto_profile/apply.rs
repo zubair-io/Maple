@@ -34,9 +34,14 @@ pub fn compress_input(x: f32) -> f32 {
 /// passed through [`compress_input`] (negatives clamp to 0; soft-knee
 /// asymptote above `KNEE=0.95`) before evaluating the per-channel curve,
 /// then the optional `matrix` applies a cross-channel 3×3 correction.
-/// The compression mirrors what [`super::fit::fit_curve_from_raw`] did to
-/// the source distribution at fit time — without it, HDR values >1.0
-/// would skip the curve's domain and produce the wrong output.
+///
+/// The matrix + Oklab corrections below are only active when the curve
+/// carries non-identity values; the #550 display-space fit
+/// ([`super::fit_display::fit_curve_from_raw_display`]) sets them to
+/// identity / zero (AgX owns chroma + cross-channel coupling now), so the
+/// hot loop short-circuits to the per-channel curve alone. `compress_input`
+/// is likewise inert in `[0, 1]` display space — it only bites the
+/// scene-linear HDR values the curve previously consumed before AgX.
 pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
     use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
     let m = &curve.matrix;

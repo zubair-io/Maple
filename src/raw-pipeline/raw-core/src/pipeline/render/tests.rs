@@ -410,12 +410,13 @@ fn render_from_scene_linear_with_chain_dehaze_zero_is_passthrough() {
 
 // --- T6: Auto Profile dispatch ---
 //
-// `render_from_raw_with_quality_and_source` branches the view tail on
-// `model.profile`: `Profile::Auto` (with a source) calls
-// `auto_profile::fit_curve_from_raw` / `fit_curve_from_bytes` +
-// `apply_curve`, with AgX-Neutral as a fall-back; `Profile::Neutral`
-// (or any sourceless Auto) runs AgX. Synthetic paths ignore
-// `model.profile` (no RAW source to fit against).
+// `render_from_raw_with_quality_and_source` runs AgX + sRGB encode
+// UNCONDITIONALLY (#550). `Profile::Auto` (with a source) then layers a
+// per-channel curve on top in f32 sRGB-encoded display space via
+// `auto_profile::fit_curve_from_raw_display` / `fit_curve_from_bytes_display`
+// + `apply_curve`; the curve is a no-op (= AgX-Neutral output) for
+// `Profile::Neutral`, any sourceless Auto, or a failed fit. Synthetic
+// paths ignore `model.profile` (no RAW source to fit against).
 
 /// FNV-1a 64-bit. Deterministic, no deps, sufficient for golden-byte
 /// regression detection on the Neutral synthetic-render path.
