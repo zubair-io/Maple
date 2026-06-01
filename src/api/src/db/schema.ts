@@ -760,7 +760,13 @@ export interface ImportDoc {
   library_id: ObjectId;
   library_root: string;
   files: ImportFileEntry[];
-  /** Coarse progress; `total` === files.length. */
+  /** Auto Import: the worker scans `source_root` and populates `files` itself
+   * (default `MM` bucket labels) when it claims the job, instead of the files
+   * being resolved up-front by the create request. `false` for the manual
+   * (reviewed-buckets) path, whose `files` are pre-resolved. */
+  scan_pending: boolean;
+  /** Coarse progress; `total` === files.length (0 until an Auto Import's
+   * worker-side scan completes). */
   progress: { current: number; total: number };
   counts: { copied: number; skipped: number; failed: number };
   error: string | null;
