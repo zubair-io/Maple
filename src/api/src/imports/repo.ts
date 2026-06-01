@@ -309,6 +309,21 @@ export async function markImportCancelled(
  * matched the guard and at least one file was actually re-queued, false
  * otherwise (not found / not retryable / nothing recoverable).
  *
+ * Two recovery shapes (#800):
+ *   - Re-scan (a `failed` import with NO file rows): a scan-level / auto-import
+ *     failure that never produced files — e.g. the deferred scan rejected an
+ *     unsafe temp name (`.LrTmp-….mp4`) and bailed before writing any files[].
+ *     Re-queue for a FRESH scan (`scan_pending: true`, `files` left empty); the
+ *     worker walks `source_root` again, this time skipping the hidden/temp
+ *     files that are now filtered on scan (#793). Safe — there are no copied
+ *     states to lose.
+ *   - Per-file recovery (an import that produced file rows): resets every
+ *     recoverable `failed` file back to `pending` and keeps `scan_pending`
+ *     false so the worker re-uses the resolved files (never re-scans, which
+ *     would rebuild files[] and lose the copied states). A `failed` import
+ *     with files but NONE recoverable (all permanently-unsafe dests) stays
+ *     failed/409 — re-scanning wouldn't help, the names are still unsafe.
+ *
  * A file whose destination is permanently unsafe (e.g. a backslash filename
  * that can never pass `destRelPath`) is left `failed`, not resurrected — the
  * re-run must never copy a file with an unvalidated dest. `counts.failed` is
@@ -340,6 +355,30 @@ export async function retryImport(
     doc.status === 'failed' || (doc.status === 'done' && (doc.counts?.failed ?? 0) > 0);
   if (!retryable) return false;
 
+  // Re-scan branch: a scan-level / auto-import failure that never produced file
+  // rows (`failed` + empty files[]). There's nothing per-file to recover, so
+  // re-queue for a FRESH scan — the worker re-walks `source_root` (skipping the
+  // hidden/temp files now filtered on scan, #793). Safe because no copied
+  // states exist to lose.
+  if (doc.status === 'failed' && doc.files.length === 0) {
+    const nowIso = now().toISOString();
+    const result = await c.updateOne(
+      { _id: id, status: doc.status },
+      {
+        $set: {
+          status: 'pending' as ImportStatus,
+          scan_pending: true,
+          error: null,
+          locked_by: null,
+          lease_expires_at: null,
+          cancel_requested: false,
+          updated_at: nowIso,
+        },
+      },
+    );
+    return result.modifiedCount > 0;
+  }
+
   // Reset failed files to pending ONLY when their dest is safe; leave a
   // permanently-unsafe file failed so the re-run never copies an unvalidated
   // dest. Copied/skipped/pending files are untouched (already-copied images
@@ -356,8 +395,10 @@ export async function retryImport(
     return f;
   });
   if (recoveredCount === 0) {
-    // Nothing recoverable — a no-op retry isn't meaningful (e.g. an empty
-    // source whose import failed with no files, or only permanent failures).
+    // Nothing recoverable among the file rows — a no-op retry isn't meaningful
+    // (only permanently-unsafe failures remain). The fileless case is handled
+    // by the re-scan branch above, so reaching here means files[] is non-empty
+    // and re-scanning wouldn't help (same unsafe names).
     return false;
   }
 
