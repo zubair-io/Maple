@@ -599,10 +599,12 @@ struct AppShell: View {
     @ToolbarContentBuilder
     private var browseToolbarContent: some ToolbarContent {
         AppShellToolbar(
-            // "Image open" (either editor mode) drives the toolbar's
-            // back chevron + export affordance. On iPhone `.editing`
-            // never occurs, so this equals `mode == .fullImage` there.
-            isFullImage: isImageOpen,
+            // Back chevron + Export are full-image-only. In `.editing` the
+            // EditorView's own EditorHeader owns those, so the window
+            // toolbar must NOT show them — pass the narrow `.fullImage`
+            // check, not `isImageOpen` (#815).
+            isFullImage: mode == .fullImage,
+            isEditing: mode == .editing,
             hasSelection: selectedSession != nil,
             isCompact: isCompactShell,
             searchAvailable: searchAvailable,
