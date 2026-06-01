@@ -145,11 +145,45 @@ struct EditorView: View {
         } else {
             // Subtle placeholder so the chrome reads while a render is
             // pending or absent (e.g. preview EditSession in tests).
+            // For a cloud open, the placeholder hosts the determinate
+            // download bar while the remote bytes arrive (#822) — gated on
+            // the session's `downloadProgress` (nil for local/PhotoKit, so
+            // they show only the neutral tile).
             RoundedRectangle(cornerRadius: 4)
                 .fill(MapleTokens.surfaceAlt)
                 .aspectRatio(3.0 / 2.0, contentMode: .fit)
+                .overlay { downloadOverlay }
                 .padding(12)
                 .accessibilityIdentifier("editor-canvas-placeholder")
+        }
+    }
+
+    /// Determinate download progress shown over the placeholder while a
+    /// cloud asset's bytes download. Local / PhotoKit sessions have no
+    /// `downloadProgress`, so this is empty for them.
+    @ViewBuilder
+    private var downloadOverlay: some View {
+        if let progress = state.session.downloadProgress, progress.isDownloading {
+            VStack(spacing: 10) {
+                if let fraction = progress.fraction {
+                    ProgressView(value: fraction)
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 240)
+                        .accessibilityIdentifier("editor-download-progress")
+                        .accessibilityValue(Text("\(Int(fraction * 100)) percent"))
+                } else {
+                    // No known total yet — indeterminate until the headers
+                    // (or catalog size) supply one.
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 240)
+                        .accessibilityIdentifier("editor-download-progress")
+                }
+                Text("Downloading\u{2026}")
+                    .font(.caption)
+                    .foregroundStyle(MapleTokens.textMuted)
+            }
+            .padding(24)
         }
     }
 
