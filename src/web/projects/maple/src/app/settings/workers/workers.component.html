@@ -830,6 +830,11 @@
                   <maple-settings-icon name="chev-r" [size]="12" [color]="'#78706a'" />
                   <span class="lib-name">{{ imports.libraryName(d) }}</span>
                 </div>
+                @if (d.error; as importError) {
+                  <p class="import-detail-error" data-testid="import-detail-error">
+                    {{ importError }}
+                  </p>
+                }
                 <div class="import-files">
                   <div class="import-file head">
                     <span>Source</span><span>Destination</span><span class="r">Status</span>
@@ -840,6 +845,11 @@
                       <span class="mono" [title]="f.dest">{{ f.dest }}</span>
                       <span class="r file-state" [attr.data-state]="f.state">{{ f.state }}</span>
                     </div>
+                    @if (f.error; as fileError) {
+                      <div class="import-file-error" data-testid="import-file-error">
+                        {{ fileError }}
+                      </div>
+                    }
                   }
                 </div>
                 @if (d.files.length > imports.maxFilesShown) {
