@@ -34,6 +34,7 @@ import { LibrarySelection } from './library-selection.service';
 import { LibraryCache } from './library-cache.service';
 import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
+import { isSupportedRaw } from './raw-extensions';
 
 const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'id',
@@ -62,31 +63,11 @@ const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
 const assetsEqualForRender = (a: Asset, b: Asset): boolean =>
   shallowEqualByKeys(a, b, ASSET_RENDER_KEYS);
 
-/** Supported RAW extensions for file intake. */
-export const SUPPORTED_RAW_EXTENSIONS = new Set([
-  'dng',
-  'cr2',
-  'cr3',
-  'nef',
-  'arw',
-  'raf',
-  'orf',
-  'rw2',
-  'pef',
-  'srw',
-  '3fr',
-  'fff',
-  'dcr',
-  'mos',
-  'iiq',
-  'mrw',
-  'raw',
-]);
-
-export function isSupportedRaw(filename: string): boolean {
-  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  return SUPPORTED_RAW_EXTENSIONS.has(ext);
-}
+// RAW-extension detection moved to the dependency-free `raw-extensions`
+// module (so the raw-pipeline service can import it without an import cycle).
+// Re-exported here to preserve the existing public surface.
+export { SUPPORTED_RAW_EXTENSIONS } from './raw-extensions';
+export { isSupportedRaw };
 
 /**
  * localStorage key for the Self-Hosted last-selected source id.
