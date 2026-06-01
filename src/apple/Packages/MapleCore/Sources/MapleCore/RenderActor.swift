@@ -266,7 +266,8 @@ public actor RenderActor {
             }
             try Task.checkCancellation()
             return pipeline.processSceneLinearNonRaw(
-                decoded: decoded, model: model, targetSize: nil
+                decoded: decoded, model: model, targetSize: nil,
+                assetID: asset.id
             )
         }
 
@@ -289,7 +290,8 @@ public actor RenderActor {
             model: model,
             targetSize: nil,
             asShot: nil,
-            decodedAtModel: nil
+            decodedAtModel: nil,
+            assetID: asset.id
         )
     }
 
