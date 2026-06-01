@@ -113,8 +113,10 @@ enum Cmd {
     ///
     /// Wraps `raw_core::view::auto_profile::preview::extract_preview`. Used
     /// by `src/scripts/test_auto_profile_match.sh` to obtain the camera-
-    /// baked reference for the Auto Profile gate. Exits non-zero when the
-    /// RAW carries no embedded preview so the harness can SKIP cleanly.
+    /// baked reference for the Auto Profile gate. Exits with the dedicated
+    /// sentinel code 3 when the RAW is readable but carries no embedded
+    /// preview (so the harness can SKIP cleanly); a missing / unreadable
+    /// RAW or a write failure exits with the generic error code 1.
     ExtractPreview {
         /// Path to the RAW file.
         raw: PathBuf,
