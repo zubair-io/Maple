@@ -48,6 +48,15 @@ async function sha1HeadHex(absPath: string): Promise<string> {
 
 const log = childLogger('folders');
 
+// Auto-scan-on-open de-bounce window. `POST /:id/scan` (the content-aware
+// re-discover the web fires when a folder is opened) short-circuits when the
+// folder was scanned within this window, so rapid navigation across a
+// library's sub-folders doesn't re-walk the tree on every click. The manual
+// `POST /:id/rescan` button is NOT gated — an explicit user action always
+// re-walks. A few minutes is long enough to absorb a burst of navigation and
+// short enough that re-opening a folder after stepping away picks up moves.
+const SCAN_RECENT_WINDOW_MS = 3 * 60 * 1000;
+
 // In-process serialization for the upload route's post-write critical
 // section (stat → trash → rename → upsert), keyed by destination abs
 // path. Two concurrent uploads to the same target previously raced inside
@@ -375,13 +384,23 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       assets as unknown as import('mongodb').Collection<import('mongodb').Document>
     ).updateMany({ 'fileinfo.library_id': id }, { $set: stageResetFields });
 
+    // Re-walk the filesystem so a moved/new file is re-discovered and relinked
+    // (handleEvent dedups by maple_id/sha1_head, appends a live fileinfo, and
+    // clears deleted_at). Without this the button only zeroed stage versions —
+    // it could not recover a file whose only fileinfo was a soft-deleted old
+    // path. The walk runs to completion within the request: libraries are
+    // bounded and the dedup path is idempotent + concurrency-safe.
+    await scanFolderAndDiscover(scanRoot, id, scanRoot);
+    const scannedAt = new Date().toISOString();
+    await folders.updateOne({ _id: id }, { $set: { last_scan: scannedAt } });
+
     log.info(
       {
         folderId: folderIdStr,
         path: scanRoot,
         modified: updateResult.modifiedCount,
       },
-      'rescan: stage versions zeroed',
+      'rescan: stage versions zeroed + folder re-walked',
     );
 
     return {
@@ -389,6 +408,60 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       folderId: folderIdStr,
       path: scanRoot,
       reset: updateResult.modifiedCount,
+      last_scan: scannedAt,
+    };
+  })
+
+  // Content-aware re-discover for auto-scan-on-open (#804). Walks the folder
+  // tree and pushes every supported file through the discover producer, which
+  // dedups by maple_id/sha1_head and RELINKS moved/new files (appends a live
+  // fileinfo, clears deleted_at) onto their existing asset row. Unlike
+  // `/:id/rescan` this does NOT zero stage versions — zeroing on every folder
+  // open would reprocess the whole library. Gated by `last_scan`: a folder
+  // scanned within SCAN_RECENT_WINDOW_MS short-circuits so rapid navigation
+  // doesn't re-walk. The walk runs to completion within the request (bounded
+  // libraries; the dedup path is idempotent + concurrency-safe), so callers
+  // get an authoritative "scan done" before refreshing their listing.
+  .post('/:id/scan', async ({ params, set }) => {
+    const folderIdStr = params.id;
+    if (!ObjectId.isValid(folderIdStr)) {
+      set.status = 400;
+      return { ok: false, error: 'Invalid folderId' };
+    }
+    const id = new ObjectId(folderIdStr);
+    const folders = await foldersCollection();
+    const folder = await folders.findOne({ _id: id });
+    if (!folder) {
+      set.status = 404;
+      return { ok: false, error: 'Folder not found' };
+    }
+
+    // last_scan de-bounce: skip the re-walk when the folder was scanned
+    // within the recent window. Repeated/concurrent calls are safe either
+    // way (the discover path is idempotent), but skipping avoids redundant
+    // filesystem walks on rapid navigation.
+    const lastScan = folder.last_scan ? Date.parse(folder.last_scan) : NaN;
+    if (Number.isFinite(lastScan) && Date.now() - lastScan < SCAN_RECENT_WINDOW_MS) {
+      return {
+        ok: true,
+        folderId: folderIdStr,
+        path: folder.path,
+        skipped: 'recent' as const,
+        last_scan: folder.last_scan,
+      };
+    }
+
+    await scanFolderAndDiscover(folder.path, id, folder.path);
+    const scannedAt = new Date().toISOString();
+    await folders.updateOne({ _id: id }, { $set: { last_scan: scannedAt } });
+
+    log.info({ folderId: folderIdStr, path: folder.path }, 'scan: folder re-walked (discover-only)');
+
+    return {
+      ok: true,
+      folderId: folderIdStr,
+      path: folder.path,
+      last_scan: scannedAt,
     };
   })
 

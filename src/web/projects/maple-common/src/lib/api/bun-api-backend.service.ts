@@ -386,6 +386,30 @@ export class BunApiBackendService {
     }>(`${this.base}/folders/${encodeURIComponent(folderId)}/rescan`, {});
   }
 
+  /** Content-aware re-discover of one library folder, for auto-scan-on-open
+   * (#804). Re-walks the folder tree so a moved/new file is relinked onto its
+   * existing asset (stages then resume); unlike `rescanFolder` this does NOT
+   * zero stage versions, so opening a folder doesn't reprocess the library.
+   * Server-side gated by `last_scan` — a folder scanned within a recent window
+   * short-circuits (`skipped: 'recent'`) without re-walking. */
+  scanFolder(folderId: string): Observable<{
+    ok: boolean;
+    folderId?: string;
+    path?: string;
+    skipped?: 'recent';
+    last_scan?: string;
+    error?: string;
+  }> {
+    return this.http.post<{
+      ok: boolean;
+      folderId?: string;
+      path?: string;
+      skipped?: 'recent';
+      last_scan?: string;
+      error?: string;
+    }>(`${this.base}/folders/${encodeURIComponent(folderId)}/scan`, {});
+  }
+
   // -------------------------------------------------------------------------
   // Slow-tier enrichment (Phase 2+ workers — geocode, face, describe).
   // The `source` field on the GET response says whether each value came from
