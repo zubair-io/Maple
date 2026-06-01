@@ -167,7 +167,8 @@ struct CloudFolderTreeRow: View {
             .padding(.leading, indent + MapleTokens.Spacing.treeIndent)
             .padding(.vertical, 4)
         } else {
-          ForEach(dirs, id: \.path) { dir in
+          // Reversed to match the grid's first-level folder order (#782).
+          ForEach(Array(dirs.reversed()), id: \.path) { dir in
             CloudFolderTreeRow(
               serverURL: serverURL,
               libraryFolderID: libraryFolderID,

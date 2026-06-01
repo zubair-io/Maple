@@ -11,6 +11,7 @@
 // `isFullImage` here.
 
 import SwiftUI
+import MapleCore
 
 // MARK: - Browse / Full-image toolbar
 
@@ -28,6 +29,13 @@ struct AppShellToolbar: ToolbarContent {
     let searchAvailable: Bool
     /// True when the search UI is currently showing — drives the Search tint.
     let isSearchActive: Bool
+    /// True when the selected source is a Maple Cloud library — gates the
+    /// trailing Timeline/Folder view-mode toggle (which only makes sense
+    /// for cloud libraries). The toggle moved here from the sidebar (#782).
+    let isCloudLibrary: Bool
+    /// Current cloud view mode — drives the toggle's active tint. Ignored
+    /// when `isCloudLibrary` is false.
+    let cloudViewMode: CloudViewMode
     /// Grid fill/fit toggle — toolbar both reads (icon) and writes (tap).
     @Binding var browseDisplayMode: GridDisplayMode
     /// Tapped when the user hits the Back chevron in Full-image mode.
@@ -36,6 +44,10 @@ struct AppShellToolbar: ToolbarContent {
     let onToggleSidebar: () -> Void
     /// Desktop only — opens the cloud search view (the "Search" button).
     let onOpenSearch: () -> Void
+    /// Switch the current cloud library between Timeline and Folder view.
+    /// Wired to `AppShell.setCloudViewMode`. Only invoked from the trailing
+    /// toggle, which is shown only when `isCloudLibrary` is true.
+    let onSetCloudViewMode: (CloudViewMode) -> Void
     /// Tapped when the user hits Export (also keyboard ⌘E).
     let onExport: () -> Void
     /// Triggered by the hidden ⌘O keyboard shortcut.
@@ -44,13 +56,10 @@ struct AppShellToolbar: ToolbarContent {
     let onSettings: () -> Void
 
     var body: some ToolbarContent {
-        // Toolbar items at `.navigation` placement land on the LEADING edge
-        // of the title bar — right of the sidebar-toggle button, left of
-        // the navigationTitle. When the sidebar is closed the placement
-        // collapses to "right after the menu/sidebar button, before the
-        // image name." Per UX request: back/share/zoom controls live in
-        // the header next to the menu button rather than at the trailing
-        // edge after the title.
+        // `.navigation` placement lands on the LEADING edge of the title
+        // bar (right of the sidebar-toggle, left of the title); the
+        // header controls that follow use `.primaryAction` (TRAILING edge)
+        // per the #782 UX request — only the Back chevron stays leading.
         // Back chevron — Full-image only. The library-search magnifying glass
         // was removed in #692; search is now a top-level destination (bottom
         // tab on iPhone, the trailing Library/Search/Settings group on desktop).
@@ -66,11 +75,11 @@ struct AppShellToolbar: ToolbarContent {
         // Grid fill/fit toggle — only relevant in browse mode. Persists for
         // the session via @State on AppShell. The button shows the OPPOSITE
         // icon as the action target (see `GridDisplayMode.toggleIconName`).
-        // Placement .navigation per the same UX rule as the rest of the
-        // toolbar — header controls cluster on the leading edge, right of
-        // the sidebar-toggle button.
+        // Lives on the TRAILING edge (`.primaryAction`) per the #782 UX
+        // request — grid display + cloud view-mode controls cluster on the
+        // right of the header, not next to the menu button.
         if !isFullImage {
-            ToolbarItem(placement: .navigation) {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     browseDisplayMode = browseDisplayMode.toggled
                 } label: {
@@ -81,12 +90,27 @@ struct AppShellToolbar: ToolbarContent {
                 .accessibilityIdentifier("browse-grid-display-mode-toggle")
             }
         }
-        ToolbarItem(placement: .navigation) {
-            Button("Export", systemImage: "square.and.arrow.up") {
-                onExport()
+        // Cloud Timeline/Folder view-mode toggle — browse mode, cloud
+        // libraries only. Moved here from the sidebar's per-server header
+        // (#782) so it sits to the right of the fill/fit control. Tapping
+        // re-routes the current library through the chosen view mode via
+        // `AppShell.setCloudViewMode`.
+        if !isFullImage && isCloudLibrary {
+            ToolbarItem(placement: .primaryAction) {
+                cloudViewModeToggle
             }
-            .disabled(!hasSelection)
-            .keyboardShortcut("e", modifiers: .command)
+        }
+        // Export / share — Full-image only (you share the photo you're
+        // viewing). Removed from the Browse header (#782); on the trailing
+        // edge alongside the other header controls.
+        if isFullImage {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Export", systemImage: "square.and.arrow.up") {
+                    onExport()
+                }
+                .disabled(!hasSelection)
+                .keyboardShortcut("e", modifiers: .command)
+            }
         }
         // ⌘O keyboard shortcut — desktop only. Omitted on the compact (iPhone)
         // shell: there's no hardware ⌘O there, and a hidden trailing item would
@@ -138,5 +162,24 @@ struct AppShellToolbar: ToolbarContent {
                 #endif
             }
         }
+    }
+
+    /// Single-button Timeline ↔ Folder toggle for the trailing header,
+    /// shown only for cloud libraries. One-button shape mirrors the
+    /// adjacent fill/fit toggle: the icon shows the CURRENT mode
+    /// (calendar = Timeline, folder = Folder) and a tap flips to the
+    /// other. (Replaced the earlier two-icon pair — #782.)
+    @ViewBuilder
+    private var cloudViewModeToggle: some View {
+        Button {
+            onSetCloudViewMode(cloudViewMode == .timeline ? .folder : .timeline)
+        } label: {
+            Image(systemName: cloudViewMode == .timeline ? "calendar" : "folder")
+                .foregroundStyle(MapleTokens.textMuted)
+        }
+        .accessibilityLabel(cloudViewMode == .timeline
+                            ? "Switch to Folder view"
+                            : "Switch to Timeline view")
+        .accessibilityIdentifier("cloud-view-mode-toggle")
     }
 }

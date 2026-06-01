@@ -212,30 +212,11 @@ struct LibrarySidebar: View {
                     selection = .photosFilter(.all)
                     onPickPhotosFilter(.all)
                 }
-                NavItem(
-                    icon: "star",
-                    label: "Favorites",
-                    isSelected: selection == .photosFilter(.favorites)
-                ) {
-                    selection = .photosFilter(.favorites)
-                    onPickPhotosFilter(.favorites)
-                }
-                NavItem(
-                    icon: "checkmark",
-                    label: "Picks",
-                    isSelected: selection == .photosFilter(.picks)
-                ) {
-                    selection = .photosFilter(.picks)
-                    onPickPhotosFilter(.picks)
-                }
-                NavItem(
-                    icon: "xmark",
-                    label: "Rejects",
-                    isSelected: selection == .photosFilter(.rejects)
-                ) {
-                    selection = .photosFilter(.rejects)
-                    onPickPhotosFilter(.rejects)
-                }
+                // Favorites / Picks / Rejects smart-collection rows were
+                // removed (#782): cull state belongs to the editor, not a
+                // sidebar shortcut. `PhotoKitFilter` keeps those cases —
+                // `PhotoKitSource` still filters on them — but they're no
+                // longer surfaced here or as grid filter chips.
                 if photosStatus == .authorized || photosStatus == .limited {
                     albumsSubsection
                 }
@@ -318,7 +299,6 @@ struct LibrarySidebar: View {
                 CloudServerSection(
                     serverURL: url,
                     folders: cloudFoldersByServer[url] ?? [],
-                    viewMode: registry.viewMode(for: url),
                     displayName: registry.displayName(for: url)
                                  ?? url.host
                                  ?? url.absoluteString,
@@ -327,17 +307,6 @@ struct LibrarySidebar: View {
                         set: { cloudServersExpanded[url] = $0 }
                     ),
                     selection: $selection,
-                    onSetViewMode: { mode in
-                        registry.setViewMode(mode, for: url)
-                        // Re-route the current selection through the new mode.
-                        // Look up the folder's path from the cached listing
-                        // so the new view mode browses the right tree root.
-                        if case .cloudLibrary(let s, let f) = selection, s == url {
-                            let path = (cloudFoldersByServer[url] ?? [])
-                                .first(where: { $0.id == f })?.path ?? ""
-                            onPickCloudLibrary(s, f, path)
-                        }
-                    },
                     onPickPath: onPickCloudLibrary,
                     onListDir: onListCloudDir,
                     cloudCurrentPath: pathFor(server: url),
