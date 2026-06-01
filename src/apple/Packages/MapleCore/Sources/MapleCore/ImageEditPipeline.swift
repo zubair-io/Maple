@@ -290,17 +290,25 @@ public actor ImageEditPipeline {
         // Pull bytes (or use the URL directly when available).
         let cgImage: CGImage?
         let sourceColorSpace: CGColorSpace?
+        // Downsample at decode for the fast (viewport) phase so the
+        // full-resolution bitmap is never allocated — a 40-100MP JPEG's
+        // full-res CGImage + CIImage + scene-linear f32 buffer is hundreds
+        // of MB before `prescaleForDisplay` runs (×2 for fast+refine),
+        // which is the clearest OOM on device (#785). When `targetSize` is
+        // nil (refine / export) we keep the full-res decode so the final
+        // render quality is unchanged.
+        let maxPixelSize: Int? = Self.thumbnailMaxPixelSize(for: targetSize)
         if let url = asset.primaryURL {
             let scope = asset.scopeParentURL ?? url.deletingLastPathComponent()
             let accessing = scope.startAccessingSecurityScopedResource()
             defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
-            let pair = Self.decodeNonRawCGImage(url: url)
+            let pair = Self.decodeNonRawCGImage(url: url, maxPixelSize: maxPixelSize)
             cgImage = pair.image
             sourceColorSpace = pair.colorSpace
         } else if let provider = asset.bytesProvider {
             do {
                 let bytes = try await provider()
-                let pair = Self.decodeNonRawCGImage(data: bytes)
+                let pair = Self.decodeNonRawCGImage(data: bytes, maxPixelSize: maxPixelSize)
                 cgImage = pair.image
                 sourceColorSpace = pair.colorSpace
             } catch {
@@ -349,22 +357,47 @@ public actor ImageEditPipeline {
         return Self.prescaleForDisplay(promoted, targetSize: targetSize)
     }
 
-    /// Helper — open a `CGImageSource` and pull the largest image at index 0.
-    /// Returns the CGImage plus its source color space (when surfaced by
-    /// ImageIO) so the caller can tag the CIImage explicitly.
-    nonisolated private static func decodeNonRawCGImage(url: URL) -> (image: CGImage?, colorSpace: CGColorSpace?) {
+    /// Long-edge pixel cap for the downsampled thumbnail decode, or `nil`
+    /// (full-resolution decode) when `targetSize` is absent. The fast
+    /// phase passes its viewport target; refine / export pass `nil`.
+    ///
+    /// We never upscale, so the cap is purely a ceiling — when the source
+    /// is already smaller than `targetSize`, `CGImageSourceCreateThumbnail…`
+    /// returns the source at its native size. A degenerate (zero/negative)
+    /// target falls through to a full-resolution decode rather than asking
+    /// ImageIO for a 0-px thumbnail.
+    nonisolated private static func thumbnailMaxPixelSize(for targetSize: CGSize?) -> Int? {
+        guard let targetSize else { return nil }
+        let longEdge = max(targetSize.width, targetSize.height)
+        guard longEdge.isFinite, longEdge >= 1 else { return nil }
+        return Int(longEdge.rounded())
+    }
+
+    /// Helper — open a `CGImageSource` and pull the primary image at
+    /// index 0. When `maxPixelSize` is non-nil, ImageIO decodes a
+    /// downsampled thumbnail (long edge capped at `maxPixelSize`) so the
+    /// full-resolution bitmap is never materialised; otherwise the
+    /// full-resolution image is decoded. Returns the CGImage plus its
+    /// source color space (when surfaced by ImageIO) so the caller can
+    /// tag the CIImage explicitly.
+    nonisolated private static func decodeNonRawCGImage(
+        url: URL,
+        maxPixelSize: Int? = nil
+    ) -> (image: CGImage?, colorSpace: CGColorSpace?) {
         let opts: [CFString: Any] = [
             kCGImageSourceShouldCache: false,
-            // Force the full-resolution image, not the embedded thumbnail.
             kCGImageSourceShouldCacheImmediately: false,
         ]
         guard let src = CGImageSourceCreateWithURL(url as CFURL, opts as CFDictionary) else {
             return (nil, nil)
         }
-        return decodeNonRawCGImage(source: src)
+        return decodeNonRawCGImage(source: src, maxPixelSize: maxPixelSize)
     }
 
-    nonisolated private static func decodeNonRawCGImage(data: Data) -> (image: CGImage?, colorSpace: CGColorSpace?) {
+    nonisolated private static func decodeNonRawCGImage(
+        data: Data,
+        maxPixelSize: Int? = nil
+    ) -> (image: CGImage?, colorSpace: CGColorSpace?) {
         let opts: [CFString: Any] = [
             kCGImageSourceShouldCache: false,
             kCGImageSourceShouldCacheImmediately: false,
@@ -372,13 +405,55 @@ public actor ImageEditPipeline {
         guard let src = CGImageSourceCreateWithData(data as CFData, opts as CFDictionary) else {
             return (nil, nil)
         }
-        return decodeNonRawCGImage(source: src)
+        return decodeNonRawCGImage(source: src, maxPixelSize: maxPixelSize)
     }
 
-    nonisolated private static func decodeNonRawCGImage(source: CGImageSource) -> (image: CGImage?, colorSpace: CGColorSpace?) {
+    nonisolated private static func decodeNonRawCGImage(
+        source: CGImageSource,
+        maxPixelSize: Int?
+    ) -> (image: CGImage?, colorSpace: CGColorSpace?) {
         // Index 0 is the primary image for HEIF / JPEG / PNG. (HEIF can
         // contain multiple images via the `pitm` box but Apple's
         // CGImageSource defaults index 0 to the primary item.)
+        if let maxPixelSize, maxPixelSize >= 1 {
+            // Downsampled fast-phase decode (#785). `…FromImageAlways`
+            // forces ImageIO to derive the thumbnail from the full image
+            // (not return a tiny/absent embedded thumbnail), but it scales
+            // straight from the decoder so the full-res bitmap is never
+            // allocated.
+            //
+            // We deliberately do NOT set `…WithTransform`: the full-res
+            // path (`CGImageSourceCreateImageAtIndex`) returns stored,
+            // un-oriented pixels and nothing downstream rotates the
+            // non-RAW buffer, so orienting only the thumbnail would flip
+            // the image when the refine pass replaces it. Matching the
+            // full-res path's stored orientation keeps fast and refine
+            // consistent (#785 is OOM-only — no rendered-output change).
+            let thumbOpts: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceShouldCacheImmediately: false,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            ]
+            if let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOpts as CFDictionary) {
+                // The fit-mode preview stays on screen as the fast (sized)
+                // decode, so it must not shift color vs. the full-res
+                // refine. ImageIO preserves the source's embedded profile
+                // on the thumbnail in the common formats; when it doesn't
+                // surface one (`cg.colorSpace == nil`), read the source's
+                // color space from the full image's metadata — that path
+                // reads only the index-0 CGImage's `colorSpace` and is
+                // taken only on the rare profile-stripped fallback.
+                if let cs = cg.colorSpace {
+                    return (cg, cs)
+                }
+                let fullColorSpace = CGImageSourceCreateImageAtIndex(source, 0, nil)?.colorSpace
+                return (cg, fullColorSpace)
+            }
+            // Fall through to the full-res path if the thumbnail decode
+            // failed (e.g. an exotic format ImageIO can downsample-decode
+            // only via the full image path) — correctness over the
+            // allocation win.
+        }
         let imageOpts: [CFString: Any] = [
             // Decode at full res; non-RAW images are already display-sized.
             kCGImageSourceShouldAllowFloat: true,
