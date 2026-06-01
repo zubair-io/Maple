@@ -842,7 +842,7 @@
                     </button>
                   }
                 </div>
-                @if (d.error; as importError) {
+                @if (j.status === 'failed' && d.error; as importError) {
                   <p class="import-detail-error" data-testid="import-detail-error">
                     {{ importError }}
                   </p>
@@ -857,7 +857,7 @@
                       <span class="mono" [title]="f.dest">{{ f.dest }}</span>
                       <span class="r file-state" [attr.data-state]="f.state">{{ f.state }}</span>
                     </div>
-                    @if (f.error; as fileError) {
+                    @if (j.status === 'failed' && f.error; as fileError) {
                       <div class="import-file-error" data-testid="import-file-error">
                         {{ fileError }}
                       </div>
