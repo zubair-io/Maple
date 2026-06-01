@@ -295,7 +295,23 @@ extension EditSession {
                 // Fast phase decodes downsampled to the viewport target so
                 // the full-res bitmap is never allocated; refine decodes
                 // full-resolution (`target: nil`) for the final render (#785).
-                let decodeTarget: CGSize? = (phase == .fast) ? targetSize : nil
+                //
+                // Guard the fast phase against a nil / degenerate target
+                // (e.g. the very first render before `previewSize` lands):
+                // a nil here would fall through to `sharedDecode`'s
+                // full-resolution branch and re-trigger the exact OOM this
+                // change fixes. Substitute the shared conservative
+                // fallback cap so the initial render stays downsampled.
+                // Refine must still pass `nil` for the full-res decode.
+                let decodeTarget: CGSize? = {
+                    guard phase == .fast else { return nil }
+                    if let targetSize {
+                        let longEdge = max(targetSize.width, targetSize.height)
+                        if longEdge.isFinite, longEdge >= 1 { return targetSize }
+                    }
+                    let fallback = CGFloat(ImageEditPipeline.fastPhaseFallbackLongEdge)
+                    return CGSize(width: fallback, height: fallback)
+                }()
                 let decoded = await renderActor.sharedDecode(
                     asset: asset,
                     target: decodeTarget,

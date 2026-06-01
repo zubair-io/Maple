@@ -141,6 +141,35 @@ final class RenderActorTests: XCTestCase {
         let snapshot = await actor.snapshot(forAsset: asset)
         XCTAssertNil(snapshot.image, "invalidate must clear the cached image")
     }
+
+    // MARK: - Decoded-cache write-gate (#785)
+
+    /// A full decode always writes the cache, regardless of what's there.
+    func testWriteGateFullDecodeAlwaysWrites() {
+        XCTAssertTrue(
+            RenderActor.shouldWriteDecodedCache(wantsFull: true, cachedIsFreshFull: true),
+            "a full decode must overwrite even a fresh full cache (re-decode after invalidate)")
+        XCTAssertTrue(
+            RenderActor.shouldWriteDecodedCache(wantsFull: true, cachedIsFreshFull: false),
+            "a full decode must write when no fresh full cache is present")
+    }
+
+    /// A sized (fast) decode must NOT clobber a FRESH full cache — that
+    /// would downgrade the buffer the refine pass already landed.
+    func testWriteGateSizedDecodeSkipsFreshFullCache() {
+        XCTAssertFalse(
+            RenderActor.shouldWriteDecodedCache(wantsFull: false, cachedIsFreshFull: true),
+            "a sized decode must not overwrite a fresh full cache")
+    }
+
+    /// A sized (fast) decode MAY overwrite a STALE full cache (or an
+    /// empty / sized slot): the stale buffer is never served, and
+    /// refusing to write would force a fresh sized decode every fast tick.
+    func testWriteGateSizedDecodeOverwritesStaleOrSizedCache() {
+        XCTAssertTrue(
+            RenderActor.shouldWriteDecodedCache(wantsFull: false, cachedIsFreshFull: false),
+            "a sized decode must overwrite a stale/sized/empty cache so the fast path doesn't re-decode every tick")
+    }
 }
 
 // MARK: - Test helper
