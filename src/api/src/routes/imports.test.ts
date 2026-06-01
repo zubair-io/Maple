@@ -268,3 +268,71 @@ describe('GET/cancel lifecycle', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('POST /api/imports/:id/retry (#795)', () => {
+  it('re-queues a failed import and refuses a clean one', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('../imports/repo.ts');
+
+    // A failed import with one failed file.
+    const created = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: libraryId,
+      library_root: '/srv/lib',
+      files: [
+        {
+          src: '/srv/in/bad.dng',
+          dest: '2024/03/bad.dng',
+          size: 1,
+          mtime: 0,
+          kind: 'image',
+          state: 'failed',
+          error: 'unsafe filename',
+        },
+      ],
+    });
+    await repo.failImport(created._id, 'a file failed');
+
+    const retry = await post(`/api/imports/${created._id.toHexString()}/retry`, {});
+    expect(retry.status).toBe(200);
+    expect(((await retry.json()) as { ok: boolean }).ok).toBe(true);
+
+    const after = await app.handle(
+      new Request(`http://localhost/api/imports/${created._id.toHexString()}`),
+    );
+    const body = (await after.json()) as {
+      status: string;
+      error: string | null;
+      files: { state: string }[];
+    };
+    expect(body.status).toBe('pending');
+    expect(body.error).toBeNull();
+    expect(body.files[0].state).toBe('pending');
+
+    // A clean done import is NOT retryable → 409.
+    const clean = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: libraryId,
+      library_root: '/srv/lib',
+      files: [
+        {
+          src: '/srv/in/a.dng',
+          dest: '2024/03/a.dng',
+          size: 1,
+          mtime: 0,
+          kind: 'image',
+          state: 'pending',
+          error: null,
+        },
+      ],
+    });
+    await repo.completeImport(clean._id, { copied: 1, skipped: 0, failed: 0 });
+    const refused = await post(`/api/imports/${clean._id.toHexString()}/retry`, {});
+    expect(refused.status).toBe(409);
+  });
+
+  it('400s a bad import id on retry', async () => {
+    const res = await post('/api/imports/not-an-id/retry', {});
+    expect(res.status).toBe(400);
+  });
+});

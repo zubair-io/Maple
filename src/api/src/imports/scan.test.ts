@@ -160,3 +160,55 @@ describe('walk() skips hidden/temp files (#793)', () => {
     expect(xmp.dest).toBe('2024/05/IMG_9001.xmp');
   });
 });
+
+// #795: buildImportFiles must skip-and-continue when destRelPath throws on an
+// unsafe segment, instead of aborting the whole batch. An unsafe BUCKET LABEL
+// is the easiest reliable trigger (a too-long filename can't even be written to
+// disk on most filesystems): every file in that bucket is failed, while a file
+// in a DIFFERENT, validly-labelled bucket still imports.
+describe('buildImportFiles skips files with an unsafe destination (#795)', () => {
+  let mixedRoot: string;
+
+  async function put(rel: string, mtimeUtc: string): Promise<void> {
+    const abs = path.join(mixedRoot, rel);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, `content-of-${rel}`);
+    const when = new Date(mtimeUtc);
+    await fs.utimes(abs, when, when);
+  }
+
+  beforeAll(async () => {
+    mixedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-unsafe-'));
+    // March 2024 image + sidecar — we'll give 2024/03 an unsafe label.
+    await put('BAD_0001.dng', '2024-03-09T12:00:00Z');
+    await put('BAD_0001.xmp', '2024-03-09T12:05:00Z');
+    // November 2007 image — its 2007/11 bucket gets a safe default label.
+    await put('GOOD_0002.nef', '2007-11-25T08:00:00Z');
+  });
+
+  afterAll(async () => {
+    await fs.rm(mixedRoot, { recursive: true, force: true });
+  });
+
+  test('records the unsafe-bucket files as failed and keeps the good ones pending', async () => {
+    // A label with a path separator is rejected by isSafeLabel → destRelPath
+    // throws for every file bucketed under 2024/03.
+    const files = await buildImportFiles(mixedRoot, { '2024/03': 'a/b' });
+
+    const bad = files.find((f) => f.dest.endsWith('BAD_0001.dng'))!;
+    expect(bad.state).toBe('failed');
+    expect(bad.error).toBeTruthy();
+    expect(bad.error).toContain('unsafe');
+
+    // The sidecar under the failed image is failed too (not silently dropped).
+    const badXmp = files.find((f) => f.dest.endsWith('BAD_0001.xmp'))!;
+    expect(badXmp.state).toBe('failed');
+    expect(badXmp.kind).toBe('sidecar');
+
+    // The validly-labelled November image still imports normally.
+    const good = files.find((f) => f.dest.endsWith('GOOD_0002.nef'))!;
+    expect(good.state).toBe('pending');
+    expect(good.error).toBeNull();
+    expect(good.dest).toBe('2007/11/GOOD_0002.nef');
+  });
+});
