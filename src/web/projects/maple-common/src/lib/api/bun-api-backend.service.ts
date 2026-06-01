@@ -354,21 +354,11 @@ export class BunApiBackendService {
   }
 
   /**
-   * Read the XMP sidecar that lives next to `path` on the server's filesystem.
+   * Write the XMP sidecar that lives next to `path`.
    *
    * Path-keyed (NOT asset-id-keyed) — see slice 4 of #193 for why. The path
    * goes through `encodeURIComponent` because absolute paths legitimately
    * contain `/`, spaces, and other URL-meaningful characters.
-   */
-  getXmp(path: string): Observable<string> {
-    return this.http.get(`${this.base}/xmp?path=${encodeURIComponent(path)}`, {
-      responseType: 'text',
-    });
-  }
-
-  /**
-   * Write the XMP sidecar that lives next to `path`. See {@link getXmp} for
-   * the path-keyed rationale.
    */
   putXmp(path: string, xml: string): Observable<void> {
     return this.http.post<void>(`${this.base}/xmp?path=${encodeURIComponent(path)}`, xml, {
