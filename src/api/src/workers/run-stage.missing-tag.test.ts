@@ -208,3 +208,117 @@ describe('runOnce — missing_since tagging', () => {
     expect((await images.find({}).toArray())[0]!.missing_since).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// no-resolvable-location → reaper-tag for all-soft-deleted assets (#805).
+//
+// When an original-file stage hits `no-resolvable-location` AND every fileinfo
+// entry is soft-deleted (the asset once had a location, now genuinely gone),
+// the runner must stamp `missing_since` for the missing-reaper instead of
+// silently marking the stage done. The other null-resolution cases (no fileinfo
+// at all, or a live entry whose library is unregistered) must NOT be tagged.
+// ---------------------------------------------------------------------------
+
+function skipNoLocationStage(name = 'exif', tags = true) {
+  return defineStage({
+    name,
+    targetVersion: 1,
+    dependsOn: [],
+    tagsMissingOnEnoent: tags,
+    defaults: {
+      concurrency: 1,
+      maxAttempts: 3,
+      paused: false,
+      pausedOnFirstBoot: false,
+      last_seen_target_version: 0,
+    },
+    handler: async () => ({ skip: 'no-resolvable-location' as const }),
+  });
+}
+
+function allSoftDeletedDoc(): ImageDoc {
+  return {
+    fileinfo: [
+      { library_id: 'lib0', path: '', filename: 'gone.raw', deleted_at: '2026-05-01T00:00:00Z' },
+    ],
+  } as unknown as ImageDoc;
+}
+
+describe('runOnce — no-resolvable-location reaper tagging (#805)', () => {
+  it('tags missing_since when all fileinfo entries are soft-deleted', async () => {
+    const images = makeImagesMock([allSoftDeletedDoc()]);
+    const configColl = makeConfigMock();
+    const stage = skipNoLocationStage();
+
+    await _test.runOnce(stage, cfg, images, configColl);
+    const doc = (await images.find({}).toArray())[0]! as unknown as {
+      missing_since?: string;
+      stages?: Record<string, unknown>;
+    };
+    // Tagged for the reaper — and NO stage state touched (mirrors the ENOENT
+    // catch-path), so the asset isn't marked done at the vanished location.
+    expect(typeof doc.missing_since).toBe('string');
+    expect(doc.stages).toBeUndefined();
+  });
+
+  it('first-detection wins: a second skip tick does not push the timestamp forward', async () => {
+    const images = makeImagesMock([allSoftDeletedDoc()]);
+    const configColl = makeConfigMock();
+    const stage = skipNoLocationStage();
+
+    await _test.runOnce(stage, cfg, images, configColl);
+    const firstTag = (await images.find({}).toArray())[0]!.missing_since;
+    await _test.runOnce(stage, cfg, images, configColl);
+    expect((await images.find({}).toArray())[0]!.missing_since).toBe(firstTag);
+  });
+
+  it('does NOT tag when the asset has no fileinfo entries at all', async () => {
+    const images = makeImagesMock([{ fileinfo: [] } as unknown as ImageDoc]);
+    const configColl = makeConfigMock();
+    const stage = skipNoLocationStage();
+
+    await _test.runOnce(stage, cfg, images, configColl);
+    const doc = (await images.find({}).toArray())[0]! as unknown as {
+      missing_since?: string;
+      stages?: Record<string, { last_error?: string; version?: number }>;
+    };
+    // Not reapable — recorded as a normal skip (stage marked done at version).
+    expect(doc.missing_since).toBeUndefined();
+    expect(doc.stages?.exif?.last_error).toBe('skip: no-resolvable-location');
+    expect(doc.stages?.exif?.version).toBe(1);
+  });
+
+  it('does NOT tag when a live fileinfo entry exists (library unregistered case)', async () => {
+    // A live entry that resolved to null only because the library is
+    // unregistered — transient/config, not a genuine deletion.
+    const images = makeImagesMock([
+      {
+        fileinfo: [{ library_id: 'lib0', path: '', filename: 'live.raw', deleted_at: null }],
+      } as unknown as ImageDoc,
+    ]);
+    const configColl = makeConfigMock();
+    const stage = skipNoLocationStage();
+
+    await _test.runOnce(stage, cfg, images, configColl);
+    const doc = (await images.find({}).toArray())[0]! as unknown as {
+      missing_since?: string;
+      stages?: Record<string, { last_error?: string }>;
+    };
+    expect(doc.missing_since).toBeUndefined();
+    expect(doc.stages?.exif?.last_error).toBe('skip: no-resolvable-location');
+  });
+
+  it('does NOT tag an all-soft-deleted asset when tagsMissingOnEnoent is unset', async () => {
+    const images = makeImagesMock([allSoftDeletedDoc()]);
+    const configColl = makeConfigMock();
+    const stage = skipNoLocationStage('meili', false);
+
+    await _test.runOnce(stage, cfg, images, configColl);
+    const doc = (await images.find({}).toArray())[0]! as unknown as {
+      missing_since?: string;
+      stages?: Record<string, { last_error?: string }>;
+    };
+    expect(doc.missing_since).toBeUndefined();
+    expect(doc.stages?.meili?.last_error).toBe('skip: no-resolvable-location');
+  });
+});

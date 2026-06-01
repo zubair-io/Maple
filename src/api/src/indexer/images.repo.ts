@@ -83,6 +83,24 @@ export function assetPrimaryFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInf
 }
 
 /**
+ * True when the asset HAS `fileinfo` entries but every one of them is
+ * soft-deleted (`deleted_at` set) — i.e. it once had at least one on-disk
+ * location and all of them are now gone. Distinct from "no fileinfo at all"
+ * (a never-located skeleton row) and from "live entry but library
+ * unregistered" (a transient/config condition).
+ *
+ * Used by the stage runner to decide whether a `no-resolvable-location`
+ * skip is a genuinely-orphaned asset (→ tag `missing_since` so the
+ * missing-reaper can verify + reap) versus a transient/unlocated one
+ * (→ skip, never reap). See `assetAbsPath` for the three null cases.
+ */
+export function hasOnlySoftDeletedFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): boolean {
+  const list = asset.fileinfo;
+  if (!list || list.length === 0) return false;
+  return assetPrimaryFileInfo(asset) === null;
+}
+
+/**
  * Library root absolute path for this asset's primary location, looked up
  * in the supplied `libraries` map (`hex(_id) → root path`).
  *

@@ -64,8 +64,13 @@ const previewStage = defineStage({
     // below. That skip writes `version = targetVersion` (see run-stage.ts),
     // permanently marking the stage done. By throwing, the runner's
     // retry/backoff path handles the transient case. Reserve `skip` for
-    // the genuine case: libraries loaded fine, but the asset has no
-    // fileinfo[0] or its library is unregistered.
+    // the genuine non-reapable cases: libraries loaded fine, but the asset
+    // has no fileinfo entries at all (never-located skeleton) or a live
+    // entry whose library is unregistered. The third null case — all
+    // fileinfo entries soft-deleted (every on-disk location gone) — is the
+    // genuinely-orphaned one: the runner stamps `missing_since` on that skip
+    // instead of marking the stage done, so the missing-reaper sees it. See
+    // run-stage.ts (`hasOnlySoftDeletedFileInfo`).
     const libs = await loadLibraryRoots();
     const previewPath = cachePathForAsset(image as never, libs, 'previews', PREVIEW_SIZE_KEY);
     const absPath = assetAbsPath(image as never, libs);
