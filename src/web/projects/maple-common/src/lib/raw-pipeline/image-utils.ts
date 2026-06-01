@@ -73,10 +73,14 @@ export async function decodeNonRawToSceneLinear(
     const { data } = ctx.getImageData(0, 0, width, height);
     const fp16Rgba = new Uint16Array(width * height * 4);
     const ONE = 0x3c00; // fp16 1.0
+    // Canvas pixels are 8-bit, so the sRGB→linear transfer has only 256 distinct
+    // inputs. Precompute the exact mapping once (lazily memoized) and index it by
+    // the integer byte to avoid millions of Math.pow calls on the main thread.
+    const lut = srgbToLinearLut();
     for (let i = 0, j = 0; i < data.length; i += 4, j += 4) {
-      const r = srgbToLinear(data[i] / 255);
-      const g = srgbToLinear(data[i + 1] / 255);
-      const b = srgbToLinear(data[i + 2] / 255);
+      const r = lut[data[i]];
+      const g = lut[data[i + 1]];
+      const b = lut[data[i + 2]];
       // sRGB/Rec.709 linear → Rec.2020 linear.
       const r2 = SRGB_TO_REC2020[0] * r + SRGB_TO_REC2020[1] * g + SRGB_TO_REC2020[2] * b;
       const g2 = SRGB_TO_REC2020[3] * r + SRGB_TO_REC2020[4] * g + SRGB_TO_REC2020[5] * b;
@@ -120,6 +124,21 @@ function make2dContext(
 /** sRGB display transfer → linear (IEC 61966-2-1). */
 function srgbToLinear(c: number): number {
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+// Lazily-built 256-entry lookup table: index = the raw 0–255 canvas byte,
+// value = srgbToLinear(byte / 255). Exact for every 8-bit input — the loop in
+// decodeNonRawToSceneLinear used to call srgbToLinear per channel per pixel.
+let srgbToLinearLutCache: Float64Array | null = null;
+function srgbToLinearLut(): Float64Array {
+  if (srgbToLinearLutCache === null) {
+    const lut = new Float64Array(256);
+    for (let b = 0; b < 256; b++) {
+      lut[b] = srgbToLinear(b / 255);
+    }
+    srgbToLinearLutCache = lut;
+  }
+  return srgbToLinearLutCache;
 }
 
 // Linear sRGB/Rec.709 (D65) → linear Rec.2020 (D65), row-major 3×3.
