@@ -274,6 +274,47 @@ describe('imports.repo', () => {
     expect(requeued!.files[1].state).toBe('pending');
   });
 
+  it('retryImport leaves a permanently-unsafe file failed and recounts (#795)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+    const created = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: [
+        // A recoverable failed file (safe dest) ...
+        {
+          src: '/srv/in/ok.dng',
+          dest: '2024/03/ok.dng',
+          size: 1,
+          mtime: 0,
+          kind: 'image',
+          state: 'failed',
+          error: 'transient',
+        },
+        // ... and one whose dest can never pass destRelPath (backslash name).
+        {
+          src: '/srv/in/bad.dng',
+          dest: '2024/03/ba\\d.dng',
+          size: 1,
+          mtime: 0,
+          kind: 'image',
+          state: 'failed',
+          error: 'unsafe filename',
+        },
+      ],
+    });
+    await repo.failImport(created._id, 'two files failed');
+
+    expect(await repo.retryImport(created._id)).toBe(true);
+    const requeued = await repo.getImport(created._id);
+    expect(requeued!.status).toBe('pending');
+    // Recoverable one is reset; the unsafe one stays failed and is still counted.
+    expect(requeued!.files[0].state).toBe('pending');
+    expect(requeued!.files[1].state).toBe('failed');
+    expect(requeued!.counts.failed).toBe(1);
+  });
+
   it('retryImport refuses a clean done import and an unknown id (#795)', async () => {
     if (!mongoReachable) return;
     const repo = await import('./repo.ts');
@@ -288,6 +329,17 @@ describe('imports.repo', () => {
     expect(await repo.retryImport(created._id)).toBe(false);
     // Unknown id → false.
     expect(await repo.retryImport(new ObjectId())).toBe(false);
+
+    // A `failed` import with NO files (empty-source auto-import failure) has
+    // nothing to recover → not retryable, even though its status is failed.
+    const empty = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: [],
+    });
+    await repo.failImport(empty._id, 'no importable files');
+    expect(await repo.retryImport(empty._id)).toBe(false);
   });
 
   it('assetExistsForHash matches by maple_id and by sha1_head', async () => {
