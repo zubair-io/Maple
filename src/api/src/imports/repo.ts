@@ -22,6 +22,8 @@ export interface CreateImportInput {
   library_id: ObjectId;
   library_root: string;
   files: ImportFileEntry[];
+  /** Auto Import — worker scans `source_root` to fill `files`. Default false. */
+  scan_pending?: boolean;
 }
 
 /** Snapshot returned by `claimImport` — enough for the worker to run without
@@ -32,6 +34,7 @@ export interface ClaimedImport {
   library_id: ObjectId;
   library_root: string;
   files: ImportFileEntry[];
+  scan_pending: boolean;
 }
 
 export interface ListImportsFilter {
@@ -52,6 +55,7 @@ export async function createImport(
     library_id: input.library_id,
     library_root: input.library_root,
     files: input.files,
+    scan_pending: input.scan_pending ?? false,
     progress: { current: 0, total: input.files.length },
     counts: { copied: 0, skipped: 0, failed: 0 },
     error: null,
@@ -136,7 +140,36 @@ export async function claimImport(
     library_id: result.library_id,
     library_root: result.library_root,
     files: result.files,
+    scan_pending: result.scan_pending ?? false,
   };
+}
+
+/**
+ * Populate an Auto Import's files after the worker's deferred scan. Sets the
+ * file list, `progress.total`, and clears `scan_pending`. Renews the lease,
+ * since a large scan can take a while.
+ */
+export async function setImportFiles(
+  id: ObjectId,
+  files: ImportFileEntry[],
+  leaseMs: number,
+  now: () => Date = () => new Date(),
+): Promise<void> {
+  const c = await importsCollection();
+  const nowDate = now();
+  const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
+  await c.updateOne(
+    { _id: id },
+    {
+      $set: {
+        files,
+        scan_pending: false,
+        'progress.total': files.length,
+        lease_expires_at: leaseExpiresAt,
+        updated_at: nowDate.toISOString(),
+      },
+    },
+  );
 }
 
 /**

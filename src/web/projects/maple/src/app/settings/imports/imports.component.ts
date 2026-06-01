@@ -20,7 +20,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { firstValueFrom, Subscription, timer, switchMap } from 'rxjs';
 import {
   BunApiBackendService,
@@ -51,7 +51,7 @@ function isInsideLibrary(source: string, lib: string): boolean {
 @Component({
   selector: 'maple-imports',
   standalone: true,
-  imports: [FormsModule, SettingsShellComponent, SettingsIconComponent],
+  imports: [FormsModule, RouterLink, SettingsShellComponent, SettingsIconComponent],
   templateUrl: './imports.component.html',
   styleUrl: './imports.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -66,6 +66,9 @@ export class ImportsComponent implements OnInit, OnDestroy {
   protected readonly step = signal<Step>('pick');
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
+  /** Set after an import is queued, so the pick screen shows a "running"
+   * notice; cleared once the user starts choosing the next import. */
+  protected readonly started = signal<'manual' | 'auto' | null>(null);
 
   // --- Target library (chosen FIRST) ---------------------------------------
   protected readonly libraries = signal<ApiFolder[]>([]);
@@ -165,6 +168,7 @@ export class ImportsComponent implements OnInit, OnDestroy {
 
   useFolder(absPath: string): void {
     if (this.currentBlocked()) return;
+    this.started.set(null); // committing to a new import — drop the prior notice
     this.selectedSource.set(absPath);
   }
 
@@ -208,24 +212,36 @@ export class ImportsComponent implements OnInit, OnDestroy {
 
   // --- Import + progress ---------------------------------------------------
 
+  /** Import the reviewed buckets (manual path). */
   async startImport(): Promise<void> {
+    await this.queue('manual', { labels: this.labels() });
+  }
+
+  /** Auto Import — queue immediately; the worker scans + resolves destinations
+   * (default MM labels). */
+  async autoImport(): Promise<void> {
+    await this.queue('auto', { auto: true });
+  }
+
+  /** Shared create + return-to-start-with-notice for both import paths. */
+  private async queue(
+    kind: 'manual' | 'auto',
+    body: { labels?: Record<string, string>; auto?: boolean },
+  ): Promise<void> {
     const src = this.selectedSource();
     const lib = this.targetLibraryId();
     if (!src || !lib) return;
     this.busy.set(true);
     this.error.set(null);
     try {
-      const { id } = await firstValueFrom(
-        this.api.create({ source_root: src, library_id: lib, labels: this.labels() }),
-      );
-      // Put the job id in the URL so this becomes a shareable status page.
-      await this.router.navigate([], {
-        relativeTo: this.route,
-        queryParams: { job: id },
-        queryParamsHandling: 'merge',
-      });
-      this.step.set('progress');
-      this.startPolling(id);
+      await firstValueFrom(this.api.create({ source_root: src, library_id: lib, ...body }));
+      // Return to the start screen so another import can be queued; the job
+      // runs in the background and is tracked on the Workers page.
+      this.started.set(kind);
+      this.selectedSource.set(null);
+      this.scan.set(null);
+      this.labels.set({});
+      this.step.set('pick');
     } catch (e) {
       this.error.set(this.msg(e));
     } finally {
