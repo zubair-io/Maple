@@ -128,13 +128,14 @@ export class ImportsPanelService {
     return j.status === 'pending' || j.status === 'running';
   }
 
-  /** True for an import that can actually be re-queued. Both a `failed` and a
-   * `done` import qualify only when there are failed files to re-attempt —
-   * mirroring the server's retry guard, so the button never shows for an
-   * import the API would 409 (e.g. an empty-source auto-import that failed
-   * with no files). */
+  /** True for an import that can actually be re-queued, mirroring the server's
+   * retry guard (#800). A `failed` import is always retryable: the server
+   * either recovers its failed file rows OR — for a scan-level failure that
+   * never produced files (`files: []`, `counts.failed: 0`) — re-scans the
+   * source from scratch. A `done` import only qualifies when it has failed
+   * files left to re-attempt. */
   retryable(j: ImportSummary): boolean {
-    return (j.status === 'failed' || j.status === 'done') && j.counts.failed > 0;
+    return j.status === 'failed' || (j.status === 'done' && j.counts.failed > 0);
   }
 
   /** Re-queue a failed / partially-failed import, then refresh the list so its
