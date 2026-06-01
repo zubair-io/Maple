@@ -295,6 +295,67 @@ export async function markImportCancelled(
   );
 }
 
+/**
+ * Re-queue a failed (or partially-failed `done`) import so a worker re-claims
+ * it. Resets every `failed` file back to `pending`, clears the import-level
+ * `error`, zeroes `counts.failed`, sets status back to `pending`, and clears
+ * the lease + cancel flag. Already-copied / skipped files keep their state, so
+ * the worker doesn't re-copy them (a copied image dedup-skips on the re-run).
+ *
+ * Guarded to terminal-with-failures: only a `failed` import, or a `done`
+ * import with `counts.failed > 0`, can be retried. Returns true when an import
+ * matched the guard and was re-queued, false otherwise (not found / not
+ * retryable / no failed files to reset).
+ *
+ * The `files` array is rewritten wholesale (failed → pending) in one atomic
+ * update so a concurrent claim can't see a half-reset doc.
+ */
+export async function retryImport(
+  id: ObjectId,
+  now: () => Date = () => new Date(),
+): Promise<boolean> {
+  const c = await importsCollection();
+  const doc = (await c.findOne({ _id: id })) as WithId<ImportDoc> | null;
+  if (!doc) return false;
+
+  const retryable =
+    doc.status === 'failed' || (doc.status === 'done' && (doc.counts?.failed ?? 0) > 0);
+  if (!retryable) return false;
+
+  // Reset failed files to pending; leave copied/skipped/pending untouched so
+  // the re-run only re-attempts what failed (already-copied files dedup-skip).
+  const files: ImportFileEntry[] = doc.files.map((f) =>
+    f.state === 'failed' ? { ...f, state: 'pending' as ImportFileState, error: null } : f,
+  );
+  const recovered = files.filter((f, i) => f.state === 'pending' && doc.files[i].state === 'failed');
+  if (recovered.length === 0 && (doc.counts?.failed ?? 0) === 0) {
+    // Nothing actually failed — a no-op retry isn't meaningful.
+    return false;
+  }
+
+  const nowIso = now().toISOString();
+  const counts = { ...doc.counts, failed: 0 };
+  const result = await c.updateOne(
+    { _id: id, status: doc.status },
+    {
+      $set: {
+        status: 'pending' as ImportStatus,
+        files,
+        counts,
+        error: null,
+        locked_by: null,
+        lease_expires_at: null,
+        cancel_requested: false,
+        // Re-running an Auto Import re-uses the resolved files — never re-scan,
+        // which would rebuild files[] and lose the copied states.
+        scan_pending: false,
+        updated_at: nowIso,
+      },
+    },
+  );
+  return result.modifiedCount > 0;
+}
+
 /** Flip `cancel_requested`. The worker observes it between files. Returns
  * true if the import exists and is still cancellable (pending/running). */
 export async function requestImportCancel(

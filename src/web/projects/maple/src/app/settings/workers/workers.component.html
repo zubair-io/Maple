@@ -829,6 +829,18 @@
                   <code class="mono" [title]="d.source_root">{{ d.source_root }}</code>
                   <maple-settings-icon name="chev-r" [size]="12" [color]="'#78706a'" />
                   <span class="lib-name">{{ imports.libraryName(d) }}</span>
+                  @if (imports.retryable(j)) {
+                    <button
+                      type="button"
+                      class="btn-ghost danger import-retry"
+                      data-testid="import-retry"
+                      [disabled]="imports.retryingId() === j.id"
+                      (click)="imports.retry(j.id)"
+                    >
+                      <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
+                      {{ imports.retryingId() === j.id ? 'Retrying…' : 'Retry failed' }}
+                    </button>
+                  }
                 </div>
                 @if (d.error; as importError) {
                   <p class="import-detail-error" data-testid="import-detail-error">
