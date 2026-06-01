@@ -537,6 +537,8 @@ struct AppShell: View {
             isCompact: isCompactShell,
             searchAvailable: searchAvailable,
             isSearchActive: isSearchActive,
+            isCloudLibrary: searchAvailable,
+            cloudViewMode: currentCloudViewMode,
             browseDisplayMode: $browseDisplayMode,
             onBack: { mode = .browse },
             onToggleSidebar: {
@@ -545,6 +547,7 @@ struct AppShell: View {
                 }
             },
             onOpenSearch: { toggleSearch() },
+            onSetCloudViewMode: { setCloudViewMode($0) },
             onExport: { showExport = true },
             onOpenFolder: { showFilePicker = true },
             onSettings: { showSettings = true }

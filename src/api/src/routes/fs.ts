@@ -19,9 +19,11 @@
 //   Same paging cursor contract as `/dir`.
 //
 // GET /api/fs/raw?path=<abs>
-//   Streams the raw file bytes (Content-Type: application/octet-stream) for
-//   the editor to pipe into the WASM decode + develop pipeline. Same RAW
-//   extension allowlist as `/api/fs/dir` and `/api/fs/thumb`.
+//   Streams the original file bytes (Content-Type: application/octet-stream)
+//   for the editor to decode. RAW formats feed the FFI/WASM RAW decoder;
+//   non-RAW bitmap formats (jpg/heic/png/…) stream their original bytes for
+//   the client to decode directly. Allowlist = RAW ∪ SHARP extensions (same
+//   set the dir listing + thumb endpoint surface); other extensions 415.
 //
 // All endpoints share the same MAPLE_ROOTS jail and system-directory
 // denylist enforced in `../fs/browse.ts`.
@@ -38,6 +40,7 @@ import {
   browseRoots,
   isUnderRoot,
   RAW_EXTENSIONS,
+  SHARP_EXTENSIONS,
 } from '../fs/browse.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
@@ -202,7 +205,14 @@ export const fsRoutes = new Elysia({ prefix: '/api/fs' })
       }
       const dot = real.lastIndexOf('.');
       const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : '';
-      if (!RAW_EXTENSIONS.has(ext)) {
+      // RAW formats stream into the client's FFI/WASM RAW decoder; non-RAW
+      // bitmap formats (jpg/heic/png/…) stream their ORIGINAL bytes for the
+      // client to decode directly (ImageIO on Apple, the browser on web).
+      // Both are just a file byte stream from here — only genuinely
+      // unsupported extensions (docs, etc.) 415. Without the sharp branch,
+      // non-RAW cloud images can be listed + thumbnailed but never opened
+      // full-resolution in the editor (#782).
+      if (!RAW_EXTENSIONS.has(ext) && !SHARP_EXTENSIONS.has(ext)) {
         set.status = 415;
         return { error: `Unsupported file extension: "${ext}"` };
       }
