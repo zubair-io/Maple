@@ -22,7 +22,13 @@ import { foldersCollection } from '../db/client.ts';
 import { browseRoots, isUnderRoot } from '../fs/browse.ts';
 import { scanFolder, buildImportFiles } from '../imports/scan.ts';
 import { isSafeLabel } from '../imports/dest.ts';
-import { createImport, getImport, listImports, requestImportCancel } from '../imports/repo.ts';
+import {
+  createImport,
+  getImport,
+  listImports,
+  requestImportCancel,
+  retryImport,
+} from '../imports/repo.ts';
 
 const KNOWN_STATUSES: ReadonlySet<ImportStatus> = new Set([
   'pending',
@@ -219,14 +225,11 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
         }
       }
 
-      let files;
-      try {
-        files = await buildImportFiles(jail.real, labels);
-      } catch (err) {
-        // destRelPath throws on an unsafe label/filename it didn't expect.
-        set.status = 400;
-        return { error: err instanceof Error ? err.message : String(err) };
-      }
+      // buildImportFiles is resilient: an unsafe filename is recorded as a
+      // failed entry (with its reason) rather than throwing and 400-ing the
+      // whole folder. It only returns empty when the folder has nothing
+      // importable at all.
+      const files = await buildImportFiles(jail.real, labels);
       if (files.length === 0) {
         set.status = 400;
         return { error: 'No importable files found in the selected folder.' };
@@ -298,6 +301,23 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
     if (!ok) {
       set.status = 404;
       return { error: 'Import not found or already finished' };
+    }
+    return { ok: true };
+  })
+
+  // Re-queue a failed (or partially-failed) import: reset its failed files to
+  // pending and clear the lease so a worker re-claims it. Already-copied files
+  // stay copied (they dedup-skip on the re-run). Only valid for a `failed`
+  // import or a `done` import with `counts.failed > 0`.
+  .post('/:id/retry', async ({ params, set }) => {
+    if (!ObjectId.isValid(params.id)) {
+      set.status = 400;
+      return { error: 'Invalid import id' };
+    }
+    const ok = await retryImport(new ObjectId(params.id));
+    if (!ok) {
+      set.status = 409;
+      return { error: 'Import not found or not in a retryable state' };
     }
     return { ok: true };
   });

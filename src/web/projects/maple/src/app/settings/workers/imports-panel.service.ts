@@ -128,6 +128,33 @@ export class ImportsPanelService {
     return j.status === 'pending' || j.status === 'running';
   }
 
+  /** True for an import that can be re-queued: a fully failed one, or a `done`
+   * one that finished with some failed files. */
+  retryable(j: ImportSummary): boolean {
+    return j.status === 'failed' || (j.status === 'done' && j.counts.failed > 0);
+  }
+
+  /** Re-queue a failed / partially-failed import, then refresh the list so its
+   * status flips back to pending/running. Id of the import currently retrying
+   * (for a disabled/in-flight button state), or null. */
+  readonly retryingId = signal<string | null>(null);
+
+  retry(id: string): void {
+    if (this.retryingId() !== null) return;
+    this.retryingId.set(id);
+    this.api.retry(id).subscribe({
+      next: () => {
+        this.retryingId.set(null);
+        this.error.set(null);
+        this.fetch();
+      },
+      error: (e: unknown) => {
+        this.retryingId.set(null);
+        this.error.set(e instanceof Error ? e.message : String(e));
+      },
+    });
+  }
+
   statusColor(status: ImportSummary['status']): string {
     switch (status) {
       case 'done':
