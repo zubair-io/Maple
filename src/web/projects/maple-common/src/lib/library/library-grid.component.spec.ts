@@ -59,7 +59,7 @@ describe('LibraryGridComponent', () => {
     await TestBed.configureTestingModule({
       imports: [LibraryGridComponent],
       providers: [
-        provideRouter([{ path: 'edit/:id', children: [] }]),
+        provideRouter([{ path: 'library/editor/:id', children: [] }]),
         { provide: LibraryStateService, useValue: stateStub },
         { provide: BrowsePreferencesService, useValue: prefsStub },
         { provide: LibrarySelection, useValue: selectionStub },
@@ -87,7 +87,7 @@ describe('LibraryGridComponent', () => {
     expect(h1.textContent?.trim()).toBe('Library');
   });
 
-  it('navigates to /edit/:id and selects on cell tap', async () => {
+  it('navigates to the S5 editor (/library/editor/:id) and selects on cell tap', async () => {
     const router = TestBed.inject(Router);
     const navSpy = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     const button = fixture.nativeElement.querySelector(
@@ -95,7 +95,7 @@ describe('LibraryGridComponent', () => {
     ) as HTMLButtonElement;
     button.click();
     expect(selectCalls).toEqual(['a']);
-    expect(navSpy).toHaveBeenCalledWith(['/edit', 'a']);
+    expect(navSpy).toHaveBeenCalledWith(['/library/editor', 'a']);
   });
 
   it('writes filter changes back to BrowsePreferencesService + localStorage', () => {
