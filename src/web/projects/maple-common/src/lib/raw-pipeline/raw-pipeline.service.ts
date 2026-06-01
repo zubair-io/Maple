@@ -42,12 +42,10 @@ export class RawPipelineService implements OnDestroy {
   private readonly threadCountSubject = new BehaviorSubject<number>(1);
 
   /** Emits once the Web Worker has initialised the WASM thread pool. */
-  readonly isThreaded$: Observable<boolean | null> =
-    this.threadedSubject.asObservable();
+  readonly isThreaded$: Observable<boolean | null> = this.threadedSubject.asObservable();
 
   /** Emits the number of rayon worker threads (1 when single-threaded). */
-  readonly threadCount$: Observable<number> =
-    this.threadCountSubject.asObservable();
+  readonly threadCount$: Observable<number> = this.threadCountSubject.asObservable();
 
   private ensureWorker(): Worker {
     if (this.worker) return this.worker;
@@ -82,10 +80,7 @@ export class RawPipelineService implements OnDestroy {
           });
         } else if (msg.type === 'decode-error' && handler.kind === 'legacy') {
           handler.reject(new Error(msg.message));
-        } else if (
-          msg.type === 'decode-scene-linear-success' &&
-          handler.kind === 'scene-linear'
-        ) {
+        } else if (msg.type === 'decode-scene-linear-success' && handler.kind === 'scene-linear') {
           handler.resolve({
             width: msg.width,
             height: msg.height,
@@ -93,18 +88,13 @@ export class RawPipelineService implements OnDestroy {
             asShotTemperature: msg.asShotTemperature,
             asShotTint: msg.asShotTint,
           });
-        } else if (
-          msg.type === 'decode-scene-linear-error' &&
-          handler.kind === 'scene-linear'
-        ) {
+        } else if (msg.type === 'decode-scene-linear-error' && handler.kind === 'scene-linear') {
           handler.reject(new Error(msg.message));
         } else {
           // Mismatched response type and handler kind — should never happen
           // because ids are unique and the worker only emits success/error
           // matching the request type. Reject defensively to avoid hangs.
-          handler.reject(
-            new Error(`raw-pipeline: handler kind mismatch (${msg.type})`),
-          );
+          handler.reject(new Error(`raw-pipeline: handler kind mismatch (${msg.type})`));
         }
       });
       this.worker.addEventListener('error', (e) => {
@@ -168,11 +158,7 @@ export class RawPipelineService implements OnDestroy {
         kind: 'legacy',
         resolve: (result) => {
           performance.mark(`maple:decode:${id}:end`);
-          performance.measure(
-            `maple:decode`,
-            `maple:decode:${id}:start`,
-            `maple:decode:${id}:end`,
-          );
+          performance.measure(`maple:decode`, `maple:decode:${id}:start`, `maple:decode:${id}:end`);
           resolve(result);
         },
         reject,

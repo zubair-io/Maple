@@ -278,3 +278,154 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
     await expect(promise).rejects.toThrow('simulated legacy decode failure');
   });
 });
+
+describe('RawPipelineService — non-RAW browser-native decode (#784)', () => {
+  // Non-RAW images (jpg/png/heic/…) must NOT go through the WASM RAW
+  // decoder. Both decode() and decodeSceneLinear() branch on extension and
+  // decode browser-natively instead. These tests stub createImageBitmap +
+  // OffscreenCanvas (jsdom has neither) and assert the Worker is never
+  // touched for non-RAW input.
+  let workerStub: WorkerStub;
+  let originalWorker: typeof Worker;
+  let originalCreateImageBitmap: typeof globalThis.createImageBitmap;
+  let originalOffscreenCanvas: typeof globalThis.OffscreenCanvas;
+
+  // A 2x2 mid-grey image: every RGBA sample is (128,128,128,255).
+  const W = 2;
+  const H = 2;
+  const greyData = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < greyData.length; i += 4) {
+    greyData[i] = 128;
+    greyData[i + 1] = 128;
+    greyData[i + 2] = 128;
+    greyData[i + 3] = 255;
+  }
+
+  beforeEach(() => {
+    workerStub = new WorkerStub();
+    originalWorker = globalThis.Worker;
+    const stub = workerStub;
+    class WorkerCtor {
+      constructor(_url: URL, _opts?: WorkerOptions) {
+        return stub as unknown as Worker;
+      }
+    }
+    Object.defineProperty(globalThis, 'Worker', {
+      value: WorkerCtor,
+      writable: true,
+      configurable: true,
+    });
+
+    // Stub createImageBitmap → a fake bitmap of known size.
+    originalCreateImageBitmap = globalThis.createImageBitmap;
+    Object.defineProperty(globalThis, 'createImageBitmap', {
+      value: vi.fn(async () => ({ width: W, height: H, close: vi.fn() })),
+      writable: true,
+      configurable: true,
+    });
+
+    // Stub OffscreenCanvas → a 2D context that returns the grey pixels.
+    originalOffscreenCanvas = globalThis.OffscreenCanvas;
+    class OffscreenCanvasStub {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return {
+          drawImage: vi.fn(),
+          getImageData: () => ({ data: greyData, width: W, height: H }),
+        };
+      }
+    }
+    Object.defineProperty(globalThis, 'OffscreenCanvas', {
+      value: OffscreenCanvasStub,
+      writable: true,
+      configurable: true,
+    });
+
+    TestBed.configureTestingModule({});
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'Worker', {
+      value: originalWorker,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, 'createImageBitmap', {
+      value: originalCreateImageBitmap,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, 'OffscreenCanvas', {
+      value: originalOffscreenCanvas,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  it('decode() routes non-RAW to the browser and never posts to the worker', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const decoded = await service.decode(new Uint8Array([0xff, 0xd8]), 'jpg');
+
+    expect(workerStub.postMessage).not.toHaveBeenCalled();
+    expect(decoded.width).toBe(W);
+    expect(decoded.height).toBe(H);
+    expect(decoded.rgb).toBeInstanceOf(Uint8Array);
+    expect(decoded.rgb.length).toBe(W * H * 3); // alpha dropped
+    expect(decoded.rgb[0]).toBe(128);
+    // Neutral WB so seedAsShotWhiteBalance no-ops (default 6500K / 0 tint).
+    expect(decoded.asShotTemperature).toBe(6500);
+    expect(decoded.asShotTint).toBe(0);
+  });
+
+  it('decodeSceneLinear() routes non-RAW to the browser and produces fp16 Rec.2020', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const decoded = await service.decodeSceneLinear(new Uint8Array([0x89, 0x50]), 'png');
+
+    expect(workerStub.postMessage).not.toHaveBeenCalled();
+    expect(decoded.width).toBe(W);
+    expect(decoded.height).toBe(H);
+    expect(decoded.fp16Rgba).toBeInstanceOf(Uint16Array);
+    expect(decoded.fp16Rgba.length).toBe(W * H * 4);
+    // Alpha lane is fp16 1.0.
+    expect(decoded.fp16Rgba[3]).toBe(0x3c00);
+    // 128/255 sRGB → ~0.2159 linear; neutral grey stays neutral through the
+    // sRGB→Rec.2020 rotation (rows sum to ~1), so RGB lanes are equal and
+    // non-zero. Decode the fp16 R lane back to f32 to sanity-check the range.
+    const r = f16ToF32(decoded.fp16Rgba[0]);
+    expect(r).toBeGreaterThan(0.18);
+    expect(r).toBeLessThan(0.26);
+    // Grey in → grey out (channels within a hair of each other).
+    const g = f16ToF32(decoded.fp16Rgba[1]);
+    const b = f16ToF32(decoded.fp16Rgba[2]);
+    expect(Math.abs(r - g)).toBeLessThan(0.01);
+    expect(Math.abs(r - b)).toBeLessThan(0.01);
+    expect(decoded.asShotTemperature).toBe(6500);
+    expect(decoded.asShotTint).toBe(0);
+  });
+
+  it('still routes RAW extensions through the worker', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    void service.decode(new Uint8Array([0]), 'dng');
+    await Promise.resolve();
+    expect(workerStub.postMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** Decode an IEEE-754 half (fp16) lane back to f32 for assertions. */
+function f16ToF32(h: number): number {
+  const sign = (h & 0x8000) >> 15;
+  const exp = (h & 0x7c00) >> 10;
+  const frac = h & 0x03ff;
+  let value: number;
+  if (exp === 0) {
+    value = Math.pow(2, -14) * (frac / 1024); // subnormal
+  } else if (exp === 0x1f) {
+    value = frac ? NaN : Infinity;
+  } else {
+    value = Math.pow(2, exp - 15) * (1 + frac / 1024);
+  }
+  return sign ? -value : value;
+}
