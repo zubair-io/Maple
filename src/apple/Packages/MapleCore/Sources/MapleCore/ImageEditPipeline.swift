@@ -69,6 +69,13 @@ public actor ImageEditPipeline {
 
     private let context: CIContext
 
+    /// Single-entry LRU cache around `applySceneLinearChainViaFFI`. When
+    /// the user drags a post-FFI slider (sharpen* / nrColor / capture
+    /// sharpening) the model hash is unchanged and the cache returns the
+    /// previously computed scene-linear CIImage, skipping the ≈50 ms FFI
+    /// readback. See `SceneLinearChainCache` and #661.
+    nonisolated let sceneLinearChainCache = SceneLinearChainCache()
+
     public init() {
         // Metal-backed context where available; `cacheIntermediates: false`
         // + f32 working format (#487) keeps memory bounded enough that
@@ -522,12 +529,35 @@ public actor ImageEditPipeline {
         model: AdjustmentModel,
         decodedTemperature: Double,
         decodedTint: Double,
-        skipAgX: Bool
+        skipAgX: Bool,
+        assetID: UUID? = nil
     ) -> CIImage {
         let extent = scaled.extent
         let w = Int(extent.width.rounded())
         let h = Int(extent.height.rounded())
         guard w > 0, h > 0 else { return scaled }
+
+        // #661 — cache check. When the caller provides an `assetID` and
+        // every scene-linear input matches the previously rendered tick,
+        // return the cached CIImage and skip the FFI round-trip entirely.
+        // The post-FFI Metal kernels (sharpen + nr_color) still run on
+        // top — that's by design: they're the sliders the cache is
+        // supposed to make cheap. See `SceneLinearChainCache` for the
+        // key shape and correctness invariants.
+        let cacheKey: SceneLinearChainCache.Key? = assetID.map { id in
+            SceneLinearChainCache.make(
+                assetID: id,
+                model: model,
+                decodedTemperature: decodedTemperature,
+                decodedTint: decodedTint,
+                skipAgX: skipAgX,
+                width: w,
+                height: h
+            )
+        }
+        if let cacheKey, let hit = sceneLinearChainCache.get(cacheKey) {
+            return hit
+        }
 
         let bytesPerPixel = 16 // 4 f32 lanes (#487 — migrated from fp16 / 8 B/px)
         let rowBytes = w * bytesPerPixel
@@ -578,7 +608,7 @@ public actor ImageEditPipeline {
         // RGBA in extendedLinearITUR_2020 — same colour space the FFI
         // input was in, so downstream `MetalKernels.*` consumers see
         // the buffer they expect.
-        return mapleStage("FFI chain CIImage build") {
+        let wrapped = mapleStage("FFI chain CIImage build") {
             CIImage(
                 bitmapData: outputBytes,
                 bytesPerRow: rowBytes,
@@ -587,6 +617,14 @@ public actor ImageEditPipeline {
                 colorSpace: space
             )
         }
+        // #661 — store only on the success path. The two fallthrough
+        // `return scaled` branches above must not pollute the cache or
+        // a recovered pipeline would silently return the unprocessed
+        // input on the next tick.
+        if let cacheKey {
+            sceneLinearChainCache.put(cacheKey, wrapped)
+        }
+        return wrapped
     }
 
     // MARK: Display encode (Rec.2020 → sRGB Oklab gamut compression) — #877
@@ -727,7 +765,8 @@ public actor ImageEditPipeline {
     nonisolated public func processSceneLinearNonRaw(
         decoded: CIImage,
         model: AdjustmentModel,
-        targetSize: CGSize? = nil
+        targetSize: CGSize? = nil,
+        assetID: UUID? = nil
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
@@ -752,7 +791,8 @@ public actor ImageEditPipeline {
         let chained = applySceneLinearChainViaFFI(
             scaled, model: model,
             decodedTemperature: 6500.0, decodedTint: 0.0,
-            skipAgX: true
+            skipAgX: true,
+            assetID: assetID
         )
 
         // Sharpen + nr_color stay on the Apple GPU path (Metal compute
@@ -816,7 +856,8 @@ public actor ImageEditPipeline {
         targetSize: CGSize? = nil,
         asShot: AsShotWB? = nil,
         decodedAtModel: AdjustmentModel? = nil,
-        profileLUT: CIFilter? = nil
+        profileLUT: CIFilter? = nil,
+        assetID: UUID? = nil
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
@@ -868,7 +909,8 @@ public actor ImageEditPipeline {
         let chained = applySceneLinearChainViaFFI(
             scaled, model: model,
             decodedTemperature: decodedTemp, decodedTint: decodedTint,
-            skipAgX: false
+            skipAgX: false,
+            assetID: assetID
         )
 
         // sharpen + nr_color stay on the Apple GPU path (Metal compute
