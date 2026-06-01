@@ -371,15 +371,37 @@ extension AppShell {
         // The cloud asset's editor id matches the web's `fs:<absPath>`
         // shape so CloudSource.thumb / rawBytes pull paths from id.
         let imageRef = ImageRef(id: asset.id, displayName: asset.filename, url: nil)
+
+        // #822 — observable download progress for the determinate bar the
+        // editor shows while the remote bytes arrive. Seeded with the
+        // catalog `size` so the bar is determinate from the first frame even
+        // before the HTTP response headers land; the server's Content-Length
+        // refines it once known.
+        let progress = DownloadProgress(expectedBytes: asset.size)
+
+        // The pipeline calls `bytesProvider` more than once per open (native-
+        // size seed, fast decode, refine). Memoize the fetch behind a single
+        // shared `Task<Data, Error>` so the asset downloads exactly once, the
+        // progress count comes from one stream (no concurrent writers
+        // corrupting it), and later calls reuse the in-memory bytes. The
+        // progress callback hops to the main actor (where `DownloadProgress`
+        // lives) and is naturally throttled by URLSession's chunked delegate
+        // cadence (one callback per network read, not per byte).
+        let expectedTotal = asset.size
+        let downloadBox = CloudByteDownloadBox(
+            source: source, imageRef: imageRef,
+            expectedTotal: expectedTotal, progress: progress)
         let assetRef = AssetRef(
             displayName: asset.filename,
             hintExtension: (asset.filename as NSString).pathExtension.lowercased(),
             stableID: asset.id,
-            bytesProvider: { [source, imageRef] in try await source.rawBytes(for: imageRef) }
+            bytesProvider: { try await downloadBox.bytes() }
         )
         if sessions[assetRef.id] == nil {
             let remoteStore = CloudSidecarStore(server: server, assetID: asset.id, httpClient: httpClient)
-            let session = EditSession(asset: assetRef, remoteSidecarStore: remoteStore)
+            let session = EditSession(asset: assetRef,
+                                      remoteSidecarStore: remoteStore,
+                                      downloadProgress: progress)
             sessions[assetRef.id] = session
             Task { await session.loadSidecar() }
         }

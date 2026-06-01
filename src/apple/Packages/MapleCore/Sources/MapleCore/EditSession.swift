@@ -50,6 +50,15 @@ public final class EditSession {
 
     public let asset: AssetRef
 
+    /// Byte-download progress for a remote (cloud) asset open (#822). Set by
+    /// the caller (`prepareCloudSession`) when the asset's bytes arrive over
+    /// HTTP, so the editor can show a determinate download bar while the
+    /// fetch is in flight. `nil` for local / PhotoKit assets — their bytes
+    /// are on disk or in Photos, so there's nothing to track and the editor
+    /// skips the bar. The progress-reporting bytes provider drives the same
+    /// instance; see `prepareCloudSession`.
+    @ObservationIgnored public let downloadProgress: DownloadProgress?
+
     // MARK: Model
 
     public var model: AdjustmentModel {
@@ -266,11 +275,13 @@ public final class EditSession {
     public init(asset: AssetRef,
                 model: AdjustmentModel = .default,
                 culling: CullingState = CullingState(),
-                remoteSidecarStore: (any SidecarStoreProtocol)? = nil) {
+                remoteSidecarStore: (any SidecarStoreProtocol)? = nil,
+                downloadProgress: DownloadProgress? = nil) {
         self.asset = asset
         self.model = model
         self.originalModel = model
         self.culling = culling
+        self.downloadProgress = downloadProgress
         let pipeline = ImageEditPipeline()
         self.pipeline = pipeline
         self.renderActor = RenderActor(pipeline: pipeline)
