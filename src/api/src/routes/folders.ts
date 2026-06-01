@@ -455,7 +455,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     const scannedAt = new Date().toISOString();
     await folders.updateOne({ _id: id }, { $set: { last_scan: scannedAt } });
 
-    log.info({ folderId: folderIdStr, path: folder.path }, 'scan: folder re-walked (discover-only)');
+    log.info(
+      { folderId: folderIdStr, path: folder.path },
+      'scan: folder re-walked (discover-only)',
+    );
 
     return {
       ok: true,
