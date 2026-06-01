@@ -113,6 +113,56 @@ extension CloudSource: ImageSource {
     return data
   }
 
+  /// Download the full RAW bytes for `ref` while reporting byte-level
+  /// progress (#822). Routes through `URLSession.download(for:delegate:)`
+  /// — the non-buffered transport the auth client's `refreshIfNeededAndRetry`
+  /// helper was built for (it streams to a temp file instead of holding the
+  /// whole response in memory) — and attaches a delegate that forwards
+  /// `totalBytesWritten` / `totalBytesExpectedToWrite` to `onProgress`.
+  ///
+  /// `expectedTotal` is the caller's best-known size (the catalog
+  /// `SearchAsset.size`), used to seed the progress total before the
+  /// response headers arrive and as a fallback when the server omits a
+  /// `Content-Length` (the delegate reports `-1` then). Once headers land,
+  /// the delegate's `totalBytesExpectedToWrite` supersedes it.
+  ///
+  /// `onProgress` is `@Sendable` and is invoked off the actor (from the
+  /// `URLSession` delegate queue); the caller is responsible for hopping to
+  /// whatever actor the progress sink lives on and for throttling. The
+  /// returned `Data` is the fully-downloaded file, matching `rawBytes`.
+  public func rawBytesWithProgress(
+    for ref: ImageRef,
+    expectedTotal: Int64?,
+    onProgress: @escaping @Sendable (_ received: Int64, _ total: Int64?) -> Void
+  ) async throws -> Data {
+    let abs = Self.absPath(from: ref.id)
+    let rawURL = url("/api/fs/raw",
+                     query: [URLQueryItem(name: "path", value: abs)])
+    let req = URLRequest(url: rawURL)
+
+    // The progress delegate is its own URLSession's delegate (a delegate is
+    // bound to a session, not a single task), so build a one-shot session
+    // for this download. `expectedTotal` seeds the reported total so a
+    // server without a Content-Length still yields a determinate bar.
+    let delegate = DownloadProgressDelegate(
+      fallbackTotal: expectedTotal, onProgress: onProgress)
+    let session = URLSession(configuration: .default,
+                             delegate: delegate, delegateQueue: nil)
+    defer { session.invalidateAndCancel() }
+
+    let (fileURL, resp) = try await httpClient.refreshIfNeededAndRetry(request: req) { injected in
+      try await session.download(for: injected)
+    }
+
+    // `download` writes to a temp file the system reclaims when this scope
+    // exits — read it into memory before that happens. The pipeline wants
+    // the bytes in `Data` (it has no streaming-decode entry point), so the
+    // peak-memory cost matches the existing buffered `rawBytes` path.
+    let data = try Data(contentsOf: fileURL)
+    try Self.checkOK(resp, data: data)
+    return data
+  }
+
   public func writeXMP(_ sidecar: Sidecar, for ref: ImageRef) async throws {
     // The XMP write endpoint requires a Mongo asset id, which the FS-walk
     // listing doesn't expose. Editing flows through CloudSidecarStore's
