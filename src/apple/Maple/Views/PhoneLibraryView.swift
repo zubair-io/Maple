@@ -7,13 +7,14 @@
 // layout-aware switch — the original "stub" placeholder text has been
 // retired.
 //
-// We also demonstrate the **tab-bar hide on push** contract: any
-// `NavigationLink(value: AssetRef)` resolves through the
-// `.navigationDestination(for: AssetRef.self)` here and the pushed view
-// calls `.toolbar(.hidden, for: .tabBar)`. Until S5 lands the
-// destination is a placeholder Text; S5 will replace it with the
-// Editor view. The modifier pattern is the contract that all push
-// destinations in the phone shell must follow.
+// We also implement the **tab-bar hide on push** contract: a Library
+// cell tap appends the tapped `AssetRef` to `PhoneTabShell`'s
+// `libraryPath`, which the tab's `NavigationStack(path:)` pushes and the
+// `.navigationDestination(for: AssetRef.self)` here resolves into
+// `EditorDestination → EditorView`, calling `.toolbar(.hidden, for:
+// .tabBar)` so the bottom tab bar disappears for the duration (#625,
+// #791). The modifier pattern is the contract that all push destinations
+// in the phone shell must follow.
 
 #if os(iOS)
 
@@ -82,7 +83,15 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
         // separate Loupe).
         .navigationDestination(for: AssetRef.self) { ref in
             EditorDestination(asset: ref, sessions: $sessions)
+                // Hide both bars for the editor push (#791): the tab bar
+                // (spec §2 "tab-bar hide on push"), and the system
+                // navigation bar — `EditorView` ships its own 44pt
+                // `EditorHeader` with a back button (→ `dismiss()`), so the
+                // stack's nav bar would otherwise stack a second header +
+                // redundant back chevron on top of it. Applied here at the
+                // push site, not inside the shared `EditorView`.
                 .toolbar(.hidden, for: .tabBar)
+                .toolbar(.hidden, for: .navigationBar)
         }
     }
 }
