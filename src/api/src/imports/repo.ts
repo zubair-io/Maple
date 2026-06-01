@@ -327,7 +327,9 @@ export async function retryImport(
   const files: ImportFileEntry[] = doc.files.map((f) =>
     f.state === 'failed' ? { ...f, state: 'pending' as ImportFileState, error: null } : f,
   );
-  const recovered = files.filter((f, i) => f.state === 'pending' && doc.files[i].state === 'failed');
+  const recovered = files.filter(
+    (f, i) => f.state === 'pending' && doc.files[i].state === 'failed',
+  );
   if (recovered.length === 0 && (doc.counts?.failed ?? 0) === 0) {
     // Nothing actually failed — a no-op retry isn't meaningful.
     return false;

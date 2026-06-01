@@ -189,6 +189,107 @@ describe('imports.repo', () => {
     expect(await repo.requestImportCancel(created._id)).toBe(false);
   });
 
+  it('retryImport re-queues a failed import: failed files → pending, copied stays (#795)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+
+    const created = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: [file('copied.dng'), file('bad.dng')],
+    });
+    // Simulate a partial run: one copied, one failed → import ends `failed`-ish.
+    await repo.updateImportProgress(
+      created._id,
+      {
+        index: 0,
+        state: 'copied',
+        error: null,
+        destRel: '2024/03/copied.dng',
+        current: 1,
+        counts: { copied: 1, skipped: 0, failed: 0 },
+      },
+      60_000,
+    );
+    await repo.updateImportProgress(
+      created._id,
+      {
+        index: 1,
+        state: 'failed',
+        error: 'unsafe filename',
+        destRel: '2024/03/bad.dng',
+        current: 2,
+        counts: { copied: 1, skipped: 0, failed: 1 },
+      },
+      60_000,
+    );
+    await repo.failImport(created._id, 'a file failed');
+
+    expect(await repo.retryImport(created._id)).toBe(true);
+
+    const requeued = await repo.getImport(created._id);
+    expect(requeued!.status).toBe('pending');
+    expect(requeued!.error).toBeNull();
+    expect(requeued!.counts.failed).toBe(0);
+    expect(requeued!.locked_by).toBeNull();
+    expect(requeued!.lease_expires_at).toBeNull();
+    // The copied file is untouched; the failed one is reset to pending.
+    expect(requeued!.files[0].state).toBe('copied');
+    expect(requeued!.files[1].state).toBe('pending');
+    expect(requeued!.files[1].error).toBeNull();
+
+    // A worker can re-claim it.
+    const claim = await repo.claimImport('w-retry', 60_000);
+    expect(claim).not.toBeNull();
+    expect(claim!._id.equals(created._id)).toBe(true);
+  });
+
+  it('retryImport re-queues a done-with-failures import (#795)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+    const created = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: [file('a.dng'), file('b.dng')],
+    });
+    await repo.updateImportProgress(
+      created._id,
+      {
+        index: 1,
+        state: 'failed',
+        error: 'boom',
+        destRel: '2024/03/b.dng',
+        current: 2,
+        counts: { copied: 1, skipped: 0, failed: 1 },
+      },
+      60_000,
+    );
+    await repo.completeImport(created._id, { copied: 1, skipped: 0, failed: 1 });
+
+    expect(await repo.retryImport(created._id)).toBe(true);
+    const requeued = await repo.getImport(created._id);
+    expect(requeued!.status).toBe('pending');
+    expect(requeued!.files[1].state).toBe('pending');
+  });
+
+  it('retryImport refuses a clean done import and an unknown id (#795)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+    const created = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: [file('a.dng')],
+    });
+    await repo.completeImport(created._id, { copied: 1, skipped: 0, failed: 0 });
+    // Clean done (no failures) → not retryable.
+    expect(await repo.retryImport(created._id)).toBe(false);
+    // Unknown id → false.
+    expect(await repo.retryImport(new ObjectId())).toBe(false);
+  });
+
   it('assetExistsForHash matches by maple_id and by sha1_head', async () => {
     if (!mongoReachable) return;
     const repo = await import('./repo.ts');
