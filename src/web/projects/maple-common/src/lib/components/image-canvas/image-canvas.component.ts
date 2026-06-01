@@ -55,6 +55,22 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     return z === 'fit' ? 'Fit' : `${Math.round((z as number) * 100)}%`;
   });
 
+  /**
+   * Download progress view-model for the open-progress bar. Resolves to a
+   * value only while a genuine network download is in flight for the asset
+   * that's currently focused — a stale-asset guard so a fast A→B switch can't
+   * paint A's progress on B. `null` (cached/local/instant opens, or decode
+   * phase) hides the bar entirely.
+   */
+  readonly downloadProgress = computed(() => {
+    const p = this.state.openDownloadProgress();
+    const a = this.state.focusedAsset();
+    if (!p || !a || p.id !== a.id) return null;
+    const pct =
+      p.total && p.total > 0 ? Math.min(100, Math.round((p.loaded / p.total) * 100)) : null;
+    return { loaded: p.loaded, total: p.total, pct };
+  });
+
   private effectivePx = computed(() => {
     const z = this.canvasSvc.zoom();
     const asset = this.state.focusedAsset();

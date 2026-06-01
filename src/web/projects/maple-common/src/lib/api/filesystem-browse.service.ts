@@ -18,9 +18,20 @@
 // and turn the Blob into an object URL so the bearer-less <img src=...> works.
 
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, firstValueFrom, map } from 'rxjs';
+import { HttpClient, HttpEventType, HttpParams } from '@angular/common/http';
+import { Observable, firstValueFrom, lastValueFrom, map } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
+
+/**
+ * Download progress for a byte fetch. `total` is the known size in bytes
+ * (Content-Length, or a caller-supplied FS-listing `size` fallback) or
+ * `null` when the length is genuinely unknown — keep the bar indeterminate
+ * in that case.
+ */
+export interface DownloadProgress {
+  loaded: number;
+  total: number | null;
+}
 
 export interface FsDirEntry {
   /** Basename. */
@@ -118,12 +129,38 @@ export class FilesystemBrowseService {
    * absolute filesystem path. Goes through HttpClient so the auth
    * interceptor attaches the bearer.
    */
-  getRawBytes(absPath: string): Promise<ArrayBuffer> {
+  getRawBytes(absPath: string, onProgress?: (p: DownloadProgress) => void): Promise<ArrayBuffer> {
     const q = new URLSearchParams({ path: absPath });
-    return firstValueFrom(
-      this.http.get(`${this.base}/fs/raw?${q.toString()}`, {
-        responseType: 'arraybuffer',
-      }),
-    );
+    const url = `${this.base}/fs/raw?${q.toString()}`;
+
+    // Fast path: no progress consumer → buffer silently, exactly as before.
+    if (!onProgress) {
+      return firstValueFrom(this.http.get(url, { responseType: 'arraybuffer' }));
+    }
+
+    // Progress path: observe download events. We emit `DownloadProgress` to
+    // the callback as bytes stream in and resolve with the final body. The
+    // emission contract stays "resolve with the ArrayBuffer" — the callback
+    // is the only extra surface, so existing callers are unaffected.
+    return lastValueFrom(
+      this.http
+        .get(url, {
+          responseType: 'arraybuffer',
+          observe: 'events',
+          reportProgress: true,
+        })
+        .pipe(
+          map((event) => {
+            if (event.type === HttpEventType.DownloadProgress) {
+              onProgress({ loaded: event.loaded, total: event.total ?? null });
+              return null;
+            }
+            if (event.type === HttpEventType.Response) {
+              return event.body;
+            }
+            return null;
+          }),
+        ),
+    ).then((body) => body ?? new ArrayBuffer(0));
   }
 }

@@ -16,7 +16,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { Asset, AssetId } from '../models/asset';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
-import { FilesystemBrowseService } from '../api/filesystem-browse.service';
+import { FilesystemBrowseService, type DownloadProgress } from '../api/filesystem-browse.service';
 import { FolderEntry } from '../folder-access/folder-access.types';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
@@ -109,6 +109,36 @@ export class LibraryCache {
   /** In-flight byte reads (deduplication). */
   private readonly byteReads = new Map<AssetId, Promise<Uint8Array>>();
 
+  // ── Open download progress ───────────────────────────────────────────────
+
+  /**
+   * Determinate download progress for the asset currently being opened in
+   * the editor, or `null` when nothing is downloading from the network.
+   *
+   * Only set for genuine network reads (the Self-Hosted `/api/fs/raw` and
+   * `/api/assets/:id/raw` paths). LRU hits, legacy in-memory imports, and the
+   * Hosted FS-Access file-handle path never touch the network, so they leave
+   * this `null` and the editor shows no bar.
+   *
+   * Keyed by `assetId` so a fast A→B asset switch can't paint A's progress on
+   * B — the editor matches `id` against its focused asset. A short delay
+   * (see {@link OPEN_PROGRESS_DELAY_MS}) keeps fast/LAN opens from flashing a
+   * bar that would vanish a frame later.
+   */
+  readonly openDownloadProgress = signal<{
+    id: AssetId;
+    loaded: number;
+    total: number | null;
+  } | null>(null);
+
+  /**
+   * Delay before the progress bar is allowed to appear. If the bytes land
+   * before this fires, no bar ever renders — instant/cached/LAN opens stay
+   * flash-free. Determinate from the first painted frame because we carry the
+   * known size through as `total`.
+   */
+  private static readonly OPEN_PROGRESS_DELAY_MS = 120;
+
   // ── Thumbnails ─────────────────────────────────────────────────────────────
 
   /** Thumbnail URL cache (blob URLs — revoked when assets are removed). */
@@ -166,6 +196,59 @@ export class LibraryCache {
       return bytes;
     } finally {
       this.byteReads.delete(id);
+      this._clearProgress(id);
+    }
+  }
+
+  /**
+   * Build the gated `onProgress` callback for a network read of `id`.
+   *
+   * Returns `undefined` when the asset's id is no longer the one being
+   * opened (defensive — callers pass the asset they want). The callback
+   * arms a short timer on first event; the bar only becomes visible once the
+   * timer fires, so fast/LAN opens that resolve first never paint a bar. We
+   * carry the known size through as `total` so the bar is determinate from
+   * the first painted frame.
+   */
+  private makeProgressCallback(id: AssetId): (p: DownloadProgress) => void {
+    const knownSize = this.store.findAsset(id)?.size ?? null;
+    let armed = false;
+    let visible = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let latest: DownloadProgress = { loaded: 0, total: knownSize };
+
+    const publish = () => {
+      this.openDownloadProgress.set({
+        id,
+        loaded: latest.loaded,
+        total: latest.total ?? knownSize,
+      });
+    };
+
+    return (p: DownloadProgress) => {
+      latest = { loaded: p.loaded, total: p.total ?? knownSize };
+      if (visible) {
+        publish();
+        return;
+      }
+      if (!armed) {
+        armed = true;
+        timer = setTimeout(() => {
+          // Only paint if this asset is still the in-flight read.
+          if (!this.byteReads.has(id)) return;
+          visible = true;
+          publish();
+        }, LibraryCache.OPEN_PROGRESS_DELAY_MS);
+        // Best-effort: stop the timer the moment the read settles.
+        void this.byteReads.get(id)?.finally(() => clearTimeout(timer));
+      }
+    };
+  }
+
+  /** Clear the open-progress signal if it's still showing `id`. */
+  private _clearProgress(id: AssetId): void {
+    if (this.openDownloadProgress()?.id === id) {
+      this.openDownloadProgress.set(null);
     }
   }
 
@@ -179,7 +262,7 @@ export class LibraryCache {
     // path because FS-walk assets aren't in `_apiAssetIds`.
     const fsAbsPath = this.store.assetAbsPaths.get(id);
     if (fsAbsPath) {
-      const buf = await this.fsBrowse.getRawBytes(fsAbsPath);
+      const buf = await this.fsBrowse.getRawBytes(fsAbsPath, this.makeProgressCallback(id));
       return new Uint8Array(buf);
     }
 
@@ -190,7 +273,7 @@ export class LibraryCache {
       // firstValueFrom: imperative-boundary escape hatch. The LRU cache contract
       // is `Promise<Uint8Array>`; callers `await bytesForAsset(...)`. Keeping the
       // observable flow here would force every caller to resubscribe.
-      const buf = await firstValueFrom(this.api.getRawBytes(apiId));
+      const buf = await firstValueFrom(this.api.getRawBytes(apiId, this.makeProgressCallback(id)));
       return new Uint8Array(buf);
     }
 
@@ -302,9 +385,7 @@ export class LibraryCache {
       this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
       if (folder?.write) {
         const sha = await sha256Prefix16(asset.filename);
-        void this.cache
-          .writeThumb(folder, sha, blob)
-          .then(() => onThumbWritten?.(asset.id, sha));
+        void this.cache.writeThumb(folder, sha, blob).then(() => onThumbWritten?.(asset.id, sha));
       }
     } catch (err) {
       console.warn('[state] thumb load failed for', asset.filename, err);
