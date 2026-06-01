@@ -107,6 +107,48 @@ async function stageSources(sub: string, names: string[]): Promise<Record<string
 }
 
 describe('ImportRunner.tick', () => {
+  it('auto import: the worker scans the source and copies (scan_pending)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+    const src = await stageSources('auto', ['IMG.dng', 'IMG.xmp']);
+    // Known mtime → deterministic YEAR/MM bucket.
+    const when = new Date('2024-03-09T12:00:00Z');
+    await fs.utimes(src['IMG.dng'], when, when);
+    await fs.utimes(src['IMG.xmp'], when, when);
+    const lib = path.join(tmp, 'auto', 'lib');
+
+    const created = await repo.createImport({
+      source_root: path.join(tmp, 'auto', 'src'),
+      library_id: new ObjectId(),
+      library_root: lib,
+      files: [], // no files up front — worker scans
+      scan_pending: true,
+    });
+
+    let handed = 0;
+    const runner = new ImportRunner({
+      workerId: 'w-auto',
+      deps: {
+        assetExistsForHash: async () => false,
+        handleEvent: async () => {
+          handed++;
+        },
+      },
+    });
+    expect((await runner.tick()).kind).toBe('done');
+
+    // Worker scanned + filed everything under <year>/<MM>/.
+    expect(await fs.readFile(path.join(lib, '2024/03/IMG.dng'), 'utf8')).toBe('bytes-auto-IMG.dng');
+    expect(await fs.readFile(path.join(lib, '2024/03/IMG.xmp'), 'utf8')).toBe('bytes-auto-IMG.xmp');
+    expect(handed).toBe(1); // the image was handed to the indexer
+
+    const doc = await repo.getImport(created._id);
+    expect(doc!.status).toBe('done');
+    expect(doc!.scan_pending).toBe(false);
+    expect(doc!.progress.total).toBe(2); // image + sidecar
+    expect(doc!.counts.copied).toBe(2);
+  });
+
   it('copies files, hands images (not movies) to the indexer', async () => {
     if (!mongoReachable) return;
     const repo = await import('./repo.ts');

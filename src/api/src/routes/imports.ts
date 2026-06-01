@@ -80,6 +80,8 @@ interface ImportView {
   library_id: string;
   library_root: string;
   files: ImportWithId['files'];
+  /** Auto Import awaiting the worker's deferred scan (files not yet resolved). */
+  scan_pending: boolean;
   progress: { current: number; total: number };
   counts: { copied: number; skipped: number; failed: number };
   error: string | null;
@@ -100,6 +102,7 @@ function projectImportSummary(doc: ImportWithId): ImportSummaryView {
     source_root: doc.source_root,
     library_id: doc.library_id.toHexString(),
     library_root: doc.library_root,
+    scan_pending: doc.scan_pending ?? false,
     progress: doc.progress,
     counts: doc.counts,
     error: doc.error,
@@ -120,6 +123,9 @@ const CreateBody = t.Object({
   library_id: t.String(),
   /** Per-bucket label overrides, keyed on the `${year}/${mm}` bucket key. */
   labels: t.Optional(t.Record(t.String(), t.String())),
+  /** Auto Import — queue immediately and let the worker scan + resolve files
+   * (default `MM` labels) instead of resolving them in this request. */
+  auto: t.Optional(t.Boolean()),
 });
 
 const ListQuery = t.Object({
@@ -186,6 +192,21 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
           error:
             'Source folder is the target library or inside it. Pick a source outside the library.',
         };
+      }
+
+      // Auto Import: queue immediately with no files; the worker scans
+      // `source_root` (default MM labels) and resolves destinations when it
+      // claims the job. Keeps the click instant even for huge folders.
+      if (body.auto) {
+        const doc = await createImport({
+          source_root: jail.real,
+          library_id: folder._id,
+          library_root: folder.path,
+          files: [],
+          scan_pending: true,
+        });
+        set.status = 201;
+        return { id: doc._id.toHexString() };
       }
 
       const labels: Record<string, string> = body.labels ?? {};
