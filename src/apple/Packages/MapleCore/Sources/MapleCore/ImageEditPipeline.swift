@@ -44,6 +44,16 @@ private let logger = Logger(subsystem: "app.justmaple.aperture", category: "Imag
 ///     fuses in front of the chain so every intermediate runs at display
 ///     resolution.
 public actor ImageEditPipeline {
+    /// Conservative long-edge cap (px) for a fast-phase decode when the
+    /// viewport target is unknown or degenerate. Per ticket 06 § Open
+    /// Questions: "if previewSize is unknown at the moment decode starts,
+    /// the editor may use a conservative fallback cap, for example a 2 MP
+    /// long-edge-constrained preview." 2 MP ≈ 1414 px on a square; rounded
+    /// to 1500. This is the single source of truth for that fallback so
+    /// the sized RAW decode and the fast-phase decode-target fallback (the
+    /// `decodeAndRender` nil-target guard, #785) never drift apart.
+    nonisolated public static let fastPhaseFallbackLongEdge: Int = 1500
+
     /// As-shot white balance derived from the RAW's metadata. Passed into
     /// `process(...)` so `CITemperatureAndTint`'s `neutral` reflects the
     /// camera's metered white point — the slider then behaves as a scene
@@ -203,16 +213,13 @@ public actor ImageEditPipeline {
         // Per ticket 06 § Product Requirements 2, the long edge of the
         // requested target is the cap; pixel-accurate sizing happens in
         // Rust. Conservative fallback if `targetSize` is degenerate
-        // (zero/negative): per ticket 06 § Open Questions, "if previewSize
-        // is unknown at the moment decode starts, the editor may use a
-        // conservative fallback cap, for example a 2MP long-edge-
-        // constrained preview." 2 MP = ~1414 px on a square; we round
-        // to 1500.
+        // (zero/negative): see `fastPhaseFallbackLongEdge` (the shared
+        // 2 MP ≈ 1500 px cap).
         let longEdge: UInt32 = {
             let w = max(1, Int(targetSize.width.rounded()))
             let h = max(1, Int(targetSize.height.rounded()))
             let le = max(w, h)
-            if le <= 0 { return 1500 }
+            if le <= 0 { return UInt32(Self.fastPhaseFallbackLongEdge) }
             return UInt32(le)
         }()
         let imageData: MapleSceneLinearImageData
@@ -439,15 +446,14 @@ public actor ImageEditPipeline {
                 // decode, so it must not shift color vs. the full-res
                 // refine. ImageIO preserves the source's embedded profile
                 // on the thumbnail in the common formats; when it doesn't
-                // surface one (`cg.colorSpace == nil`), read the source's
-                // color space from the full image's metadata — that path
-                // reads only the index-0 CGImage's `colorSpace` and is
-                // taken only on the rare profile-stripped fallback.
-                if let cs = cg.colorSpace {
-                    return (cg, cs)
-                }
-                let fullColorSpace = CGImageSourceCreateImageAtIndex(source, 0, nil)?.colorSpace
-                return (cg, fullColorSpace)
+                // surface one (`cg.colorSpace == nil`), default to sRGB —
+                // a profile-stripped image is sRGB by convention. We do
+                // NOT decode the full-resolution CGImage just to read a
+                // color space (that would defeat the downsample on the
+                // very images this guards). The full-res refine path below
+                // applies the identical sRGB default on nil, so fast and
+                // refine never disagree (#785).
+                return (cg, cg.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB))
             }
             // Fall through to the full-res path if the thumbnail decode
             // failed (e.g. an exotic format ImageIO can downsample-decode
@@ -459,7 +465,11 @@ public actor ImageEditPipeline {
             kCGImageSourceShouldAllowFloat: true,
         ]
         let cg = CGImageSourceCreateImageAtIndex(source, 0, imageOpts as CFDictionary)
-        let cs = cg?.colorSpace
+        // Default a profile-stripped image to sRGB — matches the
+        // downsampled thumbnail branch above so the fast (sized) preview
+        // and the full-res refine agree on colorimetry (#785). Leave nil
+        // only when the decode itself failed (no image to tag).
+        let cs = cg.map { $0.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) } ?? nil
         return (cg, cs)
     }
 
