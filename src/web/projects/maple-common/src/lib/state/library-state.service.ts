@@ -115,6 +115,12 @@ export class LibraryStateService {
   // ── Adjustment models (per-asset develop settings) ────────────────────────
   readonly adjustmentModels = this.store.adjustmentModels;
 
+  // ── Open download progress ─────────────────────────────────────────────────
+  /** Determinate download progress for the asset currently streaming from the
+   * Self-Hosted API, or `null` when nothing is downloading. Drives the editor
+   * canvas's open progress bar. See `LibraryCache.openDownloadProgress`. */
+  readonly openDownloadProgress = this.cache_.openDownloadProgress;
+
   // ── Lazy byte access ───────────────────────────────────────────────────────
   bytesForAsset(id: AssetId): Promise<Uint8Array> {
     return this.cache_.bytesForAsset(id);
