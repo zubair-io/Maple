@@ -28,6 +28,15 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     /// key (see file header). Default `"library"` matches the spec.
     @AppStorage("cm.tab.shell") private var activeTab: String = "library"
 
+    /// Library tab navigation stack. A Library cell tap appends the tapped
+    /// `AssetRef` here, which the tab's `NavigationStack(path:)` pushes and
+    /// `PhoneLibraryView`'s `.navigationDestination(for: AssetRef.self)`
+    /// resolves into `EditorDestination → EditorView` (S5, #625, #791).
+    /// `EditorDestination`'s back button calls `dismiss()`, which pops this
+    /// path. A typed `[AssetRef]` (AssetRef is Hashable) keeps push/pop
+    /// trivial vs. a type-erased `NavigationPath`.
+    @State private var libraryPath: [AssetRef] = []
+
     @Binding var isDrawerOpen: Bool
     let mode: AppShell.Mode
     let selectedSession: EditSession?
@@ -72,7 +81,7 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
 
     private var tabView: some View {
         TabView(selection: $activeTab) {
-            NavigationStack {
+            NavigationStack(path: $libraryPath) {
                 PhoneLibraryView(
                     isDrawerOpen: $isDrawerOpen,
                     mode: mode,
@@ -95,7 +104,16 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     onSelectLocalAsset: onSelectLocalAsset,
                     onGrantPhotosAccess: onGrantPhotosAccess,
                     onNavigateFolder: onNavigateFolder,
-                    onOpenEditor: onOpenEditor,
+                    // Phone Library tap pushes the S5 Editor onto THIS tab's
+                    // NavigationStack (#791) instead of AppShell's legacy
+                    // `.browse → .fullImage` mode flip (which rendered the
+                    // zoom-only FullImageView with no adjustment controls).
+                    // The pushed `EditorDestination` reuses/creates the
+                    // EditSession itself and `.toolbar(.hidden, for: .tabBar)`
+                    // hides the tab bar on push. The AppShell-provided
+                    // `onOpenEditor` (mode flip) stays in use by the
+                    // tablet/desktop pane shell, which has no NavigationStack.
+                    onOpenEditor: { asset in libraryPath.append(asset) },
                     onPrimeSession: onPrimeSession,
                     onFullImageFallback: onFullImageFallback
                 )
