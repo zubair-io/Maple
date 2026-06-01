@@ -9,6 +9,8 @@
 
 import { ObjectId, type WithId } from 'mongodb';
 import { importsCollection, assetsCollection } from '../db/client.ts';
+import { isSafeLabel } from './dest.ts';
+import { isSafeFilename } from '../backup/path-formatter.ts';
 import type {
   ImportDoc,
   ImportFileEntry,
@@ -304,12 +306,26 @@ export async function markImportCancelled(
  *
  * Guarded to terminal-with-failures: only a `failed` import, or a `done`
  * import with `counts.failed > 0`, can be retried. Returns true when an import
- * matched the guard and was re-queued, false otherwise (not found / not
- * retryable / no failed files to reset).
+ * matched the guard and at least one file was actually re-queued, false
+ * otherwise (not found / not retryable / nothing recoverable).
  *
- * The `files` array is rewritten wholesale (failed → pending) in one atomic
- * update so a concurrent claim can't see a half-reset doc.
+ * A file whose destination is permanently unsafe (e.g. a backslash filename
+ * that can never pass `destRelPath`) is left `failed`, not resurrected — the
+ * re-run must never copy a file with an unvalidated dest. `counts.failed` is
+ * recomputed to reflect those stay-failed entries so the import doesn't report
+ * a clean run when some files are unrecoverable.
+ *
+ * The `files` array is rewritten wholesale in one atomic update so a
+ * concurrent claim can't see a half-reset doc.
  */
+function destIsSafe(dest: string): boolean {
+  const parts = dest.split('/');
+  if (parts.length < 3) return false;
+  const filename = parts[parts.length - 1];
+  const labels = parts.slice(0, parts.length - 1);
+  return isSafeFilename(filename) && labels.every((seg) => isSafeLabel(seg));
+}
+
 export async function retryImport(
   id: ObjectId,
   now: () => Date = () => new Date(),
@@ -322,21 +338,29 @@ export async function retryImport(
     doc.status === 'failed' || (doc.status === 'done' && (doc.counts?.failed ?? 0) > 0);
   if (!retryable) return false;
 
-  // Reset failed files to pending; leave copied/skipped/pending untouched so
-  // the re-run only re-attempts what failed (already-copied files dedup-skip).
-  const files: ImportFileEntry[] = doc.files.map((f) =>
-    f.state === 'failed' ? { ...f, state: 'pending' as ImportFileState, error: null } : f,
-  );
-  const recovered = files.filter(
-    (f, i) => f.state === 'pending' && doc.files[i].state === 'failed',
-  );
-  if (recovered.length === 0 && (doc.counts?.failed ?? 0) === 0) {
-    // Nothing actually failed — a no-op retry isn't meaningful.
+  // Reset failed files to pending ONLY when their dest is safe; leave a
+  // permanently-unsafe file failed so the re-run never copies an unvalidated
+  // dest. Copied/skipped/pending files are untouched (already-copied images
+  // dedup-skip on the re-run, so nothing is re-copied).
+  let recoveredCount = 0;
+  let stillFailed = 0;
+  const files: ImportFileEntry[] = doc.files.map((f) => {
+    if (f.state !== 'failed') return f;
+    if (destIsSafe(f.dest)) {
+      recoveredCount += 1;
+      return { ...f, state: 'pending' as ImportFileState, error: null };
+    }
+    stillFailed += 1;
+    return f;
+  });
+  if (recoveredCount === 0) {
+    // Nothing recoverable — a no-op retry isn't meaningful (e.g. an empty
+    // source whose import failed with no files, or only permanent failures).
     return false;
   }
 
   const nowIso = now().toISOString();
-  const counts = { ...doc.counts, failed: 0 };
+  const counts = { ...doc.counts, failed: stillFailed };
   const result = await c.updateOne(
     { _id: id, status: doc.status },
     {
