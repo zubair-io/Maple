@@ -7,9 +7,10 @@
 // reverse proxy work without rebuilding the bundle.
 
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable, map } from 'rxjs';
+import { HttpClient, HttpEventType, HttpParams } from '@angular/common/http';
+import { Observable, filter, map } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
+import type { DownloadProgress } from './filesystem-browse.service';
 // `ObservabilityConfigResponse` lives in `../observability/observability-config.model`
 // and is re-exported from the library's public-api barrel; we only need the type
 // here for the method signatures below.
@@ -328,10 +329,42 @@ export class BunApiBackendService {
     return this.http.get<ApiWorkerStatus>(`${this.base}/workers/status`);
   }
 
-  getRawBytes(assetId: string): Observable<ArrayBuffer> {
-    return this.http.get(`${this.base}/assets/${assetId}/raw`, {
-      responseType: 'arraybuffer',
-    });
+  /**
+   * Stream an asset's RAW bytes by Mongo asset id.
+   *
+   * The emission contract is unchanged — the observable emits exactly one
+   * value, the `ArrayBuffer`, then completes — so `firstValueFrom` callers
+   * keep working. Pass `onProgress` to additionally receive download progress
+   * frames as the body streams in (used to drive the editor's open progress
+   * bar). Without it, the request still buffers silently as before.
+   */
+  getRawBytes(
+    assetId: string,
+    onProgress?: (p: DownloadProgress) => void,
+  ): Observable<ArrayBuffer> {
+    const url = `${this.base}/assets/${assetId}/raw`;
+
+    if (!onProgress) {
+      return this.http.get(url, { responseType: 'arraybuffer' });
+    }
+
+    return this.http
+      .get(url, { responseType: 'arraybuffer', observe: 'events', reportProgress: true })
+      .pipe(
+        // Fire the progress callback as a side effect, then pass through only
+        // the final Response body so the observable still emits one ArrayBuffer.
+        map((event) => {
+          if (event.type === HttpEventType.DownloadProgress) {
+            onProgress({ loaded: event.loaded, total: event.total ?? null });
+            return null;
+          }
+          if (event.type === HttpEventType.Response) {
+            return event.body ?? new ArrayBuffer(0);
+          }
+          return null;
+        }),
+        filter((body): body is ArrayBuffer => body !== null),
+      );
   }
 
   getThumb(assetId: string, size = '320x320'): Observable<Blob> {
