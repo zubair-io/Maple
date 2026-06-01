@@ -144,12 +144,17 @@ extension EditSession {
             persistCurrentPreviewToCache()
             return
         }
-        // Visible-region refine.
+        // Visible-region refine. Requires a FULL-resolution cached decode
+        // — this branch crops `snapshot.image` directly, so a sized fast
+        // decode would yield a low-res zoom. When the cache is sized-only,
+        // fall through to `decodeAndRender(.refine)` below, which
+        // re-decodes full (#785).
         let visible = viewportSourceRect
         let snapshot = await renderActor.snapshot(forAsset: asset)
         if !visible.isEmpty,
            nativeImageSize.width > 0, nativeImageSize.height > 0,
            snapshot.isFresh,
+           snapshot.isFull,
            snapshot.image != nil {
             await refineVisibleRegion(
                 visibleRect: visible,
@@ -246,7 +251,12 @@ extension EditSession {
         let pipeline = self.pipeline
         let snapshot = await renderActor.snapshot(forAsset: asset)
         let cached = snapshot.image
-        let cacheFresh = (cached != nil) && snapshot.isFresh
+        // Fast phase accepts any fresh cache (a downsampled decode is
+        // fine for the viewport). Refine requires a FULL-resolution decode
+        // — a sized-only cache from a prior fast pass is a miss, so refine
+        // re-decodes full and never publishes a low-res final (#785).
+        let cacheSufficient = (phase == .fast) || snapshot.isFull
+        let cacheFresh = (cached != nil) && snapshot.isFresh && cacheSufficient
         let cachedDecodedAtModel = snapshot.decodedAtModel
         let asShot: ImageEditPipeline.AsShotWB? = {
             guard let cct = asShotCCT, let t = asShotTint else { return nil }
@@ -282,8 +292,13 @@ extension EditSession {
                     }
                 }.value
             } else {
+                // Fast phase decodes downsampled to the viewport target so
+                // the full-res bitmap is never allocated; refine decodes
+                // full-resolution (`target: nil`) for the final render (#785).
+                let decodeTarget: CGSize? = (phase == .fast) ? targetSize : nil
                 let decoded = await renderActor.sharedDecode(
                     asset: asset,
+                    target: decodeTarget,
                     normalize: { [weak self] image, asset in
                         guard let self else { return image }
                         return await MainActor.run {

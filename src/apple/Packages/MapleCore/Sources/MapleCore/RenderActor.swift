@@ -80,8 +80,23 @@ public actor RenderActor {
     private var decodedSidecarMtime: Date?
     private var decodedAtModel: AdjustmentModel?
 
+    /// Whether the cached `decodedImage` is a FULL-resolution decode
+    /// (sufficient for the refine pass / a deep-zoom crop) or a
+    /// downsampled fast-phase decode (#785). The fast phase accepts any
+    /// fresh cache; the refine pass treats a sized-only cache as a miss
+    /// and re-decodes full, so a low-res fast decode never poisons the
+    /// final render. Seeded preview / embedded-JPEG buffers are NOT full.
+    private var decodedIsFull: Bool = false
+
     private var decodeTask: Task<CIImage?, Never>?
     private var decodeTaskAssetID: AssetRef.ID?
+    /// The decode target the in-flight `decodeTask` was launched for:
+    /// `nil` = full decode, non-nil = sized fast decode. A refine that
+    /// needs a full decode must not join a sized fast task (the join
+    /// would hand back a low-res buffer); the single-flight check below
+    /// only reuses the task when it already satisfies the caller's
+    /// fullness requirement.
+    private var decodeTaskIsFull: Bool = false
 
     private var refineDecodeTasks: [RefineDecodeKey: RefineDecodeSlot] = [:]
     private var refineDecodeSlotCounter: UInt64 = 0
@@ -108,6 +123,10 @@ public actor RenderActor {
         public let decodedAtModel: AdjustmentModel?
         public let rawResolution: CGSize
         public let isFresh: Bool
+        /// True when the cached decode is full-resolution (sufficient for
+        /// refine / deep-zoom crops). A sized fast decode or a seeded
+        /// preview buffer is `false` — refine must re-decode (#785).
+        public let isFull: Bool
     }
 
     // MARK: - Scheduler state (slice 3)
@@ -237,11 +256,29 @@ public actor RenderActor {
 
     // MARK: - Single-flight decode (slice 2)
 
+    /// Single-flight decode. `target` drives the downsample (#785):
+    ///   • `nil`  — full-resolution decode. Used by the refine pass and
+    ///              export so the final render is never lower quality.
+    ///   • sized  — downsampled fast-phase decode. RAW routes through the
+    ///              sized scene-linear FFI (`maxLongEdge`); non-RAW routes
+    ///              through the ImageIO thumbnail decode. The full-res
+    ///              bitmap is never allocated for the viewport phase.
+    ///
+    /// A `nil`-target (refine) caller never joins an in-flight sized fast
+    /// task — that would hand back a low-res buffer. The cache's
+    /// `decodedIsFull` flag is set so `snapshot(forAsset:)` can tell the
+    /// refine pass whether the cached decode is sufficient.
     func sharedDecode(
         asset: AssetRef,
+        target: CGSize? = nil,
         normalize: @escaping @Sendable (CIImage, AssetRef) async -> CIImage
     ) async -> CIImage? {
-        if let existing = decodeTask, decodeTaskAssetID == asset.id {
+        let wantsFull = (target == nil)
+        // Reuse an in-flight task only when it already satisfies the
+        // caller's fullness requirement. A fast (sized) caller can join
+        // any task; a refine (full) caller must NOT join a sized task.
+        if let existing = decodeTask, decodeTaskAssetID == asset.id,
+           (!wantsFull || decodeTaskIsFull) {
             guard let decoded = await existing.value else { return nil }
             if decodedAtModel == nil {
                 decodedAtModel = EditSession.parseSidecarModel(for: asset)
@@ -258,6 +295,7 @@ public actor RenderActor {
         let needsSniff = asset.primaryURL == nil
             && asset.hintExtension == nil
             && asset.explicitIsRaw == nil
+        let decodeTarget = target
         let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline] in
             var dispatchAsset = asset
             var dispatchIsRaw = extensionIsRaw
@@ -293,9 +331,12 @@ public actor RenderActor {
             }
 
             if !dispatchIsRaw {
+                // Fast phase passes a viewport `target` so ImageIO decodes
+                // a downsampled thumbnail; refine passes `nil` for the
+                // full-res decode (#785).
                 return await mapleStageAsync("ImageIO non-RAW decode") {
                     await pipeline.decodeSceneLinearNonRaw(
-                        asset: dispatchAsset, targetSize: nil
+                        asset: dispatchAsset, targetSize: decodeTarget
                     )
                 }
             }
@@ -306,6 +347,22 @@ public actor RenderActor {
                 else { return nil }
                 return url
             }()
+            // RAW fast phase routes through the sized scene-linear FFI
+            // (`maxLongEdge`) so the Rust decoder never allocates a
+            // full-sensor-resolution buffer for the viewport (#785). Only
+            // the size differs from the refine path — `quality: .preview`
+            // is unchanged, so refine output is bit-identical to today.
+            // Refine / export (`decodeTarget == nil`) keep the unsized
+            // full-resolution decode.
+            if let decodeTarget {
+                let decoded = await mapleStageAsync("rust FFI scene-linear sized decode") {
+                    await pipeline.decodeSceneLinearSized(
+                        asset: asset, targetSize: decodeTarget, xmpPath: sidecar
+                    )
+                }
+                guard let decoded else { return nil }
+                return decoded
+            }
             let decoded = await mapleStageAsync("rust FFI scene-linear decode") {
                 await pipeline.decodeSceneLinear(asset: asset, xmpPath: sidecar)
             }
@@ -314,6 +371,7 @@ public actor RenderActor {
         }
         decodeTask = task
         decodeTaskAssetID = asset.id
+        decodeTaskIsFull = wantsFull
 
         let decoded = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
@@ -327,11 +385,22 @@ public actor RenderActor {
         }
 
         let normalized = await normalize(decoded, asset)
-        decodedImage = normalized
-        decodedRawResolution = decoded.extent.size
-        decodedForAssetID = asset.id
-        decodedAtModel = EditSession.parseSidecarModel(for: asset)
-        decodedSidecarMtime = EditSession.sidecarMtime(for: asset)
+        // A sized fast decode must NOT clobber a full-resolution cache
+        // that a concurrent refine already landed — only write the cache
+        // when this decode is at least as good as what's there (full
+        // beats sized; a sized decode only fills an empty / sized slot
+        // for the same asset). The fullness flag drives refine's
+        // re-decode decision (#785).
+        let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
+        let shouldWrite = wantsFull || !(sameAssetCached && decodedIsFull)
+        if shouldWrite {
+            decodedImage = normalized
+            decodedRawResolution = decoded.extent.size
+            decodedForAssetID = asset.id
+            decodedAtModel = EditSession.parseSidecarModel(for: asset)
+            decodedSidecarMtime = EditSession.sidecarMtime(for: asset)
+            decodedIsFull = wantsFull
+        }
         if decodeTaskAssetID == asset.id {
             decodeTask = nil
             decodeTaskAssetID = nil
@@ -372,8 +441,10 @@ public actor RenderActor {
         decodedRawResolution = .zero
         decodedForAssetID = nil
         decodedSidecarMtime = nil
+        decodedIsFull = false
         decodeTask = nil
         decodeTaskAssetID = nil
+        decodeTaskIsFull = false
         refineDecodeTasks.removeAll()
         decodedAtModel = nil
     }
@@ -385,7 +456,8 @@ public actor RenderActor {
             image: decodedImage,
             decodedAtModel: decodedAtModel,
             rawResolution: decodedRawResolution,
-            isFresh: isFresh
+            isFresh: isFresh,
+            isFull: decodedIsFull
         )
     }
 
@@ -400,6 +472,10 @@ public actor RenderActor {
         self.decodedForAssetID = asset.id
         self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)
         self.decodedAtModel = decodedAtModel
+        // Seeded buffers (cached rendered preview / embedded JPEG) are
+        // low-resolution display previews, never a full decode — refine
+        // must upgrade them (#785).
+        self.decodedIsFull = false
     }
 
     public func seedIfUnpopulated(
@@ -416,6 +492,7 @@ public actor RenderActor {
         self.decodedForAssetID = asset.id
         self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)
         self.decodedAtModel = decodedAtModel
+        self.decodedIsFull = false
         return true
     }
 
@@ -499,14 +576,18 @@ public actor RenderActor {
         decoded: CIImage,
         rawResolution: CGSize,
         sidecarMtime: Date?,
-        decodedAtModel: AdjustmentModel? = nil
+        decodedAtModel: AdjustmentModel? = nil,
+        isFull: Bool = true
     ) {
         self.decodedImage = decoded
         self.decodedRawResolution = rawResolution
         self.decodedForAssetID = asset.id
         self.decodedSidecarMtime = sidecarMtime
         self.decodedAtModel = decodedAtModel
+        self.decodedIsFull = isFull
     }
+
+    internal func _testDecodedIsFull() -> Bool { decodedIsFull }
 
     internal func _testDecodedCachePopulated(forAsset asset: AssetRef) -> Bool {
         decodedImage != nil && decodedForAssetID == asset.id

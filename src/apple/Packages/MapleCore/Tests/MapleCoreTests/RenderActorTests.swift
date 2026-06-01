@@ -73,6 +73,74 @@ final class RenderActorTests: XCTestCase {
             XCTFail("Unexpected error type: \(error)")
         }
     }
+
+    // MARK: - Decode-cache sufficiency (#785)
+
+    /// A seeded preview buffer (cached render / embedded JPEG) is never a
+    /// full-resolution decode — the refine pass must treat it as
+    /// insufficient and re-decode full so the final render isn't a
+    /// low-res preview.
+    func testSeededCacheIsNotFull() async {
+        let pipeline = ImageEditPipeline()
+        let actor = RenderActor(pipeline: pipeline)
+        let asset = AssetRef(
+            displayName: "seed.jpg",
+            hintExtension: "jpg",
+            stableID: "seed-1",
+            explicitIsRaw: false,
+            bytesProvider: { Data() }
+        )
+        let ci = CIImage(color: .gray).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        await actor.seed(asset: asset, decoded: ci, rawResolution: CGSize(width: 64, height: 64))
+        let snapshot = await actor.snapshot(forAsset: asset)
+        XCTAssertNotNil(snapshot.image, "seed should populate the cached image")
+        XCTAssertFalse(snapshot.isFull, "seeded preview buffers must be reported as not full so refine upgrades them")
+    }
+
+    /// `seedIfUnpopulated` follows the same not-full contract as `seed`.
+    func testSeedIfUnpopulatedIsNotFull() async {
+        let pipeline = ImageEditPipeline()
+        let actor = RenderActor(pipeline: pipeline)
+        let asset = AssetRef(
+            displayName: "seed.jpg",
+            hintExtension: "jpg",
+            stableID: "seed-2",
+            explicitIsRaw: false,
+            bytesProvider: { Data() }
+        )
+        let ci = CIImage(color: .gray).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        let accepted = await actor.seedIfUnpopulated(
+            asset: asset, decoded: ci, rawResolution: CGSize(width: 64, height: 64)
+        )
+        XCTAssertTrue(accepted, "an empty cache should accept the seed")
+        let snapshot = await actor.snapshot(forAsset: asset)
+        XCTAssertFalse(snapshot.isFull, "seedIfUnpopulated buffers must be reported as not full")
+    }
+
+    /// `invalidate` clears the fullness flag along with the cached image.
+    func testInvalidateClearsFullness() async {
+        let pipeline = ImageEditPipeline()
+        let actor = RenderActor(pipeline: pipeline)
+        let asset = AssetRef(
+            displayName: "full.dng",
+            hintExtension: "dng",
+            stableID: "full-1",
+            explicitIsRaw: true,
+            bytesProvider: { Data() }
+        )
+        let ci = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
+        await actor._testSeedDecodedCache(
+            asset: asset, decoded: ci, rawResolution: CGSize(width: 8, height: 8),
+            sidecarMtime: nil, isFull: true
+        )
+        var isFull = await actor._testDecodedIsFull()
+        XCTAssertTrue(isFull, "test seed with isFull: true should report full")
+        await actor.invalidate()
+        isFull = await actor._testDecodedIsFull()
+        XCTAssertFalse(isFull, "invalidate must clear the fullness flag")
+        let snapshot = await actor.snapshot(forAsset: asset)
+        XCTAssertNil(snapshot.image, "invalidate must clear the cached image")
+    }
 }
 
 // MARK: - Test helper
