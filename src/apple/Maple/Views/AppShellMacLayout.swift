@@ -89,7 +89,11 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
         } content: {
             centerColumn
                 .navigationSplitViewColumnWidth(min: 300, ideal: 520)
-                .navigationTitle(selectedSession?.asset.displayName ?? "Image")
+                // In `.editing` the EditorView's own EditorHeader shows the
+                // filename, so suppress the navigation title to avoid a
+                // duplicate (notably the inline title on iPad). The legacy
+                // `.fullImage` path keeps the window/title-bar filename (#815).
+                .navigationTitle(useEditor ? "" : (selectedSession?.asset.displayName ?? "Image"))
                 .toolbar { toolbarContent() }
         } detail: {
             // `isFullImage` drives Ticket 12 bugs 4/5/8: the panel auto-flips
