@@ -50,7 +50,9 @@ cargo build --release --bin maple-cli >&2
 CLI="$REPO_ROOT/src/raw-pipeline/target/release/maple-cli"
 DIFF_PY="$REPO_ROOT/src/scripts/auto_profile_diff.py"
 
-TMP="$(mktemp -d)"
+# Portable mktemp form (works on macOS/BSD and GNU; matches the other harness
+# scripts). BSD mktemp needs the template's final component to end in X's.
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/maple-autoprofile.XXXXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 
 EXIT=0
@@ -85,9 +87,21 @@ for raw in "${RAWS[@]}"; do
         SKIPPED=$((SKIPPED+1))
         continue
     fi
-    if ! "$CLI" extract-preview "$raw" --out "$jpeg_png" >"$TMP/${stem}.preview.log" 2>&1; then
+    # extract-preview exit-code contract (see commands/extract_preview.rs):
+    #   0 = preview written, 3 = readable RAW with no embedded preview
+    #   (skip), any other non-zero = a real error (fail loudly).
+    preview_rc=0
+    "$CLI" extract-preview "$raw" --out "$jpeg_png" \
+        >"$TMP/${stem}.preview.log" 2>&1 || preview_rc=$?
+    if [ "$preview_rc" -eq 3 ]; then
         echo "  $stem SKIP (no embedded JPEG)"
         SKIPPED=$((SKIPPED+1))
+        continue
+    elif [ "$preview_rc" -ne 0 ]; then
+        echo "  $stem FAIL (extract-preview exit $preview_rc)"
+        sed 's/^/    /' "$TMP/${stem}.preview.log" || true
+        FAILED=$((FAILED+1))
+        EXIT=1
         continue
     fi
 
