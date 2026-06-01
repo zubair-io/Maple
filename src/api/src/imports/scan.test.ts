@@ -100,3 +100,63 @@ describe('buildImportFiles', () => {
     expect(mov.kind).toBe('movie');
   });
 });
+
+// Regression for #793: a folder containing a leading-dot hidden/temp file
+// (Lightroom `.LrTmp-*`, macOS AppleDouble `._*`, `.DS_Store`) used to fail the
+// WHOLE import — the temp file's extension passed classify(), then destRelPath
+// → isSafeFilename rejected the leading dot and THREW. The walk() now skips any
+// leading-dot entry, so hidden files are silently dropped and real siblings
+// still import without throwing. Uses its own temp dir so the totals assertions
+// in the suite above (which expect exactly 1 movie) are unaffected.
+describe('walk() skips hidden/temp files (#793)', () => {
+  let hiddenRoot: string;
+
+  async function putHidden(rel: string): Promise<void> {
+    const abs = path.join(hiddenRoot, rel);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, `content-of-${rel}`);
+    const when = new Date('2024-05-01T12:00:00Z');
+    await fs.utimes(abs, when, when);
+  }
+
+  beforeAll(async () => {
+    hiddenRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'maple-imports-hidden-'));
+    // The literal reported Lightroom temp file + other hidden entries.
+    await putHidden('.LrTmp-0a5769699416531db35ca57a8969401a.mp4');
+    await putHidden('._IMG_9001.jpg'); // macOS AppleDouble
+    await putHidden('.DS_Store');
+    // Real siblings that MUST still import.
+    await putHidden('IMG_9001.jpg');
+    await putHidden('IMG_9001.xmp'); // sidecar for the real image
+    await putHidden('real-clip.mp4');
+  });
+
+  afterAll(async () => {
+    await fs.rm(hiddenRoot, { recursive: true, force: true });
+  });
+
+  test('scanFolder excludes hidden files but counts the real siblings', async () => {
+    const res = await scanFolder(hiddenRoot);
+    // 1 real image + 1 real movie + 1 paired sidecar; nothing hidden.
+    expect(res.totals.images).toBe(1);
+    expect(res.totals.movies).toBe(1);
+    expect(res.totals.sidecars).toBe(1);
+  });
+
+  test('buildImportFiles does not throw and skips the hidden files', async () => {
+    const files = await buildImportFiles(hiddenRoot, {});
+    const names = files.map((f) => path.posix.basename(f.dest));
+    // The reported .LrTmp temp file and other dotfiles never reach destRelPath.
+    expect(names).not.toContain('.LrTmp-0a5769699416531db35ca57a8969401a.mp4');
+    expect(names).not.toContain('._IMG_9001.jpg');
+    expect(names).not.toContain('.DS_Store');
+    // Real siblings — image, its sidecar, and the real movie — all present.
+    expect(names).toContain('IMG_9001.jpg');
+    expect(names).toContain('IMG_9001.xmp');
+    expect(names).toContain('real-clip.mp4');
+    // The sidecar still pairs to its image (same bucket/label, before it).
+    const xmp = files.find((f) => f.dest.endsWith('IMG_9001.xmp'))!;
+    expect(xmp.kind).toBe('sidecar');
+    expect(xmp.dest).toBe('2024/05/IMG_9001.xmp');
+  });
+});
