@@ -68,6 +68,9 @@ struct AppShellCenterColumn: View {
     /// S5 EditorView share affordance. Only used when `useEditor` is
     /// true; defaults to no-op. #815.
     var onEditorShare: () -> Void = {}
+    /// S5 EditorView Info affordance (reveals the DetailPanel column).
+    /// Only used when `useEditor` is true; defaults to no-op. #815.
+    var onEditorInfo: () -> Void = {}
 
     var body: some View {
         // The center column switches between the explorer grid (browse
@@ -89,6 +92,7 @@ struct AppShellCenterColumn: View {
                         filmstripAssets: browseVM.assets,
                         onDismiss: onEditorDismiss,
                         onShare: onEditorShare,
+                        onInfo: onEditorInfo,
                         onSelectAsset: onOpenEditor
                     )
                 } else {
