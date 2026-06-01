@@ -1,5 +1,7 @@
 <!-- Toolbar -->
-<div class="flex items-center gap-2 px-3 h-[34px] bg-surface border-b-[0.5px] border-border flex-shrink-0">
+<div
+  class="flex items-center gap-2 px-3 h-[34px] bg-surface border-b-[0.5px] border-border flex-shrink-0"
+>
   <span class="font-mono text-[10px] text-text-muted">{{ zoomLabel() }}</span>
   <div
     class="tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
@@ -52,19 +54,67 @@
       [style.left.%]="(canvasSvc.beforeAfterSplitX() ?? 0.5) * 100"
       (mousedown)="onDividerDrag($event)"
     >
-      <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-10 bg-white/90 rounded-[10px] flex items-center justify-center text-[10px] text-[#333] pointer-events-none">&#x21D4;</div>
+      <div
+        class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-10 bg-white/90 rounded-[10px] flex items-center justify-center text-[10px] text-[#333] pointer-events-none"
+      >
+        &#x21D4;
+      </div>
     </div>
   }
 
   <!-- Filename overlay -->
   @if (state.focusedAsset()) {
-    <div class="absolute left-3 bottom-2.5 font-mono text-[10px] text-white/35 pointer-events-none z-[5]">{{ state.focusedAsset()?.filename }}</div>
+    <div
+      class="absolute left-3 bottom-2.5 font-mono text-[10px] text-white/35 pointer-events-none z-[5]"
+    >
+      {{ state.focusedAsset()?.filename }}
+    </div>
+  }
+
+  <!-- Download progress overlay (Self-Hosted network open). Shown only while
+       bytes are genuinely streaming from the API; cached/local/instant opens
+       never reach here. Hands off to the decode overlay once bytes land. -->
+  @if (downloadProgress(); as dl) {
+    @if (!loading()) {
+      <div class="absolute inset-0 flex items-center justify-center z-[6] pointer-events-none">
+        <div
+          class="flex flex-col items-center gap-2 bg-black/60 border-[0.5px] border-white/15 rounded-[14px] px-5 py-3.5 backdrop-blur-[6px]"
+          role="progressbar"
+          aria-label="Downloading image"
+          [attr.aria-valuemin]="0"
+          [attr.aria-valuemax]="dl.pct === null ? null : 100"
+          [attr.aria-valuenow]="dl.pct"
+        >
+          <span class="font-sans text-[11px] text-white/70">
+            @if (dl.pct !== null) {
+              Downloading… {{ dl.pct }}%
+            } @else {
+              Downloading…
+            }
+          </span>
+          <div class="h-[3px] w-40 overflow-hidden rounded-full bg-white/15">
+            @if (dl.pct !== null) {
+              <div
+                class="h-full rounded-full bg-white/80 transition-[width] duration-100"
+                [style.width.%]="dl.pct"
+              ></div>
+            } @else {
+              <div class="dl-indeterminate h-full w-1/3 rounded-full bg-white/80"></div>
+            }
+          </div>
+        </div>
+      </div>
+    }
   }
 
   <!-- Decoding progress overlay -->
   @if (loading()) {
     <div class="absolute inset-0 flex items-center justify-center z-[6] pointer-events-none">
-      <div class="bg-black/60 border-[0.5px] border-white/15 rounded-[20px] px-3.5 py-1.5 font-sans text-[11px] text-white/70 backdrop-blur-[6px]">Decoding RAW...</div>
+      <div
+        class="bg-black/60 border-[0.5px] border-white/15 rounded-[20px] px-3.5 py-1.5 font-sans text-[11px] text-white/70 backdrop-blur-[6px]"
+      >
+        Decoding RAW...
+      </div>
     </div>
   }
 </div>
