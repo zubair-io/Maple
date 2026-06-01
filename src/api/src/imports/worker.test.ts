@@ -149,6 +149,41 @@ describe('ImportRunner.tick', () => {
     expect(doc!.counts.copied).toBe(2);
   });
 
+  it('auto import whose source has no importable files is marked failed', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+    // A source folder with only a non-media file → nothing to import.
+    const dir = path.join(tmp, 'auto-empty', 'src');
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'notes.txt'), 'not a photo');
+    const lib = path.join(tmp, 'auto-empty', 'lib');
+
+    const created = await repo.createImport({
+      source_root: dir,
+      library_id: new ObjectId(),
+      library_root: lib,
+      files: [],
+      scan_pending: true,
+    });
+
+    const runner = new ImportRunner({
+      workerId: 'w-auto-empty',
+      deps: {
+        assetExistsForHash: async () => false,
+        handleEvent: async () => {},
+      },
+    });
+    const res = await runner.tick();
+    expect(res.kind).toBe('failed');
+
+    const doc = await repo.getImport(created._id);
+    expect(doc!.status).toBe('failed');
+    expect(doc!.error).toBeTruthy(); // explains there were no importable files
+    expect(doc!.files).toHaveLength(0);
+    // Nothing was copied; the library dir was never created.
+    await expect(fs.stat(lib)).rejects.toThrow();
+  });
+
   it('copies files, hands images (not movies) to the indexer', async () => {
     if (!mongoReachable) return;
     const repo = await import('./repo.ts');
