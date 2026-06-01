@@ -138,75 +138,16 @@ pub fn render_from_raw_with_quality_and_source(
         model
     };
     let mut scene = develop_scene_linear_from_raw_with_quality(raw, active_model, quality)?;
-    // View transform — Auto Profile (#537) per-channel curves OR AgX-Neutral.
-    //
-    // Auto Profile fits per-channel R/G/B curves from the embedded JPEG
-    // and applies them to the raw scene-linear buffer (replacing AgX).
-    // Measured: this preserves more chroma (sat_ratio 0.636 on
-    // test_0003) than the AgX-skeleton-with-plug-in alternative (0.519)
-    // because per-channel stretching captures some camera-grading WB
-    // and saturation. Remaining gap to JPEG (0.636 → 1.0) is owned by
-    // Section 4 cross-channel matrix (Phase 2).
-    //
-    // Falls back to plain AgX when there's no RAW source (legacy
-    // `maple_render_bytes` FFI) or the fit fails (no JPEG / too small /
-    // degenerate histogram). Both branches end in DisplayLinearRec2020.
-    let used_auto = match (model.profile, &raw_source) {
-        (Profile::Auto, Some(RawInput::Path(path))) => stage("auto_profile", || {
-            scene.assert_space(ColorSpace::SceneLinearRec2020);
-            let (w, h) = (scene.width as usize, scene.height as usize);
-            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            let curve = match cached_curve.clone() {
-                Some(c) => Some(c),
-                None => {
-                    let fitted = auto_profile::fit_curve_from_raw(
-                        path, pixels, w, h, raw.orientation,
-                    );
-                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert(key, c.clone());
-                    }
-                    fitted
-                }
-            };
-            match curve {
-                Some(c) => {
-                    auto_profile::apply_curve(pixels, &c);
-                    true
-                }
-                None => false,
-            }
-        }),
-        (Profile::Auto, Some(RawInput::Bytes { bytes, ext })) => stage("auto_profile", || {
-            scene.assert_space(ColorSpace::SceneLinearRec2020);
-            let (w, h) = (scene.width as usize, scene.height as usize);
-            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            let curve = match cached_curve.clone() {
-                Some(c) => Some(c),
-                None => {
-                    let fitted = auto_profile::fit_curve_from_bytes(
-                        bytes, ext, pixels, w, h, raw.orientation,
-                    );
-                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert(key, c.clone());
-                    }
-                    fitted
-                }
-            };
-            match curve {
-                Some(c) => {
-                    auto_profile::apply_curve(pixels, &c);
-                    true
-                }
-                None => false,
-            }
-        }),
-        _ => false,
-    };
-    if used_auto {
-        scene.space = ColorSpace::DisplayLinearRec2020;
-    } else {
-        stage("agx", || agx::apply(&mut scene, model.contrast));
-    }
+    // View transform (#550 post-fix): AgX + gamut compress + sRGB gamma
+    // encode run UNCONDITIONALLY for both Auto and Neutral. Pre-#550 the
+    // Auto branch REPLACED AgX with the scene-linear curve fit, throwing
+    // away AgX's hue-restoring sigmoid + ratio-preserving compression and
+    // measuring an S-curve mismatch vs the camera JPEG (T8 #548: shadows
+    // biased +0.16, highlights −0.16 — the lone curve could not reproduce
+    // AgX's sigmoid). The Auto Profile per-channel curve now layers ON TOP
+    // of AgX in f32 sRGB-encoded display space (see below), a tone residual
+    // toward the JPEG distribution rather than a wholesale replacement.
+    stage("agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     // Buffer is in display-linear sRGB primaries here. Gamma encoding
@@ -215,6 +156,57 @@ pub fn render_from_raw_with_quality_and_source(
     // full sRGB encode (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
     stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
+    // Auto Profile (#537/#550) — per-channel tone curve fit from the
+    // embedded JPEG and applied in f32 sRGB-encoded display space (same
+    // domain the empirical Look LUT samples in, #519), layered on top of
+    // AgX. The fit (`fit_*_display`) reads the JPEG via `/255` directly —
+    // no inverse OETF, no Rec.2020 conversion — and Maple's source buffer
+    // is in the same domain by construction. Identity (no-op = AgX-Neutral
+    // output) when there's no RAW source (legacy `maple_render_bytes` FFI)
+    // or the fit fails (no JPEG / too small / degenerate histogram).
+    match (model.profile, &raw_source) {
+        (Profile::Auto, Some(RawInput::Path(path))) => stage("auto_profile", || {
+            scene.assert_space(ColorSpace::DisplayEncodedSrgb);
+            let (w, h) = (scene.width as usize, scene.height as usize);
+            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+            let curve = match cached_curve.clone() {
+                Some(c) => Some(c),
+                None => {
+                    let fitted = auto_profile::fit_curve_from_raw_display(
+                        path, pixels, w, h, raw.orientation,
+                    );
+                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
+                        auto_profile::cache::insert(key, c.clone());
+                    }
+                    fitted
+                }
+            };
+            if let Some(c) = curve {
+                auto_profile::apply_curve(pixels, &c);
+            }
+        }),
+        (Profile::Auto, Some(RawInput::Bytes { bytes, ext })) => stage("auto_profile", || {
+            scene.assert_space(ColorSpace::DisplayEncodedSrgb);
+            let (w, h) = (scene.width as usize, scene.height as usize);
+            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+            let curve = match cached_curve.clone() {
+                Some(c) => Some(c),
+                None => {
+                    let fitted = auto_profile::fit_curve_from_bytes_display(
+                        bytes, ext, pixels, w, h, raw.orientation,
+                    );
+                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
+                        auto_profile::cache::insert(key, c.clone());
+                    }
+                    fitted
+                }
+            };
+            if let Some(c) = curve {
+                auto_profile::apply_curve(pixels, &c);
+            }
+        }),
+        _ => {}
+    }
     // DisplayLookCurve (#371) — empirical per-channel LUT that closes
     // ~65% of the bias-to-ACR gap. Pre-#519 it ran as a `u8 → u8`
     // nearest lookup AFTER dither + quantize, which collapsed multiple

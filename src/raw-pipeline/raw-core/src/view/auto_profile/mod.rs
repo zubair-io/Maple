@@ -5,25 +5,28 @@
 //! Submodules:
 //! - [`curve`]: `ProfileCurve` data type + per-channel CDF curve helpers.
 //! - [`preview`]: embedded-JPEG extraction + Adobe RGB detection.
-//! - [`apply`]: apply path (compresses input, evaluates the curve, applies
-//!   matrix + Oklab corrections to a packed RGB buffer in place).
-//! - [`matrix`]: constrained 3×3 LSQ for the per-image cross-channel
-//!   correction matrix.
-//! - [`fit`]: fit path (builds CDF curves from source/JPEG distributions,
-//!   fits matrix + Oklab offsets, returns a [`curve::ProfileCurve`]).
+//! - [`apply`]: apply path (evaluates the per-channel curve into a packed
+//!   RGB buffer in place; the matrix + Oklab correction branches short-
+//!   circuit when the curve carries identity/zero values, which the #550
+//!   display-space fit always produces — AgX owns chroma + cross-channel
+//!   coupling now).
+//! - [`fit_display`]: fit path (#550) — builds CDF curves from source/JPEG
+//!   distributions in f32 sRGB-encoded display space (post-AgX), returns a
+//!   per-channel-only [`curve::ProfileCurve`]. AgX runs unconditionally and
+//!   the curve layers on top as a tone residual (vs the retired scene-linear
+//!   fit that replaced AgX and carried a matrix + Oklab corrections).
 //! - [`cache`]: bounded LRU keyed on `(raw_identity, mtime)` / bytes-hash
 //!   that short-circuits the fit on second-and-after slider ticks.
 
 pub mod apply;
 pub mod cache;
 pub mod curve;
-pub mod fit;
-pub mod matrix;
+pub mod fit_display;
 pub mod preview;
 
 pub use apply::{apply_curve, compress_input};
 pub use curve::{eval_channel, fit_channel_curve, ChannelCurve, ProfileCurve, IDENTITY_MATRIX};
-pub use fit::{fit_curve_from_bytes, fit_curve_from_raw};
+pub use fit_display::{fit_curve_from_bytes_display, fit_curve_from_raw_display};
 pub use preview::JpegColorSpace;
 
 #[cfg(test)]

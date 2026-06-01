@@ -1,11 +1,11 @@
 //! Bounded LRU cache for fitted [`ProfileCurve`]s.
 //!
-//! `fit_curve_from_raw` / `fit_curve_from_bytes` run end-to-end on every
-//! render — JPEG extract + decode + 128×128 grid pairing + 3×3 LSQ + Oklab
-//! band offsets. On the 100 MP DJI slider-budget reference frame that
-//! blows the 16 ms per-tick budget (CLAUDE.md § Performance invariants).
-//! This cache lets second-and-after ticks on the same RAW reuse the
-//! previously fitted curve.
+//! `fit_curve_from_raw_display` / `fit_curve_from_bytes_display` run
+//! end-to-end on every render — JPEG extract + decode + per-channel +
+//! luminance CDF matching over the full source crop. On the 100 MP DJI
+//! slider-budget reference frame that blows the 16 ms per-tick budget
+//! (CLAUDE.md § Performance invariants). This cache lets second-and-after
+//! ticks on the same RAW reuse the previously fitted curve.
 //!
 //! Key shapes (see [`CacheKey`]):
 //! - [`CacheKey::Path`] — `(canonical path, mtime)` for native callers.
