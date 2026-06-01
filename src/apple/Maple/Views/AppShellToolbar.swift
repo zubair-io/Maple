@@ -16,8 +16,20 @@ import MapleCore
 // MARK: - Browse / Full-image toolbar
 
 struct AppShellToolbar: ToolbarContent {
-    /// True when AppShell is in Full-image mode (vs. Browse).
+    /// True when AppShell is in the legacy Full-image mode (vs. Browse).
+    /// Drives the window-toolbar Back chevron + Export. In the S5
+    /// `.editing` mode this is FALSE — the `EditorView`'s own
+    /// `EditorHeader` owns back/share/title, so the window toolbar must
+    /// not duplicate them (#815).
     let isFullImage: Bool
+    /// True when AppShell is in the S5 `.editing` mode (Mac/iPad pane
+    /// shell). The `EditorView` renders its own full chrome
+    /// (`EditorHeader`), so the window toolbar suppresses every
+    /// browse-specific control (grid fill/fit, cloud view-mode) AND the
+    /// full-image controls (back/export) — only the persistent
+    /// Library/Search/Settings group survives, so the sidebar can still
+    /// be toggled. Always false on iPhone (it never enters `.editing`).
+    var isEditing: Bool = false
     /// True when an `EditSession` is selected — gates the Export button.
     let hasSelection: Bool
     /// True on the compact (iPhone) shell, where Library / Search / Settings
@@ -78,7 +90,7 @@ struct AppShellToolbar: ToolbarContent {
         // Lives on the TRAILING edge (`.primaryAction`) per the #782 UX
         // request — grid display + cloud view-mode controls cluster on the
         // right of the header, not next to the menu button.
-        if !isFullImage {
+        if !isFullImage && !isEditing {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     browseDisplayMode = browseDisplayMode.toggled
@@ -95,7 +107,7 @@ struct AppShellToolbar: ToolbarContent {
         // (#782) so it sits to the right of the fill/fit control. Tapping
         // re-routes the current library through the chosen view mode via
         // `AppShell.setCloudViewMode`.
-        if !isFullImage && isCloudLibrary {
+        if !isFullImage && !isEditing && isCloudLibrary {
             ToolbarItem(placement: .primaryAction) {
                 cloudViewModeToggle
             }
