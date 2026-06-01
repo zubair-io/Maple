@@ -186,7 +186,11 @@ describe('POST /api/folders/:id/scan — relink on open', () => {
       }),
     );
     expect(second.status).toBe(200);
-    const secondBody = (await second.json()) as { ok: boolean; skipped?: string; last_scan?: string };
+    const secondBody = (await second.json()) as {
+      ok: boolean;
+      skipped?: string;
+      last_scan?: string;
+    };
     expect(secondBody.skipped).toBe('recent');
     // last_scan unchanged — the second call did not re-walk or re-stamp.
     expect(secondBody.last_scan).toBe(firstScan);
