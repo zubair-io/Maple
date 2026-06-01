@@ -21,10 +21,16 @@ import SwiftUI
 import MapleCore
 
 struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>: View {
-    /// True iff AppShell is in Full-image mode. Read-only — the back
-    /// chevron in `AppShellToolbar` writes `mode = .browse` via its
-    /// `onBack` closure on AppShell.
+    /// True iff an image is open (either editor mode). Read-only — the
+    /// back chevron in `AppShellToolbar` writes `mode = .browse` via its
+    /// `onBack` closure on AppShell. Drives the three-column (DetailPanel)
+    /// layout vs the two-column browse layout.
     let isFullImage: Bool
+    /// When true the center column renders the S5 `EditorView`; otherwise
+    /// the legacy `FullImageView` (#815). Only meaningful while
+    /// `isFullImage` is true. Always false on the iPhone path (this layout
+    /// is the Mac/iPad pane shell only).
+    let useEditor: Bool
     @Binding var columnVisibility: NavigationSplitViewVisibility
     let libraryTitle: String
     let selectedSession: EditSession?
@@ -57,6 +63,10 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let onPrimeSession: (AssetRef) -> Void
     /// Recover from a vanished selection by flipping back to Browse.
     let onFullImageFallback: () -> Void
+    /// S5 EditorView dismiss (back to browse) — #815.
+    let onEditorDismiss: () -> Void
+    /// S5 EditorView share affordance — wired to the desktop ExportPanel.
+    let onEditorShare: () -> Void
 
     var body: some View {
         // In Browse mode the detail panel is suppressed entirely — the
@@ -108,6 +118,7 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     private var centerColumn: AppShellCenterColumn {
         AppShellCenterColumn(
             isFullImage: isFullImage,
+            useEditor: useEditor,
             selectedSession: selectedSession,
             cloudTimelineVM: cloudTimelineVM,
             cloudTimelineThumbClient: cloudTimelineThumbClient,
@@ -126,7 +137,9 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onNavigateFolder: onNavigateFolder,
             onOpenEditor: onOpenEditor,
             onPrimeSession: onPrimeSession,
-            onFullImageFallback: onFullImageFallback
+            onFullImageFallback: onFullImageFallback,
+            onEditorDismiss: onEditorDismiss,
+            onEditorShare: onEditorShare
         )
     }
 }

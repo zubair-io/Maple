@@ -127,8 +127,10 @@ extension AppShell {
         openSubFolder(url: url, rootBookmark: bookmark)
     }
 
-    /// Double-click on an image cell. Switches the center column to the
-    /// full-image editor with that asset as the active session.
+    /// Tap on an image cell. Switches the center column to the editor with
+    /// that asset as the active session. `imageOpenMode` resolves to the
+    /// S5 `EditorView` (`.editing`) on Mac/iPad and the legacy
+    /// `FullImageView` (`.fullImage`) on iPhone (#815).
     @MainActor
     func openEditor(for asset: AssetRef) {
         // Make sure the session exists (usually pre-created by primeSessions…).
@@ -138,7 +140,7 @@ extension AppShell {
             Task { await session.loadSidecar() }
         }
         browseVM.selectedID = asset.id
-        mode = .fullImage
+        mode = imageOpenMode
     }
 
     /// Open a sub-folder inside a previously-saved top-level folder. Uses the
