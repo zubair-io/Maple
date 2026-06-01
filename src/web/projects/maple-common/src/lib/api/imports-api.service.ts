@@ -128,4 +128,10 @@ export class ImportsApiService {
   cancel(id: string): Observable<{ ok: boolean }> {
     return this.http.post<{ ok: boolean }>(`${this.base}/imports/${id}/cancel`, {});
   }
+
+  /** POST /api/imports/:id/retry — re-queue a failed / partially-failed import
+   * (resets its failed files to pending; already-copied files stay copied). */
+  retry(id: string): Observable<{ ok: boolean }> {
+    return this.http.post<{ ok: boolean }>(`${this.base}/imports/${id}/retry`, {});
+  }
 }
