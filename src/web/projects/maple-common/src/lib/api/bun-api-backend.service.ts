@@ -359,7 +359,16 @@ export class BunApiBackendService {
             return null;
           }
           if (event.type === HttpEventType.Response) {
-            return event.body ?? new ArrayBuffer(0);
+            // A successful download always carries a body. A null/missing
+            // body here means the request broke or aborted mid-stream — fail
+            // fast with a clear error instead of handing back a 0-byte buffer
+            // that would later surface as a baffling RAW decode error.
+            if (event.body == null) {
+              throw new Error(
+                `getRawBytes: empty response body for asset ${assetId} (status ${event.status})`,
+              );
+            }
+            return event.body;
           }
           return null;
         }),

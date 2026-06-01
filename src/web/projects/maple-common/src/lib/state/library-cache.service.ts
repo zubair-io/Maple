@@ -203,12 +203,12 @@ export class LibraryCache {
   /**
    * Build the gated `onProgress` callback for a network read of `id`.
    *
-   * Returns `undefined` when the asset's id is no longer the one being
-   * opened (defensive — callers pass the asset they want). The callback
-   * arms a short timer on first event; the bar only becomes visible once the
-   * timer fires, so fast/LAN opens that resolve first never paint a bar. We
-   * carry the known size through as `total` so the bar is determinate from
-   * the first painted frame.
+   * Always returns a callback (never `undefined`). The callback arms a short
+   * timer on its first event; the bar only becomes visible once the timer
+   * fires (and only if `id` is still the in-flight read), so fast/LAN opens
+   * that resolve before the timer never paint a bar. We carry the known asset
+   * size through as `total` so the bar is determinate from the first painted
+   * frame.
    */
   private makeProgressCallback(id: AssetId): (p: DownloadProgress) => void {
     const knownSize = this.store.findAsset(id)?.size ?? null;
