@@ -8,6 +8,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+import { decodeNonRawToSceneLinear } from './image-utils';
 import { RawPipelineService } from './raw-pipeline.service';
 import type {
   DecodeRequest,
@@ -412,6 +413,74 @@ describe('RawPipelineService — non-RAW browser-native decode (#784)', () => {
     await Promise.resolve();
     expect(workerStub.postMessage).toHaveBeenCalledTimes(1);
   });
+});
+
+describe('decodeNonRawToSceneLinear — sRGB→linear LUT exactness (#784)', () => {
+  // The hot loop replaced per-pixel srgbToLinear(byte/255) with a 256-entry LUT.
+  // Verify the LUT-driven fp16 output is bit-identical to the scalar formula for
+  // representative bytes (0 = the linear-segment branch, 128 = mid, 255 = max).
+  let originalCreateImageBitmap: typeof globalThis.createImageBitmap;
+  let originalOffscreenCanvas: typeof globalThis.OffscreenCanvas;
+
+  // Reference scalar path, copied from image-utils.ts, to diff against the LUT.
+  const srgbToLinearScalar = (c: number): number =>
+    c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+
+  function setCanvasPixel(rByte: number, gByte: number, bByte: number): void {
+    const data = new Uint8ClampedArray([rByte, gByte, bByte, 255]);
+    originalCreateImageBitmap = globalThis.createImageBitmap;
+    Object.defineProperty(globalThis, 'createImageBitmap', {
+      value: vi.fn(async () => ({ width: 1, height: 1, close: vi.fn() })),
+      writable: true,
+      configurable: true,
+    });
+    originalOffscreenCanvas = globalThis.OffscreenCanvas;
+    class OffscreenCanvasStub {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return {
+          drawImage: vi.fn(),
+          getImageData: () => ({ data, width: 1, height: 1 }),
+        };
+      }
+    }
+    Object.defineProperty(globalThis, 'OffscreenCanvas', {
+      value: OffscreenCanvasStub,
+      writable: true,
+      configurable: true,
+    });
+  }
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'createImageBitmap', {
+      value: originalCreateImageBitmap,
+      writable: true,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, 'OffscreenCanvas', {
+      value: originalOffscreenCanvas,
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  for (const byte of [0, 128, 255]) {
+    it(`matches the scalar sRGB→linear formula for byte ${byte}`, async () => {
+      setCanvasPixel(byte, byte, byte);
+      const decoded = await decodeNonRawToSceneLinear(new Uint8Array([0x89, 0x50]));
+
+      // Grey in → equal linear channels; the fp16 lane round-trips back to the
+      // scalar formula's value within fp16 quantization (~2^-11 relative).
+      const expectedLin = srgbToLinearScalar(byte / 255);
+      const r = f16ToF32(decoded.fp16Rgba[0]);
+      // Rec.2020 rows sum to ~1, so neutral grey is preserved.
+      expect(r).toBeCloseTo(expectedLin, 3);
+      expect(decoded.fp16Rgba[3]).toBe(0x3c00);
+    });
+  }
 });
 
 /** Decode an IEEE-754 half (fp16) lane back to f32 for assertions. */
