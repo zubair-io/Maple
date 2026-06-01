@@ -319,11 +319,13 @@ export async function markImportCancelled(
  * concurrent claim can't see a half-reset doc.
  */
 function destIsSafe(dest: string): boolean {
+  // Mirror `destRelPath`'s invariant exactly: `<year>/<label>/<filename>` —
+  // EXACTLY three segments. A retry must never resurrect a file to an
+  // unvalidated nested path, so anything but three segments is unsafe.
   const parts = dest.split('/');
-  if (parts.length < 3) return false;
-  const filename = parts[parts.length - 1];
-  const labels = parts.slice(0, parts.length - 1);
-  return isSafeFilename(filename) && labels.every((seg) => isSafeLabel(seg));
+  if (parts.length !== 3) return false;
+  const [year, label, filename] = parts;
+  return isSafeLabel(year) && isSafeLabel(label) && isSafeFilename(filename);
 }
 
 export async function retryImport(
@@ -360,7 +362,7 @@ export async function retryImport(
   }
 
   const nowIso = now().toISOString();
-  const counts = { ...doc.counts, failed: stillFailed };
+  const counts = { copied: 0, skipped: 0, ...doc.counts, failed: stillFailed };
   const result = await c.updateOne(
     { _id: id, status: doc.status },
     {

@@ -302,17 +302,31 @@ describe('imports.repo', () => {
           state: 'failed',
           error: 'unsafe filename',
         },
+        // ... and one with a nested (>3-segment) dest that violates the
+        // `<year>/<label>/<filename>` invariant. Each segment is individually
+        // "safe", but the extra path level is not — it must NOT be resurrected.
+        {
+          src: '/srv/in/nested.dng',
+          dest: '2024/03/sub/nested.dng',
+          size: 1,
+          mtime: 0,
+          kind: 'image',
+          state: 'failed',
+          error: 'unexpected nested dest',
+        },
       ],
     });
-    await repo.failImport(created._id, 'two files failed');
+    await repo.failImport(created._id, 'three files failed');
 
     expect(await repo.retryImport(created._id)).toBe(true);
     const requeued = await repo.getImport(created._id);
     expect(requeued!.status).toBe('pending');
-    // Recoverable one is reset; the unsafe one stays failed and is still counted.
+    // Recoverable one is reset; the unsafe ones stay failed and are still counted.
     expect(requeued!.files[0].state).toBe('pending');
     expect(requeued!.files[1].state).toBe('failed');
-    expect(requeued!.counts.failed).toBe(1);
+    // A >3-segment dest is treated as unsafe — stays failed, not resurrected.
+    expect(requeued!.files[2].state).toBe('failed');
+    expect(requeued!.counts.failed).toBe(2);
   });
 
   it('retryImport refuses a clean done import and an unknown id (#795)', async () => {
