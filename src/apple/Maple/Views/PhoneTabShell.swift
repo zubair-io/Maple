@@ -57,9 +57,17 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
     let sidebar: () -> SidebarContent
     let toolbarContent: () -> ToolbarContentT
 
-    let onSelectCloudAsset: (SearchAsset, URL) -> Void
+    // Cloud Timeline / Search (and merged-PhotoKit) taps. On iPhone these
+    // build the asset's `EditSession` and RETURN its `AssetRef` (#809) so the
+    // shell can push the S5 `EditorView` via this tab's `NavigationStack` —
+    // exactly like a `LibraryGrid` cell tap — instead of AppShell flipping to
+    // the legacy `mode = .fullImage` FullImageView (no adjustment controls).
+    // A `nil` return means resolution failed (e.g. PhotoKit unavailable) and
+    // nothing is pushed. Mac / iPad keep the `mode`-flip handlers (they have
+    // no NavigationStack) — that wiring is unchanged in `AppShell.macShell`.
+    let onSelectCloudAsset: (SearchAsset, URL) -> AssetRef?
     let onCloseSearch: () -> Void
-    let onSelectLocalAsset: (ImageRef) -> Void
+    let onSelectLocalAsset: (ImageRef) -> AssetRef?
     let onGrantPhotosAccess: () -> Void
     let onNavigateFolder: (URL) -> Void
     let onOpenEditor: (AssetRef) -> Void
@@ -99,9 +107,27 @@ struct PhoneTabShell<SidebarContent: View, ToolbarContentT: ToolbarContent>: Vie
                     browseVM: browseVM,
                     sessions: $sessions,
                     toolbarContent: toolbarContent,
-                    onSelectCloudAsset: onSelectCloudAsset,
+                    // Cloud Timeline / Search taps: resolve the asset's session
+                    // (returns its AssetRef) and push the S5 Editor onto THIS
+                    // tab's NavigationStack — same target as a LibraryGrid cell
+                    // tap (`onOpenEditor` below), not the legacy fullImage mode
+                    // flip (#809). The `.navigationDestination(for: AssetRef)`
+                    // in PhoneLibraryView resolves the pushed ref to
+                    // EditorDestination → EditorView, reusing the session
+                    // (incl. its CloudSidecarStore) created during resolution.
+                    onSelectCloudAsset: { asset, server in
+                        if let ref = onSelectCloudAsset(asset, server) {
+                            libraryPath.append(ref)
+                        }
+                    },
                     onCloseSearch: onCloseSearch,
-                    onSelectLocalAsset: onSelectLocalAsset,
+                    // Merged-PhotoKit (local-only) timeline cells: same S5
+                    // push as cloud assets (#809).
+                    onSelectLocalAsset: { ref in
+                        if let assetRef = onSelectLocalAsset(ref) {
+                            libraryPath.append(assetRef)
+                        }
+                    },
                     onGrantPhotosAccess: onGrantPhotosAccess,
                     onNavigateFolder: onNavigateFolder,
                     // Phone Library tap pushes the S5 Editor onto THIS tab's
