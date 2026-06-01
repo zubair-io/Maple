@@ -31,6 +31,11 @@ struct EditorSessionHost: View {
     var filmstripAssets: [AssetRef] = []
     let onDismiss: () -> Void
     let onShare: () -> Void
+    /// Reveals the DetailPanel inspector column. On the pane shell the
+    /// info/develop surface IS that persistent third column (not the
+    /// iPhone-only Info sheet), so the editor's Info button just ensures
+    /// it's visible.
+    var onInfo: () -> Void = {}
     var onSelectAsset: (AssetRef) -> Void = { _ in }
 
     /// Owned for the editor's lifetime so armed-tool / fine-mode survive
@@ -44,9 +49,7 @@ struct EditorSessionHost: View {
                     state: state,
                     onDismiss: onDismiss,
                     onShare: onShare,
-                    // Info lives in the persistent DetailPanel third column
-                    // on the pane shell, so there's nothing extra to present.
-                    onInfo: {},
+                    onInfo: onInfo,
                     filmstripAssets: filmstripAssets,
                     onSelectAsset: onSelectAsset
                 )
