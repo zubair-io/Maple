@@ -212,7 +212,8 @@ extension EditSession {
                 let chain = pipeline.processSceneLinear(
                     decoded: cached, model: m, targetSize: nil,
                     asShot: asShot, decodedAtModel: cachedDecodedAtModel,
-                    profileLUT: profileLUT
+                    profileLUT: profileLUT,
+                    assetID: assetID
                 )
                 let cropped = chain.cropped(to: visibleRect)
                 guard let cg = pipeline.materializeRegion(cropped, rect: visibleRect)
@@ -309,18 +310,21 @@ extension EditSession {
         do {
             let image: CIImage
             let isRaw = asset.isRaw
+            let assetID = asset.id
             if let cached, cacheFresh {
                 image = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
                             return pipeline.processSceneLinearNonRaw(
-                                decoded: cached, model: m, targetSize: targetSize
+                                decoded: cached, model: m, targetSize: targetSize,
+                                assetID: assetID
                             )
                         }
                         return pipeline.processSceneLinear(
                             decoded: cached, model: m, targetSize: targetSize,
                             asShot: asShot, decodedAtModel: cachedDecodedAtModel,
-                            profileLUT: profileLUT
+                            profileLUT: profileLUT,
+                            assetID: assetID
                         )
                     }
                 }.value
@@ -369,13 +373,15 @@ extension EditSession {
                     mapleStage(filterStageName) {
                         if !isRaw {
                             return pipeline.processSceneLinearNonRaw(
-                                decoded: decoded, model: m, targetSize: targetSize
+                                decoded: decoded, model: m, targetSize: targetSize,
+                                assetID: assetID
                             )
                         }
                         return pipeline.processSceneLinear(
                             decoded: decoded, model: m, targetSize: targetSize,
                             asShot: asShot, decodedAtModel: freshDecodedAtModel,
-                            profileLUT: profileLUT
+                            profileLUT: profileLUT,
+                            assetID: assetID
                         )
                     }
                 }.value
