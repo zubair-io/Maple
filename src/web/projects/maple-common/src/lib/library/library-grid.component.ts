@@ -94,9 +94,9 @@ export class LibraryGridComponent {
 
   onCellTap(asset: Asset): void {
     this.selection.selectAsset(asset.id);
-    // TODO(S5): push directly to the Editor when the responsive
-    // Editor lands. Until then route through the existing /edit/:id
-    // path so cell taps still open something.
-    void this.router.navigate(['/edit', asset.id]);
+    // S5 (#625): tapping a Library cell pushes straight to the responsive
+    // Editor — the editor canvas IS the full-image view (no intermediate
+    // loupe). See docs/design/responsive-program/s5-editor.md §"User Flow".
+    void this.router.navigate(['/library/editor', asset.id]);
   }
 }
