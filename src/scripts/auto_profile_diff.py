@@ -19,7 +19,7 @@ import sys
 import json
 import argparse
 import numpy as np
-import cv2
+from PIL import Image
 
 LUMA_BANDS = [
     (0.00, 0.10),  # deep shadows
@@ -31,41 +31,75 @@ LUMA_BANDS = [
 
 
 def load(path):
-    """Load an image as float64 RGB in [0, 1]. Accepts 8/16-bit; gray→RGB."""
-    img = cv2.imread(path, cv2.IMREAD_UNCHANGED | cv2.IMREAD_ANYDEPTH)
-    if img is None:
+    """Load an image as float64 RGB in [0, 1]. Accepts 8/16-bit; gray→RGB.
+
+    Uses Pillow (consistent with src/scripts/compare_images.py) so the
+    harness has no OpenCV dependency. 16-bit PNGs load as mode "I;16" /
+    "I" — we normalise by the actual per-dtype max rather than always /255.
+    """
+    try:
+        im = Image.open(path)
+    except FileNotFoundError:
         raise SystemExit(f"missing {path}")
-    if img.ndim == 2:
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    if img.shape[2] == 4:
-        img = img[..., :3]
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    if np.issubdtype(img.dtype, np.integer):
-        mx = float(np.iinfo(img.dtype).max)
+    im.load()
+
+    # Pillow opens 16-bit single-channel PNGs as "I"/"I;16" and 16-bit RGB
+    # as-is; numpy preserves the dtype. Convert palette/gray/alpha modes up
+    # to RGB only for 8-bit; 16-bit grayscale we handle via the array path.
+    if im.mode in ("RGB", "RGBA", "L", "P"):
+        arr = np.asarray(im.convert("RGB"))
+    else:
+        # 16-bit ("I", "I;16", "I;16B") or other: take the raw array.
+        arr = np.asarray(im)
+        if arr.ndim == 2:
+            arr = np.repeat(arr[..., None], 3, axis=2)
+        elif arr.shape[2] == 4:
+            arr = arr[..., :3]
+
+    if np.issubdtype(arr.dtype, np.integer):
+        mx = float(np.iinfo(arr.dtype).max)
     else:
         mx = 1.0
-    return img.astype(np.float64) / mx
+    return arr.astype(np.float64) / mx
 
 
 def match_shape(src, tgt):
-    """Resize `src` to `tgt`'s H×W via INTER_AREA. No-op when shapes match."""
+    """Resize `src` to `tgt`'s H×W. No-op when shapes match.
+
+    Uses Pillow's BOX resampling — the nearest equivalent to OpenCV's
+    INTER_AREA for the downscale case the harness exercises (the Auto
+    Profile render is full-res, the embedded JPEG is smaller).
+    """
     if src.shape[:2] == tgt.shape[:2]:
         return src
     h, w = tgt.shape[:2]
-    return cv2.resize(src, (w, h), interpolation=cv2.INTER_AREA)
+    # Round-trip through Pillow in float32; BOX = area-averaging downscale.
+    pil = Image.fromarray((src * 255.0).round().clip(0, 255).astype(np.uint8))
+    pil = pil.resize((w, h), resample=Image.Resampling.BOX)
+    return np.asarray(pil).astype(np.float64) / 255.0
 
 
 def per_band_bias(cand, ref):
     """Signed mean per-channel bias inside each luma band of `ref`.
 
-    Luma uses BT.2020 coefficients (matches Maple's working space). Skips
-    bands with fewer than 100 pixels to avoid noisy means on tiny crops.
+    Both inputs are display-encoded sRGB (the Auto Profile render and the
+    camera's embedded JPEG), so luma uses Rec.709 / sRGB coefficients — the
+    correct weights for display-referred pixels, NOT Maple's scene-linear
+    Rec.2020 working-space weights. Skips bands with fewer than 100 pixels
+    to avoid noisy means on tiny crops.
     """
     diff = cand - ref
-    luma = 0.2627 * ref[..., 0] + 0.6780 * ref[..., 1] + 0.0593 * ref[..., 2]
+    luma = 0.2126 * ref[..., 0] + 0.7152 * ref[..., 1] + 0.0722 * ref[..., 2]
     out = {}
-    for lo, hi in LUMA_BANDS:
-        m = (luma >= lo) & (luma < hi)
+    n_bands = len(LUMA_BANDS)
+    for i, (lo, hi) in enumerate(LUMA_BANDS):
+        # Earlier bands are half-open [lo, hi) to avoid double-counting a
+        # pixel on a band boundary. The LAST band is closed [lo, hi] so
+        # pure-white pixels (luma == 1.0) aren't dropped from highlights.
+        if i == n_bands - 1:
+            m = (luma >= lo) & (luma <= hi)
+        else:
+            m = (luma >= lo) & (luma < hi)
         if m.sum() < 100:
             continue
         out[f"{lo:.2f}-{hi:.2f}"] = {
