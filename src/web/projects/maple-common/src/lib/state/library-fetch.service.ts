@@ -98,6 +98,15 @@ export class LibraryFetch {
   // ── Index write debounce ──────────────────────────────────────────────────
   private _indexWriteTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // ── Auto-scan-on-open fire-once guard (#804) ───────────────────────────────
+  // Registered-library ids we've already triggered a content-aware `/scan`
+  // for this session. `scanFolderAndDiscover` walks the WHOLE library, so one
+  // scan per library covers every sub-folder — keying on the library id (not
+  // the per-sub-folder source id) avoids re-scanning on every sidebar click.
+  // The server's `last_scan` gate is the cross-session backstop; this guard
+  // just stops same-session request spam on rapid navigation.
+  private readonly _autoScannedLibraryIds = new Set<string>();
+
   // ── Self-Hosted XMP write debounce ────────────────────────────────────────
   private readonly API_XMP_DEBOUNCE_MS = 750;
   private readonly _apiXmpTimers = new Map<AssetId, ReturnType<typeof setTimeout>>();
@@ -554,6 +563,60 @@ export class LibraryFetch {
         );
       },
     );
+
+    // Auto-scan-on-open (#804): kick a content-aware re-discover of the owning
+    // registered library so a moved/new file is relinked (stages resume). This
+    // is non-blocking — the grid paints from the `_swrListDir` listing above;
+    // the scan resolves later and we re-pull the listing only if it actually
+    // re-walked (new/relinked rows may now have apiId + enrichment).
+    this._autoScanLibraryForPath(absPath, id);
+  }
+
+  /**
+   * Fire the content-aware `/scan` for the registered library that owns
+   * `absPath`, then refresh the open folder's listing when it completes.
+   *
+   * Non-blocking by contract — the caller has already painted the grid from
+   * the filesystem listing. The self-hosted grid is a `/api/fs/dir` walk, so
+   * a moved/new file is *already* visible; what the scan fixes is Mongo-side
+   * (relink → stages resume → thumbnails/previews/apiId enrich). We therefore
+   * re-pull the fs listing for the still-selected path on completion so the
+   * freshly-relinked rows pick up their server-side ids/state.
+   *
+   * Fire-once per library per session (`_autoScannedLibraryIds`) so navigating
+   * across a library's sub-folders doesn't re-request; the server's `last_scan`
+   * gate is the cross-session backstop and returns `skipped: 'recent'` cheaply.
+   */
+  private _autoScanLibraryForPath(absPath: string, sourceId: string): void {
+    if (this.store.backend !== 'self-hosted') return;
+    const library = this.store.currentRegisteredFolder(sourceId);
+    if (!library) return;
+    if (this._autoScannedLibraryIds.has(library.id)) return;
+    this._autoScannedLibraryIds.add(library.id);
+
+    this.api.scanFolder(library.id).subscribe({
+      next: (res) => {
+        // A skipped (recent) scan did no re-walk — nothing new to surface, so
+        // don't churn the listing. Only refresh when the walk actually ran.
+        if (!res.ok || res.skipped === 'recent') return;
+        // Re-pull the still-selected path's listing so relinked/new rows
+        // appear with their server-side ids. Guard against the user having
+        // navigated away while the scan was in flight.
+        if (this.selection.selectedSourceId() !== sourceId) return;
+        this._swrListDir(
+          absPath,
+          (listing) => this._applyFsListing(sourceId, absPath, listing),
+          () => {
+            // Refresh failure is non-fatal — the grid already shows the
+            // filesystem listing; the next manual navigation will re-pull.
+          },
+        );
+      },
+      error: () => {
+        // Auto-scan is best-effort — drop the guard so a later open can retry.
+        this._autoScannedLibraryIds.delete(library.id);
+      },
+    });
   }
 
   /**
