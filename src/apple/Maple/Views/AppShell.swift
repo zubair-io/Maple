@@ -487,7 +487,20 @@ struct AppShell: View {
             // client) is identical — only the navigation target differs.
             onSelectCloudAsset: { asset, server in prepareCloudSession(asset, server: server) },
             onCloseSearch: { deactivateSearch() },
-            onSelectLocalAsset: { ref in try? prepareLocalPhotoKitSession(ref) },
+            onSelectLocalAsset: { ref in
+                // Mirror the legacy `openLocalPhotoKitAsset` error handling
+                // (AppShell+PhotoKitActions.swift): a `PhotoKitSource` init
+                // failure must surface to the user via `browseVM.loadError`,
+                // not be silently swallowed by `try?` (which would turn the
+                // tap into a no-op). Returning `nil` tells `PhoneTabShell` not
+                // to push the S5 EditorView. (#809)
+                do {
+                    return try prepareLocalPhotoKitSession(ref)
+                } catch {
+                    browseVM.loadError = error
+                    return nil
+                }
+            },
             onGrantPhotosAccess: { grantPhotosAccessAndLoad() },
             onNavigateFolder: { url in navigateFolder(url) },
             onOpenEditor: { asset in openEditor(for: asset) },
