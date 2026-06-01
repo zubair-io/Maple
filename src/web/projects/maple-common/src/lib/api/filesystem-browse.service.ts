@@ -19,7 +19,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpEventType, HttpParams } from '@angular/common/http';
-import { Observable, firstValueFrom, lastValueFrom, map } from 'rxjs';
+import { Observable, firstValueFrom, lastValueFrom, filter, map } from 'rxjs';
 import { API_BASE_URL } from './api-base-url.token';
 
 /**
@@ -156,11 +156,21 @@ export class FilesystemBrowseService {
               return null;
             }
             if (event.type === HttpEventType.Response) {
+              // A successful download always carries a body. A null/missing
+              // body here means the request broke or aborted mid-stream —
+              // fail fast with a clear error instead of handing back a 0-byte
+              // buffer that would later surface as a baffling RAW decode error.
+              if (event.body == null) {
+                throw new Error(
+                  `getRawBytes: empty response body for ${absPath} (status ${event.status})`,
+                );
+              }
               return event.body;
             }
             return null;
           }),
+          filter((body): body is ArrayBuffer => body !== null),
         ),
-    ).then((body) => body ?? new ArrayBuffer(0));
+    );
   }
 }
