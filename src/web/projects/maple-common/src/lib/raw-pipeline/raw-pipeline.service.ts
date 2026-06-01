@@ -16,6 +16,8 @@ import type {
   DecodeSceneLinearRequest,
   WorkerResponse,
 } from './raw-pipeline.types';
+import { isNonRawExtension } from '../state/raw-extensions';
+import { decodeNonRawToRgb, decodeNonRawToSceneLinear } from './image-utils';
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
@@ -128,6 +130,13 @@ export class RawPipelineService implements OnDestroy {
   private decodeChain: Promise<unknown> = Promise.resolve();
 
   decode(bytes: Uint8Array, ext: string, xmp?: string): Promise<DecodedImage> {
+    // Non-RAW images (jpg/png/heic/webp/…) are already developed sRGB pixels —
+    // decode them browser-natively, mirroring Apple's ImageIO path. They never
+    // touch the WASM RAW heap, so this runs outside the serialization gate and
+    // the buffer is never transferred into the worker.
+    if (isNonRawExtension(ext)) {
+      return decodeNonRawToRgb(bytes);
+    }
     const run = () => this.decodeOnce(bytes, ext, xmp);
     const next = this.decodeChain.then(run, run);
     // Preserve the chain regardless of success/failure so one bad decode
@@ -191,6 +200,13 @@ export class RawPipelineService implements OnDestroy {
     xmp?: string,
     qualityPreview: boolean = true,
   ): Promise<DecodedSceneLinearImage> {
+    // Non-RAW images bypass rawler: decode browser-natively and convert the
+    // sRGB pixels into the scene-linear Rec.2020 fp16 working space the WebGL
+    // pipeline consumes. `qualityPreview` is irrelevant — there's no half-res
+    // RAW develop to skip.
+    if (isNonRawExtension(ext)) {
+      return decodeNonRawToSceneLinear(bytes);
+    }
     const run = () => this.decodeSceneLinearOnce(bytes, ext, xmp, qualityPreview);
     const next = this.decodeChain.then(run, run);
     this.decodeChain = next.catch(() => undefined);
