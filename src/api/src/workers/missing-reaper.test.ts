@@ -385,6 +385,91 @@ describe('runMissingReaperOnce', () => {
   });
 });
 
+// End-to-end of #805: an original-file stage that hits no-resolvable-location
+// on an all-soft-deleted asset tags it for the reaper (instead of silently
+// marking the stage done), and the reaper then reaps it past the prune window.
+// A relinked (re-discovered) live entry before the window recovers instead.
+describe('no-live-location stage→reaper handoff (#805)', () => {
+  const stageCfg = {
+    concurrency: 1,
+    maxAttempts: 3,
+    paused: false,
+    last_seen_target_version: 2,
+  };
+
+  it('exif stage tags an all-soft-deleted asset, then the reaper reaps it', async () => {
+    if (!mongoReachable) return;
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-')); // empty dir, lib registered
+    const libraryId = await seedLibrary(dir);
+    const ins = await db!.collection('assets').insertOne({
+      ...ASSET_BASE,
+      maple_id: 'orphan-805',
+      // The only location is soft-deleted (its content was replaced at the
+      // path → entry tombstoned). assetAbsPath() returns null → the stage
+      // skips no-resolvable-location, and the runner must tag it.
+      fileinfo: [fi('gone.jpg', libraryId, AGED)],
+    } as never);
+
+    const exifStage = (await import('./stages/exif.ts')).default;
+    const { _test } = await import('./run-stage.ts');
+    const { getDb } = await import('../db/client.ts');
+    const images = (await getDb()).collection('assets');
+    const configColl = (await getDb()).collection('worker_config');
+    await _test.runOnce(exifStage as never, stageCfg, images as never, configColl as never);
+
+    // Tagged for the reaper — and the stage was NOT marked done at the
+    // vanished location (no `stages.exif` writeback).
+    const tagged = await db!.collection('assets').findOne({ _id: ins.insertedId });
+    expect(typeof tagged!.missing_since).toBe('string');
+    expect(tagged!.stages?.exif).toBeUndefined();
+
+    // Backdate the tag past the prune window so the reaper is delete-eligible.
+    await db!
+      .collection('assets')
+      .updateOne({ _id: ins.insertedId }, { $set: { missing_since: AGED } });
+
+    const { runMissingReaperOnce } = await import('./missing-reaper.ts');
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
+    expect(summary.reaped).toBe(1);
+    expect(await db!.collection('assets').countDocuments({ _id: ins.insertedId })).toBe(0);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('a relinked live entry before the window recovers (tag cleared), NOT reaped', async () => {
+    if (!mongoReachable) return;
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
+    writeFileSync(join(dir, 'relinked.jpg'), 'x'); // re-discovered file on disk
+    const libraryId = await seedLibrary(dir);
+    // Was tagged after all locations went away; then a re-discover added a
+    // live entry (deleted_at null) pointing at a file that exists on disk.
+    const ins = await db!.collection('assets').insertOne({
+      ...ASSET_BASE,
+      maple_id: 'relink-805',
+      fileinfo: [fi('gone.jpg', libraryId, AGED), fi('relinked.jpg', libraryId)],
+      missing_since: AGED, // aged past the window — proving recovery isn't age-gated
+    } as never);
+
+    const { runMissingReaperOnce } = await import('./missing-reaper.ts');
+    const summary = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
+
+    // The live, on-disk entry survives → recovered, not reaped: tag cleared and
+    // the gone sibling pruned.
+    expect(summary.reaped).toBe(0);
+    expect(summary.recovered).toBe(1);
+    const row = await db!.collection('assets').findOne({ _id: ins.insertedId });
+    expect(row).not.toBeNull();
+    expect(row!.missing_since).toBeNull();
+    // The live, on-disk entry is preserved. (The already-soft-deleted sibling
+    // is left in place — recovery only $pulls entries it classified as
+    // live-but-ENOENT, never the pre-tombstoned ones.)
+    const live = (row!.fileinfo as Array<{ filename: string; deleted_at?: string | null }>).filter(
+      (f) => !f.deleted_at,
+    );
+    expect(live.map((f) => f.filename)).toEqual(['relinked.jpg']);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe('claim-query parking', () => {
   it('a tagged asset is skipped by a stage claim query, and re-enters once cleared', async () => {
     if (!mongoReachable) return;

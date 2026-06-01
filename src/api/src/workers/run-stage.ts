@@ -19,7 +19,12 @@
 
 import type { Collection, Filter, ObjectId, WithId } from 'mongodb';
 import { child as childLogger } from '../log.ts';
-import { assetAbsPath, assetPrimaryFileInfo, isEnoentError } from '../indexer/images.repo.ts';
+import {
+  assetAbsPath,
+  assetPrimaryFileInfo,
+  hasOnlySoftDeletedFileInfo,
+  isEnoentError,
+} from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { ThroughputWindow } from './throughput-window.ts';
@@ -185,17 +190,50 @@ export async function runOnce(
         await images.updateOne({ _id: id }, { $set: { [`stages.${stage.name}`]: stageState } });
         await publishUpdate(id, doc);
       } else if ('skip' in result) {
-        await images.updateOne(
-          { _id: id },
-          {
-            $set: {
-              [`stages.${stage.name}`]: {
-                ...stageState,
-                last_error: `skip: ${result.skip}`,
+        // An original-file stage (`tagsMissingOnEnoent`) that skips with
+        // `no-resolvable-location` on an asset whose fileinfo entries are ALL
+        // soft-deleted has lost every on-disk location it once had — the
+        // genuinely-orphaned case (e.g. the file's content was replaced at its
+        // only path, tombstoning the old entry). The `no-resolvable-location`
+        // skip short-circuits BEFORE the `fs.stat` whose ENOENT would normally
+        // tag `missing_since`, so without this such an asset would never reach
+        // the missing-reaper and would loop forever with `skip:
+        // no-resolvable-location`. Tag it (first-detection wins) so the reaper
+        // can verify and, past its prune window, reap it. We mirror the ENOENT
+        // catch-path exactly: TAG only, touch NO stage state (the tag parks the
+        // asset out of every stage's claim query via buildClaimQuery), no
+        // publishUpdate. A re-found / relinked location creates a live fileinfo
+        // entry that the reaper re-stats and recovers.
+        //
+        // We deliberately do NOT tag the other two null-resolution cases:
+        //   - no fileinfo entries at all (a never-located skeleton row), and
+        //   - a live entry whose library is unregistered (transient/config) —
+        // those are not "genuinely gone" and must not be reaped. (A DB blip
+        // yielding an empty libs map is guarded upstream: the stages let
+        // `loadLibraryRoots()` throw instead of skipping.)
+        if (
+          stage.tagsMissingOnEnoent &&
+          result.skip === 'no-resolvable-location' &&
+          hasOnlySoftDeletedFileInfo(doc)
+        ) {
+          await tagMissingSince(images, id);
+          log.debug(
+            { _id: idStr },
+            `${stage.name}: all locations soft-deleted — tagged for reaper`,
+          );
+        } else {
+          await images.updateOne(
+            { _id: id },
+            {
+              $set: {
+                [`stages.${stage.name}`]: {
+                  ...stageState,
+                  last_error: `skip: ${result.skip}`,
+                },
               },
             },
-          },
-        );
+          );
+        }
       } else if ('damaged' in result) {
         // Deterministically-unreadable bytes (the handler already knows retries
         // are futile). Mark this stage dead after its single attempt and tag
