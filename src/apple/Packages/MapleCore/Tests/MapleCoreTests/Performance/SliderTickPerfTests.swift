@@ -451,23 +451,33 @@ final class SliderTickPerfTests: XCTestCase {
         // 4. Gate on the regression ceiling. The spec target / hard
         //    limit are reported but not asserted — see the
         //    `regressionCeilingMs` doc-comment for why.
-        XCTAssertLessThan(
-            meanTotal, Self.regressionCeilingMs,
-            "Mean slider-tick time \(String(format: "%.2f", meanTotal)) ms " +
-            "exceeds the \(String(format: "%.0f", Self.regressionCeilingMs)) ms " +
+        // Build the failure message from precomputed locals to keep the Swift
+        // expression type-checker under its complexity ceiling (#565/#787).
+        let meanTotalText = String(format: "%.2f", meanTotal)
+        let ceilingText = String(format: "%.0f", Self.regressionCeilingMs)
+        let regressionMessage =
+            "Mean slider-tick time \(meanTotalText) ms " +
+            "exceeds the \(ceilingText) ms " +
             "regression ceiling — bench is reporting a step change in cost. " +
             "Investigate the per-tick path " +
             "(processSceneLinear → applySceneLinearChainViaFFI is the load-bearing call)."
+        XCTAssertLessThan(
+            meanTotal, Self.regressionCeilingMs,
+            regressionMessage
         )
 
         if meanTotal > Self.specHardLimitMs {
-            FileHandle.standardError.write(Data((
+            // Build the message from precomputed locals to keep the Swift
+            // expression type-checker under its complexity ceiling (#565/#787).
+            let meanText = String(format: "%.2f", meanTotal)
+            let limitText = String(format: "%.0f", Self.specHardLimitMs)
+            let overBudgetMessage =
                 "[slider-tick-perf] OVER-BUDGET: " +
-                "mean \(String(format: "%.2f", meanTotal)) ms exceeds " +
-                "spec hard limit \(String(format: "%.0f", Self.specHardLimitMs)) ms. " +
+                "mean \(meanText) ms exceeds " +
+                "spec hard limit \(limitText) ms. " +
                 "This is the known gap between the per-tick FFI round-trip cost " +
                 "and the spec target — tracked separately, not a regression.\n"
-            ).utf8))
+            FileHandle.standardError.write(Data(overBudgetMessage.utf8))
         }
     }
 
