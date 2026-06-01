@@ -21,7 +21,6 @@ import { LIBRARY_BACKEND } from '../api/library-backend.token';
 
 class ApiStub {
   putXmp = vi.fn((_path: string, _xml: string) => of(undefined as void));
-  getXmp = vi.fn((_path: string) => of('' as string));
 
   // Folder / asset enumeration is not exercised here; we drive the load path
   // directly via openSelfHostedFolder() with a hand-built ApiFolder fixture.
@@ -69,9 +68,10 @@ describe('LibraryStateService — Self-Hosted picker + addLibraryFolder', () => 
   // `applyApiAssets` → `_loadApiXmp` code path, so the previous passthrough
   // round-trip test that exercised it via `api.listAssets` no longer reaches
   // the XMP read at all. The live Self-Hosted load path (`_applyFsListing`)
-  // no longer touches XMP at browse time — `SidecarStore.setActivePath` in
-  // the editor lazy-fetches via `httpResource` when an asset is opened. The
-  // round-trip passthrough contract is covered by `sidecar.store.spec.ts`
+  // does not touch XMP at browse time; editor adjustment-restore reads XMP via
+  // `library-fetch.service` → `XmpParserService.parseAdjustmentModel` when an
+  // asset is opened (#801 removed the old selection-time `SidecarStore` read).
+  // The round-trip passthrough contract is covered by `sidecar.store.spec.ts`
   // and the serializer's own tests. We keep this file for the library-picker
   // and addLibraryFolder assertions below.
 
