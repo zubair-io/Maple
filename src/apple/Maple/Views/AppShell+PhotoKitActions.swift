@@ -121,16 +121,17 @@ extension AppShell {
         return assetRef
     }
 
-    /// Open the legacy FullImage editor for a `.localOnly` PhotoKit cell.
-    /// Mac / iPad entry point — flips `mode = .fullImage`. iPhone routes the
+    /// Open a `.localOnly` PhotoKit cell in the editor. Mac / iPad pane-shell
+    /// entry point — flips `mode` to the in-pane editor (`imageOpenMode`
+    /// resolves to the S5 `EditorView` on Mac/iPad, #815). iPhone routes the
     /// same tap to the S5 `EditorView` via the Library tab's `NavigationStack`
-    /// instead (#809) and never calls this.
+    /// push instead (#809) and never calls this.
     @MainActor
     func openLocalPhotoKitAsset(_ ref: ImageRef) {
         do {
             let assetRef = try prepareLocalPhotoKitSession(ref)
             browseVM.loadSingleCloudAsset(assetRef)
-            mode = .fullImage
+            mode = imageOpenMode
         } catch {
             browseVM.loadError = error
         }

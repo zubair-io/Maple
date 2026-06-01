@@ -391,15 +391,17 @@ extension AppShell {
         return assetRef
     }
 
-    /// Open the legacy FullImage editor for a cloud asset selected from
-    /// CloudTimelineView / CloudSearchView. Mac / iPad entry point — the pane
-    /// shell has no `NavigationStack`, so it flips `mode = .fullImage`.
-    /// iPhone routes the same tap to the S5 `EditorView` via the Library
-    /// tab's `NavigationStack` instead (#809) and never calls this.
+    /// Open a cloud asset (selected from CloudTimelineView / CloudSearchView)
+    /// in the editor. Mac / iPad pane-shell entry point — the pane shell has
+    /// no `NavigationStack`, so it flips `mode` to the in-pane editor. On
+    /// Mac/iPad that's the S5 `EditorView` (`.editing`); `imageOpenMode`
+    /// resolves it (#815). iPhone routes the same tap to the S5 `EditorView`
+    /// via the Library tab's `NavigationStack` push instead (#809) and never
+    /// calls this.
     @MainActor
     func openCloudAsset(_ asset: SearchAsset, server: URL) {
         let assetRef = prepareCloudSession(asset, server: server)
         browseVM.loadSingleCloudAsset(assetRef)
-        mode = .fullImage
+        mode = imageOpenMode
     }
 }

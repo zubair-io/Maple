@@ -99,12 +99,45 @@ struct AppShell: View {
     // Dynamic toolbar title — reflects the last-loaded source/filter.
     @State var libraryTitle: String = "All"
 
-    // Browse vs Full-image editor mode. Default to browse; a double-click on
-    // an image cell flips this to .fullImage. `Mode` is internal (was
-    // `private`) so the action extensions can write `mode = .browse` /
-    // `mode = .fullImage` after a source load completes.
-    enum Mode { case browse, fullImage }
+    // Browse vs editor mode. Default to browse. `Mode` is internal (was
+    // `private`) so the action extensions can write it after a source
+    // load completes.
+    //
+    //   • `.fullImage` — the legacy `FullImageView` zoom/pan loupe. The
+    //     iPhone shell never sets this anymore (it pushes the S5 editor
+    //     onto the Library tab's NavigationStack instead — #791/#809 — and
+    //     leaves `mode == .browse`). Still reachable via the macOS UITest
+    //     visual-harness fast path (AppShell+UITestFixture), whose golden
+    //     keys on the FullImageView canvas, so the case stays alive.
+    //   • `.editing` — the S5 `EditorView` (group tabs + tool pills). The
+    //     Mac/iPad pane shell flips to this when the user opens an image
+    //     (#815). The pane shell has no NavigationStack, so the editor
+    //     mounts in the center column rather than being pushed.
+    //
+    // Distinct cases (rather than overloading `.fullImage`) keep the iPhone
+    // shell's many `mode == .fullImage` / `.browse` readers — title, Info
+    // sheet, back chevron, toolbar + drawer gating — behaviourally
+    // unchanged: iPhone never enters `.editing`.
+    enum Mode { case browse, fullImage, editing }
     @State var mode: Mode = .browse
+
+    /// True when an image is open in either editor mode (`.fullImage` or
+    /// `.editing`) — i.e. the center column is showing an image, not the
+    /// browse grid. The Mac/iPad three-column layout, the toolbar's
+    /// back/export affordances, and the navigation title all key off
+    /// "is an image open?", which both editor modes answer yes to.
+    var isImageOpen: Bool { mode == .fullImage || mode == .editing }
+
+    /// Editor mode to enter when the user opens an image. The Mac/iPad
+    /// pane shell gets the S5 `EditorView` (`.editing`); the iPhone tab
+    /// shell stays on the legacy `.fullImage` (S5-on-iPhone is separate
+    /// work) so its `mode`-reading title/toolbar/drawer code is preserved
+    /// exactly. Routed through `MapleShellKind.current` — NOT the
+    /// width-derived `mapleLayout` — so a narrow Mac window (which can
+    /// report a `.phone` layout) still gets the desktop editor.
+    var imageOpenMode: Mode {
+        MapleShellKind.current == .phoneTab ? .fullImage : .editing
+    }
 
     // BrowseGrid layout — fill (cropped square cover) vs fit (letterboxed).
     // Session-scoped only; no UserDefaults persistence by design (see the
@@ -351,7 +384,13 @@ struct AppShell: View {
     @ViewBuilder
     private var macShell: some View {
         AppShellMacLayout(
-            isFullImage: mode == .fullImage,
+            // Both editor modes (`.fullImage`, `.editing`) collapse the
+            // browse grid to the image surface + DetailPanel column.
+            isFullImage: isImageOpen,
+            // The S5 EditorView replaces FullImageView in the pane shell's
+            // center column when in `.editing` (#815). iPhone never gets
+            // here — `phoneTabShell` is the iPhone path.
+            useEditor: mode == .editing,
             columnVisibility: $columnVisibility,
             libraryTitle: libraryTitle,
             selectedSession: selectedSession,
@@ -374,7 +413,15 @@ struct AppShell: View {
             onNavigateFolder: { url in navigateFolder(url) },
             onOpenEditor: { asset in openEditor(for: asset) },
             onPrimeSession: { asset in ensureSession(for: asset) },
-            onFullImageFallback: { mode = .browse }
+            onFullImageFallback: { mode = .browse },
+            // S5 EditorView callbacks (#815). Dismiss returns to the
+            // browse grid (same as FullImageView's back chevron). Share
+            // reuses the existing ⌘E ExportPanel the desktop already has.
+            // Info is intentionally a no-op: the pane shell surfaces the
+            // info/develop panel as the persistent third column
+            // (DetailPanel), so there's nothing extra to present.
+            onEditorDismiss: { mode = .browse },
+            onEditorShare: { showExport = true }
         )
         .sheet(isPresented: $showSettings) {
             SettingsView()
@@ -552,7 +599,10 @@ struct AppShell: View {
     @ToolbarContentBuilder
     private var browseToolbarContent: some ToolbarContent {
         AppShellToolbar(
-            isFullImage: mode == .fullImage,
+            // "Image open" (either editor mode) drives the toolbar's
+            // back chevron + export affordance. On iPhone `.editing`
+            // never occurs, so this equals `mode == .fullImage` there.
+            isFullImage: isImageOpen,
             hasSelection: selectedSession != nil,
             isCompact: isCompactShell,
             searchAvailable: searchAvailable,
