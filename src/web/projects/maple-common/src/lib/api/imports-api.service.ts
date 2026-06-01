@@ -59,6 +59,8 @@ export interface ImportSummary {
   source_root: string;
   library_id: string;
   library_root: string;
+  /** Auto Import awaiting the worker's deferred scan. */
+  scan_pending: boolean;
   progress: { current: number; total: number };
   counts: { copied: number; skipped: number; failed: number };
   error: string | null;
@@ -77,6 +79,9 @@ export interface CreateImportBody {
   library_id: string;
   /** Per-bucket label overrides, keyed on the `${year}/${mm}` bucket key. */
   labels?: Record<string, string>;
+  /** Auto Import — queue immediately and let the worker scan + resolve files
+   * (default `MM` labels). When set, `labels` is ignored. */
+  auto?: boolean;
 }
 
 @Injectable({ providedIn: 'root' })

@@ -14,6 +14,16 @@
       <p class="error">{{ e }}</p>
     }
 
+    @if (step() === 'pick' && started(); as kind) {
+      <div class="notice" role="status">
+        <maple-settings-icon name="check" [size]="14" />
+        <span>
+          Import queued{{ kind === 'auto' ? ' (auto)' : '' }} — running in the background. Track it
+          on the <a routerLink="/settings/workers">Workers page</a>, or start another below.
+        </span>
+      </div>
+    }
+
     <!-- ──────────────────────────── STEP 1: pick ─────────────────────── -->
     @if (step() === 'pick') {
       <section>
@@ -40,9 +50,20 @@
               <code class="mono">{{ src }}</code>
               <button type="button" class="btn-ghost" (click)="clearSource()">Change</button>
             </div>
-            <button type="button" class="btn-primary" [disabled]="busy()" (click)="runScan()">
-              {{ busy() ? 'Scanning…' : 'Scan folder' }}
-            </button>
+            <div class="actions">
+              <button type="button" class="btn-primary" [disabled]="busy()" (click)="runScan()">
+                {{ busy() ? 'Scanning…' : 'Pick Folder Name(s)' }}
+              </button>
+              <button
+                type="button"
+                class="btn-ghost"
+                [disabled]="busy()"
+                title="Queue immediately — the worker scans and files everything by month (MM)."
+                (click)="autoImport()"
+              >
+                Auto Import
+              </button>
+            </div>
           } @else {
             <div class="browser">
               <div class="browser-bar">

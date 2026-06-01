@@ -110,6 +110,30 @@ describe('POST /api/imports', () => {
     expect(doc.files.some((f) => f.dest === '2024/Spring/IMG_0001.dng')).toBe(true);
   });
 
+  it('auto import queues immediately with no files and scan_pending=true', async () => {
+    if (!mongoReachable) return;
+    const res = await post('/api/imports', {
+      source_root: sourceRoot,
+      library_id: libraryId.toHexString(),
+      auto: true,
+    });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+
+    const getRes = await app.handle(new Request(`http://localhost/api/imports/${id}`));
+    const doc = (await getRes.json()) as {
+      status: string;
+      scan_pending: boolean;
+      files: unknown[];
+      progress: { total: number };
+    };
+    // Deferred to the worker: pending, no files yet, scan flagged.
+    expect(doc.status).toBe('pending');
+    expect(doc.scan_pending).toBe(true);
+    expect(doc.files).toHaveLength(0);
+    expect(doc.progress.total).toBe(0);
+  });
+
   it('rejects a traversal bucket label server-side', async () => {
     if (!mongoReachable) return;
     const res = await post('/api/imports', {
