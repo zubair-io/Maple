@@ -59,7 +59,7 @@ function makeConfig(
     logs_enabled: true,
     metrics_enabled: false,
     sample_ratio: 1,
-    source: {},
+    source: { endpoint: 'unset', ingestion_key: 'unset' },
     ...overrides,
   };
 }
@@ -134,13 +134,19 @@ describe('ObservabilityService', () => {
   });
 
   it('keeps the freshest object even when the wiring is unchanged', async () => {
-    const a = makeConfig({ service_namespace: 'a', source: { endpoint: 'env' } });
+    const a = makeConfig({
+      service_namespace: 'a',
+      source: { endpoint: 'unset', ingestion_key: 'unset' },
+    });
     await cache.put(a);
     apiResponse = () => of(a);
     await svc.init();
 
     // Same wiring, different provenance — should still land on the signal.
-    const aPrime = makeConfig({ service_namespace: 'a', source: { endpoint: 'db' } });
+    const aPrime = makeConfig({
+      service_namespace: 'a',
+      source: { endpoint: 'db', ingestion_key: 'unset' },
+    });
     apiResponse = () => of(aPrime);
     await svc.refresh();
 
