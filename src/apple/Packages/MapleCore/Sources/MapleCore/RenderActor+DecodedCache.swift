@@ -155,19 +155,32 @@ extension RenderActor {
 
         let normalized = await normalize(decoded, asset)
         // A sized fast decode must NOT clobber a full-resolution cache
-        // that a concurrent refine already landed — only write the cache
-        // when this decode is at least as good as what's there (full
-        // beats sized; a sized decode only fills an empty / sized slot
-        // for the same asset). The fullness flag drives refine's
-        // re-decode decision (#785).
+        // that a concurrent refine already landed — but only while that
+        // full cache is still FRESH. A STALE full cache (sidecar mtime
+        // changed) is never served (`snapshot.isFresh` is false, so the
+        // render path re-decodes), and refusing to overwrite it would
+        // strand it there and force a fresh sized decode on every fast
+        // tick. So a sized decode may overwrite a stale full cache; it
+        // may not overwrite a fresh one. Full decodes always write. The
+        // fullness flag drives refine's re-decode decision (#785).
+        //
+        // Capture the live mtime once and reuse it for the stored
+        // `decodedSidecarMtime` so the write-gate and the value written
+        // can't disagree across a concurrent sidecar edit (TOCTOU).
+        let currentMtime = EditSession.sidecarMtime(for: asset)
         let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
-        let shouldWrite = wantsFull || !(sameAssetCached && decodedIsFull)
+        let cachedIsFreshFull = sameAssetCached
+            && decodedIsFull
+            && (decodedSidecarMtime == currentMtime)
+        let shouldWrite = Self.shouldWriteDecodedCache(
+            wantsFull: wantsFull, cachedIsFreshFull: cachedIsFreshFull
+        )
         if shouldWrite {
             decodedImage = normalized
             decodedRawResolution = decoded.extent.size
             decodedForAssetID = asset.id
             decodedAtModel = EditSession.parseSidecarModel(for: asset)
-            decodedSidecarMtime = EditSession.sidecarMtime(for: asset)
+            decodedSidecarMtime = currentMtime
             decodedIsFull = wantsFull
         }
         if decodeTaskAssetID == asset.id {
@@ -201,6 +214,20 @@ extension RenderActor {
             refineDecodeTasks[key] = nil
         }
         return result
+    }
+
+    // MARK: - Write-gate predicate (pure, testable)
+
+    /// Decide whether a just-completed decode may write the decoded-image
+    /// cache. A full decode always wins. A sized (fast) decode writes
+    /// unless a FRESH full cache for the same asset is already present —
+    /// it must not downgrade a fresh full buffer, but it MAY overwrite a
+    /// stale one (which is never served anyway) so the fast path isn't
+    /// forced to re-decode every tick (#785).
+    nonisolated static func shouldWriteDecodedCache(
+        wantsFull: Bool, cachedIsFreshFull: Bool
+    ) -> Bool {
+        wantsFull || !cachedIsFreshFull
     }
 
     // MARK: - Cache lifecycle (slice 2)
