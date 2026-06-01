@@ -82,16 +82,18 @@ struct LibraryGrid: View {
                             #if canImport(UIKit)
                             UISelectionFeedbackGenerator().selectionChanged()
                             #endif
-                            // Routes through AppShell's mode flip
-                            // (`.browse` → `.fullImage`). S5 will replace
-                            // this with a `NavigationLink(value: AssetRef)`
-                            // push so the spec §2 "tab-bar hide on push"
-                            // contract — wired in `PhoneLibraryView`'s
+                            // Pushes the S5 Editor onto the phone Library
+                            // tab's NavigationStack (#791). `PhoneTabShell`
+                            // injects an `onOpenEditor` that appends `asset`
+                            // to its `libraryPath`; `PhoneLibraryView`'s
                             // `.navigationDestination(for: AssetRef.self)`
-                            // — actually fires. Today the FullImageView
-                            // mounts in-place inside the tab, so the tab
-                            // bar stays visible (known deviation, noted
-                            // in the PR body).
+                            // then resolves it into `EditorDestination →
+                            // EditorView` and `.toolbar(.hidden, for:
+                            // .tabBar)` hides the tab bar on push (spec §2).
+                            // The Mac/iPad pane shell injects a different
+                            // `onOpenEditor` (AppShell's `.browse →
+                            // .fullImage` mode flip) — this shared cell stays
+                            // agnostic to which one it got.
                             onOpenEditor(asset)
                         }
                     }
