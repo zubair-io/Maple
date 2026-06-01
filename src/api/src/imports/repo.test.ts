@@ -343,17 +343,68 @@ describe('imports.repo', () => {
     expect(await repo.retryImport(created._id)).toBe(false);
     // Unknown id → false.
     expect(await repo.retryImport(new ObjectId())).toBe(false);
+  });
 
-    // A `failed` import with NO files (empty-source auto-import failure) has
-    // nothing to recover → not retryable, even though its status is failed.
-    const empty = await repo.createImport({
-      source_root: '/srv/in',
+  it('retryImport re-scans a fileless failed import (scan-level failure) (#800)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+
+    // A scan-level / auto-import failure: the deferred scan rejected an unsafe
+    // temp name and bailed before writing any file rows. files: [], failed: 0.
+    const fileless = await repo.createImport({
+      source_root: '/srv/photos/Unsorted',
       library_id: lib.id,
       library_root: lib.root,
       files: [],
+      scan_pending: true,
     });
-    await repo.failImport(empty._id, 'no importable files');
-    expect(await repo.retryImport(empty._id)).toBe(false);
+    await repo.failImport(fileless._id, 'unsafe filename: ".LrTmp-abc.mp4"');
+
+    // Retry re-queues it for a FRESH scan rather than no-opping.
+    expect(await repo.retryImport(fileless._id)).toBe(true);
+
+    const requeued = await repo.getImport(fileless._id);
+    expect(requeued!.status).toBe('pending');
+    expect(requeued!.scan_pending).toBe(true);
+    expect(requeued!.error).toBeNull();
+    expect(requeued!.files).toEqual([]);
+    expect(requeued!.locked_by).toBeNull();
+    expect(requeued!.lease_expires_at).toBeNull();
+    expect(requeued!.cancel_requested).toBe(false);
+
+    // A worker re-claims it and the claim carries scan_pending so the worker
+    // re-scans the source (rather than copying an empty file list).
+    const claim = await repo.claimImport('w-rescan', 60_000);
+    expect(claim).not.toBeNull();
+    expect(claim!._id.equals(fileless._id)).toBe(true);
+    expect(claim!.scan_pending).toBe(true);
+  });
+
+  it('retryImport refuses a failed import whose files are all permanently-unsafe (#800)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+
+    // A `failed` import that DID produce file rows, but none are recoverable
+    // (backslash dest can never pass destRelPath). Re-scanning wouldn't help —
+    // the names are still unsafe — so this stays 409, NOT re-scanned.
+    const created = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: [
+        {
+          src: '/srv/in/bad.dng',
+          dest: '2024/03/ba\\d.dng',
+          size: 1,
+          mtime: 0,
+          kind: 'image',
+          state: 'failed',
+          error: 'unsafe filename',
+        },
+      ],
+    });
+    await repo.failImport(created._id, 'all files failed');
+    expect(await repo.retryImport(created._id)).toBe(false);
   });
 
   it('assetExistsForHash matches by maple_id and by sha1_head', async () => {
