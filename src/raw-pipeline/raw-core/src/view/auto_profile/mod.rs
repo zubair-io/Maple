@@ -23,20 +23,32 @@ pub fn apply_curve(rgb: &mut [f32], curve: &ProfileCurve) {
 }
 
 /// Fit a [`ProfileCurve`] from a RAW file's embedded JPEG preview against
-/// Maple's intermediate linear Rec.2020 RGB buffer.
+/// Maple's post-AgX, post-gamut, post-gamma-encode display buffer.
 ///
-/// `source_rgb` is the caller's interleaved RGB f32 buffer in linear
-/// Rec.2020 — i.e. the pipeline state just before the view transform —
-/// laid out as `[r, g, b, r, g, b, ...]`. The fitted curves map this
-/// distribution onto the JPEG preview's distribution (also in linear
-/// Rec.2020 after sRGB decode + primary conversion).
+/// `source_rgb` is the caller's interleaved RGB f32 buffer in **f32
+/// sRGB-encoded display space** — i.e. the pipeline state immediately
+/// before `dither_and_quantize`, which is the same domain L2.5 (#527)
+/// moved the empirical Look LUT into. Laid out as
+/// `[r, g, b, r, g, b, ...]` with values nominally in `[0, 1]`.
+///
+/// The fitted curves map this distribution onto the JPEG preview's
+/// distribution (also in f32 sRGB-encoded display space — the JPEG is
+/// already sRGB-encoded, we just divide by 255 to land in `[0, 1]`).
+///
+/// Both source and target live in the same domain by construction, so
+/// the fit is a delta from AgX-Neutral toward the camera JPEG, not a
+/// wholesale view-transform replacement. This is the pipeline-shape fix
+/// for #550 — pre-#550 the curve fit happened in linear Rec.2020 and
+/// REPLACED AgX, which (a) threw away AgX's hue-restoring sigmoid and
+/// (b) double-counted exposure normalisation (auto_exposure + JPEG
+/// curve fit).
 ///
 /// Returns `None` if:
 /// - JPEG extraction fails (file missing, format unsupported, decoder stub)
 /// - Preview is too small (< 256 px on either edge)
 /// - Preview's histogram is degenerate (>99% of pixels in one of 64 bins)
 ///
-/// Callers fall back to AgX-Neutral on `None`.
+/// Callers fall back to identity (= AgX-Neutral output) on `None`.
 pub fn fit_curve_from_raw<P: AsRef<Path>>(
     raw_path: P,
     source_rgb: &[f32],
@@ -49,18 +61,18 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
         return None;
     }
 
-    let target_rec2020 = jpeg_to_linear_rec2020(&preview_rgb);
+    let target_srgb = jpeg_to_f32_srgb(&preview_rgb);
 
-    if is_degenerate_histogram(&target_rec2020) {
+    if is_degenerate_histogram(&target_srgb) {
         return None;
     }
 
     let src_r: Vec<f32> = source_rgb.iter().step_by(3).copied().collect();
     let src_g: Vec<f32> = source_rgb.iter().skip(1).step_by(3).copied().collect();
     let src_b: Vec<f32> = source_rgb.iter().skip(2).step_by(3).copied().collect();
-    let tgt_r: Vec<f32> = target_rec2020.iter().step_by(3).copied().collect();
-    let tgt_g: Vec<f32> = target_rec2020.iter().skip(1).step_by(3).copied().collect();
-    let tgt_b: Vec<f32> = target_rec2020.iter().skip(2).step_by(3).copied().collect();
+    let tgt_r: Vec<f32> = target_srgb.iter().step_by(3).copied().collect();
+    let tgt_g: Vec<f32> = target_srgb.iter().skip(1).step_by(3).copied().collect();
+    let tgt_b: Vec<f32> = target_srgb.iter().skip(2).step_by(3).copied().collect();
 
     // Reserved for future spatial-aware fitting (e.g. region-weighted CDFs).
     let _ = (source_w, source_h);
@@ -72,60 +84,21 @@ pub fn fit_curve_from_raw<P: AsRef<Path>>(
     })
 }
 
-/// Convert an sRGB 8-bit JPEG buffer to interleaved linear Rec.2020 f32 RGB.
+/// Convert an sRGB 8-bit JPEG buffer to interleaved f32 sRGB-encoded RGB
+/// in `[0, 1]`. Identity transform — just `byte / 255.0` per lane.
 ///
-/// Pipeline: inverse sRGB EOTF per channel → BT.709 (sRGB linear) → BT.2020
-/// RGB (D65) via the standard 3×3 (CIE-D65 chromatic adaptation already baked
-/// into the matrix coefficients).
-fn jpeg_to_linear_rec2020(jpeg: &image::RgbImage) -> Vec<f32> {
-    // BT.709 (sRGB linear) → BT.2020 RGB (D65), standard matrix:
-    const SRGB_TO_REC2020: [[f32; 3]; 3] = [
-        [0.6274039, 0.3292830, 0.0433131],
-        [0.0690973, 0.9195404, 0.0113623],
-        [0.0163914, 0.0880133, 0.8955953],
-    ];
-
-    let raw = jpeg.as_raw();
-    let mut out = Vec::with_capacity(raw.len());
-    for chunk in raw.chunks_exact(3) {
-        let r_lin = srgb_decode(chunk[0] as f32 / 255.0);
-        let g_lin = srgb_decode(chunk[1] as f32 / 255.0);
-        let b_lin = srgb_decode(chunk[2] as f32 / 255.0);
-
-        let r = SRGB_TO_REC2020[0][0] * r_lin
-            + SRGB_TO_REC2020[0][1] * g_lin
-            + SRGB_TO_REC2020[0][2] * b_lin;
-        let g = SRGB_TO_REC2020[1][0] * r_lin
-            + SRGB_TO_REC2020[1][1] * g_lin
-            + SRGB_TO_REC2020[1][2] * b_lin;
-        let b = SRGB_TO_REC2020[2][0] * r_lin
-            + SRGB_TO_REC2020[2][1] * g_lin
-            + SRGB_TO_REC2020[2][2] * b_lin;
-
-        out.push(r);
-        out.push(g);
-        out.push(b);
-    }
-    out
+/// Per #550 the curve fit lives in f32 sRGB-encoded display space (same
+/// domain L2.5 moved the Look LUT into), so the JPEG — which is already
+/// sRGB-encoded by definition — needs no inverse OETF and no Rec.2020
+/// matrix. Maple's source buffer is in the same domain by construction
+/// (post-AgX → rec2020_to_srgb → srgb_gamma_encode), making the fit a
+/// like-for-like distribution match.
+fn jpeg_to_f32_srgb(jpeg: &image::RgbImage) -> Vec<f32> {
+    jpeg.as_raw().iter().map(|&b| b as f32 / 255.0).collect()
 }
 
-/// Inverse sRGB EOTF — display-encoded sRGB to linear-light. IEC 61966-2-1.
-///
-/// A private mirror of `color::hsm::srgb_to_linear_one` to keep the
-/// `auto_profile` module independent of color-module internals. Identical
-/// math — the duplication is intentional until a shared crate-level helper
-/// is introduced.
-#[inline]
-fn srgb_decode(v: f32) -> f32 {
-    if v <= 0.04045 {
-        v / 12.92
-    } else {
-        ((v + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-/// Reject preview JPEGs whose linear-Rec.2020 distribution is concentrated
-/// in a single 64-bin bucket (>99% of pixels). Such images carry no useful
+/// Reject preview JPEGs whose distribution is concentrated in a single
+/// 64-bin bucket (>99% of pixels). Such images carry no useful
 /// per-channel curve signal — pure-black, pure-white, or near-uniform
 /// previews.
 fn is_degenerate_histogram(rgb: &[f32]) -> bool {

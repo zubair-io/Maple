@@ -21,7 +21,7 @@ use crate::{
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
     stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance},
-    types::adjustment::Profile,
+    types::adjustment::{AutoExposureMode, Profile},
     view::{agx, auto_profile, encode, look},
     xmp::AdjustmentModel,
 };
@@ -54,46 +54,47 @@ pub fn render_from_raw_with_quality(
 /// `raw_path` is `Option<&Path>` rather than mandatory: WASM callers
 /// (`raw-wasm::render_bytes`) and the `maple_render_bytes` FFI entry have
 /// only the decoded bytes, no filesystem path. In those cases Auto Profile
-/// is unavailable and the view tail falls back to AgX — the same byte-for-byte
-/// result as `Profile::Neutral`. The full Auto Profile flow runs whenever
-/// the caller supplies the path AND `model.profile == Profile::Auto` AND
-/// the JPEG extraction + curve fit succeeds.
+/// is unavailable and the curve is skipped — the output is identical to
+/// `Profile::Neutral` except for the `auto_exposure` skip that #550 ties
+/// to `Profile::Auto`. The full Auto Profile flow runs whenever the caller
+/// supplies the path AND `model.profile == Profile::Auto` AND the JPEG
+/// extraction + curve fit succeeds.
+///
+/// Pipeline shape (#550 post-fix): AgX + gamut compress + sRGB gamma
+/// encode ALWAYS run for both Auto and Neutral. The Auto Profile curve
+/// applies in f32 sRGB-encoded display space (same domain L2.5 / #527
+/// moved the Look LUT into), on top of AgX — a delta from AgX-Neutral
+/// toward the JPEG distribution, not a wholesale view-transform
+/// replacement. `auto_exposure` is skipped under `Profile::Auto` so the
+/// JPEG-derived curve absorbs exposure normalisation directly instead of
+/// double-counting it.
 pub fn render_from_raw_with_quality_and_path(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     raw_path: Option<&Path>,
 ) -> Result<(u32, u32, Vec<u8>)> {
-    let mut scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
-    // View transform — Auto Profile (#537) or AgX-Neutral. Auto Profile
-    // needs the RAW path to read the embedded JPEG; when the path is
-    // absent or the fit fails we fall back to AgX so output is always
-    // defined. Both branches transition the buffer from
-    // `SceneLinearRec2020` to `DisplayLinearRec2020` so the downstream
-    // `rec2020_to_srgb` stage's space-assert stays satisfied.
-    let used_auto = match (model.profile, raw_path) {
-        (Profile::Auto, Some(path)) => stage("auto_profile", || {
-            scene.assert_space(ColorSpace::SceneLinearRec2020);
-            let (w, h) = (scene.width as usize, scene.height as usize);
-            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            match auto_profile::fit_curve_from_raw(path, pixels, w, h) {
-                Some(curve) => {
-                    auto_profile::apply_curve(pixels, &curve);
-                    true
-                }
-                None => false,
-            }
-        }),
-        _ => false,
-    };
-    if used_auto {
-        // Auto Profile is the view transform on this branch — mark the
-        // buffer as display-linear so the next stage's space-assert sees
-        // the same invariant the AgX branch establishes.
-        scene.space = ColorSpace::DisplayLinearRec2020;
+    // #550: skip `auto_exposure` in Auto mode. The JPEG-derived curve
+    // already encodes the camera's exposure decisions; running
+    // `auto_exposure` first would normalise scene mid-gray to 0.18
+    // BEFORE the curve fit, which (in the pre-fix harness) produced a
+    // systemic positive brightness bias across every luma band on every
+    // fixture. Clone the model and override `auto_exposure` only when
+    // `Profile::Auto`; the develop chain stays ignorant of the profile
+    // dispatch and the post-develop tail still reads slider values from
+    // the original `model`.
+    let mut scene = if model.profile == Profile::Auto {
+        let mut m = model.clone();
+        m.auto_exposure = AutoExposureMode::Off;
+        develop_scene_linear_from_raw_with_quality(raw, &m, quality)?
     } else {
-        stage("agx", || agx::apply(&mut scene, model.contrast));
-    }
+        develop_scene_linear_from_raw_with_quality(raw, model, quality)?
+    };
+    // AgX, gamut compress, and sRGB gamma encode run UNCONDITIONALLY for
+    // both Auto and Neutral. Pre-#550 the Auto branch REPLACED AgX with
+    // the curve, throwing away AgX's hue-restoring sigmoid +
+    // ratio-preserving compression. The curve now layers on top.
+    stage("agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     // Buffer is in display-linear sRGB primaries here. Gamma encoding
@@ -102,14 +103,26 @@ pub fn render_from_raw_with_quality_and_path(
     // full sRGB encode (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
     stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    // DisplayLookCurve (#371) — empirical per-channel LUT that closes
-    // ~65% of the bias-to-ACR gap. Pre-#519 it ran as a `u8 → u8`
-    // nearest lookup AFTER dither + quantize, which collapsed multiple
-    // input codes onto one output code wherever LUT slope ≠ 1 and
-    // reintroduced histogram gaps (visible banding). #519 moves the
-    // sampling into f32 sRGB-encoded space with linear interpolation
-    // between adjacent table entries — the dither below now controls
-    // the only quantisation step in the chain.
+    // Auto Profile applies its per-channel curve in f32 sRGB-encoded
+    // display space — same location L2.5 (#527) moved the empirical
+    // Look LUT into, and same domain `fit_curve_from_raw` now fits in
+    // (#550). Identity for Neutral.
+    if model.profile == Profile::Auto {
+        if let Some(path) = raw_path {
+            stage("auto_profile_curve", || {
+                let (w, h) = (scene.width as usize, scene.height as usize);
+                let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+                if let Some(curve) = auto_profile::fit_curve_from_raw(path, pixels, w, h) {
+                    auto_profile::apply_curve(pixels, &curve);
+                }
+                // Curve unavailable (JPEG missing / degenerate) → no-op,
+                // which is identical to Neutral on the view-transform tail.
+            });
+        }
+    }
+    // DisplayLookCurve (#371) call site preserved — T7 (#549) retires
+    // the apply call separately. Keeping the stage wrapper here avoids
+    // touching `view/look.rs` per the #550 ticket's hard rule.
     stage("look", || {
         let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
         look::apply(pixels, model.look);
