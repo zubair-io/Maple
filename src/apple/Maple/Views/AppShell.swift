@@ -417,11 +417,14 @@ struct AppShell: View {
             // S5 EditorView callbacks (#815). Dismiss returns to the
             // browse grid (same as FullImageView's back chevron). Share
             // reuses the existing ⌘E ExportPanel the desktop already has.
-            // Info is intentionally a no-op: the pane shell surfaces the
-            // info/develop panel as the persistent third column
-            // (DetailPanel), so there's nothing extra to present.
+            // Info reveals the DetailPanel third column — on the pane shell
+            // the info/develop inspector is that column, not a sheet (the
+            // iPhone-only Info sheet), so the button's job is to make sure
+            // the column is visible (e.g. after the user collapsed it via
+            // the Library toggle).
             onEditorDismiss: { mode = .browse },
-            onEditorShare: { showExport = true }
+            onEditorShare: { showExport = true },
+            onEditorInfo: { withAnimation { columnVisibility = .all } }
         )
         .sheet(isPresented: $showSettings) {
             SettingsView()

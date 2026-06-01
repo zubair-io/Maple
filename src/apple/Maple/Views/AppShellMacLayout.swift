@@ -67,6 +67,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let onEditorDismiss: () -> Void
     /// S5 EditorView share affordance — wired to the desktop ExportPanel.
     let onEditorShare: () -> Void
+    /// S5 EditorView Info affordance — reveals the DetailPanel column.
+    let onEditorInfo: () -> Void
 
     var body: some View {
         // In Browse mode the detail panel is suppressed entirely — the
@@ -143,7 +145,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onPrimeSession: onPrimeSession,
             onFullImageFallback: onFullImageFallback,
             onEditorDismiss: onEditorDismiss,
-            onEditorShare: onEditorShare
+            onEditorShare: onEditorShare,
+            onEditorInfo: onEditorInfo
         )
     }
 }
