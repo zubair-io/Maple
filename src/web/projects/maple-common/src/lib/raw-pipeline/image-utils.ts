@@ -126,8 +126,7 @@ function srgbToLinear(c: number): number {
 // Matches the Bradford-free D65→D65 conversion used by the Rust core; see
 // docs/architecture.md § "Scene-linear chain".
 const SRGB_TO_REC2020 = [
-  0.6274039, 0.3292830, 0.0433131, 0.0690973, 0.9195404, 0.0113623, 0.0163914, 0.0880133,
-  0.8955953,
+  0.6274039, 0.329283, 0.0433131, 0.0690973, 0.9195404, 0.0113623, 0.0163914, 0.0880133, 0.8955953,
 ];
 
 // fp16 (IEEE 754 half) encoder. Mirrors the bit layout produced by the Rust
