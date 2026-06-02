@@ -185,10 +185,13 @@ extension EditSession {
         }()
         let priorPreview = renderedPreview
         // Auto Profile (#812) — resolve/cache the per-image cube off the
-        // synchronous chain block, mirroring `decodeAndRender`.
+        // synchronous chain block, mirroring `decodeAndRender`. The editor
+        // decode path develops at `.preview` (RenderActor's sharedDecode +
+        // decodeSceneLinear* default to `.preview`), so the curve MUST be fit
+        // at `.preview` too or it won't match the displayed pixels (#844).
         let profileLUT: CIFilter? = await {
             guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
-            return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile)
+            return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
         }()
 
         renderPhase = .refine
@@ -272,11 +275,14 @@ extension EditSession {
         // Auto Profile (#812) — resolve (and cache) the per-image display-space
         // CIColorCube once per render, OFF the synchronous filter-chain block.
         // The fit is a cold JPEG-extract + develop the first time per image;
-        // `AutoProfileLUT` caches the baked filter keyed on URL+mtime so slider
-        // ticks reuse it. Nil for non-RAW, `Profile::Neutral`, or fit failure.
+        // `AutoProfileLUT` caches the baked cube keyed on URL+mtime+quality so
+        // slider ticks reuse it. Nil for non-RAW, `Profile::Neutral`, or fit
+        // failure. The editor decode path develops at `.preview` (RenderActor's
+        // sharedDecode + decodeSceneLinear* default to `.preview`), so the
+        // curve is fit at `.preview` to match the displayed buffer (#844).
         let profileLUT: CIFilter? = await {
             guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
-            return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile)
+            return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile, quality: .preview)
         }()
         editSessionLogger.debug(
             "decodeAndRender begin gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) target=\(targetSize?.width ?? 0)x\(targetSize?.height ?? 0) cached=\(cached != nil) autoProfile=\(profileLUT != nil)"

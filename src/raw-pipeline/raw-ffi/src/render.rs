@@ -367,6 +367,10 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
 ///   left untouched; the host renders plain AgX (= `Profile::Neutral`).
 /// - `2`/`3` when `raw_path` / `xmp_path` is non-UTF-8.
 /// - `6`/`7` when the RAW read / decode fails (`maple_last_error` is set).
+/// - `9` on an internal invariant failure — the fitted curve did not serialize
+///   to `PROFILE_CURVE_FLAT_LEN` (a layout bug, never a caller error;
+///   `maple_last_error` is set). Distinct from `-1` so a host can tell this
+///   apart from a null-pointer argument.
 /// - `-1` when `raw_path` or `out` is null.
 ///
 /// # Safety
@@ -424,8 +428,16 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
                 let flat = curve.to_flat();
                 // `to_flat` always returns exactly PROFILE_CURVE_FLAT_LEN —
                 // guard the unsafe copy so a future layout change can't OOB.
+                // This is an internal invariant failure, NOT a caller error, so
+                // return a distinct `9` (not the `-1` reserved for null args)
+                // and set `maple_last_error` so it is diagnosable (#844).
                 if flat.len() != PROFILE_CURVE_FLAT_LEN {
-                    return -1;
+                    set_last_error(format!(
+                        "internal: ProfileCurve serialized to {} f32, expected {}",
+                        flat.len(),
+                        PROFILE_CURVE_FLAT_LEN
+                    ));
+                    return 9;
                 }
                 unsafe {
                     std::ptr::copy_nonoverlapping(
