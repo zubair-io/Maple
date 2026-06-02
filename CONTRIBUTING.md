@@ -74,6 +74,20 @@ If a formatter binary isn't installed locally, the corresponding pre-commit step
 
 `rustfmt.toml`, `.swift-format`, and `pyproject.toml` will land alongside the first formatter run that needs non-default settings — kept lean until a real reason appears.
 
+## Vendored Rust dependencies
+
+The Rust workspace's crate sources are vendored into `src/raw-pipeline/vendor/` and `src/raw-pipeline/.cargo/config.toml` replaces crates.io with that directory. The build never resolves or downloads from `static.crates.io`, so it's hermetic — this removes the intermittent `Could not resolve host: static.crates.io` DNS failures on Xcode Cloud and keeps CI builds reproducible. `build-xcframework.sh` passes `cargo build --offline`, so a stale or incomplete vendor dir fails loudly rather than silently hitting the network.
+
+`vendor/` is committed source (≈22 MB packed; marked `linguist-vendored` so it stays out of language stats). **Re-vendor whenever dependencies change** — after `cargo update`, adding, or removing a crate:
+
+```bash
+cd src/raw-pipeline
+cargo vendor vendor          # regenerates vendor/ from Cargo.lock
+git add vendor .cargo/config.toml Cargo.lock
+```
+
+Commit the `Cargo.lock` change and the regenerated `vendor/` together. Verify offline before pushing: `cargo build --offline -p raw-ffi`.
+
 ## Layout
 
 ```
