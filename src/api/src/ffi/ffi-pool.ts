@@ -1,54 +1,51 @@
-// N-worker FFI pool. Off-main-thread thumbnail / preview / histogram
-// rendering so the synchronous bun:ffi symbol calls don't block HTTP
-// handlers.
+// N-process FFI decode pool. Off-main-PROCESS thumbnail / preview / histogram
+// rendering so the synchronous bun:ffi symbol calls neither block HTTP
+// handlers nor, when libraw segfaults on a malformed RAW, take down the API.
 //
-// Why a pool (not one worker): bun:ffi calls run inline on whichever thread
-// invokes them, so the embedded-preview extractor (single-threaded, no
-// rayon) pegs exactly one core per in-flight decode. With one worker the
-// whole process serializes RAW thumb/preview behind a single decode; a pool
-// of N lets N decodes run on N cores at once. The size is operator-tunable
-// and DB-persisted (see `ffi-pool-config.repo.ts`) — default 1 keeps the
-// historical single-decode behaviour, pure opt-in.
+// Why off-process (not just off-thread): bun:ffi calls run inline on whichever
+// thread invokes them, so the embedded-preview extractor (single-threaded C)
+// pegs exactly one core per in-flight decode. The prior design moved that onto
+// a Bun Worker THREAD — which kept the event loop responsive but shared the
+// process address space, so a SIGSEGV deep in libraw on one bad asset killed
+// the WHOLE API process (a native crash is not a catchable JS exception). Under
+// `restart: unless-stopped` that became a crash-loop (reboot → re-index → re-hit
+// the poison asset → re-crash) that pinned the CPU. Each "worker" is now an
+// isolated child PROCESS: a native crash kills only that child, the pool
+// observes the exit and rejects just its in-flight call, and the HTTP server
+// keeps serving. The uncatchable process-kill becomes a catchable rejection the
+// stage handler already turns into a soft skip. See `ffi-child-worker.ts`.
+//
+// Why a pool (not one): with one child the whole pipeline serializes RAW
+// thumb/preview behind a single decode; a pool of N lets N decodes run on N
+// cores at once. The size is operator-tunable and DB-persisted (see
+// `ffi-pool-config.repo.ts`) — default 1 keeps the historical single-decode
+// behaviour, pure opt-in.
 //
 // Dispatch model: a queue of pending requests + a set of workers, each with
 // a busy flag. A request grabs a free (idle, non-surplus) worker, else it
 // lazy-spawns one up to `targetSize`, else it queues. When a worker frees it
-// pulls the next queued request. We don't pay N dlopens until there's work —
-// workers spawn on demand up to the target.
+// pulls the next queued request. We don't pay N child spawns (+ N dlopens)
+// until there's work — children spawn on demand up to the target.
 //
 // Resize (setPoolSize): grow → raise the spawn ceiling and drain the queue
-// (idle work spawns the extra workers lazily). Shrink → mark surplus workers;
-// each terminates AFTER its in-flight call drains — we never kill a worker
+// (idle work spawns the extra children lazily). Shrink → mark surplus workers;
+// each terminates AFTER its in-flight call drains — we never kill a child
 // mid-decode.
 //
-// Crash handling: a worker `error` rejects only ITS in-flight call, drops the
-// worker, and re-dispatches the queue (a fresh worker spawns on the next
-// request that needs one). Other workers' in-flight calls are untouched.
+// Crash handling: a worker `error` (the child's unexpected `onExit`) rejects
+// only ITS in-flight call, drops the child, and re-dispatches the queue (a
+// fresh child spawns on the next request that needs one). Sibling children's
+// in-flight calls are untouched.
 
-import { tryGetRawFfi } from './raw_ffi.ts';
+import { nativeLibAvailable } from './raw_ffi.ts';
 import type { HistogramBins } from '../thumbs/histogram.ts';
+import type { FfiResponse } from './raw_ffi-protocol.ts';
+import { defaultChildWorkerFactory } from './ffi-child-worker.ts';
 import { DEFAULT_FFI_WORKERS, MAX_FFI_WORKERS, MIN_FFI_WORKERS } from './ffi-pool-config.repo.ts';
 
-interface RenderResponse {
-  type: 'renderThumb';
-  id: number;
-  ok: boolean;
-  error?: string;
-}
-
-interface HistogramResponse {
-  type: 'histogram';
-  id: number;
-  ok: boolean;
-  bins?: HistogramBins;
-  error?: string;
-}
-
-type WorkerResponse = RenderResponse | HistogramResponse;
-
-/** Minimal worker surface the pool depends on. The real bun `Worker`
- * satisfies this; tests inject a fake so the dispatch / resize / crash logic
- * can be exercised without loading the native dylib on a worker thread. */
+/** Minimal worker surface the pool depends on. The `ChildProcessWorker`
+ * (Bun.spawn-backed) satisfies this; tests inject a fake so the dispatch /
+ * resize / crash logic can be exercised without spawning a real child. */
 export interface PoolWorker {
   postMessage(msg: unknown): void;
   terminate(): void;
@@ -56,13 +53,9 @@ export interface PoolWorker {
   addEventListener(type: 'error', cb: (e: { message?: string }) => void): void;
 }
 
-/** Factory that builds a worker. Production passes `defaultWorkerFactory`
- * (spawns the real `raw_ffi.worker.ts`); tests pass a fake. */
+/** Factory that builds a worker. Production passes `defaultChildWorkerFactory`
+ * (spawns the real `raw_ffi.child.ts` process); tests pass a fake. */
 export type WorkerFactory = () => PoolWorker;
-
-function defaultWorkerFactory(): PoolWorker {
-  return new Worker(new URL('./raw_ffi.worker.ts', import.meta.url).href) as unknown as PoolWorker;
-}
 
 /** A unit of work queued for the next free worker. `post` writes the request
  * onto the worker; `onResponse` decodes a worker message into resolve/reject;
@@ -70,7 +63,7 @@ function defaultWorkerFactory(): PoolWorker {
 interface PendingRequest {
   id: number;
   post: (w: PoolWorker) => void;
-  onResponse: (msg: WorkerResponse) => boolean;
+  onResponse: (msg: FfiResponse) => boolean;
   onError: (err: Error) => void;
 }
 
@@ -89,19 +82,25 @@ class FfiWorkerPool {
   private nextId = 1;
   private targetSize = DEFAULT_FFI_WORKERS;
   private spawnFailed = false;
+  private shuttingDown = false;
   private readonly workerFactory: WorkerFactory;
   /** When set, availability is forced (tests bypass the real dylib probe). */
   private readonly availableOverride: boolean | null;
 
   constructor(opts?: { workerFactory?: WorkerFactory; availableOverride?: boolean }) {
-    this.workerFactory = opts?.workerFactory ?? defaultWorkerFactory;
+    this.workerFactory = opts?.workerFactory ?? defaultChildWorkerFactory;
     this.availableOverride = opts?.availableOverride ?? null;
   }
 
-  /** True iff the dylib is reachable. False = caller should degrade. */
+  /** True iff the native lib is present. False = caller should degrade (skip
+   * RAW thumb/preview/histogram). Deliberately a file-existence check, NOT a
+   * `dlopen` probe: with decode isolated in child processes, the main HTTP
+   * process must never load libraw — so a crash in the decoder can only ever
+   * take down a child. The child does the real `dlopen` and degrades cleanly
+   * (returns ok=false) if the lib is present but unloadable. */
   available(): boolean {
     if (this.availableOverride !== null) return this.availableOverride;
-    return tryGetRawFfi() !== null;
+    return nativeLibAvailable();
   }
 
   /** Effective pool size (lazy spawn ceiling). */
@@ -202,6 +201,27 @@ class FfiWorkerPool {
     });
   }
 
+  /**
+   * Terminate every child and stop spawning new ones. Called from the server's
+   * graceful shutdown so the isolated decode children are reaped deterministically
+   * — Bun does NOT auto-reap a spawned child when the parent exits, and the
+   * `disconnect` event is unreliable, so without this they'd linger as orphans.
+   * In-flight + queued calls reject so their stage handlers settle (soft-skip)
+   * rather than hang on a child that's about to die.
+   */
+  shutdown(): void {
+    this.shuttingDown = true;
+    const queued = this.queue.splice(0);
+    for (const req of queued) req.onError(new Error('ffi-pool: shutting down'));
+    for (const slot of [...this.slots]) {
+      const req = slot.inFlight;
+      slot.inFlight = null;
+      // terminateSlot() flags the child so its onExit isn't read as a crash.
+      this.terminateSlot(slot);
+      if (req) req.onError(new Error('ffi-pool: shutting down'));
+    }
+  }
+
   // ── internals ──────────────────────────────────────────────────────────
 
   private enqueue(req: PendingRequest): void {
@@ -241,7 +261,7 @@ class FfiWorkerPool {
   }
 
   private spawnSlot(): WorkerSlot | null {
-    if (this.spawnFailed) return null;
+    if (this.spawnFailed || this.shuttingDown) return null;
     let w: PoolWorker;
     try {
       w = this.workerFactory();
@@ -260,7 +280,7 @@ class FfiWorkerPool {
     const slot: WorkerSlot = { worker: w, inFlight: null, surplus: false };
 
     w.addEventListener('message', (event) => {
-      const msg = event.data as WorkerResponse;
+      const msg = event.data as FfiResponse;
       const req = slot.inFlight;
       if (!req || msg?.id !== req.id) return;
       req.onResponse(msg);
