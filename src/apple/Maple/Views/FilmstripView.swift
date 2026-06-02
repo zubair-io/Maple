@@ -28,7 +28,7 @@ struct FilmstripView: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
+            LazyHStack(spacing: 4) {
                 ForEach(assets, id: \.id) { asset in
                     FilmstripCell(
                         asset: asset,
