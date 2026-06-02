@@ -9,6 +9,11 @@ useDefault = true
 [allowlist]
 description = "Maple monorepo allowlist"
 paths = [
+    # Vendored upstream crate sources (`cargo vendor` output under
+    # src/raw-pipeline/vendor/). Third-party crates ship test vectors and
+    # example keys that trip the generic rules; they are not Maple secrets
+    # and aren't ours to scan.
+    '''src/raw-pipeline/vendor/.*''',
     # Cache-GC test fixture: a 16-char hex placeholder mimicking the
     # legacy sha256_prefix16 cache basename. Looks like an API key to
     # the generic-api-key rule but is intentionally not a secret.
