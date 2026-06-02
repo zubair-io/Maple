@@ -181,6 +181,114 @@ pub unsafe extern "C" fn maple_render_bytes(
     })
 }
 
+/// Number of `u32` slots in a 3×256 RGB histogram (256 R, then G, then B).
+pub(crate) const HISTOGRAM_BINS_LEN: usize = 3 * 256;
+
+/// Count 8-bit R/G/B occurrences across a tightly-packed RGB888 buffer.
+///
+/// Returns `[R0..=R255, G0..=G255, B0..=B255]` — the channel-major layout the
+/// `maple_histogram_file` FFI entry writes into the caller's buffer. A trailing
+/// partial pixel (`len % 3 != 0`) is ignored; the renderer always emits whole
+/// RGB888 pixels, so the guard is purely defensive. Counts saturate at
+/// `u32::MAX` (a 100 MP frame is ~1e8 px — two orders of magnitude below the
+/// ceiling, so saturation never fires in practice).
+pub(crate) fn bin_rgb888(rgb: &[u8]) -> [u32; HISTOGRAM_BINS_LEN] {
+    let mut bins = [0u32; HISTOGRAM_BINS_LEN];
+    let mut i = 0usize;
+    let n = rgb.len();
+    while i + 3 <= n {
+        let r = rgb[i] as usize;
+        let g = 256 + rgb[i + 1] as usize;
+        let b = 512 + rgb[i + 2] as usize;
+        bins[r] = bins[r].saturating_add(1);
+        bins[g] = bins[g].saturating_add(1);
+        bins[b] = bins[b].saturating_add(1);
+        i += 3;
+    }
+    bins
+}
+
+/// Render a RAW+XMP through the full 8-bit sRGB pipeline (identical decode +
+/// develop path to `maple_render_file`) and write a 3×256 channel histogram of
+/// the result into the caller-provided `out_bins` buffer.
+///
+/// `out_bins` must point to at least [`HISTOGRAM_BINS_LEN`] (`768`) writable
+/// `u32`s; the layout is channel-major (`[0,256)` = R counts, `[256,512)` = G,
+/// `[512,768)` = B). It is overwritten in full on success and untouched on error.
+///
+/// Crucially the rendered pixel buffer never crosses the FFI boundary: it is
+/// binned in Rust and only the 3 KB histogram is returned, through a buffer the
+/// *caller* owns. This sidesteps the `toBuffer`-over-Rust-memory lifetime trap
+/// that segfaults the JSC heap on a later GC (the same reasoning that moved the
+/// thumbnail path to the `_to_file` entry — see `buffers.rs`). It also avoids
+/// shipping ~300 MB of RGB across the boundary for a 100 MP frame.
+///
+/// Returns 0 on success, non-zero on error (call `maple_last_error`). Error
+/// codes mirror `maple_render_file`: 1 = null arg, 2/3 = path not UTF-8,
+/// 6 = read, 7 = decode, 8 = render.
+///
+/// # Safety
+///
+/// `raw_path` must be a valid C string; `xmp_path` may be null or a valid C
+/// string; `out_bins` must point to >= [`HISTOGRAM_BINS_LEN`] writable `u32`s
+/// that live for the duration of the call.
+#[no_mangle]
+pub unsafe extern "C" fn maple_histogram_file(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    out_bins: *mut u32,
+) -> i32 {
+    if raw_path.is_null() || out_bins.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
+        Ok(s) => s.to_owned(),
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let out_ptr = out_bins as usize; // Send across the worker thread as a usize.
+    with_large_stack(move || {
+        let raw_path = std::path::Path::new(&raw_path_str);
+        let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
+            LoadModel::Ok(m) => m,
+            LoadModel::Err(rc) => return rc,
+        };
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
+            Ok(b) => b,
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+        };
+        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        // Full-quality render so the histogram reflects the authoritative
+        // export pixels (mirrors `maple_render_file` with quality_preview = 0).
+        let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
+            &raw_img, &model, RenderQuality::Full, Some(RawInput::Path(raw_path)),
+        ) {
+            Ok(t) => t,
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+        };
+        let bins = bin_rgb888(&bytes);
+        // SAFETY: the caller guarantees `out_bins` (captured as `out_ptr`)
+        // points to >= HISTOGRAM_BINS_LEN writable u32s that outlive the call.
+        unsafe {
+            std::slice::from_raw_parts_mut(out_ptr as *mut u32, HISTOGRAM_BINS_LEN)
+                .copy_from_slice(&bins);
+        }
+        0
+    })
+}
+
 /// Writes 768 bytes (256 R, then 256 G, then 256 B) into `out` — the byte
 /// layout an Apple Metal `MTLTexture` (3 × `r8Unorm`, 256×1) or a Web
 /// WebGL2 `R8` 1D LUT texture expects, packed in channel-major order so
