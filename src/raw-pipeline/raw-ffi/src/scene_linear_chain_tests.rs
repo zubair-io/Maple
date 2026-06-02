@@ -311,3 +311,54 @@ fn f32_skip_agx_default_model_is_bit_identical_passthrough() {
         assert!((out[i * 4 + 3] - 1.0).abs() < 1e-6);
     }
 }
+
+// ----- maple_encode_display_srgb_f32 (#877) — arg-validation shim --------
+
+#[test]
+fn encode_null_in_ptr_returns_rc_1() {
+    use crate::scene_linear_chain::maple_encode_display_srgb_f32;
+    let mut out = vec![0.0f32; 4];
+    let rc = unsafe { maple_encode_display_srgb_f32(std::ptr::null(), 1, 1, out.as_mut_ptr()) };
+    assert_eq!(rc, 1);
+    assert!(last_error_string().contains("null"));
+}
+
+#[test]
+fn encode_null_out_ptr_returns_rc_1() {
+    use crate::scene_linear_chain::maple_encode_display_srgb_f32;
+    let input = vec![0.0f32; 4];
+    let rc = unsafe { maple_encode_display_srgb_f32(input.as_ptr(), 1, 1, std::ptr::null_mut()) };
+    assert_eq!(rc, 1);
+    assert!(last_error_string().contains("null"));
+}
+
+#[test]
+fn encode_zero_dim_returns_rc_2() {
+    use crate::scene_linear_chain::maple_encode_display_srgb_f32;
+    let input = vec![0.0f32; 4];
+    let mut out = vec![0.0f32; 4];
+    let rc = unsafe { maple_encode_display_srgb_f32(input.as_ptr(), 0, 1, out.as_mut_ptr()) };
+    assert_eq!(rc, 2);
+    assert!(last_error_string().contains("zero dimension"));
+}
+
+#[test]
+fn encode_saturated_green_compresses_blue_above_zero() {
+    // The #877 contract end-to-end through the FFI shim: a saturated
+    // display-linear Rec.2020 green ([0, 0.8, 0]) must NOT clip blue to 0 —
+    // the Oklab compression keeps a real blue component (raw-core ref ≈ 0.168
+    // sRGB-linear → ~0.45 after gamma). A per-channel clamp would leave 0.
+    use crate::scene_linear_chain::maple_encode_display_srgb_f32;
+    let input = vec![0.0f32, 0.8, 0.0, 1.0];
+    let mut out = vec![0.0f32; 4];
+    let rc = unsafe { maple_encode_display_srgb_f32(input.as_ptr(), 1, 1, out.as_mut_ptr()) };
+    assert_eq!(rc, 0, "expected success rc 0, got {}", rc);
+    assert_eq!(out[0], 0.0, "red must stay 0 on pure green");
+    assert!(out[1] > 0.0 && out[1] <= 1.0, "green in (0,1]: {}", out[1]);
+    assert!(
+        out[2] > 0.3,
+        "blue crushed ({}) — Oklab compression must keep blue, not per-channel clip",
+        out[2]
+    );
+    assert!((out[3] - 1.0).abs() < 1e-6, "alpha must be 1.0");
+}
