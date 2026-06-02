@@ -86,6 +86,18 @@ export function tryGetRawFfi(): RawFfi | null {
   return _ffi;
 }
 
+/**
+ * True iff the native lib file is present on disk. A pure existence check — it
+ * does NOT `dlopen` — so callers can decide whether RAW decode is possible
+ * without loading libraw into their process. The FFI decode pool uses this to
+ * gate work to its isolated child processes (which do the real `dlopen`),
+ * keeping native code — and any segfault it might hit — out of the main HTTP
+ * process entirely.
+ */
+export function nativeLibAvailable(): boolean {
+  return fs.existsSync(nativeLibPath());
+}
+
 function nativeLibPath(): string {
   const dir = path.join(
     import.meta.dir, // src/ffi/
