@@ -250,6 +250,47 @@ fn parse_s5_effects_fields() {
     assert_eq!(m.split_tone_balance, -15.0);
 }
 
+/// Parametric tone-curve region sliders (prerequisite for #368): the four
+/// PV2012 `crs:Parametric{Highlights,Lights,Darks,Shadows}` keys parse onto
+/// the matching `parametric_*` model scalars. ACR's split-point keys are
+/// intentionally unmapped — the model has no split-point fields (the knots
+/// are fixed at 0.25/0.5/0.75 in `build_parametric_knots`).
+#[test]
+fn parse_parametric_tone_curve_fields() {
+    let xml = r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+              crs:ParametricHighlights="100"
+              crs:ParametricLights="-50"
+              crs:ParametricDarks="25"
+              crs:ParametricShadows="-100"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.parametric_highlights, 100.0);
+    assert_eq!(m.parametric_lights, -50.0);
+    assert_eq!(m.parametric_darks, 25.0);
+    assert_eq!(m.parametric_shadows, -100.0);
+}
+
+/// Absent parametric attributes round-trip as the zero (identity) defaults.
+#[test]
+fn parse_no_parametric_attrs_leaves_defaults() {
+    let xml = r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Exposure2012="0"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+    let m = parse(xml).unwrap();
+    let d = AdjustmentModel::default();
+    assert_eq!(m.parametric_highlights, d.parametric_highlights);
+    assert_eq!(m.parametric_lights, d.parametric_lights);
+    assert_eq!(m.parametric_darks, d.parametric_darks);
+    assert_eq!(m.parametric_shadows, d.parametric_shadows);
+}
+
 /// Absent S5 effects attributes round-trip as the identity-stub defaults
 /// — vignetteFeather=50, grainSize=25, grainRoughness=50, everything else
 /// 0. Guards the "default-shaped sidecar produces the canonical default
