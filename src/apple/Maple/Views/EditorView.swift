@@ -64,10 +64,13 @@ struct EditorView: View {
             // session's `renderedPreview` if present, otherwise a placeholder
             // tile sized to the dominant aspect ratio. The ValueChipOverlay
             // floats on top, 14pt below the top of the canvas region.
-            ZStack(alignment: .top) {
-                canvasContent
-                ValueChipOverlay(state: state)
-                    .padding(.top, 14)
+            GeometryReader { geo in
+                ZStack(alignment: .top) {
+                    canvasContent(viewport: geo.size)
+                    ValueChipOverlay(state: state)
+                        .padding(.top, 14)
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(MapleTokens.bg)
@@ -199,11 +202,53 @@ struct EditorView: View {
 
     // MARK: - Canvas
 
+    /// Resolved fit-to-canvas display frame in POINTS for the current
+    /// viewport. Mirrors `FullImageView.canvasMath(viewport:)` — fit mode
+    /// (`pixelScale == 0`) against the session's `nativeImageSize`, the
+    /// only trustworthy image extent. Returns nil until the metadata seed
+    /// publishes a real native size, so the canvas falls through to the
+    /// placeholder branch (never anchoring the frame to a preview-resolution
+    /// extent).
+    private func displayFrameInPoints(viewport: CGSize) -> CGSize? {
+        CanvasMath(
+            viewportPx: FullImageViewVM.viewportInPixels(
+                viewport: viewport, displayScale: displayScale
+            ),
+            nativeImageSize: state.session.nativeImageSize,
+            pixelScale: 0,
+            displayScale: displayScale
+        ).displayFrameInPoints
+    }
+
     @ViewBuilder
-    private var canvasContent: some View {
-        if let preview = state.session.renderedPreview {
+    private func canvasContent(viewport: CGSize) -> some View {
+        if let preview = state.session.renderedPreview,
+           let frameInPoints = displayFrameInPoints(viewport: viewport) {
+            // Frame the rendered preview to the resolved fit rect so the
+            // canvas leaf's on-screen frame equals the *image* rect —
+            // chrome-free and letterbox-free. This is the same contract
+            // FullImageView's `CIImageView` provided, which is what the
+            // visual-golden harness (`MapleUITests`) crops to: it screenshots
+            // the `canvas-render-ready` element's frame directly. Centred in
+            // the canvas region; the surrounding `MapleTokens.bg` is the
+            // letterbox the harness never captures.
             CanvasImageView(image: preview)
-                .padding(12)
+                .frame(width: frameInPoints.width, height: frameInPoints.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // UITest harness sentinel — the identifier only appears once
+                // the refine pass has published a preview AND `isRendering`
+                // has flipped false. The harness waits + crops on the element
+                // whose id resolves to `canvas-render-ready` (an `otherElement`
+                // — the composite frame + identifier surfaces as `.other`,
+                // matching FullImageView's wrapper). Migrated from FullImageView
+                // in #820. See .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier(
+                    FullImageViewVM.canvasAccessibilityID(
+                        isRendering: state.session.isRendering,
+                        hasPreview: state.session.renderedPreview != nil
+                    )
+                )
         } else {
             // Subtle placeholder so the chrome reads while a render is
             // pending or absent (e.g. preview EditSession in tests).
@@ -256,28 +301,48 @@ struct EditorView: View {
 private struct CanvasImageView: View {
     let image: CIImage
 
+    @Environment(\.displayScale) private var displayScale
+
+    /// Render-time CIContext + output color space. Lifted from
+    /// `FullImageView.CIImageView` (the variant retired in #820) so the
+    /// editor canvas paints through the same Display-P3 / 16-bit path —
+    /// the visual-golden harness diffs this canvas against the golden the
+    /// old wrapper produced, so the color path must match bit-for-bit.
+    /// See `FullImageView.CIImageView`'s docs (pre-#820) for the P3+16
+    /// gamut/depth rationale.
+    private static let context = CIContext()
+    private static let outputColorSpace = CGColorSpace(name: CGColorSpace.displayP3)!
+
     var body: some View {
-        // Wrap the CIImage in a host backed by CGImage. The fast path
-        // is good enough for v0.1 — the existing FullImageView has a
-        // tuned variant (CGImage + display-link) that we'll lift in
-        // a follow-up consolidation pass.
-        //
-        // The `.fit`-scaled image is centered both axes inside an
-        // infinite frame so the preview sits in the middle of the flex
-        // canvas region rather than top-aligned with black space below
-        // it (#875 item 1). A `.fit` image is letter/pillar-boxed, and
-        // an infinite frame with no explicit alignment centers its
-        // content — so a wide image centers vertically and a tall one
-        // centers horizontally.
+        // `Group` lets the centering `.frame` below attach to the whole
+        // if/else (a bare `if/else` in a ViewBuilder can't carry a trailing
+        // modifier). Mirrors #875's wrapper.
         Group {
-            if let cg = CIContext().createCGImage(image, from: image.extent) {
-                Image(decorative: cg, scale: 1.0, orientation: .up)
+            if let cgImg = Self.context.createCGImage(
+                image,
+                from: image.extent,
+                format: .RGBA16,
+                colorSpace: Self.outputColorSpace
+            ) {
+                // `Image(decorative:scale:orientation:)` carries the
+                // displayScale explicitly so a full-res cgImage scales down to
+                // the proposed frame on macOS (NSImage's natural-size-in-points
+                // path over-scales at displayScale=2). The parent frames this to
+                // the resolved fit rect; `.fit` keeps the aspect inside it.
+                Image(decorative: cgImg, scale: displayScale, orientation: .up)
                     .resizable()
+                    .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
             } else {
                 Color.clear
             }
         }
+        // Centre the `.fit`-scaled image inside the flex canvas region
+        // (#875 item 1). The call site already pins this view to the
+        // resolved fit rect via `.frame(width:height:)`, so this infinite
+        // frame clamps to that proposal and is pixel-equivalent — it keeps
+        // the #875 centering contract for any path that hosts
+        // `CanvasImageView` without an explicit outer frame.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

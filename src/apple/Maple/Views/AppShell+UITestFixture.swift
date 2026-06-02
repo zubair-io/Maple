@@ -4,10 +4,14 @@
 //
 // The harness stashes a fixture URL on `MapleApp.uitestFixtureURL` via a
 // launch environment variable; when present we seed the grid with that
-// single asset and flip directly into Full-image mode so the test can
-// wait on the `canvas-render-ready` accessibility identifier. The branch
-// skips `restoreLastSource()` entirely — the harness wants a known empty
-// starting state. See `.archived-plans/plans/2026-04-25-xcuitest-visual-harness.md`.
+// single asset and flip directly into the S5 editor (`.editing`) so the
+// test can wait on the `canvas-render-ready` accessibility identifier the
+// EditorView canvas publishes. On macOS the pane shell renders
+// `EditorView` in its center column for `.editing` (`useEditor == true`,
+// #816); the legacy `FullImageView` `.fullImage` path was retired in #820.
+// The branch skips `restoreLastSource()` entirely — the harness wants a
+// known empty starting state. See
+// `.archived-plans/plans/2026-04-25-xcuitest-visual-harness.md`.
 //
 // Returning a `Bool` lets the call site in `body.task` short-circuit
 // (`if await loadUITestFixtureIfPresent() { return }`) rather than nest
@@ -30,7 +34,7 @@ extension AppShell {
             sessions[asset.id] = session
             await session.loadSidecar()
             browseVM.selectedID = asset.id
-            mode = .fullImage
+            mode = .editing
         }
         return true
     }
