@@ -5,9 +5,10 @@
 use crate::buffers::{maple_free_buffer, MapleImageBuffer};
 use crate::error::maple_last_error;
 use crate::render::{
-    maple_compute_look_lut, maple_compute_profile_curve, maple_compute_profile_lut,
-    maple_render_bytes, maple_render_file,
+    bin_rgb888, maple_compute_look_lut, maple_compute_profile_curve, maple_compute_profile_lut,
+    maple_histogram_file, maple_render_bytes, maple_render_file, HISTOGRAM_BINS_LEN,
 };
+use raw_core::test_support::synth_dng::SyntheticGreyDng;
 use std::ffi::{CStr, CString};
 
 #[test]
@@ -53,6 +54,95 @@ fn null_arg_sets_error() {
     assert!(!err.is_null());
     let msg = unsafe { CStr::from_ptr(err).to_str().unwrap() };
     assert!(msg.contains("null"));
+}
+
+// ---------------------------------------------------------------------------
+// maple_histogram_file — render + bin in Rust, return 3×256 counts into a
+// caller-owned buffer (no pixel buffer crosses FFI). See render.rs.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bin_rgb888_counts_each_channel() {
+    // Two pixels: black (0,0,0) and white (255,255,255).
+    let rgb = [0u8, 0, 0, 255, 255, 255];
+    let bins = bin_rgb888(&rgb);
+    assert_eq!(bins[0], 1, "R=0 once");
+    assert_eq!(bins[255], 1, "R=255 once");
+    assert_eq!(bins[256], 1, "G=0 once");
+    assert_eq!(bins[256 + 255], 1, "G=255 once");
+    assert_eq!(bins[512], 1, "B=0 once");
+    assert_eq!(bins[512 + 255], 1, "B=255 once");
+    // Each channel's bins sum to the pixel count (2).
+    let sum = |s: &[u32]| s.iter().map(|&c| c as u64).sum::<u64>();
+    assert_eq!(sum(&bins[0..256]), 2);
+    assert_eq!(sum(&bins[256..512]), 2);
+    assert_eq!(sum(&bins[512..768]), 2);
+}
+
+#[test]
+fn bin_rgb888_ignores_trailing_partial_pixel() {
+    // One whole pixel (10,20,30) plus a stray byte — the stray must be dropped.
+    let rgb = [10u8, 20, 30, 99];
+    let bins = bin_rgb888(&rgb);
+    assert_eq!(bins[10], 1);
+    assert_eq!(bins[256 + 20], 1);
+    assert_eq!(bins[512 + 30], 1);
+    assert_eq!(bins.iter().map(|&c| c as u64).sum::<u64>(), 3, "exactly 3 increments");
+}
+
+#[test]
+fn histogram_null_arg_returns_error() {
+    let mut bins = [0u32; HISTOGRAM_BINS_LEN];
+    // null raw_path
+    let rc = unsafe { maple_histogram_file(std::ptr::null(), std::ptr::null(), bins.as_mut_ptr()) };
+    assert_eq!(rc, 1);
+    // null out_bins
+    let raw = CString::new("/tmp/maple-ffi-no-such-file.dng").unwrap();
+    let rc2 = unsafe { maple_histogram_file(raw.as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
+    assert_eq!(rc2, 1);
+}
+
+/// End-to-end success path, always-run: a hand-rolled synthetic DNG is
+/// decoded + rendered + binned, with no gitignored fixture required. Asserts
+/// the structural invariant that holds for ANY image — exactly one sample per
+/// pixel per channel, so every channel's bins sum to the same (non-zero) pixel
+/// count. This is what actually exercises `decode -> render -> bin_rgb888 ->
+/// write [u32; 768]`; the `_fixture_` test below only adds real-camera
+/// coverage when RAWs are present (it skips otherwise).
+#[test]
+fn histogram_synth_dng_sums_to_pixel_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let dng_path = dir.path().join("synth-grey.dng");
+    SyntheticGreyDng::default().write_to(&dng_path).unwrap();
+    let raw_cstr = CString::new(dng_path.to_str().unwrap()).unwrap();
+    let mut bins = [0u32; HISTOGRAM_BINS_LEN];
+    let rc = unsafe { maple_histogram_file(raw_cstr.as_ptr(), std::ptr::null(), bins.as_mut_ptr()) };
+    assert_eq!(rc, 0, "synth DNG histogram rc = {}", rc);
+    let sum = |s: &[u32]| s.iter().map(|&c| c as u64).sum::<u64>();
+    let (r, g, b) = (sum(&bins[0..256]), sum(&bins[256..512]), sum(&bins[512..768]));
+    assert!(r > 0, "expected a non-empty histogram");
+    assert_eq!(r, g, "R and G sums must equal the pixel count");
+    assert_eq!(g, b, "G and B sums must equal the pixel count");
+}
+
+#[test]
+fn histogram_fixture_sums_to_pixel_count() {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/raws/test_0002.dng");
+    if !path.exists() {
+        return; // skip-pass when the fixture is absent (CI without RAWs)
+    }
+    let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+    let mut bins = [0u32; HISTOGRAM_BINS_LEN];
+    let rc = unsafe { maple_histogram_file(raw_cstr.as_ptr(), std::ptr::null(), bins.as_mut_ptr()) };
+    assert_eq!(rc, 0, "histogram rc = {}", rc);
+    let sum = |s: &[u32]| s.iter().map(|&c| c as u64).sum::<u64>();
+    let (r, g, b) = (sum(&bins[0..256]), sum(&bins[256..512]), sum(&bins[512..768]));
+    // Exactly one sample per pixel per channel, so all three sums equal the
+    // pixel count (and are non-zero).
+    assert!(r > 0, "expected non-empty histogram");
+    assert_eq!(r, g, "R and G sums must both equal the pixel count");
+    assert_eq!(g, b, "G and B sums must both equal the pixel count");
 }
 
 // ---------------------------------------------------------------------------

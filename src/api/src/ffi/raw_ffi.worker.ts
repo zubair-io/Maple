@@ -11,7 +11,7 @@
 // gated by the dylib, not the pool size.
 
 import { tryGetRawFfi } from './raw_ffi.ts';
-import { computeHistogram, type HistogramBins } from '../thumbs/histogram.ts';
+import { type HistogramBins } from '../thumbs/histogram.ts';
 
 interface RenderRequest {
   type: 'renderThumb';
@@ -94,13 +94,14 @@ self.addEventListener('message', (event: MessageEvent) => {
       return;
     }
     try {
-      // Render-with-xmp + bin in-place. We deliberately bin INSIDE the
-      // worker so only the 3×256 bin arrays (~4 KB) cross postMessage —
-      // shipping the rendered RGB888 buffer back to the main thread for a
-      // 100 MP frame would post ~300 MB per request and defeat the
-      // worker boundary.
-      const result = ffi.renderToRgb(req.rawPath, req.xmpPath ?? null);
-      if (!result) {
+      // Render-with-xmp + bin entirely in Rust; only the 3×256 counts (~3 KB)
+      // come back across the FFI boundary, into a JS-owned buffer, and then
+      // across postMessage. The rendered RGB888 buffer (≈300 MB at 100 MP)
+      // never crosses either boundary — that's the whole point of doing this
+      // off the main thread, and binning in Rust also removes the `toBuffer`
+      // lifetime trap the old `renderToRgb` path carried (GC double-free).
+      const bins = ffi.computeHistogramBins(req.rawPath, req.xmpPath ?? null);
+      if (!bins) {
         self.postMessage({
           type: 'histogram',
           id: req.id,
@@ -109,7 +110,6 @@ self.addEventListener('message', (event: MessageEvent) => {
         } satisfies HistogramResponse);
         return;
       }
-      const bins = computeHistogram(result.data, result.width, result.height);
       self.postMessage({
         type: 'histogram',
         id: req.id,
