@@ -579,3 +579,8 @@ pub fn render_from_scene_linear_with_chain(
 // the 600-LOC budget (#482). Test contents were moved verbatim.
 #[cfg(test)]
 mod tests;
+
+// Auto-Profile Path/Bytes render-parity test (#867) lives in its own sibling
+// file so both it and `tests.rs` stay under the 600-LOC budget (#482).
+#[cfg(test)]
+mod auto_profile_parity_tests;
