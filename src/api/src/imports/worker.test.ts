@@ -59,6 +59,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!mongoReachable) return;
   await db!.collection('imports').deleteMany({});
+  await db!.collection('import_files').deleteMany({});
 });
 
 afterAll(async () => {
@@ -179,7 +180,7 @@ describe('ImportRunner.tick', () => {
     const doc = await repo.getImport(created._id);
     expect(doc!.status).toBe('failed');
     expect(doc!.error).toBeTruthy(); // explains there were no importable files
-    expect(doc!.files).toHaveLength(0);
+    expect(await repo.getImportFiles(created._id)).toHaveLength(0);
     // Nothing was copied; the library dir was never created.
     await expect(fs.stat(lib)).rejects.toThrow();
   });
@@ -401,8 +402,9 @@ describe('ImportRunner.tick', () => {
     expect(doc!.counts.copied).toBe(1);
     expect(doc!.counts.failed).toBe(1);
     // The pre-failed file kept its ORIGINAL recorded reason — never re-copied.
-    expect(doc!.files[0].state).toBe('failed');
-    expect(doc!.files[0].error).toBe('unsafe filename: "BAD.dng"');
+    const files = await repo.getImportFiles(created._id);
+    expect(files[0].state).toBe('failed');
+    expect(files[0].error).toBe('unsafe filename: "BAD.dng"');
     // The good file landed on disk.
     expect(await fs.readFile(path.join(lib, '2024/03/GOOD.dng'), 'utf8')).toBe(
       'bytes-prefailed-GOOD.dng',
