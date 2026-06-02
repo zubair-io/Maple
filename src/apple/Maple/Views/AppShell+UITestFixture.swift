@@ -8,7 +8,9 @@
 // test can wait on the `canvas-render-ready` accessibility identifier the
 // EditorView canvas publishes. On macOS the pane shell renders
 // `EditorView` in its center column for `.editing` (`useEditor == true`,
-// #816); the legacy `FullImageView` `.fullImage` path was retired in #820.
+// #816). The UITest harness was migrated off `.fullImage` to the S5
+// `.editing`/EditorView canvas in #820; the legacy `FullImageView` /
+// `Mode.fullImage` path remains until the golden validation lands.
 // The branch skips `restoreLastSource()` entirely — the harness wants a
 // known empty starting state. See
 // `.archived-plans/plans/2026-04-25-xcuitest-visual-harness.md`.
