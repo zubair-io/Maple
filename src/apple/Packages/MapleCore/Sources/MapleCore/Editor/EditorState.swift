@@ -34,7 +34,10 @@ public enum ToolGroup: String, CaseIterable, Sendable, Hashable {
     }
 }
 
-/// 22 tools grouped per spec §2 "Groups & tools".
+/// 24 tools grouped per spec §2 "Groups & tools". Capture-sharpening
+/// Amount / Sigma (`captureSharpen` / `captureSigma`) joined the Detail
+/// group in #875 when the Develop tab — their only prior surface — was
+/// removed; they map directly to the `captureSharpening*` fields.
 public enum Tool: String, CaseIterable, Sendable, Hashable {
     // Light
     case exposure, contrast, highlights, shadows, whites, blacks
@@ -43,7 +46,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     // Effects
     case clarity, texture, dehaze, vignette, grain, splitTone
     // Detail
-    case sharpen, noise, colorNR, crop, presets
+    case sharpen, noise, colorNR, captureSharpen, captureSigma, crop, presets
 
     public var group: ToolGroup {
         switch self {
@@ -53,7 +56,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
             return .color
         case .clarity, .texture, .dehaze, .vignette, .grain, .splitTone:
             return .effects
-        case .sharpen, .noise, .colorNR, .crop, .presets:
+        case .sharpen, .noise, .colorNR, .captureSharpen, .captureSigma, .crop, .presets:
             return .detail
         }
     }
@@ -77,11 +80,13 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         case .vignette:   return "Vignette"
         case .grain:      return "Grain"
         case .splitTone:  return "Split Tone"
-        case .sharpen:    return "Sharpen"
-        case .noise:      return "Noise"
-        case .colorNR:    return "Color NR"
-        case .crop:       return "Crop"
-        case .presets:    return "Presets"
+        case .sharpen:        return "Sharpen"
+        case .noise:          return "Noise"
+        case .colorNR:        return "Color NR"
+        case .captureSharpen: return "Deconv"
+        case .captureSigma:   return "Deconv σ"
+        case .crop:           return "Crop"
+        case .presets:        return "Presets"
         }
     }
 
@@ -127,6 +132,11 @@ public enum ToolValueMapping {
             return -100...100
         case .sharpen:  return 0...150
         case .noise, .colorNR: return 0...100
+        // Capture sharpening (#271, relocated from the Develop tab in
+        // #875). Amount is one-sided 0..100 (default 0); Sigma is a
+        // narrow 0.5..2.0 px band centred on its 1.0 default.
+        case .captureSharpen: return 0...100
+        case .captureSigma:   return 0.5...2.0
         // S5 effects (#643): drag-bar primaries — symmetric ±100 around
         // 0 for vignette amount / split-tone balance, one-sided 0..100
         // for grain amount.
@@ -153,7 +163,11 @@ public enum ToolValueMapping {
             // 0..150, default 40 at v=0.
             return v >= 0 ? 40 + (v / 100.0) * (150 - 40)
                           : 40 + (v / 100.0) * 40
-        case .noise, .colorNR, .grain:
+        case .captureSigma:
+            // 0.5..2.0 px, default 1.0 at v=0; +100 → 2.0, -100 → 0.5.
+            return v >= 0 ? 1.0 + (v / 100.0) * (2.0 - 1.0)
+                          : 1.0 + (v / 100.0) * (1.0 - 0.5)
+        case .noise, .colorNR, .grain, .captureSharpen:
             // 0..100, default 0 at v=-100 / 25 at v=0 for colorNR? We keep
             // the simple symmetric mapping: 0 at v=-100, 100 at v=+100.
             // Grain shares the one-sided 0..100 layout per #643.
@@ -175,7 +189,10 @@ public enum ToolValueMapping {
         case .sharpen:
             return d >= 40 ? ((d - 40) / (150 - 40)) * 100
                            : ((d - 40) / 40) * 100
-        case .noise, .colorNR, .grain:
+        case .captureSigma:
+            return d >= 1.0 ? ((d - 1.0) / (2.0 - 1.0)) * 100
+                            : ((d - 1.0) / (1.0 - 0.5)) * 100
+        case .noise, .colorNR, .grain, .captureSharpen:
             let lo = r.lowerBound, hi = r.upperBound
             return ((d - lo) / (hi - lo)) * 200 - 100
         default:
@@ -202,6 +219,9 @@ public enum ToolValueMapping {
         case .sharpen:    return model.sharpenAmount
         case .noise:      return model.nrLuminance
         case .colorNR:    return model.nrColor
+        // Capture sharpening (#271) — relocated from the Develop tab (#875).
+        case .captureSharpen: return model.captureSharpeningAmount
+        case .captureSigma:   return model.captureSharpeningSigma
         // S5 effects (#643) — drag-bar primaries.
         case .vignette:   return model.vignetteAmount
         case .grain:      return model.grainAmount
@@ -227,6 +247,9 @@ public enum ToolValueMapping {
         case .temp:    return 6500
         case .sharpen: return 40
         case .colorNR: return 25
+        // Capture-sharpening Sigma default is 1.0 px (Amount default 0
+        // falls through). Keeps a fresh asset off the modified dot (#875).
+        case .captureSigma: return 1.0
         default:       return 0
         }
     }
@@ -250,6 +273,9 @@ public enum ToolValueMapping {
         case .sharpen:    model.sharpenAmount = value
         case .noise:      model.nrLuminance = value
         case .colorNR:    model.nrColor = value
+        // Capture sharpening (#271) — relocated from the Develop tab (#875).
+        case .captureSharpen: model.captureSharpeningAmount = value
+        case .captureSigma:   model.captureSharpeningSigma = value
         // S5 effects (#643) — drag-bar primaries.
         case .vignette:   model.vignetteAmount = value
         case .grain:      model.grainAmount = value

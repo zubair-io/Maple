@@ -111,6 +111,40 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(session.model.splitToneBalance, 25, accuracy: 1e-9)
     }
 
+    func testCaptureSharpeningToolsWireToModel() {
+        // #875: capture-sharpening Amount / Sigma relocated from the
+        // removed Develop tab into the Detail group.
+        let session = makeSession()
+        let state = EditorState(session: session)
+
+        // Amount: one-sided 0..100, internal +100 → display 100.
+        state.arm(tool: .captureSharpen)
+        state.setArmedInternalValue(100)
+        XCTAssertEqual(session.model.captureSharpeningAmount, 100, accuracy: 1e-9)
+        // Internal -100 → display 0 (the floor, not -100).
+        state.setArmedInternalValue(-100)
+        XCTAssertEqual(session.model.captureSharpeningAmount, 0, accuracy: 1e-9)
+
+        // Sigma: 0.5..2.0 px centred on 1.0 at v=0.
+        state.arm(tool: .captureSigma)
+        state.setArmedInternalValue(0)
+        XCTAssertEqual(session.model.captureSharpeningSigma, 1.0, accuracy: 1e-9)
+        state.setArmedInternalValue(100)
+        XCTAssertEqual(session.model.captureSharpeningSigma, 2.0, accuracy: 1e-9)
+        state.setArmedInternalValue(-100)
+        XCTAssertEqual(session.model.captureSharpeningSigma, 0.5, accuracy: 1e-9)
+    }
+
+    func testCaptureSigmaInternalRoundTrips() {
+        // displayValue ∘ internalValue must be identity across the band so
+        // the value chip and reset agree with the drag-bar.
+        for d in stride(from: 0.5, through: 2.0, by: 0.1) {
+            let v = ToolValueMapping.internalValue(for: .captureSigma, displayValue: d)
+            let back = ToolValueMapping.displayValue(for: .captureSigma, internalValue: v)
+            XCTAssertEqual(back, d, accuracy: 1e-9)
+        }
+    }
+
     // MARK: - Commit / undo / redo
 
     func testCommitSnapshotsThroughEditSession() {
@@ -169,6 +203,9 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .sharpen), 40, accuracy: 1e-9)
         XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .colorNR), 25, accuracy: 1e-9)
         XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .noise), 0, accuracy: 1e-9)
+        // Capture sharpening (#875): Amount default 0, Sigma default 1.0 px.
+        XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .captureSharpen), 0, accuracy: 1e-9)
+        XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .captureSigma), 1.0, accuracy: 1e-9)
     }
 
     // MARK: - Undo cap
@@ -204,28 +241,34 @@ final class EditorStateTests: XCTestCase {
 
     // MARK: - Tool catalog sanity
 
-    func testTwentyTwoToolsExist() {
-        XCTAssertEqual(Tool.allCases.count, 22)
+    func testTwentyFourToolsExist() {
+        // 22 base tools + Capture Sharpening Amount / Sigma, relocated to
+        // the Detail group when the Develop tab was removed (#875).
+        XCTAssertEqual(Tool.allCases.count, 24)
     }
 
     func testToolGroupMembership() {
         XCTAssertEqual(Tool.tools(in: .light).count, 6)
         XCTAssertEqual(Tool.tools(in: .color).count, 5)
         XCTAssertEqual(Tool.tools(in: .effects).count, 6)
-        XCTAssertEqual(Tool.tools(in: .detail).count, 5)
+        // Detail gained captureSharpen + captureSigma (#875): 5 → 7.
+        XCTAssertEqual(Tool.tools(in: .detail).count, 7)
     }
 
-    func testWiredToolsCoverNineteenFields() {
+    func testWiredToolsCoverTwentyOneFields() {
         // Per #643: vignette / grain / splitTone gained AdjustmentModel
-        // fields, leaving HSL/Crop/Presets as the v0.1 stubs (each tracked
-        // by its own spec ticket — #636, #638, #639).
+        // fields. Per #875: captureSharpen / captureSigma wire to the
+        // captureSharpening* fields. HSL/Crop/Presets remain the v0.1
+        // stubs (each tracked by its own spec ticket — #636, #638, #639).
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 19)
+        XCTAssertEqual(wired.count, 21)
         XCTAssertFalse(Tool.hsl.isWired)
         XCTAssertFalse(Tool.crop.isWired)
         XCTAssertFalse(Tool.presets.isWired)
         XCTAssertTrue(Tool.vignette.isWired)
         XCTAssertTrue(Tool.grain.isWired)
         XCTAssertTrue(Tool.splitTone.isWired)
+        XCTAssertTrue(Tool.captureSharpen.isWired)
+        XCTAssertTrue(Tool.captureSigma.isWired)
     }
 }

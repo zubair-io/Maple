@@ -40,11 +40,15 @@ enum ToolGlyph {
         case .splitTone:  return "rectangle.lefthalf.inset.filled"
 
         // Detail
-        case .sharpen:    return "triangle"
-        case .noise:      return "waveform"
-        case .colorNR:    return "wand.and.rays"
-        case .crop:       return "crop"
-        case .presets:    return "square.stack.3d.up"
+        case .sharpen:        return "triangle"
+        case .noise:          return "waveform"
+        case .colorNR:        return "wand.and.rays"
+        // Capture-sharpening (deconvolution) Amount / Sigma — focus-/
+        // lens-flavoured glyphs to read distinct from plain Sharpen.
+        case .captureSharpen: return "camera.aperture"
+        case .captureSigma:   return "circle.dotted"
+        case .crop:           return "crop"
+        case .presets:        return "square.stack.3d.up"
         }
     }
 }
