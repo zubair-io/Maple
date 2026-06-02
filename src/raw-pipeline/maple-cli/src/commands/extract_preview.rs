@@ -16,7 +16,7 @@
 //!   * `Err(_)` — a real I/O failure (missing / unreadable RAW, or a write
 //!     error). Maps to a generic non-zero exit (`1`, never `3`).
 
-use raw_core::view::auto_profile::preview::extract_preview;
+use raw_core::view::auto_profile::preview::extract_preview_display_oriented;
 use std::path::Path;
 
 /// Sentinel exit code: the RAW was readable but had no embedded preview.
@@ -32,7 +32,11 @@ pub fn run(raw: &Path, out: &Path) -> Result<i32, Box<dyn std::error::Error>> {
         format!("cannot read RAW {}: {}", raw.display(), e).into()
     })?;
 
-    match extract_preview(raw) {
+    // Display-oriented: the Auto Profile gate diffs this against Maple's
+    // display-oriented render, so the preview must be rotated out of sensor
+    // frame (rotated/flipped fixtures otherwise compare through a 90° / squash
+    // mismatch). Mirrors the orientation the render pipeline applies last.
+    match extract_preview_display_oriented(raw) {
         Some(img) => {
             img.save(out)?;
             Ok(0)
