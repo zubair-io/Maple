@@ -24,6 +24,10 @@ struct ValueChipOverlay: View {
             return String(format: "%+0.2f EV", v)
         case .temp:
             return "\(Int(v.rounded())) K"
+        case .captureSigma:
+            // 0.5..2.0 px sub-integer band — integer rounding would
+            // collapse it to "1"/"2", so show two decimals + a px unit.
+            return String(format: "%.2f px", v)
         default:
             return String(format: "%+d", Int(v.rounded()))
         }
