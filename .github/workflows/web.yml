@@ -22,8 +22,9 @@
 #
 # All three jobs need the Rust -> WASM `pkg/` built first (the app and library
 # both import it), so they share the same toolchain provisioning + cargo cache
-# key; the cache makes each later job's WASM build a fast restore rather than a
-# full `-Z build-std` recompile.
+# key; on a cache hit that shared cache makes each later job's WASM build a fast
+# restore rather than another full `-Z build-std` recompile. On a cold cache
+# there's nothing to restore, so each job builds the WASM once.
 #
 # Why this job is heavier than the other cross-cutting jobs:
 #
@@ -195,8 +196,9 @@ jobs:
         with:
           version: latest
 
-      # Same cache key as web-build, so the `-Z build-std` WASM compile is a
-      # restore here rather than a third full build.
+      # Same cache key as web-build, so on a cache hit the `-Z build-std` WASM
+      # compile is a restore here rather than a third full build; on a cold
+      # cache this job builds the WASM once.
       - name: Cache cargo registry + raw-pipeline target
         uses: actions/cache@v4
         with:
