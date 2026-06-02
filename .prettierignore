@@ -7,3 +7,5 @@ test-fixtures/
 node_modules/
 **/node_modules/
 **/dist/
+# `cargo vendor` output — upstream crate sources, not ours to format.
+**/vendor/
