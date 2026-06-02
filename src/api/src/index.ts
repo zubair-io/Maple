@@ -94,7 +94,7 @@ import { bootstrapFfiPool } from './ffi/ffi-pool-bootstrap.ts';
 import { startJobRunner, stopJobRunner } from './job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from './imports/worker.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
-import { tryGetRawFfi } from './ffi/raw_ffi.ts';
+import { ffiPool } from './ffi/ffi-pool.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -281,12 +281,12 @@ async function start(): Promise<void> {
   // and the next phase still runs. Only the DB connection itself is
   // hard-required; without it, downstream phases are skipped.
   void (async () => {
-    // Eagerly dlopen the native RAW FFI dylib once, off the request path. The
-    // load is a one-time 50–200ms block (mmap + symbol resolution); paying it
-    // here means the FIRST histogram/thumbnail request doesn't eat it inline.
-    // tryGetRawFfi() memoises the result and degrades quietly (warn + null)
-    // when the dylib is absent, so this is a no-op on builds without it.
-    tryGetRawFfi();
+    // RAW decode (thumb / preview / histogram) runs in isolated child
+    // processes — see `ffi/ffi-pool.ts`. The dylib is `dlopen`'d inside each
+    // child on first spawn, deliberately NEVER in this HTTP process, so a
+    // libraw segfault on a malformed RAW can only ever kill a child (which the
+    // pool respawns) and never the server. Nothing to warm here; the pool
+    // spawns its first child lazily on the first decode request.
 
     try {
       await getDb();
@@ -513,6 +513,15 @@ async function shutdown(signal: string): Promise<void> {
     await stopAllStages();
   } catch (e) {
     log.warn({ err: e }, 'error stopping worker stages');
+  }
+  // Reap the FFI decode child processes. Stages are drained above so no new
+  // decode requests are coming; Bun doesn't auto-reap spawned children when
+  // the parent exits, so do it explicitly to avoid leaving orphans behind on a
+  // graceful restart.
+  try {
+    ffiPool().shutdown();
+  } catch (e) {
+    log.warn({ err: e }, 'error shutting down FFI decode pool');
   }
   try {
     await stopGeocodeWorker();

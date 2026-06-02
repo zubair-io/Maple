@@ -1,0 +1,54 @@
+/**
+ * Wire protocol shared by the FFI decode child process (`raw_ffi.child.ts`)
+ * and its pool manager (`ffi-pool.ts`).
+ *
+ * Kept in its own module so both sides import the same request/response shapes
+ * and can't drift, and so the child entry doesn't have to import the pool (which
+ * would pull the `Bun.spawn`-ing manager into the child).
+ *
+ * Only small values cross the IPC boundary: a request carries paths + ints; a
+ * response carries `ok`/`error` (renderThumb writes its JPEG straight to disk
+ * inside the child) or the 3×256 histogram bins (~3 KB). The heavy buffers (the
+ * decoded RGB plane, the rendered JPEG) never leave the child.
+ */
+
+import type { HistogramBins } from '../thumbs/histogram.ts';
+
+/** Render a RAW's embedded preview to a JPEG file on disk (`_to_file` path). */
+export interface RenderThumbRequest {
+  type: 'renderThumb';
+  id: number;
+  rawPath: string;
+  outPath: string;
+  maxPx: number;
+  quality: number;
+}
+
+/** Render a RAW+XMP and bin the result into a 3×256 RGB histogram (in Rust). */
+export interface HistogramRequest {
+  type: 'histogram';
+  id: number;
+  rawPath: string;
+  /** Optional XMP sidecar path — applied to the render so a re-edit
+   *  invalidates the histogram. Null = default adjustments. */
+  xmpPath: string | null;
+}
+
+export type FfiRequest = RenderThumbRequest | HistogramRequest;
+
+export interface RenderThumbResponse {
+  type: 'renderThumb';
+  id: number;
+  ok: boolean;
+  error?: string;
+}
+
+export interface HistogramResponse {
+  type: 'histogram';
+  id: number;
+  ok: boolean;
+  bins?: HistogramBins;
+  error?: string;
+}
+
+export type FfiResponse = RenderThumbResponse | HistogramResponse;
