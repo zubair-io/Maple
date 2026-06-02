@@ -660,7 +660,8 @@ public actor ImageEditPipeline {
         model: AdjustmentModel,
         targetSize: CGSize? = nil,
         asShot: AsShotWB? = nil,
-        decodedAtModel: AdjustmentModel? = nil
+        decodedAtModel: AdjustmentModel? = nil,
+        profileLUT: CIFilter? = nil
     ) -> CIImage {
         let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
 
@@ -734,10 +735,20 @@ public actor ImageEditPipeline {
             detail: Float(model.sharpenDetail),
             masking: Float(model.sharpenMasking)
         )
-        return MetalKernels.applySceneNRColor(
+        let withNRColor = MetalKernels.applySceneNRColor(
             to: withSharpen,
             nrColor: Float(model.nrColor)
         )
+        // Auto Profile (#812) — the LAST display-space op, matching the CPU
+        // path's `auto_profile` → quantize order. `profileLUT` is a
+        // CIColorCubeWithColorSpace tagged sRGB so CoreImage applies the
+        // curve in f32 sRGB-encoded display space (the domain it was fit in,
+        // #550). Nil for `Profile::Neutral` — the canvas then stays
+        // byte-identical to the AgX-only output (and wide-gamut P3, since the
+        // sRGB cube would otherwise clamp the gamut). The caller resolves +
+        // caches the cube per image via `AutoProfileLUT` so this is never a
+        // per-tick cost.
+        return AutoProfileLUT.apply(profileLUT, to: withNRColor)
     }
 
     // MARK: Render preview (processed CIImage → CGImage)

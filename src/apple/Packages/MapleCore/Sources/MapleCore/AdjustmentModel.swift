@@ -46,6 +46,17 @@ public enum HighlightRecoveryMode: String, Codable, Sendable, Hashable {
 public enum Look: String, Codable, Sendable, Hashable {
     case neutral = "Neutral"
     case `default` = "Default"
+
+    /// C-ABI `look_mode` byte the Rust `Look::from(u8)` maps back (0 =
+    /// Neutral, anything else = Default). Threaded into
+    /// `MapleAdjustmentParams.look_mode` so the FFI scene-linear chain
+    /// reconstructs the user's selection instead of a hard-coded literal.
+    public var lookMode: UInt8 {
+        switch self {
+        case .neutral: return 0
+        case .default: return 1
+        }
+    }
 }
 
 // MARK: - Profile

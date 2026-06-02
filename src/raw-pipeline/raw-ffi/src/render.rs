@@ -15,7 +15,10 @@ use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::{
     decode::decode_bytes,
-    pipeline::{render_from_raw_with_quality, render_from_raw_with_quality_and_source, RenderQuality},
+    pipeline::{
+        fit_profile_curve_from_raw, render_from_raw_with_quality,
+        render_from_raw_with_quality_and_source, RawInput, RenderQuality,
+    },
 };
 use std::ffi::{CStr, c_char};
 
@@ -325,5 +328,117 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
     }
     std::ptr::copy_nonoverlapping(lut.as_ptr(), out, out_len);
     0
+}
+
+/// Fit the per-image Auto Profile curve (#812) for a RAW file + XMP sidecar
+/// and write its flat serialization into `out`.
+///
+/// This is the FITTED-curve sibling of `maple_compute_profile_lut` (which
+/// BAKES an already-fitted curve into a 3D LUT). The gap #840 flagged: the
+/// bake entry took a serialized curve as INPUT, but nothing surfaced the
+/// fit across FFI. This export closes that — the Apple Metal host (#812)
+/// calls it once per image to obtain the curve, then feeds the result
+/// straight into `maple_compute_profile_lut` to bake the GPU LUT.
+///
+/// It delegates to `raw_core::pipeline::fit_profile_curve_from_raw`, which
+/// develops the RAW through the SAME view-transform prefix the CPU render
+/// uses (AgX → rec2020→sRGB → sRGB gamma encode) and fits the curve in
+/// f32 sRGB-encoded display space — so the GPU Auto Profile render cannot
+/// drift from `maple_render_file`'s CPU Auto Profile output.
+///
+/// `quality_preview` mirrors `maple_render_file`: `0` = `RenderQuality::Full`
+/// (matches the parity harness / `maple-cli render`), `1` = `Preview`
+/// (half-res develop). Pass the same value the host's scene-linear decode
+/// used so the fitted curve matches the buffer being displayed.
+///
+/// `out` must point to at least `PROFILE_CURVE_FLAT_LEN` writable f32. On
+/// success the full flat curve is written and `0` is returned.
+///
+/// This is a **per-image, one-shot** call — the fit runs a full JPEG
+/// extraction + develop chain (orders of magnitude over the slider tick
+/// budget). The fit is cached in the shared `auto_profile` LRU keyed on
+/// `(raw_identity, mtime)`, so the host should ALSO cache the returned
+/// curve on its side and never call this per slider tick.
+///
+/// Returns:
+/// - `0` on success — `out` holds `PROFILE_CURVE_FLAT_LEN` f32.
+/// - `1` when no curve applies — the model is not `Profile::Auto`, the
+///   embedded JPEG can't be extracted, or the fit is degenerate. `out` is
+///   left untouched; the host renders plain AgX (= `Profile::Neutral`).
+/// - `2`/`3` when `raw_path` / `xmp_path` is non-UTF-8.
+/// - `6`/`7` when the RAW read / decode fails (`maple_last_error` is set).
+/// - `-1` when `raw_path` or `out` is null.
+///
+/// # Safety
+/// - `raw_path` must be a valid UTF-8 C string; `xmp_path` may be null.
+/// - `out` must point to at least `PROFILE_CURVE_FLAT_LEN` writable f32 that
+///   live for the duration of the call. It is overwritten only on success.
+#[no_mangle]
+pub unsafe extern "C" fn maple_compute_profile_curve(
+    raw_path: *const c_char,
+    xmp_path: *const c_char,
+    quality_preview: i32,
+    out: *mut f32,
+) -> i32 {
+    use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
+    if raw_path.is_null() || out.is_null() {
+        return -1;
+    }
+    let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
+        Ok(s) => s.to_owned(),
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
+    };
+    let xmp_path_str: Option<String> = if xmp_path.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_path).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+        }
+    };
+    let out_ptr = out as usize;
+    with_large_stack(move || {
+        let raw_path = std::path::Path::new(&raw_path_str);
+        let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
+            LoadModel::Ok(m) => m,
+            LoadModel::Err(rc) => return rc,
+        };
+        let raw_bytes = match raw_core::pipeline::stage("ffi_profile_raw_read", || std::fs::read(raw_path)) {
+            Ok(b) => b,
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+        };
+        let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let raw_img = match raw_core::pipeline::stage("ffi_profile_decode", || decode_bytes(&raw_bytes, ext)) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
+        let quality = if quality_preview != 0 {
+            RenderQuality::Preview
+        } else {
+            RenderQuality::Full
+        };
+        match fit_profile_curve_from_raw(
+            &raw_img, &model, quality, RawInput::Path(raw_path),
+        ) {
+            Some(curve) => {
+                let flat = curve.to_flat();
+                // `to_flat` always returns exactly PROFILE_CURVE_FLAT_LEN —
+                // guard the unsafe copy so a future layout change can't OOB.
+                if flat.len() != PROFILE_CURVE_FLAT_LEN {
+                    return -1;
+                }
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        flat.as_ptr(),
+                        out_ptr as *mut f32,
+                        PROFILE_CURVE_FLAT_LEN,
+                    );
+                }
+                0
+            }
+            // Not Auto, no JPEG, or degenerate fit — host falls back to AgX.
+            None => 1,
+        }
+    })
 }
 
