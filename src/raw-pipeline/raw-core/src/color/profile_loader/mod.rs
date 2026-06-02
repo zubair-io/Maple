@@ -66,7 +66,11 @@
 //!   `to_dcp_profile`), and the DCP-profile resolution math.
 
 mod parser;
+mod parser_v3;
+#[cfg(test)]
+mod tests_v3;
 mod types;
+mod writer;
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -75,7 +79,28 @@ use crate::color::dcp::{interpolated_profile, single_illuminant_profile, DcpProf
 use crate::color::ucm_mapping;
 use crate::image::RawImage;
 
-pub use types::{CameraKey, MapleProfile};
+pub use types::{CameraKey, IndexRecord, MapleProfile, PoolDirEntry, ProfileIndex};
+pub use writer::{encode_v3, EncodedV3, EncoderProfile};
+
+// Re-exports for the maple-cli transcode subcommand and the v3 roundtrip
+// tests: the v3 index parser and per-entry pool resolver. Both are
+// delivery-agnostic (operate on byte slices) so #828 can layer async
+// range-fetch + IndexedDB on top without touching the format.
+pub use parser_v3::{inflate_pool_entry, parse_index, resolve_from_pool};
+
+/// Repack a **v1** inline `profiles.bin` (matrices, HSM inline per record)
+/// into the **v3 split** layout (#829, PR #831): dedup HSM into a pooled,
+/// per-entry-zlib pool region + an uncompressed index region with the offset
+/// directory. Matrix and HSM bytes are copied verbatim (no float round-trip),
+/// so the resolved profile data is byte-identical across the repack.
+///
+/// Returns `None` when `v1_bytes` is not a valid v1 bundle (bad magic, wrong
+/// version, or a truncated record). Powers the maple-cli `transcode-dcp`
+/// subcommand and the v3 roundtrip tests.
+pub fn transcode_v1_to_v3(v1_bytes: &[u8]) -> Option<EncodedV3> {
+    let records = parser::extract_v1_records(v1_bytes)?;
+    Some(writer::encode_v3(&records))
+}
 
 /// Embedded bundle blob — produced by `src/scripts/convert_dcps.py`.
 /// `include_bytes!` is a compile-time macro: the file MUST exist at
@@ -99,7 +124,21 @@ pub use types::{CameraKey, MapleProfile};
 pub(crate) const PROFILES_BIN: &[u8] = include_bytes!("../profiles/profiles.bin");
 
 pub(crate) const MAGIC: &[u8; 4] = b"MDCP";
+
+/// On-disk bundle layouts (the u16 at header offset 4).
+///
+///   * `1` — **inline matrices-only** (v1): 16-byte header then N uncompressed
+///     records, each carrying its HSM table(s) inline. The historical, and
+///     still SHIPPED, `profiles.bin` (~263 KB, matrices only — HSM flags
+///     clear). [`parser::parse_bundle`] reads it.
+///   * `3` — **v3 split** (ticket #829, PR #831): an uncompressed index region
+///     (header + pool offset directory + records that reference HSM by pool
+///     index) and a separately-addressable pool region of per-entry zlib
+///     streams. The lazy-fetch-friendly foundation for #828. The abandoned
+///     whole-stream v2 (=2) is intentionally skipped — it cannot support
+///     per-body fetch and never shipped. [`parser_v3`] reads it.
 pub(crate) const FORMAT_VERSION: u16 = 1;
+pub(crate) const FORMAT_VERSION_V3: u16 = 3;
 
 /// Decoded `(camera_key → profile)` table. Populated lazily on first
 /// `lookup_profile` call. `OnceLock` is the std-lib equivalent of `lazy_static`

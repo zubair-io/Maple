@@ -4,7 +4,9 @@
 //! this file holds just the two public types so the loader root and
 //! the bundle parser can share them without depending on each other.
 
-use crate::color::hsm::HsmTable;
+use std::collections::HashMap;
+
+use crate::color::hsm::{HsmEncoding, HsmTable};
 use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::math::Matrix3;
 
@@ -60,4 +62,62 @@ impl CameraKey {
             unique_camera_model: unique_camera_model.into(),
         }
     }
+}
+
+/// One entry of the v3 split layout's **pool offset directory**.
+///
+/// The directory lives in the always-resident (uncompressed) index region, so
+/// a client can compute the exact byte range of pool entry `N` — and later
+/// range-fetch (#828) or slice (native) just that entry — without touching the
+/// pool body at all. `offset`/`compressed_len` address the per-entry zlib
+/// stream within the **pool region** (the `profiles.pool` asset); `dims` +
+/// `encoding` let the decoder size and tag the inflated `HsmTable`. See the
+/// v3 byte spec in [`super::writer`] and the design at PR #831.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoolDirEntry {
+    /// Byte offset of this entry's zlib stream within the pool region.
+    pub offset: u32,
+    /// Length in bytes of this entry's zlib stream within the pool region.
+    pub compressed_len: u32,
+    /// HSM grid dims `[hue, sat, val]`. The inflated f32 count is
+    /// `dims[0] * dims[1] * dims[2] * 3`.
+    pub dims: [u32; 3],
+    /// HSM value encoding (Linear / sRGB).
+    pub encoding: HsmEncoding,
+}
+
+/// One parsed v3 **index record** — matrices, illuminants, baseline-exposure
+/// offset, and the *references* (`u32` pool indices) to this body's HSM
+/// tables. Crucially carries NO HSM bytes: the index region is the ~263 KB
+/// matrices-class part that resolves a body fully without inflating any pool
+/// entry. The actual `HsmTable`s are materialized later, on demand, by reading
+/// the referenced pool entries through the directory (the #828 lazy path; in
+/// #829 the foundation only proves they are resolvable in isolation).
+#[derive(Clone, Debug, PartialEq)]
+pub struct IndexRecord {
+    pub unique_camera_model: String,
+    pub illum1: Option<CoreIlluminant>,
+    pub illum2: Option<CoreIlluminant>,
+    pub cm1: Option<Matrix3>,
+    pub cm2: Option<Matrix3>,
+    pub fm1: Option<Matrix3>,
+    pub fm2: Option<Matrix3>,
+    /// Pool index of `ProfileHueSatMapData1`, or `None` when this body ships
+    /// no HSM1 (HSM flag bit clear).
+    pub hsm1_pool_index: Option<u32>,
+    /// Pool index of `ProfileHueSatMapData2`.
+    pub hsm2_pool_index: Option<u32>,
+    pub baseline_exposure_offset: f32,
+}
+
+/// The parsed v3 **index region**: every body's record plus the pool offset
+/// directory — the always-resident part. Parsing this requires only the index
+/// bytes (header + directory + records); the pool region is never touched.
+/// This is the structural proof of correction #1 (index hoisted out of the
+/// compressed region): a body's matrices + HSM pool indices resolve from this
+/// struct alone.
+#[derive(Clone, Debug, Default)]
+pub struct ProfileIndex {
+    pub records: HashMap<CameraKey, IndexRecord>,
+    pub pool_dir: Vec<PoolDirEntry>,
 }

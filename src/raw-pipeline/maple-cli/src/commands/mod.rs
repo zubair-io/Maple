@@ -15,4 +15,5 @@ pub mod inspect;
 pub mod render;
 pub mod synthetic;
 pub mod tile;
+pub mod transcode_dcp;
 pub mod types;
