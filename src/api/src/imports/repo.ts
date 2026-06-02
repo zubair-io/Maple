@@ -95,7 +95,19 @@ export async function createImport(
     updated_at: nowIso,
   };
   const result = await c.insertOne(doc as ImportDoc);
-  await insertImportFiles(result.insertedId, input.files);
+  try {
+    await insertImportFiles(result.insertedId, input.files);
+  } catch (err) {
+    // The import doc was inserted first; if the file-row writes fail partway we
+    // must not leave a `pending` import with `progress.total > 0` and missing
+    // rows — the worker would treat the short read as the whole job and
+    // "complete" it with files silently dropped. Roll both back, then rethrow
+    // so the caller surfaces the failure.
+    const filesColl = await importFilesCollection();
+    await filesColl.deleteMany({ import_id: result.insertedId }).catch(() => {});
+    await c.deleteOne({ _id: result.insertedId }).catch(() => {});
+    throw err;
+  }
   return { _id: result.insertedId, ...doc } as ImportWithId;
 }
 
@@ -175,9 +187,14 @@ export async function claimImport(
 
 /**
  * Load an import's per-file entries in stable `idx` order. New imports store
- * these in the `import_files` collection; pre-migration imports kept them
- * inline on the doc, so fall back to that when the collection has no rows for
- * the id (keeps the detail view of old imports working without a migration).
+ * these in the `import_files` collection.
+ *
+ * Pre-migration imports kept the entries inline on the import doc. When the
+ * collection has no rows for the id but the doc still carries inline `files`,
+ * we hydrate the collection from them on this first read (best-effort) and
+ * then serve from the collection — so the worker's progress writes and
+ * `retryImport`'s state resets (which only touch `import_files`) land on real
+ * rows instead of silently no-opping against a legacy inline array.
  */
 export async function getImportFiles(id: ObjectId): Promise<ImportFileEntryWithIdx[]> {
   const coll = await importFilesCollection();
@@ -194,14 +211,23 @@ export async function getImportFiles(id: ObjectId): Promise<ImportFileEntryWithI
       idx: r.idx,
     }));
   }
-  // Legacy fallback: an import created before the split still carries its
-  // files inline. Surface them (with synthesized idx) so old detail views and
-  // retries keep working.
+  // Legacy fallback + one-time hydration.
   const c = await importsCollection();
   const doc = (await c.findOne({ _id: id }, { projection: { files: 1 } })) as {
     files?: ImportFileEntry[];
   } | null;
-  return (doc?.files ?? []).map((f, idx) => ({ ...f, idx }));
+  const legacy = doc?.files ?? [];
+  if (legacy.length > 0) {
+    try {
+      await insertImportFiles(id, legacy);
+    } catch {
+      // Best-effort: a concurrent hydration (duplicate-key on the unique
+      // (import_id, idx) index) or a transient write error is fine — the list
+      // we return below is still correct for this read, and a later read will
+      // see whatever rows did land.
+    }
+  }
+  return legacy.map((f, idx) => ({ ...f, idx }));
 }
 
 /**
@@ -265,10 +291,21 @@ export async function updateImportProgress(
   now: () => Date = () => new Date(),
 ): Promise<void> {
   const filesColl = await importFilesCollection();
-  await filesColl.updateOne(
+  const fileUpdate = await filesColl.updateOne(
     { import_id: id, idx: args.index },
     { $set: { state: args.state, error: args.error, dest: args.destRel } },
   );
+  if (fileUpdate.matchedCount !== 1) {
+    // The worker only ever reports progress for an `idx` it pulled from
+    // `getImportFiles`, so a miss means the row vanished underneath us (a
+    // concurrent re-scan/cleanup, or a partial write). Fail loudly rather than
+    // bumping the import-level counts against per-file state that didn't move —
+    // the worker turns this throw into a failed import, and a retry re-runs the
+    // file deterministically.
+    throw new Error(
+      `updateImportProgress: no import_files row for import ${id.toHexString()} idx ${args.index}`,
+    );
+  }
 
   const c = await importsCollection();
   const nowDate = now();
