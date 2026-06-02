@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { foldersCollection, assetsCollection } from '../src/db/client.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -100,7 +100,7 @@ function sidecarRequest(
 describe('POST /api/libraries/:id/backup/sidecar', () => {
   test('happy path — writes .xmp next to original', async () => {
     const xmp = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta>`;
-    const res = await app.handle(
+    const res = await authedHandle(
       sidecarRequest(xmp, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -126,7 +126,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     // skips-if-exists, #698) and the raw-bytes assertion stays meaningful.
     const xmlRelPath = '2024/Tokyo/03-15/IMG_XML_CTYPE.HEIC';
     const xmp = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description maple:favorite="False"/></rdf:RDF></x:xmpmeta>`;
-    const res = await app.handle(
+    const res = await authedHandle(
       sidecarRequest(xmp, {
         'Content-Type': 'application/xml',
         'X-Maple-Device-Id': deviceId,
@@ -147,7 +147,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     const xmp1 = `<x:xmpmeta>v1</x:xmpmeta>`;
     const xmp2 = `<x:xmpmeta>v2</x:xmpmeta>`;
 
-    const r1 = await app.handle(
+    const r1 = await authedHandle(
       sidecarRequest(xmp1, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -157,7 +157,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     expect(r1.status).toBe(200);
     expect((await r1.json()).skipped).toBeUndefined();
 
-    const r2 = await app.handle(
+    const r2 = await authedHandle(
       sidecarRequest(xmp2, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -172,7 +172,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
   });
 
   test('missing required header → 400', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       sidecarRequest('<x/>', {
         'X-Maple-Device-Id': deviceId,
         // no phasset id
@@ -183,7 +183,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
   });
 
   test('no prior ingest for this device+phasset → 404', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       sidecarRequest('<x/>', {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': 'UNKNOWN/L0/999',
@@ -196,7 +196,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
   });
 
   test('library not found → 404', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       sidecarRequest(
         '<x/>',
         {
@@ -212,7 +212,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
 
   test('body exceeds 256 KB → 413', async () => {
     const big = Buffer.alloc(257 * 1024, 0x41); // 257 KB of 'A'
-    const r = await app.handle(
+    const r = await authedHandle(
       sidecarRequest(big, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -223,7 +223,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
   });
 
   test('path traversal in X-Maple-Target-Rel-Path → 400', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       sidecarRequest('<x/>', {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -247,7 +247,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     test('maple_id resolves where device+phasset would miss → 200 + file written', async () => {
       // Sanity: device+phasset alone (no X-Maple-Id) misses → 404, proving the
       // phasset link for `dedupPhid` is genuinely absent.
-      const miss = await app.handle(
+      const miss = await authedHandle(
         sidecarRequest('<x/>', {
           'X-Maple-Device-Id': deviceId,
           'X-Maple-Phasset-Id': dedupPhid,
@@ -259,7 +259,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
       // With X-Maple-Id present, the maple_id primary lookup resolves the
       // existing asset even though `dedupPhid` isn't linked.
       const xmp = `<x:xmpmeta>dedup</x:xmpmeta>`;
-      const res = await app.handle(
+      const res = await authedHandle(
         sidecarRequest(xmp, {
           'X-Maple-Device-Id': deviceId,
           'X-Maple-Phasset-Id': dedupPhid,
@@ -282,7 +282,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
 
       // A second device re-uploads (dedup) with different XMP bytes — must NOT
       // clobber the first device's sidecar.
-      const res = await app.handle(
+      const res = await authedHandle(
         sidecarRequest('<x:xmpmeta>SECOND-DEVICE</x:xmpmeta>', {
           'X-Maple-Device-Id': 'other-device',
           'X-Maple-Phasset-Id': 'OTHER/L0/999',
@@ -304,7 +304,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
       // phasset_local_id) must still resolve the original linked asset.
       const fallbackRelPath = '2024/Tokyo/03-15/IMG_FALLBACK.HEIC';
       const xmp = `<x:xmpmeta>fallback</x:xmpmeta>`;
-      const res = await app.handle(
+      const res = await authedHandle(
         sidecarRequest(xmp, {
           'X-Maple-Device-Id': deviceId,
           'X-Maple-Phasset-Id': phid,
@@ -317,7 +317,7 @@ describe('POST /api/libraries/:id/backup/sidecar', () => {
     });
 
     test('neither maple_id nor device+phasset matches → 404', async () => {
-      const res = await app.handle(
+      const res = await authedHandle(
         sidecarRequest('<x/>', {
           'X-Maple-Device-Id': 'ghost-device',
           'X-Maple-Phasset-Id': 'GHOST/L0/000',

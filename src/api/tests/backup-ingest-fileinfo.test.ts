@@ -8,7 +8,7 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { foldersCollection, assetsCollection, uploadSessionsCollection } from '../src/db/client.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -75,7 +75,7 @@ function ingest(body: Buffer, headers: Record<string, string>): Request {
 describe('backup-ingest writes fileinfo[0]', () => {
   test('insert: fileinfo[0] mirrors target_rel_path split into (dir, filename, library_id)', async () => {
     const bytes = Buffer.alloc(128, 7);
-    const res = await app.handle(
+    const res = await authedHandle(
       ingest(bytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
