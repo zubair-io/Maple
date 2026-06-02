@@ -168,6 +168,21 @@ enum Cmd {
         #[arg(long)]
         params: Option<PathBuf>,
     },
+    /// Repack a v1 (inline) DCP `profiles.bin` into the v3 split layout
+    /// (dedup HSM pool + per-entry zlib + offset directory; #829 / PR #831).
+    /// Prints dedup stats + the pool byte size.
+    TranscodeDcp {
+        /// Input v1 `profiles.bin` (inline matrices/HSM).
+        src: PathBuf,
+        /// Output path. With `--out-pool`, this is the index region
+        /// (`profiles.idx`); without it, the combined single file.
+        #[arg(long)]
+        out: PathBuf,
+        /// When set, writes the two-file split: `--out` = index region,
+        /// `--out-pool` = pool region. Omit for the combined single file.
+        #[arg(long)]
+        out_pool: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -251,6 +266,9 @@ fn main() -> ExitCode {
             height,
             params.as_deref(),
         )),
+        Cmd::TranscodeDcp { src, out, out_pool } => run_or_exit(
+            commands::transcode_dcp::run(&src, &out, out_pool.as_deref()),
+        ),
     }
 }
 
