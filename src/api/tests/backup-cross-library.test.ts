@@ -23,7 +23,7 @@ import { ObjectId } from 'mongodb';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { assetsCollection, foldersCollection, uploadSessionsCollection } from '../src/db/client.ts';
 
 const libA = new ObjectId();
@@ -140,7 +140,7 @@ describe('cross-library backup: same content already in library A, backing up to
     // The content already exists (in library A), so ingest hits the dedup
     // branch. It must MATERIALIZE a fileinfo entry for library B rather than
     // pure-dedup against library A's row.
-    const ingestRes = await app.handle(
+    const ingestRes = await authedHandle(
       ingest(sharedBytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -182,7 +182,7 @@ describe('cross-library backup: same content already in library A, backing up to
     // Before the fix, the folder-scoped sidecar lookup found no row for
     // library B and returned 404 — failing the whole asset.
     const xmp = `<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta>`;
-    const sidecarRes = await app.handle(
+    const sidecarRes = await authedHandle(
       sidecar(xmp, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -200,7 +200,7 @@ describe('cross-library backup: same content already in library A, backing up to
 
     // ---- Step 3: rendered companion → library B --------------------------
     const renderedBytes = Buffer.alloc(128, 0x33);
-    const renderedRes = await app.handle(
+    const renderedRes = await authedHandle(
       rendered(renderedBytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,

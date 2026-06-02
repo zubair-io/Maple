@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { foldersCollection, assetsCollection } from '../src/db/client.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -155,7 +155,7 @@ function notifyDeleted(
 
 describe('POST /api/libraries/:id/backup/notify-deleted', () => {
   test('happy path — marks matching assets deleted', async () => {
-    const res = await app.handle(
+    const res = await authedHandle(
       notifyDeleted({ phasset_local_ids: [phid1, phid2] }, { 'X-Maple-Device-Id': deviceId }),
     );
     expect(res.status).toBe(200);
@@ -177,7 +177,7 @@ describe('POST /api/libraries/:id/backup/notify-deleted', () => {
   });
 
   test('empty phasset_local_ids → 200 with updated:0', async () => {
-    const res = await app.handle(
+    const res = await authedHandle(
       notifyDeleted({ phasset_local_ids: [] }, { 'X-Maple-Device-Id': deviceId }),
     );
     expect(res.status).toBe(200);
@@ -186,7 +186,7 @@ describe('POST /api/libraries/:id/backup/notify-deleted', () => {
   });
 
   test('unknown phid → 200 with updated:0 (no match, not an error)', async () => {
-    const res = await app.handle(
+    const res = await authedHandle(
       notifyDeleted({ phasset_local_ids: ['UNKNOWN/L0/999'] }, { 'X-Maple-Device-Id': deviceId }),
     );
     expect(res.status).toBe(200);
@@ -195,14 +195,14 @@ describe('POST /api/libraries/:id/backup/notify-deleted', () => {
   });
 
   test('missing X-Maple-Device-Id header → 400', async () => {
-    const res = await app.handle(notifyDeleted({ phasset_local_ids: [phid1] }, {}));
+    const res = await authedHandle(notifyDeleted({ phasset_local_ids: [phid1] }, {}));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain('X-Maple-Device-Id');
   });
 
   test('missing phasset_local_ids field → 400', async () => {
-    const res = await app.handle(
+    const res = await authedHandle(
       notifyDeleted({ ids: [phid1] } as any, { 'X-Maple-Device-Id': deviceId }),
     );
     expect(res.status).toBe(400);
@@ -211,7 +211,7 @@ describe('POST /api/libraries/:id/backup/notify-deleted', () => {
   });
 
   test('phasset_local_ids is not an array → 400', async () => {
-    const res = await app.handle(
+    const res = await authedHandle(
       notifyDeleted({ phasset_local_ids: 'not-an-array' } as any, {
         'X-Maple-Device-Id': deviceId,
       }),
@@ -220,7 +220,7 @@ describe('POST /api/libraries/:id/backup/notify-deleted', () => {
   });
 
   test('library not found → 404', async () => {
-    const res = await app.handle(
+    const res = await authedHandle(
       notifyDeleted(
         { phasset_local_ids: [phid1] },
         { 'X-Maple-Device-Id': deviceId },

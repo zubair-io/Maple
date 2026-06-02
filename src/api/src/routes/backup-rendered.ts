@@ -42,6 +42,7 @@ import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
 import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
+import { isSafeFilenamePart, containedJoin } from '../backup/path-safety.ts';
 import { child as childLogger } from '../log.ts';
 // Mirror-aware drop-in: the rendered-companion publish replicates to the
 // library's backup root(s). `link` and `copyFile` are both mirror-aware.
@@ -165,6 +166,18 @@ export const backupRenderedRoutes = new Elysia().post(
     if (!isSafeRelPath(originalRelPath)) {
       set.status = 400;
       return { error: 'unsafe X-Maple-Target-Rel-Path' };
+    }
+
+    // The optional filename parts are spliced into the write path, so they get
+    // their own allowlist — a `..` or separator here would escape the library
+    // root (#854).
+    if (filenameExt !== undefined && !isSafeFilenamePart(filenameExt)) {
+      set.status = 400;
+      return { error: 'unsafe X-Maple-Filename-Ext' };
+    }
+    if (suffixOverride !== undefined && !isSafeFilenamePart(suffixOverride)) {
+      set.status = 400;
+      return { error: 'unsafe X-Maple-Suffix-Override' };
     }
 
     const totalBytes = parseInt(totalBytesRaw, 10);
@@ -331,7 +344,13 @@ export const backupRenderedRoutes = new Elysia().post(
       return { error: 'X-Maple-Maple-Id required on final chunk' };
     }
 
-    const finalPath = path.join(folder.path, resolvedTargetRelPath);
+    // Containment backstop: never write outside the library root, even if an
+    // upstream guard was missed (#854).
+    const finalPath = containedJoin(folder.path, resolvedTargetRelPath);
+    if (!finalPath) {
+      set.status = 400;
+      return { error: 'resolved path escapes library root' };
+    }
     await fs.mkdir(path.dirname(finalPath), { recursive: true });
     try {
       await atomicMove(tmpFile, finalPath);
