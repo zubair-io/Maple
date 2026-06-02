@@ -215,11 +215,11 @@ export function getFaceModelsStatus(): {
 /**
  * Relay a model-load status update into this process's `liveStatus`.
  *
- * The ONNX sessions now load inside the face worker thread (see
- * `face-pool.ts` / `face-pool.worker.ts`), so the worker's `loadFaceModels`
+ * The ONNX sessions now load inside the face child process (see
+ * `face-pool.ts` / `face-pool.child.ts`), so the child's `loadFaceModels`
  * runs against a *separate* module instance whose `liveStatus` the main
- * thread can't read. The worker posts its load-status transitions back over
- * `postMessage`; the pool calls this to mirror them into the main-thread
+ * process can't read. The child posts its load-status transitions back over
+ * IPC; the pool calls this to mirror them into the main-process
  * `liveStatus` so `getFaceModelsStatus()` (which powers the
  * /settings/enrichment badge) reflects the real state instead of being
  * stuck on `idle`. No-op on the worker side — there it's set directly by

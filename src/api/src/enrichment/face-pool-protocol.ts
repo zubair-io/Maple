@@ -1,6 +1,6 @@
 /**
- * Wire protocol shared by the face worker (`face-pool.worker.ts`) and its
- * manager (`face-pool.ts`).
+ * Wire protocol shared by the face child process (`face-pool.child.ts`) and
+ * its manager (`face-pool.ts`).
  *
  * Kept in its own module so both sides import the same request/response shapes
  * and can't drift, and so the worker doesn't have to import the manager (which

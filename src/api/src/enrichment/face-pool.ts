@@ -1,8 +1,11 @@
 /**
- * Single-worker face-inference pool. Off-main-thread SCRFD detect + ArcFace
- * embed so the synchronous `onnxruntime-node` `session.run()` calls (and the
- * per-face/per-asset `alignFaceCrop` / `decodeScrfdOutputs` CPU loops) don't
- * freeze the HTTP event loop. Ticket #707.
+ * Single-worker face-inference pool. Runs SCRFD detect + ArcFace embed in an
+ * isolated, lower-priority CHILD PROCESS so the synchronous `onnxruntime-node`
+ * `session.run()` calls (and the per-face/per-asset `alignFaceCrop` /
+ * `decodeScrfdOutputs` CPU loops) (a) can't freeze the HTTP event loop, (b)
+ * can't take the whole server down if ORT segfaults on a malformed crop, and
+ * (c) yield CPU to request handling under a heavy indexer backlog. The crash +
+ * CPU isolation mirrors the FFI decode pool (#882); tickets #707, #882.
  *
  * Shape mirrors the two in-repo precedents:
  *   - `ffi/ffi-pool.ts`     — lazy single-worker spawn, request-id pending Map,
@@ -41,8 +44,16 @@ import type {
   LoadStatusResponse,
   PreloadResponse,
 } from './face-pool-protocol.ts';
+import {
+  ChildProcessWorker,
+  childScriptPath,
+  DEFAULT_NATIVE_CHILD_NICE,
+} from '../runtime/child-process-worker.ts';
 
 const log = childLogger('enrichment:face-pool');
+
+/** The isolated, lower-priority child process that owns the ONNX sessions. */
+const FACE_CHILD_SCRIPT = childScriptPath(import.meta.url, './face-pool.child.ts');
 
 interface PendingDetect {
   kind: 'detect';
@@ -73,7 +84,7 @@ function reviveError(kind: FaceWorkerErrorKind | undefined, message: string): Er
 }
 
 class FaceWorkerPool {
-  private worker: Worker | null = null;
+  private worker: ChildProcessWorker | null = null;
   private pending = new Map<number, Pending>();
   private nextId = 1;
   private workerLoadFailed = false;
@@ -98,17 +109,20 @@ class FaceWorkerPool {
     return this.fallback;
   }
 
-  /** Lazy worker spawn. Throws if Bun's `Worker` API is unavailable so the
+  /** Lazy child-process spawn. Throws if `Bun.spawn` is unavailable so the
    *  caller can fall back to in-process inference. */
-  private ensureWorker(): Worker {
+  private ensureWorker(): ChildProcessWorker {
     if (this.worker) return this.worker;
     if (this.workerLoadFailed) {
       throw new Error('face-pool: worker previously failed to start');
     }
 
-    let w: Worker;
+    let w: ChildProcessWorker;
     try {
-      w = new Worker(new URL('./face-pool.worker.ts', import.meta.url).href);
+      w = new ChildProcessWorker(FACE_CHILD_SCRIPT, {
+        nice: DEFAULT_NATIVE_CHILD_NICE,
+        label: 'face',
+      });
     } catch (e) {
       this.workerLoadFailed = true;
       throw new Error(
@@ -174,7 +188,7 @@ class FaceWorkerPool {
    *  plain `Error` for retryable failures. */
   detectFaces(jpegBytes: Uint8Array): Promise<DetectedFace[]> {
     if (this.forceFallback) return this.inProcess().detectFaces(jpegBytes);
-    let worker: Worker;
+    let worker: ChildProcessWorker;
     try {
       worker = this.ensureWorker();
     } catch (e) {
@@ -204,7 +218,7 @@ class FaceWorkerPool {
    *  Same reject semantics as `detectFaces`. */
   embedFace(jpegBytes: Uint8Array, detection: DetectedFace): Promise<Float32Array> {
     if (this.forceFallback) return this.inProcess().embedFace(jpegBytes, detection);
-    let worker: Worker;
+    let worker: ChildProcessWorker;
     try {
       worker = this.ensureWorker();
     } catch (e) {
@@ -233,7 +247,7 @@ class FaceWorkerPool {
    *  worker can spawn. */
   preload(config: FaceModelsConfig): Promise<boolean> {
     if (this.forceFallback) return this.preloadInProcess(config);
-    let worker: Worker;
+    let worker: ChildProcessWorker;
     try {
       worker = this.ensureWorker();
     } catch (e) {
