@@ -264,6 +264,50 @@ describe('RawPipelineService — legacy decode() regression (Plan 3 M1)', () => 
     expect(decoded.asShotTint).toBe(0);
   });
 
+  it('threads the develop XMP into the decode request (#846)', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const xmp = '<?xpacket begin="" ?><x:xmpmeta><test crs:Exposure2012="1.0"/></x:xmpmeta>';
+    const promise = service.decode(new Uint8Array([0x44]), 'dng', xmp);
+
+    await Promise.resolve();
+    const sent = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
+    expect(sent.type).toBe('decode');
+    expect(sent.xmp).toBe(xmp);
+
+    const rgb = new Uint8Array(1 * 1 * 3).fill(0x40);
+    workerStub.reply({
+      id: sent.id,
+      type: 'decode-success',
+      width: 1,
+      height: 1,
+      rgb: rgb.buffer,
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+    await promise;
+  });
+
+  it('leaves xmp undefined on a cold-open decode (#846)', async () => {
+    const service = TestBed.inject(RawPipelineService);
+    const promise = service.decode(new Uint8Array([0x44]), 'dng');
+
+    await Promise.resolve();
+    const sent = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
+    expect(sent.xmp).toBeUndefined();
+
+    const rgb = new Uint8Array(3).fill(0x10);
+    workerStub.reply({
+      id: sent.id,
+      type: 'decode-success',
+      width: 1,
+      height: 1,
+      rgb: rgb.buffer,
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    } satisfies DecodeSuccess);
+    await promise;
+  });
+
   it('rejects when the worker posts a decode-error', async () => {
     const service = TestBed.inject(RawPipelineService);
     const promise = service.decode(new Uint8Array([0]), 'dng');
