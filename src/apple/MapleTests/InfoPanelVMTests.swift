@@ -4,13 +4,15 @@
 // Lives in the MapleTests Xcode target (not MapleCore) because the
 // `InfoPanelVM` enum is declared in the app target — that's where the
 // view + its VM sibling live (per the `+VM.swift` co-location pattern).
-// MapleTests is host-targeted on Maple.app, so `@testable import Maple`
-// is the standard way to reach Maple-target types from a test bundle.
+// MapleTests is host-targeted on Maple.app, so `@testable import Maple_Exposure`
+// is the standard way to reach app-target types from a test bundle. The app
+// target's product name is "Maple Exposure", so its Swift module name is
+// `Maple_Exposure` (spaces become underscores).
 
 import MapleCore
 import XCTest
 
-@testable import Maple
+@testable import Maple_Exposure
 
 final class InfoPanelVMTests: XCTestCase {
   // MARK: - cameraLocationRows
