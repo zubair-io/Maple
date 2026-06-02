@@ -171,14 +171,22 @@ export function childScriptPath(metaUrl: string, relative: string): string {
  *    unref'd so it never keeps an otherwise-idle child alive on its own.
  */
 export function installChildHardening(label: string): void {
-  const niceRaw = Number(process.env[NICE_ENV] ?? '0');
-  const nice = Number.isFinite(niceRaw) ? Math.max(0, Math.min(19, Math.floor(niceRaw))) : 0;
-  if (nice > 0) {
+  const incRaw = Number(process.env[NICE_ENV] ?? '0');
+  const increment = Number.isFinite(incRaw) ? Math.max(0, Math.min(19, Math.floor(incRaw))) : 0;
+  if (increment > 0) {
     try {
-      os.setPriority(0, nice);
+      // `MAPLE_NATIVE_CHILD_NICE` is a RELATIVE increment, but `os.setPriority`
+      // sets an ABSOLUTE nice value — so add it to the priority this child
+      // inherited from the parent at spawn rather than overwriting it. That
+      // keeps the child strictly below the parent (the HTTP server) even when
+      // the parent is itself niced (a container/systemd `Nice=`). `increment`
+      // is non-negative and we clamp to 19, so we only ever RAISE our own
+      // niceness — always permitted without privileges.
+      const current = os.getPriority(); // this process — inherited from the parent
+      os.setPriority(0, Math.min(19, current + increment));
     } catch (e) {
       // Best-effort: some sandboxes disallow setpriority. Not fatal — the child
-      // just runs at default priority.
+      // just runs at the inherited priority.
       log.warn({ label, err: e instanceof Error ? e.message : String(e) }, 'setPriority failed');
     }
   }
