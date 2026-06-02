@@ -242,6 +242,40 @@ pub fn render_bytes_scene_linear(
     })
 }
 
+/// Bake a fitted Auto Profile curve into a display-space `n³` 3D LUT (#817).
+///
+/// `curve_flat` is the flat serialization of a
+/// `raw_core::view::auto_profile::ProfileCurve` (its `to_flat()`, length
+/// `PROFILE_CURVE_FLAT_LEN`). Returns `n * n * n * 3` f32 values — the
+/// canonical `apply_curve` sampled over a regular `[0, 1]³` grid, identical
+/// bytes to the Apple `maple_compute_profile_lut` FFI because both call the
+/// same `raw_core::view::auto_profile::bake_profile_lut`. JS receives a
+/// `Float32Array` over the WASM heap.
+///
+/// **Layout:** `n³` RGB triplets, R fastest, then G, then B —
+/// `out[((b*n + g)*n + r)*3 + c]`, grid coordinate `k` → `k / (n - 1)`. The
+/// WebGL2 sampler (#394) uploads this as an `n × n × n` RGB float 3D texture.
+///
+/// **Per-image, one-shot.** The fitted curve is keyed on the embedded JPEG
+/// (stable across slider edits), so JS bakes once when the curve is first fit
+/// and re-samples the GPU texture every slider tick WITHOUT re-baking. Do not
+/// call this per tick.
+///
+/// Errors (thrown as `JsError`): `n < 2`, or `curve_flat.len()` is not exactly
+/// `PROFILE_CURVE_FLAT_LEN`.
+#[wasm_bindgen]
+pub fn compute_profile_lut(curve_flat: &[f32], n: u32) -> Result<Vec<f32>, JsError> {
+    use raw_core::view::auto_profile::{bake_profile_lut, ProfileCurve};
+    let n = n as usize;
+    if n < 2 {
+        return Err(JsError::new("compute_profile_lut: n must be >= 2"));
+    }
+    let curve = ProfileCurve::from_flat(curve_flat).ok_or_else(|| {
+        JsError::new("compute_profile_lut: curve_flat length != PROFILE_CURVE_FLAT_LEN")
+    })?;
+    Ok(bake_profile_lut(&curve, n))
+}
+
 /// Version string (for build verification from JS).
 #[wasm_bindgen]
 pub fn version() -> String {
@@ -251,6 +285,49 @@ pub fn version() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Byte-identity (#817): the WASM `compute_profile_lut` MUST return the
+    /// exact bytes `raw_core::view::auto_profile::bake_profile_lut` produces —
+    /// the same core fn the Apple `maple_compute_profile_lut` FFI calls. So
+    /// WASM == core and (asserted in raw-ffi) FFI == core, giving web + Apple
+    /// byte-identical LUTs by construction. Runs as a plain native test
+    /// (the binding is ordinary Rust off wasm32).
+    #[test]
+    fn compute_profile_lut_matches_raw_core_bake() {
+        use raw_core::view::auto_profile::{
+            bake_profile_lut, ChannelCurve, ProfileCurve, DEFAULT_LUT_SIZE,
+        };
+        // Distinct per-channel curve (mirrors the raw-core golden test) so the
+        // identity check exercises a non-trivial LUT.
+        let mut curve = ProfileCurve::identity();
+        let shape = |i: usize, exp: f32, lift: f32| {
+            let x = i as f32 / 31.0;
+            let y = lift + (1.0 - lift) * x.powf(exp);
+            (x, y.clamp(0.0, 1.0))
+        };
+        let (mut r, mut g, mut b) =
+            (ChannelCurve::identity(), ChannelCurve::identity(), ChannelCurve::identity());
+        for i in 0..32 {
+            r.anchors[i] = shape(i, 0.7, 0.05);
+            g.anchors[i] = shape(i, 1.0, 0.0);
+            b.anchors[i] = shape(i, 1.4, 0.0);
+        }
+        curve.r = r;
+        curve.g = g;
+        curve.b = b;
+
+        let flat = curve.to_flat();
+        let n = DEFAULT_LUT_SIZE;
+        let via_wasm = compute_profile_lut(&flat, n as u32).expect("bake ok");
+        let via_core = bake_profile_lut(&curve, n);
+        assert_eq!(via_wasm, via_core, "WASM LUT must equal raw-core bake");
+    }
+
+    // The error paths construct a `JsError`, which is a wasm-bindgen import
+    // that traps on non-wasm targets — so they can't be exercised by native
+    // `cargo test`. Validation is identical to the raw-ffi error-path tests
+    // (wrong curve_len / n < 2), which DO run natively, and the byte-identity
+    // test above covers the success path on both surfaces.
 
     /// Synthesized 8x8 mosaic round-trip — proves the new entry returns
     /// fp16 RGBA with alpha lane = 0x3c00 (fp16 1.0) and a buffer length

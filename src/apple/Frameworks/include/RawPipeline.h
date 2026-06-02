@@ -434,6 +434,42 @@ int32_t maple_render_bytes(const uint8_t *raw_bytes,
 int32_t maple_compute_look_lut(uint8_t look_mode, uint8_t *out);
 
 /**
+ * Bake a fitted Auto Profile curve into a display-space `n³` 3D LUT (#817)
+ * and write it as `n * n * n * 3` f32 values into `out`.
+ *
+ * `curve` points to `curve_len` f32 values — the flat serialization of a
+ * `raw_core::view::auto_profile::ProfileCurve` produced by its `to_flat()`
+ * (length `raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN`). The LUT is
+ * JUST the canonical `apply_curve` sampled over a regular `[0, 1]³` grid, so
+ * the GPU sampler that uploads these bytes (Apple Metal #812, Web WebGL2
+ * #394) cannot drift from the CPU render path.
+ *
+ * **Layout** (matches `raw_core::view::auto_profile::bake_profile_lut`):
+ * `n³` RGB triplets, R varying fastest, then G, then B —
+ * `out[((b*n + g)*n + r)*3 + c]`. Grid coordinate `k` maps to display value
+ * `k / (n - 1)`.
+ *
+ * This is a **per-image, one-shot** call — the fitted curve is keyed on the
+ * embedded JPEG (stable across slider edits), so the host bakes once when the
+ * curve is first fit and re-samples the GPU texture every slider tick WITHOUT
+ * re-baking. Never call this per tick.
+ *
+ * Returns:
+ * - `0` on success — `out` is fully written.
+ * - `-1` if `curve` or `out` is null, `curve_len` is not exactly
+ *   `PROFILE_CURVE_FLAT_LEN`, `n < 2`, or `n³ * 3` would overflow `usize`.
+ *   The error path does not set `maple_last_error` (the caller owns the
+ *   curve bytes + `n` and a null/short buffer is its own diagnostic).
+ *
+ * # Safety
+ * - `curve` must point to at least `curve_len` readable f32 values.
+ * - `out` must point to a writable buffer of at least `n * n * n * 3` f32
+ *   values that lives for the duration of the call. It is overwritten on
+ *   success and untouched on error.
+ */
+int32_t maple_compute_profile_lut(const float *curve, uintptr_t curve_len, uint32_t n, float *out);
+
+/**
  * Render a RAW+XMP to a scene-linear Rec.2020 fp16 RGBA buffer. Returns
  * 0 on success, non-zero on error (call `maple_last_error`). The output
  * pre-AgX, pre-Rec.2020->sRGB — the caller is expected to apply a view
