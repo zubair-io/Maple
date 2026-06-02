@@ -508,6 +508,10 @@ int32_t maple_compute_profile_lut(const float *curve, uintptr_t curve_len, uint3
  *   left untouched; the host renders plain AgX (= `Profile::Neutral`).
  * - `2`/`3` when `raw_path` / `xmp_path` is non-UTF-8.
  * - `6`/`7` when the RAW read / decode fails (`maple_last_error` is set).
+ * - `9` on an internal invariant failure — the fitted curve did not serialize
+ *   to `PROFILE_CURVE_FLAT_LEN` (a layout bug, never a caller error;
+ *   `maple_last_error` is set). Distinct from `-1` so a host can tell this
+ *   apart from a null-pointer argument.
  * - `-1` when `raw_path` or `out` is null.
  *
  * # Safety
