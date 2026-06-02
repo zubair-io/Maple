@@ -27,6 +27,7 @@ import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
 import { formatBackupPath } from '../backup/path-formatter.ts';
 import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
+import { containedJoin } from '../backup/path-safety.ts';
 import {
   atomicMove,
   filesIdentical,
@@ -367,7 +368,11 @@ export const backupIngestRoutes = new Elysia().post(
       // sidecar / rendered lookups succeed). We still avoid re-deriving the
       // id or re-running enrichment: this is the same content-addressed row,
       // we only add a location.
-      const finalPath = path.join(folder.path, resolvedTargetRelPath);
+      const finalPath = containedJoin(folder.path, resolvedTargetRelPath);
+      if (!finalPath) {
+        set.status = 400;
+        return { error: 'resolved path escapes library root' };
+      }
       await fs.mkdir(path.dirname(finalPath), { recursive: true });
 
       // If the file already sits at the target path (e.g. a prior attempt
@@ -459,7 +464,12 @@ export const backupIngestRoutes = new Elysia().post(
     // numbering always derives from the original computed path, never the
     // already-suffixed one.
     const baseRelPath = resolvedTargetRelPath;
-    let finalPath = path.join(folder.path, resolvedTargetRelPath);
+    const containedBase = containedJoin(folder.path, resolvedTargetRelPath);
+    if (!containedBase) {
+      set.status = 400;
+      return { error: 'resolved path escapes library root' };
+    }
+    let finalPath = containedBase;
     let placed = false;
     for (let attempt = 0; !placed; attempt++) {
       if (attempt > 10_000) {
