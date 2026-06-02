@@ -1,21 +1,29 @@
 # .github/workflows/web.yml
 #
-# Web gates. Two jobs:
+# Web gates. Three jobs:
 #
-#   web-build  — compiles the Angular app the way a release does
-#                (`bun run build` == `ng build maple`); fails on any TS /
-#                template compile error. Closes the gap that let #749 ship.
-#   web-test   — RUNS the Angular unit tests (`ng test maple`, the
-#                @angular/build:unit-test / vitest runner). A build gate
-#                catches type/template errors but NOT logic regressions,
-#                broken HTTP mocks, or assertion drift — exactly what slipped
-#                onto `main` in #748 (an unflushed poll failed 19 specs) and a
-#                stale `MOCK_STATUS` assertion. See #767.
+#   web-build        — compiles the Angular app the way a release does
+#                      (`bun run build` == `ng build maple`); fails on any TS /
+#                      template compile error. Closes the gap that let #749 ship.
+#   web-test         — RUNS the `maple` app unit tests (`ng test maple`, the
+#                      @angular/build:unit-test / vitest runner). A build gate
+#                      catches type/template errors but NOT logic regressions,
+#                      broken HTTP mocks, or assertion drift — exactly what
+#                      slipped onto `main` in #748 (an unflushed poll failed 19
+#                      specs) and a stale `MOCK_STATUS` assertion. See #767.
+#   web-test-common  — RUNS the `Maple-common` library unit tests
+#                      (`ng test Maple-common`). The shared library holds most
+#                      cross-cutting specs (observability, xmp, raw-pipeline,
+#                      api, state, components), but `ng test maple` never runs
+#                      them — so breaks like the #794 observability spec slipped
+#                      onto `main`. A separate sibling job (not a step appended
+#                      to web-test) so it runs in parallel and still fires even
+#                      when the `maple` suite is red. See #845.
 #
-# Both jobs need the Rust -> WASM `pkg/` built first (the app imports it), so
-# they share the same toolchain provisioning + cargo cache key; the cache
-# makes the second job's WASM build a fast restore rather than a full
-# `-Z build-std` recompile.
+# All three jobs need the Rust -> WASM `pkg/` built first (the app and library
+# both import it), so they share the same toolchain provisioning + cargo cache
+# key; the cache makes each later job's WASM build a fast restore rather than a
+# full `-Z build-std` recompile.
 #
 # Why this job is heavier than the other cross-cutting jobs:
 #
@@ -160,3 +168,55 @@ jobs:
       - name: Run web unit tests (ng test maple)
         working-directory: src/web
         run: bun x ng test maple
+
+  web-test-common:
+    name: web-test (ng test Maple-common)
+    runs-on: ubuntu-latest
+    # Single-run on CI (the @angular/build:unit-test builder is non-watch in a
+    # non-interactive env). `timeout-minutes` is a backstop against any
+    # accidental watch-mode hang burning the full job budget.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Same toolchain as web-build — `ng test` transforms the library, which
+      # imports the WASM `pkg/`, so it must be built first.
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2025-10-01
+          components: rust-src
+          targets: wasm32-unknown-unknown
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      # Same cache key as web-build, so the `-Z build-std` WASM compile is a
+      # restore here rather than a third full build.
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: web-wasm-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+
+      - name: Install web deps
+        working-directory: src/web
+        run: bun install --frozen-lockfile
+
+      - name: Build raw-wasm (pkg/)
+        working-directory: src/web
+        run: bun run raw-wasm
+
+      # The gate. `ng test Maple-common` runs the shared-library unit suite and
+      # exits non-zero on any failing spec; a plain `run:` step propagates that
+      # exit code. Capital-M `Maple-common` is the angular.json project name.
+      - name: Run web unit tests (ng test Maple-common)
+        working-directory: src/web
+        run: bun x ng test Maple-common
