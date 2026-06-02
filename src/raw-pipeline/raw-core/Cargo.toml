@@ -9,6 +9,7 @@ license.workspace = true
 rawler.workspace = true
 image.workspace = true
 png.workspace = true
+miniz_oxide.workspace = true
 quick-xml.workspace = true
 thiserror.workspace = true
 bytemuck.workspace = true

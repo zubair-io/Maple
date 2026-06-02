@@ -17,7 +17,98 @@ use crate::color::illuminant::Illuminant as CoreIlluminant;
 use crate::math::Matrix3;
 
 use super::types::{CameraKey, MapleProfile};
+use super::writer::EncoderProfile;
 use super::{FORMAT_VERSION, MAGIC};
+
+/// Extract every v1 record as a raw-byte [`EncoderProfile`] for lossless
+/// transcode to v3 (#829). Unlike [`parse_bundle`] — which materializes
+/// `HsmTable`s and `Matrix3`s — this copies the on-disk matrix and HSM bytes
+/// verbatim, so a v1 → v3 repack does no float round-trip and the resolved
+/// profile data is byte-identical. Returns `None` on a header/version
+/// mismatch (not a v1 bundle) or a truncated/corrupt record.
+pub(super) fn extract_v1_records(bytes: &[u8]) -> Option<Vec<EncoderProfile>> {
+    if bytes.len() < 16 || &bytes[..4] != MAGIC {
+        return None;
+    }
+    if u16::from_le_bytes([bytes[4], bytes[5]]) != FORMAT_VERSION {
+        return None;
+    }
+    let count = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+    let mut r = RawReader { buf: bytes, pos: 16 };
+    let mut out = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        out.push(r.read_raw_record()?);
+    }
+    Some(out)
+}
+
+/// Minimal cursor over the v1 blob that yields raw record bytes (no float
+/// decode). Separate from the `Reader` below so the materializing path stays
+/// untouched.
+struct RawReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> RawReader<'a> {
+    #[inline]
+    fn take(&mut self, n: usize) -> Option<&'a [u8]> {
+        let end = self.pos.checked_add(n)?;
+        if end > self.buf.len() {
+            return None;
+        }
+        let s = &self.buf[self.pos..end];
+        self.pos = end;
+        Some(s)
+    }
+    fn read_u16(&mut self) -> Option<u16> {
+        let b = self.take(2)?;
+        Some(u16::from_le_bytes([b[0], b[1]]))
+    }
+
+    /// Inverse of the v1 record layout (see [`Reader::read_profile`]): ucm,
+    /// flags + reserved, illum1/illum2 + reserved, present matrices (36 B
+    /// each), the HSM (dims+enc preamble then inline table bytes), then the
+    /// 4-byte baseline-exposure offset.
+    fn read_raw_record(&mut self) -> Option<EncoderProfile> {
+        let ucm_len = self.read_u16()? as usize;
+        let ucm_bytes = self.take(ucm_len)?.to_vec();
+        let flags = self.take(1)?[0];
+        let _reserved = self.take(1)?;
+        let illum1 = self.read_u16()?;
+        let illum2 = self.read_u16()?;
+        let _reserved = self.read_u16()?;
+
+        let nmat = (flags & 0x0F).count_ones() as usize;
+        let matrices = self.take(nmat * 36)?.to_vec();
+
+        let hsm_h = self.read_u16()?;
+        let hsm_s = self.read_u16()?;
+        let hsm_v = self.read_u16()?;
+        let hsm_encoding = self.take(1)?[0];
+        let _reserved = self.take(1)?;
+        let table_bytes =
+            (hsm_h as usize) * (hsm_s as usize) * (hsm_v as usize) * 3 * 4;
+        let hsm1 = if flags & 0x10 != 0 { Some(self.take(table_bytes)?.to_vec()) } else { None };
+        let hsm2 = if flags & 0x20 != 0 { Some(self.take(table_bytes)?.to_vec()) } else { None };
+
+        let be = self.take(4)?;
+        let be_bits = u32::from_le_bytes([be[0], be[1], be[2], be[3]]);
+
+        Some(EncoderProfile {
+            ucm_bytes,
+            flags,
+            illum1,
+            illum2,
+            matrices,
+            hsm_dims: [hsm_h, hsm_s, hsm_v],
+            hsm_encoding,
+            hsm1,
+            hsm2,
+            be_bits,
+        })
+    }
+}
 
 /// Parse the embedded profiles blob into a lookup table keyed by UCM.
 ///
