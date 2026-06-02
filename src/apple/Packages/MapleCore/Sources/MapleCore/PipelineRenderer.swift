@@ -849,12 +849,15 @@ extension PipelineRenderer {
         params.decoded_temperature = Float(decodedTemperature)
         params.decoded_tint = Float(decodedTint)
         params.skip_agx = skipAgX ? 1 : 0
-        // L3 (#515) added `look_mode: u8` to the C-ABI struct. Hard-
-        // coded to `1` = `Look::Default` here as a syntactic
-        // compile-fix — L4 (#509) replaces the literal with
-        // `UInt8(model.look.rawValue)` (or equivalent) so the Swift
-        // shell actually surfaces the user's Look selection.
-        params.look_mode = 1
+        // L3 (#515) added `look_mode: u8` to the C-ABI struct. Surface the
+        // user's real Look selection (#812 removed the hard-coded `1`) so
+        // the FFI chain reconstructs `Look::from(look_mode)` rather than a
+        // literal. Note the f32 scene-linear chain stops at AgX and does
+        // not itself apply the DisplayLookCurve — the empirical Look LUT
+        // is superseded by Auto Profile (`Profile::Auto`), which the Apple
+        // canvas applies via a post-encode CIColorCube (see
+        // `ImageEditPipeline.processSceneLinear` + `AutoProfileLUT`).
+        params.look_mode = model.look.lookMode
         return params
     }
 

@@ -5,7 +5,8 @@
 use crate::buffers::{maple_free_buffer, MapleImageBuffer};
 use crate::error::maple_last_error;
 use crate::render::{
-    maple_compute_look_lut, maple_compute_profile_lut, maple_render_bytes, maple_render_file,
+    maple_compute_look_lut, maple_compute_profile_curve, maple_compute_profile_lut,
+    maple_render_bytes, maple_render_file,
 };
 use std::ffi::{CStr, CString};
 
@@ -194,4 +195,68 @@ fn profile_lut_oversized_n_returns_error() {
     let n = (MAX_LUT_SIZE + 1) as u32;
     let rc = unsafe { maple_compute_profile_lut(flat.as_ptr(), flat.len(), n, out.as_mut_ptr()) };
     assert_eq!(rc, -1);
+}
+
+// ---------------------------------------------------------------------------
+// maple_compute_profile_curve (#812) — surfaces the FITTED Auto Profile curve
+// across FFI (the gap #840 flagged). The Apple Metal host calls this once per
+// image, then feeds the result into `maple_compute_profile_lut` to bake the
+// GPU 3D LUT. The curve MUST match what `fit_profile_curve_from_raw` — the
+// core fn the CPU render path also uses — produces, or the GPU Auto render
+// drifts from the CPU/CLI render.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn profile_curve_null_pointer_returns_error() {
+    use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
+    let mut out = vec![0.0f32; PROFILE_CURVE_FLAT_LEN];
+    // Null raw_path.
+    let rc = unsafe { maple_compute_profile_curve(std::ptr::null(), std::ptr::null(), 0, out.as_mut_ptr()) };
+    assert_eq!(rc, -1);
+    // Null out.
+    let raw_cstr = CString::new("/nonexistent.dng").unwrap();
+    let rc = unsafe { maple_compute_profile_curve(raw_cstr.as_ptr(), std::ptr::null(), 0, std::ptr::null_mut()) };
+    assert_eq!(rc, -1);
+}
+
+/// Auto Profile is the default model, so the fixture render (no XMP) fits a
+/// curve. The FFI result MUST equal `fit_profile_curve_from_raw` (the shared
+/// core entry the CPU `render_from_raw` Auto path also drives) — the tight
+/// gate that keeps the Apple GPU Auto render from drifting off the CPU/CLI
+/// reference. Skips cleanly when the fixture is absent.
+#[test]
+fn profile_curve_matches_core_fit() {
+    use raw_core::pipeline::{fit_profile_curve_from_raw, RawInput, RenderQuality};
+    use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../test-fixtures/raws/test_0002.dng");
+    if !path.exists() { return; }
+
+    // Core reference (shares the LRU cache with the FFI call below; identical
+    // either way — the cache returns the same fitted curve).
+    let bytes = std::fs::read(&path).unwrap();
+    let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
+    let model = raw_core::xmp::AdjustmentModel::default();
+    let core_curve = fit_profile_curve_from_raw(
+        &raw_img, &model, RenderQuality::Full, RawInput::Path(&path),
+    );
+
+    let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
+    let mut out = vec![0.0f32; PROFILE_CURVE_FLAT_LEN];
+    let rc = unsafe {
+        maple_compute_profile_curve(raw_cstr.as_ptr(), std::ptr::null(), 0, out.as_mut_ptr())
+    };
+
+    match core_curve {
+        Some(c) => {
+            assert_eq!(rc, 0, "expected fitted curve (rc=0), got {rc}");
+            let expected = c.to_flat();
+            assert_eq!(out, expected, "FFI curve must equal the core fit");
+        }
+        None => {
+            // No embedded JPEG / degenerate fit on this fixture — the host
+            // falls back to AgX. The FFI must report rc=1, not write `out`.
+            assert_eq!(rc, 1, "expected no-curve fallback (rc=1), got {rc}");
+        }
+    }
 }

@@ -457,7 +457,8 @@ int32_t maple_compute_look_lut(uint8_t look_mode, uint8_t *out);
  * Returns:
  * - `0` on success — `out` is fully written.
  * - `-1` if `curve` or `out` is null, `curve_len` is not exactly
- *   `PROFILE_CURVE_FLAT_LEN`, `n < 2`, or `n³ * 3` would overflow `usize`.
+ *   `PROFILE_CURVE_FLAT_LEN`, `n < 2`, `n > MAX_LUT_SIZE`, or `n³ * 3` would
+ *   overflow `usize`.
  *   The error path does not set `maple_last_error` (the caller owns the
  *   curve bytes + `n` and a null/short buffer is its own diagnostic).
  *
@@ -468,6 +469,56 @@ int32_t maple_compute_look_lut(uint8_t look_mode, uint8_t *out);
  *   success and untouched on error.
  */
 int32_t maple_compute_profile_lut(const float *curve, uintptr_t curve_len, uint32_t n, float *out);
+
+/**
+ * Fit the per-image Auto Profile curve (#812) for a RAW file + XMP sidecar
+ * and write its flat serialization into `out`.
+ *
+ * This is the FITTED-curve sibling of `maple_compute_profile_lut` (which
+ * BAKES an already-fitted curve into a 3D LUT). The gap #840 flagged: the
+ * bake entry took a serialized curve as INPUT, but nothing surfaced the
+ * fit across FFI. This export closes that — the Apple Metal host (#812)
+ * calls it once per image to obtain the curve, then feeds the result
+ * straight into `maple_compute_profile_lut` to bake the GPU LUT.
+ *
+ * It delegates to `raw_core::pipeline::fit_profile_curve_from_raw`, which
+ * develops the RAW through the SAME view-transform prefix the CPU render
+ * uses (AgX → rec2020→sRGB → sRGB gamma encode) and fits the curve in
+ * f32 sRGB-encoded display space — so the GPU Auto Profile render cannot
+ * drift from `maple_render_file`'s CPU Auto Profile output.
+ *
+ * `quality_preview` mirrors `maple_render_file`: `0` = `RenderQuality::Full`
+ * (matches the parity harness / `maple-cli render`), `1` = `Preview`
+ * (half-res develop). Pass the same value the host's scene-linear decode
+ * used so the fitted curve matches the buffer being displayed.
+ *
+ * `out` must point to at least `PROFILE_CURVE_FLAT_LEN` writable f32. On
+ * success the full flat curve is written and `0` is returned.
+ *
+ * This is a **per-image, one-shot** call — the fit runs a full JPEG
+ * extraction + develop chain (orders of magnitude over the slider tick
+ * budget). The fit is cached in the shared `auto_profile` LRU keyed on
+ * `(raw_identity, mtime)`, so the host should ALSO cache the returned
+ * curve on its side and never call this per slider tick.
+ *
+ * Returns:
+ * - `0` on success — `out` holds `PROFILE_CURVE_FLAT_LEN` f32.
+ * - `1` when no curve applies — the model is not `Profile::Auto`, the
+ *   embedded JPEG can't be extracted, or the fit is degenerate. `out` is
+ *   left untouched; the host renders plain AgX (= `Profile::Neutral`).
+ * - `2`/`3` when `raw_path` / `xmp_path` is non-UTF-8.
+ * - `6`/`7` when the RAW read / decode fails (`maple_last_error` is set).
+ * - `-1` when `raw_path` or `out` is null.
+ *
+ * # Safety
+ * - `raw_path` must be a valid UTF-8 C string; `xmp_path` may be null.
+ * - `out` must point to at least `PROFILE_CURVE_FLAT_LEN` writable f32 that
+ *   live for the duration of the call. It is overwritten only on success.
+ */
+int32_t maple_compute_profile_curve(const char *raw_path,
+                                    const char *xmp_path,
+                                    int32_t quality_preview,
+                                    float *out);
 
 /**
  * Render a RAW+XMP to a scene-linear Rec.2020 fp16 RGBA buffer. Returns
