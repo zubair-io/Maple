@@ -47,6 +47,36 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Cheap, unconditional compile gate for the Apple FFI crate. This does NOT
+  # need fixtures or the color harness — it exists to catch the "raw-ffi
+  # doesn't compile against raw-core" failure class (e.g. an unresolved
+  # import after a raw-core API change), which is one of the two ways #876's
+  # device build broke. It runs on the host target on a Linux runner; that's
+  # sufficient because a compile error in raw-ffi is platform-independent.
+  #
+  # NOTE: this CANNOT catch per-slice symbol *staleness* in the committed
+  # xcframework — that requires building the Apple target slices, which needs
+  # a macOS runner (this repo's CI is Linux-only). That class is guarded
+  # locally instead: build-xcframework.sh runs a symbol-consistency check
+  # after assembling the xcframework (see src/apple/scripts/build-xcframework.sh).
+  build-raw-ffi:
+    name: build-raw-ffi (host compile gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: raw-ffi-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: cargo build -p raw-ffi
+        working-directory: src/raw-pipeline
+        run: cargo build -p raw-ffi
+
   color-pipeline:
     name: color-pipeline (test_color_pipeline.sh)
     runs-on: ubuntu-latest
