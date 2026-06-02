@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { assetsCollection, foldersCollection } from '../src/db/client.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -99,7 +99,7 @@ describe('GET /api/libraries/:id/backup/state', () => {
   test('returns only assets first-seen since `since` for the given device', async () => {
     const since = '2026-05-10T12:00:00Z';
     const url = `http://localhost/api/libraries/${libId.toHexString()}/backup/state?device_id=${deviceId}&since=${encodeURIComponent(since)}`;
-    const res = await app.handle(new Request(url));
+    const res = await authedHandle(new Request(url));
     expect(res.status).toBe(200);
     const body = await res.json();
     const ids = body.assets.map((a: any) => a.phasset_local_id).sort();
@@ -109,7 +109,7 @@ describe('GET /api/libraries/:id/backup/state', () => {
 
   test('returns all device assets when `since` is omitted', async () => {
     const url = `http://localhost/api/libraries/${libId.toHexString()}/backup/state?device_id=${deviceId}`;
-    const res = await app.handle(new Request(url));
+    const res = await authedHandle(new Request(url));
     expect(res.status).toBe(200);
     const body = await res.json();
     const ids = body.assets.map((a: any) => a.phasset_local_id).sort();
@@ -118,12 +118,12 @@ describe('GET /api/libraries/:id/backup/state', () => {
 
   test('400 when device_id missing', async () => {
     const url = `http://localhost/api/libraries/${libId.toHexString()}/backup/state`;
-    const res = await app.handle(new Request(url));
+    const res = await authedHandle(new Request(url));
     expect(res.status).toBe(400);
   });
 
   test('400 on invalid library id', async () => {
-    const res = await app.handle(
+    const res = await authedHandle(
       new Request(
         `http://localhost/api/libraries/not-an-objectid/backup/state?device_id=${deviceId}`,
       ),
@@ -133,7 +133,7 @@ describe('GET /api/libraries/:id/backup/state', () => {
 
   test('rel_path is library-relative, not an absolute path', async () => {
     const url = `http://localhost/api/libraries/${libId.toHexString()}/backup/state?device_id=${deviceId}`;
-    const res = await app.handle(new Request(url));
+    const res = await authedHandle(new Request(url));
     expect(res.status).toBe(200);
     const body = await res.json();
     for (const asset of body.assets) {

@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { assetsCollection } from '../src/db/client.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
@@ -80,7 +80,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     // Now the device sends a backup with the same content + same spec-form id.
     const devicePhid = 'ABC/L0/SPEC-FORM';
     const deviceForId = 'device-spec-form';
-    const res = await app.handle(
+    const res = await authedHandle(
       ingest(sharedBytes, {
         'X-Maple-Device-Id': deviceForId,
         'X-Maple-Phasset-Id': devicePhid,
@@ -129,7 +129,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
   test('cross-device: second device gets 423 while peer is actively uploading', async () => {
     const sharedCloudId = 'icloud-BUSY-PHOTO';
     // Phone starts a multi-chunk upload but doesn't finish yet.
-    const phoneR1 = await app.handle(
+    const phoneR1 = await authedHandle(
       ingest(Buffer.alloc(128, 9), {
         'X-Maple-Device-Id': 'phone-busy',
         'X-Maple-Phasset-Id': 'phone-local-busy',
@@ -143,7 +143,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     expect(phoneR1.status).toBe(202);
 
     // Desktop tries the same iCloud asset concurrently — should be told to back off.
-    const desktopR = await app.handle(
+    const desktopR = await authedHandle(
       ingest(Buffer.alloc(128, 10), {
         'X-Maple-Device-Id': 'desktop-busy',
         'X-Maple-Phasset-Id': 'desktop-local-busy',
@@ -162,7 +162,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
   test('X-Maple-PHAsset-Cloud-Id is persisted into phasset_links', async () => {
     const phidCloud = 'ABC/L0/CLOUD1';
     const cloudId = 'icloud-XYZ-stable-across-devices';
-    const res = await app.handle(
+    const res = await authedHandle(
       ingest(Buffer.alloc(64, 13), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidCloud,
@@ -188,7 +188,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
 
   test('absent X-Maple-PHAsset-Cloud-Id leaves phasset_cloud_id unset', async () => {
     const phidNoCloud = 'ABC/L0/NOCLOUD';
-    const res = await app.handle(
+    const res = await authedHandle(
       ingest(Buffer.alloc(64, 14), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidNoCloud,
@@ -221,7 +221,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
     const sharedCloudId = 'icloud-shared-asset';
 
     // Device A uploads with its own (phid, cloud_id) pair.
-    const rA = await app.handle(
+    const rA = await authedHandle(
       ingest(Buffer.alloc(64, 5), {
         'X-Maple-Device-Id': deviceA,
         'X-Maple-Phasset-Id': phidA,
@@ -237,7 +237,7 @@ describe('POST /api/libraries/:id/backup/ingest — cloud-id + advanced dedup', 
 
     // Device B uploads the same content (same maple_id) with its own phid
     // but the same cloud id (because both devices see the same iCloud asset).
-    const rB = await app.handle(
+    const rB = await authedHandle(
       ingest(Buffer.alloc(64, 5), {
         'X-Maple-Device-Id': deviceB,
         'X-Maple-Phasset-Id': phidB,

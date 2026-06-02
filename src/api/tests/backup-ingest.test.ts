@@ -2,7 +2,7 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { assetsCollection } from '../src/db/client.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
@@ -25,7 +25,7 @@ const ingest = makeIngestRequest(suite.handle.libId);
 describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
   test('happy path single chunk with GPS → AssetDoc + located path', async () => {
     const bytes = Buffer.alloc(256, 1);
-    const res = await app.handle(
+    const res = await authedHandle(
       ingest(bytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -53,7 +53,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
   });
 
   test('resume across two chunks', async () => {
-    const r1 = await app.handle(
+    const r1 = await authedHandle(
       ingest(Buffer.alloc(128, 2), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid2,
@@ -67,7 +67,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     const b1 = await r1.json();
     expect(b1.next_offset).toBe(128);
 
-    const r2 = await app.handle(
+    const r2 = await authedHandle(
       ingest(Buffer.alloc(128, 2), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid2,
@@ -101,7 +101,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     };
 
     // First attempt — original ingest completes.
-    const first = await app.handle(ingest(bytes, headers));
+    const first = await authedHandle(ingest(bytes, headers));
     expect(first.status).toBe(200);
     const firstBody = await first.json();
     expect(firstBody.maple_id).toBe(retryMapleId);
@@ -111,7 +111,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     // bytes are identical (same asset, same total, same path). Before the
     // fix this returned 409 without an expected_offset and the client gave
     // up after eight retries.
-    const second = await app.handle(ingest(bytes, headers));
+    const second = await authedHandle(ingest(bytes, headers));
     expect(second.status).toBe(200);
     const secondBody = await second.json();
     expect(secondBody.maple_id).toBe(retryMapleId);
@@ -127,7 +127,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
   });
 
   test('missing required header → 400', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       ingest(Buffer.alloc(16), {
         'X-Maple-Device-Id': deviceId,
         // no phasset id
@@ -140,7 +140,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
 
   test("409 when resume offset doesn't match server's received_bytes", async () => {
     const phid3 = 'ABC/L0/003';
-    const r1 = await app.handle(
+    const r1 = await authedHandle(
       ingest(Buffer.alloc(128, 3), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid3,
@@ -154,7 +154,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     const b1 = await r1.json();
     expect(b1.next_offset).toBe(128);
 
-    const r2 = await app.handle(
+    const r2 = await authedHandle(
       ingest(Buffer.alloc(128, 3), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid3,
@@ -177,7 +177,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     const phidB = 'ABC/L0/011';
 
     // Device A uploads a complete single-chunk asset.
-    const rA = await app.handle(
+    const rA = await authedHandle(
       ingest(Buffer.alloc(64, 5), {
         'X-Maple-Device-Id': deviceA,
         'X-Maple-Phasset-Id': phidA,
@@ -191,7 +191,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
     expect(rA.status).toBe(200);
 
     // Device B uploads the same asset (same maple_id, different phid).
-    const rB = await app.handle(
+    const rB = await authedHandle(
       ingest(Buffer.alloc(64, 5), {
         'X-Maple-Device-Id': deviceB,
         'X-Maple-Phasset-Id': phidB,
@@ -216,7 +216,7 @@ describe('POST /api/libraries/:id/backup/ingest — happy paths', () => {
 
   test('library not found → 404', async () => {
     const fake = new ObjectId();
-    const r = await app.handle(
+    const r = await authedHandle(
       new Request(`http://localhost/api/libraries/${fake.toHexString()}/backup/ingest`, {
         method: 'POST',
         headers: {

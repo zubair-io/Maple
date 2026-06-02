@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { makeIngestRequest, setupBackupIngestSuite } from './backup-ingest-helpers.ts';
 
 // Error / edge-case slice of the `POST /api/libraries/:id/backup/ingest` suite.
@@ -22,7 +22,7 @@ const ingest = makeIngestRequest(suite.handle.libId);
 
 describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => {
   test('Content-Range end < start → 400', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       ingest(Buffer.alloc(8), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': 'range-test-1',
@@ -36,7 +36,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
   });
 
   test('body shorter than Content-Range claims → 400', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       ingest(Buffer.alloc(8), {
         // only 8 bytes
         'X-Maple-Device-Id': deviceId,
@@ -56,7 +56,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     const { uploadSessionsCollection } = await import('../src/db/client.ts');
 
     // First chunk — establishes session
-    const r1 = await app.handle(
+    const r1 = await authedHandle(
       ingest(Buffer.alloc(128, 9), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidTmp,
@@ -83,7 +83,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     }
 
     // Second chunk — server should detect missing tmp file and return 409
-    const r2 = await app.handle(
+    const r2 = await authedHandle(
       ingest(Buffer.alloc(128, 9), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidTmp,
@@ -102,7 +102,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
   test('resume with different filename self-heals — server resets, asks client to restart from 0', async () => {
     const phidResume = 'ABC/L0/099';
     // Open session with IMG_a.heic.
-    const r1 = await app.handle(
+    const r1 = await authedHandle(
       ingest(Buffer.alloc(128, 7), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidResume,
@@ -118,7 +118,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     // server-side (session reset to offset 0 in place). The client's request
     // still has start=128, so it gets a normal 409 with expected_offset=0
     // telling it to restart from the top.
-    const r2 = await app.handle(
+    const r2 = await authedHandle(
       ingest(Buffer.alloc(128, 7), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidResume,
@@ -134,7 +134,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
 
     // Client follows the expected_offset and restarts at 0 with the new
     // filename — should now succeed end-to-end.
-    const r3 = await app.handle(
+    const r3 = await authedHandle(
       ingest(Buffer.alloc(128, 8), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidResume,
@@ -146,7 +146,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     );
     expect(r3.status).toBe(202);
 
-    const r4 = await app.handle(
+    const r4 = await authedHandle(
       ingest(Buffer.alloc(128, 8), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidResume,
@@ -172,7 +172,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     const preExistingPath = path.join(targetDir, fname);
     await fs.writeFile(preExistingPath, Buffer.alloc(64, 0));
 
-    const rCollide = await app.handle(
+    const rCollide = await authedHandle(
       ingest(Buffer.alloc(64, 11), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': 'ABC/L0/COLLIDE',
@@ -206,7 +206,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     // A retry after a downstream (sidecar/rendered) failure must short-circuit
     // to the RESOLVED sibling path, not the original colliding one — so the
     // device writes companions next to the file it actually uploaded.
-    const rRetry = await app.handle(
+    const rRetry = await authedHandle(
       ingest(Buffer.alloc(64, 11), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': 'ABC/L0/COLLIDE',
@@ -242,7 +242,7 @@ describe('POST /api/libraries/:id/backup/ingest — errors + edge cases', () => 
     const assets = await assetsCollection();
     await assets.deleteMany({ maple_id: 'recover-maple-id' });
 
-    const rRecover = await app.handle(
+    const rRecover = await authedHandle(
       ingest(bytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': 'ABC/L0/RECOVER',
