@@ -2,10 +2,11 @@
 #
 # Cross-cutting CI that runs on every PR and push to `main`. Per #114.
 #
-# Four jobs:
+# Five jobs:
 #   * format-check          — Prettier --check on the tracked source tree.
 #   * file-budget           — bash tools/check-file-budget.sh (LOC ceiling).
 #   * allowlist-shrinks-only — PR-only; fails if tools/budget-allowlist.txt grew.
+#   * codegen-drift         — fails if generated cross-platform constants are stale.
 #   * gitleaks              — installed direct from GitHub releases; scans only
 #                             the commits this PR/push introduces (#839).
 #
@@ -284,8 +285,8 @@ jobs:
             # The explicit fetch makes sure refs/remotes/origin/<base> exists
             # (checkout fetches commits, not always named branch refs).
             git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
-            # origin/<base>..HEAD == commits on HEAD since it diverged from base
-            # (git's symmetric `A..B` range == merge-base(A,B)..B).
+            # origin/<base>..HEAD selects commits reachable from HEAD but not
+            # from the base ref — i.e. this PR's own new commits.
             RANGE="origin/${BASE_REF}..HEAD"
           else
             # push: scan the pushed range. Fall back to HEAD~1..HEAD if `before`
