@@ -121,9 +121,15 @@ function projectImportSummary(doc: ImportWithId): ImportSummaryView {
 
 async function projectImport(doc: ImportWithId): Promise<ImportView> {
   // `files` lives in the `import_files` collection now (split out of the
-  // import doc so a huge folder can't exceed MongoDB's 16 MiB doc limit). The
-  // wire shape is unchanged — the detail view still gets a `files` array.
-  const files = await getImportFiles(doc._id);
+  // import doc so a huge folder can't exceed MongoDB's 16 MiB doc limit).
+  //
+  // While an Auto Import is still `scan_pending`, the worker hasn't resolved
+  // (or is mid-insert of) the file rows — present an empty list rather than a
+  // partial one. Otherwise drop the internal `idx` field so the wire shape
+  // stays exactly the pre-split `ImportFileEntry[]`.
+  const files: ImportFileEntry[] = doc.scan_pending
+    ? []
+    : (await getImportFiles(doc._id)).map(({ idx: _idx, ...entry }) => entry);
   return { ...projectImportSummary(doc), files };
 }
 
