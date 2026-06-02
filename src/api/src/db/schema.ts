@@ -759,14 +759,26 @@ export interface ImportDoc {
   /** Target library — a registered FolderDoc: id + path snapshot. */
   library_id: ObjectId;
   library_root: string;
-  files: ImportFileEntry[];
-  /** Auto Import: the worker scans `source_root` and populates `files` itself
-   * (default `MM` bucket labels) when it claims the job, instead of the files
-   * being resolved up-front by the create request. `false` for the manual
-   * (reviewed-buckets) path, whose `files` are pre-resolved. */
+  /**
+   * LEGACY ONLY — the per-file entries used to live inline here. They now live
+   * one-doc-per-file in the `import_files` collection (see `ImportFileDoc`),
+   * because a folder with tens of thousands of files serialized a single
+   * `imports` document past MongoDB's hard 16 MiB document ceiling (and the
+   * BSON driver's 17 MiB serialization buffer), which threw
+   * `RangeError [ERR_OUT_OF_RANGE]` mid-scan and failed the whole import.
+   *
+   * New imports never set this field; it is read (best-effort) only to keep
+   * the detail view of pre-migration imports working. Do not write it.
+   */
+  files?: ImportFileEntry[];
+  /** Auto Import: the worker scans `source_root` and populates the
+   * `import_files` collection itself (default `MM` bucket labels) when it
+   * claims the job, instead of the files being resolved up-front by the create
+   * request. `false` for the manual (reviewed-buckets) path, whose files are
+   * pre-resolved. */
   scan_pending: boolean;
-  /** Coarse progress; `total` === files.length (0 until an Auto Import's
-   * worker-side scan completes). */
+  /** Coarse progress; `total` === the number of `import_files` rows (0 until
+   * an Auto Import's worker-side scan completes). */
   progress: { current: number; total: number };
   counts: { copied: number; skipped: number; failed: number };
   error: string | null;
@@ -781,6 +793,24 @@ export interface ImportDoc {
 }
 
 export type ImportWithId = WithId<ImportDoc>;
+
+/**
+ * One file in an import, stored in its OWN `import_files` collection document
+ * rather than inline on the `imports` doc. This is the fix for the
+ * tens-of-thousands-of-files case: an inline array blew past MongoDB's 16 MiB
+ * per-document limit (surfacing as a BSON `ERR_OUT_OF_RANGE` at the 17 MiB
+ * serialization-buffer boundary) and failed the import during scanning.
+ *
+ * `(import_id, idx)` is unique. `idx` is the file's stable 0-based position so
+ * the worker can pull files back in deterministic order and target a single
+ * row's progress update without rewriting the whole set.
+ */
+export interface ImportFileDoc extends ImportFileEntry {
+  import_id: ObjectId;
+  idx: number;
+}
+
+export type ImportFileWithId = WithId<ImportFileDoc>;
 
 // ---------------------------------------------------------------------------
 // User

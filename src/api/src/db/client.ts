@@ -23,6 +23,7 @@ import type {
   IndexerTaskDoc,
   JobDoc,
   ImportDoc,
+  ImportFileDoc,
   PersonDoc,
   StageHandlerDoc,
   UserDoc,
@@ -119,6 +120,10 @@ export async function jobsCollection(): Promise<Collection<JobDoc>> {
 
 export async function importsCollection(): Promise<Collection<ImportDoc>> {
   return (await getDb()).collection<ImportDoc>('imports');
+}
+
+export async function importFilesCollection(): Promise<Collection<ImportFileDoc>> {
+  return (await getDb()).collection<ImportFileDoc>('import_files');
 }
 
 export async function stageHandlersCollection(): Promise<Collection<StageHandlerDoc>> {
@@ -689,6 +694,15 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('imports')
     .createIndex({ status: 1, created_at: -1 }, { name: 'imports_list' });
+
+  // import_files: per-file rows for an import, split out of the `imports` doc
+  // so a huge folder can't push a single document past MongoDB's 16 MiB limit.
+  // `(import_id, idx)` is the natural key — unique so a re-scan/retry can't
+  // duplicate a row, and it serves the worker's ordered scan + per-file
+  // progress update (findOne/updateOne by {import_id, idx}).
+  await db
+    .collection('import_files')
+    .createIndex({ import_id: 1, idx: 1 }, { unique: true, name: 'import_files_import_idx' });
 
   // Geocode worker — claim query is:
   //   { exif.gps.lat: $ne null, enrichment.geocode.done_at: null,

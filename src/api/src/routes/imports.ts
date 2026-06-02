@@ -17,7 +17,7 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
-import type { ImportStatus, ImportWithId } from '../db/schema.ts';
+import type { ImportFileEntry, ImportStatus, ImportWithId } from '../db/schema.ts';
 import { foldersCollection } from '../db/client.ts';
 import { browseRoots, isUnderRoot } from '../fs/browse.ts';
 import { scanFolder, buildImportFiles } from '../imports/scan.ts';
@@ -25,6 +25,7 @@ import { isSafeLabel } from '../imports/dest.ts';
 import {
   createImport,
   getImport,
+  getImportFiles,
   listImports,
   requestImportCancel,
   retryImport,
@@ -85,7 +86,7 @@ interface ImportView {
   source_root: string;
   library_id: string;
   library_root: string;
-  files: ImportWithId['files'];
+  files: ImportFileEntry[];
   /** Auto Import awaiting the worker's deferred scan (files not yet resolved). */
   scan_pending: boolean;
   progress: { current: number; total: number };
@@ -118,8 +119,12 @@ function projectImportSummary(doc: ImportWithId): ImportSummaryView {
   };
 }
 
-function projectImport(doc: ImportWithId): ImportView {
-  return { ...projectImportSummary(doc), files: doc.files };
+async function projectImport(doc: ImportWithId): Promise<ImportView> {
+  // `files` lives in the `import_files` collection now (split out of the
+  // import doc so a huge folder can't exceed MongoDB's 16 MiB doc limit). The
+  // wire shape is unchanged — the detail view still gets a `files` array.
+  const files = await getImportFiles(doc._id);
+  return { ...projectImportSummary(doc), files };
 }
 
 const ScanBody = t.Object({ source_root: t.String() });
@@ -287,7 +292,7 @@ export const importsRoutes = new Elysia({ prefix: '/api/imports' })
       }
       // `?summary=1` returns just status/progress/counts — the shape progress
       // polling needs, without the (potentially huge) per-file `files` array.
-      return query.summary === '1' ? projectImportSummary(doc) : projectImport(doc);
+      return query.summary === '1' ? projectImportSummary(doc) : await projectImport(doc);
     },
     { query: DetailQuery },
   )

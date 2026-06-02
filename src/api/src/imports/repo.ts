@@ -8,16 +8,42 @@
  */
 
 import { ObjectId, type WithId } from 'mongodb';
-import { importsCollection, assetsCollection } from '../db/client.ts';
+import { importsCollection, importFilesCollection, assetsCollection } from '../db/client.ts';
 import { isSafeLabel } from './dest.ts';
 import { isSafeFilename } from '../backup/path-formatter.ts';
 import type {
   ImportDoc,
+  ImportFileDoc,
   ImportFileEntry,
   ImportFileState,
   ImportStatus,
   ImportWithId,
 } from '../db/schema.ts';
+
+/** An import file entry plus its stable position in the import. Returned by
+ * `getImportFiles` so callers (the worker) can target a single row's progress
+ * update by `(import_id, idx)`. */
+export type ImportFileEntryWithIdx = ImportFileEntry & { idx: number };
+
+/** Bulk-insert `files` as `import_files` rows for `importId`, numbered by
+ * position. Chunked so a folder with hundreds of thousands of files issues
+ * bounded `insertMany` batches instead of one giant write — the whole point of
+ * splitting these out of the `imports` doc is that no single write approaches
+ * MongoDB's 16 MiB document ceiling. No-op for an empty list. */
+const INSERT_BATCH = 5_000;
+async function insertImportFiles(importId: ObjectId, files: ImportFileEntry[]): Promise<void> {
+  if (files.length === 0) return;
+  const coll = await importFilesCollection();
+  for (let start = 0; start < files.length; start += INSERT_BATCH) {
+    const slice = files.slice(start, start + INSERT_BATCH);
+    const docs: ImportFileDoc[] = slice.map((f, i) => ({
+      ...f,
+      import_id: importId,
+      idx: start + i,
+    }));
+    await coll.insertMany(docs, { ordered: false });
+  }
+}
 
 export interface CreateImportInput {
   source_root: string;
@@ -35,7 +61,6 @@ export interface ClaimedImport {
   source_root: string;
   library_id: ObjectId;
   library_root: string;
-  files: ImportFileEntry[];
   scan_pending: boolean;
 }
 
@@ -44,7 +69,10 @@ export interface ListImportsFilter {
   limit?: number;
 }
 
-/** Insert a pending import. `total` === files.length. */
+/** Insert a pending import. The per-file entries are written to the
+ * `import_files` collection (one doc each), NOT inline on the import doc, so a
+ * huge folder can't blow past MongoDB's 16 MiB per-document ceiling.
+ * `progress.total` is the file count. */
 export async function createImport(
   input: CreateImportInput,
   now: () => Date = () => new Date(),
@@ -56,7 +84,6 @@ export async function createImport(
     source_root: input.source_root,
     library_id: input.library_id,
     library_root: input.library_root,
-    files: input.files,
     scan_pending: input.scan_pending ?? false,
     progress: { current: 0, total: input.files.length },
     counts: { copied: 0, skipped: 0, failed: 0 },
@@ -68,6 +95,7 @@ export async function createImport(
     updated_at: nowIso,
   };
   const result = await c.insertOne(doc as ImportDoc);
+  await insertImportFiles(result.insertedId, input.files);
   return { _id: result.insertedId, ...doc } as ImportWithId;
 }
 
@@ -141,15 +169,51 @@ export async function claimImport(
     source_root: result.source_root,
     library_id: result.library_id,
     library_root: result.library_root,
-    files: result.files,
     scan_pending: result.scan_pending ?? false,
   };
 }
 
 /**
- * Populate an Auto Import's files after the worker's deferred scan. Sets the
- * file list, `progress.total`, and clears `scan_pending`. Renews the lease,
- * since a large scan can take a while.
+ * Load an import's per-file entries in stable `idx` order. New imports store
+ * these in the `import_files` collection; pre-migration imports kept them
+ * inline on the doc, so fall back to that when the collection has no rows for
+ * the id (keeps the detail view of old imports working without a migration).
+ */
+export async function getImportFiles(id: ObjectId): Promise<ImportFileEntryWithIdx[]> {
+  const coll = await importFilesCollection();
+  const rows = await coll.find({ import_id: id }).sort({ idx: 1 }).toArray();
+  if (rows.length > 0) {
+    return rows.map((r) => ({
+      src: r.src,
+      dest: r.dest,
+      size: r.size,
+      mtime: r.mtime,
+      kind: r.kind,
+      state: r.state,
+      error: r.error,
+      idx: r.idx,
+    }));
+  }
+  // Legacy fallback: an import created before the split still carries its
+  // files inline. Surface them (with synthesized idx) so old detail views and
+  // retries keep working.
+  const c = await importsCollection();
+  const doc = (await c.findOne({ _id: id }, { projection: { files: 1 } })) as {
+    files?: ImportFileEntry[];
+  } | null;
+  return (doc?.files ?? []).map((f, idx) => ({ ...f, idx }));
+}
+
+/**
+ * Populate an Auto Import's files after the worker's deferred scan. Writes the
+ * resolved entries to the `import_files` collection (clearing any rows from a
+ * prior scan so a re-scan starts clean), sets `progress.total`, and clears
+ * `scan_pending`. Renews the lease, since a large scan can take a while.
+ *
+ * This is the write that used to overflow: a single `imports` doc holding the
+ * whole `files[]` array tipped past MongoDB's 16 MiB ceiling for big folders
+ * and threw a BSON `ERR_OUT_OF_RANGE`. The entries now live one-per-doc, so
+ * each `insertMany` batch stays tiny regardless of folder size.
  */
 export async function setImportFiles(
   id: ObjectId,
@@ -157,6 +221,10 @@ export async function setImportFiles(
   leaseMs: number,
   now: () => Date = () => new Date(),
 ): Promise<void> {
+  const filesColl = await importFilesCollection();
+  await filesColl.deleteMany({ import_id: id });
+  await insertImportFiles(id, files);
+
   const c = await importsCollection();
   const nowDate = now();
   const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
@@ -164,7 +232,6 @@ export async function setImportFiles(
     { _id: id },
     {
       $set: {
-        files,
         scan_pending: false,
         'progress.total': files.length,
         lease_expires_at: leaseExpiresAt,
@@ -175,10 +242,14 @@ export async function setImportFiles(
 }
 
 /**
- * Persist one file's outcome and renew the lease. `index` is the position in
- * `files[]`; `current` is the count processed so far. Counts are recomputed
- * by the caller and written wholesale so a re-claim after a crash can't
- * double-count.
+ * Persist one file's outcome and renew the lease. `index` is the file's `idx`
+ * in the `import_files` collection; `current` is the count processed so far.
+ * Counts are recomputed by the caller and written wholesale so a re-claim
+ * after a crash can't double-count.
+ *
+ * Two writes: the per-file row (`import_files`) and the import-doc progress
+ * (`imports`). Splitting them is what keeps the import doc bounded — its size
+ * no longer grows with the file count.
  */
 export async function updateImportProgress(
   id: ObjectId,
@@ -193,6 +264,12 @@ export async function updateImportProgress(
   leaseMs: number,
   now: () => Date = () => new Date(),
 ): Promise<void> {
+  const filesColl = await importFilesCollection();
+  await filesColl.updateOne(
+    { import_id: id, idx: args.index },
+    { $set: { state: args.state, error: args.error, dest: args.destRel } },
+  );
+
   const c = await importsCollection();
   const nowDate = now();
   const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
@@ -200,9 +277,6 @@ export async function updateImportProgress(
     { _id: id },
     {
       $set: {
-        [`files.${args.index}.state`]: args.state,
-        [`files.${args.index}.error`]: args.error,
-        [`files.${args.index}.dest`]: args.destRel,
         'progress.current': args.current,
         counts: args.counts,
         lease_expires_at: leaseExpiresAt,
@@ -330,8 +404,9 @@ export async function markImportCancelled(
  * recomputed to reflect those stay-failed entries so the import doesn't report
  * a clean run when some files are unrecoverable.
  *
- * The `files` array is rewritten wholesale in one atomic update so a
- * concurrent claim can't see a half-reset doc.
+ * Recoverable file rows are flipped back to `pending` in the `import_files`
+ * collection; the import doc's status/counts are reset last so a worker can't
+ * re-claim until the file rows are ready.
  */
 function destIsSafe(dest: string): boolean {
   // Mirror `destRelPath`'s invariant exactly: `<year>/<label>/<filename>` —
@@ -355,12 +430,15 @@ export async function retryImport(
     doc.status === 'failed' || (doc.status === 'done' && (doc.counts?.failed ?? 0) > 0);
   if (!retryable) return false;
 
+  const fileRows = await getImportFiles(id);
+
   // Re-scan branch: a scan-level / auto-import failure that never produced file
-  // rows (`failed` + empty files[]). There's nothing per-file to recover, so
+  // rows (`failed` + no file rows). There's nothing per-file to recover, so
   // re-queue for a FRESH scan — the worker re-walks `source_root` (skipping the
   // hidden/temp files now filtered on scan, #793). Safe because no copied
-  // states exist to lose.
-  if (doc.status === 'failed' && doc.files.length === 0) {
+  // states exist to lose. This is also the path that recovers the
+  // 16-MiB-overflow failure: the old scan threw before any file row landed.
+  if (doc.status === 'failed' && fileRows.length === 0) {
     const nowIso = now().toISOString();
     const result = await c.updateOne(
       { _id: id, status: doc.status },
@@ -383,40 +461,51 @@ export async function retryImport(
   // permanently-unsafe file failed so the re-run never copies an unvalidated
   // dest. Copied/skipped/pending files are untouched (already-copied images
   // dedup-skip on the re-run, so nothing is re-copied).
-  let recoveredCount = 0;
+  const recoverableIdxs: number[] = [];
   let stillFailed = 0;
-  const files: ImportFileEntry[] = doc.files.map((f) => {
-    if (f.state !== 'failed') return f;
-    if (destIsSafe(f.dest)) {
-      recoveredCount += 1;
-      return { ...f, state: 'pending' as ImportFileState, error: null };
-    }
-    stillFailed += 1;
-    return f;
-  });
-  if (recoveredCount === 0) {
+  for (const f of fileRows) {
+    if (f.state !== 'failed') continue;
+    if (destIsSafe(f.dest)) recoverableIdxs.push(f.idx);
+    else stillFailed += 1;
+  }
+  if (recoverableIdxs.length === 0) {
     // Nothing recoverable among the file rows — a no-op retry isn't meaningful
     // (only permanently-unsafe failures remain). The fileless case is handled
-    // by the re-scan branch above, so reaching here means files[] is non-empty
+    // by the re-scan branch above, so reaching here means there ARE file rows
     // and re-scanning wouldn't help (same unsafe names).
     return false;
   }
 
+  // Flip the recoverable rows back to pending first, then reset the import doc.
+  // If a crash lands between the two, the file rows are pending but the import
+  // is still `failed` — a subsequent retry re-runs idempotently (same rows,
+  // same result), and no worker can claim a still-`failed` import meanwhile.
+  const filesColl = await importFilesCollection();
+  await filesColl.updateMany(
+    { import_id: id, idx: { $in: recoverableIdxs } },
+    { $set: { state: 'pending' as ImportFileState, error: null } },
+  );
+
   const nowIso = now().toISOString();
-  const counts = { copied: 0, skipped: 0, ...doc.counts, failed: stillFailed };
+  // Keep the prior copied/skipped tallies (those files stay put on the re-run);
+  // only `failed` is recomputed to the still-unrecoverable count.
+  const counts = {
+    copied: doc.counts?.copied ?? 0,
+    skipped: doc.counts?.skipped ?? 0,
+    failed: stillFailed,
+  };
   const result = await c.updateOne(
     { _id: id, status: doc.status },
     {
       $set: {
         status: 'pending' as ImportStatus,
-        files,
         counts,
         error: null,
         locked_by: null,
         lease_expires_at: null,
         cancel_requested: false,
         // Re-running an Auto Import re-uses the resolved files — never re-scan,
-        // which would rebuild files[] and lose the copied states.
+        // which would rebuild the file rows and lose the copied states.
         scan_pending: false,
         updated_at: nowIso,
       },
