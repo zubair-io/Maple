@@ -333,7 +333,19 @@ while IFS= read -r slice_lib; do
     # fat archive (the macOS slice) nm lists them per-arch; a symbol defined
     # in any arch satisfies the per-symbol check below. The Apple ABI
     # prefixes C symbols with a leading underscore, so we match `_<name>`.
-    defined="$(nm -gU "$slice_lib" 2>/dev/null | awk '{print $NF}')"
+    #
+    # `|| true` on the whole pipeline is load-bearing under `set -euo
+    # pipefail`: `nm` exits non-zero (and prints to stderr) when an archive
+    # member is a Rust LLVM-bitcode object it can't fully parse
+    # ("Unknown attribute kind …"). That non-zero status would otherwise
+    # propagate through `pipefail` to this command-substitution assignment
+    # and `set -e` would abort the guard before it checked a single symbol —
+    # a silent false failure with no per-slice output. The defined symbols
+    # `nm` *does* emit still land on stdout, so masking the exit status is
+    # safe: if `nm` genuinely produced nothing (broken/empty lib), `defined`
+    # is empty and every symbol flags as missing below — a loud, correct
+    # failure, not a false pass.
+    defined="$(nm -gU "$slice_lib" 2>/dev/null | awk '{print $NF}' || true)"
     for sym in "${EXPECTED_SYMBOLS[@]}"; do
         if ! grep -qxF "_$sym" <<<"$defined"; then
             echo "ERROR: stale/incomplete slice $slice_dir: missing symbol $sym" >&2
