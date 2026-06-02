@@ -102,6 +102,28 @@ fn histogram_null_arg_returns_error() {
     assert_eq!(rc2, 1);
 }
 
+#[test]
+fn histogram_rejects_misaligned_out_bins() {
+    // A misaligned `*mut u32` would make the `from_raw_parts_mut` write UB;
+    // the entry must reject it (rc = 1) before reinterpreting the pointer.
+    // Build a byte buffer and pick a byte offset that is guaranteed NOT
+    // u32-aligned regardless of the allocator's base alignment.
+    let mut backing = vec![0u8; HISTOGRAM_BINS_LEN * 4 + 4];
+    let base = backing.as_mut_ptr();
+    let off = if (base as usize) % std::mem::align_of::<u32>() == 0 { 1 } else { 0 };
+    let misaligned = unsafe { base.add(off) } as *mut u32;
+    assert_ne!(
+        misaligned as usize % std::mem::align_of::<u32>(),
+        0,
+        "test setup: pointer must be misaligned",
+    );
+    let raw = CString::new("/tmp/maple-ffi-no-such-file.dng").unwrap();
+    // Reads only the pointer VALUE (alignment check), never dereferences it,
+    // so passing a misaligned pointer here is sound.
+    let rc = unsafe { maple_histogram_file(raw.as_ptr(), std::ptr::null(), misaligned) };
+    assert_eq!(rc, 1, "misaligned out_bins must be rejected with code 1");
+}
+
 /// End-to-end success path, always-run: a hand-rolled synthetic DNG is
 /// decoded + rendered + binned, with no gitignored fixture required. Asserts
 /// the structural invariant that holds for ANY image — exactly one sample per

@@ -224,14 +224,18 @@ pub(crate) fn bin_rgb888(rgb: &[u8]) -> [u32; HISTOGRAM_BINS_LEN] {
 /// shipping ~300 MB of RGB across the boundary for a 100 MP frame.
 ///
 /// Returns 0 on success, non-zero on error (call `maple_last_error`). Error
-/// codes mirror `maple_render_file`: 1 = null arg, 2/3 = path not UTF-8,
-/// 6 = read, 7 = decode, 8 = render.
+/// codes mirror `maple_render_file` plus the shared XMP-load codes:
+/// 1 = null or misaligned `out_bins` pointer, 2/3 = raw/xmp path not UTF-8,
+/// 4 = XMP parse, 5 = XMP read, 6 = raw read, 7 = decode, 8 = render.
+/// Codes 4 and 5 surface from `load_xmp_model_owned` only when an `xmp_path`
+/// is supplied (a malformed or unreadable sidecar).
 ///
 /// # Safety
 ///
 /// `raw_path` must be a valid C string; `xmp_path` may be null or a valid C
 /// string; `out_bins` must point to >= [`HISTOGRAM_BINS_LEN`] writable `u32`s
-/// that live for the duration of the call.
+/// that live for the duration of the call. Misalignment is rejected at runtime
+/// (returns 1) rather than risking UB in the `from_raw_parts_mut` write below.
 #[no_mangle]
 pub unsafe extern "C" fn maple_histogram_file(
     raw_path: *const c_char,
@@ -240,6 +244,15 @@ pub unsafe extern "C" fn maple_histogram_file(
 ) -> i32 {
     if raw_path.is_null() || out_bins.is_null() {
         set_last_error("null pointer argument".into());
+        return 1;
+    }
+    // `out_bins` is reinterpreted as a `*mut u32` slice below (via
+    // `from_raw_parts_mut`), which is instant UB on a pointer that is not
+    // `u32`-aligned. This is a public C ABI, so validate the caller's
+    // alignment rather than trust it — reject with the pointer-argument
+    // code (1) on a miss instead of risking the unaligned write.
+    if out_bins as usize % std::mem::align_of::<u32>() != 0 {
+        set_last_error("out_bins pointer is not u32-aligned".into());
         return 1;
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
