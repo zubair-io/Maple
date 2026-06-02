@@ -587,13 +587,25 @@ public actor ImageEditPipeline {
     /// CoreImage's implicit per-channel-clamp Rec.2020→sRGB conversion at the
     /// `createCGImage` boundary. It runs for BOTH `Profile::Neutral` (gamut-
     /// correct base) and `Profile::Auto` (the cube then applies on the matching
-    /// sRGB-encoded domain). On FFI error it falls through to the input
-    /// unchanged (still tagged Rec.2020) so the canvas shows pixels.
-    nonisolated private func encodeDisplaySRGBViaFFI(_ input: CIImage) -> CIImage {
+    /// sRGB-encoded domain).
+    ///
+    /// Returns `nil` on any failure (degenerate extent, `CIContext.render`
+    /// failure, or FFI error). A `nil` result is **load-bearing**: the encode
+    /// and the sRGB-tagged Auto cube must travel together. The caller MUST NOT
+    /// apply the sRGB cube to the un-encoded (still Rec.2020-tagged) input on
+    /// failure — that color-space mismatch is exactly the #871/#877 wide-gamut
+    /// blowout on the error path. On `nil`, the caller falls back to the plain
+    /// Rec.2020 buffer with NO cube (behaving like `Profile::Neutral`), so
+    /// CoreImage's own Rec.2020→canvas conversion runs coherently. See
+    /// `applyAutoCubeIfEncoded`.
+    nonisolated private func encodeDisplaySRGBViaFFI(_ input: CIImage) -> CIImage? {
         let extent = input.extent
         let w = Int(extent.width.rounded())
         let h = Int(extent.height.rounded())
-        guard w > 0, h > 0 else { return input }
+        guard w > 0, h > 0 else {
+            logger.error("encodeDisplaySRGBViaFFI: degenerate extent \(w)x\(h); no encode")
+            return nil
+        }
 
         let bytesPerPixel = 16 // 4 f32 lanes
         let rowBytes = w * bytesPerPixel
@@ -615,8 +627,8 @@ public actor ImageEditPipeline {
             return true
         }
         guard renderSucceeded else {
-            logger.error("encodeDisplaySRGBViaFFI: CIContext.render failed; falling through")
-            return input
+            logger.error("encodeDisplaySRGBViaFFI: CIContext.render failed; no encode")
+            return nil
         }
 
         let outputBytes: Data
@@ -628,7 +640,7 @@ public actor ImageEditPipeline {
             }
         } catch {
             logger.error("encodeDisplaySRGBViaFFI: FFI error: \(error.localizedDescription, privacy: .public)")
-            return input
+            return nil
         }
 
         // The bytes are now sRGB-gamma-encoded sRGB-primary f32 RGBA — tag
@@ -642,6 +654,35 @@ public actor ImageEditPipeline {
                 colorSpace: Self.displayEncodedColorSpace
             )
         }
+    }
+
+    /// Resolve the final display image, enforcing the **encode + cube travel
+    /// together** invariant (#877 error-path fix).
+    ///
+    /// `encoded` is the result of `encodeDisplaySRGBViaFFI`: a non-nil
+    /// sRGB-gamma-encoded sRGB-primary CIImage on success, or `nil` when the
+    /// gamut-correct encode failed. `fallback` is the un-encoded, still
+    /// **Rec.2020-tagged** display-linear image (the encode's input).
+    ///
+    /// On success the sRGB-tagged Auto cube applies on its matching
+    /// sRGB-encoded domain. On encode failure we return the Rec.2020 `fallback`
+    /// **without** the cube — applying the sRGB cube to a Rec.2020 buffer is a
+    /// color-space mismatch that reintroduces the #871/#877 wide-gamut blowout.
+    /// Dropping to the cube-less Rec.2020 buffer mirrors `Profile::Neutral` and
+    /// lets CoreImage do its own coherent Rec.2020→canvas conversion.
+    ///
+    /// Pure (no `self`/actor state) so the invariant is unit-testable without
+    /// forcing an FFI failure — see `AutoProfileCanvasParityTests`.
+    nonisolated static func applyAutoCubeIfEncoded(
+        encoded: CIImage?,
+        fallback: CIImage,
+        profileLUT: CIFilter?
+    ) -> CIImage {
+        guard let encoded else {
+            // Encode failed: NO cube on the Rec.2020 buffer (Neutral fallback).
+            return fallback
+        }
+        return AutoProfileLUT.apply(profileLUT, to: encoded)
     }
 
     // MARK: Process (non-RAW path — skip WB calibration)
@@ -708,8 +749,10 @@ public actor ImageEditPipeline {
         // clamp at the canvas boundary. Non-RAW input is already sRGB-gamut
         // content promoted into the Rec.2020 working space, so this is the
         // matching encode and keeps the non-RAW canvas consistent with the
-        // RAW canvas (both tag the result `sRGB`).
-        return encodeDisplaySRGBViaFFI(withNRColor)
+        // RAW canvas (both tag the result `sRGB`). On encode failure fall back
+        // to the Rec.2020 buffer (no cube on this path) — CoreImage then does
+        // its own coherent Rec.2020→canvas conversion.
+        return encodeDisplaySRGBViaFFI(withNRColor) ?? withNRColor
     }
 
     // MARK: Process (scene-linear path — Plan 1 FFI split)
@@ -843,12 +886,22 @@ public actor ImageEditPipeline {
         let encoded = encodeDisplaySRGBViaFFI(withNRColor)
         // Auto Profile (#812) — the LAST display-space op, matching the CPU
         // path's `auto_profile` → quantize order. `profileLUT` is a
-        // CIColorCubeWithColorSpace tagged sRGB; its input is now already in
-        // that exact space, so CoreImage's cube color management is a no-op
-        // convert. Nil for `Profile::Neutral` — the canvas then renders the
-        // gamut-correct AgX+encode output. The caller resolves + caches the
-        // cube per image via `AutoProfileLUT` so this is never a per-tick cost.
-        return AutoProfileLUT.apply(profileLUT, to: encoded)
+        // CIColorCubeWithColorSpace tagged sRGB; on a successful encode its
+        // input is already in that exact space, so CoreImage's cube color
+        // management is a no-op convert. Nil for `Profile::Neutral` — the
+        // canvas then renders the gamut-correct AgX+encode output. The caller
+        // resolves + caches the cube per image via `AutoProfileLUT` so this is
+        // never a per-tick cost.
+        //
+        // #877 error-path safety: the sRGB cube and the sRGB encode travel
+        // together. If the encode FAILED (`encoded == nil`), applying the
+        // sRGB-tagged cube to the un-encoded Rec.2020 buffer would be a
+        // color-space mismatch that reintroduces the wide-gamut blowout —
+        // `applyAutoCubeIfEncoded` drops to the cube-less Rec.2020 fallback
+        // (Neutral) instead.
+        return Self.applyAutoCubeIfEncoded(
+            encoded: encoded, fallback: withNRColor, profileLUT: profileLUT
+        )
     }
 
     // MARK: Render preview (processed CIImage → CGImage)
