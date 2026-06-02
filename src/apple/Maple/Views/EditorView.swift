@@ -28,6 +28,12 @@ struct EditorView: View {
     let onShare: () -> Void
     let onInfo: () -> Void
 
+    /// Real-pixel conversion factor for the canvas geometry. The render
+    /// pipeline targets hardware pixels, so the points the canvas reports
+    /// are scaled by this before they reach `session.previewSize`. Mirrors
+    /// `FullImageView`'s use of the same environment value.
+    @Environment(\.displayScale) private var displayScale
+
     /// Optional filmstrip data — when empty the strip collapses to zero
     /// height (v0.1; the strip auto-shows when there are siblings).
     var filmstripAssets: [AssetRef] = []
@@ -54,6 +60,16 @@ struct EditorView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(MapleTokens.bg)
+            // Report the canvas region's live size into the session so the
+            // render pipeline has a real target. Captured on the
+            // always-present container (NOT inside `CanvasImageView`, which
+            // only exists once a preview lands) — otherwise the first render
+            // would never get a non-zero `previewSize` and the canvas would
+            // stay on the placeholder forever. Mirrors FullImageView's
+            // `syncSessionToViewport`. iOS 17 / macOS 14 deployment targets
+            // predate `onGeometryChange`, so we use the GeometryReader +
+            // `onChange(of:)` pattern (same as FullImageView).
+            .background(canvasSizeReader)
             // Canvas drag = 0.5:1 sensitivity into the armed tool, routed
             // through the same value pipe as the bar gesture.
             .gesture(canvasDragGesture)
@@ -74,6 +90,49 @@ struct EditorView: View {
         }
         .background(MapleTokens.bg.ignoresSafeArea())
         .accessibilityIdentifier("editor-view")
+        // Kick the render once this view is the active editor for the
+        // current asset. `FullImageView` does this on `.onAppear`; the S5
+        // editor never did, which is why it opened to a grey placeholder
+        // on every platform (#827). `ensureRenderStarted()` is idempotent
+        // (guards on `renderedPreview == nil`) and re-runs when the asset
+        // id changes (filmstrip sibling switch). Both hosts —
+        // `EditorDestination` (iPhone NavigationStack) and
+        // `EditorSessionHost` (desktop center column, #816) — only render
+        // `EditorView` once their `state` (and the host's `builtAssetID ==
+        // session.asset.id` gate) resolves, so this `.task` fires against
+        // the correct, matched session.
+        .task(id: state.session.asset.id) {
+            state.session.ensureRenderStarted()
+        }
+    }
+
+    // MARK: - Canvas geometry → previewSize
+
+    /// Transparent backing layer that reports the canvas region's size and
+    /// feeds it (in real pixels) to `session.previewSize`. Lives on the
+    /// always-present ZStack so it fires for both the placeholder and the
+    /// image branch — the first non-zero size drives the fast render via
+    /// `previewSize.didSet`, and later changes (desktop window resize,
+    /// iPhone rotation) schedule a refine.
+    private var canvasSizeReader: some View {
+        GeometryReader { geo in
+            Color.clear
+                .onAppear { updatePreviewSize(geo.size) }
+                .onChange(of: geo.size) { _, newSize in
+                    updatePreviewSize(newSize)
+                }
+        }
+    }
+
+    /// Pushes a points size into the session as real screen pixels, reusing
+    /// `FullImageView`'s conversion helper so the math can't drift. Setting
+    /// `previewSize` (its `didSet`) is what drives the (re-)render.
+    private func updatePreviewSize(_ pointsSize: CGSize) {
+        guard pointsSize.width > 0, pointsSize.height > 0 else { return }
+        state.session.previewSize = FullImageViewVM.viewportInPixels(
+            viewport: pointsSize,
+            displayScale: displayScale
+        )
     }
 
     // MARK: - Canvas
