@@ -564,6 +564,86 @@ public actor ImageEditPipeline {
         }
     }
 
+    // MARK: Display encode (Rec.2020 → sRGB Oklab gamut compression) — #877
+
+    /// Color space the gamut-correct display encode (`encodeDisplaySRGBViaFFI`)
+    /// hands back: **sRGB-gamma-encoded sRGB-primary**. CoreImage reads this
+    /// tag and converts sRGB → the canvas output (P3) WITHOUT a Rec.2020→sRGB
+    /// per-channel clamp — that clamp is exactly the #871/#877 wide-gamut-green
+    /// blowout, and `encodeDisplaySRGBViaFFI` has already replaced it with
+    /// raw-core's hue-preserving Oklab compression.
+    nonisolated public static let displayEncodedColorSpace =
+        CGColorSpace(name: CGColorSpace.sRGB)!
+
+    /// Apply raw-core's canonical display encode (#877) to a post-AgX
+    /// **display-linear Rec.2020** CIImage: materialise it to f32 RGBA, hand
+    /// it to the `maple_encode_display_srgb_f32` FFI (Oklab gamut compression
+    /// + sRGB gamma — the EXACT stages the CPU/CLI reference runs between AgX
+    /// and the Auto Profile cube), and wrap the result back into a CIImage
+    /// tagged `sRGB`.
+    ///
+    /// This makes the Apple canvas gamut-correct for wide-gamut content by
+    /// construction: it shares raw-core's reference math instead of relying on
+    /// CoreImage's implicit per-channel-clamp Rec.2020→sRGB conversion at the
+    /// `createCGImage` boundary. It runs for BOTH `Profile::Neutral` (gamut-
+    /// correct base) and `Profile::Auto` (the cube then applies on the matching
+    /// sRGB-encoded domain). On FFI error it falls through to the input
+    /// unchanged (still tagged Rec.2020) so the canvas shows pixels.
+    nonisolated private func encodeDisplaySRGBViaFFI(_ input: CIImage) -> CIImage {
+        let extent = input.extent
+        let w = Int(extent.width.rounded())
+        let h = Int(extent.height.rounded())
+        guard w > 0, h > 0 else { return input }
+
+        let bytesPerPixel = 16 // 4 f32 lanes
+        let rowBytes = w * bytesPerPixel
+        let totalBytes = rowBytes * h
+        // Materialise the post-AgX display-linear Rec.2020 buffer.
+        let rec2020 = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+
+        var inputBytes = Data(count: totalBytes)
+        let renderSucceeded: Bool = inputBytes.withUnsafeMutableBytes { buf -> Bool in
+            guard let base = buf.baseAddress else { return false }
+            context.render(
+                input,
+                toBitmap: base,
+                rowBytes: rowBytes,
+                bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                format: .RGBAf,
+                colorSpace: rec2020
+            )
+            return true
+        }
+        guard renderSucceeded else {
+            logger.error("encodeDisplaySRGBViaFFI: CIContext.render failed; falling through")
+            return input
+        }
+
+        let outputBytes: Data
+        do {
+            outputBytes = try mapleStage("encode display sRGB (Oklab gamut)") {
+                try PipelineRenderer.encodeDisplaySRGB(
+                    inputBytes: inputBytes, width: w, height: h
+                )
+            }
+        } catch {
+            logger.error("encodeDisplaySRGBViaFFI: FFI error: \(error.localizedDescription, privacy: .public)")
+            return input
+        }
+
+        // The bytes are now sRGB-gamma-encoded sRGB-primary f32 RGBA — tag
+        // the CIImage sRGB so CoreImage does no further gamut clamp.
+        return mapleStage("display sRGB CIImage build") {
+            CIImage(
+                bitmapData: outputBytes,
+                bytesPerRow: rowBytes,
+                size: CGSize(width: w, height: h),
+                format: .RGBAf,
+                colorSpace: Self.displayEncodedColorSpace
+            )
+        }
+    }
+
     // MARK: Process (non-RAW path — skip WB calibration)
 
     /// Scene-linear chain for non-RAW input. Identical to
@@ -619,10 +699,17 @@ public actor ImageEditPipeline {
             detail: Float(model.sharpenDetail),
             masking: Float(model.sharpenMasking)
         )
-        return MetalKernels.applySceneNRColor(
+        let withNRColor = MetalKernels.applySceneNRColor(
             to: withSharpen,
             nrColor: Float(model.nrColor)
         )
+        // Display encode (#877) — same gamut-correct Rec.2020→sRGB (Oklab) +
+        // gamma the RAW path uses, replacing CoreImage's implicit per-channel
+        // clamp at the canvas boundary. Non-RAW input is already sRGB-gamut
+        // content promoted into the Rec.2020 working space, so this is the
+        // matching encode and keeps the non-RAW canvas consistent with the
+        // RAW canvas (both tag the result `sRGB`).
+        return encodeDisplaySRGBViaFFI(withNRColor)
     }
 
     // MARK: Process (scene-linear path — Plan 1 FFI split)
@@ -739,16 +826,29 @@ public actor ImageEditPipeline {
             to: withSharpen,
             nrColor: Float(model.nrColor)
         )
+        // Display encode (#877) — the EXACT raw-core view-encode the CPU/CLI
+        // reference runs between AgX and the Auto Profile cube:
+        // `rec2020_to_srgb` (hue-preserving Oklab gamut compression, #438) +
+        // `srgb_gamma_encode`. Runs for BOTH profiles. This replaces the
+        // implicit, per-channel-CLAMPED Rec.2020→sRGB conversion CoreImage
+        // used to do at the `createCGImage` boundary — that clamp drove
+        // saturated wide-gamut greens up / blue to zero and diverged from the
+        // reference (#871's `_MG_3620` blowout). After this op the buffer is
+        // sRGB-gamma-encoded sRGB-primary [0,1], tagged `sRGB`, so:
+        //   * Neutral is gamut-correct (no green clip), matching the CLI.
+        //   * the Auto cube below applies on its matching sRGB-encoded domain
+        //     (no clamp inside the cube's color management).
+        //   * the canvas raster (`createCGImage(displayP3)`) converts
+        //     sRGB → P3 with all values in-gamut — nothing clips.
+        let encoded = encodeDisplaySRGBViaFFI(withNRColor)
         // Auto Profile (#812) — the LAST display-space op, matching the CPU
         // path's `auto_profile` → quantize order. `profileLUT` is a
-        // CIColorCubeWithColorSpace tagged sRGB so CoreImage applies the
-        // curve in f32 sRGB-encoded display space (the domain it was fit in,
-        // #550). Nil for `Profile::Neutral` — the canvas then stays
-        // byte-identical to the AgX-only output (and wide-gamut P3, since the
-        // sRGB cube would otherwise clamp the gamut). The caller resolves +
-        // caches the cube per image via `AutoProfileLUT` so this is never a
-        // per-tick cost.
-        return AutoProfileLUT.apply(profileLUT, to: withNRColor)
+        // CIColorCubeWithColorSpace tagged sRGB; its input is now already in
+        // that exact space, so CoreImage's cube color management is a no-op
+        // convert. Nil for `Profile::Neutral` — the canvas then renders the
+        // gamut-correct AgX+encode output. The caller resolves + caches the
+        // cube per image via `AutoProfileLUT` so this is never a per-tick cost.
+        return AutoProfileLUT.apply(profileLUT, to: encoded)
     }
 
     // MARK: Render preview (processed CIImage → CGImage)
@@ -786,16 +886,22 @@ public actor ImageEditPipeline {
     /// shared context (avoids spinning up a sibling Metal command queue
     /// per slider tick).
     ///
-    /// Output format is `RGBAf` + extended-linear Rec.2020 (#487 — migrated
-    /// from RGBAh to keep the scene-buffer precision intact through the
-    /// refine path). Same working-space the CIImageView re-encodes from
-    /// when it lands the final P3 raster, so this step doesn't introduce
-    /// a colour-space trip beyond what the canvas will already do.
+    /// Output format is `RGBAf` + **sRGB** (#877). The `processSceneLinear`
+    /// output is now sRGB-gamma-encoded sRGB-primary (the gamut-correct
+    /// `encodeDisplaySRGBViaFFI` is the final develop-chain op — see #877),
+    /// tagged `sRGB`. Materialising in the same `sRGB` space keeps the refine
+    /// path byte-consistent with the live `CIImageView` path: both hand
+    /// CoreImage an sRGB image and let it convert sRGB → the canvas's P3 at
+    /// raster, with every value in-gamut so nothing clips. (Pre-#877 this
+    /// materialised to extended-linear Rec.2020 because the chain output was
+    /// still display-linear Rec.2020 and CoreImage did the Rec.2020→sRGB
+    /// per-channel-clamp encode at `createCGImage` — that clamp was the
+    /// wide-gamut-green blowout the encode now fixes upstream.)
     nonisolated public func materializeRegion(
         _ image: CIImage,
         rect: CGRect
     ) -> CGImage? {
-        let cs = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let cs = Self.displayEncodedColorSpace
         return context.createCGImage(image, from: rect, format: .RGBAf, colorSpace: cs)
     }
 
