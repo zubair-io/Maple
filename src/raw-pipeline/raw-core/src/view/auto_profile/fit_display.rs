@@ -1,34 +1,57 @@
 //! Display-space fit path (#550).
 //!
-//! Companion to [`super::fit`], which fits in scene-linear Rec.2020 and
-//! replaces AgX. This module fits in **f32 sRGB-encoded display space**
-//! (post-AgX → `rec2020_to_srgb` → `srgb_gamma_encode`) — the same domain
-//! the empirical Look LUT (#519) samples in. AgX still runs unconditionally;
-//! the fitted curve layers ON TOP of it as a per-channel tone residual
-//! toward the camera JPEG, not a wholesale view-transform replacement.
+//! Fits in **f32 sRGB-encoded display space** (post-AgX → `rec2020_to_srgb`
+//! → `srgb_gamma_encode`) — the same domain the empirical Look LUT (#519)
+//! samples in. AgX runs unconditionally; the fitted per-channel curve layers
+//! ON TOP of it as a tone residual toward the camera JPEG, not a view-
+//! transform replacement.
 //!
-//! Consequences of the domain change vs `fit`:
-//! - The JPEG target is already sRGB-encoded by definition, so it is decoded
-//!   via `byte / 255.0` directly — no inverse OETF, no Rec.2020 primary
-//!   conversion. Source and target live in the same domain by construction.
-//! - `compress_input` (soft-knee for HDR scene-linear values >1.0) is inert
-//!   here — both source and target are bounded to `[0, 1]` after the encode —
-//!   so it is dropped.
-//! - The cross-channel matrix and the Oklab chroma/lightness corrections are
-//!   dropped. They were compensation for AgX being absent; with AgX always
-//!   on, AgX's hue-restoring sigmoid + ratio-preserving compression own the
-//!   chroma/hue base, leaving only a per-channel tone residual for the curve.
+//! ## Fit objective: per-band mean bias, fitted directly (the metric)
+//!
+//! The T8 gate (`src/scripts/auto_profile_diff.py`) measures **per-luma-band
+//! mean bias**: it spatially pairs the rendered candidate against the embedded
+//! JPEG, bins every pixel by the JPEG's Rec.709 luma into 5 bands, and for
+//! each band × channel requires `mean(candidate) − mean(jpeg)` within ±0.05.
+//!
+//! An earlier revision fitted a per-channel **CDF / histogram match** — it
+//! minimised *distributional* distance, a different objective from the gate's
+//! *per-band mean bias*. A CDF match can (and did) freely INCREASE per-band
+//! mean bias: it regressed the gate (6/9 → 3/12). The fix is to fit the
+//! gate's own objective directly.
+//!
+//! This module owns the I/O + geometry; [`super::solve`] owns the math:
+//! 1. Orient BOTH the source buffer and the embedded JPEG into DISPLAY frame
+//!    (both are sensor-frame at the fit stage; the render pipeline applies
+//!    orientation AFTER this stage, and `extract-preview` now orients the
+//!    preview too) so source pixel `(x, y)` pairs with JPEG pixel `(x, y)` the
+//!    same way the gate pairs the final display render against the preview.
+//! 2. Aspect-crop, then build the EXACT eval-then-box per-channel design
+//!    matrices (`solve::build_design_matrices`) and per-band targets
+//!    (`solve::band_targets`).
+//! 3. Solve the Chebyshev (minimax) monotone curve per channel
+//!    (`solve::solve_minimax_monotone`).
+//!
+//! Consequences of the display-space domain:
+//! - The JPEG target is already sRGB-encoded, decoded via `byte / 255.0` —
+//!   no inverse OETF, no Rec.2020 primary conversion.
+//! - `compress_input` is inert (both ends bounded to `[0, 1]`).
+//! - The cross-channel matrix and Oklab corrections are dropped: AgX owns
+//!   chroma + cross-channel coupling now, and the Oklab corrections require
+//!   LINEAR Rec.2020 — they are INVALID on gamma-encoded sRGB-primary data.
+//!   The curve carries only a per-channel tone residual.
 //!
 //! Spec: docs/superpowers/specs/2026-05-26-auto-profile-and-auto-setting-design.md
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use image::DynamicImage;
 
 use crate::image::ExifOrientation;
 
-use super::curve::{self, ProfileCurve, IDENTITY_MATRIX};
+use super::curve::{ProfileCurve, IDENTITY_MATRIX};
 use super::preview;
+use super::solve::{self, LUMA_BANDS};
 
 /// Fit a [`ProfileCurve`] from a RAW file's embedded JPEG preview against
 /// Maple's post-AgX, sRGB-gamma-encoded display buffer.
@@ -70,11 +93,20 @@ pub fn fit_curve_from_bytes_display(
 
 fn fit_curve_from_preview_display(
     preview: DynamicImage,
-    source_rgb: &[f32],
-    source_w: usize,
-    source_h: usize,
-    _orientation: ExifOrientation,
+    sensor_rgb: &[f32],
+    sensor_w: usize,
+    sensor_h: usize,
+    orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
+    // CRITICAL — orientation alignment. Both the embedded JPEG and the source
+    // buffer (`scene.pixels` at the auto_profile stage, which runs BEFORE
+    // `apply_orientation` in the render pipeline) are SENSOR-oriented here. The
+    // gate diffs Maple's final render (DISPLAY) against the display-oriented
+    // preview (`extract-preview` rotates it). So rotate BOTH into display
+    // orientation before pairing; without this, any rotated/flipped fixture
+    // pairs scrambled pixels, the per-band correlation goes flat, and the
+    // monotone fit collapses to identity (the test_0013 Rotate90 symptom).
+    let preview = preview::orient_preview_to_display(preview, orientation);
     let preview_rgb = preview.to_rgb8();
     let target_w_px = preview_rgb.width() as usize;
     let target_h_px = preview_rgb.height() as usize;
@@ -86,16 +118,28 @@ fn fit_curve_from_preview_display(
     // (8-bit display data); the curve fit lives in the same domain as the
     // source after `srgb_gamma_encode`, so the only transform needed is
     // `byte / 255.0` per lane — no inverse OETF, no primary conversion.
-    let target: Vec<f32> = preview_rgb.as_raw().iter().map(|&b| b as f32 / 255.0).collect();
+    let target: Vec<f32> = preview_rgb
+        .as_raw()
+        .iter()
+        .map(|&b| b as f32 / 255.0)
+        .collect();
 
     if is_degenerate_histogram(&target) {
         return None;
     }
 
-    // Match aspect by centre-cropping the LARGER-AR axis of whichever buffer
-    // is wider, identical to `fit`. Embedded JPEGs are sensor-aligned on
-    // every verified fixture, so both buffers share a coordinate frame; the
-    // crop only removes the letterbox/pillarbox difference in framing.
+    // `Normal` (the common case, e.g. the 100MP test_0000) borrows the source
+    // buffer without a 1.2 GB clone; rotated/flipped fixtures allocate the
+    // re-oriented copy. The fit is a cold-path (cached after the first tick),
+    // but the Normal clone was pure waste against the no-render-loop-alloc rule.
+    let (source_w, source_h, oriented) =
+        orient_rgb_f32_to_display(sensor_rgb, sensor_w, sensor_h, orientation);
+    let source_rgb: &[f32] = &oriented;
+
+    // Match aspect by centre-cropping the wider axis of whichever buffer is
+    // wider. Embedded JPEGs are sensor-aligned on every verified fixture, so
+    // both buffers share a coordinate frame after the crop removes the
+    // letterbox/pillarbox framing difference.
     let target_aspect = target_w_px as f64 / target_h_px as f64;
     let source_aspect = source_w as f64 / source_h as f64;
     let (crop_x_start, crop_x_end, crop_y_start, crop_y_end) =
@@ -112,50 +156,67 @@ fn fit_curve_from_preview_display(
         };
     let crop_w = crop_x_end - crop_x_start;
     let crop_h = crop_y_end - crop_y_start;
-    let n_pixels = crop_w * crop_h;
+    if crop_w == 0 || crop_h == 0 {
+        return None;
+    }
 
-    // Per-channel source samples in the crop. No `compress_input`: source
-    // is sRGB-encoded display data in [0, 1], so the soft-knee that `fit`
-    // uses for HDR scene-linear values >1.0 would be a no-op here.
-    let mut src_r = Vec::with_capacity(n_pixels);
-    let mut src_g = Vec::with_capacity(n_pixels);
-    let mut src_b = Vec::with_capacity(n_pixels);
-    for y in crop_y_start..crop_y_end {
-        let row_off = y * source_w;
-        for x in crop_x_start..crop_x_end {
-            let idx = (row_off + x) * 3;
-            src_r.push(source_rgb[idx]);
-            src_g.push(source_rgb[idx + 1]);
-            src_b.push(source_rgb[idx + 2]);
+    let n = target.len() / 3;
+    if n == 0 {
+        return None;
+    }
+
+    // Bin each JPEG pixel by its luma into the gate's 5 bands, and record the
+    // footprint size of every JPEG pixel (the count of full-res source pixels
+    // that downscale into it). Footprints differ by ±1px under a non-integer
+    // ratio; the gate weights each JPEG pixel EQUALLY, so each source pixel's
+    // contribution is divided by ITS footprint size (in `solve`), not by a raw
+    // source-pixel count — which would footprint-weight the band mean.
+    let mut band_of = vec![usize::MAX; n];
+    let mut band_counts = [0usize; LUMA_BANDS.len()];
+    for (j, band_slot) in band_of.iter_mut().enumerate() {
+        let luma =
+            0.2126 * target[j * 3] + 0.7152 * target[j * 3 + 1] + 0.0722 * target[j * 3 + 2];
+        if let Some(b) = solve::band_index(luma) {
+            *band_slot = b;
+            band_counts[b] += 1;
         }
     }
-    let mut tgt_r = Vec::with_capacity(target.len() / 3);
-    let mut tgt_g = Vec::with_capacity(target.len() / 3);
-    let mut tgt_b = Vec::with_capacity(target.len() / 3);
-    for c in target.chunks_exact(3) {
-        tgt_r.push(c[0]);
-        tgt_g.push(c[1]);
-        tgt_b.push(c[2]);
-    }
+    let footprint = solve::footprint_sizes(crop_w, crop_h, target_w_px, target_h_px);
 
-    // Blend per-channel CDF curves with a single luminance CDF curve, same
-    // α=0.2 trade `fit` uses: the luminance curve owns most of the tone
-    // (smoother, less contrasty side-by-side with the JPEG), the per-channel
-    // curves contribute channel-specific colour shaping at 20%.
-    const BLEND_ALPHA: f32 = 0.2;
-    let src_lum = luma(&src_r, &src_g, &src_b);
-    let tgt_lum = luma(&tgt_r, &tgt_g, &tgt_b);
-    let lum_curve = curve::fit_channel_curve(&src_lum, &tgt_lum);
-    let pc_r = curve::fit_channel_curve(&src_r, &tgt_r);
-    let pc_g = curve::fit_channel_curve(&src_g, &tgt_g);
-    let pc_b = curve::fit_channel_curve(&src_b, &tgt_b);
+    // Build the EXACT eval-then-box per-channel design matrices. The gate
+    // computes `candidate_j = (1/|F_j|) Σ_{p∈F_j} eval(curve, src_p)`, then the
+    // band mean `B_b = (1/N_b) Σ_{j∈b} candidate_j`. Since `eval` is piecewise-
+    // linear, `B_b` is LINEAR in the anchor outputs: `B_b = Σ_a M[b][a]·out[a]`.
+    // box-then-eval is the WRONG model — at the ~0.05 margins the Jensen gap is
+    // decisive (measured ~0.015 on test_0000).
+    let design = solve::build_design_matrices(
+        source_rgb,
+        source_w,
+        crop_x_start,
+        crop_y_start,
+        crop_w,
+        crop_h,
+        target_w_px,
+        target_h_px,
+        &band_of,
+        &band_counts,
+        &footprint,
+    );
+    let band_target = solve::band_targets(&target, &band_of, &band_counts);
+
+    // Fit each channel independently to its own per-band mean targets via the
+    // Chebyshev (minimax) monotone solve.
+    let r = solve::solve_minimax_monotone(&design[0], &band_target[0], &band_counts);
+    let g = solve::solve_minimax_monotone(&design[1], &band_target[1], &band_counts);
+    let b = solve::solve_minimax_monotone(&design[2], &band_target[2], &band_counts);
 
     Some(ProfileCurve {
-        r: blend(&pc_r, &lum_curve, BLEND_ALPHA),
-        g: blend(&pc_g, &lum_curve, BLEND_ALPHA),
-        b: blend(&pc_b, &lum_curve, BLEND_ALPHA),
-        // AgX owns chroma/hue/cross-channel coupling now; the display-space
-        // residual is a pure per-channel tone delta.
+        r,
+        g,
+        b,
+        // AgX owns chroma/hue/cross-channel coupling; the display-space
+        // residual is a pure per-channel tone delta. Oklab corrections are
+        // INVALID in gamma-encoded sRGB-primary space, so they stay zero.
         matrix: IDENTITY_MATRIX,
         chroma_boost: 1.0,
         chroma_offset: [0.0, 0.0],
@@ -165,30 +226,43 @@ fn fit_curve_from_preview_display(
     })
 }
 
-/// Rec.709 luma of three same-length channel slices.
-fn luma(r: &[f32], g: &[f32], b: &[f32]) -> Vec<f32> {
-    r.iter()
-        .zip(g.iter())
-        .zip(b.iter())
-        .map(|((&r, &g), &b)| 0.2126 * r + 0.7152 * g + 0.0722 * b)
-        .collect()
-}
-
-/// Blend a per-channel curve toward a luminance curve at weight `alpha`
-/// (alpha=1 → pure per-channel, alpha=0 → pure luminance), re-enforcing
-/// monotone outputs after the blend.
-fn blend(pc: &curve::ChannelCurve, lum: &curve::ChannelCurve, alpha: f32) -> curve::ChannelCurve {
-    let mut anchors = [(0.0_f32, 0.0_f32); 32];
-    for i in 0..32 {
-        anchors[i].0 = pc.anchors[i].0;
-        anchors[i].1 = alpha * pc.anchors[i].1 + (1.0 - alpha) * lum.anchors[i].1;
+/// Orient an interleaved f32 RGB buffer from SENSOR into DISPLAY orientation,
+/// reproducing `crate::image::apply_orientation`'s exact per-pixel source
+/// mapping (the u8 path the render pipeline uses after the auto_profile stage).
+/// Returns `(display_w, display_h, oriented_rgb)`. `Normal` borrows the input
+/// (no copy of the potentially 100MP source); other orientations allocate.
+fn orient_rgb_f32_to_display(
+    rgb: &[f32],
+    w: usize,
+    h: usize,
+    orient: ExifOrientation,
+) -> (usize, usize, Cow<'_, [f32]>) {
+    if orient == ExifOrientation::Normal {
+        return (w, h, Cow::Borrowed(rgb));
     }
-    for i in 1..32 {
-        if anchors[i].1 < anchors[i - 1].1 {
-            anchors[i].1 = anchors[i - 1].1;
+    let (sw, sh) = (w, h);
+    let (dw, dh) = if orient.swaps_wh() { (h, w) } else { (w, h) };
+    let mut out = vec![0.0f32; dw * dh * 3];
+    for yp in 0..dh {
+        for xp in 0..dw {
+            let (sx, sy) = match orient {
+                ExifOrientation::Normal => (xp, yp),
+                ExifOrientation::HorizontalFlip => (sw - 1 - xp, yp),
+                ExifOrientation::Rotate180 => (sw - 1 - xp, sh - 1 - yp),
+                ExifOrientation::VerticalFlip => (xp, sh - 1 - yp),
+                ExifOrientation::Transpose => (yp, xp),
+                ExifOrientation::Rotate90 => (yp, sh - 1 - xp),
+                ExifOrientation::Transverse => (sw - 1 - yp, sh - 1 - xp),
+                ExifOrientation::Rotate270 => (sw - 1 - yp, xp),
+            };
+            let si = (sy * sw + sx) * 3;
+            let di = (yp * dw + xp) * 3;
+            out[di] = rgb[si];
+            out[di + 1] = rgb[si + 1];
+            out[di + 2] = rgb[si + 2];
         }
     }
-    curve::ChannelCurve { anchors }
+    (dw, dh, Cow::Owned(out))
 }
 
 /// Reject preview JPEGs whose distribution is concentrated in a single
