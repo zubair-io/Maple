@@ -114,11 +114,12 @@ extension CloudSource: ImageSource {
   }
 
   /// Download the full RAW bytes for `ref` while reporting byte-level
-  /// progress (#822). Routes through `URLSession.download(for:delegate:)`
-  /// — the non-buffered transport the auth client's `refreshIfNeededAndRetry`
-  /// helper was built for (it streams to a temp file instead of holding the
-  /// whole response in memory) — and attaches a delegate that forwards
-  /// `totalBytesWritten` / `totalBytesExpectedToWrite` to `onProgress`.
+  /// progress (#822). Routes through `session.download(for:)` on a session
+  /// configured with a `DownloadProgressDelegate` — the non-buffered transport
+  /// the auth client's `refreshIfNeededAndRetry` helper was built for (it
+  /// streams to a temp file instead of holding the whole response in memory)
+  /// — and that delegate forwards `totalBytesWritten` /
+  /// `totalBytesExpectedToWrite` to `onProgress`.
   ///
   /// `expectedTotal` is the caller's best-known size (the catalog
   /// `SearchAsset.size`), used to seed the progress total before the
@@ -146,7 +147,18 @@ extension CloudSource: ImageSource {
     // server without a Content-Length still yields a determinate bar.
     let delegate = DownloadProgressDelegate(
       fallbackTotal: expectedTotal, onProgress: onProgress)
-    let session = URLSession(configuration: .default,
+    // Use an ephemeral configuration so a multi-hundred-MB RAW body is never
+    // persisted to the shared URLCache, cookie storage, or credential storage
+    // (mirrors `RemoteCatalog`'s download session). Auth is handled per-request
+    // by the `AuthenticatedHTTPClient.refreshIfNeededAndRetry` wrapper below,
+    // not by session-level headers, so nothing else needs to move here.
+    let cfg = URLSessionConfiguration.ephemeral
+    // `.ephemeral` already nils urlCache/cookies/credentials; the assignments
+    // below are belt-and-suspenders + intent-as-doc.
+    cfg.urlCache = nil
+    cfg.httpCookieStorage = nil
+    cfg.urlCredentialStorage = nil
+    let session = URLSession(configuration: cfg,
                              delegate: delegate, delegateQueue: nil)
     defer { session.invalidateAndCancel() }
 
