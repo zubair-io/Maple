@@ -175,15 +175,12 @@ mod fit_tests {
     #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn fit_curve_accepts_orientation_arg_and_returns_non_identity() {
         // Smoke test: `fit_curve_from_raw` accepts an `ExifOrientation`
-        // argument (currently unused — both source and target are kept in
-        // sensor frame because embedded JPEGs are sensor-aligned on every
-        // verified fixture). The orientation parameter is retained for
-        // API stability; this test only confirms the call signature
-        // accepts it and that a non-identity curve falls out.
-        //
-        // When orientation handling becomes real (paired source/JPEG in
-        // upright space), replace this with a test that rotates the source
-        // 90° and asserts the fit changes by a measurable amount.
+        // argument and uses it (#550). Both the source buffer and the
+        // embedded JPEG are sensor-frame at the fit stage; the fit rotates
+        // BOTH into display orientation so they pair spatially the same way
+        // the gate pairs the final display-oriented render against the
+        // display-oriented preview. This test confirms the call accepts the
+        // orientation and that a non-identity curve falls out.
         let raw_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../test-fixtures/raws/test_0003.CR2");
         let w = 256_usize;

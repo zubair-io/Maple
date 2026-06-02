@@ -20,6 +20,8 @@ use image::DynamicImage;
 use rawler::decoders::RawDecodeParams;
 use rawler::rawsource::RawSource;
 
+use crate::image::{apply_orientation, ExifOrientation};
+
 /// Color space of the embedded preview JPEG. Cameras shoot in different
 /// color spaces; the embedded JPEG inherits that setting. Decoding an
 /// Adobe RGB JPEG as sRGB compresses its wider gamut into a smaller
@@ -48,6 +50,64 @@ pub fn extract_preview<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
         }
     }
     extract_preview_via_exiftool(path.as_ref())
+}
+
+/// EXIF orientation (TIFF tag 0x0112) for the RAW at `path`, read from
+/// rawler's `raw_metadata().exif.orientation` — the SAME primary source
+/// `decode.rs` uses to orient the final render, so the preview and the render
+/// agree on every fixture that carries the tag. The embedded JPEG preview is
+/// stored in SENSOR orientation; the camera's *displayed* JPEG (and Maple's
+/// final render) are in DISPLAY orientation, so comparison consumers must
+/// rotate the preview by this orientation first.
+///
+/// Fallback divergence (intentional, documented): when the metadata tag is
+/// absent, `decode.rs` falls back to the decoded `RawImage`'s rawler
+/// orientation, whereas here we fall back to `Normal` rather than fully
+/// decoding the RAW just for orientation. Every verified fixture carries the
+/// metadata tag, so the two paths agree in practice; a preview-less or tag-
+/// less RAW is already handled by the `None` extraction fallback upstream.
+pub fn preview_orientation<P: AsRef<Path>>(path: P) -> ExifOrientation {
+    match RawSource::new(path.as_ref()) {
+        Ok(src) => orientation_from_rawsource(&src),
+        Err(_) => ExifOrientation::Normal,
+    }
+}
+
+fn orientation_from_rawsource(src: &RawSource) -> ExifOrientation {
+    rawler::get_decoder(src)
+        .ok()
+        .and_then(|dec| dec.raw_metadata(src, &RawDecodeParams::default()).ok())
+        .and_then(|md| md.exif.orientation)
+        .map(ExifOrientation::from_u16)
+        .unwrap_or(ExifOrientation::Normal)
+}
+
+/// Rotate a [`DynamicImage`] from SENSOR into DISPLAY orientation using the
+/// same per-pixel mapping the render pipeline applies at end-of-chain
+/// ([`crate::image::apply_orientation`]). `Normal` returns the input
+/// unchanged. Used by `extract-preview` so the camera-baked reference the
+/// Auto Profile gate diffs against is display-oriented (matching the render),
+/// not sensor-oriented — without this, rotated fixtures compare a portrait
+/// render against a landscape preview through a non-aspect-preserving squash.
+pub fn orient_preview_to_display(img: DynamicImage, orient: ExifOrientation) -> DynamicImage {
+    if orient == ExifOrientation::Normal {
+        return img;
+    }
+    let rgb = img.to_rgb8();
+    let (w, h) = (rgb.width(), rgb.height());
+    let (nw, nh, bytes) = apply_orientation(rgb.as_raw(), w, h, orient);
+    let buf = image::RgbImage::from_raw(nw, nh, bytes)
+        .expect("apply_orientation returns a correctly sized RGB buffer");
+    DynamicImage::ImageRgb8(buf)
+}
+
+/// Extract the embedded JPEG preview and rotate it into DISPLAY orientation
+/// (see [`orient_preview_to_display`]). This is what comparison consumers
+/// (the `extract-preview` CLI / Auto Profile gate) want: a preview aligned
+/// with Maple's display-oriented render. Returns `None` if extraction fails.
+pub fn extract_preview_display_oriented<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
+    let img = extract_preview(path.as_ref())?;
+    Some(orient_preview_to_display(img, preview_orientation(path.as_ref())))
 }
 
 /// Bytes-based mirror of [`extract_preview`] for the WASM render entry,
