@@ -114,7 +114,7 @@ class FaceWorkerPool {
   private ensureWorker(): ChildProcessWorker {
     if (this.worker) return this.worker;
     if (this.workerLoadFailed) {
-      throw new Error('face-pool: worker previously failed to start');
+      throw new Error('face-pool: child process previously failed to start');
     }
 
     let w: ChildProcessWorker;
@@ -126,7 +126,8 @@ class FaceWorkerPool {
     } catch (e) {
       this.workerLoadFailed = true;
       throw new Error(
-        'face-pool: failed to spawn worker — ' + (e instanceof Error ? e.message : String(e)),
+        'face-pool: failed to spawn child process — ' +
+          (e instanceof Error ? e.message : String(e)),
       );
     }
 
