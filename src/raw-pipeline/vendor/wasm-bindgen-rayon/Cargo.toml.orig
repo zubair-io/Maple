@@ -1,0 +1,34 @@
+[package]
+name = "wasm-bindgen-rayon"
+version = "1.3.0"
+authors = ["Ingvar Stepanyan <me@rreverser.com>"]
+edition = "2021"
+license = "Apache-2.0"
+description = "Adapter for using Rayon-based concurrency on the Web"
+keywords = ["web", "thread", "parallel", "concurrency", "webassembly"]
+categories = ["concurrency", "wasm", "web-programming"]
+readme = "README.md"
+exclude = [".github"]
+repository = "https://github.com/RReverser/wasm-bindgen-rayon"
+
+[workspace.dependencies]
+wasm-bindgen = "0.2.99"
+rayon = { version = "1.8.1", features = ["web_spin_lock"] }
+
+[dependencies]
+wasm-bindgen = { workspace = true }
+rayon = { workspace = true }
+crossbeam-channel = "0.5.9"
+js-sys = "0.3.70"
+
+[workspace]
+members = ["demo", "test"]
+
+[features]
+nightly = []
+no-bundler = []
+
+[package.metadata.docs.rs]
+features = ["nightly"]
+targets = ["wasm32-unknown-unknown"]
+rustc-args = ["-C", "target-feature=+atomics,+bulk-memory"]

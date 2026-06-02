@@ -1,0 +1,14 @@
+# Vendored dependency sources — see vendor/ and CONTRIBUTING.md.
+#
+# Replacing crates-io with the in-repo `vendor/` directory makes the build
+# hermetic: cargo never resolves or downloads from static.crates.io, which
+# removes the intermittent DNS-resolution failures seen on Xcode Cloud
+# ("Could not resolve host: static.crates.io").
+#
+# Re-run `cargo vendor vendor` from src/raw-pipeline/ after any dependency
+# change (cargo update, adding/removing a crate) and commit the result.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
