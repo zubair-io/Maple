@@ -90,6 +90,7 @@ struct AppShellCenterColumn: View {
                     EditorSessionHost(
                         session: session,
                         filmstripAssets: browseVM.assets,
+                        filmstripSource: browseVM.currentSource,
                         onDismiss: onEditorDismiss,
                         onShare: onEditorShare,
                         onInfo: onEditorInfo,

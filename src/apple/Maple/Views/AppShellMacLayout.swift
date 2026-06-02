@@ -32,6 +32,11 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     /// is the Mac/iPad pane shell only).
     let useEditor: Bool
     @Binding var columnVisibility: NavigationSplitViewVisibility
+    /// Whether the S5 editor's Info inspector is shown (#875 item 2). Only
+    /// meaningful when `useEditor` is true — drives `.inspector(isPresented:)`
+    /// on the editor's center column. The legacy `FullImageView` path keeps
+    /// its always-visible `detail:` column instead.
+    @Binding var editorDetailVisible: Bool
     let libraryTitle: String
     let selectedSession: EditSession?
     let cloudTimelineVM: CloudTimelineViewModel?
@@ -84,26 +89,58 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
         }
     }
 
+    @ViewBuilder
     private var fullImage: some View {
+        if useEditor {
+            editorFullImage
+        } else {
+            legacyFullImage
+        }
+    }
+
+    /// S5 editor pane shell (#815 / #875). The Info inspector is a
+    /// toggleable `.inspector(isPresented:)` on the center column rather
+    /// than a persistent `detail:` column — so the editor's `(i)` button
+    /// can show/hide it, and toggling never changes the center subtree's
+    /// identity (the `EditorSessionHost`'s `@State` armed-tool / fine-mode
+    /// survives, #816). Two-leg split (sidebar + content); the inspector
+    /// floats over / beside the content without being a third nav column.
+    private var editorFullImage: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebar()
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
+        } detail: {
+            centerColumn
+                // The EditorView's own EditorHeader shows the filename, so
+                // suppress the navigation title to avoid a duplicate
+                // (notably the inline title on iPad).
+                .navigationTitle("")
+                .toolbar { toolbarContent() }
+                .inspector(isPresented: $editorDetailVisible) {
+                    DetailPanel(session: selectedSession)
+                        // `.inspectorColumnWidth` is the inspector analogue
+                        // of `navigationSplitViewColumnWidth` — clamps the
+                        // Info rail to a sensible width (matches the macOS
+                        // range `DetailPanelWidth` used for the column).
+                        .inspectorColumnWidth(min: 240, ideal: 280, max: 360)
+                }
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    /// Legacy `FullImageView` pane shell — unchanged three-column layout
+    /// with the always-visible Info `detail:` column (#815).
+    private var legacyFullImage: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar()
                 .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 280)
         } content: {
             centerColumn
                 .navigationSplitViewColumnWidth(min: 300, ideal: 520)
-                // In `.editing` the EditorView's own EditorHeader shows the
-                // filename, so suppress the navigation title to avoid a
-                // duplicate (notably the inline title on iPad). The legacy
-                // `.fullImage` path keeps the window/title-bar filename (#815).
-                .navigationTitle(useEditor ? "" : (selectedSession?.asset.displayName ?? "Image"))
+                .navigationTitle(selectedSession?.asset.displayName ?? "Image")
                 .toolbar { toolbarContent() }
         } detail: {
-            // `isFullImage` drives Ticket 12 bugs 4/5/8: the panel auto-flips
-            // to Develop on entry, back to Info on exit. Width: iPad expands
-            // the column toward `max` (~half the screen when balanced), so
-            // DetailPanelWidth tightens the range there to just fit the
-            // slider rail. macOS keeps the original range.
-            DetailPanel(session: selectedSession, isFullImage: true)
+            DetailPanel(session: selectedSession)
                 .modifier(DetailPanelWidth())
         }
         .navigationSplitViewStyle(.balanced)

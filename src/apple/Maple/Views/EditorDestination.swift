@@ -20,6 +20,13 @@ struct EditorDestination: View {
 
     @State private var state: EditorState?
 
+    /// Whether the Info inspector sheet is presented. On iPhone the S5
+    /// editor is a full-screen NavigationStack push with no room for a
+    /// persistent inspector column, so Info is a modal sheet. The header's
+    /// `(i)` button toggles it (#875 item 2). `@State` persists across the
+    /// editor's lifetime, so the show/hide choice survives re-renders.
+    @State private var showInfo = false
+
     var body: some View {
         Group {
             if let state {
@@ -27,8 +34,21 @@ struct EditorDestination: View {
                     state: state,
                     onDismiss: { dismiss() },
                     onShare: {},
-                    onInfo: {}
+                    onInfo: { showInfo.toggle() }
                 )
+                .sheet(isPresented: $showInfo) {
+                    NavigationStack {
+                        DetailPanel(session: state.session)
+                            .navigationTitle("Info")
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                                ToolbarItem(placement: .topBarTrailing) {
+                                    Button("Done") { showInfo = false }
+                                }
+                            }
+                    }
+                    .presentationDetents([.medium, .large])
+                }
             } else {
                 Color.clear
             }

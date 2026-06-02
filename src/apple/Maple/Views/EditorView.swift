@@ -38,6 +38,17 @@ struct EditorView: View {
     /// height (v0.1; the strip auto-shows when there are siblings).
     var filmstripAssets: [AssetRef] = []
     var onSelectAsset: (AssetRef) -> Void = { _ in }
+    /// Source the filmstrip assets came from, so `FilmstripView` cells can
+    /// resolve thumbnails via `ThumbnailLoader` (the sourceless thumb path
+    /// needs it for cloud / self-hosted libraries; filesystem assets load
+    /// with `nil`). Threaded from the desktop host — the iPhone push
+    /// passes no filmstrip, so it defaults to `nil` there.
+    var filmstripSource: (any ImageSource)? = nil
+
+    /// Whether the filmstrip is shown. Owned here (survives re-renders by
+    /// view identity) so the show/hide choice persists while the editor is
+    /// open (#875 item 4b). Defaults to shown.
+    @State private var filmstripVisible = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,23 +81,39 @@ struct EditorView: View {
             // predate `onGeometryChange`, so we use the GeometryReader +
             // `onChange(of:)` pattern (same as FullImageView).
             .background(canvasSizeReader)
-            // Canvas drag = 0.5:1 sensitivity into the armed tool, routed
-            // through the same value pipe as the bar gesture.
-            .gesture(canvasDragGesture)
+            // NOTE: tool value-adjust is intentionally NOT wired to a
+            // canvas drag here (#875 item 5). On iPhone the side-nav
+            // edge-swipe lives over the canvas; routing canvas drags into
+            // the armed tool meant an edge-swipe to open the nav also
+            // nudged the tool. Value-adjust now lives solely on `DragBar`
+            // (1:1 scrubbing, unaffected on desktop). This deviates from
+            // ui-spec §3 "canvas drag adjusts the armed tool" per the
+            // user's explicit request.
 
             if !filmstripAssets.isEmpty {
-                FilmstripView(
-                    assets: filmstripAssets,
-                    activeID: state.session.asset.id,
-                    onSelect: onSelectAsset
-                )
-                Divider().background(MapleTokens.border)
+                // Small centered toggle directly above the strip — hides /
+                // shows it, persisting the choice via `filmstripVisible`
+                // for the editor's lifetime (#875 item 4b).
+                filmstripToggle
+                if filmstripVisible {
+                    FilmstripView(
+                        assets: filmstripAssets,
+                        activeID: state.session.asset.id,
+                        source: filmstripSource,
+                        onSelect: onSelectAsset
+                    )
+                    Divider().background(MapleTokens.border)
+                }
             }
 
+            // Post-canvas control order (#875 item 6): filmstrip + drag
+            // area on top, then the TOOL row, then the section (group)
+            // tabs below it. The single Divider sits between the tool row
+            // and the group tabs.
             DragBar(state: state)
-            GroupTabsView(state: state)
-            Divider().background(MapleTokens.border)
             ToolPillRow(state: state)
+            Divider().background(MapleTokens.border)
+            GroupTabsView(state: state)
         }
         .background(MapleTokens.bg.ignoresSafeArea())
         .accessibilityIdentifier("editor-view")
@@ -133,6 +160,31 @@ struct EditorView: View {
             viewport: pointsSize,
             displayScale: displayScale
         )
+    }
+
+    // MARK: - Filmstrip toggle
+
+    /// Centered chevron button above the filmstrip that hides / shows it.
+    /// Matches the editor's existing minimal control styling: a small
+    /// MapleTokens-tinted SF Symbol on the canvas background, no chrome
+    /// (#875 item 4b).
+    private var filmstripToggle: some View {
+        Button {
+            withAnimation(MapleTokens.Motion.groupSwap) {
+                filmstripVisible.toggle()
+            }
+        } label: {
+            Image(systemName: filmstripVisible ? "chevron.down" : "chevron.up")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(MapleTokens.textMuted)
+                .frame(maxWidth: .infinity)
+                .frame(height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(MapleTokens.bg)
+        .accessibilityLabel(filmstripVisible ? "Hide filmstrip" : "Show filmstrip")
+        .accessibilityIdentifier("editor-filmstrip-toggle")
     }
 
     // MARK: - Canvas
@@ -187,40 +239,6 @@ struct EditorView: View {
         }
     }
 
-    // MARK: - Canvas drag
-
-    @State private var canvasDragStartValue: Double?
-
-    private var canvasDragGesture: some Gesture {
-        DragGesture(minimumDistance: 4)
-            .onChanged { g in
-                if canvasDragStartValue == nil {
-                    canvasDragStartValue = ToolValueMapping.internalValue(
-                        for: state.armedTool,
-                        displayValue: state.armedDisplayValue
-                    )
-                    state.commit()
-                }
-                // Canvas sensitivity is 0.5:1 of bar (per spec §3) — bar
-                // is implicitly the screen-width assumption; canvas drag
-                // uses the same value/px relationship as the bar, but at
-                // half. We approximate "bar width" by using the screen
-                // width — the precise value will be tied to the actual
-                // bar geometry once the editor wires a shared geometry.
-                let approxBarWidth: CGFloat = 320
-                let dv = DragBarMath.valueDelta(
-                    forDeltaX: g.translation.width,
-                    barWidth: approxBarWidth,
-                    sensitivity: state.fineMode ? .fine : .canvas
-                )
-                let newV = DragBarMath.clamp((canvasDragStartValue ?? 0) + dv)
-                state.setArmedInternalValue(newV)
-            }
-            .onEnded { _ in
-                canvasDragStartValue = nil
-                state.fineMode = false
-            }
-    }
 }
 
 // MARK: - Canvas image (CIImage → SwiftUI)
@@ -229,11 +247,19 @@ private struct CanvasImageView: View {
     let image: CIImage
 
     var body: some View {
-        GeometryReader { _ in
-            // Wrap the CIImage in a host backed by CGImage. The fast path
-            // is good enough for v0.1 — the existing FullImageView has a
-            // tuned variant (CGImage + display-link) that we'll lift in
-            // a follow-up consolidation pass.
+        // Wrap the CIImage in a host backed by CGImage. The fast path
+        // is good enough for v0.1 — the existing FullImageView has a
+        // tuned variant (CGImage + display-link) that we'll lift in
+        // a follow-up consolidation pass.
+        //
+        // The `.fit`-scaled image is centered both axes inside an
+        // infinite frame so the preview sits in the middle of the flex
+        // canvas region rather than top-aligned with black space below
+        // it (#875 item 1). A `.fit` image is letter/pillar-boxed, and
+        // an infinite frame with no explicit alignment centers its
+        // content — so a wide image centers vertically and a tall one
+        // centers horizontally.
+        Group {
             if let cg = CIContext().createCGImage(image, from: image.extent) {
                 Image(decorative: cg, scale: 1.0, orientation: .up)
                     .resizable()
@@ -242,6 +268,7 @@ private struct CanvasImageView: View {
                 Color.clear
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
