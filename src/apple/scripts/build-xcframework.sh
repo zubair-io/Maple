@@ -186,7 +186,12 @@ build_target() {
             *-apple-darwin)
                 export MACOSX_DEPLOYMENT_TARGET=14.0 ;;
         esac
-        CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build $CARGO_PROFILE_FLAG \
+        # --offline: dependencies are vendored under src/raw-pipeline/vendor
+        # (see ../.cargo/config.toml). Forbidding network access keeps the
+        # build hermetic — it removes the intermittent crates.io DNS failures
+        # on Xcode Cloud and fails loudly if the vendor dir is ever stale,
+        # instead of silently falling back to the network.
+        CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
             --target "$triple" \
             --package raw-ffi \
             2>&1
