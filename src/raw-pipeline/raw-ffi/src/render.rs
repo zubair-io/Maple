@@ -243,3 +243,75 @@ pub unsafe extern "C" fn maple_compute_look_lut(look_mode: u8, out: *mut u8) -> 
     }
 }
 
+/// Bake a fitted Auto Profile curve into a display-space `n³` 3D LUT (#817)
+/// and write it as `n * n * n * 3` f32 values into `out`.
+///
+/// `curve` points to `curve_len` f32 values — the flat serialization of a
+/// `raw_core::view::auto_profile::ProfileCurve` produced by its `to_flat()`
+/// (length `raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN`). The LUT is
+/// JUST the canonical `apply_curve` sampled over a regular `[0, 1]³` grid, so
+/// the GPU sampler that uploads these bytes (Apple Metal #812, Web WebGL2
+/// #394) cannot drift from the CPU render path.
+///
+/// **Layout** (matches `raw_core::view::auto_profile::bake_profile_lut`):
+/// `n³` RGB triplets, R varying fastest, then G, then B —
+/// `out[((b*n + g)*n + r)*3 + c]`. Grid coordinate `k` maps to display value
+/// `k / (n - 1)`.
+///
+/// This is a **per-image, one-shot** call — the fitted curve is keyed on the
+/// embedded JPEG (stable across slider edits), so the host bakes once when the
+/// curve is first fit and re-samples the GPU texture every slider tick WITHOUT
+/// re-baking. Never call this per tick.
+///
+/// Returns:
+/// - `0` on success — `out` is fully written.
+/// - `-1` if `curve` or `out` is null, `curve_len` is not exactly
+///   `PROFILE_CURVE_FLAT_LEN`, `n < 2`, or `n³ * 3` would overflow `usize`.
+///   The error path does not set `maple_last_error` (the caller owns the
+///   curve bytes + `n` and a null/short buffer is its own diagnostic).
+///
+/// # Safety
+/// - `curve` must point to at least `curve_len` readable f32 values.
+/// - `out` must point to a writable buffer of at least `n * n * n * 3` f32
+///   values that lives for the duration of the call. It is overwritten on
+///   success and untouched on error.
+#[no_mangle]
+pub unsafe extern "C" fn maple_compute_profile_lut(
+    curve: *const f32,
+    curve_len: usize,
+    n: u32,
+    out: *mut f32,
+) -> i32 {
+    use raw_core::view::auto_profile::{
+        bake_profile_lut, ProfileCurve, PROFILE_CURVE_FLAT_LEN,
+    };
+    if curve.is_null() || out.is_null() {
+        return -1;
+    }
+    if curve_len != PROFILE_CURVE_FLAT_LEN {
+        return -1;
+    }
+    let n = n as usize;
+    if n < 2 {
+        return -1;
+    }
+    // Guard the output sizing arithmetic before allocating / writing.
+    let out_len = match n
+        .checked_mul(n)
+        .and_then(|nn| nn.checked_mul(n))
+        .and_then(|nnn| nnn.checked_mul(3))
+    {
+        Some(l) => l,
+        None => return -1,
+    };
+    let flat = std::slice::from_raw_parts(curve, curve_len);
+    let parsed = match ProfileCurve::from_flat(flat) {
+        Some(c) => c,
+        None => return -1,
+    };
+    let lut = bake_profile_lut(&parsed, n);
+    debug_assert_eq!(lut.len(), out_len);
+    std::ptr::copy_nonoverlapping(lut.as_ptr(), out, out_len);
+    0
+}
+
