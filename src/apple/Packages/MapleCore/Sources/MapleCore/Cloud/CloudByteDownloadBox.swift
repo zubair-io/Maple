@@ -43,7 +43,20 @@ public actor CloudByteDownloadBox {
     /// reusing the result on every later call. Progress is reported into the
     /// `DownloadProgress` sink for the duration of the (one) download.
     public func bytes() async throws -> Data {
-        if let task { return try await task.value }
+        // Reuse a prior download only if it succeeded. A failed task must NOT
+        // stay memoized: if it did, every later `bytes()` would rethrow the
+        // same error forever and a transient failure (dropped connection,
+        // expired auth) could never recover. Clear `self.task` on throw so the
+        // next call starts a fresh attempt. The success path keeps the
+        // download-once / single-shared-stream guarantee.
+        if let task {
+            do {
+                return try await task.value
+            } catch {
+                self.task = nil
+                throw error
+            }
+        }
         let imageRef = self.imageRef
         let expectedTotal = self.expectedTotal
         let progress = self.progress
@@ -72,6 +85,13 @@ public actor CloudByteDownloadBox {
             }
         }
         self.task = task
-        return try await task.value
+        do {
+            return try await task.value
+        } catch {
+            // First attempt failed — drop the memo so a subsequent `bytes()`
+            // retries instead of replaying the cached failure.
+            self.task = nil
+            throw error
+        }
     }
 }
