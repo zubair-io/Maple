@@ -29,6 +29,11 @@ import MapleCore
 struct EditorSessionHost: View {
     let session: EditSession
     var filmstripAssets: [AssetRef] = []
+    /// Source the filmstrip assets came from — forwarded to `EditorView`
+    /// so the strip's cells can resolve thumbnails via `ThumbnailLoader`
+    /// (the sourceless thumb path needs it for cloud / self-hosted
+    /// libraries; filesystem assets load with `nil`). #875 item 4a.
+    var filmstripSource: (any ImageSource)? = nil
     let onDismiss: () -> Void
     let onShare: () -> Void
     /// Reveals the DetailPanel inspector column. On the pane shell the
@@ -66,7 +71,8 @@ struct EditorSessionHost: View {
                     onShare: onShare,
                     onInfo: onInfo,
                     filmstripAssets: filmstripAssets,
-                    onSelectAsset: onSelectAsset
+                    onSelectAsset: onSelectAsset,
+                    filmstripSource: filmstripSource
                 )
             } else {
                 Color.clear

@@ -83,7 +83,7 @@ struct AppShellIPhoneShell<ToolbarContentT: ToolbarContent>: View {
         iPhoneMain
         .sheet(isPresented: $iPhoneInfoSheet) {
             NavigationStack {
-                DetailPanel(session: selectedSession, isFullImage: mode == .fullImage)
+                DetailPanel(session: selectedSession)
                     .navigationTitle("Info")
                     .toolbar {
                         ToolbarItem(placement: .topBarTrailing) {

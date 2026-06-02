@@ -73,6 +73,15 @@ struct AppShell: View {
     @State private var showExport = false
     @State private var showSettings = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// Whether the S5 editor's right-hand Info inspector is shown on the
+    /// Mac/iPad pane shell. The editor's `(i)` button toggles this (#875
+    /// item 2). Defaults to `true` so the inspector is visible on entry
+    /// (matching the prior always-visible detail column). Uses
+    /// `.inspector(isPresented:)` rather than a column-count swap so the
+    /// `EditorSessionHost`'s `@State` (armed tool / fine-mode, #816)
+    /// survives a toggle — swapping the NavigationSplitView column count
+    /// changes the content subtree's identity and would reset it.
+    @State private var editorDetailVisible = true
     @State private var showFilePicker = false
 
     // Sidebar selection (single active row across the whole tree).
@@ -392,6 +401,7 @@ struct AppShell: View {
             // here — `phoneTabShell` is the iPhone path.
             useEditor: mode == .editing,
             columnVisibility: $columnVisibility,
+            editorDetailVisible: $editorDetailVisible,
             libraryTitle: libraryTitle,
             selectedSession: selectedSession,
             cloudTimelineVM: cloudTimelineVM,
@@ -424,7 +434,11 @@ struct AppShell: View {
             // the Library toggle).
             onEditorDismiss: { mode = .browse },
             onEditorShare: { showExport = true },
-            onEditorInfo: { withAnimation { columnVisibility = .all } }
+            // Toggle the editor's Info inspector (#875 item 2). On the pane
+            // shell the info surface is the right-hand inspector, shown via
+            // `.inspector(isPresented:)` — toggling preserves the editor's
+            // armed-tool / fine-mode state (#816), unlike a column swap.
+            onEditorInfo: { withAnimation { editorDetailVisible.toggle() } }
         )
         .sheet(isPresented: $showSettings) {
             SettingsView()
