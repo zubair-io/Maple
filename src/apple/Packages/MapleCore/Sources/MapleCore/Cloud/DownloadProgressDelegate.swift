@@ -46,7 +46,7 @@ final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unc
     func urlSession(_ session: URLSession,
                     downloadTask: URLSessionDownloadTask,
                     didFinishDownloadingTo location: URL) {
-        // No-op: `URLSession.download(for:delegate:)` handles relocating the
+        // No-op: the async `session.download(for:)` API handles relocating the
         // temp file and hands it back through the async return value.
     }
 }
