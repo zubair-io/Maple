@@ -3,7 +3,7 @@
 //
 // Lives in the MapleTests Xcode target (not MapleCore) because
 // `BackupProgressViewModel` is declared in the app target. MapleTests is
-// host-targeted on Maple.app, so `@testable import Maple_Exposure` reaches the
+// host-targeted on Maple Exposure.app, so `@testable import Maple_Exposure` reaches the
 // (internal) `apply(_:)` reducer directly — driving it synchronously avoids
 // the async event-stream plumbing.
 //
