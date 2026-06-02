@@ -235,6 +235,83 @@ pub fn render_from_raw_with_quality_and_source(
     Ok((w, h, bytes))
 }
 
+/// Fit the per-image Auto Profile [`auto_profile::curve::ProfileCurve`]
+/// for a RAW + model WITHOUT rendering an output buffer (#812).
+///
+/// This reproduces EXACTLY the prefix of `render_from_raw_with_quality_and_source`
+/// up to and including the `auto_profile` fit point — same `AutoExposureMode::Off`
+/// guard, same develop chain, same `agx` → `rec2020_to_srgb` → `srgb_gamma_encode`
+/// view-transform stages — then fits the curve from the resulting f32
+/// sRGB-encoded display buffer against the embedded JPEG and returns it
+/// instead of applying it and continuing to quantise.
+///
+/// It exists so a GPU host (Apple Metal #812, Web WebGL2 #394) can obtain
+/// the fitted curve, bake it into a 3D LUT via [`auto_profile::bake_profile_lut`],
+/// and apply it on the GPU in the SAME f32 sRGB-encoded display space the
+/// CPU path fits in — keeping the GPU and CPU Auto Profile renders from
+/// drifting. The host runs AgX + the rec2020→sRGB encode itself (on Apple
+/// CoreImage's encode boundary); this entry's only job is the fit, which
+/// requires the developed display buffer as the fit's source.
+///
+/// `quality` MUST match the quality the host's render uses, or the fitted
+/// curve — and thus the per-band bias against the reference — will differ.
+///
+/// Returns `None` when `model.profile != Profile::Auto`, the embedded JPEG
+/// can't be extracted, or the fit is degenerate (see
+/// [`auto_profile::fit_curve_from_raw_display`]). The host falls back to
+/// plain AgX (= `Profile::Neutral`) on `None`. The fit result is inserted
+/// into the shared `auto_profile::cache` LRU so a subsequent CPU render of
+/// the same RAW reuses it (and vice-versa).
+pub fn fit_profile_curve_from_raw(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: RawInput<'_>,
+) -> Option<auto_profile::curve::ProfileCurve> {
+    if model.profile != Profile::Auto {
+        return None;
+    }
+    // Mirror the cache lookup in `render_from_raw_with_quality_and_source`
+    // so a hit on either path serves the other without re-fitting.
+    let auto_cache_key = match &raw_source {
+        RawInput::Path(p) => auto_profile::cache::CacheKey::from_path(p),
+        RawInput::Bytes { bytes, .. } => Some(auto_profile::cache::CacheKey::from_bytes(bytes)),
+    };
+    if let Some(c) = auto_cache_key.as_ref().and_then(auto_profile::cache::get) {
+        return Some(c);
+    }
+    // Same `AutoExposureMode::Off` guard the render path applies before the
+    // fit, so the fitted curve owns the whole scene→JPEG brightness mapping
+    // (see the long comment at the top of the render entry).
+    let auto_model = AdjustmentModel {
+        auto_exposure: AutoExposureMode::Off,
+        ..model.clone()
+    };
+    let mut scene =
+        develop_scene_linear_from_raw_with_quality(raw, &auto_model, quality).ok()?;
+    // Reproduce the render path's view-transform prefix verbatim: AgX runs
+    // unconditionally, then rec2020→sRGB primaries, then sRGB gamma encode.
+    // The fit lives in `DisplayEncodedSrgb` — the buffer state right here.
+    stage("agx", || agx::apply(&mut scene, model.contrast));
+    stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
+    stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
+    scene.assert_space(ColorSpace::DisplayEncodedSrgb);
+    let (w, h) = (scene.width as usize, scene.height as usize);
+    let pixels: &[f32] = bytemuck::cast_slice(&scene.pixels);
+    let fitted = match raw_source {
+        RawInput::Path(path) => {
+            auto_profile::fit_curve_from_raw_display(path, pixels, w, h, raw.orientation)
+        }
+        RawInput::Bytes { bytes, ext } => {
+            auto_profile::fit_curve_from_bytes_display(bytes, ext, pixels, w, h, raw.orientation)
+        }
+    };
+    if let (Some(key), Some(c)) = (auto_cache_key, fitted.as_ref()) {
+        auto_profile::cache::insert(key, c.clone());
+    }
+    fitted
+}
+
 /// Scene-linear render entry. Runs the same development chain as
 /// `render_from_raw_with_quality` (via the shared
 /// `develop_scene_linear_from_raw_with_quality` helper — Step 2.4a)

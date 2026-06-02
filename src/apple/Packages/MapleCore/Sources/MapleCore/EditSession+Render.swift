@@ -184,6 +184,12 @@ extension EditSession {
             return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
         }()
         let priorPreview = renderedPreview
+        // Auto Profile (#812) — resolve/cache the per-image cube off the
+        // synchronous chain block, mirroring `decodeAndRender`.
+        let profileLUT: CIFilter? = await {
+            guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
+            return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile)
+        }()
 
         renderPhase = .refine
         isRendering = true
@@ -202,7 +208,8 @@ extension EditSession {
             mapleStage("filter chain (.refine visible-region)") {
                 let chain = pipeline.processSceneLinear(
                     decoded: cached, model: m, targetSize: nil,
-                    asShot: asShot, decodedAtModel: cachedDecodedAtModel
+                    asShot: asShot, decodedAtModel: cachedDecodedAtModel,
+                    profileLUT: profileLUT
                 )
                 let cropped = chain.cropped(to: visibleRect)
                 guard let cg = pipeline.materializeRegion(cropped, rect: visibleRect)
@@ -262,8 +269,17 @@ extension EditSession {
             guard let cct = asShotCCT, let t = asShotTint else { return nil }
             return ImageEditPipeline.AsShotWB(temperature: cct, tint: t)
         }()
+        // Auto Profile (#812) — resolve (and cache) the per-image display-space
+        // CIColorCube once per render, OFF the synchronous filter-chain block.
+        // The fit is a cold JPEG-extract + develop the first time per image;
+        // `AutoProfileLUT` caches the baked filter keyed on URL+mtime so slider
+        // ticks reuse it. Nil for non-RAW, `Profile::Neutral`, or fit failure.
+        let profileLUT: CIFilter? = await {
+            guard asset.isRaw, m.profile == .auto, let url = asset.primaryURL else { return nil }
+            return await AutoProfileLUT.shared.filter(forRawAt: url, profile: m.profile)
+        }()
         editSessionLogger.debug(
-            "decodeAndRender begin gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) target=\(targetSize?.width ?? 0)x\(targetSize?.height ?? 0) cached=\(cached != nil)"
+            "decodeAndRender begin gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) target=\(targetSize?.width ?? 0)x\(targetSize?.height ?? 0) cached=\(cached != nil) autoProfile=\(profileLUT != nil)"
         )
         let phaseName: StaticString = (phase == .fast) ? "fast" : "refine"
         let phaseSignpostID = editSessionSignposter.makeSignpostID()
@@ -287,7 +303,8 @@ extension EditSession {
                         }
                         return pipeline.processSceneLinear(
                             decoded: cached, model: m, targetSize: targetSize,
-                            asShot: asShot, decodedAtModel: cachedDecodedAtModel
+                            asShot: asShot, decodedAtModel: cachedDecodedAtModel,
+                            profileLUT: profileLUT
                         )
                     }
                 }.value
@@ -340,7 +357,8 @@ extension EditSession {
                         }
                         return pipeline.processSceneLinear(
                             decoded: decoded, model: m, targetSize: targetSize,
-                            asShot: asShot, decodedAtModel: freshDecodedAtModel
+                            asShot: asShot, decodedAtModel: freshDecodedAtModel,
+                            profileLUT: profileLUT
                         )
                     }
                 }.value
