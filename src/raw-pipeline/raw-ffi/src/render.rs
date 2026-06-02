@@ -266,7 +266,8 @@ pub unsafe extern "C" fn maple_compute_look_lut(look_mode: u8, out: *mut u8) -> 
 /// Returns:
 /// - `0` on success — `out` is fully written.
 /// - `-1` if `curve` or `out` is null, `curve_len` is not exactly
-///   `PROFILE_CURVE_FLAT_LEN`, `n < 2`, or `n³ * 3` would overflow `usize`.
+///   `PROFILE_CURVE_FLAT_LEN`, `n < 2`, `n > MAX_LUT_SIZE`, or `n³ * 3` would
+///   overflow `usize`.
 ///   The error path does not set `maple_last_error` (the caller owns the
 ///   curve bytes + `n` and a null/short buffer is its own diagnostic).
 ///
@@ -283,7 +284,7 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
     out: *mut f32,
 ) -> i32 {
     use raw_core::view::auto_profile::{
-        bake_profile_lut, ProfileCurve, PROFILE_CURVE_FLAT_LEN,
+        bake_profile_lut, ProfileCurve, MAX_LUT_SIZE, PROFILE_CURVE_FLAT_LEN,
     };
     if curve.is_null() || out.is_null() {
         return -1;
@@ -292,7 +293,11 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
         return -1;
     }
     let n = n as usize;
-    if n < 2 {
+    // Reject the degenerate and oversized `n` BEFORE calling `bake_profile_lut`
+    // — bake panics on those, and a panic across `extern "C"` aborts the host
+    // process. `MAX_LUT_SIZE` is the shared core constant, so FFI / WASM / core
+    // agree on the accepted range.
+    if n < 2 || n > MAX_LUT_SIZE {
         return -1;
     }
     // Guard the output sizing arithmetic before allocating / writing.
@@ -310,7 +315,14 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
         None => return -1,
     };
     let lut = bake_profile_lut(&parsed, n);
-    debug_assert_eq!(lut.len(), out_len);
+    // Runtime length check that survives release builds: `bake_profile_lut`
+    // always returns exactly `n³ * 3` for an accepted `n`, so this never fires
+    // in practice, but guarding it (rather than `debug_assert_eq!`, which
+    // compiles out in release) prevents any OOB read in the unsafe copy below
+    // if that invariant were ever broken.
+    if lut.len() != out_len {
+        return -1;
+    }
     std::ptr::copy_nonoverlapping(lut.as_ptr(), out, out_len);
     0
 }

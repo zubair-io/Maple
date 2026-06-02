@@ -27,7 +27,7 @@ pub mod preview;
 mod solve;
 
 pub use apply::{apply_curve, compress_input};
-pub use bake::{bake_profile_lut, DEFAULT_LUT_SIZE};
+pub use bake::{bake_profile_lut, DEFAULT_LUT_SIZE, MAX_LUT_SIZE};
 pub use curve::{
     eval_channel, fit_channel_curve, ChannelCurve, ProfileCurve, IDENTITY_MATRIX,
     PROFILE_CURVE_FLAT_LEN,
