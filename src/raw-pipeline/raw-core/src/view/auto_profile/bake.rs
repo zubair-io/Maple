@@ -31,6 +31,17 @@ use super::curve::ProfileCurve;
 /// WASM hosts and the golden test share one canonical size.
 pub const DEFAULT_LUT_SIZE: usize = 33;
 
+/// Upper bound on the per-axis LUT resolution accepted by [`bake_profile_lut`]
+/// and the FFI / WASM wrappers. GL ES 3.0 and WebGL2 guarantee only
+/// `MAX_3D_TEXTURE_SIZE >= 256`, so a LUT wider than 256 per axis is not
+/// uploadable as a 3D texture on conformant hardware anyway. The ceiling also
+/// bounds the cold-path allocation: `256³ * 3` f32 ≈ 192 MiB worst case, large
+/// but finite — past it, the `n³ * 3` sizing arithmetic risks `usize` overflow
+/// and the alloc can trap / hang a WASM main thread, so the wrappers reject it.
+/// All three hosts (core, FFI, WASM) validate `n` against this one constant so
+/// they agree on the accepted range. The default `n = 33` is well within it.
+pub const MAX_LUT_SIZE: usize = 256;
+
 /// Sample `apply_curve` over a regular `n × n × n` grid spanning `[0, 1]³`
 /// display space and return the result as a flat f32 buffer.
 ///
@@ -46,13 +57,22 @@ pub const DEFAULT_LUT_SIZE: usize = 33;
 /// branches, which the #550 curve leaves inert but a future fit may not.
 ///
 /// # Panics
-/// Panics if `n < 2` (a 1-entry grid cannot span an interval).
+/// Panics if `n < 2` (a 1-entry grid cannot span an interval) or if
+/// `n > MAX_LUT_SIZE` (the FFI / WASM wrappers reject such `n` with an error
+/// *before* calling this, so the panic is an internal last line of defence,
+/// not a host-reachable abort).
 pub fn bake_profile_lut(curve: &ProfileCurve, n: usize) -> Vec<f32> {
     assert!(n >= 2, "bake_profile_lut: n must be >= 2 (got {n})");
+    assert!(
+        n <= MAX_LUT_SIZE,
+        "bake_profile_lut: n must be <= {MAX_LUT_SIZE} (got {n})"
+    );
     // Build the grid as one packed RGB buffer, then run the canonical apply
     // path over it in place — identical code to the render hot loop, so the
-    // LUT cannot drift from what the CPU pipeline produces.
-    let mut grid = Vec::with_capacity(n * n * n * 3);
+    // LUT cannot drift from what the CPU pipeline produces. `n <= MAX_LUT_SIZE`
+    // guarantees `n³ * 3` cannot overflow `usize`, so the capacity is exact.
+    let capacity = n * n * n * 3;
+    let mut grid = Vec::with_capacity(capacity);
     let denom = (n - 1) as f32;
     for bi in 0..n {
         let bv = bi as f32 / denom;
@@ -230,5 +250,25 @@ mod tests {
     #[should_panic(expected = "n must be >= 2")]
     fn bake_rejects_degenerate_n() {
         bake_profile_lut(&ProfileCurve::identity(), 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "n must be <= 256")]
+    fn bake_rejects_oversized_n() {
+        bake_profile_lut(&ProfileCurve::identity(), MAX_LUT_SIZE + 1);
+    }
+
+    /// `n` below 2 and above `MAX_LUT_SIZE` are rejected; a valid `n` (the
+    /// boundary `MAX_LUT_SIZE` and the default) still bakes the full grid.
+    #[test]
+    fn bake_n_bounds() {
+        // Below the floor panics (covered by `bake_rejects_degenerate_n`),
+        // above the ceiling panics (covered by `bake_rejects_oversized_n`).
+        // Here assert the accepted boundary and default produce full LUTs.
+        let curve = ProfileCurve::identity();
+        let max = bake_profile_lut(&curve, MAX_LUT_SIZE);
+        assert_eq!(max.len(), MAX_LUT_SIZE * MAX_LUT_SIZE * MAX_LUT_SIZE * 3);
+        let def = bake_profile_lut(&curve, DEFAULT_LUT_SIZE);
+        assert_eq!(def.len(), DEFAULT_LUT_SIZE * DEFAULT_LUT_SIZE * DEFAULT_LUT_SIZE * 3);
     }
 }
