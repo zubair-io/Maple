@@ -110,8 +110,18 @@ struct EditorView: View {
             // area on top, then the TOOL row, then the section (group)
             // tabs below it. The single Divider sits between the tool row
             // and the group tabs.
+            //
+            // The Color group carries two non-slider controls relocated
+            // from the removed Develop tab (#875): the Profile picker and
+            // the As-Shot white-balance reset. They don't fit a drag-value
+            // pill, so they surface as a contextual accessory strip shown
+            // only while Color is armed, directly under the tool row.
             DragBar(state: state)
             ToolPillRow(state: state)
+            if state.armedGroup == .color {
+                ColorAccessoryRow(state: state)
+                    .transition(.opacity)
+            }
             Divider().background(MapleTokens.border)
             GroupTabsView(state: state)
         }
