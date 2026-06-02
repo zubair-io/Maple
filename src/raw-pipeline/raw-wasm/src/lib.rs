@@ -249,8 +249,10 @@ pub fn render_bytes_scene_linear(
 /// `PROFILE_CURVE_FLAT_LEN`). Returns `n * n * n * 3` f32 values — the
 /// canonical `apply_curve` sampled over a regular `[0, 1]³` grid, identical
 /// bytes to the Apple `maple_compute_profile_lut` FFI because both call the
-/// same `raw_core::view::auto_profile::bake_profile_lut`. JS receives a
-/// `Float32Array` over the WASM heap.
+/// same `raw_core::view::auto_profile::bake_profile_lut`. `wasm_bindgen`
+/// surfaces the returned `Vec<f32>` to JS as a `Float32Array` that is a COPY
+/// into the JS heap; the WASM-side allocation is freed once the value crosses
+/// the boundary, so JS owns an independent buffer.
 ///
 /// **Layout:** `n³` RGB triplets, R fastest, then G, then B —
 /// `out[((b*n + g)*n + r)*3 + c]`, grid coordinate `k` → `k / (n - 1)`. The
@@ -261,14 +263,23 @@ pub fn render_bytes_scene_linear(
 /// and re-samples the GPU texture every slider tick WITHOUT re-baking. Do not
 /// call this per tick.
 ///
-/// Errors (thrown as `JsError`): `n < 2`, or `curve_flat.len()` is not exactly
-/// `PROFILE_CURVE_FLAT_LEN`.
+/// Errors (thrown as `JsError`): `n < 2`, `n > MAX_LUT_SIZE`, or
+/// `curve_flat.len()` is not exactly `PROFILE_CURVE_FLAT_LEN`.
 #[wasm_bindgen]
 pub fn compute_profile_lut(curve_flat: &[f32], n: u32) -> Result<Vec<f32>, JsError> {
-    use raw_core::view::auto_profile::{bake_profile_lut, ProfileCurve};
+    use raw_core::view::auto_profile::{bake_profile_lut, ProfileCurve, MAX_LUT_SIZE};
     let n = n as usize;
     if n < 2 {
         return Err(JsError::new("compute_profile_lut: n must be >= 2"));
+    }
+    // Bound `n` from above BEFORE baking: a large `n` overflows the `n³ * 3`
+    // sizing and triggers a massive allocation that can trap or hang the WASM
+    // main thread. `MAX_LUT_SIZE` is the shared core constant (core / FFI /
+    // WASM all agree on the accepted range).
+    if n > MAX_LUT_SIZE {
+        return Err(JsError::new(
+            "compute_profile_lut: n must be <= MAX_LUT_SIZE (256)",
+        ));
     }
     let curve = ProfileCurve::from_flat(curve_flat).ok_or_else(|| {
         JsError::new("compute_profile_lut: curve_flat length != PROFILE_CURVE_FLAT_LEN")
@@ -324,10 +335,26 @@ mod tests {
     }
 
     // The error paths construct a `JsError`, which is a wasm-bindgen import
-    // that traps on non-wasm targets — so they can't be exercised by native
-    // `cargo test`. Validation is identical to the raw-ffi error-path tests
-    // (wrong curve_len / n < 2), which DO run natively, and the byte-identity
-    // test above covers the success path on both surfaces.
+    // that traps on non-wasm targets — so the `Err(..)` arms can't be
+    // exercised by native `cargo test` (calling `compute_profile_lut` with a
+    // rejected `n` would trap, not return). The reject logic (`n < 2`,
+    // `n > MAX_LUT_SIZE`, wrong curve_len) is identical to the raw-ffi
+    // error-path tests (`profile_lut_degenerate_n_returns_error`,
+    // `profile_lut_oversized_n_returns_error`, `profile_lut_wrong_curve_len_*`),
+    // which DO run natively and share the same `MAX_LUT_SIZE` constant.
+    // Natively we CAN assert the accepted boundary `n = MAX_LUT_SIZE` returns
+    // Ok with the full grid (the success arm builds no `JsError`).
+    #[test]
+    fn compute_profile_lut_accepts_n_bounds() {
+        use raw_core::view::auto_profile::{ProfileCurve, MAX_LUT_SIZE};
+        let flat = ProfileCurve::identity().to_flat();
+        // Floor: n = 2 succeeds.
+        let lo = compute_profile_lut(&flat, 2).expect("n=2 bakes");
+        assert_eq!(lo.len(), 2 * 2 * 2 * 3);
+        // Ceiling: n = MAX_LUT_SIZE succeeds (boundary is inclusive).
+        let hi = compute_profile_lut(&flat, MAX_LUT_SIZE as u32).expect("n=MAX bakes");
+        assert_eq!(hi.len(), MAX_LUT_SIZE * MAX_LUT_SIZE * MAX_LUT_SIZE * 3);
+    }
 
     /// Synthesized 8x8 mosaic round-trip — proves the new entry returns
     /// fp16 RGBA with alpha lane = 0x3c00 (fp16 1.0) and a buffer length

@@ -183,3 +183,15 @@ fn profile_lut_degenerate_n_returns_error() {
     let rc = unsafe { maple_compute_profile_lut(flat.as_ptr(), flat.len(), 1, out.as_mut_ptr()) };
     assert_eq!(rc, -1);
 }
+
+#[test]
+fn profile_lut_oversized_n_returns_error() {
+    use raw_core::view::auto_profile::{MAX_LUT_SIZE, PROFILE_CURVE_FLAT_LEN};
+    let flat = vec![0.0f32; PROFILE_CURVE_FLAT_LEN];
+    // Tiny out buffer: the guard must reject `n > MAX_LUT_SIZE` before any
+    // bake / copy, so `out` is never touched.
+    let mut out = vec![0.0f32; 3];
+    let n = (MAX_LUT_SIZE + 1) as u32;
+    let rc = unsafe { maple_compute_profile_lut(flat.as_ptr(), flat.len(), n, out.as_mut_ptr()) };
+    assert_eq!(rc, -1);
+}
