@@ -86,14 +86,6 @@ enum DetailPanelVM {
         return []
     }
 
-    /// Tab to land on when the AppShell crosses the Browse↔Full-image
-    /// boundary. Bug 4: opening the editor lands on Develop. Bug 5: leaving
-    /// the editor lands on Info. The transition fires once per mode change,
-    /// so the user can still pick the other tab manually within a mode.
-    static func tabForFullImage(_ isFullImage: Bool) -> DetailPanel.PanelTab {
-        isFullImage ? .develop : .info
-    }
-
     /// Stable accessibility identifier for an `AdjustSlider` — lowercased,
     /// spaces collapsed to dashes. "NR Lum" → `slider-nr-lum`. See
     /// docs/superpowers/plans/2026-04-25-xcuitest-visual-harness.md.
