@@ -164,6 +164,80 @@ describe('imports.repo', () => {
     expect(back.map((f) => f.idx)).toEqual(Array.from({ length: 2_000 }, (_, i) => i));
   });
 
+  it('getImportFiles hydrates a legacy inline-files import into import_files on first read', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+
+    // Simulate a pre-migration import: files inline on the doc, no import_files
+    // rows. (Insert the legacy shape directly — createImport no longer writes
+    // inline files.)
+    const legacyId = new ObjectId();
+    await db!.collection('imports').insertOne({
+      _id: legacyId,
+      status: 'failed',
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: [file('legacy-a.dng'), file('legacy-b.dng')],
+      scan_pending: false,
+      progress: { current: 0, total: 2 },
+      counts: { copied: 0, skipped: 0, failed: 0 },
+      error: 'old failure',
+      locked_by: null,
+      lease_expires_at: null,
+      cancel_requested: false,
+      created_at: '2026-01-01T00:00:00.000Z',
+      updated_at: '2026-01-01T00:00:00.000Z',
+    });
+
+    // First read returns the inline files AND migrates them into import_files.
+    const back = await repo.getImportFiles(legacyId);
+    expect(back.map((f) => f.src)).toEqual(['legacy-a.dng', 'legacy-b.dng']);
+    expect(await db!.collection('import_files').countDocuments({ import_id: legacyId })).toBe(2);
+
+    // After hydration, per-file progress writes land on real rows (no throw).
+    await repo.updateImportProgress(
+      legacyId,
+      {
+        index: 1,
+        state: 'copied',
+        error: null,
+        destRel: '2024/03/legacy-b.dng',
+        current: 1,
+        counts: { copied: 1, skipped: 0, failed: 0 },
+      },
+      60_000,
+    );
+    expect((await repo.getImportFiles(legacyId))[1].state).toBe('copied');
+  });
+
+  it('updateImportProgress throws when the target file row is missing', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+    const created = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: [file('a.dng')],
+    });
+    // idx 1 does not exist (only idx 0 was created) — fail loudly rather than
+    // bumping import-level counts against per-file state that didn't move.
+    await expect(
+      repo.updateImportProgress(
+        created._id,
+        {
+          index: 1,
+          state: 'copied',
+          error: null,
+          destRel: '2024/03/missing.dng',
+          current: 1,
+          counts: { copied: 1, skipped: 0, failed: 0 },
+        },
+        60_000,
+      ),
+    ).rejects.toThrow(/no import_files row/);
+  });
+
   it('double-claim collision: only one of two concurrent claims wins', async () => {
     if (!mongoReachable) return;
     const repo = await import('./repo.ts');
