@@ -42,7 +42,9 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality,
     render_scene_linear_sized_from_raw_with_quality_f32, RawInput,
 };
-pub use scene_linear_chain::{apply_scene_linear_chain, apply_scene_linear_chain_f32};
+pub use scene_linear_chain::{
+    apply_scene_linear_chain, apply_scene_linear_chain_f32, encode_display_srgb_f32,
+};
 pub use tile::{render_scene_linear_tile_from_raw_with_quality, TILE_OVERLAP_PX};
 
 /// Wraps a pipeline stage with `Instant::now()` timing, emitting one line

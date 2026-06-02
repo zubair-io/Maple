@@ -278,6 +278,223 @@ final class AutoProfileCanvasParityTests: XCTestCase {
         return (out, tw, th)
     }
 
+    // MARK: - (1c) Gamut-correct encode gate vs raw-core (#877 / #871)
+    //
+    // COMMITTED GATE, fixture-free, <1s. The #877 fix routes the Apple
+    // canvas's Rec.2020→sRGB display encode through raw-core's EXACT
+    // `rec2020_to_srgb` (hue-preserving Oklab gamut compression, #438) +
+    // `srgb_gamma_encode` via `maple_encode_display_srgb_f32`, then tags the
+    // result `sRGB` so CoreImage does NO further per-channel clamp. Before
+    // #877 the Apple Neutral canvas reached sRGB implicitly at the
+    // `createCGImage` boundary, which per-channel-clamps the Rec.2020→sRGB
+    // matrix output — driving saturated wide-gamut greens (Rec.2020 ≫ sRGB)
+    // green-up / blue-to-zero and diverging from the CLI/CPU reference (the
+    // class `_MG_3620`'s grass macro fell into; the #844 Auto cube amplified
+    // it into a visible blowout).
+    //
+    // This test pushes known display-linear Rec.2020 probes — saturated
+    // greens (the wide-gamut class) plus a neutral and a near-white — through
+    // the EXACT Apple canvas tail the live pipeline now uses (encode FFI →
+    // tag sRGB → optional Auto cube → `createCGImage`), and gates each
+    // channel's signed bias vs the canonical raw-core encoded u8. Reference
+    // u8 are produced by `cargo run -p raw-core --example green-probe`
+    // (committed at raw-core/examples/green-probe.rs) so they cannot silently
+    // drift. Both `Profile::Neutral` (no cube) and `Profile::Auto` (a
+    // synthetic brightening cube — the #844 amplifier) are gated.
+
+    /// One gamut probe: display-linear Rec.2020 input + the canonical
+    /// raw-core encoded u8 (Oklab-compressed). Reference from green-probe.rs.
+    private struct GamutProbe {
+        let name: String
+        let displayLinearRec2020: [Float]   // RGB, [0,1]
+        let rawCoreU8: [Int]                // raw-core Oklab-compressed encoded u8
+        let isWideGamut: Bool               // out-of-sRGB-gamut (blue must stay > 0)
+    }
+
+    /// Output raster mode for the gamut probe.
+    private enum ProbeOutput {
+        /// sRGB raster — the reference space (`maple-cli` emits sRGB). The
+        /// main #877 gate uses this to compare apples-to-apples with raw-core.
+        case srgb
+        /// P3 raster — the live `CIImageView` canvas output space.
+        case p3
+        /// P3 raster fed through `materializeRegion`'s sRGB CGImage round-trip
+        /// first — the refine path. Used only to prove live ≡ refine.
+        case p3ViaMaterializeRegion
+    }
+
+    /// Render a single display-linear-Rec.2020 RGB value through the live
+    /// Apple canvas tail AS REBUILT BY #877: tag a 1×1 `extendedLinearITUR_2020`
+    /// f32 CIImage, run the gamut-correct encode FFI
+    /// (`maple_encode_display_srgb_f32`), tag the result `sRGB`, optionally
+    /// apply the Auto cube, then raster per `output`.
+    private func renderThroughGamutCorrectBoundary(
+        _ rgb: [Float], cube: CIFilter?, output: ProbeOutput = .srgb
+    ) throws -> [Int] {
+        // 1. Encode via the FFI (Oklab gamut compression + sRGB gamma) — the
+        //    same call `ImageEditPipeline.encodeDisplaySRGBViaFFI` makes.
+        var inF32: [Float] = [rgb[0], rgb[1], rgb[2], 1.0]
+        let inData = inF32.withUnsafeBytes { Data($0) }
+        let encoded = try PipelineRenderer.encodeDisplaySRGB(
+            inputBytes: inData, width: 1, height: 1
+        )
+        // 2. Wrap the sRGB-encoded sRGB-primary bytes tagged sRGB.
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+        let inImage = encoded.withUnsafeBytes { raw -> CIImage in
+            CIImage(bitmapData: Data(raw), bytesPerRow: 16,
+                    size: CGSize(width: 1, height: 1),
+                    format: .RGBAf, colorSpace: srgb)
+        }
+        // 3. Optional Auto cube (sRGB-tagged) — applies on the matching domain.
+        var processed = AutoProfileLUT.apply(cube, to: inImage)
+
+        let working = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+        let ctx = CIContext(options: [.workingColorSpace: working,
+                                      .workingFormat: CIFormat.RGBAh])
+
+        // Refine path: round-trip through an sRGB RGBAf CGImage exactly like
+        // `ImageEditPipeline.materializeRegion` (which #877 retags to sRGB).
+        if output == .p3ViaMaterializeRegion {
+            guard let cg = ctx.createCGImage(
+                processed, from: processed.extent, format: .RGBAf, colorSpace: srgb
+            ) else { throw XCTSkip("materializeRegion round-trip createCGImage failed") }
+            processed = CIImage(cgImage: cg)
+        }
+
+        // 4. Raster + read back u8. sRGB is the #877 gate space (= the
+        //    maple-cli reference); P3 is the live canvas output space.
+        let out: CGColorSpace = (output == .srgb)
+            ? srgb
+            : CGColorSpace(name: CGColorSpace.displayP3)!
+        var outPix = [UInt8](repeating: 0, count: 4)
+        outPix.withUnsafeMutableBytes { buf in
+            ctx.render(processed, toBitmap: buf.baseAddress!, rowBytes: 4,
+                       bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                       format: .RGBA8, colorSpace: out)
+        }
+        return [Int(outPix[0]), Int(outPix[1]), Int(outPix[2])]
+    }
+
+    /// A synthetic brightening Auto curve (raises every channel) baked into
+    /// the cube — stands in for a real per-image fit as the #844 amplifier.
+    private func brighteningCurveFlat() -> [Float] {
+        var flat = [Float]()
+        flat.reserveCapacity(Self.curveFlatLen)
+        for _ in 0..<3 {           // all three channels: out = in^0.7 (lift)
+            for i in 0..<32 {
+                let inp = Float(i) / 31.0
+                flat.append(inp)
+                flat.append(pow(inp, 0.7))
+            }
+        }
+        flat.append(contentsOf: [1, 0, 0, 0, 1, 0, 0, 0, 1])  // identity matrix
+        flat.append(1.0)                                       // chroma_boost
+        flat.append(contentsOf: [0, 0])                        // chroma_offset
+        flat.append(0.0)                                       // lightness_offset
+        flat.append(contentsOf: [0, 0, 0, 0, 0])               // lightness_band
+        flat.append(contentsOf: [Float](repeating: 0, count: 10))
+        precondition(flat.count == Self.curveFlatLen)
+        return flat
+    }
+
+    func testGamutCorrectEncodeMatchesRawCore877() throws {
+        // raw-core reference u8 (Oklab-compressed) from green-probe.rs — the
+        // exact #877 evidence table.
+        let probes: [GamutProbe] = [
+            GamutProbe(name: "sat-green-0.5", displayLinearRec2020: [0.0, 0.5, 0.0], rawCoreU8: [0, 174, 91], isWideGamut: true),
+            GamutProbe(name: "sat-green-0.8", displayLinearRec2020: [0.0, 0.8, 0.0], rawCoreU8: [0, 215, 114], isWideGamut: true),
+            GamutProbe(name: "sat-green-1.0", displayLinearRec2020: [0.0, 1.0, 0.0], rawCoreU8: [0, 237, 126], isWideGamut: true),
+            GamutProbe(name: "near-white", displayLinearRec2020: [0.95, 0.97, 0.9], rawCoreU8: [248, 252, 242], isWideGamut: false),
+            GamutProbe(name: "neutral-mid", displayLinearRec2020: [0.46, 0.46, 0.46], rawCoreU8: [181, 181, 181], isWideGamut: false),
+        ]
+
+        // Per-channel bias budget. Rendered to sRGB (the reference space),
+        // the Apple boundary now shares raw-core's EXACT encode math, so the
+        // only residual is raw-core's Bayer dither vs CoreImage's nearest
+        // quantize — observed to be 0 LSB on every probe. ±1 LSB is the tight
+        // ceiling; it still catches the old per-channel clamp by a wide margin
+        // (which was +24 on green, -91 on blue for sat-green-0.5). One-way
+        // ratchet — lower only alongside an improvement.
+        let wideBudget = 1
+        let neutralBudget = 1
+        // Auto = baked 33³ LUT + trilinear vs raw-core's direct curve apply —
+        // a few-LSB interpolation gap is expected. ±4 LSB ceiling.
+        let autoBudget = 4
+
+        let bright = AutoProfileLUT.buildFilterFromCurve(brighteningCurveFlat())
+        XCTAssertNotNil(bright, "brightening cube must build")
+
+        print("[877-gamut] probe | raw-core u8 (Oklab ref) | Apple-Neutral u8 (signed bias) | Apple-Auto u8")
+        for p in probes {
+            let neutral = try renderThroughGamutCorrectBoundary(p.displayLinearRec2020, cube: nil)
+            let auto = try renderThroughGamutCorrectBoundary(p.displayLinearRec2020, cube: bright)
+            let bias = (0..<3).map { neutral[$0] - p.rawCoreU8[$0] }
+            print(String(format: "[877-gamut] %-13s ref=[%3d %3d %3d] | neutral=[%3d %3d %3d] bias=[%+d %+d %+d] | auto=[%3d %3d %3d]",
+                         (p.name as NSString).utf8String!,
+                         p.rawCoreU8[0], p.rawCoreU8[1], p.rawCoreU8[2],
+                         neutral[0], neutral[1], neutral[2],
+                         bias[0], bias[1], bias[2],
+                         auto[0], auto[1], auto[2]))
+
+            let budget = p.isWideGamut ? wideBudget : neutralBudget
+            for c in 0..<3 {
+                XCTAssertLessThanOrEqual(
+                    abs(bias[c]), budget,
+                    "[\(p.name)] Apple Neutral channel \(c) bias \(bias[c]) exceeds ±\(budget) vs raw-core ref \(p.rawCoreU8) (got \(neutral))"
+                )
+            }
+
+            // Apple **Auto** vs the raw-core curve reference (#877 acceptance).
+            // The synthetic cube applies `out = in^0.7` per channel in
+            // sRGB-encoded space (`brighteningCurveFlat`). raw-core's Auto
+            // applies the curve directly (`auto_profile::apply_curve`) on the
+            // SAME byte-exact encoded input (= rawCoreU8/255), so the reference
+            // is `round(255 * (rawCoreU8/255)^0.7)`. The Apple candidate is the
+            // baked 33³ LUT + trilinear interpolation, so a few-LSB gap from
+            // the direct curve is expected and budgeted (±\(autoBudget)) — this
+            // is exactly why the ticket specifies a budget for Auto, not
+            // byte-equality.
+            let refAuto = p.rawCoreU8.map { v -> Int in
+                Int((255.0 * pow(Double(v) / 255.0, 0.7)).rounded())
+            }
+            let autoBiasArr = (0..<3).map { auto[$0] - refAuto[$0] }
+            for c in 0..<3 {
+                XCTAssertLessThanOrEqual(
+                    abs(autoBiasArr[c]), autoBudget,
+                    "[\(p.name)] Apple Auto channel \(c) bias \(autoBiasArr[c]) exceeds ±\(autoBudget) vs raw-core curve ref \(refAuto) (got \(auto))"
+                )
+            }
+            print(String(format: "[877-gamut]   ↳ auto-ref=[%3d %3d %3d] auto-bias=[%+d %+d %+d]",
+                         refAuto[0], refAuto[1], refAuto[2],
+                         autoBiasArr[0], autoBiasArr[1], autoBiasArr[2]))
+            // The crux of #877: on wide-gamut green the OLD per-channel clamp
+            // crushed blue to 0. The Oklab compression keeps a real blue
+            // component — assert it survives (the clip-vs-compress signal).
+            if p.isWideGamut {
+                XCTAssertGreaterThan(
+                    neutral[2], 30,
+                    "[\(p.name)] blue crushed to \(neutral[2]) — wide-gamut green still per-channel-clipped (the #877 bug). Oklab compression should keep blue ≈ \(p.rawCoreU8[2])."
+                )
+            }
+        }
+
+        // Live (CIImageView → P3) vs refine (`materializeRegion` → sRGB
+        // CGImage → CIImage → P3) must display the SAME color. Both paths now
+        // originate from the same sRGB-tagged encode output; the refine path's
+        // extra sRGB→sRGB RGBAf round-trip through a CGImage is lossless for
+        // in-gamut content. Lock it with a saturated-green probe through both
+        // P3 rasters (the actual canvas output space).
+        let g: [Float] = [0.0, 0.8, 0.0]
+        let live = try renderThroughGamutCorrectBoundary(g, cube: nil, output: .p3)
+        let refine = try renderThroughGamutCorrectBoundary(g, cube: nil, output: .p3ViaMaterializeRegion)
+        for c in 0..<3 {
+            XCTAssertLessThanOrEqual(
+                abs(live[c] - refine[c]), 1,
+                "live (P3) vs refine (sRGB-CGImage→P3) diverge on sat-green channel \(c): live=\(live) refine=\(refine)"
+            )
+        }
+    }
+
     func testAutoProfileCanvasDiagnostic() async throws {
         guard ProcessInfo.processInfo.environment["MAPLE_AUTOPROFILE_DIAG"] == "1" else {
             throw XCTSkip("opt-in diagnostic — set MAPLE_AUTOPROFILE_DIAG=1")

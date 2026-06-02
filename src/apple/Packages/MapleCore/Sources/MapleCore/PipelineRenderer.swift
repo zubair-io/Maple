@@ -922,6 +922,54 @@ extension PipelineRenderer {
         }
         return output
     }
+
+    /// Apply raw-core's canonical display **encode** to a post-AgX
+    /// **display-linear Rec.2020** f32 RGBA buffer: hue-preserving Oklab
+    /// gamut compression (`rec2020_to_srgb`, #438) + `srgb_gamma_encode`.
+    /// Returns **sRGB-gamma-encoded sRGB-primary** f32 RGBA at the same
+    /// dimensions / layout (16 bytes/pixel, straight alpha).
+    ///
+    /// This is the #877 fix: the Apple canvas previously reached sRGB
+    /// implicitly at the CoreImage `createCGImage` boundary, which clamps
+    /// the Rec.2020→sRGB matrix output per-channel rather than performing
+    /// the Oklab chroma compression the CPU/CLI reference uses — so
+    /// saturated wide-gamut greens clipped and diverged (#871). Running
+    /// this entry as the explicit encode (then tagging the result sRGB)
+    /// makes the canvas gamut-correct by construction, and lands the buffer
+    /// in the sRGB-gamma-encoded sRGB-primary space the Auto Profile cube
+    /// was fit/baked in.
+    ///
+    /// `inputBytes` must be exactly `16 * width * height` bytes. Throws on
+    /// size mismatch or FFI failure.
+    public static func encodeDisplaySRGB(
+        inputBytes: Data,
+        width: Int,
+        height: Int
+    ) throws -> Data {
+        let lanes = width * height * 4
+        let expectedBytes = lanes * MemoryLayout<Float>.size
+        guard inputBytes.count == expectedBytes else {
+            throw PipelineError.renderFailed(
+                code: 9,
+                message: "encodeDisplaySRGB: input \(inputBytes.count) bytes != expected \(expectedBytes)"
+            )
+        }
+        var output = Data(count: expectedBytes)
+        let rc = output.withUnsafeMutableBytes { outBuf -> Int32 in
+            let outPtr = outBuf.bindMemory(to: Float.self).baseAddress!
+            return inputBytes.withUnsafeBytes { inBuf -> Int32 in
+                let inPtr = inBuf.bindMemory(to: Float.self).baseAddress!
+                return maple_encode_display_srgb_f32(
+                    inPtr, UInt32(width), UInt32(height), outPtr
+                )
+            }
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        return output
+    }
 }
 
 // MARK: - MapleRawHandle (Swift wrapper around the opaque C handle)

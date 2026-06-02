@@ -728,6 +728,37 @@ int32_t maple_apply_scene_linear_chain_f32(const float *in_ptr,
                                            float *out_ptr);
 
 /**
+ * Apply the canonical display **encode** to a post-AgX **display-linear
+ * Rec.2020** f32 RGBA buffer: hue-preserving Oklab gamut compression
+ * (`rec2020_to_srgb`, #438) followed by `srgb_gamma_encode`. Returns
+ * **sRGB-gamma-encoded sRGB-primary** f32 RGBA.
+ *
+ * This is the exact pair of view-encode stages the CPU/CLI reference runs
+ * between AgX and the Auto Profile cube (`agx → rec2020_to_srgb →
+ * srgb_gamma_encode → auto_profile`). The Apple canvas previously reached
+ * sRGB implicitly at the CoreImage `createCGImage` boundary, which does a
+ * per-channel clamp of the Rec.2020→sRGB matrix output — NOT the Oklab
+ * chroma compression — so saturated wide-gamut greens clipped and diverged
+ * from the reference (#871 / #877). Routing the Apple encode through this
+ * entry makes the canvas gamut-correct by construction (it shares raw-core's
+ * reference math), and lands the buffer in the [0,1]³ sRGB-gamma-encoded
+ * sRGB-primary space the Auto Profile cube was fit/baked in, so the cube
+ * applies on the matching domain.
+ *
+ * `in_ptr` and `out_ptr` MUST point to buffers of size
+ * `16 * width * height` bytes (= `4 * width * height` f32 lanes). The caller
+ * owns both buffers. Like the chain entries this performs one intermediate
+ * heap allocation of the output size (the wrapped `raw_core` entry returns
+ * an owned `Vec<f32>` copied into `out_ptr`). `out_ptr` may alias `in_ptr`.
+ *
+ * Returns 0 on success, non-zero on error (call `maple_last_error`).
+ */
+int32_t maple_encode_display_srgb_f32(const float *in_ptr,
+                                      uint32_t width,
+                                      uint32_t height,
+                                      float *out_ptr);
+
+/**
  * Extract an embedded JPEG preview / thumbnail from `raw_path`, downsample
  * to `max_px` on the long edge if necessary, then JPEG-encode the result.
  *
