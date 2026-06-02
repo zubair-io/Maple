@@ -19,6 +19,7 @@
 //!   that short-circuits the fit on second-and-after slider ticks.
 
 pub mod apply;
+pub mod bake;
 pub mod cache;
 pub mod curve;
 pub mod fit_display;
@@ -26,7 +27,11 @@ pub mod preview;
 mod solve;
 
 pub use apply::{apply_curve, compress_input};
-pub use curve::{eval_channel, fit_channel_curve, ChannelCurve, ProfileCurve, IDENTITY_MATRIX};
+pub use bake::{bake_profile_lut, DEFAULT_LUT_SIZE};
+pub use curve::{
+    eval_channel, fit_channel_curve, ChannelCurve, ProfileCurve, IDENTITY_MATRIX,
+    PROFILE_CURVE_FLAT_LEN,
+};
 pub use fit_display::{fit_curve_from_bytes_display, fit_curve_from_raw_display};
 pub use preview::JpegColorSpace;
 

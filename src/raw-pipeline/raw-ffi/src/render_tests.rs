@@ -4,7 +4,9 @@
 
 use crate::buffers::{maple_free_buffer, MapleImageBuffer};
 use crate::error::maple_last_error;
-use crate::render::{maple_compute_look_lut, maple_render_bytes, maple_render_file};
+use crate::render::{
+    maple_compute_look_lut, maple_compute_profile_lut, maple_render_bytes, maple_render_file,
+};
 use std::ffi::{CStr, CString};
 
 #[test]
@@ -99,4 +101,85 @@ fn look_lut_unknown_mode_returns_error() {
     // Error path must NOT mutate the output buffer — the caller may use
     // a stale LUT in that case and we don't want a half-written one.
     assert!(buf.iter().all(|&b| b == 0));
+}
+
+// ---------------------------------------------------------------------------
+// maple_compute_profile_lut (#817) — bakes the per-image Auto Profile curve
+// into a display-space 3D LUT for the Apple Metal (#812) + Web WebGL2 (#394)
+// samplers. The FFI delegates to `raw_core::view::auto_profile::bake_profile_lut`
+// so the GPU path can never drift from the CPU `apply_curve`.
+// ---------------------------------------------------------------------------
+
+/// Distinct per-channel monotone curve — same construction as the raw-core
+/// golden test, kept in sync here so the FFI byte-identity assertion exercises
+/// a non-trivial LUT.
+fn ffi_test_curve() -> raw_core::view::auto_profile::ProfileCurve {
+    use raw_core::view::auto_profile::{ChannelCurve, ProfileCurve};
+    let mut c = ProfileCurve::identity();
+    let shape = |i: usize, exp: f32, lift: f32| {
+        let x = i as f32 / 31.0;
+        let y = lift + (1.0 - lift) * x.powf(exp);
+        (x, y.clamp(0.0, 1.0))
+    };
+    let mut r = ChannelCurve::identity();
+    let mut g = ChannelCurve::identity();
+    let mut b = ChannelCurve::identity();
+    for i in 0..32 {
+        r.anchors[i] = shape(i, 0.7, 0.05);
+        g.anchors[i] = shape(i, 1.0, 0.0);
+        b.anchors[i] = shape(i, 1.4, 0.0);
+    }
+    c.r = r;
+    c.g = g;
+    c.b = b;
+    c
+}
+
+/// Byte-identity: the FFI LUT MUST equal `bake_profile_lut` (the core fn the
+/// WASM binding also calls), so all three platforms get identical bytes by
+/// construction. The WASM crate can't be linked into a raw-ffi test, so we
+/// assert it transitively — FFI == core, and (in raw-wasm) WASM == core.
+#[test]
+fn profile_lut_matches_raw_core_bake() {
+    use raw_core::view::auto_profile::{bake_profile_lut, DEFAULT_LUT_SIZE};
+    let curve = ffi_test_curve();
+    let flat = curve.to_flat();
+    let n = DEFAULT_LUT_SIZE;
+    let mut out = vec![0.0f32; n * n * n * 3];
+    let rc = unsafe {
+        maple_compute_profile_lut(flat.as_ptr(), flat.len(), n as u32, out.as_mut_ptr())
+    };
+    assert_eq!(rc, 0, "profile lut rc = {rc}");
+    let expected = bake_profile_lut(&curve, n);
+    assert_eq!(out, expected, "FFI LUT must be byte-identical to core bake");
+}
+
+#[test]
+fn profile_lut_null_pointer_returns_error() {
+    use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
+    let flat = vec![0.0f32; PROFILE_CURVE_FLAT_LEN];
+    let mut out = vec![0.0f32; 2 * 2 * 2 * 3];
+    // Null curve.
+    let rc = unsafe { maple_compute_profile_lut(std::ptr::null(), flat.len(), 2, out.as_mut_ptr()) };
+    assert_eq!(rc, -1);
+    // Null out.
+    let rc = unsafe { maple_compute_profile_lut(flat.as_ptr(), flat.len(), 2, std::ptr::null_mut()) };
+    assert_eq!(rc, -1);
+}
+
+#[test]
+fn profile_lut_wrong_curve_len_returns_error() {
+    let flat = [0.0f32; 4]; // not PROFILE_CURVE_FLAT_LEN
+    let mut out = vec![0.0f32; 2 * 2 * 2 * 3];
+    let rc = unsafe { maple_compute_profile_lut(flat.as_ptr(), flat.len(), 2, out.as_mut_ptr()) };
+    assert_eq!(rc, -1);
+}
+
+#[test]
+fn profile_lut_degenerate_n_returns_error() {
+    use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
+    let flat = vec![0.0f32; PROFILE_CURVE_FLAT_LEN];
+    let mut out = vec![0.0f32; 3];
+    let rc = unsafe { maple_compute_profile_lut(flat.as_ptr(), flat.len(), 1, out.as_mut_ptr()) };
+    assert_eq!(rc, -1);
 }

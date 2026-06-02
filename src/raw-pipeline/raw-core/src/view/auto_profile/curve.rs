@@ -18,6 +18,16 @@
 const ANCHORS: usize = 32;
 const CDF_BINS: usize = 256;
 
+/// Flat f32 length of a serialized [`ProfileCurve`] (see
+/// [`ProfileCurve::to_flat`]). Stable ABI shared by the FFI + WASM bake
+/// entries — bump only in lockstep with the field layout in `to_flat` /
+/// `from_flat`, and update every host that reconstructs the struct.
+///
+/// Layout (in order): r/g/b anchors (3 × 32 × 2 = 192), matrix (9),
+/// chroma_boost (1), chroma_offset (2), lightness_offset (1),
+/// lightness_band_offsets (5), ab_band_offsets (10) = 220.
+pub const PROFILE_CURVE_FLAT_LEN: usize = 3 * ANCHORS * 2 + 9 + 1 + 2 + 1 + 5 + 10;
+
 /// 32-anchor monotone piecewise-linear curve per channel.
 ///
 /// Anchors are stored as `(input, output)` pairs sorted by input ascending.
@@ -119,6 +129,87 @@ impl ProfileCurve {
             lightness_band_offsets: [0.0; 5],
             ab_band_offsets: [[0.0, 0.0]; 5],
         }
+    }
+
+    /// Flatten the full struct to a `PROFILE_CURVE_FLAT_LEN`-element f32
+    /// vector. This is the single serialization source of truth for the
+    /// FFI + WASM bake boundary — the host passes these floats back through
+    /// [`from_flat`](Self::from_flat) so `bake_profile_lut` baked the EXACT
+    /// curve the render path fit (no field drops, so a later matrix/Oklab
+    /// fix crosses the boundary for free).
+    ///
+    /// Layout matches [`PROFILE_CURVE_FLAT_LEN`]'s doc comment exactly.
+    pub fn to_flat(&self) -> Vec<f32> {
+        let mut out = Vec::with_capacity(PROFILE_CURVE_FLAT_LEN);
+        for ch in [&self.r, &self.g, &self.b] {
+            for (i, o) in ch.anchors.iter() {
+                out.push(*i);
+                out.push(*o);
+            }
+        }
+        for row in &self.matrix {
+            out.extend_from_slice(row);
+        }
+        out.push(self.chroma_boost);
+        out.extend_from_slice(&self.chroma_offset);
+        out.push(self.lightness_offset);
+        out.extend_from_slice(&self.lightness_band_offsets);
+        for ab in &self.ab_band_offsets {
+            out.extend_from_slice(ab);
+        }
+        debug_assert_eq!(out.len(), PROFILE_CURVE_FLAT_LEN);
+        out
+    }
+
+    /// Reconstruct a `ProfileCurve` from the flat layout produced by
+    /// [`to_flat`](Self::to_flat). Returns `None` when `flat.len()` is not
+    /// exactly [`PROFILE_CURVE_FLAT_LEN`] — the FFI/WASM entries surface that
+    /// as an error rather than reading past the buffer.
+    pub fn from_flat(flat: &[f32]) -> Option<Self> {
+        if flat.len() != PROFILE_CURVE_FLAT_LEN {
+            return None;
+        }
+        let mut it = flat.iter().copied();
+        let mut read_channel = || {
+            let mut anchors = [(0.0_f32, 0.0_f32); ANCHORS];
+            for a in anchors.iter_mut() {
+                a.0 = it.next().unwrap();
+                a.1 = it.next().unwrap();
+            }
+            ChannelCurve { anchors }
+        };
+        let r = read_channel();
+        let g = read_channel();
+        let b = read_channel();
+        let mut matrix = IDENTITY_MATRIX;
+        for row in matrix.iter_mut() {
+            for v in row.iter_mut() {
+                *v = it.next().unwrap();
+            }
+        }
+        let chroma_boost = it.next().unwrap();
+        let chroma_offset = [it.next().unwrap(), it.next().unwrap()];
+        let lightness_offset = it.next().unwrap();
+        let mut lightness_band_offsets = [0.0_f32; 5];
+        for v in lightness_band_offsets.iter_mut() {
+            *v = it.next().unwrap();
+        }
+        let mut ab_band_offsets = [[0.0_f32; 2]; 5];
+        for ab in ab_band_offsets.iter_mut() {
+            ab[0] = it.next().unwrap();
+            ab[1] = it.next().unwrap();
+        }
+        Some(Self {
+            r,
+            g,
+            b,
+            matrix,
+            chroma_boost,
+            chroma_offset,
+            lightness_offset,
+            lightness_band_offsets,
+            ab_band_offsets,
+        })
     }
 }
 
