@@ -67,20 +67,46 @@ public actor AutoProfileLUT {
         let quality: Int32
     }
 
-    /// A cached entry. `filter == nil` is a NEGATIVE cache — the fit failed or
-    /// the model is not Auto, so the canvas takes plain AgX. Caching the
+    /// Immutable baked cube for one image, ready to mint a fresh `CIFilter`.
+    /// `data` is the RGBA-float cube body; `dimension` is the cube edge.
+    struct CubeData {
+        let data: Data
+        let dimension: Int
+    }
+
+    /// A cached entry. `.absent` is an EXPLICIT negative cache — the fit failed
+    /// or produced no curve, so the canvas takes plain AgX. Caching the
     /// negative result keeps the (slow) FFI fit from re-running every tick on
     /// images that have no usable embedded JPEG.
-    private var cache: [Key: CIFilter?] = [:]
+    ///
+    /// The case is named `.absent` (not `.none`) so it never collides with
+    /// `Optional.none`, and the cached value caches the IMMUTABLE cube bytes —
+    /// never a `CIFilter`. A `CIFilter` is mutable and not thread-safe, so a
+    /// fresh one is minted per `filter()` call from the cached bytes; concurrent
+    /// renders therefore never share (and race on) one filter instance (#844).
+    enum Cached {
+        case cube(CubeData)
+        case absent
+    }
 
-    private init() {}
+    private var cache: [Key: Cached] = [:]
+
+    /// Test seam (#844): counts how many times the cold FFI fit + bake actually
+    /// ran. A cache hit must NOT increment this. `internal` so only the package
+    /// test target can read it.
+    private(set) var fitCount = 0
+
+    /// `internal` (not `private`) so the package test target can spin up an
+    /// isolated instance instead of mutating the process-wide `.shared` cache.
+    init() {}
 
     /// Return the ready-to-apply `CIColorCubeWithColorSpace` filter for this
     /// RAW under `Profile::Auto`, or `nil` when Auto does not apply (not Auto,
     /// no embedded JPEG, degenerate fit, or any FFI error — all of which mean
     /// "render plain AgX"). The first call per image runs the FFI fit + bake
-    /// (cold, seconds on a 100MP RAW); subsequent calls return the cached
-    /// filter.
+    /// (cold, seconds on a 100MP RAW); subsequent calls mint a FRESH filter
+    /// from the cached cube bytes (the bake stays cached; the per-render filter
+    /// is never shared — #844).
     ///
     /// `quality` must match the quality the displayed buffer was developed at
     /// so the curve matches the pixels it modifies.
@@ -91,27 +117,39 @@ public actor AutoProfileLUT {
     ) -> CIFilter? {
         guard profile == .auto else { return nil }
 
-        let mtime = (try? FileManager.default
-            .attributesOfItem(atPath: url.path)[.modificationDate] as? Date)??
-            .timeIntervalSince1970 ?? 0
+        let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate?.timeIntervalSince1970 ?? 0
         let key = Key(path: url.path, mtime: mtime, quality: quality.rawValue)
+
+        let entry: Cached
         if let cached = cache[key] {
-            return cached
+            entry = cached
+        } else {
+            fitCount += 1
+            entry = Self.buildCube(rawPath: url.path, quality: quality)
+            cache[key] = entry
         }
 
-        let built = Self.buildFilter(rawPath: url.path, quality: quality)
-        cache[key] = built
-        return built
+        switch entry {
+        case .absent:
+            return nil
+        case .cube(let cube):
+            // Mint a FRESH filter per call from the cached immutable bytes —
+            // never hand back a shared mutable CIFilter (#844). The bake (the
+            // expensive part) stays cached; `CIFilter(name:)` + `setValue` is
+            // cheap and the returned instance is owned by exactly one render.
+            return Self.makeFilter(from: cube)
+        }
     }
 
-    /// Fetch the fitted curve via FFI, bake the 33³ display-space LUT via
-    /// FFI, expand to a CIColorCube RGBA float buffer, and wrap it in a
-    /// `CIColorCubeWithColorSpace` filter tagged sRGB. Returns `nil` on the
-    /// no-curve fallback (`rc == 1`) or any error.
-    nonisolated static func buildFilter(
+    /// Fetch the fitted curve via FFI, bake the 33³ display-space LUT via FFI,
+    /// and expand it to the immutable RGBA-float cube bytes. Returns
+    /// `.cube(...)` on success or `.absent` on the no-curve fallback
+    /// (`rc == 1`) or any error — both of which mean "render plain AgX".
+    nonisolated static func buildCube(
         rawPath: String,
         quality: PipelineRenderer.Quality
-    ) -> CIFilter? {
+    ) -> Cached {
         var curve = [Float](repeating: 0, count: curveFlatLen)
         let rc = rawPath.withCString { cpath -> Int32 in
             curve.withUnsafeMutableBufferPointer { buf in
@@ -125,22 +163,19 @@ public actor AutoProfileLUT {
             } else {
                 autoProfileLog.notice("Auto Profile: no curve for \(rawPath, privacy: .public) (no JPEG / degenerate) — plain AgX")
             }
-            return nil
+            return .absent
         }
 
-        let filter = buildFilterFromCurve(curve)
-        if filter != nil {
-            autoProfileLog.notice("Auto Profile: baked \(lutSize)³ display-space cube for \(rawPath, privacy: .public)")
-        }
-        return filter
+        guard let cube = buildCubeFromCurve(curve) else { return .absent }
+        autoProfileLog.notice("Auto Profile: baked \(lutSize)³ display-space cube for \(rawPath, privacy: .public)")
+        return .cube(cube)
     }
 
     /// Bake a serialized `ProfileCurve` (`PROFILE_CURVE_FLAT_LEN` f32) into a
-    /// 33³ display-space 3D LUT via the FFI and wrap it in a
-    /// `CIColorCubeWithColorSpace` filter tagged sRGB. Exposed (not private)
-    /// so the #812 cube-faithfulness test can drive it with a synthetic curve
-    /// without a RAW. Returns `nil` on a bake error.
-    nonisolated static func buildFilterFromCurve(_ curve: [Float]) -> CIFilter? {
+    /// 33³ display-space 3D LUT via the FFI and expand it to the immutable
+    /// RGBA-float cube bytes a `CIColorCubeWithColorSpace` filter wants.
+    /// Returns `nil` on a bake error.
+    nonisolated static func buildCubeFromCurve(_ curve: [Float]) -> CubeData? {
         let n = lutSize
         // FFI LUT layout: n³ RGB triplets, R fastest — out[((b*n+g)*n+r)*3+c].
         var lut = [Float](repeating: 0, count: n * n * n * 3)
@@ -168,16 +203,30 @@ public actor AutoProfileLUT {
             cube[i * 4 + 2] = lut[i * 3 + 2]
             cube[i * 4 + 3] = 1.0
         }
-        let data = cube.withUnsafeBytes { Data($0) }
+        return CubeData(data: cube.withUnsafeBytes { Data($0) }, dimension: n)
+    }
 
+    /// Mint a FRESH `CIColorCubeWithColorSpace` filter (tagged sRGB) from the
+    /// immutable cube bytes. A new instance every call: `CIFilter` is mutable
+    /// and not thread-safe, so each render owns its own and `apply`'s
+    /// `setValue(kCIInputImageKey)` can never race a concurrent render (#844).
+    nonisolated static func makeFilter(from cube: CubeData) -> CIFilter? {
         guard let filter = CIFilter(name: "CIColorCubeWithColorSpace") else {
             autoProfileLog.error("CIColorCubeWithColorSpace unavailable")
             return nil
         }
-        filter.setValue(n, forKey: "inputCubeDimension")
-        filter.setValue(data, forKey: "inputCubeData")
+        filter.setValue(cube.dimension, forKey: "inputCubeDimension")
+        filter.setValue(cube.data, forKey: "inputCubeData")
         filter.setValue(cubeColorSpace, forKey: "inputColorSpace")
         return filter
+    }
+
+    /// Bake a serialized `ProfileCurve` into a fresh `CIColorCubeWithColorSpace`
+    /// filter. Exposed (not private) so the #812 cube-faithfulness test can
+    /// drive it with a synthetic curve without a RAW. Returns `nil` on error.
+    nonisolated static func buildFilterFromCurve(_ curve: [Float]) -> CIFilter? {
+        guard let cube = buildCubeFromCurve(curve) else { return nil }
+        return makeFilter(from: cube)
     }
 
     /// Apply a resolved Auto Profile cube to a processed CIImage. The filter
@@ -185,6 +234,12 @@ public actor AutoProfileLUT {
     /// CPU path's `auto_profile` → quantize order. No-op (returns the input
     /// unchanged) when `filter` is nil so `Profile::Neutral` stays
     /// byte-identical to the AgX-only canvas.
+    ///
+    /// `filter` MUST be a per-render instance from `filter(forRawAt:…)` /
+    /// `makeFilter(from:)` — never a shared one. This sets `kCIInputImageKey`,
+    /// so a shared `CIFilter` would race across concurrent renders (#844); the
+    /// cache only ever hands out freshly minted filters, so the mutation here
+    /// touches state owned by exactly one render.
     public nonisolated static func apply(_ filter: CIFilter?, to image: CIImage) -> CIImage {
         guard let filter else { return image }
         filter.setValue(image, forKey: kCIInputImageKey)

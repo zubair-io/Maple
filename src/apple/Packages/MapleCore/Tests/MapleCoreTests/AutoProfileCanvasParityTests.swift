@@ -131,6 +131,33 @@ final class AutoProfileCanvasParityTests: XCTestCase {
         print("[cube-faithfulness] max 8-bit error at grid points = \(maxErr)/255")
     }
 
+    // MARK: - (1b) Negative cache is retained (no re-fit on a fit miss) (#844)
+
+    /// A `Profile::Auto` image whose fit FAILS (here: a nonexistent RAW path,
+    /// so the FFI returns a read error → `.absent`) must cache that negative
+    /// result. A second `filter()` on the same key must be a cache HIT — the
+    /// (slow) FFI fit + bake must NOT re-run every render. `fitCount` is the
+    /// seam: it counts only cold builds, so a retained negative cache keeps it
+    /// at 1 across two lookups.
+    func testNegativeCacheIsRetainedNoRefit() async throws {
+        let lut = AutoProfileLUT()
+        // A path that does not exist → the FFI fit fails → `.absent` is cached.
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("maple-no-such-raw-\(UUID().uuidString).dng")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+
+        let first = await lut.filter(forRawAt: url, profile: .auto, quality: .preview)
+        XCTAssertNil(first, "a failed fit must yield no cube (plain AgX)")
+        let fitsAfterFirst = await lut.fitCount
+        XCTAssertEqual(fitsAfterFirst, 1, "first lookup runs the cold fit exactly once")
+
+        let second = await lut.filter(forRawAt: url, profile: .auto, quality: .preview)
+        XCTAssertNil(second, "still no cube")
+        let fitsAfterSecond = await lut.fitCount
+        XCTAssertEqual(fitsAfterSecond, 1,
+            "second lookup must be a NEGATIVE-cache HIT — no re-fit (#844)")
+    }
+
     // MARK: - (2) Opt-in RAW diagnostic (prints numbers, asserts Auto≠Neutral)
 
     private static func repoRoot() -> URL {
