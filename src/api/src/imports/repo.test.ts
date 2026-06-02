@@ -63,6 +63,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!mongoReachable) return;
   await db!.collection('imports').deleteMany({});
+  await db!.collection('import_files').deleteMany({});
   await db!.collection('assets').deleteMany({});
 });
 
@@ -98,7 +99,8 @@ describe('imports.repo', () => {
     const claim = await repo.claimImport('w-1', 60_000);
     expect(claim).not.toBeNull();
     expect(claim!.library_root).toBe('/srv/lib');
-    expect(claim!.files).toHaveLength(2);
+    // Files live in the `import_files` collection now, not on the claim doc.
+    expect(await repo.getImportFiles(claim!._id)).toHaveLength(2);
 
     const running = await repo.getImport(claim!._id);
     expect(running!.status).toBe('running');
@@ -117,7 +119,8 @@ describe('imports.repo', () => {
       60_000,
     );
     const mid = await repo.getImport(claim!._id);
-    expect(mid!.files[0].state).toBe('copied');
+    const midFiles = await repo.getImportFiles(claim!._id);
+    expect(midFiles[0].state).toBe('copied');
     expect(mid!.progress.current).toBe(1);
     expect(mid!.counts.copied).toBe(1);
 
@@ -126,6 +129,39 @@ describe('imports.repo', () => {
     expect(done!.status).toBe('done');
     expect(done!.locked_by).toBeNull();
     expect(done!.counts.copied).toBe(2);
+  });
+
+  it('stores files in the import_files collection, never inline on the import doc (#offset-overflow)', async () => {
+    if (!mongoReachable) return;
+    const repo = await import('./repo.ts');
+
+    // A folder with many files used to serialize the whole `files[]` array into
+    // one `imports` document, which a large folder pushed past MongoDB's 16 MiB
+    // ceiling (a BSON `ERR_OUT_OF_RANGE` at the 17 MiB buffer boundary), failing
+    // the import mid-scan. The entries must now live one-per-doc so no single
+    // write grows with file count.
+    const many = Array.from({ length: 2_000 }, (_, i) => file(`f${i}.dng`));
+    const created = await repo.createImport({
+      source_root: '/srv/in',
+      library_id: lib.id,
+      library_root: lib.root,
+      files: many,
+    });
+    expect(created.progress.total).toBe(2_000);
+
+    // The import doc carries NO inline files array.
+    const rawDoc = await db!.collection('imports').findOne({ _id: created._id });
+    expect(rawDoc!.files).toBeUndefined();
+
+    // Every entry landed in import_files, retrievable in stable idx order.
+    expect(await db!.collection('import_files').countDocuments({ import_id: created._id })).toBe(
+      2_000,
+    );
+    const back = await repo.getImportFiles(created._id);
+    expect(back).toHaveLength(2_000);
+    expect(back[0].src).toBe('f0.dng');
+    expect(back[1999].src).toBe('f1999.dng');
+    expect(back.map((f) => f.idx)).toEqual(Array.from({ length: 2_000 }, (_, i) => i));
   });
 
   it('double-claim collision: only one of two concurrent claims wins', async () => {
@@ -235,9 +271,10 @@ describe('imports.repo', () => {
     expect(requeued!.locked_by).toBeNull();
     expect(requeued!.lease_expires_at).toBeNull();
     // The copied file is untouched; the failed one is reset to pending.
-    expect(requeued!.files[0].state).toBe('copied');
-    expect(requeued!.files[1].state).toBe('pending');
-    expect(requeued!.files[1].error).toBeNull();
+    const requeuedFiles = await repo.getImportFiles(created._id);
+    expect(requeuedFiles[0].state).toBe('copied');
+    expect(requeuedFiles[1].state).toBe('pending');
+    expect(requeuedFiles[1].error).toBeNull();
 
     // A worker can re-claim it.
     const claim = await repo.claimImport('w-retry', 60_000);
@@ -271,7 +308,7 @@ describe('imports.repo', () => {
     expect(await repo.retryImport(created._id)).toBe(true);
     const requeued = await repo.getImport(created._id);
     expect(requeued!.status).toBe('pending');
-    expect(requeued!.files[1].state).toBe('pending');
+    expect((await repo.getImportFiles(created._id))[1].state).toBe('pending');
   });
 
   it('retryImport leaves a permanently-unsafe file failed and recounts (#795)', async () => {
@@ -322,10 +359,11 @@ describe('imports.repo', () => {
     const requeued = await repo.getImport(created._id);
     expect(requeued!.status).toBe('pending');
     // Recoverable one is reset; the unsafe ones stay failed and are still counted.
-    expect(requeued!.files[0].state).toBe('pending');
-    expect(requeued!.files[1].state).toBe('failed');
+    const requeuedFiles = await repo.getImportFiles(created._id);
+    expect(requeuedFiles[0].state).toBe('pending');
+    expect(requeuedFiles[1].state).toBe('failed');
     // A >3-segment dest is treated as unsafe — stays failed, not resurrected.
-    expect(requeued!.files[2].state).toBe('failed');
+    expect(requeuedFiles[2].state).toBe('failed');
     expect(requeued!.counts.failed).toBe(2);
   });
 
@@ -367,7 +405,7 @@ describe('imports.repo', () => {
     expect(requeued!.status).toBe('pending');
     expect(requeued!.scan_pending).toBe(true);
     expect(requeued!.error).toBeNull();
-    expect(requeued!.files).toEqual([]);
+    expect(await repo.getImportFiles(fileless._id)).toEqual([]);
     expect(requeued!.locked_by).toBeNull();
     expect(requeued!.lease_expires_at).toBeNull();
     expect(requeued!.cancel_requested).toBe(false);
