@@ -8,7 +8,7 @@ This is a **design** spec — it defines the on-disk layout, the loader refactor
 
 ## The load-bearing verdict (read this first)
 
-**The #379 v2 dedup-pool on-disk format is NOT the right foundation for lazy range-fetch as built. It needs three encoding changes. The dedup *pool concept* is exactly right and is the enabler — the *encoding* around it is wrong.** Therefore **#829 must land the corrected encoding below, not the whole-stream v2 as built** — landing whole-stream v2 first means #828 immediately has to break the format it inherited.
+**The #379 v2 dedup-pool on-disk format is NOT the right foundation for lazy range-fetch as built. It needs three encoding changes. The dedup _pool concept_ is exactly right and is the enabler — the _encoding_ around it is wrong.** Therefore **#829 must land the corrected encoding below, not the whole-stream v2 as built** — landing whole-stream v2 first means #828 immediately has to break the format it inherited.
 
 Why the format-as-built can't support the ticket's acceptance criterion ("per-image render fetches only its body's profile + referenced HSM pool entries"):
 
@@ -16,7 +16,7 @@ The v2 layout (`07e4bc42`, branch `worktree-agent-a56b2c0c5f43cfa7c`; see `src/s
 
 1. **No offset directory.** Pool entries are variable-length (each `HsmTable` is `h*s*v*3` f32, dims vary) and stored back-to-back with no index of byte offsets. You cannot compute the byte range of entry N without walking entries 0..N — which requires the decompressed bytes — so you cannot range-fetch a single entry.
 2. **One monolithic zlib stream.** Even with offsets, DEFLATE is not seekable: you must inflate from the start of the stream to reach any interior byte. Inflating to reach entry N pulls and decompresses the entire ~24 MB.
-3. **The index (records) is nested *inside* the compressed blob, after the pool.** So even the cheap matrices+index part — the ~263 KB the ticket wants always-resident — is unreachable without downloading and decompressing the full 24 MB.
+3. **The index (records) is nested _inside_ the compressed blob, after the pool.** So even the cheap matrices+index part — the ~263 KB the ticket wants always-resident — is unreachable without downloading and decompressing the full 24 MB.
 
 The only way to consume v2-as-built on web is "download the whole pool once, inflate once." That is exactly the 24 MB transfer the ticket exists to kill — merely moved from inside the `.wasm` to a separate fetch. The acceptance clause "fetches only its body's referenced entries" is the discriminator that breaks the tie, and v2-as-built fails it by construction.
 
@@ -24,7 +24,7 @@ The only way to consume v2-as-built on web is "download the whole pool once, inf
 
 1. **Hoist the index (profile records) out of the compressed region and into the always-embedded part.** Records (body key → matrices + illuminants + BE-offset + pool-index refs) become a small uncompressed/own section (~263 KB, the matrices+index class). Records reference HSM by pool index exactly as v2 already does — that part is correct.
 2. **Add an uncompressed pool offset directory.** `pool_count` entries of `(byte_offset: u32, compressed_len: u32, dims: u16×3, encoding: u8)`. At ~1,193 unique tables × ~16 B ≈ ~19 KB, this is cheap to embed. This is what lets a client compute the exact byte range for pool entry N without touching the pool body.
-3. **Compress per-entry, not whole-stream.** Each pool entry is an independent zlib stream so it is independently range-fetchable *and* independently inflatable. `miniz_oxide` is already linked on all three targets (native, WASM via `png`), so per-entry inflate adds no dependency.
+3. **Compress per-entry, not whole-stream.** Each pool entry is an independent zlib stream so it is independently range-fetchable _and_ independently inflatable. `miniz_oxide` is already linked on all three targets (native, WASM via `png`), so per-entry inflate adds no dependency.
 
 **Asset-size assumption #829 must validate (do not assert it — measure it):** per-entry zlib should still land the pool at ~24–25 MB. Dedup is the heavy lifter (2,162 → 1,193 unique tables); each ~32 KB table already exceeds DEFLATE's 32 KB window, so whole-stream deflate was not exploiting cross-table redundancy post-dedup anyway. If the per-entry total blows materially past ~25 MB, #829 surfaces it and we revisit (e.g. group small entries into range-aligned chunks). The whole #828 web-size win rides on this number; #829's converter must print it.
 
@@ -35,13 +35,15 @@ Everything below assumes this corrected encoding ("v3 split layout"). The v2 dua
 ## Goals / non-goals
 
 **Goals**
+
 - Web download stays in the ~263 KB class (matrices + index + offset directory); no `.wasm` size regression from HSM.
 - Per-image render touches only its body's profile + the ≤2 HSM pool entries it references; those are fetched once and cached.
 - Native (Apple FFI, API dylib) maps the asset; the OS pages in only touched entries — also cutting startup memory.
 - Pixel parity: native and web identical to today's embedded path (merge gate).
 
 **Non-goals**
-- HSM **application** math (valScale tone-coupling, dual-illuminant blend, tier ordering) — that is #825. This spec keeps HSM *resolvable* but does not change how it is applied, and lands with HSM still **disabled in the render path** (see Sequencing).
+
+- HSM **application** math (valScale tone-coupling, dual-illuminant blend, tier ordering) — that is #825. This spec keeps HSM _resolvable_ but does not change how it is applied, and lands with HSM still **disabled in the render path** (see Sequencing).
 - Changing `MapleProfile` / `DcpProfile` / `ProfileCurve` public shapes. The loader resolves to the same `MapleProfile` (with `hsm1`/`hsm2: Option<HsmTable>`) it does today.
 
 ---
@@ -91,11 +93,13 @@ Pool region (the ~24 MB part; embedded on native, separate fetchable asset on we
 ```
 
 **Addressing a body's HSM (the whole point):**
+
 1. Resolve the body's record from the embedded index → get `hsm1_pool_index` / `hsm2_pool_index`.
 2. For each index, read `pool_directory[index]` → `(offset, compressed_len, dims, encoding)`.
 3. Fetch (web) or slice (native) `pool_region[offset .. offset+compressed_len]`, inflate that one stream, build the `HsmTable` from `(dims, encoding, inflated f32)`.
 
 **Build emits two files** (the converter — #829 — gains a `--split` writer, or the split is the default for v3):
+
 - `profiles.idx` — header + index region. Committed to the repo; embedded via `include_bytes!`; shipped as a small web asset. ~263 KB class.
 - `profiles.pool` — the pool region only. Committed (~24 MB, under GitHub's 50 MB warning); embedded on native via `include_bytes!`; served as a static web asset for range fetch.
 
@@ -107,7 +111,7 @@ The directory's `offset` is relative to the start of `profiles.pool`, so the two
 
 Today: `pub(crate) const PROFILES_BIN: &[u8] = include_bytes!(...)`, parsed whole into a `HashMap<CameraKey, MapleProfile>` behind a `OnceLock`, with `hsm1`/`hsm2` already materialized inline. `lookup_profile` / `to_dcp_profile` read those `HsmTable`s directly.
 
-New shape — split the *index* (always embedded, parsed once) from the *pool* (lazy, behind a byte-provider):
+New shape — split the _index_ (always embedded, parsed once) from the _pool_ (lazy, behind a byte-provider):
 
 ### 2a. Index stays embedded and eager
 
@@ -180,7 +184,7 @@ The JS side passes a fetch+cache callback (range GET → IndexedDB) into the WAS
   ```
   The existing source-DNG HSM fallback (`raw.hsm_data`) is preserved verbatim — it covers bodies the bundle has no HSM for. The dual-illuminant `interpolated_profile` / `single_illuminant_profile` calls and the resulting `DcpProfile` / `ProfileCurve` are byte-for-byte the same as today given the same `HsmTable` inputs.
 
-Net: `MapleProfile`, `DcpProfile`, `ProfileCurve`, and the DCP resolution math are untouched. Only *where the HSM bytes come from* changes.
+Net: `MapleProfile`, `DcpProfile`, `ProfileCurve`, and the DCP resolution math are untouched. Only _where the HSM bytes come from_ changes.
 
 ---
 
@@ -195,9 +199,10 @@ Net: `MapleProfile`, `DcpProfile`, `ProfileCurve`, and the DCP resolution math a
 **Service worker / ngsw.** `profiles.idx` joins the `raw-wasm` asset group (`installMode: lazy, updateMode: prefetch`) so it's cached with the module. **`profiles.pool` must NOT be added to an `assetGroup`** — ngsw asset groups cache whole files, which would re-introduce the 24 MB prefetch. Instead the pool is fetched directly (range GET) and cached in our own IndexedDB store, bypassing the SW for ranges (ngsw passes through requests it doesn't match). Document this explicitly in `ngsw-config.json` review notes so nobody "helpfully" adds `profiles.pool` to an asset group later.
 
 **Latency budget (against the perf invariants).**
-- *Slider tick (16 ms target / 50 ms hard):* **zero** profile I/O. HSM bytes are resident (pre-fetched at open) and the resolved `HsmTable` is cached on the session profile. Unaffected.
-- *Cold open (uncached, 250–1000 ms, progress shown):* adds one (coalesced) range GET of ≤~64 KB compressed + one small inflate, overlapped with the RAW decode that already runs here. Well inside budget; show it under existing cold-open progress.
-- *Cold open (warm / repeat body):* IndexedDB hit, sub-millisecond; no network.
+
+- _Slider tick (16 ms target / 50 ms hard):_ **zero** profile I/O. HSM bytes are resident (pre-fetched at open) and the resolved `HsmTable` is cached on the session profile. Unaffected.
+- _Cold open (uncached, 250–1000 ms, progress shown):_ adds one (coalesced) range GET of ≤~64 KB compressed + one small inflate, overlapped with the RAW decode that already runs here. Well inside budget; show it under existing cold-open progress.
+- _Cold open (warm / repeat body):_ IndexedDB hit, sub-millisecond; no network.
 
 **Failure degrades, never blocks (§C).** 404 / offline / range-unsupported-and-too-large / IndexedDB miss → the pre-fetch resolves with the entry not resident → `entry_bytes` returns `None` → HSM resolves to `None` → **matrices-only render**, identical to today's empty-bundle degradation. HSM is an enhancement; its absence never blocks or errors a render.
 
@@ -213,10 +218,10 @@ mmap note: gate behind the platform (`std::fs` + `memmap2` is fine for the API d
 
 ## 5. Parity gate
 
-Parity holds **by construction**: every provider resolves the same `(dims, encoding, f32 data)` for a given pool index, so the `HsmTable` handed to `to_dcp_profile` is byte-identical regardless of delivery. The gate must nonetheless *prove* it runs both providers:
+Parity holds **by construction**: every provider resolves the same `(dims, encoding, f32 data)` for a given pool index, so the `HsmTable` handed to `to_dcp_profile` is byte-identical regardless of delivery. The gate must nonetheless _prove_ it runs both providers:
 
 1. **Provider-equivalence unit test (new, in `raw-core`):** for a known HSM body (e.g. Leica M10 — the #378/#379 headline), assert the embedded-provider `HsmTable` and a simulated-fetch-provider `HsmTable` (fed the same `profiles.pool` bytes through the range-slice path) are byte-identical. Cheap, deterministic, runs in CI without fixtures.
-2. **`test_color_pipeline.sh` green on native** — the canonical end-to-end perceptual gate. Because #828 lands HSM-disabled (Sequencing), this proves *no regression* vs the matrices-only path, not an HSM improvement.
+2. **`test_color_pipeline.sh` green on native** — the canonical end-to-end perceptual gate. Because #828 lands HSM-disabled (Sequencing), this proves _no regression_ vs the matrices-only path, not an HSM improvement.
 3. **Web ↔ native parity** stays the existing merge gate (`docs/testing.md`): identical resolved profile data → identical `maple-cli` / WASM output. No new budget entries; budgets unchanged (one-way ratchet, and #828 changes no pixels while HSM is disabled).
 
 No screenshot evidence; ΔE2000 / byte-identity only.
@@ -255,9 +260,9 @@ No screenshot evidence; ΔE2000 / byte-identity only.
                      body's entries" acceptance becomes observable end-to-end.
 ```
 
-**Why #828 lands HSM-disabled:** the moment the index references pool entries, the live render path depends on #825's apply-math fixes (which currently regress 3 of 8 HSM bodies — see #825). Landing #828's *delivery mechanism* decoupled from #825's *application correctness* keeps each PR independently parity-clean. The provider is fully exercised by the equivalence test and a diagnostic example (`probe-profile-source`-style) that resolves + fetches a body's HSM and prints it — so #828 is genuinely done and verified, not a stub, even though the live pipeline doesn't consume HSM until #825.
+**Why #828 lands HSM-disabled:** the moment the index references pool entries, the live render path depends on #825's apply-math fixes (which currently regress 3 of 8 HSM bodies — see #825). Landing #828's _delivery mechanism_ decoupled from #825's _application correctness_ keeps each PR independently parity-clean. The provider is fully exercised by the equivalence test and a diagnostic example (`probe-profile-source`-style) that resolves + fetches a body's HSM and prints it — so #828 is genuinely done and verified, not a stub, even though the live pipeline doesn't consume HSM until #825.
 
-**Non-goal restated:** this spec does not touch HSM application math. It guarantees HSM is *resolvable* (correct bytes, lazily, cached, parity-safe) and hands the resolved `HsmTable` to the unchanged `to_dcp_profile` algebra.
+**Non-goal restated:** this spec does not touch HSM application math. It guarantees HSM is _resolvable_ (correct bytes, lazily, cached, parity-safe) and hands the resolved `HsmTable` to the unchanged `to_dcp_profile` algebra.
 
 ---
 
