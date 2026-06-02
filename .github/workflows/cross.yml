@@ -6,7 +6,8 @@
 #   * format-check          — Prettier --check on the tracked source tree.
 #   * file-budget           — bash tools/check-file-budget.sh (LOC ceiling).
 #   * allowlist-shrinks-only — PR-only; fails if tools/budget-allowlist.txt grew.
-#   * gitleaks              — installed direct from GitHub releases; full-history scan.
+#   * gitleaks              — installed direct from GitHub releases; scans only
+#                             the commits this PR/push introduces (#839).
 #
 # Per-subsystem workflows (rust / swift / web / api) land **with** the first
 # refactor commit of each subsystem, not preemptively — see #114.
@@ -220,12 +221,15 @@ jobs:
           fi
 
   gitleaks:
-    name: gitleaks (full history)
+    name: gitleaks (PR commits)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history so the scan covers every commit, not just HEAD.
+          # Full history so we can resolve the merge-base / pushed range below.
+          # The scan itself is bounded to this PR/push's own commits via
+          # --log-opts (see "gitleaks detect"), not via shallow checkout — so a
+          # deep fetch never re-flags ancient history (#839).
           fetch-depth: 0
 
       # Install direct from GitHub releases — the official gitleaks-action
@@ -263,5 +267,36 @@ jobs:
           sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
+      # Scan only the commits this PR/push introduces — never the full repo
+      # history. This still catches any secret a change *introduces* (the
+      # security value), but won't re-flag pre-existing deep-history findings
+      # that are out of this change's scope (#839). The range is passed to the
+      # underlying `git log` via --log-opts; --source still defaults to ".".
       - name: gitleaks detect
-        run: gitleaks detect --no-banner --redact --source .
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # checkout@v4 above used fetch-depth: 0, so all history is local.
+            # The explicit fetch makes sure refs/remotes/origin/<base> exists
+            # (checkout fetches commits, not always named branch refs).
+            git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+            # origin/<base>..HEAD == commits on HEAD since it diverged from base
+            # (git's symmetric `A..B` range == merge-base(A,B)..B).
+            RANGE="origin/${BASE_REF}..HEAD"
+          else
+            # push: scan the pushed range. Fall back to HEAD~1..HEAD if `before`
+            # is unavailable (force-push, branch-create, or the all-zeros
+            # sentinel on an initial push).
+            if [ -n "${BEFORE_SHA}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ] \
+              && git cat-file -e "${BEFORE_SHA}" 2>/dev/null; then
+              RANGE="${BEFORE_SHA}..${AFTER_SHA}"
+            else
+              RANGE="HEAD~1..HEAD"
+            fi
+          fi
+          echo "Scanning commit range: ${RANGE}"
+          gitleaks detect --no-banner --redact --log-opts="${RANGE}"
