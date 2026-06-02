@@ -17,4 +17,8 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 bytemuck = { version = "1", features = ["derive"] }
+# DEFLATE (zlib) for the v3 split DCP bundle's per-entry HSM compression
+# (profile_loader::writer / parser). Pure-Rust, WASM-safe; 0.8.x is already
+# in the lockfile transitively via `png`.
+miniz_oxide = "0.8"
 rayon = "1"
