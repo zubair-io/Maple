@@ -744,10 +744,15 @@ public actor ImageEditPipeline {
         // CIColorCubeWithColorSpace tagged sRGB so CoreImage applies the
         // curve in f32 sRGB-encoded display space (the domain it was fit in,
         // #550). Nil for `Profile::Neutral` — the canvas then stays
-        // byte-identical to the AgX-only output (and wide-gamut P3, since the
-        // sRGB cube would otherwise clamp the gamut). The caller resolves +
-        // caches the cube per image via `AutoProfileLUT` so this is never a
-        // per-tick cost.
+        // byte-identical to the AgX-only output.
+        //
+        // #871: `profileLUT` is currently ALWAYS nil — `AutoProfileLUT.filter`
+        // is disabled because the sRGB-tagged cube made CoreImage clip
+        // wide-gamut Rec.2020 greens (no Oklab compression like raw-core),
+        // blowing out saturated foliage under Auto. So Apple `Profile::Auto`
+        // renders as Neutral/AgX until the gamut-correct encode lands. The
+        // `apply(nil, …)` call is then a no-op; the wiring stays so the
+        // re-enable is a one-line change in `AutoProfileLUT`.
         return AutoProfileLUT.apply(profileLUT, to: withNRColor)
     }
 

@@ -117,6 +117,45 @@ public actor AutoProfileLUT {
     ) -> CIFilter? {
         guard profile == .auto else { return nil }
 
+        // #871 — DISABLED on the Apple canvas. The Auto cube is applied as a
+        // `CIColorCubeWithColorSpace` tagged sRGB on a display-linear Rec.2020
+        // (`extendedLinearITUR_2020`) buffer, so CoreImage converts Rec.2020 →
+        // **non-extended** sRGB before sampling the [0,1]³ cube. That
+        // conversion CLIPS per-channel: a saturated display-linear-Rec.2020
+        // green like [0, 0.8, 0] lands at sRGB u8 [0, 244, 0] (G driven up,
+        // B crushed to 0) where raw-core's hue-preserving Oklab gamut
+        // compression (`view::encode::rec2020_to_srgb`, #438) yields
+        // [0, 215, 114] — a +0.049 luma blowout, brighter and more saturated.
+        // The #844 Auto curve then AMPLIFIES that clamped green, producing the
+        // washed-out yellow-green reported on `_MG_3620`. The CPU/CLI/web path
+        // (raw-core) handles the wide-gamut range correctly, so only the Apple
+        // canvas regressed.
+        //
+        // `CIColorCubeWithColorSpace` structurally cannot host the Oklab
+        // compression (it samples a single [0,1]³ cube in one tagged space), so
+        // a correct fix needs either a custom Oklab CIKernel ahead of the cube
+        // or moving the encode into the FFI — both out of scope here and not
+        // end-to-end validatable without the `_MG_3620` fixture. Returning nil
+        // falls Apple `Profile::Auto` back to Neutral/AgX, de-regressing #871
+        // while leaving `Profile::Neutral` byte-identical. The fit / bake / cube
+        // machinery below is intact and correct (the web/CLI path uses the same
+        // raw-core curve) — re-enable here once the gamut-correct encode lands
+        // (#877: the latent Apple-Neutral Rec.2020→sRGB clamp the Oklab encode
+        // must fix before the Auto cube can be re-enabled).
+        return nil
+    }
+
+    /// Resolve + cache the per-image Auto Profile cube. Split out from
+    /// `filter(forRawAt:…)` so the #871 canvas disable is a one-line early
+    /// return there while this — the FFI fit + bake the web/CLI path also
+    /// exercises — stays live and exercised by the cube-faithfulness gate.
+    func resolveCube(
+        forRawAt url: URL,
+        profile: Profile,
+        quality: PipelineRenderer.Quality = .full
+    ) -> CIFilter? {
+        guard profile == .auto else { return nil }
+
         let mtime = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
             .contentModificationDate?.timeIntervalSince1970 ?? 0
         let key = Key(path: url.path, mtime: mtime, quality: quality.rawValue)

@@ -146,12 +146,16 @@ final class AutoProfileCanvasParityTests: XCTestCase {
             .appendingPathComponent("maple-no-such-raw-\(UUID().uuidString).dng")
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
 
-        let first = await lut.filter(forRawAt: url, profile: .auto, quality: .preview)
+        // #871: `filter(forRawAt:)` is disabled on the Apple canvas (returns
+        // nil before the fit). The fit + negative-cache machinery still lives
+        // and is exercised via `resolveCube` — the web/CLI path uses the same
+        // raw-core curve, so this stays a real gate.
+        let first = await lut.resolveCube(forRawAt: url, profile: .auto, quality: .preview)
         XCTAssertNil(first, "a failed fit must yield no cube (plain AgX)")
         let fitsAfterFirst = await lut.fitCount
         XCTAssertEqual(fitsAfterFirst, 1, "first lookup runs the cold fit exactly once")
 
-        let second = await lut.filter(forRawAt: url, profile: .auto, quality: .preview)
+        let second = await lut.resolveCube(forRawAt: url, profile: .auto, quality: .preview)
         XCTAssertNil(second, "still no cube")
         let fitsAfterSecond = await lut.fitCount
         XCTAssertEqual(fitsAfterSecond, 1,
@@ -185,7 +189,12 @@ final class AutoProfileCanvasParityTests: XCTestCase {
 
         var model = AdjustmentModel.default
         model.profile = profile
-        let profileLUT = await AutoProfileLUT.shared.filter(
+        // #871: the live canvas disables the cube (`filter(forRawAt:)` returns
+        // nil — see AutoProfileLUT). This diagnostic measures the cube path
+        // directly via `resolveCube` so it still characterises the Auto-vs-CLI
+        // residual for the future gamut-correct re-enable; it does NOT reflect
+        // what the shipping canvas renders (which is Neutral/AgX under Auto).
+        let profileLUT = await AutoProfileLUT.shared.resolveCube(
             forRawAt: rawURL, profile: profile, quality: .full
         )
         if profile == .auto {
@@ -276,6 +285,139 @@ final class AutoProfileCanvasParityTests: XCTestCase {
             }
         }
         return (out, tw, th)
+    }
+
+    // MARK: - (1c) Gamut isolation: Apple boundary vs raw-core (#871)
+    //
+    // Fixture-free root-cause probe for #871. Pushes known display-linear
+    // Rec.2020 saturated-green values (the wide-gamut content that blows out)
+    // through the EXACT Apple canvas boundary the live pipeline uses —
+    // `extendedLinearITUR_2020` working buffer → `createCGImage(sRGB)` — three
+    // ways, and prints signed per-channel + luma deltas vs the canonical
+    // raw-core display encode (`rec2020_to_srgb` Oklab gamut compression +
+    // `srgb_gamma`). Reference values are produced by
+    // `cargo run -p raw-core --example green-probe` (committed at
+    // raw-core/examples/green-probe.rs) so they cannot silently drift.
+    //
+    //   (a) Neutral boundary  — no cube, just the rec2020→sRGB encode.
+    //   (b) identity cube      — the #844 plumbing with an identity curve.
+    //   (c) brightening cube   — a synthetic Auto curve (amplifier).
+    //
+    // ISOLATION the ticket asks for:
+    //   * If (a) is BRIGHTER than the raw-core reference on saturated green,
+    //     the Neutral/AgX boundary ALREADY diverges (latent, un-gated gamut
+    //     gap) and #844 only made it visible by amplifying it.
+    //   * (b) ≈ (a) proves the cube round-trip is clean — the divergence is
+    //     purely {CoreImage per-channel clamp} vs {raw-core Oklab compression},
+    //     not a double-encode / linear-vs-gamma bug.
+
+    /// One gamut probe: display-linear Rec.2020 input + the raw-core encoded
+    /// u8 reference (Oklab-compressed). Reference from green-probe.rs.
+    private struct GamutProbe {
+        let name: String
+        let displayLinearRec2020: [Float]   // RGB, [0,1]
+        let rawCoreU8: [Int]                // raw-core Oklab-compressed encoded u8
+    }
+
+    /// Render a single display-linear-Rec.2020 RGB value through the live
+    /// Apple boundary: build a 1×1 `extendedLinearITUR_2020` fp32 CIImage,
+    /// optionally apply the Auto cube, then `createCGImage` to sRGB — exactly
+    /// what `processSceneLinear` + the canvas raster do.
+    private func renderThroughAppleBoundary(_ rgb: [Float], cube: CIFilter?) -> [Int] {
+        let rec2020 = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        var px: [Float] = [rgb[0], rgb[1], rgb[2], 1.0]
+        let inImage = px.withUnsafeMutableBytes { raw -> CIImage in
+            CIImage(bitmapData: Data(raw), bytesPerRow: 16,
+                    size: CGSize(width: 1, height: 1),
+                    format: .RGBAf, colorSpace: rec2020)
+        }
+        let processed = AutoProfileLUT.apply(cube, to: inImage)
+        // Mirror the live canvas: extended-linear-sRGB working space, sRGB out.
+        let working = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+        let out = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CIContext(options: [.workingColorSpace: working,
+                                      .workingFormat: CIFormat.RGBAh])
+        var outPix = [UInt8](repeating: 0, count: 4)
+        outPix.withUnsafeMutableBytes { buf in
+            ctx.render(processed, toBitmap: buf.baseAddress!, rowBytes: 4,
+                       bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                       format: .RGBA8, colorSpace: out)
+        }
+        return [Int(outPix[0]), Int(outPix[1]), Int(outPix[2])]
+    }
+
+    private func luma(_ u8: [Int]) -> Double {
+        (0.2126 * Double(u8[0]) + 0.7152 * Double(u8[1]) + 0.0722 * Double(u8[2])) / 255.0
+    }
+
+    /// A synthetic brightening Auto curve (raises every channel) baked into the
+    /// cube — stands in for the real `_MG_3620` fit as the amplifier.
+    private func brighteningCurveFlat() -> [Float] {
+        var flat = [Float]()
+        flat.reserveCapacity(Self.curveFlatLen)
+        for _ in 0..<3 {           // all three channels: out = in^0.7 (lift)
+            for i in 0..<32 {
+                let inp = Float(i) / 31.0
+                flat.append(inp)
+                flat.append(pow(inp, 0.7))
+            }
+        }
+        flat.append(contentsOf: [1, 0, 0, 0, 1, 0, 0, 0, 1])  // identity matrix
+        flat.append(1.0)                                       // chroma_boost
+        flat.append(contentsOf: [0, 0])                        // chroma_offset
+        flat.append(0.0)                                       // lightness_offset
+        flat.append(contentsOf: [0, 0, 0, 0, 0])               // lightness_band
+        flat.append(contentsOf: [Float](repeating: 0, count: 10))
+        precondition(flat.count == Self.curveFlatLen)
+        return flat
+    }
+
+    func testGamutBoundaryIsolation871() throws {
+        // raw-core reference u8 (Oklab-compressed) from green-probe.rs.
+        let probes: [GamutProbe] = [
+            GamutProbe(name: "sat-green-0.5", displayLinearRec2020: [0.0, 0.5, 0.0], rawCoreU8: [0, 174, 91]),
+            GamutProbe(name: "sat-green-0.8", displayLinearRec2020: [0.0, 0.8, 0.0], rawCoreU8: [0, 215, 114]),
+            GamutProbe(name: "sat-green-1.0", displayLinearRec2020: [0.0, 1.0, 0.0], rawCoreU8: [0, 237, 126]),
+            GamutProbe(name: "near-white", displayLinearRec2020: [0.95, 0.97, 0.9], rawCoreU8: [248, 252, 242]),
+            GamutProbe(name: "neutral-mid", displayLinearRec2020: [0.46, 0.46, 0.46], rawCoreU8: [181, 181, 181]),
+        ]
+
+        let idCube = AutoProfileLUT.buildFilterFromCurve(syntheticCurveFlat())  // non-identity but in-gamut-safe
+        let identity = AutoProfileLUT.buildFilterFromCurve({
+            // True identity curve: out = in on every channel.
+            var flat = [Float]()
+            for _ in 0..<3 { for i in 0..<32 { let v = Float(i)/31.0; flat.append(v); flat.append(v) } }
+            flat.append(contentsOf: [1,0,0,0,1,0,0,0,1]); flat.append(1.0)
+            flat.append(contentsOf: [0,0]); flat.append(0.0)
+            flat.append(contentsOf: [0,0,0,0,0]); flat.append(contentsOf: [Float](repeating: 0, count: 10))
+            return flat
+        }())
+        _ = idCube
+        let bright = AutoProfileLUT.buildFilterFromCurve(brighteningCurveFlat())
+
+        print("[871-gamut] probe | raw-core u8 (Oklab) | Apple-Neutral u8 | identity-cube u8 | bright-cube u8")
+        for p in probes {
+            let neutral = renderThroughAppleBoundary(p.displayLinearRec2020, cube: nil)
+            let idc = renderThroughAppleBoundary(p.displayLinearRec2020, cube: identity)
+            let brc = renderThroughAppleBoundary(p.displayLinearRec2020, cube: bright)
+            let refLuma = luma(p.rawCoreU8)
+            print(String(format: "[871-gamut] %-13s ref=[%3d %3d %3d] L=%.3f | neutral=[%3d %3d %3d] L=%.3f (ΔL%+.3f) | id=[%3d %3d %3d] | bright=[%3d %3d %3d]",
+                         (p.name as NSString).utf8String!,
+                         p.rawCoreU8[0], p.rawCoreU8[1], p.rawCoreU8[2], refLuma,
+                         neutral[0], neutral[1], neutral[2], luma(neutral), luma(neutral) - refLuma,
+                         idc[0], idc[1], idc[2],
+                         brc[0], brc[1], brc[2]))
+        }
+        // Isolation assertion: identity cube must match Neutral within the 8-bit
+        // round-trip — proves the #844 cube plumbing itself is faithful, so any
+        // green blowout is the rec2020→sRGB gamut handling, not the cube.
+        let g = [Float](arrayLiteral: 0.0, 0.8, 0.0)
+        let neutralG = renderThroughAppleBoundary(g, cube: nil)
+        let idG = renderThroughAppleBoundary(g, cube: identity)
+        for c in 0..<3 {
+            XCTAssertLessThanOrEqual(abs(neutralG[c] - idG[c]), 2,
+                "identity cube must equal Neutral on sat-green (channel \(c)): neutral=\(neutralG) id=\(idG)")
+        }
     }
 
     func testAutoProfileCanvasDiagnostic() async throws {
