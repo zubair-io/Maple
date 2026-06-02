@@ -15,8 +15,10 @@
 # append-forbidden in CI (#114).
 #
 # Scope: *.rs *.swift *.ts *.tsx *.js *.py — source code only. Generated dirs
-# (node_modules/, target/, dist/, .angular/, pkg/, DerivedData/, .build/) and
-# generated wasm bindings under raw-wasm/pkg/ are skipped.
+# (node_modules/, target/, dist/, .angular/, pkg/, DerivedData/, .build/),
+# vendored upstream crate sources (raw-pipeline/vendor/, committed by
+# `cargo vendor` — not our code), and generated wasm bindings under
+# raw-wasm/pkg/ are skipped.
 #
 # Usage:
 #   tools/check-file-budget.sh                 # scan the whole repo
@@ -108,6 +110,7 @@ collect_files() {
          -o -name '*.tsx' -o -name '*.js' -o -name '*.py' \) \
       -not -path '*/node_modules/*' \
       -not -path '*/target/*' \
+      -not -path '*/vendor/*' \
       -not -path '*/.git/*' \
       -not -path '*/dist/*' \
       -not -path '*/.angular/*' \

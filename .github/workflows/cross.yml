@@ -73,7 +73,9 @@ jobs:
           # Filter to prettier-eligible extensions.
           grep -E '\.(ts|tsx|js|jsx|json|html|scss|css|md|yml|yaml)$' /tmp/changed.txt > /tmp/changed-pretty.txt || true
           # Exclude paths governed by other tooling / vendored.
-          grep -v -E '^(test-fixtures/|node_modules/|.*/node_modules/|.*/dist/)' /tmp/changed-pretty.txt > /tmp/check.txt || true
+          # src/raw-pipeline/vendor/ is `cargo vendor` output (upstream crate
+          # sources, not our code) — same rationale as node_modules/.
+          grep -v -E '^(test-fixtures/|node_modules/|.*/node_modules/|.*/dist/|src/raw-pipeline/vendor/)' /tmp/changed-pretty.txt > /tmp/check.txt || true
           count="$(wc -l < /tmp/check.txt | tr -d ' ')"
           echo "count=${count}" >> "$GITHUB_OUTPUT"
           echo "files to check (${count}):"
