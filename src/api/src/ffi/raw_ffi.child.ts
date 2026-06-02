@@ -26,6 +26,11 @@
 
 import { tryGetRawFfi } from './raw_ffi.ts';
 import type { FfiRequest, FfiResponse } from './raw_ffi-protocol.ts';
+import { installChildHardening } from '../runtime/child-process-worker.ts';
+
+// Lower CPU priority (so the HTTP server's event loop wins under indexer load)
+// + self-exit if the parent dies. Shared with the face child; see runtime.
+installChildHardening('ffi-decode');
 
 const ffi = tryGetRawFfi();
 
@@ -78,15 +83,3 @@ process.on('message', (raw: unknown) => {
     });
   }
 });
-
-// Orphan backstop. If the parent dies ungracefully (SIGKILL, OOM-kill, its own
-// crash) the pool's `shutdown()` never runs, and Bun does NOT auto-reap us —
-// we'd leak as an orphan re-parented to init. Bun also doesn't reliably fire
-// `process.on('disconnect')`, so watch the parent pid directly: once it changes
-// from the pid that spawned us, the parent is gone and we exit. Unref'd so this
-// timer never keeps an otherwise-idle child alive on its own.
-const parentPid = process.ppid;
-const orphanWatch = setInterval(() => {
-  if (process.ppid !== parentPid) process.exit(0);
-}, 2000);
-(orphanWatch as unknown as { unref?: () => void }).unref?.();

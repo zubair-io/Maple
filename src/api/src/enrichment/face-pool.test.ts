@@ -271,20 +271,17 @@ describe('defaultFaceDetector', () => {
 // ── Worker plumbing via the preload-failure path (no models needed) ──────────
 
 describe('preloadFaceModelsOffThread — real worker spawn + status relay', () => {
-  it('spawns the worker, fails the load fast, and relays error status', async () => {
-    // This is the ONLY always-on test that actually executes the worker
-    // thread: it proves the Bun Worker spawns, imports onnxruntime-node +
-    // face-detector without crashing on the worker thread, runs loadFaceModels
-    // there, and relays the load-status transition back to the main-thread
-    // badge (`getFaceModelsStatus`). No models and no network required.
+  it('spawns the child, fails the load fast, and relays error status', async () => {
+    // This is the ONLY always-on test that actually executes the face child
+    // PROCESS: it proves the child spawns, imports onnxruntime-node +
+    // face-detector without crashing, runs loadFaceModels there, and relays the
+    // load-status transition back to the main-process badge
+    // (`getFaceModelsStatus`). No models and no network required.
     //
     // The fast-fail is driven entirely through the `config` object (which
-    // crosses postMessage) — NOT via env. A Bun Worker snapshots the parent's
-    // INITIAL process.env at spawn and does not see runtime `process.env`
-    // mutations, so env-var-based control wouldn't reach the worker. Pointing
-    // both model URLs at a closed local port makes `ensureModelFile` skip the
-    // antelopev2 auto-download (URLs are set) and fail fast on a refused
-    // connection — deterministic and offline.
+    // crosses IPC) — NOT via env. Pointing both model URLs at a closed local
+    // port makes `ensureModelFile` skip the antelopev2 auto-download (URLs are
+    // set) and fail fast on a refused connection — deterministic and offline.
     const tmp = mkdtempSync(join(tmpdir(), 'maple-face-pool-'));
     const deadUrl = 'http://127.0.0.1:1/nope.onnx';
     try {
