@@ -20,6 +20,7 @@ import { RawPipelineService } from '../../raw-pipeline/raw-pipeline.service';
 import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 import { ImageCanvasService } from './image-canvas.service';
 import { AssetId } from '../../models/asset';
+import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -35,6 +36,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   state = inject(LibraryStateService);
   canvasSvc = inject(ImageCanvasService);
   pipeline = inject(RawPipelineService);
+  private readonly xmpSerializer = inject(XmpSerializerService);
   private readonly injector = inject(Injector);
 
   readonly loading = signal(false);
@@ -47,8 +49,53 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   private dragLast = { x: 0, y: 0 };
   private dividerDragging = false;
   private cleanupDecodeEffect?: () => void;
+  private cleanupRerenderEffect?: () => void;
   private cleanupDrawEffect?: () => void;
   private currentAssetId: AssetId | null = null;
+
+  // ── Re-render the live canvas on adjustment change (#846) ────────────────
+  // The live canvas re-renders through the same WASM `render_bytes` path that
+  // raw-core / maple-cli use, so every edit (Profile toggle, sliders) is
+  // correctness-complete by construction (web == the Rust reference).
+  //
+  // To avoid storming the single-threaded decode worker on a slider drag, edits
+  // drive a trailing-edge debounce: the actual full-resolution decode fires
+  // ~150ms after edits settle. `render_bytes` runs to completion behind the
+  // service's decode-serialization gate (it can't be interrupted mid-flight),
+  // so a monotonic generation counter "cancels" a superseded decode by dropping
+  // its stale result rather than letting it overwrite a newer bitmap.
+  //
+  // A reduced-resolution fast phase (half-res Preview decode for immediate
+  // slider feedback) is intentionally deferred: the live WASM re-decode is the
+  // correctness-first path, and slider drags won't hit the 16ms budget until
+  // the separate scene-linear GPU migration lands (#321 Phase 2). A half-res
+  // fast pass would need a new reduced-res sRGB WASM export, which is perf work
+  // out of scope per #846. Tracked there as the two-phase / 16ms follow-up.
+  private static readonly REFINE_DEBOUNCE_MS = 150;
+  // Bytes + extension for the focused asset, retained so adjustment-driven
+  // re-renders don't re-read from the byte cache. `decode()` slices a copy of
+  // the buffer before transferring it into the worker, so the original view
+  // here is never detached — repeated decodes are safe.
+  private currentBytes: Uint8Array | null = null;
+  private currentExt = '';
+  private renderGeneration = 0;
+  private refineTimer: ReturnType<typeof setTimeout> | null = null;
+  // Gate the adjustment effect until the cold-open decode has finished and
+  // recorded `lastRenderedXmp`. Without this, the synchronous-bytes path sets
+  // `currentBytes` before `await decode` yields, so the adjustment effect can
+  // fire in the same flush with the *pre-seed* default model and a null
+  // `lastRenderedXmp` — scheduling a spurious `Some(xmp)` decode that, lacking
+  // crs:Temperature, skips raw-core's As-Shot WB substitution and renders at
+  // the 6500K default. The gate suppresses that pre-seed run and the As-Shot
+  // seed's re-fire; the first genuine edit (post cold open) flows normally.
+  private coldOpenDone = false;
+  // The XMP the canvas currently reflects. Cold-open's no-XMP decode records
+  // its post-seed model here so the adjustment effect dedups two
+  // harmless-but-redundant fires: (1) its synchronous first run on asset
+  // switch, and (2) the As-Shot WB seed's model write (which round-trips to the
+  // same white balance raw-core already used on cold open). A genuine edit
+  // changes the serialized XMP and passes the dedup.
+  private lastRenderedXmp: string | null = null;
 
   zoomLabel = computed(() => {
     const z = this.canvasSvc.zoom();
@@ -108,6 +155,16 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
         }
         if (a.id === this.currentAssetId) return; // same asset, skip
         this.currentAssetId = a.id;
+        // New asset → invalidate any in-flight adjustment re-render and drop
+        // the retained bytes. `lastRenderedXmp` is reset so the first edit on
+        // the new asset always renders; the cold-open decode records the
+        // post-seed XMP below so the seed-driven effect fire dedups out.
+        this.renderGeneration++;
+        this.clearRerenderTimers();
+        this.currentBytes = null;
+        this.currentExt = '';
+        this.lastRenderedXmp = null;
+        this.coldOpenDone = false;
 
         const bytes = this.state.bytesFor(a.id);
         if (bytes) {
@@ -143,6 +200,33 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     );
     this.cleanupDecodeEffect = () => decodeEff.destroy();
 
+    // Re-render the live canvas whenever the focused asset's adjustment model
+    // changes (#846). Reading `adjustmentFor(id)()` registers a dependency on
+    // the model signal, so a Profile toggle or slider move re-fires this
+    // effect; the asset-switch case is handled by the decode effect above (and
+    // skipped here via the `lastRenderedXmp` dedup).
+    const rerenderEff = effect(
+      () => {
+        const a = this.state.focusedAsset();
+        if (!a) return;
+        // Subscribe to the model signal — this is what makes edits reactive.
+        const model = this.state.adjustmentFor(a.id)();
+        // Only RAW assets with retained bytes participate (mock/gradient
+        // assets and not-yet-decoded async sources have no bytes here). Gate on
+        // `coldOpenDone` so the pre-seed initial run and the As-Shot WB seed's
+        // re-fire don't schedule a spurious 6500K-default decode.
+        if (!this.currentBytes || a.id !== this.currentAssetId || !this.coldOpenDone) return;
+        // Dedup: cold open + As-Shot WB seed both land on the same XMP the
+        // canvas already shows, so skip the redundant decode. A genuine edit
+        // produces a different XMP and renders.
+        const xmp = this.xmpSerializer.serialize(model);
+        if (xmp === this.lastRenderedXmp) return;
+        this.scheduleRerender(xmp);
+      },
+      { injector: this.injector },
+    );
+    this.cleanupRerenderEffect = () => rerenderEff.destroy();
+
     // Re-render whenever view or decode state changes.
     const drawEff = effect(
       () => {
@@ -163,7 +247,12 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   ngOnDestroy(): void {
     this.ro?.disconnect();
     this.cleanupDecodeEffect?.();
+    this.cleanupRerenderEffect?.();
     this.cleanupDrawEffect?.();
+    this.clearRerenderTimers();
+    // Invalidate any in-flight re-render so a late decode can't touch a
+    // destroyed component's signals.
+    this.renderGeneration++;
     this.imageBitmap()?.close();
   }
 
@@ -175,6 +264,10 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     performance.mark(`maple:open:${assetId}:start`);
     try {
       const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+      // Retain bytes + ext for adjustment-driven re-renders (no XMP on this
+      // cold-open decode — raw-core substitutes the camera As-Shot WB).
+      this.currentBytes = bytes;
+      this.currentExt = ext;
       const decoded = await this.pipeline.decode(bytes, ext);
 
       // Update dimensions on the asset.
@@ -184,6 +277,33 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
       // render — purely cosmetic sync with what Rust actually used, doesn't
       // overwrite user edits (the state method guards on "still default").
       this.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
+
+      // Open the cold-open gate and record what this no-XMP render reflects.
+      // The seed's signal write re-fires the adjustment effect on the next
+      // flush; that run serializes the same model and dedups against
+      // `lastRenderedXmp`, so we don't re-decode an image we just painted. A
+      // genuine subsequent edit changes the XMP and renders. Guard on
+      // still-current asset so a fast A→B switch doesn't stamp A's XMP onto B.
+      if (assetId === this.currentAssetId) {
+        this.coldOpenDone = true;
+        // Record the XMP this cold-open render reflects. The no-XMP decode is
+        // equivalent to the post-seed default model (As-Shot WB, default
+        // sliders), so serializing the current model after the seed yields the
+        // XMP the canvas now shows.
+        const liveXmp = this.xmpSerializer.serialize(this.state.adjustmentFor(assetId)());
+        if (liveXmp === this.lastRenderedXmp) {
+          // Already what the canvas shows (re-entrant cold open) — nothing to do.
+        } else if (this.lastRenderedXmp === null) {
+          // Normal cold open: no edit landed during the in-flight decode, so
+          // the live model is just the seeded baseline. Record it; the
+          // gate-driven effect re-fire (and the As-Shot seed re-fire) dedup
+          // against it. If an edit *did* land mid-decode, the model already
+          // diverged from the seeded baseline — but we can't distinguish that
+          // from the baseline here, so the rare mid-cold-open edit is folded
+          // into this baseline and self-corrects on the user's next edit.
+          this.lastRenderedXmp = liveXmp;
+        }
+      }
 
       // Publish pixels for scopes.
       this.canvasSvc.currentPixels.set(decoded);
@@ -203,6 +323,64 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
       this.imageBitmap.set(null);
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  /**
+   * Schedule a debounced re-render for the current adjustment model. Called
+   * from the adjustment effect on every model change; trailing-edge debounced
+   * so a slider drag doesn't enqueue a full-res decode per tick — exactly one
+   * full-res decode fires once edits settle.
+   */
+  private scheduleRerender(xmp: string): void {
+    // Bump the generation so any decode already in flight (from an earlier
+    // edit) drops its result instead of painting stale pixels.
+    this.renderGeneration++;
+    const generation = this.renderGeneration;
+    if (this.refineTimer) clearTimeout(this.refineTimer);
+    this.refineTimer = setTimeout(() => {
+      this.refineTimer = null;
+      void this.runRender(xmp, generation);
+    }, ImageCanvasComponent.REFINE_DEBOUNCE_MS);
+  }
+
+  private clearRerenderTimers(): void {
+    if (this.refineTimer) {
+      clearTimeout(this.refineTimer);
+      this.refineTimer = null;
+    }
+  }
+
+  /**
+   * Decode the retained RAW bytes with the given XMP and publish the result —
+   * but only if `generation` is still current when the decode returns. A
+   * `render_bytes` call runs to completion behind the service's serialization
+   * gate, so a newer edit can't interrupt an in-flight decode; the generation
+   * guard instead drops the stale result so it never overwrites a fresher
+   * bitmap.
+   */
+  private async runRender(xmp: string, generation: number): Promise<void> {
+    const bytes = this.currentBytes;
+    const ext = this.currentExt;
+    if (!bytes) return;
+    try {
+      const decoded = await this.pipeline.decode(bytes, ext, xmp);
+      // Stale guard: a newer edit (or asset switch) bumped the generation
+      // while this decode was in flight — drop it.
+      if (generation !== this.renderGeneration) return;
+
+      this.canvasSvc.currentPixels.set(decoded);
+      const bitmap = await imageDataToBitmap(decoded);
+      // Re-check after the async bitmap step.
+      if (generation !== this.renderGeneration) {
+        bitmap.close();
+        return;
+      }
+      this.imageBitmap()?.close();
+      this.imageBitmap.set(bitmap);
+      this.lastRenderedXmp = xmp;
+    } catch (e) {
+      console.error('[image-canvas] adjustment re-render failed:', e);
     }
   }
 
