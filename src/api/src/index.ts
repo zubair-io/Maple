@@ -154,25 +154,6 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // determine a destination folder path before uploading; no auth required
     // since it returns no user data (only Place metadata keyed by lat/lon).
     .use(geocodeReverseRoutes)
-    // Chunked, resumable backup ingest from PhotoKit-backed devices. No auth
-    // gate yet — the passkey auth design (PR 2026-04-26) hasn't landed. Once
-    // it does, this route should move behind requireAuth.
-    .use(backupIngestRoutes)
-    // Reconciliation feed — device calls this on launch / periodic walks to
-    // learn which assets are already backed up. No auth gate for the same
-    // reason as backupIngestRoutes above.
-    .use(backupStateRoutes)
-    // Batch dedup probe — device asks which content-hashed maple_ids the
-    // server does NOT already have so it can skip re-uploading duplicates.
-    // No auth gate, same rationale as the other backup-* routes.
-    .use(backupExistsRoutes)
-    // XMP sidecar upload — writes a .xmp file next to a previously-uploaded
-    // asset. No auth gate (same rationale as backupIngestRoutes).
-    .use(backupSidecarRoutes)
-    // Rendered companion upload — chunked + resumable, mirrors ingest.
-    .use(backupRenderedRoutes)
-    // Deletion reconciliation — marks assets deleted from Apple Photos.
-    .use(backupNotifyDeletedRoutes)
     // /api/events self-authenticates via a `?token=` query parameter on the
     // WS handshake (browsers can't send Authorization headers on
     // `new WebSocket()`). Mounting it here keeps it outside the bearer-only
@@ -187,6 +168,18 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     .use(
       new Elysia({ name: 'authedApi' })
         .use(requireAuth)
+        // PhotoKit-backup routes — chunked ingest, reconciliation/dedup
+        // probes, sidecar + rendered-companion uploads, and deletion
+        // reconciliation. Gated behind requireAuth (#853): they accept file
+        // writes and destructive deletes, so they must never be reachable
+        // without a bearer. The Apple backup clients attach the access token
+        // (#855); path containment on the writes is tightened in #854.
+        .use(backupIngestRoutes)
+        .use(backupStateRoutes)
+        .use(backupExistsRoutes)
+        .use(backupSidecarRoutes)
+        .use(backupRenderedRoutes)
+        .use(backupNotifyDeletedRoutes)
         .use(foldersRoutes)
         // Mounted BEFORE assetsRoutes so the bare `GET /api/assets` list
         // endpoint matches before the `:id`-prefixed routes shadow it.

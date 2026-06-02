@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { foldersCollection, assetsCollection, uploadSessionsCollection } from '../src/db/client.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -107,7 +107,7 @@ function rendered(body: Buffer, headers: Record<string, string>, libOverride?: s
 describe('POST /api/libraries/:id/backup/rendered', () => {
   test('happy path single chunk → .rendered.HEIC created + AssetDoc updated', async () => {
     const bytes = Buffer.alloc(128, 7);
-    const res = await app.handle(
+    const res = await authedHandle(
       rendered(bytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -155,7 +155,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
       deleted_from_photos: false,
     } as any);
 
-    const res = await app.handle(
+    const res = await authedHandle(
       rendered(bytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidExt,
@@ -193,7 +193,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
       deleted_from_photos: false,
     } as any);
 
-    const res = await app.handle(
+    const res = await authedHandle(
       rendered(bytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidMov,
@@ -236,7 +236,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
       deleted_from_photos: false,
     } as any);
 
-    const r1 = await app.handle(
+    const r1 = await authedHandle(
       rendered(Buffer.alloc(128, 3), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid2,
@@ -249,7 +249,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     const b1 = await r1.json();
     expect(b1.next_offset).toBe(128);
 
-    const r2 = await app.handle(
+    const r2 = await authedHandle(
       rendered(Buffer.alloc(128, 3), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid2,
@@ -269,7 +269,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
   });
 
   test('missing required header → 400', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       rendered(Buffer.alloc(16), {
         'X-Maple-Device-Id': deviceId,
         // no phasset id
@@ -302,7 +302,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
       deleted_from_photos: false,
     } as any);
 
-    const r1 = await app.handle(
+    const r1 = await authedHandle(
       rendered(Buffer.alloc(128, 5), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidOff,
@@ -313,7 +313,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
     );
     expect(r1.status).toBe(202);
 
-    const r2 = await app.handle(
+    const r2 = await authedHandle(
       rendered(Buffer.alloc(128, 5), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phidOff,
@@ -328,7 +328,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
   });
 
   test('path traversal in X-Maple-Target-Rel-Path → 400', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       rendered(Buffer.alloc(16), {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': phid,
@@ -343,7 +343,7 @@ describe('POST /api/libraries/:id/backup/rendered', () => {
   });
 
   test('library not found → 404', async () => {
-    const r = await app.handle(
+    const r = await authedHandle(
       rendered(
         Buffer.alloc(16),
         {
