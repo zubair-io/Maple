@@ -70,21 +70,14 @@ import { changesRoutes } from './routes/changes.ts';
 import { assetsListRoutes } from './routes/assets-list.ts';
 import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
-import { getDb, ensureIndexes, closeDb, foldersCollection } from './db/client.ts';
+import { getDb, ensureIndexes, closeDb } from './db/client.ts';
 import { startMaintenanceJobs, stopMaintenanceJobs } from './workers/maintenance.ts';
-import { startAllStages, stopAllStages } from './workers/orchestrator.ts';
-import { stageRegistry } from './workers/registry.ts';
-import {
-  ChildProcessWorker,
-  childScriptPath,
-  DEFAULT_NATIVE_CHILD_NICE,
-} from './runtime/child-process-worker.ts';
-import { registerDiscoverWorker, unregisterDiscoverWorker } from './workers/discover/register.ts';
-import { sweepOrphanedCaches } from './workers/cache-gc.ts';
+import { stopAllStages } from './workers/orchestrator.ts';
+import { unregisterDiscoverWorker } from './workers/discover/register.ts';
 import { workerRoutes } from './workers/routes.ts';
-import { startGeocodeWorker, stopGeocodeWorker } from './enrichment/bootstrap.ts';
-import { startFaceWorker, stopFaceWorker } from './enrichment/face-bootstrap.ts';
-import { startDescribeWorker, stopDescribeWorker } from './enrichment/describe-bootstrap.ts';
+import { stopGeocodeWorker } from './enrichment/bootstrap.ts';
+import { stopFaceWorker } from './enrichment/face-bootstrap.ts';
+import { stopDescribeWorker } from './enrichment/describe-bootstrap.ts';
 import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
 import {
   loadEnrichmentConfig,
@@ -95,9 +88,8 @@ import {
   resolveObservabilityConfig,
 } from './observability/observability-config.repo.ts';
 import { initOtel, shutdownOtel } from './otel.ts';
-import { bootstrapFfiPool } from './ffi/ffi-pool-bootstrap.ts';
-import { startJobRunner, stopJobRunner } from './job-runner/runner.ts';
-import { startImportRunner, stopImportRunner } from './imports/worker.ts';
+import { stopJobRunner } from './job-runner/runner.ts';
+import { stopImportRunner } from './imports/worker.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
 import { ffiPool } from './ffi/ffi-pool.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
@@ -255,8 +247,13 @@ export const app = buildApp({ stageNames: [] });
 // Startup
 // ---------------------------------------------------------------------------
 
-/** Background handles whose lifecycle is owned by start()/shutdown(). */
-let _discoverChild: ChildProcessWorker | null = null;
+/**
+ * Discover child handle — retained in index.ts so shutdown() can still call
+ * _discoverChild?.terminate() without compilation errors. startWorkers() now
+ * owns the in-process discover handle; this is never set in Task 1 (Task 3
+ * replaces it with _workerChild when the worker tier moves to a child process).
+ */
+let _discoverChild: { terminate(): void } | null = null;
 
 async function start(): Promise<void> {
   await ensureJwtSecret();
@@ -318,97 +315,38 @@ async function start(): Promise<void> {
       log.error({ err }, 'change feed tailer failed to start');
     }
 
-    // Auto-start the in-process stage runners unless explicitly disabled.
+    // Worker-tier (stages, discover, FFI pool, enrichment workers, job/import
+    // runners) is NOT started here — it has been extracted to
+    // `workers/start-workers.ts`. Task 3 will spawn it as a child process.
+    // For now (Task 1) the worker tier is simply not started from index.ts.
     if (process.env.MAPLE_INDEXER_AUTOSTART === '0') {
       log.info('Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)');
     } else {
-      try {
-        await startAllStages();
-        log.info(stageRegistry.statuses(), 'Worker stages running');
-      } catch (err) {
-        log.warn({ err }, 'Worker stages failed to start');
-      }
-
-      try {
-        const foldersColl = await foldersCollection();
-        const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
-        const discoverRoots = folders.map((f) => f.path).filter(Boolean);
-        if (discoverRoots.length > 0) {
-          registerDiscoverWorker();
-          _discoverChild = new ChildProcessWorker(
-            childScriptPath(import.meta.url, './workers/discover/sweeper.child.ts'),
-            { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'discover', argv: discoverRoots },
-          );
-          log.info({ roots: discoverRoots }, 'discover sweep child spawned');
-        }
-
-        // Fire-and-forget cache-gc sweep per library. Reaps both legacy
-        // sha256_prefix16-keyed thumbs (always orphans post-PR-3) and stale
-        // maple_id-keyed files for hard-deleted or relocated assets. See
-        // `workers/cache-gc.ts` for why no migration sentinel.
-        for (const root of discoverRoots) {
-          void (async (libRoot: string) => {
-            try {
-              const result = await sweepOrphanedCaches(libRoot);
-              log.info({ libRoot, ...result }, 'cache-gc swept');
-            } catch (err) {
-              log.warn(
-                { libRoot, err: err instanceof Error ? err.message : err },
-                'cache-gc sweep failed',
-              );
-            }
-          })(root);
-        }
-      } catch (err) {
-        log.warn({ err }, 'Discover failed to start');
-      }
-    }
-
-    await bootstrapFfiPool(); // size the FFI decode pool (DB > env > default 1)
-    // Slow-tier enrichment workers run in-process. Each one's failure is
-    // isolated — the operator recovers via /settings/enrichment without a
-    // restart.
-    try {
-      await startGeocodeWorker();
-    } catch (err) {
-      log.error({ err }, 'geocode worker failed to start; fix via /settings/enrichment');
+      log.info(
+        'Worker tier extracted to start-workers.ts — not yet wired (Task 3 will spawn as child)',
+      );
     }
 
     try {
-      await startFaceWorker();
-    } catch (err) {
-      log.error({ err }, 'face worker failed to start; fix via /settings/enrichment');
-    }
-
-    try {
-      await startDescribeWorker();
-    } catch (err) {
-      log.error({ err }, 'describe worker failed to start; fix via /settings/enrichment');
-    }
-
-    try {
-      // Meilisearch sidecar. Search falls back to Mongo $text when
-      // unconfigured / unreachable / index build fails.
-      //
-      // Resolve the URL from the DB-backed enrichment config first (operator
-      // can set it via /settings/workers); a saved value wins over the
-      // MAPLE_MEILISEARCH_URL env var. reconfigureMeilisearch rebuilds the
-      // shared client so every consumer (search route, meili stage) agrees.
+      // Meilisearch search-side config. Configures the shared meilisearch
+      // client singleton used by the search route and other API-side consumers.
+      // The worker tier (start-workers.ts) also calls reconfigureMeilisearch
+      // for the meili stage; in the current single-process Task 1 arrangement
+      // they share the same singleton, so the last one to boot wins. The API
+      // search-side call here ensures the search route is always configured
+      // even when the worker tier is not running.
       const resolvedMeili = resolveEnrichmentConfig(await loadEnrichmentConfig());
       reconfigureMeilisearch(resolvedMeili.meilisearch_url, resolvedMeili.meilisearch_api_key);
       const meili = meilisearchClient();
       if (!meili.isConfigured()) {
-        log.info('Meilisearch URL unset (DB + MAPLE_MEILISEARCH_URL) — sidecar disabled');
+        log.info('Meilisearch URL unset (DB + MAPLE_MEILISEARCH_URL) — search sidecar disabled');
       } else if (!(await meili.health())) {
         log.warn(
           'Meilisearch health check failed; search will fall back to Mongo $text until the service is reachable',
         );
-      } else {
-        await meili.ensureIndex();
-        log.info('Meilisearch sidecar ready');
       }
     } catch (err) {
-      log.warn({ err }, 'Meilisearch boot failed; search will fall back to Mongo $text');
+      log.warn({ err }, 'Meilisearch search-side config failed; search will fall back to Mongo $text');
     }
 
     try {
@@ -420,22 +358,6 @@ async function start(): Promise<void> {
       await initOtel(resolvedObs);
     } catch (err) {
       log.warn({ err }, 'OpenTelemetry init failed; continuing without telemetry');
-    }
-
-    try {
-      // JobRunner — sibling subsystem to the indexer pipeline for
-      // user-triggered long-running work (export, batch reprocess).
-      startJobRunner();
-    } catch (err) {
-      log.warn({ err }, 'JobRunner failed to start');
-    }
-
-    try {
-      // ImportRunner — claims pending `imports` and copies server-local
-      // folders into a library (ticket #742).
-      startImportRunner();
-    } catch (err) {
-      log.warn({ err }, 'ImportRunner failed to start');
     }
   })();
 
