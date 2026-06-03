@@ -96,3 +96,17 @@ describe('visitDirectory', () => {
     rmSync(root, { recursive: true, force: true });
   });
 });
+
+describe('advanceSweep', () => {
+  it('advanceSweep bumps generation and reseeds the root when the frontier is empty', async () => {
+    if (!reachable) return;
+    const { advanceSweep } = await import('./sweeper.ts');
+    const frontier = await import('./frontier.repo.ts');
+    const folderId = new ObjectId();
+
+    // Frontier empty for gen 1 ⇒ advance to gen 2 and reseed the root.
+    const next = await advanceSweep(folderId, '/srv/photos/Library', 1);
+    expect(next).toBe(2);
+    expect(await frontier.remainingForGen(folderId, 2)).toBe(1);
+  });
+});
