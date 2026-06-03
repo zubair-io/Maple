@@ -14,35 +14,32 @@
 // Jail: same `MAPLE_ROOTS` policy as `routes/fs.ts` — paths are realpath-
 // resolved and rejected if they fall outside any allowed root.
 
-import { Elysia, t } from "elysia";
-import { stat, readFile, writeFile, realpath, mkdir } from "node:fs/promises";
-import * as path from "node:path";
-import { browseRoots, isUnderRoot, RAW_EXTENSIONS } from "../fs/browse.ts";
-import { resolveThumbPath } from "../fs/xmp.ts";
-import { ffiPool } from "../ffi/ffi-pool.ts";
-import { renderImageThumbToFile, SHARP_EXTENSIONS } from "../thumbs/render.ts";
-import { applyExifOrientationInPlace } from "../thumbs/apply-orientation.ts";
-import { child as childLogger } from "../log.ts";
-import { ifNoneMatchEqual } from "../runtime/http-etag.ts";
+import { Elysia, t } from 'elysia';
+import { stat, readFile, writeFile, realpath, mkdir } from 'node:fs/promises';
+import * as path from 'node:path';
+import { browseRoots, isUnderRoot, RAW_EXTENSIONS } from '../fs/browse.ts';
+import { resolveThumbPath } from '../fs/xmp.ts';
+import { ffiPool } from '../ffi/ffi-pool.ts';
+import { SHARP_EXTENSIONS } from '../fs/browse.ts';
+import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
+import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
+import { child as childLogger } from '../log.ts';
+import { ifNoneMatchEqual } from '../runtime/http-etag.ts';
 
-const log = childLogger("fs-thumbs");
+const log = childLogger('fs-thumbs');
 
 const DEFAULT_SIZE_PX = 512;
 const MIN_SIZE_PX = 16;
 const MAX_SIZE_PX = 4096;
 
-export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
-  "/thumb",
+export const fsThumbsRoutes = new Elysia({ prefix: '/api/fs' }).get(
+  '/thumb',
   async ({ query, headers, set }) => {
     const reqPath = query.path;
     const sizeStr = query.size ?? String(DEFAULT_SIZE_PX);
     const sizePx = Number.parseInt(sizeStr, 10);
 
-    if (
-      !Number.isFinite(sizePx) ||
-      sizePx < MIN_SIZE_PX ||
-      sizePx > MAX_SIZE_PX
-    ) {
+    if (!Number.isFinite(sizePx) || sizePx < MIN_SIZE_PX || sizePx > MAX_SIZE_PX) {
       set.status = 400;
       return {
         error: `size must be an integer in [${MIN_SIZE_PX}, ${MAX_SIZE_PX}]`,
@@ -51,7 +48,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
 
     if (!path.isAbsolute(reqPath)) {
       set.status = 400;
-      return { error: "path must be absolute" };
+      return { error: 'path must be absolute' };
     }
 
     // Resolve symlinks so the jail check matches the parent realpath form
@@ -70,15 +67,15 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     if (!roots.some((r) => isUnderRoot(real, r))) {
       set.status = 403;
       return {
-        error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(", ")}]`,
+        error: `Path "${real}" is outside MAPLE_ROOTS [${roots.join(', ')}]`,
       };
     }
 
     // Extension gate — RAW formats go through the FFI pipeline; common
     // bitmap formats (JPG/HEIC/PNG/WEBP/TIFF/AVIF) go through sharp.
     // Anything else 415s so the FFI never blocks on a 50 GB Word doc.
-    const dot = real.lastIndexOf(".");
-    const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : "";
+    const dot = real.lastIndexOf('.');
+    const ext = dot >= 0 ? real.slice(dot + 1).toLowerCase() : '';
     const isRaw = RAW_EXTENSIONS.has(ext);
     const isSharp = SHARP_EXTENSIONS.has(ext);
     if (!isRaw && !isSharp) {
@@ -119,21 +116,16 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     // Cache-Control echoed on both 200 and 304. RFC 9110 §15.4.5: a 304
     // SHOULD carry the same Cache-Control so URLSession (and other HTTP
     // caches) don't downgrade freshness on revalidation.
-    const cacheControl = "private, max-age=3600";
+    const cacheControl = 'private, max-age=3600';
 
     // If-None-Match short-circuit. The File Provider extension caches
     // thumb bytes keyed on this ETag; matching ETag returns 304 with an
     // empty body so the extension can reuse its in-memory copy.
-    const ifNoneMatch = headers["if-none-match"];
-    if (
-      ifNoneMatchEqual(
-        typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
-        etag,
-      )
-    ) {
+    const ifNoneMatch = headers['if-none-match'];
+    if (ifNoneMatchEqual(typeof ifNoneMatch === 'string' ? ifNoneMatch : undefined, etag)) {
       return new Response(null, {
         status: 304,
-        headers: { ETag: etag, "Cache-Control": cacheControl },
+        headers: { ETag: etag, 'Cache-Control': cacheControl },
       });
     }
 
@@ -153,12 +145,9 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     let cachedMeta: { mtimeMs: number; size: number } | null = null;
     if (thumbStat !== null) {
       try {
-        const raw = await readFile(`${thumbPath}.meta`, "utf8");
+        const raw = await readFile(`${thumbPath}.meta`, 'utf8');
         const parsed = JSON.parse(raw) as { mtimeMs?: number; size?: number };
-        if (
-          typeof parsed.mtimeMs === "number" &&
-          typeof parsed.size === "number"
-        ) {
+        if (typeof parsed.mtimeMs === 'number' && typeof parsed.size === 'number') {
           cachedMeta = { mtimeMs: parsed.mtimeMs, size: parsed.size };
         }
       } catch {
@@ -177,17 +166,17 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     if (fresh) {
       try {
         const bytes = await readFile(thumbPath);
-        set.headers["Content-Type"] = "image/jpeg";
-        set.headers["Cache-Control"] = cacheControl;
-        set.headers["ETag"] = etag;
-        set.headers["X-Thumb-Cache"] = "hit";
+        set.headers['Content-Type'] = 'image/jpeg';
+        set.headers['Cache-Control'] = cacheControl;
+        set.headers['ETag'] = etag;
+        set.headers['X-Thumb-Cache'] = 'hit';
         return bytes;
       } catch (err) {
         // Fall through to regen if read fails (e.g. file disappeared
         // between stat and readFile).
         log.warn(
           { thumbPath, err: err instanceof Error ? err.message : err },
-          "read of cached thumb failed; regenerating",
+          'read of cached thumb failed; regenerating',
         );
       }
     }
@@ -206,11 +195,17 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
 
     if (isSharp) {
       try {
-        await renderImageThumbToFile(real, thumbPath, sizePx, ext);
+        const result = await renderImageThumbToFile(real, thumbPath, sizePx, 82, ext);
+        if (!result.ok) {
+          set.status = 500;
+          return {
+            error: `imgdecode render failed for ${ext}: ${result.error ?? 'unknown error'}`,
+          };
+        }
       } catch (err) {
         set.status = 500;
         return {
-          error: `sharp render failed for ${ext}: ${err instanceof Error ? err.message : String(err)}`,
+          error: `imgdecode pool error for ${ext}: ${err instanceof Error ? err.message : String(err)}`,
         };
       }
     } else {
@@ -220,7 +215,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
         set.status = 503;
         return {
           error:
-            "Thumbnail FFI not built — run scripts/build-raw-ffi.sh to build native/libraw_ffi.* first",
+            'Thumbnail FFI not built — run scripts/build-raw-ffi.sh to build native/libraw_ffi.* first',
         };
       }
       let ok = false;
@@ -234,7 +229,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
       }
       if (!ok) {
         set.status = 500;
-        return { error: "Thumbnail render failed (see server log)" };
+        return { error: 'Thumbnail render failed (see server log)' };
       }
       try {
         await applyExifOrientationInPlace(thumbPath);
@@ -243,7 +238,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
         // un-rotated. Better to serve a sideways image than 500 the request.
         log.warn(
           { thumbPath, err: err instanceof Error ? err.message : err },
-          "orientation post-process failed; serving un-rotated thumb",
+          'orientation post-process failed; serving un-rotated thumb',
         );
       }
     }
@@ -259,7 +254,7 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     } catch (err) {
       log.warn(
         { thumbPath, err: err instanceof Error ? err.message : err },
-        "meta write failed; cache will regenerate on next request",
+        'meta write failed; cache will regenerate on next request',
       );
     }
 
@@ -283,10 +278,10 @@ export const fsThumbsRoutes = new Elysia({ prefix: "/api/fs" }).get(
     return new Response(ab, {
       status: 200,
       headers: {
-        "Content-Type": "image/jpeg",
-        "Cache-Control": cacheControl,
+        'Content-Type': 'image/jpeg',
+        'Cache-Control': cacheControl,
         ETag: etag,
-        "X-Thumb-Cache": "miss",
+        'X-Thumb-Cache': 'miss',
       },
     });
   },
