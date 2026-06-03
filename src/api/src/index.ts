@@ -79,6 +79,10 @@ import {
   childScriptPath,
   DEFAULT_NATIVE_CHILD_NICE,
 } from './runtime/child-process-worker.ts';
+import {
+  registerDiscoverWorker,
+  unregisterDiscoverWorker,
+} from './workers/discover/register.ts';
 import { sweepOrphanedCaches } from './workers/cache-gc.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from './enrichment/bootstrap.ts';
@@ -333,6 +337,7 @@ async function start(): Promise<void> {
         const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
         const discoverRoots = folders.map((f) => f.path).filter(Boolean);
         if (discoverRoots.length > 0) {
+          registerDiscoverWorker();
           _discoverChild = new ChildProcessWorker(
             childScriptPath(import.meta.url, './workers/discover/sweeper.child.ts'),
             { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'discover', argv: discoverRoots },
@@ -513,6 +518,7 @@ async function shutdown(signal: string): Promise<void> {
   try {
     _discoverChild?.terminate();
     _discoverChild = null;
+    unregisterDiscoverWorker();
   } catch (e) {
     log.warn({ err: e }, 'error stopping discover');
   }
