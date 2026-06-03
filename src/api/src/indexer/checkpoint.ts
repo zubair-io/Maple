@@ -19,6 +19,8 @@ export interface CheckpointDoc {
   lastWalkedAt: number;
   /** maple:id hex strings of jobs that had been picked up but not finished. */
   inflightIds: string[];
+  /** Active discover sweep generation for this folder. */
+  sweepGen?: number;
   updatedAt: number;
 }
 
