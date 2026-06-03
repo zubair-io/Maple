@@ -186,12 +186,24 @@ build_target() {
             *-apple-darwin)
                 export MACOSX_DEPLOYMENT_TARGET=14.0 ;;
         esac
-        # --offline: dependencies are vendored under src/raw-pipeline/vendor
-        # (see ../.cargo/config.toml). Forbidding network access keeps the
-        # build hermetic — it removes the intermittent crates.io DNS failures
-        # on Xcode Cloud and fails loudly if the vendor dir is ever stale,
-        # instead of silently falling back to the network.
+        # Build raw-ffi against the vendored crate sources under
+        # src/raw-pipeline/vendor/ (committed by `cargo vendor`), with the
+        # network forbidden. This keeps the Xcode Cloud build hermetic: it
+        # removes the intermittent crates.io DNS failures ("Could not resolve
+        # host: static.crates.io") and fails loudly if the vendor dir is ever
+        # stale, instead of silently falling back to the network.
+        #
+        # The source replacement is passed inline (not via a committed
+        # .cargo/config.toml) so it applies ONLY to this Apple raw-ffi build.
+        # A repo-level config.toml would also be inherited by the WASM build,
+        # which uses `-Z build-std` — that rebuilds std from source and needs
+        # std's *own* dependency versions, which aren't (and shouldn't be) in
+        # our vendor dir. Scoping it here keeps the web/wasm and API builds
+        # resolving from crates.io as before. The directory is absolute so it
+        # resolves regardless of cargo's --config path semantics.
         CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
+            --config 'source.crates-io.replace-with="vendored-sources"' \
+            --config "source.vendored-sources.directory=\"$RAW_PIPELINE_DIR/vendor\"" \
             --target "$triple" \
             --package raw-ffi \
             2>&1
