@@ -96,12 +96,18 @@ export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHand
       loadConfig: loadDiscoverConfig,
     });
     loops.push(loop);
-    void loop.run().catch((err) =>
-      log.error({ root, err: err instanceof Error ? err.message : err }, 'sweeper loop crashed'),
-    );
+    void loop
+      .run()
+      .catch((err) =>
+        log.error({ root, err: err instanceof Error ? err.message : err }, 'sweeper loop crashed'),
+      );
   }
 
-  return { stop: async () => { for (const l of loops) l.stop(); } };
+  return {
+    stop: async () => {
+      for (const l of loops) l.stop();
+    },
+  };
 }
 
 /**

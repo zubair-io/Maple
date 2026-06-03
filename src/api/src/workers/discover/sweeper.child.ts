@@ -38,8 +38,6 @@ async function main(): Promise<void> {
   process.on('SIGINT', () => void shutdown());
 }
 main().catch((e) => {
-  process.stderr.write(
-    `[discover-child] fatal: ${e instanceof Error ? e.message : e}\n`,
-  );
+  process.stderr.write(`[discover-child] fatal: ${e instanceof Error ? e.message : e}\n`);
   process.exit(1);
 });
