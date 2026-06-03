@@ -2,14 +2,19 @@
  * Worker management API routes — main handlers.
  *
  * Mounted on the main Elysia app in src/api/src/index.ts under /api/workers.
- * Reads live state from the in-process `stageRegistry` (see `./registry.ts`);
- * there is no external process to talk to.
+ * Workers run in a separate child process (worker-main.ts); the API process's
+ * in-process `stageRegistry` is EMPTY.  Route handlers that need to validate
+ * worker names use the static `KNOWN_WORKER_NAMES` set instead.
+ *
+ * Pause/resume cross-process contract:
+ *   - POST /:name/pause|resume write `worker_config.{name}.paused` via
+ *     WorkerConfigRepo.patch().  The worker process re-reads worker_config on
+ *     every poll tick, so the change takes effect without any IPC.
  *
  * Config change flow for PATCH /:name/config:
  *    1. Validate the patch body.
  *    2. Write to worker_config in Mongo (persistence).
- *    3. Call stageRegistry.notifyConfigChanged(name); the running poll loop
- *       re-reads its config from Mongo and applies the new values live.
+ *    3. The worker re-reads its config from Mongo on the next tick — no IPC.
  *    4. Return { ok: true, config: WorkerConfig } (reads back saved config).
  */
 
@@ -29,8 +34,10 @@ import { WorkerConfigRepo } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
 import { buildClaimQuery, deriveBatchSize } from './run-stage.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
-import { stageRegistry } from './registry.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
+import { MIGRATION_WORKER_NAME } from './migration.ts';
+import { DISCOVER_NAME } from './discover/register.ts';
+import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { loadPruneWindowHours, savePruneWindowHours } from './missing-reaper-config.repo.ts';
 import { MIGRATIONS, getMigration } from './migration/index.ts';
 import {
@@ -52,9 +59,19 @@ import {
   assembleWorkersStatus,
   computeWorkersStatus,
 } from './routes-status.ts';
-import type { StageStatusSnapshot } from './registry.ts';
-
 const log = child('workers:routes');
+
+/**
+ * Every worker name the API accepts for name-gated routes.
+ * The worker process runs in a separate child; the in-process `stageRegistry`
+ * is empty here, so we validate against this static set instead.
+ */
+export const KNOWN_WORKER_NAMES = new Set<string>([
+  ...ALL_STAGE_NAMES,
+  MISSING_REAPER_NAME, // 'missing-reaper'
+  MIGRATION_WORKER_NAME, // 'migration'
+  DISCOVER_NAME, // 'discover'
+]);
 
 /** Stages that stamp the `damaged` tag (those with `tagsDamagedOnDeadLetter`).
  * `POST /damaged/clear` resets their dead/attempt bookkeeping when un-tagging
@@ -174,7 +191,7 @@ export function workerRoutes(): Elysia {
       // ── Dead logs ───────────────────────────────────────────────────────────
 
       .get('/:name/dead', async ({ params, query, set }) => {
-        if (!stageRegistry.has(params.name)) {
+        if (!KNOWN_WORKER_NAMES.has(params.name)) {
           set.status = 404;
           return { error: `unknown stage: ${params.name}` };
         }
@@ -315,31 +332,39 @@ export function workerRoutes(): Elysia {
       // ── Stage control ───────────────────────────────────────────────────────
 
       .post('/:name/pause', async ({ params, set }) => {
-        if (!stageRegistry.has(params.name)) {
+        if (!KNOWN_WORKER_NAMES.has(params.name)) {
           set.status = 404;
-          return { error: `unknown stage: ${params.name}` };
+          return { error: `unknown worker: ${params.name}` };
         }
-        const result = await stageRegistry.pause(params.name);
-        if (!result.ok) {
-          return { ok: false, error: result.error };
+        try {
+          const db = await getDb();
+          const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
+          await repo.patch(params.name, { paused: true });
+          return { ok: true };
+        } catch (err) {
+          set.status = 500;
+          return { error: err instanceof Error ? err.message : String(err) };
         }
-        return { ok: true };
       })
 
       .post('/:name/resume', async ({ params, set }) => {
-        if (!stageRegistry.has(params.name)) {
+        if (!KNOWN_WORKER_NAMES.has(params.name)) {
           set.status = 404;
-          return { error: `unknown stage: ${params.name}` };
+          return { error: `unknown worker: ${params.name}` };
         }
-        const result = await stageRegistry.resume(params.name);
-        if (!result.ok) {
-          return { ok: false, error: result.error };
+        try {
+          const db = await getDb();
+          const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
+          await repo.patch(params.name, { paused: false });
+          return { ok: true };
+        } catch (err) {
+          set.status = 500;
+          return { error: err instanceof Error ? err.message : String(err) };
         }
-        return { ok: true };
       })
 
       .post('/:name/retry-dead', async ({ params, set }) => {
-        if (!stageRegistry.has(params.name)) {
+        if (!KNOWN_WORKER_NAMES.has(params.name)) {
           set.status = 404;
           return { error: `unknown stage: ${params.name}` };
         }
@@ -369,7 +394,7 @@ export function workerRoutes(): Elysia {
       .patch(
         '/:name/config',
         async ({ params, body, set }) => {
-          if (!stageRegistry.has(params.name)) {
+          if (!KNOWN_WORKER_NAMES.has(params.name)) {
             set.status = 404;
             return { error: `unknown stage: ${params.name}` };
           }
@@ -391,8 +416,8 @@ export function workerRoutes(): Elysia {
             const coll = db.collection('worker_config');
             const repo = new WorkerConfigRepo(coll as never);
             await repo.patch(params.name, body as Partial<WorkerConfig>);
-            // Tell the running poll loop to re-read its config from Mongo.
-            await stageRegistry.notifyConfigChanged(params.name);
+            // The worker process re-reads worker_config on its next poll tick
+            // — no IPC needed.
             const savedConfig = await repo.load(params.name);
             invalidateStatusCache();
             return { ok: true, config: savedConfig };
