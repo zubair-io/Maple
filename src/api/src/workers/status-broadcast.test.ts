@@ -1,15 +1,31 @@
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 import {
   WorkersStatusBroadcaster,
   cheapStatus,
   type WorkersStatusFrame,
 } from './status-broadcast.ts';
 import type { WorkersStatusPayload } from './routes.ts';
-import { stageRegistry } from './registry.ts';
+import { getDb } from '../db/client.ts';
+import { writeWorkerStatus } from './worker-status.repo.ts';
+import type { StageStatusSnapshot } from './registry.ts';
 
-afterEach(() => {
-  stageRegistry._resetForTests();
+let dbReachable = true;
+beforeAll(async () => {
+  try {
+    await getDb();
+  } catch {
+    dbReachable = false;
+  }
 });
+
+async function cleanWorkerStatus(): Promise<void> {
+  if (dbReachable) {
+    await (await getDb()).collection('worker_status').deleteMany({ _id: 'singleton' });
+  }
+}
+
+beforeEach(cleanWorkerStatus);
+afterEach(cleanWorkerStatus);
 
 const fakePayload: WorkersStatusPayload = {
   stages: [
@@ -32,10 +48,29 @@ const fakePayload: WorkersStatusPayload = {
 };
 
 describe('cheapStatus', () => {
-  it('derives registry-only rows with zeroed counts (no DB)', () => {
-    stageRegistry._resetForTests();
-    stageRegistry.preregister('thumb', 2);
-    const payload = cheapStatus();
+  it('returns empty stages when worker_status has no doc', async () => {
+    // No writeWorkerStatus call → readWorkerStatus returns null → empty stages.
+    const payload = await cheapStatus();
+    expect(Array.isArray(payload.stages)).toBe(true);
+    expect(payload.stages).toHaveLength(0);
+    expect(payload.damaged).toBe(0);
+  });
+
+  it('derives rows from worker_status with zeroed counts', async () => {
+    if (!dbReachable) return;
+    const snapshot: Record<string, StageStatusSnapshot> = {
+      thumb: {
+        status: 'running',
+        inFlight: 2,
+        throughput: 5,
+        targetVersion: 1,
+        dependsOn: [],
+        lastError: null,
+      },
+    };
+    await writeWorkerStatus(snapshot, Date.now());
+
+    const payload = await cheapStatus();
     const row = payload.stages.find((s) => s.name === 'thumb');
     expect(row).toBeDefined();
     // Counts are the expensive half — must be zero in the cheap snapshot.
@@ -43,8 +78,10 @@ describe('cheapStatus', () => {
     expect(row!.ready).toBe(0);
     expect(row!.blocked).toBe(0);
     expect(row!.dead).toBe(0);
-    // Cheap registry fields still flow.
-    expect(row!.status).toBe('stopped'); // preregistered but not booted
+    // Live fields flow through from worker_status.
+    expect(row!.status).toBe('running');
+    expect(row!.inFlight).toBe(2);
+    expect(row!.throughput).toBe(5);
   });
 });
 
@@ -63,13 +100,18 @@ describe('WorkersStatusBroadcaster — subscription gating', () => {
     expect(b.subscriberCount).toBe(0);
   });
 
-  it('sends a cheap (counted:false) frame immediately on subscribe', () => {
-    stageRegistry._resetForTests();
-    stageRegistry.preregister('thumb', 1);
-    const b = new WorkersStatusBroadcaster(async () => fakePayload);
+  it('sends a cheap (counted:false) frame on subscribe', async () => {
+    // cheapStatus is now async (reads worker_status Mongo). Use a never-settling
+    // computeStatus so the only frame that can land is the cheap push.
+    const b = new WorkersStatusBroadcaster(() => new Promise<WorkersStatusPayload>(() => {}));
     b._resetForTests();
     const frames: WorkersStatusFrame[] = [];
     b.subscribe((f) => frames.push(f));
+    // No frame yet — the cheap push is async.
+    expect(frames).toHaveLength(0);
+    // Flush the cheapStatus promise (readWorkerStatus → a few microtask hops).
+    await new Promise((r) => setTimeout(r, 10));
+    // Exactly one frame: the cheap snapshot.
     expect(frames).toHaveLength(1);
     expect(frames[0]!.type).toBe('workers-status');
     expect(frames[0]!.counted).toBe(false);

@@ -20,9 +20,9 @@
  * plain functions in.
  */
 
-import { stageRegistry } from './registry.ts';
 import { deriveBatchSize } from './run-stage.ts';
 import { computeWorkersStatus, type StageStatusRow, type WorkersStatusPayload } from './routes.ts';
+import { readWorkerStatus } from './worker-status.repo.ts';
 import { child } from '../log.ts';
 
 const log = child('workers:status-broadcast');
@@ -45,12 +45,18 @@ type Send = (frame: WorkersStatusFrame) => void;
 export const COUNT_INTERVAL_MS = 2000;
 
 /**
- * Build a cheap, DB-free status payload from the registry alone. `pending`,
- * `ready`, `blocked`, and `dead` are zeroed (no counts run); `config` is null
- * because it lives in Mongo. Used for the immediate on-subscribe push.
+ * Build a stage-status payload from the cross-process `worker_status` Mongo
+ * snapshot. `pending`, `ready`, `blocked`, `dead`, and `damaged` are zeroed
+ * (no count queries run); `config` is null because it lives in Mongo.
+ * Used for the immediate on-subscribe push so the client paints without
+ * waiting for the first full counted tick.
+ *
+ * Workers run in a separate child process; the in-process `stageRegistry` is
+ * empty in the API process — read `worker_status` instead.
  */
-export function cheapStatus(): WorkersStatusPayload {
-  const statuses = stageRegistry.statuses();
+export async function cheapStatus(): Promise<WorkersStatusPayload> {
+  const snap = await readWorkerStatus();
+  const statuses = snap?.statuses ?? {};
   const stages: StageStatusRow[] = Object.entries(statuses).map(([name, s]) => ({
     name,
     status: s.status,
@@ -65,8 +71,8 @@ export function cheapStatus(): WorkersStatusPayload {
     config: null,
     batchSize: deriveBatchSize(0),
   }));
-  // No DB in the cheap path — the real damaged count lands on the next counted
-  // tick (computeWorkersStatus). Zero until then, like the other counts.
+  // No count queries in the cheap path — the real counts land on the next
+  // counted tick (computeWorkersStatus). Zero until then, like the other counts.
   return { stages, damaged: 0 };
 }
 
@@ -100,22 +106,27 @@ class WorkersStatusBroadcaster {
   }
 
   /**
-   * Add a subscriber. Immediately sends a cheap registry-only snapshot so the
-   * client paints without waiting for the first counted tick, then arms the
-   * shared count timer if it wasn't already running. Returns an unsubscribe fn.
+   * Add a subscriber. Kicks off an async cheap snapshot from worker_status
+   * Mongo so the client paints quickly without waiting for the first full
+   * counted tick, then arms the shared count timer if it wasn't already
+   * running. Returns an unsubscribe fn.
    */
   subscribe(send: Send): () => void {
     this.subscribers.add(send);
-    try {
-      send({
-        type: 'workers-status',
-        status: cheapStatus(),
-        counted: false,
-        ts: Date.now(),
+    // Fire-and-forget — the cheap push is now async (reads worker_status).
+    // The subscriber gets the frame as soon as the Mongo read resolves.
+    void cheapStatus()
+      .then((status) => {
+        send({
+          type: 'workers-status',
+          status,
+          counted: false,
+          ts: Date.now(),
+        });
+      })
+      .catch(() => {
+        /* socket may already be gone or DB unavailable */
       });
-    } catch {
-      /* socket may already be gone */
-    }
     this.ensureTimer();
     return () => this.unsubscribe(send);
   }
