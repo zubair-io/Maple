@@ -23,7 +23,8 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { resolveThumbPath } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { renderImageThumbToFile, SHARP_EXTENSIONS } from '../thumbs/render.ts';
+import { SHARP_EXTENSIONS } from '../fs/browse.ts';
+import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -154,9 +155,8 @@ async function renderRawThumbToFile(rawPath: string, thumbPath: string): Promise
 
 /**
  * Bitmap formats (JPEG / PNG / WEBP / TIFF / AVIF / HEIC / HEIF): decode
- * + resize via the shared sharp + heic-convert pipeline. Same code path
- * the live `/api/fs/thumb` route uses on a cache miss, so the on-disk
- * thumb is identical regardless of which subsystem produced it first.
+ * + resize via the imgdecode child pool (sharp + heic-convert in an isolated
+ * process). Same output as the live `/api/fs/thumb` route on a cache miss.
  */
 async function renderBitmapThumbToFile(
   srcPath: string,
@@ -164,9 +164,17 @@ async function renderBitmapThumbToFile(
   ext: string,
 ): Promise<boolean> {
   try {
-    return await renderImageThumbToFile(srcPath, thumbPath, THUMB_LONG_EDGE_PX, ext);
+    const result = await renderImageThumbToFile(srcPath, thumbPath, THUMB_LONG_EDGE_PX, 82, ext);
+    if (!result.ok) {
+      log.warn(
+        { srcPath, err: result.error ?? 'imgdecode failed' },
+        'imgdecode child returned error',
+      );
+      return false;
+    }
+    return true;
   } catch (e) {
-    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'sharp render failed');
+    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'imgdecode pool threw');
     return false;
   }
 }

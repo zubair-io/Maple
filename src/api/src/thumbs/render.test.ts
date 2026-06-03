@@ -1,9 +1,48 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import sharp from 'sharp';
-import { renderImageThumbToFile } from './render.ts';
+import heicConvert from 'heic-convert';
+import { renderImageThumbToFile, renderHeicThumbToFile } from './render.ts';
+
+// `import.meta.dir` is src/api/src/thumbs; fixture lives under src/api/tests/fixtures.
+const FIXTURE_HEIC = path.resolve(import.meta.dir, '..', '..', 'tests', 'fixtures', 'sample.heic');
+
+async function fixturePresent(p: string): Promise<boolean> {
+  try {
+    await stat(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The exact HEIC chain as it stood before the child-process offload — inlined
+ * here so the equivalence assertion compares the production path against an
+ * independent reference, not a tautology against the shared helper.
+ */
+async function renderHeicInlineReference(
+  srcPath: string,
+  thumbPath: string,
+  sizePx: number,
+): Promise<void> {
+  const inputBuffer = await readFile(srcPath);
+  const jpegBuffer = (await heicConvert({
+    buffer: inputBuffer,
+    format: 'JPEG',
+    quality: 0.9,
+  })) as Buffer;
+  const buf = await sharp(jpegBuffer, { failOn: 'none' })
+    .rotate()
+    .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 82, mozjpeg: true })
+    .toBuffer();
+  const tmp = `${thumbPath}.${process.pid}.inline.tmp`;
+  await writeFile(tmp, buf);
+  await rename(tmp, thumbPath);
+}
 
 describe('renderImageThumbToFile', () => {
   let dir: string;
@@ -79,5 +118,44 @@ describe('renderImageThumbToFile', () => {
       // Restore the real module so other suites in the run keep real sharp.
       mock.module('sharp', () => ({ default: realSharp }));
     }
+  });
+});
+
+describe('renderImageThumbToFile — HEIC parity', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'render-heic-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  // Moved from the deleted heic-pool.test.ts. render.ts now owns the HEIC
+  // chain directly (no Worker-thread indirection), so the parity assertion
+  // lives here alongside the other render.ts tests.
+  it('produces bytes identical to the pre-offload inline chain (fixture-gated)', async () => {
+    if (!(await fixturePresent(FIXTURE_HEIC))) return; // fixture missing → soft pass
+
+    const viaRender = path.join(dir, 'via-render.jpg');
+    const viaInline = path.join(dir, 'via-inline.jpg');
+
+    const ok = await renderImageThumbToFile(FIXTURE_HEIC, viaRender, 48, 'heic');
+    expect(ok).toBe(true);
+
+    await renderHeicInlineReference(FIXTURE_HEIC, viaInline, 48);
+
+    const renderBytes = await readFile(viaRender);
+    const inlineBytes = await readFile(viaInline);
+    expect(renderBytes.equals(inlineBytes)).toBe(true);
+  });
+
+  it('renderHeicThumbToFile writes a valid JPEG (fixture-gated)', async () => {
+    if (!(await fixturePresent(FIXTURE_HEIC))) return;
+
+    const out = path.join(dir, 'heic.jpg');
+    await renderHeicThumbToFile(FIXTURE_HEIC, out, 48);
+    const meta = await sharp(out).metadata();
+    expect(meta.format).toBe('jpeg');
+    expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(48);
   });
 });

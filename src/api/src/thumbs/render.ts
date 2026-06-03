@@ -10,16 +10,14 @@
  * HEIC/HEIF decode is the expensive case: `heic-convert` is libheif compiled
  * to Emscripten WASM and runs SYNCHRONOUSLY on the calling thread for
  * ~500–2000 ms per file (the `await` is misleading — it's CPU-bound WASM, not
- * I/O). On the main HTTP thread that freezes `/api/health` and every other
- * request for the whole decode. So the HEIC branch is routed through a Worker
- * pool (`heic-pool.ts`); the non-HEIC branch stays inline because sharp's
- * resize/encode already runs off-thread on the libvips threadpool.
+ * I/O). This module is loaded exclusively inside `imgdecode.child.ts`, an
+ * isolated child process, so the WASM decode and any libvips crash are contained
+ * to the child — the parent HTTP server is unaffected.
  */
 
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import sharp from 'sharp';
 import heicConvert from 'heic-convert';
-import { decodeHeicThumbOffThread } from './heic-pool.ts';
 
 // The SHARP_EXTENSIONS allowlist moved to `fs/browse.ts` (a light module with
 // no renderer deps) so routes like `/api/fs/raw` can import the gate without
@@ -47,13 +45,11 @@ const SHARP_INPUT_OPTS = { failOn: 'none', unlimited: true } as const;
 /**
  * The canonical HEIC/HEIF chain: read the source, decode it to an
  * intermediate JPEG via `heic-convert` (quality 0.9), then resize + re-encode
- * via sharp (quality 82, mozjpeg) and write atomically. Both the off-thread
- * worker (`heic.worker.ts`) and the in-process fallback in `heic-pool.ts`
- * call THIS function, so the two execution paths can never drift — moving the
- * decode off-thread is a timing change only, never a byte change.
+ * via sharp (quality 82, mozjpeg) and write atomically.
  *
- * The large input buffer and intermediate JPEG stay local to whichever thread
- * runs this; only the small `{ ok }` result crosses `postMessage`.
+ * Called by `renderImageThumbToFile` for the HEIC/HEIF branch. Lives inside the
+ * `imgdecode.child.ts` isolated process so the large input and intermediate JPEG
+ * buffers never leave the child.
  *
  * Throws on decode/encode/IO failure.
  */
@@ -86,10 +82,10 @@ export async function renderHeicThumbToFile(
  * mid-write never leaves a half-written cache file. Caller is responsible
  * for ensuring the parent directory exists.
  *
- * HEIC/HEIF decode is dispatched to the Worker pool so the synchronous WASM
- * decode never blocks the HTTP event loop; all other formats are decoded
- * inline by sharp (already off-thread on the libvips threadpool). Both paths
- * write byte-identical output.
+ * This function is the canonical render body called inside `imgdecode.child.ts`
+ * (the isolated child process). All formats — including HEIC — are handled here
+ * directly; there is no Worker-thread indirection. The child-process isolation
+ * keeps a libvips/libheif crash from touching the parent HTTP server.
  *
  * Returns true on success. Throws on decode/encode/IO failure — callers
  * decide whether to log + skip or surface as a 500.
@@ -101,13 +97,10 @@ export async function renderImageThumbToFile(
   ext: string,
 ): Promise<boolean> {
   if (ext === 'heic' || ext === 'heif') {
-    // Off-thread: the libheif/WASM decode would otherwise freeze the loop
-    // for ~500–2000 ms. The pool keeps the input buffer + intermediate JPEG
-    // inside the worker; only `{ ok, error? }` crosses postMessage.
-    const result = await decodeHeicThumbOffThread(srcPath, thumbPath, sizePx);
-    if (!result.ok) {
-      throw new Error(result.error ?? 'heic decode failed');
-    }
+    // Call the canonical HEIC chain directly. When render.ts is loaded inside
+    // `imgdecode.child.ts` this is already an isolated process — no event-loop
+    // blocking concern. The old Worker-thread indirection via heic-pool is gone.
+    await renderHeicThumbToFile(srcPath, thumbPath, sizePx);
     return true;
   }
 
