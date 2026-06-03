@@ -19,6 +19,7 @@ import { child as childLogger } from '../log.ts';
 import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
+import { makePausedPoller } from './paused-poller.ts';
 import { MIGRATIONS } from './migration/index.ts';
 import {
   loadAllMigrationStates,
@@ -187,10 +188,10 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
 
   const ready = loadPaused();
 
-  /** Timestamp of the last cross-process paused-state read from Mongo (ms). */
-  let lastPausedReadAt = 0;
-  /** Minimum gap between cross-process paused-state reads (ms). */
-  const PAUSED_READ_INTERVAL_MS = 2000;
+  // Throttled cross-process pause poller: re-reads worker_config.paused from
+  // Mongo at most once per 2s so a pause written by the API process takes
+  // effect without IPC. Shares the same mechanism as missing-reaper.
+  const pollPaused = makePausedPoller(MIGRATION_WORKER_NAME, paused);
 
   const tick = async (): Promise<void> => {
     if (stopped || running) return;
@@ -198,10 +199,7 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
     try {
       // Re-read the paused flag from Mongo each tick (throttled) so a
       // cross-process pause written by the API process takes effect without IPC.
-      if (Date.now() - lastPausedReadAt >= PAUSED_READ_INTERVAL_MS) {
-        await loadPaused();
-        lastPausedReadAt = Date.now();
-      }
+      paused = await pollPaused();
       // `return` here still runs the `finally` block below, so `running` is
       // cleared correctly even when we skip a paused tick.
       if (paused) return;
