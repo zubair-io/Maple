@@ -14,12 +14,10 @@
  *                      migration via /settings/workers (each migration has its
  *                      own toggle; the worker-level pause is the standard one).
  *
- * Both start UNCONDITIONALLY at boot — independent of MAPLE_INDEXER_AUTOSTART.
- * Trash finalisation and missing-file reaping are maintenance concerns that
- * must remain available (and, for the reaper, controllable) even when the
- * stage pipeline is paused, mirroring how trash-gc has always run. Each job is
- * still individually gated: trash-gc honours its retention window, and the
- * reaper boots paused so it does nothing until an operator resumes it.
+ * Both start as part of the worker tier (via `start-workers.ts`) and are
+ * therefore gated by MAPLE_INDEXER_AUTOSTART. Each job is still individually
+ * gated: trash-gc honours its retention window, and the reaper boots paused so
+ * it does nothing until an operator resumes it.
  */
 
 import { startTrashGc, type TrashGcHandle } from './trash-gc.ts';

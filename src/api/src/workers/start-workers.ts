@@ -42,6 +42,7 @@ import {
 import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';
+import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
 
 const log = childLogger('workers');
 
@@ -162,6 +163,15 @@ export async function startWorkers(): Promise<void> {
     log.warn({ err }, 'ImportRunner failed to start');
   }
 
+  // Library-wide maintenance jobs (trash-gc + missing-reaper + migration).
+  // Moved here from index.ts so maintenance load is off the API event loop and
+  // these workers are gated by MAPLE_INDEXER_AUTOSTART like everything else.
+  try {
+    startMaintenanceJobs();
+  } catch (err) {
+    log.warn({ err }, 'Maintenance jobs failed to start');
+  }
+
   // Publish stageRegistry.statuses() to the worker_status Mongo doc every 2 s
   // so the API process (which has an empty in-process registry) can serve
   // GET /api/workers/status.  The timer is unref'd so it doesn't prevent a
@@ -182,6 +192,13 @@ export async function stopWorkers(): Promise<void> {
   if (_statusInterval !== null) {
     clearInterval(_statusInterval);
     _statusInterval = null;
+  }
+
+  // Stop maintenance jobs first so their timers don't fire mid-shutdown.
+  try {
+    stopMaintenanceJobs();
+  } catch (e) {
+    log.warn({ err: e }, 'error stopping maintenance jobs');
   }
 
   // Stop the discover sweep (in-process handle).

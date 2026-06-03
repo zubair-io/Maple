@@ -409,17 +409,28 @@ export async function runStage<TPatch extends Record<string, unknown>>(
   let shuttingDown = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let consecutiveErrors = 0;
+  /** Timestamp of the most recent successful config read from Mongo (ms). */
+  let lastConfigReadAt = 0;
+  /** Minimum gap between worker_config Mongo reads in the poll loop (ms).
+   * Keeps a drained backlog (nextPollDelay → 0) from hammering the DB with
+   * per-tick findOne calls. Pause latency remains ≤ ~2 s. */
+  const CONFIG_RELOAD_INTERVAL_MS = 2000;
 
   const poll = async (): Promise<void> => {
     if (shuttingDown) return;
-    // Re-read config from Mongo each tick so pause/resume written by the API
-    // process (cross-process boundary) take effect without an IPC round-trip.
+    // Re-read config from Mongo so pause/resume written by the API process
+    // (cross-process boundary) take effect without an IPC round-trip.
+    // Throttled to at most once every CONFIG_RELOAD_INTERVAL_MS to avoid
+    // hammering the DB when nextPollDelay() returns 0 on a drained backlog.
     // Best-effort: a failing load keeps the previous config rather than crashing.
-    try {
-      const updated = await repo.load(stage.name);
-      if (updated) config = updated;
-    } catch {
-      /* keep previous config on load failure */
+    if (Date.now() - lastConfigReadAt >= CONFIG_RELOAD_INTERVAL_MS) {
+      try {
+        const updated = await repo.load(stage.name);
+        if (updated) config = updated;
+        lastConfigReadAt = Date.now();
+      } catch {
+        /* keep previous config on load failure */
+      }
     }
     // The global idle cadence, unless a full batch (→ 0, drain backlog) or an
     // error (→ exponential backoff) overrides it. See `nextPollDelay`. geocode
