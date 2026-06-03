@@ -105,6 +105,30 @@ export function setupBackupIngestSuite(opts: BackupIngestSetupOptions): {
       }
     },
     afterAll: async () => {
+      // Drop every row this suite wrote so it doesn't leak into the shared
+      // Mongo for later test files (KTLO #895). The ingest route writes assets
+      // tagged with this suite's `library_id` (and the dedup paths attach
+      // ad-hoc `phasset_links.device_id`s, so we OR both keys), upload sessions
+      // keyed on the library, one folder doc, and — when opted in — the Tokyo
+      // geocode-cache entry. Scoped to this suite's unique libId/deviceId so it
+      // stays parallel-safe with the sibling backup suites (mirrors why
+      // beforeAll scopes its own cleanup by deviceId).
+      try {
+        const assets = await assetsCollection();
+        await assets.deleteMany({
+          $or: [{ 'fileinfo.library_id': libId }, { 'phasset_links.device_id': opts.deviceId }],
+        });
+        const folders = await foldersCollection();
+        await folders.deleteMany({ _id: libId });
+        const sessions = await uploadSessionsCollection();
+        await sessions.deleteMany({ library_id: libId });
+        if (opts.withTokyoGeocode) {
+          const geo = await geocodeCacheCollection();
+          await geo.deleteOne({ _id: quantizedKey(35.68, 139.69) });
+        }
+      } catch {
+        // Best-effort teardown — never mask a test failure with a cleanup error.
+      }
       // Guard against beforeAll having failed (or not run) — tmpLib stays
       // empty in that case, and `fs.rm('')` would throw and mask the
       // original failure with a misleading teardown error.

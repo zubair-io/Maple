@@ -65,6 +65,24 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Drop every row this suite wrote so it doesn't leak into the shared Mongo
+  // for later test files (KTLO #895). The rendered route creates assets tagged
+  // with this suite's `phasset_links.device_id` (several carry no fileinfo, so
+  // we can't scope by library alone) plus upload sessions keyed on the library,
+  // and beforeAll seeds one folder. Scoped to this suite's libId/deviceId to
+  // stay parallel-safe with the sibling backup suites.
+  try {
+    const a = await assetsCollection();
+    await a.deleteMany({
+      $or: [{ 'fileinfo.library_id': libId }, { 'phasset_links.device_id': deviceId }],
+    });
+    const f = await foldersCollection();
+    await f.deleteMany({ _id: libId });
+    const u = await uploadSessionsCollection();
+    await u.deleteMany({ library_id: libId });
+  } catch {
+    // Best-effort teardown — never mask a test failure with a cleanup error.
+  }
   await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
