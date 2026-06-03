@@ -358,7 +358,10 @@ async function start(): Promise<void> {
         );
       }
     } catch (err) {
-      log.warn({ err }, 'Meilisearch search-side config failed; search will fall back to Mongo $text');
+      log.warn(
+        { err },
+        'Meilisearch search-side config failed; search will fall back to Mongo $text',
+      );
     }
 
     try {

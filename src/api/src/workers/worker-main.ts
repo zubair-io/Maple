@@ -7,7 +7,10 @@ import { installChildHardening } from '../runtime/child-process-worker.ts';
 import { getDb, ensureIndexes, closeDb } from '../db/client.ts';
 import { startWorkers, stopWorkers } from './start-workers.ts';
 import { initOtel } from '../otel.ts';
-import { resolveObservabilityConfig, loadObservabilityConfig } from '../observability/observability-config.repo.ts';
+import {
+  resolveObservabilityConfig,
+  loadObservabilityConfig,
+} from '../observability/observability-config.repo.ts';
 import { child as childLogger } from '../log.ts';
 
 installChildHardening('worker');
