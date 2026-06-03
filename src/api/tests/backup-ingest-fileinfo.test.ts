@@ -36,6 +36,22 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Drop every row this suite wrote so it doesn't leak into the shared Mongo
+  // for later test files (KTLO #895): the ingested asset(s), the upload
+  // session, and the seeded folder. Scoped to this suite's libId/deviceId to
+  // stay parallel-safe with the sibling backup suites.
+  try {
+    const a = await assetsCollection();
+    await a.deleteMany({
+      $or: [{ 'fileinfo.library_id': libId }, { 'phasset_links.device_id': deviceId }],
+    });
+    const f = await foldersCollection();
+    await f.deleteMany({ _id: libId });
+    const u = await uploadSessionsCollection();
+    await u.deleteMany({ library_id: libId });
+  } catch {
+    // Best-effort teardown — never mask a test failure with a cleanup error.
+  }
   await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
