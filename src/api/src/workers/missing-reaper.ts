@@ -555,12 +555,25 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
   // Adopt the persisted control state shortly after boot.
   const ready = loadPaused();
 
+  /** Timestamp of the last cross-process paused-state read from Mongo (ms). */
+  let lastPausedReadAt = 0;
+  /** Minimum gap between cross-process paused-state reads (ms). Keeps the
+   * interval loop from hitting Mongo on every tick if intervalMs is reduced
+   * (e.g. in tests). Matches the CONFIG_RELOAD_INTERVAL_MS in run-stage.ts. */
+  const PAUSED_READ_INTERVAL_MS = 2000;
+
   const tick = async (): Promise<void> => {
     // Runs even when paused — recovery/prune (re-found files) must keep working;
     // only the hard-delete is gated by `allowDelete: !paused` below.
     if (stopped || running) return;
     running = true;
     try {
+      // Re-read the paused flag from Mongo each tick (throttled) so a
+      // cross-process pause written by the API process takes effect without IPC.
+      if (Date.now() - lastPausedReadAt >= PAUSED_READ_INTERVAL_MS) {
+        await loadPaused();
+        lastPausedReadAt = Date.now();
+      }
       const pruneWindowHours = await loadPruneWindowHours();
       const deleteBeforeIso = new Date(Date.now() - pruneWindowHours * 3_600_000).toISOString();
       const summary = await runMissingReaperOnce({

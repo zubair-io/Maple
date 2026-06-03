@@ -71,7 +71,6 @@ import { assetsListRoutes } from './routes/assets-list.ts';
 import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { getDb, ensureIndexes, closeDb } from './db/client.ts';
-import { startMaintenanceJobs, stopMaintenanceJobs } from './workers/maintenance.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
 import {
@@ -418,10 +417,6 @@ async function start(): Promise<void> {
 
   const app = buildApp();
   app.listen(PORT);
-  // Library-wide maintenance jobs (trash-gc + missing-reaper). Started
-  // unconditionally — independent of MAPLE_INDEXER_AUTOSTART — and stopped in
-  // shutdown(). Stage drain is handled by the worker child's own shutdown.
-  startMaintenanceJobs();
 }
 
 // Graceful shutdown.
@@ -440,13 +435,6 @@ async function shutdown(signal: string): Promise<void> {
     getChangeFeedTailer().stop();
   } catch (e) {
     log.warn({ err: e }, 'error stopping change feed tailer');
-  }
-  // Stop the maintenance jobs (trash-gc + missing-reaper) next so their timers
-  // don't fire mid-shutdown.
-  try {
-    stopMaintenanceJobs();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping maintenance jobs');
   }
   // Terminate the worker child process. Its own SIGTERM handler drains all
   // stages, discover, enrichment workers, job/import runners, and FFI pool
