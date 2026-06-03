@@ -44,7 +44,13 @@ process.on('message', (raw: unknown) => {
   void (async () => {
     try {
       // renderImageThumbToFile returns a boolean; we convert to ok/error shape.
-      const ok = await renderImageThumbToFile(req.srcPath, req.outPath, req.maxPx, req.ext);
+      const ok = await renderImageThumbToFile(
+        req.srcPath,
+        req.outPath,
+        req.maxPx,
+        req.ext,
+        req.quality,
+      );
       send({ type: 'render', id: req.id, ok });
     } catch (e) {
       send({

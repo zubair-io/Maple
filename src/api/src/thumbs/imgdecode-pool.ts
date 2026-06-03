@@ -94,6 +94,24 @@ class ImgDecodePool {
     });
   }
 
+  /**
+   * Terminate the child and reject any pending calls. Call from the server's
+   * graceful shutdown so the isolated decode child is reaped deterministically —
+   * Bun does NOT auto-reap spawned children on parent exit; the orphan-guard
+   * (2-second poll in the child) is only a backstop. Mirrors `ffi-pool.ts`.
+   */
+  shutdown(): void {
+    const calls = [...this.pending.values()];
+    this.pending.clear();
+    try {
+      this.worker?.terminate();
+    } catch {
+      // best-effort
+    }
+    this.worker = null;
+    for (const p of calls) p.reject(new Error('imgdecode-pool: shutting down'));
+  }
+
   // ── internals ────────────────────────────────────────────────────────────
 
   private ensureWorker(): ImgDecodeWorker {
