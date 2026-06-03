@@ -24,6 +24,7 @@ import type {
   JobDoc,
   ImportDoc,
   ImportFileDoc,
+  DiscoverFrontierDoc,
   PersonDoc,
   StageHandlerDoc,
   UserDoc,
@@ -124,6 +125,10 @@ export async function importsCollection(): Promise<Collection<ImportDoc>> {
 
 export async function importFilesCollection(): Promise<Collection<ImportFileDoc>> {
   return (await getDb()).collection<ImportFileDoc>('import_files');
+}
+
+export async function discoverFrontierCollection(): Promise<Collection<DiscoverFrontierDoc>> {
+  return (await getDb()).collection<DiscoverFrontierDoc>('discover_frontier');
 }
 
 export async function stageHandlersCollection(): Promise<Collection<StageHandlerDoc>> {
@@ -703,6 +708,24 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('import_files')
     .createIndex({ import_id: 1, idx: 1 }, { unique: true, name: 'import_files_import_idx' });
+
+  // discover_frontier: resumable directory-walk queue. The frontier lives in
+  // Mongo so the sweep's memory is O(one directory), not O(tree).
+  // `(folder_id, dir_path, sweep_gen)` is the natural key — unique so a
+  // re-seed can't double-enqueue the same directory in the same sweep.
+  await db
+    .collection('discover_frontier')
+    .createIndex(
+      { folder_id: 1, dir_path: 1, sweep_gen: 1 },
+      { unique: true, name: 'discover_frontier_key' },
+    );
+  // Claim query: free (or lease-expired) rows for the active generation, oldest first.
+  await db
+    .collection('discover_frontier')
+    .createIndex(
+      { folder_id: 1, sweep_gen: 1, claimed_at: 1, enqueued_at: 1 },
+      { name: 'discover_frontier_claim' },
+    );
 
   // Geocode worker — claim query is:
   //   { exif.gps.lat: $ne null, enrichment.geocode.done_at: null,
