@@ -61,6 +61,10 @@ export interface ChildProcessWorkerOptions {
   nice?: number;
   /** Short label for diagnostics (which subsystem this child serves). */
   label?: string;
+  /** Extra command-line arguments appended after the script path.
+   * The child reads them via `process.argv.slice(2)`.
+   * Defaults to `[]` — existing callers that pass no argv are unaffected. */
+  argv?: string[];
 }
 
 /**
@@ -89,7 +93,7 @@ export class ChildProcessWorker implements ChildWorkerHost {
     // `ipc` opens a dedicated channel separate from stdio, so the child's
     // stdout/stderr — including a native/Bun crash report on a segfault — flow
     // to the container logs without corrupting the protocol stream.
-    this.proc = Bun.spawn([process.execPath, scriptPath], {
+    this.proc = Bun.spawn([process.execPath, scriptPath, ...(opts.argv ?? [])], {
       ipc: (message: unknown) => {
         if (this.onMessage) this.onMessage({ data: message });
         else this.pendingMessages.push({ data: message });
