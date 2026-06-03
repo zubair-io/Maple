@@ -33,13 +33,25 @@ src/web/projects/maple-common/src/lib/raw-pipeline/pkg/
 xcuserdata/
 DerivedData/
 
-# Rust .a binaries inside committed xcframeworks — too large for GitHub
-# (200-500 MB each). Rebuild via ./src/apple/scripts/build-xcframework.sh
-# after a fresh clone. The framework's Headers/, Info.plist, and
-# module.modulemap stay tracked. The `*.xcframework/**/…` glob form used
-# earlier didn't actually match for older git versions — anchor the
-# pattern explicitly instead.
+# Generated xcframework build outputs. build-xcframework.sh regenerates these
+# from the Rust sources, and it runs as the FIRST build phase of the "Maple
+# Exposure" Xcode target — so the committed copies were overwritten before any
+# compile could read them. Tracking them bought nothing and only caused churn:
+#
+#   * libraw_ffi.a  — Rust static libs, 200-500 MB each (over GitHub's limit).
+#   * RawPipeline.h — cbindgen-generated C header (5 copies: one per xcframework
+#                     slice + the two include/ dirs). Silently drifted whenever
+#                     raw-ffi gained an FFI fn without a header regen (e.g.
+#                     maple_histogram_file, #886) and re-diffed across cbindgen
+#                     versions.
+#
+# Both must be rebuilt after a fresh clone anyway (see CLAUDE.md). Bare
+# filenames, not a `*.xcframework/**/…` glob (which didn't match on older git).
+# Info.plist + module.modulemap stay tracked: static/structural, carry no FFI
+# surface (so they don't drift), and keep the xcframework's slice directories
+# present at rest so SwiftPM can resolve the .binaryTarget.
 libraw_ffi.a
+RawPipeline.h
 
 # Node / Bun
 node_modules/
