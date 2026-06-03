@@ -3,6 +3,7 @@ import { Elysia } from 'elysia';
 import { workerRoutes, sanitizeWorkerConfig } from './routes.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
+import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';
 import { WorkerConfigRepo } from './worker-config.repo.ts';
 import { getDb } from '../db/client.ts';
@@ -151,7 +152,12 @@ describe('GET /api/workers/status', () => {
       ready: number;
       blocked: number;
     }>;
-    for (const r of rows) {
+    // Only the asset-processing stages are zeroed on an empty assets DB. Non-stage
+    // workers in the union (e.g. migration, whose `pending` is the unapplied-migration
+    // count) have their own pending semantics and aren't asserted here.
+    const stageRows = rows.filter((r) => (ALL_STAGE_NAMES as readonly string[]).includes(r.name));
+    expect(stageRows.length).toBe(ALL_STAGE_NAMES.length);
+    for (const r of stageRows) {
       expect(r).toHaveProperty('ready');
       expect(r).toHaveProperty('blocked');
       // Empty assets collection → counts are 0, blocked is clamped pending−ready.
