@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeAll, beforeEach, spyOn } from 'bun:test';
 import { getDb } from '../db/client.ts';
-import type { StageStatusSnapshot } from './registry.ts';
+import * as dbClient from '../db/client.ts';
 
 let reachable = true;
 beforeAll(async () => {
@@ -16,36 +16,20 @@ beforeEach(async () => {
 
 describe('worker-status.repo', () => {
   it('returns null (never throws) when getDb() rejects', async () => {
-    // Verify the DB-down degradation: the try/catch in readWorkerStatus() must
-    // swallow any getDb() / findOne() error and return null so
-    // GET /api/workers/status degrades gracefully instead of rejecting.
-    //
-    // We test the error path by building an equivalent function inline — same
-    // logic as readWorkerStatus() but injecting a throwing getDb — rather than
-    // via module mocking (which leaks into sibling test files in Bun's runner).
-    type WorkerStatusDoc = {
-      _id: string;
-      statuses: Record<string, StageStatusSnapshot>;
-      updated_at: number;
-    };
-    const brokenGetDb = async (): Promise<never> => {
+    // Verify the DB-down degradation path: readWorkerStatus() must resolve to
+    // null rather than rejecting so GET /api/workers/status degrades gracefully.
+    // Uses spyOn on the db/client namespace (not mock.module, which leaks into
+    // sibling test files in Bun's shared module registry).
+    const spy = spyOn(dbClient, 'getDb').mockImplementation(async () => {
       throw new Error('simulated connection refused');
-    };
-    const readWithBrokenDb = async (): Promise<{
-      statuses: Record<string, StageStatusSnapshot>;
-      updated_at: number;
-    } | null> => {
-      try {
-        const coll = (await brokenGetDb()).collection<WorkerStatusDoc>('worker_status');
-        const doc = await coll.findOne({ _id: 'singleton' });
-        if (!doc) return null;
-        return { statuses: doc.statuses, updated_at: doc.updated_at };
-      } catch {
-        return null;
-      }
-    };
-    const result = await readWithBrokenDb();
-    expect(result).toBeNull();
+    });
+    try {
+      const { readWorkerStatus } = await import('./worker-status.repo.ts');
+      const result = await readWorkerStatus();
+      expect(result).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
   });
   it('returns null when no snapshot has been written', async () => {
     if (!reachable) return;
