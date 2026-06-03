@@ -4,7 +4,11 @@ import { getDb } from '../../db/client.ts';
 
 let reachable = true;
 beforeAll(async () => {
-  try { await getDb(); } catch { reachable = false; }
+  try {
+    await getDb();
+  } catch {
+    reachable = false;
+  }
 });
 beforeEach(async () => {
   if (!reachable) return;

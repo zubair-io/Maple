@@ -24,7 +24,6 @@ function isSupported(name: string): boolean {
   return SUPPORTED_EXTS.has(path.extname(name).toLowerCase());
 }
 
-
 export async function visitDirectory(
   dir: FrontierDir,
   root: string,
@@ -45,7 +44,10 @@ export async function visitDirectory(
 
   for (const ent of entries) {
     const abs = path.join(dir.dir_path, ent.name);
-    if (ent.isDirectory()) { subdirs.push(abs); continue; }
+    if (ent.isDirectory()) {
+      subdirs.push(abs);
+      continue;
+    }
     if (!ent.isFile() || !isSupported(ent.name)) continue;
     filesOnDisk.set(ent.name, abs);
   }
@@ -78,7 +80,11 @@ export async function visitDirectory(
   for (const a of recorded) {
     const fn = a.fileinfo?.[0]?.filename;
     if (fn && !filesOnDisk.has(fn)) {
-      await deps.handleEvent({ kind: 'removed', absPath: path.join(dir.dir_path, fn) }, folderId, root);
+      await deps.handleEvent(
+        { kind: 'removed', absPath: path.join(dir.dir_path, fn) },
+        folderId,
+        root,
+      );
     }
   }
 
@@ -139,7 +145,9 @@ export class SweeperLoop {
     this.sleep = o.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   }
 
-  stop(): void { this.shuttingDown = true; }
+  stop(): void {
+    this.shuttingDown = true;
+  }
 
   /** One claim→visit→pace cycle. Returns false when idle (nothing to do). */
   private async tick(cfg: SweepConfig): Promise<boolean> {
@@ -158,7 +166,10 @@ export class SweeperLoop {
   async run(): Promise<void> {
     while (!this.shuttingDown) {
       const cfg = await this.o.loadConfig();
-      if (cfg.paused) { await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs)); continue; }
+      if (cfg.paused) {
+        await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs));
+        continue;
+      }
       const did = await this.tick(cfg);
       if (!did) await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs));
     }

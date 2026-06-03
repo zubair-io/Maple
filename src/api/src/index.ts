@@ -79,10 +79,7 @@ import {
   childScriptPath,
   DEFAULT_NATIVE_CHILD_NICE,
 } from './runtime/child-process-worker.ts';
-import {
-  registerDiscoverWorker,
-  unregisterDiscoverWorker,
-} from './workers/discover/register.ts';
+import { registerDiscoverWorker, unregisterDiscoverWorker } from './workers/discover/register.ts';
 import { sweepOrphanedCaches } from './workers/cache-gc.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from './enrichment/bootstrap.ts';
