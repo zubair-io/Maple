@@ -29,9 +29,19 @@ export async function enqueueDirs(folderId: ObjectId, dirs: string[], gen: numbe
   }));
   // ordered:false so a duplicate-key on one dir doesn't drop the rest.
   await coll.insertMany(docs, { ordered: false }).catch((err: unknown) => {
-    // E11000 duplicate key is expected on re-seed; rethrow anything else.
-    const code = (err as { code?: number }).code;
-    if (code !== 11000 && !(err as { writeErrors?: unknown[] }).writeErrors) throw err;
+    // ordered:false aggregates per-doc errors in a MongoBulkWriteError.
+    // Duplicate-key (11000) is EXPECTED on re-seed and safe to ignore;
+    // any other error (auth, network, validation) must propagate so we
+    // never silently drop frontier rows.
+    //
+    // MongoBulkWriteError shape (mongodb driver ≥ 6):
+    //   err.code         — top-level code (11000 when ALL errors are dups)
+    //   err.writeErrors  — WriteError[], each with a .code getter
+    const e = err as { code?: number; writeErrors?: Array<{ code: number }> };
+    if (e.code === 11000) return;
+    const writeErrors = e.writeErrors ?? [];
+    if (writeErrors.length > 0 && writeErrors.every((w) => w.code === 11000)) return;
+    throw err;
   });
 }
 

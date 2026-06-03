@@ -32,7 +32,8 @@ import { type DiscoverHandle, type DiscoverOptions } from './types.ts';
 import { handleEvent } from './handle-event.ts';
 import { SweeperLoop } from './sweeper.ts';
 import { loadDiscoverConfig } from './discover-config.repo.ts';
-import { seedRoot } from './frontier.repo.ts';
+import { seedRoot, remainingForGen } from './frontier.repo.ts';
+import { readCheckpoint } from '../../indexer/checkpoint.ts';
 
 // Public re-exports — external consumers (`src/api/src/index.ts`,
 // `src/api/src/routes/folders.ts`, the test suite) import these from
@@ -88,10 +89,20 @@ export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHand
       log.warn({ root }, 'no registered folder matched root — skipping');
       continue;
     }
-    await seedRoot(folder.id, root, 1);
+    // Resume the persisted sweep generation if one exists; otherwise start
+    // from gen 1. Only (re)seed the root when that generation's frontier is
+    // empty — a fresh start or a crash that happened between writeCheckpoint
+    // and seedRoot in advanceSweep. When the frontier already has rows we
+    // skip the seed so we don't double-enqueue the root directory.
+    const cp = await readCheckpoint(folder.id.toHexString());
+    const gen = cp?.sweepGen ?? 1;
+    if ((await remainingForGen(folder.id, gen)) === 0) {
+      await seedRoot(folder.id, root, gen);
+    }
     const loop = new SweeperLoop({
       folderId: folder.id,
       root,
+      startGen: gen,
       deps: { folderId: folder.id, handleEvent },
       loadConfig: loadDiscoverConfig,
     });
