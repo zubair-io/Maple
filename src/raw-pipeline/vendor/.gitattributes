@@ -1,4 +1,5 @@
-# Vendored crate sources committed by `cargo vendor` (see ../.cargo/config.toml).
+# Vendored crate sources committed by `cargo vendor` (consumed by the Apple
+# raw-ffi build — see src/apple/scripts/build-xcframework.sh and CONTRIBUTING.md).
 # Mark as vendored so GitHub keeps them out of language statistics, and suppress
 # diffs so dependency-bump commits don't drown PRs in generated noise. These are
 # upstream sources, not Maple code — they are not reviewed line-by-line here.
