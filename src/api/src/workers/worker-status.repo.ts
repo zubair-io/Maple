@@ -40,14 +40,20 @@ export async function writeWorkerStatus(
 
 /**
  * Read the most recent worker-status snapshot written by the worker process.
- * Returns `null` when the collection is empty (worker hasn't written yet).
+ * Returns `null` when the collection is empty (worker hasn't written yet) OR
+ * when Mongo is unreachable — so callers never see a rejected promise and
+ * `GET /api/workers/status` degrades gracefully when the DB is down.
  */
 export async function readWorkerStatus(): Promise<{
   statuses: Record<string, StageStatusSnapshot>;
   updated_at: number;
 } | null> {
-  const coll = (await getDb()).collection<WorkerStatusDoc>('worker_status');
-  const doc = await coll.findOne({ _id: 'singleton' });
-  if (!doc) return null;
-  return { statuses: doc.statuses, updated_at: doc.updated_at };
+  try {
+    const coll = (await getDb()).collection<WorkerStatusDoc>('worker_status');
+    const doc = await coll.findOne({ _id: 'singleton' });
+    if (!doc) return null;
+    return { statuses: doc.statuses, updated_at: doc.updated_at };
+  } catch {
+    return null;
+  }
 }
