@@ -187,10 +187,24 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
 
   const ready = loadPaused();
 
+  /** Timestamp of the last cross-process paused-state read from Mongo (ms). */
+  let lastPausedReadAt = 0;
+  /** Minimum gap between cross-process paused-state reads (ms). */
+  const PAUSED_READ_INTERVAL_MS = 2000;
+
   const tick = async (): Promise<void> => {
-    if (stopped || running || paused) return;
+    if (stopped || running) return;
     running = true;
     try {
+      // Re-read the paused flag from Mongo each tick (throttled) so a
+      // cross-process pause written by the API process takes effect without IPC.
+      if (Date.now() - lastPausedReadAt >= PAUSED_READ_INTERVAL_MS) {
+        await loadPaused();
+        lastPausedReadAt = Date.now();
+      }
+      // `return` here still runs the `finally` block below, so `running` is
+      // cleared correctly even when we skip a paused tick.
+      if (paused) return;
       const processed = await runMigrationTickOnce(batchSize, new Date().toISOString());
       for (let i = 0; i < processed; i++) throughput.record(new Date());
       stageRegistry.clearError(MIGRATION_WORKER_NAME);
