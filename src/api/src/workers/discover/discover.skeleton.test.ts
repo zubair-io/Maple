@@ -67,17 +67,20 @@ describe('discover producer — skeleton', () => {
     const { startDiscover, handleEvent } = await import('./index.ts');
 
     // Create a temporary folder row in the DB so discover can reference it.
+    // The FolderDoc schema uses `path` (not `abs_path`) for the library root.
     const { foldersCollection, assetsCollection } = await import('../../db/client.ts');
     const foldersColl = await foldersCollection();
     const folderResult = await foldersColl.insertOne({
-      abs_path: dir,
-      name: path.basename(dir),
+      path: dir,
+      label: path.basename(dir),
+      last_scan: null,
+      file_count: 0,
       created_at: new Date().toISOString(),
     } as never);
     const folderId = folderResult.insertedId;
 
     // Start discover so we verify the module boots without errors.
-    // folderId is now resolved per-event from the registered folders collection.
+    // folderId is now resolved per-root from the registered folders collection.
     discoverHandle = await startDiscover({ roots: [dir] });
 
     // Write a file so stat() inside handleEvent succeeds.

@@ -23,10 +23,9 @@ export interface DiscoverHandle {
 }
 
 /**
- * Typed event emitted by the filesystem watcher (or the reconciliation sweep).
- * Lives here — not in `indexer/watcher.ts` — so the sweep core can import it
- * without dragging in chokidar. `watcher.ts` re-exports this type for
- * backwards-compatibility with existing importers.
+ * Typed event emitted by the reconciliation sweep (or any future event source).
+ * Lives in `discover/types.ts` — the canonical reconciliation contract reused
+ * by `handleEvent` and `sweeper.ts`.
  */
 export interface WatchEvent {
   kind: 'created' | 'modified' | 'removed' | 'renamed';

@@ -1,10 +1,10 @@
 /**
- * Discover producer — wraps the chokidar Watcher and inserts image docs with
- * the full `stages` skeleton for every new or modified file.
+ * Discover producer — drives a breadth-first reconciliation sweep (one
+ * directory per tick) in place of the retired chokidar polling watcher.
  *
  * This module exports two things:
  *  1. `startDiscover(opts)` — called by the supervisor (or by tests) to start
- *     the watcher in the current process. Returns a handle with `stop()`.
+ *     one `SweeperLoop` per registered folder root. Returns a handle with `stop()`.
  *  2. A `main()` function guarded by `import.meta.main` that the supervisor
  *     spawns as a child process.
  *
@@ -13,30 +13,32 @@
  * upserts the image doc with the skeleton, letting exif/thumb controllers
  * pick it up naturally on their next poll tick.
  *
- * On rename: rewrites `fileinfo[0]`, preserves stage progress.
- * On remove: soft-deletes (sets deleted_at).
- * On modify: re-issues the upsert so mtime is refreshed; $setOnInsert guards
- *            against clobbering existing stage progress.
+ * On remove: soft-deletes (sets deleted_at) via handleEvent.
  *
  * Layout (split per #253, refs #134):
- *   - `types.ts`        — `DiscoverOptions`, `DiscoverHandle`, `SUPPORTED_EXTS`,
- *                         and the pure path-normalisation helpers.
- *   - `handle-event.ts` — `handleEvent`, the per-event dedup/insert core.
- *   - `index.ts` (here) — folder-resolution, the `startDiscover` factory, the
- *                         child-process `main()`, and the public re-exports.
+ *   - `types.ts`               — `DiscoverOptions`, `DiscoverHandle`, `WatchEvent`,
+ *                                `SUPPORTED_EXTS`, and the pure path-normalisation helpers.
+ *   - `handle-event.ts`        — `handleEvent`, the per-event dedup/insert core.
+ *   - `frontier.repo.ts`       — Mongo-backed frontier queue (claim/complete/enqueue).
+ *   - `sweeper.ts`             — `visitDirectory`, `advanceSweep`, `SweeperLoop`.
+ *   - `discover-config.repo.ts`— read/write `discover` row in `worker_config`.
+ *   - `index.ts` (here)        — folder-resolution, the `startDiscover` factory, the
+ *                                child-process `main()`, and the public re-exports.
  */
 import type { ObjectId } from 'mongodb';
-import { Watcher, type WatchEvent } from '../../indexer/watcher.ts';
 import { child } from '../../log.ts';
 import { foldersCollection, getDb, ensureIndexes, closeDb } from '../../db/client.ts';
-import { SUPPORTED_EXTS, type DiscoverHandle, type DiscoverOptions } from './types.ts';
+import { type DiscoverHandle, type DiscoverOptions } from './types.ts';
 import { handleEvent } from './handle-event.ts';
+import { SweeperLoop } from './sweeper.ts';
+import { loadDiscoverConfig } from './discover-config.repo.ts';
+import { seedRoot } from './frontier.repo.ts';
 
 // Public re-exports — external consumers (`src/api/src/index.ts`,
 // `src/api/src/routes/folders.ts`, the test suite) import these from
 // `./index.ts` and must stay stable across the split.
 export { handleEvent } from './handle-event.ts';
-export type { DiscoverOptions, DiscoverHandle } from './types.ts';
+export type { DiscoverOptions, DiscoverHandle, WatchEvent } from './types.ts';
 
 const log = child('discover');
 
@@ -62,56 +64,52 @@ function resolveFolder(
 }
 
 /**
- * Start the discover loop. Called by the supervisor in-process (or by tests).
- * Loads registered folder documents once at start time and caches the
- * `(folder_id, library_root)` pair so each FS event resolves in-process,
- * avoiding a Mongo round-trip per watcher tick.
+ * Start the discover sweep. Called by the supervisor in-process (or by tests).
+ * Loads registered folder documents once at start time, seeds the frontier for
+ * each root, and runs one `SweeperLoop` per root. The sweep reads its pacing
+ * and pause-state from `worker_config` every tick — no restart needed for
+ * config changes.
  *
  * Folder changes today require a restart of the worker (the supervisor
  * cycles it). A SIGHUP-to-refresh hook could be added if hot folder
  * registration becomes important.
  */
 export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHandle> {
-  const include = opts.include ?? SUPPORTED_EXTS;
-
   const foldersColl = await foldersCollection();
   const folderDocs = (await foldersColl.find({}, { projection: { path: 1 } }).toArray()) as Array<{
     _id: ObjectId;
     path: string;
   }>;
 
-  const watcher = new Watcher({
-    roots: opts.roots,
-    debounceMs: opts.debounceMs,
-    include,
-    onEvent: (event: WatchEvent) => {
-      const folder = resolveFolder(event.absPath, folderDocs);
-      if (!folder) {
-        log.warn({ absPath: event.absPath }, 'no registered folder matched — skipping event');
-        return;
-      }
-      handleEvent(event, folder.id, folder.root).catch((err) => {
-        log.error(
-          { absPath: event.absPath, err: err instanceof Error ? err.message : err },
-          'event handler failed',
-        );
-      });
-    },
-  });
+  const loops: SweeperLoop[] = [];
+  for (const root of opts.roots) {
+    const folder = resolveFolder(root, folderDocs) ?? resolveFolder(root + '/', folderDocs);
+    if (!folder) {
+      log.warn({ root }, 'no registered folder matched root — skipping');
+      continue;
+    }
+    await seedRoot(folder.id, root, 1);
+    const loop = new SweeperLoop({
+      folderId: folder.id,
+      root,
+      deps: { folderId: folder.id, handleEvent },
+      loadConfig: loadDiscoverConfig,
+    });
+    loops.push(loop);
+    void loop.run().catch((err) =>
+      log.error({ root, err: err instanceof Error ? err.message : err }, 'sweeper loop crashed'),
+    );
+  }
 
-  return {
-    stop: async () => {
-      await watcher.close();
-    },
-  };
+  return { stop: async () => { for (const l of loops) l.stop(); } };
 }
 
 /**
  * Child-process entry point. The supervisor spawns:
  *   bun src/api/src/workers/discover/index.ts <root1> [<root2> ...]
  *
- * Connects to Mongo, starts the watcher, runs until SIGTERM/SIGINT.
- * folder_id is resolved per-event from the registered folders collection.
+ * Connects to Mongo, starts the sweep loops, runs until SIGTERM/SIGINT.
+ * folder_id is resolved per root from the registered folders collection.
  */
 async function main(): Promise<void> {
   const [, , ...roots] = process.argv;
