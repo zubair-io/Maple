@@ -69,6 +69,7 @@ import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { loadPruneWindowHours } from './missing-reaper-config.repo.ts';
+import { makePausedPoller } from './paused-poller.ts';
 
 const log = childLogger('missing-reaper');
 
@@ -203,9 +204,7 @@ export async function runMissingReaperOnce(
     libs = new Map();
   }
 
-  // Per-pass cache of "does this library root resolve AND exist on disk".
-  // A library missing from the map (unregistered folder) or whose root path
-  // isn't a present directory counts as offline → its assets are skipped.
+  // Per-pass root cache: unregistered/missing roots count as offline → assets skipped.
   const rootStatus = new Map<string, 'present' | 'offline'>();
   const checkRoot = async (libIdHex: string): Promise<'present' | 'offline'> => {
     const cached = rootStatus.get(libIdHex);
@@ -266,9 +265,7 @@ export async function runMissingReaperOnce(
     .limit(batchSize)
     .toArray();
 
-  // Hard-deletes are deferred: we classify every candidate first (executing the
-  // safe prune/recover writes inline), then gate the irreversible deletes
-  // behind the circuit breaker before running them.
+  // Defer hard-deletes: classify all candidates first, then gate on the circuit breaker.
   const toDelete: typeof candidates = [];
 
   for (const doc of candidates) {
@@ -555,12 +552,8 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
   // Adopt the persisted control state shortly after boot.
   const ready = loadPaused();
 
-  /** Timestamp of the last cross-process paused-state read from Mongo (ms). */
-  let lastPausedReadAt = 0;
-  /** Minimum gap between cross-process paused-state reads (ms). Keeps the
-   * interval loop from hitting Mongo on every tick if intervalMs is reduced
-   * (e.g. in tests). Matches the CONFIG_RELOAD_INTERVAL_MS in run-stage.ts. */
-  const PAUSED_READ_INTERVAL_MS = 2000;
+  // Throttled cross-process pause poller (2s interval). See paused-poller.ts.
+  const pollPaused = makePausedPoller(MISSING_REAPER_NAME, paused);
 
   const tick = async (): Promise<void> => {
     // Runs even when paused — recovery/prune (re-found files) must keep working;
@@ -568,12 +561,7 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     if (stopped || running) return;
     running = true;
     try {
-      // Re-read the paused flag from Mongo each tick (throttled) so a
-      // cross-process pause written by the API process takes effect without IPC.
-      if (Date.now() - lastPausedReadAt >= PAUSED_READ_INTERVAL_MS) {
-        await loadPaused();
-        lastPausedReadAt = Date.now();
-      }
+      paused = await pollPaused();
       const pruneWindowHours = await loadPruneWindowHours();
       const deleteBeforeIso = new Date(Date.now() - pruneWindowHours * 3_600_000).toISOString();
       const summary = await runMissingReaperOnce({

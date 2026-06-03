@@ -52,8 +52,11 @@ describe('sanitizeWorkerConfig', () => {
 });
 
 describe('GET /api/workers/status', () => {
-  it('returns an empty stages array when worker_status has no doc', async () => {
+  it('returns all known workers even when worker_status has no doc', async () => {
     // No writeWorkerStatus call → readWorkerStatus returns null → statuses = {}
+    // assembleWorkersStatus now unions ALL_KNOWN_WORKER_NAMES, so every worker
+    // appears with status 'stopped' rather than an empty array.
+    const { ALL_KNOWN_WORKER_NAMES } = await import('./routes-status.ts');
     const app = new Elysia().use(workerRoutes());
 
     const res = await app.handle(new Request('http://localhost/api/workers/status'));
@@ -61,12 +64,18 @@ describe('GET /api/workers/status', () => {
     const body = await res.json();
     expect(body).toHaveProperty('stages');
     expect(Array.isArray(body.stages)).toBe(true);
-    expect(body.stages).toHaveLength(0);
+    expect(body.stages).toHaveLength(ALL_KNOWN_WORKER_NAMES.length);
+    for (const s of body.stages) {
+      expect(s.status).toBe('stopped');
+    }
   });
 
   // Regression test for PR #164 review issue 1: the worker writes snapshots for
   // every pre-registered stage (even those mid-retry / stopped) to worker_status.
-  // The API reads that snapshot and surfaces all stage names.
+  // The API reads that snapshot and surfaces all stage names. Since PR #892 the
+  // response also includes every other known worker (missing-reaper, migration,
+  // discover) even when the worker process is not running, so the check is now
+  // a superset: all snapshot names appear, plus the static known names.
   it('surfaces stages written by the worker to worker_status', async () => {
     if (!dbReachable) return;
     const names = [
@@ -96,12 +105,18 @@ describe('GET /api/workers/status', () => {
     const res = await app.handle(new Request('http://localhost/api/workers/status'));
     expect(res.status).toBe(200);
     const body = await res.json();
-    const stageNames = (body.stages as Array<{ name: string; status: string }>)
-      .map((s) => s.name)
-      .sort();
-    expect(stageNames).toEqual(names.sort());
-    for (const s of body.stages) {
-      expect(s.status).toBe('stopped');
+    const returnedNames = new Set(
+      (body.stages as Array<{ name: string; status: string }>).map((s) => s.name),
+    );
+    // All snapshot names must be present.
+    for (const n of names) {
+      expect(returnedNames.has(n)).toBe(true);
+    }
+    // Stages written by the worker carry their written status.
+    for (const s of body.stages as Array<{ name: string; status: string }>) {
+      if (names.includes(s.name)) {
+        expect(s.status).toBe('stopped');
+      }
     }
   });
 

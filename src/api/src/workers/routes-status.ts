@@ -11,7 +11,11 @@ import type { WorkerConfig, ImageDoc } from './run-stage.ts';
 import { buildClaimQuery } from './run-stage.ts';
 import { deriveBatchSize } from './loop-policy.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
+import { MISSING_REAPER_NAME } from './missing-reaper.ts';
+import { MIGRATION_WORKER_NAME } from './migration.ts';
+import { DISCOVER_NAME } from './discover/register.ts';
 import type { StageStatusSnapshot } from './registry.ts';
+import { stageRegistry } from './registry.ts';
 import { readWorkerStatus } from './worker-status.repo.ts';
 import { child } from '../log.ts';
 
@@ -24,6 +28,18 @@ const log = child('workers:routes:status');
 // `version: { $exists: false }` branch would match the ENTIRE collection. Gate
 // the counts to real claim stages; everything else reports pending/dead 0.
 export const CLAIM_STAGE_NAMES = new Set<string>(ALL_STAGE_NAMES);
+
+/**
+ * Canonical set of every worker name the status endpoint should surface,
+ * regardless of whether a worker process is currently running. Keeps the
+ * Workers UI stable (rows never disappear on a worker restart).
+ */
+export const ALL_KNOWN_WORKER_NAMES: ReadonlyArray<string> = [
+  ...ALL_STAGE_NAMES,
+  MISSING_REAPER_NAME,
+  MIGRATION_WORKER_NAME,
+  DISCOVER_NAME,
+];
 
 export const DEAD_LIST_LIMIT_DEFAULT = 50;
 export const DEAD_LIST_LIMIT_MAX = 500;
@@ -130,8 +146,12 @@ export async function fetchStatusDbState(
   if (assets && claimStageNames.length > 0) {
     const counts = await Promise.all(
       claimStageNames.flatMap((name) => {
-        const tv = statuses[name]?.targetVersion ?? 1;
-        const deps = statuses[name]?.dependsOn ?? [];
+        // Prefer the cross-process worker_status snapshot; fall back to the
+        // in-process registry (populated in tests + the API-collocated worker
+        // path) so that stage count queries use the correct targetVersion.
+        const registryEntry = stageRegistry.statuses()[name];
+        const tv = statuses[name]?.targetVersion ?? registryEntry?.targetVersion ?? 1;
+        const deps = statuses[name]?.dependsOn ?? registryEntry?.dependsOn ?? [];
         const pending = assets!
           .countDocuments({
             $or: [
@@ -277,12 +297,27 @@ export async function getStatusDbStateCached(
 
 /** Compose the per-stage status rows from the live registry + DB-derived
  * counts. Pure assembly — no I/O. Shared by the `/status` route and the WS
- * `workers-status` frame so both render identically. */
+ * `workers-status` frame so both render identically.
+ *
+ * Iterates the UNION of `ALL_KNOWN_WORKER_NAMES`, `Object.keys(statuses)`,
+ * and the dbState map keys, so every known worker always appears in the
+ * response — even when the worker process is not running (statuses is empty
+ * or missing that name). Workers absent from `statuses` default to
+ * `status: 'stopped'` with zeroed live fields. */
 export function assembleWorkersStatus(
   statuses: Record<string, StageStatusSnapshot>,
   dbState: StatusDbState,
 ): WorkersStatusPayload {
-  const stages = Object.entries(statuses).map(([name, s]) => {
+  // Build the full set of names to surface.
+  const nameSet = new Set<string>([
+    ...ALL_KNOWN_WORKER_NAMES,
+    ...Object.keys(statuses),
+    ...dbState.configMap.keys(),
+    ...dbState.pendingByStage.keys(),
+  ]);
+
+  const stages = Array.from(nameSet).map((name) => {
+    const s = statuses[name];
     const pending = dbState.pendingByStage.get(name) ?? 0;
     const ready = dbState.readyByStage.get(name) ?? 0;
     // pending and ready are counted by separate (non-atomic) queries, so
@@ -297,15 +332,15 @@ export function assembleWorkersStatus(
     const batchSize = deriveBatchSize(configured);
     return {
       name,
-      status: s.status,
-      inFlight: s.inFlight,
+      status: s?.status ?? ('stopped' as const),
+      inFlight: s?.inFlight ?? 0,
       configured,
       pending,
       ready,
       blocked,
       dead,
-      throughput: s.throughput,
-      lastError: s.lastError,
+      throughput: s?.throughput ?? 0,
+      lastError: s?.lastError ?? null,
       config,
       batchSize,
     };
@@ -319,10 +354,16 @@ export function assembleWorkersStatus(
  * worker process (~2 s interval).  The API process no longer holds a populated
  * in-process registry — reading it there would always return an empty map.
  * DB-derived counts (pending / ready / dead / config) are unchanged: they come
- * from `getStatusDbStateCached` which queries Mongo directly. */
+ * from `getStatusDbStateCached` which queries Mongo directly.
+ *
+ * Always passes the full `ALL_KNOWN_WORKER_NAMES` union as stageNames so that
+ * DB-derived pending/dead counts are fetched for every stage even when no
+ * worker process is running (statuses may be empty). */
 export async function computeWorkersStatus(): Promise<WorkersStatusPayload> {
   const statuses = (await readWorkerStatus())?.statuses ?? {};
-  const stageNames = Object.keys(statuses);
+  // Union of live worker names and the static known set so DB counts are
+  // fetched for every stage regardless of whether a worker process is up.
+  const stageNames = Array.from(new Set([...ALL_KNOWN_WORKER_NAMES, ...Object.keys(statuses)]));
   const dbState = await getStatusDbStateCached(stageNames, statuses);
   return assembleWorkersStatus(statuses, dbState);
 }
