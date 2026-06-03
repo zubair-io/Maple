@@ -64,29 +64,47 @@ If a formatter binary isn't installed locally, the corresponding pre-commit step
 
 ## Per-language formatter + lint
 
-| Language          | Format                                              | Lint                | Config                                                                  |
-| ----------------- | --------------------------------------------------- | ------------------- | ----------------------------------------------------------------------- |
-| TypeScript / HTML | `prettier --check` (printWidth 100, single quotes)  | `ng lint` (web only)| `src/web/.prettierrc`                                                   |
-| Rust              | `rustfmt --edition 2021`                            | `cargo clippy`      | repo defaults (no `rustfmt.toml` yet)                                   |
-| Swift             | `xcrun swift-format lint --strict`                  | (same)              | repo defaults (no `.swift-format` yet — Xcode bundled config used)      |
-| Python            | `ruff format --check`                               | `ruff check`        | repo defaults (no `pyproject.toml` yet)                                 |
-| Shell             | `shfmt -d`                                          | `shellcheck` (CI)   | repo defaults                                                           |
+| Language          | Format                                             | Lint                 | Config                                                             |
+| ----------------- | -------------------------------------------------- | -------------------- | ------------------------------------------------------------------ |
+| TypeScript / HTML | `prettier --check` (printWidth 100, single quotes) | `ng lint` (web only) | `src/web/.prettierrc`                                              |
+| Rust              | `rustfmt --edition 2021`                           | `cargo clippy`       | repo defaults (no `rustfmt.toml` yet)                              |
+| Swift             | `xcrun swift-format lint --strict`                 | (same)               | repo defaults (no `.swift-format` yet — Xcode bundled config used) |
+| Python            | `ruff format --check`                              | `ruff check`         | repo defaults (no `pyproject.toml` yet)                            |
+| Shell             | `shfmt -d`                                         | `shellcheck` (CI)    | repo defaults                                                      |
 
 `rustfmt.toml`, `.swift-format`, and `pyproject.toml` will land alongside the first formatter run that needs non-default settings — kept lean until a real reason appears.
 
 ## Vendored Rust dependencies
 
-The Rust workspace's crate sources are vendored into `src/raw-pipeline/vendor/` and `src/raw-pipeline/.cargo/config.toml` replaces crates.io with that directory. The build never resolves or downloads from `static.crates.io`, so it's hermetic — this removes the intermittent `Could not resolve host: static.crates.io` DNS failures on Xcode Cloud and keeps CI builds reproducible. `build-xcframework.sh` passes `cargo build --offline`, so a stale or incomplete vendor dir fails loudly rather than silently hitting the network.
+The Rust workspace's crate sources are vendored into `src/raw-pipeline/vendor/` so the **Apple xcframework build** never resolves or downloads from `static.crates.io`. That build runs on Xcode Cloud, where transient DNS failures (`Could not resolve host: static.crates.io`) intermittently kill TestFlight builds; vendoring makes it hermetic and reproducible.
+
+The source replacement is **not** a committed `.cargo/config.toml` (which every cargo invocation under `src/raw-pipeline/` would inherit). Instead `build-xcframework.sh` passes it inline, scoped to the `raw-ffi` build only:
+
+```sh
+cargo build --offline \
+  --config 'source.crates-io.replace-with="vendored-sources"' \
+  --config 'source.vendored-sources.directory="…/vendor"' \
+  --package raw-ffi --target <apple-triple>
+```
+
+Scoping matters: the WASM build (`raw-wasm/build.sh`) uses `-Z build-std`, which rebuilds `std` from source and needs `std`'s own dependency versions — those aren't in our vendor dir, so a repo-level replacement would break it. The web/wasm and API builds keep resolving from crates.io as before; only the Apple build is hermetic. `--offline` means a stale or incomplete vendor dir fails loudly rather than silently hitting the network.
 
 `vendor/` is committed source (≈22 MB packed; marked `linguist-vendored` so it stays out of language stats). **Re-vendor whenever dependencies change** — after `cargo update`, adding, or removing a crate:
 
 ```bash
 cd src/raw-pipeline
 cargo vendor vendor          # regenerates vendor/ from Cargo.lock
-git add vendor .cargo/config.toml Cargo.lock
+git add vendor Cargo.lock
 ```
 
-Commit the `Cargo.lock` change and the regenerated `vendor/` together. Verify offline before pushing: `cargo build --offline -p raw-ffi`.
+Commit the `Cargo.lock` change and the regenerated `vendor/` together. Verify before pushing:
+
+```bash
+cargo build --offline \
+  --config 'source.crates-io.replace-with="vendored-sources"' \
+  --config "source.vendored-sources.directory=\"$PWD/vendor\"" \
+  -p raw-ffi
+```
 
 ## Layout
 
@@ -162,16 +180,16 @@ shared state; the seed stories in this PR avoid that surface deliberately
 
 ## Read before editing
 
-| If you need to…                           | Read this                                          |
-| ----------------------------------------- | -------------------------------------------------- |
-| Decide what a feature should do           | `docs/feature-spec.md`                             |
-| Decide how a screen should look or behave | `docs/ui-spec.md`                                  |
-| Pick a pattern for an Angular component   | `docs/best-practices.md` § "Angular"               |
-| Pick a pattern for a Swift view           | `docs/best-practices.md` § "Swift"                 |
-| Change the XMP schema                     | `docs/sidecar-schema.md`                           |
-| Touch a color-pipeline stage              | `docs/architecture.md` + `docs/testing.md`         |
-| Add a cache                               | `docs/caching.md`                                  |
-| Understand the build matrix               | `CLAUDE.md` § "Build & test — Apple / Web / API"   |
+| If you need to…                           | Read this                                        |
+| ----------------------------------------- | ------------------------------------------------ |
+| Decide what a feature should do           | `docs/feature-spec.md`                           |
+| Decide how a screen should look or behave | `docs/ui-spec.md`                                |
+| Pick a pattern for an Angular component   | `docs/best-practices.md` § "Angular"             |
+| Pick a pattern for a Swift view           | `docs/best-practices.md` § "Swift"               |
+| Change the XMP schema                     | `docs/sidecar-schema.md`                         |
+| Touch a color-pipeline stage              | `docs/architecture.md` + `docs/testing.md`       |
+| Add a cache                               | `docs/caching.md`                                |
+| Understand the build matrix               | `CLAUDE.md` § "Build & test — Apple / Web / API" |
 
 ## Bundle ID
 
