@@ -11,8 +11,8 @@ import type { WorkerConfig, ImageDoc } from './run-stage.ts';
 import { buildClaimQuery } from './run-stage.ts';
 import { deriveBatchSize } from './loop-policy.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
-import { stageRegistry } from './registry.ts';
 import type { StageStatusSnapshot } from './registry.ts';
+import { readWorkerStatus } from './worker-status.repo.ts';
 import { child } from '../log.ts';
 
 const log = child('workers:routes:status');
@@ -313,9 +313,15 @@ export function assembleWorkersStatus(
   return { stages, damaged: dbState.damagedTotal };
 }
 
-/** Full `/status` payload, resolving the DB half through the shared cache. */
+/** Full `/status` payload, resolving the DB half through the shared cache.
+ *
+ * The live stage state comes from the `worker_status` Mongo doc written by the
+ * worker process (~2 s interval).  The API process no longer holds a populated
+ * in-process registry — reading it there would always return an empty map.
+ * DB-derived counts (pending / ready / dead / config) are unchanged: they come
+ * from `getStatusDbStateCached` which queries Mongo directly. */
 export async function computeWorkersStatus(): Promise<WorkersStatusPayload> {
-  const statuses = stageRegistry.statuses();
+  const statuses = (await readWorkerStatus())?.statuses ?? {};
   const stageNames = Object.keys(statuses);
   const dbState = await getStatusDbStateCached(stageNames, statuses);
   return assembleWorkersStatus(statuses, dbState);
