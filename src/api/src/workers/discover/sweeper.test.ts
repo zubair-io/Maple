@@ -171,4 +171,40 @@ describe('SweeperLoop', () => {
     expect(visited.length).toBeGreaterThanOrEqual(3);
     rmSync(root, { recursive: true, force: true });
   });
+
+  it('SweeperLoop resumes a persisted generation (startGen) and does not process gen 1 rows', async () => {
+    // Regression guard for the restart-rehydration fix: without startGen the
+    // loop would default to gen 1, miss the gen-3 row, and return idle without
+    // visiting any directory.
+    if (!reachable) return;
+    const { SweeperLoop } = await import('./sweeper.ts');
+    const frontier = await import('./frontier.repo.ts');
+
+    const folderId = new ObjectId();
+    // Use an empty temp dir as the gen-3 root (no subdirs → one visit, then done).
+    const root = mkdtempSync(join(tmpdir(), 'maple-resume-'));
+
+    // Seed a gen-3 frontier row directly (simulates a sweep that had already
+    // advanced past gen 1 before the process restarted).
+    await frontier.enqueueDirs(folderId, [root], 3);
+
+    const visited: string[] = [];
+    const loop = new SweeperLoop({
+      folderId,
+      root,
+      startGen: 3,
+      deps: { folderId, handleEvent: async () => {} },
+      loadConfig: async () => ({ paused: false, sweepDirIntervalMs: 0 }),
+      sleep: async () => {},
+      onVisit: (p) => visited.push(p),
+    });
+    await loop.runUntilIdleOrPaused();
+
+    // The loop must have claimed and visited the gen-3 directory.
+    expect(visited).toContain(root);
+    // The gen-3 frontier row was consumed (dir was completed).
+    expect(await frontier.remainingForGen(folderId, 3)).toBe(0);
+
+    rmSync(root, { recursive: true, force: true });
+  });
 });
