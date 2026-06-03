@@ -13,6 +13,7 @@ import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
 import * as frontier from './frontier.repo.ts';
 import type { FrontierDir } from './frontier.repo.ts';
+import { readCheckpoint, writeCheckpoint } from '../../indexer/checkpoint.ts';
 
 export interface ReconcileDeps {
   handleEvent: (event: WatchEvent, folderId: ObjectId, libraryRoot: string) => Promise<void>;
@@ -83,4 +84,30 @@ export async function visitDirectory(
 
   await frontier.enqueueDirs(folderId, subdirs, dir.sweep_gen);
   await frontier.completeDir(dir._id);
+}
+
+/**
+ * If the current generation's frontier is drained, start the next generation:
+ * record the completed walk on the checkpoint and reseed the root dir. Returns
+ * the generation to sweep next (unchanged if work remains).
+ */
+export async function advanceSweep(
+  folderId: ObjectId,
+  rootPath: string,
+  gen: number,
+): Promise<number> {
+  if ((await frontier.remainingForGen(folderId, gen)) > 0) return gen;
+  const nextGen = gen + 1;
+  const fid = folderId.toHexString();
+  const existing = await readCheckpoint(fid);
+  await writeCheckpoint({
+    folderId: fid,
+    path: rootPath,
+    lastWalkedAt: Date.now(),
+    inflightIds: existing?.inflightIds ?? [],
+    sweepGen: nextGen,
+    updatedAt: Date.now(),
+  });
+  await frontier.seedRoot(folderId, rootPath, nextGen);
+  return nextGen;
 }
