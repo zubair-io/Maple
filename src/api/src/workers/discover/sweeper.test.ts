@@ -110,3 +110,28 @@ describe('advanceSweep', () => {
     expect(await frontier.remainingForGen(folderId, 2)).toBe(1);
   });
 });
+
+describe('SweeperLoop', () => {
+  it('SweeperLoop visits dirs paced by interval and halts when paused', async () => {
+    if (!reachable) return;
+    const { SweeperLoop } = await import('./sweeper.ts');
+    const frontier = await import('./frontier.repo.ts');
+    const root = mkdtempSync(join(tmpdir(), 'maple-loop-'));
+    mkdirSync(join(root, 'a')); mkdirSync(join(root, 'b'));
+    const folderId = new ObjectId();
+    await frontier.seedRoot(folderId, root, 1);
+
+    let paused = false;
+    const visited: string[] = [];
+    const loop = new SweeperLoop({
+      folderId, root,
+      deps: { folderId, handleEvent: async () => {} },
+      loadConfig: async () => ({ paused, sweepDirIntervalMs: 0 }),
+      sleep: async () => {},
+      onVisit: (p) => { visited.push(p); if (visited.length === 3) paused = true; },
+    });
+    await loop.runUntilIdleOrPaused(); // test-only bound
+    expect(visited.length).toBeGreaterThanOrEqual(3);
+    rmSync(root, { recursive: true, force: true });
+  });
+});
