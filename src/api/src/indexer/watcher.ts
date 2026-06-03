@@ -10,17 +10,12 @@
 import chokidar, { type FSWatcher } from 'chokidar';
 import * as path from 'node:path';
 import { child as childLogger } from '../log.ts';
+import type { WatchEvent } from '../workers/discover/types.ts';
+export type { WatchEvent };
 
 const log = childLogger('watcher');
 
 export type WatchKind = 'created' | 'modified' | 'renamed' | 'removed';
-
-export interface WatchEvent {
-  kind: WatchKind;
-  absPath: string;
-  /** Only set for renames — previous absolute path. */
-  fromPath?: string;
-}
 
 export interface WatcherOptions {
   /** Absolute folder paths to watch. */
