@@ -72,12 +72,7 @@ import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { getDb, ensureIndexes, closeDb } from './db/client.ts';
 import { startMaintenanceJobs, stopMaintenanceJobs } from './workers/maintenance.ts';
-import { stopAllStages } from './workers/orchestrator.ts';
-import { unregisterDiscoverWorker } from './workers/discover/register.ts';
 import { workerRoutes } from './workers/routes.ts';
-import { stopGeocodeWorker } from './enrichment/bootstrap.ts';
-import { stopFaceWorker } from './enrichment/face-bootstrap.ts';
-import { stopDescribeWorker } from './enrichment/describe-bootstrap.ts';
 import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
 import {
   loadEnrichmentConfig,
@@ -88,11 +83,13 @@ import {
   resolveObservabilityConfig,
 } from './observability/observability-config.repo.ts';
 import { initOtel, shutdownOtel } from './otel.ts';
-import { stopJobRunner } from './job-runner/runner.ts';
-import { stopImportRunner } from './imports/worker.ts';
 import { getChangeFeedTailer } from './runtime/change-feed-tailer.ts';
-import { ffiPool } from './ffi/ffi-pool.ts';
 import { startEventLoopLagMonitor, stopEventLoopLagMonitor } from './runtime/diag-eventloop.ts';
+import {
+  ChildProcessWorker,
+  childScriptPath,
+  DEFAULT_NATIVE_CHILD_NICE,
+} from './runtime/child-process-worker.ts';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const CORS_ORIGIN = process.env.MAPLE_CORS_ORIGIN ?? '*';
@@ -247,13 +244,12 @@ export const app = buildApp({ stageNames: [] });
 // Startup
 // ---------------------------------------------------------------------------
 
-/**
- * Discover child handle — retained in index.ts so shutdown() can still call
- * _discoverChild?.terminate() without compilation errors. startWorkers() now
- * owns the in-process discover handle; this is never set in Task 1 (Task 3
- * replaces it with _workerChild when the worker tier moves to a child process).
- */
-let _discoverChild: { terminate(): void } | null = null;
+/** Handle for the spawned worker-tier child process (Task 3). */
+let _workerChild: ChildProcessWorker | null = null;
+
+/** Set to true at the start of shutdown() so the respawn guard doesn't
+ * re-spawn a worker that we intentionally terminated. */
+let shuttingDown = false;
 
 async function start(): Promise<void> {
   await ensureJwtSecret();
@@ -315,16 +311,32 @@ async function start(): Promise<void> {
       log.error({ err }, 'change feed tailer failed to start');
     }
 
-    // Worker-tier (stages, discover, FFI pool, enrichment workers, job/import
-    // runners) is NOT started here — it has been extracted to
-    // `workers/start-workers.ts`. Task 3 will spawn it as a child process.
-    // For now (Task 1) the worker tier is simply not started from index.ts.
+    // Worker tier — spawned as a niced child process so the HTTP event loop can
+    // never be starved or crashed by indexer/enrichment load. The child runs
+    // `startWorkers()` which owns stages, discover, FFI pool, enrichment, job
+    // runner, and import runner. Auto-respawns on crash unless shutting down.
+    function spawnWorker(): void {
+      if (shuttingDown) return;
+      try {
+        const w = new ChildProcessWorker(
+          childScriptPath(import.meta.url, './workers/worker-main.ts'),
+          { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'worker' },
+        );
+        w.addEventListener('error', (e) => {
+          log.error({ msg: e.message }, 'worker process died — respawning');
+          _workerChild = null;
+          if (!shuttingDown) setTimeout(spawnWorker, 1000);
+        });
+        _workerChild = w;
+        log.info('worker process spawned');
+      } catch (err) {
+        log.error({ err }, 'failed to spawn worker process');
+      }
+    }
     if (process.env.MAPLE_INDEXER_AUTOSTART === '0') {
-      log.info('Indexer autostart disabled (MAPLE_INDEXER_AUTOSTART=0)');
+      log.info('Worker process disabled (MAPLE_INDEXER_AUTOSTART=0)');
     } else {
-      log.info(
-        'Worker tier extracted to start-workers.ts — not yet wired (Task 3 will spawn as child)',
-      );
+      spawnWorker();
     }
 
     try {
@@ -405,12 +417,13 @@ async function start(): Promise<void> {
   app.listen(PORT);
   // Library-wide maintenance jobs (trash-gc + missing-reaper). Started
   // unconditionally — independent of MAPLE_INDEXER_AUTOSTART — and stopped in
-  // shutdown(). Stage drain is handled separately via stopAllStages().
+  // shutdown(). Stage drain is handled by the worker child's own shutdown.
   startMaintenanceJobs();
 }
 
 // Graceful shutdown.
 async function shutdown(signal: string): Promise<void> {
+  shuttingDown = true;
   log.info({ signal }, 'shutting down');
   // Stop the event-loop lag probe (no-op if it was never started).
   try {
@@ -432,55 +445,14 @@ async function shutdown(signal: string): Promise<void> {
   } catch (e) {
     log.warn({ err: e }, 'error stopping maintenance jobs');
   }
-  // Terminate the discover sweep child process so it stops producing new docs
-  // while we drain.
+  // Terminate the worker child process. Its own SIGTERM handler drains all
+  // stages, discover, enrichment workers, job/import runners, and FFI pool
+  // before exiting. Best-effort — worker may already be dead or not yet spawned.
   try {
-    _discoverChild?.terminate();
-    _discoverChild = null;
-    unregisterDiscoverWorker();
+    _workerChild?.terminate();
+    _workerChild = null;
   } catch (e) {
-    log.warn({ err: e }, 'error stopping discover');
-  }
-  // Stop the in-process stage runners so any in-flight handler can drain
-  // before the process exits.
-  try {
-    await stopAllStages();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping worker stages');
-  }
-  // Reap the FFI decode child processes. Stages are drained above so no new
-  // decode requests are coming; Bun doesn't auto-reap spawned children when
-  // the parent exits, so do it explicitly to avoid leaving orphans behind on a
-  // graceful restart.
-  try {
-    ffiPool().shutdown();
-  } catch (e) {
-    log.warn({ err: e }, 'error shutting down FFI decode pool');
-  }
-  try {
-    await stopGeocodeWorker();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping geocode worker');
-  }
-  try {
-    await stopFaceWorker();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping face worker');
-  }
-  try {
-    await stopDescribeWorker();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping describe worker');
-  }
-  try {
-    await stopJobRunner();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping job runner');
-  }
-  try {
-    await stopImportRunner();
-  } catch (e) {
-    log.warn({ err: e }, 'error stopping import runner');
+    log.warn({ err: e }, 'error stopping worker process');
   }
   // Flush + shut down the OpenTelemetry SDK so its batch exporters drain and
   // its timers stop keeping the event loop alive.
