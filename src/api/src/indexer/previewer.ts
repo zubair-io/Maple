@@ -25,7 +25,8 @@ import * as path from 'node:path';
 import * as fs from 'node:fs/promises';
 import { cachePathFor } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
-import { renderImageThumbToFile, SHARP_EXTENSIONS } from '../thumbs/render.ts';
+import { SHARP_EXTENSIONS } from '../fs/browse.ts';
+import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
 import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { child as childLogger } from '../log.ts';
 
@@ -182,9 +183,26 @@ async function renderBitmapPreviewToFile(
   ext: string,
 ): Promise<boolean> {
   try {
-    return await renderImageThumbToFile(srcPath, previewPath, PREVIEW_LONG_EDGE_PX, ext);
+    // quality 82 matches the thumb path; the VLM consumes the preview at whatever
+    // quality the source encodes — additional fidelity does not measurably affect
+    // caption accuracy and is not worth the extra bytes.
+    const result = await renderImageThumbToFile(
+      srcPath,
+      previewPath,
+      PREVIEW_LONG_EDGE_PX,
+      82,
+      ext,
+    );
+    if (!result.ok) {
+      log.warn(
+        { srcPath, err: result.error ?? 'imgdecode failed' },
+        'imgdecode child returned error',
+      );
+      return false;
+    }
+    return true;
   } catch (e) {
-    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'sharp render failed');
+    log.warn({ srcPath, err: e instanceof Error ? e.message : e }, 'imgdecode pool threw');
     return false;
   }
 }
