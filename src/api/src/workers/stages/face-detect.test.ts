@@ -177,6 +177,29 @@ describe('faceDetectHandler — happy path', () => {
   });
 });
 
+describe('faceDetectHandler — video files', () => {
+  it('skips a video asset as { skip: video-file } even when a thumb exists, without invoking the detector', async () => {
+    const { root, libraryId } = setup();
+    try {
+      // A cached "thumb" exists, but for a .MOV/.mp4 the thumb/preview
+      // last-resort path copies the source bytes verbatim — so it's the raw
+      // video container, not a JPEG. Handing those bytes to the face pool throws
+      // "The object can not be cloned" on the IPC postMessage, which dead-letters
+      // after maxAttempts. Skip videos terminally, mirroring describe/preview/exif.
+      const { doc, thumbPath } = stageAsset(root, libraryId, 'IMG_4661.MOV');
+      mkdirSync(dirname(thumbPath), { recursive: true });
+      writeFileSync(thumbPath, 'raw-mov-bytes');
+      setDefaultFaceDetectorForTests(
+        mockDetector([], new Error('detector must not run on a video asset')),
+      );
+      const result = await faceDetectHandler(doc, noopCtx);
+      expect((result as { skip: string }).skip).toBe('video-file');
+    } finally {
+      teardown();
+    }
+  });
+});
+
 describe('faceDetectHandler — thumb missing', () => {
   it('returns { skip } with THUMB_MISSING_REASON when thumb is absent', async () => {
     const { root, libraryId } = setup();
