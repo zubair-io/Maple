@@ -9,7 +9,7 @@ import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
-import { SUPPORTED_EXTS } from './types.ts';
+import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
 import * as frontier from './frontier.repo.ts';
 import type { FrontierDir } from './frontier.repo.ts';
@@ -23,11 +23,6 @@ function isSupported(name: string): boolean {
   return SUPPORTED_EXTS.has(path.extname(name).toLowerCase());
 }
 
-/** Relative directory path of `absDir` under `root`, '' for the root itself. */
-function relDir(root: string, absDir: string): string {
-  const rel = path.relative(root, absDir);
-  return rel === '' ? '' : rel;
-}
 
 export async function visitDirectory(
   dir: FrontierDir,
@@ -57,7 +52,7 @@ export async function visitDirectory(
   // ONE indexed read per dir: the non-deleted assets recorded directly in it.
   // Drives BOTH "what's new" and "what's gone" — so writes happen only on real
   // changes, never a per-file upsert storm.
-  const rel = relDir(root, dir.dir_path);
+  const rel = toPosixRelDir(path.relative(root, dir.dir_path));
   const coll = await assetsCollection();
   const recorded = (await coll
     .find(
