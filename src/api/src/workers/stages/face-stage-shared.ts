@@ -13,6 +13,8 @@ import { readFile } from 'node:fs/promises';
 import type { ImageDoc } from '../run-stage.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
+import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import { isVideoFilename } from '../../indexer/media-types.ts';
 
 /** The thumbnail stage hasn't run yet, or the cached file was deleted. */
 export const THUMB_MISSING_REASON = 'thumb-missing';
@@ -40,6 +42,18 @@ export type ThumbLoad = { bytes: Uint8Array } | { skip: string };
  * unregistered.
  */
 export async function loadThumbBytes(image: ImageDoc): Promise<ThumbLoad> {
+  // Videos have no still frame for face detection/embedding. The thumb/preview
+  // last-resort path copies the source bytes verbatim, so the cached "thumb" for
+  // a .mov/.mp4 is the raw video container — not a JPEG. Handing those bytes to
+  // the face pool throws "The object can not be cloned" on the IPC postMessage,
+  // which dead-letters the asset after maxAttempts. Skip videos terminally
+  // (skip advances the stage version), mirroring the describe / preview / exif
+  // stages. Single source of truth for "is a video" — see indexer/media-types.ts.
+  const primary = assetPrimaryFileInfo(image);
+  if (primary && isVideoFilename(primary.filename)) {
+    return { skip: 'video-file' };
+  }
+
   const libs = await loadLibraryRoots();
   const thumbPath = resolveThumbPathForAsset(image as never, libs);
   if (!thumbPath) {
