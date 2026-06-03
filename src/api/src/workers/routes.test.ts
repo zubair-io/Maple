@@ -1,8 +1,25 @@
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeEach, beforeAll } from 'bun:test';
 import { Elysia } from 'elysia';
 import { workerRoutes, sanitizeWorkerConfig } from './routes.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
+import { writeWorkerStatus } from './worker-status.repo.ts';
+import { getDb } from '../db/client.ts';
+import type { StageStatusSnapshot } from './registry.ts';
+
+let dbReachable = true;
+beforeAll(async () => {
+  try {
+    await getDb();
+  } catch {
+    dbReachable = false;
+  }
+});
+beforeEach(async () => {
+  if (dbReachable) {
+    await (await getDb()).collection('worker_status').deleteMany({ _id: 'singleton' });
+  }
+});
 
 describe('sanitizeWorkerConfig', () => {
   it('strips removed knobs (pollIntervalMs / batchSize) from a stale config doc', () => {
@@ -34,8 +51,8 @@ describe('sanitizeWorkerConfig', () => {
 });
 
 describe('GET /api/workers/status', () => {
-  it('returns an empty stages array when the registry has no stages', async () => {
-    stageRegistry._resetForTests();
+  it('returns an empty stages array when worker_status has no doc', async () => {
+    // No writeWorkerStatus call → readWorkerStatus returns null → statuses = {}
     const app = new Elysia().use(workerRoutes());
 
     const res = await app.handle(new Request('http://localhost/api/workers/status'));
@@ -46,13 +63,11 @@ describe('GET /api/workers/status', () => {
     expect(body.stages).toHaveLength(0);
   });
 
-  // Regression test for PR #164 review issue 1: a stage whose bootConfig
-  // is still mid-retry must still surface in `/status` so operators can
-  // see (and recover) the failure via the UI. Pre-registration ensures
-  // every stage the orchestrator plans to start is visible from the very
-  // first /status call, even before any stage has booted.
-  it("surfaces pre-registered stages as 'stopped' even when none have booted", async () => {
-    stageRegistry._resetForTests();
+  // Regression test for PR #164 review issue 1: the worker writes snapshots for
+  // every pre-registered stage (even those mid-retry / stopped) to worker_status.
+  // The API reads that snapshot and surfaces all stage names.
+  it('surfaces stages written by the worker to worker_status', async () => {
+    if (!dbReachable) return;
     const names = [
       'exif',
       'thumb',
@@ -63,7 +78,19 @@ describe('GET /api/workers/status', () => {
       'geocode',
       'meili',
     ];
-    for (const n of names) stageRegistry.preregister(n, 1);
+    const snapshot: Record<string, StageStatusSnapshot> = {};
+    for (const n of names) {
+      snapshot[n] = {
+        status: 'stopped',
+        inFlight: 0,
+        throughput: 0,
+        targetVersion: 1,
+        dependsOn: [],
+        lastError: null,
+      };
+    }
+    await writeWorkerStatus(snapshot, Date.now());
+
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(new Request('http://localhost/api/workers/status'));
     expect(res.status).toBe(200);
@@ -77,10 +104,28 @@ describe('GET /api/workers/status', () => {
     }
   });
 
-  it('includes pending/ready/blocked on every stage row (zeroed when the DB is unavailable)', async () => {
-    stageRegistry._resetForTests();
-    stageRegistry.preregister('exif', 2);
-    stageRegistry.preregister('thumb', 2, [{ name: 'exif', minVersion: 1 }]);
+  it('includes pending/ready/blocked on every stage row (zeroed on empty DB)', async () => {
+    if (!dbReachable) return;
+    const snapshot: Record<string, StageStatusSnapshot> = {
+      exif: {
+        status: 'running',
+        inFlight: 0,
+        throughput: 0,
+        targetVersion: 2,
+        dependsOn: [],
+        lastError: null,
+      },
+      thumb: {
+        status: 'running',
+        inFlight: 0,
+        throughput: 0,
+        targetVersion: 2,
+        dependsOn: [{ name: 'exif', minVersion: 1 }],
+        lastError: null,
+      },
+    };
+    await writeWorkerStatus(snapshot, Date.now());
+
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(new Request('http://localhost/api/workers/status'));
     const body = await res.json();
@@ -93,18 +138,27 @@ describe('GET /api/workers/status', () => {
     for (const r of rows) {
       expect(r).toHaveProperty('ready');
       expect(r).toHaveProperty('blocked');
-      // No DB in this unit test → counts fall back to 0, and blocked is the
-      // clamped pending − ready difference.
+      // Empty assets collection → counts are 0, blocked is clamped pending−ready.
       expect(r.pending).toBe(0);
       expect(r.ready).toBe(0);
       expect(r.blocked).toBe(0);
     }
   });
 
-  it("surfaces a pre-registered stage as 'error' once recordError fires", async () => {
-    stageRegistry._resetForTests();
-    stageRegistry.preregister('face', 1);
-    stageRegistry.recordError('face', 'ONNX model not found');
+  it("surfaces a stage as 'error' when written that way by the worker", async () => {
+    if (!dbReachable) return;
+    const snapshot: Record<string, StageStatusSnapshot> = {
+      face: {
+        status: 'error',
+        inFlight: 0,
+        throughput: 0,
+        targetVersion: 1,
+        dependsOn: [],
+        lastError: 'ONNX model not found',
+      },
+    };
+    await writeWorkerStatus(snapshot, Date.now());
+
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(new Request('http://localhost/api/workers/status'));
     const body = await res.json();
