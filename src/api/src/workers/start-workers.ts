@@ -30,6 +30,7 @@ import { startDiscover, type DiscoverHandle } from './discover/index.ts';
 import { sweepOrphanedCaches } from './cache-gc.ts';
 import { bootstrapFfiPool } from '../ffi/ffi-pool-bootstrap.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
+import { imgdecodePool } from '../thumbs/imgdecode-pool.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.ts';
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
@@ -205,6 +206,13 @@ export async function stopWorkers(): Promise<void> {
     ffiPool().shutdown();
   } catch (e) {
     log.warn({ err: e }, 'error shutting down FFI decode pool');
+  }
+
+  // Reap the non-RAW (sharp + heic-convert) decode child process.
+  try {
+    imgdecodePool().shutdown();
+  } catch (e) {
+    log.warn({ err: e }, 'error shutting down imgdecode pool');
   }
 
   try {

@@ -53,6 +53,29 @@ describe('renderImageThumbToFile', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it('quality parameter reaches the JPEG encoder — different quality → different bytes', async () => {
+    // Guards that req.quality from the IPC message actually flows through to
+    // the encoder; if it were silently ignored, both renders would be identical.
+    const src = path.join(dir, 'q.png');
+    const hi = path.join(dir, 'hi.jpg');
+    const lo = path.join(dir, 'lo.jpg');
+    const pngBuf = await sharp({
+      create: { width: 64, height: 64, channels: 3, background: { r: 100, g: 150, b: 200 } },
+    })
+      .png()
+      .toBuffer();
+    await writeFile(src, pngBuf);
+
+    await renderImageThumbToFile(src, hi, 64, 'png', 95);
+    await renderImageThumbToFile(src, lo, 64, 'png', 20);
+
+    const hiBytes = await readFile(hi);
+    const loBytes = await readFile(lo);
+    // High quality → larger file; low quality → smaller. Different bytes.
+    expect(hiBytes.length).toBeGreaterThan(loBytes.length);
+    expect(hiBytes.equals(loBytes)).toBe(false);
+  });
+
   it('renders an uncompressed TIFF down to a bounded JPEG thumb', async () => {
     // Pipeline smoke test against the real sharp/libvips: a TIFF in, a
     // size-bounded JPEG out. Guards the decode → rotate → resize → encode

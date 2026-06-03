@@ -198,11 +198,23 @@ describe('ImgDecodePool — crash isolation', () => {
 
 describe('imgdecode child — integration', () => {
   let dir: string;
+
   beforeEach(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), 'imgdecode-int-'));
   });
+
   afterEach(async () => {
     await rm(dir, { recursive: true, force: true });
+    // Terminate the real child and clear the singleton so the test process
+    // exits cleanly — `_resetImgdecodePoolForTests` only nulls the reference,
+    // so we call shutdown first to actually kill the spawned child.
+    const { imgdecodePool, _resetImgdecodePoolForTests } = await import('./imgdecode-pool.ts');
+    try {
+      imgdecodePool().shutdown();
+    } catch {
+      // child may already be gone
+    }
+    _resetImgdecodePoolForTests();
   });
 
   it('renders a synthetic JPEG via the real child and writes the output file', async () => {
@@ -216,13 +228,8 @@ describe('imgdecode child — integration', () => {
       .toBuffer();
     await writeFile(src, jpgBuf);
 
-    // Use the real pool (a new isolated instance, not the singleton).
-    // Import lazily so we pick up the real ChildProcessWorker factory.
-    const { _createImgdecodePoolForTests: create } = await import('./imgdecode-pool.ts');
-    // Pass no workerFactory → uses the production ChildProcessWorker.
-    // But we need a real spawn, so import the pool directly.
     const { imgdecodePool, _resetImgdecodePoolForTests } = await import('./imgdecode-pool.ts');
-    _resetImgdecodePoolForTests();
+    _resetImgdecodePoolForTests(); // ensure a fresh pool for this test
 
     const result = await imgdecodePool().renderImageThumbToFile(src, out, 256, 82, 'jpg');
 
@@ -232,8 +239,5 @@ describe('imgdecode child — integration', () => {
     expect(s.size).toBeGreaterThan(0);
     const meta = await sharp(out).metadata();
     expect(meta.format).toBe('jpeg');
-
-    // Tear down the real pool's child so the test process exits cleanly.
-    _resetImgdecodePoolForTests();
   }, 15_000 /* generous timeout for child spawn + render */);
 });
