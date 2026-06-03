@@ -412,6 +412,15 @@ export async function runStage<TPatch extends Record<string, unknown>>(
 
   const poll = async (): Promise<void> => {
     if (shuttingDown) return;
+    // Re-read config from Mongo each tick so pause/resume written by the API
+    // process (cross-process boundary) take effect without an IPC round-trip.
+    // Best-effort: a failing load keeps the previous config rather than crashing.
+    try {
+      const updated = await repo.load(stage.name);
+      if (updated) config = updated;
+    } catch {
+      /* keep previous config on load failure */
+    }
     // The global idle cadence, unless a full batch (→ 0, drain backlog) or an
     // error (→ exponential backoff) overrides it. See `nextPollDelay`. geocode
     // throttles itself via its own token bucket, so the 0-delay path is
