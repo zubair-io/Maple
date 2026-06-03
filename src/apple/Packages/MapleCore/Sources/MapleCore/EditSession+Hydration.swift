@@ -172,9 +172,14 @@ extension EditSession {
         // `sharedDecode` tail; we re-kick the fast render so the
         // scheduler picks up the new cache on its next snapshot.
         let actor = self.renderActor
+        // #871: develop the pre-decode for the LIVE profile so its
+        // auto_exposure-Off-when-Auto decision matches the buffer the Auto
+        // cube will be applied over (and the decode cache keys on it).
+        let openProfile = self.model.profile
         let rustTask: Task<Void, Never> = Task { [weak self] in
             _ = await actor.sharedDecode(
                 asset: openedAsset,
+                profile: openProfile,
                 normalize: { [weak self] image, asset in
                     guard let self else { return image }
                     return await MainActor.run {

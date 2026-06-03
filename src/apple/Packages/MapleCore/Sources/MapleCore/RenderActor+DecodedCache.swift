@@ -40,13 +40,24 @@ extension RenderActor {
     func sharedDecode(
         asset: AssetRef,
         target: CGSize? = nil,
+        profile: Profile = .auto,
         normalize: @escaping @Sendable (CIImage, AssetRef) async -> CIImage
     ) async -> CIImage? {
         let wantsFull = (target == nil)
+        // #871: the decode buffer is profile-dependent for RAW (Auto
+        // develops auto_exposure Off; Neutral keeps it On). Pass the live
+        // profile into the scene-linear decode as an override so its
+        // AE-Off-when-Auto decision tracks the user's current selection,
+        // and make it part of the decode-cache + in-flight-task identity so
+        // a profile toggle re-decodes instead of serving the wrong buffer.
+        // Non-RAW has no Auto Profile cube, so no override / no keying.
+        let decodeProfile: Profile? = asset.isRaw ? profile : nil
         // Reuse an in-flight task only when it already satisfies the
-        // caller's fullness requirement. A fast (sized) caller can join
-        // any task; a refine (full) caller must NOT join a sized task.
+        // caller's fullness requirement AND was launched for the same
+        // profile. A fast (sized) caller can join any (same-profile) task;
+        // a refine (full) caller must NOT join a sized task.
         if let existing = decodeTask, decodeTaskAssetID == asset.id,
+           decodeTaskProfile == decodeProfile,
            (!wantsFull || decodeTaskIsFull) {
             guard let decoded = await existing.value else { return nil }
             if decodedAtModel == nil {
@@ -126,14 +137,17 @@ extension RenderActor {
             if let decodeTarget {
                 let decoded = await mapleStageAsync("rust FFI scene-linear sized decode") {
                     await pipeline.decodeSceneLinearSized(
-                        asset: asset, targetSize: decodeTarget, xmpPath: sidecar
+                        asset: asset, targetSize: decodeTarget, xmpPath: sidecar,
+                        profileOverride: decodeProfile
                     )
                 }
                 guard let decoded else { return nil }
                 return decoded
             }
             let decoded = await mapleStageAsync("rust FFI scene-linear decode") {
-                await pipeline.decodeSceneLinear(asset: asset, xmpPath: sidecar)
+                await pipeline.decodeSceneLinear(
+                    asset: asset, xmpPath: sidecar, profileOverride: decodeProfile
+                )
             }
             guard let decoded else { return nil }
             return decoded
@@ -141,6 +155,7 @@ extension RenderActor {
         decodeTask = task
         decodeTaskAssetID = asset.id
         decodeTaskIsFull = wantsFull
+        decodeTaskProfile = decodeProfile
 
         let decoded = await task.value
         editSessionSignposter.endInterval("decode", decodeState)
@@ -182,6 +197,7 @@ extension RenderActor {
             decodedAtModel = EditSession.parseSidecarModel(for: asset)
             decodedSidecarMtime = currentMtime
             decodedIsFull = wantsFull
+            decodedProfile = decodeProfile  // #871 — buffer is profile-keyed
         }
         if decodeTaskAssetID == asset.id {
             decodeTask = nil
@@ -241,8 +257,10 @@ extension RenderActor {
         decodeTask = nil
         decodeTaskAssetID = nil
         decodeTaskIsFull = false
+        decodeTaskProfile = nil
         refineDecodeTasks.removeAll()
         decodedAtModel = nil
+        decodedProfile = nil
     }
 
     public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
@@ -253,7 +271,8 @@ extension RenderActor {
             decodedAtModel: decodedAtModel,
             rawResolution: decodedRawResolution,
             isFresh: isFresh,
-            isFull: decodedIsFull
+            isFull: decodedIsFull,
+            profile: decodedProfile
         )
     }
 
@@ -272,6 +291,10 @@ extension RenderActor {
         // low-resolution display previews, never a full decode — refine
         // must upgrade them (#785).
         self.decodedIsFull = false
+        // Seeded buffers carry no Auto/Neutral develop distinction; mark
+        // the profile unknown so the first real render re-decodes for RAW
+        // Auto rather than reusing an AE-On preview under the Auto cube.
+        self.decodedProfile = nil
     }
 
     public func seedIfUnpopulated(
@@ -289,6 +312,7 @@ extension RenderActor {
         self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)
         self.decodedAtModel = decodedAtModel
         self.decodedIsFull = false
+        self.decodedProfile = nil  // #871 — see `seed(...)`
         return true
     }
 }

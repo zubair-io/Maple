@@ -89,6 +89,16 @@ public actor RenderActor {
     var decodedSidecarMtime: Date?
     var decodedAtModel: AdjustmentModel?
 
+    /// Profile the cached `decodedImage` was developed for (#871). The
+    /// decode buffer is now profile-dependent: `Profile::Auto` develops
+    /// `auto_exposure` Off (so it byte-matches the buffer the Auto curve
+    /// was fit against), while `Profile::Neutral` keeps `auto_exposure` On.
+    /// A profile toggle must therefore re-decode rather than reuse the
+    /// wrong-AE buffer — `snapshot(forAsset:)` reports this so the render
+    /// path treats a profile mismatch as a cache miss. `nil` = a non-RAW
+    /// or seeded buffer where the Auto/Neutral distinction doesn't apply.
+    var decodedProfile: Profile?
+
     /// Whether the cached `decodedImage` is a FULL-resolution decode
     /// (sufficient for the refine pass / a deep-zoom crop) or a
     /// downsampled fast-phase decode (#785). The fast phase accepts any
@@ -106,6 +116,11 @@ public actor RenderActor {
     /// only reuses the task when it already satisfies the caller's
     /// fullness requirement.
     var decodeTaskIsFull: Bool = false
+    /// Profile the in-flight `decodeTask` was launched for (#871). Part of
+    /// the task IDENTITY: a render for a different profile must NOT join an
+    /// in-flight decode for the other profile (it would get the wrong-AE
+    /// buffer), so the join check below compares this too.
+    var decodeTaskProfile: Profile?
 
     var refineDecodeTasks: [RefineDecodeKey: RefineDecodeSlot] = [:]
     var refineDecodeSlotCounter: UInt64 = 0
@@ -136,6 +151,11 @@ public actor RenderActor {
         /// refine / deep-zoom crops). A sized fast decode or a seeded
         /// preview buffer is `false` — refine must re-decode (#785).
         public let isFull: Bool
+        /// Profile the cached buffer was developed for (#871), or `nil` for
+        /// non-RAW / seeded buffers. The render path compares this to the
+        /// live profile and treats a mismatch as a miss so a profile toggle
+        /// re-decodes the (profile-dependent, AE-Off-for-Auto) buffer.
+        public let profile: Profile?
     }
 
     // MARK: - Scheduler state (slice 3)
@@ -203,7 +223,8 @@ public actor RenderActor {
         }()
         try Task.checkCancellation()
         guard let decoded = await pipeline.decodeSceneLinear(
-            asset: asset, quality: .preview, xmpPath: sidecar
+            asset: asset, quality: .preview, xmpPath: sidecar,
+            profileOverride: asset.isRaw ? model.profile : nil
         ) else {
             throw RenderError.pipelineFailed
         }
@@ -247,7 +268,8 @@ public actor RenderActor {
             return url
         }()
         guard let decoded = await pipeline.decodeSceneLinear(
-            asset: asset, quality: .full, xmpPath: sidecar
+            asset: asset, quality: .full, xmpPath: sidecar,
+            profileOverride: asset.isRaw ? m.profile : nil
         ) else {
             throw RenderError.pipelineFailed
         }
@@ -354,7 +376,8 @@ public actor RenderActor {
         rawResolution: CGSize,
         sidecarMtime: Date?,
         decodedAtModel: AdjustmentModel? = nil,
-        isFull: Bool = true
+        isFull: Bool = true,
+        profile: Profile? = nil
     ) {
         self.decodedImage = decoded
         self.decodedRawResolution = rawResolution
@@ -362,6 +385,7 @@ public actor RenderActor {
         self.decodedSidecarMtime = sidecarMtime
         self.decodedAtModel = decodedAtModel
         self.decodedIsFull = isFull
+        self.decodedProfile = profile
     }
 
     internal func _testDecodedIsFull() -> Bool { decodedIsFull }
