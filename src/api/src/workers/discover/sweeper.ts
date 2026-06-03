@@ -128,6 +128,11 @@ export interface SweepConfig {
 export interface SweeperLoopOpts {
   folderId: ObjectId;
   root: string;
+  /** Starting sweep generation. Defaults to 1 for a fresh start. Pass the
+   * value read from the checkpoint when rehydrating after a process restart
+   * so the loop resumes the in-progress generation instead of re-walking
+   * from gen 1. */
+  startGen?: number;
   deps: ReconcileDeps;
   loadConfig: () => Promise<SweepConfig>;
   sleep?: (ms: number) => Promise<void>;
@@ -136,12 +141,13 @@ export interface SweeperLoopOpts {
 
 export class SweeperLoop {
   private shuttingDown = false;
-  private gen = 1;
+  private gen: number;
   private readonly o: SweeperLoopOpts;
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(o: SweeperLoopOpts) {
     this.o = o;
+    this.gen = o.startGen ?? 1;
     this.sleep = o.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   }
 
