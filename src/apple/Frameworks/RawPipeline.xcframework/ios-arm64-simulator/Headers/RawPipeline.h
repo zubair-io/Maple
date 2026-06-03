@@ -407,6 +407,38 @@ int32_t maple_render_bytes(const uint8_t *raw_bytes,
                            struct MapleImageBuffer *out);
 
 /**
+ * Render a RAW+XMP through the full 8-bit sRGB pipeline (identical decode +
+ * develop path to `maple_render_file`) and write a 3×256 channel histogram of
+ * the result into the caller-provided `out_bins` buffer.
+ *
+ * `out_bins` must point to at least [`HISTOGRAM_BINS_LEN`] (`768`) writable
+ * `u32`s; the layout is channel-major (`[0,256)` = R counts, `[256,512)` = G,
+ * `[512,768)` = B). It is overwritten in full on success and untouched on error.
+ *
+ * Crucially the rendered pixel buffer never crosses the FFI boundary: it is
+ * binned in Rust and only the 3 KB histogram is returned, through a buffer the
+ * *caller* owns. This sidesteps the `toBuffer`-over-Rust-memory lifetime trap
+ * that segfaults the JSC heap on a later GC (the same reasoning that moved the
+ * thumbnail path to the `_to_file` entry — see `buffers.rs`). It also avoids
+ * shipping ~300 MB of RGB across the boundary for a 100 MP frame.
+ *
+ * Returns 0 on success, non-zero on error (call `maple_last_error`). Error
+ * codes mirror `maple_render_file` plus the shared XMP-load codes:
+ * 1 = null or misaligned `out_bins` pointer, 2/3 = raw/xmp path not UTF-8,
+ * 4 = XMP parse, 5 = XMP read, 6 = raw read, 7 = decode, 8 = render.
+ * Codes 4 and 5 surface from `load_xmp_model_owned` only when an `xmp_path`
+ * is supplied (a malformed or unreadable sidecar).
+ *
+ * # Safety
+ *
+ * `raw_path` must be a valid C string; `xmp_path` may be null or a valid C
+ * string; `out_bins` must point to >= [`HISTOGRAM_BINS_LEN`] writable `u32`s
+ * that live for the duration of the call. Misalignment is rejected at runtime
+ * (returns 1) rather than risking UB in the `from_raw_parts_mut` write below.
+ */
+int32_t maple_histogram_file(const char *raw_path, const char *xmp_path, uint32_t *out_bins);
+
+/**
  * Writes 768 bytes (256 R, then 256 G, then 256 B) into `out` — the byte
  * layout an Apple Metal `MTLTexture` (3 × `r8Unorm`, 256×1) or a Web
  * WebGL2 `R8` 1D LUT texture expects, packed in channel-major order so
