@@ -4,7 +4,7 @@
 
 **Goal:** Replace the chokidar polling watcher (which holds an `fs.Stats` per file in heap — ~5.9 GiB over the 294k-file SMB library — and stat-walks the whole tree on the main JS thread, freezing the API event loop at `MAPLE_INDEXER_AUTOSTART=1`) with a resumable, DB-checkpointed reconciliation sweep that walks one directory at a time in a child process, keeping heap flat, and that is pausable/configurable on `/settings/workers`.
 
-**Architecture:** A breadth-first sweep whose *frontier* (the queue of directories still to visit) lives in Mongo, not heap. A child process pops one directory, `readdir`s a single level, reconciles that directory's files against `assets` by reusing `handleEvent` (`created`/`modified`/`removed`), enqueues subdirectories, and deletes the frontier row. Only one directory's entries are ever in memory. Deletions are detected by a **per-directory diff** (assets recorded under a dir vs. files found on disk) so no per-asset "last seen" write storm. The sweep is paced (one dir per configurable interval), registered as a non-stage worker (the `missing-reaper` precedent) so it gets pause/resume/config on the workers page. The supervisor spawns it as a child via the `ChildProcessWorker` transport from #884, gated by `MAPLE_INDEXER_AUTOSTART`.
+**Architecture:** A breadth-first sweep whose _frontier_ (the queue of directories still to visit) lives in Mongo, not heap. A child process pops one directory, `readdir`s a single level, reconciles that directory's files against `assets` by reusing `handleEvent` (`created`/`modified`/`removed`), enqueues subdirectories, and deletes the frontier row. Only one directory's entries are ever in memory. Deletions are detected by a **per-directory diff** (assets recorded under a dir vs. files found on disk) so no per-asset "last seen" write storm. The sweep is paced (one dir per configurable interval), registered as a non-stage worker (the `missing-reaper` precedent) so it gets pause/resume/config on the workers page. The supervisor spawns it as a child via the `ChildProcessWorker` transport from #884, gated by `MAPLE_INDEXER_AUTOSTART`.
 
 **Tech Stack:** Bun + Elysia + MongoDB (`bun:ffi` unused here), `bun test` against a real Mongo (spin a throwaway `mongod` on :27077 — there is no in-memory Mongo), Angular 21 standalone signals for the settings control.
 
@@ -26,6 +26,7 @@ Confirm the existing discover/worker tests are green first so regressions are at
 ```bash
 cd src/api && MAPLE_MONGO_URI=mongodb://127.0.0.1:27077 bun test src/workers/discover src/indexer/checkpoint.test.ts 2>&1 | tail -20
 ```
+
 Expected: PASS (or skip if Mongo unreachable). Do NOT pipe long compiles/tests through `tail` when running via a dispatched agent watchdog — capture to a file and read it instead.
 
 ---
@@ -33,6 +34,7 @@ Expected: PASS (or skip if Mongo unreachable). Do NOT pipe long compiles/tests t
 ## File Structure
 
 **Create:**
+
 - `src/api/src/workers/discover/frontier.repo.ts` — the `discover_frontier` Mongo collection: enqueue/claim/complete a directory, seed a root, count remaining for a generation.
 - `src/api/src/workers/discover/sweeper.ts` — pure-ish sweep core: `visitDirectory()` (readdir one level → reconcile files + enqueue subdirs + diff-delete), `advanceSweep()` (bump generation + reseed when frontier drains), and `SweeperLoop` (paced, pausable driver). No process/spawn concerns.
 - `src/api/src/workers/discover/sweeper.child.ts` — child-process entry: connect to Mongo, run `SweeperLoop` until SIGTERM (mirrors `face-pool.child.ts` hardening + the existing discover `main()`).
@@ -40,6 +42,7 @@ Expected: PASS (or skip if Mongo unreachable). Do NOT pipe long compiles/tests t
 - Tests: `frontier.repo.test.ts`, `sweeper.test.ts`.
 
 **Modify:**
+
 - `src/api/src/db/schema.ts` — add `DiscoverFrontierDoc`; extend `CheckpointDoc` with `sweepGen`.
 - `src/api/src/db/client.ts` — add `discoverFrontierCollection()` + indexes in `ensureIndexes()`.
 - `src/api/src/workers/discover/index.ts` — `startDiscover` drives `SweeperLoop` instead of `new Watcher(...)`; keep the same `DiscoverHandle` shape and `main()`.
@@ -56,6 +59,7 @@ Expected: PASS (or skip if Mongo unreachable). Do NOT pipe long compiles/tests t
 ### Task 1: `DiscoverFrontierDoc` schema + collection accessor
 
 **Files:**
+
 - Modify: `src/api/src/db/schema.ts`
 - Modify: `src/api/src/db/client.ts`
 
@@ -98,11 +102,12 @@ await db
     { unique: true, name: 'discover_frontier_key' },
   );
 // Claim query: free (or lease-expired) rows for the active generation, oldest first.
-await db
-  .collection('discover_frontier')
-  .createIndex({ folder_id: 1, sweep_gen: 1, claimed_at: 1, enqueued_at: 1 }, {
+await db.collection('discover_frontier').createIndex(
+  { folder_id: 1, sweep_gen: 1, claimed_at: 1, enqueued_at: 1 },
+  {
     name: 'discover_frontier_claim',
-  });
+  },
+);
 ```
 
 Add `DiscoverFrontierDoc` to the existing `import type { ... } from '../db/schema.ts'` block in `client.ts`.
@@ -117,6 +122,7 @@ git commit -m "feat(discover): add discover_frontier collection + indexes"
 ### Task 2: `frontier.repo.ts` — enqueue / claim / complete
 
 **Files:**
+
 - Create: `src/api/src/workers/discover/frontier.repo.ts`
 - Test: `src/api/src/workers/discover/frontier.repo.test.ts`
 
@@ -129,7 +135,11 @@ import { getDb } from '../../db/client.ts';
 
 let reachable = true;
 beforeAll(async () => {
-  try { await getDb(); } catch { reachable = false; }
+  try {
+    await getDb();
+  } catch {
+    reachable = false;
+  }
 });
 beforeEach(async () => {
   if (!reachable) return;
@@ -264,10 +274,11 @@ git commit -m "feat(discover): frontier repo — atomic dir claim with lease"
 ### Task 3: `visitDirectory()` — readdir one level, reconcile, enqueue subdirs, diff-delete
 
 **Files:**
+
 - Create: `src/api/src/workers/discover/sweeper.ts`
 - Test: `src/api/src/workers/discover/sweeper.test.ts`
 
-Reconciliation reuses the existing per-event core: `handleEvent(event: WatchEvent, folderId: ObjectId, libraryRoot: string)` where `WatchEvent.kind ∈ {'created','modified','removed','renamed'}` (see `handle-event.ts`). `created`/`modified` upsert the asset with the stage skeleton; `removed` soft-deletes. We therefore do NOT touch `assets` directly — we compute *what changed in this directory* and emit the same events the watcher used to.
+Reconciliation reuses the existing per-event core: `handleEvent(event: WatchEvent, folderId: ObjectId, libraryRoot: string)` where `WatchEvent.kind ∈ {'created','modified','removed','renamed'}` (see `handle-event.ts`). `created`/`modified` upsert the asset with the stage skeleton; `removed` soft-deletes. We therefore do NOT touch `assets` directly — we compute _what changed in this directory_ and emit the same events the watcher used to.
 
 Deletion is a **per-directory diff**: list the non-deleted assets whose `fileinfo` entry sits directly in this dir (`{ library_id: folderId, path: <relDir> }`), compare their filenames to what's on disk, and emit `removed` for the gap. This is why there is no per-asset "last seen" write.
 
@@ -283,7 +294,13 @@ import { getDb, assetsCollection } from '../../db/client.ts';
 import type { WatchEvent } from './types.ts';
 
 let reachable = true;
-beforeAll(async () => { try { await getDb(); } catch { reachable = false; } });
+beforeAll(async () => {
+  try {
+    await getDb();
+  } catch {
+    reachable = false;
+  }
+});
 beforeEach(async () => {
   if (!reachable) return;
   await (await getDb()).collection('discover_frontier').deleteMany({});
@@ -303,11 +320,21 @@ describe('visitDirectory', () => {
     writeFileSync(join(root, 'note.txt'), 'ignored'); // non-image: skipped
 
     const folderId = new ObjectId();
-    await (await assetsCollection()).insertMany([
+    await (
+      await assetsCollection()
+    ).insertMany([
       // recorded but NOT on disk → removed
-      { maple_id: 'gone1', fileinfo: [{ library_id: folderId, path: '', filename: 'b.dng' }], deleted_at: null },
+      {
+        maple_id: 'gone1',
+        fileinfo: [{ library_id: folderId, path: '', filename: 'b.dng' }],
+        deleted_at: null,
+      },
       // recorded AND on disk, unchanged → must emit NOTHING (no write storm)
-      { maple_id: 'keep1', fileinfo: [{ library_id: folderId, path: '', filename: 'c.dng' }], deleted_at: null },
+      {
+        maple_id: 'keep1',
+        fileinfo: [{ library_id: folderId, path: '', filename: 'c.dng' }],
+        deleted_at: null,
+      },
     ] as never);
 
     const events: WatchEvent[] = [];
@@ -315,7 +342,9 @@ describe('visitDirectory', () => {
     const dir = await frontier.claimNextDir(folderId, 1, 60_000);
 
     await visitDirectory(dir!, root, {
-      handleEvent: async (e) => { events.push(e); },
+      handleEvent: async (e) => {
+        events.push(e);
+      },
       folderId,
     });
 
@@ -391,7 +420,10 @@ export async function visitDirectory(
 
   for (const ent of entries) {
     const abs = path.join(dir.dir_path, ent.name);
-    if (ent.isDirectory()) { subdirs.push(abs); continue; }
+    if (ent.isDirectory()) {
+      subdirs.push(abs);
+      continue;
+    }
     if (!ent.isFile() || !isSupported(ent.name)) continue;
     filesOnDisk.set(ent.name, abs);
   }
@@ -424,7 +456,11 @@ export async function visitDirectory(
   for (const a of recorded) {
     const fn = a.fileinfo?.[0]?.filename;
     if (fn && !filesOnDisk.has(fn)) {
-      await deps.handleEvent({ kind: 'removed', absPath: path.join(dir.dir_path, fn) }, folderId, root);
+      await deps.handleEvent(
+        { kind: 'removed', absPath: path.join(dir.dir_path, fn) },
+        folderId,
+        root,
+      );
     }
   }
 
@@ -434,7 +470,8 @@ export async function visitDirectory(
 ```
 
 > **Modified-in-place (same path, new bytes) is intentionally NOT detected by the sweep** — that would need a stored `mtime`/`size` per asset to compare, and out-of-band edits to library originals are rare (new files arrive via the import worker's direct `handleEvent`). If wanted later, store `mtime` on the asset and emit `'modified'` when `st.mtimeMs` advances. Keeping the sweep existence-only is what makes it write-light: **one read per directory, writes only for genuine adds/deletes.**
-```
+
+````
 
 - [ ] **Step 4: Run to verify it passes**
 
@@ -446,11 +483,12 @@ Expected: PASS.
 ```bash
 git add src/api/src/workers/discover/sweeper.ts src/api/src/workers/discover/sweeper.test.ts
 git commit -m "feat(discover): visitDirectory — one-level reconcile + per-dir delete diff"
-```
+````
 
 ### Task 4: `advanceSweep()` — bump generation + reseed when the frontier drains
 
 **Files:**
+
 - Modify: `src/api/src/workers/discover/sweeper.ts`
 - Modify: `src/api/src/db/schema.ts` (extend `CheckpointDoc` with `sweepGen`)
 - Test: `src/api/src/workers/discover/sweeper.test.ts` (add a case)
@@ -525,6 +563,7 @@ git commit -m "feat(discover): advanceSweep — generational reseed via checkpoi
 ### Task 5: `SweeperLoop` — paced, pausable driver
 
 **Files:**
+
 - Modify: `src/api/src/workers/discover/sweeper.ts`
 - Test: `src/api/src/workers/discover/sweeper.test.ts` (add a case with injected sleep + config)
 
@@ -536,18 +575,23 @@ it('SweeperLoop visits dirs paced by interval and halts when paused', async () =
   const { SweeperLoop } = await import('./sweeper.ts');
   const frontier = await import('./frontier.repo.ts');
   const root = mkdtempSync(join(tmpdir(), 'maple-loop-'));
-  mkdirSync(join(root, 'a')); mkdirSync(join(root, 'b'));
+  mkdirSync(join(root, 'a'));
+  mkdirSync(join(root, 'b'));
   const folderId = new ObjectId();
   await frontier.seedRoot(folderId, root, 1);
 
   let paused = false;
   const visited: string[] = [];
   const loop = new SweeperLoop({
-    folderId, root,
+    folderId,
+    root,
     deps: { folderId, handleEvent: async () => {} },
     loadConfig: async () => ({ paused, sweepDirIntervalMs: 0 }),
     sleep: async () => {},
-    onVisit: (p) => { visited.push(p); if (visited.length === 3) paused = true; },
+    onVisit: (p) => {
+      visited.push(p);
+      if (visited.length === 3) paused = true;
+    },
   });
   await loop.runUntilIdleOrPaused(); // test-only bound
   expect(visited.length).toBeGreaterThanOrEqual(3);
@@ -590,7 +634,9 @@ export class SweeperLoop {
     this.sleep = o.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   }
 
-  stop(): void { this.shuttingDown = true; }
+  stop(): void {
+    this.shuttingDown = true;
+  }
 
   /** One claim→visit→pace cycle. Returns false when idle (nothing to do). */
   private async tick(cfg: SweepConfig): Promise<boolean> {
@@ -609,7 +655,10 @@ export class SweeperLoop {
   async run(): Promise<void> {
     while (!this.shuttingDown) {
       const cfg = await this.o.loadConfig();
-      if (cfg.paused) { await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs)); continue; }
+      if (cfg.paused) {
+        await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs));
+        continue;
+      }
       const did = await this.tick(cfg);
       if (!did) await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs));
     }
@@ -645,6 +694,7 @@ git commit -m "feat(discover): SweeperLoop — paced, pausable driver"
 ### Task 6: `discover-config.repo.ts` (mirror missing-reaper's config repo)
 
 **Files:**
+
 - Create: `src/api/src/workers/discover/discover-config.repo.ts`
 - Test: `src/api/src/workers/discover/discover-config.repo.test.ts`
 
@@ -656,8 +706,16 @@ git commit -m "feat(discover): SweeperLoop — paced, pausable driver"
 import { describe, it, expect, beforeAll, beforeEach } from 'bun:test';
 import { getDb } from '../../db/client.ts';
 let reachable = true;
-beforeAll(async () => { try { await getDb(); } catch { reachable = false; } });
-beforeEach(async () => { if (reachable) await (await getDb()).collection('worker_config').deleteMany({ name: 'discover' }); });
+beforeAll(async () => {
+  try {
+    await getDb();
+  } catch {
+    reachable = false;
+  }
+});
+beforeEach(async () => {
+  if (reachable) await (await getDb()).collection('worker_config').deleteMany({ name: 'discover' });
+});
 
 describe('discover-config.repo', () => {
   it('returns defaults when unset, persists patches', async () => {
@@ -728,6 +786,7 @@ git commit -m "feat(discover): discover worker_config (paused + sweepDirInterval
 ### Task 7: Rewire `startDiscover` to drive `SweeperLoop`; delete chokidar
 
 **Files:**
+
 - Modify: `src/api/src/workers/discover/index.ts`
 - Modify: `src/api/src/workers/discover/types.ts` (move `WatchEvent` here from `watcher.ts`)
 - Delete: `src/api/src/indexer/watcher.ts` (and its test); remove `chokidar` from `src/api/package.json`
@@ -741,6 +800,7 @@ export interface WatchEvent {
   fromPath?: string;
 }
 ```
+
 Update the import in `handle-event.ts` from `../../indexer/watcher.ts` to `./types.ts`.
 
 - [ ] **Step 2: Rewrite `startDiscover`** in `index.ts` to run one `SweeperLoop` per root instead of `new Watcher(...)`. The per-event folder resolution stays (longest-prefix `resolveFolder`); pass a `handleEvent` bound to the resolved folder.
@@ -753,13 +813,17 @@ import { seedRoot } from './frontier.repo.ts';
 export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHandle> {
   const foldersColl = await foldersCollection();
   const folderDocs = (await foldersColl.find({}, { projection: { path: 1 } }).toArray()) as Array<{
-    _id: ObjectId; path: string;
+    _id: ObjectId;
+    path: string;
   }>;
 
   const loops: SweeperLoop[] = [];
   for (const root of opts.roots) {
     const folder = resolveFolder(root, folderDocs) ?? resolveFolder(root + '/', folderDocs);
-    if (!folder) { log.warn({ root }, 'no registered folder matched root — skipping'); continue; }
+    if (!folder) {
+      log.warn({ root }, 'no registered folder matched root — skipping');
+      continue;
+    }
     await seedRoot(folder.id, root, 1);
     const loop = new SweeperLoop({
       folderId: folder.id,
@@ -768,16 +832,22 @@ export async function startDiscover(opts: DiscoverOptions): Promise<DiscoverHand
       loadConfig: loadDiscoverConfig,
     });
     loops.push(loop);
-    void loop.run().catch((err) =>
-      log.error({ root, err: err instanceof Error ? err.message : err }, 'sweeper loop crashed'),
-    );
+    void loop
+      .run()
+      .catch((err) =>
+        log.error({ root, err: err instanceof Error ? err.message : err }, 'sweeper loop crashed'),
+      );
   }
 
-  return { stop: async () => { for (const l of loops) l.stop(); } };
+  return {
+    stop: async () => {
+      for (const l of loops) l.stop();
+    },
+  };
 }
 ```
 
-> `resolveFolder` currently maps a *file* path to its folder; a root path equals a folder path, so call it with `root` (and the `+ '/'` fallback) — confirm it returns the folder whose `path === root`.
+> `resolveFolder` currently maps a _file_ path to its folder; a root path equals a folder path, so call it with `root` (and the `+ '/'` fallback) — confirm it returns the folder whose `path === root`.
 
 - [ ] **Step 3: Delete chokidar.** `git rm src/api/src/indexer/watcher.ts src/api/src/indexer/watcher.test.ts` (if a test exists). Remove `"chokidar": "..."` from `src/api/package.json` dependencies. Run `bun install` in `src/api` to update the lockfile.
 
@@ -801,6 +871,7 @@ git commit -m "feat(discover): drive sweep from startDiscover; remove chokidar w
 ### Task 8: Child-process entry + supervisor spawn under the autostart gate
 
 **Files:**
+
 - Create: `src/api/src/workers/discover/sweeper.child.ts`
 - Modify: `src/api/src/index.ts`
 
@@ -824,21 +895,35 @@ const log = childLogger('discover-child');
 
 async function main(): Promise<void> {
   const roots = process.argv.slice(2);
-  if (roots.length === 0) { process.stderr.write('discover child: no roots\n'); process.exit(1); }
+  if (roots.length === 0) {
+    process.stderr.write('discover child: no roots\n');
+    process.exit(1);
+  }
   await getDb().then(() => ensureIndexes());
   const handle = await startDiscover({ roots });
   log.info({ roots }, 'discover sweep started');
-  const shutdown = async () => { await handle.stop(); await closeDb(); process.exit(0); };
+  const shutdown = async () => {
+    await handle.stop();
+    await closeDb();
+    process.exit(0);
+  };
   process.on('SIGTERM', () => void shutdown());
   process.on('SIGINT', () => void shutdown());
 }
-main().catch((e) => { process.stderr.write(`[discover-child] fatal: ${e instanceof Error ? e.message : e}\n`); process.exit(1); });
+main().catch((e) => {
+  process.stderr.write(`[discover-child] fatal: ${e instanceof Error ? e.message : e}\n`);
+  process.exit(1);
+});
 ```
 
 - [ ] **Step 2: Spawn it from the supervisor** in `src/api/src/index.ts`, inside the `MAPLE_INDEXER_AUTOSTART !== '0'` branch, replacing the in-process `startDiscover` call. Use `ChildProcessWorker` so it is niced and orphan-guarded:
 
 ```ts
-import { ChildProcessWorker, childScriptPath, DEFAULT_NATIVE_CHILD_NICE } from './runtime/child-process-worker.ts';
+import {
+  ChildProcessWorker,
+  childScriptPath,
+  DEFAULT_NATIVE_CHILD_NICE,
+} from './runtime/child-process-worker.ts';
 
 // inside the autostart else-branch, where _discoverHandle was set:
 const discoverRoots = folders.map((f) => f.path).filter(Boolean);
@@ -870,6 +955,7 @@ git commit -m "feat(discover): run sweep in a niced child process under the auto
 ### Task 9: Register `discover` as a controllable worker (pause/resume/status)
 
 **Files:**
+
 - Create: `src/api/src/workers/discover/register.ts`
 - Modify: `src/api/src/workers/routes-main.ts` (add `sweepDirIntervalMs` to the config validator)
 - Modify: `src/api/src/index.ts` (register at boot, unregister on shutdown)
@@ -895,11 +981,21 @@ export function registerDiscoverWorker(): void {
     getInFlight: () => 0,
     getThroughput: () => 0,
     getPaused: () => cachedPaused,
-    reloadConfig: async () => { cachedPaused = (await loadDiscoverConfig()).paused; },
-    pause: async () => { await patchDiscoverConfig({ paused: true }); cachedPaused = true; },
-    resume: async () => { await patchDiscoverConfig({ paused: false }); cachedPaused = false; },
+    reloadConfig: async () => {
+      cachedPaused = (await loadDiscoverConfig()).paused;
+    },
+    pause: async () => {
+      await patchDiscoverConfig({ paused: true });
+      cachedPaused = true;
+    },
+    resume: async () => {
+      await patchDiscoverConfig({ paused: false });
+      cachedPaused = false;
+    },
   });
-  void loadDiscoverConfig().then((c) => { cachedPaused = c.paused; });
+  void loadDiscoverConfig().then((c) => {
+    cachedPaused = c.paused;
+  });
 }
 
 export function unregisterDiscoverWorker(): void {
@@ -912,6 +1008,7 @@ export function unregisterDiscoverWorker(): void {
 ```ts
             sweepDirIntervalMs: t.Optional(t.Integer({ minimum: 0, maximum: 60_000 })),
 ```
+
 The handler already 404s unless `stageRegistry.has(params.name)` — true once `registerDiscoverWorker()` ran — then `WorkerConfigRepo.patch` writes the field and `notifyConfigChanged('discover')` fires the entry's `reloadConfig` (refreshing `cachedPaused`).
 
 - [ ] **Step 3: Call register/unregister in `index.ts`.** In the `MAPLE_INDEXER_AUTOSTART !== '0'` branch (right where the discover child is spawned, Task 8), add `registerDiscoverWorker()`. In `shutdown()`, add `unregisterDiscoverWorker()`.
@@ -946,6 +1043,7 @@ describe('registerDiscoverWorker', () => {
 ### Task 10: Web — discover cadence + pause control on `/settings/workers`
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/api/workers-api.service.ts`
 - Modify: `src/web/projects/maple/src/app/settings/workers/workers.component.ts`
 - Modify: `src/web/projects/maple/src/app/settings/workers/workers.component.html`
@@ -973,7 +1071,8 @@ The web service already has everything: `WorkersApiService.pause(name)` (`worker
 ---
 
 ## Self-Review notes
+
 - **Spec coverage:** off-main-thread ✔ (Task 8 child) · no whole-tree-in-memory ✔ (Task 1–3 frontier-in-Mongo + one-level readdir) · DB-tracked location ✔ (frontier + checkpoint `sweepGen`) · 1-dir-at-a-time ✔ (`visitDirectory`) · per-dir delete diff (no write storm) ✔ (Task 3) · pause + configure on workers page ✔ (Tasks 9–10) · replaces chokidar ✔ (Task 7).
 - **Integration symbols (verified against source during planning, real line numbers in the tasks):** `worker_config` write = `(await getDb()).collection('worker_config')` + `WorkerConfigRepo.patch` (`routes-main.ts` PATCH `/:name/config`); registry = `stageRegistry.register('discover', {getPaused,pause,resume,reloadConfig,…})` per the `StageRegistryEntry` interface (`registry.ts:25`) mirroring `missing-reaper.ts:532`; web = existing `WorkersApiService.patchConfig/pause/resume/getStatus` + `getPruneWindow` precedent (`workers-api.service.ts`). No invented symbols.
-- **One thing to eyeball at Task 7:** `resolveFolder()` was written to map a *file* path to its folder by longest-prefix; a root path equals a registered folder's `path`, so calling it with `root` (and the `root + '/'` fallback) should return that folder — confirm on the actual data before relying on it.
+- **One thing to eyeball at Task 7:** `resolveFolder()` was written to map a _file_ path to its folder by longest-prefix; a root path equals a registered folder's `path`, so calling it with `root` (and the `root + '/'` fallback) should return that folder — confirm on the actual data before relying on it.
 - **Renames residual** (`handleEvent` kind `'renamed'`): the sweep never emits `'renamed'` — a moved file is a `removed` in its old dir + a `created` in its new dir across the sweep. That is correct (dedup by `maple_id` re-attaches it); no rename handling needed in the sweeper.

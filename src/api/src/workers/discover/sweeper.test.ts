@@ -7,7 +7,13 @@ import { getDb, assetsCollection } from '../../db/client.ts';
 import type { WatchEvent } from './types.ts';
 
 let reachable = true;
-beforeAll(async () => { try { await getDb(); } catch { reachable = false; } });
+beforeAll(async () => {
+  try {
+    await getDb();
+  } catch {
+    reachable = false;
+  }
+});
 beforeEach(async () => {
   if (!reachable) return;
   await (await getDb()).collection('discover_frontier').deleteMany({});
@@ -27,11 +33,21 @@ describe('visitDirectory', () => {
     writeFileSync(join(root, 'note.txt'), 'ignored'); // non-image: skipped
 
     const folderId = new ObjectId();
-    await (await assetsCollection()).insertMany([
+    await (
+      await assetsCollection()
+    ).insertMany([
       // recorded but NOT on disk → removed
-      { maple_id: 'gone1', fileinfo: [{ library_id: folderId, path: '', filename: 'b.dng' }], deleted_at: null },
+      {
+        maple_id: 'gone1',
+        fileinfo: [{ library_id: folderId, path: '', filename: 'b.dng' }],
+        deleted_at: null,
+      },
       // recorded AND on disk, unchanged → must emit NOTHING (no write storm)
-      { maple_id: 'keep1', fileinfo: [{ library_id: folderId, path: '', filename: 'c.dng' }], deleted_at: null },
+      {
+        maple_id: 'keep1',
+        fileinfo: [{ library_id: folderId, path: '', filename: 'c.dng' }],
+        deleted_at: null,
+      },
     ] as never);
 
     const events: WatchEvent[] = [];
@@ -39,7 +55,9 @@ describe('visitDirectory', () => {
     const dir = await frontier.claimNextDir(folderId, 1, 60_000);
 
     await visitDirectory(dir!, root, {
-      handleEvent: async (e) => { events.push(e); },
+      handleEvent: async (e) => {
+        events.push(e);
+      },
       folderId,
     });
 
@@ -65,11 +83,21 @@ describe('visitDirectory', () => {
     // gone.dng is NOT written to disk → should emit removed
 
     const folderId = new ObjectId();
-    await (await assetsCollection()).insertMany([
+    await (
+      await assetsCollection()
+    ).insertMany([
       // on disk → must emit nothing
-      { maple_id: 'sub-keep1', fileinfo: [{ library_id: folderId, path: 'sub', filename: 'keep.dng' }], deleted_at: null },
+      {
+        maple_id: 'sub-keep1',
+        fileinfo: [{ library_id: folderId, path: 'sub', filename: 'keep.dng' }],
+        deleted_at: null,
+      },
       // NOT on disk → must emit removed
-      { maple_id: 'sub-gone1', fileinfo: [{ library_id: folderId, path: 'sub', filename: 'gone.dng' }], deleted_at: null },
+      {
+        maple_id: 'sub-gone1',
+        fileinfo: [{ library_id: folderId, path: 'sub', filename: 'gone.dng' }],
+        deleted_at: null,
+      },
     ] as never);
 
     const events: WatchEvent[] = [];
@@ -78,14 +106,18 @@ describe('visitDirectory', () => {
     // root enqueues 'sub'. Claim again until we get the sub dir.
     const rootDir = await frontier.claimNextDir(folderId, 1, 60_000);
     await visitDirectory(rootDir!, root, {
-      handleEvent: async (e) => { events.push(e); },
+      handleEvent: async (e) => {
+        events.push(e);
+      },
       folderId,
     });
     // Now claim the sub dir that was just enqueued
     const subDir = await frontier.claimNextDir(folderId, 1, 60_000);
     expect(subDir).not.toBeNull();
     await visitDirectory(subDir!, root, {
-      handleEvent: async (e) => { events.push(e); },
+      handleEvent: async (e) => {
+        events.push(e);
+      },
       folderId,
     });
 
@@ -117,18 +149,23 @@ describe('SweeperLoop', () => {
     const { SweeperLoop } = await import('./sweeper.ts');
     const frontier = await import('./frontier.repo.ts');
     const root = mkdtempSync(join(tmpdir(), 'maple-loop-'));
-    mkdirSync(join(root, 'a')); mkdirSync(join(root, 'b'));
+    mkdirSync(join(root, 'a'));
+    mkdirSync(join(root, 'b'));
     const folderId = new ObjectId();
     await frontier.seedRoot(folderId, root, 1);
 
     let paused = false;
     const visited: string[] = [];
     const loop = new SweeperLoop({
-      folderId, root,
+      folderId,
+      root,
       deps: { folderId, handleEvent: async () => {} },
       loadConfig: async () => ({ paused, sweepDirIntervalMs: 0 }),
       sleep: async () => {},
-      onVisit: (p) => { visited.push(p); if (visited.length === 3) paused = true; },
+      onVisit: (p) => {
+        visited.push(p);
+        if (visited.length === 3) paused = true;
+      },
     });
     await loop.runUntilIdleOrPaused(); // test-only bound
     expect(visited.length).toBeGreaterThanOrEqual(3);

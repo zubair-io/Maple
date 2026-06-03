@@ -7,8 +7,8 @@
  * we went down.
  */
 
-import { getDb } from "../db/client.ts";
-import type { Collection } from "mongodb";
+import { getDb } from '../db/client.ts';
+import type { Collection } from 'mongodb';
 
 export interface CheckpointDoc {
   /** Hex string of the folder's Mongo ObjectId. */
@@ -26,7 +26,7 @@ export interface CheckpointDoc {
 
 export async function checkpointsCollection(): Promise<Collection<CheckpointDoc>> {
   const db = await getDb();
-  const coll = db.collection<CheckpointDoc>("indexer_checkpoints");
+  const coll = db.collection<CheckpointDoc>('indexer_checkpoints');
   return coll;
 }
 
@@ -45,7 +45,7 @@ export async function writeCheckpoint(doc: CheckpointDoc): Promise<void> {
   await coll.updateOne(
     { folderId: doc.folderId },
     { $set: { ...doc, updatedAt: Date.now() } },
-    { upsert: true }
+    { upsert: true },
   );
 }
 
@@ -54,7 +54,7 @@ export async function markInflight(folderId: string, id: string): Promise<void> 
   await coll.updateOne(
     { folderId },
     { $addToSet: { inflightIds: id }, $set: { updatedAt: Date.now() } },
-    { upsert: true }
+    { upsert: true },
   );
 }
 
@@ -62,6 +62,6 @@ export async function clearInflight(folderId: string, id: string): Promise<void>
   const coll = await checkpointsCollection();
   await coll.updateOne(
     { folderId },
-    { $pull: { inflightIds: id }, $set: { updatedAt: Date.now() } }
+    { $pull: { inflightIds: id }, $set: { updatedAt: Date.now() } },
   );
 }

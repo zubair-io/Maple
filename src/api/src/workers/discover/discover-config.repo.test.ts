@@ -1,8 +1,16 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'bun:test';
 import { getDb } from '../../db/client.ts';
 let reachable = true;
-beforeAll(async () => { try { await getDb(); } catch { reachable = false; } });
-beforeEach(async () => { if (reachable) await (await getDb()).collection('worker_config').deleteMany({ name: 'discover' }); });
+beforeAll(async () => {
+  try {
+    await getDb();
+  } catch {
+    reachable = false;
+  }
+});
+beforeEach(async () => {
+  if (reachable) await (await getDb()).collection('worker_config').deleteMany({ name: 'discover' });
+});
 
 describe('discover-config.repo', () => {
   it('returns defaults when unset, persists patches', async () => {
