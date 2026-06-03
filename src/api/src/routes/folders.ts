@@ -17,7 +17,7 @@ import { foldersCollection, assetsCollection } from '../db/client.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { validateRoot } from '../fs/root.ts';
 import { RAW_EXTENSIONS, isUnderRoot } from '../fs/browse.ts';
-import { SHARP_EXTENSIONS } from '../thumbs/render.ts';
+import { SHARP_EXTENSIONS } from '../fs/browse.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { listPairedSidecars } from '../fs/xmp.ts';
 import { child as childLogger } from '../log.ts';
