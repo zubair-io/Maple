@@ -19,7 +19,14 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   if (dbReachable) {
-    await (await getDb()).collection('worker_status').deleteMany({ _id: 'singleton' });
+    const db = await getDb();
+    await db.collection('worker_status').deleteMany({ _id: 'singleton' });
+    // `/status` derives each stage's pending/ready/dead from a live
+    // countDocuments over the `assets` collection. In the shared CI Mongo an
+    // earlier test file can leave asset docs behind, which makes the
+    // "zeroed on empty DB" assertions observe a stale backlog. Clear assets so
+    // every test in this file starts from a true 0/0/0 baseline.
+    await db.collection('assets').deleteMany({});
   }
 });
 
