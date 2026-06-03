@@ -813,6 +813,25 @@ export interface ImportFileDoc extends ImportFileEntry {
 export type ImportFileWithId = WithId<ImportFileDoc>;
 
 // ---------------------------------------------------------------------------
+// Discover frontier (resumable directory walk)
+// ---------------------------------------------------------------------------
+
+/**
+ * One directory still to visit in an in-progress discover sweep. The frontier
+ * lives in Mongo (not heap) so the walk's memory is O(one directory), not
+ * O(tree). `(folder_id, dir_path, sweep_gen)` is unique so a re-seed can't
+ * double-enqueue. `claimed_at` is a lease so a crashed sweeper's dir is retaken.
+ */
+export interface DiscoverFrontierDoc {
+  folder_id: ObjectId;
+  dir_path: string; // absolute
+  sweep_gen: number;
+  claimed_at: number | null; // ms epoch lease; null = free
+  enqueued_at: number;
+}
+export type DiscoverFrontierWithId = WithId<DiscoverFrontierDoc>;
+
+// ---------------------------------------------------------------------------
 // User
 // ---------------------------------------------------------------------------
 
