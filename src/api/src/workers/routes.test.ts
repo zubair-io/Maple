@@ -4,6 +4,7 @@ import { workerRoutes, sanitizeWorkerConfig } from './routes.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { stageRegistry } from './registry.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';
+import { WorkerConfigRepo } from './worker-config.repo.ts';
 import { getDb } from '../db/client.ts';
 import type { StageStatusSnapshot } from './registry.ts';
 
@@ -177,7 +178,6 @@ describe('GET /api/workers/status', () => {
 
 describe('POST /api/workers/:name/pause', () => {
   it('returns 404 for unknown stage', async () => {
-    expect(stageRegistry.has('nonexistent')).toBe(false);
     const app = new Elysia().use(workerRoutes());
     const res = await app.handle(
       new Request('http://localhost/api/workers/nonexistent/pause', {
@@ -185,6 +185,27 @@ describe('POST /api/workers/:name/pause', () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+
+  it('writes worker_config.paused=true (cross-process channel)', async () => {
+    if (!dbReachable) return;
+    const db = await getDb();
+    // Clean up any prior doc.
+    await db.collection('worker_config').deleteOne({ name: 'thumb' });
+
+    const app = new Elysia().use(workerRoutes());
+    const res = await app.handle(
+      new Request('http://localhost/api/workers/thumb/pause', { method: 'POST' }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
+    const cfg = await repo.load('thumb');
+    expect(cfg?.paused).toBe(true);
+
+    await db.collection('worker_config').deleteOne({ name: 'thumb' });
   });
 });
 
@@ -197,6 +218,27 @@ describe('POST /api/workers/:name/resume', () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+
+  it('writes worker_config.paused=false (cross-process channel)', async () => {
+    if (!dbReachable) return;
+    const db = await getDb();
+    // Seed a paused doc first.
+    const repo = new WorkerConfigRepo(db.collection('worker_config') as never);
+    await repo.patch('thumb', { paused: true });
+
+    const app = new Elysia().use(workerRoutes());
+    const res = await app.handle(
+      new Request('http://localhost/api/workers/thumb/resume', { method: 'POST' }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    const cfg = await repo.load('thumb');
+    expect(cfg?.paused).toBe(false);
+
+    await db.collection('worker_config').deleteOne({ name: 'thumb' });
   });
 });
 
