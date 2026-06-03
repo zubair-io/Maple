@@ -138,6 +138,27 @@ function stageAsset(
   return { doc, thumbPath };
 }
 
+describe('faceEmbedHandler — video files', () => {
+  it('skips a video asset as { skip: video-file } without invoking the recognizer', async () => {
+    const { root, libraryId } = setup();
+    try {
+      // Shared loadThumbBytes guard: a .mov/.mp4 thumb is the raw video
+      // container (last-resort passthrough), which can't be cloned across the
+      // face-pool IPC. Skip terminally rather than dead-letter after retries.
+      const { doc, thumbPath } = stageAsset(root, libraryId, 'clip.mp4', [fakeFace()]);
+      mkdirSync(dirname(thumbPath), { recursive: true });
+      writeFileSync(thumbPath, 'raw-mp4-bytes');
+      const detector = recordingDetector(new Error('recognizer must not run on a video asset'));
+      setDefaultFaceDetectorForTests(detector);
+      const result = await faceEmbedHandler(doc, noopCtx);
+      expect((result as { skip: string }).skip).toBe('video-file');
+      expect(detector.embedded).toHaveLength(0);
+    } finally {
+      teardown();
+    }
+  });
+});
+
 describe('faceEmbedHandler — happy path', () => {
   it('embeds each detected face in place via per-index patch keys', async () => {
     const { root, libraryId } = setup();
