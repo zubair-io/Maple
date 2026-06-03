@@ -155,11 +155,40 @@ export async function runOnce(
   const batchSize = deriveBatchSize(config.concurrency);
   const docs = await images.find(query).limit(batchSize).toArray();
 
-  await dispatchPool(docs, config.concurrency, async (doc) => {
+  const stageKey = `stages.${stage.name}`;
+  const priorAttempts = (d: ImageDoc): number => d.stages?.[stage.name]?.attempts ?? 0;
+
+  // Crash-attributable claims (#897). The worker tier runs native code (onnx,
+  // libraw, sharp) that can `abort()` the whole process mid-handler — an
+  // UNCATCHABLE death the catch below never observes. A doc whose `attempts`
+  // reached `maxAttempts` but was never marked done OR dead can only have got
+  // there by aborting the worker on each claim (a normal throw dead-letters in
+  // the catch). Reconcile it here — mark it dead (+ damaged on file-reading
+  // stages) and DON'T re-dispatch — otherwise one poison asset re-claims on
+  // every respawn forever and the whole tier never drains.
+  const exhausted = docs.filter((d) => priorAttempts(d) >= config.maxAttempts);
+  for (const doc of exhausted) {
+    const id = (doc as { _id: ObjectId })._id;
+    const reason = `claimed ${priorAttempts(doc)}× without completing — worker aborted mid-handler (uncatchable native crash)`;
+    await images.updateOne(
+      { _id: id },
+      { $set: { [`${stageKey}.dead`]: true, [`${stageKey}.last_error`]: reason } },
+    );
+    if (stage.tagsDamagedOnDeadLetter) await tagDamaged(images, id, stage.name, reason);
+  }
+  const claimable = docs.filter((d) => priorAttempts(d) < config.maxAttempts);
+
+  await dispatchPool(claimable, config.concurrency, async (doc) => {
     const id = (doc as { _id: ObjectId })._id;
     const idStr = String(id);
+    const attemptNo = priorAttempts(doc) + 1;
     inFlightSet?.add(idStr);
     try {
+      // Persist this attempt BEFORE running the handler so an uncatchable
+      // process death (native SIGABRT/SIGSEGV) still counts toward maxAttempts.
+      // The success/skip paths reset it to 0; the catch computes `dead` from
+      // `attemptNo` (already persisted) without re-reading or re-incrementing.
+      await images.updateOne({ _id: id }, { $set: { [`${stageKey}.attempts`]: attemptNo } });
       const result = await stage.handler(doc, ctx);
       const stageState = {
         version: stage.targetVersion,
@@ -216,6 +245,12 @@ export async function runOnce(
           result.skip === 'no-resolvable-location' &&
           hasOnlySoftDeletedFileInfo(doc)
         ) {
+          // Roll back the claim's provisional attempt: a relocated/soft-deleted
+          // original was never genuinely processed — it's parked for the reaper.
+          await images.updateOne(
+            { _id: id },
+            { $set: { [`${stageKey}.attempts`]: attemptNo - 1 } },
+          );
           await tagMissingSince(images, id);
           log.debug(
             { _id: idStr },
@@ -272,24 +307,24 @@ export async function runOnce(
       // resolves it — clears the tag (asset reprocesses, since its stages were
       // never marked done/dead) or hard-deletes the row.
       if (stage.tagsMissingOnEnoent && isEnoentError(err)) {
+        // Roll back the claim's provisional attempt: a missing original was
+        // never genuinely attempted — it's parked for the reaper via the tag.
+        await images.updateOne({ _id: id }, { $set: { [`${stageKey}.attempts`]: attemptNo - 1 } });
         await tagMissingSince(images, id);
         log.debug({ _id: idStr }, `${stage.name}: original missing — tagged for reaper`);
         return;
       }
       const msg = err instanceof Error ? err.message : String(err);
-      const current = await images.findOne(
-        { _id: id },
-        { projection: { [`stages.${stage.name}`]: 1 } },
-      );
-      const currentAttempts = (current?.stages?.[stage.name]?.attempts ?? 0) + 1;
-      const dead = currentAttempts >= config.maxAttempts;
+      // `attempts` was already persisted at claim time (so an uncatchable death
+      // still counts), so compute `dead` from `attemptNo` rather than re-reading
+      // or re-incrementing.
+      const dead = attemptNo >= config.maxAttempts;
       await images.updateOne(
         { _id: id },
         {
           $set: {
-            [`stages.${stage.name}.attempts`]: currentAttempts,
-            [`stages.${stage.name}.last_error`]: msg,
-            [`stages.${stage.name}.dead`]: dead,
+            [`${stageKey}.last_error`]: msg,
+            [`${stageKey}.dead`]: dead,
           },
         },
       );

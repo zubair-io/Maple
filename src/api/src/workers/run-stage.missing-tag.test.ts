@@ -171,12 +171,16 @@ describe('runOnce — missing_since tagging', () => {
     await _test.runOnce(stage, cfg, images, configColl);
     const doc = (await images.find({}).toArray())[0]! as unknown as {
       missing_since?: string;
-      stages?: Record<string, unknown>;
+      stages?: Record<string, { attempts?: number; version?: number; dead?: boolean }>;
     };
-    // Just tagged — no dead, no attempts, no version bump. The claim-query
-    // filter (missing_since) parks it; the reaper re-enables it on resolution.
+    // Tagged for the reaper, and the claim's provisional attempt (#897) is
+    // rolled back: a missing original was never genuinely attempted, so the
+    // stage is left unadvanced — no version, not dead, attempts 0. The
+    // claim-query filter (missing_since) parks it; the reaper re-enables it.
     expect(typeof doc.missing_since).toBe('string');
-    expect(doc.stages).toBeUndefined();
+    expect(doc.stages?.exif?.attempts ?? 0).toBe(0);
+    expect(doc.stages?.exif?.version).toBeUndefined();
+    expect(doc.stages?.exif?.dead ?? false).toBe(false);
   });
 
   it('buildClaimQuery excludes assets tagged missing_since', () => {
@@ -253,12 +257,15 @@ describe('runOnce — no-resolvable-location reaper tagging (#805)', () => {
     await _test.runOnce(stage, cfg, images, configColl);
     const doc = (await images.find({}).toArray())[0]! as unknown as {
       missing_since?: string;
-      stages?: Record<string, unknown>;
+      stages?: Record<string, { attempts?: number; version?: number; dead?: boolean }>;
     };
-    // Tagged for the reaper — and NO stage state touched (mirrors the ENOENT
-    // catch-path), so the asset isn't marked done at the vanished location.
+    // Tagged for the reaper — and the stage is left unadvanced (claim attempt
+    // #897 rolled back, no version, not dead), so the asset isn't marked done
+    // at the vanished location.
     expect(typeof doc.missing_since).toBe('string');
-    expect(doc.stages).toBeUndefined();
+    expect(doc.stages?.exif?.attempts ?? 0).toBe(0);
+    expect(doc.stages?.exif?.version).toBeUndefined();
+    expect(doc.stages?.exif?.dead ?? false).toBe(false);
   });
 
   it('first-detection wins: a second skip tick does not push the timestamp forward', async () => {
