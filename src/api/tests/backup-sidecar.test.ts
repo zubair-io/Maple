@@ -58,6 +58,20 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Drop the asset + folder rows this suite seeded so they don't leak into the
+  // shared Mongo for later test files (KTLO #895) — beforeAll only cleared its
+  // own prior run, never tore down afterward. Scoped to this suite's
+  // libId/deviceId to stay parallel-safe with the sibling backup suites.
+  try {
+    const a = await assetsCollection();
+    await a.deleteMany({
+      $or: [{ 'fileinfo.library_id': libId }, { 'phasset_links.device_id': deviceId }],
+    });
+    const f = await foldersCollection();
+    await f.deleteMany({ _id: libId });
+  } catch {
+    // Best-effort teardown — never mask a test failure with a cleanup error.
+  }
   await fs.rm(tmpLib, { recursive: true, force: true });
 });
 
