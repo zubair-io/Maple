@@ -111,3 +111,65 @@ export async function advanceSweep(
   await frontier.seedRoot(folderId, rootPath, nextGen);
   return nextGen;
 }
+
+const LEASE_MS = 5 * 60 * 1000;
+
+export interface SweepConfig {
+  paused: boolean;
+  sweepDirIntervalMs: number;
+}
+
+export interface SweeperLoopOpts {
+  folderId: ObjectId;
+  root: string;
+  deps: ReconcileDeps;
+  loadConfig: () => Promise<SweepConfig>;
+  sleep?: (ms: number) => Promise<void>;
+  onVisit?: (dirPath: string) => void;
+}
+
+export class SweeperLoop {
+  private shuttingDown = false;
+  private gen = 1;
+  private readonly o: SweeperLoopOpts;
+  private readonly sleep: (ms: number) => Promise<void>;
+
+  constructor(o: SweeperLoopOpts) {
+    this.o = o;
+    this.sleep = o.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  }
+
+  stop(): void { this.shuttingDown = true; }
+
+  /** One claim→visit→pace cycle. Returns false when idle (nothing to do). */
+  private async tick(cfg: SweepConfig): Promise<boolean> {
+    const dir = await frontier.claimNextDir(this.o.folderId, this.gen, LEASE_MS);
+    if (!dir) {
+      this.gen = await advanceSweep(this.o.folderId, this.o.root, this.gen);
+      return false;
+    }
+    this.o.onVisit?.(dir.dir_path);
+    await visitDirectory(dir, this.o.root, this.o.deps);
+    await this.sleep(cfg.sweepDirIntervalMs);
+    return true;
+  }
+
+  /** Production loop: run until stop(); idle ⇒ sleep one interval and retry. */
+  async run(): Promise<void> {
+    while (!this.shuttingDown) {
+      const cfg = await this.o.loadConfig();
+      if (cfg.paused) { await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs)); continue; }
+      const did = await this.tick(cfg);
+      if (!did) await this.sleep(Math.max(1000, cfg.sweepDirIntervalMs));
+    }
+  }
+
+  /** Test-only: drain until idle or a config flips paused. */
+  async runUntilIdleOrPaused(): Promise<void> {
+    for (;;) {
+      const cfg = await this.o.loadConfig();
+      if (cfg.paused) return;
+      if (!(await this.tick(cfg))) return;
+    }
+  }
+}
