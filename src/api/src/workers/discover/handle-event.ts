@@ -13,7 +13,7 @@
  * watcher's polling interval. See `discover.test.ts`.
  */
 import { ObjectId } from 'mongodb';
-import type { WatchEvent } from '../../indexer/watcher.ts';
+import type { WatchEvent } from './types.ts';
 import { blankStagesSkeleton } from '../stages/manifest.ts';
 import { child } from '../../log.ts';
 import { assetsCollection } from '../../db/client.ts';
