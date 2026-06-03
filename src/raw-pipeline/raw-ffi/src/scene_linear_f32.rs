@@ -16,7 +16,10 @@
 
 use crate::buffers::MapleSceneLinearBufferF32;
 use crate::error::{set_last_error, with_large_stack};
-use crate::model::{load_xmp_model_owned, LoadModel};
+use crate::model::{
+    force_ae_off_if_auto_will_fit_bytes, force_ae_off_if_auto_will_fit_path,
+    load_xmp_model_owned, LoadModel,
+};
 use raw_core::decode::decode_bytes;
 use std::ffi::{CStr, c_char};
 
@@ -71,6 +74,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        // #871: force auto_exposure Off when an Auto Profile curve will fit.
+        let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
         let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32(
             &raw_img, &model, quality,
         ) {
@@ -128,6 +133,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        // #871: force auto_exposure Off when an Auto Profile curve will fit.
+        let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
         let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32(
             &raw_img, &model, quality,
         ) {
@@ -189,6 +196,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        // #871: force auto_exposure Off when an Auto Profile curve will fit.
+        let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
         let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32(
             &raw_img, &model, quality, max_long_edge,
         ) {
@@ -251,6 +260,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        // #871: force auto_exposure Off when an Auto Profile curve will fit.
+        let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
         let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32(
             &raw_img, &model, quality, max_long_edge,
         ) {

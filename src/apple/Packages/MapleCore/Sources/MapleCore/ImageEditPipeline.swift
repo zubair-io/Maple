@@ -154,7 +154,8 @@ public actor ImageEditPipeline {
     nonisolated public func decodeSceneLinear(
         asset: AssetRef,
         quality: PipelineRenderer.Quality = .preview,
-        xmpPath: URL? = nil
+        xmpPath: URL? = nil,
+        profileOverride: Profile? = nil
     ) async -> CIImage? {
         let imageData: MapleSceneLinearImageData
         do {
@@ -163,13 +164,15 @@ public actor ImageEditPipeline {
                 let accessing = scope.startAccessingSecurityScopedResource()
                 defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
                 imageData = try PipelineRenderer.renderSceneLinear(
-                    rawPath: url, xmpPath: xmpPath, quality: quality
+                    rawPath: url, xmpPath: xmpPath, quality: quality,
+                    profileOverride: profileOverride
                 )
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
                 let hint = asset.hintExtension ?? ""
                 imageData = try PipelineRenderer.renderSceneLinear(
-                    rawBytes: bytes, hint: hint, xmpPath: xmpPath, quality: quality
+                    rawBytes: bytes, hint: hint, xmpPath: xmpPath, quality: quality,
+                    profileOverride: profileOverride
                 )
             } else {
                 return nil
@@ -208,7 +211,8 @@ public actor ImageEditPipeline {
     nonisolated public func decodeSceneLinearSized(
         asset: AssetRef,
         targetSize: CGSize,
-        xmpPath: URL? = nil
+        xmpPath: URL? = nil,
+        profileOverride: Profile? = nil
     ) async -> CIImage? {
         // Per ticket 06 § Product Requirements 2, the long edge of the
         // requested target is the cap; pixel-accurate sizing happens in
@@ -230,14 +234,16 @@ public actor ImageEditPipeline {
                 defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
                 imageData = try PipelineRenderer.renderSceneLinearSized(
                     rawPath: url, xmpPath: xmpPath,
-                    quality: .preview, maxLongEdge: longEdge
+                    quality: .preview, maxLongEdge: longEdge,
+                    profileOverride: profileOverride
                 )
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
                 let hint = asset.hintExtension ?? ""
                 imageData = try PipelineRenderer.renderSceneLinearSized(
                     rawBytes: bytes, hint: hint, xmpPath: xmpPath,
-                    quality: .preview, maxLongEdge: longEdge
+                    quality: .preview, maxLongEdge: longEdge,
+                    profileOverride: profileOverride
                 )
             } else {
                 return nil
@@ -249,7 +255,10 @@ public actor ImageEditPipeline {
             // fails. The unsized scene-linear entry from Task 4 is the
             // right fallback (matched color domain); the legacy display-
             // encoded path would mismatch the rest of `processSceneLinear`.
-            return await decodeSceneLinear(asset: asset, quality: .preview, xmpPath: xmpPath)
+            return await decodeSceneLinear(
+                asset: asset, quality: .preview, xmpPath: xmpPath,
+                profileOverride: profileOverride
+            )
         }
         let w = imageData.width, h = imageData.height
         let bytesPerRow = w * imageData.bytesPerPixel

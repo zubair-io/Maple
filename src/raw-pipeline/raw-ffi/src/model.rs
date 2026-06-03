@@ -50,3 +50,59 @@ pub(crate) fn load_xmp_model_owned(xmp_path_str: Option<&str>) -> LoadModel {
 pub(crate) fn dehaze_active(model: &xmp::AdjustmentModel) -> bool {
     model.dehaze.abs() > 1e-3
 }
+
+/// Force `auto_exposure: Off` when this model will fit an Auto Profile
+/// curve — the scene-linear-decode mirror of the full render path's
+/// `auto_will_fit` guard (`render/mod.rs` § Section 0).
+///
+/// Why this matters for the Apple canvas (#871): the Auto Profile curve is
+/// fit against a buffer developed with **auto_exposure Off** (the fit
+/// forces it so the fitted curve owns the entire scene→JPEG brightness
+/// relationship). The full CPU/CLI/WASM render path then also develops the
+/// *displayed* buffer with auto_exposure Off when a curve will fit, so the
+/// curve applies on the matching domain.
+///
+/// The Apple canvas, by contrast, develops the displayed buffer through
+/// THIS scene-linear decode (pre-AgX), then applies the same fitted curve
+/// as a post-encode `CIColorCube`. Without this guard the decode keeps
+/// auto_exposure On (the default) — so AE-lift and the curve-lift STACK,
+/// blowing out Auto highlights while Neutral (no curve) stays correct.
+/// Forcing Off here makes the Apple Auto displayed buffer byte-match the
+/// CLI/WASM Auto buffer the curve was authored against.
+///
+/// Gated EXACTLY on the render path's `auto_will_fit`: `profile == Auto`
+/// AND an embedded preview is extractable (the cube only applies when a
+/// curve actually fits, and a fit needs the preview). `Profile::Neutral`
+/// is returned unchanged — its decode is byte-identical to before.
+pub(crate) fn force_ae_off_if_auto_will_fit_path(
+    model: &xmp::AdjustmentModel,
+    raw_path: &std::path::Path,
+) -> xmp::AdjustmentModel {
+    if model.profile != xmp::Profile::Auto {
+        return model.clone();
+    }
+    let will_fit = raw_core::view::auto_profile::preview::extract_preview(raw_path).is_some();
+    apply_ae_off(model, will_fit)
+}
+
+/// Bytes-source mirror of [`force_ae_off_if_auto_will_fit_path`].
+pub(crate) fn force_ae_off_if_auto_will_fit_bytes(
+    model: &xmp::AdjustmentModel,
+    bytes: &[u8],
+    ext: &str,
+) -> xmp::AdjustmentModel {
+    if model.profile != xmp::Profile::Auto {
+        return model.clone();
+    }
+    let will_fit =
+        raw_core::view::auto_profile::preview::extract_preview_from_bytes(bytes, ext).is_some();
+    apply_ae_off(model, will_fit)
+}
+
+fn apply_ae_off(model: &xmp::AdjustmentModel, will_fit: bool) -> xmp::AdjustmentModel {
+    let mut m = model.clone();
+    if will_fit {
+        m.auto_exposure = xmp::AutoExposureMode::Off;
+    }
+    m
+}

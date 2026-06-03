@@ -266,7 +266,17 @@ extension EditSession {
         // — a sized-only cache from a prior fast pass is a miss, so refine
         // re-decodes full and never publishes a low-res final (#785).
         let cacheSufficient = (phase == .fast) || snapshot.isFull
+        // #871: the decode buffer is profile-dependent for RAW (Auto =
+        // auto_exposure Off; Neutral = On). A cache developed for a
+        // different profile is a MISS — reusing it would put the Auto
+        // curve over an AE-On buffer (the blowout) or render Neutral on an
+        // AE-Off buffer. Non-RAW buffers carry `profile == nil` and are
+        // profile-agnostic, so they stay fresh. A `nil` profile on a RAW
+        // cache (a seeded preview / embedded JPEG) also forces a re-decode
+        // so the first real render develops at the correct AE.
+        let profileMatches = !asset.isRaw || (snapshot.profile == m.profile)
         let cacheFresh = (cached != nil) && snapshot.isFresh && cacheSufficient
+            && profileMatches
         let cachedDecodedAtModel = snapshot.decodedAtModel
         let asShot: ImageEditPipeline.AsShotWB? = {
             guard let cct = asShotCCT, let t = asShotTint else { return nil }
@@ -338,6 +348,7 @@ extension EditSession {
                 let decoded = await renderActor.sharedDecode(
                     asset: asset,
                     target: decodeTarget,
+                    profile: m.profile,
                     normalize: { [weak self] image, asset in
                         guard let self else { return image }
                         return await MainActor.run {

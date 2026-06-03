@@ -87,11 +87,25 @@ public enum RawCoreBridge {
     /// is created in `FileManager.default.temporaryDirectory` and removed
     /// on `defer` regardless of whether `body` throws.
     ///
-    /// When `original` is `nil`, `body` is called with `nil` directly —
-    /// no temp file is written. The raw-ffi treats a null xmp_path as
-    /// "use AdjustmentModel::default()", which is already in the
-    /// "stripped" state (every field is at the default value the strip
-    /// would assign).
+    /// `profileOverride` (#871): when non-nil, the stripped model's
+    /// `profile` is forced to this value before the temp XMP is written —
+    /// regardless of what the on-disk sidecar says. The decode's
+    /// auto-exposure decision (raw-ffi forces `auto_exposure: Off` when an
+    /// Auto Profile curve will fit) keys off this profile, so the LIVE
+    /// profile selection must drive the decode rather than the sidecar's
+    /// possibly-stale value (the sidecar write is debounced; a fresh-open
+    /// with no sidecar would otherwise rely on raw-core's default). This
+    /// keeps the Apple Auto displayed buffer developed AE-Off — matching
+    /// the buffer the Auto curve was fit against — so AE-lift and
+    /// curve-lift don't stack and blow out highlights. `nil` preserves the
+    /// sidecar's profile (the pre-#871 behaviour).
+    ///
+    /// When `original` is `nil` AND `profileOverride` is `nil`, `body` is
+    /// called with `nil` directly — no temp file is written. The raw-ffi
+    /// treats a null xmp_path as "use AdjustmentModel::default()", which is
+    /// already in the "stripped" state (every field is at the default value
+    /// the strip would assign). When `profileOverride` is non-nil a temp
+    /// XMP is always written (even with no sidecar) so the override lands.
     ///
     /// When `original` cannot be read or parsed, `body` is still called
     /// with a temp XMP derived from `AdjustmentModel()` so the FFI call
@@ -103,22 +117,42 @@ public enum RawCoreBridge {
     /// file at the sidecar URL.
     public static func withStrippedXMP<T>(
         _ original: URL?,
+        profileOverride: Profile? = nil,
         body: (URL?) throws -> T
     ) throws -> T {
-        guard let original else {
+        guard original != nil || profileOverride != nil else {
             return try body(nil)
         }
-        let stripped: AdjustmentModel
+        var stripped: AdjustmentModel
         let culling: CullingState
-        do {
-            let xml = try String(contentsOf: original, encoding: .utf8)
-            let parsed = try XMPParser.parse(xml)
-            stripped = stripAppleGPUStages(parsed.0)
-            culling = parsed.1
-        } catch {
-            bridgeLog.warning("withStrippedXMP: failed to read/parse \(original.path, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to defaults.")
+        if let original {
+            do {
+                let xml = try String(contentsOf: original, encoding: .utf8)
+                let parsed = try XMPParser.parse(xml)
+                stripped = stripAppleGPUStages(parsed.0)
+                culling = parsed.1
+            } catch {
+                bridgeLog.warning("withStrippedXMP: failed to read/parse \(original.path, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to defaults.")
+                stripped = stripAppleGPUStages(AdjustmentModel())
+                culling = CullingState()
+            }
+        } else {
+            // No sidecar but a profile override is requested — start from
+            // canonical defaults so the override is the only deviation.
             stripped = stripAppleGPUStages(AdjustmentModel())
             culling = CullingState()
+        }
+        if let profileOverride {
+            stripped.profile = profileOverride
+            // Guard the serialize→parse round-trip: the serializer omits
+            // `papp:Profile` for `.auto`, and raw-core then MIGRATES a
+            // `papp:Look="Neutral"` into `Profile::Neutral` (legacy #536
+            // migration, gated on no explicit `papp:Profile`). A
+            // Look=Neutral sidecar would therefore silently flip our Auto
+            // override back to Neutral on the decode side. The Look field
+            // is a retired no-op (#443) and the pre-AgX decode never reads
+            // it, so neutralise it here so the override is the sole signal.
+            stripped.look = .default
         }
         let xml = XMPSerializer.serialize(model: stripped, culling: culling)
         // Unique temp file name — UUID avoids collision across concurrent
