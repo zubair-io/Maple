@@ -181,12 +181,16 @@ public struct PipelineRenderer: Sendable {
     public static func renderSceneLinear(
         rawPath: URL,
         xmpPath: URL? = nil,
-        quality: Quality = .full
+        quality: Quality = .full,
+        profileOverride: Profile? = nil
     ) throws -> MapleSceneLinearImageData {
         // Apple-GPU strip lives in Swift (ticket #124). The temp XMP
         // carries only the fields the Rust decode should bake; the
         // Metal chain re-applies the rest at the slider tick.
-        try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+        // `profileOverride` (#871) forces the LIVE profile into the temp
+        // XMP so the decode's auto-exposure-Off-when-Auto decision tracks
+        // the user's current selection, not the debounced sidecar.
+        try RawCoreBridge.withStrippedXMP(xmpPath, profileOverride: profileOverride) { strippedXMP in
             try rawPath.withPathCString { rawCStr in
                 if let strippedXMP {
                     return try strippedXMP.withPathCString { xmpCStr in
@@ -203,12 +207,13 @@ public struct PipelineRenderer: Sendable {
         rawBytes: Data,
         hint: String,
         xmpPath: URL? = nil,
-        quality: Quality = .full
+        quality: Quality = .full,
+        profileOverride: Profile? = nil
     ) throws -> MapleSceneLinearImageData {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
         }
-        return try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+        return try RawCoreBridge.withStrippedXMP(xmpPath, profileOverride: profileOverride) { strippedXMP in
             try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
                 let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
                 if let strippedXMP {
@@ -240,9 +245,10 @@ public struct PipelineRenderer: Sendable {
         rawPath: URL,
         xmpPath: URL? = nil,
         quality: Quality = .preview,
-        maxLongEdge: UInt32
+        maxLongEdge: UInt32,
+        profileOverride: Profile? = nil
     ) throws -> MapleSceneLinearImageData {
-        try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+        try RawCoreBridge.withStrippedXMP(xmpPath, profileOverride: profileOverride) { strippedXMP in
             try rawPath.withPathCString { rawCStr in
                 if let strippedXMP {
                     return try strippedXMP.withPathCString { xmpCStr in
@@ -266,12 +272,13 @@ public struct PipelineRenderer: Sendable {
         hint: String,
         xmpPath: URL? = nil,
         quality: Quality = .preview,
-        maxLongEdge: UInt32
+        maxLongEdge: UInt32,
+        profileOverride: Profile? = nil
     ) throws -> MapleSceneLinearImageData {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
         }
-        return try RawCoreBridge.withStrippedXMP(xmpPath) { strippedXMP in
+        return try RawCoreBridge.withStrippedXMP(xmpPath, profileOverride: profileOverride) { strippedXMP in
             try rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) in
                 let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
                 if let strippedXMP {

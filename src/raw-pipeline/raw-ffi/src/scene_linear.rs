@@ -20,7 +20,10 @@
 
 use crate::buffers::MapleSceneLinearBuffer;
 use crate::error::{set_last_error, with_large_stack};
-use crate::model::{dehaze_active, load_xmp_model_owned, LoadModel};
+use crate::model::{
+    dehaze_active, force_ae_off_if_auto_will_fit_bytes, force_ae_off_if_auto_will_fit_path,
+    load_xmp_model_owned, LoadModel,
+};
 use raw_core::decode::decode_bytes;
 use std::ffi::{CStr, c_char};
 
@@ -75,6 +78,11 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        // #871: force auto_exposure Off when an Auto Profile curve will fit,
+        // so the Apple displayed buffer matches the CLI/WASM buffer the curve
+        // was authored against (the cube applies the curve on top — without
+        // this the AE-lift and curve-lift stack and Auto highlights blow out).
+        let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality(
             &raw_img, &model, quality,
         ) {
@@ -133,6 +141,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        // #871: force auto_exposure Off when an Auto Profile curve will fit
+        // (see the file-source entry above for the rationale).
+        let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality(
             &raw_img, &model, quality,
         ) {
@@ -207,6 +218,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        // #871: force auto_exposure Off when an Auto Profile curve will fit.
+        let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
             &raw_img, &model, quality, max_long_edge,
         ) {
@@ -271,6 +284,8 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
         } else {
             raw_core::pipeline::RenderQuality::Full
         };
+        // #871: force auto_exposure Off when an Auto Profile curve will fit.
+        let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
             &raw_img, &model, quality, max_long_edge,
         ) {

@@ -330,4 +330,77 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         XCTAssertTrue(stillCached, "decoded cache should still be populated after a slider tick")
         XCTAssertTrue(stillFresh, "decoded cache should still be fresh after a slider tick")
     }
+
+    /// #871: the decode buffer is profile-dependent (Auto develops
+    /// auto_exposure Off; Neutral keeps it On), so the `profile` param must
+    /// route through `sharedDecode` to a DISTINCT decode and the cache must
+    /// re-key on it — a Neutral→Auto toggle must NOT serve the Neutral
+    /// (AE-On) buffer to the Auto render. Exercises the actor concurrency
+    /// surface the `decodeSceneLinear`-direct tests bypass: `decodeProfile`
+    /// in the in-flight task identity, `decodedProfile`, and `snapshot.profile`.
+    /// Fixture-gated on a real RAW (the FFI must actually develop AE).
+    func testSharedDecodeReKeysOnProfile871() async throws {
+        let fixturePath = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("test-fixtures/raws/test_0003.CR2")
+        guard FileManager.default.fileExists(atPath: fixturePath.path) else {
+            throw XCTSkip("test_0003.CR2 fixture not present; skipping")
+        }
+        let asset = AssetRef(url: fixturePath)
+        let pipeline = ImageEditPipeline()
+        let actor = RenderActor(pipeline: pipeline)
+        let identity: @Sendable (CIImage, AssetRef) async -> CIImage = { img, _ in img }
+
+        // Full-res decode (target nil) so a single cache slot is written.
+        guard let neutral = await actor.sharedDecode(
+            asset: asset, target: nil, profile: .neutral, normalize: identity
+        ) else { throw XCTSkip("neutral decode nil") }
+        let snapNeutral = await actor.snapshot(forAsset: asset)
+        XCTAssertEqual(snapNeutral.profile, .neutral,
+                       "cache must record the Neutral decode profile")
+
+        guard let auto = await actor.sharedDecode(
+            asset: asset, target: nil, profile: .auto, normalize: identity
+        ) else { throw XCTSkip("auto decode nil") }
+        let snapAuto = await actor.snapshot(forAsset: asset)
+        XCTAssertEqual(snapAuto.profile, .auto,
+                       "an Auto decode after a Neutral one must RE-KEY the cache to Auto "
+                       + "(not serve the cached Neutral buffer) — #871")
+
+        // The Auto buffer (AE-Off) must be meaningfully darker than the
+        // Neutral buffer (AE-On). If the profile param were ignored / the
+        // cache served the same buffer, the two means would be equal.
+        func meanGreen(_ ci: CIImage) -> Double {
+            let ctx = CIContext(options: [
+                .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!,
+                .workingFormat: CIFormat.RGBAf,
+            ])
+            let e = ci.extent
+            let w = 48, h = 48
+            var px = [Float](repeating: 0, count: w * h * 4)
+            px.withUnsafeMutableBytes { buf in
+                ctx.render(
+                    ci.transformed(by: CGAffineTransform(
+                        scaleX: CGFloat(w) / e.width, y: CGFloat(h) / e.height)),
+                    toBitmap: buf.baseAddress!, rowBytes: w * 16,
+                    bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                    format: .RGBAf,
+                    colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+                )
+            }
+            var s = 0.0
+            for i in 0..<(w * h) { s += Double(px[i * 4 + 1]) }
+            return s / Double(w * h)
+        }
+        let aMean = meanGreen(auto), nMean = meanGreen(neutral)
+        XCTAssertLessThan(
+            aMean, nMean * 0.95,
+            "Auto buffer (AE-Off) must be darker than Neutral (AE-On) — equal means the "
+            + "profile param didn't route to a distinct decode / cache served the wrong buffer "
+            + "(auto=\(aMean) neutral=\(nMean))."
+        )
+    }
 }
