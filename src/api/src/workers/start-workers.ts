@@ -33,16 +33,14 @@ import { ffiPool } from '../ffi/ffi-pool.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.ts';
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
-import {
-  meilisearchClient,
-  reconfigureMeilisearch,
-} from '../enrichment/meilisearch-client.ts';
+import { meilisearchClient, reconfigureMeilisearch } from '../enrichment/meilisearch-client.ts';
 import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
 } from '../enrichment/enrichment-config.repo.ts';
 import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
+import { writeWorkerStatus } from './worker-status.repo.ts';
 
 const log = childLogger('workers');
 
@@ -51,6 +49,8 @@ const log = childLogger('workers');
 // ---------------------------------------------------------------------------
 
 let _discoverHandle: DiscoverHandle | null = null;
+/** Unref'd timer that publishes stageRegistry.statuses() to worker_status in Mongo. */
+let _statusInterval: ReturnType<typeof setInterval> | null = null;
 
 // ---------------------------------------------------------------------------
 // startWorkers
@@ -160,6 +160,15 @@ export async function startWorkers(): Promise<void> {
   } catch (err) {
     log.warn({ err }, 'ImportRunner failed to start');
   }
+
+  // Publish stageRegistry.statuses() to the worker_status Mongo doc every 2 s
+  // so the API process (which has an empty in-process registry) can serve
+  // GET /api/workers/status.  The timer is unref'd so it doesn't prevent a
+  // clean exit when stopWorkers() clears it.
+  _statusInterval = setInterval(() => {
+    writeWorkerStatus(stageRegistry.statuses(), Date.now()).catch(() => {});
+  }, 2000);
+  _statusInterval.unref();
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +176,13 @@ export async function startWorkers(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function stopWorkers(): Promise<void> {
+  // Clear the status-publishing interval before tearing down subsystems so
+  // we don't fire a best-effort write after the DB connection closes.
+  if (_statusInterval !== null) {
+    clearInterval(_statusInterval);
+    _statusInterval = null;
+  }
+
   // Stop the discover sweep (in-process handle).
   try {
     await _discoverHandle?.stop();
