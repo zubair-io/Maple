@@ -314,17 +314,35 @@ async function start(): Promise<void> {
     // never be starved or crashed by indexer/enrichment load. The child runs
     // `startWorkers()` which owns stages, discover, FFI pool, enrichment, job
     // runner, and import runner. Auto-respawns on crash unless shutting down.
+    // Respawn backoff. A worker that dies almost immediately is crash-looping
+    // (e.g. a poison asset that aborts the tier on boot per #897, or a bad
+    // deploy); a flat 1s respawn just hammers the box and the log pipeline.
+    // Grow the delay on each rapid death (capped), and reset it once a worker
+    // has run healthily — so a one-off crash still respawns promptly.
+    const WORKER_RESPAWN_MIN_MS = 1000;
+    const WORKER_RESPAWN_MAX_MS = 30_000;
+    const WORKER_HEALTHY_UPTIME_MS = 60_000;
+    let workerRespawnMs = WORKER_RESPAWN_MIN_MS;
     function spawnWorker(): void {
       if (shuttingDown) return;
       try {
+        const spawnedAt = Date.now();
         const w = new ChildProcessWorker(
           childScriptPath(import.meta.url, './workers/worker-main.ts'),
           { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'worker' },
         );
         w.addEventListener('error', (e) => {
-          log.error({ msg: e.message }, 'worker process died — respawning');
+          const uptimeMs = Date.now() - spawnedAt;
+          // Ran healthily then died → one-off, reset backoff. Died fast → grow it.
+          if (uptimeMs >= WORKER_HEALTHY_UPTIME_MS) workerRespawnMs = WORKER_RESPAWN_MIN_MS;
+          const delayMs = workerRespawnMs;
+          workerRespawnMs = Math.min(workerRespawnMs * 2, WORKER_RESPAWN_MAX_MS);
+          log.error(
+            { msg: e.message, uptimeMs, respawnInMs: delayMs },
+            'worker process died — respawning',
+          );
           _workerChild = null;
-          if (!shuttingDown) setTimeout(spawnWorker, 1000);
+          if (!shuttingDown) setTimeout(spawnWorker, delayMs);
         });
         _workerChild = w;
         log.info('worker process spawned');

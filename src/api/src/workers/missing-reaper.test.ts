@@ -417,11 +417,14 @@ describe('no-live-location stage→reaper handoff (#805)', () => {
     const configColl = (await getDb()).collection('worker_config');
     await _test.runOnce(exifStage as never, stageCfg, images as never, configColl as never);
 
-    // Tagged for the reaper — and the stage was NOT marked done at the
-    // vanished location (no `stages.exif` writeback).
+    // Tagged for the reaper — and the stage was left unadvanced: the claim's
+    // provisional attempt (#897) is rolled back, and it was NOT marked done at
+    // the vanished location (no version, not dead).
     const tagged = await db!.collection('assets').findOne({ _id: ins.insertedId });
     expect(typeof tagged!.missing_since).toBe('string');
-    expect(tagged!.stages?.exif).toBeUndefined();
+    expect(tagged!.stages?.exif?.attempts ?? 0).toBe(0);
+    expect(tagged!.stages?.exif?.version).toBeUndefined();
+    expect(tagged!.stages?.exif?.dead ?? false).toBe(false);
 
     // Backdate the tag past the prune window so the reaper is delete-eligible.
     await db!
