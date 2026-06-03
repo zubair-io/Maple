@@ -74,7 +74,11 @@ import { getDb, ensureIndexes, closeDb, foldersCollection } from './db/client.ts
 import { startMaintenanceJobs, stopMaintenanceJobs } from './workers/maintenance.ts';
 import { startAllStages, stopAllStages } from './workers/orchestrator.ts';
 import { stageRegistry } from './workers/registry.ts';
-import { startDiscover, type DiscoverHandle } from './workers/discover/index.ts';
+import {
+  ChildProcessWorker,
+  childScriptPath,
+  DEFAULT_NATIVE_CHILD_NICE,
+} from './runtime/child-process-worker.ts';
 import { sweepOrphanedCaches } from './workers/cache-gc.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from './enrichment/bootstrap.ts';
@@ -251,7 +255,7 @@ export const app = buildApp({ stageNames: [] });
 // ---------------------------------------------------------------------------
 
 /** Background handles whose lifecycle is owned by start()/shutdown(). */
-let _discoverHandle: DiscoverHandle | null = null;
+let _discoverChild: ChildProcessWorker | null = null;
 
 async function start(): Promise<void> {
   await ensureJwtSecret();
@@ -329,7 +333,11 @@ async function start(): Promise<void> {
         const folders = await foldersColl.find({}, { projection: { path: 1 } }).toArray();
         const discoverRoots = folders.map((f) => f.path).filter(Boolean);
         if (discoverRoots.length > 0) {
-          _discoverHandle = await startDiscover({ roots: discoverRoots });
+          _discoverChild = new ChildProcessWorker(
+            childScriptPath(import.meta.url, './workers/discover/sweeper.child.ts'),
+            { nice: DEFAULT_NATIVE_CHILD_NICE, label: 'discover', argv: discoverRoots },
+          );
+          log.info({ roots: discoverRoots }, 'discover sweep child spawned');
         }
 
         // Fire-and-forget cache-gc sweep per library. Reaps both legacy
@@ -500,10 +508,11 @@ async function shutdown(signal: string): Promise<void> {
   } catch (e) {
     log.warn({ err: e }, 'error stopping maintenance jobs');
   }
-  // Stop the file-system watcher so it stops producing new docs while we drain.
+  // Terminate the discover sweep child process so it stops producing new docs
+  // while we drain.
   try {
-    await _discoverHandle?.stop();
-    _discoverHandle = null;
+    _discoverChild?.terminate();
+    _discoverChild = null;
   } catch (e) {
     log.warn({ err: e }, 'error stopping discover');
   }
