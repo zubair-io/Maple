@@ -45,7 +45,7 @@ const SHARP_INPUT_OPTS = { failOn: 'none', unlimited: true } as const;
 /**
  * The canonical HEIC/HEIF chain: read the source, decode it to an
  * intermediate JPEG via `heic-convert` (quality 0.9), then resize + re-encode
- * via sharp (quality 82, mozjpeg) and write atomically.
+ * via sharp at `quality` (mozjpeg) and write atomically.
  *
  * Called by `renderImageThumbToFile` for the HEIC/HEIF branch. Lives inside the
  * `imgdecode.child.ts` isolated process so the large input and intermediate JPEG
@@ -57,10 +57,11 @@ export async function renderHeicThumbToFile(
   srcPath: string,
   thumbPath: string,
   sizePx: number,
+  quality = 82,
 ): Promise<void> {
   const inputBuffer = await readFile(srcPath);
-  // heic-convert → JPEG quality 0.9; subsequent sharp resize re-encodes
-  // at quality 82 so the intermediate doesn't bloat the cache.
+  // heic-convert → JPEG quality 0.9; subsequent sharp resize re-encodes at
+  // the caller-specified quality so the intermediate doesn't bloat the cache.
   const jpegBuffer = (await heicConvert({
     buffer: inputBuffer,
     format: 'JPEG',
@@ -69,7 +70,7 @@ export async function renderHeicThumbToFile(
   const buf = await sharp(jpegBuffer, SHARP_INPUT_OPTS)
     .rotate() // honour EXIF orientation so portraits don't render sideways
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 82, mozjpeg: true })
+    .jpeg({ quality, mozjpeg: true })
     .toBuffer();
   const tmp = `${thumbPath}.${process.pid}.tmp`;
   await writeFile(tmp, buf);
@@ -95,12 +96,13 @@ export async function renderImageThumbToFile(
   thumbPath: string,
   sizePx: number,
   ext: string,
+  quality = 82,
 ): Promise<boolean> {
   if (ext === 'heic' || ext === 'heif') {
     // Call the canonical HEIC chain directly. When render.ts is loaded inside
     // `imgdecode.child.ts` this is already an isolated process — no event-loop
     // blocking concern. The old Worker-thread indirection via heic-pool is gone.
-    await renderHeicThumbToFile(srcPath, thumbPath, sizePx);
+    await renderHeicThumbToFile(srcPath, thumbPath, sizePx, quality);
     return true;
   }
 
@@ -108,7 +110,7 @@ export async function renderImageThumbToFile(
   const buf = await sharp(srcPath, SHARP_INPUT_OPTS)
     .rotate() // honour EXIF orientation so portraits don't render sideways
     .resize(sizePx, sizePx, { fit: 'inside', withoutEnlargement: true })
-    .jpeg({ quality: 82, mozjpeg: true })
+    .jpeg({ quality, mozjpeg: true })
     .toBuffer();
   await writeFile(tmp, buf);
   await rename(tmp, thumbPath);
