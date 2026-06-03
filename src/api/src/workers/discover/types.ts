@@ -22,6 +22,19 @@ export interface DiscoverHandle {
   stop: () => Promise<void>;
 }
 
+/**
+ * Typed event emitted by the filesystem watcher (or the reconciliation sweep).
+ * Lives here — not in `indexer/watcher.ts` — so the sweep core can import it
+ * without dragging in chokidar. `watcher.ts` re-exports this type for
+ * backwards-compatibility with existing importers.
+ */
+export interface WatchEvent {
+  kind: 'created' | 'modified' | 'removed' | 'renamed';
+  absPath: string;
+  /** Only set for renames — previous absolute path. */
+  fromPath?: string;
+}
+
 export const SUPPORTED_EXTS = new Set([
   '.dng',
   '.cr2',
