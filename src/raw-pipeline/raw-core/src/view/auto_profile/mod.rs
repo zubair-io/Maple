@@ -21,6 +21,7 @@
 pub mod apply;
 pub mod bake;
 pub mod cache;
+pub mod chroma;
 pub mod curve;
 pub mod fit_display;
 pub mod preview;
