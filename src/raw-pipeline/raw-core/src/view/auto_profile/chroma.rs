@@ -667,9 +667,18 @@ fn solve_chroma_from_preview(
         .ok()
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(CHROMA_STRENGTH);
+    // Dev-only taper overrides for offline window exploration (Task 5).
+    let taper_lo = std::env::var("MAPLE_CHROMA_TAPER_LO")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(CHROMA_TAPER_LO);
+    let taper_hi = std::env::var("MAPLE_CHROMA_TAPER_HI")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(CHROMA_TAPER_HI);
     let mut t = damp_toward_identity(solved, k);
-    t.taper_lo = CHROMA_TAPER_LO;
-    t.taper_hi = CHROMA_TAPER_HI;
+    t.taper_lo = taper_lo;
+    t.taper_hi = taper_hi;
     Some(t)
 }
 
