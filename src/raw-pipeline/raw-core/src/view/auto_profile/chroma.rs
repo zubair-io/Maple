@@ -562,11 +562,15 @@ const MIN_SOLVE_PAIRS: usize = 256;
 pub(crate) fn solve_chroma_for_path(
     scene: &Image,
     path: &std::path::Path,
-    orientation: crate::image::ExifOrientation,
+    _orientation: crate::image::ExifOrientation,
     contrast: f32,
 ) -> Option<ChromaTransform> {
     use crate::view::auto_profile::preview;
-    let prev = preview::orient_preview_to_display(preview::extract_preview(path)?, orientation);
+    // The pre-AgX `scene` is SENSOR-oriented (the render applies EXIF
+    // orientation last), so pair against the SENSOR-oriented preview — do NOT
+    // orient it to display, or rotated fixtures (test_0003 = Rotate 270 CW)
+    // transpose the sample grid and the solve fits garbage (desaturates).
+    let prev = preview::extract_preview(path)?;
     let cs = preview::detect_jpeg_color_space(path);
     solve_chroma_from_preview(scene, prev, cs, contrast)
 }
@@ -576,14 +580,13 @@ pub(crate) fn solve_chroma_for_bytes(
     scene: &Image,
     bytes: &[u8],
     ext: &str,
-    orientation: crate::image::ExifOrientation,
+    _orientation: crate::image::ExifOrientation,
     contrast: f32,
 ) -> Option<ChromaTransform> {
     use crate::view::auto_profile::preview;
-    let prev = preview::orient_preview_to_display(
-        preview::extract_preview_from_bytes(bytes, ext)?,
-        orientation,
-    );
+    // Sensor-oriented preview to match the sensor-oriented pre-AgX scene (see
+    // solve_chroma_for_path).
+    let prev = preview::extract_preview_from_bytes(bytes, ext)?;
     let cs = preview::detect_jpeg_color_space_from_bytes(bytes, ext);
     solve_chroma_from_preview(scene, prev, cs, contrast)
 }
