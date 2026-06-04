@@ -83,7 +83,16 @@ afterAll(async () => {
   } catch {
     // Best-effort teardown — never mask a test failure with a cleanup error.
   }
-  await fs.rm(tmpLib, { recursive: true, force: true });
+  // Guard tmpLib: beforeAll can throw before assigning it, and an unguarded
+  // fs.rm(undefined) would throw and mask the original failure (mirrors the
+  // guard in setupBackupIngestSuite).
+  if (tmpLib) {
+    try {
+      await fs.rm(tmpLib, { recursive: true, force: true });
+    } catch {
+      // Teardown is best-effort; the OS will reclaim the tmpdir.
+    }
+  }
 });
 
 describe('GET /api/libraries/:id/backup/state', () => {
