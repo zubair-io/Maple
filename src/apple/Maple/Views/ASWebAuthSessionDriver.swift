@@ -11,18 +11,20 @@
 // entitlement scope; passkeys work for any domain because Safari
 // handles the ceremony, not the host app.
 //
-// The trade-off: tokens come back in a custom-URL-scheme redirect URL
-// rather than a JS bridge. The web app's AuthService redirects to
-//   maple-app://auth-success?access_token=…&refresh_token=…&user_id=…
-//                            &user_email=…&user_role=…
-// when the page is loaded with `?native_callback=maple-app` in the
-// initial URL. ASWebAuthenticationSession sees the redirect URL,
-// matches the callback scheme, and hands the URL to our completion
-// handler — never showing the URL to other apps and never persisting
-// it. The custom URL scheme does NOT need to be registered in
-// Info.plist; ASWebAuthenticationSession captures it internally.
+// Token handoff (#856): we do NOT take tokens out of the redirect URL.
+// Instead we run an OAuth-style PKCE code exchange. We generate a random
+// `code_verifier`, send its S256 `code_challenge` + an opaque `state` on the
+// initial URL:
+//   <host>?native_callback=maple-app&code_challenge=…&state=…
+// The web app, after the passkey ceremony, redirects a ONE-TIME CODE back:
+//   maple-app://auth-success?code=…&state=…
+// ASWebAuthenticationSession delivers that redirect privately to this session
+// (never to other apps). We verify `state`, then redeem the code + verifier at
+// `/api/auth/native-code/redeem` for freshly-minted, device-scoped tokens. A
+// raw refresh token therefore never rides in a redirect URL.
 
 import AuthenticationServices
+import CryptoKit
 import Foundation
 import MapleCore
 
@@ -37,28 +39,37 @@ enum ASWebAuthSessionResult {
 final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationContextProviding {
   private var session: ASWebAuthenticationSession?
 
-  /// Custom URL scheme used by the web app to redirect tokens back to
-  /// the native completion handler. Picked to be unique to Maple so
-  /// it doesn't collide with anything else.
+  /// PKCE verifier + CSRF state for the in-flight session. Held between
+  /// `start()` and the callback; cleared when the session completes.
+  private var pkceVerifier: String?
+  private var expectedState: String?
+  private var host: CloudHost?
+
+  /// Custom URL scheme the web app redirects the one-time code to. Unique to
+  /// Maple. ASWebAuthenticationSession captures it internally — no Info.plist.
   static let callbackScheme = "maple-app"
 
   /// Path in the redirect URL: `maple-app://auth-success?...`
   static let callbackHost = "auth-success"
 
-  /// Begin the auth flow against `host`. The completion handler runs
-  /// on the main actor. Cancelling via `cancel()` invalidates the
-  /// session; the completion fires with `.cancelled`.
+  /// Begin the auth flow against `host`. The completion handler runs on the
+  /// main actor. Cancelling via `cancel()` invalidates the session.
   func start(host: CloudHost,
              completion: @escaping @MainActor (ASWebAuthSessionResult) -> Void) {
-    // Build the URL the user lands on. The web app's AuthService reads
-    // `native_callback` from the query string and redirects with the
-    // matching scheme on auth success.
+    let verifier = Self.randomURLSafe(byteCount: 32)
+    let state = Self.randomURLSafe(byteCount: 16)
+    self.pkceVerifier = verifier
+    self.expectedState = state
+    self.host = host
+
     guard var comps = URLComponents(url: host.url, resolvingAgainstBaseURL: false) else {
       completion(.failed("invalid host URL"))
       return
     }
     var items = comps.queryItems ?? []
     items.append(URLQueryItem(name: "native_callback", value: Self.callbackScheme))
+    items.append(URLQueryItem(name: "code_challenge", value: Self.pkceChallenge(for: verifier)))
+    items.append(URLQueryItem(name: "state", value: state))
     comps.queryItems = items
     guard let url = comps.url else {
       completion(.failed("invalid host URL"))
@@ -71,29 +82,34 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
     ) { [weak self] callbackURL, error in
       Task { @MainActor in
         guard let self else { return }
-        let result = Self.parseCallback(callbackURL: callbackURL, error: error)
+        let result = await self.handleCallback(callbackURL: callbackURL, error: error)
         completion(result)
         self.session = nil
+        self.pkceVerifier = nil
+        self.expectedState = nil
+        self.host = nil
       }
     }
     session.presentationContextProvider = self
-    // Don't share Safari cookies — keeps the auth flow isolated and
-    // prevents leaking the user's Maple Cloud session into Safari.
+    // Don't share Safari cookies — keeps the auth flow isolated and prevents
+    // leaking the user's Maple Cloud session into Safari.
     session.prefersEphemeralWebBrowserSession = true
     self.session = session
     session.start()
   }
 
   /// Called by the view model when the user dismisses the parent sheet.
-  /// Tears down the in-flight session if any.
   func cancel() {
     session?.cancel()
     session = nil
+    pkceVerifier = nil
+    expectedState = nil
+    host = nil
   }
 
-  // MARK: - Callback parsing
+  // MARK: - Callback handling
 
-  private static func parseCallback(callbackURL: URL?, error: Error?) -> ASWebAuthSessionResult {
+  private func handleCallback(callbackURL: URL?, error: Error?) async -> ASWebAuthSessionResult {
     if let error {
       let asError = error as NSError
       // ASWebAuthenticationSessionErrorDomain code 1 = canceledLogin
@@ -112,17 +128,69 @@ final class ASWebAuthSessionDriver: NSObject, ASWebAuthenticationPresentationCon
     func qp(_ name: String) -> String? {
       items.first(where: { $0.name == name })?.value
     }
-    guard let access = qp("access_token"),
-          let refresh = qp("refresh_token"),
-          let userID = qp("user_id"),
-          let email = qp("user_email"),
-          let role = qp("user_role")
-    else {
-      return .failed("callback missing required query parameters")
+    guard let code = qp("code"), let returnedState = qp("state") else {
+      return .failed("callback missing code/state")
     }
-    let tokens = AuthTokens(access: access, refresh: refresh)
-    let user = AuthUser(id: userID, email: email, role: role)
+    // CSRF: the redirect's state must match the one we generated.
+    guard let expected = expectedState, returnedState == expected else {
+      return .failed("state mismatch")
+    }
+    guard let verifier = pkceVerifier, let host else {
+      return .failed("missing PKCE verifier")
+    }
+    do {
+      return try await Self.redeem(code: code, verifier: verifier, host: host)
+    } catch {
+      return .failed("code redemption failed: \(error.localizedDescription)")
+    }
+  }
+
+  /// Exchange the one-time `code` + PKCE `verifier` for tokens.
+  private static func redeem(code: String, verifier: String,
+                             host: CloudHost) async throws -> ASWebAuthSessionResult {
+    var req = URLRequest(url: host.url.appendingPathComponent("api/auth/native-code/redeem"))
+    req.httpMethod = "POST"
+    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    req.httpBody = try JSONSerialization.data(
+      withJSONObject: ["code": code, "code_verifier": verifier])
+    let (data, resp) = try await URLSession.shared.data(for: req)
+    guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
+      let status = (resp as? HTTPURLResponse)?.statusCode ?? -1
+      return .failed("code redemption rejected (status \(status))")
+    }
+    struct Redeemed: Decodable {
+      let access_token: String
+      let refresh_token: String
+      struct U: Decodable {
+        let id: String
+        let email: String
+        let role: String
+      }
+      let user: U
+    }
+    let r = try JSONDecoder().decode(Redeemed.self, from: data)
+    let tokens = AuthTokens(access: r.access_token, refresh: r.refresh_token)
+    let user = AuthUser(id: r.user.id, email: r.user.email, role: r.user.role)
     return .success(tokens, user)
+  }
+
+  // MARK: - PKCE helpers
+
+  /// `byteCount` cryptographically-random bytes, base64url (no padding).
+  private static func randomURLSafe(byteCount: Int) -> String {
+    SymmetricKey(size: .init(bitCount: byteCount * 8)).withUnsafeBytes { base64URL(Data($0)) }
+  }
+
+  /// PKCE S256: base64url(sha256(verifier)), matching the server's `pkceS256`.
+  private static func pkceChallenge(for verifier: String) -> String {
+    base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+  }
+
+  private static func base64URL(_ data: Data) -> String {
+    data.base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
   }
 
   // MARK: - ASWebAuthenticationPresentationContextProviding
