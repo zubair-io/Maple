@@ -186,8 +186,11 @@ export async function runOnce(
     try {
       // Persist this attempt BEFORE running the handler so an uncatchable
       // process death (native SIGABRT/SIGSEGV) still counts toward maxAttempts.
-      // The success/skip paths reset it to 0; the catch computes `dead` from
-      // `attemptNo` (already persisted) without re-reading or re-incrementing.
+      // A clean success — or a normal skip — resets attempts to 0; the catch
+      // computes `dead` from `attemptNo` (already persisted) without re-reading
+      // or re-incrementing; the park-for-reaper paths (ENOENT /
+      // no-resolvable-location) roll this back to the prior count, since a
+      // missing original was never genuinely attempted.
       await images.updateOne({ _id: id }, { $set: { [`${stageKey}.attempts`]: attemptNo } });
       const result = await stage.handler(doc, ctx);
       const stageState = {
