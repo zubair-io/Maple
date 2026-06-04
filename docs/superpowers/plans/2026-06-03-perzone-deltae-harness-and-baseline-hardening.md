@@ -14,14 +14,14 @@
 
 ## File structure
 
-| File | Action | Responsibility |
-|------|--------|----------------|
-| `src/scripts/compare_images.py` | Modify | Add `diff()`, `_zone_stats()`, `_hue_stats()`; `main()` calls `diff()`. The one diff implementation. |
-| `src/scripts/compare_images_test.py` | Create | Plain-assert tests (run via `python3`): return-key stability, synthetic attribution, zone self-consistency. |
-| `src/scripts/test_color_pipeline.sh` | Modify | Replace inlined `diff_inline` with in-process `import compare_images`; add `ZONES=1` breakdown printout. Gating unchanged. |
-| `src/scripts/per_luma_band.py` | Modify (Task 3, optional) | Reduce to thin wrapper over `compare_images.diff(..., zones=True)` (DRY). |
-| `src/scripts/per_band_hue.py` | Modify (Task 3, optional) | Reduce to thin wrapper over `compare_images.diff(..., zones=True, hue_bins=...)` (DRY). |
-| `docs/superpowers/findings/2026-06-03-test_0003-baseline.md` | Create (Task 4) | The diagnosis signature that gates the fix. |
+| File                                                         | Action                    | Responsibility                                                                                                             |
+| ------------------------------------------------------------ | ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `src/scripts/compare_images.py`                              | Modify                    | Add `diff()`, `_zone_stats()`, `_hue_stats()`; `main()` calls `diff()`. The one diff implementation.                       |
+| `src/scripts/compare_images_test.py`                         | Create                    | Plain-assert tests (run via `python3`): return-key stability, synthetic attribution, zone self-consistency.                |
+| `src/scripts/test_color_pipeline.sh`                         | Modify                    | Replace inlined `diff_inline` with in-process `import compare_images`; add `ZONES=1` breakdown printout. Gating unchanged. |
+| `src/scripts/per_luma_band.py`                               | Modify (Task 3, optional) | Reduce to thin wrapper over `compare_images.diff(..., zones=True)` (DRY).                                                  |
+| `src/scripts/per_band_hue.py`                                | Modify (Task 3, optional) | Reduce to thin wrapper over `compare_images.diff(..., zones=True, hue_bins=...)` (DRY).                                    |
+| `docs/superpowers/findings/2026-06-03-test_0003-baseline.md` | Create (Task 4)           | The diagnosis signature that gates the fix.                                                                                |
 
 **Reused as-is (do NOT reimplement):** `src/scripts/diff_heatmap.py` (spatial ΔE heatmap + quadrants, ICC-aware) is used directly in Task 4.
 
@@ -30,6 +30,7 @@
 ## Task 1: Canonical `diff()` with zones + hue bins in `compare_images.py`
 
 **Files:**
+
 - Modify: `src/scripts/compare_images.py`
 - Test: `src/scripts/compare_images_test.py`
 
@@ -277,11 +278,13 @@ Expected: PASS — `ok test_attribution` / `ok test_return_keys` / `ok test_zone
 - [ ] **Step 5: Sanity-check on a real pair (no-drift on the JSON CLI)**
 
 Run:
+
 ```bash
 python3 src/scripts/compare_images.py \
   test-fixtures/references/test_0003/down/baseline.png \
   test-fixtures/references/test_0003/down/baseline.png
 ```
+
 Expected: `{"mean_deltaE": 0.0, ... "n_pixels": <int>}` (identical image → zero). Then run with `--zones --hue-bins 12` and confirm a `zones`/`hue_bins` block appears and is all-zero ΔE.
 
 - [ ] **Step 6: Commit**
@@ -296,6 +299,7 @@ git commit -m "feat(scripts): per-zone + per-hue deltaE breakdown in compare_ima
 ## Task 2: Harness imports `compare_images` in-process + `ZONES=1` mode
 
 **Files:**
+
 - Modify: `src/scripts/test_color_pipeline.sh`
 
 The harness's inlined `diff_inline` (lines ~153–177) and `compare_images.diff()` are now duplicate math. Replace the inline copy with an in-process import (the `compare_py` path is already passed as argv[3]). **Performance constraint:** import once, call per-case in-process — do **not** shell out per case.
@@ -303,19 +307,24 @@ The harness's inlined `diff_inline` (lines ~153–177) and `compare_images.diff(
 - [ ] **Step 1: Capture the pre-refactor baseline (the no-drift gate)**
 
 Run and save the grand-mean for one fixture:
+
 ```bash
 FILTER=test_0003/baseline ALLOW_MISSING_BUDGET=1 src/scripts/test_color_pipeline.sh | tail -1
 ```
+
 Expected: a JSON line; record its `grand_mean_deltaE` (≈ 6.26). Step 4 must reproduce it bit-for-bit.
 
 - [ ] **Step 2: Edit the harness — env wiring**
 
 In `src/scripts/test_color_pipeline.sh`, after the other env reads (near `ALLOW_MISSING_BUDGET=...`, ~line 54), add:
+
 ```bash
 ZONES="${ZONES:-}"
 HUE_BINS="${HUE_BINS:-12}"
 ```
+
 Change the python invocation (line ~135) to pass them as two extra argv:
+
 ```bash
 python3 - "$MANIFEST" "$CANDIDATES_DIR" "$COMPARE_PY" "$PREFERRED_RES" "$FILTER" "$BUDGETS" "$ALLOW_MISSING_BUDGET" "$ZONES" "$HUE_BINS" <<'PY'
 ```
@@ -323,32 +332,41 @@ python3 - "$MANIFEST" "$CANDIDATES_DIR" "$COMPARE_PY" "$PREFERRED_RES" "$FILTER"
 - [ ] **Step 3: Edit the harness — replace `diff_inline` with the import**
 
 In the heredoc, change the argv unpack (line ~149) to:
+
 ```python
 manifest_path, cand_dir, compare_py, preferred_res, name_filter, budgets_path, allow_missing, zones_flag, hue_bins_s = sys.argv[1:10]
 allow_missing = bool(allow_missing)
 zones_on = bool(zones_flag)
 hue_bins = int(hue_bins_s) if zones_flag else 0
 ```
+
 Delete the entire `def diff_inline(...)` block (lines ~153–177) and replace with:
+
 ```python
 sys.path.insert(0, os.path.dirname(os.path.abspath(compare_py)))
 import compare_images  # the one diff implementation
 ```
+
 At the call site (line ~237), change:
+
 ```python
         metrics = compare_images.diff(cand_path, ref_path,
                                       zones=zones_on, hue_bins=hue_bins)
 ```
+
 Then store the breakdowns on the row so they can be printed when `zones_on`:
+
 ```python
     row["zones"] = metrics.get("zones")
     row["hue_bins"] = metrics.get("hue_bins")
 ```
+
 (add these two lines where `row = {...}` is populated, ~line 254).
 
 - [ ] **Step 4: Edit the harness — print the breakdown under `ZONES=1`**
 
 Immediately after the per-fixture aggregate block (after line ~297, before the grand aggregate), add:
+
 ```python
 if zones_on:
     print("=" * 100)
@@ -378,15 +396,19 @@ if zones_on:
 - [ ] **Step 5: Run — confirm no-drift + the new mode**
 
 Run (no-drift — must equal Step 1's grand mean):
+
 ```bash
 FILTER=test_0003/baseline ALLOW_MISSING_BUDGET=1 src/scripts/test_color_pipeline.sh | tail -1
 ```
+
 Expected: identical `grand_mean_deltaE` to Step 1.
 
 Run (the new diagnostic):
+
 ```bash
 ZONES=1 FILTER=test_0003/baseline ALLOW_MISSING_BUDGET=1 src/scripts/test_color_pipeline.sh
 ```
+
 Expected: normal table, then a `ZONE / HUE BREAKDOWN` section with shadow/mid/highlight rows and per-hue rows for `test_0003/baseline`.
 
 - [ ] **Step 6: Commit**
@@ -402,7 +424,7 @@ git commit -m "feat(scripts): harness imports compare_images in-process + ZONES=
 
 Skippable without affecting Component 2. Only `aligned_harness.sh` mentions `per_luma_band` (in a comment), so reducing these to wrappers preserves their CLIs while killing the duplicated math.
 
-- [ ] **Step 1:** Rewrite `src/scripts/per_luma_band.py` body to call `compare_images.diff(cand, ref, zones=True)` and print the `zones` block as its current JSON shape; keep the `--bands` arg by mapping to the canonical zones (document that the canonical zones are L* terciles, not 10 luma bands — if 10 bands are still wanted by a caller, leave `per_luma_band.py` unchanged and skip this step).
+- [ ] **Step 1:** Rewrite `src/scripts/per_luma_band.py` body to call `compare_images.diff(cand, ref, zones=True)` and print the `zones` block as its current JSON shape; keep the `--bands` arg by mapping to the canonical zones (document that the canonical zones are L\* terciles, not 10 luma bands — if 10 bands are still wanted by a caller, leave `per_luma_band.py` unchanged and skip this step).
 - [ ] **Step 2:** Rewrite `src/scripts/per_band_hue.py` to call `compare_images.diff(..., zones=True, hue_bins=12)` and render its table from the returned dict.
 - [ ] **Step 3:** Run each on a real pair; confirm output is sane.
 - [ ] **Step 4: Commit** `chore(scripts): per_luma_band/per_band_hue delegate to compare_images (DRY)`.
@@ -412,24 +434,29 @@ Skippable without affecting Component 2. Only `aligned_harness.sh` mentions `per
 ## Task 4: Diagnose test_0003 (produces the signature that gates the fix)
 
 **Files:**
+
 - Create: `docs/superpowers/findings/2026-06-03-test_0003-baseline.md`
 
 This task is an investigation, not a code change. Its deliverable is a written signature.
 
 - [ ] **Step 1: Confirm the resolved profile source.** Run a stage trace / inspect to record what color path test_0003 actually takes (bundle hit for the Canon EOS 5DS R vs synthetic fallback; ForwardMatrix present or ColorMatrix-only/Bradford):
+
 ```bash
 cd src/raw-pipeline && cargo run --release -p raw-core --example stage-trace -- \
   ../../test-fixtures/raws/test_0003.CR2 6000 4000
 ```
+
 Record which profile/matrix path fires.
 
 - [ ] **Step 2: Render + per-zone/per-hue breakdown.**
+
 ```bash
 ZONES=1 FILTER=test_0003/baseline ALLOW_MISSING_BUDGET=1 \
   src/scripts/test_color_pipeline.sh | tee /tmp/test_0003_zones.txt
 ```
 
 - [ ] **Step 3: Spatial localization (reuse the existing tool).**
+
 ```bash
 KEEP_TMP=1 FILTER=test_0003/baseline src/scripts/test_color_pipeline.sh   # note the candidate dir it prints
 python3 src/scripts/diff_heatmap.py \
@@ -437,6 +464,7 @@ python3 src/scripts/diff_heatmap.py \
   test-fixtures/references/test_0003/down/baseline.png \
   ~/Desktop/maple-color-tests/test_0003/
 ```
+
 (Per saved-output convention, heatmaps land under `~/Desktop/maple-color-tests/test_0003/`.)
 
 - [ ] **Step 4: Write the findings note.** Create `docs/superpowers/findings/2026-06-03-test_0003-baseline.md` recording: the resolved profile path (Step 1), the dominant zone(s)/hue bin(s) carrying the 6.26 (Step 2), the spatial concentration (Step 3), and the **classified signature** per the spec's decision tree:
@@ -445,6 +473,7 @@ python3 src/scripts/diff_heatmap.py \
   - **broad-in-highlights** → AgX view-transform floor → fix branch = document + ratchet to floor.
 
 - [ ] **Step 5: Commit the findings.**
+
 ```bash
 git add docs/superpowers/findings/2026-06-03-test_0003-baseline.md
 git commit -m "docs(findings): test_0003 baseline diagnosis signature"
@@ -461,6 +490,7 @@ git commit -m "docs(findings): test_0003 baseline diagnosis signature"
 ## Self-review
 
 **Spec coverage:**
+
 - Per-zone + per-hue instrument, reference-Lab binning, neutral bucket → Task 1. ✓
 - Single source of truth (harness stops inlining) → Task 2. ✓
 - `ZONES=1` diagnostic mode, gating unchanged → Task 2. ✓
