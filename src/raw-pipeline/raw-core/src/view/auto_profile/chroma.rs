@@ -183,12 +183,16 @@ fn decode_jpeg_to_rec2020(rgb01: [f32; 3], cs: JpegColorSpace) -> [f32; 3] {
     }
 }
 
-/// One sampled grid point: the RAW's pre-AgX scene-linear OKLAB `a/b`, the
-/// linearized-JPEG OKLAB `a/b` target (both absolute Rec.2020 OKLAB), the JPEG
-/// pixel position, a center-weight, and the clip flag.
+/// One sampled grid point. Carries the RAW's box-averaged **scene-linear
+/// Rec.2020** pixel (the solver runs AgX through it — AgX needs full RGB, not
+/// just a/b, because it keeps the RAW's L), its pre-AgX OKLAB `a/b` (the LSQ
+/// feature), the linearized-JPEG OKLAB `a/b` target (both absolute Rec.2020
+/// OKLAB), the JPEG pixel position, a center-weight, and the clip flag.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Pair {
-    /// RAW scene-linear (pre-AgX) OKLAB `(a, b)` at this grid point.
+    /// RAW box-averaged scene-linear Rec.2020 pixel at this grid point.
+    pub raw_scene: [f32; 3],
+    /// RAW scene-linear (pre-AgX) OKLAB `(a, b)` — `rec2020_to_oklab(raw_scene)`.
     pub raw_ab: (f32, f32),
     /// Linearized-JPEG OKLAB `(a, b)` target at this grid point.
     pub jpeg_ab: (f32, f32),
@@ -325,6 +329,7 @@ pub(crate) fn sample_pairs(
             let jpeg_lin = decode_jpeg_to_rec2020(jp, cs);
             let jpeg_lab = rec2020_to_oklab(jpeg_lin);
             out.push(Pair {
+                raw_scene: raw_avg,
                 raw_ab: (raw_lab[1], raw_lab[2]),
                 jpeg_ab: (jpeg_lab[1], jpeg_lab[2]),
                 x: ox,
@@ -335,6 +340,213 @@ pub(crate) fn sample_pairs(
         }
     }
     out
+}
+
+// ── The through-AgX solver (Task 4) ──────────────────────────────────────────
+
+/// Iterations of the damped fixed-point. AgX is locally near-affine in (a, b)
+/// at fixed L, so a handful of refits converge; more is wasted work on the
+/// cold path.
+const SOLVE_ITERS: usize = 12;
+
+/// Damping on the post-AgX residual fed back into the pre-AgX target. < 1 so
+/// the fixed-point can't overshoot through AgX's local gain.
+const SOLVE_LAMBDA: f32 = 0.7;
+
+/// Ridge strength pulling the fit toward identity (mat→I, c2→0, bias→0). Keeps
+/// under-sampled hues from drifting — the blue-overshoot guard. Applied
+/// per-feature (`μ_i = SOLVE_RIDGE · diagonal_i`) so it is a dimensionless
+/// fraction; TDD-discovered against the recovery / identity / sparse-hue guard
+/// tests, which all pass over a wide 0.1–0.4 window (see
+/// `solver_ridge_suppresses_sparse_hue_blowup`). 0.2 sits mid-window: it
+/// halves the sparse-hue blowup while keeping the recovery residual ≤ 15% of
+/// identity.
+const SOLVE_RIDGE: f32 = 0.2;
+
+/// Root-polynomial feature vector for one (a, b): `[a, b, sign·√|a|, sign·√|b|, 1]`.
+#[inline]
+fn chroma_features(a: f32, b: f32) -> [f32; 5] {
+    let ra = a.signum() * a.abs().sqrt();
+    let rb = b.signum() * b.abs().sqrt();
+    [a, b, ra, rb, 1.0]
+}
+
+/// Reassemble a [`ChromaTransform`] from the two solved 5-vectors (a-channel,
+/// b-channel), each `[mat0, mat1, c2_0, c2_1, bias]`. `gain` folds into `mat`
+/// (held at 1.0), taper left inactive (caller sets it from the real-image L
+/// distribution; the synthetic solve keeps it above the data range).
+fn transform_from_coeffs(ca: [f32; 5], cb: [f32; 5]) -> ChromaTransform {
+    ChromaTransform {
+        mat: [[ca[0], ca[1]], [cb[0], cb[1]]],
+        c2: [[ca[2], ca[3]], [cb[2], cb[3]]],
+        bias: [ca[4], cb[4]],
+        gain: 1.0,
+        taper_lo: 2.0,
+        taper_hi: 3.0,
+    }
+}
+
+/// Solve a weighted **ridge-to-`c0`** least squares over the 5 root-poly
+/// features for one output channel: minimize
+/// `Σ w·(Φ·c − y)² + Σ_i μ_i·(c_i − c0_i)²`. The ridge is **per-feature**:
+/// `μ_i = ridge · Σ w·φ_i²` (the i-th normal-equation diagonal), so `ridge`
+/// is a dimensionless pull-toward-identity strength that constrains every
+/// feature proportionally — including the constant/bias term, whose diagonal
+/// scale is ~`Σw` while the linear a/b terms' is ~`Σw·E[a²]`. A single scalar
+/// added to all diagonals (the naive form) leaves the small-diagonal a/b/bias
+/// terms essentially unconstrained, which let sparse hues drift. Hand-rolled
+/// 5×5 Gaussian elimination with partial pivoting (no new dep, matches repo
+/// style). Normal equations: `(ΦᵀWΦ + diag(μ))·c = ΦᵀW·y + diag(μ)·c0`.
+fn ridge_solve_channel(
+    feats: &[[f32; 5]],
+    targets: &[f32],
+    weights: &[f32],
+    ridge: f32,
+    c0: [f32; 5],
+) -> [f32; 5] {
+    let mut ata = [[0.0f64; 5]; 5];
+    let mut atb = [0.0f64; 5];
+    for ((phi, &y), &w) in feats.iter().zip(targets).zip(weights) {
+        let w = w as f64;
+        for i in 0..5 {
+            let pi = phi[i] as f64;
+            atb[i] += w * pi * y as f64;
+            for j in 0..5 {
+                ata[i][j] += w * pi * phi[j] as f64;
+            }
+        }
+    }
+    // Per-feature ridge toward c0: μ_i = ridge · (i-th diagonal of ΦᵀWΦ).
+    // A small floor keeps a feature with ~zero support from being completely
+    // unconstrained (it then snaps to its identity coefficient).
+    let r = ridge as f64;
+    let diag_floor = 1e-6;
+    for i in 0..5 {
+        let mu = r * ata[i][i].max(diag_floor);
+        ata[i][i] += mu;
+        atb[i] += mu * c0[i] as f64;
+    }
+    // Gaussian elimination with partial pivoting.
+    for col in 0..5 {
+        let mut piv = col;
+        let mut best = ata[col][col].abs();
+        for r in (col + 1)..5 {
+            if ata[r][col].abs() > best {
+                best = ata[r][col].abs();
+                piv = r;
+            }
+        }
+        if best < 1e-12 {
+            // Singular column — fall back to the identity coefficient.
+            return c0;
+        }
+        if piv != col {
+            ata.swap(col, piv);
+            atb.swap(col, piv);
+        }
+        let d = ata[col][col];
+        for r in (col + 1)..5 {
+            let f = ata[r][col] / d;
+            if f == 0.0 {
+                continue;
+            }
+            for c in col..5 {
+                ata[r][c] -= f * ata[col][c];
+            }
+            atb[r] -= f * atb[col];
+        }
+    }
+    let mut x = [0.0f64; 5];
+    for i in (0..5).rev() {
+        let mut s = atb[i];
+        for j in (i + 1)..5 {
+            s -= ata[i][j] * x[j];
+        }
+        x[i] = s / ata[i][i];
+    }
+    [x[0] as f32, x[1] as f32, x[2] as f32, x[3] as f32, x[4] as f32]
+}
+
+/// Solve a [`ChromaTransform`] whose **post-AgX** output best matches each
+/// pair's `jpeg_ab` target, with AgX as a fixed forward model in the loss.
+///
+/// Damped fixed-point (the spec's "fit through AgX"): AgX is locally
+/// near-affine in (a, b) at fixed L, so we (1) run the current transform
+/// through AgX, (2) measure the post-AgX residual to the target, (3) map that
+/// residual back to a damped pre-AgX nudge, (4) re-fit the transform's
+/// root-poly to `current_pre_agx_target + λ·residual` by weighted ridge-to-
+/// identity least squares, and iterate. The ridge keeps sparse hues from
+/// drifting (the blue-overshoot guard). The returned transform's taper is left
+/// inactive — the caller engages it from the real-image L distribution (the
+/// HSM-validated highlight guard); the synthetic recovery tests keep it above
+/// the data range so it never fires.
+///
+/// `contrast` is the AgX slope used in the forward model (matches the render's
+/// `model.contrast`).
+pub(crate) fn solve_chroma_through_agx(pairs: &[Pair], contrast: f32) -> ChromaTransform {
+    solve_chroma_through_agx_with_ridge(pairs, contrast, SOLVE_RIDGE)
+}
+
+/// Inner solver with an explicit `ridge` strength — the seam the
+/// regularization guard test drives (ridge on vs ridge≈0). Production callers
+/// use [`solve_chroma_through_agx`] (ridge = [`SOLVE_RIDGE`]).
+pub(crate) fn solve_chroma_through_agx_with_ridge(
+    pairs: &[Pair],
+    contrast: f32,
+    ridge: f32,
+) -> ChromaTransform {
+    if pairs.is_empty() {
+        return ChromaTransform::identity();
+    }
+    let n = pairs.len();
+    // The scene-linear pixels AgX runs through (full RGB — AgX keeps L).
+    let scene: Vec<[f32; 3]> = pairs.iter().map(|p| p.raw_scene).collect();
+    let scene_ab: Vec<(f32, f32)> = pairs.iter().map(|p| p.raw_ab).collect();
+    let target: Vec<(f32, f32)> = pairs.iter().map(|p| p.jpeg_ab).collect();
+    let weights: Vec<f32> = pairs.iter().map(|p| p.weight.max(0.0)).collect();
+    let feats: Vec<[f32; 5]> = scene_ab.iter().map(|&(a, b)| chroma_features(a, b)).collect();
+    let wsum: f32 = weights.iter().sum::<f32>().max(1e-6);
+
+    // Identity coefficients per channel (ridge pulls toward these).
+    let c0_a = [1.0, 0.0, 0.0, 0.0, 0.0];
+    let c0_b = [0.0, 1.0, 0.0, 0.0, 0.0];
+
+    // Weighted post-AgX mean (a, b) error of transform `t`.
+    let post_agx_err = |t: &ChromaTransform| -> f32 {
+        let out = forward_post_agx_ab(&scene, t, contrast);
+        let mut werr = 0.0f32;
+        for (i, &(ta, tb)) in target.iter().enumerate() {
+            let da = ta - out[i].0;
+            let db = tb - out[i].1;
+            werr += weights[i] * (da * da + db * db).sqrt();
+        }
+        werr / wsum
+    };
+
+    let mut t = ChromaTransform::identity();
+    let mut best = t;
+    let mut best_err = post_agx_err(&t);
+    for _ in 0..SOLVE_ITERS {
+        let out = forward_post_agx_ab(&scene, &t, contrast);
+        // Adjusted pre-AgX targets: current pre-AgX mapping + λ·post-AgX residual.
+        let mut adj_a = vec![0.0f32; n];
+        let mut adj_b = vec![0.0f32; n];
+        for i in 0..n {
+            let (a, b) = scene_ab[i];
+            let (ma, mb) = t.map_ab(a, b);
+            adj_a[i] = ma + SOLVE_LAMBDA * (target[i].0 - out[i].0);
+            adj_b[i] = mb + SOLVE_LAMBDA * (target[i].1 - out[i].1);
+        }
+        let ca = ridge_solve_channel(&feats, &adj_a, &weights, ridge, c0_a);
+        let cb = ridge_solve_channel(&feats, &adj_b, &weights, ridge, c0_b);
+        t = transform_from_coeffs(ca, cb);
+        let err = post_agx_err(&t);
+        if err < best_err {
+            best_err = err;
+            best = t;
+        }
+    }
+    best
 }
 
 #[cfg(test)]
@@ -473,6 +685,185 @@ mod tests {
         assert!(
             a_chroma > s_chroma,
             "Adobe-RGB chroma {a_chroma} not > sRGB chroma {s_chroma} for the same red bytes"
+        );
+    }
+
+    // ── Task 4: through-AgX solver ───────────────────────────────────────────
+
+    /// Mean Euclidean (a, b) distance between two post-AgX sample sets.
+    fn mean_ab_err(got: &[(f32, f32)], want: &[(f32, f32)]) -> f32 {
+        assert_eq!(got.len(), want.len());
+        let s: f32 = got
+            .iter()
+            .zip(want)
+            .map(|(g, w)| {
+                let da = g.0 - w.0;
+                let db = g.1 - w.1;
+                (da * da + db * db).sqrt()
+            })
+            .sum();
+        s / got.len().max(1) as f32
+    }
+
+    /// Deterministic pseudo-random-ish scene of `n` scene-linear pixels with a
+    /// spread of hues and lightnesses, all well below the taper L range.
+    fn synth_scene(n: usize) -> Vec<[f32; 3]> {
+        (0..n)
+            .map(|i| {
+                let f = i as f32;
+                [
+                    0.05 + 0.5 * (f * 0.013).sin().abs(),
+                    0.04 + 0.4 * (f * 0.07).cos().abs(),
+                    0.03 + 0.4 * (f * 0.11).sin().abs(),
+                ]
+            })
+            .collect()
+    }
+
+    /// Build uniform unit weights for a fit set (no center-weighting in the
+    /// synthetic recovery tests — the geometry is abstract).
+    fn unit_pairs(scene: &[[f32; 3]], target: &[(f32, f32)]) -> Vec<Pair> {
+        scene
+            .iter()
+            .zip(target)
+            .map(|(&p, &t)| {
+                let lab = rec2020_to_oklab(p);
+                Pair {
+                    raw_scene: p,
+                    raw_ab: (lab[1], lab[2]),
+                    jpeg_ab: t,
+                    x: 0,
+                    y: 0,
+                    weight: 1.0,
+                    clipped: false,
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn solver_recovers_known_shift_through_agx_held_out() {
+        // Ground-truth chroma transform: scale b by 1.18 (no taper).
+        let truth = ChromaTransform {
+            gain: 1.0,
+            mat: [[1.0, 0.0], [0.0, 1.18]],
+            ..ChromaTransform::identity()
+        };
+        let scene = synth_scene(400);
+        // "JPEG target" = post-AgX of the truth-transformed scene, so a
+        // perfect solver matches it exactly.
+        let jpeg_ab = forward_post_agx_ab(&scene, &truth, 0.0);
+        let (fit, meas) = (&scene[..300], &scene[300..]);
+        let (fit_t, meas_t) = (&jpeg_ab[..300], &jpeg_ab[300..]);
+        let fit_pairs = unit_pairs(fit, fit_t);
+        let solved = solve_chroma_through_agx(&fit_pairs, 0.0);
+        // On HELD-OUT pixels, post-AgX a/b must match the target far better
+        // than identity.
+        let id_err = mean_ab_err(
+            &forward_post_agx_ab(meas, &ChromaTransform::identity(), 0.0),
+            meas_t,
+        );
+        let solved_err = mean_ab_err(&forward_post_agx_ab(meas, &solved, 0.0), meas_t);
+        assert!(
+            solved_err < id_err * 0.25,
+            "solved {solved_err} not << identity {id_err}"
+        );
+    }
+
+    #[test]
+    fn solver_identity_when_target_is_plain_agx() {
+        // Target = forward(identity): the solved transform must be ~identity,
+        // i.e. it must not move held-out pixels away from plain AgX.
+        let scene = synth_scene(400);
+        let id_target = forward_post_agx_ab(&scene, &ChromaTransform::identity(), 0.0);
+        let (fit, meas) = (&scene[..300], &scene[300..]);
+        let (fit_t, meas_t) = (&id_target[..300], &id_target[300..]);
+        let fit_pairs = unit_pairs(fit, fit_t);
+        let solved = solve_chroma_through_agx(&fit_pairs, 0.0);
+        let solved_err = mean_ab_err(&forward_post_agx_ab(meas, &solved, 0.0), meas_t);
+        // Already-correct target → residual stays at the noise floor.
+        assert!(
+            solved_err < 1e-3,
+            "solver drifted off an already-correct target: {solved_err}"
+        );
+    }
+
+    /// Build a scene-linear Rec.2020 pixel at OKLAB (L, chroma, hue°).
+    fn oklab_pixel(l: f32, c: f32, hue_deg: f32) -> [f32; 3] {
+        let h = hue_deg.to_radians();
+        crate::color::oklab::oklab_to_rec2020([l, c * h.cos(), c * h.sin()])
+    }
+
+    /// A cluster of `n` pixels in a narrow hue wedge `[hue0, hue0+span]`,
+    /// spread over a range of L and chroma (deterministic).
+    fn hue_wedge(n: usize, hue0: f32, span: f32, seed: f32) -> Vec<[f32; 3]> {
+        (0..n)
+            .map(|i| {
+                let t = i as f32 / n.max(1) as f32;
+                let hue = hue0 + span * ((seed + t * 7.3).sin().abs());
+                let l = 0.35 + 0.30 * ((seed + t * 3.1).cos().abs());
+                let c = 0.06 + 0.10 * ((seed + t * 5.7).sin().abs());
+                oklab_pixel(l, c, hue)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn solver_ridge_suppresses_sparse_hue_blowup() {
+        // The blue-overshoot mechanism: a SPARSE, NOISY hue cluster drags the
+        // fit into a wild excursion there. Here a well-sampled clean RED wedge
+        // (identity target) is joined by a tiny BLUE cluster (~14 px) whose
+        // target carries a spurious +b shift. The ridge-to-identity must
+        // suppress the blue blowup; with ridge≈0 the solver chases the 14
+        // noisy points and over-saturates blue. Held-out: CLEAN blue pixels at
+        // the same hue, where identity is the right answer — we measure how
+        // far each solve drags them.
+        let red = hue_wedge(160, 20.0, 30.0, 0.4); // well-sampled, clean
+        // Sparse blue cluster, full-rank (jittered L/C) so the ridge≈0 solve
+        // actually blows up rather than hitting the singular→identity fallback.
+        let blue_sparse = hue_wedge(14, 250.0, 12.0, 2.3);
+        // Held-out clean blue at the same hue band.
+        let blue_held = hue_wedge(60, 250.0, 12.0, 5.1);
+
+        // Targets: red is identity (already correct); blue_sparse gets a
+        // spurious +b boost (the noisy sparse signal the ridge must resist).
+        let blue_boost = ChromaTransform {
+            mat: [[1.0, 0.0], [0.0, 1.7]],
+            ..ChromaTransform::identity()
+        };
+        let mut scene = red.clone();
+        scene.extend_from_slice(&blue_sparse);
+        let mut target = forward_post_agx_ab(&red, &ChromaTransform::identity(), 0.0);
+        target.extend(forward_post_agx_ab(&blue_sparse, &blue_boost, 0.0));
+        let pairs = unit_pairs(&scene, &target);
+
+        let solved_ridge = solve_chroma_through_agx_with_ridge(&pairs, 0.0, SOLVE_RIDGE);
+        let solved_noridge = solve_chroma_through_agx_with_ridge(&pairs, 0.0, 1e-5);
+
+        let id_held = forward_post_agx_ab(&blue_held, &ChromaTransform::identity(), 0.0);
+        let drift_ridge =
+            mean_ab_err(&forward_post_agx_ab(&blue_held, &solved_ridge, 0.0), &id_held);
+        let drift_noridge =
+            mean_ab_err(&forward_post_agx_ab(&blue_held, &solved_noridge, 0.0), &id_held);
+
+        // Ridge≈0 must actually blow up (else the differential is meaningless).
+        assert!(
+            drift_noridge > 0.01,
+            "ridge≈0 did not chase the sparse blue noise (drift {drift_noridge}) — \
+             cluster may have hit the singular fallback; widen it"
+        );
+        // The ridge must suppress that blowup by at least 2× AND keep the
+        // absolute blue drift small. A linear root-poly can't drive blue to
+        // exactly identity while red shares feature support, so "small" is
+        // relative to the no-ridge blowup (~0.06 here) — 0.03 is well under
+        // half of it and far below the over-saturation a sat-scale would add.
+        assert!(
+            drift_ridge < drift_noridge * 0.5,
+            "ridge did not suppress the sparse-hue blowup: ridge {drift_ridge} vs no-ridge {drift_noridge}"
+        );
+        assert!(
+            drift_ridge < 0.03,
+            "ridge left blue over-saturated: {drift_ridge}"
         );
     }
 }
