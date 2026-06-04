@@ -55,10 +55,24 @@ struct MapleBackupAgentEntryPoint {
       await queue.enqueue(task, priority: .background)
     }
 
+    // #855: backup routes are gated, so the agent must send a bearer too. It
+    // reads the same Keychain-backed tokens the app saved — which requires the
+    // agent to share the app's keychain access group (tracked in #905). If the
+    // token isn't readable from this separate process the
+    // requests go out unauthenticated and 401 — no worse than before, but the
+    // required `transport:` makes that an explicit, visible state rather than a
+    // silent default.
+    let authClient = AuthenticatedHTTPClient(
+      server: url,
+      urlSession: .shared,
+      tokensProvider: { try? TokenStore.load(server: url) },
+      onTokensRefreshed: { try? TokenStore.save($0, server: url) },
+      onSignOut: { TokenStore.clear(server: url) })
     let upload = UploadClient(
       baseURL: url,
       libraryId: s.libraryId,
-      deviceId: deviceId)
+      deviceId: deviceId,
+      transport: { try await authClient.data(for: $0) })
 
     #if canImport(Photos)
     // PhotoKitAssetReader.swift is also a Compile Sources member of this
