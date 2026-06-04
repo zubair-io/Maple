@@ -3,6 +3,10 @@ import { Elysia } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { authRoutes } from '../../src/routes/auth.ts';
 import {
+  nativeCodeRedeemRoutes,
+  nativeCodeIssueRoutes,
+} from '../../src/routes/auth-native-code.ts';
+import {
   usersCollection,
   nativeAuthCodesCollection,
   refreshTokensCollection,
@@ -11,7 +15,12 @@ import { signAccessToken } from '../../src/auth/tokens.ts';
 import { pkceS256 } from '../../src/auth/native_code_store.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const app = new Elysia().use(authRoutes);
+const app = new Elysia()
+  .use(authRoutes)
+  .use(nativeCodeRedeemRoutes)
+  // Mirror index.ts: wrap the self-gating issue route so its `requireAuth`
+  // scoped-derive stays contained and doesn't gate the public redeem.
+  .use(new Elysia().use(nativeCodeIssueRoutes));
 
 let userId: ObjectId;
 let bearer: string;
