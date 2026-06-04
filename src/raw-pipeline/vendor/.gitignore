@@ -5,3 +5,12 @@
 # the vendor tree is always complete; `cargo vendor` produces a clean tree, so
 # there is nothing here we don't want tracked.
 !*
+
+# …but never let local-only junk slip into the vendored tree. `!*` above
+# re-enables every inherited ignore (incl. the repo's), so re-ignore the
+# usual editor/OS artifacts here. No published crate ships these names, so
+# this can't drop a real vendored source file.
+.DS_Store
+*.swp
+*.swo
+*~

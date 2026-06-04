@@ -95,8 +95,10 @@ Scoping matters: the WASM build (`raw-wasm/build.sh`) uses `-Z build-std`, which
 cd src/raw-pipeline
 cargo vendor vendor          # regenerates vendor/ from Cargo.lock
 git add vendor Cargo.lock
-# Guard against a partial tree: this must print nothing.
-git status --ignored --short vendor | grep '^!!' && echo 'DROPPED FILES — fix vendor/.gitignore'
+# Guard against a partial tree — fails loudly if any vendored file is ignored.
+git status --ignored --short vendor | grep -q '^!!' \
+  && { echo 'DROPPED FILES — fix vendor/.gitignore'; exit 1; } \
+  || echo 'vendor tree complete'
 ```
 
 Commit the `Cargo.lock` change and the regenerated `vendor/` together. Verify before pushing:
