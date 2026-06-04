@@ -348,6 +348,12 @@ pub(crate) fn sample_pairs(
 
 // ── The through-AgX solver (Task 4) ──────────────────────────────────────────
 
+/// Global strength of the JPEG→scene chroma correction. The embedded JPEG
+/// overshoots ACR's chroma magnitude, so the solved transform is damped
+/// toward identity by `k`. The JPEG gives the direction; `k` sets how far
+/// we follow it. Validated offline against ACR references (Task 4 tunes this).
+const CHROMA_STRENGTH: f32 = 0.6;
+
 /// Iterations of the damped fixed-point. AgX is locally near-affine in (a, b)
 /// at fixed L, so a handful of refits converge; more is wasted work on the
 /// cold path.
@@ -373,6 +379,18 @@ const SOLVE_RIDGE: f32 = 0.2;
 #[inline]
 fn chroma_features(a: f32, b: f32) -> [f32; 2] {
     [a, b]
+}
+
+/// Interpolate `t.mat` toward identity by `k`: `mat_final = (1-k)·I + k·mat`.
+/// At k=0 → identity (no correction); at k=1 → full solved transform.
+fn damp_toward_identity(mut t: ChromaTransform, k: f32) -> ChromaTransform {
+    for i in 0..2 {
+        for j in 0..2 {
+            let ident = if i == j { 1.0 } else { 0.0 };
+            t.mat[i][j] = (1.0 - k) * ident + k * t.mat[i][j];
+        }
+    }
+    t
 }
 
 /// Reassemble a [`ChromaTransform`] from the two solved 2-vectors (a-channel,
@@ -631,7 +649,8 @@ fn solve_chroma_from_preview(
     if pairs.len() < MIN_SOLVE_PAIRS {
         return None;
     }
-    Some(solve_chroma_through_agx(&pairs, contrast))
+    let solved = solve_chroma_through_agx(&pairs, contrast);
+    Some(damp_toward_identity(solved, CHROMA_STRENGTH))
 }
 
 #[cfg(test)]
@@ -981,5 +1000,31 @@ mod tests {
             drift < 0.05,
             "linear solver let blue drift too far from identity: {drift}"
         );
+    }
+
+    // ── Task 2: global chroma damping ────────────────────────────────────────
+
+    #[test]
+    fn damping_lerps_matrix_toward_identity() {
+        let solved = ChromaTransform {
+            mat: [[1.5, 0.2], [-0.1, 1.4]],
+            taper_lo: 2.0,
+            taper_hi: 3.0,
+        };
+        let d = damp_toward_identity(solved, 0.5);
+        // (1-0.5)*1.0 + 0.5*1.5 = 1.25
+        assert!((d.mat[0][0] - 1.25).abs() < 1e-6, "diagonal not lerped: {}", d.mat[0][0]);
+        // (1-0.5)*0.0 + 0.5*0.2 = 0.10
+        assert!((d.mat[0][1] - 0.10).abs() < 1e-6, "off-diagonal not lerped: {}", d.mat[0][1]);
+        // k=0 → identity
+        let id = damp_toward_identity(solved, 0.0);
+        assert!((id.mat[0][0] - 1.0).abs() < 1e-6);
+        assert!((id.mat[0][1]).abs() < 1e-6);
+        // k=1 → unchanged
+        let full = damp_toward_identity(solved, 1.0);
+        assert!((full.mat[0][0] - 1.5).abs() < 1e-6);
+        // taper fields must survive the lerp unmodified
+        assert!((d.taper_lo - 2.0).abs() < 1e-6, "taper_lo must survive the lerp");
+        assert!((d.taper_hi - 3.0).abs() < 1e-6, "taper_hi must survive the lerp");
     }
 }
