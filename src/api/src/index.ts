@@ -48,6 +48,7 @@ import { assetsRoutes } from './routes/assets.ts';
 import { xmpPathRoutes } from './routes/xmp.ts';
 import { eventsRoutes } from './routes/events.ts';
 import { authRoutes } from './routes/auth.ts';
+import { nativeCodeRedeemRoutes, nativeCodeIssueRoutes } from './routes/auth-native-code.ts';
 import { fsRoutes } from './routes/fs.ts';
 import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
 import { searchRoutes } from './routes/search.ts';
@@ -150,6 +151,9 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // sub-tree internally, so the whole authRoutes plugin can sit outside the gate.
     .use(healthRoutes)
     .use(authRoutes)
+    // Native PKCE code redeem (public) — the Apple shell exchanges its one-time
+    // code for tokens here; no bearer (this is how the app first gets tokens).
+    .use(nativeCodeRedeemRoutes)
     // Read-only geocode cache lookup — used by PhotoKit-backup clients to
     // determine a destination folder path before uploading; no auth required
     // since it returns no user data (only Place metadata keyed by lat/lon).
@@ -200,6 +204,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(mirrorRoutes)
         .use(workerRoutes()),
     )
+
+    // Native PKCE code issue (authed) — wrapped in its own sub-app so its
+    // `requireAuth` scoped-derive stays contained (same isolation as authedApi).
+    .use(new Elysia({ name: 'authedNativeCode' }).use(nativeCodeIssueRoutes))
 
     // OpenAPI spec + Scalar docs UI. Source-of-truth for HTTP DTOs that
     // web + apple clients codegen from (issue #131). Mounted outside the

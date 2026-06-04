@@ -19,7 +19,6 @@ import {
 import { redeemInvite, createInvite, listInvites, rescindInvite } from '../auth/invites.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
 import { issueRefreshToken, rotateRefreshToken, revokeOne } from '../auth/refresh_store.ts';
-import { issueNativeCode, redeemNativeCode } from '../auth/native_code_store.ts';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import { rateLimit } from '../auth/rate_limit.ts';
 
@@ -436,53 +435,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
     { body: t.Object({ refresh_token: t.Optional(t.String()) }) },
   )
 
-  // ----- native one-time code redeem (public; PKCE S256) -----
-  // The Apple shell, after the web passkey ceremony, holds a one-time `code`
-  // (delivered privately by ASWebAuthenticationSession). It redeems the code +
-  // its PKCE verifier here for freshly-minted, device-scoped tokens. No bearer —
-  // this is how the native app FIRST obtains tokens. The raw refresh token is
-  // returned ONLY here, and never rides in a redirect URL.
-  .post(
-    '/native-code/redeem',
-    async ({ body, set, request }) => {
-      const ip = (
-        request.headers.get('x-forwarded-for') ??
-        request.headers.get('x-real-ip') ??
-        'anon'
-      )
-        .split(',')[0]
-        .trim();
-      if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
-        set.status = 429;
-        return { error: 'rate limited' };
-      }
-      const redeemed = await redeemNativeCode(body.code, body.code_verifier);
-      if (!redeemed) {
-        set.status = 400;
-        return { error: 'invalid or expired code' };
-      }
-      const user = await (await usersCollection()).findOne({ _id: redeemed.userId });
-      if (!user) {
-        set.status = 401;
-        return { error: 'user gone' };
-      }
-      const access_token = signAccessToken(
-        { sub: user._id.toHexString(), email: user.email, role: user.role },
-        jwtSecret(),
-      );
-      // Mint a fresh, device-scoped refresh token (its own family) rather than
-      // handing back the discarded webview session's cookie token.
-      const refresh = await issueRefreshToken(user._id, redeemed.deviceLabel);
-      return {
-        access_token,
-        refresh_token: refresh.raw,
-        user: { id: user._id.toHexString(), email: user.email, role: user.role },
-        state: redeemed.state,
-      };
-    },
-    { body: t.Object({ code: t.String(), code_verifier: t.String() }) },
-  )
-
   // ----- invites (owner-only) -----
   .group('/invites', (g) =>
     g
@@ -536,41 +488,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       })),
     };
   })
-
-  // ----- native one-time code issue (authed; PKCE S256) -----
-  // The web app calls this once a passkey ceremony has established the session,
-  // passing the PKCE challenge + opaque state the Apple shell handed it. Returns
-  // a short-lived single-use `code` the web app redirects to the app's allowed
-  // scheme — tokens never ride in the redirect; the app redeems the code above.
-  .post(
-    '/native-code',
-    async ({ body, auth, set }) => {
-      // The challenge is base64url(sha256(verifier)) — fixed charset + length.
-      // Sanitize before storing (same defensive instinct as the scheme check).
-      if (!/^[A-Za-z0-9_-]{43,128}$/.test(body.code_challenge)) {
-        set.status = 400;
-        return { error: 'invalid code_challenge' };
-      }
-      if (body.state.length < 8 || body.state.length > 256) {
-        set.status = 400;
-        return { error: 'invalid state' };
-      }
-      const issued = await issueNativeCode({
-        userId: new ObjectId(auth.user.sub),
-        codeChallenge: body.code_challenge,
-        state: body.state,
-        deviceLabel: body.device_label?.slice(0, 64) || 'Apple device',
-      });
-      return { code: issued.code };
-    },
-    {
-      body: t.Object({
-        code_challenge: t.String(),
-        state: t.String(),
-        device_label: t.Optional(t.String()),
-      }),
-    },
-  )
 
   // ----- add another credential -----
   .post('/credentials/options', async ({ auth }) => {
