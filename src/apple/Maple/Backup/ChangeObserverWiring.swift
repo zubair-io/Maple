@@ -164,7 +164,8 @@ enum ChangeObserverWiring {
         // failure falls back to local-state-only reconciliation.
         var serverKnownPhids: Set<String> = []
         let stateClient = BackupStateClient(baseURL: serverBaseURL,
-                                            libraryId: libraryId, deviceId: deviceId)
+                                            libraryId: libraryId, deviceId: deviceId,
+                                            transport: makeBackupTransport(server: serverBaseURL))
         do {
             let known = try await stateClient.fetchKnownAssets()
             serverKnownPhids = Set(known.map(\.phassetLocalId))
@@ -305,7 +306,8 @@ enum ChangeObserverWiring {
         markUploaded: () -> Void
     ) async -> [String] {
         let existsClient = BatchExistsClient(baseURL: serverBaseURL,
-                                             libraryId: libraryId, deviceId: deviceId)
+                                             libraryId: libraryId, deviceId: deviceId,
+                                             transport: makeBackupTransport(server: serverBaseURL))
         var toEnqueue: [String] = []
         var presentPhids: [String] = []
 
@@ -463,7 +465,9 @@ enum ChangeObserverWiring {
         req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
         let body = ["phasset_local_ids": phids]
         req.httpBody = try? JSONEncoder().encode(body)
-        _ = try? await URLSession.shared.data(for: req)
+        // Authenticated like the other backup calls — notify-deleted is gated too (#855).
+        let transport = makeBackupTransport(server: serverBaseURL)
+        _ = try? await transport(req)
     }
 
     /// Returns true when the asset should be included in the backup based on

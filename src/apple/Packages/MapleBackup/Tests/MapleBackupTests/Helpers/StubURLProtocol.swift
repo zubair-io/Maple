@@ -128,3 +128,12 @@ internal func stubSession() -> URLSession {
     cfg.protocolClasses = [StubURLProtocol.self]
     return URLSession(configuration: cfg)
 }
+
+/// `AuthorizingTransport`-shaped helper for clients that take a transport
+/// closure instead of a `URLSession` (#855). Captures one stub session and
+/// routes through it — no auth is added (the stub server doesn't check), so
+/// tests of upload behaviour stay focused on the handler contract.
+internal func stubTransport() -> @Sendable (URLRequest) async throws -> (Data, URLResponse) {
+    let session = stubSession()
+    return { try await session.data(for: $0) }
+}

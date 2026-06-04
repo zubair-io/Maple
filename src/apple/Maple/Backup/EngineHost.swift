@@ -19,6 +19,30 @@ import MapleCore
 
 private let log = Logger(subsystem: "app.justmaple.aperture", category: "Backup.EngineHost")
 
+/// Build the authenticated transport the device-side backup clients use (#855).
+///
+/// The backup routes are gated behind `requireAuth`, so every backup request
+/// must carry a Bearer access token. This wraps a `TokenStore`-backed
+/// `AuthenticatedHTTPClient` (the same construction the rest of the app uses)
+/// as the `AuthorizingTransport` closure the backup clients take — giving
+/// Bearer injection plus single-flight 401-refresh-retry. One client per call,
+/// matching the app's existing per-operation usage; `UploadClient`'s own chunk
+/// loop reuses the one passed to it, so a token expiry mid-upload refreshes once.
+///
+/// A genuine refresh *rejection* clears the session (`TokenStore.clear`) —
+/// correct for a dead/revoked refresh token. A transient network failure during
+/// refresh throws *without* signing out, so a backup over a flaky link doesn't
+/// bounce the foreground session.
+func makeBackupTransport(server: URL) -> AuthorizingTransport {
+    let client = AuthenticatedHTTPClient(
+        server: server,
+        urlSession: .shared,
+        tokensProvider: { try? TokenStore.load(server: server) },
+        onTokensRefreshed: { try? TokenStore.save($0, server: server) },
+        onSignOut: { TokenStore.clear(server: server) })
+    return { try await client.data(for: $0) }
+}
+
 @MainActor
 @Observable
 public final class EngineHost {
@@ -114,7 +138,8 @@ public final class EngineHost {
             let upload = UploadClient(
                 baseURL: serverBaseURL,
                 libraryId: settings.libraryId,
-                deviceId: deviceId)
+                deviceId: deviceId,
+                transport: makeBackupTransport(server: serverBaseURL))
 
             let reader: any AssetReader = PhotoKitAssetReader(
                 deviceId: deviceId,

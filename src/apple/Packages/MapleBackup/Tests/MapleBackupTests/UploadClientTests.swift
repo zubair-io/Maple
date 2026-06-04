@@ -16,7 +16,7 @@ final class UploadClientTests: XCTestCase {
     private func makeClient(chunkSize: Int = 4 * 1024 * 1024) async -> UploadClient {
         let client = UploadClient(baseURL: URL(string: "https://server.example")!,
                                   libraryId: "lib", deviceId: "dev",
-                                  session: stubSession())
+                                  transport: stubTransport())
         await client.setChunkSize(chunkSize)
         return client
     }
@@ -65,6 +65,32 @@ final class UploadClientTests: XCTestCase {
         } catch {
             XCTFail("expected httpError(400)")
         }
+    }
+
+    /// #855: UploadClient must route every request through the injected
+    /// `AuthorizingTransport`, so the transport's auth (Bearer injection in
+    /// production via AuthenticatedHTTPClient) reaches the wire. Here the
+    /// transport stamps a sentinel Authorization header and we assert the
+    /// server saw it.
+    func testRoutesRequestsThroughInjectedTransport() async throws {
+        StubURLProtocol.stub = .ok(json: #"{"maple_id":"abc","target_rel_path":"x"}"#)
+        let session = stubSession()
+        let client = UploadClient(
+            baseURL: URL(string: "https://server.example")!,
+            libraryId: "lib", deviceId: "dev",
+            transport: { req in
+                var r = req
+                r.setValue("Bearer sentinel", forHTTPHeaderField: "Authorization")
+                return try await session.data(for: r)
+            })
+        _ = try await client.upload(
+            phassetLocalId: "P1", filename: "IMG.heic",
+            captureDate: Date(timeIntervalSince1970: 1_700_000_000),
+            lat: nil, lon: nil,
+            bytes: Data(count: 256), mapleId: "abc")
+        XCTAssertEqual(
+            StubURLProtocol.recordedRequests.first?.value(forHTTPHeaderField: "Authorization"),
+            "Bearer sentinel")
     }
 
     /// When `phassetCloudId` is passed, the `X-Maple-PHAsset-Cloud-Id`
