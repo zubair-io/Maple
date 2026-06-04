@@ -109,11 +109,240 @@ pub(crate) fn forward_post_agx_ab(
         .collect()
 }
 
+// ── JPEG sampling + filtering (Task 3) ───────────────────────────────────────
+
+use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
+use crate::math::Matrix3;
+use crate::view::auto_profile::preview::JpegColorSpace;
+
+/// Adobe RGB (1998) → XYZ (D65). Sourced from the Adobe RGB (1998) Color Image
+/// Encoding spec (ASTM E308 D65 white). Composed with [`M_XYZ_D65_TO_REC2020`]
+/// at runtime to land Adobe-RGB-linear pixels in linear Rec.2020 D65 — both
+/// already D65, so no chromatic adaptation. test_0003 (Canon 5DS R) ships an
+/// Adobe RGB embedded JPEG (`Canon:ColorSpace = Adobe RGB`); reading it as sRGB
+/// understates saturation 30–50% and would corrupt the chroma target.
+const M_ADOBE_RGB_TO_XYZ_D65: Matrix3 = Matrix3([
+    [0.5767309, 0.1855540, 0.1881852],
+    [0.2973769, 0.6273491, 0.0752741],
+    [0.0270343, 0.0706872, 0.9911085],
+]);
+
+/// Adobe RGB (1998) decoding gamma — the spec's 2+51/256 = 563/256 power.
+/// No linear toe segment (unlike sRGB), per the Adobe RGB (1998) spec.
+const ADOBE_RGB_GAMMA: f32 = 563.0 / 256.0;
+
+/// Cached JPEG-decode matrices into linear Rec.2020 D65, one per
+/// [`JpegColorSpace`]. Tuple order: (sRGB-linear→Rec.2020, AdobeRGB-linear→
+/// Rec.2020). sRGB uses `inverse(M_REC2020_TO_SRGB)`; AdobeRGB composes the
+/// sourced primaries matrix with `M_XYZ_D65_TO_REC2020`. Computed once.
+fn jpeg_decode_matrices() -> &'static (Matrix3, Matrix3) {
+    static CELL: std::sync::OnceLock<(Matrix3, Matrix3)> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        let srgb_to_rec2020 =
+            M_REC2020_TO_SRGB.inverse().expect("M_REC2020_TO_SRGB is invertible");
+        let adobe_to_rec2020 = M_XYZ_D65_TO_REC2020.mul_mat(&M_ADOBE_RGB_TO_XYZ_D65);
+        (srgb_to_rec2020, adobe_to_rec2020)
+    })
+}
+
+/// sRGB (IEC 61966-2-1) inverse OETF on one channel — display-encoded → linear.
+#[inline]
+fn srgb_to_linear_one(v: f32) -> f32 {
+    if v <= 0.04045 {
+        v / 12.92
+    } else {
+        ((v + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// Decode one display-encoded JPEG pixel (channels in `[0, 1]`) to **linear
+/// Rec.2020 D65**, honoring its color space. This is the colorimetrically-
+/// correct path the spec's Component-1 step 2 calls for: the JPEG's a/b only
+/// match the RAW's a/b once both are in the same absolute Rec.2020 OKLAB.
+#[inline]
+fn decode_jpeg_to_rec2020(rgb01: [f32; 3], cs: JpegColorSpace) -> [f32; 3] {
+    let (srgb_m, adobe_m) = jpeg_decode_matrices();
+    match cs {
+        JpegColorSpace::SRgb => {
+            let lin = [
+                srgb_to_linear_one(rgb01[0]),
+                srgb_to_linear_one(rgb01[1]),
+                srgb_to_linear_one(rgb01[2]),
+            ];
+            srgb_m.mul_vec(lin)
+        }
+        JpegColorSpace::AdobeRgb => {
+            // Adobe RGB power-law decode (no linear segment).
+            let lin = [
+                rgb01[0].max(0.0).powf(ADOBE_RGB_GAMMA),
+                rgb01[1].max(0.0).powf(ADOBE_RGB_GAMMA),
+                rgb01[2].max(0.0).powf(ADOBE_RGB_GAMMA),
+            ];
+            adobe_m.mul_vec(lin)
+        }
+    }
+}
+
+/// One sampled grid point: the RAW's pre-AgX scene-linear OKLAB `a/b`, the
+/// linearized-JPEG OKLAB `a/b` target (both absolute Rec.2020 OKLAB), the JPEG
+/// pixel position, a center-weight, and the clip flag.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Pair {
+    /// RAW scene-linear (pre-AgX) OKLAB `(a, b)` at this grid point.
+    pub raw_ab: (f32, f32),
+    /// Linearized-JPEG OKLAB `(a, b)` target at this grid point.
+    pub jpeg_ab: (f32, f32),
+    pub x: usize,
+    pub y: usize,
+    /// Radial center-weight (lens falloff guard) — 1.0 at center, →0 at edges.
+    pub weight: f32,
+    /// True if any JPEG channel byte is railed (`> 245` or `< 10` of 255).
+    pub clipped: bool,
+}
+
+/// JPEG clip thresholds in `[0, 1]` (byte `> 245` / `< 10`).
+const CLIP_HI: f32 = 245.0 / 255.0;
+const CLIP_LO: f32 = 10.0 / 255.0;
+
+/// 3×3 JPEG-luma variance ceiling. Above this a grid point is dropped as a
+/// block/CA/edge artifact (the spec's filter). Tuned loose enough that one
+/// railed outlier in an otherwise-flat field doesn't poison a clean pixel
+/// (clipped neighbors are excluded from the statistic below), tight enough to
+/// reject genuine high-contrast texture where demosaic/JPEG disagree on color.
+const VARIANCE_CEIL: f32 = 0.02;
+
+#[inline]
+fn luma01(p: [f32; 3]) -> f32 {
+    0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]
+}
+
+#[inline]
+fn is_clipped(p: [f32; 3]) -> bool {
+    p.iter().any(|&c| c > CLIP_HI || c < CLIP_LO)
+}
+
+/// Box-average the RAW scene-linear buffer into the JPEG grid cell `(ox, oy)`,
+/// using the SAME integer-span mapping as the #550 fit's `footprint_sizes`
+/// (`(o·dim)/out .. ((o+1)·dim)/out`, each span ≥ 1px). Returns the mean
+/// scene-linear Rec.2020 triple over the cell's source footprint.
+fn box_average(raw: &[[f32; 3]], rw: usize, rh: usize, ox: usize, oy: usize, jw: usize, jh: usize) -> [f32; 3] {
+    let x0 = (ox * rw) / jw;
+    let mut x1 = ((ox + 1) * rw) / jw;
+    if x1 <= x0 {
+        x1 = (x0 + 1).min(rw);
+    }
+    let y0 = (oy * rh) / jh;
+    let mut y1 = ((oy + 1) * rh) / jh;
+    if y1 <= y0 {
+        y1 = (y0 + 1).min(rh);
+    }
+    let mut acc = [0.0f64; 3];
+    let mut n = 0u32;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let p = raw[y * rw + x];
+            acc[0] += p[0] as f64;
+            acc[1] += p[1] as f64;
+            acc[2] += p[2] as f64;
+            n += 1;
+        }
+    }
+    let n = n.max(1) as f64;
+    [(acc[0] / n) as f32, (acc[1] / n) as f32, (acc[2] / n) as f32]
+}
+
+/// Sample paired RAW/JPEG grid points for the chroma solve.
+///
+/// - `raw_scene` is the **scene-linear Rec.2020** buffer (pre-AgX, the AgX
+///   input) at dims `rw×rh`; box-downscaled to the JPEG grid.
+/// - `jpeg01` is the display-encoded JPEG at dims `jw×jh`, channels in `[0, 1]`
+///   (`byte / 255`); decoded to linear Rec.2020 per `cs`.
+///
+/// Filters per the spec: drops JPEG-clipped pairs, drops high-3×3-luma-variance
+/// pairs (clipped neighbors excluded from the variance), and center-weights the
+/// grid (the JPEG is lens-corrected, the RAW is not). Returns the surviving
+/// clean, center-weighted pairs.
+pub(crate) fn sample_pairs(
+    raw_scene: &[[f32; 3]],
+    rw: usize,
+    rh: usize,
+    jpeg01: &[[f32; 3]],
+    jw: usize,
+    jh: usize,
+    cs: JpegColorSpace,
+) -> Vec<Pair> {
+    let mut out = Vec::new();
+    if jw == 0 || jh == 0 || rw == 0 || rh == 0 {
+        return out;
+    }
+    let cx = (jw as f32 - 1.0) * 0.5;
+    let cy = (jh as f32 - 1.0) * 0.5;
+    // Max radius for the cosine falloff (corner distance), guard div-by-zero.
+    let r_max = (cx * cx + cy * cy).sqrt().max(1e-6);
+    for oy in 0..jh {
+        for ox in 0..jw {
+            let jp = jpeg01[oy * jw + ox];
+            let clipped = is_clipped(jp);
+            if clipped {
+                continue; // never a target
+            }
+            // 3×3 JPEG-luma variance over non-clipped neighbors.
+            let mut sum = 0.0f32;
+            let mut sumsq = 0.0f32;
+            let mut cnt = 0u32;
+            for dy in -1i32..=1 {
+                for dx in -1i32..=1 {
+                    let nx = ox as i32 + dx;
+                    let ny = oy as i32 + dy;
+                    if nx < 0 || ny < 0 || nx >= jw as i32 || ny >= jh as i32 {
+                        continue;
+                    }
+                    let np = jpeg01[ny as usize * jw + nx as usize];
+                    if is_clipped(np) {
+                        continue; // don't let a railed neighbor poison the stat
+                    }
+                    let l = luma01(np);
+                    sum += l;
+                    sumsq += l * l;
+                    cnt += 1;
+                }
+            }
+            if cnt > 0 {
+                let mean = sum / cnt as f32;
+                let var = (sumsq / cnt as f32) - mean * mean;
+                if var > VARIANCE_CEIL {
+                    continue; // edge / block / CA — skip
+                }
+            }
+            // Radial cosine center-weight: 1 at center, 0 at the corners.
+            let dx = ox as f32 - cx;
+            let dy = oy as f32 - cy;
+            let r = (dx * dx + dy * dy).sqrt() / r_max;
+            let weight = (0.5 * (1.0 + (std::f32::consts::PI * r.clamp(0.0, 1.0)).cos())).max(0.0);
+
+            let raw_avg = box_average(raw_scene, rw, rh, ox, oy, jw, jh);
+            let raw_lab = rec2020_to_oklab(raw_avg);
+            let jpeg_lin = decode_jpeg_to_rec2020(jp, cs);
+            let jpeg_lab = rec2020_to_oklab(jpeg_lin);
+            out.push(Pair {
+                raw_ab: (raw_lab[1], raw_lab[2]),
+                jpeg_ab: (jpeg_lab[1], jpeg_lab[2]),
+                x: ox,
+                y: oy,
+                weight,
+                clipped,
+            });
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::color::oklab::rec2020_to_oklab;
     use crate::image::{ColorSpace, Image};
+    use crate::view::auto_profile::preview::JpegColorSpace;
 
     fn one_px(rgb: [f32; 3]) -> Image {
         Image { width: 1, height: 1, pixels: vec![rgb], space: ColorSpace::SceneLinearRec2020 }
@@ -186,5 +415,64 @@ mod tests {
                 lab[2]
             );
         }
+    }
+
+    // ── Task 3: JPEG sampling + filtering ────────────────────────────────────
+
+    #[test]
+    fn sampling_excludes_clipped_and_weights_center() {
+        // 4x4 RAW scene-linear + 4x4 JPEG bytes-as-[0,1]. One JPEG pixel is
+        // clipped (R railed high, G crushed low); it must be dropped, and
+        // center pixels must outweigh corner pixels (radial center-weight).
+        let raw = vec![[0.2_f32, 0.18, 0.15]; 16];
+        let mut jpeg = vec![[0.4_f32, 0.35, 0.30]; 16];
+        jpeg[5] = [1.0, 0.02, 0.30]; // clipped R (>245/255) and crushed G (<10/255)
+        let pairs = sample_pairs(&raw, 4, 4, &jpeg, 4, 4, JpegColorSpace::SRgb);
+        assert!(pairs.iter().all(|p| !p.clipped), "clipped pair retained");
+        // The clipped pixel at flat index 5 = (x=1, y=1) must be gone.
+        assert!(
+            !pairs.iter().any(|p| p.x == 1 && p.y == 1),
+            "clipped (1,1) survived sampling"
+        );
+        let w_center = pairs
+            .iter()
+            .find(|p| p.x == 2 && p.y == 2)
+            .expect("center pixel present")
+            .weight;
+        let w_corner = pairs
+            .iter()
+            .find(|p| p.x == 0 && p.y == 0)
+            .expect("corner pixel present")
+            .weight;
+        assert!(w_center > w_corner, "center {w_center} !> corner {w_corner}");
+    }
+
+    #[test]
+    fn adobe_rgb_decode_differs_from_srgb_and_is_more_saturated() {
+        // A saturated reddish JPEG pixel. Decoding it as Adobe RGB must land
+        // a DIFFERENT (and more-saturated, larger |a|) Rec.2020 chroma than
+        // decoding the same bytes as sRGB — the load-bearing color-management
+        // fact (Adobe RGB packs saturated color into smaller RGB excursions,
+        // so reading it as sRGB understates saturation). One flat pixel so
+        // there is no spatial filtering to confound the comparison.
+        let raw = vec![[0.2_f32, 0.1, 0.1]];
+        let jpeg = vec![[0.82_f32, 0.20, 0.18]];
+        let srgb = sample_pairs(&raw, 1, 1, &jpeg, 1, 1, JpegColorSpace::SRgb);
+        let adobe = sample_pairs(&raw, 1, 1, &jpeg, 1, 1, JpegColorSpace::AdobeRgb);
+        assert_eq!(srgb.len(), 1);
+        assert_eq!(adobe.len(), 1);
+        // jpeg_ab is the linearized-JPEG OKLAB (a, b) target.
+        let (sa, sb) = srgb[0].jpeg_ab;
+        let (aa, ab) = adobe[0].jpeg_ab;
+        let s_chroma = (sa * sa + sb * sb).sqrt();
+        let a_chroma = (aa * aa + ab * ab).sqrt();
+        assert!(
+            (sa - aa).abs() > 1e-3 || (sb - ab).abs() > 1e-3,
+            "Adobe-RGB decode identical to sRGB: srgb=({sa},{sb}) adobe=({aa},{ab})"
+        );
+        assert!(
+            a_chroma > s_chroma,
+            "Adobe-RGB chroma {a_chroma} not > sRGB chroma {s_chroma} for the same red bytes"
+        );
     }
 }
