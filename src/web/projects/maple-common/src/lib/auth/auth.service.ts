@@ -3,6 +3,11 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 
+/// Custom URL schemes we will hand a one-time auth code to. The Apple shell
+/// registers `maple-app://`; we honor ONLY known schemes, so a page loaded with
+/// an attacker-supplied `?native_callback=…` is ignored (#856).
+const NATIVE_SCHEME_ALLOWLIST = new Set(['maple-app']);
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -91,11 +96,28 @@ export class AuthService {
   /// `null` in a normal browser tab.
   private readonly _nativeCallbackScheme: string | null = (() => {
     try {
-      const params = new URLSearchParams(window.location.search);
-      const cb = params.get('native_callback');
-      // Restrict to a-z digits and `-` to avoid javascript:// or other
-      // shenanigans being smuggled in.
-      if (cb && /^[a-z][a-z0-9-]*$/i.test(cb)) return cb;
+      const cb = new URLSearchParams(window.location.search).get('native_callback');
+      // Allowlist — not just format. An attacker-named scheme is ignored, so a
+      // malicious page can't make us redirect a code anywhere but the app (#856).
+      if (cb && NATIVE_SCHEME_ALLOWLIST.has(cb.toLowerCase())) return cb.toLowerCase();
+    } catch {
+      /* SSR / non-browser contexts */
+    }
+    return null;
+  })();
+
+  /// PKCE challenge + opaque CSRF state the Apple shell passed on the initial
+  /// URL. The shell keeps the verifier private; we only forward the challenge to
+  /// the server and echo the state back in the redirect (#856).
+  private readonly _nativePkce: { codeChallenge: string; state: string } | null = (() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      const codeChallenge = p.get('code_challenge') ?? '';
+      const state = p.get('state') ?? '';
+      // base64url S256 challenge (43 chars) + a bounded opaque state.
+      if (/^[A-Za-z0-9_-]{43,128}$/.test(codeChallenge) && /^[A-Za-z0-9_-]{8,256}$/.test(state)) {
+        return { codeChallenge, state };
+      }
     } catch {
       /* SSR / non-browser contexts */
     }
@@ -290,11 +312,9 @@ export class AuthService {
     this.user.set(r.user);
     // Let peer tabs adopt the new session without their own ceremony.
     this.broadcast({ type: 'token', access_token: r.access_token });
-    // Refresh token is set by the server as an httpOnly cookie; not
-    // visible to JS in a normal browser context. The same `/login/verify`
-    // and `/register/verify` responses ALSO include `refresh_token` in
-    // the JSON body so the native shell can capture it via the bridge.
-    this.postNativeAuthSuccess(r);
+    // Inside the Apple shell, hand the app a one-time code (never the tokens).
+    // Fire-and-forget: the redirect happens once the server issues the code.
+    void this.postNativeAuthSuccess();
   }
 
   /// Returns true when the page is running inside an
@@ -305,20 +325,34 @@ export class AuthService {
     return this._nativeCallbackScheme !== null;
   }
 
-  /// Redirects to the native callback URL after a successful auth
-  /// ceremony. The host `ASWebAuthenticationSession` captures the
-  /// redirect by matching the scheme — the URL never reaches Safari's
-  /// regular history or any other app. Tokens are short-lived JWTs;
-  /// the URL is local-process-only.
-  private postNativeAuthSuccess(r: any): void {
+  /// After a successful ceremony inside the Apple shell, hand the app a
+  /// short-lived one-time CODE (never tokens). The shell redeems the code with
+  /// its private PKCE verifier at `/api/auth/native-code/redeem`. The redirect
+  /// is captured privately by the host `ASWebAuthenticationSession`.
+  private async postNativeAuthSuccess(): Promise<void> {
     const scheme = this._nativeCallbackScheme;
-    if (!scheme) return;
-    const params = new URLSearchParams();
-    params.set('access_token', r.access_token);
-    params.set('refresh_token', r.refresh_token);
-    params.set('user_id', r.user.id);
-    params.set('user_email', r.user.email);
-    params.set('user_role', r.user.role);
-    window.location.href = `${scheme}://auth-success?${params.toString()}`;
+    const pkce = this._nativePkce;
+    // No scheme → a normal browser tab. Missing/invalid PKCE → an Apple shell
+    // that predates the code flow; we do NOT fall back to putting tokens in the
+    // redirect URL, so its sign-in simply won't complete until it's updated.
+    if (!scheme || !pkce) return;
+    try {
+      const { code } = await firstValueFrom(
+        this.http.post<{ code: string }>('/api/auth/native-code', {
+          code_challenge: pkce.codeChallenge,
+          state: pkce.state,
+        }),
+      );
+      const params = new URLSearchParams({ code, state: pkce.state });
+      this.navigateTo(`${scheme}://auth-success?${params.toString()}`);
+    } catch {
+      /* code issuance failed — do not leak tokens via a fallback redirect */
+    }
+  }
+
+  /// Seam for the post-auth native redirect, captured privately by the host
+  /// ASWebAuthenticationSession. Overridable in tests.
+  private navigateTo(url: string): void {
+    window.location.href = url;
   }
 }
