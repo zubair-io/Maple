@@ -138,6 +138,37 @@ pub fn render_from_raw_with_quality_and_source(
         model
     };
     let mut scene = develop_scene_linear_from_raw_with_quality(raw, active_model, quality)?;
+
+    // JPEG chroma-match (Feature 2 / RFC §3.2), Profile::Auto only. Solved from
+    // the embedded JPEG + this pre-AgX scene and applied here (OKLAB a/b only,
+    // keeps L) so AgX forms tone on the chroma-matched scene; the post-AgX tone
+    // curve below then fits on the chroma-applied render (chroma-then-tone).
+    // Phase 1 applies it in the render tail (CPU, validated by the test_0003
+    // gate); moving it into develop_scene_linear so it rides to Metal/WebGL is
+    // Phase 2 (#812 / #394). Falls back to identity (deterministic baseline) on
+    // no-JPEG / degenerate fit.
+    if model.profile == Profile::Auto {
+        let ct = match &raw_source {
+            Some(RawInput::Path(path)) => auto_profile::chroma::solve_chroma_for_path(
+                &scene,
+                path,
+                raw.orientation,
+                model.contrast,
+            ),
+            Some(RawInput::Bytes { bytes, ext }) => auto_profile::chroma::solve_chroma_for_bytes(
+                &scene,
+                bytes,
+                ext,
+                raw.orientation,
+                model.contrast,
+            ),
+            None => None,
+        };
+        if let Some(ct) = ct {
+            stage("chroma_match", || ct.apply_to_scene(&mut scene));
+        }
+    }
+
     // View transform (#550 post-fix): AgX + gamut compress + sRGB gamma
     // encode run UNCONDITIONALLY for both Auto and Neutral. Pre-#550 the
     // Auto branch REPLACED AgX with the scene-linear curve fit, throwing
