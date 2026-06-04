@@ -72,7 +72,7 @@ final class BackupEngineConcurrencyTests: XCTestCase {
         let reader = CountingAssetReader(holdMillis: 60)
         let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
                                   libraryId: "lib", deviceId: "d",
-                                  session: stubSession())
+                                  transport: stubTransport())
         let engine = BackupEngine(queue: queue, state: state, upload: upload,
                                   sidecars: sidecars, reader: reader,
                                   maxConcurrency: 2)
@@ -113,7 +113,7 @@ final class BackupEngineConcurrencyTests: XCTestCase {
         let reader = CountingAssetReader(holdMillis: 60)
         let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
                                   libraryId: "lib", deviceId: "d",
-                                  session: stubSession())
+                                  transport: stubTransport())
         // Default init — no maxConcurrency override.
         let engine = BackupEngine(queue: queue, state: state, upload: upload,
                                   sidecars: sidecars, reader: reader)
