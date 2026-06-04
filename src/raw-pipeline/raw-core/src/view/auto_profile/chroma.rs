@@ -75,6 +75,40 @@ impl ChromaTransform {
     }
 }
 
+/// Apply `t` to scene-linear samples, run AgX (the fixed forward tone model),
+/// and return the **post-AgX** OKLAB `(a, b)` per sample. This is the primitive
+/// the through-AgX solver (Task 4) minimizes its objective in: the solver
+/// matches `forward_post_agx_ab(scene, T)` to the linearized JPEG's a/b, with
+/// AgX as a fixed term in the loss, so the chroma cannot reproduce the HSM's
+/// post-tone-curve highlight over-saturation. Output is display-linear Rec.2020
+/// OKLAB — the same space the linearized JPEG lands in (decode → Rec.2020 →
+/// `rec2020_to_oklab`), so the two are directly comparable.
+///
+/// `contrast` matches the render path's `model.contrast` AgX slope so the
+/// forward model is the exact tone curve the final render uses.
+pub(crate) fn forward_post_agx_ab(
+    scene: &[[f32; 3]],
+    t: &ChromaTransform,
+    contrast: f32,
+) -> Vec<(f32, f32)> {
+    use crate::image::ColorSpace;
+    let mut img = Image {
+        width: scene.len() as u32,
+        height: 1,
+        pixels: scene.to_vec(),
+        space: ColorSpace::SceneLinearRec2020,
+    };
+    t.apply_to_scene(&mut img);
+    crate::view::agx::apply(&mut img, contrast);
+    img.pixels
+        .iter()
+        .map(|p| {
+            let lab = rec2020_to_oklab(*p);
+            (lab[1], lab[2])
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,5 +157,34 @@ mod tests {
             (lab_after[1] - ab_before.0).abs() > 1e-3 || (lab_after[2] - ab_before.1).abs() > 1e-3,
             "a/b did not change under gain=1.5"
         );
+    }
+
+    // ── Task 2: post-AgX forward model ───────────────────────────────────────
+
+    #[test]
+    fn forward_identity_matches_plain_agx() {
+        // forward_post_agx_ab with the identity transform must equal running
+        // plain AgX on the same pixels and reading the post-AgX OKLAB a/b.
+        let scene: Vec<[f32; 3]> =
+            vec![[0.3, 0.18, 0.12], [0.6, 0.5, 0.45], [0.05, 0.04, 0.04]];
+        let id = ChromaTransform::identity();
+        let got = forward_post_agx_ab(&scene, &id, 0.0);
+        let mut img = Image {
+            width: 3,
+            height: 1,
+            pixels: scene.clone(),
+            space: ColorSpace::SceneLinearRec2020,
+        };
+        crate::view::agx::apply(&mut img, 0.0);
+        for (i, p) in img.pixels.iter().enumerate() {
+            let lab = rec2020_to_oklab(*p);
+            assert!(
+                (got[i].0 - lab[1]).abs() < 1e-4 && (got[i].1 - lab[2]).abs() < 1e-4,
+                "pixel {i}: forward {:?} != plain-AgX a/b ({}, {})",
+                got[i],
+                lab[1],
+                lab[2]
+            );
+        }
     }
 }
