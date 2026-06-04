@@ -968,6 +968,23 @@ export interface ChallengeDoc {
 export type ChallengeWithId = WithId<ChallengeDoc>;
 
 // ---------------------------------------------------------------------------
+// Native one-time auth code (#856) — PKCE code-exchange for the Apple shell,
+// replacing the legacy token-in-redirect-URL bridge. Short TTL; single-use.
+// ---------------------------------------------------------------------------
+
+export interface NativeAuthCodeDoc {
+  code_hash: string; // sha256(raw code), hex
+  code_challenge: string; // PKCE S256: base64url(sha256(verifier))
+  state: string; // opaque CSRF token echoed back to the native app
+  user_id: ObjectId;
+  device_label: string; // label for the refresh token minted at redeem
+  created_at: string;
+  expires_at: Date; // TTL — MUST be a Date (TTL monitor ignores ISO strings)
+  consumed_at: string | null;
+}
+export type NativeAuthCodeWithId = WithId<NativeAuthCodeDoc>;
+
+// ---------------------------------------------------------------------------
 // PhotoKit backup
 // ---------------------------------------------------------------------------
 
