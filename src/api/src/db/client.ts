@@ -33,6 +33,7 @@ import type {
   InviteDoc,
   RefreshTokenDoc,
   ChallengeDoc,
+  NativeAuthCodeDoc,
   BackupSessionDoc,
   UploadSessionDoc,
   AssetChangeDoc,
@@ -152,6 +153,9 @@ export async function refreshTokensCollection(): Promise<Collection<RefreshToken
 }
 export async function challengesCollection(): Promise<Collection<ChallengeDoc>> {
   return (await getDb()).collection<ChallengeDoc>('challenges');
+}
+export async function nativeAuthCodesCollection(): Promise<Collection<NativeAuthCodeDoc>> {
+  return (await getDb()).collection<NativeAuthCodeDoc>('native_auth_codes');
 }
 export async function peopleCollection(): Promise<Collection<PersonDoc>> {
   return (await getDb()).collection<PersonDoc>('people');
@@ -1258,6 +1262,10 @@ export async function ensureIndexes(): Promise<void> {
 
   const challenges = await challengesCollection();
   await challenges.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
+
+  const nativeCodes = await nativeAuthCodesCollection();
+  await nativeCodes.createIndex({ code_hash: 1 }, { unique: true });
+  await nativeCodes.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
 
   // people: case-insensitive unique on `name` so a duplicate name is impossible
   // at the DB level. The `renamePerson` repo method merges before it would
