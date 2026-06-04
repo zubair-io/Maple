@@ -104,17 +104,20 @@ public actor UploadClient {
     private let baseURL: URL
     private let libraryId: String
     private let deviceId: String
-    private let session: URLSession
+    /// Authenticated transport. In the app this is
+    /// `AuthenticatedHTTPClient.data(for:)` (Bearer + 401-refresh-retry);
+    /// required so a construction site can't silently skip auth (#855).
+    private let transport: AuthorizingTransport
 
     /// 4 MiB default. Test helpers and the engine can tune via `setChunkSize`.
     private(set) public var chunkSize: Int = 4 * 1024 * 1024
 
     public init(baseURL: URL, libraryId: String, deviceId: String,
-                session: URLSession = .shared) {
+                transport: @escaping AuthorizingTransport) {
         self.baseURL = baseURL
         self.libraryId = libraryId
         self.deviceId = deviceId
-        self.session = session
+        self.transport = transport
     }
 
     public func setChunkSize(_ newValue: Int) {
@@ -153,7 +156,7 @@ public actor UploadClient {
         if let mapleId { req.setValue(mapleId, forHTTPHeaderField: "X-Maple-Id") }
         req.httpBody = Data(xmp.utf8)
 
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await transport(req)
         guard let http = response as? HTTPURLResponse else {
             Self.logger.error(
                 "sidecar non-HTTP response url=\(url, privacy: .public) phasset=\(phassetLocalId, privacy: .private) targetRelPath=\(targetRelPath, privacy: .private)")
@@ -220,7 +223,7 @@ public actor UploadClient {
             if isFinal { req.setValue(mapleId, forHTTPHeaderField: "X-Maple-Maple-Id") }
             req.httpBody = chunk
 
-            let (data, response) = try await session.data(for: req)
+            let (data, response) = try await transport(req)
             guard let http = response as? HTTPURLResponse else {
                 Self.logger.error(
                     "ingest non-HTTP response url=\(ingestURL, privacy: .public) phasset=\(phassetLocalId, privacy: .private) range=\(offset)-\(chunkEnd)/\(total)")
@@ -350,7 +353,7 @@ public actor UploadClient {
             }
             req.httpBody = chunk
 
-            let (data, response) = try await session.data(for: req)
+            let (data, response) = try await transport(req)
             guard let http = response as? HTTPURLResponse else {
                 Self.logger.error(
                     "rendered non-HTTP response url=\(renderedURL, privacy: .public) phasset=\(phassetLocalId, privacy: .private) targetRelPath=\(targetRelPath, privacy: .private) range=\(offset)-\(chunkEnd)/\(total)")

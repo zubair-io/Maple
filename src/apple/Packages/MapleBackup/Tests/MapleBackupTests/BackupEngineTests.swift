@@ -56,7 +56,7 @@ final class BackupEngineTests: XCTestCase {
         let reader = StubAssetReader()
         let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
                                   libraryId: "lib", deviceId: "d",
-                                  session: stubSession())
+                                  transport: stubTransport())
         let engine = BackupEngine(queue: queue, state: state, upload: upload,
                                   sidecars: sidecars, reader: reader)
         return (engine, queue, state, sidecars, reader, tmpRoot)
@@ -80,7 +80,7 @@ final class BackupEngineTests: XCTestCase {
         let reader = StubAssetReader()
         let upload = UploadClient(baseURL: URL(string: "https://server.example")!,
                                   libraryId: "lib", deviceId: "d",
-                                  session: stubSession())
+                                  transport: stubTransport())
         let engine = BackupEngine(queue: queue, state: state, upload: upload,
                                   sidecars: sidecars, reader: reader,
                                   companionBackoff: companionBackoff)

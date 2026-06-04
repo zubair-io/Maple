@@ -18,6 +18,7 @@
 // Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §20.
 
 import Foundation
+import MapleBackup
 
 actor BatchExistsClient {
 
@@ -40,14 +41,16 @@ actor BatchExistsClient {
     private let baseURL: URL
     private let libraryId: String
     private let deviceId: String
-    private let session: URLSession
+    /// Authenticated transport (#855) — required so the gated `/backup/exists`
+    /// route isn't hit without a bearer.
+    private let transport: AuthorizingTransport
 
     init(baseURL: URL, libraryId: String, deviceId: String,
-         session: URLSession = .shared) {
+         transport: @escaping AuthorizingTransport) {
         self.baseURL = baseURL
         self.libraryId = libraryId
         self.deviceId = deviceId
-        self.session = session
+        self.transport = transport
     }
 
     /// Ask the server which of `mapleIds` are NOT yet present in this library.
@@ -76,7 +79,7 @@ actor BatchExistsClient {
         req.setValue(deviceId, forHTTPHeaderField: "X-Maple-Device-Id")
         req.httpBody = try JSONEncoder().encode(RequestBody(maple_ids: mapleIds))
 
-        let (data, response) = try await session.data(for: req)
+        let (data, response) = try await transport(req)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             throw URLError(.badServerResponse)
         }
