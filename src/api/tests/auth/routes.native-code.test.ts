@@ -48,7 +48,9 @@ const redeem = (code: string, verifier: string) =>
   app.handle(
     new Request('http://localhost/api/auth/native-code/redeem', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      // Distinct IP so these (rate-limited) redeems use their own bucket and
+      // don't consume the shared `auth:anon` budget other auth tests rely on.
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.10' },
       body: JSON.stringify({ code, code_verifier: verifier }),
     }),
   );
