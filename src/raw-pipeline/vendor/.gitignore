@@ -1,0 +1,7 @@
+# Vendored crate sources are committed verbatim — cargo verifies every file
+# against .cargo-checksum.json, so a single dropped file breaks the build on a
+# fresh clone (this is exactly what the repo's top-level `target/` rule did to
+# the `cc` crate's `src/target/` module). Override every inherited ignore so
+# the vendor tree is always complete; `cargo vendor` produces a clean tree, so
+# there is nothing here we don't want tracked.
+!*
