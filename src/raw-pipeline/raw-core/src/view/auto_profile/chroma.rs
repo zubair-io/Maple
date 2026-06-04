@@ -351,8 +351,11 @@ pub(crate) fn sample_pairs(
 /// Global strength of the JPEG→scene chroma correction. The embedded JPEG
 /// overshoots ACR's chroma magnitude, so the solved transform is damped
 /// toward identity by `k`. The JPEG gives the direction; `k` sets how far
-/// we follow it. Validated offline against ACR references (Task 4 tunes this).
-const CHROMA_STRENGTH: f32 = 0.6;
+/// we follow it. Validated offline against ACR references (Task 4 exploration):
+/// k=0.3–0.7 all achieve similar mid-tones fidelity (agg_mid_err 4.83–4.94 vs
+/// Neutral's 6.75); 0.5 sits at the diminishing-returns knee and errs
+/// conservative — lower k → smaller marginal highlight chroma contribution.
+const CHROMA_STRENGTH: f32 = 0.5;
 
 /// Scene-linear V (max channel) at which the chroma correction begins to
 /// taper off. Below this value the full corrected chroma applies; above
@@ -658,7 +661,13 @@ fn solve_chroma_from_preview(
         return None;
     }
     let solved = solve_chroma_through_agx(&pairs, contrast);
-    let mut t = damp_toward_identity(solved, CHROMA_STRENGTH);
+    // Dev-only: allow offline exploration of k without recompiling.
+    // Unset in tests and production; ignored when not set.
+    let k = std::env::var("MAPLE_CHROMA_STRENGTH_OVERRIDE")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(CHROMA_STRENGTH);
+    let mut t = damp_toward_identity(solved, k);
     t.taper_lo = CHROMA_TAPER_LO;
     t.taper_hi = CHROMA_TAPER_HI;
     Some(t)
