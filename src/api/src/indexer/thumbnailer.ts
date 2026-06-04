@@ -26,7 +26,6 @@ import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS } from '../fs/browse.ts';
 import { isVideoFilename } from './media-types.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
-import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('thumbnailer');
@@ -142,28 +141,16 @@ async function renderRawThumbToFile(rawPath: string, thumbPath: string): Promise
     );
     return false;
   }
-  let ok = false;
   try {
-    ok = await pool.renderThumbnailJpegToFile(rawPath, thumbPath, THUMB_LONG_EDGE_PX, 82);
+    return await pool.renderThumbnailJpegToFile(rawPath, thumbPath, THUMB_LONG_EDGE_PX, 82);
   } catch (e) {
     log.warn({ rawPath, err: e instanceof Error ? e.message : e }, 'FFI call threw');
     return false;
   }
-  if (!ok) return false;
-  // Defense-in-depth: the FFI bakes orientation into the pixels and emits
-  // a bare JPEG with no EXIF, so this is a metadata-read no-op on every
-  // RAW thumb. Kept so any future code path that lands a tagged JPEG in
-  // the thumb cache gets normalized before the client sees it.
-  try {
-    await applyExifOrientationInPlace(thumbPath);
-  } catch (e) {
-    log.warn(
-      { rawPath, err: e instanceof Error ? e.message : e },
-      'orientation post-process failed; thumb left as-is',
-    );
-    // The FFI output is still on disk — mark success rather than failing the stage.
-  }
-  return true;
+  // Note: FFI path bakes orientation into pixels and emits a bare JPEG with
+  // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
+  // decode time. No inline orientation post-process needed — keeping sharp
+  // out of worker-main's address space for isolation.
 }
 
 /**
