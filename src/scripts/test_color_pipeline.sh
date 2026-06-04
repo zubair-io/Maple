@@ -52,6 +52,8 @@ PREFERRED_RES="${PREFERRED_RES:-down}"
 FILTER="${FILTER:-}"
 BUDGETS="${BUDGETS:-$REPO_ROOT/test-fixtures/budgets.json}"
 ALLOW_MISSING_BUDGET="${ALLOW_MISSING_BUDGET:-}"
+ZONES="${ZONES:-}"
+HUE_BINS="${HUE_BINS:-12}"
 
 # ----- preflight -----------------------------------------------------------
 err() { printf "test_color_pipeline: %s\n" "$*" >&2; }
@@ -132,7 +134,7 @@ echo ""
 #   * a tab-separated per-case row to stdout
 #   * a one-line JSON summary on the LAST line (fixture/case rollups +
 #     grand mean) so callers can grep it for CI assertions.
-python3 - "$MANIFEST" "$CANDIDATES_DIR" "$COMPARE_PY" "$PREFERRED_RES" "$FILTER" "$BUDGETS" "$ALLOW_MISSING_BUDGET" <<'PY'
+python3 - "$MANIFEST" "$CANDIDATES_DIR" "$COMPARE_PY" "$PREFERRED_RES" "$FILTER" "$BUDGETS" "$ALLOW_MISSING_BUDGET" "$ZONES" "$HUE_BINS" <<'PY'
 import json
 import os
 import sys
@@ -146,35 +148,14 @@ import colour
 # decompression-bomb heuristic. They're our ground truth; suppress.
 Image.MAX_IMAGE_PIXELS = None
 
-manifest_path, cand_dir, compare_py, preferred_res, name_filter, budgets_path, allow_missing = sys.argv[1:8]
+manifest_path, cand_dir, compare_py, preferred_res, name_filter, budgets_path, allow_missing, zones_flag, hue_bins_s = sys.argv[1:10]
 allow_missing = bool(allow_missing)
+zones_on = bool(zones_flag)
+hue_bins = int(hue_bins_s) if zones_flag else 0
 
 
-def diff_inline(cand_path: str, ref_path: str) -> dict:
-    """Inline equivalent of compare_images.py main(). Avoids subprocess
-    + numpy/colour-science re-import overhead per case (was 1-2s/case ×
-    688 = 15+ min — this version is ~50ms each)."""
-    cand_img = Image.open(cand_path).convert("RGB")
-    ref_img = Image.open(ref_path).convert("RGB")
-    if cand_img.size != ref_img.size:
-        cand_img = cand_img.resize(ref_img.size, Image.LANCZOS)
-    cand = np.asarray(cand_img, dtype=np.float32) / 255.0
-    ref = np.asarray(ref_img, dtype=np.float32) / 255.0
-    cand_xyz = colour.sRGB_to_XYZ(cand)
-    ref_xyz = colour.sRGB_to_XYZ(ref)
-    cand_lab = colour.XYZ_to_Lab(cand_xyz)
-    ref_lab = colour.XYZ_to_Lab(ref_xyz)
-    dE = colour.delta_E(cand_lab, ref_lab, method="CIE 2000")
-    bias = (cand - ref).mean(axis=(0, 1))
-    return {
-        "mean_deltaE": float(np.mean(dE)),
-        "p95_deltaE": float(np.percentile(dE, 95)),
-        "max_deltaE": float(np.max(dE)),
-        "bias_r": float(bias[0]),
-        "bias_g": float(bias[1]),
-        "bias_b": float(bias[2]),
-        "n_pixels": int(cand.shape[0] * cand.shape[1]),
-    }
+sys.path.insert(0, os.path.dirname(os.path.abspath(compare_py)))
+import compare_images  # the one diff implementation (per-zone/per-hue aware)
 
 with open(manifest_path) as f:
     manifest = json.load(f)
@@ -234,7 +215,8 @@ for case in sorted(cases, key=lambda c: c["name"]):
     ref_path = ref["png"]
 
     try:
-        metrics = diff_inline(cand_path, ref_path)
+        metrics = compare_images.diff(cand_path, ref_path,
+                                      zones=zones_on, hue_bins=hue_bins)
     except Exception as e:
         print(f"{fixture:<12} {case_label:<22} {'DIFF':>9}  diff failed: {e}",
               file=sys.stderr)
@@ -251,6 +233,8 @@ for case in sorted(cases, key=lambda c: c["name"]):
         "bR": metrics["bias_r"],
         "bG": metrics["bias_g"],
         "bB": metrics["bias_b"],
+        "zones": metrics.get("zones"),
+        "hue_bins": metrics.get("hue_bins"),
     }
     all_rows.append(row)
     per_fixture[fixture].append(row)
@@ -295,6 +279,31 @@ for fixture in sorted(per_fixture.keys()):
     print(f"     {fixture:<12} {'(' + str(n) + ' cases)':<22} {'-':>9}  "
           f"{mean_de:6.2f} {'-':>6} {'-':>6}  "
           f"{mean_bR:+8.4f} {mean_bG:+8.4f} {mean_bB:+8.4f}")
+
+# Zone / hue breakdown (diagnostic only — never gated; ZONES=1).
+if zones_on:
+    print("=" * 100)
+    print("ZONE / HUE BREAKDOWN (diagnostic only — not gated)")
+    for r in all_rows:
+        if not r.get("zones"):
+            continue
+        print(f"\n  {r['fixture']}/{r['case']}")
+        for zname, z in r["zones"].items():
+            if z.get("n", 0) == 0:
+                continue
+            print(f"    zone {zname:<9} n={z['n']:>9}  mean={z['mean_deltaE']:6.2f} "
+                  f"p95={z['p95_deltaE']:6.2f} max={z['max_deltaE']:6.2f}  "
+                  f"bias=({z['bias_r']:+.4f},{z['bias_g']:+.4f},{z['bias_b']:+.4f})")
+        hb = r.get("hue_bins") or {}
+        for bn in hb.get("bins", []):
+            if bn.get("n", 0) < 100:
+                continue
+            print(f"    hue {str(bn['bin_deg']):<14} n={bn['n']:>9}  "
+                  f"mean={bn['mean_deltaE']:6.2f}  a*shift={bn['a_shift']:+6.2f} "
+                  f"b*shift={bn['b_shift']:+6.2f}")
+        neu = (hb.get("neutral") or {})
+        if neu.get("n", 0):
+            print(f"    hue {'neutral':<14} n={neu['n']:>9}  mean={neu['mean_deltaE']:6.2f}")
 
 # Grand aggregate.
 if all_rows:
