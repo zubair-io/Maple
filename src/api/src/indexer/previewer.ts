@@ -27,7 +27,6 @@ import { cachePathFor } from '../fs/xmp.ts';
 import { ffiPool } from '../ffi/ffi-pool.ts';
 import { SHARP_EXTENSIONS } from '../fs/browse.ts';
 import { renderImageThumbToFile } from '../thumbs/imgdecode-pool.ts';
-import { applyExifOrientationInPlace } from '../thumbs/apply-orientation.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('previewer');
@@ -152,29 +151,18 @@ async function renderRawPreviewToFile(rawPath: string, previewPath: string): Pro
     );
     return false;
   }
-  let ok = false;
   try {
     // quality 85 (vs 82 for thumbs) — preview is consumed by a VLM, not the
     // browser cache, so extra fidelity outweighs the few-KB size delta.
-    ok = await pool.renderThumbnailJpegToFile(rawPath, previewPath, PREVIEW_LONG_EDGE_PX, 85);
+    return await pool.renderThumbnailJpegToFile(rawPath, previewPath, PREVIEW_LONG_EDGE_PX, 85);
   } catch (e) {
     log.warn({ rawPath, err: e instanceof Error ? e.message : e }, 'FFI call threw');
     return false;
   }
-  if (!ok) return false;
-  // Defense-in-depth: the FFI bakes EXIF orientation into the pixels and
-  // emits a bare JPEG with no EXIF, so this is normally a metadata-read
-  // no-op. Kept to catch any future code path that lands a tagged JPEG
-  // here before the VLM sees a sideways portrait.
-  try {
-    await applyExifOrientationInPlace(previewPath);
-  } catch (e) {
-    log.warn(
-      { rawPath, err: e instanceof Error ? e.message : e },
-      'orientation post-process failed; preview left as-is',
-    );
-  }
-  return true;
+  // Note: FFI path bakes orientation into pixels and emits a bare JPEG with
+  // no EXIF. Bitmap paths (via imgdecode child) call sharp's .rotate() at
+  // decode time. No inline orientation post-process needed — keeping sharp
+  // out of worker-main's address space for isolation.
 }
 
 async function renderBitmapPreviewToFile(

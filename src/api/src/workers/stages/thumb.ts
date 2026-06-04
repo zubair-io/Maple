@@ -2,8 +2,10 @@
  * Thumb stage — generates the 512px JPEG thumbnail for an image.
  *
  * Delegates to `generateThumb` in `src/api/src/indexer/thumbnailer.ts`, which
- * is orientation-aware after Plan 0 (applyExifOrientationInPlace is wired into
- * the RAW path).
+ * routes all decode through isolated child processes (ffi-pool for RAW,
+ * imgdecode-pool for bitmap formats). Orientation is baked at decode time:
+ * FFI path bakes it during preview extraction; imgdecode child calls
+ * sharp's .rotate() inline.
  *
  * Cache-path resolution (post content-addressing migration PR 3):
  *   - if the image doc has both `maple_id` and `fileinfo[0]`, write to the
