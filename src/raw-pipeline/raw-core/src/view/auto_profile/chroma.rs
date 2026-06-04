@@ -109,6 +109,27 @@ pub(crate) fn forward_post_agx_ab(
         .collect()
 }
 
+/// Forward through AgX and return full OKLAB (L,a,b) values per sample.
+pub(crate) fn forward_post_agx_lab(
+    scene: &[[f32; 3]],
+    t: &ChromaTransform,
+    contrast: f32,
+) -> Vec<[f32; 3]> {
+    use crate::image::ColorSpace;
+    let mut img = Image {
+        width: scene.len() as u32,
+        height: 1,
+        pixels: scene.to_vec(),
+        space: ColorSpace::SceneLinearRec2020,
+    };
+    t.apply_to_scene(&mut img);
+    crate::view::agx::apply(&mut img, contrast);
+    img.pixels
+        .iter()
+        .map(|p| rec2020_to_oklab(*p))
+        .collect()
+}
+
 // ── JPEG sampling + filtering (Task 3) ───────────────────────────────────────
 
 use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
@@ -376,9 +397,19 @@ fn chroma_features(a: f32, b: f32) -> [f32; 5] {
 /// (held at 1.0), taper left inactive (caller sets it from the real-image L
 /// distribution; the synthetic solve keeps it above the data range).
 fn transform_from_coeffs(ca: [f32; 5], cb: [f32; 5]) -> ChromaTransform {
+    // DIAGNOSTIC knob (MAPLE_CHROMA_LINEAR_ONLY): drop the √|a|/√|b| root-poly
+    // terms, leaving a smooth linear 2×2 + bias chroma map (C¹ at the neutral
+    // axis). Discriminates √-term out-of-sample instability (blotches on
+    // near-neutral skin/sky) from solver non-convergence. Unset in
+    // tests/production → identical behavior to the committed path.
+    let c2 = if std::env::var_os("MAPLE_CHROMA_LINEAR_ONLY").is_some() {
+        [[0.0, 0.0], [0.0, 0.0]]
+    } else {
+        [[ca[2], ca[3]], [cb[2], cb[3]]]
+    };
     ChromaTransform {
         mat: [[ca[0], ca[1]], [cb[0], cb[1]]],
-        c2: [[ca[2], ca[3]], [cb[2], cb[3]]],
+        c2,
         bias: [ca[4], cb[4]],
         gain: 1.0,
         taper_lo: 2.0,
@@ -526,16 +557,28 @@ pub(crate) fn solve_chroma_through_agx_with_ridge(
     let mut t = ChromaTransform::identity();
     let mut best = t;
     let mut best_err = post_agx_err(&t);
-    for _ in 0..SOLVE_ITERS {
-        let out = forward_post_agx_ab(&scene, &t, contrast);
-        // Adjusted pre-AgX targets: current pre-AgX mapping + λ·post-AgX residual.
+    let trace = std::env::var_os("MAPLE_CHROMA_TRACE").is_some();
+    if trace {
+        eprintln!(
+            "[chroma-trace] n_pairs={n} ridge={ridge} lambda={SOLVE_LAMBDA} \
+             linear_only={} err0={best_err:.5}",
+            std::env::var_os("MAPLE_CHROMA_LINEAR_ONLY").is_some(),
+        );
+    }
+    for iter in 0..SOLVE_ITERS {
+        let out_lab = forward_post_agx_lab(&scene, &t, contrast);
+        // Adjusted pre-AgX targets: current pre-AgX mapping + λ·scaled post-AgX residual.
         let mut adj_a = vec![0.0f32; n];
         let mut adj_b = vec![0.0f32; n];
         for i in 0..n {
             let (a, b) = scene_ab[i];
             let (ma, mb) = t.map_ab(a, b);
-            adj_a[i] = ma + SOLVE_LAMBDA * (target[i].0 - out[i].0);
-            adj_b[i] = mb + SOLVE_LAMBDA * (target[i].1 - out[i].1);
+            // Lightness ratio to scale display-referred delta back to scene-referred domain
+            let l_scene = rec2020_to_oklab(pairs[i].raw_scene)[0];
+            let l_display = out_lab[i][0].max(1e-4);
+            let scale = l_scene / l_display;
+            adj_a[i] = ma + SOLVE_LAMBDA * (target[i].0 - out_lab[i][1]) * scale;
+            adj_b[i] = mb + SOLVE_LAMBDA * (target[i].1 - out_lab[i][2]) * scale;
         }
         let ca = ridge_solve_channel(&feats, &adj_a, &weights, ridge, c0_a);
         let cb = ridge_solve_channel(&feats, &adj_b, &weights, ridge, c0_b);
@@ -544,6 +587,16 @@ pub(crate) fn solve_chroma_through_agx_with_ridge(
         if err < best_err {
             best_err = err;
             best = t;
+        }
+        if trace {
+            // Coefficient magnitudes: how far the fit has drifted from identity.
+            let dmat = (t.mat[0][0] - 1.0).hypot(t.mat[0][1]) + t.mat[1][0].hypot(t.mat[1][1] - 1.0);
+            let dc2 = t.c2[0][0].hypot(t.c2[0][1]) + t.c2[1][0].hypot(t.c2[1][1]);
+            let dbias = t.bias[0].hypot(t.bias[1]);
+            eprintln!(
+                "[chroma-trace] iter={iter:02} err={err:.5} best={best_err:.5} \
+                 |mat-I|={dmat:.4} |c2(√)|={dc2:.4} |bias|={dbias:.4}"
+            );
         }
     }
     best
