@@ -75,3 +75,64 @@ describe('AuthService.refresh', () => {
     expect(await b).toBe('refreshed');
   });
 });
+
+describe('AuthService native code handoff (#856)', () => {
+  const CHALLENGE = 'A'.repeat(43); // valid base64url S256 length
+  const STATE = 'state-abcdef';
+  let auth: AuthService;
+  let ctrl: HttpTestingController;
+
+  beforeEach(() => {
+    window.history.replaceState(
+      {},
+      '',
+      `/?native_callback=maple-app&code_challenge=${CHALLENGE}&state=${STATE}`,
+    );
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    auth = TestBed.inject(AuthService);
+    ctrl = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    ctrl.verify();
+    window.history.replaceState({}, '', '/');
+  });
+
+  it('treats an allowlisted scheme as the native shell', () => {
+    expect(auth.isNativeShell).toBe(true);
+  });
+
+  it('hands the app a one-time CODE (not tokens) and echoes state', async () => {
+    const navigated: string[] = [];
+    (auth as unknown as { navigateTo: (u: string) => void }).navigateTo = (u) => navigated.push(u);
+
+    const p = (
+      auth as unknown as { postNativeAuthSuccess: () => Promise<void> }
+    ).postNativeAuthSuccess();
+    const req = ctrl.expectOne('/api/auth/native-code');
+    expect(req.request.body).toEqual({ code_challenge: CHALLENGE, state: STATE });
+    req.flush({ code: 'CODE123' });
+    await p;
+
+    // A code + state — never an access/refresh token — in the redirect.
+    expect(navigated).toEqual([`maple-app://auth-success?code=CODE123&state=${STATE}`]);
+  });
+});
+
+describe('AuthService ignores an unknown native_callback scheme (#856)', () => {
+  afterEach(() => window.history.replaceState({}, '', '/'));
+
+  it('does not treat an attacker-named scheme as the native shell', () => {
+    window.history.replaceState(
+      {},
+      '',
+      `/?native_callback=evil-app&code_challenge=${'A'.repeat(43)}&state=state-abcdef`,
+    );
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    expect(TestBed.inject(AuthService).isNativeShell).toBe(false);
+  });
+});

@@ -90,7 +90,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       });
       return {
         access_token,
-        refresh_token: refresh.raw,
         user: {
           id: user._id.toHexString(),
           email: user.email,
@@ -218,7 +217,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       });
       return {
         access_token,
-        refresh_token: refresh.raw,
         user: { id: userIns.insertedId.toHexString(), email, role },
       };
     },
@@ -351,7 +349,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       });
       return {
         access_token,
-        refresh_token: refresh.raw,
         user: {
           id: user._id.toHexString(),
           email: user.email,
@@ -415,7 +412,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           maxAge: REFRESH_TTL_SECONDS,
         });
       }
-      return { access_token, refresh_token: fresh.raw };
+      return { access_token };
     },
     { body: t.Object({ refresh_token: t.Optional(t.String()) }) },
   )

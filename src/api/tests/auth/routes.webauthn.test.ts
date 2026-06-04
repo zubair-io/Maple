@@ -13,26 +13,26 @@
  *   5. Re-using the original refresh_token → 4xx (replay rejected)
  */
 
-process.env.MAPLE_RP_ID = "localhost";
-process.env.MAPLE_ORIGIN = "http://localhost:3000";
-process.env.MAPLE_JWT_SECRET = "x".repeat(32);
+process.env.MAPLE_RP_ID = 'localhost';
+process.env.MAPLE_ORIGIN = 'http://localhost:3000';
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
-import { describe, it, expect, beforeEach } from "bun:test";
-import { Elysia } from "elysia";
-import { authRoutes } from "../../src/routes/auth.ts";
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { Elysia } from 'elysia';
+import { authRoutes } from '../../src/routes/auth.ts';
 import {
   usersCollection,
   credentialsCollection,
   invitesCollection,
   refreshTokensCollection,
   challengesCollection,
-} from "../../src/db/client.ts";
-import { buildRegistrationResponse } from "./helpers/soft-authn.ts";
+} from '../../src/db/client.ts';
+import { buildRegistrationResponse } from './helpers/soft-authn.ts';
 
 const app = new Elysia().use(authRoutes);
 
-const RP_ID = "localhost";
-const ORIGIN = "http://localhost:3000";
+const RP_ID = 'localhost';
+const ORIGIN = 'http://localhost:3000';
 
 beforeEach(async () => {
   for (const c of [
@@ -49,26 +49,31 @@ beforeEach(async () => {
 async function postJson(path: string, body: unknown): Promise<Response> {
   return app.handle(
     new Request(`http://localhost${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
-    })
+    }),
   );
 }
 
-describe("WebAuthn end-to-end", () => {
-  it("claim → sign in → refresh → reuse-detection", async () => {
-    const email = "owner@maple.test";
+/** Extract the rotating `maple_refresh` value from a response's Set-Cookie.
+ * Post-#857 the refresh token rides ONLY in the httpOnly cookie, not the JSON. */
+function refreshCookie(res: Response): string {
+  const sc = res.headers.get('set-cookie') ?? '';
+  return /maple_refresh=([^;]+)/.exec(sc)?.[1] ?? '';
+}
+
+describe('WebAuthn end-to-end', () => {
+  it('claim → sign in → refresh → reuse-detection', async () => {
+    const email = 'owner@maple.test';
 
     // 1. Bootstrap probe — fresh DB, nobody has claimed yet.
-    const bootstrap = await app.handle(
-      new Request("http://localhost/api/auth/bootstrap")
-    );
+    const bootstrap = await app.handle(new Request('http://localhost/api/auth/bootstrap'));
     expect(bootstrap.status).toBe(200);
     expect(await bootstrap.json()).toEqual({ claimed: false, dev_login_enabled: false });
 
     // 2a. Registration options.
-    const regOptsRes = await postJson("/api/auth/register/options", { email });
+    const regOptsRes = await postJson('/api/auth/register/options', { email });
     expect(regOptsRes.status).toBe(200);
     const regOpts = (await regOptsRes.json()) as { challenge: string };
     expect(regOpts.challenge).toBeDefined();
@@ -82,31 +87,34 @@ describe("WebAuthn end-to-end", () => {
     const authenticator = built.authenticator;
 
     // 2c. Verify registration.
-    const regVerifyRes = await postJson("/api/auth/register/verify", {
+    const regVerifyRes = await postJson('/api/auth/register/verify', {
       email,
-      device_label: "test-laptop",
+      device_label: 'test-laptop',
       credential: built.response,
     });
     expect(regVerifyRes.status).toBe(200);
     const regBody = (await regVerifyRes.json()) as {
       access_token: string;
-      refresh_token: string;
-      user: { id: string; email: string; role: "owner" | "member" };
+      user: { id: string; email: string; role: 'owner' | 'member' };
     };
     expect(regBody.user.email).toBe(email);
-    expect(regBody.user.role).toBe("owner");
+    expect(regBody.user.role).toBe('owner');
     expect(regBody.access_token).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
-    expect(typeof regBody.refresh_token).toBe("string");
-    expect(regBody.refresh_token.length).toBeGreaterThan(20);
+    // #857: the refresh token rides ONLY in the httpOnly cookie, not the JSON body.
+    expect((regBody as { refresh_token?: string }).refresh_token).toBeUndefined();
+    const regRefresh = refreshCookie(regVerifyRes);
+    expect(regRefresh.length).toBeGreaterThan(20);
 
     // Sanity: persisted credential matches the soft-authenticator id.
-    const persisted = await (await credentialsCollection()).findOne({
+    const persisted = await (
+      await credentialsCollection()
+    ).findOne({
       credential_id: authenticator.credentialId,
     });
     expect(persisted).not.toBeNull();
 
     // 3a. Login options for the same email.
-    const loginOptsRes = await postJson("/api/auth/login/options", { email });
+    const loginOptsRes = await postJson('/api/auth/login/options', { email });
     expect(loginOptsRes.status).toBe(200);
     const loginOpts = (await loginOptsRes.json()) as { challenge: string };
     expect(loginOpts.challenge).toBeDefined();
@@ -119,35 +127,34 @@ describe("WebAuthn end-to-end", () => {
     });
 
     // 3c. Verify login.
-    const loginVerifyRes = await postJson("/api/auth/login/verify", {
+    const loginVerifyRes = await postJson('/api/auth/login/verify', {
       email,
       credential: assertion,
     });
     expect(loginVerifyRes.status).toBe(200);
     const loginBody = (await loginVerifyRes.json()) as {
       access_token: string;
-      refresh_token: string;
-      user: { id: string; email: string; role: "owner" | "member" };
+      user: { id: string; email: string; role: 'owner' | 'member' };
     };
-    expect(loginBody.user.role).toBe("owner");
-    expect(typeof loginBody.refresh_token).toBe("string");
-    expect(loginBody.refresh_token).not.toBe(regBody.refresh_token);
+    expect(loginBody.user.role).toBe('owner');
+    const loginRefresh = refreshCookie(loginVerifyRes);
+    expect(loginRefresh.length).toBeGreaterThan(20);
+    expect(loginRefresh).not.toBe(regRefresh);
 
-    // 4. Refresh — must rotate the refresh token.
-    const originalRefresh = loginBody.refresh_token;
-    const refreshRes = await postJson("/api/auth/refresh", {
+    // 4. Refresh — must rotate the refresh token (carried in the cookie).
+    const originalRefresh = loginRefresh;
+    const refreshRes = await postJson('/api/auth/refresh', {
       refresh_token: originalRefresh,
     });
     expect(refreshRes.status).toBe(200);
-    const refreshBody = (await refreshRes.json()) as {
-      access_token: string;
-      refresh_token: string;
-    };
-    expect(refreshBody.refresh_token).not.toBe(originalRefresh);
+    const refreshBody = (await refreshRes.json()) as { access_token: string };
     expect(refreshBody.access_token).toBeDefined();
+    // #857: no refresh_token in the body; the rotated token is in the cookie.
+    expect((refreshBody as { refresh_token?: string }).refresh_token).toBeUndefined();
+    expect(refreshCookie(refreshRes)).not.toBe(originalRefresh);
 
     // 5. Re-using the now-revoked original refresh token must fail (4xx).
-    const replayRes = await postJson("/api/auth/refresh", {
+    const replayRes = await postJson('/api/auth/refresh', {
       refresh_token: originalRefresh,
     });
     expect(replayRes.status).toBeGreaterThanOrEqual(400);
