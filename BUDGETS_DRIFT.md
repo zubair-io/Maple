@@ -123,3 +123,35 @@ be read as expected post-#443 drift, not regression.
   no `test-fixtures/raws/` in this environment. CI run with fixtures
   will produce the visual ΔE drift numbers, which will all move UP per
   the expected-drift discussion above.
+
+### Partial re-baseline (#911)
+
+The fixtures-present sweep predicted above landed: **12 of 17 neutral
+baselines breach** `test-fixtures/budgets.json`. #911 re-baselines only
+the subset whose breach matches the retired look's bounded tonal-floor
+signature — a roughly uniform-RGB shift (R/G/B per-zone bias co-moving),
+chromatically tight neutrals, no hue-specific ΔE spike. That is exactly
+what the look corrected, so a sanctioned one-time exception to the
+one-way ratchet raises those budgets ~8% over measured (breached metrics
+only; nothing lowered).
+
+- **Re-baselined (look-removal tonal signature):** test_0003 (mean, p95),
+  test_0007 (mean, max), test_0011 (mean, p95).
+- **Isolated outliers (conservative nudge):** test_0006 (single hot-pixel
+  `max` 32.86→46.4; mean is 37% UNDER budget), test_0015 (`bias` over by
+  0.0010 → 0.1397→0.1477; the large bias was already budgeted).
+- **NOT re-baselined — flagged as candidate regressions (budgets
+  unchanged):** test_0001, test_0002, test_0005, test_0009, test_0012,
+  test_0014 (large/divergent per-channel bias, off neutrals ΔE 5–20, or a
+  per-hue ΔE/a\*b\* spike a tonal look cannot explain), and test_0013
+  (achromatic but **highlight**-localized — zero error in the shadow zone
+  the look actually lifted, so not attributable to #443; separate
+  attribution, possibly the #429 AE anchor). Raising these would mask
+  real color deltas. The neutral gate stays red-by-design on these 7
+  pending investigation; CI without the gitignored RAWs skip-passes, so
+  main CI is unaffected.
+
+The full per-fixture triage table (classification + old→new) is in the
+#911 PR. #814 is the complementary re-baseline against the **Auto
+Profile default** pipeline; this entry covers the `--profile neutral`
+gate the harness pins today.
