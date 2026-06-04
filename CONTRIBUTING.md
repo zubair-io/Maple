@@ -89,12 +89,14 @@ cargo build --offline \
 
 Scoping matters: the WASM build (`raw-wasm/build.sh`) uses `-Z build-std`, which rebuilds `std` from source and needs `std`'s own dependency versions — those aren't in our vendor dir, so a repo-level replacement would break it. The web/wasm and API builds keep resolving from crates.io as before; only the Apple build is hermetic. `--offline` means a stale or incomplete vendor dir fails loudly rather than silently hitting the network.
 
-`vendor/` is committed source (≈22 MB packed; marked `linguist-vendored` so it stays out of language stats). **Re-vendor whenever dependencies change** — after `cargo update`, adding, or removing a crate:
+`vendor/` is committed source (≈22 MB packed; marked `linguist-vendored` so it stays out of language stats). `vendor/.gitignore` (`!*`) overrides the repo's top-level ignores so the tree is committed in full — without it the root `target/` rule silently drops the `cc` crate's `src/target/` module, and cargo's checksum step then fails on a fresh clone. **Re-vendor whenever dependencies change** — after `cargo update`, adding, or removing a crate:
 
 ```bash
 cd src/raw-pipeline
 cargo vendor vendor          # regenerates vendor/ from Cargo.lock
 git add vendor Cargo.lock
+# Guard against a partial tree: this must print nothing.
+git status --ignored --short vendor | grep '^!!' && echo 'DROPPED FILES — fix vendor/.gitignore'
 ```
 
 Commit the `Cargo.lock` change and the regenerated `vendor/` together. Verify before pushing:
