@@ -549,6 +549,74 @@ pub(crate) fn solve_chroma_through_agx_with_ridge(
     best
 }
 
+// ── Render-path entry: solve from a RAW's embedded JPEG (Task 5) ──────────────
+
+/// Minimum surviving clean sample pairs to trust a solve. Below this the
+/// embedded JPEG is too small/clipped/degenerate to fit a chroma transform, so
+/// the caller keeps the deterministic CM/FM+2D-HSM baseline (identity chroma).
+const MIN_SOLVE_PAIRS: usize = 256;
+
+/// Solve the per-image chroma transform from the embedded JPEG of the RAW at
+/// `path`, against the pre-AgX `scene`. Returns `None` (→ deterministic
+/// baseline) when there's no JPEG or too few clean pairs survive filtering.
+pub(crate) fn solve_chroma_for_path(
+    scene: &Image,
+    path: &std::path::Path,
+    orientation: crate::image::ExifOrientation,
+    contrast: f32,
+) -> Option<ChromaTransform> {
+    use crate::view::auto_profile::preview;
+    let prev = preview::orient_preview_to_display(preview::extract_preview(path)?, orientation);
+    let cs = preview::detect_jpeg_color_space(path);
+    solve_chroma_from_preview(scene, prev, cs, contrast)
+}
+
+/// Bytes-FFI variant of [`solve_chroma_for_path`].
+pub(crate) fn solve_chroma_for_bytes(
+    scene: &Image,
+    bytes: &[u8],
+    ext: &str,
+    orientation: crate::image::ExifOrientation,
+    contrast: f32,
+) -> Option<ChromaTransform> {
+    use crate::view::auto_profile::preview;
+    let prev = preview::orient_preview_to_display(
+        preview::extract_preview_from_bytes(bytes, ext)?,
+        orientation,
+    );
+    let cs = preview::detect_jpeg_color_space_from_bytes(bytes, ext);
+    solve_chroma_from_preview(scene, prev, cs, contrast)
+}
+
+/// Shared tail: a display-oriented preview + its color space → sampled pairs →
+/// through-AgX solve.
+fn solve_chroma_from_preview(
+    scene: &Image,
+    prev: image::DynamicImage,
+    cs: JpegColorSpace,
+    contrast: f32,
+) -> Option<ChromaTransform> {
+    let rgb = prev.to_rgb8();
+    let (jw, jh) = (rgb.width() as usize, rgb.height() as usize);
+    let jpeg01: Vec<[f32; 3]> = rgb
+        .pixels()
+        .map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0])
+        .collect();
+    let pairs = sample_pairs(
+        &scene.pixels,
+        scene.width as usize,
+        scene.height as usize,
+        &jpeg01,
+        jw,
+        jh,
+        cs,
+    );
+    if pairs.len() < MIN_SOLVE_PAIRS {
+        return None;
+    }
+    Some(solve_chroma_through_agx(&pairs, contrast))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
