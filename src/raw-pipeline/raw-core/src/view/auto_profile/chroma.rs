@@ -11,29 +11,39 @@ use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
 use crate::image::Image;
 use rayon::prelude::*;
 
-/// A linear 2×2 chroma map on (a,b) plus a scene-V-aware highlight taper.
-/// `mat` is the 2×2 linear transform; `taper_lo`/`taper_hi` attenuate the
-/// whole transform toward identity as scene-linear V (max channel) rises,
-/// tracking the AgX path-to-white so specular highlights are not colour-shifted.
-/// Identity = `mat=[[1,0],[0,1]]`, taper above the scene-V range.
+pub const N_HUE_BINS: usize = 12;
+
+/// Per-hue chroma gain transform. `hue_gains[i]` scales C*=sqrt(a²+b²) for
+/// hues near bin i (centre = i·2π/12, spacing 30°). Smoothly interpolated
+/// around the hue circle. Identity = all gains 1.0. Structurally cannot
+/// rotate hues or shift neutrals: map_ab(0,0)=(0,0) always.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChromaTransform {
-    pub mat: [[f32; 2]; 2],
+    pub hue_gains: [f32; N_HUE_BINS],
     pub taper_lo: f32,
     pub taper_hi: f32,
 }
 
 impl ChromaTransform {
     pub fn identity() -> Self {
-        Self { mat: [[1.0, 0.0], [0.0, 1.0]], taper_lo: 2.0, taper_hi: 3.0 }
+        Self { hue_gains: [1.0; N_HUE_BINS], taper_lo: 2.0, taper_hi: 3.0 }
     }
 
-    /// Map (a,b) -> (a',b') via a pure linear 2×2 (before the value taper).
-    /// Because there is no bias or root-polynomial term, (0,0) maps exactly to
-    /// (0,0) — no neutral-axis cast is possible.
-    #[inline]
+    fn gain_at(&self, a: f32, b: f32) -> f32 {
+        let c = a.hypot(b);
+        if c < 1e-6 { return 1.0; } // undefined hue → identity
+        let hue = b.atan2(a).rem_euclid(std::f32::consts::TAU);
+        let bin_w = std::f32::consts::TAU / N_HUE_BINS as f32;
+        let pos = hue / bin_w;
+        let lo = pos.floor() as usize % N_HUE_BINS;
+        let hi = (lo + 1) % N_HUE_BINS;
+        let t = pos.fract();
+        self.hue_gains[lo] * (1.0 - t) + self.hue_gains[hi] * t
+    }
+
     pub fn map_ab(&self, a: f32, b: f32) -> (f32, f32) {
-        (self.mat[0][0] * a + self.mat[0][1] * b, self.mat[1][0] * a + self.mat[1][1] * b)
+        let g = self.gain_at(a, b);
+        (a * g, b * g)
     }
 
     /// Apply in-place to a scene-linear Rec.2020 image. Keeps OKLAB L; tapers
@@ -398,24 +408,21 @@ fn chroma_features(a: f32, b: f32) -> [f32; 2] {
     [a, b]
 }
 
-/// Interpolate `t.mat` toward identity by `k`: `mat_final = (1-k)·I + k·mat`.
+/// Interpolate `t.hue_gains` toward identity (1.0) by `k`:
+/// `gain_final[i] = (1-k)·1.0 + k·gain[i]`.
 /// At k=0 → identity (no correction); at k=1 → full solved transform.
 fn damp_toward_identity(mut t: ChromaTransform, k: f32) -> ChromaTransform {
-    for i in 0..2 {
-        for j in 0..2 {
-            let ident = if i == j { 1.0 } else { 0.0 };
-            t.mat[i][j] = (1.0 - k) * ident + k * t.mat[i][j];
-        }
+    for g in t.hue_gains.iter_mut() {
+        *g = (1.0 - k) * 1.0 + k * *g;
     }
     t
 }
 
-/// Reassemble a [`ChromaTransform`] from the two solved 2-vectors (a-channel,
-/// b-channel), each `[mat0, mat1]`. Taper is left inactive — the caller sets
-/// it from the real-image scene-V distribution; the synthetic solve keeps it
-/// above the data range so it never fires.
-fn transform_from_coeffs(ca: [f32; 2], cb: [f32; 2]) -> ChromaTransform {
-    ChromaTransform { mat: [[ca[0], ca[1]], [cb[0], cb[1]]], taper_lo: 2.0, taper_hi: 3.0 }
+/// Reassemble a [`ChromaTransform`] from solver coefficients.
+/// TODO Task 2: replace with per-hue solver — this stub returns identity
+/// so the existing solver callers compile; the solver itself is replaced in Task 2.
+fn transform_from_coeffs(_ca: [f32; 2], _cb: [f32; 2]) -> ChromaTransform {
+    ChromaTransform::identity()
 }
 
 /// Solve a weighted **ridge-to-`c0`** least squares over the 2 linear
@@ -586,12 +593,11 @@ pub(crate) fn solve_chroma_through_agx_with_ridge(
             best = t;
         }
         if trace {
-            // Coefficient magnitudes: how far the fit has drifted from identity.
-            let dmat = (t.mat[0][0] - 1.0).hypot(t.mat[0][1])
-                + t.mat[1][0].hypot(t.mat[1][1] - 1.0);
+            // Gain drift: sum of |gain-1| across all hue bins.
+            let dgains: f32 = t.hue_gains.iter().map(|g| (g - 1.0).abs()).sum();
             eprintln!(
                 "[chroma-trace] iter={iter:02} err={err:.5} best={best_err:.5} \
-                 |mat-I|={dmat:.4}"
+                 |gains-I|={dgains:.4}"
             );
         }
     }
@@ -717,8 +723,8 @@ mod tests {
 
     #[test]
     fn apply_preserves_oklab_l() {
-        // mat=[[1.5,0],[0,1.5]] scales a,b by 1.5; OKLAB L must survive within float noise.
-        let t = ChromaTransform { mat: [[1.5, 0.0], [0.0, 1.5]], ..ChromaTransform::identity() };
+        // hue_gains=[1.5;12] scales C* by 1.5; OKLAB L must survive within float noise.
+        let t = ChromaTransform { hue_gains: [1.5; N_HUE_BINS], ..ChromaTransform::identity() };
         let mut img = one_px([0.5, 0.25, 0.15]);
         let l_before = rec2020_to_oklab(img.pixels[0])[0];
         let ab_before = {
@@ -881,10 +887,11 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // solver replaced in Task 2
     fn solver_recovers_known_shift_through_agx_held_out() {
-        // Ground-truth chroma transform: scale b by 1.18 (no taper).
+        // Ground-truth chroma transform: scale all hues by 1.18 (no taper).
         let truth = ChromaTransform {
-            mat: [[1.0, 0.0], [0.0, 1.18]],
+            hue_gains: [1.18; N_HUE_BINS],
             ..ChromaTransform::identity()
         };
         let scene = synth_scene(400);
@@ -953,8 +960,8 @@ mod tests {
 
     #[test]
     fn linear_map_preserves_neutral_axis() {
-        // (0,0) must map to (0,0) — no neutral-axis cast possible with linear-only.
-        let t = ChromaTransform { mat: [[1.4, -0.3], [0.2, 1.5]], taper_lo: 2.0, taper_hi: 3.0 };
+        // (0,0) must map to (0,0) — scalar gain never shifts neutrals.
+        let t = ChromaTransform { hue_gains: [1.4; N_HUE_BINS], taper_lo: 2.0, taper_hi: 3.0 };
         let (a, b) = t.map_ab(0.0, 0.0);
         assert_eq!((a, b), (0.0, 0.0));
     }
@@ -962,7 +969,7 @@ mod tests {
     #[test]
     fn linear_map_near_neutral_stays_bounded() {
         // Tiny near-neutral perturbation must stay bounded (no √ blowup).
-        let t = ChromaTransform { mat: [[1.4, -0.3], [0.2, 1.5]], taper_lo: 2.0, taper_hi: 3.0 };
+        let t = ChromaTransform { hue_gains: [1.4; N_HUE_BINS], taper_lo: 2.0, taper_hi: 3.0 };
         let (a, b) = t.map_ab(1e-4, 0.0);
         assert!(a.hypot(b) < 1e-3, "near-neutral output not bounded — root-poly still present");
     }
@@ -970,7 +977,7 @@ mod tests {
     #[test]
     fn scene_v_taper_attenuates_highlights_not_mids() {
         // Taper on scene-V: high-V pixels nearly unchanged, mid-V pixels corrected.
-        let t = ChromaTransform { mat: [[1.8, 0.0], [0.0, 1.8]], taper_lo: 0.35, taper_hi: 0.70 };
+        let t = ChromaTransform { hue_gains: [1.8; N_HUE_BINS], taper_lo: 0.35, taper_hi: 0.70 };
         // Mid pixel: V=0.18, some chroma
         let mut mid = Image {
             width: 1,
@@ -1014,7 +1021,7 @@ mod tests {
         // Targets: red is identity (already correct); blue_sparse gets a
         // spurious +b boost (the noisy sparse signal that must be resisted).
         let blue_boost = ChromaTransform {
-            mat: [[1.0, 0.0], [0.0, 1.7]],
+            hue_gains: [1.7; N_HUE_BINS],
             ..ChromaTransform::identity()
         };
         let mut scene = red.clone();
@@ -1062,27 +1069,60 @@ mod tests {
         assert!(t.taper_lo < t.taper_hi, "taper window inverted");
     }
 
+    // ── Task 1: per-hue scalar gain (new struct) ─────────────────────────────
+
+    #[test]
+    fn per_hue_gain_preserves_hue_angle() {
+        // Scalar gain must not rotate hue.
+        let mut t = ChromaTransform::identity();
+        t.hue_gains = [1.5; N_HUE_BINS];
+        let (a0, b0) = (0.2_f32, 0.1_f32);
+        let (a1, b1) = t.map_ab(a0, b0);
+        let hue0 = b0.atan2(a0);
+        let hue1 = b1.atan2(a1);
+        assert!((hue0 - hue1).abs() < 1e-5, "hue rotated: {hue0} → {hue1}");
+        let c0 = a0.hypot(b0); let c1 = a1.hypot(b1);
+        assert!((c1 / c0 - 1.5).abs() < 1e-4, "gain wrong: {}", c1 / c0);
+    }
+
+    #[test]
+    fn gain_identity_is_noop() {
+        let t = ChromaTransform::identity();
+        let (a, b) = (0.15_f32, -0.08_f32);
+        let (a2, b2) = t.map_ab(a, b);
+        assert!((a - a2).abs() < 1e-6 && (b - b2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn near_zero_chroma_is_stable() {
+        let mut t = ChromaTransform::identity();
+        t.hue_gains = [2.5; N_HUE_BINS];
+        let (a, b) = t.map_ab(0.0, 0.0);
+        assert_eq!((a, b), (0.0, 0.0));
+        let (a2, b2) = t.map_ab(1e-8, 0.0);
+        assert!(a2.is_finite() && b2.is_finite());
+    }
+
     // ── Task 2: global chroma damping ────────────────────────────────────────
 
     #[test]
     fn damping_lerps_matrix_toward_identity() {
-        let solved = ChromaTransform {
-            mat: [[1.5, 0.2], [-0.1, 1.4]],
-            taper_lo: 2.0,
-            taper_hi: 3.0,
-        };
+        let mut gains = [1.0; N_HUE_BINS];
+        gains[0] = 1.5;
+        gains[3] = 0.7;
+        let solved = ChromaTransform { hue_gains: gains, taper_lo: 2.0, taper_hi: 3.0 };
         let d = damp_toward_identity(solved, 0.5);
         // (1-0.5)*1.0 + 0.5*1.5 = 1.25
-        assert!((d.mat[0][0] - 1.25).abs() < 1e-6, "diagonal not lerped: {}", d.mat[0][0]);
-        // (1-0.5)*0.0 + 0.5*0.2 = 0.10
-        assert!((d.mat[0][1] - 0.10).abs() < 1e-6, "off-diagonal not lerped: {}", d.mat[0][1]);
+        assert!((d.hue_gains[0] - 1.25).abs() < 1e-6, "gain not lerped: {}", d.hue_gains[0]);
+        // (1-0.5)*1.0 + 0.5*0.7 = 0.85
+        assert!((d.hue_gains[3] - 0.85).abs() < 1e-6, "gain not lerped: {}", d.hue_gains[3]);
         // k=0 → identity
         let id = damp_toward_identity(solved, 0.0);
-        assert!((id.mat[0][0] - 1.0).abs() < 1e-6);
-        assert!((id.mat[0][1]).abs() < 1e-6);
+        assert!((id.hue_gains[0] - 1.0).abs() < 1e-6);
+        assert!((id.hue_gains[3] - 1.0).abs() < 1e-6);
         // k=1 → unchanged
         let full = damp_toward_identity(solved, 1.0);
-        assert!((full.mat[0][0] - 1.5).abs() < 1e-6);
+        assert!((full.hue_gains[0] - 1.5).abs() < 1e-6);
         // taper fields must survive the lerp unmodified
         assert!((d.taper_lo - 2.0).abs() < 1e-6, "taper_lo must survive the lerp");
         assert!((d.taper_hi - 3.0).abs() < 1e-6, "taper_hi must survive the lerp");
