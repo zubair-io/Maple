@@ -1,23 +1,31 @@
 //
 // PathFormatter.swift
 //
-// Mirrors `src/api/src/backup/path-formatter.ts::formatBackupPath`.
-// Task 2.10 adds a JSON-driven parity test that runs identical cases
-// through both implementations and asserts byte-identical output.
+// Mirrors `src/api/src/backup/path-formatter.ts::formatBackupPath`
+// (a parity pair — identical inputs must produce byte-identical output).
 //
-// Layout (the day-subfolder was dropped in #744 — only the day grouping went;
-// month stays the grouping level when there's no place):
-//   With location:    <year>/<location>/<filename>
+// Layout:
+//   With location:    <year>/<seg1>/<seg2>/…/<filename>
 //   Without location: <year>/<MM>/<filename>
 //
-// `/` in the location is replaced with `_` to keep the result a single
-// directory level. An empty / whitespace-only / `..` / leading-dot location
-// is treated as nil (path-traversal guard).
+// `location` is an ordered list of geographic directory segments derived from
+// the reverse-geocoded place:
+//   - USA:       ["<State>", "<Town/City || Place Name>"]   e.g. ["California", "San Francisco"]
+//   - elsewhere: ["<Country>", "<Town/City || Place Name>"] e.g. ["France", "Paris"]
+// Each segment is sanitised independently: trimmed, `/` and `\` replaced with
+// `_` (so one segment can't add a directory level), and dropped if empty or a
+// path-traversal token (`.`, `..`, or a leading dot). When no usable segment
+// survives, the path falls back to the date-only `<year>/<MM>` layout.
 //
 // Filename is validated: rejects empty, `.`, `..`, leading dot, any `/` or
 // `\`, and >255 chars. Throws PathFormatterError.unsafeFilename otherwise.
 //
-// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9.
+// On device the real upload path is computed server-side (the phone has no
+// reverse geocoder); this mirror exists for the settings preview and the
+// cross-language parity test.
+//
+// Spec: .archived-plans/specs/2026-05-09-photokit-backup-design.md §9;
+// docs/superpowers/specs/2026-06-05-backup-geo-layout.md.
 
 import Foundation
 
@@ -37,20 +45,28 @@ public enum PathFormatter {
         return true
     }
 
-    /// Returns `nil` for any location that is unsafe to use as a directory
-    /// component. The caller treats `nil` as "no location" and falls back
-    /// to the year/MM/DD shape.
-    private static func sanitizedLocation(_ raw: String?) -> String? {
-        guard let raw else { return nil }
-        let trimmed = raw.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty || trimmed == "." || trimmed == ".." { return nil }
-        if trimmed.hasPrefix(".") { return nil }
-        let escaped = trimmed.replacingOccurrences(of: "/", with: "_")
-        return escaped
+    /// Sanitise an ordered list of location segments into safe, single-level
+    /// directory names. Mirrors `sanitizeLocationSegments` on the server: per
+    /// segment trim, drop empties, replace `/` and `\` with `_`, and drop
+    /// path-traversal tokens (`.`, `..`, leading dot). Surviving segments keep
+    /// their order.
+    private static func sanitizeLocationSegments(_ location: [String]?) -> [String] {
+        guard let location else { return [] }
+        var out: [String] = []
+        for raw in location {
+            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { continue }
+            let escaped = trimmed
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "\\", with: "_")
+            if escaped == "." || escaped == ".." || escaped.hasPrefix(".") { continue }
+            out.append(escaped)
+        }
+        return out
     }
 
     public static func format(captureDate: Date,
-                              location: String?,
+                              location: [String]?,
                               filename: String) throws -> String {
         guard isSafeFilename(filename) else {
             throw PathFormatterError.unsafeFilename(filename)
@@ -62,8 +78,9 @@ public enum PathFormatter {
         let y = String(format: "%04d", comps.year ?? 0)
         let m = String(format: "%02d", comps.month ?? 0)
 
-        if let loc = sanitizedLocation(location) {
-            return "\(y)/\(loc)/\(filename)"
+        let segs = sanitizeLocationSegments(location)
+        if !segs.isEmpty {
+            return "\(y)/\(segs.joined(separator: "/"))/\(filename)"
         }
         return "\(y)/\(m)/\(filename)"
     }

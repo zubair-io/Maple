@@ -62,9 +62,9 @@ const CAPTURE_DATE = "2024-03-15T10:30:00Z";
 const FILENAME = "IMG_0001.HEIC";
 
 // Expected relative path under the library, derived from path-formatter.ts logic:
-//   With location: <year>/<location>/<MM>-<DD>/<filename>
-//   → 2024/Tokyo/03-15/IMG_0001.HEIC
-const EXPECTED_REL_PATH = `2024/Tokyo/03-15/${FILENAME}`;
+//   With location (USA → State, else Country): <year>/<State|Country>/<Town/City||Place>/<filename>
+//   → 2024/Japan/Tokyo/IMG_0001.HEIC
+const EXPECTED_REL_PATH = `2024/Japan/Tokyo/${FILENAME}`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers

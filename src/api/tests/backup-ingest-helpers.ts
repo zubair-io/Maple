@@ -9,7 +9,7 @@
  *   accompanying `foldersCollection` doc, cleans the suite's deviceId
  *   from `assetsCollection` + `uploadSessionsCollection`, and (when
  *   opted in via `withTokyoGeocode`) primes the geocode cache so the
- *   happy-path GPS test can resolve `(35.68, 139.69) → "Tokyo"`.
+ *   happy-path GPS test can resolve `(35.68, 139.69) → Japan/Tokyo`.
  *
  * Each split test file should pick a UNIQUE `deviceId` so the suites can
  * run in parallel without wiping each other's `assetsCollection` rows
@@ -40,7 +40,7 @@ export interface BackupIngestSetupOptions {
    * suites don't clean each other's `assetsCollection` rows. */
   readonly deviceId: string;
   /** Whether to insert the Tokyo geocode entry the happy-path GPS test
-   * relies on (`(35.68, 139.69) → "Tokyo"`). Defaults to false so the
+   * relies on (`(35.68, 139.69) → Japan/Tokyo`). Defaults to false so the
    * other suites don't pay for it. */
   readonly withTokyoGeocode?: boolean;
 }
@@ -94,10 +94,10 @@ export function setupBackupIngestSuite(opts: BackupIngestSetupOptions): {
         await geo.insertOne({
           _id: quantizedKey(35.68, 139.69),
           place: {
-            address: {} as never,
+            address: { country: 'Japan', country_code: 'jp' } as never,
             pois: [{ name: 'Tokyo', category: 'place', type: 'city' }],
-            rollups: { locality: 'Tokyo' } as never,
-            search_blob: 'Tokyo',
+            rollups: { locality: 'Tokyo', region: null, country_code: 'jp' } as never,
+            search_blob: 'Tokyo Japan',
           } as never,
           fetched_at: new Date(),
           geocoder_version: 1,

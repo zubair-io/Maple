@@ -6,26 +6,21 @@
  * assets — those carrying `phasset_links` — whose CANONICAL location
  * (`fileinfo[0]`) still sits in an old-layout 3-segment dir.
  *
- * Per asset the move is crash-safe (copy → verify → companions → DB repoint →
- * delete source → drop cache → reclaim folder); see `restructure-fs.ts` for the
- * ordering rationale. The DB write resets the `thumb`/`preview` stage versions
- * so the workers regenerate the dropped cache at the new path.
+ * The per-asset move (copy → verify → repoint → delete → drop cache → reclaim
+ * folder) lives in the shared `moveBackupAsset`; this migration only supplies
+ * the target dir (drop the 3rd path segment) and the candidate query.
  */
 
-import type { Collection, WithId } from 'mongodb';
+import type { FileInfo } from '../../db/schema.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
-import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 import { child as childLogger } from '../../log.ts';
 import type { Migration, MigrationBatchResult } from './types.ts';
 import { OLD_LAYOUT_DIR_RE, restructureDir } from './restructure-path.ts';
-import { finalize, planAndPlace, revertCreated, SourceMissingError } from './restructure-fs.ts';
+import { SourceMissingError } from './restructure-fs.ts';
+import { moveBackupAsset } from './move-backup-asset.ts';
 
 const log = childLogger('migration:restructure');
-
-/** Cache-writing stages keyed on the asset's path. Reset to v0 after a move so
- * the workers regenerate the dropped `.maple` cache at the new location. */
-const CACHE_STAGES = ['thumb', 'preview'] as const;
 
 /** Selects backup-origin assets whose canonical entry is an old-layout dir. */
 function candidateFilter() {
@@ -34,145 +29,6 @@ function candidateFilter() {
     'fileinfo.0.deleted_at': null,
     'fileinfo.0.path': { $regex: OLD_LAYOUT_DIR_RE },
   } as const;
-}
-
-/** Build the surgical `$set` that repoints the matched fileinfo entry (the
- * positional `$` from the query's `$elemMatch`) to its new (path, filename) and
- * resets the cache stages. Updating only the matched element preserves a
- * multi-location asset's other entries. */
-function buildRepointUpdate(args: {
-  newPath: string;
-  newFilename: string;
-  newRenderedRel: string | null;
-}) {
-  const set: Record<string, unknown> = {
-    'fileinfo.$.path': args.newPath,
-    'fileinfo.$.filename': args.newFilename,
-    apple_rendered_path: args.newRenderedRel,
-  };
-  for (const stage of CACHE_STAGES) {
-    set[`stages.${stage}.version`] = 0;
-    set[`stages.${stage}.attempts`] = 0;
-    set[`stages.${stage}.last_error`] = null;
-    set[`stages.${stage}.dead`] = false;
-  }
-  return set;
-}
-
-async function moveOne(
-  coll: Collection<AssetDoc>,
-  doc: WithId<AssetDoc>,
-  libRoot: string,
-): Promise<'moved' | 'skipped'> {
-  const primary = doc.fileinfo?.[0];
-  if (!primary || primary.deleted_at) return 'skipped';
-  const oldDir = primary.path;
-  const newDir = restructureDir(oldDir);
-  if (!newDir) return 'skipped'; // not actually old-layout (regex over-match guard)
-
-  // 1. Copy + verify the file and its companions into the new dir. Sources are
-  //    NOT deleted yet.
-  const plan = await planAndPlace({
-    libRoot,
-    oldDir,
-    filename: primary.filename,
-    newDir,
-    renderedRelOld: doc.apple_rendered_path ?? null,
-  });
-
-  // 2. Repoint the DB to the new location (between verify and delete). The
-  //    fileinfo entry is matched in the QUERY ($elemMatch) so `matchedCount`
-  //    tells us whether it still existed — if a concurrent op (watcher / reaper
-  //    / trash) moved or removed it between our read and this write, the repoint
-  //    is a no-op and we must NOT delete the source. The positional `$` then
-  //    updates exactly that matched element, preserving any sibling entries.
-  const lastSlash = plan.newRelPath.lastIndexOf('/');
-  const newPath = lastSlash === -1 ? '' : plan.newRelPath.slice(0, lastSlash);
-  const newFilename = lastSlash === -1 ? plan.newRelPath : plan.newRelPath.slice(lastSlash + 1);
-  const res = await coll.updateOne(
-    {
-      _id: doc._id,
-      fileinfo: {
-        $elemMatch: {
-          library_id: primary.library_id,
-          path: primary.path,
-          filename: primary.filename,
-        },
-      },
-    },
-    {
-      $set: buildRepointUpdate({
-        newPath,
-        newFilename,
-        newRenderedRel: plan.newRenderedRel,
-      }),
-    } as never,
-  );
-
-  if (res.matchedCount === 0) {
-    // The entry changed under us — the repoint didn't apply. Roll back the
-    // copies we made (the source + row are still consistent) and skip; a later
-    // pass re-attempts from the current state. Crucially, we never reach
-    // finalize/delete on this path.
-    await revertCreated(plan.createdPaths);
-    log.warn(
-      { _id: String(doc._id) },
-      'restructure: fileinfo entry changed concurrently — reverted copy, left original + row intact',
-    );
-    return 'skipped';
-  }
-
-  if (plan.outcome === 'deduped') {
-    log.info(
-      { _id: String(doc._id), maple_id: doc.maple_id },
-      'restructure: deduped against an existing byte-identical copy at the new path',
-    );
-  }
-
-  // 3. Delete sources, drop stale cache, reclaim the empty old folder.
-  await finalize({
-    libRoot,
-    oldDirAbs: plan.oldDirAbs,
-    mapleId: doc.maple_id,
-    filename: primary.filename,
-    sourcesToDelete: plan.sourcesToDelete,
-  });
-
-  // 4. Reconcile any duplicate fileinfo entry the discover watcher may have
-  //    added for the new path mid-move (it watches every registered folder,
-  //    so the move's `add` event can push a second entry before our repoint;
-  //    both stat present, so the reaper would never prune it). The old source
-  //    is now deleted and the new path is on the row, so handle-event's
-  //    "record location if not already present" guard suppresses any further
-  //    re-add — making this single dedup pass stable.
-  await dedupeLiveFileinfo(coll, doc._id);
-  return 'moved';
-}
-
-/** Collapse exact-duplicate LIVE fileinfo entries (same library_id/path/
- * filename), keeping the first. A no-op when there are none. */
-async function dedupeLiveFileinfo(
-  coll: Collection<AssetDoc>,
-  id: WithId<AssetDoc>['_id'],
-): Promise<void> {
-  const fresh = await coll.findOne({ _id: id }, { projection: { fileinfo: 1 } });
-  const list = fresh?.fileinfo;
-  if (!list || list.length < 2) return;
-  const seen = new Set<string>();
-  const deduped: FileInfo[] = [];
-  for (const fi of list) {
-    const key = `${fi.library_id.toHexString()}|${fi.path}|${fi.filename}|${fi.deleted_at ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(fi);
-  }
-  if (deduped.length !== list.length) {
-    await coll.updateOne({ _id: id }, { $set: { fileinfo: deduped } });
-    log.info(
-      { _id: String(id), removed: list.length - deduped.length },
-      'restructure: collapsed duplicate fileinfo entries (discover-watcher race)',
-    );
-  }
 }
 
 export const restructureBackupFolders: Migration = {
@@ -214,8 +70,12 @@ export const restructureBackupFolders: Migration = {
         // tick until the mount returns. Never delete on an offline mount.
         continue;
       }
+      // Drop the 3rd (day) segment. `restructureDir` returns null for a path
+      // that isn't actually old-layout (regex over-match guard) → skip.
+      const newDir = restructureDir(primary!.path);
+      if (!newDir) continue;
       try {
-        const result = await moveOne(coll, doc, root);
+        const result = await moveBackupAsset(coll, doc, root, newDir);
         if (result === 'moved') processed++;
       } catch (err) {
         if (err instanceof SourceMissingError) {
