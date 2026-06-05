@@ -127,8 +127,17 @@ pub fn render_from_raw_with_quality_and_source(
                 }
                 None => false,
             });
+    // POC gate (#913): Profile::Auto normally pins auto-exposure OFF because the
+    // #550 per-channel curve owns the scene→JPEG brightness mapping (the curve
+    // is fit against the AE-Off buffer, see #871). When the curve is disabled
+    // for the POC, nothing remaps brightness, so AE MUST stay ON to anchor
+    // mid-gray to 0.18 — otherwise the render enters AgX un-anchored and lands
+    // ~0.16 OKLab-L too dark (the entire "chroma catastrophe" turned out to be
+    // this missing anchor, not the chroma stage). Outside the POC, behaviour is
+    // unchanged.
+    let poc_no_curve = std::env::var_os("MAPLE_DISABLE_AUTO_CURVE").is_some();
     let auto_model;
-    let active_model: &AdjustmentModel = if auto_will_fit {
+    let active_model: &AdjustmentModel = if auto_will_fit && !poc_no_curve {
         auto_model = AdjustmentModel {
             auto_exposure: AutoExposureMode::Off,
             ..model.clone()
@@ -212,8 +221,14 @@ pub fn render_from_raw_with_quality_and_source(
                     fitted
                 }
             };
+            // POC gate (#913): MAPLE_DISABLE_AUTO_CURVE skips the #550 per-channel
+            // tone curve so the JPG-derived chroma gains are the only Auto-Profile
+            // stage. Proves the "DCP + JPG chroma, AgX owns tone" architecture
+            // before the real removal.
             if let Some(c) = curve {
-                auto_profile::apply_curve(pixels, &c);
+                if std::env::var_os("MAPLE_DISABLE_AUTO_CURVE").is_none() {
+                    auto_profile::apply_curve(pixels, &c);
+                }
             }
         }),
         (Profile::Auto, Some(RawInput::Bytes { bytes, ext })) => stage("auto_profile", || {
@@ -233,7 +248,9 @@ pub fn render_from_raw_with_quality_and_source(
                 }
             };
             if let Some(c) = curve {
-                auto_profile::apply_curve(pixels, &c);
+                if std::env::var_os("MAPLE_DISABLE_AUTO_CURVE").is_none() {
+                    auto_profile::apply_curve(pixels, &c);
+                }
             }
         }),
         _ => {}
