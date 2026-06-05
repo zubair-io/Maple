@@ -495,29 +495,68 @@ export async function ensureIndexes(): Promise<void> {
   // on the next reaper pass (re-stat → present → clear).
   if (!(await migrationApplied(db, 'migrate-missing-since-to-fileinfo-2026-06-05'))) {
     try {
-      const res = await db.collection('assets').updateMany({ missing_since: { $type: 'string' } }, [
-        {
-          $set: {
-            fileinfo: {
-              $map: {
-                input: { $ifNull: ['$fileinfo', []] },
-                as: 'f',
-                in: {
-                  $mergeObjects: [
-                    '$$f',
-                    { missing_since: { $ifNull: ['$$f.missing_since', '$missing_since'] } },
-                  ],
+      const folded = await db
+        .collection('assets')
+        .updateMany({ missing_since: { $type: 'string' } }, [
+          {
+            $set: {
+              fileinfo: {
+                $map: {
+                  input: { $ifNull: ['$fileinfo', []] },
+                  as: 'f',
+                  in: {
+                    $mergeObjects: [
+                      '$$f',
+                      { missing_since: { $ifNull: ['$$f.missing_since', '$missing_since'] } },
+                    ],
+                  },
                 },
               },
             },
           },
+          { $unset: 'missing_since' },
+        ]);
+      // Pre-existing orphans: rows whose every fileinfo entry is `deleted_at`
+      // (content replaced in place) with NO live entry and NO entry already
+      // tagged missing. Old code reaped these via the stage→root-missing_since
+      // path; the new claim query parks no-live-entry rows, so without a tag
+      // they would never be reaped. Dual-flag each entry `missing_since` (=
+      // its `deleted_at`, preserving age) so the reaper prunes + deletes them.
+      const orphans = await db.collection('assets').updateMany(
+        {
+          'fileinfo.0': { $exists: true },
+          fileinfo: {
+            $not: { $elemMatch: { deleted_at: { $in: [null] }, missing_since: { $in: [null] } } },
+          },
+          'fileinfo.missing_since': { $not: { $type: 'string' } },
         },
-        { $unset: 'missing_since' },
-      ]);
-      await recordMigration(db, 'migrate-missing-since-to-fileinfo-2026-06-05', res.modifiedCount);
+        [
+          {
+            $set: {
+              fileinfo: {
+                $map: {
+                  input: '$fileinfo',
+                  as: 'f',
+                  in: {
+                    $mergeObjects: [
+                      '$$f',
+                      { missing_since: { $ifNull: ['$$f.missing_since', '$$f.deleted_at'] } },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      );
+      await recordMigration(
+        db,
+        'migrate-missing-since-to-fileinfo-2026-06-05',
+        folded.modifiedCount + orphans.modifiedCount,
+      );
       log.info(
-        { rows: res.modifiedCount },
-        'migrated root missing_since → fileinfo[].missing_since',
+        { folded: folded.modifiedCount, orphans: orphans.modifiedCount },
+        'migrated root missing_since → fileinfo[].missing_since (+ flagged pre-existing orphans)',
       );
     } catch (err) {
       log.warn(
