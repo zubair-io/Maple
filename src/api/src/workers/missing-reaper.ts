@@ -66,7 +66,6 @@
  * Started from `src/index.ts`.
  */
 
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ObjectId } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';
@@ -79,6 +78,17 @@ import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { loadPruneWindowHours } from './missing-reaper-config.repo.ts';
+import {
+  BREAKER_FRACTION,
+  BREAKER_MIN,
+  hasLiveEntry,
+  missingFileInfos,
+  nearMatchOnDisk,
+  reArmDeadStages,
+  sameEntry,
+  statKind,
+  type MissingReaperSummary,
+} from './missing-reaper.helpers.ts';
 import { makePausedPoller } from './paused-poller.ts';
 
 const log = childLogger('missing-reaper');
@@ -88,123 +98,6 @@ export const MISSING_REAPER_NAME = 'missing-reaper';
 
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH = 200;
-
-export interface MissingReaperSummary {
-  /** Tagged candidates examined this pass. */
-  scanned: number;
-  /** Rows hard-deleted (all live locations confirmed gone). */
-  reaped: number;
-  /** Rows that kept at least one live location → tag cleared (and any gone
-   * sibling entries pruned). */
-  recovered: number;
-  /** fileinfo entries pruned ($pull) across all recovered rows this pass. */
-  prunedEntries: number;
-  /** Rows skipped because a library was offline / unregistered / unreadable. */
-  skippedMountOffline: number;
-  /** Rows whose only location stat'd ENOENT but a case/Unicode near-match
-   * exists on disk — left untouched for human inspection, never deleted. */
-  skippedNameMismatch: number;
-  /** All-gone rows left because they haven't been missing long enough yet
-   * (`missing_since` newer than the prune window). */
-  skippedCooldown: number;
-  /** All-gone, aged-out rows left because deletes are paused (recovery still
-   * runs while paused — only the irreversible hard-delete is suspended). */
-  skippedPaused: number;
-  /** True when the circuit breaker tripped and the pass aborted without
-   * executing any hard-deletes (a systemic mis-detection guard). */
-  aborted: boolean;
-  /** Rows that raised an unexpected error during the pass. */
-  errors: number;
-}
-
-/**
- * Stages that read the ORIGINAL file (StageConfig.tagsMissingOnEnoent). When
- * the reaper prunes the entry that was serving as the primary location, these
- * are re-queued (version 0, dead cleared) so they reprocess against the
- * corrected primary instead of staying dead/skipped on the vanished path.
- * Kept in sync with the tagsMissingOnEnoent stages.
- */
-const ORIGINAL_FILE_STAGES = ['exif', 'thumb', 'preview'] as const;
-
-/** Circuit breaker: abort a pass without deleting if it would hard-delete more
- * than BREAKER_MIN rows AND more than BREAKER_FRACTION of those scanned. Bounds
- * the blast radius of a systemic mis-detection (e.g. a root that stats present
- * but whose children all ENOENT). */
-const BREAKER_MIN = 25;
-const BREAKER_FRACTION = 0.5;
-
-/** Entries flagged `missing_since` (an ISO string while tagged). These are the
- * locations the reaper reconciles; everything else on the row is left alone. */
-function missingFileInfos(fileinfo: FileInfo[] | undefined): FileInfo[] {
-  return (fileinfo ?? []).filter((f) => typeof f.missing_since === 'string');
-}
-
-/** True when the asset still has at least one live location (an entry with
- * neither `deleted_at` nor `missing_since`). A row with a live entry can never
- * be reaped — it is visible and processable. */
-function hasLiveEntry(fileinfo: FileInfo[] | undefined): boolean {
-  return (fileinfo ?? []).some((f) => !f.deleted_at && !f.missing_since);
-}
-
-function sameEntry(a: FileInfo, b: FileInfo): boolean {
-  return a.library_id.equals(b.library_id) && a.path === b.path && a.filename === b.filename;
-}
-
-/** Re-arm any dead original-file stage so it reprocesses once the row is no
- * longer parked. Drains the legacy `dead` backlog from before tag-only
- * suppression; new rows never dead-letter on a missing original. */
-function reArmDeadStages(doc: { stages?: Record<string, { dead?: boolean }> }): Record<string, unknown> {
-  const set: Record<string, unknown> = {};
-  for (const name of ORIGINAL_FILE_STAGES) {
-    if (doc.stages?.[name]?.dead === true) {
-      set[`stages.${name}.version`] = 0;
-      set[`stages.${name}.attempts`] = 0;
-      set[`stages.${name}.last_error`] = null;
-      set[`stages.${name}.dead`] = false;
-    }
-  }
-  return set;
-}
-
-type StatKind = 'present' | 'absent' | 'error';
-
-/** Classify a path: present, absent (ENOENT), or an error we must not treat
- * as "deleted" (EACCES, EIO, an unmounted share that errors rather than
- * ENOENTs, …). Errors are conservative — the caller skips, never deletes. */
-async function statKind(p: string): Promise<StatKind> {
-  try {
-    await fs.stat(p);
-    return 'present';
-  } catch (err) {
-    return (err as { code?: string } | null)?.code === 'ENOENT' ? 'absent' : 'error';
-  }
-}
-
-type NearMatch =
-  /** A case/NFC near-match of the basename exists in the parent dir — the file
-   * is on disk under a different name (stored-path bug, NOT a deletion). */
-  | 'match'
-  /** Parent listed cleanly with no near-match — genuinely absent. */
-  | 'clear'
-  /** Parent couldn't be listed (EACCES/EIO/…) — we can't prove absence, so the
-   * caller must NOT delete this pass. */
-  | 'unreadable';
-
-/** Classify whether `absPath` (already known ENOENT) has a near-match sibling.
- * Used only to gate the irreversible hard-delete. Only an ENOENT parent counts
- * as genuinely gone; any other readdir error returns `unreadable` so a row is
- * never deleted on the strength of a directory we couldn't read. */
-async function nearMatchOnDisk(absPath: string): Promise<NearMatch> {
-  const dir = path.dirname(absPath);
-  const target = path.basename(absPath).normalize('NFC').toLowerCase();
-  let entries: string[];
-  try {
-    entries = await fs.readdir(dir);
-  } catch (err) {
-    return (err as { code?: string } | null)?.code === 'ENOENT' ? 'clear' : 'unreadable';
-  }
-  return entries.some((e) => e.normalize('NFC').toLowerCase() === target) ? 'match' : 'clear';
-}
 
 export interface RunMissingReaperOptions {
   /** Max tagged rows to examine in one pass. */
@@ -348,9 +241,7 @@ export async function runMissingReaperOnce(
 
       // Survivors = every entry we are NOT pruning this pass (live entries,
       // recovered entries, and still-in-cooldown missing entries).
-      const survivors = (doc.fileinfo ?? []).filter(
-        (f) => !prune.some((p) => sameEntry(p, f)),
-      );
+      const survivors = (doc.fileinfo ?? []).filter((f) => !prune.some((p) => sameEntry(p, f)));
 
       if (survivors.length > 0) {
         // The row keeps at least one location → reconcile in place (runs even

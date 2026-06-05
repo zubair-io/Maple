@@ -519,10 +519,7 @@ export function applyLiveFilter(filter: Filter<AssetDoc>): Filter<AssetDoc> {
         ...liveFileinfo,
       }
     : {
-        $and: [
-          { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] },
-          liveFileinfo,
-        ],
+        $and: [{ $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] }, liveFileinfo],
       };
   const keys = Object.keys(filter);
   if (keys.length === 0) {
