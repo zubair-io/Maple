@@ -38,28 +38,28 @@
  *   Step 12 — Cleanup: remove test data from disk and all three collections
  */
 
-import { MongoClient, ObjectId } from "mongodb";
-import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { MongoClient, ObjectId } from 'mongodb';
+import { mkdtemp, rm, readFile, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-const API = process.env.MAPLE_API_URL ?? "http://localhost:3000";
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
-const MONGO_DB = process.env.MAPLE_MONGO_DB ?? "maple";
+const API = process.env.MAPLE_API_URL ?? 'http://localhost:3000';
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
+const MONGO_DB = process.env.MAPLE_MONGO_DB ?? 'maple';
 
 // Use the PID to avoid collisions when the test is run concurrently.
 const DEVICE_ID = `smoke-test-device-${process.pid}`;
 const PHID = `smoke/${process.pid}/IMG_0001`;
 // A deterministic BLAKE3-shaped hex string (the server treats it as opaque).
-const MAPLE_ID = `smoke${process.pid.toString(16).padStart(10, "0")}deadbeef12345678`;
+const MAPLE_ID = `smoke${process.pid.toString(16).padStart(10, '0')}deadbeef12345678`;
 
 // Tokyo, 2024-03-15.
-const LAT = "35.68";
-const LON = "139.69";
+const LAT = '35.68';
+const LON = '139.69';
 // Quantised cache key (4 decimal places — matches quantizedKey() in coordinate-cache.ts).
 const GEO_CACHE_KEY = `lat:35.68,lon:139.69`;
-const CAPTURE_DATE = "2024-03-15T10:30:00Z";
-const FILENAME = "IMG_0001.HEIC";
+const CAPTURE_DATE = '2024-03-15T10:30:00Z';
+const FILENAME = 'IMG_0001.HEIC';
 
 // Expected relative path under the library, derived from path-formatter.ts logic:
 //   With location (USA → State, else Country): <year>/<State|Country>/<Town/City||Place>/<filename>
@@ -75,17 +75,13 @@ function pass(msg: string): void {
 }
 
 function fail(msg: string, detail?: string): never {
-  console.error(`  FAIL  ${msg}${detail ? `\n        ${detail}` : ""}`);
+  console.error(`  FAIL  ${msg}${detail ? `\n        ${detail}` : ''}`);
   process.exit(1);
 }
 
-async function assertStatus(
-  resp: Response,
-  expected: number,
-  label: string,
-): Promise<void> {
+async function assertStatus(resp: Response, expected: number, label: string): Promise<void> {
   if (resp.status !== expected) {
-    const body = await resp.text().catch(() => "(unreadable body)");
+    const body = await resp.text().catch(() => '(unreadable body)');
     fail(`${label}: expected HTTP ${expected}, got ${resp.status}`, body);
   }
 }
@@ -95,12 +91,12 @@ async function assertStatus(
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  console.log("\n  Maple PhotoKit backup — end-to-end smoke test");
+  console.log('\n  Maple PhotoKit backup — end-to-end smoke test');
   console.log(`  API:   ${API}`);
   console.log(`  Mongo: ${MONGO_URI}/${MONGO_DB}`);
   console.log(`  PID:   ${process.pid}`);
   console.log(`  PHID:  ${PHID}`);
-  console.log("");
+  console.log('');
 
   // ── MongoDB connection ───────────────────────────────────────────────────
   const mongo = new MongoClient(MONGO_URI, {
@@ -110,28 +106,25 @@ async function main(): Promise<void> {
   try {
     await mongo.connect();
   } catch (e: any) {
-    fail("MongoDB unreachable — start it with: docker compose up -d mongo", e?.message);
+    fail('MongoDB unreachable — start it with: docker compose up -d mongo', e?.message);
   }
   const db = mongo.db(MONGO_DB);
-  const foldersColl = db.collection("folders");
-  const assetsColl = db.collection("assets");
-  const geocodeColl = db.collection("geocode_cache");
-  const uploadSessionsColl = db.collection("upload_sessions");
-  const backupSessionsColl = db.collection("backup_sessions");
+  const foldersColl = db.collection('folders');
+  const assetsColl = db.collection('assets');
+  const geocodeColl = db.collection('geocode_cache');
+  const uploadSessionsColl = db.collection('upload_sessions');
+  const backupSessionsColl = db.collection('backup_sessions');
 
   // ── Healthcheck ──────────────────────────────────────────────────────────
   try {
     const hc = await fetch(`${API}/api/health`, { signal: AbortSignal.timeout(3000) });
     if (!hc.ok) throw new Error(`status ${hc.status}`);
   } catch (e: any) {
-    fail(
-      `API server unreachable at ${API} — start it with: cd src/api && bun run dev`,
-      e?.message,
-    );
+    fail(`API server unreachable at ${API} — start it with: cd src/api && bun run dev`, e?.message);
   }
 
   // ── Create temp library folder on disk ──────────────────────────────────
-  const libDir = await mkdtemp(join(tmpdir(), "maple-smoke-"));
+  const libDir = await mkdtemp(join(tmpdir(), 'maple-smoke-'));
   console.log(`  Library dir: ${libDir}`);
 
   // ── Step 1: Register library in MongoDB directly ─────────────────────────
@@ -142,7 +135,7 @@ async function main(): Promise<void> {
   await foldersColl.insertOne({
     _id: libraryObjectId,
     path: libDir,
-    label: "smoke-test",
+    label: 'smoke-test',
     last_scan: null,
     file_count: 0,
     created_at: new Date().toISOString(),
@@ -154,69 +147,69 @@ async function main(): Promise<void> {
   await geocodeColl.insertOne({
     _id: GEO_CACHE_KEY,
     place: {
-      source: "nominatim",
+      source: 'nominatim',
       geocoder_version: 1,
       geocoded_at: new Date().toISOString(),
       lat: 35.68,
       lon: 139.69,
-      display_name: "Tokyo, Japan",
-      address: { city: "Tokyo", country: "Japan", country_code: "jp" },
-      pois: [{ name: "Tokyo", category: "place", type: "city" }],
-      rollups: { locality: "Tokyo", region: "Tokyo", country_code: "jp" },
-      search_blob: "Tokyo Japan",
+      display_name: 'Tokyo, Japan',
+      address: { city: 'Tokyo', country: 'Japan', country_code: 'jp' },
+      pois: [{ name: 'Tokyo', category: 'place', type: 'city' }],
+      rollups: { locality: 'Tokyo', region: 'Tokyo', country_code: 'jp' },
+      search_blob: 'Tokyo Japan',
     },
     fetched_at: new Date(),
     geocoder_version: 1,
   } as any);
-  pass("Step 2 — Geocode cache seeded for Tokyo (lat:35.68,lon:139.69)");
+  pass('Step 2 — Geocode cache seeded for Tokyo (lat:35.68,lon:139.69)');
 
   // ── Step 3: Upload in two chunks ─────────────────────────────────────────
   const originalBytes = Buffer.alloc(1024, 0xab);
 
   // Chunk 1 — bytes 0–511 (intermediate; no X-Maple-Maple-Id)
   const r1 = await fetch(`${API}/api/libraries/${libraryId}/backup/ingest`, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      "Content-Type": "application/octet-stream",
-      "X-Maple-Device-Id": DEVICE_ID,
-      "X-Maple-Phasset-Id": PHID,
-      "X-Maple-Capture-Date": CAPTURE_DATE,
-      "X-Maple-Lat": LAT,
-      "X-Maple-Lon": LON,
-      "X-Maple-Filename": FILENAME,
-      "X-Maple-Total-Bytes": "1024",
-      "Content-Range": "bytes 0-511/1024",
+      'Content-Type': 'application/octet-stream',
+      'X-Maple-Device-Id': DEVICE_ID,
+      'X-Maple-Phasset-Id': PHID,
+      'X-Maple-Capture-Date': CAPTURE_DATE,
+      'X-Maple-Lat': LAT,
+      'X-Maple-Lon': LON,
+      'X-Maple-Filename': FILENAME,
+      'X-Maple-Total-Bytes': '1024',
+      'Content-Range': 'bytes 0-511/1024',
     },
     body: originalBytes.subarray(0, 512),
   });
-  await assertStatus(r1, 202, "ingest chunk 1");
-  const body1 = await r1.json() as { next_offset: number };
+  await assertStatus(r1, 202, 'ingest chunk 1');
+  const body1 = (await r1.json()) as { next_offset: number };
   if (body1.next_offset !== 512) {
-    fail("ingest chunk 1: expected next_offset=512", JSON.stringify(body1));
+    fail('ingest chunk 1: expected next_offset=512', JSON.stringify(body1));
   }
-  pass("Step 3a — Chunk 1 accepted (202, next_offset=512)");
+  pass('Step 3a — Chunk 1 accepted (202, next_offset=512)');
 
   // Chunk 2 — bytes 512–1023 (final chunk; must include X-Maple-Maple-Id)
   const r2 = await fetch(`${API}/api/libraries/${libraryId}/backup/ingest`, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      "Content-Type": "application/octet-stream",
-      "X-Maple-Device-Id": DEVICE_ID,
-      "X-Maple-Phasset-Id": PHID,
-      "X-Maple-Capture-Date": CAPTURE_DATE,
-      "X-Maple-Lat": LAT,
-      "X-Maple-Lon": LON,
-      "X-Maple-Filename": FILENAME,
-      "X-Maple-Total-Bytes": "1024",
-      "X-Maple-Maple-Id": MAPLE_ID,
-      "Content-Range": "bytes 512-1023/1024",
+      'Content-Type': 'application/octet-stream',
+      'X-Maple-Device-Id': DEVICE_ID,
+      'X-Maple-Phasset-Id': PHID,
+      'X-Maple-Capture-Date': CAPTURE_DATE,
+      'X-Maple-Lat': LAT,
+      'X-Maple-Lon': LON,
+      'X-Maple-Filename': FILENAME,
+      'X-Maple-Total-Bytes': '1024',
+      'X-Maple-Maple-Id': MAPLE_ID,
+      'Content-Range': 'bytes 512-1023/1024',
     },
     body: originalBytes.subarray(512),
   });
-  await assertStatus(r2, 200, "ingest chunk 2 (final)");
-  const body2 = await r2.json() as { maple_id: string; target_rel_path: string };
+  await assertStatus(r2, 200, 'ingest chunk 2 (final)');
+  const body2 = (await r2.json()) as { maple_id: string; target_rel_path: string };
   if (body2.maple_id !== MAPLE_ID) {
-    fail("ingest final chunk: maple_id mismatch", JSON.stringify(body2));
+    fail('ingest final chunk: maple_id mismatch', JSON.stringify(body2));
   }
   if (body2.target_rel_path !== EXPECTED_REL_PATH) {
     fail(
@@ -251,24 +244,24 @@ async function main(): Promise<void> {
 </x:xmpmeta>`;
 
   const r3 = await fetch(`${API}/api/libraries/${libraryId}/backup/sidecar`, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      "Content-Type": "application/xml",
-      "X-Maple-Device-Id": DEVICE_ID,
-      "X-Maple-Phasset-Id": PHID,
-      "X-Maple-Target-Rel-Path": body2.target_rel_path,
+      'Content-Type': 'application/xml',
+      'X-Maple-Device-Id': DEVICE_ID,
+      'X-Maple-Phasset-Id': PHID,
+      'X-Maple-Target-Rel-Path': body2.target_rel_path,
     },
     body: xmpPayload,
   });
-  await assertStatus(r3, 200, "sidecar upload");
-  const sidecarBody = await r3.json() as { target_rel_path: string };
+  await assertStatus(r3, 200, 'sidecar upload');
+  const sidecarBody = (await r3.json()) as { target_rel_path: string };
   pass(`Step 5 — Sidecar accepted (200), target_rel_path=${sidecarBody.target_rel_path}`);
 
   // ── Step 6: Verify sidecar on disk ───────────────────────────────────────
-  const sidecarPath = filePath + ".xmp";
+  const sidecarPath = filePath + '.xmp';
   let sidecarContent: string;
   try {
-    sidecarContent = await readFile(sidecarPath, "utf8");
+    sidecarContent = await readFile(sidecarPath, 'utf8');
   } catch (e: any) {
     fail(`Step 6 — sidecar file not found: ${sidecarPath}`, e?.message);
   }
@@ -282,22 +275,24 @@ async function main(): Promise<void> {
   const renderedBytes = Buffer.alloc(512, 0xcd);
 
   const r4 = await fetch(`${API}/api/libraries/${libraryId}/backup/rendered`, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      "Content-Type": "application/octet-stream",
-      "X-Maple-Device-Id": DEVICE_ID,
-      "X-Maple-Phasset-Id": PHID,
-      "X-Maple-Target-Rel-Path": body2.target_rel_path,
-      "X-Maple-Filename-Ext": "jpg",
-      "X-Maple-Total-Bytes": "512",
-      "X-Maple-Maple-Id": MAPLE_ID,
-      "Content-Range": "bytes 0-511/512",
+      'Content-Type': 'application/octet-stream',
+      'X-Maple-Device-Id': DEVICE_ID,
+      'X-Maple-Phasset-Id': PHID,
+      'X-Maple-Target-Rel-Path': body2.target_rel_path,
+      'X-Maple-Filename-Ext': 'jpg',
+      'X-Maple-Total-Bytes': '512',
+      'X-Maple-Maple-Id': MAPLE_ID,
+      'Content-Range': 'bytes 0-511/512',
     },
     body: renderedBytes,
   });
-  await assertStatus(r4, 200, "rendered companion upload");
-  const renderedBody = await r4.json() as { target_rel_path: string };
-  pass(`Step 7 — Rendered companion accepted (200), target_rel_path=${renderedBody.target_rel_path}`);
+  await assertStatus(r4, 200, 'rendered companion upload');
+  const renderedBody = (await r4.json()) as { target_rel_path: string };
+  pass(
+    `Step 7 — Rendered companion accepted (200), target_rel_path=${renderedBody.target_rel_path}`,
+  );
 
   // ── Step 8: Verify rendered file on disk ─────────────────────────────────
   const renderedPath = join(libDir, renderedBody.target_rel_path);
@@ -316,8 +311,10 @@ async function main(): Promise<void> {
   const r5 = await fetch(
     `${API}/api/libraries/${libraryId}/backup/state?device_id=${encodeURIComponent(DEVICE_ID)}`,
   );
-  await assertStatus(r5, 200, "reconciliation feed");
-  const stateBody = await r5.json() as { assets: { phasset_local_id: string; maple_id: string; rel_path: string }[] };
+  await assertStatus(r5, 200, 'reconciliation feed');
+  const stateBody = (await r5.json()) as {
+    assets: { phasset_local_id: string; maple_id: string; rel_path: string }[];
+  };
   const found = stateBody.assets.find((a) => a.phasset_local_id === PHID);
   if (!found) {
     fail(
@@ -332,19 +329,19 @@ async function main(): Promise<void> {
 
   // ── Step 10: Notify deleted ───────────────────────────────────────────────
   const r6 = await fetch(`${API}/api/libraries/${libraryId}/backup/notify-deleted`, {
-    method: "POST",
+    method: 'POST',
     headers: {
-      "Content-Type": "application/json",
-      "X-Maple-Device-Id": DEVICE_ID,
+      'Content-Type': 'application/json',
+      'X-Maple-Device-Id': DEVICE_ID,
     },
     body: JSON.stringify({ phasset_local_ids: [PHID] }),
   });
-  await assertStatus(r6, 200, "notify-deleted");
-  const delBody = await r6.json() as { updated: number };
+  await assertStatus(r6, 200, 'notify-deleted');
+  const delBody = (await r6.json()) as { updated: number };
   if (delBody.updated !== 1) {
     fail(`Step 10 — notify-deleted: expected updated=1, got ${delBody.updated}`);
   }
-  pass("Step 10 — Delete notification accepted (updated=1)");
+  pass('Step 10 — Delete notification accepted (updated=1)');
 
   // ── Step 11: Verify deleted_from_photos in MongoDB ───────────────────────
   const row = await assetsColl.findOne({ maple_id: MAPLE_ID });
@@ -357,7 +354,7 @@ async function main(): Promise<void> {
       `row: ${JSON.stringify({ maple_id: row!.maple_id, deleted_from_photos: row!.deleted_from_photos })}`,
     );
   }
-  pass("Step 11 — deleted_from_photos=true confirmed in MongoDB");
+  pass('Step 11 — deleted_from_photos=true confirmed in MongoDB');
 
   // ── Step 12: Cleanup ──────────────────────────────────────────────────────
   await assetsColl.deleteMany({ maple_id: MAPLE_ID });
@@ -367,12 +364,12 @@ async function main(): Promise<void> {
   await foldersColl.deleteOne({ _id: libraryObjectId });
   await rm(libDir, { recursive: true, force: true });
   await mongo.close();
-  pass("Step 12 — Cleanup complete (Mongo docs removed, temp dir deleted)");
+  pass('Step 12 — Cleanup complete (Mongo docs removed, temp dir deleted)');
 
-  console.log("\n  All 12 steps passed — PhotoKit backup endpoints verified.\n");
+  console.log('\n  All 12 steps passed — PhotoKit backup endpoints verified.\n');
 }
 
 main().catch((err) => {
-  console.error("\n  FAIL  Smoke test failed:", err instanceof Error ? err.message : err);
+  console.error('\n  FAIL  Smoke test failed:', err instanceof Error ? err.message : err);
   process.exit(1);
 });

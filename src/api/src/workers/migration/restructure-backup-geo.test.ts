@@ -13,10 +13,7 @@ import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { stageRegistry } from '../registry.ts';
 import { runMigrationTickOnce } from '../migration.ts';
-import {
-  computeGeoDir,
-  BACKUP_GEO_LAYOUT_VERSION,
-} from './restructure-backup-geo.ts';
+import { computeGeoDir, BACKUP_GEO_LAYOUT_VERSION } from './restructure-backup-geo.ts';
 import type { FileInfo, Place } from '../../db/schema.ts';
 
 const MIGRATION_ID = 'restructure-backup-geo';
@@ -73,7 +70,10 @@ describe('computeGeoDir', () => {
     expect(
       computeGeoDir({
         fileinfo: [fi('2019/Paris')],
-        place: place({ address: { country: 'France', country_code: 'fr' }, rollups: { locality: 'Paris' } }),
+        place: place({
+          address: { country: 'France', country_code: 'fr' },
+          rollups: { locality: 'Paris' },
+        }),
         exif: { captured_year: 2024 },
       }),
     ).toBe('2019/France/Paris');
@@ -83,7 +83,10 @@ describe('computeGeoDir', () => {
     expect(
       computeGeoDir({
         fileinfo: [fi('weird/loc')],
-        place: place({ address: { country: 'France', country_code: 'fr' }, rollups: { locality: 'Paris' } }),
+        place: place({
+          address: { country: 'France', country_code: 'fr' },
+          rollups: { locality: 'Paris' },
+        }),
         exif: { captured_year: 2021 },
       }),
     ).toBe('2021/France/Paris');
@@ -97,13 +100,18 @@ describe('computeGeoDir', () => {
     expect(
       computeGeoDir({
         fileinfo: [fi('weird')],
-        place: place({ address: { country: 'France', country_code: 'fr' }, rollups: { locality: 'Paris' } }),
+        place: place({
+          address: { country: 'France', country_code: 'fr' },
+          rollups: { locality: 'Paris' },
+        }),
       }),
     ).toBeNull();
   });
 
   test('missing fileinfo → null', () => {
-    expect(computeGeoDir({ place: place({ address: { country: 'France', country_code: 'fr' } }) })).toBeNull();
+    expect(
+      computeGeoDir({ place: place({ address: { country: 'France', country_code: 'fr' } }) }),
+    ).toBeNull();
   });
 });
 
@@ -128,7 +136,8 @@ describe('geo migration end-to-end', () => {
       return;
     }
     const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const { setMigrationEnabled, resetMigrationState } = await import('../migration-config.repo.ts');
+    const { setMigrationEnabled, resetMigrationState } =
+      await import('../migration-config.repo.ts');
 
     const db = await getDb();
     const assets = db.collection('assets');
@@ -181,8 +190,12 @@ describe('geo migration end-to-end', () => {
       expect(doc?.stages?.preview.version).toBe(0);
 
       // File + sidecar moved; old folder reclaimed.
-      expect(await fs.readFile(path.join(dir, '2024/Japan/Kyoto/IMG_GEO.HEIC'), 'utf8')).toBe('pixels');
-      expect(await fs.readFile(path.join(dir, '2024/Japan/Kyoto/IMG_GEO.xmp'), 'utf8')).toBe('edits');
+      expect(await fs.readFile(path.join(dir, '2024/Japan/Kyoto/IMG_GEO.HEIC'), 'utf8')).toBe(
+        'pixels',
+      );
+      expect(await fs.readFile(path.join(dir, '2024/Japan/Kyoto/IMG_GEO.xmp'), 'utf8')).toBe(
+        'edits',
+      );
       await expect(fs.stat(path.join(dir, oldRel))).rejects.toThrow();
 
       // Idempotent: a second run finds nothing remaining for this asset.
@@ -208,7 +221,8 @@ describe('geo migration end-to-end', () => {
       return;
     }
     const { setLibraryRootsForTests } = await import('../../indexer/libraries.cache.ts');
-    const { setMigrationEnabled, resetMigrationState } = await import('../migration-config.repo.ts');
+    const { setMigrationEnabled, resetMigrationState } =
+      await import('../migration-config.repo.ts');
 
     const db = await getDb();
     const assets = db.collection('assets');

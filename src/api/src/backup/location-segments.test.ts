@@ -112,7 +112,10 @@ describe('backupLocationSegments', () => {
   test('non-USA with no country falls back to state as the top segment', () => {
     expect(
       backupLocationSegments(
-        place({ address: { state: 'Bavaria', country_code: 'de' }, rollups: { locality: 'Munich' } }),
+        place({
+          address: { state: 'Bavaria', country_code: 'de' },
+          rollups: { locality: 'Munich' },
+        }),
       ),
     ).toEqual(['Bavaria', 'Munich']);
   });
