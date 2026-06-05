@@ -24,6 +24,7 @@ pub mod cache;
 pub mod chroma;
 pub mod curve;
 pub mod fit_display;
+pub mod math_solver;
 pub mod preview;
 mod solve;
 
