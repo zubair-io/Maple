@@ -357,6 +357,16 @@ export interface AssetDoc {
    * when Apple Photos held edits at backup time. `null` for fresh originals. */
   apple_rendered_path?: string | null;
   /**
+   * Backup folder-layout generation this asset has been placed into, stamped
+   * by the geo-layout migration (`workers/migration/restructure-backup-geo.ts`).
+   * Absent on legacy rows; `2` once the migration has filed the asset under the
+   * `<year>/<State|Country>/<Town/City||Place>` (or date-only fallback) layout
+   * given its current `place`. Generation 1 is the implicit pre-geo flat layout
+   * (`<year>/<loc>` / `<year>/<MM>`) from #744 and was never stamped, so the
+   * migration selects on `{ $ne: 2 }`. Only backup-origin assets carry it.
+   */
+  backup_layout_version?: number;
+  /**
    * BLAKE3 hex of the canonical original bytes. Set by the backup ingest
    * endpoint; null/absent for assets indexed by other paths (the indexer
    * pipeline does not compute it — only the PhotoKit backup path does).

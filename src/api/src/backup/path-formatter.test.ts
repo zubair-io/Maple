@@ -1,20 +1,40 @@
 import { describe, test, expect } from 'bun:test';
-import { formatBackupPath, isSafeFilename } from './path-formatter.ts';
+import { formatBackupPath, isSafeFilename, sanitizeLocationSegments } from './path-formatter.ts';
 
 const capture = new Date('2024-03-15T10:30:00Z');
 
 describe('formatBackupPath', () => {
-  test('with location → year/location/filename (#744: day folder dropped)', () => {
+  test('USA → year/State/City/filename', () => {
     expect(
       formatBackupPath({
         captureDate: capture,
-        location: 'Tokyo',
+        location: ['California', 'San Francisco'],
         filename: 'IMG_0420.HEIC',
       }),
-    ).toBe('2024/Tokyo/IMG_0420.HEIC');
+    ).toBe('2024/California/San Francisco/IMG_0420.HEIC');
   });
 
-  test('no location → year/MM/filename (#744: day dropped, month kept)', () => {
+  test('non-USA → year/Country/City/filename', () => {
+    expect(
+      formatBackupPath({
+        captureDate: capture,
+        location: ['France', 'Paris'],
+        filename: 'IMG_0420.HEIC',
+      }),
+    ).toBe('2024/France/Paris/IMG_0420.HEIC');
+  });
+
+  test('single segment (region but no locality) → year/Region/filename', () => {
+    expect(
+      formatBackupPath({
+        captureDate: capture,
+        location: ['Nevada'],
+        filename: 'IMG.heic',
+      }),
+    ).toBe('2024/Nevada/IMG.heic');
+  });
+
+  test('no location → year/MM/filename (fallback)', () => {
     expect(
       formatBackupPath({
         captureDate: capture,
@@ -24,25 +44,47 @@ describe('formatBackupPath', () => {
     ).toBe('2024/03/IMG_0420.HEIC');
   });
 
-  test('strips path-unsafe chars from location', () => {
+  test('empty segment list → year/MM/filename (fallback)', () => {
     expect(
-      formatBackupPath({
-        captureDate: capture,
-        location: 'St. Tropez / Var',
-        filename: 'IMG.heic',
-      }),
-    ).toBe('2024/St. Tropez _ Var/IMG.heic');
-  });
-
-  test('empty location string treated as null', () => {
-    expect(
-      formatBackupPath({
-        captureDate: capture,
-        location: '',
-        filename: 'IMG.heic',
-      }),
+      formatBackupPath({ captureDate: capture, location: [], filename: 'IMG.heic' }),
     ).toBe('2024/03/IMG.heic');
   });
+
+  test('escapes slashes within a segment (stays one directory level)', () => {
+    expect(
+      formatBackupPath({
+        captureDate: capture,
+        location: ['St. Tropez / Var', 'Saint-Tropez'],
+        filename: 'IMG.heic',
+      }),
+    ).toBe('2024/St. Tropez _ Var/Saint-Tropez/IMG.heic');
+  });
+
+  test('drops empty / whitespace segments but keeps the rest', () => {
+    expect(
+      formatBackupPath({
+        captureDate: capture,
+        location: ['Japan', '   ', 'Kyoto'],
+        filename: 'IMG.heic',
+      }),
+    ).toBe('2024/Japan/Kyoto/IMG.heic');
+  });
+
+  test('all-empty segments fall back to year/MM', () => {
+    expect(
+      formatBackupPath({ captureDate: capture, location: ['', '  '], filename: 'IMG.heic' }),
+    ).toBe('2024/03/IMG.heic');
+  });
+});
+
+describe('sanitizeLocationSegments', () => {
+  test('null → []', () => expect(sanitizeLocationSegments(null)).toEqual([]));
+  test('trims and drops empties', () =>
+    expect(sanitizeLocationSegments([' A ', '', '  ', 'B'])).toEqual(['A', 'B']));
+  test('replaces both slash kinds with underscore', () =>
+    expect(sanitizeLocationSegments(['a/b', 'c\\d'])).toEqual(['a_b', 'c_d']));
+  test('drops path-traversal tokens (., .., leading dot) per segment', () =>
+    expect(sanitizeLocationSegments(['.', '..', '.hidden', 'Keep'])).toEqual(['Keep']));
 });
 
 describe('isSafeFilename', () => {
@@ -88,9 +130,9 @@ describe('formatBackupPath — filename safety', () => {
     ).toThrow('unsafe filename');
   });
 
-  test("'..' location → fallback to no-GPS shape", () => {
-    // location ".." after slash-replacement is ".." — treated as null
-    expect(formatBackupPath({ captureDate: capture, location: '..', filename: 'IMG.heic' })).toBe(
+  test("'..'-only location segment → fallback to no-GPS shape", () => {
+    // After sanitisation the only segment is dropped → empty → date fallback.
+    expect(formatBackupPath({ captureDate: capture, location: ['..'], filename: 'IMG.heic' })).toBe(
       '2024/03/IMG.heic',
     );
   });

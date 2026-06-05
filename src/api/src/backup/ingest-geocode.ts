@@ -1,14 +1,15 @@
 /**
  * Location resolution for the backup-ingest hot path.
  *
- * backup-ingest builds a destination folder from capture date + a location
- * name (`<year>/<location>/<MM>-<DD>/<file>` vs the date-only
- * `<year>/<MM>/<DD>/<file>`). The location comes from `geocode_cache`, which
- * is normally filled asynchronously by the enrichment geocode worker — so on a
+ * backup-ingest builds a destination folder from capture date + location
+ * segments (`<year>/<State|Country>/<Town/City||Place>/<file>` vs the date-only
+ * `<year>/<MM>/<file>`). The location comes from `geocode_cache`, which is
+ * normally filled asynchronously by the enrichment geocode worker — so on a
  * cold cache (a fresh bulk import) every path falls back to the date-only
  * layout, and a late geocode never relocates files already written. This
- * resolves the location LIVE on a cache miss so the `<location>` segment lands
- * at write time.
+ * resolves the location LIVE on a cache miss so the geo segments land at write
+ * time. (The geo-layout migration `restructure-backup-geo` later relocates any
+ * file that was written before its place was known.)
  *
  * Invariants:
  *   - Soft failure only. Nominatim not configured / disabled / unreachable /
@@ -24,6 +25,7 @@
 import { CoordinateCache, quantizedKey } from '../enrichment/coordinate-cache.ts';
 import { NominatimClient } from '../enrichment/nominatim-client.ts';
 import { parseNominatimResponse } from '../enrichment/place-parser.ts';
+import { backupLocationSegments } from './location-segments.ts';
 import {
   loadEnrichmentConfig,
   resolveEnrichmentConfig,
@@ -79,13 +81,6 @@ async function getClient(): Promise<NominatimClient | null> {
   }
 }
 
-/** A location name from a Place: a nearby POI's name, else the locality
- * rollup, else null. Mirrors the original read-only `resolveLocation`. */
-function nameFromPlace(place: Place | null | undefined): string | null {
-  if (!place) return null;
-  return place.pois?.[0]?.name ?? place.rollups?.locality ?? null;
-}
-
 function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -114,20 +109,22 @@ async function liveGeocode(
 }
 
 /**
- * Resolve a location name for `(lat, lon)`: warm-cache hit first, then a live
- * Nominatim lookup (deduped + cached) when configured. Returns null — meaning
- * "use the date-only path" — for non-finite input, a cold cache with no
- * geocoder, or any geocode failure.
+ * Resolve the ordered location segments for `(lat, lon)`: warm-cache hit first,
+ * then a live Nominatim lookup (deduped + cached) when configured. Returns
+ * `[]` — meaning "use the date-only path" — for non-finite input, a cold cache
+ * with no geocoder, any geocode failure, or an unresolvable location. The
+ * shape of a non-empty result is `[<State|Country>, <Town/City||Place>]` (see
+ * `backupLocationSegments`).
  */
-export async function resolveBackupLocation(lat: number, lon: number): Promise<string | null> {
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+export async function resolveBackupLocation(lat: number, lon: number): Promise<string[]> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
 
   const cache = getCache();
   const cached = await cache.get(lat, lon);
-  if (cached) return nameFromPlace(cached);
+  if (cached) return backupLocationSegments(cached);
 
   const client = await getClient();
-  if (!client) return null; // no live geocoder → date-only (prior behaviour)
+  if (!client) return []; // no live geocoder → date-only (prior behaviour)
 
   const key = quantizedKey(lat, lon);
   let p = inflight.get(key);
@@ -137,7 +134,7 @@ export async function resolveBackupLocation(lat: number, lon: number): Promise<s
     });
     inflight.set(key, p);
   }
-  return nameFromPlace(await p);
+  return backupLocationSegments(await p);
 }
 
 /** Test seam. Inject a client + cache, or pass `null` to reset to the
