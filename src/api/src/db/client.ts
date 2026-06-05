@@ -462,19 +462,67 @@ export async function ensureIndexes(): Promise<void> {
   );
 
   // Missing-reaper sweeper queries
-  //   { missing_since: { $type: "string", $ne: null } }
-  // every interval (and /status counts the same set). Same shape + rationale as
-  // `deleted_at_1`: live rows are
-  // written with `missing_since` absent/null, so a `$type: "string"` partial
-  // filter narrows the index to just the (small) set of tagged rows and keeps
-  // the scan O(tagged) instead of COLLSCANning the whole collection.
+  //   { "fileinfo.missing_since": { $type: "string" } }
+  // every interval (and /status counts the same set), and sorts on the same
+  // key. `missing_since` moved from the asset root to per-`fileinfo` entry, so
+  // this is a multikey partial index on the array sub-field. Same shape +
+  // rationale as `deleted_at_1`: live entries carry `missing_since` absent/null,
+  // so a `$type: "string"` partial filter narrows the index to just the (small)
+  // set of rows with a tagged entry and keeps the scan O(tagged). The legacy
+  // root-level `missing_since_1` index is dropped (the migration $unsets the
+  // root field, leaving it indexing nothing).
+  await db.collection('assets').dropIndex('missing_since_1').catch(() => {});
   await db.collection('assets').createIndex(
-    { missing_since: 1 },
+    { 'fileinfo.missing_since': 1 },
     {
-      name: 'missing_since_1',
-      partialFilterExpression: { missing_since: { $type: 'string' } },
+      name: 'fileinfo_missing_since_1',
+      partialFilterExpression: { 'fileinfo.missing_since': { $type: 'string' } },
     },
   );
+
+  // Fold the legacy root-level `missing_since` tag down onto the row's
+  // `fileinfo` entries (it moved per-location), then drop the root field.
+  // Each entry inherits the root timestamp unless it already carries its own,
+  // so the reaper's per-entry cooldown clock keeps the original age — an
+  // already-aged orphan is still reaped promptly, not reset. Rows that were
+  // root-tagged always had ≥1 fileinfo entry (the old tag paths required one),
+  // so nothing is stranded. A pipeline `updateMany` does it in one pass;
+  // one-shot, gated by the migrations sentinel. Live entries that get tagged
+  // by mistake (a transient stage failure that had set root missing) self-heal
+  // on the next reaper pass (re-stat → present → clear).
+  if (!(await migrationApplied(db, 'migrate-missing-since-to-fileinfo-2026-06-05'))) {
+    try {
+      const res = await db.collection('assets').updateMany(
+        { missing_since: { $type: 'string' } },
+        [
+          {
+            $set: {
+              fileinfo: {
+                $map: {
+                  input: { $ifNull: ['$fileinfo', []] },
+                  as: 'f',
+                  in: {
+                    $mergeObjects: [
+                      '$$f',
+                      { missing_since: { $ifNull: ['$$f.missing_since', '$missing_since'] } },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+          { $unset: 'missing_since' },
+        ],
+      );
+      await recordMigration(db, 'migrate-missing-since-to-fileinfo-2026-06-05', res.modifiedCount);
+      log.info({ rows: res.modifiedCount }, 'migrated root missing_since → fileinfo[].missing_since');
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        'missing_since → fileinfo migration skipped',
+      );
+    }
+  }
 
   // `damaged` tagging: the claim query excludes tagged rows on every tick
   //   { "damaged.since": { $not: { $type: "string" } } }

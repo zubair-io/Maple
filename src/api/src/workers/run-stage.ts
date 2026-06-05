@@ -22,8 +22,8 @@ import { child as childLogger } from '../log.ts';
 import {
   assetAbsPath,
   assetPrimaryFileInfo,
-  hasOnlySoftDeletedFileInfo,
   isEnoentError,
+  liveFileInfoElemMatch,
 } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
@@ -83,14 +83,18 @@ export function buildClaimQuery(
       { [`stages.${name}.version`]: { $exists: false } },
     ],
     [`stages.${name}.dead`]: { $ne: true },
-    // Skip assets tagged missing (`missing_since` is an ISO string while tagged,
-    // absent/null otherwise): a tagged asset is parked for EVERY stage until the
-    // missing-reaper resolves it (clears the tag, or hard-deletes the row).
-    missing_since: { $not: { $type: 'string' } },
+    // Require at least one LIVE on-disk location. An asset whose every
+    // `fileinfo` entry is non-live — `deleted_at` (bytes replaced) or
+    // `missing_since` (file vanished) — has nothing to process and is parked
+    // for EVERY stage until either the missing-reaper resolves it (recovers a
+    // location, or `$pull`s the dead entries and deletes the record) or a
+    // re-discover relinks a live location. Replaces the former root
+    // `missing_since` park: per-entry `missing_since` now expresses "this
+    // location is gone", and a row with no live entry is exactly the parked set.
+    ...liveFileInfoElemMatch(),
     // Skip assets tagged damaged (`damaged.since` is an ISO string while
     // tagged): the bytes are unreadable, so the file is parked for EVERY stage
-    // until an operator clears the tag from the Workers UI. Same absent/null →
-    // claimable shape as `missing_since`.
+    // until an operator clears the tag from the Workers UI.
     'damaged.since': { $not: { $type: 'string' } },
   };
   for (const dep of dependsOn) {
@@ -222,56 +226,26 @@ export async function runOnce(
         await images.updateOne({ _id: id }, { $set: { [`stages.${stage.name}`]: stageState } });
         await publishUpdate(id, doc);
       } else if ('skip' in result) {
-        // An original-file stage (`tagsMissingOnEnoent`) that skips with
-        // `no-resolvable-location` on an asset whose fileinfo entries are ALL
-        // soft-deleted has lost every on-disk location it once had — the
-        // genuinely-orphaned case (e.g. the file's content was replaced at its
-        // only path, tombstoning the old entry). The `no-resolvable-location`
-        // skip short-circuits BEFORE the `fs.stat` whose ENOENT would normally
-        // tag `missing_since`, so without this such an asset would never reach
-        // the missing-reaper and would loop forever with `skip:
-        // no-resolvable-location`. Tag it (first-detection wins) so the reaper
-        // can verify and, past its prune window, reap it. We mirror the ENOENT
-        // catch-path exactly: TAG only, touch NO stage state (the tag parks the
-        // asset out of every stage's claim query via buildClaimQuery), no
-        // publishUpdate. A re-found / relinked location creates a live fileinfo
-        // entry that the reaper re-stats and recovers.
-        //
-        // We deliberately do NOT tag the other two null-resolution cases:
-        //   - no fileinfo entries at all (a never-located skeleton row), and
-        //   - a live entry whose library is unregistered (transient/config) —
-        // those are not "genuinely gone" and must not be reaped. (A DB blip
-        // yielding an empty libs map is guarded upstream: the stages let
-        // `loadLibraryRoots()` throw instead of skipping.)
-        if (
-          stage.tagsMissingOnEnoent &&
-          result.skip === 'no-resolvable-location' &&
-          hasOnlySoftDeletedFileInfo(doc)
-        ) {
-          // Roll back the claim's provisional attempt: a relocated/soft-deleted
-          // original was never genuinely processed — it's parked for the reaper.
-          await images.updateOne(
-            { _id: id },
-            { $set: { [`${stageKey}.attempts`]: attemptNo - 1 } },
-          );
-          await tagMissingSince(images, id);
-          log.debug(
-            { _id: idStr },
-            `${stage.name}: all locations soft-deleted — tagged for reaper`,
-          );
-        } else {
-          await images.updateOne(
-            { _id: id },
-            {
-              $set: {
-                [`stages.${stage.name}`]: {
-                  ...stageState,
-                  last_error: `skip: ${result.skip}`,
-                },
+        // A no-resolvable-location skip no longer needs a special
+        // orphan-tagging branch. An asset whose every fileinfo entry is
+        // non-live is now parked by `buildClaimQuery` (the live-entry
+        // `$elemMatch`), so it is never claimed in the first place — and it
+        // always carries a per-entry `missing_since` from whatever made it
+        // non-live (the watcher `removed` handler, the modified-content guard's
+        // orphan dual-flag, or the ENOENT catch below), so the missing-reaper
+        // already sees it. Record the skip reason and move on; the stage state
+        // resets attempts to 0 so this never dead-letters.
+        await images.updateOne(
+          { _id: id },
+          {
+            $set: {
+              [`stages.${stage.name}`]: {
+                ...stageState,
+                last_error: `skip: ${result.skip}`,
               },
             },
-          );
-        }
+          },
+        );
       } else if ('damaged' in result) {
         // Deterministically-unreadable bytes (the handler already knows retries
         // are futile). Mark this stage dead after its single attempt and tag
@@ -313,7 +287,12 @@ export async function runOnce(
         // Roll back the claim's provisional attempt: a missing original was
         // never genuinely attempted — it's parked for the reaper via the tag.
         await images.updateOne({ _id: id }, { $set: { [`${stageKey}.attempts`]: attemptNo - 1 } });
-        await tagMissingSince(images, id);
+        // Tag the PRIMARY entry — the one whose abs-path we just failed to
+        // read — per location. If it was the asset's only live entry the row
+        // drops out of reads + claims (live-entry `$elemMatch`); the reaper
+        // re-stats it, recovers if the file reappears, else `$pull`s it.
+        const primary = assetPrimaryFileInfo(doc);
+        if (primary) await tagMissingSince(images, id, primary);
         log.debug({ _id: idStr }, `${stage.name}: original missing — tagged for reaper`);
         return;
       }
