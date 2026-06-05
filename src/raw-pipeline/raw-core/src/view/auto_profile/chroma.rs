@@ -346,15 +346,18 @@ pub(crate) fn sample_pairs(
 const CHROMA_STRENGTH: f32 = 0.5;
 
 /// Scene-linear V (max channel) at which the chroma correction begins to
-/// taper off. Below this value the full corrected chroma applies; above
-/// `CHROMA_TAPER_HI` the transform is identity. Protects AgX's path-to-white
-/// in highlights from the per-image solver.
+/// taper off. Below `CHROMA_TAPER_LO` the full corrected chroma applies;
+/// above `CHROMA_TAPER_HI` the transform is identity. Protects AgX's
+/// path-to-white in highlights from the per-image solver.
 ///
-/// Window [0.10, 0.30] was chosen by Task 5 sweep against ACR references:
-/// it minimizes chroma's own contribution to highlight overshoot while
-/// keeping mid-tone correction near-optimal.
-const CHROMA_TAPER_LO: f32 = 0.10;
-const CHROMA_TAPER_HI: f32 = 0.30;
+/// Window [0.05, 0.80]: the portrait arm/skin gradient spans scene-V ≈
+/// 0.25–0.55; with the old [0.10, 0.30] window that gradient sat inside
+/// the steep part of the transition, causing small brightness variations
+/// to produce large correction swings → visible colour banding. Widening
+/// to [0.05, 0.80] moves the arm gradient into the gradual middle of the
+/// smooth-step transition so the correction varies slowly across the skin.
+const CHROMA_TAPER_LO: f32 = 0.05;
+const CHROMA_TAPER_HI: f32 = 0.80;
 
 /// Solve a [`ChromaTransform`] via per-hue gaussian ratio accumulation.
 ///
@@ -791,8 +794,8 @@ mod tests {
         let mut t = solve_per_hue_gains(&pairs, 1.0);
         t.taper_lo = CHROMA_TAPER_LO;
         t.taper_hi = CHROMA_TAPER_HI;
-        assert!(t.taper_lo < 1.5, "taper_lo={} is inert (should be ~0.10)", t.taper_lo);
-        assert!(t.taper_hi < 1.5, "taper_hi={} is inert (should be ~0.30)", t.taper_hi);
+        assert!(t.taper_lo < 1.5, "taper_lo={} is inert (should be ~0.05)", t.taper_lo);
+        assert!(t.taper_hi < 1.5, "taper_hi={} is inert (should be ~0.80)", t.taper_hi);
         assert!(t.taper_lo < t.taper_hi, "taper window inverted");
     }
 
