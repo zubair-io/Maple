@@ -115,10 +115,11 @@ export const backupIngestRoutes = new Elysia().post(
       return { error: 'invalid X-Maple-Capture-Date' };
     }
 
-    // Resolve GPS → location name. Warm-cache hit first, then a live Nominatim
-    // lookup when configured (so a cold cache on a fresh bulk import still gets
-    // a geocoded path). Any miss/failure is soft — path falls back to the
-    // date-only layout.
+    // Resolve GPS → location segments (<State|Country>/<Town/City||Place>).
+    // Warm-cache hit first, then a live Nominatim lookup when configured (so a
+    // cold cache on a fresh bulk import still gets a geocoded path). Any
+    // miss/failure is soft — `[]` falls the path back to the date-only layout,
+    // and the geo-layout migration relocates it once the place is known.
     const lat = parseFloat(latRaw ?? 'NaN');
     const lon = parseFloat(lonRaw ?? 'NaN');
     const location = await resolveBackupLocation(lat, lon);

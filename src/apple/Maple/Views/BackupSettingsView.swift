@@ -264,12 +264,13 @@ private struct BackupPathPreview: View {
   let rootFolder: String
 
   var body: some View {
-    // Fixed sample — safe filename, real PathFormatter call.
+    // Fixed sample — safe filename, real PathFormatter call. Shows the geo
+    // layout: <year>/<State|Country>/<Town/City||Place>/<file>.
     let sampleDate = ISO8601DateFormatter().date(from: "2024-03-15T12:00:00Z") ?? Date()
     let formatted = (try? PathFormatter.format(
       captureDate: sampleDate,
-      location: "Tokyo",
-      filename: "IMG_0420.HEIC")) ?? "2024/Tokyo/IMG_0420.HEIC"
+      location: ["California", "San Francisco"],
+      filename: "IMG_0420.HEIC")) ?? "2024/California/San Francisco/IMG_0420.HEIC"
     let trail = rootFolder.isEmpty ? formatted : "\(rootFolder)/\(formatted)"
 
     return VStack(alignment: .leading, spacing: 4) {
