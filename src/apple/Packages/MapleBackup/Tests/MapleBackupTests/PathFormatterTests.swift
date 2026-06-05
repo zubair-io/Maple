@@ -6,13 +6,29 @@ final class PathFormatterTests: XCTestCase {
         ISO8601DateFormatter().date(from: iso)!
     }
 
-    // #744: the MM-DD day-subfolder was dropped. With a place → year/loc/file;
-    // without → year/MM/file (month kept as the grouping level).
-    func testWithLocation() throws {
+    // Geo layout: USA → year/State/City/file; elsewhere → year/Country/City/file;
+    // no location → year/MM/file (month kept as the grouping level).
+    func testUSALocation() throws {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
-                                     location: "Tokyo", filename: "IMG_0420.HEIC"),
-            "2024/Tokyo/IMG_0420.HEIC")
+                                     location: ["California", "San Francisco"],
+                                     filename: "IMG_0420.HEIC"),
+            "2024/California/San Francisco/IMG_0420.HEIC")
+    }
+
+    func testNonUSALocation() throws {
+        XCTAssertEqual(
+            try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
+                                     location: ["France", "Paris"],
+                                     filename: "IMG_0420.HEIC"),
+            "2024/France/Paris/IMG_0420.HEIC")
+    }
+
+    func testSingleSegment() throws {
+        XCTAssertEqual(
+            try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
+                                     location: ["Nevada"], filename: "IMG.heic"),
+            "2024/Nevada/IMG.heic")
     }
 
     func testWithoutLocation() throws {
@@ -22,46 +38,55 @@ final class PathFormatterTests: XCTestCase {
             "2024/03/IMG_0420.HEIC")
     }
 
-    func testLocationSlashEscaped() throws {
+    func testEmptyListTreatedAsNoLocation() throws {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
-                                     location: "St. Tropez / Var", filename: "IMG.heic"),
-            "2024/St. Tropez _ Var/IMG.heic")
-    }
-
-    func testEmptyLocationTreatedAsNil() throws {
-        XCTAssertEqual(
-            try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
-                                     location: "", filename: "IMG.heic"),
+                                     location: [], filename: "IMG.heic"),
             "2024/03/IMG.heic")
     }
 
-    func testWhitespaceLocationTreatedAsNil() throws {
+    func testSegmentSlashEscaped() throws {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
-                                     location: "   ", filename: "IMG.heic"),
+                                     location: ["St. Tropez / Var", "Saint-Tropez"],
+                                     filename: "IMG.heic"),
+            "2024/St. Tropez _ Var/Saint-Tropez/IMG.heic")
+    }
+
+    func testDropsEmptyAndWhitespaceSegments() throws {
+        XCTAssertEqual(
+            try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
+                                     location: ["Japan", "   ", "Kyoto"],
+                                     filename: "IMG.heic"),
+            "2024/Japan/Kyoto/IMG.heic")
+    }
+
+    func testAllEmptySegmentsFallBack() throws {
+        XCTAssertEqual(
+            try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
+                                     location: ["", "  "], filename: "IMG.heic"),
             "2024/03/IMG.heic")
     }
 
-    func testDotDotLocationTreatedAsNil() throws {
+    func testDotDotSegmentDropped() throws {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
-                                     location: "..", filename: "IMG.heic"),
+                                     location: [".."], filename: "IMG.heic"),
             "2024/03/IMG.heic")
     }
 
-    func testLeadingDotLocationTreatedAsNil() throws {
-        // ".hidden" as a directory name would create a hidden folder — fall back.
+    func testLeadingDotSegmentDropped() throws {
+        // ".hidden" as a directory name would create a hidden folder — dropped.
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
-                                     location: ".hidden", filename: "IMG.heic"),
-            "2024/03/IMG.heic")
+                                     location: [".hidden", "Paris"], filename: "IMG.heic"),
+            "2024/Paris/IMG.heic")
     }
 
     func testFilenameWithSlashThrows() {
         XCTAssertThrowsError(try PathFormatter.format(
             captureDate: date("2024-03-15T10:30:00Z"),
-            location: "Tokyo",
+            location: ["Japan", "Tokyo"],
             filename: "foo/bar.heic"))
     }
 

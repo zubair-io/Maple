@@ -5,8 +5,9 @@
  */
 import type { Migration } from './types.ts';
 import { restructureBackupFolders } from './restructure-backup-folders.ts';
+import { restructureBackupGeo } from './restructure-backup-geo.ts';
 
-export const MIGRATIONS: readonly Migration[] = [restructureBackupFolders];
+export const MIGRATIONS: readonly Migration[] = [restructureBackupFolders, restructureBackupGeo];
 
 export function getMigration(id: string): Migration | undefined {
   return MIGRATIONS.find((m) => m.id === id);
