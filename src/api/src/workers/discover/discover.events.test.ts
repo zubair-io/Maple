@@ -142,14 +142,14 @@ describe('discover producer — events', () => {
     await handleEvent({ kind: 'removed', absPath: copyA }, folderId, tempDir);
 
     const id = (row as { _id: unknown })._id;
-    const stillLive = await coll.findOne(
-      applyLiveFilter({ _id: id } as never) as never,
-    );
+    const stillLive = await coll.findOne(applyLiveFilter({ _id: id } as never) as never);
     expect(stillLive).not.toBeNull(); // visible — copyB keeps it live
     expect((stillLive as { deleted_at?: string | null }).deleted_at).toBeNull();
-    const fileinfo = (stillLive as {
-      fileinfo: Array<{ filename: string; missing_since?: string | null }>;
-    }).fileinfo;
+    const fileinfo = (
+      stillLive as {
+        fileinfo: Array<{ filename: string; missing_since?: string | null }>;
+      }
+    ).fileinfo;
     const a = fileinfo.find((e) => e.filename === 'copyA.jpg')!;
     const b = fileinfo.find((e) => e.filename === 'copyB.jpg')!;
     expect(typeof a.missing_since).toBe('string'); // removed copy tagged
