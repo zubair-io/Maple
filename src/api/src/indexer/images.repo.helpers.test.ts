@@ -1,6 +1,12 @@
 import { describe, test, expect } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { assetAbsPath, assetLibraryPath, assetPrimaryFileInfo } from './images.repo.ts';
+import {
+  assetAbsPath,
+  assetLibraryPath,
+  assetPrimaryFileInfo,
+  isLiveFileInfo,
+  liveFileInfoElemMatch,
+} from './images.repo.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 
 const libId = new ObjectId();
@@ -54,6 +60,47 @@ describe('assetPrimaryFileInfo', () => {
       deleted_at: 'now',
     };
     expect(assetPrimaryFileInfo(makeAsset({ fileinfo: [dead] }))).toBeNull();
+  });
+
+  test('skips entries flagged missing_since', () => {
+    const missing: FileInfo = {
+      path: 'gone',
+      filename: 'x.dng',
+      library_id: libId,
+      missing_since: '2026-06-05T00:00:00Z',
+    };
+    const live: FileInfo = { path: 'here', filename: 'x.dng', library_id: libId };
+    expect(assetPrimaryFileInfo(makeAsset({ fileinfo: [missing, live] }))).toEqual(live);
+  });
+
+  test('returns null when the only entry is missing_since', () => {
+    const missing: FileInfo = {
+      path: 'gone',
+      filename: 'x.dng',
+      library_id: libId,
+      missing_since: '2026-06-05T00:00:00Z',
+    };
+    expect(assetPrimaryFileInfo(makeAsset({ fileinfo: [missing] }))).toBeNull();
+  });
+});
+
+describe('isLiveFileInfo', () => {
+  test('live when neither deleted_at nor missing_since is set', () => {
+    expect(isLiveFileInfo({})).toBe(true);
+    expect(isLiveFileInfo({ deleted_at: null, missing_since: null })).toBe(true);
+  });
+  test('non-live when deleted_at OR missing_since is set', () => {
+    expect(isLiveFileInfo({ deleted_at: 'now' })).toBe(false);
+    expect(isLiveFileInfo({ missing_since: 'now' })).toBe(false);
+    expect(isLiveFileInfo({ deleted_at: 'now', missing_since: 'now' })).toBe(false);
+  });
+});
+
+describe('liveFileInfoElemMatch', () => {
+  test('selects ≥1 live entry; null/absent count as live', () => {
+    expect(liveFileInfoElemMatch()).toEqual({
+      fileinfo: { $elemMatch: { deleted_at: { $in: [null] }, missing_since: { $in: [null] } } },
+    });
   });
 });
 

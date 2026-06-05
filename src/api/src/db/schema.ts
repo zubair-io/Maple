@@ -170,9 +170,14 @@ export interface VisionMeta {
  * walk the array and pick the first entry whose `library_id` still
  * resolves to a registered folder.
  *
- * `deleted_at` is per-entry so the asset row survives one location being
- * unlinked while another stays live. The asset is fully soft-deleted only
- * when every entry has `deleted_at` set.
+ * Per-entry liveness is the source of truth for the whole asset's
+ * visibility. An entry is **live** when it has neither `deleted_at` (its
+ * bytes were replaced by different content — see the modified-content guard
+ * in `discover/handle-event.ts`) nor `missing_since` (its file vanished from
+ * disk). The asset row survives one location going non-live while another
+ * stays live; it is hidden from reads and parked out of stage claims only
+ * when *every* entry is non-live. See `isLiveFileInfo` /
+ * `liveFileInfoElemMatch` in `indexer/images.repo.ts`.
  */
 export interface FileInfo {
   /** Directory relative to the library root, POSIX-separated.
@@ -183,9 +188,22 @@ export interface FileInfo {
   filename: string;
   /** ObjectId of the registered folder this entry lives under. */
   library_id: ObjectId;
-  /** ISO timestamp when this specific location was unlinked. Absent or
-   * null when the entry is live. */
+  /** ISO timestamp when this specific location stopped holding this asset's
+   * content (its bytes were replaced in place by a different file). Absent or
+   * null when the entry is live. Set by the modified-content guard. The
+   * missing-reaper treats a `deleted_at` entry as dead — it does NOT re-stat
+   * the path (a different file may now sit there), it just prunes it after the
+   * cooldown. */
   deleted_at?: string | null;
+  /** ISO timestamp when this specific location's file was found GONE from
+   * disk (ENOENT) — set by the discover `removed` handler and by a
+   * file-touching stage that ENOENTs on this path. Absent or null when the
+   * entry is live. This is the per-location "pending delete" tag the
+   * missing-reaper consumes: it re-stats the path (recovering the entry if the
+   * file reappears), and once the entry has been missing past the prune
+   * window it `$pull`s the entry — deleting the whole record when no other
+   * entry remains. Replaces the former root-level `missing_since`. */
+  missing_since?: string | null;
 }
 
 export interface AssetDoc {
@@ -316,21 +334,14 @@ export interface AssetDoc {
    */
   original_path?: string | null;
   /**
-   * "Pending delete" tag. Set (as an ISO timestamp) by any file-touching
-   * stage — exif / thumb / preview — the first time it finds the on-disk
-   * original gone (ENOENT) and so can no longer process the asset. Tagging
-   * is the only automatic step; deletion is owned by the operator-gated
-   * `missing-reaper` worker (`src/workers/missing-reaper.ts`).
-   *
-   * The timestamp doubles as the tag and its age: the reaper only
-   * hard-deletes rows whose `missing_since` PREDATES its boot-time start,
-   * so a record can never be reaped in the same process lifetime it was
-   * tagged. Cleared back to `null` by the reaper when the file turns out to
-   * still be on disk (e.g. a transient unmount that recovered).
-   *
-   * Distinct from `deleted_at`: that is a soft-delete to trash (user / File
-   * Provider action) with a retention window; `missing_since` means the
-   * bytes vanished from disk underneath the index.
+   * REMOVED — the "pending delete" tag moved to the per-location
+   * `FileInfo.missing_since` (the missing-reaper now operates per entry:
+   * re-stat → recover or `$pull` → delete the record when no entry remains).
+   * The `migrate-missing-since-to-fileinfo` migration in `db/migrations.ts`
+   * folds any legacy root value down onto the row's fileinfo entries and
+   * `$unset`s this field, so live databases carry it only transiently. Kept
+   * on the type (optional) so the migration and any not-yet-migrated row can
+   * still be read; nothing writes it anymore.
    */
   missing_since?: string | null;
   /**
