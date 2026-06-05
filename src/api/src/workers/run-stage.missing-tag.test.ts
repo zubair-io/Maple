@@ -1,11 +1,13 @@
 /**
- * Runner-side `missing_since` tagging tests.
+ * Runner-side per-location `missing_since` tagging tests.
  *
  * Split out of `run-stage.test.ts` to keep that file under the file-size
  * budget. Covers the catch-path tag the missing-reaper consumes: an
- * original-file stage (`tagsMissingOnEnoent`) that fails with ENOENT gets the
- * asset stamped, first-detection wins, and nothing else tags. DB-free — uses
- * the same in-memory collection mock shape as `run-stage.test.ts`.
+ * original-file stage (`tagsMissingOnEnoent`) that fails with ENOENT stamps
+ * `missing_since` on the PRIMARY `fileinfo` entry (first-detection wins), and
+ * nothing else tags. DB-free — the in-memory collection mock understands the
+ * `$elemMatch`/`$in`/`$type`/`$not` operators the claim query uses and applies
+ * `arrayFilters` `$set`s the way the per-entry tag write needs.
  */
 
 import { describe, expect, it } from 'bun:test';
@@ -31,11 +33,7 @@ function makeConfigMock(): Collection<WorkerConfigDoc> {
       if (existing || opts?.upsert) {
         store.set(name, { ...(existing ?? {}), ...setDoc } as WorkerConfigDoc);
       }
-      return {
-        matchedCount: 1,
-        modifiedCount: 1,
-        acknowledged: true,
-      } as UpdateResult;
+      return { matchedCount: 1, modifiedCount: 1, acknowledged: true } as UpdateResult;
     },
   } as unknown as Collection<WorkerConfigDoc>;
 }
@@ -49,6 +47,55 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
   return cur;
 }
 
+/** Evaluate one field condition (a scalar equality or an operator object).
+ * Supports the operator subset the claim query + per-entry tag write use. */
+function matchVal(docVal: unknown, cond: unknown): boolean {
+  if (cond !== null && typeof cond === 'object' && !Array.isArray(cond)) {
+    for (const [op, opv] of Object.entries(cond as Record<string, unknown>)) {
+      switch (op) {
+        case '$lt':
+          if (!(typeof docVal === 'number' && docVal < (opv as number))) return false;
+          break;
+        case '$ne':
+          if (docVal === opv) return false;
+          break;
+        case '$nin':
+          if ((opv as unknown[]).includes(docVal)) return false;
+          break;
+        case '$in':
+          // `$in: [null]` matches null OR absent, mirroring Mongo.
+          if (
+            !(opv as unknown[]).some(
+              (v) => v === docVal || (v === null && (docVal === null || docVal === undefined)),
+            )
+          )
+            return false;
+          break;
+        case '$exists': {
+          const expected = opv as boolean;
+          if (expected === false && docVal !== undefined) return false;
+          if (expected === true && docVal === undefined) return false;
+          break;
+        }
+        case '$type':
+          if (opv === 'string' && typeof docVal !== 'string') return false;
+          break;
+        case '$not':
+          if (matchVal(docVal, opv)) return false;
+          break;
+        case '$elemMatch':
+          if (!Array.isArray(docVal)) return false;
+          if (!docVal.some((el) => matchesFilter(el, opv as Record<string, unknown>))) return false;
+          break;
+        default:
+          break;
+      }
+    }
+    return true;
+  }
+  return docVal === cond;
+}
+
 function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
   for (const [key, val] of Object.entries(filter)) {
     if (key === '$or') {
@@ -56,35 +103,70 @@ function matchesFilter(doc: unknown, filter: Record<string, unknown>): boolean {
       if (!arr.some((sub) => matchesFilter(doc, sub))) return false;
       continue;
     }
-    const docVal = getNestedValue(doc as Record<string, unknown>, key);
-    if (val !== null && typeof val === 'object') {
-      const op = val as Record<string, unknown>;
-      if ('$lt' in op && docVal !== undefined) {
-        if (!(typeof docVal === 'number' && docVal < (op['$lt'] as number))) return false;
-      }
-      if ('$ne' in op && docVal === op['$ne']) return false;
-      if ('$nin' in op && (op['$nin'] as unknown[]).includes(docVal)) return false;
-      if ('$exists' in op) {
-        const expected = op['$exists'] as boolean;
-        if (expected === false && docVal !== undefined) return false;
-        if (expected === true && docVal === undefined) return false;
-      }
-    } else if (docVal !== val) {
-      return false;
-    }
+    if (!matchVal(getNestedValue(doc as Record<string, unknown>, key), val)) return false;
   }
   return true;
 }
 
-function applySet(doc: unknown, setDoc: Record<string, unknown>): void {
-  for (const [path, value] of Object.entries(setDoc)) {
-    const parts = path.split('.');
-    let cur = doc as Record<string, unknown>;
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (cur[parts[i]!] == null) cur[parts[i]!] = {};
-      cur = cur[parts[i]!] as Record<string, unknown>;
+/** Does array element `el` satisfy the arrayFilter for identifier `id`? The
+ * filter keys are `id.field` (and possibly `$or` of the same), so strip the
+ * `id.` prefix and reuse `matchesFilter` on the element. */
+function arrayFilterMatches(
+  el: unknown,
+  id: string,
+  af: Record<string, unknown> | undefined,
+): boolean {
+  if (!af) return true;
+  const strip = (arm: Record<string, unknown>): Record<string, unknown> => {
+    const o: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(arm)) {
+      o[k.startsWith(`${id}.`) ? k.slice(id.length + 1) : k] = v;
     }
-    cur[parts[parts.length - 1]!] = value;
+    return o;
+  };
+  const sub: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(af)) {
+    if (k === '$or') sub['$or'] = (v as Record<string, unknown>[]).map(strip);
+    else if (k.startsWith(`${id}.`)) sub[k.slice(id.length + 1)] = v;
+  }
+  return matchesFilter(el, sub);
+}
+
+function setPath(
+  obj: Record<string, unknown>,
+  parts: string[],
+  value: unknown,
+  arrayFilters: Record<string, unknown>[] | undefined,
+): void {
+  const [head, ...rest] = parts;
+  const m = /^\$\[(\w+)\]$/.exec(head!);
+  if (m) {
+    const id = m[1]!;
+    const af = (arrayFilters ?? []).find((f) =>
+      Object.keys(f).some((k) => k === id || k.startsWith(`${id}.`) || k === '$or'),
+    );
+    const arr = obj as unknown as unknown[];
+    if (!Array.isArray(arr)) return;
+    for (const el of arr) {
+      if (arrayFilterMatches(el, id, af)) setPath(el as Record<string, unknown>, rest, value, arrayFilters);
+    }
+    return;
+  }
+  if (rest.length === 0) {
+    obj[head!] = value;
+    return;
+  }
+  if (obj[head!] == null) obj[head!] = {};
+  setPath(obj[head!] as Record<string, unknown>, rest, value, arrayFilters);
+}
+
+function applySet(
+  doc: unknown,
+  setDoc: Record<string, unknown>,
+  arrayFilters?: Record<string, unknown>[],
+): void {
+  for (const [path, value] of Object.entries(setDoc)) {
+    setPath(doc as Record<string, unknown>, path.split('.'), value, arrayFilters);
   }
 }
 
@@ -106,9 +188,13 @@ function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
     async findOne(filter: Record<string, unknown>) {
       return store.find((d) => matchesFilter(d, filter)) ?? null;
     },
-    async updateOne(filter: Record<string, unknown>, update: Record<string, unknown>) {
+    async updateOne(
+      filter: Record<string, unknown>,
+      update: Record<string, unknown>,
+      options?: { arrayFilters?: Record<string, unknown>[] },
+    ) {
       const doc = store.find((d) => matchesFilter(d, filter));
-      if (doc) applySet(doc, (update['$set'] ?? {}) as Record<string, unknown>);
+      if (doc) applySet(doc, (update['$set'] ?? {}) as Record<string, unknown>, options?.arrayFilters);
       return {
         matchedCount: doc ? 1 : 0,
         modifiedCount: doc ? 1 : 0,
@@ -146,50 +232,71 @@ function originalFileStage(name = 'exif', tags = true) {
   });
 }
 
-describe('runOnce — missing_since tagging', () => {
-  it('tags missing_since on an ENOENT failure when tagsMissingOnEnoent is set', async () => {
-    const images = makeImagesMock([{ abs_path: '/gone.raw' } as unknown as ImageDoc]);
+/** A doc with one live location, so the claim query picks it up and the
+ * primary-entry resolution has something to tag. */
+function liveDoc(filename = 'gone.raw'): ImageDoc {
+  return {
+    fileinfo: [{ library_id: 'lib0', path: '', filename, deleted_at: null }],
+  } as unknown as ImageDoc;
+}
+
+/** The (single) fileinfo entry's per-location missing tag. */
+function entryMissing(doc: ImageDoc): unknown {
+  return (doc as unknown as { fileinfo?: Array<{ missing_since?: unknown }> }).fileinfo?.[0]
+    ?.missing_since;
+}
+
+describe('runOnce — per-location missing_since tagging', () => {
+  it('tags the primary entry missing_since on an ENOENT failure when tagsMissingOnEnoent is set', async () => {
+    const images = makeImagesMock([liveDoc()]);
     const configColl = makeConfigMock();
     const stage = originalFileStage();
 
     await _test.runOnce(stage, cfg, images, configColl);
     const doc = (await images.find({}).toArray())[0]!;
-    expect(typeof doc.missing_since).toBe('string');
-    const firstTag = doc.missing_since;
+    expect(typeof entryMissing(doc)).toBe('string');
+    // Never the asset root — the tag is per-location now.
+    expect((doc as unknown as { missing_since?: unknown }).missing_since).toBeUndefined();
+    const firstTag = entryMissing(doc);
 
     // First-detection wins: a second ENOENT tick must NOT push the timestamp
-    // forward (the reaper's boot-time age-gate depends on it being stable).
+    // forward (the reaper's per-entry age-gate depends on it being stable).
+    // The tagged entry is now non-live, so the claim query no longer selects
+    // the row — assert the tag is unchanged regardless.
     await _test.runOnce(stage, cfg, images, configColl);
-    expect((await images.find({}).toArray())[0]!.missing_since).toBe(firstTag);
+    expect(entryMissing((await images.find({}).toArray())[0]!)).toBe(firstTag as string);
   });
 
-  it('tag-only suppression: stamps missing_since and touches NO stage state', async () => {
-    const images = makeImagesMock([{ abs_path: '/gone.raw' } as unknown as ImageDoc]);
+  it('tag-only suppression: stamps the entry and touches NO stage state', async () => {
+    const images = makeImagesMock([liveDoc()]);
     const configColl = makeConfigMock();
     const stage = originalFileStage();
 
     await _test.runOnce(stage, cfg, images, configColl);
     const doc = (await images.find({}).toArray())[0]! as unknown as {
-      missing_since?: string;
+      fileinfo?: Array<{ missing_since?: string }>;
       stages?: Record<string, { attempts?: number; version?: number; dead?: boolean }>;
     };
     // Tagged for the reaper, and the claim's provisional attempt (#897) is
     // rolled back: a missing original was never genuinely attempted, so the
     // stage is left unadvanced — no version, not dead, attempts 0. The
-    // claim-query filter (missing_since) parks it; the reaper re-enables it.
-    expect(typeof doc.missing_since).toBe('string');
+    // tagged entry parks the row out of the claim query; the reaper re-enables it.
+    expect(typeof doc.fileinfo?.[0]?.missing_since).toBe('string');
     expect(doc.stages?.exif?.attempts ?? 0).toBe(0);
     expect(doc.stages?.exif?.version).toBeUndefined();
     expect(doc.stages?.exif?.dead ?? false).toBe(false);
   });
 
-  it('buildClaimQuery excludes assets tagged missing_since', () => {
+  it('buildClaimQuery requires a live location (and never references root missing_since)', () => {
     const q = buildClaimQuery('exif', 1, [], new Set()) as Record<string, unknown>;
-    expect(q['missing_since']).toEqual({ $not: { $type: 'string' } });
+    expect(q['fileinfo']).toEqual({
+      $elemMatch: { deleted_at: { $in: [null] }, missing_since: { $in: [null] } },
+    });
+    expect(q['missing_since']).toBeUndefined();
   });
 
-  it('does NOT tag missing_since for a non-ENOENT failure', async () => {
-    const images = makeImagesMock([{ abs_path: '/bad.raw' } as unknown as ImageDoc]);
+  it('does NOT tag for a non-ENOENT failure', async () => {
+    const images = makeImagesMock([liveDoc('bad.raw')]);
     const configColl = makeConfigMock();
     const stage = defineStage({
       ...originalFileStage(),
@@ -199,28 +306,31 @@ describe('runOnce — missing_since tagging', () => {
     });
 
     await _test.runOnce(stage, cfg, images, configColl);
-    expect((await images.find({}).toArray())[0]!.missing_since).toBeUndefined();
+    expect(entryMissing((await images.find({}).toArray())[0]!)).toBeUndefined();
   });
 
-  it('does NOT tag missing_since when tagsMissingOnEnoent is unset, even on ENOENT', async () => {
-    const images = makeImagesMock([{ abs_path: '/gone.raw' } as unknown as ImageDoc]);
+  it('does NOT tag when tagsMissingOnEnoent is unset, even on ENOENT', async () => {
+    const images = makeImagesMock([liveDoc()]);
     const configColl = makeConfigMock();
     // A stage that does not read the original file never opts in.
     const stage = originalFileStage('meili', false);
 
     await _test.runOnce(stage, cfg, images, configColl);
-    expect((await images.find({}).toArray())[0]!.missing_since).toBeUndefined();
+    expect(entryMissing((await images.find({}).toArray())[0]!)).toBeUndefined();
   });
 });
 
 // ---------------------------------------------------------------------------
-// no-resolvable-location → reaper-tag for all-soft-deleted assets (#805).
+// no-resolvable-location → just records the skip.
 //
-// When an original-file stage hits `no-resolvable-location` AND every fileinfo
-// entry is soft-deleted (the asset once had a location, now genuinely gone),
-// the runner must stamp `missing_since` for the missing-reaper instead of
-// silently marking the stage done. The other null-resolution cases (no fileinfo
-// at all, or a live entry whose library is unregistered) must NOT be tagged.
+// The legacy orphan-tagging branch is gone: a row whose every fileinfo entry is
+// non-live is now PARKED by the claim query (the live-entry `$elemMatch`), so a
+// file-touching stage never sees it, and whatever made the row non-live (the
+// watcher `removed` handler, the modified-content guard's orphan dual-flag, or
+// the ENOENT catch above) already left a per-entry `missing_since` for the
+// reaper. A `no-resolvable-location` skip on a still-claimable row (e.g. its
+// library is transiently unregistered) just records the reason and resets
+// attempts to 0 — it does NOT tag anything.
 // ---------------------------------------------------------------------------
 
 function skipNoLocationStage(name = 'exif', tags = true) {
@@ -240,92 +350,39 @@ function skipNoLocationStage(name = 'exif', tags = true) {
   });
 }
 
-function allSoftDeletedDoc(): ImageDoc {
-  return {
-    fileinfo: [
-      { library_id: 'lib0', path: '', filename: 'gone.raw', deleted_at: '2026-05-01T00:00:00Z' },
-    ],
-  } as unknown as ImageDoc;
-}
-
-describe('runOnce — no-resolvable-location reaper tagging (#805)', () => {
-  it('tags missing_since when all fileinfo entries are soft-deleted', async () => {
-    const images = makeImagesMock([allSoftDeletedDoc()]);
+describe('runOnce — no-resolvable-location skip', () => {
+  it('records the skip without tagging when a stage cannot resolve a claimed row', async () => {
+    const images = makeImagesMock([liveDoc('live.raw')]);
     const configColl = makeConfigMock();
     const stage = skipNoLocationStage();
 
     await _test.runOnce(stage, cfg, images, configColl);
     const doc = (await images.find({}).toArray())[0]! as unknown as {
-      missing_since?: string;
-      stages?: Record<string, { attempts?: number; version?: number; dead?: boolean }>;
-    };
-    // Tagged for the reaper — and the stage is left unadvanced (claim attempt
-    // #897 rolled back, no version, not dead), so the asset isn't marked done
-    // at the vanished location.
-    expect(typeof doc.missing_since).toBe('string');
-    expect(doc.stages?.exif?.attempts ?? 0).toBe(0);
-    expect(doc.stages?.exif?.version).toBeUndefined();
-    expect(doc.stages?.exif?.dead ?? false).toBe(false);
-  });
-
-  it('first-detection wins: a second skip tick does not push the timestamp forward', async () => {
-    const images = makeImagesMock([allSoftDeletedDoc()]);
-    const configColl = makeConfigMock();
-    const stage = skipNoLocationStage();
-
-    await _test.runOnce(stage, cfg, images, configColl);
-    const firstTag = (await images.find({}).toArray())[0]!.missing_since;
-    await _test.runOnce(stage, cfg, images, configColl);
-    expect((await images.find({}).toArray())[0]!.missing_since).toBe(firstTag);
-  });
-
-  it('does NOT tag when the asset has no fileinfo entries at all', async () => {
-    const images = makeImagesMock([{ fileinfo: [] } as unknown as ImageDoc]);
-    const configColl = makeConfigMock();
-    const stage = skipNoLocationStage();
-
-    await _test.runOnce(stage, cfg, images, configColl);
-    const doc = (await images.find({}).toArray())[0]! as unknown as {
-      missing_since?: string;
+      fileinfo?: Array<{ missing_since?: string }>;
       stages?: Record<string, { last_error?: string; version?: number }>;
     };
-    // Not reapable — recorded as a normal skip (stage marked done at version).
-    expect(doc.missing_since).toBeUndefined();
+    expect(doc.fileinfo?.[0]?.missing_since).toBeUndefined();
     expect(doc.stages?.exif?.last_error).toBe('skip: no-resolvable-location');
     expect(doc.stages?.exif?.version).toBe(1);
   });
 
-  it('does NOT tag when a live fileinfo entry exists (library unregistered case)', async () => {
-    // A live entry that resolved to null only because the library is
-    // unregistered — transient/config, not a genuine deletion.
-    const images = makeImagesMock([
-      {
-        fileinfo: [{ library_id: 'lib0', path: '', filename: 'live.raw', deleted_at: null }],
-      } as unknown as ImageDoc,
-    ]);
+  it('does not claim a row whose only location is already missing (parked)', async () => {
+    // A row with no live entry is excluded by the claim query, so the stage
+    // never runs on it — the reaper owns it now.
+    const parked = {
+      fileinfo: [
+        { library_id: 'lib0', path: '', filename: 'gone.raw', missing_since: '2026-05-01T00:00:00Z' },
+      ],
+    } as unknown as ImageDoc;
+    const images = makeImagesMock([parked]);
     const configColl = makeConfigMock();
     const stage = skipNoLocationStage();
 
     await _test.runOnce(stage, cfg, images, configColl);
     const doc = (await images.find({}).toArray())[0]! as unknown as {
-      missing_since?: string;
-      stages?: Record<string, { last_error?: string }>;
+      stages?: Record<string, { last_error?: string; version?: number }>;
     };
-    expect(doc.missing_since).toBeUndefined();
-    expect(doc.stages?.exif?.last_error).toBe('skip: no-resolvable-location');
-  });
-
-  it('does NOT tag an all-soft-deleted asset when tagsMissingOnEnoent is unset', async () => {
-    const images = makeImagesMock([allSoftDeletedDoc()]);
-    const configColl = makeConfigMock();
-    const stage = skipNoLocationStage('meili', false);
-
-    await _test.runOnce(stage, cfg, images, configColl);
-    const doc = (await images.find({}).toArray())[0]! as unknown as {
-      missing_since?: string;
-      stages?: Record<string, { last_error?: string }>;
-    };
-    expect(doc.missing_since).toBeUndefined();
-    expect(doc.stages?.meili?.last_error).toBe('skip: no-resolvable-location');
+    // Untouched — never claimed.
+    expect(doc.stages?.exif).toBeUndefined();
   });
 });
