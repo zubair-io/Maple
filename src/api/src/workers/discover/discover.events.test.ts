@@ -49,7 +49,7 @@ afterAll(async () => {
 });
 
 describe('discover producer — events', () => {
-  it('soft-deletes a doc when a removed event is received', async () => {
+  it('tags the location missing (not root deleted_at) when a removed event is received', async () => {
     if (!mongoReachable) return;
 
     const { handleEvent } = await import('./index.ts');
@@ -80,14 +80,82 @@ describe('discover producer — events', () => {
     expect(before).not.toBeNull();
     expect((before as Record<string, unknown>).deleted_at).toBeNull();
 
-    // Now fire the removed event.
+    // Now fire the removed event. The single location is tagged per-entry
+    // `missing_since`; the asset root `deleted_at` is NEVER touched (that is
+    // reserved for the File Provider trash path). With no live entry left the
+    // asset is hidden + parked, and the missing-reaper owns it from here.
     await handleEvent({ kind: 'removed', absPath: file }, folderId, tempDir);
     const after = await coll.findOne(filter);
     expect(after).not.toBeNull();
-    expect((after as Record<string, unknown>).deleted_at).not.toBeNull();
+    expect((after as Record<string, unknown>).deleted_at).toBeNull();
+    const entries = (after as { fileinfo?: Array<{ filename: string; missing_since?: string }> })
+      .fileinfo!;
+    const entry = entries.find((e) => e.filename === filename)!;
+    expect(typeof entry.missing_since).toBe('string');
 
     // Clean up.
     await coll.deleteOne(filter);
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('keeps a deduped asset live when only ONE of its copies is removed', async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+    const { applyLiveFilter } = await import('../../routes/search/query.ts');
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'discover-dedup-del-'));
+    // Two identical-content files (same bytes → same maple_id → one deduped row
+    // with two fileinfo entries).
+    const bytes = Buffer.alloc(64 * 1024 + 7, 0xcd);
+    const copyA = path.join(tempDir, 'copyA.jpg');
+    const copyB = path.join(tempDir, 'copyB.jpg');
+    await writeFile(copyA, bytes);
+    await writeFile(copyB, bytes);
+
+    const foldersColl = await foldersCollection();
+    const folderId = (
+      await foldersColl.insertOne({
+        path: tempDir,
+        label: path.basename(tempDir),
+        last_scan: null,
+        file_count: 0,
+        created_at: new Date().toISOString(),
+      } as never)
+    ).insertedId;
+
+    await handleEvent({ kind: 'created', absPath: copyA }, folderId, tempDir);
+    await handleEvent({ kind: 'created', absPath: copyB }, folderId, tempDir);
+
+    const coll = await assetsCollection();
+    const row = await coll.findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, filename: 'copyA.jpg' } },
+    } as never);
+    expect(row).not.toBeNull();
+    // Deduped onto one row with both locations.
+    expect((row as { fileinfo: unknown[] }).fileinfo).toHaveLength(2);
+
+    // Remove ONE copy. The OTHER copy is still on disk → the asset must stay
+    // visible (the bug this fixes: the whole row used to be soft-deleted).
+    await handleEvent({ kind: 'removed', absPath: copyA }, folderId, tempDir);
+
+    const id = (row as { _id: unknown })._id;
+    const stillLive = await coll.findOne(
+      applyLiveFilter({ _id: id } as never) as never,
+    );
+    expect(stillLive).not.toBeNull(); // visible — copyB keeps it live
+    expect((stillLive as { deleted_at?: string | null }).deleted_at).toBeNull();
+    const fileinfo = (stillLive as {
+      fileinfo: Array<{ filename: string; missing_since?: string | null }>;
+    }).fileinfo;
+    const a = fileinfo.find((e) => e.filename === 'copyA.jpg')!;
+    const b = fileinfo.find((e) => e.filename === 'copyB.jpg')!;
+    expect(typeof a.missing_since).toBe('string'); // removed copy tagged
+    expect(b.missing_since ?? null).toBeNull(); // surviving copy untouched
+
+    await coll.deleteOne({ _id: id } as never);
     await foldersColl.deleteOne({ _id: folderId });
     await rm(tempDir, { recursive: true, force: true });
   });

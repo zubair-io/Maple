@@ -1,13 +1,17 @@
 /**
  * missing-reaper tests. Integration tests run against a real Mongo (skip-pass
- * when unreachable, mirroring trash-gc.test.ts): delete-when-all-gone, age-window
- * cooldown, recover/prune + re-arm, mount guard, name-mismatch veto, circuit
- * breaker, pause-skips-delete-but-still-recovers, claim-query parking, and
- * persisted pause/resume control.
+ * when unreachable, mirroring trash-gc.test.ts). `missing_since` is now
+ * PER-`fileinfo`-ENTRY: the reaper re-stats each tagged location, recovers it
+ * if the file reappeared, `$pull`s it once aged past the window, and deletes
+ * the record only when no entry remains. Covers: delete-when-all-gone,
+ * per-entry cooldown, recover/prune + re-arm, mount guard, name-mismatch veto,
+ * circuit breaker, pause-skips-delete-but-still-recovers, orphan
+ * (content-replaced) reap without re-stat, relink recovery, claim-query
+ * parking, and persisted pause/resume control.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, type Db, type ObjectId } from 'mongodb';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -79,12 +83,28 @@ const ASSET_BASE = {
   indexed_at: '2026-05-11T00:00:00Z',
 };
 
-/** Compact fileinfo entry for fixtures (root-relative path ''). */
-function fi(filename: string, libraryId: ObjectId, deletedAt: string | null = null) {
-  return { path: '', filename, library_id: libraryId, deleted_at: deletedAt };
+/** Compact fileinfo entry for fixtures (root-relative path ''). `missing` tags
+ * the per-location `missing_since`; `deleted` tags `deleted_at`. */
+function fi(
+  filename: string,
+  libraryId: ObjectId,
+  opts: { missing?: string | null; deleted?: string | null } = {},
+) {
+  return {
+    path: '',
+    filename,
+    library_id: libraryId,
+    deleted_at: opts.deleted ?? null,
+    missing_since: opts.missing ?? null,
+  };
 }
 /** A dead original-file stage state (failed against the vanished path). */
 const deadStage = { version: 0, attempts: 5, last_error: 'ENOENT', processed_at: null, dead: true };
+
+/** Read the per-entry missing tag for the entry with `filename`. */
+function entryMissing(doc: { fileinfo?: Array<{ filename: string; missing_since?: unknown }> }, filename: string): unknown {
+  return doc.fileinfo?.find((f) => f.filename === filename)?.missing_since;
+}
 
 /** Register a library root folder + invalidate the roots cache. */
 async function seedLibrary(rootDir: string): Promise<ObjectId> {
@@ -106,17 +126,17 @@ async function seedLibrary(rootDir: string): Promise<ObjectId> {
 
 const DELETE_BEFORE = '2026-05-10T00:00:00.000Z';
 const AGED = '2026-05-01T00:00:00.000Z'; // older than DELETE_BEFORE → delete-eligible
+const FRESH = '2026-05-20T00:00:00.000Z'; // newer than DELETE_BEFORE → still in cooldown
 
 describe('runMissingReaperOnce', () => {
-  it('hard-deletes a row whose file is gone and has been missing past the window', async () => {
+  it('hard-deletes a row whose only location is gone and aged past the window', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
     const libraryId = await seedLibrary(dir); // no file on disk → genuinely absent
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'gone-1',
-      fileinfo: [fi('gone.jpg', libraryId)],
-      missing_since: AGED,
+      fileinfo: [fi('gone.jpg', libraryId, { missing: AGED })],
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
@@ -128,15 +148,14 @@ describe('runMissingReaperOnce', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('cooldown: leaves an all-gone row that has not been missing long enough', async () => {
+  it('cooldown: leaves an all-gone row whose entry has not been missing long enough', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
     const libraryId = await seedLibrary(dir);
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'fresh-1',
-      fileinfo: [fi('gone.jpg', libraryId)],
-      missing_since: '2026-05-20T00:00:00.000Z', // newer than the delete cutoff
+      fileinfo: [fi('gone.jpg', libraryId, { missing: FRESH })], // newer than the delete cutoff
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
@@ -159,14 +178,12 @@ describe('runMissingReaperOnce', () => {
       {
         ...ASSET_BASE,
         maple_id: 'paused-gone',
-        fileinfo: [fi('gone.jpg', libraryId)],
-        missing_since: AGED,
+        fileinfo: [fi('gone.jpg', libraryId, { missing: AGED })],
       },
       {
         ...ASSET_BASE,
         maple_id: 'paused-back',
-        fileinfo: [fi('back.jpg', libraryId)],
-        missing_since: AGED,
+        fileinfo: [fi('back.jpg', libraryId, { missing: AGED })],
       },
     ] as never);
 
@@ -180,14 +197,14 @@ describe('runMissingReaperOnce', () => {
     expect(summary.reaped).toBe(0);
     expect(summary.skippedPaused).toBe(1);
     expect(await db!.collection('assets').countDocuments({ maple_id: 'paused-gone' })).toBe(1);
-    // ...but the re-found file still recovers (tag cleared) — recovery ignores pause.
+    // ...but the re-found file still recovers (entry tag cleared) — recovery ignores pause.
     expect(summary.recovered).toBe(1);
     const back = await db!.collection('assets').findOne({ maple_id: 'paused-back' });
-    expect(back!.missing_since).toBeNull();
+    expect(entryMissing(back as never, 'back.jpg') ?? null).toBeNull();
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('clears the tag (recovered) when the file is still on disk', async () => {
+  it('clears the entry tag (recovered) when the file is still on disk', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
     writeFileSync(join(dir, 'here.jpg'), 'x');
@@ -195,8 +212,7 @@ describe('runMissingReaperOnce', () => {
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'recover-1',
-      fileinfo: [fi('here.jpg', libraryId)],
-      missing_since: AGED,
+      fileinfo: [fi('here.jpg', libraryId, { missing: AGED })],
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
@@ -206,7 +222,7 @@ describe('runMissingReaperOnce', () => {
     expect(summary.recovered).toBe(1);
     const doc = await db!.collection('assets').findOne({ maple_id: 'recover-1' });
     expect(doc).not.toBeNull();
-    expect(doc!.missing_since).toBeNull();
+    expect(entryMissing(doc as never, 'here.jpg') ?? null).toBeNull();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -218,8 +234,7 @@ describe('runMissingReaperOnce', () => {
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'offline-1',
-      fileinfo: [fi('gone.jpg', libraryId)],
-      missing_since: AGED,
+      fileinfo: [fi('gone.jpg', libraryId, { missing: AGED })],
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
@@ -228,7 +243,7 @@ describe('runMissingReaperOnce', () => {
     expect(summary.reaped).toBe(0);
     expect(summary.skippedMountOffline).toBe(1);
     const doc = await db!.collection('assets').findOne({ maple_id: 'offline-1' });
-    expect(doc!.missing_since).toBe(AGED); // tag untouched
+    expect(entryMissing(doc as never, 'gone.jpg')).toBe(AGED); // entry tag untouched
   });
 
   it('multi-location asset survives while ANY live location still exists', async () => {
@@ -239,8 +254,8 @@ describe('runMissingReaperOnce', () => {
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'multi-1',
-      fileinfo: [fi('copy-a.jpg', libraryId), fi('copy-b.jpg', libraryId)], // a gone, b present
-      missing_since: AGED,
+      // copy-a tagged missing + gone from disk; copy-b live + present.
+      fileinfo: [fi('copy-a.jpg', libraryId, { missing: AGED }), fi('copy-b.jpg', libraryId)],
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
@@ -249,10 +264,10 @@ describe('runMissingReaperOnce', () => {
     expect(summary.reaped).toBe(0);
     expect(summary.recovered).toBe(1);
     expect(await db!.collection('assets').countDocuments({ maple_id: 'multi-1' })).toBe(1);
-    // The gone entry is pruned ($pull) and the tag cleared, leaving only copy-b.
+    // The gone entry is pruned ($pull), leaving only the live copy-b.
     const doc = await db!.collection('assets').findOne({ maple_id: 'multi-1' });
     expect(doc!.fileinfo.map((f: { filename: string }) => f.filename)).toEqual(['copy-b.jpg']);
-    expect(doc!.missing_since).toBeNull();
+    expect(entryMissing(doc as never, 'copy-b.jpg') ?? null).toBeNull();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -266,8 +281,8 @@ describe('runMissingReaperOnce', () => {
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'phantom-1',
-      fileinfo: [fi('IMG_2093.1.JPG', libraryId), fi('IMG_2093.JPG', libraryId)], // phantom, real
-      missing_since: AGED,
+      // phantom missing + gone, real live + present
+      fileinfo: [fi('IMG_2093.1.JPG', libraryId, { missing: AGED }), fi('IMG_2093.JPG', libraryId)],
       stages: { exif: { ...deadStage }, thumb: { ...deadStage } },
     } as never);
 
@@ -279,8 +294,7 @@ describe('runMissingReaperOnce', () => {
     expect(summary.prunedEntries).toBe(1);
     const doc = await db!.collection('assets').findOne({ maple_id: 'phantom-1' });
     expect(doc!.fileinfo.map((f: { filename: string }) => f.filename)).toEqual(['IMG_2093.JPG']);
-    expect(doc!.missing_since).toBeNull();
-    // Original-file stages re-queued (version 0, not dead) — the pruned entry was primary.
+    // Original-file stages re-queued (version 0, not dead) — a live location remains.
     expect(doc!.stages.exif.dead).toBe(false);
     expect(doc!.stages.exif.version).toBe(0);
     expect(doc!.stages.thumb.dead).toBe(false);
@@ -290,13 +304,13 @@ describe('runMissingReaperOnce', () => {
   it('does NOT re-arm a stage that is not dead (already processed) on recovery', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
-    writeFileSync(join(dir, 'real.jpg'), 'x'); // primary present
+    writeFileSync(join(dir, 'real.jpg'), 'x'); // live copy present
     const libraryId = await seedLibrary(dir);
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'nonprimary-1',
-      fileinfo: [fi('real.jpg', libraryId), fi('stale.jpg', libraryId)], // present, gone
-      missing_since: AGED,
+      // real live + present; stale tagged missing + gone
+      fileinfo: [fi('real.jpg', libraryId), fi('stale.jpg', libraryId, { missing: AGED })],
       stages: {
         exif: { version: 2, attempts: 0, last_error: null, processed_at: null, dead: false },
       },
@@ -320,8 +334,7 @@ describe('runMissingReaperOnce', () => {
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'recover-rearm-1',
-      fileinfo: [fi('back.jpg', libraryId)],
-      missing_since: AGED,
+      fileinfo: [fi('back.jpg', libraryId, { missing: AGED })],
       stages: { exif: { ...deadStage } },
     } as never);
 
@@ -331,7 +344,7 @@ describe('runMissingReaperOnce', () => {
     expect(summary.recovered).toBe(1);
     expect(summary.prunedEntries).toBe(0); // nothing absent to prune
     const doc = await db!.collection('assets').findOne({ maple_id: 'recover-rearm-1' });
-    expect(doc!.missing_since).toBeNull();
+    expect(entryMissing(doc as never, 'back.jpg') ?? null).toBeNull();
     // The previously-dead exif is re-queued so it reprocesses the recovered file.
     expect(doc!.stages.exif.dead).toBe(false);
     expect(doc!.stages.exif.version).toBe(0);
@@ -349,8 +362,7 @@ describe('runMissingReaperOnce', () => {
     await db!.collection('assets').insertOne({
       ...ASSET_BASE,
       maple_id: 'mismatch-1',
-      fileinfo: [fi('PHOTO.JPG', libraryId)],
-      missing_since: AGED,
+      fileinfo: [fi('PHOTO.JPG', libraryId, { missing: AGED })],
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
@@ -370,8 +382,7 @@ describe('runMissingReaperOnce', () => {
     const docs = Array.from({ length: 40 }, (_, i) => ({
       ...ASSET_BASE,
       maple_id: `breaker-${i}`,
-      fileinfo: [fi(`gone-${i}.jpg`, libraryId)],
-      missing_since: AGED,
+      fileinfo: [fi(`gone-${i}.jpg`, libraryId, { missing: AGED })],
     }));
     await db!.collection('assets').insertMany(docs as never);
 
@@ -385,110 +396,79 @@ describe('runMissingReaperOnce', () => {
   });
 });
 
-// End-to-end of #805: an original-file stage that hits no-resolvable-location
-// on an all-soft-deleted asset tags it for the reaper (instead of silently
-// marking the stage done), and the reaper then reaps it past the prune window.
-// A relinked (re-discovered) live entry before the window recovers instead.
-describe('no-live-location stage→reaper handoff (#805)', () => {
-  const stageCfg = {
-    concurrency: 1,
-    maxAttempts: 3,
-    paused: false,
-    last_seen_target_version: 2,
-  };
-
-  it('exif stage tags an all-soft-deleted asset, then the reaper reaps it', async () => {
+// An orphan is a row whose only content moved away (replaced in place): the
+// modified-content guard tombstones the entry `deleted_at` AND dual-flags it
+// `missing_since` so the reaper reaps the record. The reaper must NOT re-stat a
+// `deleted_at` entry (a DIFFERENT file may now sit at the path) — it prunes it
+// blind after the cooldown and deletes the record.
+describe('orphan (content-replaced) reaping', () => {
+  it('reaps a dual-flagged orphan after the cooldown WITHOUT re-stating the path', async () => {
     if (!mongoReachable) return;
-    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-')); // empty dir, lib registered
+    const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
+    // A DIFFERENT file now occupies the orphan's old path. If the reaper
+    // re-stat'd it, it would wrongly "recover" the orphan. It must not.
+    writeFileSync(join(dir, 'reused.jpg'), 'new-content');
     const libraryId = await seedLibrary(dir);
     const ins = await db!.collection('assets').insertOne({
       ...ASSET_BASE,
-      maple_id: 'orphan-805',
-      // The only location is soft-deleted (its content was replaced at the
-      // path → entry tombstoned). assetAbsPath() returns null → the stage
-      // skips no-resolvable-location, and the runner must tag it.
-      fileinfo: [fi('gone.jpg', libraryId, AGED)],
+      maple_id: 'orphan-1',
+      fileinfo: [fi('reused.jpg', libraryId, { deleted: AGED, missing: AGED })],
     } as never);
-
-    const exifStage = (await import('./stages/exif.ts')).default;
-    const { _test } = await import('./run-stage.ts');
-    const { getDb } = await import('../db/client.ts');
-    const images = (await getDb()).collection('assets');
-    const configColl = (await getDb()).collection('worker_config');
-    await _test.runOnce(exifStage as never, stageCfg, images as never, configColl as never);
-
-    // Tagged for the reaper — and the stage was left unadvanced: the claim's
-    // provisional attempt (#897) is rolled back, and it was NOT marked done at
-    // the vanished location (no version, not dead).
-    const tagged = await db!.collection('assets').findOne({ _id: ins.insertedId });
-    expect(typeof tagged!.missing_since).toBe('string');
-    expect(tagged!.stages?.exif?.attempts ?? 0).toBe(0);
-    expect(tagged!.stages?.exif?.version).toBeUndefined();
-    expect(tagged!.stages?.exif?.dead ?? false).toBe(false);
-
-    // Backdate the tag past the prune window so the reaper is delete-eligible.
-    await db!
-      .collection('assets')
-      .updateOne({ _id: ins.insertedId }, { $set: { missing_since: AGED } });
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
     const summary = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
+
     expect(summary.reaped).toBe(1);
     expect(await db!.collection('assets').countDocuments({ _id: ins.insertedId })).toBe(0);
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('a relinked live entry before the window recovers (tag cleared), NOT reaped', async () => {
+  it('a relinked live entry recovers the row (tag cleared, gone sibling pruned), NOT reaped', async () => {
     if (!mongoReachable) return;
     const dir = mkdtempSync(join(tmpdir(), 'maple-reaper-'));
     writeFileSync(join(dir, 'relinked.jpg'), 'x'); // re-discovered file on disk
     const libraryId = await seedLibrary(dir);
-    // Was tagged after all locations went away; then a re-discover added a
-    // live entry (deleted_at null) pointing at a file that exists on disk.
+    // One location went missing; a re-discover added a live entry on disk.
     const ins = await db!.collection('assets').insertOne({
       ...ASSET_BASE,
-      maple_id: 'relink-805',
-      fileinfo: [fi('gone.jpg', libraryId, AGED), fi('relinked.jpg', libraryId)],
-      missing_since: AGED, // aged past the window — proving recovery isn't age-gated
+      maple_id: 'relink-1',
+      fileinfo: [fi('gone.jpg', libraryId, { missing: AGED }), fi('relinked.jpg', libraryId)],
     } as never);
 
     const { runMissingReaperOnce } = await import('./missing-reaper.ts');
     const summary = await runMissingReaperOnce({ deleteBeforeIso: DELETE_BEFORE });
 
-    // The live, on-disk entry survives → recovered, not reaped: tag cleared and
-    // the gone sibling pruned.
+    // The live, on-disk entry survives → recovered, not reaped: the gone,
+    // aged sibling is pruned and the live entry is preserved.
     expect(summary.reaped).toBe(0);
     expect(summary.recovered).toBe(1);
     const row = await db!.collection('assets').findOne({ _id: ins.insertedId });
     expect(row).not.toBeNull();
-    expect(row!.missing_since).toBeNull();
-    // The live, on-disk entry is preserved. (The already-soft-deleted sibling
-    // is left in place — recovery only $pulls entries it classified as
-    // live-but-ENOENT, never the pre-tombstoned ones.)
-    const live = (row!.fileinfo as Array<{ filename: string; deleted_at?: string | null }>).filter(
-      (f) => !f.deleted_at,
-    );
-    expect(live.map((f) => f.filename)).toEqual(['relinked.jpg']);
+    expect(row!.fileinfo.map((f: { filename: string }) => f.filename)).toEqual(['relinked.jpg']);
     rmSync(dir, { recursive: true, force: true });
   });
 });
 
 describe('claim-query parking', () => {
-  it('a tagged asset is skipped by a stage claim query, and re-enters once cleared', async () => {
+  it('a no-live-location asset is skipped by a stage claim query, and re-enters once a location is live', async () => {
     if (!mongoReachable) return;
     const { buildClaimQuery } = await import('./run-stage.ts');
+    const lib = new ObjectId();
     const assets = db!.collection('assets');
     await assets.insertMany([
-      { ...ASSET_BASE, maple_id: 'untagged', missing_since: null } as never,
-      { ...ASSET_BASE, maple_id: 'tagged', missing_since: AGED } as never,
+      { ...ASSET_BASE, maple_id: 'untagged', fileinfo: [fi('live.jpg', lib)] } as never,
+      { ...ASSET_BASE, maple_id: 'tagged', fileinfo: [fi('gone.jpg', lib, { missing: AGED })] } as never,
     ]);
     const q = buildClaimQuery('exif', 1, [], new Set()) as Record<string, unknown>;
 
     const claimed = await assets.find(q).toArray();
     expect(claimed.map((d) => d.maple_id).sort()).toEqual(['untagged']);
 
-    // Clearing the tag (what the reaper does on resolution) re-admits it.
-    await assets.updateOne({ maple_id: 'tagged' }, { $set: { missing_since: null } });
+    // Clearing the entry tag (what the reaper / a re-discover does) re-admits it.
+    await assets.updateOne(
+      { maple_id: 'tagged' },
+      { $set: { 'fileinfo.$[].missing_since': null } },
+    );
     const after = await assets.find(q).toArray();
     expect(after.map((d) => d.maple_id).sort()).toEqual(['tagged', 'untagged']);
   });
