@@ -130,10 +130,13 @@ echo ""
 # test_auto_profile_match.sh gates Auto vs the camera-embedded JPEG
 # separately (per-luma-band bias — different reference, different metric).
 echo "test_color_pipeline: rendering candidates (auto) ..."
-auto_batch_args=( batch --manifest "$MANIFEST" --out-dir "$AUTO_CANDIDATES_DIR" --profile auto )
-if [[ -n "$FILTER" ]]; then
-  auto_batch_args+=( --cases-filter "$FILTER" )
-fi
+# Auto gate only covers baseline cases — scope the render so a full
+# unfiltered run doesn't re-render all 774 cases (only ~18 baselines).
+# "baseline" is a safe substring: it matches test_NNNN/baseline and
+# nothing else in the manifest. If FILTER is already narrower (e.g.
+# "test_0007"), honour it; otherwise default to "baseline".
+auto_filter="${FILTER:-baseline}"
+auto_batch_args=( batch --manifest "$MANIFEST" --out-dir "$AUTO_CANDIDATES_DIR" --profile auto --cases-filter "$auto_filter" )
 "$MAPLE_CLI" "${auto_batch_args[@]}" 2>&1 | sed 's/^/  /' || true
 echo ""
 
