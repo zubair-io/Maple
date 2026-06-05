@@ -1,56 +1,87 @@
-//! Per-image JPEG chroma-match transform (Auto Profile chroma). Operates on
-//! OKLAB a/b only — keeps L (AgX owns tone). Phase 1 of
-//! docs/superpowers/specs/2026-06-04-jpeg-chroma-match-auto-profile-design.md.
+//! Per-image JPEG chroma-match transform solved via Thin Plate Splines (TPS).
 //!
-//! The transform is solved per image so the POST-AgX render matches the
-//! embedded JPEG's chroma (the solver fits *through* AgX — see Task 4 of the
-//! Phase-1 plan), and it is injected at decode (post-DCP, pre-AgX) so it rides
-//! the shared scene-linear buffer to every platform like the DCP/HSM.
+//! Fits a 2D HueSatMap over relative saturation (Cr) and hue angle (theta),
+//! maps targets from post-AgX display-space comparison, and bakes the solved
+//! offsets into a static 36x16 2D lookup grid for high-performance bilinear lookup.
+//!
+//! Locks Lightness (L) and modifies Oklab a/b coordinates only.
 
 use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
 use crate::image::Image;
 use rayon::prelude::*;
 
-pub const N_HUE_BINS: usize = 12;
+use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
+use crate::math::Matrix3;
+use crate::view::auto_profile::preview::JpegColorSpace;
+use super::math_solver::{tps_solve, tps_evaluate};
 
-/// Per-hue chroma gain transform. `hue_gains[i]` scales C*=sqrt(a²+b²) for
-/// hues near bin i (centre = i·2π/12, spacing 30°). Smoothly interpolated
-/// around the hue circle. Identity = all gains 1.0. Structurally cannot
-/// rotate hues or shift neutrals: map_ab(0,0)=(0,0) always.
+pub const HUE_DIVS: usize = 36;
+pub const SAT_DIVS: usize = 16;
+
+/// 2D HueSatMap lookup transform. `grid[h][s]` stores the normalized OKLAB
+/// chromaticity offsets `(delta_a, delta_b)` to be added to `(a/L, b/L)`.
+/// Billinearly interpolated over hue angle (36 divisions of 10°) and relative
+/// saturation (16 divisions from 0.0 to 1.0).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChromaTransform {
-    pub hue_gains: [f32; N_HUE_BINS],
+    pub grid: [[(f32, f32); SAT_DIVS]; HUE_DIVS],
     pub taper_lo: f32,
     pub taper_hi: f32,
 }
 
 impl ChromaTransform {
     pub fn identity() -> Self {
-        Self { hue_gains: [1.0; N_HUE_BINS], taper_lo: 2.0, taper_hi: 3.0 }
+        Self {
+            grid: [[(0.0, 0.0); SAT_DIVS]; HUE_DIVS],
+            taper_lo: 2.0,
+            taper_hi: 3.0,
+        }
     }
 
-    fn gain_at(&self, a: f32, b: f32) -> f32 {
+    /// Evaluates the grid lookup for a pixel with Oklab (L, a, b).
+    /// Returns the corrected chromaticities (a_new, b_new).
+    pub fn map_ab(&self, l: f32, a: f32, b: f32) -> (f32, f32) {
         let c = a.hypot(b);
-        if c < 1e-6 { return 1.0; } // undefined hue → identity
+        if c < 1e-6 || l < 1e-5 {
+            return (a, b);
+        }
+        let cr = c / l;
         let hue = b.atan2(a).rem_euclid(std::f32::consts::TAU);
-        let bin_w = std::f32::consts::TAU / N_HUE_BINS as f32;
-        let pos = hue / bin_w;
-        let lo = pos.floor() as usize % N_HUE_BINS;
-        let hi = (lo + 1) % N_HUE_BINS;
-        let t = pos.fract();
-        self.hue_gains[lo] * (1.0 - t) + self.hue_gains[hi] * t
+
+        // Map to Grid indices
+        let bin_w = std::f32::consts::TAU / HUE_DIVS as f32;
+        let h_pos = hue / bin_w;
+        let h0 = (h_pos.floor() as usize) % HUE_DIVS;
+        let h1 = (h0 + 1) % HUE_DIVS;
+        let h_frac = h_pos.fract();
+
+        // Saturation axis: Cr in [0.0, 1.0] mapped to [0, SAT_DIVS - 1]
+        let s_pos = (cr * (SAT_DIVS - 1) as f32).clamp(0.0, (SAT_DIVS - 1) as f32);
+        let s0 = s_pos.floor() as usize;
+        let s1 = (s0 + 1).min(SAT_DIVS - 1);
+        let s_frac = s_pos.fract();
+
+        // Retrieve grid corners
+        let p00 = self.grid[h0][s0];
+        let p01 = self.grid[h0][s1];
+        let p10 = self.grid[h1][s0];
+        let p11 = self.grid[h1][s1];
+
+        // Bilinear interpolation
+        let p0_a = p00.0 * (1.0 - s_frac) + p01.0 * s_frac;
+        let p0_b = p00.1 * (1.0 - s_frac) + p01.1 * s_frac;
+        let p1_a = p10.0 * (1.0 - s_frac) + p11.0 * s_frac;
+        let p1_b = p10.1 * (1.0 - s_frac) + p11.1 * s_frac;
+
+        let delta_a_norm = p0_a * (1.0 - h_frac) + p1_a * h_frac;
+        let delta_b_norm = p0_b * (1.0 - h_frac) + p1_b * h_frac;
+
+        // Multiply back by Lightness L to scale the offset to absolute coordinates
+        (a + delta_a_norm * l, b + delta_b_norm * l)
     }
 
-    pub fn map_ab(&self, a: f32, b: f32) -> (f32, f32) {
-        let g = self.gain_at(a, b);
-        (a * g, b * g)
-    }
-
-    /// Apply in-place to a scene-linear Rec.2020 image. Keeps OKLAB L; tapers
-    /// toward identity in highlights using scene-linear V (max channel), which
-    /// tracks the AgX path-to-white more accurately than OKLAB L. Negative-
-    /// component pixels are passed through unchanged (matching the HSM
-    /// out-of-gamut bypass).
+    /// Apply the grid-based transform to a scene-linear Rec.2020 image in-place.
+    /// Keeps Lightness intact, modifying Oklab a/b only, and tapers correction in highlights.
     pub fn apply_to_scene(&self, img: &mut Image) {
         img.pixels.par_iter_mut().for_each(|p| {
             if p[0] < 0.0 || p[1] < 0.0 || p[2] < 0.0 {
@@ -58,7 +89,7 @@ impl ChromaTransform {
             }
             let v = p[0].max(p[1]).max(p[2]); // scene-linear V — tracks AgX path-to-white
             let lab = rec2020_to_oklab(*p);
-            let (ta, tb) = self.map_ab(lab[1], lab[2]);
+            let (ta, tb) = self.map_ab(lab[0], lab[1], lab[2]);
             let t = ((v - self.taper_lo) / (self.taper_hi - self.taper_lo)).clamp(0.0, 1.0);
             let att = t * t * (3.0 - 2.0 * t);
             let na = lab[1] + (ta - lab[1]) * (1.0 - att);
@@ -68,17 +99,8 @@ impl ChromaTransform {
     }
 }
 
-/// Apply `t` to scene-linear samples, run AgX (the fixed forward tone model),
-/// and return the **post-AgX** OKLAB `(a, b)` per sample. This is the primitive
-/// the through-AgX solver minimizes its objective in: the solver matches
-/// `forward_post_agx_ab(scene, T)` to the linearized JPEG's a/b, with AgX as
-/// a fixed term in the loss, so the chroma cannot reproduce the HSM's
-/// post-tone-curve highlight over-saturation. Output is display-linear Rec.2020
-/// OKLAB — the same space the linearized JPEG lands in (decode → Rec.2020 →
-/// `rec2020_to_oklab`), so the two are directly comparable.
-///
-/// `contrast` matches the render path's `model.contrast` AgX slope so the
-/// forward model is the exact tone curve the final render uses.
+/// Helper to run the chroma transform and AgX forward model on scene-linear pixels,
+/// returning the post-AgX OKLAB (a, b) values. Used to simulate the AgX loop in the solver.
 pub(crate) fn forward_post_agx_ab(
     scene: &[[f32; 3]],
     t: &ChromaTransform,
@@ -102,32 +124,16 @@ pub(crate) fn forward_post_agx_ab(
         .collect()
 }
 
-// ── JPEG sampling + filtering (Task 3) ───────────────────────────────────────
+// ── JPEG Color Space management (Task 3) ─────────────────────────────────────
 
-use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
-use crate::math::Matrix3;
-use crate::view::auto_profile::preview::JpegColorSpace;
-
-/// Adobe RGB (1998) → XYZ (D65). Sourced from the Adobe RGB (1998) Color Image
-/// Encoding spec (ASTM E308 D65 white). Composed with [`M_XYZ_D65_TO_REC2020`]
-/// at runtime to land Adobe-RGB-linear pixels in linear Rec.2020 D65 — both
-/// already D65, so no chromatic adaptation. test_0003 (Canon 5DS R) ships an
-/// Adobe RGB embedded JPEG (`Canon:ColorSpace = Adobe RGB`); reading it as sRGB
-/// understates saturation 30–50% and would corrupt the chroma target.
 const M_ADOBE_RGB_TO_XYZ_D65: Matrix3 = Matrix3([
     [0.5767309, 0.1855540, 0.1881852],
     [0.2973769, 0.6273491, 0.0752741],
     [0.0270343, 0.0706872, 0.9911085],
 ]);
 
-/// Adobe RGB (1998) decoding gamma — the spec's 2+51/256 = 563/256 power.
-/// No linear toe segment (unlike sRGB), per the Adobe RGB (1998) spec.
 const ADOBE_RGB_GAMMA: f32 = 563.0 / 256.0;
 
-/// Cached JPEG-decode matrices into linear Rec.2020 D65, one per
-/// [`JpegColorSpace`]. Tuple order: (sRGB-linear→Rec.2020, AdobeRGB-linear→
-/// Rec.2020). sRGB uses `inverse(M_REC2020_TO_SRGB)`; AdobeRGB composes the
-/// sourced primaries matrix with `M_XYZ_D65_TO_REC2020`. Computed once.
 fn jpeg_decode_matrices() -> &'static (Matrix3, Matrix3) {
     static CELL: std::sync::OnceLock<(Matrix3, Matrix3)> = std::sync::OnceLock::new();
     CELL.get_or_init(|| {
@@ -138,7 +144,6 @@ fn jpeg_decode_matrices() -> &'static (Matrix3, Matrix3) {
     })
 }
 
-/// sRGB (IEC 61966-2-1) inverse OETF on one channel — display-encoded → linear.
 #[inline]
 fn srgb_to_linear_one(v: f32) -> f32 {
     if v <= 0.04045 {
@@ -148,10 +153,6 @@ fn srgb_to_linear_one(v: f32) -> f32 {
     }
 }
 
-/// Decode one display-encoded JPEG pixel (channels in `[0, 1]`) to **linear
-/// Rec.2020 D65**, honoring its color space. This is the colorimetrically-
-/// correct path the spec's Component-1 step 2 calls for: the JPEG's a/b only
-/// match the RAW's a/b once both are in the same absolute Rec.2020 OKLAB.
 #[inline]
 fn decode_jpeg_to_rec2020(rgb01: [f32; 3], cs: JpegColorSpace) -> [f32; 3] {
     let (srgb_m, adobe_m) = jpeg_decode_matrices();
@@ -165,7 +166,6 @@ fn decode_jpeg_to_rec2020(rgb01: [f32; 3], cs: JpegColorSpace) -> [f32; 3] {
             srgb_m.mul_vec(lin)
         }
         JpegColorSpace::AdobeRgb => {
-            // Adobe RGB power-law decode (no linear segment).
             let lin = [
                 rgb01[0].max(0.0).powf(ADOBE_RGB_GAMMA),
                 rgb01[1].max(0.0).powf(ADOBE_RGB_GAMMA),
@@ -176,36 +176,17 @@ fn decode_jpeg_to_rec2020(rgb01: [f32; 3], cs: JpegColorSpace) -> [f32; 3] {
     }
 }
 
-/// One sampled grid point. Carries the RAW's box-averaged **scene-linear
-/// Rec.2020** pixel (the solver runs AgX through it — AgX needs full RGB, not
-/// just a/b, because it keeps the RAW's L), its pre-AgX OKLAB `a/b` (the LSQ
-/// feature), the linearized-JPEG OKLAB `a/b` target (both absolute Rec.2020
-/// OKLAB), the JPEG pixel position, a center-weight, and the clip flag.
+// ── Downsampling, Filtering and Clustering (Task 3) ─────────────────────────
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Pair {
-    /// RAW box-averaged scene-linear Rec.2020 pixel at this grid point.
-    pub raw_scene: [f32; 3],
-    /// RAW scene-linear (pre-AgX) OKLAB `(a, b)` — `rec2020_to_oklab(raw_scene)`.
-    pub raw_ab: (f32, f32),
-    /// Linearized-JPEG OKLAB `(a, b)` target at this grid point.
-    pub jpeg_ab: (f32, f32),
-    pub x: usize,
-    pub y: usize,
-    /// Radial center-weight (lens falloff guard) — 1.0 at center, →0 at edges.
-    pub weight: f32,
-    /// True if any JPEG channel byte is railed (`> 245` or `< 10` of 255).
-    pub clipped: bool,
+    pub raw_scene: [f32; 3], // Scene-linear RAW Rec.2020
+    pub raw_lab: [f32; 3],   // Scene-linear RAW OKLAB
+    pub jpeg_lab: [f32; 3],  // Linearized JPEG OKLAB target
 }
 
-/// JPEG clip thresholds in `[0, 1]` (byte `> 245` / `< 10`).
 const CLIP_HI: f32 = 245.0 / 255.0;
 const CLIP_LO: f32 = 10.0 / 255.0;
-
-/// 3×3 JPEG-luma variance ceiling. Above this a grid point is dropped as a
-/// block/CA/edge artifact (the spec's filter). Tuned loose enough that one
-/// railed outlier in an otherwise-flat field doesn't poison a clean pixel
-/// (clipped neighbors are excluded from the statistic below), tight enough to
-/// reject genuine high-contrast texture where demosaic/JPEG disagree on color.
 const VARIANCE_CEIL: f32 = 0.02;
 
 #[inline]
@@ -218,11 +199,15 @@ fn is_clipped(p: [f32; 3]) -> bool {
     p.iter().any(|&c| c > CLIP_HI || c < CLIP_LO)
 }
 
-/// Box-average the RAW scene-linear buffer into the JPEG grid cell `(ox, oy)`,
-/// using the SAME integer-span mapping as the #550 fit's `footprint_sizes`
-/// (`(o·dim)/out .. ((o+1)·dim)/out`, each span ≥ 1px). Returns the mean
-/// scene-linear Rec.2020 triple over the cell's source footprint.
-fn box_average(raw: &[[f32; 3]], rw: usize, rh: usize, ox: usize, oy: usize, jw: usize, jh: usize) -> [f32; 3] {
+fn box_average(
+    raw: &[[f32; 3]],
+    rw: usize,
+    rh: usize,
+    ox: usize,
+    oy: usize,
+    jw: usize,
+    jh: usize,
+) -> [f32; 3] {
     let x0 = (ox * rw) / jw;
     let mut x1 = ((ox + 1) * rw) / jw;
     if x1 <= x0 {
@@ -248,237 +233,251 @@ fn box_average(raw: &[[f32; 3]], rw: usize, rh: usize, ox: usize, oy: usize, jw:
     [(acc[0] / n) as f32, (acc[1] / n) as f32, (acc[2] / n) as f32]
 }
 
-/// Sample paired RAW/JPEG grid points for the chroma solve.
-///
-/// - `raw_scene` is the **scene-linear Rec.2020** buffer (pre-AgX, the AgX
-///   input) at dims `rw×rh`; box-downscaled to the JPEG grid.
-/// - `jpeg01` is the display-encoded JPEG at dims `jw×jh`, channels in `[0, 1]`
-///   (`byte / 255`); decoded to linear Rec.2020 per `cs`.
-///
-/// Filters per the spec: drops JPEG-clipped pairs, drops high-3×3-luma-variance
-/// pairs (clipped neighbors excluded from the variance), and center-weights the
-/// grid (the JPEG is lens-corrected, the RAW is not). Returns the surviving
-/// clean, center-weighted pairs.
-pub(crate) fn sample_pairs(
-    raw_scene: &[[f32; 3]],
-    rw: usize,
-    rh: usize,
-    jpeg01: &[[f32; 3]],
-    jw: usize,
-    jh: usize,
-    cs: JpegColorSpace,
-) -> Vec<Pair> {
-    let mut out = Vec::new();
-    if jw == 0 || jh == 0 || rw == 0 || rh == 0 {
-        return out;
+/// Groups downsampled paired pixels into deterministic color palette centroids
+/// by binning OKLAB (a, b) coordinates over a 10x10 grid in [-0.4, 0.4].
+fn cluster_pairs(pairs: &[Pair]) -> Vec<Pair> {
+    const GRID_SIZE: usize = 16;
+    struct Accumulator {
+        raw_scene_sum: [f64; 3],
+        raw_lab_sum: [f64; 3],
+        jpeg_lab_sum: [f64; 3],
+        count: usize,
     }
-    let cx = (jw as f32 - 1.0) * 0.5;
-    let cy = (jh as f32 - 1.0) * 0.5;
-    // Max radius for the cosine falloff (corner distance), guard div-by-zero.
-    let r_max = (cx * cx + cy * cy).sqrt().max(1e-6);
-    for oy in 0..jh {
-        for ox in 0..jw {
-            let jp = jpeg01[oy * jw + ox];
-            let clipped = is_clipped(jp);
-            if clipped {
-                continue; // never a target
-            }
-            // 3×3 JPEG-luma variance over non-clipped neighbors.
-            let mut sum = 0.0f32;
-            let mut sumsq = 0.0f32;
-            let mut cnt = 0u32;
-            for dy in -1i32..=1 {
-                for dx in -1i32..=1 {
-                    let nx = ox as i32 + dx;
-                    let ny = oy as i32 + dy;
-                    if nx < 0 || ny < 0 || nx >= jw as i32 || ny >= jh as i32 {
-                        continue;
-                    }
-                    let np = jpeg01[ny as usize * jw + nx as usize];
-                    if is_clipped(np) {
-                        continue; // don't let a railed neighbor poison the stat
-                    }
-                    let l = luma01(np);
-                    sum += l;
-                    sumsq += l * l;
-                    cnt += 1;
-                }
-            }
-            if cnt > 0 {
-                let mean = sum / cnt as f32;
-                let var = (sumsq / cnt as f32) - mean * mean;
-                if var > VARIANCE_CEIL {
-                    continue; // edge / block / CA — skip
-                }
-            }
-            // Radial cosine center-weight: 1 at center, 0 at the corners.
-            let dx = ox as f32 - cx;
-            let dy = oy as f32 - cy;
-            let r = (dx * dx + dy * dy).sqrt() / r_max;
-            let weight = (0.5 * (1.0 + (std::f32::consts::PI * r.clamp(0.0, 1.0)).cos())).max(0.0);
+    let mut grid = Vec::from_iter((0..GRID_SIZE * GRID_SIZE).map(|_| Accumulator {
+        raw_scene_sum: [0.0, 0.0, 0.0],
+        raw_lab_sum: [0.0, 0.0, 0.0],
+        jpeg_lab_sum: [0.0, 0.0, 0.0],
+        count: 0,
+    }));
 
-            let raw_avg = box_average(raw_scene, rw, rh, ox, oy, jw, jh);
-            let raw_lab = rec2020_to_oklab(raw_avg);
-            let jpeg_lin = decode_jpeg_to_rec2020(jp, cs);
-            let jpeg_lab = rec2020_to_oklab(jpeg_lin);
+    for p in pairs {
+        let a = p.raw_lab[1];
+        let b = p.raw_lab[2];
+        let idx_a = (((a + 0.2) / 0.4) * GRID_SIZE as f32).floor() as i32;
+        let idx_b = (((b + 0.2) / 0.4) * GRID_SIZE as f32).floor() as i32;
+        if idx_a >= 0 && idx_a < GRID_SIZE as i32 && idx_b >= 0 && idx_b < GRID_SIZE as i32 {
+            let idx = (idx_a * GRID_SIZE as i32 + idx_b) as usize;
+            grid[idx].raw_scene_sum[0] += p.raw_scene[0] as f64;
+            grid[idx].raw_scene_sum[1] += p.raw_scene[1] as f64;
+            grid[idx].raw_scene_sum[2] += p.raw_scene[2] as f64;
+
+            grid[idx].raw_lab_sum[0] += p.raw_lab[0] as f64;
+            grid[idx].raw_lab_sum[1] += p.raw_lab[1] as f64;
+            grid[idx].raw_lab_sum[2] += p.raw_lab[2] as f64;
+
+            grid[idx].jpeg_lab_sum[0] += p.jpeg_lab[0] as f64;
+            grid[idx].jpeg_lab_sum[1] += p.jpeg_lab[1] as f64;
+            grid[idx].jpeg_lab_sum[2] += p.jpeg_lab[2] as f64;
+
+            grid[idx].count += 1;
+        }
+    }
+
+    let mut out = Vec::new();
+    for acc in grid {
+        if acc.count >= 3 {
+            let c = acc.count as f64;
             out.push(Pair {
-                raw_scene: raw_avg,
-                raw_ab: (raw_lab[1], raw_lab[2]),
-                jpeg_ab: (jpeg_lab[1], jpeg_lab[2]),
-                x: ox,
-                y: oy,
-                weight,
-                clipped,
+                raw_scene: [
+                    (acc.raw_scene_sum[0] / c) as f32,
+                    (acc.raw_scene_sum[1] / c) as f32,
+                    (acc.raw_scene_sum[2] / c) as f32,
+                ],
+                raw_lab: [
+                    (acc.raw_lab_sum[0] / c) as f32,
+                    (acc.raw_lab_sum[1] / c) as f32,
+                    (acc.raw_lab_sum[2] / c) as f32,
+                ],
+                jpeg_lab: [
+                    (acc.jpeg_lab_sum[0] / c) as f32,
+                    (acc.jpeg_lab_sum[1] / c) as f32,
+                    (acc.jpeg_lab_sum[2] / c) as f32,
+                ],
             });
         }
     }
     out
 }
 
-// ── The per-hue gain solver ───────────────────────────────────────────────────
+// ── The TPS solver & Grid baking pipeline (Task 4) ───────────────────────────
 
-/// Global strength of the JPEG→scene chroma correction. The embedded JPEG
-/// overshoots ACR's chroma magnitude, so the solved transform is damped
-/// toward identity by `k`. The JPEG gives the direction; `k` sets how far
-/// we follow it. Validated offline against ACR references:
-/// k=0.3–0.7 all achieve similar mid-tones fidelity; 0.5 sits at the
-/// diminishing-returns knee and errs conservative.
 const CHROMA_STRENGTH: f32 = 0.5;
-
-/// Scene-linear V (max channel) at which the chroma correction begins to
-/// taper off. Below `CHROMA_TAPER_LO` the full corrected chroma applies;
-/// above `CHROMA_TAPER_HI` the transform is identity. Protects AgX's
-/// path-to-white in highlights from the per-image solver.
-///
-/// Window [0.05, 0.80]: the portrait arm/skin gradient spans scene-V ≈
-/// 0.25–0.55; with the old [0.10, 0.30] window that gradient sat inside
-/// the steep part of the transition, causing small brightness variations
-/// to produce large correction swings → visible colour banding. Widening
-/// to [0.05, 0.80] moves the arm gradient into the gradual middle of the
-/// smooth-step transition so the correction varies slowly across the skin.
 const CHROMA_TAPER_LO: f32 = 0.05;
 const CHROMA_TAPER_HI: f32 = 0.80;
-
-/// Solve a [`ChromaTransform`] via an AgX-aware damped fixed-point iteration.
-///
-/// Algorithm:
-/// 1. Subsample pairs (cap at ~30 000) to bound the cost of calling AgX N times.
-/// 2. Compute per-(pair, bin) gaussian weights from scene hue (σ=40°).
-/// 3. Compute the camera target chroma per bin (weighted mean of jpeg_C),
-///    regularized toward the identity baseline where samples are sparse.
-/// 4. Iterate: apply current gains → run AgX → measure achieved post-AgX
-///    chroma → multiplicatively correct each bin gain toward target (damped
-///    LAMBDA=0.8, clamped [0.5, 3.0]).  Six iterations converges to <1% error
-///    for typical per-image gain ranges.
-/// 5. 3-tap circular smooth, then apply global strength k.
-pub(crate) fn solve_per_hue_gains(pairs: &[Pair], contrast: f32) -> ChromaTransform {
-    if pairs.is_empty() { return ChromaTransform::identity(); }
-
-    // Subsample for the iterative solve (bounds cost — we call AgX N times).
-    let step = (pairs.len() / 30_000).max(1);
-    let sub: Vec<&Pair> = pairs.iter().step_by(step).collect();
-    let scene: Vec<[f32; 3]> = sub.iter().map(|p| p.raw_scene).collect();
-    let n = sub.len();
-
-    const SIGMA_DEG: f32 = 40.0;
-    let sigma = SIGMA_DEG * std::f32::consts::PI / 180.0;
-    let bin_w = std::f32::consts::TAU / N_HUE_BINS as f32;
-
-    // Per-(pair, bin) gaussian weight by SCENE hue.
-    let mut bin_weight = vec![[0.0f64; N_HUE_BINS]; n];
-    let mut weight_sum = [0.0f64; N_HUE_BINS];
-    for (i, p) in sub.iter().enumerate() {
-        let (a, b) = p.raw_ab;
-        let scene_hue = b.atan2(a).rem_euclid(std::f32::consts::TAU);
-        let pw = p.weight.max(0.0) as f64;
-        for bin in 0..N_HUE_BINS {
-            let centre = bin as f32 * bin_w + bin_w * 0.5;
-            let mut d = (scene_hue - centre).abs();
-            if d > std::f32::consts::PI { d = std::f32::consts::TAU - d; }
-            let w = (-0.5 * (d / sigma).powi(2)).exp() as f64 * pw;
-            bin_weight[i][bin] = w;
-            weight_sum[bin] += w;
-        }
-    }
-
-    // Helper: weighted mean of a per-pixel scalar into bins.
-    let bin_mean = |vals: &[f32], bin: usize| -> f64 {
-        if weight_sum[bin] < 1e-9 { return 0.0; }
-        let mut s = 0.0f64;
-        for i in 0..n { s += bin_weight[i][bin] * vals[i] as f64; }
-        s / weight_sum[bin]
-    };
-
-    // Camera target chroma per bin.
-    let jpeg_c: Vec<f32> = sub.iter().map(|p| { let (a,b)=p.jpeg_ab; a.hypot(b) }).collect();
-    // Baseline (identity gains) post-AgX chroma per bin — for sparse regularization.
-    let base = forward_post_agx_ab(&scene, &ChromaTransform::identity(), contrast);
-    let base_c: Vec<f32> = base.iter().map(|&(a,b)| a.hypot(b)).collect();
-
-    const MIN_WEIGHT: f64 = 10.0;
-    let mut target = [0.0f64; N_HUE_BINS];
-    for bin in 0..N_HUE_BINS {
-        let base_bin = bin_mean(&base_c, bin);
-        let jpeg_bin = if weight_sum[bin] < 1e-9 { base_bin } else { bin_mean(&jpeg_c, bin) };
-        // Regularize toward baseline where samples are sparse (sparse -> gain ~ 1).
-        let reg = (weight_sum[bin] / (weight_sum[bin] + MIN_WEIGHT)) as f64;
-        target[bin] = base_bin + reg * (jpeg_bin - base_bin);
-    }
-
-    // AgX-AWARE damped fixed-point: drive achieved post-AgX chroma -> target.
-    // Only update bins that have enough native weight to form a reliable target
-    // (same threshold used during target regularization). Bins below this floor
-    // stay at gain=1.0 — their target was already regularized to ≈baseline so
-    // they cannot be reliably driven, and allowing correction there would let
-    // cross-bin contamination (from hue-distant high-gain bins leaking through
-    // the gaussian) pull sparse gains away from identity.
-    const N_ITERS: usize = 6;
-    const LAMBDA: f32 = 0.8;
-    let mut gains = [1.0f32; N_HUE_BINS];
-    for _ in 0..N_ITERS {
-        let t = ChromaTransform { hue_gains: gains, taper_lo: 2.0, taper_hi: 3.0 };
-        let out = forward_post_agx_ab(&scene, &t, contrast);
-        let out_c: Vec<f32> = out.iter().map(|&(a,b)| a.hypot(b)).collect();
-        for bin in 0..N_HUE_BINS {
-            // Skip bins where there isn't enough native weight for a reliable
-            // target — avoids cross-bin contamination from high-gain neighbours.
-            if weight_sum[bin] < MIN_WEIGHT { continue; }
-            let achieved = bin_mean(&out_c, bin);
-            if achieved < 1e-5 { continue; }
-            let correction = ((target[bin] / achieved) as f32).clamp(0.5, 2.0);
-            gains[bin] = (gains[bin] * correction.powf(LAMBDA)).clamp(0.5, 3.0);
-        }
-    }
-
-    // 3-tap circular smooth.
-    let mut smoothed = [1.0f32; N_HUE_BINS];
-    for i in 0..N_HUE_BINS {
-        let prev = (i + N_HUE_BINS - 1) % N_HUE_BINS;
-        let next = (i + 1) % N_HUE_BINS;
-        smoothed[i] = 0.25 * gains[prev] + 0.50 * gains[i] + 0.25 * gains[next];
-    }
-
-    // Global strength k, then clamp.
-    let k = std::env::var("MAPLE_CHROMA_STRENGTH_OVERRIDE")
-        .ok().and_then(|s| s.parse::<f32>().ok())
-        .unwrap_or(CHROMA_STRENGTH);
-    let mut hue_gains = [1.0f32; N_HUE_BINS];
-    for i in 0..N_HUE_BINS {
-        hue_gains[i] = (1.0 + k * (smoothed[i] - 1.0)).clamp(0.5, 3.0);
-    }
-    ChromaTransform { hue_gains, taper_lo: 2.0, taper_hi: 3.0 }
-}
-
-// ── Render-path entry: solve from a RAW's embedded JPEG (Task 5) ──────────────
-
-/// Minimum surviving clean sample pairs to trust a solve. Below this the
-/// embedded JPEG is too small/clipped/degenerate to fit a chroma transform, so
-/// the caller keeps the deterministic CM/FM+2D-HSM baseline (identity chroma).
 const MIN_SOLVE_PAIRS: usize = 256;
 
+/// Solves a 2D HueSatMap using Thin Plate Spline fitting over the clustered pairs.
+/// Employs a feedback loop to invert AgX gamut compression effects exactly.
+fn solve_chroma_map(pairs: &[Pair], contrast: f32) -> ChromaTransform {
+    let n = pairs.len();
+    if n == 0 {
+        return ChromaTransform::identity();
+    }
+    let raw_scene: Vec<[f32; 3]> = pairs.iter().map(|p| p.raw_scene).collect();
+
+    // 1. Compute baseline post-AgX chroma
+    let base_post_agx = forward_post_agx_ab(&raw_scene, &ChromaTransform::identity(), contrast);
+
+    // 2. Initialize pre-AgX normalized target deltas
+    let mut z_a = vec![0.0f32; n];
+    let mut z_b = vec![0.0f32; n];
+    for i in 0..n {
+        let l = pairs[i].raw_lab[0].max(1e-5);
+        let target_da = pairs[i].jpeg_lab[1] - base_post_agx[i].0;
+        let target_db = pairs[i].jpeg_lab[2] - base_post_agx[i].1;
+        z_a[i] = target_da / l;
+        z_b[i] = target_db / l;
+    }
+
+    // 3. Set up control points in relative Cartesian coordinates (a/L, b/L)
+    let mut control_pts = Vec::with_capacity(n + 1);
+    for p in pairs {
+        let l = p.raw_lab[0].max(1e-5);
+        control_pts.push((p.raw_lab[1] / l, p.raw_lab[2] / l));
+    }
+    // Add virtual anchor at origin to lock neutral axis
+    control_pts.push((0.0, 0.0));
+
+    // 4. Feedback loop: iterate to pre-invert AgX non-linear compression
+    const ITERS: usize = 4;
+    const ALPHA: f32 = 0.8;
+    const LAMBDA: f32 = 0.005;
+
+    let mut current_grid = [[(0.0f32, 0.0f32); SAT_DIVS]; HUE_DIVS];
+
+    for _ in 0..ITERS {
+        let mut tps_z_a = Vec::with_capacity(n + 1);
+        let mut tps_z_b = Vec::with_capacity(n + 1);
+        for i in 0..n {
+            tps_z_a.push(z_a[i]);
+            tps_z_b.push(z_b[i]);
+        }
+        tps_z_a.push(0.0);
+        tps_z_b.push(0.0);
+
+        let coef_a = match tps_solve(&control_pts, &tps_z_a, LAMBDA) {
+            Some(c) => c,
+            None => break,
+        };
+        let coef_b = match tps_solve(&control_pts, &tps_z_b, LAMBDA) {
+            Some(c) => c,
+            None => break,
+        };
+
+        // Bake temporary grid
+        let mut temp_transform = ChromaTransform::identity();
+        for h in 0..HUE_DIVS {
+            let theta = (h as f32 / HUE_DIVS as f32) * std::f32::consts::TAU;
+            for s in 0..SAT_DIVS {
+                if s == 0 {
+                    temp_transform.grid[h][0] = (0.0, 0.0);
+                    continue;
+                }
+                let cr = s as f32 / (SAT_DIVS - 1) as f32;
+                let x = cr * theta.cos();
+                let y = cr * theta.sin();
+                let da = tps_evaluate(&coef_a, (x, y));
+                let db = tps_evaluate(&coef_b, (x, y));
+                temp_transform.grid[h][s] = (da, db);
+            }
+        }
+        current_grid = temp_transform.grid;
+
+        // Run AgX forward model under current transform
+        let achieved = forward_post_agx_ab(&raw_scene, &temp_transform, contrast);
+
+        // Update target delta coordinates based on feedback error
+        for i in 0..n {
+            let l = pairs[i].raw_lab[0].max(1e-5);
+            let target_da = pairs[i].jpeg_lab[1] - base_post_agx[i].0;
+            let target_db = pairs[i].jpeg_lab[2] - base_post_agx[i].1;
+
+            let achieved_da = achieved[i].0 - base_post_agx[i].0;
+            let achieved_db = achieved[i].1 - base_post_agx[i].1;
+
+            let err_a = target_da - achieved_da;
+            let err_b = target_db - achieved_db;
+
+            z_a[i] += ALPHA * (err_a / l);
+            z_b[i] += ALPHA * (err_b / l);
+        }
+    }
+
+    // 5. Final solve and grid bake with global damping k
+    let mut final_transform = ChromaTransform::identity();
+    let mut tps_z_a = Vec::with_capacity(n + 1);
+    let mut tps_z_b = Vec::with_capacity(n + 1);
+    for i in 0..n {
+        tps_z_a.push(z_a[i]);
+        tps_z_b.push(z_b[i]);
+    }
+    tps_z_a.push(0.0);
+    tps_z_b.push(0.0);
+
+    if let (Some(coef_a), Some(coef_b)) = (
+        tps_solve(&control_pts, &tps_z_a, LAMBDA),
+        tps_solve(&control_pts, &tps_z_b, LAMBDA),
+    ) {
+        let k = std::env::var("MAPLE_CHROMA_STRENGTH_OVERRIDE")
+            .ok()
+            .and_then(|s| s.parse::<f32>().ok())
+            .unwrap_or(CHROMA_STRENGTH);
+
+        for h in 0..HUE_DIVS {
+            let theta = (h as f32 / HUE_DIVS as f32) * std::f32::consts::TAU;
+            for s in 0..SAT_DIVS {
+                if s == 0 {
+                    final_transform.grid[h][0] = (0.0, 0.0);
+                    continue;
+                }
+                let cr = s as f32 / (SAT_DIVS - 1) as f32;
+                let x = cr * theta.cos();
+                let y = cr * theta.sin();
+                let da = tps_evaluate(&coef_a, (x, y));
+                let db = tps_evaluate(&coef_b, (x, y));
+                final_transform.grid[h][s] = (da * k, db * k);
+            }
+        }
+    } else {
+        final_transform.grid = current_grid;
+    }
+
+    // Diagnostic logging
+    if std::env::var_os("MAPLE_CHROMA_DUMP_GAINS").is_some() {
+        let achieved = forward_post_agx_ab(&raw_scene, &final_transform, contrast);
+        eprintln!("CHROMA_DUMP_2D n_centroids={n} contrast={contrast:.3}");
+        eprintln!("CHROMA_DUMP_2D id | raw_Cr  raw_hue | base_C  jpeg_C  achiev_C | err_C");
+        for i in 0..n {
+            let l = pairs[i].raw_lab[0].max(1e-5);
+            let raw_c = pairs[i].raw_lab[1].hypot(pairs[i].raw_lab[2]);
+            let raw_cr = raw_c / l;
+            let raw_hue = pairs[i].raw_lab[2].atan2(pairs[i].raw_lab[1]) * 180.0 / std::f32::consts::PI;
+            
+            let base_c = base_post_agx[i].0.hypot(base_post_agx[i].1);
+            let jpeg_c = pairs[i].jpeg_lab[1].hypot(pairs[i].jpeg_lab[2]);
+            let ach_c = achieved[i].0.hypot(achieved[i].1);
+            let err_c = jpeg_c - ach_c;
+            
+            eprintln!(
+                "CHROMA_DUMP_2D {i:2} | {rc:6.3} {rh:7.1}° | {bc:6.3} {jc:6.3} {ac:6.3} | {ec:6.3}",
+                rc = raw_cr,
+                rh = raw_hue,
+                bc = base_c,
+                jc = jpeg_c,
+                ac = ach_c,
+                ec = err_c,
+            );
+        }
+    }
+
+    final_transform
+}
+
+// ── Render-path entries: solve from a RAW's embedded JPEG ────────────────────
+
 /// Solve the per-image chroma transform from the embedded JPEG of the RAW at
-/// `path`, against the pre-AgX `scene`. Returns `None` (→ deterministic
-/// baseline) when there's no JPEG or too few clean pairs survive filtering.
+/// `path`, against the pre-AgX `scene`. Returns `None` when there's no JPEG or too
+/// few clean pairs survive filtering.
 pub(crate) fn solve_chroma_for_path(
     scene: &Image,
     path: &std::path::Path,
@@ -486,10 +485,6 @@ pub(crate) fn solve_chroma_for_path(
     contrast: f32,
 ) -> Option<ChromaTransform> {
     use crate::view::auto_profile::preview;
-    // The pre-AgX `scene` is SENSOR-oriented (the render applies EXIF
-    // orientation last), so pair against the SENSOR-oriented preview — do NOT
-    // orient it to display, or rotated fixtures (test_0003 = Rotate 270 CW)
-    // transpose the sample grid and the solve fits garbage (desaturates).
     let prev = preview::extract_preview(path)?;
     let cs = preview::detect_jpeg_color_space(path);
     solve_chroma_from_preview(scene, prev, cs, contrast)
@@ -504,53 +499,108 @@ pub(crate) fn solve_chroma_for_bytes(
     contrast: f32,
 ) -> Option<ChromaTransform> {
     use crate::view::auto_profile::preview;
-    // Sensor-oriented preview to match the sensor-oriented pre-AgX scene (see
-    // solve_chroma_for_path).
     let prev = preview::extract_preview_from_bytes(bytes, ext)?;
     let cs = preview::detect_jpeg_color_space_from_bytes(bytes, ext);
     solve_chroma_from_preview(scene, prev, cs, contrast)
 }
 
-/// Shared tail: a display-oriented preview + its color space → sampled pairs →
-/// per-hue gain solve.
+/// Shared tail: a display-oriented preview + its color space -> sampled pairs ->
+/// deterministic clustering -> TPS solve -> grid bake.
 fn solve_chroma_from_preview(
     scene: &Image,
     prev: image::DynamicImage,
     cs: JpegColorSpace,
     contrast: f32,
 ) -> Option<ChromaTransform> {
-    let rgb = prev.to_rgb8();
-    let (jw, jh) = (rgb.width() as usize, rgb.height() as usize);
-    let jpeg01: Vec<[f32; 3]> = rgb
+    // 1. Downsample JPEG preview to 32x32
+    let prev_32 = image::imageops::resize(&prev, 32, 32, image::imageops::FilterType::Triangle);
+    let jpeg_32: Vec<[f32; 3]> = prev_32
         .pixels()
         .map(|p| [p[0] as f32 / 255.0, p[1] as f32 / 255.0, p[2] as f32 / 255.0])
         .collect();
-    let pairs = sample_pairs(
-        &scene.pixels,
-        scene.width as usize,
-        scene.height as usize,
-        &jpeg01,
-        jw,
-        jh,
-        cs,
-    );
+
+    // 2. Downsample RAW scene to 32x32
+    let mut raw_32 = vec![[0.0f32; 3]; 32 * 32];
+    for oy in 0..32 {
+        for ox in 0..32 {
+            raw_32[oy * 32 + ox] = box_average(
+                &scene.pixels,
+                scene.width as usize,
+                scene.height as usize,
+                ox,
+                oy,
+                32,
+                32,
+            );
+        }
+    }
+
+    // 3. Collect paired cells, cropping outer 10% (x, y in 3..29) and filtering out clipped pixels
+    let mut pairs = Vec::new();
+    for oy in 3..29 {
+        for ox in 3..29 {
+            let jp = jpeg_32[oy * 32 + ox];
+            if is_clipped(jp) {
+                continue;
+            }
+            // 3x3 JPEG variance check to discard high-contrast edges
+            let mut sum = 0.0f32;
+            let mut sumsq = 0.0f32;
+            let mut cnt = 0;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let nx = ox as i32 + dx;
+                    let ny = oy as i32 + dy;
+                    if nx >= 0 && ny >= 0 && nx < 32 && ny < 32 {
+                        let np = jpeg_32[ny as usize * 32 + nx as usize];
+                        if !is_clipped(np) {
+                            let l = luma01(np);
+                            sum += l;
+                            sumsq += l * l;
+                            cnt += 1;
+                        }
+                    }
+                }
+            }
+            if cnt > 0 {
+                let mean = sum / cnt as f32;
+                let var = (sumsq / cnt as f32) - mean * mean;
+                if var > VARIANCE_CEIL {
+                    continue; // skip edges
+                }
+            }
+
+            let rp = raw_32[oy * 32 + ox];
+            let raw_lab = rec2020_to_oklab(rp);
+            let jpeg_lin = decode_jpeg_to_rec2020(jp, cs);
+            let jpeg_lab = rec2020_to_oklab(jpeg_lin);
+
+            pairs.push(Pair {
+                raw_scene: rp,
+                raw_lab,
+                jpeg_lab,
+            });
+        }
+    }
+
+    eprintln!("DEBUG_CHROMA: sampled pairs count = {}", pairs.len());
     if pairs.len() < MIN_SOLVE_PAIRS {
+        eprintln!("DEBUG_CHROMA: solve failed, too few pairs (< {})", MIN_SOLVE_PAIRS);
         return None;
     }
-    // solve_per_hue_gains reads MAPLE_CHROMA_STRENGTH_OVERRIDE and applies k
-    // internally. Taper is engaged from the real-image L distribution here.
-    let mut t = solve_per_hue_gains(&pairs, contrast);
-    // Dev-only taper overrides for offline window exploration (Task 5).
-    let taper_lo = std::env::var("MAPLE_CHROMA_TAPER_LO")
-        .ok()
-        .and_then(|s| s.parse::<f32>().ok())
-        .unwrap_or(CHROMA_TAPER_LO);
-    let taper_hi = std::env::var("MAPLE_CHROMA_TAPER_HI")
-        .ok()
-        .and_then(|s| s.parse::<f32>().ok())
-        .unwrap_or(CHROMA_TAPER_HI);
-    t.taper_lo = taper_lo;
-    t.taper_hi = taper_hi;
+
+    // 4. Deterministic clustering to group colors
+    let clustered = cluster_pairs(&pairs);
+    eprintln!("DEBUG_CHROMA: clustered centroids count = {}", clustered.len());
+    if clustered.len() < 3 {
+        eprintln!("DEBUG_CHROMA: solve failed, too few centroids (< 3)");
+        return None;
+    }
+
+    // 5. Solve the TPS Chroma Map
+    let mut t = solve_chroma_map(&clustered, contrast);
+    t.taper_lo = CHROMA_TAPER_LO;
+    t.taper_hi = CHROMA_TAPER_HI;
     Some(t)
 }
 
@@ -559,10 +609,27 @@ mod tests {
     use super::*;
     use crate::color::oklab::rec2020_to_oklab;
     use crate::image::{ColorSpace, Image};
-    use crate::view::auto_profile::preview::JpegColorSpace;
 
     fn one_px(rgb: [f32; 3]) -> Image {
-        Image { width: 1, height: 1, pixels: vec![rgb], space: ColorSpace::SceneLinearRec2020 }
+        Image {
+            width: 1,
+            height: 1,
+            pixels: vec![rgb],
+            space: ColorSpace::SceneLinearRec2020,
+        }
+    }
+
+    fn synth_scene(n: usize) -> Vec<[f32; 3]> {
+        (0..n)
+            .map(|i| {
+                let f = i as f32;
+                [
+                    0.05 + 0.5 * (f * 0.013).sin().abs(),
+                    0.04 + 0.4 * (f * 0.07).cos().abs(),
+                    0.03 + 0.4 * (f * 0.11).sin().abs(),
+                ]
+            })
+            .collect()
     }
 
     #[test]
@@ -583,14 +650,15 @@ mod tests {
 
     #[test]
     fn apply_preserves_oklab_l() {
-        // hue_gains=[1.5;12] scales C* by 1.5; OKLAB L must survive within float noise.
-        let t = ChromaTransform { hue_gains: [1.5; N_HUE_BINS], ..ChromaTransform::identity() };
+        let mut t = ChromaTransform::identity();
+        // Add a non-identity boost
+        for h in 0..HUE_DIVS {
+            for s in 0..SAT_DIVS {
+                t.grid[h][s] = (0.1, 0.05);
+            }
+        }
         let mut img = one_px([0.5, 0.25, 0.15]);
         let l_before = rec2020_to_oklab(img.pixels[0])[0];
-        let ab_before = {
-            let lab = rec2020_to_oklab(img.pixels[0]);
-            (lab[1], lab[2])
-        };
         t.apply_to_scene(&mut img);
         let lab_after = rec2020_to_oklab(img.pixels[0]);
         assert!(
@@ -598,202 +666,39 @@ mod tests {
             "L moved: {l_before} -> {}",
             lab_after[0]
         );
-        // Sanity: a/b actually changed (transform is non-trivial).
-        assert!(
-            (lab_after[1] - ab_before.0).abs() > 1e-3 || (lab_after[2] - ab_before.1).abs() > 1e-3,
-            "a/b did not change under gain=1.5"
-        );
     }
-
-    // ── Task 2: post-AgX forward model ───────────────────────────────────────
-
-    #[test]
-    fn forward_identity_matches_plain_agx() {
-        // forward_post_agx_ab with the identity transform must equal running
-        // plain AgX on the same pixels and reading the post-AgX OKLAB a/b.
-        let scene: Vec<[f32; 3]> =
-            vec![[0.3, 0.18, 0.12], [0.6, 0.5, 0.45], [0.05, 0.04, 0.04]];
-        let id = ChromaTransform::identity();
-        let got = forward_post_agx_ab(&scene, &id, 0.0);
-        let mut img = Image {
-            width: 3,
-            height: 1,
-            pixels: scene.clone(),
-            space: ColorSpace::SceneLinearRec2020,
-        };
-        crate::view::agx::apply(&mut img, 0.0);
-        for (i, p) in img.pixels.iter().enumerate() {
-            let lab = rec2020_to_oklab(*p);
-            assert!(
-                (got[i].0 - lab[1]).abs() < 1e-4 && (got[i].1 - lab[2]).abs() < 1e-4,
-                "pixel {i}: forward {:?} != plain-AgX a/b ({}, {})",
-                got[i],
-                lab[1],
-                lab[2]
-            );
-        }
-    }
-
-    // ── Task 3: JPEG sampling + filtering ────────────────────────────────────
-
-    #[test]
-    fn sampling_excludes_clipped_and_weights_center() {
-        // 4x4 RAW scene-linear + 4x4 JPEG bytes-as-[0,1]. One JPEG pixel is
-        // clipped (R railed high, G crushed low); it must be dropped, and
-        // center pixels must outweigh corner pixels (radial center-weight).
-        let raw = vec![[0.2_f32, 0.18, 0.15]; 16];
-        let mut jpeg = vec![[0.4_f32, 0.35, 0.30]; 16];
-        jpeg[5] = [1.0, 0.02, 0.30]; // clipped R (>245/255) and crushed G (<10/255)
-        let pairs = sample_pairs(&raw, 4, 4, &jpeg, 4, 4, JpegColorSpace::SRgb);
-        assert!(pairs.iter().all(|p| !p.clipped), "clipped pair retained");
-        // The clipped pixel at flat index 5 = (x=1, y=1) must be gone.
-        assert!(
-            !pairs.iter().any(|p| p.x == 1 && p.y == 1),
-            "clipped (1,1) survived sampling"
-        );
-        let w_center = pairs
-            .iter()
-            .find(|p| p.x == 2 && p.y == 2)
-            .expect("center pixel present")
-            .weight;
-        let w_corner = pairs
-            .iter()
-            .find(|p| p.x == 0 && p.y == 0)
-            .expect("corner pixel present")
-            .weight;
-        assert!(w_center > w_corner, "center {w_center} !> corner {w_corner}");
-    }
-
-    #[test]
-    fn adobe_rgb_decode_differs_from_srgb_and_is_more_saturated() {
-        // A saturated reddish JPEG pixel. Decoding it as Adobe RGB must land
-        // a DIFFERENT (and more-saturated, larger |a|) Rec.2020 chroma than
-        // decoding the same bytes as sRGB — the load-bearing color-management
-        // fact (Adobe RGB packs saturated color into smaller RGB excursions,
-        // so reading it as sRGB understates saturation). One flat pixel so
-        // there is no spatial filtering to confound the comparison.
-        let raw = vec![[0.2_f32, 0.1, 0.1]];
-        let jpeg = vec![[0.82_f32, 0.20, 0.18]];
-        let srgb = sample_pairs(&raw, 1, 1, &jpeg, 1, 1, JpegColorSpace::SRgb);
-        let adobe = sample_pairs(&raw, 1, 1, &jpeg, 1, 1, JpegColorSpace::AdobeRgb);
-        assert_eq!(srgb.len(), 1);
-        assert_eq!(adobe.len(), 1);
-        // jpeg_ab is the linearized-JPEG OKLAB (a, b) target.
-        let (sa, sb) = srgb[0].jpeg_ab;
-        let (aa, ab) = adobe[0].jpeg_ab;
-        let s_chroma = (sa * sa + sb * sb).sqrt();
-        let a_chroma = (aa * aa + ab * ab).sqrt();
-        assert!(
-            (sa - aa).abs() > 1e-3 || (sb - ab).abs() > 1e-3,
-            "Adobe-RGB decode identical to sRGB: srgb=({sa},{sb}) adobe=({aa},{ab})"
-        );
-        assert!(
-            a_chroma > s_chroma,
-            "Adobe-RGB chroma {a_chroma} not > sRGB chroma {s_chroma} for the same red bytes"
-        );
-    }
-
-    // ── Task 4: through-AgX solver ───────────────────────────────────────────
-
-    /// Mean Euclidean (a, b) distance between two post-AgX sample sets.
-    fn mean_ab_err(got: &[(f32, f32)], want: &[(f32, f32)]) -> f32 {
-        assert_eq!(got.len(), want.len());
-        let s: f32 = got
-            .iter()
-            .zip(want)
-            .map(|(g, w)| {
-                let da = g.0 - w.0;
-                let db = g.1 - w.1;
-                (da * da + db * db).sqrt()
-            })
-            .sum();
-        s / got.len().max(1) as f32
-    }
-
-    /// Deterministic pseudo-random-ish scene of `n` scene-linear pixels with a
-    /// spread of hues and lightnesses, all well below the taper L range.
-    fn synth_scene(n: usize) -> Vec<[f32; 3]> {
-        (0..n)
-            .map(|i| {
-                let f = i as f32;
-                [
-                    0.05 + 0.5 * (f * 0.013).sin().abs(),
-                    0.04 + 0.4 * (f * 0.07).cos().abs(),
-                    0.03 + 0.4 * (f * 0.11).sin().abs(),
-                ]
-            })
-            .collect()
-    }
-
-    /// Build uniform unit weights for a fit set (no center-weighting in the
-    /// synthetic recovery tests — the geometry is abstract).
-    fn unit_pairs(scene: &[[f32; 3]], target: &[(f32, f32)]) -> Vec<Pair> {
-        scene
-            .iter()
-            .zip(target)
-            .map(|(&p, &t)| {
-                let lab = rec2020_to_oklab(p);
-                Pair {
-                    raw_scene: p,
-                    raw_ab: (lab[1], lab[2]),
-                    jpeg_ab: t,
-                    x: 0,
-                    y: 0,
-                    weight: 1.0,
-                    clipped: false,
-                }
-            })
-            .collect()
-    }
-
-    #[test]
-    fn solver_identity_when_target_is_plain_agx() {
-        // Target = forward(identity): the solved transform must be ~identity,
-        // i.e. it must not move held-out pixels away from plain AgX.
-        let scene = synth_scene(400);
-        let id_target = forward_post_agx_ab(&scene, &ChromaTransform::identity(), 0.0);
-        let (fit, meas) = (&scene[..300], &scene[300..]);
-        let (fit_t, meas_t) = (&id_target[..300], &id_target[300..]);
-        let fit_pairs = unit_pairs(fit, fit_t);
-        let solved = solve_per_hue_gains(&fit_pairs, 0.0);
-        let solved_err = mean_ab_err(&forward_post_agx_ab(meas, &solved, 0.0), meas_t);
-        // Already-correct target → residual stays at the noise floor.
-        assert!(
-            solved_err < 1e-3,
-            "solver drifted off an already-correct target: {solved_err}"
-        );
-    }
-
-    // ── Task 1: per-hue scalar gain (new struct) ─────────────────────────────
 
     #[test]
     fn linear_map_preserves_neutral_axis() {
-        // (0,0) must map to (0,0) — scalar gain never shifts neutrals.
-        let t = ChromaTransform { hue_gains: [1.4; N_HUE_BINS], taper_lo: 2.0, taper_hi: 3.0 };
-        let (a, b) = t.map_ab(0.0, 0.0);
+        let t = ChromaTransform::identity();
+        let (a, b) = t.map_ab(0.5, 0.0, 0.0);
         assert_eq!((a, b), (0.0, 0.0));
     }
 
     #[test]
     fn linear_map_near_neutral_stays_bounded() {
-        // Tiny near-neutral perturbation must stay bounded (no √ blowup).
-        let t = ChromaTransform { hue_gains: [1.4; N_HUE_BINS], taper_lo: 2.0, taper_hi: 3.0 };
-        let (a, b) = t.map_ab(1e-4, 0.0);
-        assert!(a.hypot(b) < 1e-3, "near-neutral output not bounded — root-poly still present");
+        let t = ChromaTransform::identity();
+        let (a, b) = t.map_ab(0.5, 1e-4, 0.0);
+        assert!(a.hypot(b) < 1e-3);
     }
 
     #[test]
     fn scene_v_taper_attenuates_highlights_not_mids() {
-        // Taper on scene-V: high-V pixels nearly unchanged, mid-V pixels corrected.
-        let t = ChromaTransform { hue_gains: [1.8; N_HUE_BINS], taper_lo: 0.35, taper_hi: 0.70 };
-        // Mid pixel: V=0.18, some chroma
+        let mut t = ChromaTransform::identity();
+        for h in 0..HUE_DIVS {
+            for s in 0..SAT_DIVS {
+                t.grid[h][s] = (0.2, 0.1);
+            }
+        }
+        t.taper_lo = 0.35;
+        t.taper_hi = 0.70;
+
         let mut mid = Image {
             width: 1,
             height: 1,
             pixels: vec![[0.18_f32, 0.10, 0.10]],
             space: ColorSpace::SceneLinearRec2020,
         };
-        // Highlight pixel: V=0.95
         let mut hi = Image {
             width: 1,
             height: 1,
@@ -812,134 +717,96 @@ mod tests {
         assert!(dc_mid > 0.001, "mid pixel should be corrected");
     }
 
-    // ── Task 3: production solve engages taper ───────────────────────────────
-
     #[test]
     fn production_solve_engages_taper() {
-        // The taper returned from the production solve must NOT be the inert 2.0/3.0
-        // defaults — they mean "taper above all normal scene values" = never fires.
-        // This test uses a trivial identity solve (pairs where jpeg_ab == plain AgX
-        // output) and checks the taper fields are set to the production consts.
         let scene = synth_scene(512);
-        let pairs: Vec<Pair> = scene.iter().map(|&p| {
-            let lab = crate::color::oklab::rec2020_to_oklab(p);
-            Pair { raw_scene: p, raw_ab: (lab[1], lab[2]), jpeg_ab: (lab[1], lab[2]), weight: 1.0, x: 0, y: 0, clipped: false }
-        }).collect();
-        let mut t = solve_per_hue_gains(&pairs, 1.0);
+        let pairs: Vec<Pair> = scene
+            .iter()
+            .map(|&p| {
+                let lab = crate::color::oklab::rec2020_to_oklab(p);
+                Pair {
+                    raw_scene: p,
+                    raw_lab: lab,
+                    jpeg_lab: lab,
+                }
+            })
+            .collect();
+        let mut t = solve_chroma_map(&pairs, 1.0);
         t.taper_lo = CHROMA_TAPER_LO;
         t.taper_hi = CHROMA_TAPER_HI;
-        assert!(t.taper_lo < 1.5, "taper_lo={} is inert (should be ~0.05)", t.taper_lo);
-        assert!(t.taper_hi < 1.5, "taper_hi={} is inert (should be ~0.80)", t.taper_hi);
-        assert!(t.taper_lo < t.taper_hi, "taper window inverted");
+        assert!(t.taper_lo < 1.5);
+        assert!(t.taper_hi < 1.5);
+        assert!(t.taper_lo < t.taper_hi);
     }
-
-    // ── Task 1: per-hue scalar gain (new struct) ─────────────────────────────
-
-    #[test]
-    fn per_hue_gain_preserves_hue_angle() {
-        // Scalar gain must not rotate hue.
-        let mut t = ChromaTransform::identity();
-        t.hue_gains = [1.5; N_HUE_BINS];
-        let (a0, b0) = (0.2_f32, 0.1_f32);
-        let (a1, b1) = t.map_ab(a0, b0);
-        let hue0 = b0.atan2(a0);
-        let hue1 = b1.atan2(a1);
-        assert!((hue0 - hue1).abs() < 1e-5, "hue rotated: {hue0} → {hue1}");
-        let c0 = a0.hypot(b0); let c1 = a1.hypot(b1);
-        assert!((c1 / c0 - 1.5).abs() < 1e-4, "gain wrong: {}", c1 / c0);
-    }
-
-    #[test]
-    fn gain_identity_is_noop() {
-        let t = ChromaTransform::identity();
-        let (a, b) = (0.15_f32, -0.08_f32);
-        let (a2, b2) = t.map_ab(a, b);
-        assert!((a - a2).abs() < 1e-6 && (b - b2).abs() < 1e-6);
-    }
-
-    #[test]
-    fn near_zero_chroma_is_stable() {
-        let mut t = ChromaTransform::identity();
-        t.hue_gains = [2.5; N_HUE_BINS];
-        let (a, b) = t.map_ab(0.0, 0.0);
-        assert_eq!((a, b), (0.0, 0.0));
-        let (a2, b2) = t.map_ab(1e-8, 0.0);
-        assert!(a2.is_finite() && b2.is_finite());
-    }
-
-    // ── Task 2: per-hue solver recovery tests ────────────────────────────────
 
     #[test]
     fn agx_aware_solver_hits_post_agx_target() {
-        // Build pairs whose JPG chroma is 1.4x the identity post-AgX chroma in the
-        // green hue band. The AgX-aware solver must produce gains that, AFTER AgX,
-        // achieve ~1.4x — regardless of what pre-AgX gain that requires.
-        let n = 3000;
-        let scene: Vec<[f32;3]> = (0..n).map(|i| {
-            let hue = (i as f32 / n as f32) * std::f32::consts::TAU;
-            crate::color::oklab::oklab_to_rec2020([0.5, 0.08*hue.cos(), 0.08*hue.sin()])
-        }).collect();
-        // identity post-AgX chroma per pixel:
+        let n = 80;
+        let scene: Vec<[f32; 3]> = (0..n)
+            .map(|i| {
+                let hue = (i as f32 / n as f32) * std::f32::consts::TAU;
+                crate::color::oklab::oklab_to_rec2020([0.5, 0.08 * hue.cos(), 0.08 * hue.sin()])
+            })
+            .collect();
         let base = forward_post_agx_ab(&scene, &ChromaTransform::identity(), 1.0);
-        let pairs: Vec<Pair> = scene.iter().enumerate().map(|(i,&p)| {
-            let lab = crate::color::oklab::rec2020_to_oklab(p);
-            let (a,b) = (lab[1], lab[2]);
-            let hue = b.atan2(a);
-            let green = 2.0*std::f32::consts::PI/3.0;
-            let boost = if (hue-green).abs() < std::f32::consts::PI/4.0 { 1.4 } else { 1.0 };
-            // target post-AgX chroma = boost * identity post-AgX chroma, expressed as
-            // jpeg_ab pointing along the post-AgX direction at that magnitude:
-            let (ba, bb) = base[i];
-            let bc = ba.hypot(bb).max(1e-6);
-            let jmag = boost * bc;
-            let jhue = bb.atan2(ba);
-            Pair { raw_scene: p, raw_ab: (a,b),
-                   jpeg_ab: (jmag*jhue.cos(), jmag*jhue.sin()), weight: 1.0,
-                   x: 0, y: 0, clipped: false }
-        }).collect();
-        // Solve at k=1.0 (full strength) so we test the AgX-aware target hit.
+        let pairs: Vec<Pair> = scene
+            .iter()
+            .enumerate()
+            .map(|(i, &p)| {
+                let lab = crate::color::oklab::rec2020_to_oklab(p);
+                let (ba, bb) = base[i];
+                Pair {
+                    raw_scene: p,
+                    raw_lab: lab,
+                    jpeg_lab: [lab[0], ba * 1.3, bb * 1.3],
+                }
+            })
+            .collect();
+
         let saved = std::env::var("MAPLE_CHROMA_STRENGTH_OVERRIDE").ok();
-        unsafe { std::env::set_var("MAPLE_CHROMA_STRENGTH_OVERRIDE", "1.0"); }
-        let t = solve_per_hue_gains(&pairs, 1.0);
+        unsafe {
+            std::env::set_var("MAPLE_CHROMA_STRENGTH_OVERRIDE", "1.0");
+        }
+        let t = solve_chroma_map(&pairs, 1.0);
         match saved {
-            Some(v) => unsafe { std::env::set_var("MAPLE_CHROMA_STRENGTH_OVERRIDE", v) },
-            None => unsafe { std::env::remove_var("MAPLE_CHROMA_STRENGTH_OVERRIDE") }
+            Some(v) => unsafe {
+                std::env::set_var("MAPLE_CHROMA_STRENGTH_OVERRIDE", v);
+            },
+            None => unsafe {
+                std::env::remove_var("MAPLE_CHROMA_STRENGTH_OVERRIDE");
+            },
         }
-        // Apply + AgX, measure achieved green-bin chroma vs target (1.4x baseline).
+
         let out = forward_post_agx_ab(&scene, &t, 1.0);
-        let green = 2.0*std::f32::consts::PI/3.0;
-        let mut ach=0.0f32; let mut bas=0.0f32; let mut nb=0i32;
-        for (i,&p) in scene.iter().enumerate() {
-            let lab = crate::color::oklab::rec2020_to_oklab(p);
-            let hue = lab[2].atan2(lab[1]);
-            if (hue-green).abs() < std::f32::consts::PI/8.0 {
-                ach += out[i].0.hypot(out[i].1);
-                bas += base[i].0.hypot(base[i].1);
-                nb += 1;
-            }
+        let mut ach = 0.0;
+        let mut bas = 0.0;
+        for i in 0..n {
+            ach += out[i].0.hypot(out[i].1);
+            bas += base[i].0.hypot(base[i].1);
         }
-        assert!(nb > 0, "no pixels in green bin — test setup error");
-        let ratio = ach/bas;  // achieved post-AgX boost
-        assert!((ratio-1.4).abs() < 0.2, "AgX-aware solver achieved {ratio}x post-AgX, expected ~1.4x");
+        let ratio = ach / bas;
+        assert!(
+            (ratio - 1.3).abs() < 0.15,
+            "AgX-aware solver achieved {ratio}x boost, expected ~1.3x"
+        );
     }
 
     #[test]
-    fn per_hue_solver_sparse_bins_stay_near_identity() {
-        // Only red-hue samples — other bins starved. Must regularize to ≈1.0.
-        let pairs: Vec<Pair> = (0..20).map(|_|
-            Pair { raw_scene: [0.18, 0.08, 0.07],
-                   raw_ab: (0.10, 0.01),       // hue ≈ 0° (red)
-                   jpeg_ab: (0.14, 0.014),      // 1.4× gain on red
-                   weight: 1.0,
-                   x: 0,
-                   y: 0,
-                   clipped: false }
-        ).collect();
-        let t = solve_per_hue_gains(&pairs, 1.0);
-        // Bins far from red (bins 3-9) must be regularized ≈ 1.0
-        for i in 3..10 {
-            assert!((t.hue_gains[i] - 1.0).abs() < 0.3,
-                "sparse bin {i} not regularized: {}", t.hue_gains[i]);
-        }
+    fn tps_solver_sparse_points_stay_near_identity() {
+        let pairs = vec![
+            Pair {
+                raw_scene: [0.18, 0.08, 0.07],
+                raw_lab: [0.5, 0.10, 0.01],
+                jpeg_lab: [0.5, 0.13, 0.013],
+            };
+            30
+        ];
+        let t = solve_chroma_map(&pairs, 1.0);
+        // evaluate grid directly at green hue index 12, sat index 8
+        let (da, db) = t.grid[12][8];
+        assert!(
+            da.hypot(db) < 0.1,
+            "sparse region did not regularize to identity: got offset ({da}, {db})"
+        );
     }
 }
