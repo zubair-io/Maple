@@ -88,7 +88,9 @@ function matchVal(docVal: unknown, cond: unknown): boolean {
           if (!docVal.some((el) => matchesFilter(el, opv as Record<string, unknown>))) return false;
           break;
         default:
-          break;
+          // Fail closed: an operator the mock doesn't model would otherwise be
+          // silently ignored, letting a query-shape change pass unnoticed.
+          throw new Error(`mock matchVal: unsupported operator ${op}`);
       }
     }
     return true;

@@ -6,7 +6,23 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
+
+// A claimable asset has >=1 LIVE fileinfo entry — the route's pending count and
+// buildClaimQuery both require it. A "missing"/parked asset's only location is
+// tagged `missing_since` (no live entry).
+const liveFi = () => [
+  { library_id: new ObjectId(), path: '', filename: 'x.jpg', deleted_at: null },
+];
+const missingFi = (ts: string) => [
+  {
+    library_id: new ObjectId(),
+    path: '',
+    filename: 'gone.jpg',
+    deleted_at: null,
+    missing_since: ts,
+  },
+];
 
 const TEST_DB = `maple_test_workers_status_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
@@ -109,14 +125,16 @@ describe('GET /api/workers/status — counts', () => {
     //   - 1 doc  with version field absent        → pending
     //   - 2 docs with version == tv               → up-to-date (not counted)
     //   - 1 doc  with dead = true                 → dead
+    // Every row carries a live fileinfo entry — the pending count requires one
+    // (same live-entry gate as the claim query).
     const tv = 3;
     await db.collection('assets').insertMany([
-      { stages: { exif: { version: 1 } } },
-      { stages: { exif: { version: 2 } } },
-      { stages: {} }, // no stages.exif at all → pending
-      { stages: { exif: { version: tv } } },
-      { stages: { exif: { version: tv } } },
-      { stages: { exif: { version: 1, dead: true } } },
+      { stages: { exif: { version: 1 } }, fileinfo: liveFi() },
+      { stages: { exif: { version: 2 } }, fileinfo: liveFi() },
+      { stages: {}, fileinfo: liveFi() }, // no stages.exif at all → pending
+      { stages: { exif: { version: tv } }, fileinfo: liveFi() },
+      { stages: { exif: { version: tv } }, fileinfo: liveFi() },
+      { stages: { exif: { version: 1, dead: true } }, fileinfo: liveFi() },
     ]);
 
     // Register a fake exif stage in the in-process registry so the route's
@@ -181,21 +199,20 @@ describe('GET /api/workers/status — counts', () => {
     await db.createCollection('assets');
     await ensureStageIndexes(db);
 
-    // 2 genuinely-pending docs (below target, untagged) + 3 docs that are below
-    // target but parked by the reaper (`missing_since` is an ISO string). The
-    // tagged docs can't be claimed by exif, so they must not show up in its
-    // pending count, and therefore must not inflate blocked = pending − ready.
+    // 2 genuinely-pending docs (below target, with a live location) + 3 docs
+    // that are below target but parked because their only location is tagged
+    // `missing_since` (no live entry). The parked docs can't be claimed by exif,
+    // so they must not show up in its pending count, and therefore must not
+    // inflate blocked = pending − ready.
     const tv = 3;
     const taggedAt = new Date().toISOString();
-    await db
-      .collection('assets')
-      .insertMany([
-        { stages: { exif: { version: 1 } } },
-        { stages: {} },
-        { stages: { exif: { version: 1 } }, missing_since: taggedAt },
-        { stages: { exif: { version: 1 } }, missing_since: taggedAt },
-        { stages: {}, missing_since: taggedAt },
-      ]);
+    await db.collection('assets').insertMany([
+      { stages: { exif: { version: 1 } }, fileinfo: liveFi() },
+      { stages: {}, fileinfo: liveFi() },
+      { stages: { exif: { version: 1 } }, fileinfo: missingFi(taggedAt) },
+      { stages: { exif: { version: 1 } }, fileinfo: missingFi(taggedAt) },
+      { stages: {}, fileinfo: missingFi(taggedAt) },
+    ]);
 
     const { Elysia } = await import('elysia');
     const { workerRoutes, _resetStatusCacheForTests } = await import('../src/workers/routes.ts');
@@ -275,7 +292,7 @@ describe('GET /api/workers/status — counts', () => {
     // Seed at least one document so the planner has data to plan against.
     // A doc with no stages.exif field exercises the $exists:false branch
     // of the pending query and forces the planner to consider the version index.
-    await db.collection('assets').insertOne({ stages: {} });
+    await db.collection('assets').insertOne({ stages: {}, fileinfo: liveFi() });
 
     const tv = 3;
     const explain = await db
@@ -286,8 +303,9 @@ describe('GET /api/workers/status — counts', () => {
           { 'stages.exif.version': { $exists: false } },
         ],
         'stages.exif.dead': { $ne: true },
-        // Mirrors the route's pending query: missing-tagged docs are parked.
-        missing_since: { $not: { $type: 'string' } },
+        // Mirrors the route's pending query: only rows with a live location
+        // (neither deleted_at nor missing_since) count; the rest are parked.
+        fileinfo: { $elemMatch: { deleted_at: { $in: [null] }, missing_since: { $in: [null] } } },
       })
       .explain('queryPlanner');
     const winning = JSON.stringify(explain.queryPlanner?.winningPlan ?? {});
