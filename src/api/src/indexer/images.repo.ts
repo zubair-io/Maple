@@ -73,9 +73,7 @@ export async function coll(): Promise<Collection<IndexerAssetDoc>> {
  * of truth for asset visibility (`applyLiveFilter`), stage eligibility
  * (`buildClaimQuery`), and primary-location resolution below.
  */
-export function isLiveFileInfo(
-  entry: Pick<FileInfo, 'deleted_at' | 'missing_since'>,
-): boolean {
+export function isLiveFileInfo(entry: Pick<FileInfo, 'deleted_at' | 'missing_since'>): boolean {
   return !entry.deleted_at && !entry.missing_since;
 }
 

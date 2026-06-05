@@ -102,7 +102,10 @@ function fi(
 const deadStage = { version: 0, attempts: 5, last_error: 'ENOENT', processed_at: null, dead: true };
 
 /** Read the per-entry missing tag for the entry with `filename`. */
-function entryMissing(doc: { fileinfo?: Array<{ filename: string; missing_since?: unknown }> }, filename: string): unknown {
+function entryMissing(
+  doc: { fileinfo?: Array<{ filename: string; missing_since?: unknown }> },
+  filename: string,
+): unknown {
   return doc.fileinfo?.find((f) => f.filename === filename)?.missing_since;
 }
 
@@ -457,7 +460,11 @@ describe('claim-query parking', () => {
     const assets = db!.collection('assets');
     await assets.insertMany([
       { ...ASSET_BASE, maple_id: 'untagged', fileinfo: [fi('live.jpg', lib)] } as never,
-      { ...ASSET_BASE, maple_id: 'tagged', fileinfo: [fi('gone.jpg', lib, { missing: AGED })] } as never,
+      {
+        ...ASSET_BASE,
+        maple_id: 'tagged',
+        fileinfo: [fi('gone.jpg', lib, { missing: AGED })],
+      } as never,
     ]);
     const q = buildClaimQuery('exif', 1, [], new Set()) as Record<string, unknown>;
 
