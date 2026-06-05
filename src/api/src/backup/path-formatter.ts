@@ -45,9 +45,7 @@ export function isSafeFilename(name: string): boolean {
  * tokens (`.`, `..`, or a leading dot — which would create a hidden folder).
  * Surviving segments keep their order.
  */
-export function sanitizeLocationSegments(
-  location: readonly string[] | null | undefined,
-): string[] {
+export function sanitizeLocationSegments(location: readonly string[] | null | undefined): string[] {
   if (!location) return [];
   const out: string[] = [];
   for (const raw of location) {

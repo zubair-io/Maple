@@ -159,10 +159,7 @@ export const restructureBackupGeo: Migration = {
         if (result === 'moved' || result === 'noop') processed++;
       } catch (err) {
         if (err instanceof SourceMissingError) {
-          log.warn(
-            { _id: String(doc._id), err: err.message },
-            'geo: source missing — skipped',
-          );
+          log.warn({ _id: String(doc._id), err: err.message }, 'geo: source missing — skipped');
           continue;
         }
         errors++;

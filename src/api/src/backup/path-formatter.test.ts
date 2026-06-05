@@ -45,9 +45,9 @@ describe('formatBackupPath', () => {
   });
 
   test('empty segment list → year/MM/filename (fallback)', () => {
-    expect(
-      formatBackupPath({ captureDate: capture, location: [], filename: 'IMG.heic' }),
-    ).toBe('2024/03/IMG.heic');
+    expect(formatBackupPath({ captureDate: capture, location: [], filename: 'IMG.heic' })).toBe(
+      '2024/03/IMG.heic',
+    );
   });
 
   test('escapes slashes within a segment (stays one directory level)', () => {

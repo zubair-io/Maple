@@ -17,10 +17,10 @@ Two related changes to the device-backup ("iPhone backup") library layout:
 
 `formatBackupPath` (TS) / `PathFormatter.format` (Swift) — the byte-parity pair.
 
-|                  | Old (#744)            | New                                                |
-| ---------------- | --------------------- | -------------------------------------------------- |
+|                  | Old (#744)            | New                                                  |
+| ---------------- | --------------------- | ---------------------------------------------------- |
 | With location    | `<year>/<loc>/<file>` | `<year>/<State or Country>/<Town/City‖Place>/<file>` |
-| Without location | `<year>/<MM>/<file>`  | `<year>/<MM>/<file>` (unchanged)                   |
+| Without location | `<year>/<MM>/<file>`  | `<year>/<MM>/<file>` (unchanged)                     |
 
 Where:
 
@@ -125,4 +125,3 @@ a distinct target dir and no marker, so its behaviour is unchanged).
   fact); idempotent; copy-verify-delete; collision-safe; cache reset. → Part 2
 - Tests: `location-segments`, `path-formatter` (both langs), `computeGeoDir`,
   migration move e2e. → all parts
-```
