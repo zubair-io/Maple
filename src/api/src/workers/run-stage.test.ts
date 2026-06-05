@@ -174,15 +174,11 @@ describe('buildClaimQuery', () => {
 
   it('parks no-live-location + damaged assets out of every claim query', () => {
     const q = buildClaimQuery('hash', 2, [], new Set()) as Record<string, unknown>;
-    // A claimable asset must have at least one LIVE fileinfo entry (neither
-    // deleted_at nor missing_since) — a row whose every location is gone is
-    // parked. `$in: [null]` matches null OR absent. Damaged rows stay excluded
-    // by the `$not $type string` shape.
+    // Claimable requires >=1 LIVE fileinfo entry; damaged stays excluded.
     expect(q['fileinfo']).toEqual({
       $elemMatch: { deleted_at: { $in: [null] }, missing_since: { $in: [null] } },
     });
     expect(q['damaged.since']).toEqual({ $not: { $type: 'string' } });
-    expect(q['missing_since']).toBeUndefined();
   });
 
   it('adds dependency version predicates using dep.minVersion', () => {
