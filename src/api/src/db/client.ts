@@ -471,7 +471,10 @@ export async function ensureIndexes(): Promise<void> {
   // set of rows with a tagged entry and keeps the scan O(tagged). The legacy
   // root-level `missing_since_1` index is dropped (the migration $unsets the
   // root field, leaving it indexing nothing).
-  await db.collection('assets').dropIndex('missing_since_1').catch(() => {});
+  await db
+    .collection('assets')
+    .dropIndex('missing_since_1')
+    .catch(() => {});
   await db.collection('assets').createIndex(
     { 'fileinfo.missing_since': 1 },
     {
@@ -492,30 +495,30 @@ export async function ensureIndexes(): Promise<void> {
   // on the next reaper pass (re-stat → present → clear).
   if (!(await migrationApplied(db, 'migrate-missing-since-to-fileinfo-2026-06-05'))) {
     try {
-      const res = await db.collection('assets').updateMany(
-        { missing_since: { $type: 'string' } },
-        [
-          {
-            $set: {
-              fileinfo: {
-                $map: {
-                  input: { $ifNull: ['$fileinfo', []] },
-                  as: 'f',
-                  in: {
-                    $mergeObjects: [
-                      '$$f',
-                      { missing_since: { $ifNull: ['$$f.missing_since', '$missing_since'] } },
-                    ],
-                  },
+      const res = await db.collection('assets').updateMany({ missing_since: { $type: 'string' } }, [
+        {
+          $set: {
+            fileinfo: {
+              $map: {
+                input: { $ifNull: ['$fileinfo', []] },
+                as: 'f',
+                in: {
+                  $mergeObjects: [
+                    '$$f',
+                    { missing_since: { $ifNull: ['$$f.missing_since', '$missing_since'] } },
+                  ],
                 },
               },
             },
           },
-          { $unset: 'missing_since' },
-        ],
-      );
+        },
+        { $unset: 'missing_since' },
+      ]);
       await recordMigration(db, 'migrate-missing-since-to-fileinfo-2026-06-05', res.modifiedCount);
-      log.info({ rows: res.modifiedCount }, 'migrated root missing_since → fileinfo[].missing_since');
+      log.info(
+        { rows: res.modifiedCount },
+        'migrated root missing_since → fileinfo[].missing_since',
+      );
     } catch (err) {
       log.warn(
         { err: err instanceof Error ? err.message : err },

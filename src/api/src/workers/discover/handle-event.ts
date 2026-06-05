@@ -269,10 +269,7 @@ export async function handleEvent(
               'entry.library_id': fileinfoEntry.library_id,
               'entry.path': fileinfoEntry.path,
               'entry.filename': fileinfoEntry.filename,
-              $or: [
-                { 'entry.missing_since': { $exists: false } },
-                { 'entry.missing_since': null },
-              ],
+              $or: [{ 'entry.missing_since': { $exists: false } }, { 'entry.missing_since': null }],
             },
           ],
         },

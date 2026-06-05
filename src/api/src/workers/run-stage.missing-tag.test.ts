@@ -148,7 +148,8 @@ function setPath(
     const arr = obj as unknown as unknown[];
     if (!Array.isArray(arr)) return;
     for (const el of arr) {
-      if (arrayFilterMatches(el, id, af)) setPath(el as Record<string, unknown>, rest, value, arrayFilters);
+      if (arrayFilterMatches(el, id, af))
+        setPath(el as Record<string, unknown>, rest, value, arrayFilters);
     }
     return;
   }
@@ -194,7 +195,8 @@ function makeImagesMock(initial: ImageDoc[] = []): Collection<ImageDoc> {
       options?: { arrayFilters?: Record<string, unknown>[] },
     ) {
       const doc = store.find((d) => matchesFilter(d, filter));
-      if (doc) applySet(doc, (update['$set'] ?? {}) as Record<string, unknown>, options?.arrayFilters);
+      if (doc)
+        applySet(doc, (update['$set'] ?? {}) as Record<string, unknown>, options?.arrayFilters);
       return {
         matchedCount: doc ? 1 : 0,
         modifiedCount: doc ? 1 : 0,
@@ -371,7 +373,12 @@ describe('runOnce — no-resolvable-location skip', () => {
     // never runs on it — the reaper owns it now.
     const parked = {
       fileinfo: [
-        { library_id: 'lib0', path: '', filename: 'gone.raw', missing_since: '2026-05-01T00:00:00Z' },
+        {
+          library_id: 'lib0',
+          path: '',
+          filename: 'gone.raw',
+          missing_since: '2026-05-01T00:00:00Z',
+        },
       ],
     } as unknown as ImageDoc;
     const images = makeImagesMock([parked]);
