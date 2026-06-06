@@ -64,49 +64,61 @@ export const mirrorRoutes = new Elysia()
     }
     return { mirrors: folder.mirrors ?? [] };
   })
-  .put('/api/folders/:id/mirror', async ({ params, body, set }) => {
-    if (!ObjectId.isValid(params.id)) {
-      set.status = 400;
-      return { error: 'invalid folder id' };
-    }
-    const coll = await foldersCollection();
-    const folder = await coll.findOne({ _id: new ObjectId(params.id) });
-    if (!folder) {
-      set.status = 404;
-      return { error: 'folder not found' };
-    }
-
-    // Validate + de-dupe the requested mirror roots.
-    const seen = new Set<string>();
-    const mirrors: MirrorLocation[] = [];
-    for (const m of body.mirrors) {
-      const resolved = path.resolve(m.path);
-      if (seen.has(resolved)) continue;
-      seen.add(resolved);
-
-      if (aliases(resolved, folder.path)) {
+  .put(
+    '/api/folders/:id/mirror',
+    async ({ params, body, set }) => {
+      if (!ObjectId.isValid(params.id)) {
         set.status = 400;
-        return { error: `mirror "${m.path}" overlaps the library's own path` };
+        return { error: 'invalid folder id' };
       }
+      const coll = await foldersCollection();
+      const folder = await coll.findOne({ _id: new ObjectId(params.id) });
+      if (!folder) {
+        set.status = 404;
+        return { error: 'folder not found' };
+      }
+
+      // Validate + de-dupe the requested mirror roots.
+      const seen = new Set<string>();
+      const mirrors: MirrorLocation[] = [];
+      for (const m of body.mirrors) {
+        const resolved = path.resolve(m.path);
+        if (seen.has(resolved)) continue;
+        seen.add(resolved);
+
+        if (aliases(resolved, folder.path)) {
+          set.status = 400;
+          return {
+            error: `mirror "${m.path}" overlaps the library's own path`,
+          };
+        }
+        const v = await validateRoot(resolved);
+        if (!v.ok) {
+          set.status = 400;
+          return {
+            error: `mirror "${m.path}" is not a usable directory: ${v.error}`,
+          };
+        }
+        mirrors.push({ path: resolved, enabled: m.enabled });
+      }
+
+      await coll.updateOne({ _id: folder._id }, { $set: { mirrors } });
+      await loadMirrorConfig(); // refresh the in-memory registry — no restart
+      log.info({ folder: folder.path, mirrors: mirrors.length }, 'updated library mirrors');
+      return { ok: true, mirrors };
+    },
+    { body: MirrorBody },
+  )
+  .post(
+    '/api/mirror/test',
+    async ({ body, set }) => {
+      const resolved = path.resolve(body.path);
       const v = await validateRoot(resolved);
       if (!v.ok) {
         set.status = 400;
-        return { error: `mirror "${m.path}" is not a usable directory: ${v.error}` };
+        return { ok: false, error: v.error };
       }
-      mirrors.push({ path: resolved, enabled: m.enabled });
-    }
-
-    await coll.updateOne({ _id: folder._id }, { $set: { mirrors } });
-    await loadMirrorConfig(); // refresh the in-memory registry — no restart
-    log.info({ folder: folder.path, mirrors: mirrors.length }, 'updated library mirrors');
-    return { ok: true, mirrors };
-  }, { body: MirrorBody })
-  .post('/api/mirror/test', async ({ body, set }) => {
-    const resolved = path.resolve(body.path);
-    const v = await validateRoot(resolved);
-    if (!v.ok) {
-      set.status = 400;
-      return { ok: false, error: v.error };
-    }
-    return { ok: true, path: resolved };
-  }, { body: t.Object({ path: t.String({ minLength: 1 }) }) });
+      return { ok: true, path: resolved };
+    },
+    { body: t.Object({ path: t.String({ minLength: 1 }) }) },
+  );

@@ -43,7 +43,9 @@ function normalizeRoot(p: string): string {
  * cheap and accurate. Called by the config loader at startup and whenever a
  * library's mirror set changes.
  */
-export function setMirrorRoots(config: ReadonlyMap<string, readonly string[]> | Record<string, readonly string[]>): void {
+export function setMirrorRoots(
+  config: ReadonlyMap<string, readonly string[]> | Record<string, readonly string[]>,
+): void {
   const entries: Iterable<[string, readonly string[]]> =
     config instanceof Map ? config.entries() : Object.entries(config);
   const next = new Map<string, string[]>();
