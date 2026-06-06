@@ -11,7 +11,8 @@
 Design of record: `docs/superpowers/specs/2026-06-05-per-image-3d-lut-color-match-design.md`.
 
 > **Revision (2026-06-06) — two course-corrections discovered during execution:**
-> 1. **Layer, not replace #550.** The LUT applies *after* `apply_curve` (not in place of it), fit on
+>
+> 1. **Layer, not replace #550.** The LUT applies _after_ `apply_curve` (not in place of it), fit on
 >    the already-curved buffer, so its pairs are `(curve(maple), jpeg)` and it carries only the
 >    cross-channel residual. `strength = 0` ⇒ identity ⇒ exactly #550 (the accuracy floor and gate).
 >    `fit_display.rs` stays load-bearing — do **not** delete it; only the chroma grid retires.
@@ -40,6 +41,7 @@ Design of record: `docs/superpowers/specs/2026-06-05-per-image-3d-lut-color-matc
 **Files:** Create `view/auto_profile/lut.rs`; Test: inline `#[cfg(test)]` in `lut.rs`.
 
 - [ ] **Step 1 — failing test (identity is a no-op + a known shift maps).**
+
 ```rust
 #[cfg(test)]
 mod tests {
@@ -64,8 +66,10 @@ mod tests {
     }
 }
 ```
+
 - [ ] **Step 2 — run, expect FAIL** (`cargo test -p raw-core --lib lut::`).
 - [ ] **Step 3 — implement.**
+
 ```rust
 //! Per-image color LUT: a smooth Nᶟ RGB→RGB grid applied by trilinear interpolation.
 //! Value-keyed (no atan2 / ÷L) + smooth ⇒ spatially coherent (cannot blotch).
@@ -129,6 +133,7 @@ impl ColorLut {
     }
 }
 ```
+
 - [ ] **Step 4 — run, expect PASS.**
 - [ ] **Step 5 — commit** `feat(raw-core): ColorLut type + trilinear apply (#NNN)`.
 
@@ -144,6 +149,7 @@ impl ColorLut {
 - [ ] **Step 2 — run, expect FAIL.**
 - [ ] **Step 3a — extract the decode helper.** Pull the Adobe-aware JPEG→display-sRGB-f32 conversion (currently inlined `fit_display.rs:139-160`) into a pure fn in `preview.rs`, e.g. `decode_jpeg_pixel_to_srgb(rgb01: [f32;3], cs: JpegColorSpace) -> [f32;3]`. Have #550's `fit_curve_from_preview_display` call it — it produces identical values, so #550 stays byte-identical.
 - [ ] **Step 3b — implement** `pairs::sample_display_pairs`:
+
 ```rust
 pub struct DisplayPair { pub maple: [f32; 3], pub jpeg: [f32; 3] }
 
@@ -158,7 +164,9 @@ pub fn sample_display_pairs(
     orientation: crate::image::ExifOrientation,
 ) -> Vec<DisplayPair>
 ```
+
 Reuse `preview::orient_preview_to_display`, `solve::footprint_sizes`, and the new decode helper; reimplement the aspect-crop + 10%-border + footprint-mean loop (do not touch #550's fit body beyond the decode-helper swap).
+
 - [ ] **Step 4 — run the full suite** (`cargo test -p raw-core --lib`). #550's `fit_display`/`solve` tests + the new pairs test all green.
 - [ ] **Step 5 — verify #550 byte-parity** on one fixture: render test_0003 `--profile auto` before/after (git stash), `compare_images.py` mean ΔE ≈ 0 (only the decode-helper extraction touched #550). Commit `refactor(raw-core): shared JPEG decode + sample_display_pairs (#NNN)`.
 
@@ -169,6 +177,7 @@ Reuse `preview::orient_preview_to_display`, `solve::footprint_sizes`, and the ne
 **Files:** `lut.rs`; Test: inline.
 
 - [ ] **Step 1 — failing tests.**
+
 ```rust
 #[test]
 fn sparse_pairs_stay_identity() {
@@ -189,8 +198,10 @@ fn recovers_uniform_shift() {
     assert!((px[1]-0.5).abs() < 0.03 && (px[2]-0.5).abs() < 0.03, "green/blue drifted");
 }
 ```
+
 - [ ] **Step 2 — run, expect FAIL.**
 - [ ] **Step 3 — implement** per the spec §"The LUT" fit:
+
 ```rust
 const SIGMA: f32 = 0.18;       // RBF radius in RGB units
 const REG: f32 = 4.0;          // confidence reg: c = Σw/(Σw+REG·node_volume)
@@ -228,7 +239,9 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
     lut
 }
 ```
+
 Implement `smooth3` (a 1-2-1 separable pass over r, then g, then b, identity at the borders).
+
 - [ ] **Step 4 — run, expect PASS.**
 - [ ] **Step 5 — commit** `feat(raw-core): robust local 3D LUT fit (#NNN)`.
 
@@ -239,6 +252,7 @@ Implement `smooth3` (a 1-2-1 separable pass over r, then g, then b, identity at 
 **Files:** `lut.rs` (entries), `cache.rs` (store `ColorLut`), `mod.rs`.
 
 - [ ] **Step 1 — implement** `fit_lut_from_raw_display` / `fit_lut_from_bytes_display`, mirroring `fit_curve_from_raw_display` (`fit_display.rs:86`) but calling `pairs::sample_display_pairs` + `fit_lut_from_pairs`:
+
 ```rust
 pub fn fit_lut_from_raw_display<P: AsRef<Path>>(
     raw_path: P, source_rgb: &[f32], w: usize, h: usize, orientation: ExifOrientation,
@@ -254,7 +268,9 @@ pub fn fit_lut_from_raw_display<P: AsRef<Path>>(
     Some(fit_lut_from_pairs(&pairs, LUT_SIZE, k))         // LUT_SIZE = 17
 }
 ```
+
 (Bytes variant uses `extract_preview_from_bytes` + `detect_jpeg_color_space_from_bytes`.)
+
 - [ ] **Step 2 — cache:** change `cache.rs` to cache `ColorLut` (value type swap; key logic `from_path`/`from_bytes` unchanged). Add a `get`/`insert` for `ColorLut` (or generic).
 - [ ] **Step 3 — test:** fit a LUT from a fixture's pairs is `Some`, identity-applies cleanly, and a cache round-trip returns an equal LUT.
 - [ ] **Step 4 — run + commit** `feat(raw-core): LUT fit entries + cache (#NNN)`.
@@ -286,6 +302,7 @@ pub fn fit_lut_from_raw_display<P: AsRef<Path>>(
 ---
 
 ## Notes / out of scope
+
 - Deleting the now-unused `chroma.rs` TPS code and `math_solver.rs` is a follow-up tidy-up once the LUT is proven (leave dormant this pass).
 - GPU (Metal/WebGL) application of the LUT 3D texture is a follow-up (the bake layout is already compatible).
 - Spatial/lens RAW↔JPEG alignment ("Gap 2") is unchanged — same sampling as #550.

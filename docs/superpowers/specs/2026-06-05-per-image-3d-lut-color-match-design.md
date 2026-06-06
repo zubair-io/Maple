@@ -6,6 +6,7 @@
 ## Context
 
 Maple's per-image color match toward the camera's **embedded JPEG** is currently two stages:
+
 - a **pre-AgX chroma grid** keyed on `(hue, Cr = C/L)` (`view/auto_profile/chroma.rs`), and
 - the **#550 post-AgX per-channel tone curve** (`view/auto_profile`, applied in display sRGB).
 
@@ -30,7 +31,7 @@ the value-keyed cross-channel correction the separable curve can't.
 
 > **Update (2026-06-06): layer, not replace.** Baking #550's curve into the LUT grid is not exact
 > (trilinear readback of the steep shadow curve costs 0.5–1.5 ΔE2000 where the gate is most
-> sensitive), so #550 — its accuracy floor and gate — could dip *below* itself. Instead the render
+> sensitive), so #550 — its accuracy floor and gate — could dip _below_ itself. Instead the render
 > keeps #550's exact `apply_curve` and applies the LUT **after** it, fit on the already-curved buffer
 > so the pairs are `(curve(maple), jpeg)`. A per-channel curve is the diagonal of a 3D LUT, so this
 > **generalizes** #550 — the LUT carries only the cross-channel residual — and `fit_display.rs` stays
@@ -42,12 +43,14 @@ Pillars unchanged: **DCP** = deterministic color base; **AgX** = base tone; the 
 per-image residual LUT** = display-space correction toward this frame's JPEG (the JPG pillar).
 
 Render path (`Profile::Auto`), display tail:
+
 ```
 … develop (DCP + sliders) → AgX → rec2020→sRGB → sRGB gamma encode
    → #550 apply_curve (exact, separable tone+brightness)
    → [NEW] per-image residual 3D LUT (trilinear, fit on the curved buffer)
    → look → dither
 ```
+
 - **Remove** the pre-AgX `chroma_match` stage (the grid) from the render path.
 - **Keep** the `#550` `apply_curve` call; **add** the residual LUT apply immediately after it, fit on
   the post-curve buffer so it keys on stable post-curve RGB and carries only the residual.
