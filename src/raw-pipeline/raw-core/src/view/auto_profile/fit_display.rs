@@ -47,7 +47,26 @@ use std::path::Path;
 
 use image::DynamicImage;
 
+use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
 use crate::image::ExifOrientation;
+use crate::math::Matrix3;
+use crate::view::encode::srgb_gamma;
+
+const M_ADOBE_RGB_TO_XYZ_D65: Matrix3 = Matrix3([
+    [0.5767309, 0.1855540, 0.1881852],
+    [0.2973769, 0.6273491, 0.0752741],
+    [0.0270343, 0.0706872, 0.9911085],
+]);
+
+const ADOBE_RGB_GAMMA: f32 = 563.0 / 256.0;
+
+fn adobe_to_srgb_matrix() -> Matrix3 {
+    static CELL: std::sync::OnceLock<Matrix3> = std::sync::OnceLock::new();
+    *CELL.get_or_init(|| {
+        let adobe_to_rec2020 = M_XYZ_D65_TO_REC2020.mul_mat(&M_ADOBE_RGB_TO_XYZ_D65);
+        M_REC2020_TO_SRGB.mul_mat(&adobe_to_rec2020)
+    })
+}
 
 use super::curve::{ProfileCurve, IDENTITY_MATRIX};
 use super::preview;
@@ -72,7 +91,8 @@ pub fn fit_curve_from_raw_display<P: AsRef<Path>>(
     orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
     let preview = preview::extract_preview(raw_path.as_ref())?;
-    fit_curve_from_preview_display(preview, source_rgb, source_w, source_h, orientation)
+    let cs = preview::detect_jpeg_color_space(raw_path.as_ref());
+    fit_curve_from_preview_display(preview, cs, source_rgb, source_w, source_h, orientation)
 }
 
 /// Bytes-based mirror of [`fit_curve_from_raw_display`] for the WASM render
@@ -88,11 +108,13 @@ pub fn fit_curve_from_bytes_display(
     orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
     let preview = preview::extract_preview_from_bytes(raw_bytes, ext)?;
-    fit_curve_from_preview_display(preview, source_rgb, source_w, source_h, orientation)
+    let cs = preview::detect_jpeg_color_space_from_bytes(raw_bytes, ext);
+    fit_curve_from_preview_display(preview, cs, source_rgb, source_w, source_h, orientation)
 }
 
 fn fit_curve_from_preview_display(
     preview: DynamicImage,
+    cs: preview::JpegColorSpace,
     sensor_rgb: &[f32],
     sensor_w: usize,
     sensor_h: usize,
@@ -118,11 +140,24 @@ fn fit_curve_from_preview_display(
     // (8-bit display data); the curve fit lives in the same domain as the
     // source after `srgb_gamma_encode`, so the only transform needed is
     // `byte / 255.0` per lane — no inverse OETF, no primary conversion.
-    let target: Vec<f32> = preview_rgb
+    let mut target: Vec<f32> = preview_rgb
         .as_raw()
         .iter()
         .map(|&b| b as f32 / 255.0)
         .collect();
+
+    if cs == preview::JpegColorSpace::AdobeRgb {
+        let m = adobe_to_srgb_matrix();
+        for chunk in target.chunks_exact_mut(3) {
+            let r_lin = chunk[0].max(0.0).powf(ADOBE_RGB_GAMMA);
+            let g_lin = chunk[1].max(0.0).powf(ADOBE_RGB_GAMMA);
+            let b_lin = chunk[2].max(0.0).powf(ADOBE_RGB_GAMMA);
+            let srgb_lin = m.mul_vec([r_lin, g_lin, b_lin]);
+            chunk[0] = srgb_gamma(srgb_lin[0]);
+            chunk[1] = srgb_gamma(srgb_lin[1]);
+            chunk[2] = srgb_gamma(srgb_lin[2]);
+        }
+    }
 
     if is_degenerate_histogram(&target) {
         return None;
@@ -135,6 +170,11 @@ fn fit_curve_from_preview_display(
     let (source_w, source_h, oriented) =
         orient_rgb_f32_to_display(sensor_rgb, sensor_w, sensor_h, orientation);
     let source_rgb: &[f32] = &oriented;
+
+    eprintln!(
+        "FIT_SHAPES: target_w={} target_h={} source_w={} source_h={} orient={:?}",
+        target_w_px, target_h_px, source_w, source_h, orientation
+    );
 
     // Match aspect by centre-cropping the wider axis of whichever buffer is
     // wider. Embedded JPEGs are sensor-aligned on every verified fixture, so
@@ -173,12 +213,22 @@ fn fit_curve_from_preview_display(
     // source-pixel count — which would footprint-weight the band mean.
     let mut band_of = vec![usize::MAX; n];
     let mut band_counts = [0usize; LUMA_BANDS.len()];
-    for (j, band_slot) in band_of.iter_mut().enumerate() {
-        let luma =
-            0.2126 * target[j * 3] + 0.7152 * target[j * 3 + 1] + 0.0722 * target[j * 3 + 2];
-        if let Some(b) = solve::band_index(luma) {
-            *band_slot = b;
-            band_counts[b] += 1;
+    let border_w = (target_w_px as f64 * 0.1).round() as usize;
+    let border_h = (target_h_px as f64 * 0.1).round() as usize;
+    for oy in 0..target_h_px {
+        let is_border_y = oy < border_h || oy >= target_h_px - border_h;
+        let row_offset = oy * target_w_px;
+        for ox in 0..target_w_px {
+            let j = row_offset + ox;
+            if is_border_y || ox < border_w || ox >= target_w_px - border_w {
+                continue;
+            }
+            let luma =
+                0.2126 * target[j * 3] + 0.7152 * target[j * 3 + 1] + 0.0722 * target[j * 3 + 2];
+            if let Some(b) = solve::band_index(luma) {
+                band_of[j] = b;
+                band_counts[b] += 1;
+            }
         }
     }
     let footprint = solve::footprint_sizes(crop_w, crop_h, target_w_px, target_h_px);

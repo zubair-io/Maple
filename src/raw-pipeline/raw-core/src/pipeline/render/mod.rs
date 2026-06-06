@@ -221,6 +221,12 @@ pub fn render_from_raw_with_quality_and_source(
                     fitted
                 }
             };
+            eprintln!("AUTO_PROFILE_CURVE_FIT: is_some={}", curve.is_some());
+            if let Some(c) = &curve {
+                eprintln!("  r_anchors: {:?}", c.r.anchors.iter().map(|a| a.1).collect::<Vec<_>>());
+                eprintln!("  g_anchors: {:?}", c.g.anchors.iter().map(|a| a.1).collect::<Vec<_>>());
+                eprintln!("  b_anchors: {:?}", c.b.anchors.iter().map(|a| a.1).collect::<Vec<_>>());
+            }
             // POC gate (#913): MAPLE_DISABLE_AUTO_CURVE skips the #550 per-channel
             // tone curve so the JPG-derived chroma gains are the only Auto-Profile
             // stage. Proves the "DCP + JPG chroma, AgX owns tone" architecture
