@@ -118,6 +118,17 @@ async function replicateFile(t: MirrorTarget, sourcePath: string): Promise<void>
   try {
     await realFs.mkdir(path.dirname(t.mirrorPath), { recursive: true });
     await realFs.copyFile(sourcePath, t.mirrorPath);
+    // Preserve the source's mtime so the mirror is a faithful copy. This
+    // matters for the mtime-based thumbnail-staleness check (thumb.mtime >=
+    // source.mtime) once the mirror serves reads, and for integrity diffs.
+    // copyFile stamps the destination with "now"; restore the real times.
+    // Best-effort — a copied-but-not-restamped file is still correct bytes.
+    try {
+      const st = await realFs.stat(sourcePath);
+      await realFs.utimes(t.mirrorPath, st.atime, st.mtime);
+    } catch {
+      /* mtime fidelity only — the bytes are already mirrored */
+    }
   } catch (error) {
     report({ op: 'replicate', mirrorPath: t.mirrorPath, sourcePath, error: asError(error) });
   }
