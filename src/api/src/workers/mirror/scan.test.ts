@@ -5,8 +5,8 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, ObjectId, type Db } from 'mongodb';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { MongoClient, type Db } from 'mongodb';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
