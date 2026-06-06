@@ -222,20 +222,6 @@ pub(super) fn solve_minimax_monotone(
     let have: Vec<bool> = (0..nb).map(|b| band_counts[b] >= MIN_BAND_PIXELS).collect();
     let touched = touched_anchors(design, &have);
 
-    // Print targets and initial means
-    let mut initial_means = [0.0f32; 5];
-    for b in 0..nb {
-        if have[b] {
-            initial_means[b] = (0..ANCHORS).map(|a| design[b][a] * (a as f32 / (ANCHORS - 1) as f32)).sum();
-        }
-    }
-    eprintln!("MINIMAX_SOLVER_BAND_STATS:");
-    for b in 0..nb {
-        if have[b] {
-            eprintln!("  band {}: target={:.5} initial={:.5}", b, band_target[b], initial_means[b]);
-        }
-    }
-
     // Binary search the smallest feasible half-width `t`.
     let mut lo = 0.0f32;
     let mut hi = 1.0f32;
@@ -263,15 +249,6 @@ pub(super) fn solve_minimax_monotone(
     // Restore monotonicity with global minimum slope constraint
     pava_project(&mut next, MIN_SLOPE);
     best = next;
-
-    let mut worst_err = 0.0f32;
-    for b in 0..nb {
-        if have[b] {
-            let mean: f32 = (0..ANCHORS).map(|a| design[b][a] * best[a]).sum();
-            worst_err = worst_err.max((mean - band_target[b]).abs());
-        }
-    }
-    eprintln!("MINIMAX_SOLVER: solved_t={:.5} worst_err={:.5}", hi, worst_err);
 
     let mut anchors = [(0.0f32, 0.0f32); ANCHORS];
     for (i, a) in anchors.iter_mut().enumerate() {
