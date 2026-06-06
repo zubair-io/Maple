@@ -23,47 +23,68 @@ A value-keyed, smooth, locally-fit LUT is **blotch-free by construction**.
 
 ## Goal
 
-Replace the chroma grid **and** the #550 per-channel curve with a single robust **per-image 3D
-RGB→RGB LUT** fit from the embedded JPEG: blotch-free, at least matching #550's ΔE, and able to do
-selective per-hue/sat correction the per-channel curve can't.
+Replace the chroma grid with a robust **per-image 3D RGB→RGB residual LUT** fit from the embedded
+JPEG, **layered on top of the #550 per-channel curve** (not replacing it): blotch-free, at least
+matching #550's ΔE by construction (`strength = 0` ⇒ identity residual ⇒ pure #550), and recovering
+the value-keyed cross-channel correction the separable curve can't.
+
+> **Update (2026-06-06): layer, not replace.** Baking #550's curve into the LUT grid is not exact
+> (trilinear readback of the steep shadow curve costs 0.5–1.5 ΔE2000 where the gate is most
+> sensitive), so #550 — its accuracy floor and gate — could dip *below* itself. Instead the render
+> keeps #550's exact `apply_curve` and applies the LUT **after** it, fit on the already-curved buffer
+> so the pairs are `(curve(maple), jpeg)`. A per-channel curve is the diagonal of a 3D LUT, so this
+> **generalizes** #550 — the LUT carries only the cross-channel residual — and `fit_display.rs` stays
+> load-bearing (do not delete it; only the chroma grid is retired).
 
 ## Architecture
 
-Pillars unchanged: **DCP** = deterministic color base; **AgX** = base tone; the **per-image LUT** =
-display-space residual toward this frame's JPEG (the JPG pillar).
+Pillars unchanged: **DCP** = deterministic color base; **AgX** = base tone; the **#550 curve + the
+per-image residual LUT** = display-space correction toward this frame's JPEG (the JPG pillar).
 
 Render path (`Profile::Auto`), display tail:
 ```
 … develop (DCP + sliders) → AgX → rec2020→sRGB → sRGB gamma encode
-   → [NEW] per-image 3D LUT (trilinear)   ← replaces #550 apply_curve here
+   → #550 apply_curve (exact, separable tone+brightness)
+   → [NEW] per-image residual 3D LUT (trilinear, fit on the curved buffer)
    → look → dither
 ```
 - **Remove** the pre-AgX `chroma_match` stage (the grid) from the render path.
-- **Replace** the `#550` `apply_curve` call with the LUT apply (the LUT subsumes the per-channel curve).
-- **AE stays Off** when the LUT is active — the LUT owns the display-space mapping including
-  brightness, exactly as #550 did (the proven behavior; avoids the un-anchored-dark confound).
+- **Keep** the `#550` `apply_curve` call; **add** the residual LUT apply immediately after it, fit on
+  the post-curve buffer so it keys on stable post-curve RGB and carries only the residual.
+- **AE stays Off** when the curve fits — the #550 curve owns the display-space brightness mapping,
+  exactly as before (the proven behavior; avoids the un-anchored-dark confound). The residual LUT
+  never owns brightness, so disabling it does not flip AE back on.
 
 ## The LUT
 
 - **Space:** display-encoded sRGB `[0,1]³` — the buffer state right where #550 fits/applies, and the
   space the embedded JPEG occupies after decode (`/255`). No new color conversions.
-- **Representation:** **17³** RGB→RGB grid (`Vec<[f32;3]>`, len 4913), **trilinear** interpolation.
-  17³ balances smoothness vs. detail for an 8-bit JPEG target; cheap to bake to a GPU 3D texture later.
-- **Fit (robust, local, no global overshoot):**
-  1. Sample `(maple_display_rgb, jpeg_display_rgb)` pairs — **reuse #550's display-space sampling**:
-     downsample both to a small grid, pair by location, drop clipped / high-variance (edge) cells.
-  2. Initialize every node to **identity**: `L[n] = p_n` (its own grid RGB).
-  3. Per node `n` at position `p_n`: confidence-weighted **local** delta —
-     `w_i = exp(-‖maple_i − p_n‖² / 2σ²)`, `Δ_n = Σ w_i (jpeg_i − maple_i) / Σ w_i`,
-     confidence `c_n = Σw_i / (Σw_i + λ)`, then `L[n] = p_n + c_n · Δ_n`. Sparse nodes → `c_n → 0` →
-     stay identity.
-  4. **Smooth** the delta grid with a small separable 3D Gaussian (coherence + fills thin gaps).
-  5. **Clamp** `L[n]` to `[0,1]`.
-  - Global **strength `k`** (default 1.0, env-overridable for tuning) blends `L` toward identity.
+- **Representation:** Nᶟ RGB→RGB grid (`Vec<f32>`, layout `((b·N+g)·N+r)·3+c`), **trilinear**
+  interpolation. Grid **SIZE is the single fidelity knob**; cheap to bake to a GPU 3D texture later.
+- **Fit — hard-binning (`fit_lut_from_pairs`), the O(pixels) form:**
+  1. Sample `(curve(maple)_display_rgb, jpeg_display_rgb)` pairs (`pairs::sample_display_pairs`,
+     reusing #550's exact orient/aspect-crop/border geometry + the shared JPEG decode). Because the
+     LUT runs after `apply_curve`, the render hands it the already-curved buffer, so `maple` is the
+     post-curve value — no explicit transform.
+  2. **Hard-bin** every pair into its nearest grid cell over ALL pairs (no subsample): accumulate
+     `(jpeg − maple)` and a count per cell (Rayon fold/reduce ⇒ ~40ms even on a 100MP source).
+  3. Per cell: confidence-weighted mean residual `Δ_c = (count/(count+λ)) · mean(jpeg − maple)`,
+     `λ = FIT_CONF_COUNT`. Sparse cells → confidence → 0 → identity.
+  4. **Confidence-masked** separable 1-2-1 smooth of the delta grid: empty cells stay at identity and
+     are excluded from neighbours' blends (renormalised), so a populated cell on the colour-volume
+     boundary isn't dragged toward identity by the empty cells outside the gamut. Trilinear fills
+     empty interior cells at apply time.
+  5. Compose `L[n] = p_n + strength · Δ_n`, **clamp** to `[0,1]`.
+  - Global **strength `k`** (default 1.0): `k = 0` ⇒ identity residual ⇒ **exactly the #550 curve**.
+- **Why hard-binning, not a Gaussian RBF:** at the σ a fidelity sweep drove the RBF to, the kernel had
+  already collapsed to nearest-cell (`exp(−4.9)≈0.008` one node away) — but the RBF paid O(nodes×pairs)
+  (30–60s, 30–60× over the cold-open budget) and its wide default σ washed out the value-keyed signal.
+  Hard-binning is the same limit computed in one O(pixels) pass, and an oracle per-cell LUT confirmed
+  ~48% of the #550→JPEG gap is genuinely value-keyed and recoverable (the RBF was leaving it on the floor).
 - **Apply:** per-pixel **trilinear** lookup of `L` at the pixel's display RGB (in place, parallel).
-- **Why it can't blotch:** RGB-value-keyed (no `atan2`, no `÷L`) + locally-supported regularized fit
-  (no biharmonic/TPS global overshoot) + grid-smoothed + identity fallback + trilinear interp. Two
-  pixels with the same RGB get the same output; nearby RGBs get nearby outputs.
+- **Why it can't blotch:** RGB-value-keyed (no `atan2`, no `÷L`) + per-cell confidence-damped +
+  masked-smoothed + identity fallback + trilinear interp. Two pixels with the same RGB get the same
+  output; nearby RGBs get nearby outputs (test_0003 residual local-std 0.6 vs the grid's 6–9).
 
 ## Reuse
 
