@@ -35,7 +35,8 @@ pub use develop::develop_scene_linear_from_raw_with_quality;
 pub use develop_sized::develop_scene_linear_sized_from_raw_with_quality;
 pub use downsample::downsample_image_area;
 pub use render::{
-    fit_profile_curve_from_raw, render_from_raw, render_from_raw_with_quality,
+    fit_auto_profile_from_raw, fit_profile_curve_from_raw, render_from_raw,
+    render_from_raw_with_quality,
     render_from_raw_with_quality_and_source,
     render_from_scene_linear, render_from_scene_linear_with_chain,
     render_scene_linear_from_raw_with_quality, render_scene_linear_from_raw_with_quality_f32,
