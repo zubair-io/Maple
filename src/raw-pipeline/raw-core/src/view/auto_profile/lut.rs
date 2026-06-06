@@ -107,7 +107,7 @@ const FIT_SMOOTH_PASSES: usize = 1; // separable 3D smoothing passes of the delt
 const LUT_SIZE: usize = 49;
 
 /// Floor on surviving `(maple, jpeg)` pairs before a LUT fit is attempted. Below
-/// this the correspondence set is too sparse to constrain a 17³ grid, so the
+/// this the correspondence set is too sparse to constrain the LUT grid, so the
 /// entry points return `None` and the caller falls back to identity (= the
 /// AgX-Neutral render with no LUT layered on).
 const MIN_LUT_PAIRS: usize = 256;
@@ -233,8 +233,9 @@ pub fn fit_lut_from_bytes_display(
 /// Shared tail of the two entry points: sample display-space pairs, gate on a
 /// minimum pair count, then fit the LUT at [`LUT_SIZE`].
 ///
-/// The strength env override mirrors #550's `MAPLE_CHROMA_STRENGTH_OVERRIDE` so
-/// the verify step can render LUT-off (`k = 0` ⇒ identity) vs LUT-on (`k = 1`).
+/// The `MAPLE_AUTO_LUT_STRENGTH` env override lets the verify harness render
+/// LUT-off (`k = 0` ⇒ identity residual ⇒ exactly the #550 curve) vs LUT-on
+/// (`k = 1`).
 fn fit_lut_from_preview(
     source_rgb: &[f32],
     source_w: usize,

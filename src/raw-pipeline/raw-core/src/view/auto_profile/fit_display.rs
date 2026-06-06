@@ -148,11 +148,6 @@ fn fit_curve_from_preview_display(
         orient_rgb_f32_to_display(sensor_rgb, sensor_w, sensor_h, orientation);
     let source_rgb: &[f32] = &oriented;
 
-    eprintln!(
-        "FIT_SHAPES: target_w={} target_h={} source_w={} source_h={} orient={:?}",
-        target_w_px, target_h_px, source_w, source_h, orientation
-    );
-
     // Match aspect by centre-cropping the wider axis of whichever buffer is
     // wider. Embedded JPEGs are sensor-aligned on every verified fixture, so
     // both buffers share a coordinate frame after the crop removes the
