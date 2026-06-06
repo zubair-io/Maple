@@ -123,31 +123,33 @@ impl ColorLut {
 
 ---
 
-## Task 2: Refactor #550's pair sampling into `pairs::sample_display_pairs`
+## Task 2: Shared `sample_display_pairs` for the LUT (leave #550's solve intact)
 
-**Files:** Create `view/auto_profile/pairs.rs`; Modify `fit_display.rs` (call the new fn); export in `mod.rs`.
+**Files:** Create `view/auto_profile/pairs.rs`; Modify `preview.rs` (extract a shared JPEG→display-sRGB decode helper); export in `mod.rs`. **Do NOT change #550's per-channel solve** — `fit_curve_from_preview_display`'s `build_design_matrices`/band-target path stays exactly as-is and is removed later in Task 5.
 
-**Context:** `fit_curve_from_preview_display` (`fit_display.rs:115-277`) inlines: orient preview→display, JPEG→f32 sRGB decode (Adobe-aware), aspect-crop, 10% border skip, footprint downscale, pairing. Extract the *pairing* into a reusable function that emits per-output-pixel `(maple_rgb, jpeg_rgb)` correspondences (mean of the source footprint vs the JPEG pixel), keeping #550 byte-identical by having it re-derive its 5-band targets from the same pairs.
+**Why not refactor #550 to use the pairs:** #550's design matrix distributes each source pixel across two curve anchors with sub-pixel weights (`solve::build_design_matrices`) — strictly finer than footprint-mean pairs. Re-deriving its targets from mean pairs would change #550's output. The LUT only needs representative `(maple_rgb, jpeg_rgb)` pairs (footprint mean is fine), so share just the pure decode and reimplement the small crop/footprint-mean pairing.
 
-- [ ] **Step 1 — failing test** (`pairs.rs`): a synthetic 4×4 source + 2×2 preview with known aspect produces 4 pairs whose maple values equal the footprint means. (Construct a tiny `DynamicImage` + f32 source; assert pair count and a known averaged value.)
+- [ ] **Step 1 — failing test** (`pairs.rs`): a synthetic 4×4 source + 2×2 preview with known aspect produces 4 pairs whose maple values equal the footprint means. (Tiny `DynamicImage` + f32 source; assert pair count + a known averaged value.)
 - [ ] **Step 2 — run, expect FAIL.**
-- [ ] **Step 3 — implement** `sample_display_pairs`:
+- [ ] **Step 3a — extract the decode helper.** Pull the Adobe-aware JPEG→display-sRGB-f32 conversion (currently inlined `fit_display.rs:139-160`) into a pure fn in `preview.rs`, e.g. `decode_jpeg_pixel_to_srgb(rgb01: [f32;3], cs: JpegColorSpace) -> [f32;3]`. Have #550's `fit_curve_from_preview_display` call it — it produces identical values, so #550 stays byte-identical.
+- [ ] **Step 3b — implement** `pairs::sample_display_pairs`:
 ```rust
 pub struct DisplayPair { pub maple: [f32; 3], pub jpeg: [f32; 3] }
 
 /// Build display-space JPEG↔Maple correspondences. `source_rgb` is the developed
 /// DisplayEncodedSrgb buffer (sensor-oriented); `preview` is the embedded JPEG
 /// (sensor-oriented). Both are oriented to display, aspect-matched, 10%-border-
-/// cropped, and paired by footprint mean — identical geometry to #550's fit.
+/// cropped; each output pixel pairs the footprint-MEAN source RGB with the JPEG
+/// pixel (decoded via the shared `preview::decode_jpeg_pixel_to_srgb`).
 pub fn sample_display_pairs(
     source_rgb: &[f32], source_w: usize, source_h: usize,
     preview: image::DynamicImage, cs: super::preview::JpegColorSpace,
     orientation: crate::image::ExifOrientation,
 ) -> Vec<DisplayPair>
 ```
-Move the orient/decode/crop/footprint code here (reuse `preview::orient_preview_to_display`, the Adobe-RGB decode in `fit_display.rs:139-160`, `solve::footprint_sizes`). Then refactor `fit_curve_from_preview_display` to call it and rebuild `band_of`/`band_target`/`design` from the returned pairs (the per-channel monotone solve stays).
-- [ ] **Step 4 — run new test + the full suite** (`cargo test -p raw-core --lib`). #550's existing tests (`fit_display`/`solve`) and the color harness must stay green → proves the refactor is behavior-preserving.
-- [ ] **Step 5 — verify #550 byte-parity** on one fixture: render test_0003 `--profile auto` before/after the refactor (stash), `compare_images.py` mean ΔE ≈ 0. Commit `refactor(raw-core): extract sample_display_pairs (#NNN)`.
+Reuse `preview::orient_preview_to_display`, `solve::footprint_sizes`, and the new decode helper; reimplement the aspect-crop + 10%-border + footprint-mean loop (do not touch #550's fit body beyond the decode-helper swap).
+- [ ] **Step 4 — run the full suite** (`cargo test -p raw-core --lib`). #550's `fit_display`/`solve` tests + the new pairs test all green.
+- [ ] **Step 5 — verify #550 byte-parity** on one fixture: render test_0003 `--profile auto` before/after (git stash), `compare_images.py` mean ΔE ≈ 0 (only the decode-helper extraction touched #550). Commit `refactor(raw-core): shared JPEG decode + sample_display_pairs (#NNN)`.
 
 ---
 

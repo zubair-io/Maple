@@ -47,26 +47,7 @@ use std::path::Path;
 
 use image::DynamicImage;
 
-use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
 use crate::image::ExifOrientation;
-use crate::math::Matrix3;
-use crate::view::encode::srgb_gamma;
-
-const M_ADOBE_RGB_TO_XYZ_D65: Matrix3 = Matrix3([
-    [0.5767309, 0.1855540, 0.1881852],
-    [0.2973769, 0.6273491, 0.0752741],
-    [0.0270343, 0.0706872, 0.9911085],
-]);
-
-const ADOBE_RGB_GAMMA: f32 = 563.0 / 256.0;
-
-fn adobe_to_srgb_matrix() -> Matrix3 {
-    static CELL: std::sync::OnceLock<Matrix3> = std::sync::OnceLock::new();
-    *CELL.get_or_init(|| {
-        let adobe_to_rec2020 = M_XYZ_D65_TO_REC2020.mul_mat(&M_ADOBE_RGB_TO_XYZ_D65);
-        M_REC2020_TO_SRGB.mul_mat(&adobe_to_rec2020)
-    })
-}
 
 use super::curve::{ProfileCurve, IDENTITY_MATRIX};
 use super::preview;
@@ -147,15 +128,11 @@ fn fit_curve_from_preview_display(
         .collect();
 
     if cs == preview::JpegColorSpace::AdobeRgb {
-        let m = adobe_to_srgb_matrix();
         for chunk in target.chunks_exact_mut(3) {
-            let r_lin = chunk[0].max(0.0).powf(ADOBE_RGB_GAMMA);
-            let g_lin = chunk[1].max(0.0).powf(ADOBE_RGB_GAMMA);
-            let b_lin = chunk[2].max(0.0).powf(ADOBE_RGB_GAMMA);
-            let srgb_lin = m.mul_vec([r_lin, g_lin, b_lin]);
-            chunk[0] = srgb_gamma(srgb_lin[0]);
-            chunk[1] = srgb_gamma(srgb_lin[1]);
-            chunk[2] = srgb_gamma(srgb_lin[2]);
+            let srgb = preview::decode_jpeg_pixel_to_srgb([chunk[0], chunk[1], chunk[2]], cs);
+            chunk[0] = srgb[0];
+            chunk[1] = srgb[1];
+            chunk[2] = srgb[2];
         }
     }
 
@@ -281,7 +258,7 @@ fn fit_curve_from_preview_display(
 /// mapping (the u8 path the render pipeline uses after the auto_profile stage).
 /// Returns `(display_w, display_h, oriented_rgb)`. `Normal` borrows the input
 /// (no copy of the potentially 100MP source); other orientations allocate.
-fn orient_rgb_f32_to_display(
+pub(super) fn orient_rgb_f32_to_display(
     rgb: &[f32],
     w: usize,
     h: usize,
