@@ -669,10 +669,11 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
     }
 
     // ── 3. Embedded CM-only fallback ──────────────────────────────────────
-    // DNG ships CM (with or without FM) but no HSM. Prefer the camera's own
-    // CM/FM pair to a bundled approximation — when the body ships *any*
-    // calibration data, that data is internally consistent with the sensor.
-    // Two CMs → interpolated profile. One CM → single-illuminant profile.
+    // Reached only when no confident bundled profile matched (§2 wins first):
+    // the DNG ships CM (with or without FM) but no HSM, so use the camera's own
+    // CM/FM pair — internally consistent with the sensor, and better than the
+    // synthetic D65 fallback (§4). Two CMs → interpolated profile. One CM →
+    // single-illuminant profile.
     if let Some((profile, illuminant)) = profile_from_embedded_cm_only(raw, wb_already_baked) {
         return Ok((profile, ProfileSource::EmbeddedCmOnly { illuminant }));
     }

@@ -166,9 +166,9 @@ import colour
 Image.MAX_IMAGE_PIXELS = None
 
 manifest_path, cand_dir, compare_py, preferred_res, name_filter, budgets_path, allow_missing, zones_flag, hue_bins_s, case_label_suffix = sys.argv[1:11]
-allow_missing = bool(allow_missing)
-zones_on = bool(zones_flag)
-hue_bins = int(hue_bins_s) if zones_flag else 0
+allow_missing = allow_missing not in ("", "0", "false", "False")
+zones_on = zones_flag not in ("", "0", "false", "False")
+hue_bins = int(hue_bins_s) if zones_on else 0
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(compare_py)))
@@ -387,9 +387,9 @@ import colour
 Image.MAX_IMAGE_PIXELS = None
 
 manifest_path, cand_dir, compare_py, preferred_res, name_filter, budgets_path, allow_missing, zones_flag, hue_bins_s, case_label_suffix = sys.argv[1:11]
-allow_missing = bool(allow_missing)
-zones_on = bool(zones_flag)
-hue_bins = int(hue_bins_s) if zones_flag else 0
+allow_missing = allow_missing not in ("", "0", "false", "False")
+zones_on = zones_flag not in ("", "0", "false", "False")
+hue_bins = int(hue_bins_s) if zones_on else 0
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(compare_py)))
 import compare_images
