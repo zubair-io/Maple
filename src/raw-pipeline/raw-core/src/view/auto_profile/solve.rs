@@ -27,7 +27,8 @@ pub(super) const LUMA_BANDS: [(f32, f32); 5] = [
 pub(super) const MIN_BAND_PIXELS: usize = 100;
 
 /// Minimum slope between adjacent anchors to prevent flat plateaus and color banding.
-/// Enforces a minimum derivative of ~0.186 (i.e. at least 18.6% of the identity curve's slope).
+/// 0.006 is ~18.6% of the identity curve's per-anchor slope (`1/(ANCHORS-1)` ≈ 0.0323
+/// for `ANCHORS = 32`) — adjacent output anchors must rise by at least that much.
 pub(super) const MIN_SLOPE: f32 = 0.006;
 
 /// Band index for a JPEG luma value, replicating the gate's edge handling:
