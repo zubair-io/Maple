@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
 use crate::math::Matrix3;
 use crate::view::auto_profile::preview::JpegColorSpace;
-use super::math_solver::{tps_solve, tps_evaluate};
+use super::math_solver::{tps_evaluate, tps_solve_weighted};
 
 pub const HUE_DIVS: usize = 36;
 pub const SAT_DIVS: usize = 16;
@@ -236,7 +236,7 @@ fn box_average(
 /// Groups downsampled paired pixels into deterministic color palette centroids
 /// by binning OKLAB (a, b) coordinates over a 10x10 grid in [-0.4, 0.4].
 fn cluster_pairs(pairs: &[Pair]) -> Vec<Pair> {
-    const GRID_SIZE: usize = 16;
+    const GRID_SIZE: usize = 8;
     struct Accumulator {
         raw_scene_sum: [f64; 3],
         raw_lab_sum: [f64; 3],
@@ -301,10 +301,38 @@ fn cluster_pairs(pairs: &[Pair]) -> Vec<Pair> {
 
 // ── The TPS solver & Grid baking pipeline (Task 4) ───────────────────────────
 
-const CHROMA_STRENGTH: f32 = 0.5;
+const CHROMA_STRENGTH: f32 = 1.0;
 const CHROMA_TAPER_LO: f32 = 0.05;
 const CHROMA_TAPER_HI: f32 = 0.80;
 const MIN_SOLVE_PAIRS: usize = 256;
+
+/// Reliability-weighting params for the TPS chroma solve. A control point's
+/// weight is `(L / L_REF).clamp(W_MIN, 1.0)`: clusters at or above `L_REF` are
+/// fully trusted (interpolated), darker ones are progressively smoothed through
+/// the spline (never below `W_MIN`). `L_REF ≤ 0.5` keeps the L=0.5 solver
+/// unit-tests at weight 1.0 (i.e. byte-identical to the unweighted solve).
+const CHROMA_L_REF: f32 = 0.45;
+const CHROMA_W_MIN: f32 = 0.08;
+/// Global TPS regularization; the per-point diagonal penalty is `CHROMA_LAMBDA / w_i`.
+const CHROMA_LAMBDA: f32 = 0.5;
+/// Bound on the per-point relative-chroma target accumulated by the feedback loop.
+const CHROMA_Z_CLAMP: f32 = 0.60;
+
+/// Parse a float env override, falling back to `default`.
+fn env_f32(key: &str, default: f32) -> f32 {
+    std::env::var(key)
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(default)
+}
+
+/// Parse a boolean env flag (`"0"`/`"false"` = off), falling back to `default`.
+fn env_flag(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|s| s != "0" && !s.eq_ignore_ascii_case("false"))
+        .unwrap_or(default)
+}
 
 /// Solves a 2D HueSatMap using Thin Plate Spline fitting over the clustered pairs.
 /// Employs a feedback loop to invert AgX gamut compression effects exactly.
@@ -315,33 +343,63 @@ fn solve_chroma_map(pairs: &[Pair], contrast: f32) -> ChromaTransform {
     }
     let raw_scene: Vec<[f32; 3]> = pairs.iter().map(|p| p.raw_scene).collect();
 
+    // Tuning knobs (env-overridable; defaults = the CHROMA_* consts above).
+    let l_ref = env_f32("MAPLE_CHROMA_LREF", CHROMA_L_REF);
+    let w_min = env_f32("MAPLE_CHROMA_WMIN", CHROMA_W_MIN);
+    let lambda = env_f32("MAPLE_CHROMA_LAMBDA", CHROMA_LAMBDA);
+    let weight_on = env_flag("MAPLE_CHROMA_WEIGHT", true);
+
+    // Per-control-point reliability weight by lightness. Dark/low-L clusters get
+    // their Δ/L targets amplified up to ~8× and sit at noisy (a/L, b/L) positions;
+    // a large diagonal penalty (lambda / w) smooths them THROUGH the spline instead
+    // of letting them spike the globally-supported biharmonic surface (the magenta
+    // banding / oil-slick blotch). Bright, reliable clusters keep w≈1 and full fit
+    // fidelity, preserving the real chroma boost. The trailing 1.0 weights the
+    // virtual origin anchor that `control_pts` pushes at (0, 0).
+    let mut weights: Vec<f32> = Vec::with_capacity(n + 1);
+    for p in pairs {
+        let w = if weight_on {
+            (p.raw_lab[0] / l_ref).clamp(w_min, 1.0)
+        } else {
+            1.0
+        };
+        weights.push(w);
+    }
+    weights.push(1.0);
+
     // 1. Compute baseline post-AgX chroma
     let base_post_agx = forward_post_agx_ab(&raw_scene, &ChromaTransform::identity(), contrast);
 
-    // 2. Initialize pre-AgX normalized target deltas
+    // 2. Initialize pre-AgX normalized target deltas. Clamp L to 0.12 to prevent division explosion in dark regions.
+    // Scale target delta smoothly to 0 near neutral (Cr < 0.04) to lock the neutral axis.
     let mut z_a = vec![0.0f32; n];
     let mut z_b = vec![0.0f32; n];
     for i in 0..n {
-        let l = pairs[i].raw_lab[0].max(1e-5);
+        let l = pairs[i].raw_lab[0].max(0.12);
+        let raw_c = pairs[i].raw_lab[1].hypot(pairs[i].raw_lab[2]);
+        let raw_cr = raw_c / l;
+        let target_scale = (raw_cr / 0.04).clamp(0.0, 1.0);
+
         let target_da = pairs[i].jpeg_lab[1] - base_post_agx[i].0;
         let target_db = pairs[i].jpeg_lab[2] - base_post_agx[i].1;
-        z_a[i] = target_da / l;
-        z_b[i] = target_db / l;
+        z_a[i] = (target_da / l) * target_scale;
+        z_b[i] = (target_db / l) * target_scale;
     }
 
     // 3. Set up control points in relative Cartesian coordinates (a/L, b/L)
     let mut control_pts = Vec::with_capacity(n + 1);
     for p in pairs {
-        let l = p.raw_lab[0].max(1e-5);
+        let l = p.raw_lab[0].max(0.12);
         control_pts.push((p.raw_lab[1] / l, p.raw_lab[2] / l));
     }
     // Add virtual anchor at origin to lock neutral axis
     control_pts.push((0.0, 0.0));
 
-    // 4. Feedback loop: iterate to pre-invert AgX non-linear compression
+    // 4. Feedback loop: iterate to pre-invert AgX non-linear compression.
+    // Regularization is now per-point (lambda / w_i, see `weights` above), which
+    // suppresses the dark-cluster spikes that caused high-frequency splotches.
     const ITERS: usize = 4;
     const ALPHA: f32 = 0.8;
-    const LAMBDA: f32 = 0.005;
 
     let mut current_grid = [[(0.0f32, 0.0f32); SAT_DIVS]; HUE_DIVS];
 
@@ -355,11 +413,11 @@ fn solve_chroma_map(pairs: &[Pair], contrast: f32) -> ChromaTransform {
         tps_z_a.push(0.0);
         tps_z_b.push(0.0);
 
-        let coef_a = match tps_solve(&control_pts, &tps_z_a, LAMBDA) {
+        let coef_a = match tps_solve_weighted(&control_pts, &tps_z_a, lambda, &weights) {
             Some(c) => c,
             None => break,
         };
-        let coef_b = match tps_solve(&control_pts, &tps_z_b, LAMBDA) {
+        let coef_b = match tps_solve_weighted(&control_pts, &tps_z_b, lambda, &weights) {
             Some(c) => c,
             None => break,
         };
@@ -388,7 +446,11 @@ fn solve_chroma_map(pairs: &[Pair], contrast: f32) -> ChromaTransform {
 
         // Update target delta coordinates based on feedback error
         for i in 0..n {
-            let l = pairs[i].raw_lab[0].max(1e-5);
+            let l = pairs[i].raw_lab[0].max(0.12);
+            let raw_c = pairs[i].raw_lab[1].hypot(pairs[i].raw_lab[2]);
+            let raw_cr = raw_c / l;
+            let target_scale = (raw_cr / 0.04).clamp(0.0, 1.0);
+
             let target_da = pairs[i].jpeg_lab[1] - base_post_agx[i].0;
             let target_db = pairs[i].jpeg_lab[2] - base_post_agx[i].1;
 
@@ -398,8 +460,15 @@ fn solve_chroma_map(pairs: &[Pair], contrast: f32) -> ChromaTransform {
             let err_a = target_da - achieved_da;
             let err_b = target_db - achieved_db;
 
-            z_a[i] += ALPHA * (err_a / l);
-            z_b[i] += ALPHA * (err_b / l);
+            // Weight the update by the same reliability w_i: dark points we
+            // declined to fit must not wind their z back up across iterations and
+            // re-ripple the surface. With w_i ≈ L/L_REF, the (1/L)·w_i collapses to
+            // 1/L_REF, so the ~8× dark amplification falls out. The clamp guards
+            // against any residual windup.
+            z_a[i] = (z_a[i] + ALPHA * (err_a / l) * target_scale * weights[i])
+                .clamp(-CHROMA_Z_CLAMP, CHROMA_Z_CLAMP);
+            z_b[i] = (z_b[i] + ALPHA * (err_b / l) * target_scale * weights[i])
+                .clamp(-CHROMA_Z_CLAMP, CHROMA_Z_CLAMP);
         }
     }
 
@@ -415,8 +484,8 @@ fn solve_chroma_map(pairs: &[Pair], contrast: f32) -> ChromaTransform {
     tps_z_b.push(0.0);
 
     if let (Some(coef_a), Some(coef_b)) = (
-        tps_solve(&control_pts, &tps_z_a, LAMBDA),
-        tps_solve(&control_pts, &tps_z_b, LAMBDA),
+        tps_solve_weighted(&control_pts, &tps_z_a, lambda, &weights),
+        tps_solve_weighted(&control_pts, &tps_z_b, lambda, &weights),
     ) {
         let k = std::env::var("MAPLE_CHROMA_STRENGTH_OVERRIDE")
             .ok()
