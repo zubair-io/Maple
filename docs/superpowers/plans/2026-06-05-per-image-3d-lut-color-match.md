@@ -10,6 +10,17 @@
 
 Design of record: `docs/superpowers/specs/2026-06-05-per-image-3d-lut-color-match-design.md`.
 
+> **Revision (2026-06-06) — two course-corrections discovered during execution:**
+> 1. **Layer, not replace #550.** The LUT applies *after* `apply_curve` (not in place of it), fit on
+>    the already-curved buffer, so its pairs are `(curve(maple), jpeg)` and it carries only the
+>    cross-channel residual. `strength = 0` ⇒ identity ⇒ exactly #550 (the accuracy floor and gate).
+>    `fit_display.rs` stays load-bearing — do **not** delete it; only the chroma grid retires.
+> 2. **Hard-binning, not Gaussian RBF.** `fit_lut_from_pairs` bins each pair into its nearest cell
+>    over ALL pairs (per-cell confidence-damped mean + confidence-masked smooth), the O(pixels) limit
+>    of the RBF — ~40ms vs 30–60s, and the wide RBF σ was washing out the value-keyed signal. Grid
+>    **SIZE** is the single fidelity knob (validated across fixtures via `test_color_pipeline.sh`'s
+>    Auto gate; chosen N baked + `baseline_auto` budgets ratcheted down in the same commit).
+
 ---
 
 ## File Structure
