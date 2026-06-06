@@ -36,6 +36,7 @@ import type {
   UploadSessionDoc,
   AssetChangeDoc,
   ServerStateDoc,
+  MirrorQueueDoc,
 } from './schema.ts';
 import type { WorkerConfigDoc } from '../workers/worker-config.repo.ts';
 
@@ -172,6 +173,10 @@ export async function assetChangesCollection(): Promise<Collection<AssetChangeDo
 
 export async function serverStateCollection(): Promise<Collection<ServerStateDoc>> {
   return (await getDb()).collection<ServerStateDoc>('server_state');
+}
+
+export async function mirrorQueueCollection(): Promise<Collection<MirrorQueueDoc>> {
+  return (await getDb()).collection<MirrorQueueDoc>('mirror_queue');
 }
 
 /** Stage names whose claim-query indexes are created at startup.
@@ -1222,6 +1227,18 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('asset_changes')
     .createIndex({ folder_id: 1, cursor: 1 }, { name: 'asset_changes_folder_cursor' });
+
+  // mirror_queue: pending file copies to a backup/mirror root. `mirror_path` is
+  // the natural key (one pending copy per destination) so re-detection and
+  // repeated write-failures coalesce. The claim query is
+  //   { dead: { $ne: true }, $or: [ {claimed_at: null}, {claimed_at: { $lt: now }} ] }
+  // sorted by enqueued_at — the compound index covers it.
+  await db
+    .collection('mirror_queue')
+    .createIndex({ mirror_path: 1 }, { unique: true, name: 'mirror_queue_path' });
+  await db
+    .collection('mirror_queue')
+    .createIndex({ dead: 1, claimed_at: 1, enqueued_at: 1 }, { name: 'mirror_queue_claim' });
 
   await ensureStageIndexes(db);
 
