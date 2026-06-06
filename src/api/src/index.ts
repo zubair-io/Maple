@@ -74,6 +74,7 @@ import { staticUiPlugin } from './routes/static_ui.ts';
 import { getDb, ensureIndexes, closeDb } from './db/client.ts';
 import { loadMirrorConfig } from './fs/mirror-config.ts';
 import { flushPendingMirrorOps } from './fs/mirrored.ts';
+import { installMirrorQueueSink } from './workers/mirror/sink.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
 import {
@@ -311,6 +312,9 @@ async function start(): Promise<void> {
       // replicate to configured backup roots. Safe to skip on failure — an
       // unloaded registry just means no mirroring until the next reload.
       await loadMirrorConfig();
+      // Route this process's inline replication failures (backup ingest / XMP /
+      // uploads) into the durable mirror_queue so the copy worker retries them.
+      installMirrorQueueSink();
     } catch (err) {
       log.error({ err }, 'mirror config load failed — mirroring inactive until reloaded');
     }
