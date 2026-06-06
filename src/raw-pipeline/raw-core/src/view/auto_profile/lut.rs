@@ -93,10 +93,8 @@ impl ColorLut {
     }
 }
 
-const FIT_SIGMA: f32 = 0.18; // RBF radius in RGB units
-const FIT_REG: f32 = 4.0; // confidence: c = wsum / (wsum + REG)
+const FIT_CONF_COUNT: f32 = 8.0; // confidence half-count: c = count / (count + FIT_CONF_COUNT)
 const FIT_SMOOTH_PASSES: usize = 1; // separable 3D smoothing passes of the delta grid
-const MAX_FIT_PAIRS: usize = 6000; // cap for the O(nodes × pairs) gather
 
 /// Grid resolution of the fitted per-image LUT (nodes per axis). 17 is the de
 /// facto interchange size (`.cube` default, ACR's HSM grid order) — fine enough
@@ -110,51 +108,105 @@ const LUT_SIZE: usize = 17;
 /// AgX-Neutral render with no LUT layered on).
 const MIN_LUT_PAIRS: usize = 256;
 
-/// Fit a smooth Nᶟ RGB→RGB LUT from display-space `(maple, jpeg)` pairs.
-/// Each node accumulates a Gaussian-weighted mean shift toward the JPEG from
-/// nearby pairs, regularized toward identity by confidence (sparse → identity),
-/// then the delta grid is smoothed and composed onto identity with `strength`.
-/// Value-keyed + locally-supported + smoothed ⇒ spatially coherent (cannot blotch).
+/// Dev-only env override for a tuning constant (sweep scaffolding; the chosen
+/// value is baked back to the const before ship).
+fn env_f32(key: &str, default: f32) -> f32 {
+    std::env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+}
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+}
+
+/// Fit a smooth Nᶟ RGB→RGB residual LUT from display-space `(maple, jpeg)` pairs.
+///
+/// Hard-bins every pair into its nearest grid cell, takes the per-cell mean shift
+/// toward the JPEG, damps sparse cells toward identity by a count confidence
+/// (`c = count / (count + FIT_CONF_COUNT)`), smooths the delta grid for cell-to-cell
+/// coherence (confidence-masked — populated cells aren't diluted by empty
+/// neighbours; trilinear interpolation fills empty cells at apply time), and
+/// composes onto identity with `strength`. This is the O(pixels) limit of the
+/// former Gaussian RBF gather — at the resolved σ the kernel had collapsed to
+/// nearest-cell — so it uses ALL pairs for free in ms (no subsample, no σ). Grid
+/// SIZE is the only fidelity knob. Value-keyed + smoothed ⇒ spatially coherent
+/// (cannot blotch).
 pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> ColorLut {
     let n = size.max(2);
     let id = ColorLut::identity(n);
     if pairs.is_empty() {
         return id;
     }
-    // Uniform-stride subsample bounds the gather cost while preserving color coverage.
-    let step = (pairs.len() / MAX_FIT_PAIRS).max(1);
-    let sub: Vec<DisplayPair> = pairs.iter().step_by(step).copied().collect();
+    // Confidence half-count knob (env = dev-only sweep scaffolding, baked to the
+    // const before ship); SMOOTH passes likewise.
+    let conf_count = env_f32("MAPLE_LUT_REG", FIT_CONF_COUNT);
+    let smooth_passes = env_usize("MAPLE_LUT_SMOOTH", FIT_SMOOTH_PASSES);
     let last = (n - 1) as f32;
-    let two_s2 = 2.0 * FIT_SIGMA * FIT_SIGMA;
+    let cells = n * n * n;
 
-    // Per-node confidence-weighted delta toward the JPEG (identity where sparse).
-    let mut delta = vec![[0f32; 3]; n * n * n];
-    delta.par_iter_mut().enumerate().for_each(|(idx, d)| {
-        let r = idx % n;
-        let g = (idx / n) % n;
-        let b = idx / (n * n);
-        let p = [r as f32 / last, g as f32 / last, b as f32 / last];
-        let (mut wsum, mut acc) = (0f32, [0f32; 3]);
-        for pr in &sub {
-            let d2 = (pr.maple[0] - p[0]).powi(2)
-                + (pr.maple[1] - p[1]).powi(2)
-                + (pr.maple[2] - p[2]).powi(2);
-            let w = (-d2 / two_s2).exp();
-            wsum += w;
-            for c in 0..3 {
-                acc[c] += w * (pr.jpeg[c] - pr.maple[c]);
-            }
-        }
-        if wsum > 1e-6 {
-            let c = wsum / (wsum + FIT_REG);
+    // Hard-bin all pairs into nearest cells, accumulating residual + count. Rayon
+    // fold/reduce keeps it O(pairs) and parallel (per-thread cell arrays merged).
+    let (acc, cnt) = pairs
+        .par_iter()
+        .fold(
+            || (vec![[0f64; 3]; cells], vec![0u32; cells]),
+            |(mut acc, mut cnt), pr| {
+                let cr = ((pr.maple[0].clamp(0.0, 1.0) * last) + 0.5) as usize;
+                let cg = ((pr.maple[1].clamp(0.0, 1.0) * last) + 0.5) as usize;
+                let cb = ((pr.maple[2].clamp(0.0, 1.0) * last) + 0.5) as usize;
+                let idx = (cb.min(n - 1) * n + cg.min(n - 1)) * n + cr.min(n - 1);
+                for c in 0..3 {
+                    acc[idx][c] += (pr.jpeg[c] - pr.maple[c]) as f64;
+                }
+                cnt[idx] += 1;
+                (acc, cnt)
+            },
+        )
+        .reduce(
+            || (vec![[0f64; 3]; cells], vec![0u32; cells]),
+            |(mut a1, mut c1), (a2, c2)| {
+                for i in 0..cells {
+                    for k in 0..3 {
+                        a1[i][k] += a2[i][k];
+                    }
+                    c1[i] += c2[i];
+                }
+                (a1, c1)
+            },
+        );
+
+    // Per-cell confidence-weighted mean residual (sparse cells → identity).
+    let mut delta = vec![[0f32; 3]; cells];
+    for i in 0..cells {
+        if cnt[i] > 0 {
+            let c = cnt[i] as f32 / (cnt[i] as f32 + conf_count);
             for k in 0..3 {
-                d[k] = c * (acc[k] / wsum);
+                delta[i][k] = c * (acc[i][k] / cnt[i] as f64) as f32;
             }
         }
-    });
+    }
+    let populated: Vec<bool> = cnt.iter().map(|&c| c > 0).collect();
 
-    for _ in 0..FIT_SMOOTH_PASSES {
-        smooth3(&mut delta, n);
+    if std::env::var_os("MAPLE_LUT_DEBUG").is_some() {
+        let total: u64 = cnt.iter().map(|&c| c as u64).sum();
+        let pop = cnt.iter().filter(|&&c| c > 0).count();
+        let cmax = cnt.iter().copied().max().unwrap_or(0);
+        let mut dmax = [0f32; 3];
+        let mut wbias = [0f64; 3]; // pixel-weighted predicted applied shift (255)
+        for i in 0..cells {
+            for k in 0..3 {
+                dmax[k] = dmax[k].max(delta[i][k].abs());
+                wbias[k] += delta[i][k] as f64 * cnt[i] as f64;
+            }
+        }
+        let inv = if total > 0 { 255.0 / total as f64 } else { 0.0 };
+        eprintln!(
+            "LUT_DEBUG bin N={n} pairs={} conf={conf_count} | cells pop={pop}/{cells} max_count={cmax} | |delta|max R/G/B={:.4}/{:.4}/{:.4} | pred applied shift R/G/B(255)={:.2}/{:.2}/{:.2}",
+            pairs.len(), dmax[0], dmax[1], dmax[2],
+            wbias[0] * inv, wbias[1] * inv, wbias[2] * inv,
+        );
+    }
+
+    for _ in 0..smooth_passes {
+        smooth3(&mut delta, &populated, n);
     }
 
     let mut lut = id.clone();
@@ -229,23 +281,33 @@ fn fit_lut_from_preview(
         .ok()
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(1.0);
-    Some(fit_lut_from_pairs(&pairs, LUT_SIZE, k))
+    Some(fit_lut_from_pairs(&pairs, env_usize("MAPLE_LUT_SIZE", LUT_SIZE), k))
 }
 
-/// In-place separable 1-2-1 smoothing of the per-node delta grid over each RGB
-/// axis. Borders replicate (clamp), so edge nodes aren't pulled toward zero.
-fn smooth3(delta: &mut [[f32; 3]], n: usize) {
+/// In-place separable 1-2-1 smoothing of the per-cell delta grid over each RGB
+/// axis, **confidence-masked**: empty cells (no pairs) are left at identity-delta
+/// (trilinear interpolation fills them at apply time) and are excluded from their
+/// neighbours' blends with renormalisation, so a populated cell at the colour-
+/// volume boundary isn't dragged toward identity by the empty cells outside the
+/// gamut. Borders replicate (clamp).
+fn smooth3(delta: &mut [[f32; 3]], populated: &[bool], n: usize) {
     let at = |r: usize, g: usize, b: usize| (b * n + g) * n + r;
     let mut tmp = delta.to_vec();
     // R axis
     for b in 0..n {
         for g in 0..n {
             for r in 0..n {
+                let cu = at(r, g, b);
+                if !populated[cu] {
+                    continue;
+                }
                 let lo = at(r.saturating_sub(1), g, b);
                 let hi = at((r + 1).min(n - 1), g, b);
-                let cu = at(r, g, b);
+                let wlo = if populated[lo] { 0.25 } else { 0.0 };
+                let whi = if populated[hi] { 0.25 } else { 0.0 };
+                let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = 0.25 * delta[lo][c] + 0.5 * delta[cu][c] + 0.25 * delta[hi][c];
+                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
@@ -255,11 +317,17 @@ fn smooth3(delta: &mut [[f32; 3]], n: usize) {
     for b in 0..n {
         for g in 0..n {
             for r in 0..n {
+                let cu = at(r, g, b);
+                if !populated[cu] {
+                    continue;
+                }
                 let lo = at(r, g.saturating_sub(1), b);
                 let hi = at(r, (g + 1).min(n - 1), b);
-                let cu = at(r, g, b);
+                let wlo = if populated[lo] { 0.25 } else { 0.0 };
+                let whi = if populated[hi] { 0.25 } else { 0.0 };
+                let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = 0.25 * delta[lo][c] + 0.5 * delta[cu][c] + 0.25 * delta[hi][c];
+                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
@@ -269,11 +337,17 @@ fn smooth3(delta: &mut [[f32; 3]], n: usize) {
     for b in 0..n {
         for g in 0..n {
             for r in 0..n {
+                let cu = at(r, g, b);
+                if !populated[cu] {
+                    continue;
+                }
                 let lo = at(r, g, b.saturating_sub(1));
                 let hi = at(r, g, (b + 1).min(n - 1));
-                let cu = at(r, g, b);
+                let wlo = if populated[lo] { 0.25 } else { 0.0 };
+                let whi = if populated[hi] { 0.25 } else { 0.0 };
+                let wsum = wlo + 0.5 + whi;
                 for c in 0..3 {
-                    tmp[cu][c] = 0.25 * delta[lo][c] + 0.5 * delta[cu][c] + 0.25 * delta[hi][c];
+                    tmp[cu][c] = (wlo * delta[lo][c] + 0.5 * delta[cu][c] + whi * delta[hi][c]) / wsum;
                 }
             }
         }
