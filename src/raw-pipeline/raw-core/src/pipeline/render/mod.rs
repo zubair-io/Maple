@@ -118,7 +118,9 @@ pub fn render_from_raw_with_quality_and_source(
     let cached_lut = auto_cache_key
         .as_ref()
         .and_then(auto_profile::cache::get_lut);
-    let auto_will_fit = cached_lut.is_some()
+    let cached_curve = auto_cache_key.as_ref().and_then(auto_profile::cache::get);
+    let auto_will_fit = cached_curve.is_some()
+        || cached_lut.is_some()
         || (model.profile == Profile::Auto
             && match &raw_source {
                 Some(RawInput::Path(p)) => auto_profile::preview::extract_preview(p).is_some(),
@@ -127,16 +129,17 @@ pub fn render_from_raw_with_quality_and_source(
                 }
                 None => false,
             });
-    // POC gate (#913): Profile::Auto normally pins auto-exposure OFF because the
-    // Auto Profile LUT owns the scene→JPEG brightness mapping (the LUT is fit
-    // against the AE-Off buffer, see #871). When the LUT is disabled for the
-    // POC, nothing remaps brightness, so AE MUST stay ON to anchor mid-gray to
-    // 0.18 — otherwise the render enters AgX un-anchored and lands ~0.16 OKLab-L
-    // too dark (the entire "chroma catastrophe" turned out to be this missing
-    // anchor, not the chroma stage). Outside the POC, behaviour is unchanged.
-    let poc_no_lut = std::env::var_os("MAPLE_DISABLE_AUTO_LUT").is_some();
+    // Profile::Auto pins auto-exposure OFF because the Auto Profile tail owns the
+    // scene→JPEG brightness mapping: the #550 per-channel curve is fit against the
+    // AE-Off display buffer (#871), and the residual LUT layers on top of it. If
+    // the curve can't fit (`!auto_will_fit`, e.g. no embedded JPEG), AE MUST stay
+    // ON to anchor mid-gray to 0.18 — otherwise the render enters AgX un-anchored
+    // and lands ~0.16 OKLab-L too dark (#913; regressed test_0013 8.82 → 16.98 dE
+    // before this guard). The residual LUT never owns brightness, so disabling it
+    // (`MAPLE_DISABLE_AUTO_LUT` / `MAPLE_AUTO_LUT_STRENGTH=0`) does NOT flip AE back
+    // on — that path renders the pure #550 curve, which still owns brightness.
     let auto_model;
-    let active_model: &AdjustmentModel = if auto_will_fit && !poc_no_lut {
+    let active_model: &AdjustmentModel = if auto_will_fit {
         auto_model = AdjustmentModel {
             auto_exposure: AutoExposureMode::Off,
             ..model.clone()
@@ -165,22 +168,45 @@ pub fn render_from_raw_with_quality_and_source(
     // full sRGB encode (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
     stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    // Auto Profile (#537/#913) — per-image 3D color LUT fit from the
-    // embedded JPEG and applied in f32 sRGB-encoded display space (same
-    // domain the empirical Look LUT samples in, #519), layered on top of
-    // AgX. The fit (`lut::fit_lut_*_display`) reads the JPEG via `/255`
-    // directly — no inverse OETF, no Rec.2020 conversion — and Maple's
-    // source buffer is in the same domain by construction. The LUT replaces
-    // the retired #550 per-channel tone curve, carrying both the tone and
-    // chroma residual toward the JPEG distribution. Identity (no-op =
-    // AgX-Neutral output) when there's no RAW source (legacy
-    // `maple_render_bytes` FFI) or the fit fails (no JPEG / too small /
-    // too few surviving pairs).
+    // Auto Profile (#537/#913) — the per-image color tail toward the embedded
+    // JPEG, applied in f32 sRGB-encoded display space (the domain the JPEG
+    // occupies after `/255`, and the domain Maple's buffer is in here by
+    // construction — no inverse OETF, no Rec.2020 conversion). TWO layered stages:
+    //   1. the #550 per-channel tone curve (`apply_curve`) — the separable R/G/B
+    //      residual toward the JPEG distribution; owns tone + brightness.
+    //   2. a per-image residual 3D LUT (`lut::fit_lut_*`) fit on the ALREADY-CURVED
+    //      buffer, so it keys on post-curve RGB and carries only the cross-channel
+    //      (per-hue/sat) residual the separable curve can't — value-keyed + smooth
+    //      ⇒ spatially coherent (no oil-slick, unlike the retired chroma grid).
+    // The LUT generalizes the curve (a per-channel curve is a diagonal LUT), so
+    // `MAPLE_AUTO_LUT_STRENGTH=0` ⇒ identity residual ⇒ output is exactly the #550
+    // curve (the exact accuracy floor). No-op (= AgX-Neutral output) when there's
+    // no RAW source (legacy `maple_render_bytes` FFI) or the fit fails (no JPEG /
+    // too small / too few surviving pairs).
     match (model.profile, &raw_source) {
         (Profile::Auto, Some(RawInput::Path(path))) => stage("auto_profile", || {
             scene.assert_space(ColorSpace::DisplayEncodedSrgb);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+            // 1. #550 per-channel curve — fit on the pre-curve buffer, apply in
+            //    place so `pixels` becomes curve(maple), the residual LUT's input.
+            let curve = match cached_curve.clone() {
+                Some(c) => Some(c),
+                None => {
+                    let fitted = auto_profile::fit_curve_from_raw_display(
+                        path, pixels, w, h, raw.orientation,
+                    );
+                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
+                        auto_profile::cache::insert(key, c.clone());
+                    }
+                    fitted
+                }
+            };
+            if let Some(c) = &curve {
+                auto_profile::apply_curve(pixels, c);
+            }
+            // 2. residual 3D LUT — fit on the now-curved buffer ⇒ pairs are
+            //    (curve(maple), jpeg), so it corrects only the post-curve residual.
             let lut = match cached_lut.clone() {
                 Some(l) => Some(l),
                 None => {
@@ -203,6 +229,25 @@ pub fn render_from_raw_with_quality_and_source(
             scene.assert_space(ColorSpace::DisplayEncodedSrgb);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+            // 1. #550 per-channel curve — fit on the pre-curve buffer, apply in
+            //    place so `pixels` becomes curve(maple), the residual LUT's input.
+            let curve = match cached_curve.clone() {
+                Some(c) => Some(c),
+                None => {
+                    let fitted = auto_profile::fit_curve_from_bytes_display(
+                        bytes, ext, pixels, w, h, raw.orientation,
+                    );
+                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
+                        auto_profile::cache::insert(key, c.clone());
+                    }
+                    fitted
+                }
+            };
+            if let Some(c) = &curve {
+                auto_profile::apply_curve(pixels, c);
+            }
+            // 2. residual 3D LUT — fit on the now-curved buffer ⇒ pairs are
+            //    (curve(maple), jpeg), so it corrects only the post-curve residual.
             let lut = match cached_lut.clone() {
                 Some(l) => Some(l),
                 None => {
