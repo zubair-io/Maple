@@ -46,11 +46,10 @@ final class MapleExporterTests: XCTestCase {
         XCTAssertEqual(image.width, 64)
         XCTAssertEqual(image.height, 48)
         XCTAssertEqual(image.bitsPerComponent, 8)
-        if let cs = image.colorSpace {
-            XCTAssertFalse(
-                CGColorSpaceIsWideGamutRGB(cs),
-                "sRGB JPEG must not round-trip as wide-gamut")
-        }
+        let cs = try XCTUnwrap(image.colorSpace, "sRGB JPEG must carry a color space")
+        XCTAssertFalse(
+            CGColorSpaceIsWideGamutRGB(cs),
+            "sRGB JPEG must not round-trip as wide-gamut")
     }
 
     func testJpegP3PreservesWideGamut() throws {
@@ -64,11 +63,10 @@ final class MapleExporterTests: XCTestCase {
         XCTAssertEqual(image.width, 80)
         XCTAssertEqual(image.height, 60)
         XCTAssertEqual(image.bitsPerComponent, 8)
-        if let cs = image.colorSpace {
-            XCTAssertTrue(
-                CGColorSpaceIsWideGamutRGB(cs),
-                "P3 JPEG must round-trip as wide-gamut")
-        }
+        let cs = try XCTUnwrap(image.colorSpace, "P3 JPEG must carry a color space")
+        XCTAssertTrue(
+            CGColorSpaceIsWideGamutRGB(cs),
+            "P3 JPEG must round-trip as wide-gamut")
     }
 
     func testPngEncodesEightBit() throws {
@@ -96,27 +94,26 @@ final class MapleExporterTests: XCTestCase {
             "16-bit TIFF must encode 16 bits per component, not 8")
     }
 
-    /// HEIC depends on a platform encoder that isn't present on every host;
-    /// treat its absence as a skip rather than a failure, mirroring the repo's
-    /// fixture-absent skip-pass convention.
+    /// HEIC encoding depends on a platform encoder that isn't present on every
+    /// host. Skip only when the host genuinely can't *write* HEIC (queried via
+    /// `CGImageDestinationCopyTypeIdentifiers`); when it can, an encode failure
+    /// is a real regression and must fail the test rather than be swallowed.
     func testHeicP3PreservesWideGamutWhenAvailable() throws {
-        let data: Data
-        do {
-            data = try MapleExporter.encodeImage(
-                sampleImage(width: 64, height: 64),
-                options: ExportOptions(format: .heicP3))
-        } catch {
-            throw XCTSkip("HEIC encoder unavailable on this host: \(error)")
-        }
+        let writable = (CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? []
+        try XCTSkipUnless(
+            writable.contains(ExportFileFormat.heicP3.uti as String),
+            "host cannot write HEIC")
+        let data = try MapleExporter.encodeImage(
+            sampleImage(width: 64, height: 64),
+            options: ExportOptions(format: .heicP3))
         let (type, image) = try decode(data)
         XCTAssertEqual(type, ExportFileFormat.heicP3.uti as String)
         XCTAssertEqual(image.width, 64)
         XCTAssertEqual(image.height, 64)
-        if let cs = image.colorSpace {
-            XCTAssertTrue(
-                CGColorSpaceIsWideGamutRGB(cs),
-                "P3 HEIC must round-trip as wide-gamut")
-        }
+        let cs = try XCTUnwrap(image.colorSpace, "HEIC must carry a color space")
+        XCTAssertTrue(
+            CGColorSpaceIsWideGamutRGB(cs),
+            "P3 HEIC must round-trip as wide-gamut")
     }
 
     /// `maxSidePixels` resizes the long edge before encoding — exercises the
