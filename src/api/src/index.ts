@@ -73,6 +73,7 @@ import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { getDb, ensureIndexes, closeDb } from './db/client.ts';
 import { loadMirrorConfig } from './fs/mirror-config.ts';
+import { flushPendingMirrorOps } from './fs/mirrored.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
 import {
@@ -481,6 +482,16 @@ async function shutdown(signal: string): Promise<void> {
     await shutdownOtel();
   } catch (e) {
     log.warn({ err: e }, 'error stopping OpenTelemetry SDK');
+  }
+  // Drain any in-flight mirror replication so a backup copy isn't cut off
+  // mid-write on shutdown. Best-effort + bounded — never block exit on it.
+  try {
+    await Promise.race([
+      flushPendingMirrorOps(),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+  } catch {
+    /* ignore */
   }
   try {
     await closeDb();
