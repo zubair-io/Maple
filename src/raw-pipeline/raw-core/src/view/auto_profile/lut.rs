@@ -1,5 +1,12 @@
 //! Per-image color LUT: a smooth Nᶟ RGB→RGB grid applied by trilinear interpolation.
 //! Value-keyed (no atan2 / ÷L) + smooth ⇒ spatially coherent (cannot blotch).
+//!
+//! In the render path this layers **after** the #550 per-channel curve: the fit
+//! entry points are handed the already-curved display buffer, so the sampled
+//! pairs are `(curve(maple), jpeg)` and the grid carries only the cross-channel
+//! residual the separable curve can't (`fit_lut_from_pairs` seeds identity and
+//! adds a confidence-weighted delta, so a tiny residual ⇒ near-identity LUT ⇒
+//! `strength = 0` reproduces the pure #550 curve exactly).
 use std::path::Path;
 
 use rayon::prelude::*;
