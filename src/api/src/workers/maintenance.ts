@@ -23,10 +23,15 @@
 import { startTrashGc, type TrashGcHandle } from './trash-gc.ts';
 import { startMissingReaper, type MissingReaperHandle } from './missing-reaper.ts';
 import { startMigration, type MigrationHandle } from './migration.ts';
+import { startMirrorScan, type MirrorScanHandle } from './mirror/scan.ts';
+import { startMirrorCopyWorker, type MirrorCopyHandle } from './mirror/copy.ts';
+import { installMirrorQueueSink } from './mirror/sink.ts';
 
 let trashGc: TrashGcHandle | null = null;
 let missingReaper: MissingReaperHandle | null = null;
 let migration: MigrationHandle | null = null;
+let mirrorScan: MirrorScanHandle | null = null;
+let mirrorCopy: MirrorCopyHandle | null = null;
 
 /** Start every maintenance job. Idempotent — a second call is a no-op while a
  * prior set is still running. */
@@ -34,6 +39,13 @@ export function startMaintenanceJobs(): void {
   if (!trashGc) trashGc = startTrashGc({});
   if (!missingReaper) missingReaper = startMissingReaper();
   if (!migration) migration = startMigration();
+  // Mirror reconcile: detector (scan → enqueue) + copy worker (drain queue).
+  // Both no-op cheaply when no library has a mirror configured. The sink
+  // routes inline replication failures (this process's mirrored writes — e.g.
+  // migration relocations) into the same queue.
+  installMirrorQueueSink();
+  if (!mirrorScan) mirrorScan = startMirrorScan({});
+  if (!mirrorCopy) mirrorCopy = startMirrorCopyWorker({});
 }
 
 /** Stop every maintenance job (cancels timers, unregisters the workers). Safe to
@@ -45,4 +57,8 @@ export function stopMaintenanceJobs(): void {
   missingReaper = null;
   migration?.stop();
   migration = null;
+  mirrorScan?.stop();
+  mirrorScan = null;
+  mirrorCopy?.stop();
+  mirrorCopy = null;
 }

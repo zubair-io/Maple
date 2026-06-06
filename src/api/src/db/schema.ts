@@ -31,6 +31,33 @@ export interface MirrorLocation {
   enabled: boolean;
 }
 
+/**
+ * One pending file copy to a mirror, in the `mirror_queue` collection. The
+ * detect/copy split: the mirror-scan detector and the inline `onMirrorFailure`
+ * sink only *enqueue* rows here (cheap); the mirror copy worker drains them
+ * (claim → copy → complete/retry). `mirror_path` is the natural key — one
+ * pending copy per destination — so re-detection and repeated failures
+ * coalesce instead of duplicating.
+ */
+export interface MirrorQueueDoc {
+  /** Absolute path of the committed primary file to replicate. */
+  primary_path: string;
+  /** Absolute destination path under the mirror root. */
+  mirror_path: string;
+  /** Why it was enqueued — diagnostics only. */
+  reason: 'scan-missing' | 'write-failure';
+  /** Claim lease: epoch-ms the current claim expires, or null when free. */
+  claimed_at: number | null;
+  /** Failed-copy retry count. */
+  attempts: number;
+  /** Last failure message, or null. */
+  last_error: string | null;
+  /** Parked after `attempts` exceeds the max — operator-recoverable. */
+  dead: boolean;
+  /** When first enqueued (epoch-ms); the claim sort key (oldest first). */
+  enqueued_at: number;
+}
+
 export interface FolderDoc {
   /** Absolute filesystem path to the library root. */
   path: string;
