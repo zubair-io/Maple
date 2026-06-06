@@ -18,6 +18,7 @@ import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { resolveMirrorTargets, isMirroringActive } from '../../fs/mirror-registry.ts';
 import { enqueueMirrorCopy } from '../../fs/mirror-queue.repo.ts';
+import { xmpSidecarPath } from '../../fs/xmp.ts';
 import { needsReplication, statOrNull } from './replicate.ts';
 import { child as childLogger } from '../../log.ts';
 
@@ -64,6 +65,32 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
     return online;
   };
 
+  // Check one primary file against its mirror target(s); enqueue any that are
+  // missing/stale. Returns 'cap' once the per-pass enqueue ceiling is hit so
+  // the caller can stop the whole pass. A primary that doesn't exist (or has no
+  // mirror target) is a no-op.
+  const checkOne = async (primaryAbs: string): Promise<'cap' | 'ok'> => {
+    const targets = resolveMirrorTargets(primaryAbs);
+    if (targets.length === 0) return 'ok';
+    const primaryStat = await statOrNull(primaryAbs);
+    if (primaryStat === null) return 'ok'; // primary gone (or sidecar absent)
+    summary.scanned++;
+    for (const t of targets) {
+      if (!(await isRootOnline(t.mirrorRoot))) {
+        summary.skippedOffline++;
+        continue;
+      }
+      if (needsReplication(primaryStat, await statOrNull(t.mirrorPath))) {
+        if (summary.enqueued >= maxEnqueue) return 'cap';
+        await enqueueMirrorCopy(primaryAbs, t.mirrorPath, 'scan-missing');
+        summary.enqueued++;
+      } else {
+        summary.upToDate++;
+      }
+    }
+    return 'ok';
+  };
+
   const cursor = coll.find(
     { fileinfo: { $elemMatch: liveFileInfoElemMatch() } },
     { projection: { fileinfo: 1 } },
@@ -78,29 +105,15 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
       const segments = entry.path === '' ? [] : entry.path.split('/');
       const primaryAbs = path.join(root, ...segments, entry.filename);
 
-      const targets = resolveMirrorTargets(primaryAbs);
-      if (targets.length === 0) continue;
-      summary.scanned++;
-
       try {
-        const primaryStat = await statOrNull(primaryAbs);
-        if (primaryStat === null) continue; // primary gone — reaper's job
-
-        for (const t of targets) {
-          if (!(await isRootOnline(t.mirrorRoot))) {
-            summary.skippedOffline++;
-            continue;
-          }
-          if (needsReplication(primaryStat, await statOrNull(t.mirrorPath))) {
-            if (summary.enqueued >= maxEnqueue) {
-              log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
-              return summary;
-            }
-            await enqueueMirrorCopy(primaryAbs, t.mirrorPath, 'scan-missing');
-            summary.enqueued++;
-          } else {
-            summary.upToDate++;
-          }
+        // The original, then its canonical XMP sidecar — the sidecar carries
+        // the user's edits (the non-destructive contract), so it must back up
+        // too. checkOne no-ops when the sidecar doesn't exist on the primary.
+        let capped = (await checkOne(primaryAbs)) === 'cap';
+        if (!capped) capped = (await checkOne(xmpSidecarPath(primaryAbs))) === 'cap';
+        if (capped) {
+          log.warn({ maxEnqueue }, 'mirror-scan hit per-pass enqueue cap — deferring rest');
+          return summary;
         }
       } catch (err) {
         summary.errors++;
