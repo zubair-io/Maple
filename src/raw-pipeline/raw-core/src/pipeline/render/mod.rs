@@ -130,14 +130,19 @@ pub fn render_from_raw_with_quality_and_source(
                 None => false,
             });
     // Profile::Auto pins auto-exposure OFF because the Auto Profile tail owns the
-    // scene→JPEG brightness mapping: the #550 per-channel curve is fit against the
-    // AE-Off display buffer (#871), and the residual LUT layers on top of it. If
-    // the curve can't fit (`!auto_will_fit`, e.g. no embedded JPEG), AE MUST stay
-    // ON to anchor mid-gray to 0.18 — otherwise the render enters AgX un-anchored
-    // and lands ~0.16 OKLab-L too dark (#913; regressed test_0013 8.82 → 16.98 dE
-    // before this guard). The residual LUT never owns brightness, so disabling it
-    // (`MAPLE_DISABLE_AUTO_LUT` / `MAPLE_AUTO_LUT_STRENGTH=0`) does NOT flip AE back
-    // on — that path renders the pure #550 curve, which still owns brightness.
+    // scene→JPEG brightness mapping: the #550 curve is fit against the AE-Off
+    // display buffer (#871) and the residual LUT layers on it. `auto_will_fit` is a
+    // cheap PROBE — a cache hit, or an extractable embedded preview — that predicts
+    // the fit will succeed, so AE can be pinned BEFORE develop (the fit itself needs
+    // the developed buffer, so the real fit result isn't known yet). When the probe
+    // is false (no preview) AE stays ON to anchor mid-gray to 0.18 — otherwise AgX
+    // runs un-anchored ~0.16 OKLab-L too dark (#913; regressed test_0013 8.82 →
+    // 16.98 dE before this guard). The probe can over-predict on a degenerate-but-
+    // extractable preview (the actual fit still returns None); in that case the LUT's
+    // full-map fallback (see `apply_auto_profile`) anchors brightness, and only a
+    // BOTH-fits-fail preview leaves an AE-off frame. The residual LUT never owns
+    // brightness, so disabling it (`MAPLE_DISABLE_AUTO_LUT` / `…_STRENGTH=0`) does
+    // NOT flip AE back on — that path renders the pure #550 curve, which still does.
     let auto_model;
     let active_model: &AdjustmentModel = if auto_will_fit {
         auto_model = AdjustmentModel {

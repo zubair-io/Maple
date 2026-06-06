@@ -61,8 +61,15 @@ pub fn apply_auto_profile(
         apply_curve(pixels, c);
     }
 
-    // 2. residual 3D LUT — fit on the now-curved buffer ⇒ pairs are
-    //    (curve(maple), jpeg), so it corrects only the post-curve residual.
+    // 2. residual 3D LUT — fit on the buffer as step 1 left it. When the curve was
+    //    applied, that's `curve(maple)`, so the pairs are `(curve(maple), jpeg)` and
+    //    the LUT carries only the post-curve residual. When the curve fit FAILED
+    //    (`curve == None`, e.g. a degenerate preview), the buffer is the un-curved
+    //    AgX `maple` and the LUT gracefully degrades to a full value-keyed
+    //    `maple → jpeg` map — still smooth/value-keyed (so no blotch) and still
+    //    brightness-anchoring, which is exactly what avoids an AE-off dark frame.
+    //    Hence it's fit/applied regardless of whether the curve succeeded; gating it
+    //    on `curve.is_some()` would re-introduce that dark fallback.
     let residual = cached_lut.or_else(|| {
         let fitted = match source {
             AutoSource::Path(p) => lut::fit_lut_from_raw_display(p, pixels, w, h, orientation),
