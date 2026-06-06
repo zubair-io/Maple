@@ -20,6 +20,7 @@
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import * as path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { child as childLogger } from '../log.ts';
 import { foldersCollection } from '../db/client.ts';
 import { validateRoot } from '../fs/root.ts';
@@ -37,17 +38,34 @@ const MirrorBody = t.Object({
   ),
 });
 
-/**
- * Reject a mirror root that would alias the library's own tree (mirror inside
- * primary, or primary inside mirror) — replication would recurse or clobber.
- */
-function aliases(a: string, b: string): boolean {
-  const x = path.resolve(a);
-  const y = path.resolve(b);
+/** Lexical overlap test: is either path the other, or nested under it. */
+function pathsOverlap(x: string, y: string): boolean {
   if (x === y) return true;
   const xSep = x.endsWith(path.sep) ? x : x + path.sep;
   const ySep = y.endsWith(path.sep) ? y : y + path.sep;
   return x.startsWith(ySep) || y.startsWith(xSep);
+}
+
+/**
+ * Reject a mirror root that would alias the library's own tree (mirror inside
+ * primary, or primary inside primary) — replication would recurse or clobber.
+ *
+ * Resolves symlinks first (`realpath`) so a mirror root that is a symlink INTO
+ * the primary tree is caught: mirrored writes use the raw mirror path with the
+ * real fs, bypassing the registry, so a symlink alias would otherwise recurse
+ * into the primary. realpath needs the path to exist; falls back to a lexical
+ * resolve when it doesn't (a disabled/offline mirror), which still catches the
+ * plain-path cases.
+ */
+async function aliases(a: string, b: string): Promise<boolean> {
+  const real = async (p: string) => {
+    try {
+      return await realpath(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  return pathsOverlap(await real(a), await real(b));
 }
 
 export const mirrorRoutes = new Elysia()
@@ -86,9 +104,10 @@ export const mirrorRoutes = new Elysia()
         if (seen.has(resolved)) continue;
         seen.add(resolved);
 
-        // The alias check is pure-path and always applies — a mirror that
-        // overlaps the library tree is a config error regardless of state.
-        if (aliases(resolved, folder.path)) {
+        // The alias check always applies — a mirror that overlaps the library
+        // tree is a config error regardless of state (symlink-aware for enabled
+        // mirrors, whose directory exists and can be realpath'd).
+        if (await aliases(resolved, folder.path)) {
           set.status = 400;
           return {
             error: `mirror "${m.path}" overlaps the library's own path`,
