@@ -120,6 +120,37 @@ fn adobe_to_srgb_matrix() -> Matrix3 {
     })
 }
 
+/// Decode one embedded-JPEG pixel (channels already normalised to `[0, 1]`)
+/// into display-encoded sRGB f32, honouring its color space.
+///
+/// - [`JpegColorSpace::SRgb`]: the preview is already sRGB-encoded, so this is
+///   a passthrough — the only transform the caller needs was the `byte / 255.0`
+///   normalisation done before calling.
+/// - [`JpegColorSpace::AdobeRgb`]: inverse Adobe-RGB EOTF (`v^γ`, γ = 563/256)
+///   → Adobe→sRGB primary matrix → sRGB OETF (`srgb_gamma`).
+///
+/// This is the exact per-pixel conversion the #550 display-space fit
+/// (`fit_display::fit_curve_from_preview_display`) and the LUT pair sampler
+/// (`super::pairs::sample_display_pairs`) share, so both decode the preview
+/// identically.
+pub fn decode_jpeg_pixel_to_srgb(rgb01: [f32; 3], cs: JpegColorSpace) -> [f32; 3] {
+    match cs {
+        JpegColorSpace::SRgb => rgb01,
+        JpegColorSpace::AdobeRgb => {
+            let m = adobe_to_srgb_matrix();
+            let r_lin = rgb01[0].max(0.0).powf(ADOBE_RGB_GAMMA);
+            let g_lin = rgb01[1].max(0.0).powf(ADOBE_RGB_GAMMA);
+            let b_lin = rgb01[2].max(0.0).powf(ADOBE_RGB_GAMMA);
+            let srgb_lin = m.mul_vec([r_lin, g_lin, b_lin]);
+            [
+                srgb_gamma(srgb_lin[0]),
+                srgb_gamma(srgb_lin[1]),
+                srgb_gamma(srgb_lin[2]),
+            ]
+        }
+    }
+}
+
 /// Convert a `DynamicImage` from Adobe RGB color space to sRGB color space.
 pub fn convert_adobe_rgb_to_srgb(img: DynamicImage) -> DynamicImage {
     let mut rgb = img.to_rgb8();
