@@ -19,6 +19,7 @@
 //!   that short-circuits the fit on second-and-after slider ticks.
 
 pub mod apply;
+pub mod apply_pipeline;
 pub mod bake;
 pub mod cache;
 pub mod curve;
@@ -29,6 +30,7 @@ pub mod preview;
 mod solve;
 
 pub use apply::{apply_curve, compress_input};
+pub use apply_pipeline::{apply_auto_profile, AutoSource};
 pub use bake::{bake_profile_lut, DEFAULT_LUT_SIZE, MAX_LUT_SIZE};
 pub use curve::{
     eval_channel, fit_channel_curve, ChannelCurve, ProfileCurve, IDENTITY_MATRIX,
