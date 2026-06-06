@@ -18,9 +18,11 @@ import type { ObjectId, WithId } from 'mongodb';
  * A backup/mirror location for a library. Every durable write or move the
  * server performs under the library's primary `path` is replicated to each
  * enabled mirror root (see `fs/mirrored.ts` + `fs/mirror-registry.ts`). The
- * mirror holds a byte-for-byte shadow of the primary tree (originals, XMP
- * sidecars, `.maple/` cache), so it can serve reads on failover and stand in
- * as a recovery source if the primary disk is lost.
+ * mirror holds a shadow of the primary's originals and XMP sidecars, so it can
+ * stand in as a recovery source if the primary disk is lost. The derived
+ * `.maple/` thumbnail/preview cache is NOT replicated yet (those bytes are
+ * written out-of-band by FFI / a child process); mirroring the cache and
+ * serving reads from the mirror are tracked in the read-replica follow-up (#926).
  */
 export interface MirrorLocation {
   /** Absolute filesystem path to the mirror root. */

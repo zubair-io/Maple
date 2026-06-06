@@ -34,13 +34,14 @@
  * *scheduled* (not awaited) so caller latency never depends on mirror health:
  * a slow or offline backup can neither stall nor fail an edit on the primary.
  * Scheduled tasks are best-effort and never throw; failures are surfaced to a
- * pluggable sink (`onMirrorFailure`) which the reconcile worker (issue #920)
- * hooks to repair drift, and by default are logged. Tests and graceful
- * shutdown await quiescence with `flushPendingMirrorOps`.
+ * pluggable sink (`onMirrorFailure`). Tests and graceful shutdown await
+ * quiescence with `flushPendingMirrorOps`.
  *
- * Because replication is asynchronous and there is no durable queue yet (also
- * #920), a failed mirror write is logged but not retried within this PR — the
- * mirror reconverges on the next reconcile pass.
+ * Durability: in production the sink (`workers/mirror/sink.ts`) enqueues each
+ * failed *replication* into the `mirror_queue` collection, and the mirror copy
+ * worker retries it with backoff + dead-letter. The mirror-scan detector
+ * independently enqueues any drift it finds. So a failed mirror write is
+ * retried, not merely logged — the default (no sink installed) just logs.
  */
 
 import * as realFs from 'node:fs/promises';
@@ -260,6 +261,21 @@ async function mirrorRenameDir(
   }
 }
 
+/** Best-effort recursive removal of a mirror subtree (a directory that moved
+ * out of, or between, mirrored roots). ENOENT is success. */
+async function removeMirrorDir(t: MirrorTarget): Promise<void> {
+  try {
+    await realFs.rm(t.mirrorPath, { recursive: true, force: true });
+  } catch (error) {
+    report({
+      op: 'rmdir',
+      mirrorPath: t.mirrorPath,
+      sourcePath: t.mirrorPath,
+      error: asError(error),
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Mutating fs verbs — mirror-aware overrides
 // ---------------------------------------------------------------------------
@@ -280,8 +296,16 @@ export async function rename(oldPath: string, newPath: string): Promise<void> {
       // newPath already gone (a rapid follow-up op) — nothing to replicate.
     }
     if (isDir) {
+      const dstRoots = new Set(dst.map((t) => t.mirrorRoot));
       const oldByRoot = new Map(src.map((t) => [t.mirrorRoot, t.mirrorPath]));
-      await Promise.all(dst.map((t) => mirrorRenameDir(oldByRoot.get(t.mirrorRoot), newPath, t)));
+      await Promise.all([
+        ...dst.map((t) => mirrorRenameDir(oldByRoot.get(t.mirrorRoot), newPath, t)),
+        // Source mirror roots with NO matching destination — the directory
+        // moved out of the mirrored set (dst empty / non-mirrored target) or
+        // between libraries with different mirrors. The old subtree would
+        // otherwise be orphaned on the mirror, so remove it.
+        ...src.filter((t) => !dstRoots.has(t.mirrorRoot)).map((t) => removeMirrorDir(t)),
+      ]);
       return;
     }
     // File: replicate the committed destination, then drop any stale source
