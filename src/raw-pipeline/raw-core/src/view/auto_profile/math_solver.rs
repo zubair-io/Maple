@@ -76,20 +76,41 @@ pub fn tps_kernel(r: f32) -> f32 {
 /// System matrix layout:
 ///   [ K + lambda*I   P ] [ W ]   [ Z ]
 ///   [      P^T       0 ] [ A ] = [ 0 ]
+///
+/// Equivalent to [`tps_solve_weighted`] with every weight = 1.0.
 pub fn tps_solve(
     points: &[(f32, f32)],
     targets: &[f32],
     lambda: f32,
 ) -> Option<TpsCoefficients> {
+    let weights = vec![1.0f32; points.len()];
+    tps_solve_weighted(points, targets, lambda, &weights)
+}
+
+/// Reliability-weighted TPS fit. Identical to [`tps_solve`] except each control
+/// point `i` carries its own diagonal regularization `lambda / w_i` instead of a
+/// single shared `lambda`. A reliable point (`w_i → 1`) is interpolated; an
+/// unreliable point (`w_i → 0`) gets a large diagonal penalty that drives its RBF
+/// weight toward 0, so it is *smoothed through* rather than interpolated. This
+/// stops a few spiked/noisy control points (e.g. `Δ/L`-amplified dark clusters)
+/// from rippling the globally-supported biharmonic surface `U(r)=r²·ln r`.
+///
+/// `weights` must have length `points.len()`; each entry should be in `(0, 1]`.
+pub fn tps_solve_weighted(
+    points: &[(f32, f32)],
+    targets: &[f32],
+    lambda: f32,
+    weights: &[f32],
+) -> Option<TpsCoefficients> {
     let n = points.len();
-    if n == 0 || targets.len() != n {
+    if n == 0 || targets.len() != n || weights.len() != n {
         return None;
     }
     let sys_size = n + 3;
     let mut m = vec![vec![0.0; sys_size]; sys_size];
     let mut rhs = vec![0.0; sys_size];
 
-    // Fill K + lambda * I
+    // Fill K, with per-point regularization (lambda / w_i) on the diagonal.
     for i in 0..n {
         let (xi, yi) = points[i];
         for j in 0..n {
@@ -99,7 +120,7 @@ pub fn tps_solve(
             let r = dx.hypot(dy);
             let mut val = tps_kernel(r);
             if i == j {
-                val += lambda;
+                val += lambda / weights[i].max(1e-6);
             }
             m[i][j] = val;
         }

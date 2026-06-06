@@ -657,16 +657,7 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
         return Ok((profile, ProfileSource::EmbeddedFull { illuminant }));
     }
 
-    // ── 2. Embedded CM-only fallback ──────────────────────────────────────
-    // DNG ships CM (with or without FM) but no HSM. Prefer the camera's own
-    // CM/FM pair to a bundled approximation — when the body ships *any*
-    // calibration data, that data is internally consistent with the sensor.
-    // Two CMs → interpolated profile. One CM → single-illuminant profile.
-    if let Some((profile, illuminant)) = profile_from_embedded_cm_only(raw, wb_already_baked) {
-        return Ok((profile, ProfileSource::EmbeddedCmOnly { illuminant }));
-    }
-
-    // ── 3. Bundled profile ────────────────────────────────────────────────
+    // ── 2. Bundled profile ────────────────────────────────────────────────
     if let Some(bundled) = crate::color::profile_loader::lookup_profile(raw) {
         if let Some(p) = crate::color::profile_loader::to_dcp_profile(bundled, raw) {
             return Ok((p, ProfileSource::BundleConfident));
@@ -675,6 +666,15 @@ pub fn profile_for_with_source(raw: &RawImage) -> crate::Result<(DcpProfile, Pro
         // all — never observed in practice across the 1,447-profile set.
         // Fall through to the embedded-CM / rawler-fallback paths for the
         // degenerate case.
+    }
+
+    // ── 3. Embedded CM-only fallback ──────────────────────────────────────
+    // DNG ships CM (with or without FM) but no HSM. Prefer the camera's own
+    // CM/FM pair to a bundled approximation — when the body ships *any*
+    // calibration data, that data is internally consistent with the sensor.
+    // Two CMs → interpolated profile. One CM → single-illuminant profile.
+    if let Some((profile, illuminant)) = profile_from_embedded_cm_only(raw, wb_already_baked) {
+        return Ok((profile, ProfileSource::EmbeddedCmOnly { illuminant }));
     }
 
     // ── 4. Rawler fallback (synthetic D65 → Rec.2020) ─────────────────────

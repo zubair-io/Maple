@@ -66,12 +66,29 @@ def load(path):
 def match_shape(src, tgt):
     """Resize `src` to `tgt`'s H×W. No-op when shapes match.
 
-    Uses Pillow's BOX resampling — the nearest equivalent to OpenCV's
-    INTER_AREA for the downscale case the harness exercises (the Auto
-    Profile render is full-res, the embedded JPEG is smaller).
+    Performs aspect-ratio center-cropping before resizing to prevent stretching
+    and ensure correct spatial alignment between RAW and JPEG.
     """
     if src.shape[:2] == tgt.shape[:2]:
         return src
+
+    src_h, src_w = src.shape[:2]
+    tgt_h, tgt_w = tgt.shape[:2]
+    src_aspect = src_w / src_h
+    tgt_aspect = tgt_w / tgt_h
+
+    if abs(src_aspect - tgt_aspect) > 0.001:
+        if src_aspect > tgt_aspect:
+            # Source is wider: crop width
+            new_w = int(round(src_h * tgt_aspect))
+            crop_x = (src_w - new_w) // 2
+            src = src[:, crop_x : crop_x + new_w]
+        else:
+            # Source is taller: crop height
+            new_h = int(round(src_w / tgt_aspect))
+            crop_y = (src_h - new_h) // 2
+            src = src[crop_y : crop_y + new_h, :]
+
     h, w = tgt.shape[:2]
     # Round-trip through Pillow in float32; BOX = area-averaging downscale.
     pil = Image.fromarray((src * 255.0).round().clip(0, 255).astype(np.uint8))
@@ -125,7 +142,15 @@ def main():
 
     ref = load(args.reference)
     cand = match_shape(load(args.candidate), ref)
-    bias = per_band_bias(cand, ref)
+
+    # Discard outer 10% border to ignore lens vignetting and cropping mismatch
+    h, w = ref.shape[:2]
+    border_y = int(round(h * 0.1))
+    border_x = int(round(w * 0.1))
+    cand_inner = cand[border_y : h - border_y, border_x : w - border_x]
+    ref_inner = ref[border_y : h - border_y, border_x : w - border_x]
+
+    bias = per_band_bias(cand_inner, ref_inner)
     print(json.dumps(bias, indent=2))
 
     failed = []

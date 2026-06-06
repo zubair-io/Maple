@@ -20,7 +20,10 @@ use image::DynamicImage;
 use rawler::decoders::RawDecodeParams;
 use rawler::rawsource::RawSource;
 
+use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
 use crate::image::{apply_orientation, ExifOrientation};
+use crate::math::Matrix3;
+use crate::view::encode::srgb_gamma;
 
 /// Color space of the embedded preview JPEG. Cameras shoot in different
 /// color spaces; the embedded JPEG inherits that setting. Decoding an
@@ -101,13 +104,51 @@ pub fn orient_preview_to_display(img: DynamicImage, orient: ExifOrientation) -> 
     DynamicImage::ImageRgb8(buf)
 }
 
+const M_ADOBE_RGB_TO_XYZ_D65: Matrix3 = Matrix3([
+    [0.5767309, 0.1855540, 0.1881852],
+    [0.2973769, 0.6273491, 0.0752741],
+    [0.0270343, 0.0706872, 0.9911085],
+]);
+
+const ADOBE_RGB_GAMMA: f32 = 563.0 / 256.0;
+
+fn adobe_to_srgb_matrix() -> Matrix3 {
+    static CELL: std::sync::OnceLock<Matrix3> = std::sync::OnceLock::new();
+    *CELL.get_or_init(|| {
+        let adobe_to_rec2020 = M_XYZ_D65_TO_REC2020.mul_mat(&M_ADOBE_RGB_TO_XYZ_D65);
+        M_REC2020_TO_SRGB.mul_mat(&adobe_to_rec2020)
+    })
+}
+
+/// Convert a `DynamicImage` from Adobe RGB color space to sRGB color space.
+pub fn convert_adobe_rgb_to_srgb(img: DynamicImage) -> DynamicImage {
+    let mut rgb = img.to_rgb8();
+    let m = adobe_to_srgb_matrix();
+    for pixel in rgb.pixels_mut() {
+        let r_lin = (pixel[0] as f32 / 255.0).max(0.0).powf(ADOBE_RGB_GAMMA);
+        let g_lin = (pixel[1] as f32 / 255.0).max(0.0).powf(ADOBE_RGB_GAMMA);
+        let b_lin = (pixel[2] as f32 / 255.0).max(0.0).powf(ADOBE_RGB_GAMMA);
+        let srgb_lin = m.mul_vec([r_lin, g_lin, b_lin]);
+        pixel[0] = (srgb_gamma(srgb_lin[0]) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+        pixel[1] = (srgb_gamma(srgb_lin[1]) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+        pixel[2] = (srgb_gamma(srgb_lin[2]) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+    }
+    DynamicImage::ImageRgb8(rgb)
+}
+
 /// Extract the embedded JPEG preview and rotate it into DISPLAY orientation
 /// (see [`orient_preview_to_display`]). This is what comparison consumers
 /// (the `extract-preview` CLI / Auto Profile gate) want: a preview aligned
 /// with Maple's display-oriented render. Returns `None` if extraction fails.
 pub fn extract_preview_display_oriented<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
     let img = extract_preview(path.as_ref())?;
-    Some(orient_preview_to_display(img, preview_orientation(path.as_ref())))
+    let oriented = orient_preview_to_display(img, preview_orientation(path.as_ref()));
+    let cs = detect_jpeg_color_space(path.as_ref());
+    if cs == JpegColorSpace::AdobeRgb {
+        Some(convert_adobe_rgb_to_srgb(oriented))
+    } else {
+        Some(oriented)
+    }
 }
 
 /// Bytes-based mirror of [`extract_preview`] for the WASM render entry,
@@ -139,7 +180,7 @@ fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
     if let Ok(Some(img)) = decoder.preview_image(src, &params) {
         return Some(img);
     }
-    decoder.full_image(src, &params).ok().flatten()
+    None
 }
 
 /// Detect the embedded preview JPEG's color space from the RAW's EXIF
