@@ -187,11 +187,16 @@ fn early_vs_late_downsample_within_fp16_tolerance() {
         mean_dr, mean_dg, mean_db, max_dr, max_dg, max_db,
     );
 
-    // Mean per-channel delta budget. 0.007 in [0, ~5] scene-linear
-    // headroom is ~0.1% of typical scene values.
-    assert!(mean_dr < 0.007, "mean R delta {} > 0.007", mean_dr);
-    assert!(mean_dg < 0.007, "mean G delta {} > 0.007", mean_dg);
-    assert!(mean_db < 0.007, "mean B delta {} > 0.007", mean_db);
+    // Mean per-channel delta budget. 0.005 in [0, ~5] scene-linear
+    // headroom is ~0.1% of typical scene values. Held tight since the
+    // `MAPLE_AGX_BASELINE_COMPENSATION_EV = 0.65` band-aid was removed
+    // (commit `ba8e0ecb`); the calibration foundation (DNG WB pre-gain
+    // bundle, with the per-body BE table since removed in #370) doesn't
+    // inflate scene values, so the early-vs-late commutativity budget
+    // stays tight.
+    assert!(mean_dr < 0.005, "mean R delta {} > 0.005", mean_dr);
+    assert!(mean_dg < 0.005, "mean G delta {} > 0.005", mean_dg);
+    assert!(mean_db < 0.005, "mean B delta {} > 0.005", mean_db);
 }
 
 /// AMaZE should resolve finer detail than Hamilton-Adams at full
