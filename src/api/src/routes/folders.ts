@@ -8,7 +8,9 @@
 
 import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { readdir, open, rename, stat, unlink, mkdir, utimes, realpath } from 'node:fs/promises';
+// Mirror-aware drop-in: uploads, folder moves, and mkdir replicate to the
+// library's backup root(s). `rename` is directory-aware for folder moves.
+import { readdir, open, rename, stat, unlink, mkdir, utimes, realpath } from '../fs/mirrored.ts';
 import type { Dirent } from 'node:fs';
 import * as nodePath from 'node:path';
 import { randomUUID } from 'node:crypto';

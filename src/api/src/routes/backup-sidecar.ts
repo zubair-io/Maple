@@ -29,7 +29,9 @@ import { Elysia, t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { child as childLogger } from '../log.ts';
-import fs from 'node:fs/promises';
+// Mirror-aware drop-in: the sidecar publish (atomicMove → rename/copyFile)
+// replicates to the library's backup root(s).
+import fs from '../fs/mirrored.ts';
 import path from 'node:path';
 import os from 'node:os';
 
