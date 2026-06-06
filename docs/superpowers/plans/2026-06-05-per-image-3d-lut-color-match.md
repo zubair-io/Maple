@@ -255,10 +255,10 @@ pub fn fit_lut_from_raw_display<P: AsRef<Path>>(
 **Files:** `pipeline/render/mod.rs`.
 
 - [ ] **Step 1 — remove the pre-AgX chroma stage** (mod.rs:151-179): delete the `if model.profile == Profile::Auto { … solve_chroma_for_* … apply_to_scene … }` block.
-- [ ] **Step 2 — replace `apply_curve` with the LUT** at both Auto sites (mod.rs:208-239 Path, 240-261 Bytes): fit-or-cached `ColorLut` via `fit_lut_from_raw_display`/`_bytes_display`, insert into cache, then `lut.apply(pixels)`. Keep `assert_space(DisplayEncodedSrgb)`. Keep the AE-off gate (mod.rs:85-149) — the LUT owns the display mapping, same as the curve. Repurpose `MAPLE_DISABLE_AUTO_CURVE` → `MAPLE_DISABLE_AUTO_LUT` (skip apply, keep AE-on) for parity diagnostics.
-- [ ] **Step 3 — GPU fit entry** (mod.rs:319-367): change `fit_profile_curve_from_raw` to `fit_profile_lut_from_raw` returning `Option<ColorLut>` (same develop+AgX+encode prefix, then `fit_lut_from_raw_display`). Update its callers/signature; the LUT is already a GPU 3D-texture layout.
-- [ ] **Step 4 — build** `cargo build --release --bin maple-cli` (no `tail` piping). Confirm clean.
-- [ ] **Step 5 — commit** `feat(raw-core): wire per-image 3D LUT into Profile::Auto, drop chroma grid (#NNN)`.
+- [ ] **Step 2 — replace `apply_curve` with the LUT** at both Auto sites (mod.rs:208-239 Path, 240-261 Bytes): fit-or-cached `ColorLut` via `auto_profile::lut::fit_lut_from_raw_display`/`_bytes_display` + `cache::get_lut`/`insert_lut`, then `lut.apply(pixels)`. Update the `auto_will_fit` block (mod.rs:107-129) to look up `cache::get_lut` instead of `cache::get` (the `cached_curve` → `cached_lut` rename) so the AE-off gate still triggers on a cache hit. Keep `assert_space(DisplayEncodedSrgb)`. Keep the AE-off gate (mod.rs:85-149) — the LUT owns the display mapping, same as the curve. Rename the POC env gate `MAPLE_DISABLE_AUTO_CURVE` → `MAPLE_DISABLE_AUTO_LUT` (skip apply + keep AE-on).
+- [ ] **Step 3 — LEAVE the GPU fit entry** (`fit_profile_curve_from_raw`, mod.rs:319-367) untouched. GPU LUT migration is out of scope (spec); keeping it means #550's fit (`fit_curve_*`, `solve`, `apply_curve`, `bake`) stays a live GPU-path (no dead-code churn, no raw-ffi breakage). The CPU render path no longer references the `ProfileCurve` cache — that's fine (it stays for the GPU entry's potential cache use).
+- [ ] **Step 4 — build** `cd src/raw-pipeline && cargo build --release --bin maple-cli` (no `tail` piping). Confirm clean (allow/expect that `apply_curve`/`bake_profile_lut` may now be unused-but-`pub` — no warning; if any private item goes unused, gate with `#[allow(dead_code)]` + a `// GPU path, #NNN` note rather than deleting).
+- [ ] **Step 5 — smoke test + commit:** render test_0003 `--profile auto` (`maple-cli render`) — confirm it produces a valid PNG and does NOT panic on the `assert_space`/cache paths. Commit `feat(raw-core): wire per-image 3D LUT into Profile::Auto, drop chroma grid (#NNN)`.
 
 ---
 

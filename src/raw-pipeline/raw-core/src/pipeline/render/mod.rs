@@ -115,10 +115,10 @@ pub fn render_from_raw_with_quality_and_source(
     } else {
         None
     };
-    let cached_curve = auto_cache_key
+    let cached_lut = auto_cache_key
         .as_ref()
-        .and_then(auto_profile::cache::get);
-    let auto_will_fit = cached_curve.is_some()
+        .and_then(auto_profile::cache::get_lut);
+    let auto_will_fit = cached_lut.is_some()
         || (model.profile == Profile::Auto
             && match &raw_source {
                 Some(RawInput::Path(p)) => auto_profile::preview::extract_preview(p).is_some(),
@@ -128,16 +128,15 @@ pub fn render_from_raw_with_quality_and_source(
                 None => false,
             });
     // POC gate (#913): Profile::Auto normally pins auto-exposure OFF because the
-    // #550 per-channel curve owns the scene→JPEG brightness mapping (the curve
-    // is fit against the AE-Off buffer, see #871). When the curve is disabled
-    // for the POC, nothing remaps brightness, so AE MUST stay ON to anchor
-    // mid-gray to 0.18 — otherwise the render enters AgX un-anchored and lands
-    // ~0.16 OKLab-L too dark (the entire "chroma catastrophe" turned out to be
-    // this missing anchor, not the chroma stage). Outside the POC, behaviour is
-    // unchanged.
-    let poc_no_curve = std::env::var_os("MAPLE_DISABLE_AUTO_CURVE").is_some();
+    // Auto Profile LUT owns the scene→JPEG brightness mapping (the LUT is fit
+    // against the AE-Off buffer, see #871). When the LUT is disabled for the
+    // POC, nothing remaps brightness, so AE MUST stay ON to anchor mid-gray to
+    // 0.18 — otherwise the render enters AgX un-anchored and lands ~0.16 OKLab-L
+    // too dark (the entire "chroma catastrophe" turned out to be this missing
+    // anchor, not the chroma stage). Outside the POC, behaviour is unchanged.
+    let poc_no_lut = std::env::var_os("MAPLE_DISABLE_AUTO_LUT").is_some();
     let auto_model;
-    let active_model: &AdjustmentModel = if auto_will_fit && !poc_no_curve {
+    let active_model: &AdjustmentModel = if auto_will_fit && !poc_no_lut {
         auto_model = AdjustmentModel {
             auto_exposure: AutoExposureMode::Off,
             ..model.clone()
@@ -147,36 +146,6 @@ pub fn render_from_raw_with_quality_and_source(
         model
     };
     let mut scene = develop_scene_linear_from_raw_with_quality(raw, active_model, quality)?;
-
-    // JPEG chroma-match (Feature 2 / RFC §3.2), Profile::Auto only. Solved from
-    // the embedded JPEG + this pre-AgX scene and applied here (OKLAB a/b only,
-    // keeps L) so AgX forms tone on the chroma-matched scene; the post-AgX tone
-    // curve below then fits on the chroma-applied render (chroma-then-tone).
-    // Phase 1 applies it in the render tail (CPU, validated by the test_0003
-    // gate); moving it into develop_scene_linear so it rides to Metal/WebGL is
-    // Phase 2 (#812 / #394). Falls back to identity (deterministic baseline) on
-    // no-JPEG / degenerate fit.
-    if model.profile == Profile::Auto {
-        let ct = match &raw_source {
-            Some(RawInput::Path(path)) => auto_profile::chroma::solve_chroma_for_path(
-                &scene,
-                path,
-                raw.orientation,
-                model.contrast,
-            ),
-            Some(RawInput::Bytes { bytes, ext }) => auto_profile::chroma::solve_chroma_for_bytes(
-                &scene,
-                bytes,
-                ext,
-                raw.orientation,
-                model.contrast,
-            ),
-            None => None,
-        };
-        if let Some(ct) = ct {
-            stage("chroma_match", || ct.apply_to_scene(&mut scene));
-        }
-    }
 
     // View transform (#550 post-fix): AgX + gamut compress + sRGB gamma
     // encode run UNCONDITIONALLY for both Auto and Neutral. Pre-#550 the
@@ -196,44 +165,37 @@ pub fn render_from_raw_with_quality_and_source(
     // full sRGB encode (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
     stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    // Auto Profile (#537/#550) — per-channel tone curve fit from the
+    // Auto Profile (#537/#913) — per-image 3D color LUT fit from the
     // embedded JPEG and applied in f32 sRGB-encoded display space (same
     // domain the empirical Look LUT samples in, #519), layered on top of
-    // AgX. The fit (`fit_*_display`) reads the JPEG via `/255` directly —
-    // no inverse OETF, no Rec.2020 conversion — and Maple's source buffer
-    // is in the same domain by construction. Identity (no-op = AgX-Neutral
-    // output) when there's no RAW source (legacy `maple_render_bytes` FFI)
-    // or the fit fails (no JPEG / too small / degenerate histogram).
+    // AgX. The fit (`lut::fit_lut_*_display`) reads the JPEG via `/255`
+    // directly — no inverse OETF, no Rec.2020 conversion — and Maple's
+    // source buffer is in the same domain by construction. The LUT replaces
+    // the retired #550 per-channel tone curve, carrying both the tone and
+    // chroma residual toward the JPEG distribution. Identity (no-op =
+    // AgX-Neutral output) when there's no RAW source (legacy
+    // `maple_render_bytes` FFI) or the fit fails (no JPEG / too small /
+    // too few surviving pairs).
     match (model.profile, &raw_source) {
         (Profile::Auto, Some(RawInput::Path(path))) => stage("auto_profile", || {
             scene.assert_space(ColorSpace::DisplayEncodedSrgb);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            let curve = match cached_curve.clone() {
-                Some(c) => Some(c),
+            let lut = match cached_lut.clone() {
+                Some(l) => Some(l),
                 None => {
-                    let fitted = auto_profile::fit_curve_from_raw_display(
+                    let fitted = auto_profile::lut::fit_lut_from_raw_display(
                         path, pixels, w, h, raw.orientation,
                     );
-                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert(key, c.clone());
+                    if let (Some(key), Some(l)) = (auto_cache_key.clone(), fitted.as_ref()) {
+                        auto_profile::cache::insert_lut(key, l.clone());
                     }
                     fitted
                 }
             };
-            eprintln!("AUTO_PROFILE_CURVE_FIT: is_some={}", curve.is_some());
-            if let Some(c) = &curve {
-                eprintln!("  r_anchors: {:?}", c.r.anchors.iter().map(|a| a.1).collect::<Vec<_>>());
-                eprintln!("  g_anchors: {:?}", c.g.anchors.iter().map(|a| a.1).collect::<Vec<_>>());
-                eprintln!("  b_anchors: {:?}", c.b.anchors.iter().map(|a| a.1).collect::<Vec<_>>());
-            }
-            // POC gate (#913): MAPLE_DISABLE_AUTO_CURVE skips the #550 per-channel
-            // tone curve so the JPG-derived chroma gains are the only Auto-Profile
-            // stage. Proves the "DCP + JPG chroma, AgX owns tone" architecture
-            // before the real removal.
-            if let Some(c) = curve {
-                if std::env::var_os("MAPLE_DISABLE_AUTO_CURVE").is_none() {
-                    auto_profile::apply_curve(pixels, &c);
+            if let Some(l) = lut {
+                if std::env::var_os("MAPLE_DISABLE_AUTO_LUT").is_none() {
+                    l.apply(pixels);
                 }
             }
         }),
@@ -241,21 +203,21 @@ pub fn render_from_raw_with_quality_and_source(
             scene.assert_space(ColorSpace::DisplayEncodedSrgb);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            let curve = match cached_curve.clone() {
-                Some(c) => Some(c),
+            let lut = match cached_lut.clone() {
+                Some(l) => Some(l),
                 None => {
-                    let fitted = auto_profile::fit_curve_from_bytes_display(
+                    let fitted = auto_profile::lut::fit_lut_from_bytes_display(
                         bytes, ext, pixels, w, h, raw.orientation,
                     );
-                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert(key, c.clone());
+                    if let (Some(key), Some(l)) = (auto_cache_key.clone(), fitted.as_ref()) {
+                        auto_profile::cache::insert_lut(key, l.clone());
                     }
                     fitted
                 }
             };
-            if let Some(c) = curve {
-                if std::env::var_os("MAPLE_DISABLE_AUTO_CURVE").is_none() {
-                    auto_profile::apply_curve(pixels, &c);
+            if let Some(l) = lut {
+                if std::env::var_os("MAPLE_DISABLE_AUTO_LUT").is_none() {
+                    l.apply(pixels);
                 }
             }
         }),
