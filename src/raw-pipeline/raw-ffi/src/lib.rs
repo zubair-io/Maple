@@ -29,6 +29,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+mod auto_profile;
 mod auto_tone;
 mod buffers;
 mod error;
