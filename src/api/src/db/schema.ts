@@ -14,6 +14,23 @@ import type { ObjectId, WithId } from 'mongodb';
 // Folder
 // ---------------------------------------------------------------------------
 
+/**
+ * A backup/mirror location for a library. Every durable write or move the
+ * server performs under the library's primary `path` is replicated to each
+ * enabled mirror root (see `fs/mirrored.ts` + `fs/mirror-registry.ts`). The
+ * mirror holds a byte-for-byte shadow of the primary tree (originals, XMP
+ * sidecars, `.maple/` cache), so it can serve reads on failover and stand in
+ * as a recovery source if the primary disk is lost.
+ */
+export interface MirrorLocation {
+  /** Absolute filesystem path to the mirror root. */
+  path: string;
+  /** When false, replication to (and reads from) this mirror are paused —
+   * the operator can disable a mirror whose disk is offline without losing
+   * the configuration. */
+  enabled: boolean;
+}
+
 export interface FolderDoc {
   /** Absolute filesystem path to the library root. */
   path: string;
@@ -25,6 +42,10 @@ export interface FolderDoc {
   file_count: number;
   /** When this record was created (ISO string). */
   created_at: string;
+  /** Backup/mirror locations for this library. Absent or empty ⇒ no
+   * mirroring (the historical single-location behaviour). Writes/moves fan
+   * out to every enabled entry; reads may load-balance across them. */
+  mirrors?: MirrorLocation[];
 }
 
 export type FolderWithId = WithId<FolderDoc>;
