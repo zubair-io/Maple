@@ -1,8 +1,13 @@
 //! Per-image color LUT: a smooth Nᶟ RGB→RGB grid applied by trilinear interpolation.
 //! Value-keyed (no atan2 / ÷L) + smooth ⇒ spatially coherent (cannot blotch).
+use std::path::Path;
+
 use rayon::prelude::*;
 
+use crate::image::ExifOrientation;
+
 use super::pairs::DisplayPair;
+use super::preview::{self, JpegColorSpace};
 
 /// Grid layout matches `bake.rs`: index = ((b*N + g)*N + r)*3 + c, values in [0,1].
 #[derive(Clone, Debug, PartialEq)]
@@ -86,6 +91,18 @@ const FIT_REG: f32 = 4.0; // confidence: c = wsum / (wsum + REG)
 const FIT_SMOOTH_PASSES: usize = 1; // separable 3D smoothing passes of the delta grid
 const MAX_FIT_PAIRS: usize = 6000; // cap for the O(nodes × pairs) gather
 
+/// Grid resolution of the fitted per-image LUT (nodes per axis). 17 is the de
+/// facto interchange size (`.cube` default, ACR's HSM grid order) — fine enough
+/// to carry a per-image color residual, coarse enough that the smooth fit stays
+/// spatially coherent.
+const LUT_SIZE: usize = 17;
+
+/// Floor on surviving `(maple, jpeg)` pairs before a LUT fit is attempted. Below
+/// this the correspondence set is too sparse to constrain a 17³ grid, so the
+/// entry points return `None` and the caller falls back to identity (= the
+/// AgX-Neutral render with no LUT layered on).
+const MIN_LUT_PAIRS: usize = 256;
+
 /// Fit a smooth Nᶟ RGB→RGB LUT from display-space `(maple, jpeg)` pairs.
 /// Each node accumulates a Gaussian-weighted mean shift toward the JPEG from
 /// nearby pairs, regularized toward identity by confidence (sparse → identity),
@@ -140,6 +157,72 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
         }
     }
     lut
+}
+
+/// Fit a per-image color [`ColorLut`] from the embedded JPEG of the RAW at
+/// `raw_path`, against the developed display buffer.
+///
+/// Mirrors #550's [`super::fit_display::fit_curve_from_raw_display`]: extract the
+/// embedded preview, detect its color space, then sample display-space
+/// correspondences and fit the smooth grid. `source_rgb` is the caller's
+/// interleaved RGB f32 buffer in **f32 sRGB-encoded display space**
+/// ([`crate::image::ColorSpace::DisplayEncodedSrgb`], values nominally `[0, 1]`),
+/// sensor-oriented (the render applies `orientation` after this stage).
+///
+/// Returns `None` (→ identity / Neutral fallback) when there's no embedded JPEG
+/// or too few clean pairs survive ([`MIN_LUT_PAIRS`]).
+pub fn fit_lut_from_raw_display<P: AsRef<Path>>(
+    raw_path: P,
+    source_rgb: &[f32],
+    source_w: usize,
+    source_h: usize,
+    orientation: ExifOrientation,
+) -> Option<ColorLut> {
+    let preview = preview::extract_preview(raw_path.as_ref())?;
+    let cs = preview::detect_jpeg_color_space(raw_path.as_ref());
+    fit_lut_from_preview(source_rgb, source_w, source_h, preview, cs, orientation)
+}
+
+/// Bytes/WASM variant of [`fit_lut_from_raw_display`]. Uses
+/// [`preview::extract_preview_from_bytes`] (no exiftool fallback — WASM has no
+/// subprocess access). `ext` is the file extension (e.g. `"dng"`) used as a
+/// rawler format hint; pass `""` if unknown.
+pub fn fit_lut_from_bytes_display(
+    raw_bytes: &[u8],
+    ext: &str,
+    source_rgb: &[f32],
+    source_w: usize,
+    source_h: usize,
+    orientation: ExifOrientation,
+) -> Option<ColorLut> {
+    let preview = preview::extract_preview_from_bytes(raw_bytes, ext)?;
+    let cs = preview::detect_jpeg_color_space_from_bytes(raw_bytes, ext);
+    fit_lut_from_preview(source_rgb, source_w, source_h, preview, cs, orientation)
+}
+
+/// Shared tail of the two entry points: sample display-space pairs, gate on a
+/// minimum pair count, then fit the LUT at [`LUT_SIZE`].
+///
+/// The strength env override mirrors #550's `MAPLE_CHROMA_STRENGTH_OVERRIDE` so
+/// the verify step can render LUT-off (`k = 0` ⇒ identity) vs LUT-on (`k = 1`).
+fn fit_lut_from_preview(
+    source_rgb: &[f32],
+    source_w: usize,
+    source_h: usize,
+    preview: image::DynamicImage,
+    cs: JpegColorSpace,
+    orientation: ExifOrientation,
+) -> Option<ColorLut> {
+    let pairs =
+        super::pairs::sample_display_pairs(source_rgb, source_w, source_h, preview, cs, orientation);
+    if pairs.len() < MIN_LUT_PAIRS {
+        return None;
+    }
+    let k = std::env::var("MAPLE_AUTO_LUT_STRENGTH")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(1.0);
+    Some(fit_lut_from_pairs(&pairs, LUT_SIZE, k))
 }
 
 /// In-place separable 1-2-1 smoothing of the per-node delta grid over each RGB

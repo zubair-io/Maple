@@ -36,9 +36,15 @@ use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
 use super::curve::ProfileCurve;
+use super::lut::ColorLut;
 
 /// Cache capacity in entries. One `ProfileCurve` ~2 KB → total cap ~64 KB.
 const CAPACITY: usize = 32;
+
+/// LUT cache capacity in entries. A 17³ [`ColorLut`] is 17³×3×4 ≈ 58 KB, so a
+/// small cap of 8 holds ~460 KB — orders of magnitude smaller than a decoded
+/// frame, while still covering a handful of recently-touched RAWs in a session.
+const LUT_CAPACITY: usize = 8;
 
 /// Bytes-hash discriminator window. Prefix + suffix bytes hashed; tunable.
 const HASH_WINDOW: usize = 64 * 1024;
@@ -150,11 +156,85 @@ pub fn insert(key: CacheKey, curve: ProfileCurve) {
     guard.map.insert(key, curve);
 }
 
+// ---------------------------------------------------------------------------
+// Parallel LUT cache.
+//
+// The per-image color LUT (`super::lut::ColorLut`, #913 successor to the #550
+// per-channel curve) has the same fit-on-every-render cost profile as the
+// curve, so it gets its own bounded LRU keyed on the SAME [`CacheKey`]. This is
+// a deliberate parallel structure rather than a generic LRU: the curve cache
+// above stays byte-for-byte intact while the LUT path lands incrementally.
+// ---------------------------------------------------------------------------
+
+struct LutLruInner {
+    map: HashMap<CacheKey, ColorLut>,
+    order: VecDeque<CacheKey>,
+}
+
+impl LutLruInner {
+    fn new() -> Self {
+        Self {
+            map: HashMap::with_capacity(LUT_CAPACITY),
+            order: VecDeque::with_capacity(LUT_CAPACITY),
+        }
+    }
+}
+
+fn lut_cell() -> &'static Mutex<LutLruInner> {
+    static CELL: OnceLock<Mutex<LutLruInner>> = OnceLock::new();
+    CELL.get_or_init(|| Mutex::new(LutLruInner::new()))
+}
+
+/// Look up `key` in the LUT cache. Returns a clone of the cached LUT on hit,
+/// `None` on miss, and bumps the hit entry to most-recently-used. Mirrors
+/// [`get`]; a 17³ LUT clone (~58 KB) is well below the per-tick render budget
+/// the cache exists to protect.
+pub fn get_lut(key: &CacheKey) -> Option<ColorLut> {
+    let mut guard = lut_cell().lock().ok()?;
+    let lut = guard.map.get(key).cloned()?;
+    if let Some(pos) = guard.order.iter().position(|k| k == key) {
+        let k = guard.order.remove(pos).unwrap();
+        guard.order.push_back(k);
+    }
+    Some(lut)
+}
+
+/// Insert `lut` under `key` in the LUT cache. Evicts the oldest entry when at
+/// [`LUT_CAPACITY`]; replaces in place + bumps to MRU when `key` already
+/// present. Mirrors [`insert`].
+pub fn insert_lut(key: CacheKey, lut: ColorLut) {
+    let Ok(mut guard) = lut_cell().lock() else { return };
+    if guard.map.contains_key(&key) {
+        guard.map.insert(key.clone(), lut);
+        if let Some(pos) = guard.order.iter().position(|k| k == &key) {
+            let k = guard.order.remove(pos).unwrap();
+            guard.order.push_back(k);
+        }
+        return;
+    }
+    if guard.order.len() >= LUT_CAPACITY {
+        if let Some(oldest) = guard.order.pop_front() {
+            guard.map.remove(&oldest);
+        }
+    }
+    guard.order.push_back(key.clone());
+    guard.map.insert(key, lut);
+}
+
 /// Test-only: clear the cache. Used by tests that need a known empty
 /// state between cases — production code never needs this.
 #[cfg(test)]
 pub fn clear_for_test() {
     if let Ok(mut guard) = cell().lock() {
+        guard.map.clear();
+        guard.order.clear();
+    }
+}
+
+/// Test-only mirror of [`clear_for_test`] for the parallel LUT cache.
+#[cfg(test)]
+pub fn clear_lut_for_test() {
+    if let Ok(mut guard) = lut_cell().lock() {
         guard.map.clear();
         guard.order.clear();
     }
@@ -205,6 +285,31 @@ mod tests {
         clear_for_test();
         let key = CacheKey::Bytes { hash: 0x1234 };
         assert!(get(&key).is_none());
+    }
+
+    #[test]
+    fn insert_lut_then_get_lut_returns_same_lut() {
+        let _g = TEST_LOCK.lock().unwrap();
+        clear_lut_for_test();
+        // Build a small NON-identity LUT (tweak one node) so a hit proves we got
+        // OUR stored grid back, not a freshly minted identity.
+        let mut lut = ColorLut::identity(5);
+        lut.data[0] = 0.123;
+        // `from_bytes` needs no filesystem — keeps the round-trip pure in-memory.
+        let key = CacheKey::from_bytes(b"lut-round-trip-fixture");
+        insert_lut(key.clone(), lut.clone());
+        let got = get_lut(&key).expect("should hit");
+        assert_eq!(got, lut);
+        // The tweaked node specifically survived the round trip.
+        assert_eq!(got.data[0], 0.123);
+    }
+
+    #[test]
+    fn lut_cache_miss_returns_none() {
+        let _g = TEST_LOCK.lock().unwrap();
+        clear_lut_for_test();
+        let key = CacheKey::from_bytes(b"absent-lut-key");
+        assert!(get_lut(&key).is_none());
     }
 
     #[test]
