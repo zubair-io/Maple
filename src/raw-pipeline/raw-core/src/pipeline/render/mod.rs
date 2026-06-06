@@ -169,102 +169,40 @@ pub fn render_from_raw_with_quality_and_source(
     dump_after("17_srgb_linear", &scene);
     stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
     // Auto Profile (#537/#913) — the per-image color tail toward the embedded
-    // JPEG, applied in f32 sRGB-encoded display space (the domain the JPEG
-    // occupies after `/255`, and the domain Maple's buffer is in here by
-    // construction — no inverse OETF, no Rec.2020 conversion). TWO layered stages:
-    //   1. the #550 per-channel tone curve (`apply_curve`) — the separable R/G/B
-    //      residual toward the JPEG distribution; owns tone + brightness.
-    //   2. a per-image residual 3D LUT (`lut::fit_lut_*`) fit on the ALREADY-CURVED
-    //      buffer, so it keys on post-curve RGB and carries only the cross-channel
-    //      (per-hue/sat) residual the separable curve can't — value-keyed + smooth
-    //      ⇒ spatially coherent (no oil-slick, unlike the retired chroma grid).
-    // The LUT generalizes the curve (a per-channel curve is a diagonal LUT), so
-    // `MAPLE_AUTO_LUT_STRENGTH=0` ⇒ identity residual ⇒ output is exactly the #550
-    // curve (the exact accuracy floor). No-op (= AgX-Neutral output) when there's
-    // no RAW source (legacy `maple_render_bytes` FFI) or the fit fails (no JPEG /
-    // too small / too few surviving pairs).
+    // JPEG, in f32 sRGB-encoded display space: the #550 per-channel curve, then a
+    // residual 3D LUT fit on the curved buffer. See
+    // `auto_profile::apply_auto_profile` for the ordering/cache contract. No-op for
+    // Neutral, no RAW source (legacy `maple_render_bytes` FFI), or a failed fit.
     match (model.profile, &raw_source) {
         (Profile::Auto, Some(RawInput::Path(path))) => stage("auto_profile", || {
             scene.assert_space(ColorSpace::DisplayEncodedSrgb);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            // 1. #550 per-channel curve — fit on the pre-curve buffer, apply in
-            //    place so `pixels` becomes curve(maple), the residual LUT's input.
-            let curve = match cached_curve.clone() {
-                Some(c) => Some(c),
-                None => {
-                    let fitted = auto_profile::fit_curve_from_raw_display(
-                        path, pixels, w, h, raw.orientation,
-                    );
-                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert(key, c.clone());
-                    }
-                    fitted
-                }
-            };
-            if let Some(c) = &curve {
-                auto_profile::apply_curve(pixels, c);
-            }
-            // 2. residual 3D LUT — fit on the now-curved buffer ⇒ pairs are
-            //    (curve(maple), jpeg), so it corrects only the post-curve residual.
-            let lut = match cached_lut.clone() {
-                Some(l) => Some(l),
-                None => {
-                    let fitted = auto_profile::lut::fit_lut_from_raw_display(
-                        path, pixels, w, h, raw.orientation,
-                    );
-                    if let (Some(key), Some(l)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert_lut(key, l.clone());
-                    }
-                    fitted
-                }
-            };
-            if let Some(l) = lut {
-                if std::env::var_os("MAPLE_DISABLE_AUTO_LUT").is_none() {
-                    l.apply(pixels);
-                }
-            }
+            auto_profile::apply_auto_profile(
+                pixels,
+                w,
+                h,
+                raw.orientation,
+                auto_profile::AutoSource::Path(path),
+                auto_cache_key.as_ref(),
+                cached_curve.clone(),
+                cached_lut.clone(),
+            );
         }),
         (Profile::Auto, Some(RawInput::Bytes { bytes, ext })) => stage("auto_profile", || {
             scene.assert_space(ColorSpace::DisplayEncodedSrgb);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            // 1. #550 per-channel curve — fit on the pre-curve buffer, apply in
-            //    place so `pixels` becomes curve(maple), the residual LUT's input.
-            let curve = match cached_curve.clone() {
-                Some(c) => Some(c),
-                None => {
-                    let fitted = auto_profile::fit_curve_from_bytes_display(
-                        bytes, ext, pixels, w, h, raw.orientation,
-                    );
-                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert(key, c.clone());
-                    }
-                    fitted
-                }
-            };
-            if let Some(c) = &curve {
-                auto_profile::apply_curve(pixels, c);
-            }
-            // 2. residual 3D LUT — fit on the now-curved buffer ⇒ pairs are
-            //    (curve(maple), jpeg), so it corrects only the post-curve residual.
-            let lut = match cached_lut.clone() {
-                Some(l) => Some(l),
-                None => {
-                    let fitted = auto_profile::lut::fit_lut_from_bytes_display(
-                        bytes, ext, pixels, w, h, raw.orientation,
-                    );
-                    if let (Some(key), Some(l)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert_lut(key, l.clone());
-                    }
-                    fitted
-                }
-            };
-            if let Some(l) = lut {
-                if std::env::var_os("MAPLE_DISABLE_AUTO_LUT").is_none() {
-                    l.apply(pixels);
-                }
-            }
+            auto_profile::apply_auto_profile(
+                pixels,
+                w,
+                h,
+                raw.orientation,
+                auto_profile::AutoSource::Bytes { bytes, ext },
+                auto_cache_key.as_ref(),
+                cached_curve.clone(),
+                cached_lut.clone(),
+            );
         }),
         _ => {}
     }
