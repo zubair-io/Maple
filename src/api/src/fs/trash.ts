@@ -13,7 +13,8 @@
  * callers already validated against the registered folder root.
  */
 
-import * as fs from "node:fs/promises";
+// Mirror-aware drop-in: trash moves replicate to the library's backup root(s).
+import * as fs from "./mirrored.ts";
 import * as path from "node:path";
 import { listPairedSidecars } from "./xmp.ts";
 import { child as childLogger } from "../log.ts";

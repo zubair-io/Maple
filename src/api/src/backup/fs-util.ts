@@ -4,7 +4,9 @@
  * budget") and so the move/compare/disambiguate logic is unit-testable on its
  * own.
  */
-import fs from 'node:fs/promises';
+// Mirror-aware drop-in: the assembled-upload publish (atomicMove / moveNoClobber)
+// replicates to the library's backup root(s). Same `fs/promises` surface.
+import fs from '../fs/mirrored.ts';
 import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 

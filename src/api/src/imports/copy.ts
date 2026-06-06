@@ -10,7 +10,8 @@
  * crash never leaves a half-written destination visible.
  */
 
-import fs from 'node:fs/promises';
+// Mirror-aware drop-in: imported originals replicate to the library's backup root(s).
+import fs from '../fs/mirrored.ts';
 import path from 'node:path';
 import { filesIdentical, firstFreeSiblingPath, moveNoClobber } from '../backup/fs-util.ts';
 
