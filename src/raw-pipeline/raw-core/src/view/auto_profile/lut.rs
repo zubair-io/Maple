@@ -96,26 +96,21 @@ impl ColorLut {
 const FIT_CONF_COUNT: f32 = 8.0; // confidence half-count: c = count / (count + FIT_CONF_COUNT)
 const FIT_SMOOTH_PASSES: usize = 1; // separable 3D smoothing passes of the delta grid
 
-/// Grid resolution of the fitted per-image LUT (nodes per axis). 17 is the de
-/// facto interchange size (`.cube` default, ACR's HSM grid order) — fine enough
-/// to carry a per-image color residual, coarse enough that the smooth fit stays
-/// spatially coherent.
-const LUT_SIZE: usize = 17;
+/// Grid resolution of the fitted per-image LUT (nodes per axis) — the single
+/// fidelity knob, chosen by cross-fixture sweep on the 17-fixture Auto gate
+/// (`test_color_pipeline.sh` baseline_auto): grand-mean ΔE-vs-ACR fell 9.6 (#550
+/// only) → 8.0 (N=25) → 7.8 (N=49). 49 recovers the most grid-era-budget fixtures
+/// (e.g. test_0011 passes at 49 but not 33/25) and posts the best grand mean, with
+/// no observed overfitting — the per-cell fit stays confidence-damped + masked-
+/// smoothed, so blotch is flat (~0.6) and no body regresses vs #550. A 49³ LUT is
+/// 1.4 MB; the apply is O(1)/pixel and the fit O(pixels), both N-independent.
+const LUT_SIZE: usize = 49;
 
 /// Floor on surviving `(maple, jpeg)` pairs before a LUT fit is attempted. Below
 /// this the correspondence set is too sparse to constrain a 17³ grid, so the
 /// entry points return `None` and the caller falls back to identity (= the
 /// AgX-Neutral render with no LUT layered on).
 const MIN_LUT_PAIRS: usize = 256;
-
-/// Dev-only env override for a tuning constant (sweep scaffolding; the chosen
-/// value is baked back to the const before ship).
-fn env_f32(key: &str, default: f32) -> f32 {
-    std::env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
-}
-fn env_usize(key: &str, default: usize) -> usize {
-    std::env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
-}
 
 /// Fit a smooth Nᶟ RGB→RGB residual LUT from display-space `(maple, jpeg)` pairs.
 ///
@@ -135,10 +130,6 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
     if pairs.is_empty() {
         return id;
     }
-    // Confidence half-count knob (env = dev-only sweep scaffolding, baked to the
-    // const before ship); SMOOTH passes likewise.
-    let conf_count = env_f32("MAPLE_LUT_REG", FIT_CONF_COUNT);
-    let smooth_passes = env_usize("MAPLE_LUT_SMOOTH", FIT_SMOOTH_PASSES);
     let last = (n - 1) as f32;
     let cells = n * n * n;
 
@@ -177,7 +168,7 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
     let mut delta = vec![[0f32; 3]; cells];
     for i in 0..cells {
         if cnt[i] > 0 {
-            let c = cnt[i] as f32 / (cnt[i] as f32 + conf_count);
+            let c = cnt[i] as f32 / (cnt[i] as f32 + FIT_CONF_COUNT);
             for k in 0..3 {
                 delta[i][k] = c * (acc[i][k] / cnt[i] as f64) as f32;
             }
@@ -185,27 +176,7 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
     }
     let populated: Vec<bool> = cnt.iter().map(|&c| c > 0).collect();
 
-    if std::env::var_os("MAPLE_LUT_DEBUG").is_some() {
-        let total: u64 = cnt.iter().map(|&c| c as u64).sum();
-        let pop = cnt.iter().filter(|&&c| c > 0).count();
-        let cmax = cnt.iter().copied().max().unwrap_or(0);
-        let mut dmax = [0f32; 3];
-        let mut wbias = [0f64; 3]; // pixel-weighted predicted applied shift (255)
-        for i in 0..cells {
-            for k in 0..3 {
-                dmax[k] = dmax[k].max(delta[i][k].abs());
-                wbias[k] += delta[i][k] as f64 * cnt[i] as f64;
-            }
-        }
-        let inv = if total > 0 { 255.0 / total as f64 } else { 0.0 };
-        eprintln!(
-            "LUT_DEBUG bin N={n} pairs={} conf={conf_count} | cells pop={pop}/{cells} max_count={cmax} | |delta|max R/G/B={:.4}/{:.4}/{:.4} | pred applied shift R/G/B(255)={:.2}/{:.2}/{:.2}",
-            pairs.len(), dmax[0], dmax[1], dmax[2],
-            wbias[0] * inv, wbias[1] * inv, wbias[2] * inv,
-        );
-    }
-
-    for _ in 0..smooth_passes {
+    for _ in 0..FIT_SMOOTH_PASSES {
         smooth3(&mut delta, &populated, n);
     }
 
@@ -281,7 +252,7 @@ fn fit_lut_from_preview(
         .ok()
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(1.0);
-    Some(fit_lut_from_pairs(&pairs, env_usize("MAPLE_LUT_SIZE", LUT_SIZE), k))
+    Some(fit_lut_from_pairs(&pairs, LUT_SIZE, k))
 }
 
 /// In-place separable 1-2-1 smoothing of the per-cell delta grid over each RGB
