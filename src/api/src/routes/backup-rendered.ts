@@ -43,7 +43,10 @@ import { assetsCollection, foldersCollection } from '../db/client.ts';
 import { uploadSessions, BusyElsewhereError } from '../backup/upload-session.ts';
 import { BACKUP_CHUNK_DIR } from '../backup/config.ts';
 import { child as childLogger } from '../log.ts';
-import fs from 'node:fs/promises';
+// Mirror-aware drop-in: the rendered-companion publish replicates to the
+// library's backup root(s). `link` and `copyFile` are both mirror-aware.
+import fs from '../fs/mirrored.ts';
+import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 
 const log = childLogger('backup-rendered');
@@ -73,15 +76,11 @@ async function atomicMove(src: string, dst: string): Promise<void> {
     if (e?.code === 'EEXIST') throw e;
     if (e?.code !== 'EXDEV') throw e;
   }
-  // Cross-filesystem: open the destination with "wx" (O_CREAT | O_EXCL), copy
-  // bytes through, then drop the tmp. "wx" surfaces EEXIST atomically.
-  const dstHandle = await fs.open(dst, 'wx');
-  try {
-    const data = await fs.readFile(src);
-    await dstHandle.writeFile(data);
-  } finally {
-    await dstHandle.close();
-  }
+  // Cross-filesystem: copy with COPYFILE_EXCL (O_CREAT | O_EXCL) so a
+  // concurrent create still surfaces EEXIST atomically, then drop the tmp.
+  // Going through the mirror-aware `copyFile` (rather than a raw FileHandle
+  // write) is what lets the rendered companion replicate to the backup root.
+  await fs.copyFile(src, dst, fsConstants.COPYFILE_EXCL);
   await fs.unlink(src);
 }
 
