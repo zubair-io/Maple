@@ -211,6 +211,13 @@ fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
     if let Ok(Some(img)) = decoder.preview_image(src, &params) {
         return Some(img);
     }
+    // Deliberately NO `decoder.full_image()` fallback. The Auto Profile fit must
+    // match the camera's *embedded JPEG* (its rendered look); rawler's full RAW
+    // decode is Maple developing the sensor itself, so fitting against it would be
+    // circular (matching our own decode, not the camera). When there's no embedded
+    // preview, returning `None` correctly falls the caller back to AgX-Neutral
+    // rather than to a meaningless self-referential target. A RAW with no embedded
+    // preview on the bytes/WASM path (no exiftool fallback) is the #870 case.
     None
 }
 
