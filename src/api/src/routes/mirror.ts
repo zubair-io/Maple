@@ -86,18 +86,26 @@ export const mirrorRoutes = new Elysia()
         if (seen.has(resolved)) continue;
         seen.add(resolved);
 
+        // The alias check is pure-path and always applies — a mirror that
+        // overlaps the library tree is a config error regardless of state.
         if (aliases(resolved, folder.path)) {
           set.status = 400;
           return {
             error: `mirror "${m.path}" overlaps the library's own path`,
           };
         }
-        const v = await validateRoot(resolved);
-        if (!v.ok) {
-          set.status = 400;
-          return {
-            error: `mirror "${m.path}" is not a usable directory: ${v.error}`,
-          };
+        // Only stat the disk for a mirror being *enabled*. A disabled mirror
+        // may legitimately be offline/unmounted — validating it would block
+        // the operator from pausing a mirror whose disk is currently down,
+        // defeating the "disable without losing configuration" intent.
+        if (m.enabled) {
+          const v = await validateRoot(resolved);
+          if (!v.ok) {
+            set.status = 400;
+            return {
+              error: `mirror "${m.path}" is not a usable directory: ${v.error}`,
+            };
+          }
         }
         mirrors.push({ path: resolved, enabled: m.enabled });
       }

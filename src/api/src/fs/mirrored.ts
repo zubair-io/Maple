@@ -30,11 +30,17 @@
  * ## Consistency
  *
  * The primary operation runs first and throws exactly as the real fs would —
- * the caller's success contract is unchanged. Mirror replication then runs
- * best-effort and never throws back into the caller: a slow or offline backup
- * must not fail or stall an edit on the primary. Replication failures are
- * surfaced to a pluggable sink (`onMirrorFailure`) which the async reconcile
- * worker hooks to repair drift; by default they are logged.
+ * the caller's success contract is unchanged. Mirror replication is then
+ * *scheduled* (not awaited) so caller latency never depends on mirror health:
+ * a slow or offline backup can neither stall nor fail an edit on the primary.
+ * Scheduled tasks are best-effort and never throw; failures are surfaced to a
+ * pluggable sink (`onMirrorFailure`) which the reconcile worker (issue #920)
+ * hooks to repair drift, and by default are logged. Tests and graceful
+ * shutdown await quiescence with `flushPendingMirrorOps`.
+ *
+ * Because replication is asynchronous and there is no durable queue yet (also
+ * #920), a failed mirror write is logged but not retried within this PR — the
+ * mirror reconverges on the next reconcile pass.
  */
 
 import * as realFs from 'node:fs/promises';
@@ -103,18 +109,17 @@ function isErrno(err: unknown, code: string): boolean {
   );
 }
 
+function asError(e: unknown): Error {
+  return e instanceof Error ? e : new Error(String(e));
+}
+
 /** Copy a committed primary file onto its mirror path, creating parents. */
 async function replicateFile(t: MirrorTarget, sourcePath: string): Promise<void> {
   try {
     await realFs.mkdir(path.dirname(t.mirrorPath), { recursive: true });
     await realFs.copyFile(sourcePath, t.mirrorPath);
   } catch (error) {
-    report({
-      op: 'replicate',
-      mirrorPath: t.mirrorPath,
-      sourcePath,
-      error: error instanceof Error ? error : new Error(String(error)),
-    });
+    report({ op: 'replicate', mirrorPath: t.mirrorPath, sourcePath, error: asError(error) });
   }
 }
 
@@ -128,7 +133,7 @@ async function removeMirror(t: MirrorTarget): Promise<void> {
       op: 'unlink',
       mirrorPath: t.mirrorPath,
       sourcePath: t.mirrorPath,
-      error: error instanceof Error ? error : new Error(String(error)),
+      error: asError(error),
     });
   }
 }
@@ -140,6 +145,78 @@ function targetsFor(p: string): MirrorTarget[] {
 }
 
 // ---------------------------------------------------------------------------
+// Non-blocking scheduling
+// ---------------------------------------------------------------------------
+//
+// The primary op is awaited; mirror replication is *scheduled* to run after it
+// returns, so caller latency never depends on mirror health — a slow or
+// offline network mirror can't stall an edit. Each scheduled task is tracked
+// so tests and graceful shutdown can await quiescence via
+// `flushPendingMirrorOps`. The tasks never reject: every internal fs op
+// funnels failures to the sink, so a tracked promise always settles cleanly.
+
+const _pending = new Set<Promise<void>>();
+
+function schedule(work: () => Promise<unknown>): void {
+  const p: Promise<void> = work()
+    .then(() => undefined)
+    .catch((err) => {
+      // Defensive — inner ops already catch + report, so this should never
+      // fire. Log rather than leak an unhandled rejection if it ever does.
+      log.error({ err: err instanceof Error ? err.message : err }, 'mirror task crashed');
+    })
+    .finally(() => {
+      _pending.delete(p);
+    });
+  _pending.add(p);
+}
+
+/**
+ * Await all in-flight mirror replication. Call from tests before asserting
+ * mirror state, and from graceful shutdown so pending copies aren't cut off.
+ */
+export function flushPendingMirrorOps(): Promise<void> {
+  return Promise.all([..._pending]).then(() => undefined);
+}
+
+/** Best-effort mirror `mkdir`; swallows + reports failures. */
+async function mirrorMkdir(
+  t: MirrorTarget,
+  options: Parameters<typeof realFs.mkdir>[1],
+  source: string,
+): Promise<void> {
+  try {
+    await realFs.mkdir(t.mirrorPath, options as never);
+  } catch (error) {
+    report({ op: 'mkdir', mirrorPath: t.mirrorPath, sourcePath: source, error: asError(error) });
+  }
+}
+
+/** Best-effort mirror `rm`; ENOENT is success. */
+async function mirrorRm(
+  t: MirrorTarget,
+  options: Parameters<typeof realFs.rm>[1],
+  source: string,
+): Promise<void> {
+  try {
+    await realFs.rm(t.mirrorPath, options);
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) return;
+    report({ op: 'rm', mirrorPath: t.mirrorPath, sourcePath: source, error: asError(error) });
+  }
+}
+
+/** Best-effort mirror `rmdir`; ENOENT/ENOTEMPTY are non-fatal for cleanup. */
+async function mirrorRmdir(t: MirrorTarget, source: string): Promise<void> {
+  try {
+    await realFs.rmdir(t.mirrorPath);
+  } catch (error) {
+    if (isErrno(error, 'ENOENT') || isErrno(error, 'ENOTEMPTY')) return;
+    report({ op: 'rmdir', mirrorPath: t.mirrorPath, sourcePath: source, error: asError(error) });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Mutating fs verbs — mirror-aware overrides
 // ---------------------------------------------------------------------------
 
@@ -147,24 +224,35 @@ export async function rename(oldPath: string, newPath: string): Promise<void> {
   await realFs.rename(oldPath, newPath);
   // Replicate the committed destination, then drop any stale source copy on
   // the mirror (a same-library move) so the mirror tree converges to primary.
-  for (const t of targetsFor(newPath)) await replicateFile(t, newPath);
-  for (const t of targetsFor(oldPath)) await removeMirror(t);
+  const dst = targetsFor(newPath);
+  const src = targetsFor(oldPath);
+  if (dst.length || src.length) {
+    schedule(() =>
+      Promise.all([
+        ...dst.map((t) => replicateFile(t, newPath)),
+        ...src.map((t) => removeMirror(t)),
+      ]),
+    );
+  }
 }
 
 export async function copyFile(src: string, dest: string, mode?: number): Promise<void> {
   await realFs.copyFile(src, dest, mode);
-  for (const t of targetsFor(dest)) await replicateFile(t, dest);
+  const targets = targetsFor(dest);
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => replicateFile(t, dest))));
 }
 
 export async function link(existingPath: string, newPath: string): Promise<void> {
   await realFs.link(existingPath, newPath);
   // A hardlink can't span devices/roots — replicate the bytes to the mirror.
-  for (const t of targetsFor(newPath)) await replicateFile(t, newPath);
+  const targets = targetsFor(newPath);
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => replicateFile(t, newPath))));
 }
 
 export async function unlink(p: string): Promise<void> {
   await realFs.unlink(p);
-  for (const t of targetsFor(p)) await removeMirror(t);
+  const targets = targetsFor(p);
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => removeMirror(t))));
 }
 
 export async function mkdir(
@@ -172,78 +260,53 @@ export async function mkdir(
   options?: Parameters<typeof realFs.mkdir>[1],
 ): Promise<string | undefined> {
   const result = await realFs.mkdir(p, options as never);
-  for (const t of targetsFor(p)) {
-    try {
-      await realFs.mkdir(t.mirrorPath, options as never);
-    } catch (error) {
-      report({
-        op: 'mkdir',
-        mirrorPath: t.mirrorPath,
-        sourcePath: p,
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-    }
-  }
+  const targets = targetsFor(p);
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => mirrorMkdir(t, options, p))));
   return result as string | undefined;
 }
 
 export async function rm(p: string, options?: Parameters<typeof realFs.rm>[1]): Promise<void> {
   await realFs.rm(p, options);
-  for (const t of targetsFor(p)) {
-    try {
-      await realFs.rm(t.mirrorPath, options);
-    } catch (error) {
-      if (isErrno(error, 'ENOENT')) continue;
-      report({
-        op: 'rm',
-        mirrorPath: t.mirrorPath,
-        sourcePath: p,
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-    }
-  }
+  const targets = targetsFor(p);
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => mirrorRm(t, options, p))));
 }
 
 export async function rmdir(p: string): Promise<void> {
   await realFs.rmdir(p);
-  for (const t of targetsFor(p)) {
-    try {
-      await realFs.rmdir(t.mirrorPath);
-    } catch (error) {
-      // ENOENT (already gone) and ENOTEMPTY (mirror still has siblings the
-      // primary doesn't) are both non-fatal for a best-effort cleanup.
-      if (isErrno(error, 'ENOENT') || isErrno(error, 'ENOTEMPTY')) continue;
-      report({
-        op: 'rmdir',
-        mirrorPath: t.mirrorPath,
-        sourcePath: p,
-        error: error instanceof Error ? error : new Error(String(error)),
-      });
-    }
-  }
+  const targets = targetsFor(p);
+  if (targets.length) schedule(() => Promise.all(targets.map((t) => mirrorRmdir(t, p))));
 }
 
 // ---------------------------------------------------------------------------
-// Read-only / non-replicating passthroughs
+// Read-only passthroughs
 // ---------------------------------------------------------------------------
 //
 // Re-exported verbatim so a call site can swap its entire `fs/promises` import
-// to this module. `open`/`writeFile`/`appendFile` only ever target temp files
-// in this codebase's atomic-write pattern, so they intentionally do NOT
-// replicate — the committing rename/copyFile/link above carries the result to
-// the mirror. Add to this list when a new call site needs another fs function.
+// to this module. These never mutate the tree, so there is nothing to mirror.
 
 export const stat = realFs.stat;
 export const lstat = realFs.lstat;
 export const readFile = realFs.readFile;
 export const readdir = realFs.readdir;
-export const open = realFs.open;
-export const writeFile = realFs.writeFile;
-export const appendFile = realFs.appendFile;
 export const access = realFs.access;
 export const realpath = realFs.realpath;
 export const readlink = realFs.readlink;
 export const opendir = realFs.opendir;
+
+// ---------------------------------------------------------------------------
+// Mutating passthroughs — intentionally NOT mirrored
+// ---------------------------------------------------------------------------
+//
+// `open`/`writeFile`/`appendFile` only ever target the `<final>.tmp.<pid>`
+// temps in this codebase's atomic-write pattern; the committing
+// rename/copyFile/link above carries the *result* to the mirror, so mirroring
+// the temp churn would be wasted work. `cp`/`chmod`/`utimes` are mutating but
+// have no durable call site through this module today; if one appears, add a
+// mirror-aware override above rather than relying on this passthrough.
+
+export const open = realFs.open;
+export const writeFile = realFs.writeFile;
+export const appendFile = realFs.appendFile;
 export const cp = realFs.cp;
 export const chmod = realFs.chmod;
 export const utimes = realFs.utimes;
