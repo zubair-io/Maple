@@ -174,6 +174,33 @@ describe('mirrored fs fan-out', () => {
     await fs.flushPendingMirrorOps();
     expect(await fileExists(onMirror('IMG.dng'))).toBe(false);
   });
+
+  test('directory rename (folder move) moves the whole mirror subtree', async () => {
+    // Seed a populated folder on the primary, mirrored.
+    await realFs.mkdir(onPrimary('trip/day1'), { recursive: true });
+    await realFs.writeFile(path.join(primary, 'trip/day1/a.dng'), 'A');
+    await fs.copyFile(path.join(primary, 'trip/day1/a.dng'), onPrimary('trip/day1/a.dng'));
+    await fs.flushPendingMirrorOps();
+    expect(await fileExists(onMirror('trip/day1/a.dng'))).toBe(true);
+
+    // Move the folder; the mirror subtree should follow.
+    await fs.rename(onPrimary('trip'), onPrimary('vacation'));
+    await fs.flushPendingMirrorOps();
+    expect(await fileExists(onMirror('trip'))).toBe(false);
+    expect(await realFs.readFile(onMirror('vacation/day1/a.dng'), 'utf8')).toBe('A');
+  });
+
+  test('directory rename rebuilds from primary when the mirror lacks the subtree', async () => {
+    // Build the folder on the primary WITHOUT mirroring it (raw fs writes).
+    await realFs.mkdir(onPrimary('raw/inner'), { recursive: true });
+    await realFs.writeFile(path.join(primary, 'raw/inner/b.dng'), 'B');
+    expect(await fileExists(onMirror('raw'))).toBe(false);
+
+    // Renaming it should fall back to a recursive copy from the primary.
+    await fs.rename(onPrimary('raw'), onPrimary('cooked'));
+    await fs.flushPendingMirrorOps();
+    expect(await realFs.readFile(onMirror('cooked/inner/b.dng'), 'utf8')).toBe('B');
+  });
 });
 
 async function fileExists(p: string): Promise<boolean> {

@@ -216,24 +216,70 @@ async function mirrorRmdir(t: MirrorTarget, source: string): Promise<void> {
   }
 }
 
+/**
+ * Mirror a directory rename (e.g. a folder move). Prefers renaming the existing
+ * mirror subtree — cheap and atomic, and it carries the whole tree — and falls
+ * back to a recursive copy from the committed primary when the mirror has no
+ * copy of the old path yet.
+ */
+async function mirrorRenameDir(
+  oldMirrorPath: string | undefined,
+  primaryNewPath: string,
+  t: MirrorTarget,
+): Promise<void> {
+  try {
+    await realFs.mkdir(path.dirname(t.mirrorPath), { recursive: true });
+    if (oldMirrorPath) {
+      try {
+        await realFs.rename(oldMirrorPath, t.mirrorPath);
+        return;
+      } catch (error) {
+        if (!isErrno(error, 'ENOENT')) throw error;
+        // Mirror lacked the source subtree — rebuild it from primary below.
+      }
+    }
+    await realFs.cp(primaryNewPath, t.mirrorPath, { recursive: true });
+  } catch (error) {
+    report({
+      op: 'replicate',
+      mirrorPath: t.mirrorPath,
+      sourcePath: primaryNewPath,
+      error: asError(error),
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Mutating fs verbs — mirror-aware overrides
 // ---------------------------------------------------------------------------
 
 export async function rename(oldPath: string, newPath: string): Promise<void> {
   await realFs.rename(oldPath, newPath);
-  // Replicate the committed destination, then drop any stale source copy on
-  // the mirror (a same-library move) so the mirror tree converges to primary.
   const dst = targetsFor(newPath);
   const src = targetsFor(oldPath);
-  if (dst.length || src.length) {
-    schedule(() =>
-      Promise.all([
-        ...dst.map((t) => replicateFile(t, newPath)),
-        ...src.map((t) => removeMirror(t)),
-      ]),
-    );
-  }
+  if (dst.length === 0 && src.length === 0) return;
+  schedule(async () => {
+    // A directory rename (folder move) must move/copy the whole subtree on the
+    // mirror, not copyFile a single path. Detect the kind once from the
+    // committed primary.
+    let isDir = false;
+    try {
+      isDir = (await realFs.stat(newPath)).isDirectory();
+    } catch {
+      // newPath already gone (a rapid follow-up op) — nothing to replicate.
+    }
+    if (isDir) {
+      const oldByRoot = new Map(src.map((t) => [t.mirrorRoot, t.mirrorPath]));
+      await Promise.all(dst.map((t) => mirrorRenameDir(oldByRoot.get(t.mirrorRoot), newPath, t)));
+      return;
+    }
+    // File: replicate the committed destination, then drop any stale source
+    // copy on the mirror (a same-library move) so the mirror converges.
+    await Promise.all([
+      ...dst.map((t) => replicateFile(t, newPath)),
+      ...src.map((t) => removeMirror(t)),
+    ]);
+  });
 }
 
 export async function copyFile(src: string, dest: string, mode?: number): Promise<void> {
