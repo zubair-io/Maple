@@ -21,6 +21,7 @@
 
 use super::apply::apply_curve;
 use super::curve::ProfileCurve;
+use super::lut::ColorLut;
 
 /// Default grid resolution for [`bake_profile_lut`]. 33³ is the industry-
 /// standard 3D LUT size (`.cube` default) and is plenty here: the #550 curve
@@ -87,6 +88,41 @@ pub fn bake_profile_lut(curve: &ProfileCurve, n: usize) -> Vec<f32> {
         }
     }
     apply_curve(&mut grid, curve);
+    grid
+}
+
+/// Bake a fitted [`ProfileCurve`] **and** a per-image residual [`ColorLut`]
+/// into ONE composed display-space 3D LUT — the single CIColorCube / GPU
+/// texture a host samples to apply the full Auto Profile tail (#924).
+///
+/// The composition is order-faithful to the render path *by construction*:
+/// [`apply_auto_profile`](super::apply_pipeline::apply_auto_profile) runs
+/// `apply_curve` then `residual.apply` over the same `DisplayEncodedSrgb`
+/// buffer, so baking is literally those two ops over the `[0, 1]³` grid —
+///
+/// ```text
+/// out[node] = residual.sample(apply_curve(node))
+/// ```
+///
+/// i.e. [`bake_profile_lut`] (which fills each node with `apply_curve(node)`)
+/// followed by [`ColorLut::apply`] (trilinear `residual.sample` per node). A
+/// host that samples the result at a post-AgX display value `v` therefore
+/// reads `residual.sample(curve(v))` trilinearly — matching the CPU pixel
+/// chain up to the grid's interpolation error, the same error the per-band
+/// parity gate already budgets.
+///
+/// Layout and length match [`bake_profile_lut`] exactly (`n³` RGB triplets, R
+/// fastest, `n * n * n * 3` floats); `n` is validated there (panics outside
+/// `[2, MAX_LUT_SIZE]`; the FFI / WASM wrappers reject such `n` first).
+///
+/// When `residual` is identity (`MAPLE_AUTO_LUT_STRENGTH=0` or a degenerate
+/// fit), `residual.apply` is identity-within-float-noise, so the result equals
+/// [`bake_profile_lut`] to sub-ULP — the #550 accuracy floor. For a BYTE-exact
+/// curve-only bake (no residual fit at all), call [`bake_profile_lut`]
+/// directly; the FFI does so when the residual stage returns `None`.
+pub fn bake_auto_profile_lut(curve: &ProfileCurve, residual: &ColorLut, n: usize) -> Vec<f32> {
+    let mut grid = bake_profile_lut(curve, n);
+    residual.apply(&mut grid);
     grid
 }
 
@@ -270,5 +306,66 @@ mod tests {
         assert_eq!(max.len(), MAX_LUT_SIZE * MAX_LUT_SIZE * MAX_LUT_SIZE * 3);
         let def = bake_profile_lut(&curve, DEFAULT_LUT_SIZE);
         assert_eq!(def.len(), DEFAULT_LUT_SIZE * DEFAULT_LUT_SIZE * DEFAULT_LUT_SIZE * 3);
+    }
+
+    /// Acceptance: composing the curve with an IDENTITY residual reproduces the
+    /// pure curve-only bake to within float noise. This is the
+    /// `MAPLE_AUTO_LUT_STRENGTH=0 ⇒ #550 floor` guarantee on the composed path:
+    /// an identity residual is trilinear over an identity grid, exact-to-sub-ULP,
+    /// so layering it changes nothing perceptible.
+    #[test]
+    fn compose_with_identity_residual_matches_curve_only_within_epsilon() {
+        let curve = non_identity_curve();
+        let n = DEFAULT_LUT_SIZE;
+        let composed = bake_auto_profile_lut(&curve, &ColorLut::identity(n), n);
+        let curve_only = bake_profile_lut(&curve, n);
+        assert_eq!(composed.len(), curve_only.len());
+        let max = composed
+            .iter()
+            .zip(&curve_only)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            max < 1e-6,
+            "identity-residual compose drifted from curve-only by {max}"
+        );
+    }
+
+    /// Faithfulness: the composed cube applies the residual AFTER the curve.
+    /// At every node `out == residual.sample(curve(node))` — proving both the
+    /// ordering (curve then residual, not the reverse) and that the residual's
+    /// cross-channel shift survives the bake. Uses a residual that mixes green
+    /// into blue, which a per-channel curve provably cannot express, so a
+    /// curve-only bake would fail this.
+    #[test]
+    fn composed_lut_applies_residual_after_curve() {
+        let curve = non_identity_curve();
+        let n = DEFAULT_LUT_SIZE;
+        let mut residual = ColorLut::identity(n);
+        for px in residual.data.chunks_mut(3) {
+            px[2] = (0.85 * px[2] + 0.15 * px[1]).clamp(0.0, 1.0); // blue ← mix(blue, green)
+        }
+        let composed = bake_auto_profile_lut(&curve, &residual, n);
+        let curve_only = bake_profile_lut(&curve, n);
+        let mut max = 0.0_f32;
+        for i in 0..n * n * n {
+            let after_curve = [curve_only[i * 3], curve_only[i * 3 + 1], curve_only[i * 3 + 2]];
+            let expect = residual.sample(after_curve);
+            for c in 0..3 {
+                max = max.max((composed[i * 3 + c] - expect[c]).abs());
+            }
+        }
+        assert!(
+            max < 1e-6,
+            "composed cube != residual∘curve at nodes (max diff {max})"
+        );
+        // And it must actually DIFFER from curve-only (the residual is live),
+        // else the test would pass trivially on a broken no-op compose.
+        let moved = composed
+            .iter()
+            .zip(&curve_only)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(moved > 1e-3, "residual had no effect (max move {moved})");
     }
 }
