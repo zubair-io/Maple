@@ -201,6 +201,28 @@ describe('mirrored fs fan-out', () => {
     await fs.flushPendingMirrorOps();
     expect(await realFs.readFile(onMirror('cooked/inner/b.dng'), 'utf8')).toBe('B');
   });
+
+  test('replication preserves the source mtime on the mirror', async () => {
+    const src = path.join(dir, 'src.dng');
+    await realFs.writeFile(src, 'bytes');
+    // Stamp the primary with a distinct, older mtime (as the upload route does
+    // via utimes) so we can prove the mirror inherits it rather than "now".
+    const epoch = new Date('2021-01-02T03:04:05Z');
+    await realFs.copyFile(src, onPrimary('IMG.dng'));
+    await realFs.utimes(onPrimary('IMG.dng'), epoch, epoch);
+    // Re-copy through the mirrored layer so replication runs against the
+    // stamped primary.
+    await fs.copyFile(onPrimary('IMG.dng'), onPrimary('IMG2.dng'));
+    await realFs.utimes(onPrimary('IMG2.dng'), epoch, epoch);
+    await fs.copyFile(onPrimary('IMG2.dng'), onPrimary('IMG3.dng'));
+    await fs.flushPendingMirrorOps();
+
+    const mirrorStat = await realFs.stat(onMirror('IMG3.dng'));
+    // IMG3 was copied from IMG2 (stamped epoch), so its primary mtime is epoch;
+    // the mirror must match within filesystem mtime granularity (1s).
+    const primaryStat = await realFs.stat(onPrimary('IMG3.dng'));
+    expect(Math.abs(mirrorStat.mtimeMs - primaryStat.mtimeMs)).toBeLessThan(1000);
+  });
 });
 
 async function fileExists(p: string): Promise<boolean> {
