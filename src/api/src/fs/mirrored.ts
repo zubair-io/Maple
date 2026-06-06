@@ -62,7 +62,12 @@ type MirrorFailureSink = (failure: MirrorFailure) => void;
 
 let _sink: MirrorFailureSink = (f) => {
   log.warn(
-    { op: f.op, mirrorPath: f.mirrorPath, sourcePath: f.sourcePath, err: f.error.message },
+    {
+      op: f.op,
+      mirrorPath: f.mirrorPath,
+      sourcePath: f.sourcePath,
+      err: f.error.message,
+    },
     'mirror replication step failed — primary unaffected; drift will be repaired on reconcile',
   );
 };
@@ -93,7 +98,9 @@ function isReplicablePath(p: string): boolean {
 }
 
 function isErrno(err: unknown, code: string): boolean {
-  return !!err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === code;
+  return (
+    !!err && typeof err === 'object' && 'code' in err && (err as { code?: string }).code === code
+  );
 }
 
 /** Copy a committed primary file onto its mirror path, creating parents. */
