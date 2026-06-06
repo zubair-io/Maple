@@ -202,6 +202,21 @@ describe('mirrored fs fan-out', () => {
     expect(await realFs.readFile(onMirror('cooked/inner/b.dng'), 'utf8')).toBe('B');
   });
 
+  test('directory rename out of the mirrored set removes the orphaned mirror subtree', async () => {
+    await realFs.mkdir(onPrimary('gone/inner'), { recursive: true });
+    await realFs.writeFile(path.join(primary, 'gone/inner/x.dng'), 'X');
+    await fs.copyFile(path.join(primary, 'gone/inner/x.dng'), onPrimary('gone/inner/x.dng'));
+    await fs.flushPendingMirrorOps();
+    expect(await fileExists(onMirror('gone/inner/x.dng'))).toBe(true);
+
+    // Move the folder OUT of the primary root (to a non-mirrored location):
+    // dst has no mirror target, so the old mirror subtree must be cleaned up
+    // rather than left to diverge.
+    await fs.rename(onPrimary('gone'), path.join(dir, 'outside-dir'));
+    await fs.flushPendingMirrorOps();
+    expect(await fileExists(onMirror('gone'))).toBe(false);
+  });
+
   test('replication preserves the source mtime on the mirror', async () => {
     const src = path.join(dir, 'src.dng');
     await realFs.writeFile(src, 'bytes');
