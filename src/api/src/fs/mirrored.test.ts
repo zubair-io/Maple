@@ -66,6 +66,7 @@ describe('mirrored fs fan-out', () => {
     const tmp = onPrimary('IMG.dng.tmp.123');
     await realFs.writeFile(tmp, 'raw-bytes');
     await fs.rename(tmp, onPrimary('IMG.dng'));
+    await fs.flushPendingMirrorOps();
 
     expect(await realFs.readFile(onPrimary('IMG.dng'), 'utf8')).toBe('raw-bytes');
     expect(await realFs.readFile(onMirror('IMG.dng'), 'utf8')).toBe('raw-bytes');
@@ -78,6 +79,7 @@ describe('mirrored fs fan-out', () => {
     // replicateFile must create it.
     await realFs.mkdir(onPrimary('2024/03'), { recursive: true });
     await fs.copyFile(src, onPrimary('2024/03/IMG.dng'));
+    await fs.flushPendingMirrorOps();
 
     expect(await realFs.readFile(onMirror('2024/03/IMG.dng'), 'utf8')).toBe('copy-me');
   });
@@ -88,9 +90,11 @@ describe('mirrored fs fan-out', () => {
     const src = path.join(dir, 's.xmp');
     await realFs.writeFile(src, '<xmp/>');
     await fs.copyFile(src, tmp);
+    await fs.flushPendingMirrorOps();
     expect(await fileExists(onMirror('sidecar.xmp.tmp.999'))).toBe(false);
 
     await fs.rename(tmp, onPrimary('sidecar.xmp'));
+    await fs.flushPendingMirrorOps();
     expect(await realFs.readFile(onMirror('sidecar.xmp'), 'utf8')).toBe('<xmp/>');
     expect(await fileExists(onMirror('sidecar.xmp.tmp.999'))).toBe(false);
   });
@@ -99,9 +103,11 @@ describe('mirrored fs fan-out', () => {
     const src = path.join(dir, 's.dng');
     await realFs.writeFile(src, 'x');
     await fs.copyFile(src, onPrimary('IMG.dng'));
+    await fs.flushPendingMirrorOps();
     expect(await fileExists(onMirror('IMG.dng'))).toBe(true);
 
     await fs.unlink(onPrimary('IMG.dng'));
+    await fs.flushPendingMirrorOps();
     expect(await fileExists(onPrimary('IMG.dng'))).toBe(false);
     expect(await fileExists(onMirror('IMG.dng'))).toBe(false);
   });
@@ -112,9 +118,11 @@ describe('mirrored fs fan-out', () => {
     await realFs.mkdir(onPrimary('old'), { recursive: true });
     await realFs.mkdir(onPrimary('new'), { recursive: true });
     await fs.copyFile(src, onPrimary('old/IMG.dng'));
+    await fs.flushPendingMirrorOps();
     expect(await fileExists(onMirror('old/IMG.dng'))).toBe(true);
 
     await fs.rename(onPrimary('old/IMG.dng'), onPrimary('new/IMG.dng'));
+    await fs.flushPendingMirrorOps();
     expect(await fileExists(onMirror('old/IMG.dng'))).toBe(false);
     expect(await realFs.readFile(onMirror('new/IMG.dng'), 'utf8')).toBe('move-me');
   });
@@ -123,11 +131,13 @@ describe('mirrored fs fan-out', () => {
     const target = onPrimary('IMG.dng');
     await realFs.writeFile(target, 'linked');
     await fs.link(target, onPrimary('IMG-2.dng'));
+    await fs.flushPendingMirrorOps();
     expect(await realFs.readFile(onMirror('IMG-2.dng'), 'utf8')).toBe('linked');
   });
 
   test('mkdir is created on the mirror as well', async () => {
     await fs.mkdir(onPrimary('a/b/c'), { recursive: true });
+    await fs.flushPendingMirrorOps();
     expect((await realFs.stat(onMirror('a/b/c'))).isDirectory()).toBe(true);
   });
 
@@ -135,6 +145,7 @@ describe('mirrored fs fan-out', () => {
     const outside = path.join(dir, 'outside.dng');
     await realFs.writeFile(outside, 'nope');
     await fs.copyFile(outside, path.join(dir, 'outside-copy.dng'));
+    await fs.flushPendingMirrorOps();
     // Nothing should have appeared under the mirror root.
     expect(await realFs.readdir(mirror)).toHaveLength(0);
   });
@@ -150,6 +161,7 @@ describe('mirrored fs fan-out', () => {
     await realFs.mkdir(onPrimary('sub'), { recursive: true });
     // Must NOT throw even though replication can't succeed.
     await fs.copyFile(src, onPrimary('sub/IMG.dng'));
+    await fs.flushPendingMirrorOps();
     expect(await realFs.readFile(onPrimary('sub/IMG.dng'), 'utf8')).toBe('primary-must-survive');
   });
 
@@ -159,6 +171,7 @@ describe('mirrored fs fan-out', () => {
     const src = path.join(dir, 's.dng');
     await realFs.writeFile(src, 'x');
     await fs.copyFile(src, onPrimary('IMG.dng'));
+    await fs.flushPendingMirrorOps();
     expect(await fileExists(onMirror('IMG.dng'))).toBe(false);
   });
 });
