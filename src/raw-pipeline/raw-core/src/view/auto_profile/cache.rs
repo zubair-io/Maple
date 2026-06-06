@@ -41,9 +41,9 @@ use super::lut::ColorLut;
 /// Cache capacity in entries. One `ProfileCurve` ~2 KB → total cap ~64 KB.
 const CAPACITY: usize = 32;
 
-/// LUT cache capacity in entries. A 17³ [`ColorLut`] is 17³×3×4 ≈ 58 KB, so a
-/// small cap of 8 holds ~460 KB — orders of magnitude smaller than a decoded
-/// frame, while still covering a handful of recently-touched RAWs in a session.
+/// LUT cache capacity in entries. A 49³ [`ColorLut`] is 49³×3×4 ≈ 1.4 MB, so a
+/// small cap of 8 holds ~11 MB — still well under a decoded frame, while covering
+/// a handful of recently-touched RAWs in a session.
 const LUT_CAPACITY: usize = 8;
 
 /// Bytes-hash discriminator window. Prefix + suffix bytes hashed; tunable.
@@ -187,7 +187,7 @@ fn lut_cell() -> &'static Mutex<LutLruInner> {
 
 /// Look up `key` in the LUT cache. Returns a clone of the cached LUT on hit,
 /// `None` on miss, and bumps the hit entry to most-recently-used. Mirrors
-/// [`get`]; a 17³ LUT clone (~58 KB) is well below the per-tick render budget
+/// [`get`]; a 49³ LUT clone (~1.4 MB) is well below the per-tick render budget
 /// the cache exists to protect.
 pub fn get_lut(key: &CacheKey) -> Option<ColorLut> {
     let mut guard = lut_cell().lock().ok()?;
