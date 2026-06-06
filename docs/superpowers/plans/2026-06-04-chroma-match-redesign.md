@@ -4,7 +4,7 @@
 
 **Goal:** On test_0003 (then the full 17-fixture suite), make Maple's `Profile::Auto` raw color measurably closer to **ACR/Camera** than the `Profile::Neutral` (DCP+AgX) baseline — by adding a per-image chroma correction derived from the embedded JPEG. **At runtime the transform is solved from the JPEG alone; ACR is only an offline validation gate, never a runtime input.**
 
-**Architecture:** Three signals combine to reach ACR — **DCP** (linear color truth) + **AgX** (all tone) + **embedded JPEG** (per-image chroma intent). The chroma correction is a per-image transform on OKLAB `(a,b)`, solved *through* AgX, applied post-DCP / pre-AgX on the shared scene-linear buffer (so it rides to every platform). This redesign replaces the Phase-1 root-polynomial solver with a **linear 2×2** map + a global damping `k` + a tone-weighted highlight taper. **The JPEG is the only runtime signal.** `k` and the taper are conservative baked-in defaults; **ACR is an offline gate that validates them (beats Neutral, no overshoot) — it never defines them and is never touched at runtime.**
+**Architecture:** Three signals combine to reach ACR — **DCP** (linear color truth) + **AgX** (all tone) + **embedded JPEG** (per-image chroma intent). The chroma correction is a per-image transform on OKLAB `(a,b)`, solved _through_ AgX, applied post-DCP / pre-AgX on the shared scene-linear buffer (so it rides to every platform). This redesign replaces the Phase-1 root-polynomial solver with a **linear 2×2** map + a global damping `k` + a tone-weighted highlight taper. **The JPEG is the only runtime signal.** `k` and the taper are conservative baked-in defaults; **ACR is an offline gate that validates them (beats Neutral, no overshoot) — it never defines them and is never touched at runtime.**
 
 **Tech Stack:** Rust (`raw-core`), `maple-cli` for deterministic renders, Python (`compare_images.py` / `chroma_match_diff.py`) for ACR metrics. Spec: [`2026-06-04-chroma-match-redesign-design.md`](../specs/2026-06-04-chroma-match-redesign-design.md).
 
@@ -12,18 +12,18 @@
 
 ## What is the goal (measured target, test_0003 vs ACR)
 
-| zone | ACR (target) | Neutral (today) | Phase-1 Auto (today, on main) |
-|---|---|---|---|
-| mid C\* | **11.4** | 5.0 (undershoot) | 16.1 (overshoot) |
-| highlight C\* | **9.2** | 6.9 | 14.6 (+5.4 over) |
-| aggregate chroma_dev | — | 6.73 | 8.24 (worse than neutral) |
-| near-neutral false chroma (C\*>15) | — | 3.3% | 10.7% (the blotches) |
+| zone                               | ACR (target) | Neutral (today)  | Phase-1 Auto (today, on main) |
+| ---------------------------------- | ------------ | ---------------- | ----------------------------- |
+| mid C\*                            | **11.4**     | 5.0 (undershoot) | 16.1 (overshoot)              |
+| highlight C\*                      | **9.2**      | 6.9              | 14.6 (+5.4 over)              |
+| aggregate chroma_dev               | —            | 6.73             | 8.24 (worse than neutral)     |
+| near-neutral false chroma (C\*>15) | —            | 3.3%             | 10.7% (the blotches)          |
 
 Land `Profile::Auto` on the ACR column: mid ≈ 11, highlight ≤ ACR, false-chroma ≈ neutral, and **aggregate ACR error below Neutral's across the 17-fixture suite.**
 
 ## What is not working (root cause, measured)
 
-1. **Wrong calibration target.** The Phase-1 solver minimizes distance to the *JPEG*, gated by `chroma_match_diff.py` (vs JPEG). The JPEG runs hotter than ACR, so even a perfect solve overshoots. The real gate (`test_color_pipeline.sh`, vs ACR) never runs on `Profile::Auto`, so the regression went unseen.
+1. **Wrong calibration target.** The Phase-1 solver minimizes distance to the _JPEG_, gated by `chroma_match_diff.py` (vs JPEG). The JPEG runs hotter than ACR, so even a perfect solve overshoots. The real gate (`test_color_pipeline.sh`, vs ACR) never runs on `Profile::Auto`, so the regression went unseen.
 2. **Root-polynomial `√|a|` terms** (`map_ab`, `chroma_features`) have unbounded derivative at the neutral axis → applied per-pixel they amplify near-neutral noise into false chroma (the blotches). Convergence is clean (traced), so the √ buys nothing the linear form can't.
 3. **The highlight taper is never engaged** (`solve_chroma_from_preview` leaves `taper_lo/hi` at their inert 2.0/3.0) → highlights uncontrolled.
 
@@ -36,14 +36,14 @@ Land `Profile::Auto` on the ACR column: mid ≈ 11, highlight ≤ ACR, false-chr
 
 ## File structure
 
-| File | Change |
-|---|---|
-| `src/raw-pipeline/raw-core/src/view/auto_profile/chroma.rs` | `ChromaTransform`→linear-only; `chroma_features`/`ridge_solve_channel`/`transform_from_coeffs`→2-feature; `map_ab`/`apply_to_scene`→linear + scene-V taper; `solve_chroma_from_preview`→apply `k` + engage taper; drop `MAPLE_CHROMA_LINEAR_ONLY` |
-| `src/raw-pipeline/raw-core/src/view/auto_profile/chroma.rs` (tests mod) | update literals; add neutral-preservation + k + taper tests |
-| `src/scripts/calibrate_chroma_k.sh` (new) | sweep `k` against ACR over the 17 fixtures, report the minimizer |
-| `src/scripts/chroma_false_color.py` (new) | near-neutral false-chroma metric (regression guard) |
-| `test-fixtures/references/manifest.json` + `budgets.json` | add `*/baseline` **Auto-profile** gate cases |
-| `src/scripts/test_color_pipeline.sh` | run an Auto-profile pass against ACR (process fix) |
+| File                                                                    | Change                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/raw-pipeline/raw-core/src/view/auto_profile/chroma.rs`             | `ChromaTransform`→linear-only; `chroma_features`/`ridge_solve_channel`/`transform_from_coeffs`→2-feature; `map_ab`/`apply_to_scene`→linear + scene-V taper; `solve_chroma_from_preview`→apply `k` + engage taper; drop `MAPLE_CHROMA_LINEAR_ONLY` |
+| `src/raw-pipeline/raw-core/src/view/auto_profile/chroma.rs` (tests mod) | update literals; add neutral-preservation + k + taper tests                                                                                                                                                                                       |
+| `src/scripts/calibrate_chroma_k.sh` (new)                               | sweep `k` against ACR over the 17 fixtures, report the minimizer                                                                                                                                                                                  |
+| `src/scripts/chroma_false_color.py` (new)                               | near-neutral false-chroma metric (regression guard)                                                                                                                                                                                               |
+| `test-fixtures/references/manifest.json` + `budgets.json`               | add `*/baseline` **Auto-profile** gate cases                                                                                                                                                                                                      |
+| `src/scripts/test_color_pipeline.sh`                                    | run an Auto-profile pass against ACR (process fix)                                                                                                                                                                                                |
 
 ---
 
@@ -64,13 +64,14 @@ cd src/raw-pipeline && cargo build --release --bin maple-cli
 # (uses the diag renders already under ~/Desktop/maple-color-tests/chroma-diag/)
 ```
 
-Expected: build OK. *(Per CLAUDE.md a ticket is opened before the PR; `gh issue create` → add to Files board.)*
+Expected: build OK. _(Per CLAUDE.md a ticket is opened before the PR; `gh issue create` → add to Files board.)_
 
 ---
 
 ## Task 1: Reduce the transform to linear 2×2 (drop √, bias, gain)
 
 **Files:**
+
 - Modify: `src/raw-pipeline/raw-core/src/view/auto_profile/chroma.rs` (struct, `map_ab`, `apply_to_scene`, `chroma_features`, `ridge_solve_channel`, `transform_from_coeffs`, solver loop, `forward_post_agx_ab`)
 - Test: same file's `#[cfg(test)] mod tests`
 
@@ -242,7 +243,7 @@ fn taper_attenuates_highlights_not_mids() {
 }
 ```
 
-- [ ] **Step 2: Run — expect FAIL** (taper not engaged; `solve_chroma_from_preview` returns inert 2.0/3.0). Note this test exercises `apply_to_scene` directly so it passes once the axis is scene-V (Task 1) and the literal sets the window — it guards the *axis+window*, while Task 5 fits the production consts.
+- [ ] **Step 2: Run — expect FAIL** (taper not engaged; `solve_chroma_from_preview` returns inert 2.0/3.0). Note this test exercises `apply_to_scene` directly so it passes once the axis is scene-V (Task 1) and the literal sets the window — it guards the _axis+window_, while Task 5 fits the production consts.
 
 - [ ] **Step 3: Wire production consts.** Add and apply in `solve_chroma_from_preview` (after damping):
 
@@ -326,5 +327,6 @@ Same principle as `k`: explore offline to pick a sensible default; the gate vali
 - [ ] Open PR (`Closes #<ticket>`), ready-for-review.
 
 ## Self-review notes
+
 - Spec coverage: drop-√ (T1), k (T2/T4), taper (T3/T5), false-chroma guard (T6), ACR gate (T7), no-JPEG fallback (unchanged — `MIN_SOLVE_PAIRS`). ✓
 - Open risk carried forward: if T4 shows no `k` beats Neutral, or T5 can't hit mid≈11 under the `C_over≤0` constraint, **stop** — the stable linear form can't reach ACR and the transform needs smooth higher-order structure (not √). That decision is data-gated, not assumed.
