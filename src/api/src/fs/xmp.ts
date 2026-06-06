@@ -6,7 +6,9 @@
  */
 
 import * as path from 'node:path';
-import * as fs from 'node:fs/promises';
+// Mirror-aware drop-in: durable writes/moves replicate to the library's
+// configured backup root(s). Same `fs/promises` surface — see `mirrored.ts`.
+import * as fs from './mirrored.ts';
 import { createHash } from 'node:crypto';
 import { safeWriteAllowed } from './root.ts';
 import type { OpResult } from './root.ts';
