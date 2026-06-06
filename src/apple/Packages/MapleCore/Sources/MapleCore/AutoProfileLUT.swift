@@ -1,6 +1,7 @@
 //  AutoProfileLUT.swift
 //
-//  Wires the per-image Auto Profile curve (#812) into the Apple canvas.
+//  Wires the per-image Auto Profile tail — #550 curve ∘ residual 3D LUT (#924)
+//  — into the Apple canvas.
 //
 //  Architecture (see `docs/architecture.md` § view transform and the long
 //  comment in `ImageEditPipeline.processSceneLinear`):
@@ -11,12 +12,14 @@
 //      is implicit at the CoreImage `createCGImage` boundary — there is no
 //      explicit Metal "final-encode" shader on Apple.
 //
-//    * `Profile::Auto` (#550) is a per-image, bounded, post-AgX tone residual
-//      fitted and applied in **f32 sRGB-encoded display space**. The CPU
-//      reference (`maple-cli render --profile auto`) fits the curve there and
-//      `bake_profile_lut` samples `apply_curve` over a regular [0,1]³ grid in
-//      that same space. So the LUT can only be sampled where the pixels are
-//      sRGB-gamma-encoded sRGB-primary [0,1].
+//    * `Profile::Auto` is a per-image, bounded, post-AgX display-space tail:
+//      the #550 per-channel tone curve PLUS a per-image residual 3D LUT (#913)
+//      that carries the cross-channel residual the separable curve can't. Both
+//      are fit and applied in **f32 sRGB-encoded display space**. The CPU
+//      reference (`maple-cli render --profile auto`) composes them as
+//      `residual.sample(curve(x))` over a regular [0,1]³ grid in that space
+//      (`bake_auto_profile_lut`). So the LUT can only be sampled where the
+//      pixels are sRGB-gamma-encoded sRGB-primary [0,1].
 //
 //    * On Apple that space is reached by tagging a `CIColorCubeWithColorSpace`
 //      filter with the **sRGB** color space and applying it as the LAST op
@@ -28,10 +31,11 @@
 //      to today's AgX canvas.
 //
 //  The fit is a cold, per-image operation (JPEG extract + full develop, far
-//  over the 16ms slider budget). It is fetched once via FFI, baked into a
-//  33³ cube, wrapped in a reusable `CIFilter`, and cached keyed on the RAW
-//  URL + mtime. The cube is rebuilt only when the image changes — never per
-//  slider tick (per #840's per-image boundary).
+//  over the 16ms slider budget). The curve + residual are fit AND composed
+//  into one 33³ cube by a single FFI call (`maple_compute_auto_profile_lut`),
+//  wrapped in a reusable `CIFilter`, and cached keyed on the RAW URL + mtime.
+//  The cube is rebuilt only when the image changes — never per slider tick
+//  (per #840's per-image boundary).
 
 import CoreImage
 import Foundation
@@ -47,13 +51,9 @@ private let autoProfileLog = Logger(subsystem: "app.justmaple.aperture", categor
 public actor AutoProfileLUT {
     public static let shared = AutoProfileLUT()
 
-    /// Flat f32 length of a serialized `ProfileCurve`
-    /// (`raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN`). cbindgen does
-    /// not emit the Rust `const`, so it is mirrored here; the FFI rejects any
-    /// other length, so a drift surfaces immediately as `rc=0` failing to
-    /// write rather than silent corruption.
-    static let curveFlatLen = 220
     /// Default 3D-LUT edge (`raw_core::view::auto_profile::DEFAULT_LUT_SIZE`).
+    /// The composed cube (#924) bakes at this edge; the residual's own grid is
+    /// N=49 internally but is resampled onto this cube at bake time.
     static let lutSize = 33
 
     /// CIColorCube wants its cube data tagged in the color space the cube was
@@ -142,39 +142,74 @@ public actor AutoProfileLUT {
         }
     }
 
-    /// Fetch the fitted curve via FFI, bake the 33³ display-space LUT via FFI,
-    /// and expand it to the immutable RGBA-float cube bytes. Returns
-    /// `.cube(...)` on success or `.absent` on the no-curve fallback
-    /// (`rc == 1`) or any error — both of which mean "render plain AgX".
+    /// Fit AND bake the FULL Auto Profile tail (#550 curve ∘ per-image residual
+    /// LUT, #924) for this RAW via a SINGLE FFI call, then expand the composed
+    /// display-space LUT to the immutable RGBA-float cube bytes. Returns
+    /// `.cube(...)` on success or `.absent` on the no-tail fallback (`rc == 1`:
+    /// not Auto / no embedded JPEG) or any error — both of which mean "render
+    /// plain AgX". This one call replaces the former two-step
+    /// fit-curve + bake-curve-LUT path so the cross-channel residual the
+    /// separable curve can't carry reaches the canvas in the same cube.
     nonisolated static func buildCube(
         rawPath: String,
         quality: PipelineRenderer.Quality
     ) -> Cached {
-        var curve = [Float](repeating: 0, count: curveFlatLen)
+        let n = lutSize
+        // FFI LUT layout: n³ RGB triplets, R fastest — out[((b*n+g)*n+r)*3+c].
+        var lut = [Float](repeating: 0, count: n * n * n * 3)
         let rc = rawPath.withCString { cpath -> Int32 in
-            curve.withUnsafeMutableBufferPointer { buf in
-                maple_compute_profile_curve(cpath, nil, quality.rawValue, buf.baseAddress)
+            lut.withUnsafeMutableBufferPointer { lbuf in
+                maple_compute_auto_profile_lut(
+                    cpath, nil, quality.rawValue, UInt32(n), lbuf.baseAddress
+                )
             }
         }
         guard rc == 0 else {
             if rc != 1 {
                 let msg = maple_last_error().map { String(cString: $0) } ?? "unknown"
-                autoProfileLog.error("maple_compute_profile_curve rc=\(rc) for \(rawPath, privacy: .public): \(msg, privacy: .public)")
+                autoProfileLog.error("maple_compute_auto_profile_lut rc=\(rc) for \(rawPath, privacy: .public): \(msg, privacy: .public)")
             } else {
-                autoProfileLog.notice("Auto Profile: no curve for \(rawPath, privacy: .public) (no JPEG / degenerate) — plain AgX")
+                autoProfileLog.notice("Auto Profile: no tail for \(rawPath, privacy: .public) (not Auto / no JPEG) — plain AgX")
             }
             return .absent
         }
 
-        guard let cube = buildCubeFromCurve(curve) else { return .absent }
-        autoProfileLog.notice("Auto Profile: baked \(lutSize)³ display-space cube for \(rawPath, privacy: .public)")
+        guard let cube = buildCubeFromLUT(lut, dimension: n) else { return .absent }
+        autoProfileLog.notice("Auto Profile: baked \(n)³ composed (curve∘residual) cube for \(rawPath, privacy: .public)")
         return .cube(cube)
     }
 
+    /// Expand a flat FFI 3D-LUT (`n³` RGB triplets, R fastest —
+    /// `lut[((b*n+g)*n+r)*3+c]`) into the immutable RGBA-float cube bytes a
+    /// `CIColorCubeWithColorSpace` filter wants. CIColorCube wants RGBA float
+    /// with red varying fastest — the SAME index order as the FFI layout — so
+    /// each RGB triplet just gains alpha = 1.0 (straight; at alpha 1 the
+    /// premultiplied ambiguity is moot). Shared by `buildCube` (the composed
+    /// curve∘residual app path) and `buildCubeFromCurve` (the curve-only test
+    /// path). Returns `nil` if `lut` is not exactly `n³ * 3` long.
+    nonisolated static func buildCubeFromLUT(_ lut: [Float], dimension n: Int) -> CubeData? {
+        let entries = n * n * n
+        guard lut.count == entries * 3 else {
+            autoProfileLog.error("buildCubeFromLUT: lut.count \(lut.count) != \(entries * 3)")
+            return nil
+        }
+        var cube = [Float](repeating: 0, count: entries * 4)
+        for i in 0..<entries {
+            cube[i * 4 + 0] = lut[i * 3 + 0]
+            cube[i * 4 + 1] = lut[i * 3 + 1]
+            cube[i * 4 + 2] = lut[i * 3 + 2]
+            cube[i * 4 + 3] = 1.0
+        }
+        return CubeData(data: cube.withUnsafeBytes { Data($0) }, dimension: n)
+    }
+
     /// Bake a serialized `ProfileCurve` (`PROFILE_CURVE_FLAT_LEN` f32) into a
-    /// 33³ display-space 3D LUT via the FFI and expand it to the immutable
-    /// RGBA-float cube bytes a `CIColorCubeWithColorSpace` filter wants.
-    /// Returns `nil` on a bake error.
+    /// CURVE-ONLY 33³ display-space 3D LUT via `maple_compute_profile_lut` and
+    /// expand it to the immutable RGBA-float cube bytes. Retained for the #812
+    /// cube-faithfulness + #877 gamut-encode tests, which drive a synthetic
+    /// curve with no RAW (the residual fit needs a real embedded JPEG); the live
+    /// app path is `buildCube` (composed curve∘residual). Returns `nil` on a
+    /// bake error.
     nonisolated static func buildCubeFromCurve(_ curve: [Float]) -> CubeData? {
         let n = lutSize
         // FFI LUT layout: n³ RGB triplets, R fastest — out[((b*n+g)*n+r)*3+c].
@@ -190,20 +225,7 @@ public actor AutoProfileLUT {
             autoProfileLog.error("maple_compute_profile_lut rc=\(lutRC)")
             return nil
         }
-
-        // CIColorCube wants RGBA float with red varying fastest — same index
-        // order as the FFI's R-fastest layout. Expand each RGB triplet to
-        // RGBA with alpha = 1.0 (straight; at alpha 1 the premultiplied
-        // ambiguity is moot).
-        let entries = n * n * n
-        var cube = [Float](repeating: 0, count: entries * 4)
-        for i in 0..<entries {
-            cube[i * 4 + 0] = lut[i * 3 + 0]
-            cube[i * 4 + 1] = lut[i * 3 + 1]
-            cube[i * 4 + 2] = lut[i * 3 + 2]
-            cube[i * 4 + 3] = 1.0
-        }
-        return CubeData(data: cube.withUnsafeBytes { Data($0) }, dimension: n)
+        return buildCubeFromLUT(lut, dimension: n)
     }
 
     /// Mint a FRESH `CIColorCubeWithColorSpace` filter (tagged sRGB) from the
