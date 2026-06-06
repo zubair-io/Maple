@@ -1,7 +1,10 @@
 // MapleExporter.swift — Full-resolution export (spec § 08 / § 02 Trace C).
 //
 // Formats: JPEG sRGB, JPEG P3, HEIC P3, TIFF 16-bit, PNG.
-// Tiled render for > 50MP images (spec § 02 Trace C).
+// This stage encodes the already-rendered pipeline output. Peak-memory tiling
+// of the full-resolution render is a pipeline concern, not an encode concern —
+// see docs/tickets/03-cicontext-tiled-render.md and docs/spec/05-performance.md
+// § "When to tile". Core Image already tiles graph evaluation internally.
 // macOS: NSSavePanel. iOS: UIActivityViewController (share sheet).
 
 import Foundation
@@ -86,21 +89,25 @@ public struct MapleExporter: Sendable {
     // MARK: - Export to Data
 
     /// Render the session's pipeline output and encode to the requested format.
-    /// For images > 50MP, tiles the render to stay within memory limits.
+    ///
+    /// `renderForExport()` returns a *lazy* CIImage graph rooted at the
+    /// full-resolution scene-linear decode. The peak-memory cost of a large
+    /// export is in evaluating that graph, not in this encode step: Core
+    /// Image's renderer tiles graph evaluation internally to respect the GPU
+    /// working-set limit, and the fp16-intermediate / `cacheIntermediates:
+    /// false` / pipeline-tile work that bounds it further is tracked in
+    /// docs/tickets/03-cicontext-tiled-render.md (see also
+    /// docs/spec/05-performance.md § "When to tile"). The encode itself needs
+    /// the whole output buffer in memory — ImageIO has no public API to stream
+    /// a single image to a destination strip by strip — so there is nothing
+    /// useful to tile here. One encode path therefore serves every size and
+    /// keeps each format's color space and bit depth correct.
     public static func exportData(session: EditSession, options: ExportOptions) async throws -> Data {
         // Full-quality bake. Bypasses the editor's preview-quality decoded
         // cache so the exported pixels go through the parity-gated path.
         let ci = try await session.renderForExport()
-
         let scaled = scaledImage(ci, maxSide: options.maxSidePixels)
-        let mp = Int(scaled.extent.width * scaled.extent.height) / 1_000_000
-
-        if mp > 50 {
-            // Tiled render for > 50 MP (spec § 02 Trace C)
-            return try tiledExport(image: scaled, options: options)
-        } else {
-            return try encodeImage(scaled, options: options)
-        }
+        return try encodeImage(scaled, options: options)
     }
 
     // MARK: - macOS: NSSavePanel
@@ -138,9 +145,13 @@ public struct MapleExporter: Sendable {
     }
     #endif
 
-    // MARK: - Private: encode
+    // MARK: - Encode
 
-    private static func encodeImage(_ image: CIImage, options: ExportOptions) throws -> Data {
+    /// The single encode path for every export size. Renders `image` into the
+    /// requested format's native color space and bit depth. Package-internal
+    /// (not `public`) so `MapleExporterTests` can exercise it directly without
+    /// standing up a full `EditSession`.
+    static func encodeImage(_ image: CIImage, options: ExportOptions) throws -> Data {
         let cs = options.format.targetColorSpace
         switch options.format {
         case .jpegSRGB, .jpegP3:
@@ -188,40 +199,12 @@ public struct MapleExporter: Sendable {
         }
     }
 
-    // MARK: - Tiled render for > 50MP
-
-    private static func tiledExport(image: CIImage, options: ExportOptions) throws -> Data {
-        // Tile into 8MP strips, encode each as JPEG, then concatenate via ImageIO.
-        // This keeps peak memory bounded while supporting arbitrarily large exports.
-        let extent = image.extent
-        let tileHeight = Int(8_000_000 / Int(extent.width))  // ~8MP per tile
-        let numTiles = Int(ceil(extent.height / CGFloat(tileHeight)))
-
-        let mutableData = NSMutableData()
-        guard let dest = CGImageDestinationCreateWithData(
-            mutableData, options.format.uti, 1, nil
-        ) else { throw ExportError.encodeFailed(options.format) }
-
-        // Render the full image in tiles (simplified: just render the full image for now)
-        // Full tiled ImageIO pipeline would use CGImageDestination with tiles.
-        guard let cgImg = context.createCGImage(image, from: extent) else {
-            throw ExportError.encodeFailed(options.format)
-        }
-
-        let props: [CFString: Any] = [
-            kCGImageDestinationLossyCompressionQuality: options.quality
-        ]
-        CGImageDestinationAddImage(dest, cgImg, props as CFDictionary)
-        guard CGImageDestinationFinalize(dest) else {
-            throw ExportError.encodeFailed(options.format)
-        }
-        _ = numTiles  // referenced to suppress warning
-        return mutableData as Data
-    }
-
     // MARK: - Scale
 
-    private static func scaledImage(_ image: CIImage, maxSide: Int?) -> CIImage {
+    /// Downscale so the long edge fits `maxSide` (nil = full resolution).
+    /// Package-internal so `MapleExporterTests` can verify the resize that the
+    /// export path applies before encoding.
+    static func scaledImage(_ image: CIImage, maxSide: Int?) -> CIImage {
         guard let maxSide else { return image }
         let w = image.extent.width, h = image.extent.height
         let longest = max(w, h)
