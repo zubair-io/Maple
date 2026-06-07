@@ -48,7 +48,7 @@ final class MapleExporterTests: XCTestCase {
         XCTAssertEqual(image.bitsPerComponent, 8)
         let cs = try XCTUnwrap(image.colorSpace, "sRGB JPEG must carry a color space")
         XCTAssertFalse(
-            CGColorSpaceIsWideGamutRGB(cs),
+            cs.isWideGamutRGB,
             "sRGB JPEG must not round-trip as wide-gamut")
     }
 
@@ -65,7 +65,7 @@ final class MapleExporterTests: XCTestCase {
         XCTAssertEqual(image.bitsPerComponent, 8)
         let cs = try XCTUnwrap(image.colorSpace, "P3 JPEG must carry a color space")
         XCTAssertTrue(
-            CGColorSpaceIsWideGamutRGB(cs),
+            cs.isWideGamutRGB,
             "P3 JPEG must round-trip as wide-gamut")
     }
 
@@ -112,7 +112,7 @@ final class MapleExporterTests: XCTestCase {
         XCTAssertEqual(image.height, 64)
         let cs = try XCTUnwrap(image.colorSpace, "HEIC must carry a color space")
         XCTAssertTrue(
-            CGColorSpaceIsWideGamutRGB(cs),
+            cs.isWideGamutRGB,
             "P3 HEIC must round-trip as wide-gamut")
     }
 
