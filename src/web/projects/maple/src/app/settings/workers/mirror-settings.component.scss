@@ -9,29 +9,14 @@
   display: block;
 }
 
-// Collapsible row, mirroring the worker / import rows above it. Uses
-// `border-bottom` to match those rows (and avoid a double divider with the
-// last import row's bottom border).
-.row {
-  border-bottom: 0.5px solid var(--s-border);
-
-  &.is-expanded .row-summary {
-    background: var(--s-surface2);
-  }
-}
-
-.row-summary.mirror-summary {
+// Summary content projected into <maple-settings-row> (which owns the row
+// shell + click/keyboard a11y + the expanded body).
+.mirror-summary {
   height: 56px;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 16px;
-  cursor: pointer;
-  transition: background 120ms;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.02);
-  }
 
   .stage-id {
     display: flex;
@@ -70,11 +55,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.expanded {
-  background: var(--s-surface);
-  padding: 4px 0 18px;
 }
 
 .desc-bar {

@@ -18,6 +18,7 @@ import {
 import { firstValueFrom } from 'rxjs';
 import { BunApiBackendService, type ApiFolder } from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
+import { SettingsRowComponent } from '../settings-row.component';
 
 interface MirrorForm {
   path: string;
@@ -29,7 +30,7 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 @Component({
   selector: 'maple-mirror-settings',
   standalone: true,
-  imports: [SettingsIconComponent],
+  imports: [SettingsIconComponent, SettingsRowComponent],
   templateUrl: './mirror-settings.component.html',
   styleUrl: './mirror-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
