@@ -17,6 +17,30 @@ set -eu
 
 echo "==> ci_post_clone.sh — preparing RawPipeline.xcframework"
 
+# Retry a command with exponential backoff. Xcode Cloud's worker network has
+# intermittent DNS failures resolving static.rust-lang.org / crates.io (the
+# same flakiness build-xcframework.sh vendors around for the crate build). A
+# single transient getaddrinfo failure must not fail the whole archive, so
+# every toolchain/crate fetch goes through here.
+retry() {
+    _attempt=1
+    _max=5
+    _delay=5
+    while :; do
+        if "$@"; then
+            return 0
+        fi
+        if [ "$_attempt" -ge "$_max" ]; then
+            echo "ERROR: '$*' failed after $_max attempts" >&2
+            return 1
+        fi
+        echo "==> attempt $_attempt/$_max failed: '$*' — retrying in ${_delay}s" >&2
+        sleep "$_delay"
+        _attempt=$((_attempt + 1))
+        _delay=$((_delay * 2))
+    done
+}
+
 # Xcode Cloud sets CI_PRIMARY_REPOSITORY_PATH to the cloned repo root.
 # (Don't use CI_WORKSPACE — deprecated since Xcode 14 and ambiguous: in some
 # contexts it points at the selected workspace/project rather than the
@@ -40,20 +64,38 @@ fi
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if ! command -v rustup >/dev/null 2>&1; then
     echo "==> brew install rustup"
-    brew install rustup
+    retry brew install rustup
     # `rustup` is keg-only because it conflicts with `rust`, so brew does
     # not symlink it into /opt/homebrew/bin (or /usr/local/bin on Intel
-    # workers). Add the keg's bin to PATH ourselves.
+    # workers). Add the keg's bin to PATH ourselves. (export inside this
+    # `if` persists past `fi` — no subshell — so the unconditional toolchain
+    # install below sees rustup on PATH whether brew just installed it or it
+    # was already present.)
     export PATH="$(brew --prefix rustup)/bin:$PATH"
-    # As of formula 1.29.0_1, Homebrew's `rustup` ships `rustup` but no
-    # longer ships the `rustup-init` bootstrap binary — see brew caveats
-    # ("This formula does not provide rustup-init."). Install the default
-    # toolchain via `rustup` directly. --no-self-update keeps `rustup` itself
-    # brew-managed so brew can upgrade it cleanly later.
-    echo "==> rustup toolchain install stable (profile=minimal)"
-    rustup toolchain install stable --profile minimal --no-self-update
-    rustup default stable
 fi
+
+# As of formula 1.29.0_1, Homebrew's `rustup` ships `rustup` but no longer
+# ships the `rustup-init` bootstrap binary — see brew caveats ("This formula
+# does not provide rustup-init."). Install the default toolchain via `rustup`
+# directly. --no-self-update keeps `rustup` itself brew-managed so brew can
+# upgrade it cleanly later.
+#
+# Ensure the pinned toolchain, the components rust-toolchain.toml requests
+# (rustfmt, clippy), and every Apple cross-compile target are installed in ONE
+# retry-wrapped step. Doing it here — rather than letting the first cargo run
+# lazily fetch the components, or letting build-xcframework.sh `rustup target
+# add` them — collapses the toolchain network I/O into a single retry-guarded
+# operation, and makes build-xcframework.sh's target-add loop a no-op on CI.
+echo "==> rustup toolchain install stable (+ rustfmt/clippy + Apple targets)"
+retry rustup toolchain install stable \
+    --profile minimal \
+    --component rustfmt --component clippy \
+    --target aarch64-apple-ios \
+    --target aarch64-apple-ios-sim \
+    --target aarch64-apple-darwin \
+    --target x86_64-apple-darwin \
+    --no-self-update
+rustup default stable
 
 # rustup-init installs to ~/.cargo/bin; cargo install lands binaries there too.
 export PATH="$HOME/.cargo/bin:$PATH"
@@ -67,7 +109,7 @@ CBINDGEN_VERSION="0.29.2"
 installed_cbindgen_version="$(cbindgen --version 2>/dev/null | awk '{print $2}' || true)"
 if [ "$installed_cbindgen_version" != "$CBINDGEN_VERSION" ]; then
     echo "==> cargo install cbindgen@$CBINDGEN_VERSION"
-    cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
+    retry cargo install cbindgen --locked --version "$CBINDGEN_VERSION"
 fi
 
 # --release matches what an archive build should link against.
