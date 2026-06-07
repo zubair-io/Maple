@@ -1,6 +1,6 @@
 // exposure.wgsl — scene-linear exposure gain: rgb *= 2^ev, alpha untouched.
 // One WGSL source for Metal (Apple) and WebGPU (web). Parity oracle:
-// raw-core gpu::apply_exposure_gain (CPU). Epic #925 P0.
+// raw-gpu::apply_exposure_gain (CPU). Epic #925 (P0 spike → P1a substrate).
 
 struct Params {
     ev: f32,
