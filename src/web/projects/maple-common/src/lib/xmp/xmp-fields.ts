@@ -8,6 +8,7 @@
 //   defaultValue — the "unset" sentinel; fields matching the default are omitted on write
 
 import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-model';
+import { defaultAdjustmentModel } from '../models/adjustment-model';
 
 /**
  * Bidirectional mapping for a single XMP attribute. `K` is the key in
@@ -35,237 +36,81 @@ const numericSerializer = (v: number): string => {
 
 const numericParser = (s: string): number => Number(s);
 
+// Canonical defaults, read once. The write-omit sentinel for every numeric
+// field is its model default — sourcing it here rather than hand-typing each
+// one keeps the omit-on-write set in lockstep with the generated raw-core
+// schema (`defaultAdjustmentModel()` extends `defaultGeneratedAdjustmentModel()`).
+//
+// These sentinels had drifted: `crs:Sharpness` / `crs:SharpenRadius` carried
+// hand-typed 0 / 0.5 while the real defaults are 40 / 1.0. Because a value
+// equal to the sentinel is omitted on write and an absent attribute reads back
+// as the model default, a user's Sharpen Amount = 0 was dropped on save and
+// silently restored to 40 on the next load. Deriving the sentinel from the
+// model default fixes the round-trip and prevents the class of bug (#953).
+const DEFAULTS = defaultAdjustmentModel();
+
+/**
+ * Build a numeric `crs:`/`papp:` field. serialize/parse are the shared numeric
+ * codecs; the write-omit sentinel is the canonical model default for `modelKey`.
+ */
+function numericField(
+  xmpKey: string,
+  modelKey: NumericAdjustmentKey,
+): XmpFieldMapping<NumericAdjustmentKey> {
+  return {
+    xmpKey,
+    modelKey,
+    serialize: numericSerializer,
+    parse: numericParser,
+    defaultValue: () => DEFAULTS[modelKey],
+  };
+}
+
 export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
-  {
-    xmpKey: 'crs:Temperature',
-    modelKey: 'temperature',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 6500,
-  },
-  {
-    xmpKey: 'crs:Tint',
-    modelKey: 'tint',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Exposure2012',
-    modelKey: 'exposure',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Contrast2012',
-    modelKey: 'contrast',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Highlights2012',
-    modelKey: 'highlights',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Shadows2012',
-    modelKey: 'shadows',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Whites2012',
-    modelKey: 'whites',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Blacks2012',
-    modelKey: 'blacks',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Vibrance',
-    modelKey: 'vibrance',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Saturation',
-    modelKey: 'saturation',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Clarity2012',
-    modelKey: 'clarity',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Texture',
-    modelKey: 'texture',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Dehaze',
-    modelKey: 'dehaze',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:Sharpness',
-    modelKey: 'sharpenAmount',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:SharpenRadius',
-    modelKey: 'sharpenRadius',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0.5,
-  },
-  {
-    xmpKey: 'crs:SharpenDetail',
-    modelKey: 'sharpenDetail',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 25,
-  },
-  {
-    xmpKey: 'crs:SharpenEdgeMasking',
-    modelKey: 'sharpenMasking',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
+  numericField('crs:Temperature', 'temperature'),
+  numericField('crs:Tint', 'tint'),
+  numericField('crs:Exposure2012', 'exposure'),
+  numericField('crs:Contrast2012', 'contrast'),
+  numericField('crs:Highlights2012', 'highlights'),
+  numericField('crs:Shadows2012', 'shadows'),
+  numericField('crs:Whites2012', 'whites'),
+  numericField('crs:Blacks2012', 'blacks'),
+  numericField('crs:Vibrance', 'vibrance'),
+  numericField('crs:Saturation', 'saturation'),
+  numericField('crs:Clarity2012', 'clarity'),
+  numericField('crs:Texture', 'texture'),
+  numericField('crs:Dehaze', 'dehaze'),
+  numericField('crs:Sharpness', 'sharpenAmount'),
+  numericField('crs:SharpenRadius', 'sharpenRadius'),
+  numericField('crs:SharpenDetail', 'sharpenDetail'),
+  numericField('crs:SharpenEdgeMasking', 'sharpenMasking'),
   // Capture sharpening (Maple-proprietary Richardson-Lucy deconvolution).
   // The reference renderer has no equivalent; lives under the `papp:` namespace.
-  {
-    xmpKey: 'papp:CaptureSharpeningAmount',
-    modelKey: 'captureSharpeningAmount',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    // Canonical capture-sharpening sigma key (#456). Legacy
-    // `papp:CaptureSharpeningRadius` lives in `LEGACY_READ_ALIASES` below —
-    // older sidecars still parse, but writers emit Sigma exclusively (#464).
-    xmpKey: 'papp:CaptureSharpeningSigma',
-    modelKey: 'captureSharpeningSigma',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 1.0,
-  },
-  {
-    xmpKey: 'crs:LuminanceSmoothing',
-    modelKey: 'nrLuminance',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:ColorNoiseReduction',
-    modelKey: 'nrColor',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 25,
-  },
+  numericField('papp:CaptureSharpeningAmount', 'captureSharpeningAmount'),
+  // Canonical capture-sharpening sigma key (#456). Legacy
+  // `papp:CaptureSharpeningRadius` lives in `LEGACY_READ_ALIASES` below —
+  // older sidecars still parse, but writers emit Sigma exclusively (#464).
+  numericField('papp:CaptureSharpeningSigma', 'captureSharpeningSigma'),
+  numericField('crs:LuminanceSmoothing', 'nrLuminance'),
+  numericField('crs:ColorNoiseReduction', 'nrColor'),
   // ---- S5 effects fields (ticket #643) ----
   // Vignette, Grain, Split toning. Identity-stub scalars wired through
   // to the model + XMP so the editor pills aren't "Coming soon" and the
   // user's adjustments round-trip across sessions. Pipeline math is a
   // follow-up. Lightroom-compatible `crs:` keys per Adobe XMP spec so
   // sidecars interchange with Lightroom for these tools.
-  {
-    xmpKey: 'crs:PostCropVignetteAmount',
-    modelKey: 'vignetteAmount',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:PostCropVignetteFeather',
-    modelKey: 'vignetteFeather',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 50,
-  },
-  {
-    xmpKey: 'crs:GrainAmount',
-    modelKey: 'grainAmount',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:GrainSize',
-    modelKey: 'grainSize',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 25,
-  },
-  {
-    // Lightroom names the third grain control "Frequency"; raw-core /
-    // Maple-side surfaces it as `grainRoughness` (S5 spec § 3.13).
-    xmpKey: 'crs:GrainFrequency',
-    modelKey: 'grainRoughness',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 50,
-  },
-  {
-    xmpKey: 'crs:SplitToningShadowHue',
-    modelKey: 'splitToneShadowHue',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:SplitToningShadowSaturation',
-    modelKey: 'splitToneShadowSaturation',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:SplitToningHighlightHue',
-    modelKey: 'splitToneHighlightHue',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:SplitToningHighlightSaturation',
-    modelKey: 'splitToneHighlightSaturation',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
-  {
-    xmpKey: 'crs:SplitToningBalance',
-    modelKey: 'splitToneBalance',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 0,
-  },
+  numericField('crs:PostCropVignetteAmount', 'vignetteAmount'),
+  numericField('crs:PostCropVignetteFeather', 'vignetteFeather'),
+  numericField('crs:GrainAmount', 'grainAmount'),
+  numericField('crs:GrainSize', 'grainSize'),
+  // Lightroom names the third grain control "Frequency"; raw-core /
+  // Maple-side surfaces it as `grainRoughness` (S5 spec § 3.13).
+  numericField('crs:GrainFrequency', 'grainRoughness'),
+  numericField('crs:SplitToningShadowHue', 'splitToneShadowHue'),
+  numericField('crs:SplitToningShadowSaturation', 'splitToneShadowSaturation'),
+  numericField('crs:SplitToningHighlightHue', 'splitToneHighlightHue'),
+  numericField('crs:SplitToningHighlightSaturation', 'splitToneHighlightSaturation'),
+  numericField('crs:SplitToningBalance', 'splitToneBalance'),
 ];
 
 /** WhiteBalance preset — serialized as a string attribute, not a number. */
@@ -286,11 +131,5 @@ export const WB_PRESET_FIELD = {
  * only fires when sigma is absent.
  */
 export const LEGACY_READ_ALIASES: ReadonlyArray<XmpFieldMapping<NumericAdjustmentKey>> = [
-  {
-    xmpKey: 'papp:CaptureSharpeningRadius',
-    modelKey: 'captureSharpeningSigma',
-    serialize: numericSerializer,
-    parse: numericParser,
-    defaultValue: () => 1.0,
-  },
+  numericField('papp:CaptureSharpeningRadius', 'captureSharpeningSigma'),
 ];
