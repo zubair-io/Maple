@@ -46,6 +46,12 @@ beforeAll(async () => {
   }
   db = mongo!.db(TEST_DB);
   await db.dropDatabase();
+  // ensureIndexes() drops an index on `users`; on a fresh DB that collection
+  // doesn't exist yet and dropIndex throws "ns not found". Pre-create the auth
+  // collections first (matches trash-gc.test.ts).
+  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
+    await db.createCollection(name).catch(() => undefined);
+  }
   const { closeDb, ensureIndexes } = await import('../../db/client.ts');
   await closeDb();
   await ensureIndexes();
