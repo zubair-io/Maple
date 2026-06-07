@@ -49,6 +49,50 @@ mod preview_tests {
             preview.height()
         );
     }
+
+    /// Regression for #930: previews that rawler's `full_image()` misses must
+    /// still extract IN-PROCESS (bytes path — Web/iOS, no subprocess).
+    ///  - test_0013 / test_0015: the reduced-res preview lives in the ROOT IFD
+    ///    (`NewSubFileType==1`); `full_image` only checks SUB-IFDs, so it misses
+    ///    it. Recovered via `thumbnail_image` (which targets `NewSubFileType==1`,
+    ///    never the full-res RAW-as-JPEG beside it).
+    ///  - test_0016: Sigma X3F — rawler has no full/preview/thumbnail and no IFD
+    ///    tree; recovered via the embedded-JPEG byte scan.
+    /// The 680×512 assertion on test_0015 is the non-circular CANARY: the file's
+    /// CFA RAW is 4080×3072, so grabbing the RAW (or the wrong IFD) fails loudly.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn gap_formats_extract_preview_in_process_without_subprocess() {
+        // (fixture, ext hint, exact preview dims to assert — None = just non-empty)
+        let cases: &[(&str, &str, Option<(u32, u32)>)] = &[
+            ("test_0015.dng", "dng", Some((680, 512))), // preview, NOT the 4080×3072 CFA RAW
+            ("test_0013.DNG", "dng", None),             // preview 4032×3024 (== RAW dims; ΔE-checked elsewhere)
+            ("test_0016.X3F", "x3f", None),             // Sigma X3F preview via byte scan
+        ];
+        for (name, ext, dims) in cases {
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../test-fixtures/raws")
+                .join(name);
+            let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {name}: {e}"));
+            let img = extract_preview_from_bytes(&bytes, ext)
+                .unwrap_or_else(|| panic!("{name}: preview must extract in-process (no exiftool)"));
+            assert!(
+                img.width() >= 256 && img.height() >= 256,
+                "{name}: preview too small {}x{}",
+                img.width(),
+                img.height()
+            );
+            if let Some((w, h)) = dims {
+                assert_eq!(
+                    (img.width(), img.height()),
+                    (*w, *h),
+                    "{name}: expected PREVIEW {w}x{h}, got {}x{} — grabbed the RAW?",
+                    img.width(),
+                    img.height()
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]
