@@ -3,6 +3,7 @@
 
 import { ChangeDetectionStrategy, Component, OnInit, computed, input, signal } from '@angular/core';
 import { MapleIconComponent } from '../icons/maple-icon.component';
+import { TypedStorage } from '../util/typed-storage';
 
 @Component({
   selector: 'maple-collapsible',
@@ -25,12 +26,8 @@ export class MapleCollapsibleComponent implements OnInit {
   ngOnInit(): void {
     const key = this.storageKey();
     if (key) {
-      try {
-        const stored = localStorage.getItem(`cm.coll.${key}`);
-        this.open.set(stored == null ? this.defaultOpen() : stored === '1');
-      } catch {
-        this.open.set(this.defaultOpen());
-      }
+      const stored = TypedStorage.getRaw(`cm.coll.${key}`);
+      this.open.set(stored == null ? this.defaultOpen() : stored === '1');
     } else {
       this.open.set(this.defaultOpen());
     }
@@ -41,11 +38,7 @@ export class MapleCollapsibleComponent implements OnInit {
     this.open.set(next);
     const key = this.storageKey();
     if (key) {
-      try {
-        localStorage.setItem(`cm.coll.${key}`, next ? '1' : '0');
-      } catch {
-        /* noop */
-      }
+      TypedStorage.setRaw(`cm.coll.${key}`, next ? '1' : '0');
     }
   }
 }
