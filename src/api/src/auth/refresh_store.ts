@@ -1,6 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { refreshTokensCollection } from '../db/client.ts';
 import { generateRefreshToken, hashRefreshToken, refreshExpiresAt } from './tokens.ts';
+import { bumpTokenVersion } from './token_version.ts';
 
 export interface IssuedRefresh {
   raw: string;
@@ -148,13 +149,20 @@ export async function revokeFamilyByToken(rawToken: string): Promise<void> {
   }
 }
 
-/** Revoke every live token for a user (deliberate "log out everywhere"). */
+/**
+ * Revoke every live token for a user (deliberate "log out everywhere").
+ *
+ * Also bumps the user's `token_version` (#860) so their in-flight ACCESS tokens
+ * die at the next verify too — otherwise "log out everywhere" would leave a
+ * short-lived access token usable until its exp.
+ */
 export async function revokeChain(userId: ObjectId): Promise<void> {
   const c = await refreshTokensCollection();
   await c.updateMany(
     { user_id: userId, revoked_at: null },
     { $set: { revoked_at: new Date().toISOString() } },
   );
+  await bumpTokenVersion(userId);
 }
 
 /** Revoke a single token by its raw value. */
