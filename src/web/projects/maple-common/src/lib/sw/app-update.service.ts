@@ -1,0 +1,111 @@
+// AppUpdateService — service-worker-driven "lazy install in the background"
+// app-update flow, shared by the Hosted (maple-syrup) and Self-Hosted (maple)
+// apps.
+//
+// Lifecycle:
+//   1. The Angular service worker downloads a freshly-deployed app version on
+//      its own (lazy, in the background). We only listen for the VERSION_READY
+//      signal it emits once the download is complete.
+//   2. On VERSION_READY we arm `updatePending` and pop the install toast
+//      (`showToast`). The user can install immediately ("Install" → activate +
+//      reload) or dismiss the toast and keep working.
+//   3. Even if the toast is dismissed, the update stays armed: the next route
+//      change triggers a hard document navigation to the target URL. That
+//      boots a fresh client, the SW hands it the already-downloaded version,
+//      and the user still lands on the page they were navigating to — so the
+//      new code installs at a natural break instead of mid-interaction.
+//
+// No-ops entirely when the service worker is disabled (dev mode, unsupported
+// browser), so it is safe to wire into every app's bootstrap initializer.
+
+import { Injectable, computed, inject, signal } from '@angular/core';
+import { NavigationStart, Router } from '@angular/router';
+import { SwUpdate, VersionReadyEvent } from '@angular/service-worker';
+import { filter } from 'rxjs/operators';
+
+/** How often to ask the SW to poll the origin for a new deployment. A working
+ * photographer leaves Maple open all day; the `registerWhenStable` strategy
+ * only checks ~30s after first stabilisation, so this covers the long tail of
+ * a long-lived tab without hammering the server. */
+const UPDATE_POLL_MS = 30 * 60 * 1000;
+
+@Injectable({ providedIn: 'root' })
+export class AppUpdateService {
+  // Optional: `SwUpdate` is only in the injector when `provideServiceWorker`
+  // ran. Optional injection lets the service (and the toast that reads it) load
+  // harmlessly in dev, in unit tests, and in any build without the SW.
+  private readonly swUpdate = inject(SwUpdate, { optional: true });
+  private readonly router = inject(Router);
+
+  /** Armed once a new app version is downloaded and ready to activate. Drives
+   * the route-change hard-navigation interception. */
+  private readonly updatePending = signal(false);
+
+  /** Set when the user dismisses the toast ("Later"). Hides the toast but
+   * leaves `updatePending` armed, so navigation still upgrades the app. */
+  private readonly toastDismissed = signal(false);
+
+  /** Whether the install toast should be visible. */
+  readonly showToast = computed(() => this.updatePending() && !this.toastDismissed());
+
+  /** Guard against a burst of NavigationStart events (redirects, guard
+   * re-runs) firing multiple hard navigations. */
+  private hardNavInFlight = false;
+
+  /** Idempotent bootstrap hook. No-ops when the SW is disabled. */
+  init(): void {
+    const swUpdate = this.swUpdate;
+    if (!swUpdate?.isEnabled) return;
+
+    // 1. Background install already happens inside the SW; just catch "ready".
+    swUpdate.versionUpdates
+      .pipe(filter((e): e is VersionReadyEvent => e.type === 'VERSION_READY'))
+      .subscribe(() => this.updatePending.set(true));
+
+    // 2. Poll so a tab open across a deploy eventually notices the new build.
+    setInterval(() => {
+      void swUpdate.checkForUpdate();
+    }, UPDATE_POLL_MS);
+
+    // 3. Hard-navigate on the next route change once an update is armed.
+    this.router.events
+      .pipe(filter((e): e is NavigationStart => e instanceof NavigationStart))
+      .subscribe((e) => this.maybeHardNavigate(e.url));
+  }
+
+  /** Activate the downloaded version now and reload the current page. Wired to
+   * the toast's "Install" action for users who want the update without first
+   * navigating away. */
+  async installNow(): Promise<void> {
+    const swUpdate = this.swUpdate;
+    if (!swUpdate?.isEnabled || this.hardNavInFlight) return;
+    this.hardNavInFlight = true;
+    try {
+      await swUpdate.activateUpdate();
+    } finally {
+      // Reload onto the current URL so the freshly-activated version takes over.
+      window.location.reload();
+    }
+  }
+
+  /** Hide the toast but keep the update armed for the next navigation. */
+  dismiss(): void {
+    this.toastDismissed.set(true);
+  }
+
+  private maybeHardNavigate(targetUrl: string): void {
+    if (!this.updatePending() || this.hardNavInFlight) return;
+    // A no-op re-nav to the same path gains nothing from a full reload; only
+    // intercept a genuine route change to a different page.
+    if (this.stripFragment(targetUrl) === this.stripFragment(this.router.url)) return;
+    this.hardNavInFlight = true;
+    // Full-page load → fresh client → the SW serves the new version, and the
+    // browser still ends up on `targetUrl`.
+    window.location.assign(targetUrl);
+  }
+
+  private stripFragment(url: string): string {
+    const hash = url.indexOf('#');
+    return hash === -1 ? url : url.slice(0, hash);
+  }
+}

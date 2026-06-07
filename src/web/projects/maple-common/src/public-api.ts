@@ -88,6 +88,12 @@ export * from './lib/shells/phone-search-stub.component';
 export * from './lib/shells/phone-settings-stub.component';
 export * from './lib/shells/protocol-handler.component';
 
+// Service-worker app-update flow (background install + in-app toast + hard-nav
+// on next route change). Rendered by RootShellComponent; init() wired from each
+// app's bootstrap.
+export * from './lib/sw/app-update.service';
+export * from './lib/sw/update-toast.component';
+
 // Responsive-program S2 (#623) — responsive Library grid (3 / 5 / auto-fill).
 export * from './lib/library/library-grid.component';
 export * from './lib/library/library-cell.component';
