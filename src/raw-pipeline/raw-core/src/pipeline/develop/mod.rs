@@ -24,9 +24,10 @@
 //! don't collide with the full-res labels.
 
 use crate::{
+    cancel::CancelToken,
     color::dcp,
     demosaic,
-    error::Result,
+    error::{Error, Result},
     image::{CropRect, Image, RawImage},
     linearize,
     stages::{
@@ -145,11 +146,48 @@ pub(super) fn effective_quality_divisor(
 /// dcp::profile_for + dcp::apply (camera RGB → SceneLinearRec2020),
 /// white_balance, scene_tone_controls, tone_curves, vibrance, saturation,
 /// clarity, texture, dehaze, sharpen, nr_luminance, nr_color.
+/// Non-cancellable wrapper — forwards to
+/// [`develop_scene_linear_from_raw_with_quality_cancellable`] with a
+/// never-cancel token. Every existing caller (CLI, WASM, the legacy FFI
+/// entries, tests, `auto_fit`) routes through here, so a completed develop is
+/// byte-for-byte identical to before #951.
+#[inline]
 pub fn develop_scene_linear_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
 ) -> Result<crate::image::Image> {
+    develop_scene_linear_from_raw_with_quality_cancellable(
+        raw,
+        model,
+        quality,
+        CancelToken::never(),
+    )
+}
+
+/// Cancellable variant of [`develop_scene_linear_from_raw_with_quality`].
+///
+/// Threads `cancel` into the expensive stage kernels (`demosaic`, `sharpen`,
+/// `nr_luminance`, `nr_color`) so a long cold-open develop can unwind mid-
+/// stage (#951 — the ~8.5 s `nr_color` is the freeze a between-stages-only
+/// check could not interrupt). Also checks the token at the top (a pre-set
+/// flag bails before demosaic) and after each heavy stage, returning
+/// `Err(Error::Cancelled)` the moment the host requests cancellation.
+///
+/// With a never-cancel token every check is a no-op branch and the cancellable
+/// stage variants run identical math, so the output is bit-identical to the
+/// wrapper above.
+pub fn develop_scene_linear_from_raw_with_quality_cancellable(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<crate::image::Image> {
+    // Bail before any work if the host already cancelled (e.g. the decode
+    // task was superseded before the worker thread even started).
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     let mut camera_rgb = match raw.cfa {
         crate::image::CfaPattern::LinearRgb => {
             // LinearRaw DNG: data is already 3-channel RGB. Skip the
@@ -179,16 +217,27 @@ pub fn develop_scene_linear_from_raw_with_quality(
         }
         _ => {
             let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            // The interactive Bayer paths (Preview `half_res`, Full
+            // `bilinear`) take cancellable kernels so a cancel mid-demosaic
+            // unwinds per-row. The export-only AMaZE / Hamilton-Adams kernels
+            // are not instrumented inline — they're not on the cold-open
+            // interactive path — but the post-demosaic check below still bails
+            // before any downstream stage runs.
             stage("demosaic", || match quality {
-                RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
+                RenderQuality::Preview => demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel),
                 #[cfg(feature = "high-quality-demosaic")]
                 RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
                 #[cfg(not(feature = "high-quality-demosaic"))]
-                RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+                RenderQuality::Full => demosaic::bilinear_cancellable(&mosaic, raw.cfa, cancel),
                 RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
             })
         }
     };
+    // Post-demosaic bail: catches every demosaic path (incl. X-Trans / AMaZE)
+    // and a cancel that landed during the Bayer kernel's partial fill.
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
 
     // DNG § 6.3 DefaultCrop — restrict the buffer to the camera-recommended
     // render rectangle BEFORE any color stage runs. The crop drops the
@@ -341,12 +390,25 @@ pub fn develop_scene_linear_from_raw_with_quality(
         local_adjustments::apply(&mut scene, &model.local_adjustments)
     });
     dump_after("12b_local_adjustments", &scene);
-    stage("sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
+    stage("sharpen", || sharpen::apply_cancellable(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking, cancel));
     dump_after("13_sharpen", &scene);
-    stage("nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    stage("nr_luminance", || noise_reduction::apply_luminance_cancellable(&mut scene, model.nr_luminance, cancel));
     dump_after("14_nr_luminance", &scene);
-    stage("nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    // `nr_color` is the dominant cold-open cost (~8.5 s on 100 MP); the
+    // in-kernel between-shifts check is what actually interrupts the freeze,
+    // and this post-stage check turns a partial-then-cancelled pass into a
+    // clean Err so the half-denoised buffer is never packed into a result.
+    stage("nr_color", || noise_reduction::apply_color_cancellable(&mut scene, model.nr_color, cancel));
     dump_after("15_nr_color", &scene);
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     Ok(scene)
 }
 

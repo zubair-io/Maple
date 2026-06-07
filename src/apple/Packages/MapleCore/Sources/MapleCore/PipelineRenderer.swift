@@ -93,6 +93,13 @@ public struct PipelineRenderer: Sendable {
     // No stored properties; the FFI has no object state.
     public init() {}
 
+    /// Return code the Rust scene-linear f32 FFI entries use for a render the
+    /// host cancelled mid-flight (#951 — `RC_CANCELLED` in
+    /// `raw-ffi/src/scene_linear_f32.rs`). Mapped to `PipelineError.cancelled`
+    /// so the caller can drop the result on the silent stale path instead of
+    /// surfacing a render error. Must stay in lockstep with the Rust constant.
+    static let rcCancelled: Int32 = 4
+
     /// Render a RAW file with optional XMP sidecar.
     ///
     /// - Parameters:
@@ -178,11 +185,18 @@ public struct PipelineRenderer: Sendable {
     ///
     /// Plan 1 wire — see
     /// .archived-plans/plans/2026-04-24-ffi-split-plan-1.md.
+    /// `cancel` (#951) is an optional cooperative cancellation flag. When the
+    /// host flips it mid-render, the Rust develop chain unwinds inside the
+    /// expensive stages and this throws `PipelineError.cancelled`. Pass `nil`
+    /// for the legacy never-cancel behaviour (bit-identical output). The caller
+    /// must keep the `CancelFlag` alive for the whole call (it holds the Rust
+    /// allocation the worker reads).
     public static func renderSceneLinear(
         rawPath: URL,
         xmpPath: URL? = nil,
         quality: Quality = .full,
-        profileOverride: Profile? = nil
+        profileOverride: Profile? = nil,
+        cancel: CancelFlag? = nil
     ) throws -> MapleSceneLinearImageData {
         // Apple-GPU strip lives in Swift (ticket #124). The temp XMP
         // carries only the fields the Rust decode should bake; the
@@ -194,10 +208,10 @@ public struct PipelineRenderer: Sendable {
             try rawPath.withPathCString { rawCStr in
                 if let strippedXMP {
                     return try strippedXMP.withPathCString { xmpCStr in
-                        try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality)
+                        try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: xmpCStr, quality: quality, cancel: cancel)
                     }
                 } else {
-                    return try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: nil, quality: quality)
+                    return try _renderSceneLinear(rawCStr: rawCStr, xmpCStr: nil, quality: quality, cancel: cancel)
                 }
             }
         }
@@ -208,7 +222,8 @@ public struct PipelineRenderer: Sendable {
         hint: String,
         xmpPath: URL? = nil,
         quality: Quality = .full,
-        profileOverride: Profile? = nil
+        profileOverride: Profile? = nil,
+        cancel: CancelFlag? = nil
     ) throws -> MapleSceneLinearImageData {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
@@ -220,13 +235,13 @@ public struct PipelineRenderer: Sendable {
                     return try strippedXMP.withPathCString { xmpCStr in
                         try _renderSceneLinearBytes(
                             ptr: base, len: buf.count,
-                            hintCStr: hintCStr, xmpCStr: xmpCStr, quality: quality
+                            hintCStr: hintCStr, xmpCStr: xmpCStr, quality: quality, cancel: cancel
                         )
                     }
                 } else {
                     return try _renderSceneLinearBytes(
                         ptr: base, len: buf.count,
-                        hintCStr: hintCStr, xmpCStr: nil, quality: quality
+                        hintCStr: hintCStr, xmpCStr: nil, quality: quality, cancel: cancel
                     )
                 }
             }
@@ -246,7 +261,8 @@ public struct PipelineRenderer: Sendable {
         xmpPath: URL? = nil,
         quality: Quality = .preview,
         maxLongEdge: UInt32,
-        profileOverride: Profile? = nil
+        profileOverride: Profile? = nil,
+        cancel: CancelFlag? = nil
     ) throws -> MapleSceneLinearImageData {
         try RawCoreBridge.withStrippedXMP(xmpPath, profileOverride: profileOverride) { strippedXMP in
             try rawPath.withPathCString { rawCStr in
@@ -254,13 +270,13 @@ public struct PipelineRenderer: Sendable {
                     return try strippedXMP.withPathCString { xmpCStr in
                         try _renderSceneLinearSized(
                             rawCStr: rawCStr, xmpCStr: xmpCStr,
-                            quality: quality, maxLongEdge: maxLongEdge
+                            quality: quality, maxLongEdge: maxLongEdge, cancel: cancel
                         )
                     }
                 } else {
                     return try _renderSceneLinearSized(
                         rawCStr: rawCStr, xmpCStr: nil,
-                        quality: quality, maxLongEdge: maxLongEdge
+                        quality: quality, maxLongEdge: maxLongEdge, cancel: cancel
                     )
                 }
             }
@@ -273,7 +289,8 @@ public struct PipelineRenderer: Sendable {
         xmpPath: URL? = nil,
         quality: Quality = .preview,
         maxLongEdge: UInt32,
-        profileOverride: Profile? = nil
+        profileOverride: Profile? = nil,
+        cancel: CancelFlag? = nil
     ) throws -> MapleSceneLinearImageData {
         guard let hintCStr = hint.cString(using: .utf8) else {
             throw PipelineError.hintEncodingError(hint)
@@ -285,13 +302,13 @@ public struct PipelineRenderer: Sendable {
                     return try strippedXMP.withPathCString { xmpCStr in
                         try _renderSceneLinearSizedBytes(
                             ptr: base, len: buf.count, hintCStr: hintCStr,
-                            xmpCStr: xmpCStr, quality: quality, maxLongEdge: maxLongEdge
+                            xmpCStr: xmpCStr, quality: quality, maxLongEdge: maxLongEdge, cancel: cancel
                         )
                     }
                 } else {
                     return try _renderSceneLinearSizedBytes(
                         ptr: base, len: buf.count, hintCStr: hintCStr,
-                        xmpCStr: nil, quality: quality, maxLongEdge: maxLongEdge
+                        xmpCStr: nil, quality: quality, maxLongEdge: maxLongEdge, cancel: cancel
                     )
                 }
             }
@@ -358,7 +375,8 @@ public struct PipelineRenderer: Sendable {
     private static func _renderSceneLinear(
         rawCStr: UnsafePointer<CChar>,
         xmpCStr: UnsafePointer<CChar>?,
-        quality: Quality
+        quality: Quality,
+        cancel: CancelFlag?
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBufferF32(
             f32_rgba: nil, len_bytes: 0, channels: 0,
@@ -368,7 +386,14 @@ public struct PipelineRenderer: Sendable {
         let lastSlash = rawPath.lastIndex(of: "/").map { rawPath.index(after: $0) } ?? rawPath.startIndex
         let fileName = String(rawPath[lastSlash...])
         pipelineLog.notice("→ Rust FFI maple_render_file_scene_linear_f32 START: \(fileName, privacy: .public) quality=\(quality.rawValue)")
-        let rc = maple_render_file_scene_linear_f32(rawCStr, xmpCStr, quality.rawValue, &buf)
+        // Derive the raw cancel pointer from the live `CancelFlag` AT the call
+        // site (#951). `cancel` is held strongly by the caller across this
+        // synchronous FFI call, so the Rust worker that reads the pointer never
+        // sees freed memory. `nil` ⇒ null ⇒ never-cancel.
+        let rc = maple_render_file_scene_linear_f32(rawCStr, xmpCStr, quality.rawValue, cancel?.pointer, &buf)
+        if rc == Self.rcCancelled {
+            throw PipelineError.cancelled
+        }
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
@@ -408,7 +433,8 @@ public struct PipelineRenderer: Sendable {
         len: Int,
         hintCStr: [CChar],
         xmpCStr: UnsafePointer<CChar>?,
-        quality: Quality
+        quality: Quality,
+        cancel: CancelFlag?
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBufferF32(
             f32_rgba: nil, len_bytes: 0, channels: 0,
@@ -416,7 +442,10 @@ public struct PipelineRenderer: Sendable {
         )
         let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
             maple_render_bytes_scene_linear_f32(ptr, UInt(len), hintPtr.baseAddress,
-                                                xmpCStr, quality.rawValue, &buf)
+                                                xmpCStr, quality.rawValue, cancel?.pointer, &buf)
+        }
+        if rc == Self.rcCancelled {
+            throw PipelineError.cancelled
         }
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
@@ -444,15 +473,19 @@ public struct PipelineRenderer: Sendable {
         rawCStr: UnsafePointer<CChar>,
         xmpCStr: UnsafePointer<CChar>?,
         quality: Quality,
-        maxLongEdge: UInt32
+        maxLongEdge: UInt32,
+        cancel: CancelFlag?
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBufferF32(
             f32_rgba: nil, len_bytes: 0, channels: 0,
             bytes_per_pixel: 0, width: 0, height: 0
         )
         let rc = maple_render_file_scene_linear_sized_f32(
-            rawCStr, xmpCStr, maxLongEdge, quality.rawValue, &buf
+            rawCStr, xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &buf
         )
+        if rc == Self.rcCancelled {
+            throw PipelineError.cancelled
+        }
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
             throw PipelineError.renderFailed(code: Int(rc), message: msg)
@@ -479,7 +512,8 @@ public struct PipelineRenderer: Sendable {
         hintCStr: [CChar],
         xmpCStr: UnsafePointer<CChar>?,
         quality: Quality,
-        maxLongEdge: UInt32
+        maxLongEdge: UInt32,
+        cancel: CancelFlag?
     ) throws -> MapleSceneLinearImageData {
         var buf = MapleSceneLinearBufferF32(
             f32_rgba: nil, len_bytes: 0, channels: 0,
@@ -488,8 +522,11 @@ public struct PipelineRenderer: Sendable {
         let rc = hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
             maple_render_bytes_scene_linear_sized_f32(
                 ptr, UInt(len), hintPtr.baseAddress,
-                xmpCStr, maxLongEdge, quality.rawValue, &buf
+                xmpCStr, maxLongEdge, quality.rawValue, cancel?.pointer, &buf
             )
+        }
+        if rc == Self.rcCancelled {
+            throw PipelineError.cancelled
         }
         guard rc == 0 else {
             let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
@@ -1023,6 +1060,11 @@ public enum PipelineError: Error, LocalizedError {
     case renderFailed(code: Int, message: String)
     case pathEncodingError(URL)
     case hintEncodingError(String)
+    /// The render was cancelled by the host (#951) — a newer decode superseded
+    /// this one (asset switch / profile toggle / invalidate). Not a failure;
+    /// callers map it onto the silent "dropped" path (the same place the
+    /// generation guard drops stale results), not the error path.
+    case cancelled
 
     public var errorDescription: String? {
         switch self {
@@ -1032,6 +1074,8 @@ public enum PipelineError: Error, LocalizedError {
             return "Path cannot be encoded as UTF-8: \(url.path)"
         case .hintEncodingError(let s):
             return "Decoder hint cannot be encoded as UTF-8: \(s)"
+        case .cancelled:
+            return "Render cancelled."
         }
     }
 }

@@ -30,6 +30,7 @@
 //! `sharpenEdgeMix` kernel does (mix = amount * edge_factor).
 
 use crate::{
+    cancel::CancelToken,
     image::{ColorSpace, Image},
     stages::blur::gaussian_blur_plane,
 };
@@ -51,12 +52,37 @@ const MIN_SCALE: f32 = 0.0;
 /// * `masking` — 0..100 slider; gradient threshold for edge-only mix.
 ///
 /// `amount == 0` short-circuits the entire stage.
+///
+/// Non-cancellable wrapper — forwards to [`apply_cancellable`] with a
+/// never-cancel token, so its output is bit-identical to the pre-#951 stage.
+#[inline]
 pub fn apply(
     img: &mut Image,
     amount: f32,
     radius: f32,
     detail: f32,
     masking: f32,
+) {
+    apply_cancellable(img, amount, radius, detail, masking, CancelToken::never());
+}
+
+/// Cancellable variant of [`apply`]. Identical math; additionally observes
+/// `cancel` once per output row in each of the two per-pixel sweeps (the USM
+/// scale build and the edge-aware mix) and returns early when cancellation
+/// is requested. A row-granular relaxed load is free and does not perturb
+/// the result; with a never-cancel token this is bit-identical to [`apply`].
+///
+/// On early return `img.pixels` is left partially written — that's fine: the
+/// develop chain checks the same token immediately after this stage and
+/// returns `Err(Cancelled)`, so the half-written buffer is discarded and
+/// never packed into a result.
+pub fn apply_cancellable(
+    img: &mut Image,
+    amount: f32,
+    radius: f32,
+    detail: f32,
+    masking: f32,
+    cancel: CancelToken<'_>,
 ) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 { return; }
@@ -81,6 +107,11 @@ pub fn apply(
     let observed_pixels = img.pixels.clone();
     let mut sharpened_pixels: Vec<[f32; 3]> = vec![[0.0; 3]; img.pixels.len()];
     for i in 0..img.pixels.len() {
+        // Cancellation check once per output row (top of each row). One
+        // relaxed load per `w_usize` pixels — free, no-op on a never token.
+        if i % w_usize == 0 && cancel.is_cancelled() {
+            return;
+        }
         let o = observed_pixels[i];
         let li = luma[i];
         let lb = luma_blur[i];
@@ -118,6 +149,10 @@ pub fn apply(
     };
 
     for y in 0..h {
+        // Cancellation check once per output row in the edge-mix sweep.
+        if cancel.is_cancelled() {
+            return;
+        }
         for x in 0..w {
             let i = (y * w + x) as usize;
             let edge = if masking_threshold > 1e-3 {

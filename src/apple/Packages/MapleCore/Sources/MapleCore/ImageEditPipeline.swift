@@ -155,7 +155,8 @@ public actor ImageEditPipeline {
         asset: AssetRef,
         quality: PipelineRenderer.Quality = .preview,
         xmpPath: URL? = nil,
-        profileOverride: Profile? = nil
+        profileOverride: Profile? = nil,
+        cancel: CancelFlag? = nil
     ) async -> CIImage? {
         let imageData: MapleSceneLinearImageData
         do {
@@ -165,18 +166,24 @@ public actor ImageEditPipeline {
                 defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
                 imageData = try PipelineRenderer.renderSceneLinear(
                     rawPath: url, xmpPath: xmpPath, quality: quality,
-                    profileOverride: profileOverride
+                    profileOverride: profileOverride, cancel: cancel
                 )
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
                 let hint = asset.hintExtension ?? ""
                 imageData = try PipelineRenderer.renderSceneLinear(
                     rawBytes: bytes, hint: hint, xmpPath: xmpPath, quality: quality,
-                    profileOverride: profileOverride
+                    profileOverride: profileOverride, cancel: cancel
                 )
             } else {
                 return nil
             }
+        } catch PipelineError.cancelled {
+            // #951: a superseding decode cancelled this one. Not an error —
+            // drop quietly (debug, not error) so a normal supersession during
+            // a cold open isn't logged as a failure.
+            logger.debug("decodeSceneLinear cancelled for \(asset.displayName, privacy: .public) (superseded)")
+            return nil
         } catch {
             logger.error("decodeSceneLinear failed for \(asset.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             return nil
@@ -212,7 +219,8 @@ public actor ImageEditPipeline {
         asset: AssetRef,
         targetSize: CGSize,
         xmpPath: URL? = nil,
-        profileOverride: Profile? = nil
+        profileOverride: Profile? = nil,
+        cancel: CancelFlag? = nil
     ) async -> CIImage? {
         // Per ticket 06 § Product Requirements 2, the long edge of the
         // requested target is the cap; pixel-accurate sizing happens in
@@ -235,7 +243,7 @@ public actor ImageEditPipeline {
                 imageData = try PipelineRenderer.renderSceneLinearSized(
                     rawPath: url, xmpPath: xmpPath,
                     quality: .preview, maxLongEdge: longEdge,
-                    profileOverride: profileOverride
+                    profileOverride: profileOverride, cancel: cancel
                 )
             } else if let provider = asset.bytesProvider {
                 let bytes = try await provider()
@@ -243,11 +251,18 @@ public actor ImageEditPipeline {
                 imageData = try PipelineRenderer.renderSceneLinearSized(
                     rawBytes: bytes, hint: hint, xmpPath: xmpPath,
                     quality: .preview, maxLongEdge: longEdge,
-                    profileOverride: profileOverride
+                    profileOverride: profileOverride, cancel: cancel
                 )
             } else {
                 return nil
             }
+        } catch PipelineError.cancelled {
+            // #951: superseded mid-decode. Drop quietly and do NOT fall back to
+            // the unsized path — the fallback would either be cancelled too
+            // (same flag) or, worse, re-decode the abandoned image at full
+            // resolution. Returning nil routes to the stale/dropped path.
+            logger.debug("decodeSceneLinearSized cancelled for \(asset.displayName, privacy: .public) (superseded)")
+            return nil
         } catch {
             logger.error("decodeSceneLinearSized failed for \(asset.displayName, privacy: .public): \(error.localizedDescription, privacy: .public). Falling back to unsized scene-linear path.")
             // Ticket 06 § Product Requirements 3: existing whole-preview
@@ -255,9 +270,10 @@ public actor ImageEditPipeline {
             // fails. The unsized scene-linear entry from Task 4 is the
             // right fallback (matched color domain); the legacy display-
             // encoded path would mismatch the rest of `processSceneLinear`.
+            // Forward the cancel flag so the fallback is still interruptible.
             return await decodeSceneLinear(
                 asset: asset, quality: .preview, xmpPath: xmpPath,
-                profileOverride: profileOverride
+                profileOverride: profileOverride, cancel: cancel
             )
         }
         let w = imageData.width, h = imageData.height
