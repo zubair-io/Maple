@@ -29,6 +29,17 @@ export interface ApiFolder {
   created_at: string;
 }
 
+/** A backup/mirror location for a library (mirrors the server `MirrorLocation`). */
+export interface MirrorLocation {
+  path: string;
+  enabled: boolean;
+}
+
+/** mirror_queue depth, surfaced on the Workers settings page. */
+export interface MirrorQueueStatus {
+  queue: { pending: number; dead: number };
+}
+
 export interface ApiAsset {
   id: string;
   filename: string;
@@ -269,6 +280,39 @@ export class BunApiBackendService {
 
   registerFolder(folderPath: string): Observable<ApiFolder> {
     return this.http.post<ApiFolder>(`${this.base}/folders`, { path: folderPath });
+  }
+
+  // --- Mirror / backup locations (per library) -----------------------------
+
+  getFolderMirrors(folderId: string): Observable<{ mirrors: MirrorLocation[] }> {
+    return this.http.get<{ mirrors: MirrorLocation[] }>(
+      `${this.base}/folders/${encodeURIComponent(folderId)}/mirror`,
+    );
+  }
+
+  setFolderMirrors(
+    folderId: string,
+    mirrors: MirrorLocation[],
+  ): Observable<{ ok: boolean; mirrors: MirrorLocation[] }> {
+    return this.http.put<{ ok: boolean; mirrors: MirrorLocation[] }>(
+      `${this.base}/folders/${encodeURIComponent(folderId)}/mirror`,
+      { mirrors },
+    );
+  }
+
+  testMirrorPath(path: string): Observable<{ ok: boolean; path?: string; error?: string }> {
+    return this.http.post<{ ok: boolean; path?: string; error?: string }>(
+      `${this.base}/mirror/test`,
+      { path },
+    );
+  }
+
+  getMirrorStatus(): Observable<MirrorQueueStatus> {
+    return this.http.get<MirrorQueueStatus>(`${this.base}/mirror/status`);
+  }
+
+  retryDeadMirrors(): Observable<{ ok: boolean; revived: number }> {
+    return this.http.post<{ ok: boolean; revived: number }>(`${this.base}/mirror/retry-dead`, {});
   }
 
   listDir(absPath: string, showAll = false): Observable<ApiDirListing> {

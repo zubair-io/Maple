@@ -50,6 +50,7 @@ import { MigrationPanelService } from './migration-panel.service';
 import { ImportsPanelService } from './imports-panel.service';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
+import { MirrorSettingsComponent } from './mirror-settings.component';
 import {
   FIXED_DESCRIBE_MODEL,
   groupStagesByPipeline,
@@ -77,7 +78,14 @@ import {
 @Component({
   selector: 'maple-workers-settings',
   standalone: true,
-  imports: [DecimalPipe, FormsModule, RouterLink, SettingsShellComponent, SettingsIconComponent],
+  imports: [
+    DecimalPipe,
+    FormsModule,
+    RouterLink,
+    SettingsShellComponent,
+    SettingsIconComponent,
+    MirrorSettingsComponent,
+  ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
   providers: [DamagedPanelService, MigrationPanelService, ImportsPanelService],
