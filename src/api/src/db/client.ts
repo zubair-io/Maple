@@ -338,6 +338,66 @@ export async function ensureIndexes(): Promise<void> {
     }
   }
 
+  // Repair pass for the timeline buckets/grid divergence. The timeline groups
+  // months by the numeric `exif.captured_year`/`captured_month`, but the grid
+  // fetches a month by the `exif.captured_at` string range. A row with
+  // `captured_at` set but the numeric fields missing/null is therefore visible
+  // to the grid yet absent from the bucket — so months undercount and a month
+  // whose rows are ALL like that never renders. The original backfill above
+  // only caught `captured_year: {$exists:false}` and silently retries on
+  // failure (so a timeout on a large library could leave a permanent gap).
+  // This re-runnable pass closes both holes: it matches null OR absent, and
+  // runs under its own sentinel. `captured_at` is stored UTC-normalised
+  // (`.toISOString()`), and `$year`/`$month` default to UTC, so the derived
+  // values match both the indexer's `getUTC*` path and the grid's UTC range —
+  // buckets and grid agree afterwards. Per-row `onError/onNull: null` keeps a
+  // single malformed date from aborting the batch.
+  if (!(await migrationApplied(db, 'repair-captured-year-month-2026-06-07'))) {
+    try {
+      const res = await db.collection('assets').updateMany(
+        {
+          'exif.captured_at': { $type: 'string' },
+          'exif.captured_year': { $in: [null] },
+        },
+        [
+          {
+            $set: {
+              'exif.captured_year': {
+                $year: {
+                  $dateFromString: {
+                    dateString: '$exif.captured_at',
+                    onError: null,
+                    onNull: null,
+                  },
+                },
+              },
+              'exif.captured_month': {
+                $month: {
+                  $dateFromString: {
+                    dateString: '$exif.captured_at',
+                    onError: null,
+                    onNull: null,
+                  },
+                },
+              },
+            },
+          },
+        ],
+      );
+      await recordMigration(db, 'repair-captured-year-month-2026-06-07', res.modifiedCount);
+      log.info(
+        { rows: res.modifiedCount },
+        'repaired captured_year/month gap (timeline buckets/grid divergence)',
+      );
+    } catch (err) {
+      // Not recorded on failure → retried next boot, same as the original.
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        'captured_year/month repair skipped',
+      );
+    }
+  }
+
   // Reset describe-stage dead rows whose dead-letter reason was a vision
   // parser type mismatch on `is_screenshot` or `text_visible` — both were
   // tightened-then-relaxed by the tolerant-vision-parser change. The
