@@ -357,7 +357,13 @@ export async function ensureIndexes(): Promise<void> {
       const res = await db.collection('assets').updateMany(
         {
           'exif.captured_at': { $type: 'string' },
-          'exif.captured_year': { $in: [null] },
+          // Either numeric field null/absent — they're written together by the
+          // exif stage, but match both defensively so a half-populated row
+          // (e.g. month grouped under `null`) can't slip through.
+          $or: [
+            { 'exif.captured_year': { $in: [null] } },
+            { 'exif.captured_month': { $in: [null] } },
+          ],
         },
         [
           {
