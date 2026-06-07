@@ -15,7 +15,7 @@
 // `LibrarySelection.assetsInSelectedFolder()` (a computed signal that
 // already applies `BrowsePreferencesService.filter()`). Filter chip
 // state writes back through `BrowsePreferencesService.filter.set(...)`
-// + `localStorage.setItem('cm.filter', ...)` so phone/desktop share
+// + `TypedStorage.set(STORAGE_KEYS.FILTER, ...)` so phone/desktop share
 // the same persistence key.
 
 import {
@@ -33,6 +33,7 @@ import { BrowsePreferencesService, CullFilter } from '../state/browse-preference
 import { LibrarySelection } from '../state/library-selection.service';
 import { FilterChipsComponent } from './filter-chips.component';
 import { LibraryCellComponent } from './library-cell.component';
+import { STORAGE_KEYS, TypedStorage } from '../util/typed-storage';
 
 @Component({
   selector: 'app-library-grid',
@@ -85,11 +86,7 @@ export class LibraryGridComponent {
 
   onFilterChange(next: CullFilter): void {
     this.prefs.filter.set(next);
-    try {
-      localStorage.setItem('cm.filter', JSON.stringify(next));
-    } catch {
-      /* noop */
-    }
+    TypedStorage.set(STORAGE_KEYS.FILTER, next);
   }
 
   onCellTap(asset: Asset): void {

@@ -26,14 +26,12 @@ import {
   type ObservabilityConfigPatch,
   type ObservabilityConfigResponse,
   ObservabilityService,
+  TypedStorage,
+  STORAGE_KEYS,
   errorMessage,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
-
-/** localStorage key for the per-browser opt-out. Mirrors the `cm.*` namespace
- * the rest of the app uses for client-only preferences. */
-const LOCAL_ENABLE_KEY = 'cm.observabilityEnabled';
 
 type TestState =
   | { kind: 'idle' }
@@ -135,11 +133,7 @@ export class ObservabilityComponent implements OnInit {
   protected toggleLocal(): void {
     const next = !this.localEnabled();
     this.localEnabled.set(next);
-    try {
-      localStorage.setItem(LOCAL_ENABLE_KEY, JSON.stringify(next));
-    } catch {
-      /* storage may be unavailable (private mode) — the in-memory signal wins */
-    }
+    TypedStorage.set(STORAGE_KEYS.OBSERVABILITY_ENABLED, next);
   }
 
   /** Emit a structured test log through the live SDK so the operator can
@@ -277,11 +271,7 @@ export class ObservabilityComponent implements OnInit {
   }
 
   private loadLocalEnabled(): boolean {
-    try {
-      const s = localStorage.getItem(LOCAL_ENABLE_KEY);
-      return s != null ? (JSON.parse(s) as boolean) !== false : true;
-    } catch {
-      return true;
-    }
+    const stored = TypedStorage.get<boolean>(STORAGE_KEYS.OBSERVABILITY_ENABLED);
+    return stored != null ? stored !== false : true;
   }
 }

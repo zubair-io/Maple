@@ -35,6 +35,7 @@ import { LibraryCache } from './library-cache.service';
 import { LibraryStatusService } from './library-status.service';
 import { BrowsePreferencesService } from './browse-preferences.service';
 import { isSupportedRaw } from './raw-extensions';
+import { TypedStorage } from '../util/typed-storage';
 
 const ASSET_RENDER_KEYS: readonly (keyof Asset)[] = [
   'id',
@@ -313,13 +314,7 @@ export class LibraryFetch {
       return;
     }
 
-    const lastId = (() => {
-      try {
-        return localStorage.getItem(LAST_SOURCE_KEY);
-      } catch {
-        return null;
-      }
-    })();
+    const lastId = TypedStorage.getRaw(LAST_SOURCE_KEY);
 
     if (lastId && lastId.startsWith('fs:')) {
       const absPath = lastId.slice(3);

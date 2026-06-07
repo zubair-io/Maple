@@ -174,3 +174,4 @@ export * from './lib/search/search.component';
 // Shared utilities.
 export * from './lib/util/errors';
 export * from './lib/util/idb';
+export * from './lib/util/typed-storage';

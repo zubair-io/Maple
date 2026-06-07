@@ -15,6 +15,7 @@
 // arrive.
 
 import { SearchResult } from '../api/search.service';
+import { TypedStorage } from '../util/typed-storage';
 
 export type SearchScope = 'all' | 'photos' | 'places' | 'people' | 'albums';
 
@@ -87,25 +88,13 @@ export function pushRecent(prev: readonly string[], q: string): string[] {
 /** Read the recents list from localStorage. Returns `[]` on parse error,
  * SSR (no `window`), or absent key. */
 export function readRecents(): string[] {
-  try {
-    if (typeof localStorage === 'undefined') return [];
-    const raw = localStorage.getItem(RECENT_QUERIES_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((v): v is string => typeof v === 'string').slice(0, RECENT_QUERIES_MAX);
-  } catch {
-    return [];
-  }
+  const parsed = TypedStorage.get<unknown[]>(RECENT_QUERIES_KEY);
+  if (!parsed || !Array.isArray(parsed)) return [];
+  return parsed.filter((v): v is string => typeof v === 'string').slice(0, RECENT_QUERIES_MAX);
 }
 
 /** Persist the recents list. Best-effort — failures (private mode, quota)
  * are swallowed so the search UI stays functional. */
 export function writeRecents(list: readonly string[]): void {
-  try {
-    if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(RECENT_QUERIES_KEY, JSON.stringify(list.slice(0, RECENT_QUERIES_MAX)));
-  } catch {
-    /* swallow — recents are nice-to-have, never load-bearing. */
-  }
+  TypedStorage.set(RECENT_QUERIES_KEY, list.slice(0, RECENT_QUERIES_MAX));
 }
