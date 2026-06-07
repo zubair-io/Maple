@@ -1,3 +1,4 @@
+use crate::cancel::CancelToken;
 use crate::image::{CfaPattern, ColorSpace, Image};
 use rayon::prelude::*;
 
@@ -37,7 +38,20 @@ use rayon::prelude::*;
 /// the available ones. That matches the bilinear demosaic's mirror /
 /// clamp border treatment in spirit (no out-of-range reads, no
 /// disproportionate weighting).
+/// Non-cancellable wrapper — forwards to [`half_res_cancellable`] with a
+/// never-cancel token, so its output is bit-identical to the pre-#951 kernel.
+#[inline]
 pub fn half_res(mosaic: &Image, cfa: CfaPattern) -> Image {
+    half_res_cancellable(mosaic, cfa, CancelToken::never())
+}
+
+/// Cancellable variant of [`half_res`]. Identical math; additionally checks
+/// `cancel` at the top of each parallel output-row closure and skips that
+/// row's fill when cancellation is requested. The partially-filled buffer is
+/// discarded by the develop chain (which returns `Err(Cancelled)` right after
+/// demosaic). With a never-cancel token the per-row load is a no-op branch
+/// and the output is bit-identical to [`half_res`].
+pub fn half_res_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken<'_>) -> Image {
     mosaic.assert_space(ColorSpace::CameraNativeMosaic);
     let in_w = mosaic.width as usize;
     let in_h = mosaic.height as usize;
@@ -56,6 +70,11 @@ pub fn half_res(mosaic: &Image, cfa: CfaPattern) -> Image {
         .par_chunks_mut(out_w)
         .enumerate()
         .for_each(|(y, row)| {
+            // Per-row cancel check. Skipping leaves this row zero-init; the
+            // develop chain discards the whole buffer on Err(Cancelled).
+            if cancel.is_cancelled() {
+                return;
+            }
             for (x, out_px) in row.iter_mut().enumerate() {
                 let mut sum = [0.0f32; 3];
                 let mut count = [0u32; 3];
