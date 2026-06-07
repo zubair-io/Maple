@@ -80,9 +80,9 @@ fi
 # directly. --no-self-update keeps `rustup` itself brew-managed so brew can
 # upgrade it cleanly later.
 #
-# Ensure the pinned toolchain, the components rust-toolchain.toml requests
+# Ensure the toolchain configured in rust-toolchain.toml, the components it requests
 # (rustfmt, clippy), and every Apple cross-compile target are installed in ONE
-# retry-wrapped step. Doing it here — rather than letting the first cargo run
+# retry-wrapped step.
 # lazily fetch the components, or letting build-xcframework.sh `rustup target
 # add` them — collapses the toolchain network I/O into a single retry-guarded
 # operation, and makes build-xcframework.sh's target-add loop a no-op on CI.
