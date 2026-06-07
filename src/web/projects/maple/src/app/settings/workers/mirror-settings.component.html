@@ -1,13 +1,5 @@
-<div class="row" [class.is-expanded]="expanded()" data-testid="mirror-settings">
-  <div
-    class="row-summary mirror-summary"
-    (click)="toggle()"
-    role="button"
-    [attr.aria-expanded]="expanded()"
-    tabindex="0"
-    (keydown.enter)="toggle()"
-    (keydown.space)="toggle(); $event.preventDefault()"
-  >
+<maple-settings-row [expanded]="expanded()" (toggle)="toggle()" testid="mirror-settings">
+  <div class="mirror-summary" srow-summary>
     <maple-settings-icon
       [name]="expanded() ? 'chev-d' : 'chev-r'"
       [size]="12"
@@ -41,98 +33,94 @@
     }
   </div>
 
-  @if (expanded()) {
-    <div class="expanded">
-      <div class="desc-bar">
-        <p>
-          Replicate each library's originals and XMP sidecars to a second location. Writes and moves
-          go to both; a freshly-configured or drifted mirror is back-filled by the mirror worker.
-        </p>
-        @if (status(); as q) {
-          @if (q.dead > 0) {
+  <div class="desc-bar">
+    <p>
+      Replicate each library's originals and XMP sidecars to a second location. Writes and moves go
+      to both; a freshly-configured or drifted mirror is back-filled by the mirror worker.
+    </p>
+    @if (status(); as q) {
+      @if (q.dead > 0) {
+        <button
+          type="button"
+          class="btn-ghost danger"
+          [disabled]="retrying()"
+          (click)="retryDead()"
+        >
+          {{ retrying() ? 'Retrying…' : 'Retry failed' }}
+        </button>
+      }
+    }
+  </div>
+
+  @if (error()) {
+    <p class="banner-error">{{ error() }}</p>
+  }
+
+  @if (loading()) {
+    <p class="loading">Loading libraries…</p>
+  } @else if (libraries().length === 0) {
+    <p class="loading">No libraries registered yet.</p>
+  } @else {
+    @for (lib of libraries(); track lib.id) {
+      <div class="block">
+        <div class="subhead">{{ lib.label }}</div>
+        <div class="field field-wide">
+          <label class="field-label" [attr.for]="'mirror-' + lib.id">Backup location</label>
+          <div class="text-input mono">
+            <div class="text-input-wrap">
+              <input
+                [id]="'mirror-' + lib.id"
+                type="text"
+                placeholder="/mnt/backup/photos"
+                [value]="pathOf(lib.id)"
+                (input)="setPath(lib.id, $any($event.target).value)"
+              />
+            </div>
             <button
               type="button"
-              class="btn-ghost danger"
-              [disabled]="retrying()"
-              (click)="retryDead()"
+              class="btn-ghost"
+              [disabled]="!pathOf(lib.id).trim() || testStateOf(lib.id) === 'testing'"
+              (click)="test(lib.id)"
             >
-              {{ retrying() ? 'Retrying…' : 'Retry failed' }}
+              {{ testStateOf(lib.id) === 'testing' ? 'Testing…' : 'Test' }}
             </button>
-          }
-        }
-      </div>
-
-      @if (error()) {
-        <p class="banner-error">{{ error() }}</p>
-      }
-
-      @if (loading()) {
-        <p class="loading">Loading libraries…</p>
-      } @else if (libraries().length === 0) {
-        <p class="loading">No libraries registered yet.</p>
-      } @else {
-        @for (lib of libraries(); track lib.id) {
-          <div class="block">
-            <div class="subhead">{{ lib.label }}</div>
-            <div class="field field-wide">
-              <label class="field-label" [attr.for]="'mirror-' + lib.id">Backup location</label>
-              <div class="text-input mono">
-                <div class="text-input-wrap">
-                  <input
-                    [id]="'mirror-' + lib.id"
-                    type="text"
-                    placeholder="/mnt/backup/photos"
-                    [value]="pathOf(lib.id)"
-                    (input)="setPath(lib.id, $any($event.target).value)"
-                  />
-                </div>
-                <button
-                  type="button"
-                  class="btn-ghost"
-                  [disabled]="!pathOf(lib.id).trim() || testStateOf(lib.id) === 'testing'"
-                  (click)="test(lib.id)"
-                >
-                  {{ testStateOf(lib.id) === 'testing' ? 'Testing…' : 'Test' }}
-                </button>
-              </div>
-              <div class="field-hint">
-                Library root: <span class="mono">{{ lib.path }}</span>
-              </div>
-              @if (testStateOf(lib.id) === 'ok') {
-                <div class="test-result ok">✓ {{ testMsgOf(lib.id) }}</div>
-              } @else if (testStateOf(lib.id) === 'fail') {
-                <div class="test-result err">{{ testMsgOf(lib.id) }}</div>
-              }
-            </div>
-
-            <label class="mirror-enable">
-              <input
-                type="checkbox"
-                [checked]="enabledOf(lib.id)"
-                (change)="setEnabled(lib.id, $any($event.target).checked)"
-              />
-              <span>Enabled (replicate writes to this mirror)</span>
-            </label>
-
-            <div class="row-footer">
-              <span class="footer-spacer"></span>
-              @if (saveErrorOf(lib.id)) {
-                <span class="save-error">{{ saveErrorOf(lib.id) }}</span>
-              } @else if (saveStateOf(lib.id) === 'success') {
-                <span class="save-ok">Saved.</span>
-              }
-              <button
-                type="button"
-                class="btn-primary"
-                [disabled]="saveStateOf(lib.id) === 'saving'"
-                (click)="save(lib.id)"
-              >
-                {{ saveStateOf(lib.id) === 'saving' ? 'Saving…' : 'Save' }}
-              </button>
-            </div>
           </div>
-        }
-      }
-    </div>
+          <div class="field-hint">
+            Library root: <span class="mono">{{ lib.path }}</span>
+          </div>
+          @if (testStateOf(lib.id) === 'ok') {
+            <div class="test-result ok">✓ {{ testMsgOf(lib.id) }}</div>
+          } @else if (testStateOf(lib.id) === 'fail') {
+            <div class="test-result err">{{ testMsgOf(lib.id) }}</div>
+          }
+        </div>
+
+        <label class="mirror-enable">
+          <input
+            type="checkbox"
+            [checked]="enabledOf(lib.id)"
+            (change)="setEnabled(lib.id, $any($event.target).checked)"
+          />
+          <span>Enabled (replicate writes to this mirror)</span>
+        </label>
+
+        <div class="row-footer">
+          <span class="footer-spacer"></span>
+          @if (saveErrorOf(lib.id)) {
+            <span class="save-error">{{ saveErrorOf(lib.id) }}</span>
+          } @else if (saveStateOf(lib.id) === 'success') {
+            <span class="save-ok">Saved.</span>
+          }
+          <button
+            type="button"
+            class="btn-primary"
+            [disabled]="saveStateOf(lib.id) === 'saving'"
+            (click)="save(lib.id)"
+          >
+            {{ saveStateOf(lib.id) === 'saving' ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </div>
+    }
   }
-</div>
+</maple-settings-row>

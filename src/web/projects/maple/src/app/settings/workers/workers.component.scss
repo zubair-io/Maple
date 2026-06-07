@@ -52,6 +52,8 @@
   align-items: center;
   gap: 10px;
   padding: 0 16px;
+  // The data rows are 56px tall; the column header overrides to 36px below.
+  height: 56px;
 }
 
 .col-header {
@@ -80,23 +82,12 @@
   text-transform: uppercase;
 }
 
-.row {
-  border-bottom: 0.5px solid var(--s-border);
-
-  &.is-expanded .row-summary {
-    background: var(--s-surface2);
-  }
-}
-
-.row-summary {
-  height: 56px;
-  cursor: pointer;
-  transition: background 120ms;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.02);
-  }
-
+// The row shell (`.row` / `.row-summary` / `.expanded` + click/keyboard a11y)
+// now lives in the shared `maple-settings-row` component. These rules style the
+// summary content this component still owns and projects into that row.
+// `:not(.col-header)` keeps the `.r` column styling off the column header,
+// which is a `.row-grid` too and uses `.r` only for right-alignment.
+.row-grid:not(.col-header) {
   .stage-id {
     display: flex;
     align-items: center;
@@ -190,11 +181,6 @@
       background: var(--s-accent-bg2);
     }
   }
-}
-
-.expanded {
-  background: var(--s-surface);
-  padding: 4px 0 18px;
 }
 
 .desc-bar {
@@ -494,22 +480,24 @@
     padding: 16px 2px 8px;
   }
 
-  // Each row becomes a bordered card.
-  .row {
+  // Each row becomes a bordered card. The shared row component is the host
+  // element here, so style it directly (its inner `.row` still drives the
+  // expand background at all widths).
+  maple-settings-row {
+    display: block;
     border: 0.5px solid var(--s-border);
     border-radius: 8px;
     margin-bottom: 10px;
     overflow: hidden;
     background: var(--s-surface);
-
-    &.is-expanded .row-summary {
-      background: var(--s-surface2);
-    }
+    // The card border replaces the inner row's list separator.
+    --srow-border: none;
   }
 
-  // Re-flow the flat summary children into a card grid via named areas.
-  // The chevron + kebab are redundant on a tap-anywhere card, so hide them.
-  .row-summary {
+  // Re-flow the flat summary children into a card grid via named areas (the
+  // grid now lives on the projected `.row-grid`). The chevron + kebab are
+  // redundant on a tap-anywhere card, so hide them.
+  .row-grid:not(.col-header) {
     height: auto;
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
