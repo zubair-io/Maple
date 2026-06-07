@@ -6,13 +6,7 @@
       "name": "app",
       "installMode": "prefetch",
       "resources": {
-        "files": [
-          "/favicon.ico",
-          "/index.html",
-          "/manifest.webmanifest",
-          "/*.css",
-          "/*.js"
-        ]
+        "files": ["/favicon.ico", "/index.html", "/manifest.webmanifest", "/*.css", "/*.js"]
       }
     },
     {
@@ -20,22 +14,36 @@
       "installMode": "lazy",
       "updateMode": "prefetch",
       "resources": {
-        "files": [
-          "/raw_wasm_bg.wasm",
-          "/raw_wasm.js"
-        ]
+        "files": ["/raw_wasm_bg.wasm", "/raw_wasm.js"]
       }
     },
     {
-      "name": "assets",
+      "name": "fonts",
       "installMode": "lazy",
       "updateMode": "prefetch",
       "resources": {
-        "files": [
-          "/assets/**",
-          "/*.(svg|cur|jpg|jpeg|png|apng|webp|avif|gif|otf|ttf|woff|woff2)"
-        ]
+        "files": ["/assets/fonts/**", "/*.(otf|ttf|woff|woff2)"]
+      }
+    },
+    {
+      "name": "images",
+      "installMode": "lazy",
+      "updateMode": "lazy",
+      "resources": {
+        "files": ["/assets/**", "/*.(svg|cur|jpg|jpeg|png|apng|webp|avif|gif|ico)"]
       }
     }
-  ]
+  ],
+  "dataGroups": [
+    {
+      "name": "thumbnails",
+      "urls": ["/api/fs/thumb", "/api/assets/*/thumb"],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 1500,
+        "maxAge": "30d"
+      }
+    }
+  ],
+  "navigationUrls": ["/**", "!/**/*.*", "!/**/*__*", "!/**/*__*/**", "!/api/**"]
 }
