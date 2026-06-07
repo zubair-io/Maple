@@ -25,6 +25,7 @@ import { child as childLogger } from '../log.ts';
 import { foldersCollection } from '../db/client.ts';
 import { validateRoot } from '../fs/root.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
+import { mirrorQueueCounts, retryDeadMirrorCopies } from '../fs/mirror-queue.repo.ts';
 import type { MirrorLocation } from '../db/schema.ts';
 
 const log = childLogger('mirror:routes');
@@ -148,4 +149,16 @@ export const mirrorRoutes = new Elysia()
       return { ok: true, path: resolved };
     },
     { body: t.Object({ path: t.String({ minLength: 1 }) }) },
-  );
+  )
+  // Mirror reconcile queue status — pending + dead copy counts, for the
+  // mirror section of the Workers settings page.
+  .get('/api/mirror/status', async () => {
+    const counts = await mirrorQueueCounts();
+    return { queue: counts };
+  })
+  // Re-arm every dead-lettered copy (operator "retry" button). Returns how
+  // many rows were revived.
+  .post('/api/mirror/retry-dead', async () => {
+    const revived = await retryDeadMirrorCopies();
+    return { ok: true, revived };
+  });
