@@ -8,8 +8,24 @@ license.workspace = true
 [lib]
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+# Epic #925 / P1b (#988): compile the GPU-gated FFI surface (`src/gpu.rs`),
+# which calls `raw_gpu` directly. OFF by default — the default xcframework is
+# wgpu-free. Enabled only by the opt-in xcframework gpu variant
+# (`MAPLE_XCFRAMEWORK_GPU=1`) and the host validation build. Build-time only.
+#
+# `dep:raw-gpu` is required because raw-core's own `gpu` feature only pulls
+# raw-gpu into the dependency *tree* — it does not re-export the crate, so the
+# FFI needs a direct (optional) path dep to name `raw_gpu::`. We also flip
+# `raw-core/gpu` so both crates resolve to the same `raw-gpu` build (mirrors
+# raw-wasm's `gpu = ["dep:raw-gpu", ...]`).
+gpu = ["dep:raw-gpu", "raw-core/gpu"]
+
 [dependencies]
 raw-core = { path = "../raw-core" }
+# Headless GPU resource core (epic #925). Gated by the `gpu` feature; absent
+# from default builds. wgpu is pulled in transitively through here.
+raw-gpu = { path = "../raw-gpu", optional = true }
 rawler.workspace = true
 image.workspace = true
 thiserror.workspace = true
