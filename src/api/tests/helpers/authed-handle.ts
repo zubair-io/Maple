@@ -13,7 +13,7 @@ import { signAccessToken } from '../../src/auth/tokens.ts';
 const SECRET = process.env.MAPLE_JWT_SECRET ?? 'x'.repeat(32);
 process.env.MAPLE_JWT_SECRET = SECRET;
 
-const BEARER = `Bearer ${signAccessToken(
+const BEARER = `Bearer ${await signAccessToken(
   { sub: '0'.repeat(24), email: 'test@maple.local', role: 'owner' },
   SECRET,
 )}`;
