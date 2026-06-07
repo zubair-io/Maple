@@ -82,33 +82,35 @@ final class EditorStateTests: XCTestCase {
         let state = EditorState(session: makeSession())
         state.arm(tool: .crop)
         // No crop field on AdjustmentModel yet — write must not crash
-        // and must not mutate any wired field. (Per #643: vignette,
-        // grain, splitTone are now wired; HSL/Crop/Presets remain
-        // stubs pending their own specs.)
+        // and must not mutate any field. HSL / Crop / Presets are stubs
+        // pending their own specs; vignette / grain / splitTone were
+        // re-gated as stubs at #952 (fields but no pipeline apply code).
         let before = state.session.model
         state.setArmedDisplayValue(50)
         XCTAssertEqual(state.session.model, before)
     }
 
-    func testS5EffectsToolsAreWired() {
-        // Per #643: vignette / grain / splitTone gained AdjustmentModel
-        // fields and are no longer stubs. Each routes to its drag-bar
-        // primary scalar (`vignetteAmount`, `grainAmount`,
-        // `splitToneBalance`).
+    func testGatedS5EffectsToolsRejectWrites() {
+        // #952: vignette / grain / splitTone have AdjustmentModel fields
+        // (`vignetteAmount`, `grainAmount`, `splitToneBalance`) but no
+        // pipeline apply code in raw-core / Metal / WebGL, so they are
+        // gated as stubs — a drag must not mutate the model. Re-wire when
+        // #664 (vignette) / #665 (grain) / #666 (split-tone) land.
         let session = makeSession()
         let state = EditorState(session: session)
+        let before = session.model
 
         state.arm(tool: .vignette)
         state.setArmedDisplayValue(-50)
-        XCTAssertEqual(session.model.vignetteAmount, -50, accuracy: 1e-9)
-
         state.arm(tool: .grain)
         state.setArmedDisplayValue(40)
-        XCTAssertEqual(session.model.grainAmount, 40, accuracy: 1e-9)
-
         state.arm(tool: .splitTone)
         state.setArmedDisplayValue(25)
-        XCTAssertEqual(session.model.splitToneBalance, 25, accuracy: 1e-9)
+
+        XCTAssertEqual(session.model, before)
+        XCTAssertEqual(session.model.vignetteAmount, before.vignetteAmount, accuracy: 1e-9)
+        XCTAssertEqual(session.model.grainAmount, before.grainAmount, accuracy: 1e-9)
+        XCTAssertEqual(session.model.splitToneBalance, before.splitToneBalance, accuracy: 1e-9)
     }
 
     func testCaptureSharpeningToolsWireToModel() {
@@ -255,19 +257,21 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(Tool.tools(in: .detail).count, 7)
     }
 
-    func testWiredToolsCoverTwentyOneFields() {
-        // Per #643: vignette / grain / splitTone gained AdjustmentModel
-        // fields. Per #875: captureSharpen / captureSigma wire to the
-        // captureSharpening* fields. HSL/Crop/Presets remain the v0.1
-        // stubs (each tracked by its own spec ticket — #636, #638, #639).
+    func testWiredToolsCoverEighteenFields() {
+        // #952: vignette / grain / splitTone gained AdjustmentModel fields
+        // at #643 but never gained pipeline apply code, so they are re-gated
+        // as stubs (re-wire at #664 / #665 / #666). HSL (#636) / Crop (#638)
+        // / Presets (#639) remain stubs pending their own specs. Per #875:
+        // captureSharpen / captureSigma stay wired to the captureSharpening*
+        // fields.
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 21)
+        XCTAssertEqual(wired.count, 18)
         XCTAssertFalse(Tool.hsl.isWired)
+        XCTAssertFalse(Tool.vignette.isWired)
+        XCTAssertFalse(Tool.grain.isWired)
+        XCTAssertFalse(Tool.splitTone.isWired)
         XCTAssertFalse(Tool.crop.isWired)
         XCTAssertFalse(Tool.presets.isWired)
-        XCTAssertTrue(Tool.vignette.isWired)
-        XCTAssertTrue(Tool.grain.isWired)
-        XCTAssertTrue(Tool.splitTone.isWired)
         XCTAssertTrue(Tool.captureSharpen.isWired)
         XCTAssertTrue(Tool.captureSigma.isWired)
     }
