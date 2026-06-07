@@ -118,12 +118,29 @@ export async function moveBackupAsset(
   const oldDir = primary.path;
 
   // Already where it belongs — stamp the marker (if any) and bail without
-  // touching the filesystem. The stamp is row-level, so a plain `_id` match is
-  // enough (a no-op if the row vanished concurrently).
+  // touching the filesystem. Gate the stamp on the canonical entry still being
+  // where we read it: the SAME `$elemMatch` the relocation path uses. If a
+  // concurrent op moved `fileinfo[0]` between our read and now, the asset may no
+  // longer be "already in place", so stamping it done would be wrong — and in
+  // the geo migration `backup_layout_version` would permanently exclude it. On
+  // a mismatch we skip (leave it unstamped) so a later tick re-evaluates from
+  // the current state.
   if (newDir === oldDir) {
     if (extraSet && Object.keys(extraSet).length > 0) {
-      await coll.updateOne({ _id: doc._id }, { $set: extraSet });
-      return 'noop';
+      const res = await coll.updateOne(
+        {
+          _id: doc._id,
+          fileinfo: {
+            $elemMatch: {
+              library_id: primary.library_id,
+              path: primary.path,
+              filename: primary.filename,
+            },
+          },
+        },
+        { $set: extraSet },
+      );
+      return res.matchedCount === 0 ? 'skipped' : 'noop';
     }
     return 'skipped';
   }

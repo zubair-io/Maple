@@ -54,7 +54,10 @@ public enum PathFormatter {
         guard let location else { return [] }
         var out: [String] = []
         for raw in location {
-            let trimmed = raw.trimmingCharacters(in: .whitespaces)
+            // `.whitespacesAndNewlines` (not `.whitespaces`) to match JS
+            // `String.prototype.trim()`, which also strips newlines/CR — keeps
+            // byte-parity with the TS `sanitizeLocationSegments`.
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty { continue }
             let escaped = trimmed
                 .replacingOccurrences(of: "/", with: "_")

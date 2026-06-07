@@ -81,6 +81,12 @@ describe('sanitizeLocationSegments', () => {
   test('null → []', () => expect(sanitizeLocationSegments(null)).toEqual([]));
   test('trims and drops empties', () =>
     expect(sanitizeLocationSegments([' A ', '', '  ', 'B'])).toEqual(['A', 'B']));
+  test('trims newlines/CR/tabs (JS trim() semantics — Swift parity)', () =>
+    expect(sanitizeLocationSegments(['Paris\n', '\tKyoto', 'Var\r\n'])).toEqual([
+      'Paris',
+      'Kyoto',
+      'Var',
+    ]));
   test('replaces both slash kinds with underscore', () =>
     expect(sanitizeLocationSegments(['a/b', 'c\\d'])).toEqual(['a_b', 'c_d']));
   test('drops path-traversal tokens (., .., leading dot) per segment', () =>
