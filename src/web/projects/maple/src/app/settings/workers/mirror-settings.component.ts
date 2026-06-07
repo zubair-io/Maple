@@ -7,10 +7,16 @@
 // GET/PUT /api/folders/:id/mirror, POST /api/mirror/test, GET /api/mirror/status,
 // POST /api/mirror/retry-dead.
 
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { BunApiBackendService, type ApiFolder } from '@maple-common';
-import { SettingsIconComponent } from '../settings-icon.component';
 
 interface MirrorForm {
   path: string;
@@ -22,7 +28,7 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 @Component({
   selector: 'maple-mirror-settings',
   standalone: true,
-  imports: [SettingsIconComponent],
+  imports: [],
   templateUrl: './mirror-settings.component.html',
   styleUrl: './mirror-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -33,6 +39,17 @@ export class MirrorSettingsComponent implements OnInit {
   protected readonly libraries = signal<ApiFolder[]>([]);
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
+
+  /** True once at least one library has an enabled mirror with a path. */
+  protected readonly mirrorActive = computed(() =>
+    Object.values(this.forms()).some((m) => m.enabled && m.path.trim().length > 0),
+  );
+  protected statusLabel(): string {
+    return this.mirrorActive() ? 'Active' : 'Not configured';
+  }
+  protected statusColor(): string {
+    return this.mirrorActive() ? 'var(--s-ok)' : 'var(--s-text-dim)';
+  }
 
   /** Per-library editable form (one mirror per library in this UI). */
   protected readonly forms = signal<Record<string, MirrorForm>>({});
