@@ -20,6 +20,9 @@ use wasm_bindgen::prelude::*;
 
 pub mod auto_tone;
 
+#[cfg(feature = "gpu")]
+pub mod gpu;
+
 // Re-export wasm-bindgen-rayon's `initThreadPool` when the `parallel` feature
 // is enabled. JS imports it as `initThreadPool` from the generated bindings.
 #[cfg(all(target_arch = "wasm32", feature = "parallel"))]
