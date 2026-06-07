@@ -34,6 +34,9 @@ pub mod stages;
 
 pub mod view;
 
+#[cfg(feature = "gpu")]
+pub mod gpu;
+
 pub mod synthetic_input;
 
 pub mod png;
