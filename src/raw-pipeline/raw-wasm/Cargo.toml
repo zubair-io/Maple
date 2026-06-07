@@ -3,7 +3,10 @@ name = "raw-wasm"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+# NOTE: literal (not `license.workspace = true`) — wasm-pack's manifest parser
+# rejects a workspace-inherited `license`, which aborts the WASM build before it
+# starts. Keep in sync with `[workspace.package] license` in ../Cargo.toml (#984).
+license = "Proprietary"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
