@@ -3,7 +3,7 @@
   align-items: center;
   height: 44px;
   padding: 0 16px;
-  background: var(--mpl-bg, #1c1917);
+  background: var(--color-bg);
   color: var(--mpl-text-main, #e8e6e3);
   gap: 8px;
 }
@@ -12,7 +12,7 @@
   font-family: var(--font-mono, 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace);
   font-size: 12px;
   font-weight: 400;
-  color: var(--mpl-text-muted, #a8a29e);
+  color: var(--color-text-muted);
   margin: 0;
   flex: 1;
   text-align: center;
@@ -43,7 +43,7 @@
   }
 
   &:disabled {
-    color: var(--mpl-text-muted, #a8a29e);
+    color: var(--color-text-muted);
     cursor: not-allowed;
   }
 }

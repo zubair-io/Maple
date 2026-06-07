@@ -1,7 +1,7 @@
 :host {
   display: block;
   height: 32px;
-  background: var(--mpl-bg, #1c1917);
+  background: var(--color-bg);
 }
 
 .tabs {
@@ -20,7 +20,7 @@
   justify-content: center;
   gap: 4px;
   cursor: pointer;
-  color: var(--mpl-text-muted, #a8a29e);
+  color: var(--color-text-muted);
   font-size: 12px;
   font-weight: 400;
   transition: color var(--motion-group-swap-ms, 120ms) ease-in-out;
