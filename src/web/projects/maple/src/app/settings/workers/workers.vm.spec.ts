@@ -317,5 +317,3 @@ describe('formatDate', () => {
     expect(new Date(out).getTime()).toBe(new Date(iso).getTime());
   });
 });
-
-
