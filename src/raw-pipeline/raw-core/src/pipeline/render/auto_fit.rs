@@ -13,29 +13,74 @@ use crate::xmp::AdjustmentModel;
 
 use super::RawInput;
 
+/// Build the [`AdjustmentModel`] the fit develop runs with — a clone of the
+/// caller's model that (a) pins `auto_exposure: Off` and (b) zeroes the
+/// high-frequency stages that don't move the fit target (#972).
+///
+/// `auto_exposure: Off` is the existing #871 split: the fitted tail owns the
+/// whole scene→JPEG brightness mapping, so AE is disabled for the develop and
+/// the AE split governs exposure only (`agx` still runs the caller's ORIGINAL
+/// `model.contrast` — see [`develop_display_for_auto_fit`]).
+///
+/// The four zeroed fields are noise reduction (`nr_color`, `nr_luminance`) and
+/// sharpening (`sharpen_amount`, `capture_sharpening_amount`). The fit samples a
+/// GLOBAL per-channel tone curve (#550) and a LOW-FREQUENCY color residual LUT
+/// (#924) — both averaged over the downscaled ~2048px embedded JPEG and a
+/// matching downscale of this develop. NR and sharpening are HIGH-frequency,
+/// detail-scale ops; they don't meaningfully move a global curve or a low-freq
+/// residual, but the default model runs `nr_color`@25 (~8.5 s) and
+/// `sharpen`@40 (~0.8 s) on the full-res buffer purely to be averaged away.
+/// Zeroing them removes that redundant cold-open cost. Each stage early-exits at
+/// `amount.abs() < 1e-3` (NR / sharpen) or `amount <= 0.0`
+/// (`capture_sharpening_params_from_model`), so `0.0` is BIT-EXACT equivalent to
+/// the stage being absent — no partial-blend approximation.
+///
+/// ⚠️ This is a DELIBERATE, near-zero divergence from the CPU/WASM render path.
+/// `render_from_raw_with_quality_and_source` develops with the FULL model and
+/// fits via [`auto_profile::apply_auto_profile`] against that NR/sharpened
+/// buffer; the GPU-host fit entries here now fit against an NR/sharpen-free
+/// buffer. Before #972 the two fit inputs were byte-identical (both AE-off, both
+/// full NR/sharpen), so the fitted curve/residual matched exactly. After #972 a
+/// GPU (Apple Metal) Auto render's baked tail can differ marginally from the
+/// CPU/CLI render's tail. Expected magnitude is near zero (high-freq ops vs a
+/// global + low-freq fit target), but it is a real new divergence and is NOT
+/// covered by `test_color_pipeline.sh`: maple-cli renders via
+/// `apply_auto_profile` and never calls this function, so that harness can't see
+/// this change even with fixtures. The owner must validate the GPU path via the
+/// Apple visual harness (`SliderMatrixUITests`) with real fixtures before merge.
+fn fit_develop_model(model: &AdjustmentModel) -> AdjustmentModel {
+    AdjustmentModel {
+        auto_exposure: AutoExposureMode::Off,
+        // High-frequency stages the fit averages away (#972) — zeroed so they
+        // early-exit (bit-exact no-op) instead of running on the full-res buffer.
+        nr_color: 0.0,
+        nr_luminance: 0.0,
+        sharpen_amount: 0.0,
+        capture_sharpening_amount: 0.0,
+        ..model.clone()
+    }
+}
+
 /// Develop a RAW through the EXACT Auto Profile fit prefix and return the
 /// `DisplayEncodedSrgb` buffer the curve / residual LUT fits sample against.
 ///
 /// Shared by [`fit_profile_curve_from_raw`] (curve-only, the shipped #812 FFI)
 /// and [`fit_auto_profile_from_raw`] (curve + residual, #924) so the two GPU
-/// fit entries can never drift. Reproduces the render path's prefix verbatim:
-///   * `auto_exposure: Off` for the develop, so the fitted tail owns the whole
-///     scene→JPEG brightness mapping (see the render entry's long comment and
-///     #871);
+/// fit entries can never drift FROM EACH OTHER. Prefix:
+///   * the fit develop model from [`fit_develop_model`] — `auto_exposure: Off`
+///     (#871) plus the four high-frequency stages zeroed (#972); see that fn for
+///     the rationale and the deliberate CPU↔GPU fit divergence it introduces;
 ///   * the shared scene-linear develop chain;
-///   * `agx` (with the caller's ORIGINAL `model.contrast`, NOT the AE-off clone
-///     — the AE split governs exposure only), then `rec2020→srgb` primaries,
-///     then `srgb` gamma encode. The fit lives in `DisplayEncodedSrgb` — the
-///     buffer state on return.
+///   * `agx` (with the caller's ORIGINAL `model.contrast`, NOT the fit clone —
+///     the AE split governs exposure only), then `rec2020→srgb` primaries, then
+///     `srgb` gamma encode. The fit lives in `DisplayEncodedSrgb` — the buffer
+///     state on return.
 fn develop_display_for_auto_fit(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
 ) -> Result<Image> {
-    let auto_model = AdjustmentModel {
-        auto_exposure: AutoExposureMode::Off,
-        ..model.clone()
-    };
+    let auto_model = fit_develop_model(model);
     let mut scene = develop_scene_linear_from_raw_with_quality(raw, &auto_model, quality)?;
     stage("agx", || agx::apply(&mut scene, model.contrast));
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
@@ -229,4 +274,72 @@ pub fn fit_auto_profile_from_raw(
         return None;
     }
     Some((curve, residual))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `fit_develop_model` (#972) MUST zero exactly the four high-frequency
+    /// stages the fit averages away, pin `auto_exposure: Off` (#871), and leave
+    /// every other field — including the OTHER sharpen params — untouched. This
+    /// is the only automated coverage for the change: maple-cli renders via
+    /// `apply_auto_profile` (full NR/sharpen) and never calls the fit develop,
+    /// so `test_color_pipeline.sh` cannot see it. We assert on the pure helper
+    /// rather than fitting a RAW two ways — the GPU and CPU fits share
+    /// `auto_profile::cache`, so a both-ways curve-equality test would have the
+    /// second caller reuse the first's cached fit and silently pass.
+    #[test]
+    fn fit_develop_model_zeroes_high_freq_and_preserves_rest() {
+        // Start from a model whose every relevant field is deliberately
+        // NON-default and non-zero, so a missing copy can't masquerade as a
+        // correct zero/passthrough.
+        let model = AdjustmentModel {
+            auto_exposure: AutoExposureMode::On,
+            // The four fields that must be forced to 0.0.
+            nr_color: 25.0,
+            nr_luminance: 17.0,
+            sharpen_amount: 40.0,
+            capture_sharpening_amount: 65.0,
+            // Fields that must survive verbatim, incl. the OTHER sharpen knobs
+            // (only `sharpen_amount` / `capture_sharpening_amount` are zeroed).
+            sharpen_radius: 1.3,
+            sharpen_detail: 30.0,
+            sharpen_masking: 12.0,
+            capture_sharpening_sigma: 1.2,
+            contrast: 22.0,
+            exposure: 1.5,
+            temperature: 5200.0,
+            tint: -8.0,
+            profile: Profile::Auto,
+            ..AdjustmentModel::default()
+        };
+
+        let fit = fit_develop_model(&model);
+
+        // (a) The four high-frequency stages are zeroed → each early-exits as a
+        //     bit-exact no-op (see `fit_develop_model` doc + stage guards).
+        assert_eq!(fit.nr_color, 0.0, "nr_color must be zeroed for the fit");
+        assert_eq!(fit.nr_luminance, 0.0, "nr_luminance must be zeroed for the fit");
+        assert_eq!(fit.sharpen_amount, 0.0, "sharpen_amount must be zeroed for the fit");
+        assert_eq!(
+            fit.capture_sharpening_amount, 0.0,
+            "capture_sharpening_amount must be zeroed for the fit"
+        );
+
+        // (b) Auto-exposure is pinned Off (the #871 split, unchanged by #972).
+        assert_eq!(fit.auto_exposure, AutoExposureMode::Off);
+
+        // (c) Everything else is passed through verbatim — especially the OTHER
+        //     sharpen params, which #972 must NOT touch.
+        assert_eq!(fit.sharpen_radius, 1.3);
+        assert_eq!(fit.sharpen_detail, 30.0);
+        assert_eq!(fit.sharpen_masking, 12.0);
+        assert_eq!(fit.capture_sharpening_sigma, 1.2);
+        assert_eq!(fit.contrast, 22.0);
+        assert_eq!(fit.exposure, 1.5);
+        assert_eq!(fit.temperature, 5200.0);
+        assert_eq!(fit.tint, -8.0);
+        assert_eq!(fit.profile, Profile::Auto);
+    }
 }
