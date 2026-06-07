@@ -12,43 +12,36 @@
  *   - GET /api/jobs?status= filters
  */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "bun:test";
-import { Elysia } from "elysia";
-import { MongoClient } from "mongodb";
-import { signAccessToken } from "../src/auth/tokens.ts";
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
+import { Elysia } from 'elysia';
+import { MongoClient } from 'mongodb';
+import { signAccessToken } from '../src/auth/tokens.ts';
 
 // JWT bootstrap MUST run before any module that touches `requireAuth`.
-process.env.MAPLE_JWT_SECRET = "x".repeat(32);
+process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 
 const SECRET = process.env.MAPLE_JWT_SECRET!;
 const BEARER =
-  "Bearer " +
-  signAccessToken(
+  'Bearer ' +
+  (await signAccessToken(
     {
-      sub: "00000000000000000000000a",
-      email: "tester@maple.local",
-      role: "owner",
+      sub: '00000000000000000000000a',
+      email: 'tester@maple.local',
+      role: 'owner',
     },
     SECRET,
-  );
+  ));
 
 const TEST_DB = `maple_test_jobs_route_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 process.env.MAPLE_MONGO_DB = TEST_DB;
-const MONGO_URI = process.env.MAPLE_MONGO_URI ?? "mongodb://localhost:27017";
+const MONGO_URI = process.env.MAPLE_MONGO_URI ?? 'mongodb://localhost:27017';
 
 let mongo: MongoClient | null = null;
 let mongoReachable = false;
 
 function fmtAuth(): Record<string, string> {
-  return { Authorization: BEARER, "Content-Type": "application/json" };
+  return { Authorization: BEARER, 'Content-Type': 'application/json' };
 }
 
 async function tryConnect(): Promise<MongoClient | null> {
@@ -58,7 +51,7 @@ async function tryConnect(): Promise<MongoClient | null> {
   });
   try {
     await c.connect();
-    await c.db("admin").command({ ping: 1 });
+    await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
     try {
@@ -72,20 +65,17 @@ beforeAll(async () => {
   mongo = await tryConnect();
   mongoReachable = mongo !== null;
   if (!mongoReachable) {
-    console.log(
-      "[jobs-route.test] skipping: MongoDB unreachable at",
-      MONGO_URI,
-    );
+    console.log('[jobs-route.test] skipping: MongoDB unreachable at', MONGO_URI);
     return;
   }
   await mongo!.db(TEST_DB).dropDatabase();
-  const { closeDb } = await import("../src/db/client.ts");
+  const { closeDb } = await import('../src/db/client.ts');
   await closeDb();
 });
 
 beforeEach(async () => {
   if (!mongoReachable) return;
-  await mongo!.db(TEST_DB).collection("jobs").deleteMany({});
+  await mongo!.db(TEST_DB).collection('jobs').deleteMany({});
 });
 
 afterAll(async () => {
@@ -98,74 +88,74 @@ afterAll(async () => {
     } catch {}
   }
   try {
-    const { closeDb } = await import("../src/db/client.ts");
+    const { closeDb } = await import('../src/db/client.ts');
     await closeDb();
   } catch {}
   if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
   else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
 });
 
-describe("/api/jobs", () => {
-  it("requires a bearer", async () => {
+describe('/api/jobs', () => {
+  it('requires a bearer', async () => {
     if (!mongoReachable) return;
-    const { jobsRoutes } = await import("../src/routes/jobs.ts");
-    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const { jobsRoutes } = await import('../src/routes/jobs.ts');
+    const { requireAuth } = await import('../src/auth/middleware.ts');
     const app = new Elysia().use(requireAuth).use(jobsRoutes);
-    const r = await app.handle(new Request("http://localhost/api/jobs"));
+    const r = await app.handle(new Request('http://localhost/api/jobs'));
     expect(r.status).toBe(401);
   });
 
-  it("POST /api/jobs creates a queued job and returns id", async () => {
+  it('POST /api/jobs creates a queued job and returns id', async () => {
     if (!mongoReachable) return;
-    const { jobsRoutes } = await import("../src/routes/jobs.ts");
-    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const { jobsRoutes } = await import('../src/routes/jobs.ts');
+    const { requireAuth } = await import('../src/auth/middleware.ts');
     const app = new Elysia().use(requireAuth).use(jobsRoutes);
 
     const r = await app.handle(
-      new Request("http://localhost/api/jobs", {
-        method: "POST",
+      new Request('http://localhost/api/jobs', {
+        method: 'POST',
         headers: fmtAuth(),
         body: JSON.stringify({
-          kind: "batch_jpeg_export",
-          payload: { assetIds: [], outputDir: "/tmp", quality: 82 },
+          kind: 'batch_jpeg_export',
+          payload: { assetIds: [], outputDir: '/tmp', quality: 82 },
         }),
       }),
     );
     expect(r.status).toBe(201);
     const body = (await r.json()) as { id: string };
-    expect(typeof body.id).toBe("string");
+    expect(typeof body.id).toBe('string');
     expect(body.id.length).toBe(24);
   });
 
-  it("POST /api/jobs rejects unknown kinds", async () => {
+  it('POST /api/jobs rejects unknown kinds', async () => {
     if (!mongoReachable) return;
-    const { jobsRoutes } = await import("../src/routes/jobs.ts");
-    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const { jobsRoutes } = await import('../src/routes/jobs.ts');
+    const { requireAuth } = await import('../src/auth/middleware.ts');
     const app = new Elysia().use(requireAuth).use(jobsRoutes);
 
     const r = await app.handle(
-      new Request("http://localhost/api/jobs", {
-        method: "POST",
+      new Request('http://localhost/api/jobs', {
+        method: 'POST',
         headers: fmtAuth(),
-        body: JSON.stringify({ kind: "no_such_kind", payload: {} }),
+        body: JSON.stringify({ kind: 'no_such_kind', payload: {} }),
       }),
     );
     expect(r.status).toBe(400);
   });
 
-  it("GET /api/jobs/:id returns the doc; 404 on unknown", async () => {
+  it('GET /api/jobs/:id returns the doc; 404 on unknown', async () => {
     if (!mongoReachable) return;
-    const { jobsRoutes } = await import("../src/routes/jobs.ts");
-    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const { jobsRoutes } = await import('../src/routes/jobs.ts');
+    const { requireAuth } = await import('../src/auth/middleware.ts');
     const app = new Elysia().use(requireAuth).use(jobsRoutes);
 
     const post = await app.handle(
-      new Request("http://localhost/api/jobs", {
-        method: "POST",
+      new Request('http://localhost/api/jobs', {
+        method: 'POST',
         headers: fmtAuth(),
         body: JSON.stringify({
-          kind: "batch_jpeg_export",
-          payload: { assetIds: [], outputDir: "/tmp", quality: 82 },
+          kind: 'batch_jpeg_export',
+          payload: { assetIds: [], outputDir: '/tmp', quality: 82 },
         }),
       }),
     );
@@ -182,31 +172,31 @@ describe("/api/jobs", () => {
       progress: { current: number; total: number };
     };
     expect(body.id).toBe(id);
-    expect(body.status).toBe("queued");
+    expect(body.status).toBe('queued');
     expect(body.cancel_requested).toBe(false);
     expect(body.progress).toEqual({ current: 0, total: 0 });
 
     const miss = await app.handle(
-      new Request("http://localhost/api/jobs/000000000000000000000000", {
+      new Request('http://localhost/api/jobs/000000000000000000000000', {
         headers: fmtAuth(),
       }),
     );
     expect(miss.status).toBe(404);
   });
 
-  it("POST /api/jobs/:id/cancel flips cancel_requested", async () => {
+  it('POST /api/jobs/:id/cancel flips cancel_requested', async () => {
     if (!mongoReachable) return;
-    const { jobsRoutes } = await import("../src/routes/jobs.ts");
-    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const { jobsRoutes } = await import('../src/routes/jobs.ts');
+    const { requireAuth } = await import('../src/auth/middleware.ts');
     const app = new Elysia().use(requireAuth).use(jobsRoutes);
 
     const post = await app.handle(
-      new Request("http://localhost/api/jobs", {
-        method: "POST",
+      new Request('http://localhost/api/jobs', {
+        method: 'POST',
         headers: fmtAuth(),
         body: JSON.stringify({
-          kind: "batch_jpeg_export",
-          payload: { assetIds: [], outputDir: "/tmp", quality: 82 },
+          kind: 'batch_jpeg_export',
+          payload: { assetIds: [], outputDir: '/tmp', quality: 82 },
         }),
       }),
     );
@@ -214,7 +204,7 @@ describe("/api/jobs", () => {
 
     const cancel = await app.handle(
       new Request(`http://localhost/api/jobs/${id}/cancel`, {
-        method: "POST",
+        method: 'POST',
         headers: fmtAuth(),
       }),
     );
@@ -226,38 +216,37 @@ describe("/api/jobs", () => {
     expect(body.cancel_requested).toBe(true);
   });
 
-  it("GET /api/jobs?status= filters by status", async () => {
+  it('GET /api/jobs?status= filters by status', async () => {
     if (!mongoReachable) return;
-    const { jobsRoutes } = await import("../src/routes/jobs.ts");
-    const { requireAuth } = await import("../src/auth/middleware.ts");
+    const { jobsRoutes } = await import('../src/routes/jobs.ts');
+    const { requireAuth } = await import('../src/auth/middleware.ts');
     const app = new Elysia().use(requireAuth).use(jobsRoutes);
 
     // Create three queued jobs.
     for (let i = 0; i < 3; i++) {
       await app.handle(
-        new Request("http://localhost/api/jobs", {
-          method: "POST",
+        new Request('http://localhost/api/jobs', {
+          method: 'POST',
           headers: fmtAuth(),
           body: JSON.stringify({
-            kind: "batch_jpeg_export",
-            payload: { assetIds: [], outputDir: "/tmp", quality: 82 },
+            kind: 'batch_jpeg_export',
+            payload: { assetIds: [], outputDir: '/tmp', quality: 82 },
           }),
         }),
       );
     }
 
     const list = await app.handle(
-      new Request(
-        "http://localhost/api/jobs?status=queued&kind=batch_jpeg_export&limit=10",
-        { headers: fmtAuth() },
-      ),
+      new Request('http://localhost/api/jobs?status=queued&kind=batch_jpeg_export&limit=10', {
+        headers: fmtAuth(),
+      }),
     );
     expect(list.status).toBe(200);
     const body = (await list.json()) as { jobs: unknown[] };
     expect(body.jobs.length).toBe(3);
 
     const empty = await app.handle(
-      new Request("http://localhost/api/jobs?status=done", {
+      new Request('http://localhost/api/jobs?status=done', {
         headers: fmtAuth(),
       }),
     );

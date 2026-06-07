@@ -196,7 +196,7 @@ describe('auth lifecycle e2e (#852 stack)', () => {
       created_at: new Date().toISOString(),
       last_seen_at: null,
     });
-    const bearer = signAccessToken(
+    const bearer = await signAccessToken(
       { sub: ins.insertedId.toHexString(), email, role: 'owner' },
       process.env.MAPLE_JWT_SECRET!,
     );
@@ -249,7 +249,7 @@ describe('auth lifecycle e2e (#852 stack)', () => {
 
   it('PhotoKit-backup routes reject anonymous requests and pass auth with a bearer (#853 gate)', async () => {
     const LIB = new ObjectId().toHexString();
-    const bearer = signAccessToken(
+    const bearer = await signAccessToken(
       { sub: '0'.repeat(24), email: 'svc@maple.test', role: 'owner' },
       process.env.MAPLE_JWT_SECRET!,
     );

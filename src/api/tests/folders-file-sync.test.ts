@@ -10,10 +10,10 @@ import { listDirContents } from '../src/fs/browse.ts';
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
 const BEARER =
   'Bearer ' +
-  signAccessToken(
+  (await signAccessToken(
     { sub: '00000000000000000000000a', email: 'tester@maple.local', role: 'owner' },
     process.env.MAPLE_JWT_SECRET!,
-  );
+  ));
 
 const TEST_DB = `maple_test_file_sync_${process.pid}`;
 const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
