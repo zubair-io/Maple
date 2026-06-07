@@ -67,7 +67,9 @@ export class TimelineRegisterMonthDirective implements OnInit {
   }
 }
 
-const PAGE_SIZE = 200;
+// Per-month fetch page size. Matches the server's `/api/search` limit cap so a
+// month loads in the fewest round-trips (one request per 500 photos).
+const PAGE_SIZE = 500;
 
 const MONTH_NAMES = [
   'January',
