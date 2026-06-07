@@ -33,7 +33,9 @@ export class DamagedPanelService {
       next: (res) =>
         this.drawer.update((cur) => (cur ? { ...cur, items: res.items, loading: false } : cur)),
       error: (err) =>
-        this.drawer.update((cur) => (cur ? { ...cur, loading: false, error: errorMessage(err) } : cur)),
+        this.drawer.update((cur) =>
+          cur ? { ...cur, loading: false, error: errorMessage(err) } : cur,
+        ),
     });
   }
 

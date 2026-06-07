@@ -418,8 +418,6 @@ describe('bulkFailureLabel', () => {
   });
 });
 
-
-
 // ── Virtual-scroll row packing ──────────────────────────────────────────────
 //
 // These helpers drive the `cdk-virtual-scroll-viewport` windowing on the
