@@ -4,9 +4,11 @@
 // the Apple `Tool` enum + `ToolValueMapping` in
 // `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/EditorState.swift`.
 //
-// Stub tools (HSL/Vignette/Grain/SplitTone/Crop/Presets) ship without a
-// wired AdjustmentModel field in v0.1 — they render in the pill row but
-// reject writes. Follow-up tickets expand AdjustmentModel.
+// Stub tools (HSL/Vignette/Grain/SplitTone/Crop/Presets) render in the pill
+// row but reject writes (see STUB_TOOLS). HSL/Crop/Presets have no
+// AdjustmentModel field; Vignette/Grain/SplitTone have fields but no pipeline
+// apply code yet (#952), so they are gated identically. Follow-up tickets
+// land the math and re-wire them.
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import { ADJUSTMENT_RANGES, defaultGeneratedAdjustmentModel } from '../models/adjustment-model';
@@ -89,10 +91,13 @@ export function groupOf(tool: ToolId): ToolGroup {
   throw new Error(`unknown tool: ${tool}`);
 }
 
-// Per #643: vignette / grain / splitTone gained AdjustmentModel fields and
-// are no longer stubs. HSL (#636), Crop (#638), Presets (#639) remain
-// stubs pending their own specs.
-const STUB_TOOLS = new Set<ToolId>(['hsl', 'crop', 'presets']);
+// vignette / grain / splitTone have AdjustmentModel *fields* (added at #643)
+// but no *apply* code in any pipeline (raw-core, Apple Metal, WebGL) — they
+// were live drag-bars that wrote XMP for a silent no-op (#952). Gated back to
+// stubs until their pipeline math lands; re-wire when #664 (vignette) / #665
+// (grain) / #666 (split-tone) deliver the effects. HSL (#636), Crop (#638),
+// Presets (#639) remain stubs pending their own specs.
+const STUB_TOOLS = new Set<ToolId>(['hsl', 'vignette', 'grain', 'splitTone', 'crop', 'presets']);
 
 export function isWired(tool: ToolId): boolean {
   return !STUB_TOOLS.has(tool);
@@ -120,10 +125,12 @@ const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   sharpen: ADJUSTMENT_RANGES.sharpenAmount,
   noise: ADJUSTMENT_RANGES.nrLuminance,
   colorNR: ADJUSTMENT_RANGES.nrColor,
-  // S5 effects (#643) — drag-bar primary scalars.
-  vignette: ADJUSTMENT_RANGES.vignetteAmount,
-  grain: ADJUSTMENT_RANGES.grainAmount,
-  splitTone: ADJUSTMENT_RANGES.splitToneBalance,
+  // vignette / grain / splitTone have no entry on purpose: they are gated
+  // stubs (#952), identical to hsl / crop / presets. With no range, both
+  // `displayRange` (→ null) and the value mapping (→ identity, so the chip
+  // reads 0) treat them as inert — no misleading midpoint value surfaces.
+  // To re-wire (#664 / #665 / #666): add the `ADJUSTMENT_RANGES.*` entry
+  // back here AND restore the one-sided mapping arm (grain is 0..100).
 };
 
 export function displayRange(tool: ToolId): readonly [number, number] | null {
@@ -139,7 +146,7 @@ export function displayValueFromInternal(tool: ToolId, v: number): number {
   if (tool === 'sharpen') {
     return v >= 0 ? 40 + (v / 100) * (150 - 40) : 40 + (v / 100) * 40;
   }
-  if (tool === 'noise' || tool === 'colorNR' || tool === 'grain') {
+  if (tool === 'noise' || tool === 'colorNR') {
     const [lo, hi] = r;
     return lo + ((v + 100) / 200) * (hi - lo);
   }
@@ -155,7 +162,7 @@ export function internalValueFromDisplay(tool: ToolId, d: number): number {
   if (tool === 'sharpen') {
     return d >= 40 ? ((d - 40) / (150 - 40)) * 100 : ((d - 40) / 40) * 100;
   }
-  if (tool === 'noise' || tool === 'colorNR' || tool === 'grain') {
+  if (tool === 'noise' || tool === 'colorNR') {
     const [lo, hi] = r;
     return ((d - lo) / (hi - lo)) * 200 - 100;
   }
@@ -197,13 +204,11 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
       return 'nrLuminance';
     case 'colorNR':
       return 'nrColor';
-    // S5 effects (#643) — drag-bar primary scalars.
-    case 'vignette':
-      return 'vignetteAmount';
-    case 'grain':
-      return 'grainAmount';
-    case 'splitTone':
-      return 'splitToneBalance';
+    // vignette / grain / splitTone are gated stubs (#952) — no apply code
+    // exists yet (#664 / #665 / #666). Return null so no XMP field is
+    // written and no modified-dot fires, matching hsl / crop / presets.
+    // The vignetteAmount / grainAmount / splitToneBalance schema fields
+    // still round-trip via passthrough; this only stops new edits.
     default:
       return null;
   }
