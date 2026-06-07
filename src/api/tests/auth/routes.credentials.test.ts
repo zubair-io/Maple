@@ -3,14 +3,17 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { authRoutes } from '../../src/routes/auth.ts';
-import { signAccessToken } from '../../src/auth/tokens.ts';
+import { accountRoutes } from '../../src/routes/auth-account.ts';
+import { signAccessToken, signStepUpToken } from '../../src/auth/tokens.ts';
 import { credentialsCollection, usersCollection } from '../../src/db/client.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
-const app = new Elysia().use(authRoutes);
+// /me + /credentials live in accountRoutes (#861 extraction); mount both.
+const app = new Elysia().use(authRoutes).use(accountRoutes);
 
 let userId: ObjectId;
 let jwt: string;
+let stepUp: string;
 
 beforeEach(async () => {
   await (await usersCollection()).deleteMany({});
@@ -28,6 +31,8 @@ beforeEach(async () => {
     { sub: userId.toHexString(), email: 'u@m.c', role: 'member' },
     'x'.repeat(32),
   );
+  // #861: removing a credential is sensitive — needs a fresh step-up token.
+  stepUp = await signStepUpToken(userId.toHexString(), 'x'.repeat(32));
 });
 
 describe('credentials', () => {
@@ -47,7 +52,7 @@ describe('credentials', () => {
     const r = await app.handle(
       new Request(`http://localhost/api/auth/credentials/${credIns.insertedId.toHexString()}`, {
         method: 'DELETE',
-        headers: { authorization: `Bearer ${jwt}` },
+        headers: { authorization: `Bearer ${jwt}`, 'x-step-up': stepUp },
       }),
     );
     expect(r.status).toBe(409);
@@ -81,7 +86,7 @@ describe('credentials', () => {
     const r = await app.handle(
       new Request(`http://localhost/api/auth/credentials/${a.insertedId.toHexString()}`, {
         method: 'DELETE',
-        headers: { authorization: `Bearer ${jwt}` },
+        headers: { authorization: `Bearer ${jwt}`, 'x-step-up': stepUp },
       }),
     );
     expect(r.status).toBe(204);

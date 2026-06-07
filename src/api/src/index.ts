@@ -49,6 +49,7 @@ import { xmpPathRoutes } from './routes/xmp.ts';
 import { eventsRoutes } from './routes/events.ts';
 import { authRoutes } from './routes/auth.ts';
 import { nativeCodeRedeemRoutes, nativeCodeIssueRoutes } from './routes/auth-native-code.ts';
+import { accountRoutes } from './routes/auth-account.ts';
 import { fsRoutes } from './routes/fs.ts';
 import { fsThumbsRoutes } from './routes/fs-thumbs.ts';
 import { searchRoutes } from './routes/search.ts';
@@ -208,6 +209,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
     // Native PKCE code issue (authed) — wrapped in its own sub-app so its
     // `requireAuth` scoped-derive stays contained (same isolation as authedApi).
     .use(new Elysia({ name: 'authedNativeCode' }).use(nativeCodeIssueRoutes))
+
+    // Authenticated account self-service (#861): /me, step-up re-auth, credential
+    // management. Wrapped so its `requireAuth` scoped-derive stays contained.
+    .use(new Elysia({ name: 'authedAccount' }).use(accountRoutes))
 
     // OpenAPI spec + Scalar docs UI. Source-of-truth for HTTP DTOs that
     // web + apple clients codegen from (issue #131). Mounted outside the
