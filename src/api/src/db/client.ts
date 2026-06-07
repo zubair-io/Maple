@@ -1142,6 +1142,9 @@ export async function ensureIndexes(): Promise<void> {
   await refresh.createIndex({ token_hash: 1 }, { unique: true });
   await refresh.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
   await refresh.createIndex({ user_id: 1 });
+  // Rotation lineage (#858): family-scoped revoke + the grace re-mint's
+  // family-liveness lookup (`{ family_id, revoked_at: null }`) both key on this.
+  await refresh.createIndex({ family_id: 1 });
 
   const challenges = await challengesCollection();
   await challenges.createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
