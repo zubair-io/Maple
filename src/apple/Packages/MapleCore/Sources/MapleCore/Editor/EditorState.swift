@@ -90,17 +90,25 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
         }
     }
 
-    /// True when this tool is wired to an `AdjustmentModel` field. The
-    /// remaining "v0.1 stub" tools render in the pill row but route to
-    /// "Coming soon" — follow-up tickets track field additions.
+    /// True when this tool is wired to a *pipeline-applied*
+    /// `AdjustmentModel` field. Stub tools render in the pill row but
+    /// reject writes (the scrub guards in `setArmedDisplayValue` /
+    /// `resetArmedTool` short-circuit on `!isWired`) — follow-up tickets
+    /// track the missing work.
     ///
-    /// Per #643: vignette / grain / splitTone are now wired to the
-    /// canonical drag-bar fields (`vignetteAmount`, `grainAmount`,
-    /// `splitToneBalance`). HSL (#636), Crop (#638), and Presets (#639)
-    /// remain stubs pending their own specs.
+    /// vignette / grain / splitTone have AdjustmentModel *fields* (added
+    /// at #643) but no *apply* code in any pipeline (raw-core, Apple
+    /// Metal, WebGL) — they were live drag-bars that wrote XMP for a
+    /// silent no-op (#952). Gated back to stubs until their pipeline math
+    /// lands; re-wire when #664 (vignette) / #665 (grain) / #666
+    /// (split-tone) deliver the effects. The `vignetteAmount` /
+    /// `grainAmount` / `splitToneBalance` fields still round-trip via
+    /// passthrough; this only stops the UI creating new no-op edits.
+    /// HSL (#636), Crop (#638), and Presets (#639) remain stubs pending
+    /// their own specs.
     public var isWired: Bool {
         switch self {
-        case .hsl, .crop, .presets:
+        case .hsl, .vignette, .grain, .splitTone, .crop, .presets:
             return false
         default:
             return true
@@ -137,9 +145,10 @@ public enum ToolValueMapping {
         // narrow 0.5..2.0 px band centred on its 1.0 default.
         case .captureSharpen: return 0...100
         case .captureSigma:   return 0.5...2.0
-        // S5 effects (#643): drag-bar primaries — symmetric ±100 around
-        // 0 for vignette amount / split-tone balance, one-sided 0..100
-        // for grain amount.
+        // vignette / grain / splitTone are gated stubs (#952) — these
+        // ranges are inert (`isWired` is false, so the scrub paths never
+        // reach `apply`) and exist only to be reused verbatim when #664 /
+        // #665 / #666 re-wire them.
         case .vignette: return -100...100
         case .grain:    return 0...100
         case .splitTone: return -100...100
@@ -222,7 +231,10 @@ public enum ToolValueMapping {
         // Capture sharpening (#271) — relocated from the Develop tab (#875).
         case .captureSharpen: return model.captureSharpeningAmount
         case .captureSigma:   return model.captureSharpeningSigma
-        // S5 effects (#643) — drag-bar primaries.
+        // vignette / grain / splitTone are gated stubs (#952). These reads
+        // are retained (not gutted to 0) so the value chip still surfaces a
+        // value already persisted in a sidecar — passthrough round-trip is
+        // preserved. A fresh asset reads 0, same as the other stubs.
         case .vignette:   return model.vignetteAmount
         case .grain:      return model.grainAmount
         case .splitTone:  return model.splitToneBalance
@@ -237,11 +249,10 @@ public enum ToolValueMapping {
     /// semantics and by the modified-dot check, so a default asset never
     /// reads as "modified".
     ///
-    /// Per #643: vignette / grain / splitTone all default to 0 on their
-    /// drag-bar primary scalars (`vignetteAmount`, `grainAmount`,
-    /// `splitToneBalance`) — the non-zero defaults on the schema
-    /// (`vignetteFeather` = 50, `grainSize` = 25, `grainRoughness` = 50)
-    /// belong to the satellite scalars, not the drag-bar field.
+    /// vignette / grain / splitTone are gated stubs (#952) and fall through
+    /// to the 0 default — `resetArmedTool` never reaches here for them (it
+    /// short-circuits on `!isWired`), so this only matters as a harmless
+    /// fallback until #664 / #665 / #666 re-wire them.
     public static func defaultDisplayValue(for tool: Tool) -> Double {
         switch tool {
         case .temp:    return 6500
@@ -276,7 +287,9 @@ public enum ToolValueMapping {
         // Capture sharpening (#271) — relocated from the Develop tab (#875).
         case .captureSharpen: model.captureSharpeningAmount = value
         case .captureSigma:   model.captureSharpeningSigma = value
-        // S5 effects (#643) — drag-bar primaries.
+        // vignette / grain / splitTone are gated stubs (#952) — unreachable
+        // (the scrub paths guard on `isWired`), kept verbatim so #664 / #665
+        // / #666 only need to flip `isWired` to re-enable the write.
         case .vignette:   model.vignetteAmount = value
         case .grain:      model.grainAmount = value
         case .splitTone:  model.splitToneBalance = value

@@ -94,26 +94,44 @@ describe('EditorStateService', () => {
     });
 
     it('rejects writes to stub tools', () => {
-      // Per #643: vignette / grain / splitTone are now wired, so the
-      // remaining stubs are HSL / Crop / Presets.
+      // The stub tools are HSL / Crop / Presets plus vignette / grain /
+      // splitTone — the latter three were re-gated at #952 because they
+      // had AdjustmentModel fields but no pipeline apply code.
       const before = { ...lib.adjustmentFor(ID)() };
       svc.armTool('crop');
       svc.setArmedDisplayValue(50);
       expect(lib.adjustmentFor(ID)()).toEqual(before);
     });
 
-    it('writes to the wired S5 effects tools (#643)', () => {
+    it('rejects writes to the gated S5 effects tools (#952)', () => {
+      // vignette / grain / splitTone present in the pill row but must not
+      // write XMP — no apply code exists yet (#664 / #665 / #666). A drag
+      // must leave the model (incl. the satellite fields) untouched.
+      const before = { ...lib.adjustmentFor(ID)() };
+
       svc.armTool('vignette');
       svc.setArmedDisplayValue(-50);
-      expect(lib.adjustmentFor(ID)().vignetteAmount).toBe(-50);
-
       svc.armTool('grain');
       svc.setArmedDisplayValue(40);
-      expect(lib.adjustmentFor(ID)().grainAmount).toBe(40);
-
       svc.armTool('splitTone');
       svc.setArmedDisplayValue(25);
-      expect(lib.adjustmentFor(ID)().splitToneBalance).toBe(25);
+
+      const after = lib.adjustmentFor(ID)();
+      expect(after).toEqual(before);
+      expect(after.vignetteAmount).toBe(0);
+      expect(after.grainAmount).toBe(0);
+      expect(after.splitToneBalance).toBe(0);
+    });
+
+    it('surfaces no misleading chip value for the gated S5 effects (#952)', () => {
+      // The value chip reads `armedDisplayValue`. Grain is nominally 0..100,
+      // so before the gate it mapped internal 0 → display 50 and the chip
+      // showed a phantom "50". Gated tools must read 0 like hsl / crop /
+      // presets — confirm all three.
+      for (const tool of ['vignette', 'grain', 'splitTone'] as const) {
+        svc.armTool(tool);
+        expect(svc.armedDisplayValue()).toBe(0);
+      }
     });
   });
 
@@ -177,14 +195,13 @@ describe('EditorStateService', () => {
       expect(TOOLS_IN_GROUP.detail.length).toBe(5);
     });
 
-    it('wires 19 of 22 tools (#643 added vignette / grain / splitTone)', () => {
+    it('wires 16 of 22 tools (#952 re-gated vignette / grain / splitTone)', () => {
       const wired = ALL_TOOLS.filter(isWired);
-      expect(wired.length).toBe(19);
-      for (const t of ['hsl', 'crop', 'presets'] as const) {
+      expect(wired.length).toBe(16);
+      // vignette / grain / splitTone have AdjustmentModel fields but no
+      // pipeline apply code, so they are stubs until #664 / #665 / #666.
+      for (const t of ['hsl', 'vignette', 'grain', 'splitTone', 'crop', 'presets'] as const) {
         expect(isWired(t)).toBe(false);
-      }
-      for (const t of ['vignette', 'grain', 'splitTone'] as const) {
-        expect(isWired(t)).toBe(true);
       }
     });
 
