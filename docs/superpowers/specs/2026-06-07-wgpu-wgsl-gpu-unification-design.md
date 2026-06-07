@@ -3,6 +3,11 @@
 - **Epic:** [#925](https://github.com/zubair-io/Maple/issues/925)
 - **Date:** 2026-06-07
 - **Status:** Approved — P0 to be built; P1–P5 planned (detail firms up after P0)
+- **Update 2026-06-07:** iOS-device validation for P0 is **folded into P1** (it
+  will be validated when P1 builds the GPU display-surface handoff that links
+  `wgpu` into the xcframework) — per maintainer decision. **P0 now closes on
+  macOS + WebGPU-browser parity**; P1 gains on-device iOS validation as an
+  acceptance item.
 - **Scope of this doc:** full epic roadmap (P0–P5) + detailed P0 spike design.
 
 ## Summary

@@ -10,6 +10,8 @@
 
 **Design doc:** `docs/superpowers/specs/2026-06-07-wgpu-wgsl-gpu-unification-design.md`
 
+**Update 2026-06-07 — iOS deferred to P1:** Per maintainer decision, the iOS-device checkpoint (the "Manual checkpoint" section near the end) is **folded into P1** — validated when P1 builds the GPU display-surface handoff that links `wgpu` into the xcframework. P0 closes on macOS (done) + the WebGPU-browser run. That section is retained as the P1 iOS-validation reference.
+
 **Workspace:** Work in the current worktree (`/Users/riabuz/Projects/_Maple/.claude/worktrees/upbeat-fermi-7dc030`, branch `claude/upbeat-fermi-7dc030`). The design doc + this plan already exist on disk uncommitted; commit them with Task 1.
 
 ---
