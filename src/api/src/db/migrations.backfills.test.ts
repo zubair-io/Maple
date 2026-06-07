@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
-import { MongoClient, type Db } from 'mongodb';
+import { MongoClient, ObjectId, type Db } from 'mongodb';
 
 const TEST_DB = `maple_test_migrations_backfills_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -117,36 +117,60 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     ).toBeUndefined();
   });
 
-  it('repair pass fixes a captured_at row whose numeric year/month is NULL (not just absent)', async () => {
+  it('repair pass fixes rows whose numeric year/month is NULL or only partially set', async () => {
     if (!mongoReachable) return;
     const { closeDb, ensureIndexes } = await import('./client.ts');
     await closeDb();
 
-    // The original backfill only targets `captured_year: {$exists:false}`, so a
-    // row whose numeric fields are present-but-NULL (e.g. a prior backfill that
-    // failed its date parse, or a stalled run) is left diverging: visible to
-    // the grid's captured_at range but absent from the numeric buckets. The
-    // repair pass (`$in: [null]` → null OR absent) must close it.
-    await db!.collection('assets').insertOne({
-      folder_id: 'f',
-      filename: 'nullyr.jpg',
-      abs_path: '/nullyr.jpg',
+    const lib = new ObjectId();
+    const base = {
       size: 1,
       mtime: 0,
       rating: 0,
       flag: 0,
       color_label: '',
       indexed_at: '2026-05-11T00:00:00Z',
-      exif: { captured_at: '2024-03-09T10:00:00.000Z', captured_year: null, captured_month: null },
-    });
+    };
+    // The original backfill only targets `captured_year: {$exists:false}`. The
+    // repair must ALSO close: (a) rows whose numeric fields are present-but-NULL
+    // (a prior failed/stalled run), and (b) rows where only ONE of year/month
+    // is set — both diverge from the grid's captured_at range. Modern `fileinfo`
+    // shape so the unrelated fileinfo backfill leaves these rows alone.
+    await db!.collection('assets').insertMany([
+      {
+        ...base,
+        maple_id: 'bothnull',
+        fileinfo: [{ library_id: lib, path: '', filename: 'a.jpg', deleted_at: null }],
+        exif: {
+          captured_at: '2024-03-09T10:00:00.000Z',
+          captured_year: null,
+          captured_month: null,
+        },
+      },
+      {
+        ...base,
+        maple_id: 'monthnull',
+        fileinfo: [{ library_id: lib, path: '', filename: 'b.jpg', deleted_at: null }],
+        exif: {
+          captured_at: '2024-07-20T10:00:00.000Z',
+          captured_year: 2024,
+          captured_month: null,
+        },
+      },
+    ] as never);
 
     await ensureIndexes();
 
-    const after = await db!.collection('assets').findOne({ filename: 'nullyr.jpg' });
-    const exif = (after as { exif?: { captured_year?: number; captured_month?: number } } | null)
-      ?.exif;
-    expect(exif?.captured_year).toBe(2024); // buckets now see it
-    expect(exif?.captured_month).toBe(3); // UTC month, matches the grid's range
+    const exifOf = async (id: string) =>
+      (await db!.collection('assets').findOne({ maple_id: id }))?.exif as
+        | { captured_year?: number; captured_month?: number }
+        | undefined;
+    // both-null → both derived (UTC) so buckets see it and match the grid range.
+    expect((await exifOf('bothnull'))?.captured_year).toBe(2024);
+    expect((await exifOf('bothnull'))?.captured_month).toBe(3);
+    // asymmetric (year set, month null) → the broadened `$or` filter catches it.
+    expect((await exifOf('monthnull'))?.captured_month).toBe(7);
+
     const { migrationApplied } = await import('./migrations.ts');
     expect(await migrationApplied(db!, 'repair-captured-year-month-2026-06-07')).toBe(true);
   });
