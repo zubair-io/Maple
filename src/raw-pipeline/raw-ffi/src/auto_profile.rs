@@ -57,6 +57,12 @@ pub unsafe extern "C" fn maple_compute_profile_lut(
     if curve.is_null() || out.is_null() {
         return -1;
     }
+    // `out` is written as `*mut f32` via `copy_nonoverlapping`, which is UB if
+    // `out` is not f32-aligned. Public C ABI — validate alignment rather than
+    // trust the caller (mirrors the histogram guard in render.rs).
+    if (out as usize) % std::mem::align_of::<f32>() != 0 {
+        return -1;
+    }
     if curve_len != PROFILE_CURVE_FLAT_LEN {
         return -1;
     }
@@ -151,6 +157,11 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
 ) -> i32 {
     use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
     if raw_path.is_null() || out.is_null() {
+        return -1;
+    }
+    // `out` is written as `*mut f32` via `copy_nonoverlapping`; reject a
+    // non-f32-aligned `out` up front (UB otherwise — see the render.rs guard).
+    if (out as usize) % std::mem::align_of::<f32>() != 0 {
         return -1;
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
@@ -278,6 +289,12 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
         bake_auto_profile_lut, bake_profile_lut, ProfileCurve, MAX_LUT_SIZE,
     };
     if raw_path.is_null() || out.is_null() {
+        return -1;
+    }
+    // `out` is written as `*mut f32` via `copy_nonoverlapping`; a non-f32-aligned
+    // `out` from a C caller would be UB. Public C ABI — validate up front and
+    // reject with -1 (mirrors the histogram guard in render.rs).
+    if (out as usize) % std::mem::align_of::<f32>() != 0 {
         return -1;
     }
     // Validate `n` and the output sizing BEFORE the multi-second develop so a
