@@ -36,7 +36,7 @@ nav.bottom-tabs {
   padding-bottom: var(--safe-area-inset-bottom);
 
   background: var(--mpl-surface, #2a2725);
-  border-top: 1px solid var(--mpl-border, #44403c);
+  border-top: 1px solid var(--color-border);
 
   transform: translateY(0);
   transition:
@@ -57,7 +57,7 @@ nav.bottom-tabs {
     gap: 2px;
 
     text-decoration: none;
-    color: var(--mpl-text-secondary, #a8a29e);
+    color: var(--color-text-muted);
     font-size: 10px;
     line-height: 12px;
     letter-spacing: 0.02em;
