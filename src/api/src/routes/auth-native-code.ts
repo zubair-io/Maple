@@ -51,7 +51,7 @@ export const nativeCodeRedeemRoutes = new Elysia().post(
       set.status = 401;
       return { error: 'user gone' };
     }
-    const access_token = signAccessToken(
+    const access_token = await signAccessToken(
       { sub: user._id.toHexString(), email: user.email, role: user.role },
       jwtSecret(),
     );

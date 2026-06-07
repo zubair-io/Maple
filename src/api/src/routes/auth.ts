@@ -78,7 +78,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       } else {
         await u.updateOne({ _id: user._id }, { $set: { last_seen_at: new Date().toISOString() } });
       }
-      const access_token = signAccessToken(
+      const access_token = await signAccessToken(
         { sub: user._id.toHexString(), email: user.email, role: user.role },
         jwtSecret(),
       );
@@ -205,7 +205,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         last_used_at: new Date().toISOString(),
       });
 
-      const access_token = signAccessToken(
+      const access_token = await signAccessToken(
         { sub: userIns.insertedId.toHexString(), email, role },
         jwtSecret(),
       );
@@ -335,7 +335,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         ),
         usersColl.updateOne({ _id: user._id }, { $set: { last_seen_at: nowIso } }),
       ]);
-      const access_token = signAccessToken(
+      const access_token = await signAccessToken(
         { sub: user._id.toHexString(), email: user.email, role: user.role },
         jwtSecret(),
       );
@@ -400,7 +400,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 401;
         return { error: 'user gone' };
       }
-      const access_token = signAccessToken(
+      const access_token = await signAccessToken(
         { sub: user._id.toHexString(), email: user.email, role: user.role },
         jwtSecret(),
       );
