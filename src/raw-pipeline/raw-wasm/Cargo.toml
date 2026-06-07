@@ -34,9 +34,14 @@ rayon = { version = "1.10", optional = true }
 # Unconditional: we always want panic messages forwarded to the JS console so
 # WASM traps don't show up as opaque `RuntimeError: unreachable` in production.
 console_error_panic_hook = { version = "0.1" }
+# GPU spike (#925 P0). wgpu targets WebGPU on wasm. Optional + gated by `gpu`.
+wgpu = { version = "23", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
 
 [features]
 default = []
 # Enable the parallel (rayon + wasm-bindgen-rayon) thread-pool entry points.
 # The WASM build turns this on via `wasm-pack build -- --features parallel`.
 parallel = ["dep:wasm-bindgen-rayon", "dep:rayon"]
+# Epic #925 P0: WebGPU exposure parity binding. OFF by default.
+gpu = ["raw-core/gpu", "dep:wgpu", "dep:wasm-bindgen-futures"]
