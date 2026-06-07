@@ -56,10 +56,37 @@ if [[ "${1:-}" == "--release" ]]; then
     CARGO_PROFILE_FLAG="--release"
 fi
 
+# ---------------------------------------------------------------------------
+# GPU variant (epic #925 / P1b, #988) — OFF by default.
+#
+# When MAPLE_XCFRAMEWORK_GPU=1 (or any arg is `--gpu`), build raw-ffi with
+# `--features gpu`, which links wgpu/naga/metal into every slice (the iOS
+# link proof). This variant is for VALIDATION ONLY — the committed/shipping
+# xcframework stays wgpu-free, and the gpu-variant binary is never committed.
+#
+# Crucially the gpu variant resolves crates FROM crates.io (NON-offline,
+# vendored-sources OFF): wgpu's dep tree is large and is deliberately NOT in
+# `vendor/`, so requiring it offline would force a multi-tens-of-MB vendor
+# bloat. Vendoring wgpu for CI is a separate, explicit decision (see #988) —
+# do not do it silently. The DEFAULT path below is byte-for-byte unchanged
+# (offline + vendored), so normal/shipping builds are unaffected.
+GPU_VARIANT=0
+if [[ "${MAPLE_XCFRAMEWORK_GPU:-}" == "1" ]]; then
+    GPU_VARIANT=1
+fi
+for _arg in "$@"; do
+    if [[ "$_arg" == "--gpu" ]]; then
+        GPU_VARIANT=1
+    fi
+done
+
 echo "==> build-xcframework.sh"
 echo "    raw-ffi:    $RAW_FFI_DIR"
 echo "    frameworks: $FRAMEWORKS_DIR"
 echo "    profile:    $PROFILE"
+if [[ "$GPU_VARIANT" == "1" ]]; then
+    echo "    GPU variant: ON (--features gpu, crates.io, NOT vendored — VALIDATION ONLY, do not commit)"
+fi
 
 LIB_NAME="libraw_ffi.a"
 
@@ -85,7 +112,14 @@ LIB_NAME="libraw_ffi.a"
 # `--force` / FORCE_XCFRAMEWORK_REBUILD=1 bypass the fast-path.
 # ---------------------------------------------------------------------------
 XCFW_OUT_PROBE="$NATIVE_DIR/Frameworks/RawPipeline.xcframework"
-STAMP="$NATIVE_DIR/Frameworks/.xcframework-stamp.$PROFILE"
+# The stamp is variant-aware so a gpu-variant validation build (different
+# symbol surface + dep tree) can never be mistaken for an up-to-date default
+# build, or vice versa — switching variants always rebuilds.
+STAMP_VARIANT_SUFFIX=""
+if [[ "$GPU_VARIANT" == "1" ]]; then
+    STAMP_VARIANT_SUFFIX=".gpu"
+fi
+STAMP="$NATIVE_DIR/Frameworks/.xcframework-stamp.$PROFILE$STAMP_VARIANT_SUFFIX"
 
 # Slices the xcframework must contain. Used by the fast-path existence check
 # and (independently, via a glob) the symbol guard.
@@ -186,27 +220,42 @@ build_target() {
             *-apple-darwin)
                 export MACOSX_DEPLOYMENT_TARGET=14.0 ;;
         esac
-        # Build raw-ffi against the vendored crate sources under
-        # src/raw-pipeline/vendor/ (committed by `cargo vendor`), with the
-        # network forbidden. This keeps the Xcode Cloud build hermetic: it
-        # removes the intermittent crates.io DNS failures ("Could not resolve
-        # host: static.crates.io") and fails loudly if the vendor dir is ever
-        # stale, instead of silently falling back to the network.
-        #
-        # The source replacement is passed inline (not via a committed
-        # .cargo/config.toml) so it applies ONLY to this Apple raw-ffi build.
-        # A repo-level config.toml would also be inherited by the WASM build,
-        # which uses `-Z build-std` — that rebuilds std from source and needs
-        # std's *own* dependency versions, which aren't (and shouldn't be) in
-        # our vendor dir. Scoping it here keeps the web/wasm and API builds
-        # resolving from crates.io as before. The directory is absolute so it
-        # resolves regardless of cargo's --config path semantics.
-        CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
-            --config 'source.crates-io.replace-with="vendored-sources"' \
-            --config "source.vendored-sources.directory=\"$RAW_PIPELINE_DIR/vendor\"" \
-            --target "$triple" \
-            --package raw-ffi \
-            2>&1
+        if [[ "$GPU_VARIANT" == "1" ]]; then
+            # GPU VALIDATION variant (#988): build with `--features gpu` and
+            # resolve from crates.io (NO --offline, NO vendored-sources). wgpu's
+            # large dep tree is deliberately absent from vendor/, so this proves
+            # wgpu cross-compiles + links into every slice (incl.
+            # aarch64-apple-ios — the #1 risk) WITHOUT bloating vendor/. This
+            # path is never used by the shipping/default build.
+            CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build $CARGO_PROFILE_FLAG \
+                --target "$triple" \
+                --package raw-ffi \
+                --features gpu \
+                2>&1
+        else
+            # DEFAULT (shipping) path — unchanged. Build raw-ffi against the
+            # vendored crate sources under src/raw-pipeline/vendor/ (committed by
+            # `cargo vendor`), with the network forbidden. This keeps the Xcode
+            # Cloud build hermetic: it removes the intermittent crates.io DNS
+            # failures ("Could not resolve host: static.crates.io") and fails
+            # loudly if the vendor dir is ever stale, instead of silently
+            # falling back to the network.
+            #
+            # The source replacement is passed inline (not via a committed
+            # .cargo/config.toml) so it applies ONLY to this Apple raw-ffi build.
+            # A repo-level config.toml would also be inherited by the WASM build,
+            # which uses `-Z build-std` — that rebuilds std from source and needs
+            # std's *own* dependency versions, which aren't (and shouldn't be) in
+            # our vendor dir. Scoping it here keeps the web/wasm and API builds
+            # resolving from crates.io as before. The directory is absolute so it
+            # resolves regardless of cargo's --config path semantics.
+            CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
+                --config 'source.crates-io.replace-with="vendored-sources"' \
+                --config "source.vendored-sources.directory=\"$RAW_PIPELINE_DIR/vendor\"" \
+                --target "$triple" \
+                --package raw-ffi \
+                2>&1
+        fi
     )
 }
 
@@ -223,6 +272,16 @@ mkdir -p "$INCLUDE_DIR" "$HEADERS_DIR"
 echo "==> cbindgen — generating RawPipeline.h"
 (
     cd "$RAW_FFI_DIR"
+    # cbindgen evaluates `#[cfg(feature = "...")]` against cargo's
+    # CARGO_FEATURE_<NAME> env vars. In the gpu variant we export
+    # CARGO_FEATURE_GPU=1 so the gpu-gated FFI (`maple_gpu_exposure_parity`)
+    # is emitted into the header — required both for the symbol guard (which
+    # derives expected `maple_*` symbols from the header) and for Swift to
+    # see the declaration. In the default variant it stays unset, so the
+    # header is wgpu-free, exactly as shipped.
+    if [[ "$GPU_VARIANT" == "1" ]]; then
+        export CARGO_FEATURE_GPU=1
+    fi
     cbindgen \
         --lang C \
         --output "$INCLUDE_DIR/RawPipeline.h" \
