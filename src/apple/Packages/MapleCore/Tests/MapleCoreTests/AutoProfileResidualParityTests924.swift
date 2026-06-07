@@ -139,7 +139,8 @@ extension AutoProfileCanvasParityTests {
             // cross-engine decode/develop/encode divergence (WB, AgX, gamut) from
             // the Auto wiring. With As-Shot WB + FFI-shared AgX/encode this should
             // be small; a large value here is a pre-existing #812 decode issue,
-            // not this PR (printed, not asserted — the tail gate is (b)).
+            // not this PR — so it is asserted against its own (looser) neutral-
+            // floor budget below, while (b) is the primary Auto-tail gate.
             let floor = perBandBias(cand: appleNeutral.pixels, ref: cpuNeutralM.pixels,
                                     width: appleNeutral.width, height: appleNeutral.height)
             let nFloor = Self.neutralFloorBandBiasBudget
