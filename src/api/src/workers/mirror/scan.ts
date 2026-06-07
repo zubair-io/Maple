@@ -91,10 +91,10 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
     return 'ok';
   };
 
-  const cursor = coll.find(
-    { fileinfo: { $elemMatch: liveFileInfoElemMatch() } },
-    { projection: { fileinfo: 1 } },
-  );
+  // `liveFileInfoElemMatch()` already returns the full
+  // `{ fileinfo: { $elemMatch: … } }` fragment — use it as the query directly,
+  // don't wrap it again.
+  const cursor = coll.find(liveFileInfoElemMatch(), { projection: { fileinfo: 1 } });
 
   for await (const doc of cursor) {
     for (const entry of doc.fileinfo ?? []) {
