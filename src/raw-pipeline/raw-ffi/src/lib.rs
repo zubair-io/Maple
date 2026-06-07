@@ -34,6 +34,10 @@ mod auto_tone;
 mod buffers;
 mod cancel;
 mod error;
+// Epic #925 / P1b (#988): GPU parity FFI (`maple_gpu_exposure_parity`). Gated
+// behind the `gpu` feature so wgpu is absent from the default xcframework.
+#[cfg(feature = "gpu")]
+mod gpu;
 mod handle;
 mod id;
 mod model;
