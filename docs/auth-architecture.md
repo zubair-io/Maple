@@ -17,29 +17,34 @@ Design intent:
 
 - **Passwordless.** Identity is proven with **WebAuthn / passkeys** only. There
   are no passwords anywhere in the system.
-- **Stateless request auth.** `/api/*` is gated by a self-contained JWT bearer
-  token, so a normal request authorizes without a database lookup.
+- **Short-lived, revocable request auth.** `/api/*` is gated by a JWT bearer
+  token. Verification is mostly self-contained (signature + `exp`), plus one
+  indexed `_id` lookup of the user's `token_version` (#860) so a bumped version
+  instantly invalidates live access tokens. Tokens are short-lived (15 min), so
+  the lookup rate is bounded and a lost token self-expires quickly.
 - **Stateful, revocable login.** A rotating refresh token, recorded server-side,
-  is the durable session and the (only) revocation point.
+  is the durable session and a revocation point (alongside `token_version`).
 
 The security-critical identity ceremony is delegated to a maintained library
-(`@simplewebauthn/server`); the token/session layer on top is hand-rolled.
+(`@simplewebauthn/server`), and JWT sign/verify to `jose` (#859, algorithm
+pinned to HS256). The refresh-store state machine on top is the hand-rolled
+domain logic.
 
 ## The model at a glance
 
 Two distinct tokens with different lifecycles. Conflating them is the source of
 most confusion:
 
-|                      | **Access token (JWT)**                                | **Refresh token**                                |
-| -------------------- | ----------------------------------------------------- | ------------------------------------------------ |
-| Format               | HS256 JWT, hand-rolled                                | opaque 32-byte random (base64url)                |
-| Proves               | "this request is authorized"                          | "this device has a live login"                   |
-| Server-side record   | **none** (stateless)                                  | row in `refresh_tokens` (stored as SHA-256 hash) |
-| Lifetime             | **30 days**, fixed at issue                           | 90 days, rotates on every use                    |
-| Revocable?           | **no** — valid until `exp`                            | yes — `revoked_at` / chain revoke                |
-| Where it lives (web) | **memory only**, lost on reload                       | httpOnly cookie `maple_refresh`                  |
-| Transport            | `Authorization: Bearer` (HTTP), `?token=` (WebSocket) | cookie; also JSON body (native)                  |
-| Verified by          | signature + `exp` only                                | hash lookup + `revoked_at`/`expires_at` checks   |
+|                      | **Access token (JWT)**                                   | **Refresh token**                                |
+| -------------------- | -------------------------------------------------------- | ------------------------------------------------ |
+| Format               | HS256 JWT via `jose` (#859)                              | opaque 32-byte random (base64url)                |
+| Proves               | "this request is authorized"                             | "this device has a live login"                   |
+| Server-side record   | `token_version` on the user doc (#860)                   | row in `refresh_tokens` (stored as SHA-256 hash) |
+| Lifetime             | **15 min**, fixed at issue (#860)                        | 90 days, rotates on every use                    |
+| Revocable?           | **yes** — bump `token_version` (#860), else self-expires | yes — `revoked_at` / family + chain revoke       |
+| Where it lives (web) | **memory only**, lost on reload                          | httpOnly cookie `maple_refresh`                  |
+| Transport            | `Authorization: Bearer` (HTTP), `?token=` (WebSocket)    | cookie; also JSON body (native)                  |
+| Verified by          | signature + `exp` + `token_version` match                | hash lookup + `revoked_at`/`expires_at` checks   |
 
 ```
         ┌──────────── Web (Angular) ─────────────┐
@@ -58,21 +63,21 @@ most confusion:
 
 ## Components
 
-| File                                                                                                        | Responsibility                                                                       |
-| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| [`src/api/src/auth/tokens.ts`](../src/api/src/auth/tokens.ts)                                               | Hand-rolled HS256 JWT sign/verify; refresh-token generation + hashing; TTL constants |
-| [`src/api/src/auth/refresh_store.ts`](../src/api/src/auth/refresh_store.ts)                                 | Refresh-token issue / **rotate** / reuse-detection / revoke (Mongo)                  |
-| [`src/api/src/auth/webauthn.ts`](../src/api/src/auth/webauthn.ts)                                           | Passkey ceremony via `@simplewebauthn/server`; challenge store/consume               |
-| [`src/api/src/auth/middleware.ts`](../src/api/src/auth/middleware.ts)                                       | `requireAuth` / `requireOwner` Elysia guards (stateless verify)                      |
-| [`src/api/src/auth/rate_limit.ts`](../src/api/src/auth/rate_limit.ts)                                       | In-memory per-process sliding-window limiter                                         |
-| [`src/api/src/auth/jwt-bootstrap.ts`](../src/api/src/auth/jwt-bootstrap.ts) + `jwt-secret.repo.ts`          | Resolve the HS256 secret at startup (DB → file → memory)                             |
-| [`src/api/src/auth/invites.ts`](../src/api/src/auth/invites.ts)                                             | Create / redeem / list / rescind invites                                             |
-| [`src/api/src/routes/auth.ts`](../src/api/src/routes/auth.ts)                                               | All `/api/auth/*` HTTP endpoints                                                     |
-| [`src/api/src/routes/events.ts`](../src/api/src/routes/events.ts)                                           | WebSocket `/api/events`, authed via `?token=`                                        |
-| [`src/web/.../auth/auth.service.ts`](../src/web/projects/maple-common/src/lib/auth/auth.service.ts)         | Web token state, refresh coalescing, cross-tab coordination                          |
-| [`src/web/.../auth/auth.interceptor.ts`](../src/web/projects/maple-common/src/lib/auth/auth.interceptor.ts) | Attach bearer; refresh-and-retry on 401                                              |
-| [`src/web/.../auth/auth-bootstrap.ts`](../src/web/projects/maple-common/src/lib/auth/auth-bootstrap.ts)     | App-initializer session rehydration on every load                                    |
-| [`src/web/.../auth/auth.guard.ts`](../src/web/projects/maple-common/src/lib/auth/auth.guard.ts)             | Route guard                                                                          |
+| File                                                                                                        | Responsibility                                                                                   |
+| ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [`src/api/src/auth/tokens.ts`](../src/api/src/auth/tokens.ts)                                               | HS256 JWT sign/verify via `jose` (alg-pinned); refresh-token generation + hashing; TTL constants |
+| [`src/api/src/auth/refresh_store.ts`](../src/api/src/auth/refresh_store.ts)                                 | Refresh-token issue / **rotate** / reuse-detection / revoke (Mongo)                              |
+| [`src/api/src/auth/webauthn.ts`](../src/api/src/auth/webauthn.ts)                                           | Passkey ceremony via `@simplewebauthn/server`; challenge store/consume                           |
+| [`src/api/src/auth/middleware.ts`](../src/api/src/auth/middleware.ts)                                       | `requireAuth` / `requireOwner` Elysia guards (verify + `token_version` check)                    |
+| [`src/api/src/auth/rate_limit.ts`](../src/api/src/auth/rate_limit.ts)                                       | In-memory per-process sliding-window limiter                                                     |
+| [`src/api/src/auth/jwt-bootstrap.ts`](../src/api/src/auth/jwt-bootstrap.ts) + `jwt-secret.repo.ts`          | Resolve the HS256 secret at startup (DB → file → memory)                                         |
+| [`src/api/src/auth/invites.ts`](../src/api/src/auth/invites.ts)                                             | Create / redeem / list / rescind invites                                                         |
+| [`src/api/src/routes/auth.ts`](../src/api/src/routes/auth.ts)                                               | All `/api/auth/*` HTTP endpoints                                                                 |
+| [`src/api/src/routes/events.ts`](../src/api/src/routes/events.ts)                                           | WebSocket `/api/events`, authed via `?token=`                                                    |
+| [`src/web/.../auth/auth.service.ts`](../src/web/projects/maple-common/src/lib/auth/auth.service.ts)         | Web token state, refresh coalescing, cross-tab coordination                                      |
+| [`src/web/.../auth/auth.interceptor.ts`](../src/web/projects/maple-common/src/lib/auth/auth.interceptor.ts) | Attach bearer; refresh-and-retry on 401                                                          |
+| [`src/web/.../auth/auth-bootstrap.ts`](../src/web/projects/maple-common/src/lib/auth/auth-bootstrap.ts)     | App-initializer session rehydration on every load                                                |
+| [`src/web/.../auth/auth.guard.ts`](../src/web/projects/maple-common/src/lib/auth/auth.guard.ts)             | Route guard                                                                                      |
 
 ## Data model
 
@@ -96,16 +101,22 @@ being able to recognize a revoked token rather than treat it as unknown.
 
 ### Access token (JWT) — `tokens.ts`
 
-- **HS256**, constructed by hand (no `jsonwebtoken`/`jose`). `@noble/hashes`
-  supplies the HMAC-SHA256 primitive.
-- **Claims:** `sub` (user id, hex), `email`, `role`, `iat`, `exp`.
-- **TTL: 30 days** (`ACCESS_TTL_SECONDS`).
-- **Verification** (`verifyAccessToken`) does exactly two things: recompute the
-  HMAC over `header.payload` and compare (constant-time), then check `exp`. It
-  **ignores the header's `alg`** and always verifies as HS256 — which makes the
-  classic `alg:none` / RS256→HS256 confusion attacks structurally impossible.
-  It does **not** validate `iss` / `aud` / `nbf`, and there is no `jti`.
-- **No DB read at verify time** — claims are trusted verbatim until `exp`.
+- **HS256 via `jose`** (#859). `jose` handles sign/verify; there is no
+  hand-rolled JWT envelope or HMAC compare anymore.
+- **Claims:** `sub` (user id, hex), `email`, `role`, `tv` (token_version, #860),
+  `iat`, `exp`.
+- **TTL: 15 min** (`ACCESS_TTL_SECONDS`, #860). Short enough that a leaked token
+  self-expires quickly; rotation (#858) absorbs the higher refresh cadence.
+- **Verification** (`verifyAccessToken`) verifies the signature with the
+  algorithm **pinned to `['HS256']`**, so `alg:none` / RS256→HS256 confusion is
+  rejected by construction, then checks `exp`. It does **not** validate
+  `iss` / `aud` / `nbf`, and there is no `jti`.
+- **One DB read at verify time** (#860): `requireAuth` loads the user's
+  `token_version` by indexed `_id` and rejects the token if its `tv` claim is
+  behind. A non-ObjectId `sub` or a not-yet-persisted user falls through to a
+  stateless accept (keeps bootstrap/test bearers working), bounded by the 15-min
+  TTL. Bumping `token_version` (e.g. via `revokeChain`) is the instant
+  per-user "kill now" lever.
 
 ### Refresh token — `refresh_store.ts`
 
@@ -281,16 +292,13 @@ WebAuthn/crypto-primitive layer; they cluster in the hand-rolled session layer.
    - `rotateRefreshToken` reads-checks-then-writes non-atomically (TOCTOU) — two
      same-token requests can both pass the check (`refresh_store.ts:25-46`).
    - No concurrency / lost-response test exists (only sequential reuse tests).
-2. **30-day, non-revocable access token → "valid" ≠ "fresh".** Verification is
-   signature + `exp` only with no DB read and no denylist/`token_version`, so a
-   role change, account deletion, or refresh-chain revocation does **not** affect
-   an access token already issued — it stays valid for up to 30 days. A
-   stolen/leaked access token cannot be killed before expiry (`tokens.ts:7`,
-   `middleware.ts`).
-3. **Hand-rolled JWT.** Competently done (sidesteps `alg` confusion, constant-time
-   compare, `exp` enforced) but a reimplementation of a solved problem;
-   `timingSafeEqual` duplicates the Node built-in. `jose` would remove this
-   surface.
+2. **~~30-day, non-revocable access token → "valid" ≠ "fresh".~~** RESOLVED
+   (#860). TTL is now 15 min, and `requireAuth` checks the user's
+   `token_version` per request, so bumping it (`revokeChain`) kills live access
+   tokens within one verify.
+3. **~~Hand-rolled JWT.~~** RESOLVED (#859). Sign/verify is now `jose` with the
+   algorithm pinned to HS256; the hand-rolled envelope and `timingSafeEqual` are
+   deleted.
 4. **In-memory rate limiter.** `rate_limit.ts` is per-process (not shared across
    replicas/restarts) and never evicts map keys. Effectiveness depends on the
    single-process deployment shape.
