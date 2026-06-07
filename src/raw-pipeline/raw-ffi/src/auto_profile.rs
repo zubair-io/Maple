@@ -6,6 +6,7 @@
 use crate::error::{set_last_error, with_large_stack};
 use crate::model::{load_xmp_model_owned, LoadModel};
 use raw_core::decode::decode_bytes;
+use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
 use raw_core::pipeline::{
     fit_auto_profile_from_raw, fit_profile_curve_from_raw, RawInput, RenderQuality,
 };
@@ -346,15 +347,19 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
                 }
             };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img =
-            match raw_core::pipeline::stage("ffi_auto_lut_decode", || decode_bytes(&raw_bytes, ext))
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    set_last_error(format!("decode: {}", e));
-                    return 7;
-                }
-            };
+        // #949: route through the decoded-RawImage cache keyed on (path, mtime).
+        // The scene-linear render FFI decoded the SAME file moments earlier under
+        // the same path key, so this is a hit and the ~1.8s decode is skipped.
+        // The `ffi_auto_lut_decode` stage wrapper stays so a hit reads as ~0ms.
+        let raw_img = match raw_core::pipeline::stage("ffi_auto_lut_decode", || {
+            decode_auto_lut_cached(raw_path, &raw_bytes, ext)
+        }) {
+            Ok(r) => r,
+            Err(e) => {
+                set_last_error(format!("decode: {}", e));
+                return 7;
+            }
+        };
         let quality = if quality_preview != 0 {
             RenderQuality::Preview
         } else {
@@ -390,5 +395,24 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
         }
         0
     })
+}
+
+/// Decode a RAW file for the Auto-Profile LUT path through the decoded-`RawImage`
+/// cache (#949), keyed on `(canonical path, mtime)`. This builds the SAME path
+/// key the scene-linear render FFI used moments earlier on a cold open, so it
+/// hits and the ~1.8s decode is skipped.
+///
+/// Falls back to a plain uncached `decode_bytes` when the path can't be
+/// canonicalized / stat'd (`CacheKey::from_path` → `None`), so behaviour is
+/// never worse than before the cache. Mirrors `scene_linear_f32::decode_file_cached`.
+fn decode_auto_lut_cached(
+    raw_path: &std::path::Path,
+    raw_bytes: &[u8],
+    ext: &str,
+) -> raw_core::Result<std::sync::Arc<raw_core::RawImage>> {
+    match CacheKey::from_path(raw_path) {
+        Some(key) => decode_bytes_cached(&key, raw_bytes, ext),
+        None => Ok(std::sync::Arc::new(decode_bytes(raw_bytes, ext)?)),
+    }
 }
 
