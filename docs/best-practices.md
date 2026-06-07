@@ -164,10 +164,10 @@ const user = data as User; // narrowed by upstream validator
 ### Every component is three files
 
 ```
-components/atoms/button/
-├── button.component.ts       # Component class — logic only
-├── button.component.html     # Template
-└── button.component.scss     # Styles
+button/
+├── maple-button.component.ts       # Component class — logic only
+├── maple-button.component.html     # Template
+└── maple-button.component.scss     # Styles
 ```
 
 Almost always TS + HTML + SCSS as separate files. No inline templates beyond a single `<ng-content />` sketch. No inline styles in `styleUrls`. SCSS is empty until it's not — create it anyway so the structure is consistent.
@@ -436,7 +436,7 @@ Tailwind utility classes are the primary styling method. Arbitrary values refere
 </button>
 ```
 
-The design tokens (`src/web/projects/shared/styles/tokens.scss`) are the single source of truth for color, typography, spacing, and elevation. Hex values do not appear in component templates or SCSS. If you need a color, add a token first.
+The design tokens (`src/web/projects/maple-common/src/lib/tokens.scss`) are the single source of truth for color, typography, spacing, and elevation. Hex values are authored in `src/raw-pipeline/raw-core/src/ui_tokens.rs` and emitted into `src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss` by `tools/codegen.sh`; `tokens.scss` wires those into the Tailwind `@theme` block and SCSS aliases. Hex values do not appear in component templates or SCSS. If you need a color, add a token first.
 
 Key rules for Maple's dark theme:
 
@@ -701,16 +701,38 @@ page-type.guard.ts
 
 ### Directory structure (Angular)
 
+The codebase uses a flat, feature-grouped layout — no atoms/molecules/organisms hierarchy.
+
+In `src/web/projects/maple-common/src/lib/`, each feature or component family gets its own folder at the top level of `lib/`. Reusable primitives (button, icons, collapsible) sit directly in named folders alongside feature groups (editor, info, library, search, shells). Larger feature groups that contain several related components use a single flat folder with no further nesting:
+
 ```
-components/
-├── atoms/           # Button, Input, Icon, Badge
-├── molecules/       # FormField, SearchBar, SliderWithLabel
-├── organisms/       # Sidebar, ColorPanel, FilmStrip, Histogram
-├── templates/       # EditorLayout, BrowseLayout
-└── index.ts         # Barrel exports
+src/web/projects/maple-common/src/lib/
+├── button/                 # MapleButtonComponent — reusable primitive
+│   ├── maple-button.component.ts
+│   ├── maple-button.component.html
+│   └── maple-button.component.scss
+├── collapsible/            # MapleCollapsibleComponent — reusable primitive
+├── icons/                  # MaterialIconComponent, icon registry
+├── components/             # Feature components shared across views
+│   ├── asset-grid/
+│   ├── filmstrip/
+│   ├── image-canvas/
+│   ├── editor-detail-panel/
+│   └── ...                 # one folder per component, flat
+├── editor/                 # Editor panel components (drag-bar, group-tabs, …)
+├── info/                   # Info/metadata panel (histogram, keyword-chips, …)
+├── library/                # Library grid and filter components
+├── search/                 # Search bar, results sections
+├── shells/                 # Layout shells (browse-shell, editor-shell, …)
+│   ├── browse-shell/
+│   ├── editor-shell/
+│   └── source-picker-drawer/
+└── ...                     # services, models, state, webgl, xmp, etc.
 ```
 
-Atoms, molecules, organisms, templates — the atomic-design vocabulary. Pages live under `pages/` and compose organisms.
+Within each folder, every component is exactly three files — `.ts`, `.html`, `.scss` — with no sub-folders. App-specific pages in `src/web/projects/maple/src/app/` follow the same pattern (one folder per route/feature, flat files inside).
+
+The rule: one standalone component per folder, named after its folder. No barrel re-exports unless a folder is an intentional public-API boundary.
 
 ### PascalCase for Swift types, snake_case for Rust
 
