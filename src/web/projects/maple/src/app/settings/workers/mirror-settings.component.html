@@ -1,28 +1,41 @@
-<section class="mirror-panel" data-testid="mirror-settings">
-  <div class="mirror-head">
-    <div class="titles">
+<section data-testid="mirror-settings">
+  <div class="section-head">
+    <div class="section-title">
       <h2>Mirror / backup</h2>
-      <p>
-        Replicate each library's originals and XMP sidecars to a second location. Writes and moves
-        go to both; a freshly-configured or drifted mirror is back-filled by the mirror worker.
-      </p>
+      <span class="status-pill">
+        <span class="status-dot" [style.background]="statusColor()"></span>
+        <span class="status-label">{{ statusLabel() }}</span>
+      </span>
     </div>
+
     @if (status(); as q) {
-      <div class="queue" data-testid="mirror-queue">
-        <span class="queue-stat">
-          <strong>{{ q.pending }}</strong> pending
+      <div class="queue-chips" data-testid="mirror-queue">
+        <span class="chip">
+          <span class="chip-val">{{ q.pending }}</span>
+          <span class="chip-label">Pending</span>
         </span>
-        <span class="queue-stat" [class.has-dead]="q.dead > 0">
-          <strong>{{ q.dead }}</strong> failed
+        <span class="chip" [class.err]="q.dead > 0">
+          <span class="chip-val">{{ q.dead }}</span>
+          <span class="chip-label">Failed</span>
         </span>
         @if (q.dead > 0) {
-          <button type="button" class="btn-ghost" [disabled]="retrying()" (click)="retryDead()">
+          <button
+            type="button"
+            class="btn-ghost danger"
+            [disabled]="retrying()"
+            (click)="retryDead()"
+          >
             {{ retrying() ? 'Retrying…' : 'Retry failed' }}
           </button>
         }
       </div>
     }
   </div>
+
+  <p class="section-desc">
+    Replicate each library's originals and XMP sidecars to a second location. Writes and moves go to
+    both; a freshly-configured or drifted mirror is back-filled by the mirror worker.
+  </p>
 
   @if (error()) {
     <p class="banner-error">{{ error() }}</p>
@@ -31,73 +44,67 @@
   @if (loading()) {
     <p class="loading">Loading libraries…</p>
   } @else if (libraries().length === 0) {
-    <p class="empty">No libraries registered yet.</p>
+    <p class="loading">No libraries registered yet.</p>
   } @else {
-    <div class="lib-list">
-      @for (lib of libraries(); track lib.id) {
-        <div class="lib-row">
-          <div class="lib-id">
-            <maple-settings-icon name="pipe" />
-            <div class="lib-meta">
-              <span class="lib-label">{{ lib.label }}</span>
-              <code class="lib-path mono">{{ lib.path }}</code>
-            </div>
-          </div>
-
-          <div class="lib-form">
-            <label class="field-label" [attr.for]="'mirror-' + lib.id">Backup location</label>
-            <div class="path-row">
+    @for (lib of libraries(); track lib.id) {
+      <div class="block">
+        <div class="subhead">{{ lib.label }}</div>
+        <div class="field field-wide">
+          <div class="field-label">Backup location</div>
+          <div class="text-input mono">
+            <div class="text-input-wrap">
               <input
-                class="text-input mono"
-                [id]="'mirror-' + lib.id"
                 type="text"
                 placeholder="/mnt/backup/photos"
                 [value]="pathOf(lib.id)"
                 (input)="setPath(lib.id, $any($event.target).value)"
               />
-              <button
-                type="button"
-                class="btn-ghost"
-                [disabled]="!pathOf(lib.id).trim() || testStateOf(lib.id) === 'testing'"
-                (click)="test(lib.id)"
-              >
-                {{ testStateOf(lib.id) === 'testing' ? 'Testing…' : 'Test' }}
-              </button>
             </div>
-
-            @if (testStateOf(lib.id) === 'ok') {
-              <span class="test-ok">✓ {{ testMsgOf(lib.id) }}</span>
-            } @else if (testStateOf(lib.id) === 'fail') {
-              <span class="test-fail">{{ testMsgOf(lib.id) }}</span>
-            }
-
-            <label class="enable-row">
-              <input
-                type="checkbox"
-                [checked]="enabledOf(lib.id)"
-                (change)="setEnabled(lib.id, $any($event.target).checked)"
-              />
-              <span>Enabled (replicate writes to this mirror)</span>
-            </label>
-
-            <div class="row-footer">
-              @if (saveErrorOf(lib.id)) {
-                <span class="save-error">{{ saveErrorOf(lib.id) }}</span>
-              } @else if (saveStateOf(lib.id) === 'success') {
-                <span class="save-ok">Saved.</span>
-              }
-              <button
-                type="button"
-                class="btn-primary"
-                [disabled]="saveStateOf(lib.id) === 'saving'"
-                (click)="save(lib.id)"
-              >
-                {{ saveStateOf(lib.id) === 'saving' ? 'Saving…' : 'Save' }}
-              </button>
-            </div>
+            <button
+              type="button"
+              class="btn-ghost"
+              [disabled]="!pathOf(lib.id).trim() || testStateOf(lib.id) === 'testing'"
+              (click)="test(lib.id)"
+            >
+              {{ testStateOf(lib.id) === 'testing' ? 'Testing…' : 'Test' }}
+            </button>
           </div>
+          <div class="field-hint">
+            Library root: <span class="mono">{{ lib.path }}</span>
+          </div>
+          @if (testStateOf(lib.id) === 'ok') {
+            <div class="test-result ok">✓ {{ testMsgOf(lib.id) }}</div>
+          } @else if (testStateOf(lib.id) === 'fail') {
+            <div class="test-result err">{{ testMsgOf(lib.id) }}</div>
+          }
         </div>
-      }
-    </div>
+
+        <label class="mirror-enable">
+          <input
+            type="checkbox"
+            [checked]="enabledOf(lib.id)"
+            (change)="setEnabled(lib.id, $any($event.target).checked)"
+          />
+          <span>Enabled (replicate writes to this mirror)</span>
+        </label>
+
+        <div class="row-footer">
+          <span class="footer-spacer"></span>
+          @if (saveErrorOf(lib.id)) {
+            <span class="save-error">{{ saveErrorOf(lib.id) }}</span>
+          } @else if (saveStateOf(lib.id) === 'success') {
+            <span class="save-ok">Saved.</span>
+          }
+          <button
+            type="button"
+            class="btn-primary"
+            [disabled]="saveStateOf(lib.id) === 'saving'"
+            (click)="save(lib.id)"
+          >
+            {{ saveStateOf(lib.id) === 'saving' ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </div>
+    }
   }
 </section>
