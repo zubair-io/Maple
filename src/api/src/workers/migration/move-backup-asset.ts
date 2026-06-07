@@ -21,6 +21,12 @@
  * When `newDir === oldDir` there is nothing to move; `extraSet` (if any) is
  * still applied so the caller can stamp an idempotency marker (the geo
  * migration's `backup_layout_version`) without relocating the file.
+ *
+ * Mirror replication: every filesystem op here is delegated to `restructure-fs.ts`
+ * (`planAndPlace`/`finalize`/`revertCreated`), which imports the mirror-aware
+ * drop-in `fs/mirrored.ts`. So a relocation's copy/unlink/rmdir fan out to the
+ * library's configured backup mirror(s) automatically — there is no raw
+ * `node:fs` write in this module to swap.
  */
 
 import type { Collection, WithId } from 'mongodb';
