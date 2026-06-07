@@ -1,6 +1,6 @@
-//! WebGPU parity binding for the #925 P0 spike. Builds the same deterministic
-//! buffer as the native test, runs the WGSL exposure kernel on WebGPU via
-//! raw-core's shared async runner, and returns the max abs diff vs the CPU
+//! WebGPU parity binding for epic #925. Builds the same deterministic buffer as
+//! the native test, runs the WGSL exposure kernel on WebGPU via the `raw-gpu`
+//! resource core's shared async runner, and returns the max abs diff vs the CPU
 //! oracle so the browser harness can assert the 1e-4 gate.
 
 use wasm_bindgen::prelude::*;
@@ -13,9 +13,9 @@ pub async fn exposure_gpu_parity(n_pixels: u32, ev: f32) -> Result<f32, JsError>
         let t = i as f32 / (n.max(2) - 1) as f32;
         input.extend_from_slice(&[t * 2.0, t, t * 0.5 + 0.25, 1.0]);
     }
-    let gpu = raw_core::gpu::run_exposure_gpu_async(&input, ev).await;
+    let gpu = raw_gpu::run_exposure_gpu_async(&input, ev).await;
     let mut cpu = input.clone();
-    raw_core::gpu::apply_exposure_gain(&mut cpu, ev);
+    raw_gpu::apply_exposure_gain(&mut cpu, ev);
     let max_diff = cpu
         .iter()
         .zip(&gpu)

@@ -1,0 +1,23 @@
+[package]
+name = "raw-gpu"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# All GPU code (epic #925) lives here behind one crate boundary. This crate is
+# only ever pulled in by the `gpu` feature of raw-core / raw-wasm, so its mere
+# presence in the dependency tree is already gated — it needs no `gpu` feature of
+# its own. Default raw-core / raw-wasm builds never reference it, so wgpu stays
+# absent from the default tree. Headless only (P1a / #987): no display surface,
+# no platform deps — that is P1b (#988) / P1c (#989).
+[dependencies]
+# wgpu 23 (pinned by P0). naga (WGSL→MSL/SPIR-V) is bundled inside wgpu.
+wgpu = "23"
+bytemuck.workspace = true
+futures-channel = "0.3"
+
+# pollster (native block_on) is meaningless on wasm32, where callers await the
+# async core directly via wasm-bindgen-futures. Keep it off the wasm tree.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "0.4"

@@ -1685,12 +1685,11 @@ dependencies = [
  "bytemuck",
  "clap",
  "exr",
- "futures-channel",
  "image",
  "miniz_oxide",
  "png 0.17.16",
- "pollster",
  "quick-xml",
+ "raw-gpu",
  "rawler",
  "rayon",
  "serde",
@@ -1698,7 +1697,6 @@ dependencies = [
  "sha1",
  "tempfile",
  "thiserror 2.0.18",
- "wgpu",
 ]
 
 [[package]]
@@ -1713,19 +1711,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "raw-gpu"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "futures-channel",
+ "pollster",
+ "wgpu",
+]
+
+[[package]]
 name = "raw-wasm"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "getrandom",
  "raw-core",
+ "raw-gpu",
  "rayon",
  "thiserror 2.0.18",
  "uuid",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-rayon",
- "wgpu",
 ]
 
 [[package]]
