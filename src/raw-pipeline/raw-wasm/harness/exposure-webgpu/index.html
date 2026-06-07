@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Maple — WGSL exposure WebGPU parity (#925 P0)</title>
+  </head>
+  <body>
+    <h1>WGSL exposure WebGPU parity</h1>
+    <pre id="out">running…</pre>
+    <script type="module">
+      import init, { exposure_gpu_parity } from './pkg/raw_wasm.js';
+      const out = document.getElementById('out');
+      if (!('gpu' in navigator)) {
+        out.textContent = 'WebGPU not available in this browser (navigator.gpu missing).';
+        window.__MAPLE_PARITY_RESULT = 'NO_WEBGPU';
+      } else {
+        await init();
+        const lines = [];
+        let allPass = true;
+        for (const ev of [-3, 0, 0.5, 4]) {
+          const d = await exposure_gpu_parity(256, ev);
+          const pass = d < 1e-4;
+          allPass = allPass && pass;
+          lines.push(`ev=${ev}: max abs diff ${d.toExponential(3)} ${pass ? 'PASS' : 'FAIL'}`);
+        }
+        lines.push(allPass ? 'OVERALL: PASS' : 'OVERALL: FAIL');
+        out.textContent = lines.join('\n');
+        window.__MAPLE_PARITY_RESULT = lines.join('\n');
+      }
+    </script>
+  </body>
+</html>
