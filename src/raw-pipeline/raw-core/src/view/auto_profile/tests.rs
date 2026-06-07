@@ -6,7 +6,7 @@
 
 #[cfg(test)]
 mod preview_tests {
-    use super::super::preview::extract_preview;
+    use super::super::preview::{extract_preview, extract_preview_from_bytes};
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -23,6 +23,31 @@ mod preview_tests {
     fn missing_file_returns_none_not_panic() {
         let path = Path::new("/nonexistent/path.dng");
         assert!(extract_preview(path).is_none());
+    }
+
+    /// Regression for #927: rawler 0.7.2 implements `preview_image()` for NO
+    /// format (the trait default returns `None`), so the embedded JPEG must be
+    /// recovered via `full_image()` IN-PROCESS. This drives the BYTES path used
+    /// by Web/WASM and iOS, which have no exiftool/subprocess fallback at all —
+    /// so a green here proves Auto Profile no longer silently degrades to
+    /// Neutral on those platforms. Before the `full_image()` fallback this
+    /// returned `None` (the bytes path had no exiftool to lean on), and
+    /// `--profile auto` was byte-identical to `--profile neutral` (ΔE 0.0) for
+    /// CR2/DNG/ARW whenever exiftool was absent.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn cr2_preview_extracts_in_process_without_subprocess() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0003.CR2");
+        let bytes = std::fs::read(&path).expect("read test_0003.CR2 fixture");
+        let preview = extract_preview_from_bytes(&bytes, "cr2")
+            .expect("CR2 embedded preview must extract in-process (no exiftool)");
+        assert!(
+            preview.width() >= 256 && preview.height() >= 256,
+            "preview too small: {}x{}",
+            preview.width(),
+            preview.height()
+        );
     }
 }
 

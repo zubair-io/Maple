@@ -1,17 +1,24 @@
-//! Embedded JPEG preview extraction with two-tier fallback.
+//! Embedded JPEG preview extraction.
 //!
-//! 1. rawler `extract_preview_pixels` — fast, no subprocess. Handles
-//!    Canon CR2/CR3, Sony ARW, Fuji RAF, most Nikon NEF, modern Hasselblad
-//!    FFF, and most baseline DNGs.
-//! 2. exiftool subprocess — fallback for formats rawler chokes on, even
-//!    when the file contains a standard JPEG (verified: iPhone 12 Pro
-//!    LinearDNG and pre-2020 Adobe DNG both miss rawler but extract via
-//!    exiftool). Subprocess cost is paid per render call today — a
-//!    per-RAW-mtime cache for the fitted [`super::curve::ProfileCurve`]
-//!    is the Phase 5 follow-up (`.claude/plans/crystalline-sparking-sun.md`)
-//!    that will short-circuit the extract + fit on slider ticks.
+//! The Auto Profile fit needs the camera's embedded preview JPEG (its rendered
+//! look) as the fit target. Extraction is layered, in-process first:
 //!
-//! Returns `None` on any extraction error or when exiftool is absent.
+//! 1. rawler `preview_image()` — in-process. Unimplemented for every decoder
+//!    in rawler 0.7.2 (the trait default returns `None`); kept only to pick up
+//!    native preview support if a future rawler adds it.
+//! 2. rawler `full_image()` — in-process. Implemented by every decoder; returns
+//!    the camera's EMBEDDED preview JPEG (cr2 = IFD0 JPEG, dng = the
+//!    `NewSubFileType==1` preview sub-IFD, nef/arw = the largest
+//!    `JpegInterchangeFormat` IFD, raf/rw2 = the embedded JPEG blob) — NOT a
+//!    sensor decode. This is the tier that works on the sandboxed Apple app,
+//!    iOS, and Web/WASM, none of which can spawn a subprocess (#927).
+//! 3. exiftool subprocess (path variant only) — last resort for files rawler
+//!    can't decode natively (e.g. iPhone 12 Pro LinearDNG, pre-2020 Adobe DNG).
+//!    UNAVAILABLE in the sandboxed macOS app, on iOS, and on Web/WASM, so it
+//!    must never be the only path to a preview — that was the bug behind #927.
+//!
+//! Returns `None` only when no tier yields a preview. The bytes/WASM entry
+//! ([`extract_preview_from_bytes`]) has no exiftool tier at all (#870).
 
 use std::path::Path;
 use std::process::Command;
@@ -211,13 +218,24 @@ fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
     if let Ok(Some(img)) = decoder.preview_image(src, &params) {
         return Some(img);
     }
-    // Deliberately NO `decoder.full_image()` fallback. The Auto Profile fit must
-    // match the camera's *embedded JPEG* (its rendered look); rawler's full RAW
-    // decode is Maple developing the sensor itself, so fitting against it would be
-    // circular (matching our own decode, not the camera). When there's no embedded
-    // preview, returning `None` correctly falls the caller back to AgX-Neutral
-    // rather than to a meaningless self-referential target. A RAW with no embedded
-    // preview on the bytes/WASM path (no exiftool fallback) is the #870 case.
+    // `preview_image()` is unimplemented for EVERY decoder in rawler 0.7.2 (the
+    // trait default just returns `None`), so the call above never succeeds today
+    // — it is kept only to pick up native preview support if a future rawler
+    // adds it. The working in-process source is `full_image()`, which every
+    // decoder implements and which returns the camera's EMBEDDED preview JPEG —
+    // NOT a sensor decode (cr2 = IFD0 JPEG, dng = the `NewSubFileType==1`
+    // preview sub-IFD, nef/arw = the largest `JpegInterchangeFormat` IFD,
+    // raf/rw2 = the embedded JPEG blob). Fitting against it therefore matches
+    // the camera's rendered look, not a self-referential decode of our own
+    // pixels. This is the ONLY preview path the sandboxed Apple app, iOS, and
+    // Web/WASM can use — none can reach the `exiftool` subprocess below — so
+    // without it Auto Profile silently degrades to Neutral on every shippable
+    // surface (#927). A format with no embedded preview returns `Err`/`None`
+    // here and falls through to the caller's `None` (→ exiftool on the path
+    // variant; the bytes/WASM no-preview case stays #870).
+    if let Ok(Some(img)) = decoder.full_image(src, &params) {
+        return Some(img);
+    }
     None
 }
 
