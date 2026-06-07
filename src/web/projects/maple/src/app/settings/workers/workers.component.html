@@ -67,17 +67,12 @@
       @if (g.rows.length > 0) {
         <div class="group-label">{{ g.group }}</div>
         @for (s of g.rows; track s.name) {
-          <div class="row" [class.is-expanded]="isExpanded(s)" data-testid="worker-row">
-            <!-- Click target = the row itself -->
-            <div
-              class="row-grid row-summary"
-              (click)="toggleExpanded(s)"
-              role="button"
-              [attr.aria-expanded]="isExpanded(s)"
-              tabindex="0"
-              (keydown.enter)="toggleExpanded(s)"
-              (keydown.space)="toggleExpanded(s); $event.preventDefault()"
-            >
+          <maple-settings-row
+            [expanded]="isExpanded(s)"
+            (toggle)="toggleExpanded(s)"
+            testid="worker-row"
+          >
+            <div class="row-grid" srow-summary>
               <maple-settings-icon
                 [name]="isExpanded(s) ? 'chev-d' : 'chev-r'"
                 [size]="12"
@@ -163,613 +158,587 @@
               </button>
             </div>
 
-            @if (isExpanded(s)) {
-              <div class="expanded">
-                <div class="desc-bar">
-                  <p>{{ meta(s).description }}</p>
-                  <span class="group-tag">{{ meta(s).group }}</span>
-                </div>
+            <div class="desc-bar">
+              <p>{{ meta(s).description }}</p>
+              <span class="group-tag">{{ meta(s).group }}</span>
+            </div>
 
-                @if (s.name === 'missing-reaper') {
-                  <div class="block">
-                    <div class="subhead">Missing-file cleanup</div>
-                    <div class="field">
-                      <div class="field-label">Prune window</div>
-                      <div class="num-input">
-                        <input
-                          type="number"
-                          min="1"
-                          max="8760"
-                          [value]="reaperPruneWindow()"
-                          (input)="setReaperPruneWindow($any($event.target).value)"
-                          data-testid="reaper-prune-window"
-                        />
-                        <span class="num-suffix">hours</span>
-                      </div>
-                      <div class="field-hint">
-                        Only delete a record after its original file has been missing this long
-                        (default 12 h). Recovery of a re-found file is never delayed, and pausing
-                        this worker suspends only deletion — never recovery.
-                      </div>
-                    </div>
-                    <div class="row-footer">
-                      <span class="footer-spacer"></span>
-                      @if (reaperPruneError(); as msg) {
-                        <span class="save-error">{{ msg }}</span>
-                      } @else if (reaperPruneSaveState() === 'success') {
-                        <span class="save-ok">Saved.</span>
-                      }
-                      <button
-                        type="button"
-                        class="btn-primary"
-                        [disabled]="reaperPruneSaveState() === 'saving' || !reaperPruneLoaded()"
-                        (click)="saveReaperPruneWindow()"
-                        data-testid="reaper-prune-save"
-                      >
-                        {{ reaperPruneSaveState() === 'saving' ? 'Saving…' : 'Save' }}
-                      </button>
-                    </div>
+            @if (s.name === 'missing-reaper') {
+              <div class="block">
+                <div class="subhead">Missing-file cleanup</div>
+                <div class="field">
+                  <div class="field-label">Prune window</div>
+                  <div class="num-input">
+                    <input
+                      type="number"
+                      min="1"
+                      max="8760"
+                      [value]="reaperPruneWindow()"
+                      (input)="setReaperPruneWindow($any($event.target).value)"
+                      data-testid="reaper-prune-window"
+                    />
+                    <span class="num-suffix">hours</span>
                   </div>
-                }
-
-                @if (s.name === 'migration') {
-                  <div class="block">
-                    <div class="subhead">Migrations</div>
-                    @if (migration.error(); as msg) {
-                      <p class="save-error">{{ msg }}</p>
-                    }
-                    @for (m of migration.list(); track m.id) {
-                      <div class="migration-row" [attr.data-testid]="'migration-' + m.id">
-                        <div class="migration-main">
-                          <label class="migration-toggle">
-                            <input
-                              type="checkbox"
-                              [checked]="m.enabled"
-                              [disabled]="migration.isBusy(m.id)"
-                              (change)="migration.toggle(m, $event)"
-                              [attr.data-testid]="'migration-toggle-' + m.id"
-                            />
-                            <span class="migration-title">{{ m.title }}</span>
-                          </label>
-                          <span class="migration-status" [class.is-error]="m.status === 'error'">
-                            {{ m.status }}
-                          </span>
-                        </div>
-                        <div class="migration-desc">{{ m.description }}</div>
-                        <div class="migration-progress">
-                          <span>{{ m.processed | number }} processed</span>
-                          <span>{{ m.remaining | number }} remaining</span>
-                          @if (m.errors > 0) {
-                            <span class="is-error">{{ m.errors | number }} errors</span>
-                          }
-                          @if (m.processed > 0 || m.status !== 'idle') {
-                            <button
-                              type="button"
-                              class="migration-reset"
-                              [disabled]="migration.isBusy(m.id)"
-                              (click)="migration.reset(m)"
-                              [attr.data-testid]="'migration-reset-' + m.id"
-                            >
-                              Reset
-                            </button>
-                          }
-                        </div>
-                        @if (m.last_error) {
-                          <div class="save-error">{{ m.last_error }}</div>
-                        }
-                      </div>
-                    } @empty {
-                      <p class="field-hint">No migrations registered.</p>
-                    }
-                  </div>
-                }
-
-                @if (s.name === 'preview') {
-                  @if (perfConfig(); as perf) {
-                    <div class="block">
-                      <div class="subhead">RAW decode workers</div>
-                      <div class="field">
-                        <div class="field-label">Parallel RAW decodes</div>
-                        <div class="num-input">
-                          <input
-                            id="ffi-workers-input"
-                            type="number"
-                            [min]="perf.min"
-                            [max]="perf.max"
-                            step="1"
-                            [value]="ffiWorkersDraft()"
-                            (input)="setFfiWorkersDraft($any($event.target).value)"
-                            aria-label="RAW decode workers"
-                          />
-                          <span class="num-suffix">workers</span>
-                        </div>
-                        <div class="field-hint">
-                          Number of native RAW decodes that run in parallel (range
-                          {{ perf.min }}–{{ perf.max }}). Higher values speed up RAW thumbnail and
-                          preview generation across CPU cores at the cost of more memory per worker
-                          — each worker loads its own decoder and holds decode buffers. Only affects
-                          RAW thumb/preview decode; JPEG and HEIC sources go through a separate
-                          already-multithreaded path. Default is 1; a value around your core count
-                          (typically 4) is a good starting point for faster ingest.
-                        </div>
-                      </div>
-                      <div class="row-footer">
-                        <span class="perf-source">source: {{ perf.source }}</span>
-                        <span class="footer-spacer"></span>
-                        @if (perfSaveState() === 'error' && perfSaveError()) {
-                          <span class="save-error">{{ perfSaveError() }}</span>
-                        } @else if (perfSaveState() === 'success') {
-                          <span class="save-ok" role="status">Applied</span>
-                        }
-                        <button
-                          type="button"
-                          class="btn-primary perf-save"
-                          [disabled]="perfSaveState() === 'saving'"
-                          (click)="savePerformance()"
-                        >
-                          {{ perfSaveState() === 'saving' ? 'Saving…' : 'Apply' }}
-                        </button>
-                      </div>
-                    </div>
-                  }
-                }
-
-                @if (meta(s).enrichment) {
-                  <div class="block">
-                    <div class="subhead">
-                      @switch (meta(s).enrichment) {
-                        @case ('describe') {
-                          Describe worker
-                        }
-                        @case ('geocode') {
-                          Geocode worker
-                        }
-                        @case ('face') {
-                          Face detection
-                        }
-                        @case ('meili') {
-                          Search index
-                        }
-                      }
-                    </div>
-
-                    @switch (meta(s).enrichment) {
-                      @case ('describe') {
-                        <div class="grid-2col">
-                          <div class="field field-wide">
-                            <div class="field-label">Ollama URL</div>
-                            <div class="text-input mono">
-                              <div class="text-input-wrap">
-                                <input
-                                  type="text"
-                                  placeholder="http://localhost:11434"
-                                  [value]="enrichmentValue(s, 'describe_provider_url')"
-                                  (input)="
-                                    setEnrichment(
-                                      s,
-                                      'describe_provider_url',
-                                      $any($event.target).value
-                                    )
-                                  "
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                class="btn-ghost"
-                                [disabled]="testState(s).kind === 'testing'"
-                                (click)="testConnection(s)"
-                              >
-                                <maple-settings-icon name="test" [size]="12" />
-                                {{
-                                  testState(s).kind === 'testing' ? 'Testing…' : 'Test connection'
-                                }}
-                              </button>
-                            </div>
-                            <div class="field-hint">
-                              Empty uses the default
-                              <span class="mono">http://localhost:11434</span>. Point at a remote
-                              Ollama if the model lives on a different machine.
-                            </div>
-                            @if (testState(s).kind === 'ok') {
-                              <div class="test-result ok">
-                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
-                                Ollama responded.
-                              </div>
-                            } @else if (testState(s).kind === 'error') {
-                              <div class="test-result err">
-                                {{ $any(testState(s)).message }}
-                              </div>
-                            }
-                          </div>
-                          <div class="field">
-                            <div class="field-label">Model</div>
-                            <div class="text-input mono readonly">
-                              <div class="text-input-wrap">
-                                <input type="text" readonly [value]="fixedDescribeModel" />
-                              </div>
-                            </div>
-                            <div class="field-hint">
-                              Locked to <span class="mono">{{ fixedDescribeModel }}</span
-                              >. The structured-JSON parser only accepts this model's output shape —
-                              pull the matching tag with
-                              <span class="mono">ollama pull {{ fixedDescribeModel }}</span
-                              >.
-                            </div>
-                          </div>
-                        </div>
-                      }
-
-                      @case ('geocode') {
-                        <div class="grid-2col">
-                          <div class="field field-wide">
-                            <div class="field-label">Nominatim URL</div>
-                            <div class="text-input mono">
-                              <div class="text-input-wrap">
-                                <input
-                                  type="text"
-                                  placeholder="(empty disables)"
-                                  [value]="enrichmentValue(s, 'nominatim_url')"
-                                  (input)="
-                                    setEnrichment(s, 'nominatim_url', $any($event.target).value)
-                                  "
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                class="btn-ghost"
-                                [disabled]="testState(s).kind === 'testing'"
-                                (click)="testConnection(s)"
-                              >
-                                <maple-settings-icon name="test" [size]="12" />
-                                {{
-                                  testState(s).kind === 'testing' ? 'Testing…' : 'Test connection'
-                                }}
-                              </button>
-                            </div>
-                            <div class="field-hint">
-                              Empty disables geocoding. When the worker is unpaused, the server
-                              health-checks the URL on save and rejects unreachable values.
-                            </div>
-                            @if (testState(s).kind === 'ok') {
-                              <div class="test-result ok">
-                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
-                                Nominatim responded.
-                              </div>
-                            } @else if (testState(s).kind === 'error') {
-                              <div class="test-result err">
-                                {{ $any(testState(s)).message }}
-                              </div>
-                            }
-                          </div>
-                          <div class="field">
-                            <div class="field-label">Rate limit</div>
-                            <div class="num-input">
-                              <input
-                                type="number"
-                                min="0.1"
-                                max="100"
-                                step="0.1"
-                                [value]="enrichmentValue(s, 'nominatim_rate_limit_per_sec')"
-                                (input)="
-                                  setEnrichment(
-                                    s,
-                                    'nominatim_rate_limit_per_sec',
-                                    $any($event.target).value
-                                  )
-                                "
-                              />
-                              <span class="num-suffix">requests / second</span>
-                            </div>
-                            <div class="field-hint">
-                              Token-bucket throttle. Lower for shared / slow instances.
-                            </div>
-                          </div>
-                        </div>
-                      }
-
-                      @case ('face') {
-                        @if (enrichmentConfig()?.face_models) {
-                          <div
-                            class="face-banner"
-                            [class.warn]="enrichmentConfig()!.face_models!.status === 'error'"
-                          >
-                            <maple-settings-icon
-                              [name]="
-                                enrichmentConfig()!.face_models!.status === 'loaded' ? 'check' : 'x'
-                              "
-                              [size]="13"
-                              [color]="
-                                enrichmentConfig()!.face_models!.status === 'loaded'
-                                  ? '#4ade80'
-                                  : '#fbbf24'
-                              "
-                            />
-                            <span class="banner-status">
-                              {{
-                                enrichmentConfig()!.face_models!.status === 'loaded'
-                                  ? 'Models loaded.'
-                                  : 'Models not yet loaded.'
-                              }}
-                            </span>
-                            <span class="banner-detail mono">
-                              retinaface.onnx ·
-                              {{ formatBytes(enrichmentConfig()!.face_models!.retinaface.bytes) }} ·
-                              mobilefacenet.onnx ·
-                              {{
-                                formatBytes(enrichmentConfig()!.face_models!.mobilefacenet.bytes)
-                              }}
-                            </span>
-                            <span class="banner-spacer"></span>
-                            <span class="banner-path mono">{{
-                              enrichmentConfig()!.face_models!.retinaface.path
-                            }}</span>
-                          </div>
-                        }
-                        <div class="grid-2col">
-                          <div class="field field-wide">
-                            <div class="field-label">Model directory</div>
-                            <div class="text-input mono">
-                              <div class="text-input-wrap">
-                                <input
-                                  type="text"
-                                  [value]="enrichmentValue(s, 'face_model_dir')"
-                                  (input)="
-                                    setEnrichment(s, 'face_model_dir', $any($event.target).value)
-                                  "
-                                />
-                              </div>
-                            </div>
-                            <div class="field-hint">
-                              Where the worker stages retinaface.onnx and mobilefacenet.onnx. Empty
-                              falls back to <span class="mono">~/.maple/models/</span>.
-                            </div>
-                          </div>
-                          <div class="field">
-                            <div class="field-label">RetinaFace download URL</div>
-                            <div class="text-input mono">
-                              <div class="text-input-wrap">
-                                <input
-                                  type="text"
-                                  placeholder="https://example.com/retinaface.onnx"
-                                  [value]="enrichmentValue(s, 'face_retinaface_url')"
-                                  (input)="
-                                    setEnrichment(
-                                      s,
-                                      'face_retinaface_url',
-                                      $any($event.target).value
-                                    )
-                                  "
-                                />
-                              </div>
-                            </div>
-                            <div class="field-hint">
-                              Used only when <span class="mono">retinaface.onnx</span> isn't already
-                              in the model dir.
-                            </div>
-                          </div>
-                          <div class="field">
-                            <div class="field-label">RetinaFace sha256</div>
-                            <div class="text-input mono">
-                              <div class="text-input-wrap">
-                                <input
-                                  type="text"
-                                  placeholder="optional sha256 (hex)"
-                                  [value]="enrichmentValue(s, 'face_retinaface_sha256')"
-                                  (input)="
-                                    setEnrichment(
-                                      s,
-                                      'face_retinaface_sha256',
-                                      $any($event.target).value
-                                    )
-                                  "
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          <div class="field">
-                            <div class="field-label">MobileFaceNet download URL</div>
-                            <div class="text-input mono">
-                              <div class="text-input-wrap">
-                                <input
-                                  type="text"
-                                  placeholder="https://example.com/mobilefacenet.onnx"
-                                  [value]="enrichmentValue(s, 'face_mobilefacenet_url')"
-                                  (input)="
-                                    setEnrichment(
-                                      s,
-                                      'face_mobilefacenet_url',
-                                      $any($event.target).value
-                                    )
-                                  "
-                                />
-                              </div>
-                            </div>
-                          </div>
-                          <div class="field">
-                            <div class="field-label">MobileFaceNet sha256</div>
-                            <div class="text-input mono">
-                              <div class="text-input-wrap">
-                                <input
-                                  type="text"
-                                  placeholder="optional sha256 (hex)"
-                                  [value]="enrichmentValue(s, 'face_mobilefacenet_sha256')"
-                                  (input)="
-                                    setEnrichment(
-                                      s,
-                                      'face_mobilefacenet_sha256',
-                                      $any($event.target).value
-                                    )
-                                  "
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      }
-
-                      @case ('meili') {
-                        <div class="grid-2col">
-                          <div class="field field-wide">
-                            <div class="field-label">Meilisearch URL</div>
-                            <div class="text-input mono">
-                              <div class="text-input-wrap">
-                                <input
-                                  type="text"
-                                  placeholder="(empty falls back to env / disables)"
-                                  [value]="enrichmentValue(s, 'meilisearch_url')"
-                                  (input)="
-                                    setEnrichment(s, 'meilisearch_url', $any($event.target).value)
-                                  "
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                class="btn-ghost"
-                                [disabled]="testState(s).kind === 'testing'"
-                                (click)="testConnection(s)"
-                              >
-                                <maple-settings-icon name="test" [size]="12" />
-                                {{
-                                  testState(s).kind === 'testing' ? 'Testing…' : 'Test connection'
-                                }}
-                              </button>
-                            </div>
-                            <div class="field-hint">
-                              Base URL of a Meilisearch sidecar for typo-tolerant search. Empty
-                              falls back to the <span class="mono">MAPLE_MEILISEARCH_URL</span> env
-                              var (or disables the sidecar — search then uses the Mongo text index).
-                            </div>
-                            @if (testState(s).kind === 'ok') {
-                              <div class="test-result ok">
-                                <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
-                                Meilisearch responded.
-                              </div>
-                            } @else if (testState(s).kind === 'error') {
-                              <div class="test-result err">
-                                {{ $any(testState(s)).message }}
-                              </div>
-                            }
-                          </div>
-                          <div class="field">
-                            <div class="field-label">API key</div>
-                            <div class="text-input mono">
-                              <div class="text-input-wrap">
-                                <input
-                                  type="password"
-                                  autocomplete="off"
-                                  [placeholder]="
-                                    enrichmentConfig()?.meilisearch_api_key_set
-                                      ? '•••••••• (saved — blank keeps it)'
-                                      : '(optional)'
-                                  "
-                                  [value]="enrichmentValue(s, 'meilisearch_api_key')"
-                                  (input)="
-                                    setEnrichment(
-                                      s,
-                                      'meilisearch_api_key',
-                                      $any($event.target).value
-                                    )
-                                  "
-                                />
-                              </div>
-                            </div>
-                            <div class="field-hint">
-                              Master or search key for the instance, sent as a bearer token and
-                              stored in the database. Leave blank to keep the saved key. With no
-                              saved key, falls back to
-                              <span class="mono">MAPLE_MEILISEARCH_API_KEY</span>.
-                            </div>
-                          </div>
-                        </div>
-                      }
-                    }
-                  </div>
-                }
-
-                <div class="block">
-                  <div class="subhead">Stage runtime</div>
-                  <div class="grid-2col">
-                    <div class="field">
-                      <div class="field-label">Concurrency</div>
-                      <div class="num-input">
-                        <input
-                          type="number"
-                          min="1"
-                          max="100"
-                          [value]="runtimeValue(s, 'concurrency')"
-                          (input)="setRuntime(s, 'concurrency', $any($event.target).value)"
-                        />
-                      </div>
-                      <div class="field-hint">1 – 100</div>
-                    </div>
-                    <div class="field">
-                      <div class="field-label">Max attempts</div>
-                      <div class="num-input">
-                        <input
-                          type="number"
-                          min="1"
-                          max="20"
-                          [value]="runtimeValue(s, 'maxAttempts')"
-                          (input)="setRuntime(s, 'maxAttempts', $any($event.target).value)"
-                        />
-                      </div>
-                      <div class="field-hint">1 – 20</div>
-                    </div>
+                  <div class="field-hint">
+                    Only delete a record after its original file has been missing this long (default
+                    12 h). Recovery of a re-found file is never delayed, and pausing this worker
+                    suspends only deletion — never recovery.
                   </div>
                 </div>
-
                 <div class="row-footer">
-                  @if (s.dead > 0) {
-                    <button
-                      type="button"
-                      class="btn-ghost danger"
-                      data-testid="retry-dead-btn"
-                      (click)="retryDead(s, $event)"
-                    >
-                      <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
-                      Retry {{ s.dead | number }} dead
-                    </button>
-                  }
-                  <button
-                    type="button"
-                    class="btn-ghost"
-                    data-testid="open-logs-btn"
-                    (click)="openLogs(s, $event)"
-                  >
-                    <maple-settings-icon name="open" [size]="12" />
-                    Open logs
-                  </button>
                   <span class="footer-spacer"></span>
-                  @if (saveError(s); as msg) {
+                  @if (reaperPruneError(); as msg) {
                     <span class="save-error">{{ msg }}</span>
-                  } @else if (saveDisabledReason(s); as msg) {
-                    <span class="save-disabled-hint">
-                      {{ msg }}
-                      @if (enrichmentConfigError()) {
-                        <button type="button" class="link-btn" (click)="retryEnrichmentConfig()">
-                          Retry
-                        </button>
-                      }
-                    </span>
-                  } @else if (saveState(s) === 'success') {
+                  } @else if (reaperPruneSaveState() === 'success') {
                     <span class="save-ok">Saved.</span>
                   }
-                  <button type="button" class="btn-ghost" (click)="resetForm(s)">
-                    Reset to defaults
-                  </button>
                   <button
                     type="button"
                     class="btn-primary"
-                    [disabled]="saveDisabled(s)"
-                    [title]="saveDisabledReason(s) ?? ''"
-                    (click)="saveStage(s)"
+                    [disabled]="reaperPruneSaveState() === 'saving' || !reaperPruneLoaded()"
+                    (click)="saveReaperPruneWindow()"
+                    data-testid="reaper-prune-save"
                   >
-                    {{ saveState(s) === 'saving' ? 'Saving…' : 'Save changes' }}
+                    {{ reaperPruneSaveState() === 'saving' ? 'Saving…' : 'Save' }}
                   </button>
                 </div>
               </div>
             }
-          </div>
+
+            @if (s.name === 'migration') {
+              <div class="block">
+                <div class="subhead">Migrations</div>
+                @if (migration.error(); as msg) {
+                  <p class="save-error">{{ msg }}</p>
+                }
+                @for (m of migration.list(); track m.id) {
+                  <div class="migration-row" [attr.data-testid]="'migration-' + m.id">
+                    <div class="migration-main">
+                      <label class="migration-toggle">
+                        <input
+                          type="checkbox"
+                          [checked]="m.enabled"
+                          [disabled]="migration.isBusy(m.id)"
+                          (change)="migration.toggle(m, $event)"
+                          [attr.data-testid]="'migration-toggle-' + m.id"
+                        />
+                        <span class="migration-title">{{ m.title }}</span>
+                      </label>
+                      <span class="migration-status" [class.is-error]="m.status === 'error'">
+                        {{ m.status }}
+                      </span>
+                    </div>
+                    <div class="migration-desc">{{ m.description }}</div>
+                    <div class="migration-progress">
+                      <span>{{ m.processed | number }} processed</span>
+                      <span>{{ m.remaining | number }} remaining</span>
+                      @if (m.errors > 0) {
+                        <span class="is-error">{{ m.errors | number }} errors</span>
+                      }
+                      @if (m.processed > 0 || m.status !== 'idle') {
+                        <button
+                          type="button"
+                          class="migration-reset"
+                          [disabled]="migration.isBusy(m.id)"
+                          (click)="migration.reset(m)"
+                          [attr.data-testid]="'migration-reset-' + m.id"
+                        >
+                          Reset
+                        </button>
+                      }
+                    </div>
+                    @if (m.last_error) {
+                      <div class="save-error">{{ m.last_error }}</div>
+                    }
+                  </div>
+                } @empty {
+                  <p class="field-hint">No migrations registered.</p>
+                }
+              </div>
+            }
+
+            @if (s.name === 'preview') {
+              @if (perfConfig(); as perf) {
+                <div class="block">
+                  <div class="subhead">RAW decode workers</div>
+                  <div class="field">
+                    <div class="field-label">Parallel RAW decodes</div>
+                    <div class="num-input">
+                      <input
+                        id="ffi-workers-input"
+                        type="number"
+                        [min]="perf.min"
+                        [max]="perf.max"
+                        step="1"
+                        [value]="ffiWorkersDraft()"
+                        (input)="setFfiWorkersDraft($any($event.target).value)"
+                        aria-label="RAW decode workers"
+                      />
+                      <span class="num-suffix">workers</span>
+                    </div>
+                    <div class="field-hint">
+                      Number of native RAW decodes that run in parallel (range
+                      {{ perf.min }}–{{ perf.max }}). Higher values speed up RAW thumbnail and
+                      preview generation across CPU cores at the cost of more memory per worker —
+                      each worker loads its own decoder and holds decode buffers. Only affects RAW
+                      thumb/preview decode; JPEG and HEIC sources go through a separate
+                      already-multithreaded path. Default is 1; a value around your core count
+                      (typically 4) is a good starting point for faster ingest.
+                    </div>
+                  </div>
+                  <div class="row-footer">
+                    <span class="perf-source">source: {{ perf.source }}</span>
+                    <span class="footer-spacer"></span>
+                    @if (perfSaveState() === 'error' && perfSaveError()) {
+                      <span class="save-error">{{ perfSaveError() }}</span>
+                    } @else if (perfSaveState() === 'success') {
+                      <span class="save-ok" role="status">Applied</span>
+                    }
+                    <button
+                      type="button"
+                      class="btn-primary perf-save"
+                      [disabled]="perfSaveState() === 'saving'"
+                      (click)="savePerformance()"
+                    >
+                      {{ perfSaveState() === 'saving' ? 'Saving…' : 'Apply' }}
+                    </button>
+                  </div>
+                </div>
+              }
+            }
+
+            @if (meta(s).enrichment) {
+              <div class="block">
+                <div class="subhead">
+                  @switch (meta(s).enrichment) {
+                    @case ('describe') {
+                      Describe worker
+                    }
+                    @case ('geocode') {
+                      Geocode worker
+                    }
+                    @case ('face') {
+                      Face detection
+                    }
+                    @case ('meili') {
+                      Search index
+                    }
+                  }
+                </div>
+
+                @switch (meta(s).enrichment) {
+                  @case ('describe') {
+                    <div class="grid-2col">
+                      <div class="field field-wide">
+                        <div class="field-label">Ollama URL</div>
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              type="text"
+                              placeholder="http://localhost:11434"
+                              [value]="enrichmentValue(s, 'describe_provider_url')"
+                              (input)="
+                                setEnrichment(s, 'describe_provider_url', $any($event.target).value)
+                              "
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            class="btn-ghost"
+                            [disabled]="testState(s).kind === 'testing'"
+                            (click)="testConnection(s)"
+                          >
+                            <maple-settings-icon name="test" [size]="12" />
+                            {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
+                          </button>
+                        </div>
+                        <div class="field-hint">
+                          Empty uses the default
+                          <span class="mono">http://localhost:11434</span>. Point at a remote Ollama
+                          if the model lives on a different machine.
+                        </div>
+                        @if (testState(s).kind === 'ok') {
+                          <div class="test-result ok">
+                            <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
+                            Ollama responded.
+                          </div>
+                        } @else if (testState(s).kind === 'error') {
+                          <div class="test-result err">
+                            {{ $any(testState(s)).message }}
+                          </div>
+                        }
+                      </div>
+                      <div class="field">
+                        <div class="field-label">Model</div>
+                        <div class="text-input mono readonly">
+                          <div class="text-input-wrap">
+                            <input type="text" readonly [value]="fixedDescribeModel" />
+                          </div>
+                        </div>
+                        <div class="field-hint">
+                          Locked to <span class="mono">{{ fixedDescribeModel }}</span
+                          >. The structured-JSON parser only accepts this model's output shape —
+                          pull the matching tag with
+                          <span class="mono">ollama pull {{ fixedDescribeModel }}</span
+                          >.
+                        </div>
+                      </div>
+                    </div>
+                  }
+
+                  @case ('geocode') {
+                    <div class="grid-2col">
+                      <div class="field field-wide">
+                        <div class="field-label">Nominatim URL</div>
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              type="text"
+                              placeholder="(empty disables)"
+                              [value]="enrichmentValue(s, 'nominatim_url')"
+                              (input)="setEnrichment(s, 'nominatim_url', $any($event.target).value)"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            class="btn-ghost"
+                            [disabled]="testState(s).kind === 'testing'"
+                            (click)="testConnection(s)"
+                          >
+                            <maple-settings-icon name="test" [size]="12" />
+                            {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
+                          </button>
+                        </div>
+                        <div class="field-hint">
+                          Empty disables geocoding. When the worker is unpaused, the server
+                          health-checks the URL on save and rejects unreachable values.
+                        </div>
+                        @if (testState(s).kind === 'ok') {
+                          <div class="test-result ok">
+                            <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
+                            Nominatim responded.
+                          </div>
+                        } @else if (testState(s).kind === 'error') {
+                          <div class="test-result err">
+                            {{ $any(testState(s)).message }}
+                          </div>
+                        }
+                      </div>
+                      <div class="field">
+                        <div class="field-label">Rate limit</div>
+                        <div class="num-input">
+                          <input
+                            type="number"
+                            min="0.1"
+                            max="100"
+                            step="0.1"
+                            [value]="enrichmentValue(s, 'nominatim_rate_limit_per_sec')"
+                            (input)="
+                              setEnrichment(
+                                s,
+                                'nominatim_rate_limit_per_sec',
+                                $any($event.target).value
+                              )
+                            "
+                          />
+                          <span class="num-suffix">requests / second</span>
+                        </div>
+                        <div class="field-hint">
+                          Token-bucket throttle. Lower for shared / slow instances.
+                        </div>
+                      </div>
+                    </div>
+                  }
+
+                  @case ('face') {
+                    @if (enrichmentConfig()?.face_models) {
+                      <div
+                        class="face-banner"
+                        [class.warn]="enrichmentConfig()!.face_models!.status === 'error'"
+                      >
+                        <maple-settings-icon
+                          [name]="
+                            enrichmentConfig()!.face_models!.status === 'loaded' ? 'check' : 'x'
+                          "
+                          [size]="13"
+                          [color]="
+                            enrichmentConfig()!.face_models!.status === 'loaded'
+                              ? '#4ade80'
+                              : '#fbbf24'
+                          "
+                        />
+                        <span class="banner-status">
+                          {{
+                            enrichmentConfig()!.face_models!.status === 'loaded'
+                              ? 'Models loaded.'
+                              : 'Models not yet loaded.'
+                          }}
+                        </span>
+                        <span class="banner-detail mono">
+                          retinaface.onnx ·
+                          {{ formatBytes(enrichmentConfig()!.face_models!.retinaface.bytes) }} ·
+                          mobilefacenet.onnx ·
+                          {{ formatBytes(enrichmentConfig()!.face_models!.mobilefacenet.bytes) }}
+                        </span>
+                        <span class="banner-spacer"></span>
+                        <span class="banner-path mono">{{
+                          enrichmentConfig()!.face_models!.retinaface.path
+                        }}</span>
+                      </div>
+                    }
+                    <div class="grid-2col">
+                      <div class="field field-wide">
+                        <div class="field-label">Model directory</div>
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              type="text"
+                              [value]="enrichmentValue(s, 'face_model_dir')"
+                              (input)="
+                                setEnrichment(s, 'face_model_dir', $any($event.target).value)
+                              "
+                            />
+                          </div>
+                        </div>
+                        <div class="field-hint">
+                          Where the worker stages retinaface.onnx and mobilefacenet.onnx. Empty
+                          falls back to <span class="mono">~/.maple/models/</span>.
+                        </div>
+                      </div>
+                      <div class="field">
+                        <div class="field-label">RetinaFace download URL</div>
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              type="text"
+                              placeholder="https://example.com/retinaface.onnx"
+                              [value]="enrichmentValue(s, 'face_retinaface_url')"
+                              (input)="
+                                setEnrichment(s, 'face_retinaface_url', $any($event.target).value)
+                              "
+                            />
+                          </div>
+                        </div>
+                        <div class="field-hint">
+                          Used only when <span class="mono">retinaface.onnx</span> isn't already in
+                          the model dir.
+                        </div>
+                      </div>
+                      <div class="field">
+                        <div class="field-label">RetinaFace sha256</div>
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              type="text"
+                              placeholder="optional sha256 (hex)"
+                              [value]="enrichmentValue(s, 'face_retinaface_sha256')"
+                              (input)="
+                                setEnrichment(
+                                  s,
+                                  'face_retinaface_sha256',
+                                  $any($event.target).value
+                                )
+                              "
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div class="field">
+                        <div class="field-label">MobileFaceNet download URL</div>
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              type="text"
+                              placeholder="https://example.com/mobilefacenet.onnx"
+                              [value]="enrichmentValue(s, 'face_mobilefacenet_url')"
+                              (input)="
+                                setEnrichment(
+                                  s,
+                                  'face_mobilefacenet_url',
+                                  $any($event.target).value
+                                )
+                              "
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <div class="field">
+                        <div class="field-label">MobileFaceNet sha256</div>
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              type="text"
+                              placeholder="optional sha256 (hex)"
+                              [value]="enrichmentValue(s, 'face_mobilefacenet_sha256')"
+                              (input)="
+                                setEnrichment(
+                                  s,
+                                  'face_mobilefacenet_sha256',
+                                  $any($event.target).value
+                                )
+                              "
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  }
+
+                  @case ('meili') {
+                    <div class="grid-2col">
+                      <div class="field field-wide">
+                        <div class="field-label">Meilisearch URL</div>
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              type="text"
+                              placeholder="(empty falls back to env / disables)"
+                              [value]="enrichmentValue(s, 'meilisearch_url')"
+                              (input)="
+                                setEnrichment(s, 'meilisearch_url', $any($event.target).value)
+                              "
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            class="btn-ghost"
+                            [disabled]="testState(s).kind === 'testing'"
+                            (click)="testConnection(s)"
+                          >
+                            <maple-settings-icon name="test" [size]="12" />
+                            {{ testState(s).kind === 'testing' ? 'Testing…' : 'Test connection' }}
+                          </button>
+                        </div>
+                        <div class="field-hint">
+                          Base URL of a Meilisearch sidecar for typo-tolerant search. Empty falls
+                          back to the <span class="mono">MAPLE_MEILISEARCH_URL</span> env var (or
+                          disables the sidecar — search then uses the Mongo text index).
+                        </div>
+                        @if (testState(s).kind === 'ok') {
+                          <div class="test-result ok">
+                            <maple-settings-icon name="check" [size]="12" [color]="'#4ade80'" />
+                            Meilisearch responded.
+                          </div>
+                        } @else if (testState(s).kind === 'error') {
+                          <div class="test-result err">
+                            {{ $any(testState(s)).message }}
+                          </div>
+                        }
+                      </div>
+                      <div class="field">
+                        <div class="field-label">API key</div>
+                        <div class="text-input mono">
+                          <div class="text-input-wrap">
+                            <input
+                              type="password"
+                              autocomplete="off"
+                              [placeholder]="
+                                enrichmentConfig()?.meilisearch_api_key_set
+                                  ? '•••••••• (saved — blank keeps it)'
+                                  : '(optional)'
+                              "
+                              [value]="enrichmentValue(s, 'meilisearch_api_key')"
+                              (input)="
+                                setEnrichment(s, 'meilisearch_api_key', $any($event.target).value)
+                              "
+                            />
+                          </div>
+                        </div>
+                        <div class="field-hint">
+                          Master or search key for the instance, sent as a bearer token and stored
+                          in the database. Leave blank to keep the saved key. With no saved key,
+                          falls back to
+                          <span class="mono">MAPLE_MEILISEARCH_API_KEY</span>.
+                        </div>
+                      </div>
+                    </div>
+                  }
+                }
+              </div>
+            }
+
+            <div class="block">
+              <div class="subhead">Stage runtime</div>
+              <div class="grid-2col">
+                <div class="field">
+                  <div class="field-label">Concurrency</div>
+                  <div class="num-input">
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      [value]="runtimeValue(s, 'concurrency')"
+                      (input)="setRuntime(s, 'concurrency', $any($event.target).value)"
+                    />
+                  </div>
+                  <div class="field-hint">1 – 100</div>
+                </div>
+                <div class="field">
+                  <div class="field-label">Max attempts</div>
+                  <div class="num-input">
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      [value]="runtimeValue(s, 'maxAttempts')"
+                      (input)="setRuntime(s, 'maxAttempts', $any($event.target).value)"
+                    />
+                  </div>
+                  <div class="field-hint">1 – 20</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="row-footer">
+              @if (s.dead > 0) {
+                <button
+                  type="button"
+                  class="btn-ghost danger"
+                  data-testid="retry-dead-btn"
+                  (click)="retryDead(s, $event)"
+                >
+                  <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
+                  Retry {{ s.dead | number }} dead
+                </button>
+              }
+              <button
+                type="button"
+                class="btn-ghost"
+                data-testid="open-logs-btn"
+                (click)="openLogs(s, $event)"
+              >
+                <maple-settings-icon name="open" [size]="12" />
+                Open logs
+              </button>
+              <span class="footer-spacer"></span>
+              @if (saveError(s); as msg) {
+                <span class="save-error">{{ msg }}</span>
+              } @else if (saveDisabledReason(s); as msg) {
+                <span class="save-disabled-hint">
+                  {{ msg }}
+                  @if (enrichmentConfigError()) {
+                    <button type="button" class="link-btn" (click)="retryEnrichmentConfig()">
+                      Retry
+                    </button>
+                  }
+                </span>
+              } @else if (saveState(s) === 'success') {
+                <span class="save-ok">Saved.</span>
+              }
+              <button type="button" class="btn-ghost" (click)="resetForm(s)">
+                Reset to defaults
+              </button>
+              <button
+                type="button"
+                class="btn-primary"
+                [disabled]="saveDisabled(s)"
+                [title]="saveDisabledReason(s) ?? ''"
+                (click)="saveStage(s)"
+              >
+                {{ saveState(s) === 'saving' ? 'Saving…' : 'Save changes' }}
+              </button>
+            </div>
+          </maple-settings-row>
         }
       }
     }
@@ -784,16 +753,12 @@
       <p class="import-error">{{ e }}</p>
     }
     @for (j of imports.jobs(); track j.id) {
-      <div class="row" [class.is-expanded]="imports.isExpanded(j.id)" data-testid="import-row">
-        <div
-          class="row-grid row-summary import-summary"
-          (click)="imports.toggle(j.id)"
-          role="button"
-          [attr.aria-expanded]="imports.isExpanded(j.id)"
-          tabindex="0"
-          (keydown.enter)="imports.toggle(j.id)"
-          (keydown.space)="imports.toggle(j.id); $event.preventDefault()"
-        >
+      <maple-settings-row
+        [expanded]="imports.isExpanded(j.id)"
+        (toggle)="imports.toggle(j.id)"
+        testid="import-row"
+      >
+        <div class="row-grid import-summary" srow-summary>
           <maple-settings-icon
             [name]="imports.isExpanded(j.id) ? 'chev-d' : 'chev-r'"
             [size]="12"
@@ -819,61 +784,57 @@
           </span>
         </div>
 
-        @if (imports.isExpanded(j.id)) {
-          <div class="expanded">
-            @if (imports.detailLoading()) {
-              <p class="import-detail-hint">Loading…</p>
-            } @else if (imports.detail(); as d) {
-              <div class="import-detail">
-                <div class="import-detail-head">
-                  <code class="mono" [title]="d.source_root">{{ d.source_root }}</code>
-                  <maple-settings-icon name="chev-r" [size]="12" [color]="'#78706a'" />
-                  <span class="lib-name">{{ imports.libraryName(d) }}</span>
-                  @if (imports.retryable(j)) {
-                    <button
-                      type="button"
-                      class="btn-ghost danger import-retry"
-                      data-testid="import-retry"
-                      [disabled]="imports.retryingId() !== null"
-                      (click)="imports.retry(j.id)"
-                    >
-                      <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
-                      {{ imports.retryingId() === j.id ? 'Retrying…' : 'Retry failed' }}
-                    </button>
-                  }
-                </div>
-                @if (j.status === 'failed' && d.error; as importError) {
-                  <p class="import-detail-error" data-testid="import-detail-error">
-                    {{ importError }}
-                  </p>
-                }
-                <div class="import-files">
-                  <div class="import-file head">
-                    <span>Source</span><span>Destination</span><span class="r">Status</span>
-                  </div>
-                  @for (f of d.files.slice(0, imports.maxFilesShown); track f.src) {
-                    <div class="import-file">
-                      <span class="mono" [title]="f.src">{{ imports.basename(f.src) }}</span>
-                      <span class="mono" [title]="f.dest">{{ f.dest }}</span>
-                      <span class="r file-state" [attr.data-state]="f.state">{{ f.state }}</span>
-                    </div>
-                    @if (j.status === 'failed' && f.error; as fileError) {
-                      <div class="import-file-error" data-testid="import-file-error">
-                        {{ fileError }}
-                      </div>
-                    }
-                  }
-                </div>
-                @if (d.files.length > imports.maxFilesShown) {
-                  <p class="import-detail-hint">
-                    Showing first {{ imports.maxFilesShown }} of {{ d.files.length }} files.
-                  </p>
-                }
+        @if (imports.detailLoading()) {
+          <p class="import-detail-hint">Loading…</p>
+        } @else if (imports.detail(); as d) {
+          <div class="import-detail">
+            <div class="import-detail-head">
+              <code class="mono" [title]="d.source_root">{{ d.source_root }}</code>
+              <maple-settings-icon name="chev-r" [size]="12" [color]="'#78706a'" />
+              <span class="lib-name">{{ imports.libraryName(d) }}</span>
+              @if (imports.retryable(j)) {
+                <button
+                  type="button"
+                  class="btn-ghost danger import-retry"
+                  data-testid="import-retry"
+                  [disabled]="imports.retryingId() !== null"
+                  (click)="imports.retry(j.id)"
+                >
+                  <maple-settings-icon name="retry" [size]="12" [color]="'#f87171'" />
+                  {{ imports.retryingId() === j.id ? 'Retrying…' : 'Retry failed' }}
+                </button>
+              }
+            </div>
+            @if (j.status === 'failed' && d.error; as importError) {
+              <p class="import-detail-error" data-testid="import-detail-error">
+                {{ importError }}
+              </p>
+            }
+            <div class="import-files">
+              <div class="import-file head">
+                <span>Source</span><span>Destination</span><span class="r">Status</span>
               </div>
+              @for (f of d.files.slice(0, imports.maxFilesShown); track f.src) {
+                <div class="import-file">
+                  <span class="mono" [title]="f.src">{{ imports.basename(f.src) }}</span>
+                  <span class="mono" [title]="f.dest">{{ f.dest }}</span>
+                  <span class="r file-state" [attr.data-state]="f.state">{{ f.state }}</span>
+                </div>
+                @if (j.status === 'failed' && f.error; as fileError) {
+                  <div class="import-file-error" data-testid="import-file-error">
+                    {{ fileError }}
+                  </div>
+                }
+              }
+            </div>
+            @if (d.files.length > imports.maxFilesShown) {
+              <p class="import-detail-hint">
+                Showing first {{ imports.maxFilesShown }} of {{ d.files.length }} files.
+              </p>
             }
           </div>
         }
-      </div>
+      </maple-settings-row>
     } @empty {
       <p class="import-empty">No imports yet.</p>
     }
