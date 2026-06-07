@@ -18,7 +18,11 @@ import {
 } from '../auth/webauthn.ts';
 import { redeemInvite, createInvite, listInvites, rescindInvite } from '../auth/invites.ts';
 import { signAccessToken, REFRESH_TTL_SECONDS } from '../auth/tokens.ts';
-import { issueRefreshToken, rotateRefreshToken, revokeOne } from '../auth/refresh_store.ts';
+import {
+  issueRefreshToken,
+  rotateRefreshToken,
+  revokeFamilyByToken,
+} from '../auth/refresh_store.ts';
 import { requireAuth, requireOwner } from '../auth/middleware.ts';
 import { rateLimit } from '../auth/rate_limit.ts';
 
@@ -424,7 +428,10 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       const raw: string | undefined = body.refresh_token ?? cookieRaw;
       if (raw) {
         try {
-          await revokeOne(raw);
+          // Sign the whole device family out, not just the one presented token
+          // (#858) — otherwise a re-minted sibling from the grace window would
+          // stay live and the logout wouldn't actually log out.
+          await revokeFamilyByToken(raw);
         } catch {
           /* swallow */
         }

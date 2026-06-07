@@ -958,6 +958,10 @@ export interface RefreshTokenDoc {
   revoked_at: string | null;
   replaced_by: ObjectId | null;
   device_label: string;
+  /** Rotation lineage (#858). A login starts a family; every rotation stays in
+   * it. Reuse detection and logout revoke a family (one device), not the whole
+   * user. Optional only for tokens issued before family tracking. */
+  family_id?: ObjectId;
 }
 export type RefreshTokenWithId = WithId<RefreshTokenDoc>;
 
