@@ -46,7 +46,7 @@ export const listRoute = new Elysia().get(
     const filter = filterOrError;
 
     const page = clampInt(query.page, 0, Number.MAX_SAFE_INTEGER, 0);
-    const limit = clampInt(query.limit, 1, 200, 100);
+    const limit = clampInt(query.limit, 1, 500, 100);
 
     // S7 scope chip: `albums` has no backing field today (PhotoKit
     // assetCollection ids are not stored on AssetDoc). Short-circuit
