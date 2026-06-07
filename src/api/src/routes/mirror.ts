@@ -49,7 +49,7 @@ function pathsOverlap(x: string, y: string): boolean {
 
 /**
  * Reject a mirror root that would alias the library's own tree (mirror inside
- * primary, or primary inside primary) — replication would recurse or clobber.
+ * primary, or primary inside mirror) — replication would recurse or clobber.
  *
  * Resolves symlinks first (`realpath`) so a mirror root that is a symlink INTO
  * the primary tree is caught: mirrored writes use the raw mirror path with the
