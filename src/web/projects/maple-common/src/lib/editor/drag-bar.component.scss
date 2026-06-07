@@ -14,17 +14,17 @@
 }
 
 .baseline {
-  stroke: var(--mpl-border, #44403c);
+  stroke: var(--color-border);
   stroke-width: 1;
 }
 
 .tick {
-  stroke: var(--mpl-border, #44403c);
+  stroke: var(--color-border);
   stroke-width: 1;
 }
 
 .tick-center {
-  stroke: var(--mpl-border-hi, #5a5552);
+  stroke: var(--color-border-hi);
   stroke-width: 1;
 }
 

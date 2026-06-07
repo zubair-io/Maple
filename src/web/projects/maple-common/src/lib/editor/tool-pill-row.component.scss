@@ -1,6 +1,6 @@
 :host {
   display: block;
-  background: var(--mpl-bg, #1c1917);
+  background: var(--color-bg);
 }
 
 .row {
@@ -26,7 +26,7 @@
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  color: var(--mpl-text-muted, #a8a29e);
+  color: var(--color-text-muted);
   font-size: 10px;
 
   .circle {
@@ -34,7 +34,7 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    border: 0.5px solid var(--mpl-border, #44403c);
+    border: 0.5px solid var(--color-border);
     background: var(--mpl-surface-alt, #2c2825);
     display: flex;
     align-items: center;
