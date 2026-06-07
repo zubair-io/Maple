@@ -1723,7 +1723,9 @@ dependencies = [
  "thiserror 2.0.18",
  "uuid",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasm-bindgen-rayon",
+ "wgpu",
 ]
 
 [[package]]
