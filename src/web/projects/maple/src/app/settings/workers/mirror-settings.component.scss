@@ -7,32 +7,44 @@
   @include chrome.settings-atoms;
 
   display: block;
-  margin-top: 24px;
+}
+
+// Collapsible row, mirroring the worker / import rows above it.
+.row {
   border-top: 0.5px solid var(--s-border);
+
+  &.is-expanded .row-summary {
+    background: var(--s-surface2);
+  }
 }
 
-// Horizontal padding inherits the parent `.workers-body` (36px); these only
-// add vertical rhythm + the same atoms the worker rows use.
-
-.section-head {
-  padding: 18px 0 0;
+.row-summary.mirror-summary {
+  height: 56px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
+  gap: 10px;
+  padding: 0 16px;
+  cursor: pointer;
+  transition: background 120ms;
 
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  &:hover {
+    background: rgba(255, 255, 255, 0.02);
+  }
 
-  h2 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--s-text);
+  .stage-id {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    .mono {
+      font-size: 13px;
+      color: var(--s-text);
+      letter-spacing: 0.2px;
+    }
+  }
+
+  .summary-spacer {
+    flex: 1;
   }
 }
 
@@ -58,17 +70,29 @@
   gap: 10px;
 }
 
-.section-desc {
-  padding: 8px 0 2px;
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--s-text-mid);
-  line-height: 1.55;
-  max-width: 680px;
+.expanded {
+  background: var(--s-surface);
+  padding: 4px 0 18px;
+}
+
+.desc-bar {
+  padding: 12px 24px 4px 50px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+
+  p {
+    margin: 0;
+    font-size: 12.5px;
+    color: var(--s-text-mid);
+    line-height: 1.55;
+    max-width: 640px;
+    flex: 1;
+  }
 }
 
 .banner-error {
-  margin: 12px 0 0;
+  margin: 10px 24px 0 50px;
   padding: 10px 14px;
   border-radius: 5px;
   background: rgba(248, 113, 113, 0.1);
@@ -78,17 +102,16 @@
 }
 
 .loading {
-  padding: 14px 0;
+  padding: 12px 24px 12px 50px;
   font-size: 13px;
   color: var(--s-text-muted);
 }
 
 .block {
-  padding: 16px 0 4px;
+  padding: 14px 24px 4px 50px;
 }
 // Divider only BETWEEN consecutive library blocks. (`:first-of-type` wouldn't
-// work — `.section-head` etc. are earlier `div` siblings, so the first .block
-// isn't the first div.)
+// work — the expanded body has earlier siblings like `.desc-bar`.)
 .block + .block {
   border-top: 0.5px solid var(--s-border);
   margin-top: 14px;
