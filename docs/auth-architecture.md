@@ -1,10 +1,10 @@
 # Authentication & Sessions — Architecture
 
-> **Status:** as-built description of the current implementation (2026-06-02).
-> Documents what the code does today, including known issues. Endpoint
-> reference in [`server-api.md`](server-api.md) is **stale for auth** (see
-> [Known issues](#known-issues--risks) §6) — this doc supersedes it for the
-> auth surface. Operator upgrade notes: [`upgrade-notes/2026-04-passkey-auth.md`](upgrade-notes/2026-04-passkey-auth.md).
+> **Status:** as-built description of the current implementation, updated through
+> the #852 auth rebuild (Phases 0–4). This doc is the authoritative reference for
+> the auth surface; [`server-api.md`](server-api.md) §Authentication now points
+> here and to the generated `/openapi.json` as canonical. Operator upgrade notes:
+> [`upgrade-notes/2026-04-passkey-auth.md`](upgrade-notes/2026-04-passkey-auth.md).
 
 ## Context & goals
 
@@ -171,8 +171,8 @@ invite and is created as `member`.
 2. `verify`: consume + match the challenge, look up user and credential (by
    `credential_id`, bound to the user), verify the assertion, bump the signature
    `counter` + `last_used_at` / `last_seen_at`, and issue an access + refresh
-   pair. (`requireUserVerification: false` — "preferred", to accept synced
-   passkeys / keys without UV; see `webauthn.ts:114`.)
+   pair. (`userVerification: "preferred"` — accepts synced passkeys without
+   forcing a UV gesture; an intentional choice, see [Decisions](#decisions-documented).)
 
 ### Refresh & rotation (`POST /api/auth/refresh`)
 
@@ -275,23 +275,13 @@ These are deploy/infra bootstrap values (legitimately env-based, not DB settings
 These are real, code-confirmed gaps in the current design. None are in the
 WebAuthn/crypto-primitive layer; they cluster in the hand-rolled session layer.
 
-1. **Refresh rotation is non-idempotent with zero replay tolerance → spurious
-   logouts.** Any presentation of an already-rotated token is treated as theft
-   and revokes the user's _entire_ token family. Because the web app rotates the
-   cookie on every load, any time a `/refresh` response fails to reach the tab
-   that sent it (lost response on a flaky link; a slow `/refresh` — see the API
-   event-loop stalls, #706–#710 — while the user reloads/navigates; concurrency
-   the Web-Lock can't cover such as a second device), the client keeps the old
-   cookie while the server has revoked it, and the next refresh trips reuse
-   detection. Contributing factors:
-   - `replaced_by` is written but **never read** — there is no grace-window
-     "return the existing successor for a just-rotated token" path
-     (`refresh_store.ts:32, 41-46`).
-   - `revokeChain` is **per-user**, not per-chain, so one slip signs the user out
-     on every device (`refresh_store.ts:49-55`).
-   - `rotateRefreshToken` reads-checks-then-writes non-atomically (TOCTOU) — two
-     same-token requests can both pass the check (`refresh_store.ts:25-46`).
-   - No concurrency / lost-response test exists (only sequential reuse tests).
+1. **~~Refresh rotation is non-idempotent with zero replay tolerance → spurious
+   logouts.~~** RESOLVED (#858). Rotation is now an atomic compare-and-swap; a
+   `family_id` scopes revocation to one device (not the whole user); and a
+   60 s grace window re-mints a just-rotated token (lost-response / concurrent
+   retry) iff its family is still live, so a benign replay no longer trips reuse
+   detection. Logout revokes by family. Concurrency/lost-response is regression-
+   tested (`refresh_store.test.ts`, `auth-flow-e2e.test.ts`).
 2. **~~30-day, non-revocable access token → "valid" ≠ "fresh".~~** RESOLVED
    (#860). TTL is now 15 min, and `requireAuth` checks the user's
    `token_version` per request, so bumping it (`revokeChain`) kills live access
@@ -299,31 +289,47 @@ WebAuthn/crypto-primitive layer; they cluster in the hand-rolled session layer.
 3. **~~Hand-rolled JWT.~~** RESOLVED (#859). Sign/verify is now `jose` with the
    algorithm pinned to HS256; the hand-rolled envelope and `timingSafeEqual` are
    deleted.
-4. **In-memory rate limiter.** `rate_limit.ts` is per-process (not shared across
-   replicas/restarts) and never evicts map keys. Effectiveness depends on the
-   single-process deployment shape.
-5. **WebSocket token in the query string.** `?token=<jwt>` can land in access
-   logs / proxy logs. Lower risk with a short access TTL; a post-connect auth
-   frame would be better.
-6. **Doc drift.** [`server-api.md`](server-api.md) §Authentication lists endpoints
-   that don't exist (`/api/auth/status`, `/register/{begin,finish}`,
-   `/login/{begin,finish}`). The real surface is documented above.
+4. **~~In-memory rate limiter.~~** RESOLVED (#862). The store is now a bounded
+   LRU (5000-key cap), and the client key is derived from a trusted proxy hop
+   (`MAPLE_TRUSTED_PROXIES`), not the spoofable leftmost `X-Forwarded-For`. Still
+   per-process by design (single-instance deployment; see Decisions below).
+5. **WebSocket token in the query string.** `?token=<jwt>` can land in access /
+   proxy logs. Lower risk now with a 15-min access TTL; the post-connect auth
+   frame + Origin allowlist + close-on-revoke is tracked in **#863** (not yet
+   landed).
+6. **~~Doc drift.~~** RESOLVED (#866). [`server-api.md`](server-api.md)
+   §Authentication now lists the real endpoints and points to the generated
+   `/openapi.json` as canonical.
 
-## Recommended direction
+Also added since the original audit: instant per-user revoke via `token_version`
+(#860), step-up re-auth for sensitive actions (#861), and atomic
+first-registration claim (#865).
 
-Treat as one **auth-hardening** effort (no ticket yet):
+## Status
 
-- **Shorten the access TTL** to ~5–15 min and make the DB-backed refresh layer
-  the real control point. This bounds staleness (#2) and de-risks the
-  token-in-URL exposure (#5) without adding a per-request DB read. Optionally add
-  a `token_version` on the user (or a small denylist) for instant revocation.
-- **Make rotation safe** (#1): atomic CAS
-  `findOneAndUpdate({ token_hash, revoked_at: null }, …)`; a grace window that
-  returns the live `replaced_by` successor when the immediately-prior token is
-  replayed within ~10–30 s; consider chain-scoped rather than per-user
-  revocation. Add a concurrency/lost-response regression test.
-- **Consider migrating the JWT to `jose`** (#3).
-- **Fix `server-api.md`** (#6).
+The auth-hardening effort is tracked as epic **#852**. Phases 0–2 (P0 holes +
+rotation core) and Phase 3 (jose, short TTL + `token_version`, step-up) are
+delivered, plus Phase 4's rate-limit (#862) and registration-atomicity (#865)
+work. Remaining: WebSocket auth hardening (#863) and the
+`@simplewebauthn/server` v13 upgrade (#864).
+
+## Decisions (documented)
+
+- **User verification: `"preferred"`, intentionally.** WebAuthn ceremonies use
+  `userVerification: "preferred"` (not `"required"`). This is SimpleWebAuthn's
+  deliberate passkeys default: it lets synced/platform passkeys authenticate
+  without forcing a PIN/biometric gesture on every device, which is the right UX
+  for a single-owner photo app. Treat as a conscious choice, not a gap — revisit
+  only if Maple ever promises PIN/biometric-backed assurance.
+- **Single-instance JWT secret (fail-closed if scaling out).** The secret
+  resolves DB → file → in-memory random (`jwt-bootstrap.ts`). The in-memory
+  fallback only survives within one process, so a deployment relying on it is
+  **single-instance only** — a second replica would sign with a different secret
+  and reject the first's tokens. The DB-backed secret (`server_state.jwt_secret`)
+  is what makes multi-instance possible; if Maple ever scales horizontally, make
+  the DB secret **mandatory** (fail closed rather than silently minting a
+  per-process random key). The same single-process assumption applies to the
+  in-memory rate limiter (#862).
 
 ## References
 
