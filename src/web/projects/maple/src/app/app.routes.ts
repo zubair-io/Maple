@@ -3,14 +3,10 @@ import {
   BrowseShellComponent,
   EditorPageComponent,
   EditorShellComponent,
-  PhoneSettingsStubComponent,
   ProtocolHandlerComponent,
+  authGuard,
 } from '@maple-common';
 import { LibraryPageComponent } from './library-page.component';
-// authGuard is not yet exported from @maple-common's public-api (see Task C6);
-// imported via deep relative path in the meantime so this task can land
-// independently of C6.
-import { authGuard } from '../../../maple-common/src/lib/auth/auth.guard';
 
 // Self-Hosted: the server already hosts the library, so the root path goes
 // straight to /browse. No landing page. All content routes are gated behind
