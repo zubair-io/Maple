@@ -14,6 +14,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LAST_SOURCE_KEY } from '../../state/library-fetch.service';
+import { TypedStorage } from '../../util/typed-storage';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
@@ -73,11 +74,7 @@ export class BrowseShellComponent implements OnInit {
       const id = this.state.selectedSourceId();
       if (!id || !id.startsWith('fs:')) return;
       const path = id.slice(3);
-      try {
-        localStorage.setItem(LAST_SOURCE_KEY, id);
-      } catch {
-        /* noop — private mode / quota */
-      }
+      TypedStorage.setRaw(LAST_SOURCE_KEY, id);
       const current = this.route.snapshot.queryParamMap.get('folder');
       if (current === path) return;
       void this.router.navigate([], {
