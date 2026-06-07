@@ -38,7 +38,7 @@ beforeEach(async () => {
     last_seen_at: null,
   });
   userId = ins.insertedId;
-  bearer = signAccessToken(
+  bearer = await signAccessToken(
     { sub: userId.toHexString(), email: 'owner@maple.local', role: 'owner' },
     process.env.MAPLE_JWT_SECRET!,
   );

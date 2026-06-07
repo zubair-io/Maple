@@ -22,14 +22,14 @@ const SECRET = process.env.MAPLE_JWT_SECRET!;
 
 export const BEARER =
   'Bearer ' +
-  signAccessToken(
+  (await signAccessToken(
     {
       sub: '00000000000000000000000a',
       email: 'tester@maple.local',
       role: 'owner',
     },
     SECRET,
-  );
+  ));
 
 export function fmtAuth(): Record<string, string> {
   return { Authorization: BEARER };

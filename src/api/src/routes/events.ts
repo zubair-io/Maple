@@ -124,14 +124,14 @@ export const eventsRoutes = new Elysia({ prefix: '/api' }).ws('/events', {
   // during the HTTP-side handshake — rejecting here means the upgrade
   // never completes and the browser sees a 401, not a closed socket.
   query: t.Object({ token: t.Optional(t.String()) }),
-  beforeHandle({ query, set }) {
+  async beforeHandle({ query, set }) {
     const token = query.token;
     if (!token) {
       set.status = 401;
       return { error: 'missing token' };
     }
     try {
-      verifyAccessToken(token, jwtSecret());
+      await verifyAccessToken(token, jwtSecret());
     } catch {
       set.status = 401;
       return { error: 'invalid token' };
