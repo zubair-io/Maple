@@ -24,7 +24,7 @@ import {
   revokeFamilyByToken,
 } from '../auth/refresh_store.ts';
 import { requireAuth, requireOwner, stepUpBeforeHandle } from '../auth/middleware.ts';
-import { rateLimit } from '../auth/rate_limit.ts';
+import { rateLimit, clientIp } from '../auth/rate_limit.ts';
 import { tryClaimOwnership, releaseOwnershipClaim } from '../auth/server_claim.ts';
 
 function jwtSecret(): string {
@@ -113,13 +113,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
   .post(
     '/register/options',
     async ({ body, set, request }) => {
-      const ip = (
-        request.headers.get('x-forwarded-for') ??
-        request.headers.get('x-real-ip') ??
-        'anon'
-      )
-        .split(',')[0]
-        .trim();
+      const ip = clientIp(request);
       if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
         set.status = 429;
         return { error: 'rate limited' };
@@ -257,13 +251,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
   .post(
     '/login/options',
     async ({ body, set, request }) => {
-      const ip = (
-        request.headers.get('x-forwarded-for') ??
-        request.headers.get('x-real-ip') ??
-        'anon'
-      )
-        .split(',')[0]
-        .trim();
+      const ip = clientIp(request);
       if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
         set.status = 429;
         return { error: 'rate limited' };
@@ -396,13 +384,7 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
   .post(
     '/refresh',
     async ({ body, cookie, set, request }) => {
-      const ip = (
-        request.headers.get('x-forwarded-for') ??
-        request.headers.get('x-real-ip') ??
-        'anon'
-      )
-        .split(',')[0]
-        .trim();
+      const ip = clientIp(request);
       if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
         set.status = 429;
         return { error: 'rate limited' };
