@@ -168,7 +168,8 @@
                 "output": "/pkg"
               }
             ],
-            "styles": ["projects/maple/src/styles.scss"]
+            "styles": ["projects/maple/src/styles.scss"],
+            "serviceWorker": "ngsw-config.json"
           },
           "configurations": {
             "production": {
