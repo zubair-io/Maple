@@ -98,3 +98,37 @@ export function hashRefreshToken(raw: string): string {
 export function refreshExpiresAt(): Date {
   return new Date(Date.now() + REFRESH_TTL_SECONDS * 1000);
 }
+
+/** Step-up token lifetime (#861) — a fresh WebAuthn assertion is good for this
+ * long before a sensitive action needs another one. */
+export const STEP_UP_TTL_SECONDS = 5 * 60; // 5 minutes
+
+/**
+ * Sign a short-lived step-up token (#861), minted only after a fresh WebAuthn
+ * assertion. It is NOT an access token (no role) — it just attests "this user
+ * re-proved a passkey within the last few minutes" and gates sensitive actions.
+ */
+export async function signStepUpToken(sub: string, secret: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({ purpose: 'step_up' })
+    .setProtectedHeader({ alg: ALG, typ: 'JWT' })
+    .setSubject(sub)
+    .setIssuedAt(now)
+    .setExpirationTime(now + STEP_UP_TTL_SECONDS)
+    .sign(secretKey(secret));
+}
+
+/** Verify a step-up token; returns its subject. Throws on bad/expired/wrong-purpose. */
+export async function verifyStepUpToken(token: string, secret: string): Promise<{ sub: string }> {
+  let payload: Record<string, unknown>;
+  try {
+    ({ payload } = await jwtVerify(token, secretKey(secret), { algorithms: [ALG] }));
+  } catch (e) {
+    if (e instanceof joseErrors.JWTExpired) throw new Error('step-up expired');
+    throw new Error('step-up invalid');
+  }
+  if (payload.purpose !== 'step_up' || typeof payload.sub !== 'string') {
+    throw new Error('step-up invalid');
+  }
+  return { sub: payload.sub };
+}

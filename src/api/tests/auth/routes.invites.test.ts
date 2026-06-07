@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { ObjectId } from 'mongodb';
 import { authRoutes } from '../../src/routes/auth.ts';
-import { signAccessToken } from '../../src/auth/tokens.ts';
+import { signAccessToken, signStepUpToken } from '../../src/auth/tokens.ts';
 import { invitesCollection, usersCollection } from '../../src/db/client.ts';
 
 process.env.MAPLE_JWT_SECRET = 'x'.repeat(32);
@@ -19,6 +19,8 @@ const memberJwt = await signAccessToken(
   { sub: memberId.toHexString(), email: 'm@m.c', role: 'member' },
   'x'.repeat(32),
 );
+// #861: create/rescind are sensitive — they need a fresh step-up token.
+const ownerStepUp = await signStepUpToken(ownerId.toHexString(), 'x'.repeat(32));
 
 beforeEach(async () => {
   await (await invitesCollection()).deleteMany({});
@@ -47,6 +49,7 @@ describe('invites CRUD', () => {
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${ownerJwt}`,
+          'x-step-up': ownerStepUp,
         },
         body: JSON.stringify({ email: 'alice@x.y' }),
       }),
@@ -70,6 +73,7 @@ describe('invites CRUD', () => {
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${ownerJwt}`,
+          'x-step-up': ownerStepUp,
         },
         body: JSON.stringify({ email: 'alice@x.y' }),
       }),
@@ -78,7 +82,7 @@ describe('invites CRUD', () => {
     const dr = await app.handle(
       new Request(`http://localhost/api/auth/invites/${code}`, {
         method: 'DELETE',
-        headers: { authorization: `Bearer ${ownerJwt}` },
+        headers: { authorization: `Bearer ${ownerJwt}`, 'x-step-up': ownerStepUp },
       }),
     );
     expect(dr.status).toBe(204);
