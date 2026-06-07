@@ -8,6 +8,7 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../../../maple-common/src/lib/auth/auth.service';
+import { errorMessage } from '@maple-common';
 
 @Component({
   standalone: true,
@@ -32,7 +33,7 @@ export class SignInComponent implements OnInit {
       this.claimed.set(r.claimed);
       this.devLoginEnabled.set(r.dev_login_enabled);
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     }
   }
 
@@ -54,7 +55,7 @@ export class SignInComponent implements OnInit {
         await this.router.navigateByUrl('/');
       }
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     } finally {
       this.busy.set(false);
     }
@@ -69,7 +70,7 @@ export class SignInComponent implements OnInit {
         await this.router.navigateByUrl('/');
       }
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     } finally {
       this.busy.set(false);
     }

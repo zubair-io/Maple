@@ -15,7 +15,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { AuthService } from '@maple-common';
+import { AuthService, errorMessage } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
@@ -62,7 +62,7 @@ export class UsersComponent implements OnInit {
       const list = await this.auth.listInvites();
       this.invites.set(list as Invite[]);
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     }
   }
 
@@ -87,7 +87,7 @@ export class UsersComponent implements OnInit {
       this.showInviteForm.set(false);
       await this.refresh();
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     } finally {
       this.busy.set(false);
     }
@@ -102,7 +102,7 @@ export class UsersComponent implements OnInit {
       if (fresh && fresh.code === code) this.freshInvite.set(null);
       await this.refresh();
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     } finally {
       this.busy.set(false);
     }

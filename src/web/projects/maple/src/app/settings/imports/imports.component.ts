@@ -30,6 +30,7 @@ import {
   type FsDirListing,
   type ImportScanResult,
   type ImportSummary,
+  errorMessage,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -292,10 +293,6 @@ export class ImportsComponent implements OnInit, OnDestroy {
   }
 
   private msg(e: unknown): string {
-    if (e && typeof e === 'object' && 'error' in e) {
-      const inner = (e as { error?: { error?: string } }).error;
-      if (inner?.error) return inner.error;
-    }
-    return e instanceof Error ? e.message : String(e);
+    return errorMessage(e);
   }
 }

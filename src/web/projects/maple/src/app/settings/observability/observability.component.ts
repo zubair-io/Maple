@@ -26,6 +26,7 @@ import {
   type ObservabilityConfigPatch,
   type ObservabilityConfigResponse,
   ObservabilityService,
+  errorMessage,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -165,7 +166,7 @@ export class ObservabilityComponent implements OnInit {
     } catch (err) {
       this.testState.set({
         kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
+        message: errorMessage(err),
       });
     }
   }
@@ -220,7 +221,7 @@ export class ObservabilityComponent implements OnInit {
     } catch (err) {
       this.saveState.set({
         kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
+        message: errorMessage(err),
       });
     }
   }
@@ -241,7 +242,7 @@ export class ObservabilityComponent implements OnInit {
     } catch (err) {
       this.connState.set({
         kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
+        message: errorMessage(err),
       });
     }
   }

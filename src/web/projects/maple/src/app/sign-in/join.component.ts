@@ -8,6 +8,7 @@ import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { AuthService } from '../../../../maple-common/src/lib/auth/auth.service';
+import { errorMessage } from '@maple-common';
 
 @Component({
   standalone: true,
@@ -46,7 +47,7 @@ export class JoinComponent {
         await this.router.navigateByUrl('/');
       }
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     } finally {
       this.busy.set(false);
     }
