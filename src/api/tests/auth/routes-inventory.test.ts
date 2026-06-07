@@ -35,6 +35,10 @@ const PUBLIC_ROUTES = new Set<string>([
   'POST /api/auth/login/verify',
   'POST /api/auth/refresh', // session bootstrap (rotates the httpOnly cookie)
   'POST /api/auth/logout',
+  'POST /api/auth/native-code/redeem', // native PKCE redeem (#856): the app's FIRST
+  // token grab, before it holds any bearer — gated by the one-time code + PKCE
+  // verifier, not by auth. (The paired issue route, POST /api/auth/native-code,
+  // IS authed and is correctly gated.)
   'GET /api/geocode/reverse', // read-only Place metadata by lat/lon (no user data)
   'GET /docs', // Scalar API docs UI (client codegen source)
   'GET /openapi.json', // OpenAPI spec (client codegen source)
