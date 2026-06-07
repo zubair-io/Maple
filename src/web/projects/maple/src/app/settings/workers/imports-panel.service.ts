@@ -13,6 +13,7 @@ import {
   ImportsApiService,
   type ImportSummary,
   type ImportView,
+  errorMessage,
 } from '@maple-common';
 
 const POLL_MS = 4000;
@@ -73,7 +74,7 @@ export class ImportsPanelService {
       },
       error: (e: unknown) => {
         this.inFlight = false;
-        this.error.set(e instanceof Error ? e.message : String(e));
+        this.error.set(errorMessage(e));
       },
     });
   }
@@ -103,7 +104,7 @@ export class ImportsPanelService {
       error: (e: unknown) => {
         if (this.expandedId() !== id) return;
         this.detailLoading.set(false);
-        this.error.set(e instanceof Error ? e.message : String(e));
+        this.error.set(errorMessage(e));
       },
     });
   }
@@ -154,7 +155,7 @@ export class ImportsPanelService {
       },
       error: (e: unknown) => {
         this.retryingId.set(null);
-        this.error.set(e instanceof Error ? e.message : String(e));
+        this.error.set(errorMessage(e));
       },
     });
   }

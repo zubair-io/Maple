@@ -16,7 +16,7 @@ import {
   signal,
 } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { BunApiBackendService, type ApiFolder } from '@maple-common';
+import { BunApiBackendService, type ApiFolder, errorMessage } from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { SettingsRowComponent } from '../settings-row.component';
 
@@ -184,10 +184,6 @@ export class MirrorSettingsComponent implements OnInit {
   }
 
   private msg(e: unknown): string {
-    if (e && typeof e === 'object' && 'error' in e) {
-      const inner = (e as { error?: { error?: string } }).error;
-      if (inner?.error) return inner.error;
-    }
-    return e instanceof Error ? e.message : String(e);
+    return errorMessage(e);
   }
 }

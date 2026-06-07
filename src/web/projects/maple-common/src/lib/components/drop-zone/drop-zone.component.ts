@@ -10,6 +10,7 @@ import {
   signal,
 } from '@angular/core';
 import { LibraryStateService, isSupportedRaw } from '../../state/library-state.service';
+import { errorMessage } from '../../util/errors';
 import { AssetId } from '../../models/asset';
 import { FolderAccessService } from '../../folder-access/folder-access.service';
 import { MapleFolderHandle } from '../../folder-access/folder-access.types';
@@ -53,7 +54,7 @@ export class DropZoneComponent {
       await this.state.openFolder(handle);
       this.folderOpened.emit(handle);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorMessage(err);
       this.openError.set(`Failed to open folder: ${msg}`);
       console.error('DropZoneComponent: openFolder error', err);
     } finally {
