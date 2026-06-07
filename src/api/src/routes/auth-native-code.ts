@@ -12,7 +12,7 @@ import { signAccessToken } from '../auth/tokens.ts';
 import { issueRefreshToken } from '../auth/refresh_store.ts';
 import { issueNativeCode, redeemNativeCode } from '../auth/native_code_store.ts';
 import { requireAuth } from '../auth/middleware.ts';
-import { rateLimit } from '../auth/rate_limit.ts';
+import { rateLimit, clientIp } from '../auth/rate_limit.ts';
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
@@ -30,13 +30,7 @@ function jwtSecret(): string {
 export const nativeCodeRedeemRoutes = new Elysia().post(
   '/api/auth/native-code/redeem',
   async ({ body, set, request }) => {
-    const ip = (
-      request.headers.get('x-forwarded-for') ??
-      request.headers.get('x-real-ip') ??
-      'anon'
-    )
-      .split(',')[0]
-      .trim();
+    const ip = clientIp(request);
     if (!rateLimit(`auth:${ip}`, 10, 60_000)) {
       set.status = 429;
       return { error: 'rate limited' };
