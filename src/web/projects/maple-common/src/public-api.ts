@@ -170,3 +170,6 @@ export * from './lib/search/top-hits-section.component';
 export * from './lib/search/photo-results-section.component';
 export * from './lib/search/recent-queries.component';
 export * from './lib/search/search.component';
+
+// Shared utilities (#955 — shared IDB helper).
+export * from './lib/util/idb';
