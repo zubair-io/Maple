@@ -168,6 +168,40 @@ additively in EV. The spike's oracle mirrors that multiply.
 Each phase lands as its own child PR closing its own ticket; the epic closes
 when all phases are parity-green on every target.
 
+## P1 decomposition & execution order
+
+P1 is ~3–4× P0 and spans Rust + Swift/xcframework + web, so it executes in three
+sub-chunks (sub-phases, **not** new top-level phases):
+
+- **P1a — GPU resource core (Rust, headless)** — [#987]. `raw-gpu` crate +
+  upload-once `GpuImage` + ping-pong buffer pool + multi-pass chain runner +
+  preview/full-res + cancellable two-phase. Proven by an N-pass exposure chain at
+  `< 1e-4` with zero inter-pass readback. **Dispatchable as soon as P0's code
+  exists** — independent of the web/iOS checkpoints and the #978 merge.
+- **P1b — Apple display + iOS on-device** — [#988]. wgpu → `CAMetalLayer` present
+  (no readback) + xcframework relink (retires the #1 risk) + on-device parity.
+  Gated on P1a **and** P0's iOS/web legs validating.
+- **P1c — Web display (standalone harness)** — [#989]. wgpu → WebGPU canvas
+  context, standalone harness, no Angular integration. Gated on P1a **and** the
+  P0 WebGPU-browser run.
+
+**The display proof is plumbing + color-space _tag_, not a color-correct
+render:** upload a known reference image and verify it round-trips through the
+wgpu surface with no color shift. The display _encode math_ (Rec.2020→display,
+AgX) stays in P2; only the surface _tag_ is proven in P1.
+
+### Dispatch gating (whole epic)
+
+Strictly sequential across phases; sub-chunks parallelize within a phase.
+Dispatch is staged — each phase kicks off as the prior lands + merges (maintainer
+OK required for `main`).
+
+- Critical path: P0 (#974) → P1a (#987) → P1b (#988) ∥ P1c (#989) → P2 (#990) →
+  P3 (#991) → P4 (#992) → P5 (#993).
+- **Go/no-go for the entire web track** (P1c → P2-web → P4-web): the P0
+  WebGPU-browser run (PR #978).
+- P1b is itself the iOS proof (the #1 risk).
+
 ## Parity strategy
 
 - Reuse the established **1e-4** cross-platform tolerance for per-stage / per-LUT
