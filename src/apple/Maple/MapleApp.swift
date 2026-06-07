@@ -93,7 +93,42 @@ struct MapleApp: App {
 
     var body: some Scene {
         WindowGroup {
-            AppShell(sessionFor: { server in session(for: server) })
+            #if MAPLE_GPU
+            // GPU validation harness (#988), OFF in every shipping/CI build —
+            // the whole branch only compiles when the `MAPLE_GPU` flag is set
+            // (the gpu-variant validation build). Launch with
+            // `MAPLE_GPU_DEBUG=1` to replace the shell with the wgpu/Metal
+            // proof screen (parity readout + CAMetalLayer passthrough). Reuses
+            // the same launch-environment pattern as the UITest fixture hook.
+            if ProcessInfo.processInfo.environment["MAPLE_GPU_DEBUG"] == "1" {
+                GpuDebugView()
+            } else {
+                appShell
+            }
+            #else
+            appShell
+            #endif
+        }
+        #if os(macOS)
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified(showsTitle: true))
+        .defaultSize(width: 1280, height: 800)
+        #endif
+
+        #if os(macOS)
+        // Settings scene. Self-Hosted server management lives here — the
+        // sidebar only shows Self Hosted once at least one server is paired.
+        Settings {
+            SettingsView()
+        }
+        #endif
+    }
+
+    /// The normal app shell, extracted so the `#if MAPLE_GPU` debug-view branch
+    /// in `body` can fall back to it without duplicating the modifier chain.
+    @ViewBuilder
+    private var appShell: some View {
+        AppShell(sessionFor: { server in session(for: server) })
                 .onOpenURL { url in
                     // `maple://image/{id}` and `maple://source/{id}` —
                     // routed by the AppShell `.task` after
@@ -136,20 +171,6 @@ struct MapleApp: App {
                     }
                     #endif
                 }
-        }
-        #if os(macOS)
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: true))
-        .defaultSize(width: 1280, height: 800)
-        #endif
-
-        #if os(macOS)
-        // Settings scene. Self-Hosted server management lives here — the
-        // sidebar only shows Self Hosted once at least one server is paired.
-        Settings {
-            SettingsView()
-        }
-        #endif
     }
 
     /// Register bundled .ttf font faces with the OS so `Font.custom("…", size:)`
