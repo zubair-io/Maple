@@ -217,6 +217,20 @@ describe('mirrored fs fan-out', () => {
     expect(await fileExists(onMirror('gone'))).toBe(false);
   });
 
+  test('utimes propagates the mtime to an existing mirror copy', async () => {
+    const src = path.join(dir, 's.dng');
+    await realFs.writeFile(src, 'x');
+    await fs.copyFile(src, onPrimary('IMG.dng'));
+    await fs.flushPendingMirrorOps();
+
+    const epoch = new Date('2020-02-02T02:02:02Z');
+    await fs.utimes(onPrimary('IMG.dng'), epoch, epoch);
+    await fs.flushPendingMirrorOps();
+
+    const mirrorStat = await realFs.stat(onMirror('IMG.dng'));
+    expect(Math.abs(mirrorStat.mtimeMs - epoch.getTime())).toBeLessThan(1000);
+  });
+
   test('replication preserves the source mtime on the mirror', async () => {
     const src = path.join(dir, 'src.dng');
     await realFs.writeFile(src, 'bytes');
