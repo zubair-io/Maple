@@ -160,6 +160,12 @@ describe('WorkersComponent', () => {
 
   afterEach(() => {
     component.ngOnDestroy();
+    // The embedded mirror section (MirrorSettingsComponent) fetches the library
+    // list + reconcile-queue status on init; flush those so verify() — which
+    // asserts no open requests — doesn't trip on them. No folders ⇒ no
+    // per-library mirror fetches.
+    for (const r of http.match('/api/folders')) r.flush([]);
+    for (const r of http.match('/api/mirror/status')) r.flush({ queue: { pending: 0, dead: 0 } });
     http.verify();
   });
 
