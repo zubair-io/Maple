@@ -54,9 +54,10 @@
 //! headless CLI both ship NLM uniformly.
 
 use crate::{
+    cancel::CancelToken,
     color::oklab::{oklab_to_rec2020, rec2020_to_oklab},
     image::{ColorSpace, Image},
-    stages::nlm::{denoise_plane, NlmParams},
+    stages::nlm::{denoise_plane_cancellable, NlmParams},
 };
 use rayon::prelude::*;
 
@@ -112,7 +113,15 @@ fn chroma_params(amount: f32) -> NlmParams {
 /// The Rec.2020 ↔ Oklab pixel-local maps run through rayon's
 /// `par_iter`; the NLM kernel itself is internally parallel across
 /// its row-update / sqdiff sweeps (see [`crate::stages::nlm`]).
+#[inline]
 pub fn apply_luminance(img: &mut Image, amount: f32) {
+    apply_luminance_cancellable(img, amount, CancelToken::never());
+}
+
+/// Cancellable variant of [`apply_luminance`]. Forwards `cancel` into the
+/// NLM kernel so the between-shifts check can unwind a long luma pass. With
+/// a never-cancel token the result is bit-identical to [`apply_luminance`].
+pub fn apply_luminance_cancellable(img: &mut Image, amount: f32, cancel: CancelToken<'_>) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 {
         return;
@@ -133,7 +142,7 @@ pub fn apply_luminance(img: &mut Image, amount: f32) {
     let l_plane: Vec<f32> = oklab.par_iter().map(|p| p[0]).collect();
 
     // Denoise.
-    let denoised_l = denoise_plane(&l_plane, w, h, params);
+    let denoised_l = denoise_plane_cancellable(&l_plane, w, h, params, cancel);
 
     // Writeback L, convert back to Rec.2020.
     img.pixels
@@ -148,7 +157,17 @@ pub fn apply_luminance(img: &mut Image, amount: f32) {
 /// Apply color NR: NLM-denoise the a and b channels of Oklab, leave
 /// L untouched. Uses a wider search window than luma (chroma noise
 /// is lower-frequency).
+#[inline]
 pub fn apply_color(img: &mut Image, amount: f32) {
+    apply_color_cancellable(img, amount, CancelToken::never());
+}
+
+/// Cancellable variant of [`apply_color`]. Both chroma NLM passes observe
+/// `cancel` between shifts. This is the dominant cold-open cost (the ~8.5 s
+/// `nr_color`), so the in-kernel check here is what actually interrupts the
+/// freeze. With a never-cancel token the result is bit-identical to
+/// [`apply_color`].
+pub fn apply_color_cancellable(img: &mut Image, amount: f32, cancel: CancelToken<'_>) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 {
         return;
@@ -169,10 +188,11 @@ pub fn apply_color(img: &mut Image, amount: f32) {
 
     // Run both NLM passes in parallel — each is already internally
     // parallel via the row-update sweeps, but at viewport sizes the
-    // outer split still helps on 8+-core machines.
+    // outer split still helps on 8+-core machines. Both share the same
+    // cancel token (a `Copy` borrow), so a host cancel unwinds both.
     let (denoised_a, denoised_b) = rayon::join(
-        || denoise_plane(&a_plane, w, h, params),
-        || denoise_plane(&b_plane, w, h, params),
+        || denoise_plane_cancellable(&a_plane, w, h, params, cancel),
+        || denoise_plane_cancellable(&b_plane, w, h, params, cancel),
     );
 
     img.pixels

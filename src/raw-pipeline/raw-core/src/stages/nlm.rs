@@ -46,6 +46,7 @@
 //! the accumulator update. Scratch buffers are allocated once per
 //! `denoise_plane` call and reused across all shifts.
 
+use crate::cancel::CancelToken;
 use rayon::prelude::*;
 
 /// Fast exp(-x) lookup. The NLM weight is `exp(-d²/(h²·area))` where the
@@ -108,7 +109,40 @@ pub struct NlmParams {
 /// Apply fast-NLM to a single channel plane. Out-of-place: returns a
 /// new `Vec<f32>` of the same length. Caller passes `width * height`
 /// row-major data.
+///
+/// Non-cancellable wrapper — forwards to [`denoise_plane_cancellable`]
+/// with a never-cancel token, so its output is bit-identical to the
+/// pre-#951 implementation. Existing callers and tests use this entry.
+#[inline]
 pub fn denoise_plane(plane: &[f32], w: usize, h: usize, params: NlmParams) -> Vec<f32> {
+    denoise_plane_cancellable(plane, w, h, params, CancelToken::never())
+}
+
+/// Cancellable variant of [`denoise_plane`]. Identical math; additionally
+/// observes `cancel` **between NLM shifts** and returns the untouched input
+/// (`plane.to_vec()`) the moment cancellation is requested.
+///
+/// The outer shift loop is the right granularity: `nr_color` is ~48 shifts
+/// (S = 3) and the dominant cold-open cost, so a between-shifts check turns
+/// an ~8.5 s uninterruptible pass into one that unwinds within a single
+/// shift (~one-48th). The per-pixel work inside `process_shift` runs through
+/// rayon and is *not* instrumented — a rayon parallel iterator can't `break`,
+/// and a per-pixel atomic load would add contention for no latency win.
+///
+/// On cancel the develop chain bails immediately after this stage (it checks
+/// the same token and returns `Err(Cancelled)`), so the returned passthrough
+/// buffer is discarded — it is never packed into a result. A never-cancel
+/// token makes [`is_cancelled`] a no-op branch, so the completed-render path
+/// is byte-for-byte unchanged.
+///
+/// [`is_cancelled`]: CancelToken::is_cancelled
+pub fn denoise_plane_cancellable(
+    plane: &[f32],
+    w: usize,
+    h: usize,
+    params: NlmParams,
+    cancel: CancelToken<'_>,
+) -> Vec<f32> {
     let n = w * h;
     if plane.len() != n {
         panic!("denoise_plane: len {} != w*h = {}", plane.len(), n);
@@ -133,6 +167,14 @@ pub fn denoise_plane(plane: &[f32], w: usize, h: usize, params: NlmParams) -> Ve
     let mut max_w = vec![0.0f32; n];
 
     for dy in -s..=s {
+        // Cancellation is checked once per shift row (the outer, sequential
+        // loop). One relaxed atomic load per ~(2S+1) shifts — negligible —
+        // bounds the cancel-to-bail latency to a single shift row. On a
+        // never-cancel token this is a no-op branch. Return the untouched
+        // input; the develop chain discards it and returns Err(Cancelled).
+        if cancel.is_cancelled() {
+            return plane.to_vec();
+        }
         for dx in -s..=s {
             if dx == 0 && dy == 0 {
                 continue;
@@ -329,171 +371,9 @@ fn process_shift(
         });
 }
 
+// Tests live in the sibling `nlm_tests.rs` so this file stays under the
+// 600-LOC budget (#951 — the in-kernel cancellation proof pushed the inline
+// module over). Same `#[path]` split pattern the FFI + render modules use.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn constant_plane_unchanged() {
-        let w = 32;
-        let h = 32;
-        let plane = vec![0.5f32; w * h];
-        let out = denoise_plane(
-            &plane,
-            w,
-            h,
-            NlmParams {
-                patch_radius: 2,
-                search_radius: 3,
-                h: 0.1,
-            },
-        );
-        for &v in &out {
-            assert!((v - 0.5).abs() < 1e-5, "constant plane changed: {}", v);
-        }
-    }
-
-    #[test]
-    fn zero_h_is_identity() {
-        let w = 16;
-        let h = 16;
-        let mut plane = vec![0.0f32; w * h];
-        for i in 0..plane.len() {
-            plane[i] = (i as f32) * 0.001;
-        }
-        let out = denoise_plane(
-            &plane,
-            w,
-            h,
-            NlmParams {
-                patch_radius: 2,
-                search_radius: 2,
-                h: 0.0,
-            },
-        );
-        for i in 0..plane.len() {
-            assert_eq!(out[i], plane[i], "h=0 should be identity at {}", i);
-        }
-    }
-
-    #[test]
-    fn noise_stdev_drops_on_flat_patch() {
-        let w = 64;
-        let h = 64;
-        let mut plane = vec![0.0f32; w * h];
-        let mut rng_state: u32 = 0x12345678;
-        for v in plane.iter_mut() {
-            rng_state ^= rng_state << 13;
-            rng_state ^= rng_state >> 17;
-            rng_state ^= rng_state << 5;
-            let u1 = (rng_state as f32 / u32::MAX as f32).max(1e-6);
-            rng_state ^= rng_state << 13;
-            rng_state ^= rng_state >> 17;
-            rng_state ^= rng_state << 5;
-            let u2 = rng_state as f32 / u32::MAX as f32;
-            let z = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
-            *v = 0.5 + 0.05 * z;
-        }
-        let input_stdev = stdev(&plane);
-        let out = denoise_plane(
-            &plane,
-            w,
-            h,
-            NlmParams {
-                patch_radius: 3,
-                search_radius: 5,
-                h: 0.05,
-            },
-        );
-        let output_stdev = stdev(&out);
-        assert!(
-            output_stdev < input_stdev * 0.5,
-            "stdev not reduced: in={} out={}",
-            input_stdev,
-            output_stdev,
-        );
-    }
-
-    fn stdev(v: &[f32]) -> f32 {
-        let mean: f32 = v.iter().sum::<f32>() / v.len() as f32;
-        let var: f32 = v.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / v.len() as f32;
-        var.sqrt()
-    }
-
-    /// `search_radius > image_width` previously caused `process_shift` to
-    /// index `out_row[x]` for `x in 0..xs_lo` with `xs_lo > w`, panicking
-    /// on the first negative-dx shift. Clamping `xs_lo`/`xs_hi` to `w`
-    /// turns the over-wide shift into a fully-zero sqdiff row, which the
-    /// patch-fit guard at the accumulator stage then early-returns on.
-    #[test]
-    fn search_radius_larger_than_width_does_not_panic() {
-        let w = 3;
-        let h = 10;
-        let plane = vec![0.5f32; w * h];
-        // search_radius = 5 means dx ranges over [-5, 5], so for dx = -4
-        // and dx = -5, (-dx) as usize > w.
-        let out = denoise_plane(
-            &plane,
-            w,
-            h,
-            NlmParams {
-                patch_radius: 1,
-                search_radius: 5,
-                h: 0.1,
-            },
-        );
-        for &v in &out {
-            assert!((v - 0.5).abs() < 1e-5, "constant plane changed: {}", v);
-        }
-    }
-
-    /// Pixels within `patch_radius` of every edge are skipped by every
-    /// shift (no shift `d` makes both the patch at `p` and the patch at
-    /// `p+d` fit the image). For those pixels `wsum` and `max_w` stay at
-    /// zero, and the post-loop normalisation falls back to the input
-    /// value via the `max(1e-12)` clamp.
-    ///
-    /// This locks in the documented behaviour: corner-strip pixels
-    /// (rows/cols 0..patch_radius and the symmetric far edge) are
-    /// **passed through unchanged**, not zeroed and not denoised. If we
-    /// ever pad the buffer or change the policy, this test will flag the
-    /// behaviour change.
-    #[test]
-    fn border_strip_passes_through_unchanged() {
-        let w = 16;
-        let h = 16;
-        let p = 2;
-        let s = 3;
-        // Deterministic non-constant plane so passthrough is detectable.
-        let mut plane = vec![0.0f32; w * h];
-        for (i, v) in plane.iter_mut().enumerate() {
-            *v = (i as f32) * 0.001;
-        }
-        let out = denoise_plane(
-            &plane,
-            w,
-            h,
-            NlmParams {
-                patch_radius: p,
-                search_radius: s,
-                h: 0.05,
-            },
-        );
-        // Only the strict patch-radius strip is guaranteed passthrough:
-        // for any shift d, the patch at p must fit, requiring x ∈ [p, w-1-p].
-        for y in 0..h {
-            for x in 0..w {
-                let i = y * w + x;
-                let in_strip =
-                    x < p || x >= w - p || y < p || y >= h - p;
-                if in_strip {
-                    assert!(
-                        (out[i] - plane[i]).abs() < 1e-6,
-                        "border-strip pixel ({},{}) was modified: in={}, out={}",
-                        x, y, plane[i], out[i],
-                    );
-                }
-            }
-        }
-    }
-}
+#[path = "nlm_tests.rs"]
+mod tests;

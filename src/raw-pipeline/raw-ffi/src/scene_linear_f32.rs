@@ -15,6 +15,7 @@
 //! `scene_linear.rs` applies here too.
 
 use crate::buffers::MapleSceneLinearBufferF32;
+use crate::cancel::{token_from_ptr, MapleCancelFlag, SendCancelPtr};
 use crate::error::{set_last_error, with_large_stack};
 use crate::model::{
     force_ae_off_if_auto_will_fit_bytes, force_ae_off_if_auto_will_fit_path,
@@ -22,7 +23,16 @@ use crate::model::{
 };
 use raw_core::decode::decode_bytes;
 use raw_core::decode_cache::{decode_bytes_cached, CacheKey};
+use raw_core::error::Error as CoreError;
+use raw_core::CancelToken;
 use std::ffi::{CStr, c_char};
+
+/// Return code for a render the host cancelled mid-flight (#951). Distinct
+/// from every other rc in this module (1/2/3 = arg errors, 6/7/8 = read /
+/// decode / render failures, 9 = bad size) so the Swift caller can map it onto
+/// the silent "dropped" path instead of surfacing a render error. Only ever
+/// returned when a non-null cancel flag was passed AND the host set it.
+const RC_CANCELLED: i32 = 4;
 
 // The module-level doc-comment above captures the rationale; the
 // detailed prose that lived here in the pre-split file has been folded
@@ -31,11 +41,18 @@ use std::ffi::{CStr, c_char};
 /// f32 sibling of [`maple_render_file_scene_linear`]. Identical inputs
 /// and error codes; the output buffer is [`MapleSceneLinearBufferF32`]
 /// (16 bytes per pixel) instead of the fp16 surface.
+///
+/// `cancel` (#951) is an optional host-owned [`MapleCancelFlag`] (from
+/// [`crate::cancel::maple_cancel_flag_new`]). Pass null for the legacy
+/// never-cancel behaviour (bit-identical to before). When non-null and the
+/// host sets it mid-render, the develop chain unwinds and this returns
+/// [`RC_CANCELLED`].
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
     raw_path: *const c_char,
     xmp_path: *const c_char,
     quality_preview: i32,
+    cancel: *const MapleCancelFlag,
     out: *mut MapleSceneLinearBufferF32,
 ) -> i32 {
     if raw_path.is_null() || out.is_null() {
@@ -55,7 +72,14 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
         }
     };
     let out_ptr = out as usize;
+    // Move the raw cancel pointer across the worker-thread boundary. The
+    // worker is join-ed before this call returns (see `with_large_stack`), so
+    // the host-owned flag outlives the borrow we reconstruct inside.
+    let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
+        let cancel = cancel; // capture the Send shim
+        let cancel_flag = token_from_ptr(cancel.0);
+        let token = cancel_flag.map(CancelToken::new).unwrap_or_else(CancelToken::never);
         let raw_path = std::path::Path::new(&raw_path_str);
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
@@ -85,10 +109,11 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32(
-            &raw_img, &model, quality,
+        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable(
+            &raw_img, &model, quality, token,
         ) {
             Ok(t) => t,
+            Err(CoreError::Cancelled) => return RC_CANCELLED,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf_f32(out_ptr, w, h, f32_rgba);
@@ -96,7 +121,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
     })
 }
 
-/// f32 sibling of [`maple_render_bytes_scene_linear`].
+/// f32 sibling of [`maple_render_bytes_scene_linear`]. `cancel` is the
+/// optional #951 cancel flag — see [`maple_render_file_scene_linear_f32`].
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
     raw_bytes: *const u8,
@@ -104,6 +130,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
     hint_ext: *const c_char,
     xmp_path: *const c_char,
     quality_preview: i32,
+    cancel: *const MapleCancelFlag,
     out: *mut MapleSceneLinearBufferF32,
 ) -> i32 {
     if raw_bytes.is_null() || out.is_null() {
@@ -128,7 +155,11 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
     };
     let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
     let out_ptr = out as usize;
+    let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
+        let cancel = cancel;
+        let cancel_flag = token_from_ptr(cancel.0);
+        let token = cancel_flag.map(CancelToken::new).unwrap_or_else(CancelToken::never);
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
@@ -147,10 +178,11 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32(
-            &raw_img, &model, quality,
+        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_from_raw_with_quality_f32_cancellable(
+            &raw_img, &model, quality, token,
         ) {
             Ok(t) => t,
+            Err(CoreError::Cancelled) => return RC_CANCELLED,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf_f32(out_ptr, w, h, f32_rgba);
@@ -158,13 +190,17 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
     })
 }
 
-/// f32 sibling of [`maple_render_file_scene_linear_sized`].
+/// f32 sibling of [`maple_render_file_scene_linear_sized`]. `cancel` is the
+/// optional #951 cancel flag — see [`maple_render_file_scene_linear_f32`].
+/// This is the fast-phase RAW-open entry, so it's the one the editor actually
+/// interrupts on a slider tick during a cold open.
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
     raw_path: *const c_char,
     xmp_path: *const c_char,
     max_long_edge: u32,
     quality_preview: i32,
+    cancel: *const MapleCancelFlag,
     out: *mut MapleSceneLinearBufferF32,
 ) -> i32 {
     if raw_path.is_null() || out.is_null() {
@@ -188,7 +224,11 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
         }
     };
     let out_ptr = out as usize;
+    let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
+        let cancel = cancel;
+        let cancel_flag = token_from_ptr(cancel.0);
+        let token = cancel_flag.map(CancelToken::new).unwrap_or_else(CancelToken::never);
         let raw_path = std::path::Path::new(&raw_path_str);
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
@@ -216,10 +256,11 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
-        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32(
-            &raw_img, &model, quality, max_long_edge,
+        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
+            &raw_img, &model, quality, max_long_edge, token,
         ) {
             Ok(t) => t,
+            Err(CoreError::Cancelled) => return RC_CANCELLED,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf_f32(out_ptr, w, h, f32_rgba);
@@ -227,7 +268,8 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
     })
 }
 
-/// f32 sibling of [`maple_render_bytes_scene_linear_sized`].
+/// f32 sibling of [`maple_render_bytes_scene_linear_sized`]. `cancel` is the
+/// optional #951 cancel flag — see [`maple_render_file_scene_linear_f32`].
 #[no_mangle]
 pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
     raw_bytes: *const u8,
@@ -236,6 +278,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
     xmp_path: *const c_char,
     max_long_edge: u32,
     quality_preview: i32,
+    cancel: *const MapleCancelFlag,
     out: *mut MapleSceneLinearBufferF32,
 ) -> i32 {
     if raw_bytes.is_null() || out.is_null() {
@@ -264,7 +307,11 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
     };
     let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
     let out_ptr = out as usize;
+    let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
+        let cancel = cancel;
+        let cancel_flag = token_from_ptr(cancel.0);
+        let token = cancel_flag.map(CancelToken::new).unwrap_or_else(CancelToken::never);
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
@@ -283,10 +330,11 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
         };
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
-        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32(
-            &raw_img, &model, quality, max_long_edge,
+        let (w, h, f32_rgba) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
+            &raw_img, &model, quality, max_long_edge, token,
         ) {
             Ok(t) => t,
+            Err(CoreError::Cancelled) => return RC_CANCELLED,
             Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf_f32(out_ptr, w, h, f32_rgba);

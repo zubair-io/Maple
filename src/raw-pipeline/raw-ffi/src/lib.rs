@@ -32,6 +32,7 @@
 mod auto_profile;
 mod auto_tone;
 mod buffers;
+mod cancel;
 mod error;
 mod handle;
 mod id;
@@ -48,6 +49,7 @@ mod thumbnail;
 // their typedefs.
 pub use auto_tone::MapleAutoTone;
 pub use buffers::{MapleByteBuffer, MapleImageBuffer, MapleSceneLinearBuffer};
+pub use cancel::MapleCancelFlag;
 pub use handle::MapleRawHandle;
 pub use scene_linear_chain::MapleAdjustmentParams;
 

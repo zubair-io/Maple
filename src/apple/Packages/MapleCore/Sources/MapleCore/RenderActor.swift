@@ -151,6 +151,19 @@ public actor RenderActor {
 
     var decodeTask: Task<CIImage?, Never>?
     var decodeTaskAssetID: AssetRef.ID?
+    /// Cancel flag bound to the in-flight `decodeTask` (#951). Created when a
+    /// NEW decode launches in `sharedDecode`; flipped (`requestCancel()`) only
+    /// when that decode is genuinely abandoned — a different-identity decode
+    /// supersedes it (replace path), `invalidate()`, or `cancelAll()` (asset
+    /// switch). It is deliberately bound to the DECODE TASK, not the render
+    /// generation: `sharedDecode` is single-flight and JOINS an in-flight
+    /// decode across generations (a slider tick during a cold open shares the
+    /// one decode), so flipping on every generation bump would spuriously
+    /// cancel a decode a newer same-asset generation is about to join. The
+    /// in-flight Task holds its OWN strong reference to its flag across the FFI
+    /// call, so replacing this stored reference never frees a flag the Rust
+    /// worker is still reading. `nil` when no decode is in flight.
+    var decodeCancelFlag: CancelFlag?
     /// The decode target the in-flight `decodeTask` was launched for:
     /// `nil` = full decode, non-nil = sized fast decode. A refine that
     /// needs a full decode must not join a sized fast task (the join
@@ -408,6 +421,14 @@ public actor RenderActor {
         refineTask?.cancel()
         renderTask = nil
         refineTask = nil
+        // #951: interrupt the in-flight cold decode too. Previously this nil'd
+        // only the render/refine task handles, leaving a superseded asset's
+        // ~8.5 s decode running to completion on the worker thread after the
+        // user moved on. Flipping the flag unwinds it mid-stage. The decode
+        // Task keeps its own strong ref to the flag, so the FFI worker still
+        // reads valid memory after we drop our reference.
+        decodeCancelFlag?.requestCancel()
+        decodeCancelFlag = nil
     }
 
     // MARK: - Test hooks

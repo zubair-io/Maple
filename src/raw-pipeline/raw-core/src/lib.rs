@@ -8,6 +8,9 @@
 pub mod error;
 pub use error::{Error, Result};
 
+pub mod cancel;
+pub use cancel::CancelToken;
+
 pub mod math;
 
 pub mod camera_calibration;

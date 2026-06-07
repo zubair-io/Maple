@@ -59,12 +59,22 @@ extension RenderActor {
         if let existing = decodeTask, decodeTaskAssetID == asset.id,
            decodeTaskProfile == decodeProfile,
            (!wantsFull || decodeTaskIsFull) {
+            // #951: JOIN an in-flight, identity-compatible decode. Do NOT create
+            // or flip a cancel flag here — same-asset slider ticks during a cold
+            // open share this one decode and its flag; nobody cancels until a
+            // genuinely different decode supersedes it (the replace path below).
             guard let decoded = await existing.value else { return nil }
             if decodedAtModel == nil {
                 decodedAtModel = EditSession.parseSidecarModel(for: asset)
             }
             return await normalize(decoded, asset)
         }
+        // #951: a DIFFERENT-identity decode is superseding the in-flight one
+        // (different asset / profile / fullness) — abandon it. Flip its flag so
+        // the Rust worker unwinds mid-stage instead of running to completion,
+        // then drop our reference (the in-flight Task still holds its own).
+        decodeCancelFlag?.requestCancel()
+        decodeCancelFlag = nil
         decodeTask = nil
         decodeTaskAssetID = nil
 
@@ -76,7 +86,15 @@ extension RenderActor {
             && asset.hintExtension == nil
             && asset.explicitIsRaw == nil
         let decodeTarget = target
-        let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline] in
+        // #951: a fresh cancel flag for THIS decode. Captured strongly by the
+        // detached Task below (`[pipeline, cancelFlag]`) so it outlives the
+        // synchronous FFI call the worker runs even if the actor's stored
+        // reference is replaced/cleared meanwhile — no use-after-free on the
+        // Rust side. Stored on the actor so the replace path / invalidate /
+        // cancelAll can flip it to abandon this decode.
+        let cancelFlag = CancelFlag()
+        decodeCancelFlag = cancelFlag
+        let task: Task<CIImage?, Never> = Task.detached(priority: .userInitiated) { [pipeline, cancelFlag] in
             var dispatchAsset = asset
             var dispatchIsRaw = extensionIsRaw
             if needsSniff, let provider = asset.bytesProvider {
@@ -138,7 +156,7 @@ extension RenderActor {
                 let decoded = await mapleStageAsync("rust FFI scene-linear sized decode") {
                     await pipeline.decodeSceneLinearSized(
                         asset: asset, targetSize: decodeTarget, xmpPath: sidecar,
-                        profileOverride: decodeProfile
+                        profileOverride: decodeProfile, cancel: cancelFlag
                     )
                 }
                 guard let decoded else { return nil }
@@ -146,7 +164,8 @@ extension RenderActor {
             }
             let decoded = await mapleStageAsync("rust FFI scene-linear decode") {
                 await pipeline.decodeSceneLinear(
-                    asset: asset, xmpPath: sidecar, profileOverride: decodeProfile
+                    asset: asset, xmpPath: sidecar, profileOverride: decodeProfile,
+                    cancel: cancelFlag
                 )
             }
             guard let decoded else { return nil }
@@ -165,6 +184,10 @@ extension RenderActor {
                 decodeTask = nil
                 decodeTaskAssetID = nil
             }
+            // #951: clear our cancel flag only if it's still the live one (a
+            // superseding decode may have replaced it). `===` identity, not the
+            // asset id, because a same-asset successor would share the id.
+            if decodeCancelFlag === cancelFlag { decodeCancelFlag = nil }
             return nil
         }
 
@@ -212,6 +235,8 @@ extension RenderActor {
             decodeTask = nil
             decodeTaskAssetID = nil
         }
+        // #951: clear our cancel flag iff still the live one (see failure path).
+        if decodeCancelFlag === cancelFlag { decodeCancelFlag = nil }
         return normalized
     }
 
@@ -264,6 +289,11 @@ extension RenderActor {
         decodedBakedModel = nil
         decodedSidecarMtime = nil
         decodedIsFull = false
+        // #951: abandon any in-flight cold decode — flip its flag so the Rust
+        // worker unwinds, then drop our reference (the in-flight Task keeps its
+        // own across the FFI call).
+        decodeCancelFlag?.requestCancel()
+        decodeCancelFlag = nil
         decodeTask = nil
         decodeTaskAssetID = nil
         decodeTaskIsFull = false

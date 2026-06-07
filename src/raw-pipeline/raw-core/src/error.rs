@@ -35,6 +35,15 @@ pub enum Error {
 
     #[error("pipeline assertion failed: {0}")]
     Pipeline(String),
+
+    /// The host requested cancellation (via a [`crate::CancelToken`]) while a
+    /// develop pass was in flight, and a stage unwound early. Distinct from
+    /// every other variant so the FFI can map it to a dedicated rc and the
+    /// caller can drop the result silently rather than surfacing an error.
+    /// Only ever produced when a non-never `CancelToken` is threaded through
+    /// the develop chain; the default never-cancel path can never return it.
+    #[error("render cancelled by host")]
+    Cancelled,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -12,9 +12,10 @@
 //! module's docstring for the canonical list); only the labels differ.
 
 use crate::{
+    cancel::CancelToken,
     color::dcp,
     demosaic,
-    error::Result,
+    error::{Error, Result},
     image::RawImage,
     linearize,
     stages::{
@@ -50,12 +51,43 @@ use super::{
 /// helper is functionally identical to
 /// `develop_scene_linear_from_raw_with_quality`, only with `sized_*`
 /// stage labels.
+/// Non-cancellable wrapper — forwards to
+/// [`develop_scene_linear_sized_from_raw_with_quality_cancellable`] with a
+/// never-cancel token, so a completed sized develop is byte-for-byte
+/// identical to before #951.
+#[inline]
 pub fn develop_scene_linear_sized_from_raw_with_quality(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     max_long_edge: u32,
 ) -> Result<crate::image::Image> {
+    develop_scene_linear_sized_from_raw_with_quality_cancellable(
+        raw,
+        model,
+        quality,
+        max_long_edge,
+        CancelToken::never(),
+    )
+}
+
+/// Cancellable variant of
+/// [`develop_scene_linear_sized_from_raw_with_quality`]. Same early-downsample
+/// chain, with `cancel` threaded into the expensive stage kernels and checked
+/// at the top + after each heavy stage (returns `Err(Error::Cancelled)` on a
+/// host cancel). The fast-phase RAW open routes through here, so this is the
+/// path the editor actually interrupts on a slider tick during a cold open
+/// (#951). Never-cancel ⇒ bit-identical to the wrapper above.
+pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<crate::image::Image> {
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     let mut camera_rgb = match raw.cfa {
         crate::image::CfaPattern::LinearRgb => {
             stage("sized_linearraw_decode", || linearize::linearraw_to_camera_rgb(raw))?
@@ -72,16 +104,21 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
         }
         _ => {
             let mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            // Interactive Bayer paths use cancellable kernels; see the
+            // unsized variant for the AMaZE / HA rationale.
             stage("sized_demosaic", || match quality {
-                RenderQuality::Preview => demosaic::half_res(&mosaic, raw.cfa),
+                RenderQuality::Preview => demosaic::half_res_cancellable(&mosaic, raw.cfa, cancel),
                 #[cfg(feature = "high-quality-demosaic")]
                 RenderQuality::Full => demosaic::hamilton_adams(&mosaic, raw.cfa),
                 #[cfg(not(feature = "high-quality-demosaic"))]
-                RenderQuality::Full => demosaic::bilinear(&mosaic, raw.cfa),
+                RenderQuality::Full => demosaic::bilinear_cancellable(&mosaic, raw.cfa, cancel),
                 RenderQuality::Amaze => demosaic::amaze(&mosaic, raw.cfa),
             })
         }
     };
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
 
     // DefaultCrop BEFORE downsample — `crop_rect` is in raw-sensor coords
     // (or half of them for Preview). Applying after the downsample would
@@ -181,11 +218,20 @@ pub fn develop_scene_linear_sized_from_raw_with_quality(
         local_adjustments::apply(&mut scene, &model.local_adjustments)
     });
     dump_after("12b_local_adjustments", &scene);
-    stage("sized_sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
+    stage("sized_sharpen", || sharpen::apply_cancellable(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking, cancel));
     dump_after("13_sharpen", &scene);
-    stage("sized_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    stage("sized_nr_luminance", || noise_reduction::apply_luminance_cancellable(&mut scene, model.nr_luminance, cancel));
     dump_after("14_nr_luminance", &scene);
-    stage("sized_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    stage("sized_nr_color", || noise_reduction::apply_color_cancellable(&mut scene, model.nr_color, cancel));
     dump_after("15_nr_color", &scene);
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
     Ok(scene)
 }

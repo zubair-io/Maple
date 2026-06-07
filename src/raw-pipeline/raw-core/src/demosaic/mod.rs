@@ -5,9 +5,9 @@ pub mod half_res;
 pub mod xtrans;
 
 pub use self::amaze::amaze;
-pub use self::bilinear::bilinear;
+pub use self::bilinear::{bilinear, bilinear_cancellable};
 pub use self::hamilton_adams::hamilton_adams;
-pub use self::half_res::half_res;
+pub use self::half_res::{half_res, half_res_cancellable};
 pub use self::xtrans::{markesteijn, xtrans_bilinear};
 
 use crate::image::{CfaPattern, Image};
