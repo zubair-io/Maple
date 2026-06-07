@@ -1,7 +1,6 @@
 //! `maple-cli batch` — render every case in a JSON manifest. The end-to-end
 //! color-pipeline harness (`src/scripts/test_color_pipeline.sh`) drives this
-//! command, so the defaults must match `render::run`'s historical defaults
-//! exactly (no overrides for format / quality / demosaic).
+//! command. Uses AMaZE demosaic for best quality on Bayer images.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -57,7 +56,7 @@ pub fn run(
             &out_png,
             None,
             92,
-            DemosaicChoice::Full,
+            DemosaicChoice::Amaze,  // Use AMaZE for best quality on Bayer
             profile,
         ) {
             Ok(_) => {
