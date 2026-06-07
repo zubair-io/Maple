@@ -116,11 +116,11 @@ Swift uses `swift-format` with the repo config. Rust uses `rustfmt` defaults. Sa
 
 ```typescript
 // Good
-import type { User, Notebook } from "@maple/shared";
-import { validateUser } from "@maple/shared";
+import type { User, Notebook } from '@maple/shared';
+import { validateUser } from '@maple/shared';
 
 // Bad
-import { User, Notebook, validateUser } from "@maple/shared";
+import { User, Notebook, validateUser } from '@maple/shared';
 ```
 
 ### Never `any` — use `unknown` and narrow
@@ -133,10 +133,10 @@ function processData(data: any) {
 
 // Good
 function processData(data: unknown): string {
-  if (typeof data === "object" && data !== null && "name" in data) {
+  if (typeof data === 'object' && data !== null && 'name' in data) {
     return String(data.name);
   }
-  throw new Error("Invalid data");
+  throw new Error('Invalid data');
 }
 ```
 
@@ -144,9 +144,7 @@ function processData(data: unknown): string {
 
 ```typescript
 function isUser(obj: unknown): obj is User {
-  return (
-    typeof obj === "object" && obj !== null && "email" in obj && "_id" in obj
-  );
+  return typeof obj === 'object' && obj !== null && 'email' in obj && '_id' in obj;
 }
 
 // Use assertions only when absolutely necessary, with a comment explaining why.
@@ -176,11 +174,11 @@ Almost always TS + HTML + SCSS as separate files. No inline templates beyond a s
 
 ```typescript
 @Component({
-  selector: "app-button",
+  selector: 'app-button',
   standalone: true,
   imports: [CommonModule],
-  templateUrl: "./button.component.html",
-  styleUrl: "./button.component.scss",
+  templateUrl: './button.component.html',
+  styleUrl: './button.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ButtonComponent {}
@@ -314,18 +312,15 @@ async list(): Promise<Notebook[]> {
 For session-scoped state (the current notebook, the current edit session, the auth user), wrap a `BehaviorSubject` and expose it as an observable.
 
 ```typescript
-@Injectable({ providedIn: "root" })
+@Injectable({ providedIn: 'root' })
 export class EditSessionService {
-  private readonly sessionSubject = new BehaviorSubject<EditSession | null>(
-    null,
-  );
+  private readonly sessionSubject = new BehaviorSubject<EditSession | null>(null);
   readonly session$ = this.sessionSubject.asObservable();
 
-  readonly adjustments$: Observable<AdjustmentModel | null> =
-    this.session$.pipe(
-      map((s) => s?.adjustments ?? null),
-      distinctUntilChanged(),
-    );
+  readonly adjustments$: Observable<AdjustmentModel | null> = this.session$.pipe(
+    map((s) => s?.adjustments ?? null),
+    distinctUntilChanged(),
+  );
 
   open(asset: ImageAsset): Observable<EditSession> {
     return this.loadSidecar(asset).pipe(
@@ -334,10 +329,7 @@ export class EditSessionService {
     );
   }
 
-  updateAdjustment<K extends keyof AdjustmentModel>(
-    key: K,
-    value: AdjustmentModel[K],
-  ): void {
+  updateAdjustment<K extends keyof AdjustmentModel>(key: K, value: AdjustmentModel[K]): void {
     const current = this.sessionSubject.value;
     if (!current) return;
     this.sessionSubject.next({
@@ -354,11 +346,11 @@ A view model is a small object, created once in the component, that bundles the 
 
 ```typescript
 @Component({
-  selector: "app-editor",
+  selector: 'app-editor',
   standalone: true,
   imports: [AsyncPipe, ColorPanelComponent, HistogramComponent],
-  templateUrl: "./editor.component.html",
-  styleUrl: "./editor.component.scss",
+  templateUrl: './editor.component.html',
+  styleUrl: './editor.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EditorComponent {
@@ -388,7 +380,7 @@ export class EditorComponent {
   }
 
   onExposureChange(value: number): void {
-    this.editSession.updateAdjustment("exposure", value);
+    this.editSession.updateAdjustment('exposure', value);
   }
 }
 ```
@@ -396,10 +388,7 @@ export class EditorComponent {
 ```html
 <!-- editor.component.html -->
 @if (vm.isReady()) { @if (vm.adjustments$ | async; as adj) {
-<app-color-panel
-  [adjustments]="adj"
-  (exposureChange)="onExposureChange($event)"
-/>
+<app-color-panel [adjustments]="adj" (exposureChange)="onExposureChange($event)" />
 } @if (vm.histogram$ | async; as histogram) {
 <app-histogram [data]="histogram" />
 } }
@@ -456,7 +445,7 @@ Key rules for Maple's dark theme:
 // button.component.scss
 .button {
   &::after {
-    content: "";
+    content: '';
     position: absolute;
     inset: 0;
     background: currentColor;
@@ -549,14 +538,14 @@ export async function create(data: CreateNotebook): Promise<Notebook> {
 ### Route grouping with prefixes
 
 ```typescript
-export const notebookRoutes = new Elysia({ prefix: "/api/notebooks" })
+export const notebookRoutes = new Elysia({ prefix: '/api/notebooks' })
   .use(jwtPlugin)
   .derive(authDerivation)
-  .get("/", listHandler)
-  .post("/", createHandler, { body: createSchema })
-  .get("/:id", getHandler)
-  .put("/:id", updateHandler, { body: updateSchema })
-  .delete("/:id", deleteHandler);
+  .get('/', listHandler)
+  .post('/', createHandler, { body: createSchema })
+  .get('/:id', getHandler)
+  .put('/:id', updateHandler, { body: updateSchema })
+  .delete('/:id', deleteHandler);
 ```
 
 ### Consistent error shape
