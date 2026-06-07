@@ -9,6 +9,7 @@
 // reject writes. Follow-up tickets expand AdjustmentModel.
 
 import type { AdjustmentModel } from '../models/adjustment-model';
+import { ADJUSTMENT_RANGES, defaultGeneratedAdjustmentModel } from '../models/adjustment-model';
 
 export type ToolGroup = 'light' | 'color' | 'effects' | 'detail';
 
@@ -99,28 +100,30 @@ export function isWired(tool: ToolId): boolean {
 
 // MARK: - Value mapping ([-100, +100] internal ↔ tool display range)
 
-/** Display range for the wired tools. */
+/** Display range for the wired tools, sourced from the generated
+ *  `ADJUSTMENT_RANGES` (raw-core) via each tool's mapped field, so the
+ *  drag-bar bounds can't drift from the canonical schema. */
 const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
-  exposure: [-4, 4],
-  temp: [2000, 12000],
-  tint: [-100, 100],
-  contrast: [-100, 100],
-  highlights: [-100, 100],
-  shadows: [-100, 100],
-  whites: [-100, 100],
-  blacks: [-100, 100],
-  vibrance: [-100, 100],
-  saturation: [-100, 100],
-  clarity: [-100, 100],
-  texture: [-100, 100],
-  dehaze: [-100, 100],
-  sharpen: [0, 150],
-  noise: [0, 100],
-  colorNR: [0, 100],
+  exposure: ADJUSTMENT_RANGES.exposure,
+  temp: ADJUSTMENT_RANGES.temperature,
+  tint: ADJUSTMENT_RANGES.tint,
+  contrast: ADJUSTMENT_RANGES.contrast,
+  highlights: ADJUSTMENT_RANGES.highlights,
+  shadows: ADJUSTMENT_RANGES.shadows,
+  whites: ADJUSTMENT_RANGES.whites,
+  blacks: ADJUSTMENT_RANGES.blacks,
+  vibrance: ADJUSTMENT_RANGES.vibrance,
+  saturation: ADJUSTMENT_RANGES.saturation,
+  clarity: ADJUSTMENT_RANGES.clarity,
+  texture: ADJUSTMENT_RANGES.texture,
+  dehaze: ADJUSTMENT_RANGES.dehaze,
+  sharpen: ADJUSTMENT_RANGES.sharpenAmount,
+  noise: ADJUSTMENT_RANGES.nrLuminance,
+  colorNR: ADJUSTMENT_RANGES.nrColor,
   // S5 effects (#643) — drag-bar primary scalars.
-  vignette: [-100, 100],
-  grain: [0, 100],
-  splitTone: [-100, 100],
+  vignette: ADJUSTMENT_RANGES.vignetteAmount,
+  grain: ADJUSTMENT_RANGES.grainAmount,
+  splitTone: ADJUSTMENT_RANGES.splitToneBalance,
 };
 
 export function displayRange(tool: ToolId): readonly [number, number] | null {
@@ -206,19 +209,17 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
   }
 }
 
-/** Canonical default display value per tool. Matches the generated
+/** Canonical raw-core defaults, read once so per-tool default lookups
+ *  can't drift from the generated schema. */
+const GENERATED_DEFAULTS = defaultGeneratedAdjustmentModel();
+
+/** Canonical default display value per tool, sourced from the generated
  *  `defaultGeneratedAdjustmentModel()` field defaults (e.g. Color NR = 25,
  *  Sharpen = 40, Temp = 6500). Used by reset semantics and by the
  *  modified-dot check, so a default asset never reads as "modified". */
 export function defaultDisplayValue(tool: ToolId): number {
-  switch (tool) {
-    case 'temp':
-      return 6500;
-    case 'sharpen':
-      return 40;
-    case 'colorNR':
-      return 25;
-    default:
-      return 0;
-  }
+  const field = fieldFor(tool);
+  if (!field) return 0;
+  const v = GENERATED_DEFAULTS[field as keyof typeof GENERATED_DEFAULTS];
+  return typeof v === 'number' ? v : 0;
 }

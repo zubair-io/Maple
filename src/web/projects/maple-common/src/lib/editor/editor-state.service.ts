@@ -29,6 +29,7 @@ import {
   displayValueFromInternal,
   fieldFor,
   groupOf,
+  internalValueFromDisplay,
   isWired,
 } from './tool-model';
 
@@ -203,23 +204,8 @@ export class EditorStateService {
 function readToolInternal(adj: AdjustmentModel, tool: ToolId): number {
   const field = fieldFor(tool);
   if (!field) return 0;
-  const display = adj[field] as number;
-  // Inverse of displayValueFromInternal — re-imported via the same module
-  // would cycle; inlined here for the (few) cases that matter.
-  switch (tool) {
-    case 'temp':
-      return display >= 6500
-        ? ((display - 6500) / (12000 - 6500)) * 100
-        : ((display - 6500) / (6500 - 2000)) * 100;
-    case 'sharpen':
-      return display >= 40 ? ((display - 40) / (150 - 40)) * 100 : ((display - 40) / 40) * 100;
-    case 'noise':
-    case 'colorNR':
-    case 'grain':
-      return ((display - 0) / (100 - 0)) * 200 - 100;
-    case 'exposure':
-      return (display / 4) * 100;
-    default:
-      return display;
-  }
+  // Inverse of displayValueFromInternal. tool-model already sits upstream of
+  // this service (no import cycle), so we reuse its single mapping rather
+  // than re-deriving it here.
+  return internalValueFromDisplay(tool, adj[field] as number);
 }
