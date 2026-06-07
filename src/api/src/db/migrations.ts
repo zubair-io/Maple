@@ -32,7 +32,8 @@ export type MigrationId =
   | 'merge-duplicate-assets-2026-05-21'
   | 'drop-abs-path-2026-05-21'
   | 'swap-maple-id-partial-filter-2026-05-23'
-  | 'migrate-missing-since-to-fileinfo-2026-06-05';
+  | 'migrate-missing-since-to-fileinfo-2026-06-05'
+  | 'repair-captured-year-month-2026-06-07';
 
 interface MigrationDoc {
   _id: MigrationId;

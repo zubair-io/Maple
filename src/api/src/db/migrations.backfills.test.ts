@@ -117,6 +117,40 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     ).toBeUndefined();
   });
 
+  it('repair pass fixes a captured_at row whose numeric year/month is NULL (not just absent)', async () => {
+    if (!mongoReachable) return;
+    const { closeDb, ensureIndexes } = await import('./client.ts');
+    await closeDb();
+
+    // The original backfill only targets `captured_year: {$exists:false}`, so a
+    // row whose numeric fields are present-but-NULL (e.g. a prior backfill that
+    // failed its date parse, or a stalled run) is left diverging: visible to
+    // the grid's captured_at range but absent from the numeric buckets. The
+    // repair pass (`$in: [null]` → null OR absent) must close it.
+    await db!.collection('assets').insertOne({
+      folder_id: 'f',
+      filename: 'nullyr.jpg',
+      abs_path: '/nullyr.jpg',
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-05-11T00:00:00Z',
+      exif: { captured_at: '2024-03-09T10:00:00.000Z', captured_year: null, captured_month: null },
+    });
+
+    await ensureIndexes();
+
+    const after = await db!.collection('assets').findOne({ filename: 'nullyr.jpg' });
+    const exif = (after as { exif?: { captured_year?: number; captured_month?: number } } | null)
+      ?.exif;
+    expect(exif?.captured_year).toBe(2024); // buckets now see it
+    expect(exif?.captured_month).toBe(3); // UTC month, matches the grid's range
+    const { migrationApplied } = await import('./migrations.ts');
+    expect(await migrationApplied(db!, 'repair-captured-year-month-2026-06-07')).toBe(true);
+  });
+
   it('place-search-blob backfill is gated by the migrations sentinel', async () => {
     if (!mongoReachable) return;
     const { closeDb, ensureIndexes } = await import('./client.ts');
