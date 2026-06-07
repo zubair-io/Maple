@@ -269,6 +269,23 @@ describe('/api/search', () => {
     for (const id of ids2) expect(ids1.has(id)).toBe(false);
   });
 
+  it('clamps an over-cap limit to 500', async () => {
+    if (!mongoReachable) return;
+    const { searchRoutes } = await import('../../src/routes/search.ts');
+    const { requireAuth } = await import('../../src/auth/middleware.ts');
+    const app = new Elysia().use(requireAuth).use(searchRoutes);
+
+    // A caller asking past the cap gets it clamped, not honored — guards the
+    // page-size ceiling against accidental changes.
+    const r = await app.handle(
+      new Request('http://localhost/api/search?limit=9999', { headers: fmtAuth() }),
+    );
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { limit: number; results: unknown[] };
+    expect(body.limit).toBe(500);
+    expect(body.results.length).toBeLessThanOrEqual(500);
+  });
+
   it('excludes soft-deleted rows', async () => {
     if (!mongoReachable) return;
     const { searchRoutes } = await import('../../src/routes/search.ts');
