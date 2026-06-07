@@ -14,6 +14,12 @@ quick-xml.workspace = true
 thiserror.workspace = true
 bytemuck.workspace = true
 exr = { version = "1.73", optional = true }
+# GPU spike (epic #925), feature-gated and OFF by default. Pulls in wgpu only
+# when the `gpu` feature is enabled, so default + CI-without-GPU builds are
+# unchanged. naga (WGSL→MSL/SPIR-V) is bundled inside wgpu.
+wgpu = { version = "23", optional = true }
+pollster = { version = "0.4", optional = true }
+futures-channel = { version = "0.3", optional = true }
 rayon = { workspace = true }
 blake3 = "1"
 sha1 = "0.10"
@@ -45,6 +51,9 @@ fixtures = []
 # specific stage. Adds ~2 MB to the binary; do NOT enable in shipping
 # artifacts.
 stage-dump = ["dep:exr"]
+# Epic #925 P0 spike: WGSL exposure kernel + native wgpu parity test. OFF by
+# default — enable with `--features gpu`. Build-time only; no default impact.
+gpu = ["dep:wgpu", "dep:pollster", "dep:futures-channel"]
 
 [[example]]
 name = "synth-grey"
