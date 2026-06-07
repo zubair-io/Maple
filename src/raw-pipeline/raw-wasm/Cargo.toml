@@ -13,6 +13,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 raw-core = { path = "../raw-core" }
+# Headless GPU resource core (epic #925). Gated by the `gpu` feature; absent from
+# default builds. wgpu (WebGPU on wasm) is pulled in transitively through here.
+raw-gpu = { path = "../raw-gpu", optional = true }
 wasm-bindgen = "0.2"
 thiserror.workspace = true
 
@@ -34,8 +37,8 @@ rayon = { version = "1.10", optional = true }
 # Unconditional: we always want panic messages forwarded to the JS console so
 # WASM traps don't show up as opaque `RuntimeError: unreachable` in production.
 console_error_panic_hook = { version = "0.1" }
-# GPU spike (#925 P0). wgpu targets WebGPU on wasm. Optional + gated by `gpu`.
-wgpu = { version = "23", optional = true }
+# Future↔Promise glue for the exported async WebGPU parity binding. wasm-only;
+# optional + gated by `gpu`. (wgpu itself now comes via the `raw-gpu` dep.)
 wasm-bindgen-futures = { version = "0.4", optional = true }
 
 [features]
@@ -43,5 +46,6 @@ default = []
 # Enable the parallel (rayon + wasm-bindgen-rayon) thread-pool entry points.
 # The WASM build turns this on via `wasm-pack build -- --features parallel`.
 parallel = ["dep:wasm-bindgen-rayon", "dep:rayon"]
-# Epic #925 P0: WebGPU exposure parity binding. OFF by default.
-gpu = ["raw-core/gpu", "dep:wgpu", "dep:wasm-bindgen-futures"]
+# Epic #925: WebGPU exposure parity binding, backed by the `raw-gpu` resource
+# core. OFF by default.
+gpu = ["dep:raw-gpu", "dep:wasm-bindgen-futures"]
