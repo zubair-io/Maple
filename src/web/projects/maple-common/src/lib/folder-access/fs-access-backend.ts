@@ -7,6 +7,7 @@
 // needed to avoid requiring a separate @types package.
 
 import { MapleFolderHandle, FolderEntry, PersistedHandleRecord } from './folder-access.types';
+import { openDb, reqToPromise, txDone } from '../util/idb';
 
 // ── Ambient type patches for FS Access API gaps in TS lib ────────────────────
 
@@ -34,13 +35,8 @@ const IDB_VERSION = 1;
 // ── IndexedDB helpers ─────────────────────────────────────────────────────────
 
 function openHandleDb(): Promise<IDBDatabase> {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const req = indexedDB.open(IDB_DB_NAME, IDB_VERSION);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore(IDB_STORE, { keyPath: 'key' });
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+  return openDb(IDB_DB_NAME, IDB_VERSION, (db) => {
+    db.createObjectStore(IDB_STORE, { keyPath: 'key' });
   });
 }
 
@@ -53,51 +49,24 @@ export async function persistHandle(handle: FileSystemDirectoryHandle): Promise<
     accessedAt: Date.now(),
   };
   const db = await openHandleDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(record);
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-  });
+  const tx = db.transaction(IDB_STORE, 'readwrite');
+  tx.objectStore(IDB_STORE).put(record);
+  await txDone(tx).finally(() => db.close());
   return key;
 }
 
 export async function getPersistedHandles(): Promise<PersistedHandleRecord[]> {
   const db = await openHandleDb();
-  return new Promise<PersistedHandleRecord[]>((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readonly');
-    const req = tx.objectStore(IDB_STORE).getAll();
-    req.onsuccess = () => {
-      db.close();
-      resolve(req.result as PersistedHandleRecord[]);
-    };
-    req.onerror = () => {
-      db.close();
-      reject(req.error);
-    };
-  });
+  const tx = db.transaction(IDB_STORE, 'readonly');
+  const result = await reqToPromise(tx.objectStore(IDB_STORE).getAll()).finally(() => db.close());
+  return result as PersistedHandleRecord[];
 }
 
 export async function removePersistedHandle(key: string): Promise<void> {
   const db = await openHandleDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).delete(key);
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-  });
+  const tx = db.transaction(IDB_STORE, 'readwrite');
+  tx.objectStore(IDB_STORE).delete(key);
+  await txDone(tx).finally(() => db.close());
 }
 
 // ── Permission helpers ────────────────────────────────────────────────────────
@@ -159,7 +128,13 @@ export async function fsAccessReopenHandle(
   const write = await verifyPermission(nativeHandle, 'readwrite');
   const read = write || (await verifyPermission(nativeHandle, 'read'));
   if (!read) return null;
-  return { name: nativeHandle.name, read, write, native: nativeHandle, persistedKey: record.key };
+  return {
+    name: nativeHandle.name,
+    read,
+    write,
+    native: nativeHandle,
+    persistedKey: record.key,
+  };
 }
 
 /** Request write access for an already-open read-only handle. */
@@ -217,7 +192,7 @@ export async function fsAccessReadFile(
     dir = await dir.getDirectoryHandle(parts[i], { create: false });
   }
   const filename = parts[parts.length - 1];
-  const fileHandle = await dir.getFileHandle(filename, { create: false });
+  const fileHandle = await dir.getFileHandle(filename ?? '', { create: false });
   const file = await fileHandle.getFile();
   return new Uint8Array(await file.arrayBuffer());
 }
@@ -241,7 +216,7 @@ export async function fsAccessWriteFile(
     dir = await dir.getDirectoryHandle(parts[i], { create: true });
   }
   const filename = parts[parts.length - 1];
-  const fileHandle = await dir.getFileHandle(filename, { create: true });
+  const fileHandle = await dir.getFileHandle(filename ?? '', { create: true });
   const writable = await (fileHandle as FsFileHandleWithWritable).createWritable();
   // Copy into a plain ArrayBuffer so the writable stream gets the correct type.
   const ab = new ArrayBuffer(data.byteLength);
