@@ -46,15 +46,16 @@ beforeAll(async () => {
   }
   db = mongo!.db(TEST_DB);
   await db.dropDatabase();
-  // ensureIndexes() drops an index on `users`; on a fresh DB that collection
-  // doesn't exist yet and dropIndex throws "ns not found". Pre-create the auth
-  // collections first (matches trash-gc.test.ts).
-  for (const name of ['users', 'credentials', 'invites', 'refresh_tokens', 'challenges']) {
-    await db.createCollection(name).catch(() => undefined);
-  }
-  const { closeDb, ensureIndexes } = await import('../../db/client.ts');
+  // The worker + repo use the app's getDb() singleton; closeDb() forces it to
+  // reconnect against TEST_DB (set via env above). We only need the
+  // mirror_queue unique index — not the full app ensureIndexes() suite, which
+  // runs migrations unrelated to this worker.
+  const { closeDb } = await import('../../db/client.ts');
   await closeDb();
-  await ensureIndexes();
+  const { mirrorQueueCollection } = await import('../../db/client.ts');
+  await (
+    await mirrorQueueCollection()
+  ).createIndex({ mirror_path: 1 }, { unique: true, name: 'mirror_queue_path' });
 });
 
 beforeEach(async () => {
