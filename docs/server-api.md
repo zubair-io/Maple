@@ -4,19 +4,35 @@ Bun + Elysia HTTP server. All routes under `/api/*`.
 
 ## Authentication
 
-Every `/api/*` endpoint requires a bearer token, with these exceptions:
+> **Canonical sources:** [`docs/auth-architecture.md`](auth-architecture.md) is the
+> authoritative description of the auth surface, and the live, generated OpenAPI
+> at `GET /openapi.json` (Scalar UI at `GET /docs`) is the canonical endpoint
+> spec. The OpenAPI blocks further down this file are illustrative and may lag.
+
+Every `/api/*` endpoint requires a bearer token, except these intentionally
+public routes (the authoritative allowlist is enforced by
+`tests/auth/routes-inventory.test.ts`):
 
 - `GET /api/health`
-- `GET /api/auth/status`
-- `POST /api/auth/register/{begin,finish}`
-- `POST /api/auth/login/{begin,finish}`
+- `GET /api/auth/bootstrap` — claim-state probe
+- `POST /api/auth/register/options`, `POST /api/auth/register/verify` — passkey registration
+- `POST /api/auth/login/options`, `POST /api/auth/login/verify` — passkey login
+- `POST /api/auth/refresh` — rotate the session (httpOnly cookie)
 - `POST /api/auth/logout`
+- `POST /api/auth/native-code/redeem` — native PKCE first-token grab (#856)
+- `GET /api/geocode/reverse`, `GET /docs`, `GET /openapi.json`, static UI
 
-Supply the token as `Authorization: Bearer <jwt>`. Unauthenticated requests
-to protected routes return `401 { "error": "authentication required" }`.
+Supply the access token as `Authorization: Bearer <jwt>`. Unauthenticated
+requests to protected routes return `401`.
 
-Tokens come from `/api/auth/register/finish` or `/api/auth/login/finish`.
-JWT is HS256, signed with `MAPLE_JWT_SECRET`, 7-day TTL.
+Tokens come from `/api/auth/register/verify`, `/api/auth/login/verify`, or
+`/api/auth/refresh`. The access token is an **HS256 JWT signed via `jose`**
+(`MAPLE_JWT_SECRET`), **15-minute** TTL, carrying a `token_version` (`tv`) claim
+that `requireAuth` checks for instant per-user revocation (#860). The durable
+session is a rotating httpOnly refresh cookie (`maple_refresh`); see
+[`docs/auth-architecture.md`](auth-architecture.md). Sensitive actions
+(add/remove credential, create/rescind invite) additionally require a fresh
+WebAuthn **step-up** token in `X-Step-Up` (#861).
 
 ### Signing-secret persistence
 
