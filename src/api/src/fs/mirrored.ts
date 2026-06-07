@@ -57,7 +57,7 @@ const log = childLogger('fs/mirror');
 
 /** A replication step that did not complete; the reconcile worker repairs these. */
 export interface MirrorFailure {
-  op: 'replicate' | 'unlink' | 'mkdir' | 'rm' | 'rmdir';
+  op: 'replicate' | 'unlink' | 'mkdir' | 'rm' | 'rmdir' | 'utimes';
   /** The mirror-side path the failed op targeted. */
   mirrorPath: string;
   /** The primary-side source path (for `replicate`), else the same as mirrorPath. */
@@ -228,16 +228,35 @@ async function mirrorRmdir(t: MirrorTarget, source: string): Promise<void> {
   }
 }
 
+/** Best-effort recursive removal of a mirror entry (file or directory) that
+ * moved out of, or between, mirrored roots. `force` makes ENOENT a no-op. */
+async function removeMirrorEntry(t: MirrorTarget): Promise<void> {
+  try {
+    await realFs.rm(t.mirrorPath, { recursive: true, force: true });
+  } catch (error) {
+    report({
+      op: 'rmdir',
+      mirrorPath: t.mirrorPath,
+      sourcePath: t.mirrorPath,
+      error: asError(error),
+    });
+  }
+}
+
 /**
- * Mirror a directory rename (e.g. a folder move). Prefers renaming the existing
- * mirror subtree — cheap and atomic, and it carries the whole tree — and falls
- * back to a recursive copy from the committed primary when the mirror has no
- * copy of the old path yet.
+ * Mirror a rename/move of a file OR directory. Prefers renaming the existing
+ * mirror entry into place — atomic, carries the whole subtree, and never leaves
+ * a window where the mirror has no copy — and falls back to rebuilding from the
+ * committed primary when the mirror lacks the source. Crucially it does NOT
+ * delete the old mirror copy: the caller removes orphaned source entries only
+ * when their mirror root has no matching destination, so a failed replication
+ * can never leave the mirror missing the file.
  */
-async function mirrorRenameDir(
+async function mirrorRename(
   oldMirrorPath: string | undefined,
   primaryNewPath: string,
   t: MirrorTarget,
+  isDir: boolean,
 ): Promise<void> {
   try {
     await realFs.mkdir(path.dirname(t.mirrorPath), { recursive: true });
@@ -247,30 +266,20 @@ async function mirrorRenameDir(
         return;
       } catch (error) {
         if (!isErrno(error, 'ENOENT')) throw error;
-        // Mirror lacked the source subtree — rebuild it from primary below.
+        // Mirror lacked the source — rebuild it from primary below.
       }
     }
-    await realFs.cp(primaryNewPath, t.mirrorPath, { recursive: true });
+    if (isDir) {
+      await realFs.cp(primaryNewPath, t.mirrorPath, { recursive: true });
+    } else {
+      // replicateFile copies + preserves mtime and reports its own failures.
+      await replicateFile(t, primaryNewPath);
+    }
   } catch (error) {
     report({
       op: 'replicate',
       mirrorPath: t.mirrorPath,
       sourcePath: primaryNewPath,
-      error: asError(error),
-    });
-  }
-}
-
-/** Best-effort recursive removal of a mirror subtree (a directory that moved
- * out of, or between, mirrored roots). ENOENT is success. */
-async function removeMirrorDir(t: MirrorTarget): Promise<void> {
-  try {
-    await realFs.rm(t.mirrorPath, { recursive: true, force: true });
-  } catch (error) {
-    report({
-      op: 'rmdir',
-      mirrorPath: t.mirrorPath,
-      sourcePath: t.mirrorPath,
       error: asError(error),
     });
   }
@@ -286,33 +295,24 @@ export async function rename(oldPath: string, newPath: string): Promise<void> {
   const src = targetsFor(oldPath);
   if (dst.length === 0 && src.length === 0) return;
   schedule(async () => {
-    // A directory rename (folder move) must move/copy the whole subtree on the
-    // mirror, not copyFile a single path. Detect the kind once from the
-    // committed primary.
+    // Detect file vs directory once from the committed primary so the mirror
+    // move copies a single file or a whole subtree as appropriate.
     let isDir = false;
     try {
       isDir = (await realFs.stat(newPath)).isDirectory();
     } catch {
       // newPath already gone (a rapid follow-up op) — nothing to replicate.
     }
-    if (isDir) {
-      const dstRoots = new Set(dst.map((t) => t.mirrorRoot));
-      const oldByRoot = new Map(src.map((t) => [t.mirrorRoot, t.mirrorPath]));
-      await Promise.all([
-        ...dst.map((t) => mirrorRenameDir(oldByRoot.get(t.mirrorRoot), newPath, t)),
-        // Source mirror roots with NO matching destination — the directory
-        // moved out of the mirrored set (dst empty / non-mirrored target) or
-        // between libraries with different mirrors. The old subtree would
-        // otherwise be orphaned on the mirror, so remove it.
-        ...src.filter((t) => !dstRoots.has(t.mirrorRoot)).map((t) => removeMirrorDir(t)),
-      ]);
-      return;
-    }
-    // File: replicate the committed destination, then drop any stale source
-    // copy on the mirror (a same-library move) so the mirror converges.
+    const dstRoots = new Set(dst.map((t) => t.mirrorRoot));
+    const oldByRoot = new Map(src.map((t) => [t.mirrorRoot, t.mirrorPath]));
     await Promise.all([
-      ...dst.map((t) => replicateFile(t, newPath)),
-      ...src.map((t) => removeMirror(t)),
+      // Move (or rebuild) each destination mirror entry into place. Never
+      // deletes the source copy first, so a failed replication can't lose it.
+      ...dst.map((t) => mirrorRename(oldByRoot.get(t.mirrorRoot), newPath, t, isDir)),
+      // Source mirror roots with NO matching destination — the entry moved out
+      // of the mirrored set (dst empty / non-mirrored target) or between
+      // libraries with different mirrors — so remove the now-orphaned copy.
+      ...src.filter((t) => !dstRoots.has(t.mirrorRoot)).map((t) => removeMirrorEntry(t)),
     ]);
   });
 }
@@ -358,39 +358,54 @@ export async function rmdir(p: string): Promise<void> {
   if (targets.length) schedule(() => Promise.all(targets.map((t) => mirrorRmdir(t, p))));
 }
 
+/** Best-effort mirror `utimes`; ENOENT (the mirror copy hasn't landed yet) is
+ * tolerated — the scan/copy worker reconciles the mtime on the next pass. */
+async function mirrorUtimes(
+  t: MirrorTarget,
+  atime: Parameters<typeof realFs.utimes>[1],
+  mtime: Parameters<typeof realFs.utimes>[2],
+  source: string,
+): Promise<void> {
+  try {
+    await realFs.utimes(t.mirrorPath, atime, mtime);
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) return;
+    report({ op: 'utimes', mirrorPath: t.mirrorPath, sourcePath: source, error: asError(error) });
+  }
+}
+
+/** Mirror-aware `utimes`: e.g. the upload route stamps a committed file's mtime
+ * after the rename, so the mirror copy must inherit it to stay a faithful
+ * shadow (and so drift detection isn't fooled by a "newer" mirror). */
+export async function utimes(
+  p: string,
+  atime: Parameters<typeof realFs.utimes>[1],
+  mtime: Parameters<typeof realFs.utimes>[2],
+): Promise<void> {
+  await realFs.utimes(p, atime, mtime);
+  const targets = targetsFor(p);
+  if (targets.length)
+    schedule(() => Promise.all(targets.map((t) => mirrorUtimes(t, atime, mtime, p))));
+}
+
 // ---------------------------------------------------------------------------
-// Read-only passthroughs
+// Passthroughs — the rest of the node:fs/promises surface
 // ---------------------------------------------------------------------------
 //
-// Re-exported verbatim so a call site can swap its entire `fs/promises` import
-// to this module. These never mutate the tree, so there is nothing to mirror.
-
-export const stat = realFs.stat;
-export const lstat = realFs.lstat;
-export const readFile = realFs.readFile;
-export const readdir = realFs.readdir;
-export const access = realFs.access;
-export const realpath = realFs.realpath;
-export const readlink = realFs.readlink;
-export const opendir = realFs.opendir;
-
-// ---------------------------------------------------------------------------
-// Mutating passthroughs — intentionally NOT mirrored
-// ---------------------------------------------------------------------------
+// Re-export the WHOLE module so this is a true drop-in for `import * as fs from
+// 'node:fs/promises'` — any read (stat/readFile/readdir/…) or fs function not
+// overridden above forwards to the real implementation, with no need to hand-
+// maintain a forwarding list. The mutating verbs declared above
+// (rename/copyFile/link/unlink/mkdir/rm/rmdir/utimes) shadow their star-exported
+// counterparts with the mirror-aware versions.
 //
-// `open`/`writeFile`/`appendFile` only ever target the `<final>.tmp.<pid>`
-// temps in this codebase's atomic-write pattern; the committing
-// rename/copyFile/link above carries the *result* to the mirror, so mirroring
-// the temp churn would be wasted work. `cp`/`chmod`/`utimes` are mutating but
-// have no durable call site through this module today; if one appears, add a
-// mirror-aware override above rather than relying on this passthrough.
-
-export const open = realFs.open;
-export const writeFile = realFs.writeFile;
-export const appendFile = realFs.appendFile;
-export const cp = realFs.cp;
-export const chmod = realFs.chmod;
-export const utimes = realFs.utimes;
+// Deliberately NOT mirrored, and intentionally left as plain passthroughs:
+//   - open / writeFile / appendFile — only ever target the `<final>.tmp.<pid>`
+//     temps in this codebase's atomic-write pattern; the committing
+//     rename/copyFile/link carries the *result* to the mirror.
+//   - cp / chmod — no durable call site through this module today; add a
+//     mirror-aware override above if one appears.
+export * from 'node:fs/promises';
 
 /**
  * Default export mirroring `import fs from 'node:fs/promises'`: every real
@@ -403,6 +418,7 @@ const mirroredFs = {
   link,
   unlink,
   mkdir,
+  utimes,
   rm,
   rmdir,
 };

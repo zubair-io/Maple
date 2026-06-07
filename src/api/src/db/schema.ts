@@ -27,9 +27,10 @@ import type { ObjectId, WithId } from 'mongodb';
 export interface MirrorLocation {
   /** Absolute filesystem path to the mirror root. */
   path: string;
-  /** When false, replication to (and reads from) this mirror are paused —
-   * the operator can disable a mirror whose disk is offline without losing
-   * the configuration. */
+  /** When false, replication to this mirror is paused — the operator can
+   * disable a mirror whose disk is offline without losing the configuration.
+   * (Reads are always served from the primary today; mirror read failover is
+   * the read-replica follow-up, #926.) */
   enabled: boolean;
 }
 
