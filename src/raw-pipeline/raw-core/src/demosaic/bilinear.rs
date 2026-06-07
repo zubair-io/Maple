@@ -1,9 +1,26 @@
+use crate::cancel::CancelToken;
 use crate::image::{CfaPattern, ColorSpace, Image};
 use rayon::prelude::*;
 
 /// Bilinear demosaic per spec § 3.3.1. Input must be `CameraNativeMosaic`.
 /// Output is `CameraNativeLinearRgb` with all three channels populated.
+///
+/// Non-cancellable wrapper — forwards to [`bilinear_cancellable`] with a
+/// never-cancel token, so its output is bit-identical to the pre-#951 kernel.
+#[inline]
 pub fn bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
+    bilinear_cancellable(mosaic, cfa, CancelToken::never())
+}
+
+/// Cancellable variant of [`bilinear`]. Identical math; additionally checks
+/// `cancel` at the top of each parallel row closure and skips that row's
+/// fill when cancellation is requested (a rayon parallel iterator can't
+/// `break`, so already-scheduled rows return immediately and the rest are
+/// skipped). The resulting partially-filled buffer is discarded by the
+/// develop chain, which returns `Err(Cancelled)` right after demosaic. With
+/// a never-cancel token the per-row load is a no-op branch and the output is
+/// bit-identical to [`bilinear`].
+pub fn bilinear_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken<'_>) -> Image {
     mosaic.assert_space(ColorSpace::CameraNativeMosaic);
     let w = mosaic.width as i32;
     let h = mosaic.height as i32;
@@ -21,6 +38,11 @@ pub fn bilinear(mosaic: &Image, cfa: CfaPattern) -> Image {
         .par_chunks_mut(w_usize)
         .enumerate()
         .for_each(|(y_idx, row)| {
+            // Per-row cancel check. Skipping the fill leaves this row at its
+            // zero-init value; the develop chain discards the whole buffer.
+            if cancel.is_cancelled() {
+                return;
+            }
             let y = y_idx as i32;
             for (x_idx, px) in row.iter_mut().enumerate() {
                 let x = x_idx as i32;

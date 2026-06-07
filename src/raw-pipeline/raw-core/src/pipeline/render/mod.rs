@@ -10,14 +10,21 @@
 use std::path::Path;
 
 use super::{
-    develop::develop_scene_linear_from_raw_with_quality,
-    develop_sized::develop_scene_linear_sized_from_raw_with_quality,
+    develop::{
+        develop_scene_linear_from_raw_with_quality,
+        develop_scene_linear_from_raw_with_quality_cancellable,
+    },
+    develop_sized::{
+        develop_scene_linear_sized_from_raw_with_quality,
+        develop_scene_linear_sized_from_raw_with_quality_cancellable,
+    },
     dump_after,
     fp16::f32_to_f16_bits,
     orient::apply_orientation_f32_rgba,
     stage, RenderQuality,
 };
 use crate::{
+    cancel::CancelToken,
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
     stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance},
@@ -299,12 +306,34 @@ pub fn render_scene_linear_from_raw_with_quality(
 /// this to the Web consumer (Apple still consumes the fp16 entries today;
 /// follow-up ticket tracks the per-tick chain migration that blocks the
 /// Apple swap).
+#[inline]
 pub fn render_scene_linear_from_raw_with_quality_f32(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    let scene = develop_scene_linear_from_raw_with_quality(raw, model, quality)?;
+    render_scene_linear_from_raw_with_quality_f32_cancellable(
+        raw,
+        model,
+        quality,
+        CancelToken::never(),
+    )
+}
+
+/// Cancellable variant of [`render_scene_linear_from_raw_with_quality_f32`].
+///
+/// Forwards `cancel` into the develop chain so a cold-open decode can unwind
+/// mid-stage; returns `Err(Error::Cancelled)` when the host requests it. The
+/// FFI entry `maple_render_file_scene_linear_f32` (and its bytes sibling)
+/// routes through here with a host-owned flag. Never-cancel ⇒ bit-identical to
+/// the wrapper above.
+pub fn render_scene_linear_from_raw_with_quality_f32_cancellable(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    cancel: CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>)> {
+    let scene = develop_scene_linear_from_raw_with_quality_cancellable(raw, model, quality, cancel)?;
     let (w0, h0) = (scene.width, scene.height);
     let rgba_f32 = stage("pack_rgba_f32", || {
         let mut v = Vec::with_capacity(scene.pixels.len() * 4);
@@ -370,14 +399,36 @@ pub fn render_scene_linear_sized_from_raw_with_quality(
 /// Same `max_long_edge` cap, no-upscale guarantee, and oriented output.
 /// Returns the oriented buffer as packed `f32` lanes. See the f32 variant
 /// of the full-size entry for the rationale (#482).
+#[inline]
 pub fn render_scene_linear_sized_from_raw_with_quality_f32(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     max_long_edge: u32,
 ) -> Result<(u32, u32, Vec<f32>)> {
-    let scene = develop_scene_linear_sized_from_raw_with_quality(
-        raw, model, quality, max_long_edge,
+    render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
+        raw,
+        model,
+        quality,
+        max_long_edge,
+        CancelToken::never(),
+    )
+}
+
+/// Cancellable variant of
+/// [`render_scene_linear_sized_from_raw_with_quality_f32`]. The fast-phase
+/// RAW open routes through here (via the sized FFI entry) with a host-owned
+/// cancel flag, so this is the entry the editor actually interrupts on a
+/// slider tick during a cold open (#951). Never-cancel ⇒ bit-identical.
+pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: u32,
+    cancel: CancelToken<'_>,
+) -> Result<(u32, u32, Vec<f32>)> {
+    let scene = develop_scene_linear_sized_from_raw_with_quality_cancellable(
+        raw, model, quality, max_long_edge, cancel,
     )?;
     let (w0, h0) = (scene.width, scene.height);
     let rgba_f32 = stage("pack_rgba_f32_sized", || {
