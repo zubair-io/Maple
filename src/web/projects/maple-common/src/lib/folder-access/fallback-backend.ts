@@ -4,6 +4,7 @@
 // (since we can't write back to the real filesystem).
 
 import { MapleFolderHandle, FolderEntry } from './folder-access.types';
+import { openDb, reqToPromise, txDone } from '../util/idb';
 
 const IDB_DB_NAME = 'maple-fallback-cache';
 const IDB_STORE = 'blobs';
@@ -12,13 +13,8 @@ const IDB_VERSION = 1;
 // ── IndexedDB blob store ──────────────────────────────────────────────────────
 
 function openBlobDb(): Promise<IDBDatabase> {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const req = indexedDB.open(IDB_DB_NAME, IDB_VERSION);
-    req.onupgradeneeded = () => {
-      req.result.createObjectStore(IDB_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+  return openDb(IDB_DB_NAME, IDB_VERSION, (db) => {
+    db.createObjectStore(IDB_STORE);
   });
 }
 
@@ -29,19 +25,10 @@ export async function fallbackWriteBlob(
   data: Uint8Array,
 ): Promise<void> {
   const db = await openBlobDb();
-  await new Promise<void>((resolve, reject) => {
-    const key = `${folderLabel}/${path}`;
-    const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(data, key);
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(tx.error);
-    };
-  });
+  const key = `${folderLabel}/${path}`;
+  const tx = db.transaction(IDB_STORE, 'readwrite');
+  tx.objectStore(IDB_STORE).put(data, key);
+  await txDone(tx).finally(() => db.close());
 }
 
 /** Retrieve blob data stored for `<folderLabel>/<path>`. */
@@ -50,19 +37,10 @@ export async function fallbackReadBlob(
   path: string,
 ): Promise<Uint8Array | null> {
   const db = await openBlobDb();
-  return new Promise<Uint8Array | null>((resolve, reject) => {
-    const key = `${folderLabel}/${path}`;
-    const tx = db.transaction(IDB_STORE, 'readonly');
-    const req = tx.objectStore(IDB_STORE).get(key);
-    req.onsuccess = () => {
-      db.close();
-      resolve((req.result as Uint8Array) ?? null);
-    };
-    req.onerror = () => {
-      db.close();
-      reject(req.error);
-    };
-  });
+  const key = `${folderLabel}/${path}`;
+  const tx = db.transaction(IDB_STORE, 'readonly');
+  const result = await reqToPromise(tx.objectStore(IDB_STORE).get(key)).finally(() => db.close());
+  return (result as Uint8Array | undefined) ?? null;
 }
 
 // ── Trigger file picker ───────────────────────────────────────────────────────

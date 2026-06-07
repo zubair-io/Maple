@@ -19,6 +19,7 @@
 
 import { Injectable, InjectionToken, inject } from '@angular/core';
 import { FsDirListing } from './filesystem-browse.service';
+import { openDb, reqToPromise, txDone } from '../util/idb';
 
 const IDB_DB_NAME = 'maple-folder-listing-cache';
 const IDB_STORE = 'listings-by-path';
@@ -79,66 +80,33 @@ export class FolderListingIdbCache implements FolderListingCacheApi {
   async clear(): Promise<void> {
     this.mem.clear();
     const db = await this._open();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).clear();
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error);
-      };
-    });
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).clear();
+    await txDone(tx).finally(() => db.close());
   }
 
-  private _idbGet(path: string): Promise<FolderListingRecord | null> {
-    return this._open().then(
-      (db) =>
-        new Promise<FolderListingRecord | null>((resolve, reject) => {
-          const tx = db.transaction(IDB_STORE, 'readonly');
-          const req = tx.objectStore(IDB_STORE).get(path);
-          req.onsuccess = () => {
-            db.close();
-            resolve((req.result as FolderListingRecord | undefined) ?? null);
-          };
-          req.onerror = () => {
-            db.close();
-            reject(req.error);
-          };
-        }),
+  private async _idbGet(path: string): Promise<FolderListingRecord | null> {
+    const db = await this._open();
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const result = await reqToPromise(tx.objectStore(IDB_STORE).get(path)).finally(() =>
+      db.close(),
     );
+    return (result as FolderListingRecord | undefined) ?? null;
   }
 
   private async _idbPut(path: string, listing: FsDirListing): Promise<void> {
     const db = await this._open();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      const record: FolderListingRecord = { path, listing, storedAt: Date.now() };
-      tx.objectStore(IDB_STORE).put(record);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error);
-      };
-    });
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    const record: FolderListingRecord = { path, listing, storedAt: Date.now() };
+    tx.objectStore(IDB_STORE).put(record);
+    await txDone(tx).finally(() => db.close());
   }
 
   private _open(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(IDB_DB_NAME, IDB_VERSION);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(IDB_STORE)) {
-          db.createObjectStore(IDB_STORE, { keyPath: 'path' });
-        }
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+    return openDb(IDB_DB_NAME, IDB_VERSION, (db) => {
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE, { keyPath: 'path' });
+      }
     });
   }
 }

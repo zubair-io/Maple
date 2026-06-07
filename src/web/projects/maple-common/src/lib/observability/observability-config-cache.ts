@@ -11,6 +11,7 @@
 
 import { Injectable, InjectionToken, inject } from '@angular/core';
 import type { ObservabilityConfigResponse } from './observability-config.model';
+import { openDb, reqToPromise, txDone } from '../util/idb';
 
 const IDB_DB_NAME = 'maple-observability';
 const IDB_STORE = 'config';
@@ -41,68 +42,37 @@ export interface ObservabilityConfigCache {
 export class ObservabilityConfigIdbCache implements ObservabilityConfigCache {
   async get(): Promise<ObservabilityCacheRecord | null> {
     const db = await this._open();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readonly');
-      const req = tx.objectStore(IDB_STORE).get(RECORD_KEY);
-      req.onsuccess = () => {
-        db.close();
-        resolve((req.result as ObservabilityCacheRecord | undefined) ?? null);
-      };
-      req.onerror = () => {
-        db.close();
-        reject(req.error);
-      };
-    });
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const result = await reqToPromise(tx.objectStore(IDB_STORE).get(RECORD_KEY)).finally(() =>
+      db.close(),
+    );
+    return (result as ObservabilityCacheRecord | undefined) ?? null;
   }
 
   async put(config: ObservabilityConfigResponse): Promise<void> {
     const db = await this._open();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      const record: ObservabilityCacheRecord = {
-        key: RECORD_KEY,
-        config,
-        storedAt: Date.now(),
-      };
-      tx.objectStore(IDB_STORE).put(record);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error);
-      };
-    });
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    const record: ObservabilityCacheRecord = {
+      key: RECORD_KEY,
+      config,
+      storedAt: Date.now(),
+    };
+    tx.objectStore(IDB_STORE).put(record);
+    await txDone(tx).finally(() => db.close());
   }
 
   async clear(): Promise<void> {
     const db = await this._open();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, 'readwrite');
-      tx.objectStore(IDB_STORE).clear();
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error);
-      };
-    });
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).clear();
+    await txDone(tx).finally(() => db.close());
   }
 
   private _open(): Promise<IDBDatabase> {
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open(IDB_DB_NAME, IDB_VERSION);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(IDB_STORE)) {
-          db.createObjectStore(IDB_STORE, { keyPath: 'key' });
-        }
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+    return openDb(IDB_DB_NAME, IDB_VERSION, (db) => {
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE, { keyPath: 'key' });
+      }
     });
   }
 }
