@@ -228,7 +228,10 @@ pub fn render_bytes_scene_linear(
     let quality = if quality_preview {
         raw_core::pipeline::RenderQuality::Preview
     } else {
-        raw_core::pipeline::RenderQuality::Full
+        // Export path uses AMaZE for best quality on Bayer images.
+        // Web live path will adopt AMaZE when the develop cache lands
+        // (see issue #846 / #321) so demosaic runs once per open.
+        raw_core::pipeline::RenderQuality::Amaze
     };
     let (w, h, fp16_rgba) =
         raw_core::pipeline::render_scene_linear_from_raw_with_quality(&raw_img, &model, quality)

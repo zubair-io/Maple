@@ -74,10 +74,10 @@ pub unsafe extern "C" fn maple_render_file(
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
-        let quality = if quality_preview != 0 {
-            RenderQuality::Preview
-        } else {
-            RenderQuality::Full
+        let quality = match quality_preview {
+            1 => RenderQuality::Preview,
+            2 => RenderQuality::Amaze,
+            _ => RenderQuality::Full,
         };
         // Pass the RAW path through so `Profile::Auto` (#537) can read the
         // embedded JPEG. `maple_render_file` is the file-backed entry —
@@ -157,10 +157,10 @@ pub unsafe extern "C" fn maple_render_bytes(
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
-        let quality = if quality_preview != 0 {
-            RenderQuality::Preview
-        } else {
-            RenderQuality::Full
+        let quality = match quality_preview {
+            1 => RenderQuality::Preview,
+            2 => RenderQuality::Amaze,
+            _ => RenderQuality::Full,
         };
         let (w, h, out_bytes) = match render_from_raw_with_quality(&raw_img, &model, quality) {
             Ok(t) => t,
