@@ -16,20 +16,43 @@
 // the result on real images is a visible magenta cast.
 //
 // Apple's Metal kernels also re-apply `sharpen` and `nr_color`
-// **after** the chain, so those two are stripped for the same reason
-// (and have been since the first iteration of this helper).
+// **after** the chain (`ImageEditPipeline.applySceneSharpen` +
+// `applySceneNRColor`), so those two are stripped for the same reason
+// (and have been since the first iteration of this helper). The Metal
+// pass is the SINGLE live post-AgX application — the Rust decode must
+// NOT also bake them.
 //
-// Stripped fields (set to the same defaults `AdjustmentModel()` uses so
-// the corresponding stages early-exit during decode):
+// Two kinds of strip live in this helper (#973):
+//
+//  1. Fields set to `AdjustmentModel()` defaults that **happen to be
+//     identity / no-op**, so the corresponding Rust decode stage
+//     early-exits naturally (temperature=6500, tint=0, exposure=0,
+//     contrast/highlights/shadows/whites/blacks=0, vibrance/saturation/
+//     clarity/texture/dehaze=0, nrLuminance=0).
+//  2. Fields forced to **literal 0** because their model defaults are
+//     NON-ZERO (`nrColor`=25, `sharpenAmount`=40) and the Rust stages
+//     only early-exit below `1e-3` (`stages/noise_reduction.rs::apply_color`,
+//     `stages/sharpen.rs::apply`). Setting them to the *default* would
+//     run `nr_color`@25 (~8.5 s) + `sharpen`@40 (~0.8 s) in the decode
+//     AND have Metal re-apply them at the live value — a ~9.3 s wasted
+//     double-apply (over-denoise / over-sharpen the single-pass Rust
+//     reference doesn't have). Zeroing them makes the decode skip both;
+//     Metal owns the one live pass.
+//
+// Stripped fields:
 //   * `temperature`, `tint`        — `white_balance::apply` early-exits
 //     at temp=6500/tint=0 (its identity short-circuit). The post-DCP
 //     buffer is at D65 (= 6500K) by construction; the chain re-applies
 //     the user's full WB shift from this consistent reference.
 //   * `exposure`, `contrast`, `highlights`, `shadows`, `whites`,
-//     `blacks`  — scene_tone_controls + AgX contrast slope
-//   * `vibrance`, `saturation`, `clarity`, `texture`, `dehaze`
-//   * `nrLuminance`                — chain applies it
-//   * `sharpenAmount`, `nrColor`   — Apple Metal re-applies post-chain
+//     `blacks`  — scene_tone_controls + AgX contrast slope (defaults
+//     are identity → decode early-exits)
+//   * `vibrance`, `saturation`, `clarity`, `texture`, `dehaze` (ditto)
+//   * `nrLuminance`                — chain applies it; default 0 → decode
+//     early-exits without forcing
+//   * `nrColor`, `sharpenAmount`   — Apple Metal re-applies post-chain;
+//     forced to literal 0 (NOT the 25/40 defaults) to kill the
+//     double-apply described above
 //
 // **Kept** (Apple-irreplaceable, baked at decode only):
 //   * `highlightRecovery`          — pre-DCP, no chain equivalent.
@@ -74,11 +97,17 @@ public enum RawCoreBridge {
         m.clarity = d.clarity
         m.texture = d.texture
         m.dehaze = d.dehaze
-        // Noise reduction (chain handles luminance; Metal handles color)
+        // Noise reduction (chain handles luminance; Metal handles color).
+        // nrLuminance default is 0 → decode early-exits, so default is fine.
         m.nrLuminance = d.nrLuminance
-        m.nrColor = d.nrColor
-        // Sharpen (Apple Metal handles)
-        m.sharpenAmount = d.sharpenAmount
+        // nrColor / sharpenAmount: literal 0, NOT the 25/40 model defaults
+        // (#973). Their defaults are non-zero and the Rust decode only
+        // early-exits below 1e-3, so defaulting would run the stage in the
+        // decode AND have Metal re-apply it post-AgX — a double-apply.
+        // Zero makes the decode skip both; Metal owns the single live pass.
+        m.nrColor = 0
+        // Sharpen (Apple Metal handles — see nrColor note above).
+        m.sharpenAmount = 0
         return m
     }
 
@@ -102,10 +131,18 @@ public enum RawCoreBridge {
     ///
     /// When `original` is `nil` AND `profileOverride` is `nil`, `body` is
     /// called with `nil` directly — no temp file is written. The raw-ffi
-    /// treats a null xmp_path as "use AdjustmentModel::default()", which is
-    /// already in the "stripped" state (every field is at the default value
-    /// the strip would assign). When `profileOverride` is non-nil a temp
-    /// XMP is always written (even with no sidecar) so the override lands.
+    /// treats a null xmp_path as "use AdjustmentModel::default()". Note
+    /// (#973): that default is NOT identical to the stripped model — the
+    /// strip forces `nrColor`/`sharpenAmount` to 0 while the Rust default
+    /// bakes them at 25/40. This is safe because the only live callers that
+    /// reach this nil/nil branch are the tile / `openRawHandle` openers
+    /// (`renderTile`, `decodePreviewTile`), which do NOT re-apply nr_color/
+    /// sharpen via Metal afterward — so there's no double-apply to avoid.
+    /// The scene-linear AgX path that DOES double-apply never reaches this
+    /// branch: it only runs for RAW assets, which always pass a non-nil
+    /// `profileOverride`, so it always takes the strip-temp-XMP branch.
+    /// When `profileOverride` is non-nil a temp XMP is always written (even
+    /// with no sidecar) so the override lands.
     ///
     /// When `original` cannot be read or parsed, `body` is still called
     /// with a temp XMP derived from `AdjustmentModel()` so the FFI call

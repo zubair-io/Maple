@@ -58,13 +58,26 @@ final class RawCoreBridgeTests: XCTestCase {
         XCTAssertEqual(stripped.clarity, d.clarity)
         XCTAssertEqual(stripped.texture, d.texture)
         XCTAssertEqual(stripped.dehaze, d.dehaze)
-        // Noise reduction
+        // Noise reduction. nrLuminance default is 0, so the strip leaving
+        // it at the default also leaves it at 0 (decode early-exits).
         XCTAssertEqual(stripped.nrLuminance, d.nrLuminance)
-        XCTAssertEqual(stripped.nrColor, d.nrColor)
+        XCTAssertEqual(stripped.nrLuminance, 0)
+        // nrColor / sharpenAmount are forced to LITERAL 0 (#973), NOT the
+        // 25 / 40 model defaults. Their defaults are non-zero and the Rust
+        // decode only early-exits below 1e-3, so defaulting would run the
+        // stage in the decode AND have Metal re-apply it post-AgX (a
+        // ~9.3 s double-apply / over-process). Assert 0 explicitly so a
+        // future reader doesn't "fix" the strip back to `d.nrColor` /
+        // `d.sharpenAmount`.
+        XCTAssertEqual(stripped.nrColor, 0)
+        XCTAssertNotEqual(stripped.nrColor, d.nrColor,
+                          "nrColor must be zeroed, not defaulted (#973)")
         // Sharpen amount only (radius / detail / masking are read by
         // Metal, not the chain, and Rust decode ignores them — kept as
-        // pass-through for completeness).
-        XCTAssertEqual(stripped.sharpenAmount, d.sharpenAmount)
+        // pass-through for completeness; see test_strip_preserves_*).
+        XCTAssertEqual(stripped.sharpenAmount, 0)
+        XCTAssertNotEqual(stripped.sharpenAmount, d.sharpenAmount,
+                          "sharpenAmount must be zeroed, not defaulted (#973)")
     }
 
     func test_strip_preserves_apple_irreplaceable_fields() {
