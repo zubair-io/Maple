@@ -29,7 +29,9 @@ import {
   invitesCollection,
   refreshTokensCollection,
   challengesCollection,
+  serverStateCollection,
 } from '../../src/db/client.ts';
+import { OWNER_CLAIM_ID } from '../../src/auth/server_claim.ts';
 import { buildRegistrationResponse } from './helpers/soft-authn.ts';
 
 const app = new Elysia().use(authRoutes);
@@ -47,6 +49,8 @@ beforeEach(async () => {
   ]) {
     await (await c()).deleteMany({});
   }
+  // #865: clear the ownership-claim sentinel so the claim ceremony starts fresh.
+  await (await serverStateCollection()).deleteOne({ _id: OWNER_CLAIM_ID });
 });
 
 async function postJson(path: string, body: unknown, cookie?: string): Promise<Response> {
