@@ -16,7 +16,7 @@ import {
 import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { AuthService } from '@maple-common';
+import { AuthService, errorMessage } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 
@@ -58,7 +58,7 @@ export class AccountComponent implements OnInit {
       );
       this.credentials.set(r.credentials ?? []);
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     }
   }
 
@@ -69,7 +69,7 @@ export class AccountComponent implements OnInit {
       await this.auth.addCredential('Web');
       await this.refresh();
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     } finally {
       this.busy.set(false);
     }
@@ -82,7 +82,7 @@ export class AccountComponent implements OnInit {
       await this.auth.deleteCredential(id);
       await this.refresh();
     } catch (e: unknown) {
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
     } finally {
       this.busy.set(false);
     }

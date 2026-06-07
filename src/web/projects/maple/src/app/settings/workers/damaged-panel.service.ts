@@ -8,7 +8,7 @@
 // one page, so it lives and dies with the component instance.
 
 import { Injectable, inject, signal } from '@angular/core';
-import { type DamagedDoc, WorkersApiService } from '@maple-common';
+import { type DamagedDoc, WorkersApiService, errorMessage } from '@maple-common';
 
 /** Open-drawer state. `null` when the drawer is closed. `clearing` gates the
  * per-row + "clear all" buttons against double-submit. */
@@ -17,18 +17,6 @@ export interface DamagedDrawerState {
   loading: boolean;
   error: string | null;
   clearing: boolean;
-}
-
-function message(err: unknown): string {
-  if (err && typeof err === 'object' && 'error' in err) {
-    const inner = (err as { error?: unknown }).error;
-    if (inner && typeof inner === 'object' && 'error' in inner) {
-      return String((inner as { error: unknown }).error);
-    }
-    if (typeof inner === 'string') return inner;
-  }
-  if (err instanceof Error) return err.message;
-  return String(err);
 }
 
 @Injectable()
@@ -45,7 +33,7 @@ export class DamagedPanelService {
       next: (res) =>
         this.drawer.update((cur) => (cur ? { ...cur, items: res.items, loading: false } : cur)),
       error: (err) =>
-        this.drawer.update((cur) => (cur ? { ...cur, loading: false, error: message(err) } : cur)),
+        this.drawer.update((cur) => (cur ? { ...cur, loading: false, error: errorMessage(err) } : cur)),
     });
   }
 
@@ -62,7 +50,7 @@ export class DamagedPanelService {
     this.api.clearDamaged(id).subscribe({
       next: () => this.open(),
       error: (err) =>
-        this.drawer.update((c) => (c ? { ...c, clearing: false, error: message(err) } : c)),
+        this.drawer.update((c) => (c ? { ...c, clearing: false, error: errorMessage(err) } : c)),
     });
   }
 }

@@ -33,6 +33,7 @@ import {
   untracked,
   viewChild,
 } from '@angular/core';
+import { errorMessage } from '../../util/errors';
 import { Router } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -452,7 +453,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       this._monthData.set(next);
     } catch (err) {
       if (gen !== this.bucketsGen) return;
-      this.bucketsError.set(err instanceof Error ? err.message : String(err));
+      this.bucketsError.set(errorMessage(err));
       this.buckets.set(null);
     } finally {
       if (gen === this.bucketsGen) this.bucketsLoading.set(false);
@@ -536,7 +537,7 @@ export class TimelineViewComponent implements AfterViewInit, OnDestroy {
       if (gen !== this.monthGens.get(key)) return;
       // Mark the month as a loading-failed terminal state so the template
       // can surface the error instead of staying on "Loading…" forever.
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       this._patchMonth(key, (d) => ({
         ...d,
         loaded: true,
