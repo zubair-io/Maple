@@ -61,6 +61,15 @@ final class PathFormatterTests: XCTestCase {
             "2024/Japan/Kyoto/IMG.heic")
     }
 
+    // Trims newlines/CR/tabs to match JS String.prototype.trim() (TS parity).
+    func testTrimsNewlinesLikeJSTrim() throws {
+        XCTAssertEqual(
+            try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
+                                     location: ["Japan\n", "\tKyoto", "Var\r\n"],
+                                     filename: "IMG.heic"),
+            "2024/Japan/Kyoto/Var/IMG.heic")
+    }
+
     func testAllEmptySegmentsFallBack() throws {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
