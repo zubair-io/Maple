@@ -85,12 +85,14 @@
 
 .block {
   padding: 16px 0 4px;
+}
+// Divider only BETWEEN consecutive library blocks. (`:first-of-type` wouldn't
+// work — `.section-head` etc. are earlier `div` siblings, so the first .block
+// isn't the first div.)
+.block + .block {
   border-top: 0.5px solid var(--s-border);
   margin-top: 14px;
-
-  &:first-of-type {
-    border-top: none;
-  }
+  padding-top: 18px;
 }
 
 .test-result {

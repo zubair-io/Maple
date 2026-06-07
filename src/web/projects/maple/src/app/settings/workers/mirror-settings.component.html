@@ -50,10 +50,11 @@
       <div class="block">
         <div class="subhead">{{ lib.label }}</div>
         <div class="field field-wide">
-          <div class="field-label">Backup location</div>
+          <label class="field-label" [attr.for]="'mirror-' + lib.id">Backup location</label>
           <div class="text-input mono">
             <div class="text-input-wrap">
               <input
+                [id]="'mirror-' + lib.id"
                 type="text"
                 placeholder="/mnt/backup/photos"
                 [value]="pathOf(lib.id)"
