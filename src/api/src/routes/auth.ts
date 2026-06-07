@@ -79,7 +79,12 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         await u.updateOne({ _id: user._id }, { $set: { last_seen_at: new Date().toISOString() } });
       }
       const access_token = await signAccessToken(
-        { sub: user._id.toHexString(), email: user.email, role: user.role },
+        {
+          sub: user._id.toHexString(),
+          email: user.email,
+          role: user.role,
+          token_version: user.token_version,
+        },
         jwtSecret(),
       );
       const refresh = await issueRefreshToken(user._id, 'dev-login');
@@ -336,7 +341,12 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         usersColl.updateOne({ _id: user._id }, { $set: { last_seen_at: nowIso } }),
       ]);
       const access_token = await signAccessToken(
-        { sub: user._id.toHexString(), email: user.email, role: user.role },
+        {
+          sub: user._id.toHexString(),
+          email: user.email,
+          role: user.role,
+          token_version: user.token_version,
+        },
         jwtSecret(),
       );
       await updates;
@@ -401,7 +411,12 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         return { error: 'user gone' };
       }
       const access_token = await signAccessToken(
-        { sub: user._id.toHexString(), email: user.email, role: user.role },
+        {
+          sub: user._id.toHexString(),
+          email: user.email,
+          role: user.role,
+          token_version: user.token_version,
+        },
         jwtSecret(),
       );
       // Re-set the cookie if the request used cookie auth.
