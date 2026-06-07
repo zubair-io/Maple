@@ -43,6 +43,7 @@ import {
   SearchSceneType,
   SearchService,
   SearchSort,
+  errorMessage,
 } from '@maple-common';
 import {
   COLOR_LABELS,
@@ -403,7 +404,7 @@ export class SearchComponent implements OnInit, OnDestroy {
       this.applyResults(r, append);
     } catch (e: unknown) {
       if (gen !== this.searchGen) return;
-      this.error.set(e instanceof Error ? e.message : String(e));
+      this.error.set(errorMessage(e));
       if (!append) this.results.set([]);
     } finally {
       if (gen === this.searchGen) this.loading.set(false);

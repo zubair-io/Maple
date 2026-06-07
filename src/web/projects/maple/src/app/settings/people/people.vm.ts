@@ -344,18 +344,7 @@ export function bulkFailureLabel(count: number, reason: string): string {
 
 // ── Error normalisation ───────────────────────────────────────────────────
 
-/** Extract a human message from an HttpClient error / Error / unknown
- * thrown value. Handles the common `{ error: { error: "…" } }` shape Bun
- * produces. Identical to the helper in `workers.vm.ts` — duplicated
- * because each slice is scoped to its own folder. */
-export function errorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'error' in err) {
-    const inner = (err as { error?: unknown }).error;
-    if (inner && typeof inner === 'object' && 'error' in inner) {
-      return String((inner as { error: unknown }).error);
-    }
-    if (typeof inner === 'string') return inner;
-  }
-  if (err instanceof Error) return err.message;
-  return String(err);
-}
+// Re-exported from the shared util. (The implementation used to be
+// duplicated here and in `workers.vm.ts`; both now delegate to the single
+// copy in `maple-common/src/lib/util/errors`.)
+export { errorMessage } from '@maple-common';

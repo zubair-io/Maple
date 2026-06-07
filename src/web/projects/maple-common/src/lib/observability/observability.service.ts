@@ -24,6 +24,8 @@
 // `@opentelemetry/context-zone`) — see app.config.ts `provideZonelessChangeDetection`.
 
 import { Injectable, inject, signal } from '@angular/core';
+
+import { errorMessage } from '../util/errors';
 import { firstValueFrom } from 'rxjs';
 import { trace, type Tracer } from '@opentelemetry/api';
 import { logs, SeverityNumber, type Logger } from '@opentelemetry/api-logs';
@@ -143,7 +145,7 @@ export class ObservabilityService {
     try {
       fresh = await firstValueFrom(this.api.getObservabilityConfig());
     } catch (err) {
-      this.lastError.set(err instanceof Error ? err.message : String(err));
+      this.lastError.set(errorMessage(err));
       return;
     }
     this.lastError.set(null);
@@ -254,7 +256,7 @@ export class ObservabilityService {
       this.logger = this.runtime.loggerProvider ? logs.getLogger(SCOPE_NAME) : null;
       this.initialized.set(this.tracer !== null || this.logger !== null);
     } catch (err) {
-      this.lastError.set(err instanceof Error ? err.message : String(err));
+      this.lastError.set(errorMessage(err));
       this.teardown();
       this.initialized.set(false);
     }
