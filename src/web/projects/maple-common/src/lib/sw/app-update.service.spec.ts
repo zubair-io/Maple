@@ -6,7 +6,7 @@
 // change, reload on install) are intentionally not exercised here — jsdom has
 // no real navigation — so the spec stays focused on the observable state.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { SwUpdate, type VersionEvent } from '@angular/service-worker';
@@ -36,7 +36,18 @@ function setup(sw?: FakeSwUpdate): AppUpdateService {
 }
 
 describe('AppUpdateService', () => {
-  beforeEach(() => TestBed.resetTestingModule());
+  // init() starts a long-lived poll interval; fake timers keep it from leaking
+  // across tests. resetTestingModule destroys the injector so the service's
+  // DestroyRef.onDestroy clears its own timer too.
+  beforeEach(() => {
+    vi.useFakeTimers();
+    TestBed.resetTestingModule();
+  });
+
+  afterEach(() => {
+    TestBed.resetTestingModule();
+    vi.useRealTimers();
+  });
 
   describe('with the service worker enabled', () => {
     let sw: FakeSwUpdate;
