@@ -45,10 +45,13 @@ beforeAll(async () => {
   }
   db = mongo!.db(TEST_DB);
   await db.dropDatabase();
-  // The worker + repo use the app's getDb() singleton; closeDb() forces it to
-  // reconnect against TEST_DB (set via env above). We only need the
-  // mirror_queue unique index — not the full app ensureIndexes() suite, which
-  // runs migrations unrelated to this worker.
+  // Pin the app's getDb() singleton to OUR test DB. Multiple Mongo test files
+  // share one bun process, so the module-top env assignment can be overwritten
+  // by another file's; re-set it here, right before closeDb() forces a
+  // reconnect, so the worker reads the same DB the fixtures are written to.
+  // We only need the mirror_queue unique index — not the full app
+  // ensureIndexes() suite, which runs migrations unrelated to this worker.
+  process.env.MAPLE_MONGO_DB = TEST_DB;
   const { closeDb, mirrorQueueCollection } = await import('../../db/client.ts');
   await closeDb();
   await (
