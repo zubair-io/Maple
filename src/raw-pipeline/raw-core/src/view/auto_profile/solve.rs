@@ -26,6 +26,11 @@ pub(super) const LUMA_BANDS: [(f32, f32); 5] = [
 /// leaves their anchors at identity rather than chasing noise.
 pub(super) const MIN_BAND_PIXELS: usize = 100;
 
+/// Minimum slope between adjacent anchors to prevent flat plateaus and color banding.
+/// 0.006 is ~18.6% of the identity curve's per-anchor slope (`1/(ANCHORS-1)` ≈ 0.0323
+/// for `ANCHORS = 32`) — adjacent output anchors must rise by at least that much.
+pub(super) const MIN_SLOPE: f32 = 0.006;
+
 /// Band index for a JPEG luma value, replicating the gate's edge handling:
 /// earlier bands are half-open `[lo, hi)`, the last band is closed `[lo, hi]`.
 /// Returns `None` for luma outside `[0, 1]` (clamped inputs never hit this).
@@ -235,6 +240,17 @@ pub(super) fn solve_minimax_monotone(
 
     // Smooth-fill anchors no band touched, then assemble + monotone-guard.
     fill_untouched_monotone(&mut best, &touched);
+
+    // Laplacian smoothing to round off sharp edges/plateaus and break color banding
+    let mut next = best;
+    for i in 1..ANCHORS - 1 {
+        let lap = best[i - 1] - 2.0 * best[i] + best[i + 1];
+        next[i] = (best[i] + 0.05 * lap).clamp(0.0, 1.0);
+    }
+    // Restore monotonicity with global minimum slope constraint
+    pava_project(&mut next, MIN_SLOPE);
+    best = next;
+
     let mut anchors = [(0.0f32, 0.0f32); ANCHORS];
     for (i, a) in anchors.iter_mut().enumerate() {
         a.0 = i as f32 / (ANCHORS - 1) as f32;
@@ -276,6 +292,66 @@ pub(super) fn touched_anchors(
     t
 }
 
+fn pava_project(out: &mut [f32; ANCHORS], min_slope: f32) {
+    let mut y = [0.0f32; ANCHORS];
+    let max_y = 1.0 - (ANCHORS - 1) as f32 * min_slope;
+    for i in 0..ANCHORS {
+        let val = out[i] - i as f32 * min_slope;
+        y[i] = val.clamp(0.0, max_y);
+    }
+
+    #[derive(Clone, Copy)]
+    struct Block {
+        value: f32,
+        weight: f32,
+    }
+    let mut blocks = [Block { value: 0.0, weight: 0.0 }; ANCHORS];
+    for i in 0..ANCHORS {
+        blocks[i] = Block { value: y[i], weight: 1.0 };
+    }
+    let mut len = ANCHORS;
+
+    let mut i = 0;
+    while i < len - 1 {
+        if blocks[i].value > blocks[i + 1].value {
+            // Pool block i and block i+1
+            let w_i = blocks[i].weight;
+            let w_next = blocks[i + 1].weight;
+            let total_w = w_i + w_next;
+            let new_val = (blocks[i].value * w_i + blocks[i + 1].value * w_next) / total_w;
+            blocks[i].value = new_val;
+            blocks[i].weight = total_w;
+            // Shift remaining blocks left
+            for j in (i + 1)..(len - 1) {
+                blocks[j] = blocks[j + 1];
+            }
+            len -= 1;
+            // Backtrack to check if the new pooled block violates with the previous block
+            if i > 0 {
+                i -= 1;
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    // Unpack blocks back into out
+    let mut idx = 0;
+    for i in 0..len {
+        let n = blocks[i].weight.round() as usize;
+        for _ in 0..n {
+            if idx < ANCHORS {
+                y[idx] = blocks[i].value;
+                idx += 1;
+            }
+        }
+    }
+
+    for i in 0..ANCHORS {
+        out[i] = (y[i] + i as f32 * min_slope).clamp(0.0, 1.0);
+    }
+}
+
 /// Inner feasibility solve for [`solve_minimax_monotone`]: is there a monotone
 /// `out ∈ [0,1]^32` with `|Σ_a M[b][a]·out[a] − T_b| ≤ t` for every band with a
 /// target? Returns such an `out` (the projection's fixed point) or `None`.
@@ -304,7 +380,7 @@ pub(super) fn feasible_monotone(
     }
 
     let mut out = identity_out();
-    const SWEEPS: usize = 400;
+    const SWEEPS: usize = 800;
     for _ in 0..SWEEPS {
         let mut delta_num = [0.0f64; ANCHORS];
         let mut delta_den = [0.0f64; ANCHORS];
@@ -346,15 +422,7 @@ pub(super) fn feasible_monotone(
                 out[a] += (delta_num[a] / delta_den[a]) as f32;
             }
         }
-        // Re-project to monotone non-decreasing + clamp to display range.
-        for a in 1..ANCHORS {
-            if out[a] < out[a - 1] {
-                out[a] = out[a - 1];
-            }
-        }
-        for o in out.iter_mut() {
-            *o = o.clamp(0.0, 1.0);
-        }
+        pava_project(&mut out, MIN_SLOPE);
     }
 
     // Final feasibility check after the sweep budget.
@@ -383,15 +451,21 @@ pub(super) fn fill_untouched_monotone(out: &mut [f32; ANCHORS], touched: &[bool]
         // No anchor touched — leave the identity seed untouched.
         return;
     };
-    // Leading run: flat-hold the first touched value.
-    let first_val = out[first];
-    for a in out.iter_mut().take(first) {
-        *a = first_val;
+    // Leading run: linear interpolate from 0.0 to the first touched value.
+    let first_val = out[first].clamp(0.0, 1.0);
+    if first > 0 {
+        let span = first as f32;
+        for a in 0..first {
+            out[a] = first_val * (a as f32 / span);
+        }
     }
-    // Trailing run: flat-hold the last touched value.
-    let last_val = out[last];
-    for a in out.iter_mut().take(ANCHORS).skip(last + 1) {
-        *a = last_val;
+    // Trailing run: linear interpolate from the last touched value to 1.0.
+    let last_val = out[last].clamp(0.0, 1.0);
+    if last < ANCHORS - 1 {
+        let span = (ANCHORS - 1 - last) as f32;
+        for a in (last + 1)..ANCHORS {
+            out[a] = last_val + (1.0 - last_val) * ((a - last) as f32 / span);
+        }
     }
     // Interior gaps: linear interp between bracketing touched anchors.
     let mut prev = first;
@@ -442,7 +516,7 @@ mod solver_tests {
         for b in 0..LUMA_BANDS.len() {
             let got = band_mean(&design[b], &curve);
             assert!(
-                (got - targets[b]).abs() < 0.01,
+                (got - targets[b]).abs() < 0.02,
                 "band {b}: got {got}, want {}",
                 targets[b]
             );

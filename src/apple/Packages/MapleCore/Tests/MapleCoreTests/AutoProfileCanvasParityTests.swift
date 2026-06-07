@@ -30,7 +30,9 @@ import XCTest
 
 final class AutoProfileCanvasParityTests: XCTestCase {
 
-    private static let lutSize = 33               // DEFAULT_LUT_SIZE
+    // `internal` (not `private`): the #924 residual tests live in an extension
+    // in AutoProfileResidualParityTests924.swift and read `Self.lutSize`.
+    static let lutSize = 33                        // DEFAULT_LUT_SIZE
     private static let curveFlatLen = 220         // PROFILE_CURVE_FLAT_LEN
 
     // MARK: - (1) Committed gate: cube samples the LUT faithfully
@@ -189,18 +191,29 @@ final class AutoProfileCanvasParityTests: XCTestCase {
             asset: asset, quality: .full, xmpPath: nil, profileOverride: profile
         ) else { throw XCTSkip("decodeSceneLinear nil for \(rawURL.lastPathComponent)") }
 
+        let asShot: ImageEditPipeline.AsShotWB? = {
+            guard let raw = ImageMetadataReader.readAsShotWB(from: rawURL) else { return nil }
+            return ImageEditPipeline.AsShotWB(temperature: raw.temperature, tint: raw.tint)
+        }()
         var model = AdjustmentModel.default
         model.profile = profile
+        // Render at "As Shot": set the WB sliders to the as-shot values so the
+        // asShot-relative WB chain (`wb_gains(live)/wb_gains(asShot)`) applies a
+        // ZERO shift — the app's default view, and the only WB that matches a CPU
+        // `maple_render_file` render (whose default temperature=6500 on the
+        // post-DCP D65 buffer is itself a zero shift). Without this the default
+        // 6500 drives a spurious `wb_gains(6500)/wb_gains(asShot)` shift that
+        // diverges from the CPU reference and dominates any per-band parity bias.
+        if let asShot {
+            model.temperature = asShot.temperature
+            model.tint = asShot.tint
+        }
         let profileLUT = await AutoProfileLUT.shared.filter(
             forRawAt: rawURL, profile: profile, quality: .full
         )
         if profile == .auto {
             XCTAssertNotNil(profileLUT, "expected an Auto Profile cube for \(rawURL.lastPathComponent)")
         }
-        let asShot: ImageEditPipeline.AsShotWB? = {
-            guard let raw = ImageMetadataReader.readAsShotWB(from: rawURL) else { return nil }
-            return ImageEditPipeline.AsShotWB(temperature: raw.temperature, tint: raw.tint)
-        }()
         let processed = pipeline.processSceneLinear(
             decoded: decoded, model: model, targetSize: nil,
             asShot: asShot, decodedAtModel: .default, profileLUT: profileLUT

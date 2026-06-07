@@ -9,6 +9,7 @@ import { getDb } from '../db/client.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
 import { buildClaimQuery } from './run-stage.ts';
+import { liveFileInfoElemMatch } from '../indexer/images.repo.ts';
 import { deriveBatchSize } from './loop-policy.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
@@ -159,13 +160,13 @@ export async function fetchStatusDbState(
               { [`stages.${name}.version`]: { $exists: false } },
             ],
             [`stages.${name}.dead`]: { $ne: true },
-            // Park missing-tagged docs the same way the claim query (`ready`)
+            // Require a live location the same way the claim query (`ready`)
             // does. Otherwise `blocked = pending - ready` absorbs the entire
-            // `missing_since` backlog (the reaper's queue) into every claim
+            // no-live-location backlog (the reaper's queue) into every claim
             // stage's blocked count, even though those docs can't be claimed
             // here. The reaper backlog is surfaced separately on the
             // missing-reaper row below.
-            missing_since: { $not: { $type: 'string' } },
+            ...liveFileInfoElemMatch(),
           })
           .then((n) => ({ key: 'pending' as const, name, n }))
           .catch((err) => {
@@ -203,17 +204,16 @@ export async function fetchStatusDbState(
 
   // The missing-reaper is NOT a claim stage, so the loop above leaves its
   // counts at 0 — which reads as "nothing to do" even while it's actively
-  // pruning a large `missing_since` backlog. Surface the real tagged count as
-  // its `pending` so the Workers UI reflects the work queue instead of 0/0/0.
-  // `$type: "string"` matches the reaper's own query exactly: it counts only
-  // tagged rows (not absent/null) AND lets the planner use the
-  // `missing_since_1` partial index instead of COLLSCANning every asset.
+  // pruning a large backlog. Surface the real tagged count as its `pending` so
+  // the Workers UI reflects the work queue instead of 0/0/0. Matches the
+  // reaper's own scan exactly: rows with any per-entry `missing_since` string,
+  // using the `fileinfo_missing_since_1` partial index instead of a COLLSCAN.
   if (assets && stageNames.includes('missing-reaper')) {
     try {
       pendingByStage.set(
         'missing-reaper',
         await assets.countDocuments({
-          missing_since: { $type: 'string', $ne: null },
+          'fileinfo.missing_since': { $type: 'string' },
         }),
       );
     } catch (err) {

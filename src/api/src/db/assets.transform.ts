@@ -54,7 +54,13 @@ function resolvePrimary(
   if (!fileinfo || fileinfo.length === 0) {
     return { folder_id: null, filename: '', abs_path: '', fileinfo };
   }
-  const primary = fileinfo.find((e) => !e.deleted_at) ?? fileinfo[0]!;
+  // Primary = first LIVE location (neither replaced nor missing from disk), so
+  // the DTO's path points at a file that actually exists. Mirrors
+  // `assetPrimaryFileInfo`. Falls back to `fileinfo[0]` when nothing is live so
+  // a fully-gone row still resolves a `folder_id` (always set from the chosen
+  // entry's `library_id`); only `abs_path` is empty — when the library root is
+  // unregistered. Callers tolerate the empty `abs_path`.
+  const primary = fileinfo.find((e) => !e.deleted_at && !e.missing_since) ?? fileinfo[0]!;
   const root = libraries.get(primary.library_id.toHexString()) ?? '';
   const segments = primary.path === '' ? [] : primary.path.split('/');
   const abs_path = root ? path.join(root, ...segments, primary.filename) : '';

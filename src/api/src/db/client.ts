@@ -36,6 +36,7 @@ import type {
   UploadSessionDoc,
   AssetChangeDoc,
   ServerStateDoc,
+  MirrorQueueDoc,
 } from './schema.ts';
 import type { WorkerConfigDoc } from '../workers/worker-config.repo.ts';
 
@@ -172,6 +173,10 @@ export async function assetChangesCollection(): Promise<Collection<AssetChangeDo
 
 export async function serverStateCollection(): Promise<Collection<ServerStateDoc>> {
   return (await getDb()).collection<ServerStateDoc>('server_state');
+}
+
+export async function mirrorQueueCollection(): Promise<Collection<MirrorQueueDoc>> {
+  return (await getDb()).collection<MirrorQueueDoc>('mirror_queue');
 }
 
 /** Stage names whose claim-query indexes are created at startup.
@@ -462,19 +467,109 @@ export async function ensureIndexes(): Promise<void> {
   );
 
   // Missing-reaper sweeper queries
-  //   { missing_since: { $type: "string", $ne: null } }
-  // every interval (and /status counts the same set). Same shape + rationale as
-  // `deleted_at_1`: live rows are
-  // written with `missing_since` absent/null, so a `$type: "string"` partial
-  // filter narrows the index to just the (small) set of tagged rows and keeps
-  // the scan O(tagged) instead of COLLSCANning the whole collection.
+  //   { "fileinfo.missing_since": { $type: "string" } }
+  // every interval (and /status counts the same set), and sorts on the same
+  // key. `missing_since` moved from the asset root to per-`fileinfo` entry, so
+  // this is a multikey partial index on the array sub-field. Same shape +
+  // rationale as `deleted_at_1`: live entries carry `missing_since` absent/null,
+  // so a `$type: "string"` partial filter narrows the index to just the (small)
+  // set of rows with a tagged entry and keeps the scan O(tagged). The legacy
+  // root-level `missing_since_1` index is dropped (the migration $unsets the
+  // root field, leaving it indexing nothing).
+  await db
+    .collection('assets')
+    .dropIndex('missing_since_1')
+    .catch(() => {});
   await db.collection('assets').createIndex(
-    { missing_since: 1 },
+    { 'fileinfo.missing_since': 1 },
     {
-      name: 'missing_since_1',
-      partialFilterExpression: { missing_since: { $type: 'string' } },
+      name: 'fileinfo_missing_since_1',
+      partialFilterExpression: { 'fileinfo.missing_since': { $type: 'string' } },
     },
   );
+
+  // Fold the legacy root-level `missing_since` tag down onto the row's
+  // `fileinfo` entries (it moved per-location), then drop the root field.
+  // Each entry inherits the root timestamp unless it already carries its own,
+  // so the reaper's per-entry cooldown clock keeps the original age — an
+  // already-aged orphan is still reaped promptly, not reset. Rows that were
+  // root-tagged always had ≥1 fileinfo entry (the old tag paths required one),
+  // so nothing is stranded. A pipeline `updateMany` does it in one pass;
+  // one-shot, gated by the migrations sentinel. Live entries that get tagged
+  // by mistake (a transient stage failure that had set root missing) self-heal
+  // on the next reaper pass (re-stat → present → clear).
+  if (!(await migrationApplied(db, 'migrate-missing-since-to-fileinfo-2026-06-05'))) {
+    try {
+      const folded = await db
+        .collection('assets')
+        .updateMany({ missing_since: { $type: 'string' } }, [
+          {
+            $set: {
+              fileinfo: {
+                $map: {
+                  input: { $ifNull: ['$fileinfo', []] },
+                  as: 'f',
+                  in: {
+                    $mergeObjects: [
+                      '$$f',
+                      { missing_since: { $ifNull: ['$$f.missing_since', '$missing_since'] } },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+          { $unset: 'missing_since' },
+        ]);
+      // Pre-existing orphans: rows whose every fileinfo entry is `deleted_at`
+      // (content replaced in place) with NO live entry and NO entry already
+      // tagged missing. Old code reaped these via the stage→root-missing_since
+      // path; the new claim query parks no-live-entry rows, so without a tag
+      // they would never be reaped. Dual-flag each entry `missing_since` (=
+      // its `deleted_at`, preserving age) so the reaper prunes + deletes them.
+      const orphans = await db.collection('assets').updateMany(
+        {
+          'fileinfo.0': { $exists: true },
+          fileinfo: {
+            $not: { $elemMatch: { deleted_at: { $in: [null] }, missing_since: { $in: [null] } } },
+          },
+          'fileinfo.missing_since': { $not: { $type: 'string' } },
+        },
+        [
+          {
+            $set: {
+              fileinfo: {
+                $map: {
+                  input: '$fileinfo',
+                  as: 'f',
+                  in: {
+                    $mergeObjects: [
+                      '$$f',
+                      { missing_since: { $ifNull: ['$$f.missing_since', '$$f.deleted_at'] } },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      );
+      await recordMigration(
+        db,
+        'migrate-missing-since-to-fileinfo-2026-06-05',
+        folded.modifiedCount + orphans.modifiedCount,
+      );
+      log.info(
+        { folded: folded.modifiedCount, orphans: orphans.modifiedCount },
+        'migrated root missing_since → fileinfo[].missing_since (+ flagged pre-existing orphans)',
+      );
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        'missing_since → fileinfo migration skipped',
+      );
+    }
+  }
 
   // `damaged` tagging: the claim query excludes tagged rows on every tick
   //   { "damaged.since": { $not: { $type: "string" } } }
@@ -1132,6 +1227,18 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('asset_changes')
     .createIndex({ folder_id: 1, cursor: 1 }, { name: 'asset_changes_folder_cursor' });
+
+  // mirror_queue: pending file copies to a backup/mirror root. `mirror_path` is
+  // the natural key (one pending copy per destination) so re-detection and
+  // repeated write-failures coalesce. The claim query is
+  //   { dead: { $ne: true }, $or: [ {claimed_at: null}, {claimed_at: { $lt: now }} ] }
+  // sorted by enqueued_at — the compound index covers it.
+  await db
+    .collection('mirror_queue')
+    .createIndex({ mirror_path: 1 }, { unique: true, name: 'mirror_queue_path' });
+  await db
+    .collection('mirror_queue')
+    .createIndex({ dead: 1, claimed_at: 1, enqueued_at: 1 }, { name: 'mirror_queue_claim' });
 
   await ensureStageIndexes(db);
 

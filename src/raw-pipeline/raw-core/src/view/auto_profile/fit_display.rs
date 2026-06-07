@@ -72,7 +72,8 @@ pub fn fit_curve_from_raw_display<P: AsRef<Path>>(
     orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
     let preview = preview::extract_preview(raw_path.as_ref())?;
-    fit_curve_from_preview_display(preview, source_rgb, source_w, source_h, orientation)
+    let cs = preview::detect_jpeg_color_space(raw_path.as_ref());
+    fit_curve_from_preview_display(preview, cs, source_rgb, source_w, source_h, orientation)
 }
 
 /// Bytes-based mirror of [`fit_curve_from_raw_display`] for the WASM render
@@ -88,11 +89,13 @@ pub fn fit_curve_from_bytes_display(
     orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
     let preview = preview::extract_preview_from_bytes(raw_bytes, ext)?;
-    fit_curve_from_preview_display(preview, source_rgb, source_w, source_h, orientation)
+    let cs = preview::detect_jpeg_color_space_from_bytes(raw_bytes, ext);
+    fit_curve_from_preview_display(preview, cs, source_rgb, source_w, source_h, orientation)
 }
 
 fn fit_curve_from_preview_display(
     preview: DynamicImage,
+    cs: preview::JpegColorSpace,
     sensor_rgb: &[f32],
     sensor_w: usize,
     sensor_h: usize,
@@ -118,11 +121,20 @@ fn fit_curve_from_preview_display(
     // (8-bit display data); the curve fit lives in the same domain as the
     // source after `srgb_gamma_encode`, so the only transform needed is
     // `byte / 255.0` per lane — no inverse OETF, no primary conversion.
-    let target: Vec<f32> = preview_rgb
+    let mut target: Vec<f32> = preview_rgb
         .as_raw()
         .iter()
         .map(|&b| b as f32 / 255.0)
         .collect();
+
+    if cs == preview::JpegColorSpace::AdobeRgb {
+        for chunk in target.chunks_exact_mut(3) {
+            let srgb = preview::decode_jpeg_pixel_to_srgb([chunk[0], chunk[1], chunk[2]], cs);
+            chunk[0] = srgb[0];
+            chunk[1] = srgb[1];
+            chunk[2] = srgb[2];
+        }
+    }
 
     if is_degenerate_histogram(&target) {
         return None;
@@ -173,12 +185,22 @@ fn fit_curve_from_preview_display(
     // source-pixel count — which would footprint-weight the band mean.
     let mut band_of = vec![usize::MAX; n];
     let mut band_counts = [0usize; LUMA_BANDS.len()];
-    for (j, band_slot) in band_of.iter_mut().enumerate() {
-        let luma =
-            0.2126 * target[j * 3] + 0.7152 * target[j * 3 + 1] + 0.0722 * target[j * 3 + 2];
-        if let Some(b) = solve::band_index(luma) {
-            *band_slot = b;
-            band_counts[b] += 1;
+    let border_w = (target_w_px as f64 * 0.1).round() as usize;
+    let border_h = (target_h_px as f64 * 0.1).round() as usize;
+    for oy in 0..target_h_px {
+        let is_border_y = oy < border_h || oy >= target_h_px - border_h;
+        let row_offset = oy * target_w_px;
+        for ox in 0..target_w_px {
+            let j = row_offset + ox;
+            if is_border_y || ox < border_w || ox >= target_w_px - border_w {
+                continue;
+            }
+            let luma =
+                0.2126 * target[j * 3] + 0.7152 * target[j * 3 + 1] + 0.0722 * target[j * 3 + 2];
+            if let Some(b) = solve::band_index(luma) {
+                band_of[j] = b;
+                band_counts[b] += 1;
+            }
         }
     }
     let footprint = solve::footprint_sizes(crop_w, crop_h, target_w_px, target_h_px);
@@ -231,7 +253,7 @@ fn fit_curve_from_preview_display(
 /// mapping (the u8 path the render pipeline uses after the auto_profile stage).
 /// Returns `(display_w, display_h, oriented_rgb)`. `Normal` borrows the input
 /// (no copy of the potentially 100MP source); other orientations allocate.
-fn orient_rgb_f32_to_display(
+pub(super) fn orient_rgb_f32_to_display(
     rgb: &[f32],
     w: usize,
     h: usize,

@@ -13,25 +13,24 @@
  * callers already validated against the registered folder root.
  */
 
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import { listPairedSidecars } from "./xmp.ts";
-import { child as childLogger } from "../log.ts";
+// Mirror-aware drop-in: trash moves replicate to the library's backup root(s).
+import * as fs from './mirrored.ts';
+import * as path from 'node:path';
+import { listPairedSidecars } from './xmp.ts';
+import { child as childLogger } from '../log.ts';
 
-const log = childLogger("fs/trash");
+const log = childLogger('fs/trash');
 
-export type MoveResult =
-  | { kind: "ok"; newAbsPath: string }
-  | { kind: "error"; error: string };
+export type MoveResult = { kind: 'ok'; newAbsPath: string } | { kind: 'error'; error: string };
 
 /** Compute the trash-side absolute path for a RAW under a library root. */
 export function computeTrashPath(absPath: string, folderRoot: string): string {
-  const root = folderRoot.replace(/\/$/, "");
-  if (absPath !== root && !absPath.startsWith(root + "/")) {
+  const root = folderRoot.replace(/\/$/, '');
+  if (absPath !== root && !absPath.startsWith(root + '/')) {
     throw new Error(`Path "${absPath}" is not under root "${root}"`);
   }
-  const rel = absPath === root ? "" : absPath.slice(root.length + 1);
-  return path.join(root, ".maple", "trash", rel);
+  const rel = absPath === root ? '' : absPath.slice(root.length + 1);
+  return path.join(root, '.maple', 'trash', rel);
 }
 
 /** Append `.N.<ext>` until the path is free. Bounded to 1000 attempts.
@@ -46,12 +45,20 @@ export function computeTrashPath(absPath: string, folderRoot: string): string {
  * Guard the slice on a non-empty ext so an extensionless input simply gets
  * the suffix appended (`/x/foo` → `/x/foo.1`). */
 export async function pickFreePath(basePath: string): Promise<string> {
-  try { await fs.stat(basePath); } catch { return basePath; }
+  try {
+    await fs.stat(basePath);
+  } catch {
+    return basePath;
+  }
   const ext = path.extname(basePath);
   const stem = ext ? basePath.slice(0, -ext.length) : basePath;
   for (let n = 1; n <= 1000; n++) {
     const cand = `${stem}.${n}${ext}`;
-    try { await fs.stat(cand); } catch { return cand; }
+    try {
+      await fs.stat(cand);
+    } catch {
+      return cand;
+    }
   }
   throw new Error(`pickFreePath: trash collision — exceeded 1000 candidate paths for ${basePath}`);
 }
@@ -67,12 +74,22 @@ export async function pickFreeRestoredPath(basePath: string): Promise<string> {
   const ext = path.extname(basePath);
   const stem = ext ? basePath.slice(0, -ext.length) : basePath;
   const first = `${stem}.restored${ext}`;
-  try { await fs.stat(first); } catch { return first; }
+  try {
+    await fs.stat(first);
+  } catch {
+    return first;
+  }
   for (let n = 1; n <= 1000; n++) {
     const cand = `${stem}.restored.${n}${ext}`;
-    try { await fs.stat(cand); } catch { return cand; }
+    try {
+      await fs.stat(cand);
+    } catch {
+      return cand;
+    }
   }
-  throw new Error(`pickFreeRestoredPath: restore collision — exceeded 1000 candidate paths for ${basePath}`);
+  throw new Error(
+    `pickFreeRestoredPath: restore collision — exceeded 1000 candidate paths for ${basePath}`,
+  );
 }
 
 /**
@@ -95,7 +112,7 @@ export async function moveToTrash(absPath: string, folderRoot: string): Promise<
   try {
     await fs.rename(absPath, freeTarget);
   } catch (err) {
-    return { kind: "error", error: err instanceof Error ? err.message : String(err) };
+    return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
   }
   // Move sidecars. Each conflict sidecar carries the OLD base; the moved
   // name swaps to the NEW base so pairing stays correct in trash.
@@ -112,11 +129,11 @@ export async function moveToTrash(absPath: string, folderRoot: string): Promise<
     } catch (err) {
       log.warn(
         { sidecar, destPath, err: err instanceof Error ? err.message : err },
-        "sidecar move failed — RAW moved, sidecar left in place",
+        'sidecar move failed — RAW moved, sidecar left in place',
       );
     }
   }
-  return { kind: "ok", newAbsPath: freeTarget };
+  return { kind: 'ok', newAbsPath: freeTarget };
 }
 
 /**
@@ -124,18 +141,23 @@ export async function moveToTrash(absPath: string, folderRoot: string): Promise<
  * to `targetAbsPath`. If the target collides, a `.restored[.N]` suffix
  * is appended to the basename. Sidecar names follow the new RAW base.
  */
-export async function moveOutOfTrash(trashAbsPath: string, targetAbsPath: string): Promise<MoveResult> {
+export async function moveOutOfTrash(
+  trashAbsPath: string,
+  targetAbsPath: string,
+): Promise<MoveResult> {
   await fs.mkdir(path.dirname(targetAbsPath), { recursive: true });
   // If the target is free, use it as-is; otherwise apply .restored[.N].
   let freeTarget = targetAbsPath;
   try {
     await fs.stat(targetAbsPath);
     freeTarget = await pickFreeRestoredPath(targetAbsPath);
-  } catch { /* free */ }
+  } catch {
+    /* free */
+  }
   try {
     await fs.rename(trashAbsPath, freeTarget);
   } catch (err) {
-    return { kind: "error", error: err instanceof Error ? err.message : String(err) };
+    return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
   }
   const oldBase = path.basename(trashAbsPath, path.extname(trashAbsPath));
   const newBase = path.basename(freeTarget, path.extname(freeTarget));
@@ -150,9 +172,9 @@ export async function moveOutOfTrash(trashAbsPath: string, targetAbsPath: string
     } catch (err) {
       log.warn(
         { sidecar, destPath, err: err instanceof Error ? err.message : err },
-        "sidecar restore failed — RAW restored, sidecar left in trash",
+        'sidecar restore failed — RAW restored, sidecar left in trash',
       );
     }
   }
-  return { kind: "ok", newAbsPath: freeTarget };
+  return { kind: 'ok', newAbsPath: freeTarget };
 }

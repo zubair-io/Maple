@@ -19,6 +19,7 @@ import { child } from '../../log.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { hashFileForId } from '../../indexer/id.ts';
+import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { buildFileinfoEntry } from './types.ts';
 
 const log = child('discover');
@@ -41,34 +42,63 @@ export async function handleEvent(
   const coll = await assetsCollection();
 
   if (kind === 'removed') {
-    // Read the asset ID before the soft-delete so the change event can
-    // carry it. Soft-deletes preserve the row, so this never races with
-    // a delete-then-readd.
     const removed = buildFileinfoEntry(libraryRoot, absPath, folderId);
     if (!removed) {
       log.warn({ libraryRoot, absPath }, 'removed event escapes library root — skipping');
       return;
     }
-    const matchFilter = {
-      fileinfo: {
-        $elemMatch: {
-          library_id: folderId,
-          path: removed.path,
-          filename: removed.filename,
+    const now = new Date().toISOString();
+    const existing = await coll.findOne(
+      {
+        fileinfo: {
+          $elemMatch: { library_id: folderId, path: removed.path, filename: removed.filename },
         },
       },
-    };
-    const existing = await coll.findOne(matchFilter, { projection: { _id: 1 } });
-    await coll.updateOne(matchFilter, { $set: { deleted_at: new Date().toISOString() } });
-    log.info({ absPath }, 'soft-deleted');
-    if (existing) {
-      await recordAndPublishAssetChange({
-        kind: 'delete',
-        asset_id: existing._id,
-        folder_id: folderId,
-        abs_path: absPath,
-      });
+      { projection: { _id: 1 } },
+    );
+    if (!existing) {
+      log.info({ absPath }, 'removed event but no matching row — skipping');
+      return;
     }
+    // Tag ONLY the vanished location `missing_since` (first-detection wins) —
+    // never the whole asset. A deduped asset with copies elsewhere stays
+    // visible + claimable on its other live entries; the missing-reaper
+    // re-stats THIS entry and either recovers it (file reappeared) or `$pull`s
+    // it past the prune window, deleting the record only when no entry remains.
+    await coll.updateOne(
+      { _id: existing._id },
+      { $set: { 'fileinfo.$[e].missing_since': now } },
+      {
+        arrayFilters: [
+          {
+            'e.library_id': folderId,
+            'e.path': removed.path,
+            'e.filename': removed.filename,
+            $or: [{ 'e.missing_since': { $exists: false } }, { 'e.missing_since': null }],
+          },
+        ],
+      },
+    );
+    // Was that the last live location? If so the asset is now hidden (no live
+    // fileinfo entry) — surface a `delete`. Otherwise a copy survives, so this
+    // is an `update` (the asset lost one of its locations). The post-update
+    // re-check is race-safe against a concurrent re-add: a freshly appended
+    // live entry keeps the asset visible and downgrades this to `update`.
+    const stillLive = await coll.findOne(
+      { _id: existing._id, ...liveFileInfoElemMatch() },
+      { projection: { _id: 1 } },
+    );
+    const fullyGone = !stillLive;
+    log.info(
+      { absPath, fullyGone },
+      fullyGone ? 'last location missing — asset hidden' : 'location missing — asset still live',
+    );
+    await recordAndPublishAssetChange({
+      kind: fullyGone ? 'delete' : 'update',
+      asset_id: existing._id,
+      folder_id: folderId,
+      abs_path: absPath,
+    });
     return;
   }
 
@@ -217,6 +247,34 @@ export async function handleEvent(
         ],
       },
     );
+    // If tombstoning that entry left the stale row with NO live location, it
+    // is an orphan — its only content was replaced in place and now lives on a
+    // different (the new-content) row. Flag the same entry `missing_since` so
+    // the missing-reaper reaps the orphaned record after the cooldown. The
+    // reaper treats a `deleted_at` entry as dead (it does NOT re-stat the path
+    // — a different file sits there now) and just `$pull`s it, deleting the
+    // record once it was the last entry. Without this, the new claim query
+    // (which requires a live entry) would park the orphan forever, unreaped.
+    const staleStillLive = await coll.findOne(
+      { _id: staleAtPath._id, ...liveFileInfoElemMatch() },
+      { projection: { _id: 1 } },
+    );
+    if (!staleStillLive) {
+      await coll.updateOne(
+        { _id: staleAtPath._id },
+        { $set: { 'fileinfo.$[entry].missing_since': now } },
+        {
+          arrayFilters: [
+            {
+              'entry.library_id': fileinfoEntry.library_id,
+              'entry.path': fileinfoEntry.path,
+              'entry.filename': fileinfoEntry.filename,
+              $or: [{ 'entry.missing_since': { $exists: false } }, { 'entry.missing_since': null }],
+            },
+          ],
+        },
+      );
+    }
     log.info(
       { absPath, old_sha1_head: staleAtPath.sha1_head, new_sha1_head: hashed.sha1_head },
       'file content changed — marked old fileinfo entry deleted',
@@ -315,6 +373,9 @@ export async function handleEvent(
           $set: {
             ...dedupSet,
             'fileinfo.$[entry].deleted_at': null,
+            // Re-discovering a live file at this location un-parks it: clear
+            // any per-entry `missing_since` the reaper would otherwise act on.
+            'fileinfo.$[entry].missing_since': null,
           },
         },
         {
@@ -411,6 +472,7 @@ export async function handleEvent(
               $set: {
                 ...dedupSet,
                 'fileinfo.$[entry].deleted_at': null,
+                'fileinfo.$[entry].missing_since': null,
               },
             },
             {

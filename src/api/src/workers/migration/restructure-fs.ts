@@ -20,7 +20,9 @@
  * could strand a row on a deleted path — so we never do it.
  */
 
-import * as fs from 'node:fs/promises';
+// Mirror-aware drop-in: backup-layout relocations (copy/unlink/rmdir of
+// originals + sidecars) replicate to the library's backup root(s).
+import * as fs from '../../fs/mirrored.ts';
 import * as path from 'node:path';
 import { filesIdentical } from '../../backup/fs-util.ts';
 import { pickFreePath } from '../../fs/trash.ts';

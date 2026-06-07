@@ -1,0 +1,147 @@
+@use '../settings-chrome' as chrome;
+
+// Reuse the exact settings design system (tokens + field/input/button/chip
+// atoms) so this section matches the rest of the Workers page.
+:host {
+  @include chrome.settings-vars;
+  @include chrome.settings-atoms;
+
+  display: block;
+  margin-top: 24px;
+  border-top: 0.5px solid var(--s-border);
+}
+
+// Horizontal padding inherits the parent `.workers-body` (36px); these only
+// add vertical rhythm + the same atoms the worker rows use.
+
+.section-head {
+  padding: 18px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--s-text);
+  }
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .status-label {
+    font-size: 12.5px;
+    color: var(--s-text-mid);
+  }
+}
+
+.queue-chips {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.section-desc {
+  padding: 8px 0 2px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--s-text-mid);
+  line-height: 1.55;
+  max-width: 680px;
+}
+
+.banner-error {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-radius: 5px;
+  background: rgba(248, 113, 113, 0.1);
+  border: 0.5px solid rgba(248, 113, 113, 0.35);
+  color: var(--s-err);
+  font-size: 12.5px;
+}
+
+.loading {
+  padding: 14px 0;
+  font-size: 13px;
+  color: var(--s-text-muted);
+}
+
+.block {
+  padding: 16px 0 4px;
+}
+// Divider only BETWEEN consecutive library blocks. (`:first-of-type` wouldn't
+// work — `.section-head` etc. are earlier `div` siblings, so the first .block
+// isn't the first div.)
+.block + .block {
+  border-top: 0.5px solid var(--s-border);
+  margin-top: 14px;
+  padding-top: 18px;
+}
+
+.test-result {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+
+  &.ok {
+    color: var(--s-ok);
+  }
+  &.err {
+    color: var(--s-err);
+  }
+}
+
+.mirror-enable {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--s-text-mid);
+  cursor: pointer;
+
+  input {
+    accent-color: var(--s-accent);
+  }
+}
+
+.row-footer {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--s-border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  .footer-spacer {
+    flex: 1;
+  }
+  .save-error {
+    font-size: 11.5px;
+    color: var(--s-err);
+  }
+  .save-ok {
+    font-size: 11.5px;
+    color: var(--s-ok);
+  }
+}

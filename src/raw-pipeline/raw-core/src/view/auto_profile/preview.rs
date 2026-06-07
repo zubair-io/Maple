@@ -1,17 +1,28 @@
-//! Embedded JPEG preview extraction with two-tier fallback.
+//! Embedded preview extraction.
 //!
-//! 1. rawler `extract_preview_pixels` — fast, no subprocess. Handles
-//!    Canon CR2/CR3, Sony ARW, Fuji RAF, most Nikon NEF, modern Hasselblad
-//!    FFF, and most baseline DNGs.
-//! 2. exiftool subprocess — fallback for formats rawler chokes on, even
-//!    when the file contains a standard JPEG (verified: iPhone 12 Pro
-//!    LinearDNG and pre-2020 Adobe DNG both miss rawler but extract via
-//!    exiftool). Subprocess cost is paid per render call today — a
-//!    per-RAW-mtime cache for the fitted [`super::curve::ProfileCurve`]
-//!    is the Phase 5 follow-up (`.claude/plans/crystalline-sparking-sun.md`)
-//!    that will short-circuit the extract + fit on slider ticks.
+//! The Auto Profile fit needs the camera's embedded preview image (its rendered
+//! look) as the fit target. Extraction is layered, in-process first:
 //!
-//! Returns `None` on any extraction error or when exiftool is absent.
+//! 1. rawler `preview_image()` — in-process. Unimplemented for every decoder
+//!    in rawler 0.7.2 (the trait default returns `None`); kept only to pick up
+//!    native preview support if a future rawler adds it.
+//! 2. rawler `full_image()` — in-process. Implemented for the common camera
+//!    formats (CR2/CR3, DNG, NEF, ARW, RAF, RW2, MRW, PEF, FFF) and returns the
+//!    camera's embedded preview *image* — usually a decoded JPEG (cr2 = IFD0,
+//!    dng = the `NewSubFileType==1` preview sub-IFD, nef/arw = the largest
+//!    `JpegInterchangeFormat` IFD), occasionally uncompressed RGB (e.g. some
+//!    CR2), but never a sensor decode — so fitting against it matches the
+//!    camera's rendered look. Decoders that don't implement it (e.g. ORF, IIQ,
+//!    X3F) return the trait default `None` and fall through to tier 3. This is
+//!    the in-process tier that works on the sandboxed Apple app, iOS, and
+//!    Web/WASM, none of which can spawn a subprocess (#927).
+//! 3. exiftool subprocess (path variant only) — last resort for files rawler
+//!    can't decode natively (e.g. iPhone 12 Pro LinearDNG, pre-2020 Adobe DNG).
+//!    UNAVAILABLE in the sandboxed macOS app, on iOS, and on Web/WASM, so it
+//!    must never be the only path to a preview — that was the bug behind #927.
+//!
+//! Returns `None` only when no tier yields a preview. The bytes/WASM entry
+//! ([`extract_preview_from_bytes`]) has no exiftool tier at all (#870).
 
 use std::path::Path;
 use std::process::Command;
@@ -20,7 +31,10 @@ use image::DynamicImage;
 use rawler::decoders::RawDecodeParams;
 use rawler::rawsource::RawSource;
 
+use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
 use crate::image::{apply_orientation, ExifOrientation};
+use crate::math::Matrix3;
+use crate::view::encode::srgb_gamma;
 
 /// Color space of the embedded preview JPEG. Cameras shoot in different
 /// color spaces; the embedded JPEG inherits that setting. Decoding an
@@ -101,13 +115,82 @@ pub fn orient_preview_to_display(img: DynamicImage, orient: ExifOrientation) -> 
     DynamicImage::ImageRgb8(buf)
 }
 
+const M_ADOBE_RGB_TO_XYZ_D65: Matrix3 = Matrix3([
+    [0.5767309, 0.1855540, 0.1881852],
+    [0.2973769, 0.6273491, 0.0752741],
+    [0.0270343, 0.0706872, 0.9911085],
+]);
+
+const ADOBE_RGB_GAMMA: f32 = 563.0 / 256.0;
+
+fn adobe_to_srgb_matrix() -> Matrix3 {
+    static CELL: std::sync::OnceLock<Matrix3> = std::sync::OnceLock::new();
+    *CELL.get_or_init(|| {
+        let adobe_to_rec2020 = M_XYZ_D65_TO_REC2020.mul_mat(&M_ADOBE_RGB_TO_XYZ_D65);
+        M_REC2020_TO_SRGB.mul_mat(&adobe_to_rec2020)
+    })
+}
+
+/// Decode one embedded-JPEG pixel (channels already normalised to `[0, 1]`)
+/// into display-encoded sRGB f32, honouring its color space.
+///
+/// - [`JpegColorSpace::SRgb`]: the preview is already sRGB-encoded, so this is
+///   a passthrough — the only transform the caller needs was the `byte / 255.0`
+///   normalisation done before calling.
+/// - [`JpegColorSpace::AdobeRgb`]: inverse Adobe-RGB EOTF (`v^γ`, γ = 563/256)
+///   → Adobe→sRGB primary matrix → sRGB OETF (`srgb_gamma`).
+///
+/// This is the exact per-pixel conversion the #550 display-space fit
+/// (`fit_display::fit_curve_from_preview_display`) and the LUT pair sampler
+/// (`super::pairs::sample_display_pairs`) share, so both decode the preview
+/// identically.
+pub fn decode_jpeg_pixel_to_srgb(rgb01: [f32; 3], cs: JpegColorSpace) -> [f32; 3] {
+    match cs {
+        JpegColorSpace::SRgb => rgb01,
+        JpegColorSpace::AdobeRgb => {
+            let m = adobe_to_srgb_matrix();
+            let r_lin = rgb01[0].max(0.0).powf(ADOBE_RGB_GAMMA);
+            let g_lin = rgb01[1].max(0.0).powf(ADOBE_RGB_GAMMA);
+            let b_lin = rgb01[2].max(0.0).powf(ADOBE_RGB_GAMMA);
+            let srgb_lin = m.mul_vec([r_lin, g_lin, b_lin]);
+            [
+                srgb_gamma(srgb_lin[0]),
+                srgb_gamma(srgb_lin[1]),
+                srgb_gamma(srgb_lin[2]),
+            ]
+        }
+    }
+}
+
+/// Convert a `DynamicImage` from Adobe RGB color space to sRGB color space.
+pub fn convert_adobe_rgb_to_srgb(img: DynamicImage) -> DynamicImage {
+    let mut rgb = img.to_rgb8();
+    let m = adobe_to_srgb_matrix();
+    for pixel in rgb.pixels_mut() {
+        let r_lin = (pixel[0] as f32 / 255.0).max(0.0).powf(ADOBE_RGB_GAMMA);
+        let g_lin = (pixel[1] as f32 / 255.0).max(0.0).powf(ADOBE_RGB_GAMMA);
+        let b_lin = (pixel[2] as f32 / 255.0).max(0.0).powf(ADOBE_RGB_GAMMA);
+        let srgb_lin = m.mul_vec([r_lin, g_lin, b_lin]);
+        pixel[0] = (srgb_gamma(srgb_lin[0]) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+        pixel[1] = (srgb_gamma(srgb_lin[1]) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+        pixel[2] = (srgb_gamma(srgb_lin[2]) * 255.0 + 0.5).clamp(0.0, 255.0) as u8;
+    }
+    DynamicImage::ImageRgb8(rgb)
+}
+
 /// Extract the embedded JPEG preview and rotate it into DISPLAY orientation
 /// (see [`orient_preview_to_display`]). This is what comparison consumers
 /// (the `extract-preview` CLI / Auto Profile gate) want: a preview aligned
 /// with Maple's display-oriented render. Returns `None` if extraction fails.
 pub fn extract_preview_display_oriented<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
     let img = extract_preview(path.as_ref())?;
-    Some(orient_preview_to_display(img, preview_orientation(path.as_ref())))
+    let oriented = orient_preview_to_display(img, preview_orientation(path.as_ref()));
+    let cs = detect_jpeg_color_space(path.as_ref());
+    if cs == JpegColorSpace::AdobeRgb {
+        Some(convert_adobe_rgb_to_srgb(oriented))
+    } else {
+        Some(oriented)
+    }
 }
 
 /// Bytes-based mirror of [`extract_preview`] for the WASM render entry,
@@ -139,7 +222,27 @@ fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
     if let Ok(Some(img)) = decoder.preview_image(src, &params) {
         return Some(img);
     }
-    decoder.full_image(src, &params).ok().flatten()
+    // `preview_image()` is unimplemented for EVERY decoder in rawler 0.7.2 (the
+    // trait default just returns `None`), so the call above never succeeds today
+    // — it is kept only to pick up native preview support if a future rawler
+    // adds it. The working in-process source is `full_image()`, implemented for
+    // the common camera formats (CR2/CR3, DNG, NEF, ARW, RAF, RW2, MRW, PEF,
+    // FFF). It returns the camera's embedded preview *image* — usually a decoded
+    // JPEG (cr2 = IFD0, dng = the `NewSubFileType==1` preview sub-IFD, nef/arw =
+    // the largest `JpegInterchangeFormat` IFD), occasionally uncompressed RGB
+    // (e.g. some CR2), but never a sensor decode — so fitting against it matches
+    // the camera's rendered look, not a self-referential decode of our own
+    // pixels. This is the in-process path the sandboxed Apple app, iOS, and
+    // Web/WASM rely on (none can reach the `exiftool` subprocess below), so
+    // without it Auto Profile silently degrades to Neutral on those surfaces
+    // (#927). Decoders that don't implement `full_image` (e.g. ORF, IIQ, X3F),
+    // or a file with no embedded preview, return `None`/`Err` here and fall
+    // through to the caller's `None` (→ exiftool on the path variant; the
+    // bytes/WASM no-preview case stays #870).
+    if let Ok(Some(img)) = decoder.full_image(src, &params) {
+        return Some(img);
+    }
+    None
 }
 
 /// Detect the embedded preview JPEG's color space from the RAW's EXIF

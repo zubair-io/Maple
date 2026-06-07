@@ -1,37 +1,45 @@
 /**
- * Missing-file reaper — hard-deletes asset rows whose on-disk original has
- * vanished from disk underneath the index.
+ * Missing-file reaper — reconciles per-LOCATION `missing_since` tags: recovers
+ * a location whose file reappeared, prunes one whose file is confirmed gone,
+ * and hard-deletes the asset record once no location remains.
  *
- * Lifecycle:
- *   1. TAG (automatic). A file-touching stage (exif/thumb/preview) stamps
- *      `missing_since` the first time it ENOENTs on the original (see
- *      `tagMissingSince` in `./tag-missing.ts`) — the only automatic step.
- *   2. REAP. This worker scans tagged rows each tick, re-verifies on disk, and
- *      either recovers/prunes them or — once aged past the prune window —
- *      hard-deletes the record (emitting a `delete` change event).
+ * Lifecycle (per `fileinfo[]` entry, not per asset):
+ *   1. TAG (automatic). The discover `removed` handler stamps
+ *      `fileinfo[i].missing_since` when a file is unlinked; a file-touching
+ *      stage (exif/thumb/preview) stamps it on the primary entry when it
+ *      ENOENTs (see `tagMissingSince` in `./tag-missing.ts`); the
+ *      modified-content guard dual-flags an orphaned entry. Tagging is the only
+ *      automatic step. A tagged entry is non-live, so the asset drops out of
+ *      reads + stage claims the moment its LAST live entry is tagged.
+ *   2. REAP. This worker scans rows with any tagged entry each tick, re-stats
+ *      each tagged location, and either recovers it (clear the tag), `$pull`s
+ *      it once aged past the prune window, or — when the `$pull` empties the
+ *      row — hard-deletes the record (emitting a `delete` change event).
  *
  * Safety properties, all load-bearing:
  *
  *   - Controlled like every other worker. Its paused state lives in
  *     `worker_config.paused`; pause/resume persist it, so a pause STICKS across
- *     restarts. But "paused" suspends ONLY the irreversible hard-delete —
- *     recovery/prune (re-found files, stale-entry cleanup, tag clearing) keeps
- *     running every tick, so a moved/re-copied file reconciles even while
- *     paused. On boot it stays paused only until the stored state is read, so a
- *     config-store blip can't run a sweep against an operator's prior pause.
+ *     restarts. But "paused" suspends ONLY the irreversible record delete —
+ *     recovery and sibling-prune of SURVIVING rows keep running every tick, so
+ *     a moved/re-copied file reconciles even while paused. On boot it stays
+ *     paused only until the stored state is read, so a config-store blip can't
+ *     run a sweep against an operator's prior pause.
  *
- *   - Age window (cool-down), not a boot gate. An all-gone row is hard-deleted
- *     only once it has been missing for at least `prune_window_hours` (default
- *     12h, in `app_settings`, env `MAPLE_REAPER_PRUNE_HOURS`). This bounds how
- *     fast a transient mass-unmount can turn into deletions and doesn't depend
- *     on process restarts. Recovery is never age-gated.
+ *   - Age window (cool-down), not a boot gate. A tagged entry is `$pull`ed —
+ *     and the record deleted if it was the last — only once that entry has been
+ *     missing for at least `prune_window_hours` (default 12h, in
+ *     `app_settings`, env `MAPLE_REAPER_PRUNE_HOURS`). Per-entry, so a freshly
+ *     missing sibling can't drag an aged one's clock, nor vice-versa. This
+ *     bounds how fast a transient mass-unmount turns into deletions. Recovery
+ *     is never age-gated.
  *
- *   - Mount guard. If an asset's library root is unregistered, or its mount
- *     point isn't present on disk, or a location can't be stat'd, the asset
- *     is SKIPPED (never deleted). A whole offline share must not be mistaken
- *     for a pile of deleted files.
+ *   - Mount guard. If a tagged location's library root is unregistered, its
+ *     mount point isn't present, or the path can't be stat'd, the row is
+ *     SKIPPED this pass (never pruned/deleted). A whole offline share must not
+ *     be mistaken for a pile of deleted files.
  *
- *   - Name-mismatch veto. Before the irreversible hard-delete, each gone
+ *   - Name-mismatch veto. Before the irreversible record delete, each gone
  *     location's parent dir is listed; a case/Unicode near-match means the file
  *     is on disk under a different name (a stored-path bug), so the row is
  *     SKIPPED for inspection rather than deleted.
@@ -39,14 +47,17 @@
  *   - Circuit breaker. A pass that would hard-delete a large fraction of what
  *     it scanned aborts WITHOUT deleting — a systemic mis-detection guard.
  *
- * Per-row re-verification: every LIVE `fileinfo` entry is re-stat'd.
- *   - Any location still present → the row SURVIVES: its gone sibling entries
- *     are pruned ($pull), `missing_since` is cleared, and — only if the pruned
- *     set included the primary location — the original-file stages (exif /
- *     thumb / preview) are re-queued so they reprocess the corrected primary.
- *   - A library offline / unregistered / unreadable → skip.
- *   - Only when EVERY live location confirms ENOENT (and no near-match veto)
- *     does the row get hard-deleted.
+ * Per-entry classification each pass:
+ *   - A `deleted_at` tagged entry (content replaced in place — an orphan) is
+ *     dead: NOT re-stat'd (a different file may sit at the path) and not
+ *     near-match vetoed; it is simply `$pull`ed once aged.
+ *   - A `missing_since`-only entry is re-stat'd: present → recover (clear the
+ *     tag); absent + aged → prune; absent + cooldown → left; offline/unreadable
+ *     → row skipped.
+ *   - A row keeps any LIVE or not-yet-aged entry → it SURVIVES (recover + prune
+ *     its dead siblings; re-arm dead original-file stages so they reprocess).
+ *   - Only when every entry is gone-and-aged (and no veto) is the record
+ *     hard-deleted.
  *
  * Registered into the in-process `stageRegistry` so the existing
  * `/api/workers/missing-reaper/{status,pause,resume}` surface controls it,
@@ -55,11 +66,9 @@
  * Started from `src/index.ts`.
  */
 
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { ObjectId } from 'mongodb';
 import { assetsCollection } from '../db/client.ts';
-import { assetPrimaryFileInfo } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
@@ -69,6 +78,17 @@ import { stageRegistry } from './registry.ts';
 import { ThroughputWindow } from './run-stage.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { loadPruneWindowHours } from './missing-reaper-config.repo.ts';
+import {
+  BREAKER_FRACTION,
+  BREAKER_MIN,
+  hasLiveEntry,
+  missingFileInfos,
+  nearMatchOnDisk,
+  reArmDeadStages,
+  sameEntry,
+  statKind,
+  type MissingReaperSummary,
+} from './missing-reaper.helpers.ts';
 import { makePausedPoller } from './paused-poller.ts';
 
 const log = childLogger('missing-reaper');
@@ -78,99 +98,6 @@ export const MISSING_REAPER_NAME = 'missing-reaper';
 
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_BATCH = 200;
-
-export interface MissingReaperSummary {
-  /** Tagged candidates examined this pass. */
-  scanned: number;
-  /** Rows hard-deleted (all live locations confirmed gone). */
-  reaped: number;
-  /** Rows that kept at least one live location → tag cleared (and any gone
-   * sibling entries pruned). */
-  recovered: number;
-  /** fileinfo entries pruned ($pull) across all recovered rows this pass. */
-  prunedEntries: number;
-  /** Rows skipped because a library was offline / unregistered / unreadable. */
-  skippedMountOffline: number;
-  /** Rows whose only location stat'd ENOENT but a case/Unicode near-match
-   * exists on disk — left untouched for human inspection, never deleted. */
-  skippedNameMismatch: number;
-  /** All-gone rows left because they haven't been missing long enough yet
-   * (`missing_since` newer than the prune window). */
-  skippedCooldown: number;
-  /** All-gone, aged-out rows left because deletes are paused (recovery still
-   * runs while paused — only the irreversible hard-delete is suspended). */
-  skippedPaused: number;
-  /** True when the circuit breaker tripped and the pass aborted without
-   * executing any hard-deletes (a systemic mis-detection guard). */
-  aborted: boolean;
-  /** Rows that raised an unexpected error during the pass. */
-  errors: number;
-}
-
-/**
- * Stages that read the ORIGINAL file (StageConfig.tagsMissingOnEnoent). When
- * the reaper prunes the entry that was serving as the primary location, these
- * are re-queued (version 0, dead cleared) so they reprocess against the
- * corrected primary instead of staying dead/skipped on the vanished path.
- * Kept in sync with the tagsMissingOnEnoent stages.
- */
-const ORIGINAL_FILE_STAGES = ['exif', 'thumb', 'preview'] as const;
-
-/** Circuit breaker: abort a pass without deleting if it would hard-delete more
- * than BREAKER_MIN rows AND more than BREAKER_FRACTION of those scanned. Bounds
- * the blast radius of a systemic mis-detection (e.g. a root that stats present
- * but whose children all ENOENT). */
-const BREAKER_MIN = 25;
-const BREAKER_FRACTION = 0.5;
-
-/** Live (non-tombstoned) on-disk locations for an asset. */
-function liveFileInfos(fileinfo: FileInfo[] | undefined): FileInfo[] {
-  return (fileinfo ?? []).filter((f) => !f.deleted_at);
-}
-
-function sameEntry(a: FileInfo, b: FileInfo): boolean {
-  return a.library_id.equals(b.library_id) && a.path === b.path && a.filename === b.filename;
-}
-
-type StatKind = 'present' | 'absent' | 'error';
-
-/** Classify a path: present, absent (ENOENT), or an error we must not treat
- * as "deleted" (EACCES, EIO, an unmounted share that errors rather than
- * ENOENTs, …). Errors are conservative — the caller skips, never deletes. */
-async function statKind(p: string): Promise<StatKind> {
-  try {
-    await fs.stat(p);
-    return 'present';
-  } catch (err) {
-    return (err as { code?: string } | null)?.code === 'ENOENT' ? 'absent' : 'error';
-  }
-}
-
-type NearMatch =
-  /** A case/NFC near-match of the basename exists in the parent dir — the file
-   * is on disk under a different name (stored-path bug, NOT a deletion). */
-  | 'match'
-  /** Parent listed cleanly with no near-match — genuinely absent. */
-  | 'clear'
-  /** Parent couldn't be listed (EACCES/EIO/…) — we can't prove absence, so the
-   * caller must NOT delete this pass. */
-  | 'unreadable';
-
-/** Classify whether `absPath` (already known ENOENT) has a near-match sibling.
- * Used only to gate the irreversible hard-delete. Only an ENOENT parent counts
- * as genuinely gone; any other readdir error returns `unreadable` so a row is
- * never deleted on the strength of a directory we couldn't read. */
-async function nearMatchOnDisk(absPath: string): Promise<NearMatch> {
-  const dir = path.dirname(absPath);
-  const target = path.basename(absPath).normalize('NFC').toLowerCase();
-  let entries: string[];
-  try {
-    entries = await fs.readdir(dir);
-  } catch (err) {
-    return (err as { code?: string } | null)?.code === 'ENOENT' ? 'clear' : 'unreadable';
-  }
-  return entries.some((e) => e.normalize('NFC').toLowerCase() === target) ? 'match' : 'clear';
-}
 
 export interface RunMissingReaperOptions {
   /** Max tagged rows to examine in one pass. */
@@ -234,19 +161,18 @@ export async function runMissingReaperOnce(
     errors: 0,
   };
 
-  // Every tagged row is examined each pass (no boot gate) — recovery is prompt.
-  // The age window + pause only gate the irreversible hard-delete below.
-  // `$type: "string"` lets the planner use the `missing_since_1` partial index
-  // instead of a COLLSCAN — same pattern as trash-gc's deleted_at query.
+  // Every row with a tagged entry is examined each pass (no boot gate) —
+  // recovery is prompt. The age window + pause only gate the irreversible
+  // record delete below. `$type: "string"` lets the planner use the
+  // `fileinfo.missing_since_1` partial multikey index instead of a COLLSCAN.
   const candidates = await coll
     .find(
-      { missing_since: { $type: 'string', $ne: null } },
+      { 'fileinfo.missing_since': { $type: 'string' } },
       {
         projection: {
           _id: 1,
           fileinfo: 1,
           maple_id: 1,
-          missing_since: 1,
           // Dead flags for the original-file stages — so recovery can re-arm
           // ones that dead-lettered against the vanished path (drains the
           // legacy backlog from before tag-only suppression).
@@ -256,27 +182,36 @@ export async function runMissingReaperOnce(
         },
       },
     )
-    // Oldest-missing first. With a backlog larger than `batchSize` the scan
-    // order is load-bearing: an unsorted limit could starve aged-out /
-    // recoverable rows behind a wall of still-in-cooldown ones. Sorting on the
-    // partial-indexed field keeps filter+sort index-backed and prioritises the
-    // longest-missing for both recovery and deletion.
-    .sort({ missing_since: 1 })
+    // Oldest-missing first. A multikey sort orders by each row's smallest
+    // entry `missing_since`, so the longest-waiting rows are reconciled first
+    // even when a backlog exceeds `batchSize`.
+    .sort({ 'fileinfo.missing_since': 1 })
     .limit(batchSize)
     .toArray();
 
-  // Defer hard-deletes: classify all candidates first, then gate on the circuit breaker.
+  // Defer record deletes: classify all candidates first, then gate on the breaker.
   const toDelete: typeof candidates = [];
 
   for (const doc of candidates) {
     summary.scanned++;
     try {
-      const lives = liveFileInfos(doc.fileinfo);
-      const present: FileInfo[] = [];
-      const absent: FileInfo[] = [];
+      const tagged = missingFileInfos(doc.fileinfo);
+      const recover: FileInfo[] = []; // present again → clear missing_since
+      const prune: FileInfo[] = []; // confirmed gone (or orphan) AND aged → $pull
+      // Aged + absent + non-orphan entries needing a near-match veto before any
+      // record delete. (Orphan/`deleted_at` entries skip the veto: a different
+      // file may legitimately sit at the path, so a near-match isn't a bug.)
+      const absentForVeto: FileInfo[] = [];
       let cannotVerify = false;
 
-      for (const fi of lives) {
+      for (const fi of tagged) {
+        const aged = (fi.missing_since ?? '') < opts.deleteBeforeIso;
+        if (fi.deleted_at) {
+          // Orphan / content-moved: dead, never re-stat. Prune once aged.
+          if (aged) prune.push(fi);
+          continue;
+        }
+        // Vanished-file entry: re-stat with the mount guard.
         const libIdHex = fi.library_id.toHexString();
         if ((await checkRoot(libIdHex)) === 'offline') {
           cannotVerify = true;
@@ -286,9 +221,13 @@ export async function runMissingReaperOnce(
         const segments = fi.path === '' ? [] : fi.path.split('/');
         const abs = path.join(root, ...segments, fi.filename);
         const kind = await statKind(abs);
-        if (kind === 'present') present.push(fi);
-        else if (kind === 'absent') absent.push(fi);
-        else {
+        if (kind === 'present') recover.push(fi);
+        else if (kind === 'absent') {
+          if (aged) {
+            prune.push(fi);
+            absentForVeto.push(fi);
+          }
+        } else {
           // Couldn't confirm the file is gone (EACCES/EIO/…) — skip the row.
           cannotVerify = true;
           break;
@@ -300,20 +239,26 @@ export async function runMissingReaperOnce(
         continue;
       }
 
-      if (present.length > 0) {
-        // At least one copy survives: prune the gone entries, clear the tag,
-        // and (only if the entry we pruned was serving as the primary) re-arm
-        // the original-file stages so they reprocess against the new primary.
-        await recoverAndPrune(coll, doc, absent, summary);
+      // Survivors = every entry we are NOT pruning this pass (live entries,
+      // recovered entries, and still-in-cooldown missing entries).
+      const survivors = (doc.fileinfo ?? []).filter((f) => !prune.some((p) => sameEntry(p, f)));
+
+      if (survivors.length > 0) {
+        // The row keeps at least one location → reconcile in place (runs even
+        // while paused; nothing here is irreversible). Nothing to do at all
+        // when every tagged entry is still in cooldown and none recovered.
+        if (recover.length === 0 && prune.length === 0) {
+          if (!hasLiveEntry(doc.fileinfo)) summary.skippedCooldown++;
+          continue;
+        }
+        await reconcileSurvivor(coll, doc, recover, prune, survivors, summary);
         continue;
       }
 
-      // No live location survives. Before the irreversible delete, list each
-      // gone entry's parent: a near-match means the file is on disk under a
-      // different name (stored-path bug → skip for inspection); an unreadable
-      // parent means we can't prove absence (→ skip, never delete).
+      // No survivor — the prune empties the row → RECORD DELETE (irreversible).
+      // Near-match veto on the absent (non-orphan) entries first.
       let veto: 'name-mismatch' | 'unreadable' | null = null;
-      for (const fi of absent) {
+      for (const fi of absentForVeto) {
         const root = libs.get(fi.library_id.toHexString())!;
         const segments = fi.path === '' ? [] : fi.path.split('/');
         const verdict = await nearMatchOnDisk(path.join(root, ...segments, fi.filename));
@@ -345,14 +290,9 @@ export async function runMissingReaperOnce(
         continue;
       }
 
-      // Genuinely all-gone. Gate the irreversible delete:
-      //  - age window: must have been missing for >= the prune window.
-      //  - pause: deletes suspended (recovery already ran above regardless).
-      const tag = (doc as { missing_since?: string }).missing_since ?? '';
-      if (!(tag < opts.deleteBeforeIso)) {
-        summary.skippedCooldown++;
-        continue;
-      }
+      // Every entry is gone-and-aged (a not-yet-aged entry would be a survivor,
+      // so the cooldown is already satisfied here). Gate the record delete on
+      // pause; recovery/prune of surviving rows already ran above regardless.
       if (!allowDelete) {
         summary.skippedPaused++;
         continue;
@@ -396,55 +336,76 @@ export async function runMissingReaperOnce(
   return summary;
 }
 
-/** A surviving row: $pull the gone entries, clear the tag, and re-arm any
- * original-file stage that dead-lettered against the vanished path so it
- * reprocesses the corrected primary. Tag-only-parked stages (the new path) were
- * never marked dead, so clearing `missing_since` is enough for them — they
- * re-enter the claim query on their own. The re-arm is for the legacy `dead`
- * backlog from before tag-only suppression. */
-async function recoverAndPrune(
+/** A surviving row (keeps ≥1 location after this pass): clear `missing_since`
+ * on entries whose file reappeared, `$pull` the entries confirmed gone, and
+ * re-arm any dead original-file stage so it reprocesses. `$set` (recover) and
+ * `$pull` touch the same `fileinfo` path, so they cannot share one update —
+ * recover runs first, then prune (+ re-arm, which is on `stages.*`, a distinct
+ * path). Re-arm rides whichever update runs first. Caller guarantees at least
+ * one of `recover`/`prune` is non-empty, so this always counts as one
+ * recovered (surviving) row. */
+async function reconcileSurvivor(
   coll: Awaited<ReturnType<typeof assetsCollection>>,
   doc: {
     _id: ObjectId;
     fileinfo?: FileInfo[];
     stages?: Record<string, { dead?: boolean }>;
   },
-  absent: FileInfo[],
+  recover: FileInfo[],
+  prune: FileInfo[],
+  survivors: FileInfo[],
   summary: MissingReaperSummary,
 ): Promise<void> {
-  const set: Record<string, unknown> = { missing_since: null };
-  for (const name of ORIGINAL_FILE_STAGES) {
-    if (doc.stages?.[name]?.dead === true) {
-      set[`stages.${name}.version`] = 0;
-      set[`stages.${name}.attempts`] = 0;
-      set[`stages.${name}.last_error`] = null;
-      set[`stages.${name}.dead`] = false;
-    }
+  // Re-arm dead stages only when a LIVE location will remain to process —
+  // either an originally-live survivor, or one we are recovering this pass.
+  // Re-arming while every survivor is still missing would just re-park it.
+  const willHaveLive = recover.length > 0 || hasLiveEntry(survivors);
+  const reArm = willHaveLive ? reArmDeadStages(doc) : {};
+  let reArmApplied = false;
+
+  if (recover.length > 0) {
+    await coll.updateOne(
+      { _id: doc._id },
+      { $set: { 'fileinfo.$[r].missing_since': null, ...reArm } },
+      {
+        arrayFilters: [
+          {
+            $or: recover.map((e) => ({
+              'r.library_id': e.library_id,
+              'r.path': e.path,
+              'r.filename': e.filename,
+            })),
+          },
+        ],
+      },
+    );
+    reArmApplied = true;
   }
-  const update: Record<string, unknown> = { $set: set };
-  if (absent.length > 0) {
-    update['$pull'] = {
-      fileinfo: {
-        $or: absent.map((a) => ({
-          library_id: a.library_id,
-          path: a.path,
-          filename: a.filename,
-        })),
+
+  if (prune.length > 0) {
+    const update: Record<string, unknown> = {
+      $pull: {
+        fileinfo: {
+          $or: prune.map((p) => ({ library_id: p.library_id, path: p.path, filename: p.filename })),
+        },
       },
     };
+    if (!reArmApplied && Object.keys(reArm).length > 0) update['$set'] = reArm;
+    await coll.updateOne({ _id: doc._id }, update as never);
+    summary.prunedEntries += prune.length;
   }
-  await coll.updateOne({ _id: doc._id }, update as never);
+
   summary.recovered++;
-  summary.prunedEntries += absent.length;
 }
 
-/** Hard-delete a row whose every live location is gone, tombstone its search
- * doc, and publish a delete event. */
+/** Hard-delete a row whose every location is gone, tombstone its search doc,
+ * and publish a delete event. The row has no live entry, so route the change
+ * event by its first (now-dead) fileinfo entry's library. */
 async function hardDeleteRow(
   coll: Awaited<ReturnType<typeof assetsCollection>>,
   doc: { _id: ObjectId; fileinfo?: FileInfo[]; maple_id?: string },
 ): Promise<void> {
-  const primary = assetPrimaryFileInfo(doc as never);
+  const folderId = doc.fileinfo?.[0]?.library_id ?? null;
   await coll.deleteOne({ _id: doc._id });
   // Tombstone the Meilisearch document. A reaped row was never soft-deleted,
   // so without this the search index keeps surfacing an asset whose Mongo row
@@ -459,7 +420,7 @@ async function hardDeleteRow(
   await recordAndPublishAssetChange({
     kind: 'delete',
     asset_id: doc._id,
-    folder_id: primary?.library_id ?? null,
+    folder_id: folderId,
     abs_path: null,
   });
 }

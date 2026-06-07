@@ -26,6 +26,12 @@ use crate::{
     xmp::AdjustmentModel,
 };
 
+/// Auto Profile fit entry points (curve + residual LUT) live in a submodule to
+/// keep this file under the size budget; re-exported so `pipeline::{…}` and the
+/// FFI keep resolving `fit_profile_curve_from_raw` / `fit_auto_profile_from_raw`.
+mod auto_fit;
+pub use auto_fit::{fit_auto_profile_from_raw, fit_profile_curve_from_raw};
+
 /// Source of the RAW bytes for stages that need pre-decoded access to
 /// the file (currently only Auto Profile's embedded-JPEG extraction).
 /// CLI / Apple FFI / tests use [`RawInput::Path`]; `raw-wasm` uses
@@ -115,10 +121,12 @@ pub fn render_from_raw_with_quality_and_source(
     } else {
         None
     };
-    let cached_curve = auto_cache_key
+    let cached_lut = auto_cache_key
         .as_ref()
-        .and_then(auto_profile::cache::get);
+        .and_then(auto_profile::cache::get_lut);
+    let cached_curve = auto_cache_key.as_ref().and_then(auto_profile::cache::get);
     let auto_will_fit = cached_curve.is_some()
+        || cached_lut.is_some()
         || (model.profile == Profile::Auto
             && match &raw_source {
                 Some(RawInput::Path(p)) => auto_profile::preview::extract_preview(p).is_some(),
@@ -127,6 +135,20 @@ pub fn render_from_raw_with_quality_and_source(
                 }
                 None => false,
             });
+    // Profile::Auto pins auto-exposure OFF because the Auto Profile tail owns the
+    // scene→JPEG brightness mapping: the #550 curve is fit against the AE-Off
+    // display buffer (#871) and the residual LUT layers on it. `auto_will_fit` is a
+    // cheap PROBE — a cache hit, or an extractable embedded preview — that predicts
+    // the fit will succeed, so AE can be pinned BEFORE develop (the fit itself needs
+    // the developed buffer, so the real fit result isn't known yet). When the probe
+    // is false (no preview) AE stays ON to anchor mid-gray to 0.18 — otherwise AgX
+    // runs un-anchored ~0.16 OKLab-L too dark (#913; regressed test_0013 8.82 →
+    // 16.98 dE before this guard). The probe can over-predict on a degenerate-but-
+    // extractable preview (the actual fit still returns None); in that case the LUT's
+    // full-map fallback (see `apply_auto_profile`) anchors brightness, and only a
+    // BOTH-fits-fail preview leaves an AE-off frame. The residual LUT never owns
+    // brightness, so disabling it (`MAPLE_DISABLE_AUTO_LUT` / `…_STRENGTH=0`) does
+    // NOT flip AE back on — that path renders the pure #550 curve, which still does.
     let auto_model;
     let active_model: &AdjustmentModel = if auto_will_fit {
         auto_model = AdjustmentModel {
@@ -138,6 +160,7 @@ pub fn render_from_raw_with_quality_and_source(
         model
     };
     let mut scene = develop_scene_linear_from_raw_with_quality(raw, active_model, quality)?;
+
     // View transform (#550 post-fix): AgX + gamut compress + sRGB gamma
     // encode run UNCONDITIONALLY for both Auto and Neutral. Pre-#550 the
     // Auto branch REPLACED AgX with the scene-linear curve fit, throwing
@@ -156,54 +179,41 @@ pub fn render_from_raw_with_quality_and_source(
     // full sRGB encode (per PR #281 review feedback).
     dump_after("17_srgb_linear", &scene);
     stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    // Auto Profile (#537/#550) — per-channel tone curve fit from the
-    // embedded JPEG and applied in f32 sRGB-encoded display space (same
-    // domain the empirical Look LUT samples in, #519), layered on top of
-    // AgX. The fit (`fit_*_display`) reads the JPEG via `/255` directly —
-    // no inverse OETF, no Rec.2020 conversion — and Maple's source buffer
-    // is in the same domain by construction. Identity (no-op = AgX-Neutral
-    // output) when there's no RAW source (legacy `maple_render_bytes` FFI)
-    // or the fit fails (no JPEG / too small / degenerate histogram).
+    // Auto Profile (#537/#913) — the per-image color tail toward the embedded
+    // JPEG, in f32 sRGB-encoded display space: the #550 per-channel curve, then a
+    // residual 3D LUT fit on the curved buffer. See
+    // `auto_profile::apply_auto_profile` for the ordering/cache contract. No-op for
+    // Neutral, no RAW source (legacy `maple_render_bytes` FFI), or a failed fit.
     match (model.profile, &raw_source) {
         (Profile::Auto, Some(RawInput::Path(path))) => stage("auto_profile", || {
             scene.assert_space(ColorSpace::DisplayEncodedSrgb);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            let curve = match cached_curve.clone() {
-                Some(c) => Some(c),
-                None => {
-                    let fitted = auto_profile::fit_curve_from_raw_display(
-                        path, pixels, w, h, raw.orientation,
-                    );
-                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert(key, c.clone());
-                    }
-                    fitted
-                }
-            };
-            if let Some(c) = curve {
-                auto_profile::apply_curve(pixels, &c);
-            }
+            auto_profile::apply_auto_profile(
+                pixels,
+                w,
+                h,
+                raw.orientation,
+                auto_profile::AutoSource::Path(path),
+                auto_cache_key.as_ref(),
+                cached_curve.clone(),
+                cached_lut.clone(),
+            );
         }),
         (Profile::Auto, Some(RawInput::Bytes { bytes, ext })) => stage("auto_profile", || {
             scene.assert_space(ColorSpace::DisplayEncodedSrgb);
             let (w, h) = (scene.width as usize, scene.height as usize);
             let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            let curve = match cached_curve.clone() {
-                Some(c) => Some(c),
-                None => {
-                    let fitted = auto_profile::fit_curve_from_bytes_display(
-                        bytes, ext, pixels, w, h, raw.orientation,
-                    );
-                    if let (Some(key), Some(c)) = (auto_cache_key.clone(), fitted.as_ref()) {
-                        auto_profile::cache::insert(key, c.clone());
-                    }
-                    fitted
-                }
-            };
-            if let Some(c) = curve {
-                auto_profile::apply_curve(pixels, &c);
-            }
+            auto_profile::apply_auto_profile(
+                pixels,
+                w,
+                h,
+                raw.orientation,
+                auto_profile::AutoSource::Bytes { bytes, ext },
+                auto_cache_key.as_ref(),
+                cached_curve.clone(),
+                cached_lut.clone(),
+            );
         }),
         _ => {}
     }
@@ -233,83 +243,6 @@ pub fn render_from_raw_with_quality_and_source(
     // of FFI traffic and 4× the allocator pressure on a 100 MP RAW for no
     // extra information.
     Ok((w, h, bytes))
-}
-
-/// Fit the per-image Auto Profile [`auto_profile::curve::ProfileCurve`]
-/// for a RAW + model WITHOUT rendering an output buffer (#812).
-///
-/// This reproduces EXACTLY the prefix of `render_from_raw_with_quality_and_source`
-/// up to and including the `auto_profile` fit point — same `AutoExposureMode::Off`
-/// guard, same develop chain, same `agx` → `rec2020_to_srgb` → `srgb_gamma_encode`
-/// view-transform stages — then fits the curve from the resulting f32
-/// sRGB-encoded display buffer against the embedded JPEG and returns it
-/// instead of applying it and continuing to quantise.
-///
-/// It exists so a GPU host (Apple Metal #812, Web WebGL2 #394) can obtain
-/// the fitted curve, bake it into a 3D LUT via [`auto_profile::bake_profile_lut`],
-/// and apply it on the GPU in the SAME f32 sRGB-encoded display space the
-/// CPU path fits in — keeping the GPU and CPU Auto Profile renders from
-/// drifting. The host runs AgX + the rec2020→sRGB encode itself (on Apple
-/// CoreImage's encode boundary); this entry's only job is the fit, which
-/// requires the developed display buffer as the fit's source.
-///
-/// `quality` MUST match the quality the host's render uses, or the fitted
-/// curve — and thus the per-band bias against the reference — will differ.
-///
-/// Returns `None` when `model.profile != Profile::Auto`, the embedded JPEG
-/// can't be extracted, or the fit is degenerate (see
-/// [`auto_profile::fit_curve_from_raw_display`]). The host falls back to
-/// plain AgX (= `Profile::Neutral`) on `None`. The fit result is inserted
-/// into the shared `auto_profile::cache` LRU so a subsequent CPU render of
-/// the same RAW reuses it (and vice-versa).
-pub fn fit_profile_curve_from_raw(
-    raw: &RawImage,
-    model: &AdjustmentModel,
-    quality: RenderQuality,
-    raw_source: RawInput<'_>,
-) -> Option<auto_profile::curve::ProfileCurve> {
-    if model.profile != Profile::Auto {
-        return None;
-    }
-    // Mirror the cache lookup in `render_from_raw_with_quality_and_source`
-    // so a hit on either path serves the other without re-fitting.
-    let auto_cache_key = match &raw_source {
-        RawInput::Path(p) => auto_profile::cache::CacheKey::from_path(p),
-        RawInput::Bytes { bytes, .. } => Some(auto_profile::cache::CacheKey::from_bytes(bytes)),
-    };
-    if let Some(c) = auto_cache_key.as_ref().and_then(auto_profile::cache::get) {
-        return Some(c);
-    }
-    // Same `AutoExposureMode::Off` guard the render path applies before the
-    // fit, so the fitted curve owns the whole scene→JPEG brightness mapping
-    // (see the long comment at the top of the render entry).
-    let auto_model = AdjustmentModel {
-        auto_exposure: AutoExposureMode::Off,
-        ..model.clone()
-    };
-    let mut scene =
-        develop_scene_linear_from_raw_with_quality(raw, &auto_model, quality).ok()?;
-    // Reproduce the render path's view-transform prefix verbatim: AgX runs
-    // unconditionally, then rec2020→sRGB primaries, then sRGB gamma encode.
-    // The fit lives in `DisplayEncodedSrgb` — the buffer state right here.
-    stage("agx", || agx::apply(&mut scene, model.contrast));
-    stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
-    stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    scene.assert_space(ColorSpace::DisplayEncodedSrgb);
-    let (w, h) = (scene.width as usize, scene.height as usize);
-    let pixels: &[f32] = bytemuck::cast_slice(&scene.pixels);
-    let fitted = match raw_source {
-        RawInput::Path(path) => {
-            auto_profile::fit_curve_from_raw_display(path, pixels, w, h, raw.orientation)
-        }
-        RawInput::Bytes { bytes, ext } => {
-            auto_profile::fit_curve_from_bytes_display(bytes, ext, pixels, w, h, raw.orientation)
-        }
-    };
-    if let (Some(key), Some(c)) = (auto_cache_key, fitted.as_ref()) {
-        auto_profile::cache::insert(key, c.clone());
-    }
-    fitted
 }
 
 /// Scene-linear render entry. Runs the same development chain as

@@ -67,8 +67,38 @@ export async function coll(): Promise<Collection<IndexerAssetDoc>> {
 // ---------------------------------------------------------------------------
 
 /**
+ * A `fileinfo` entry is **live** when it holds this asset's content at a path
+ * that is on disk: neither `deleted_at` (bytes replaced by other content) nor
+ * `missing_since` (file vanished) is set. This single predicate is the source
+ * of truth for asset visibility (`applyLiveFilter`), stage eligibility
+ * (`buildClaimQuery`), and primary-location resolution below.
+ */
+export function isLiveFileInfo(entry: Pick<FileInfo, 'deleted_at' | 'missing_since'>): boolean {
+  return !entry.deleted_at && !entry.missing_since;
+}
+
+/**
+ * Mongo `$elemMatch` fragment that selects assets with at least one live
+ * fileinfo entry. The `$or: [null, $exists:false]` arms treat a missing field
+ * as live (legacy rows wrote neither tag), matching `isLiveFileInfo`. Shared
+ * by `applyLiveFilter` (reads) and `buildClaimQuery` (stage claims) so the two
+ * can never disagree on what "live" means.
+ */
+export function liveFileInfoElemMatch(): Record<string, unknown> {
+  return {
+    fileinfo: {
+      $elemMatch: {
+        deleted_at: { $in: [null] },
+        missing_since: { $in: [null] },
+      },
+    },
+  };
+}
+
+/**
  * First live `fileinfo` entry, or `null` when the array is missing or every
- * entry is marked `deleted_at`. "Live" means `deleted_at` is null or absent.
+ * entry is non-live (`deleted_at` and/or `missing_since` set). "Live" is
+ * defined by {@link isLiveFileInfo}.
  *
  * This is the only place that knows the entry is at index 0; callers should
  * not depend on the index itself.
@@ -77,22 +107,18 @@ export function assetPrimaryFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): FileInf
   const list = asset.fileinfo;
   if (!list || list.length === 0) return null;
   for (const entry of list) {
-    if (!entry.deleted_at) return entry;
+    if (isLiveFileInfo(entry)) return entry;
   }
   return null;
 }
 
 /**
- * True when the asset HAS `fileinfo` entries but every one of them is
- * soft-deleted (`deleted_at` set) — i.e. it once had at least one on-disk
- * location and all of them are now gone. Distinct from "no fileinfo at all"
- * (a never-located skeleton row) and from "live entry but library
- * unregistered" (a transient/config condition).
- *
- * Used by the stage runner to decide whether a `no-resolvable-location`
- * skip is a genuinely-orphaned asset (→ tag `missing_since` so the
- * missing-reaper can verify + reap) versus a transient/unlocated one
- * (→ skip, never reap). See `assetAbsPath` for the three null cases.
+ * True when the asset HAS `fileinfo` entries but none of them is live — i.e.
+ * it once had at least one on-disk location and all of them are now gone
+ * (every entry `deleted_at` and/or `missing_since`). Distinct from "no
+ * fileinfo at all" (a never-located skeleton row) and from "live entry but
+ * library unregistered" (a transient/config condition). See `assetAbsPath`
+ * for the three null cases.
  */
 export function hasOnlySoftDeletedFileInfo(asset: Pick<AssetDoc, 'fileinfo'>): boolean {
   const list = asset.fileinfo;

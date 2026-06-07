@@ -32,6 +32,7 @@ import { t } from 'elysia';
 import { ObjectId } from 'mongodb';
 import type { Filter } from 'mongodb';
 import type { AssetDoc } from '../../db/schema.ts';
+import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
 import { parseNlDateRange } from './nl-date.ts';
 
 export const COLOR_LABELS = new Set(['', 'red', 'yellow', 'green', 'blue', 'purple']);
@@ -489,24 +490,37 @@ export function buildFilter(q: SearchQuery): Filter<AssetDoc> | { error: string 
  * single `$and` so user-supplied `$or`/`$and` clauses can't shadow the
  * deleted_at predicate.
  *
+ * "Live" now has two arms, ANDed:
+ *   1. NOT user-trashed — root `deleted_at` is null/absent (the File Provider
+ *      trash path is the only writer of root `deleted_at`).
+ *   2. Has at least one live on-disk location — `liveFileInfoElemMatch()`. An
+ *      asset whose every `fileinfo` entry is `deleted_at` (content replaced)
+ *      or `missing_since` (file vanished) has no live location and is hidden,
+ *      WITHOUT a root flag. This is what makes a watcher-`removed` of the last
+ *      copy (and a per-entry `missing_since` tag) drop the asset from reads.
+ *
  * When `$text` is present, the filter must also be friendly to the
  * partial text index. The `search_blob_text` index uses
  * `partialFilterExpression: { deleted_at: null,
  *  search_blob: { $type: "string", $gt: "" } }`. Mongo's planner only
  * uses a partial index when the query implies the predicate, so when
- * `$text` is in play we ask for the same shape: `deleted_at: null` and
- * `search_blob: { $type: "string", $gt: "" }`. The Phase 1 indexer
+ * `$text` is in play we keep `deleted_at: null` + `search_blob` as top-level
+ * keys (the fileinfo arm rides alongside as a residual). The Phase 1 indexer
  * writes `deleted_at: null` on every skeleton row, so this is safe in
  * practice — we only filter out rows that were soft-deleted.
  */
 export function applyLiveFilter(filter: Filter<AssetDoc>): Filter<AssetDoc> {
   const usesText = '$text' in (filter as Record<string, unknown>);
+  const liveFileinfo = liveFileInfoElemMatch();
   const liveClause: Record<string, unknown> = usesText
     ? {
         deleted_at: null,
         search_blob: { $type: 'string', $gt: '' },
+        ...liveFileinfo,
       }
-    : { $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] };
+    : {
+        $and: [{ $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }] }, liveFileinfo],
+      };
   const keys = Object.keys(filter);
   if (keys.length === 0) {
     return liveClause as unknown as Filter<AssetDoc>;

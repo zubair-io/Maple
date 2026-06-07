@@ -67,10 +67,14 @@ import { backupSidecarRoutes } from './routes/backup-sidecar.ts';
 import { backupRenderedRoutes } from './routes/backup-rendered.ts';
 import { backupNotifyDeletedRoutes } from './routes/backup-notify-deleted.ts';
 import { changesRoutes } from './routes/changes.ts';
+import { mirrorRoutes } from './routes/mirror.ts';
 import { assetsListRoutes } from './routes/assets-list.ts';
 import { requireAuth } from './auth/middleware.ts';
 import { staticUiPlugin } from './routes/static_ui.ts';
 import { getDb, ensureIndexes, closeDb } from './db/client.ts';
+import { loadMirrorConfig } from './fs/mirror-config.ts';
+import { flushPendingMirrorOps } from './fs/mirrored.ts';
+import { installMirrorQueueSink } from './workers/mirror/sink.ts';
 import { workerRoutes } from './workers/routes.ts';
 import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
 import {
@@ -198,6 +202,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(meilisearchBackfillRoutes)
         .use(peopleRoutes)
         .use(changesRoutes)
+        .use(mirrorRoutes)
         .use(workerRoutes()),
     )
 
@@ -300,6 +305,18 @@ async function start(): Promise<void> {
         { err },
         'ensureIndexes failed — continuing without all indexes; affected routes may be slower until resolved',
       );
+    }
+
+    try {
+      // Populate the in-memory library→mirror registry so durable writes
+      // replicate to configured backup roots. Safe to skip on failure — an
+      // unloaded registry just means no mirroring until the next reload.
+      await loadMirrorConfig();
+      // Route this process's inline replication failures (backup ingest / XMP /
+      // uploads) into the durable mirror_queue so the copy worker retries them.
+      installMirrorQueueSink();
+    } catch (err) {
+      log.error({ err }, 'mirror config load failed — mirroring inactive until reloaded');
     }
 
     try {
@@ -469,6 +486,16 @@ async function shutdown(signal: string): Promise<void> {
     await shutdownOtel();
   } catch (e) {
     log.warn({ err: e }, 'error stopping OpenTelemetry SDK');
+  }
+  // Drain any in-flight mirror replication so a backup copy isn't cut off
+  // mid-write on shutdown. Best-effort + bounded — never block exit on it.
+  try {
+    await Promise.race([
+      flushPendingMirrorOps(),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ]);
+  } catch {
+    /* ignore */
   }
   try {
     await closeDb();
