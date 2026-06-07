@@ -1,0 +1,103 @@
+<section class="mirror-panel" data-testid="mirror-settings">
+  <div class="mirror-head">
+    <div class="titles">
+      <h2>Mirror / backup</h2>
+      <p>
+        Replicate each library's originals and XMP sidecars to a second location. Writes and moves
+        go to both; a freshly-configured or drifted mirror is back-filled by the mirror worker.
+      </p>
+    </div>
+    @if (status(); as q) {
+      <div class="queue" data-testid="mirror-queue">
+        <span class="queue-stat">
+          <strong>{{ q.pending }}</strong> pending
+        </span>
+        <span class="queue-stat" [class.has-dead]="q.dead > 0">
+          <strong>{{ q.dead }}</strong> failed
+        </span>
+        @if (q.dead > 0) {
+          <button type="button" class="btn-ghost" [disabled]="retrying()" (click)="retryDead()">
+            {{ retrying() ? 'Retrying…' : 'Retry failed' }}
+          </button>
+        }
+      </div>
+    }
+  </div>
+
+  @if (error()) {
+    <p class="banner-error">{{ error() }}</p>
+  }
+
+  @if (loading()) {
+    <p class="loading">Loading libraries…</p>
+  } @else if (libraries().length === 0) {
+    <p class="empty">No libraries registered yet.</p>
+  } @else {
+    <div class="lib-list">
+      @for (lib of libraries(); track lib.id) {
+        <div class="lib-row">
+          <div class="lib-id">
+            <maple-settings-icon name="pipe" />
+            <div class="lib-meta">
+              <span class="lib-label">{{ lib.label }}</span>
+              <code class="lib-path mono">{{ lib.path }}</code>
+            </div>
+          </div>
+
+          <div class="lib-form">
+            <label class="field-label" [attr.for]="'mirror-' + lib.id">Backup location</label>
+            <div class="path-row">
+              <input
+                class="text-input mono"
+                [id]="'mirror-' + lib.id"
+                type="text"
+                placeholder="/mnt/backup/photos"
+                [value]="pathOf(lib.id)"
+                (input)="setPath(lib.id, $any($event.target).value)"
+              />
+              <button
+                type="button"
+                class="btn-ghost"
+                [disabled]="!pathOf(lib.id).trim() || testStateOf(lib.id) === 'testing'"
+                (click)="test(lib.id)"
+              >
+                {{ testStateOf(lib.id) === 'testing' ? 'Testing…' : 'Test' }}
+              </button>
+            </div>
+
+            @if (testStateOf(lib.id) === 'ok') {
+              <span class="test-ok">✓ {{ testMsgOf(lib.id) }}</span>
+            } @else if (testStateOf(lib.id) === 'fail') {
+              <span class="test-fail">{{ testMsgOf(lib.id) }}</span>
+            }
+
+            <label class="enable-row">
+              <input
+                type="checkbox"
+                [checked]="enabledOf(lib.id)"
+                (change)="setEnabled(lib.id, $any($event.target).checked)"
+              />
+              <span>Enabled (replicate &amp; read from this mirror)</span>
+            </label>
+
+            <div class="row-footer">
+              @if (saveErrorOf(lib.id)) {
+                <span class="save-error">{{ saveErrorOf(lib.id) }}</span>
+              } @else if (saveStateOf(lib.id) === 'success') {
+                <span class="save-ok">Saved.</span>
+              }
+              <button
+                type="button"
+                class="btn-primary"
+                [disabled]="saveStateOf(lib.id) === 'saving'"
+                (click)="save(lib.id)"
+              >
+                {{ saveStateOf(lib.id) === 'saving' ? 'Saving…' : 'Save' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+  }
+</section>
