@@ -155,7 +155,22 @@ export class LibraryCache {
     this.byteCache.clear();
     this.fileHandles.clear();
     this.legacyBytes.clear();
+    // Revoke the thumbnail object URLs BEFORE dropping the map. `set(new Map())`
+    // alone only orphans them — the underlying blob bytes leak until the page
+    // reloads, which on a long session across many folders adds up. clearAll is
+    // a teardown (folder switch / sign-out) and already empties the map, so
+    // nothing is displaying these anymore; revoking is safe. Double-revoke of
+    // the FS-walk URLs (also held by FilesystemBrowseService) is a harmless
+    // no-op. Guard on `blob:` so a non-object URL is never touched.
+    for (const url of this.thumbnailUrls().values()) {
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    }
     this.thumbnailUrls.set(new Map());
+    // FilesystemBrowseService owns the FS-walk thumb blob URLs in its own cache
+    // (unbounded, previously revoked only on sign-out). Clear it here too so a
+    // folder switch reclaims that memory instead of letting it accumulate for
+    // the whole session.
+    this.fsBrowse.clearThumbCache();
   }
 
   // ── Direct cache primitives (used by fetch / imports) ─────────────────────
