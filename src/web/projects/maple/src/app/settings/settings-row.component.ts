@@ -24,12 +24,12 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
     <div class="row" [class.is-expanded]="expanded()" [attr.data-testid]="testid()">
       <div
         class="row-summary"
-        (click)="toggle.emit()"
+        (click)="onClick($event)"
         role="button"
         [attr.aria-expanded]="expanded()"
         tabindex="0"
-        (keydown.enter)="toggle.emit()"
-        (keydown.space)="toggle.emit(); $event.preventDefault()"
+        (keydown.enter)="onToggleKey($event)"
+        (keydown.space)="onToggleKey($event)"
       >
         <ng-content select="[srow-summary]" />
       </div>
@@ -51,4 +51,28 @@ export class SettingsRowComponent {
   readonly testid = input<string>();
   /** Emitted on click / Enter / Space — the parent flips its own state. */
   readonly toggle = output<void>();
+
+  /** Toggle on click anywhere on the summary EXCEPT on an interactive control
+   * (the projected pause/kebab buttons etc.), so those keep their own action. */
+  protected onClick(event: Event): void {
+    if (this.fromInteractive(event)) return;
+    this.toggle.emit();
+  }
+
+  /** Enter/Space toggles only when the row itself is focused — never when the
+   * event bubbled up from a focusable child (e.g. a projected button), which
+   * would otherwise toggle expansion and, for Space, swallow the button's own
+   * activation. */
+  protected onToggleKey(event: Event): void {
+    if (event.target !== event.currentTarget) return;
+    event.preventDefault();
+    this.toggle.emit();
+  }
+
+  private fromInteractive(event: Event): boolean {
+    const target = event.target;
+    return (
+      target instanceof Element && target.closest('button, a, input, select, textarea') !== null
+    );
+  }
 }
