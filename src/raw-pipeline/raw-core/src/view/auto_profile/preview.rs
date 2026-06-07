@@ -13,10 +13,20 @@
 //!    `JpegInterchangeFormat` IFD), occasionally uncompressed RGB (e.g. some
 //!    CR2), but never a sensor decode — so fitting against it matches the
 //!    camera's rendered look. Decoders that don't implement it (e.g. ORF, IIQ,
-//!    X3F) return the trait default `None` and fall through to tier 3. This is
-//!    the in-process tier that works on the sandboxed Apple app, iOS, and
-//!    Web/WASM, none of which can spawn a subprocess (#927).
-//! 3. exiftool subprocess (path variant only) — last resort for files rawler
+//!    X3F) return the trait default `None` and fall through to the next tier.
+//!    This is the in-process tier that works on the sandboxed Apple app, iOS,
+//!    and Web/WASM, none of which can spawn a subprocess (#927).
+//! 3. rawler `thumbnail_image()` — in-process. Recovers the reduced-res
+//!    (`NewSubFileType==1`) preview when it lives in the ROOT IFD rather than a
+//!    sub-IFD (some DNGs, e.g. Apple/iPhone), which `full_image` doesn't check.
+//!    Targets `NewSubFileType==1`, so it never returns the full-res RAW-as-JPEG
+//!    beside it — non-circular (#930).
+//! 4. embedded-JPEG byte scan — in-process, last resort, ONLY for non-TIFF
+//!    containers rawler can't expose as IFDs (e.g. Sigma X3F). Such formats
+//!    embed a JPEG preview but never RAW-as-JPEG, so the largest color JPEG is
+//!    safely the preview; gated on "no Root IFD" so it can never fire on a
+//!    TIFF/DNG where a blind scan would be circular (#930).
+//! 5. exiftool subprocess (path variant only) — last resort for files rawler
 //!    can't decode natively (e.g. iPhone 12 Pro LinearDNG, pre-2020 Adobe DNG).
 //!    UNAVAILABLE in the sandboxed macOS app, on iOS, and on Web/WASM, so it
 //!    must never be the only path to a preview — that was the bug behind #927.
@@ -28,7 +38,7 @@ use std::path::Path;
 use std::process::Command;
 
 use image::DynamicImage;
-use rawler::decoders::RawDecodeParams;
+use rawler::decoders::{RawDecodeParams, WellKnownIFD};
 use rawler::rawsource::RawSource;
 
 use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
@@ -242,7 +252,66 @@ fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
     if let Ok(Some(img)) = decoder.full_image(src, &params) {
         return Some(img);
     }
+    // `full_image` only checks SUB-IFDs for the `NewSubFileType==1` reduced-res
+    // preview; some DNGs (e.g. Apple/iPhone) store that preview in the ROOT IFD,
+    // which rawler's `thumbnail_image` checks. It targets `NewSubFileType==1`,
+    // so it never returns the full-res RAW-as-JPEG (`NewSubFileType==0`) that can
+    // sit beside it in a lossy/linear DNG — non-circular (#930).
+    if let Ok(Some(img)) = decoder.thumbnail_image(src, &params) {
+        return Some(img);
+    }
+    // Last in-process resort for a non-TIFF container rawler can't expose as
+    // IFDs (e.g. Sigma X3F — Foveon, with no full/preview/thumbnail). Such
+    // formats embed a JPEG preview but never RAW-as-JPEG, so the largest color
+    // JPEG is safely the preview. GATE on "no Root IFD" so this can never run
+    // for a TIFF/DNG, where RAW-as-JPEG lives and a blind scan would be circular.
+    if decoder.ifd(WellKnownIFD::Root).ok().flatten().is_none() {
+        if let Some(img) = largest_embedded_jpeg(src.buf()) {
+            return Some(img);
+        }
+    }
     None
+}
+
+/// Last-resort IN-PROCESS preview for non-TIFF containers (#930): scan `bytes`
+/// for embedded JPEG streams and return the largest COLOR JPEG that clears a
+/// min-edge threshold. Only reached when rawler exposes no Root IFD, so it can
+/// never see a TIFF RAW-as-JPEG. The filters are belt-and-suspenders:
+///   * require `FF D8 FF` (JPEG SOI + a marker) to skip the many coincidental
+///     `FF D8` byte pairs in sensor data;
+///   * reject grayscale decodes (a CFA RAW stored as a 1-component JPEG);
+///   * reject `< MIN_EDGE` px (thumbnails);
+///   * keep the largest by pixel area (the camera preview dwarfs the thumbnail).
+fn largest_embedded_jpeg(bytes: &[u8]) -> Option<DynamicImage> {
+    const MIN_EDGE: u32 = 256;
+    let mut best: Option<DynamicImage> = None;
+    let mut best_area: u64 = 0;
+    let mut i = 0usize;
+    while i + 2 < bytes.len() {
+        if bytes[i] == 0xFF && bytes[i + 1] == 0xD8 && bytes[i + 2] == 0xFF {
+            // The jpeg decoder reads to this stream's EOI and ignores trailing
+            // bytes; a coincidental SOI over non-JPEG data errors out fast.
+            if let Ok(img) =
+                image::load_from_memory_with_format(&bytes[i..], image::ImageFormat::Jpeg)
+            {
+                let (w, h) = (img.width(), img.height());
+                let is_color = !matches!(
+                    img.color(),
+                    image::ColorType::L8
+                        | image::ColorType::L16
+                        | image::ColorType::La8
+                        | image::ColorType::La16
+                );
+                let area = u64::from(w) * u64::from(h);
+                if is_color && w >= MIN_EDGE && h >= MIN_EDGE && area > best_area {
+                    best_area = area;
+                    best = Some(img);
+                }
+            }
+        }
+        i += 1;
+    }
+    best
 }
 
 /// Detect the embedded preview JPEG's color space from the RAW's EXIF
