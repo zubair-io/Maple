@@ -185,6 +185,11 @@ extension RenderActor {
         // (TOCTOU). #950 — the in-memory decode cache keys on the baked
         // model, not sidecar mtime: a STRIPPED-field edit (re-applied live
         // per tick) must not invalidate it, only a baked-field edit may.
+        // The mtime is captured alongside as a fast-path gate for the
+        // per-tick freshness check (see `snapshot`); read it FIRST so a
+        // write landing mid-capture can only make a future check do an extra
+        // parse, never serve stale.
+        let currentMtime = EditSession.sidecarMtime(for: asset)
         let currentBaked = Self.bakedModel(for: asset)
         let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
         let cachedIsFreshFull = sameAssetCached
@@ -199,6 +204,7 @@ extension RenderActor {
             decodedForAssetID = asset.id
             decodedAtModel = EditSession.parseSidecarModel(for: asset)
             decodedBakedModel = currentBaked
+            decodedSidecarMtime = currentMtime
             decodedIsFull = wantsFull
             decodedProfile = decodeProfile  // #871 — buffer is profile-keyed
         }
@@ -256,6 +262,7 @@ extension RenderActor {
         decodedRawResolution = .zero
         decodedForAssetID = nil
         decodedBakedModel = nil
+        decodedSidecarMtime = nil
         decodedIsFull = false
         decodeTask = nil
         decodeTaskAssetID = nil
@@ -267,15 +274,34 @@ extension RenderActor {
     }
 
     public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
-        // #950 — freshness keys on the baked model (stripped sidecar model),
-        // not sidecar mtime. The decode reads the on-disk sidecar, so the
-        // buffer stays valid as long as the sidecar's *baked* (KEPT) fields
-        // are unchanged; a STRIPPED-field edit (re-applied live per tick)
-        // bumps mtime but not the baked model, so the cache stays fresh —
-        // the win. Recomputing the baked model is a cheap XMP parse, never
-        // the ~15 s decode the old mtime key triggered.
-        let isFresh = (decodedForAssetID == asset.id)
-            && (Self.bakedModel(for: asset) == decodedBakedModel)
+        // #950 — freshness is keyed on the baked model (stripped sidecar
+        // model), not sidecar mtime. The decode reads the on-disk sidecar,
+        // so the buffer stays valid as long as the sidecar's *baked* (KEPT)
+        // fields are unchanged; a STRIPPED-field edit (re-applied live per
+        // tick) bumps mtime but not the baked model, so the cache stays
+        // fresh — the win.
+        //
+        // This runs on every slider tick, and recomputing the baked model is
+        // a synchronous XMP parse + model alloc. To keep the per-tick hot
+        // path allocation-free (CLAUDE.md § Performance invariants), gate the
+        // parse behind a cheap mtime stat: an UNCHANGED mtime proves the file
+        // is byte-identical ⇒ the baked model is unchanged ⇒ skip the parse.
+        // Only when the mtime actually moved (a save landed) — or the fast
+        // path is disabled (`decodedSidecarMtime == nil`: no sidecar at
+        // decode time, or a divergent test seed) — do we parse and compare
+        // the authoritative baked model. mtime can only make us do MORE work
+        // (parse on a same-baked save), never serve a stale buffer.
+        let assetMatches = (decodedForAssetID == asset.id)
+        let isFresh: Bool
+        if !assetMatches {
+            isFresh = false
+        } else if let mt = decodedSidecarMtime,
+                  EditSession.sidecarMtime(for: asset) == mt {
+            // File untouched since decode → baked model unchanged.
+            isFresh = true
+        } else {
+            isFresh = (Self.bakedModel(for: asset) == decodedBakedModel)
+        }
         return DecodedSnapshot(
             image: decodedImage,
             decodedAtModel: decodedAtModel,
@@ -327,6 +353,7 @@ extension RenderActor {
         self.decodedImage = decoded
         self.decodedRawResolution = rawResolution
         self.decodedForAssetID = asset.id
+        self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)  // #950 fast-path gate
         self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
         self.decodedAtModel = decodedAtModel
         // Seeded buffers (cached rendered preview / embedded JPEG) are
@@ -351,6 +378,7 @@ extension RenderActor {
         self.decodedImage = decoded
         self.decodedRawResolution = rawResolution
         self.decodedForAssetID = asset.id
+        self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)  // #950 fast-path gate
         self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
         self.decodedAtModel = decodedAtModel
         self.decodedIsFull = false

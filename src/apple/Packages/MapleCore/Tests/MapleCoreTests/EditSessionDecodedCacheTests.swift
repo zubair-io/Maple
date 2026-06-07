@@ -292,6 +292,35 @@ final class EditSessionDecodedCacheTests: XCTestCase {
             + "(#950 / #871) — profile freshness is keyed separately via decodedProfile")
     }
 
+    /// The per-tick fast path (#950): when the sidecar is byte-identical
+    /// since decode (mtime unchanged), repeated freshness checks must return
+    /// fresh — this is the common slider-drag case (the decode buffer is
+    /// reused while only the stripped chain re-applies). The mtime stat
+    /// short-circuits the XMP parse so the hot path stays allocation-free.
+    /// Asserting many checks in a row exercises the gate; correctness is the
+    /// observable contract (the perf saving is structural).
+    func testUnchangedSidecarFastPathStaysFresh() async throws {
+        let (asset, dir) = try makeAsset()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        guard let sidecarURL = asset.sidecarURL else {
+            return XCTFail("file-backed asset must have a sidecar URL")
+        }
+        try writeSidecar(at: sidecarURL, model: {
+            var m = AdjustmentModel(); m.highlightRecovery = .blend; return m
+        }())
+        let session = EditSession(asset: asset)
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset, decoded: makeDecoded(),
+            rawResolution: CGSize(width: 100, height: 100))
+
+        // No sidecar write between checks → mtime unchanged → fast path.
+        for tick in 0..<5 {
+            let fresh = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+            XCTAssertTrue(fresh,
+                "tick \(tick): an unchanged sidecar must stay fresh via the mtime fast path (#950)")
+        }
+    }
+
     /// Decoding with no sidecar (the FFI uses `AdjustmentModel::default()`,
     /// baked model captured as `nil`), then a sidecar APPEARING, must stale
     /// the cache — the decode call shape differs (null xmp_path vs a temp
