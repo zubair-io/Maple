@@ -52,7 +52,12 @@ export const nativeCodeRedeemRoutes = new Elysia().post(
       return { error: 'user gone' };
     }
     const access_token = await signAccessToken(
-      { sub: user._id.toHexString(), email: user.email, role: user.role },
+      {
+        sub: user._id.toHexString(),
+        email: user.email,
+        role: user.role,
+        token_version: user.token_version,
+      },
       jwtSecret(),
     );
     // Mint a fresh, device-scoped refresh token (its own family) rather than
