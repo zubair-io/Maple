@@ -18,10 +18,11 @@
 // No-ops entirely when the service worker is disabled (dev mode, unsupported
 // browser), so it is safe to wire into every app's bootstrap initializer.
 
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationStart, Router } from '@angular/router';
 import { SwUpdate, VersionReadyEvent } from '@angular/service-worker';
-import { filter } from 'rxjs/operators';
+import { filter } from 'rxjs';
 
 /** How often to ask the SW to poll the origin for a new deployment. A working
  * photographer leaves Maple open all day; the `registerWhenStable` strategy
@@ -36,6 +37,13 @@ export class AppUpdateService {
   // harmlessly in dev, in unit tests, and in any build without the SW.
   private readonly swUpdate = inject(SwUpdate, { optional: true });
   private readonly router = inject(Router);
+  private readonly destroyRef = inject(DestroyRef);
+
+  /** Guard so repeated init() calls don't stack subscriptions/timers. */
+  private initialized = false;
+
+  /** Background-poll handle, cleared when the injector is destroyed. */
+  private pollTimer?: ReturnType<typeof setInterval>;
 
   /** Armed once a new app version is downloaded and ready to activate. Drives
    * the route-change hard-navigation interception. */
@@ -52,24 +60,36 @@ export class AppUpdateService {
    * re-runs) firing multiple hard navigations. */
   private hardNavInFlight = false;
 
-  /** Idempotent bootstrap hook. No-ops when the SW is disabled. */
+  /** Idempotent bootstrap hook. No-ops when the SW is disabled, and only wires
+   * up its subscriptions + poll timer once even if called repeatedly. */
   init(): void {
+    if (this.initialized) return;
     const swUpdate = this.swUpdate;
     if (!swUpdate?.isEnabled) return;
+    this.initialized = true;
 
     // 1. Background install already happens inside the SW; just catch "ready".
     swUpdate.versionUpdates
-      .pipe(filter((e): e is VersionReadyEvent => e.type === 'VERSION_READY'))
+      .pipe(
+        filter((e): e is VersionReadyEvent => e.type === 'VERSION_READY'),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe(() => this.updatePending.set(true));
 
     // 2. Poll so a tab open across a deploy eventually notices the new build.
-    setInterval(() => {
-      void swUpdate.checkForUpdate();
+    //    A failed poll (offline / transient 5xx) is non-fatal — swallow it so
+    //    it isn't an unhandled rejection; the next tick retries.
+    this.pollTimer = setInterval(() => {
+      void swUpdate.checkForUpdate().catch(() => {});
     }, UPDATE_POLL_MS);
+    this.destroyRef.onDestroy(() => clearInterval(this.pollTimer));
 
     // 3. Hard-navigate on the next route change once an update is armed.
     this.router.events
-      .pipe(filter((e): e is NavigationStart => e instanceof NavigationStart))
+      .pipe(
+        filter((e): e is NavigationStart => e instanceof NavigationStart),
+        takeUntilDestroyed(this.destroyRef),
+      )
       .subscribe((e) => this.maybeHardNavigate(e.url));
   }
 
