@@ -43,7 +43,9 @@ import {
   refreshTokensCollection,
   challengesCollection,
   nativeAuthCodesCollection,
+  serverStateCollection,
 } from '../../src/db/client.ts';
+import { OWNER_CLAIM_ID } from '../../src/auth/server_claim.ts';
 import { buildRegistrationResponse, type SoftAuthenticator } from './helpers/soft-authn.ts';
 
 const RP_ID = 'localhost';
@@ -61,6 +63,8 @@ beforeEach(async () => {
   ]) {
     await (await c()).deleteMany({});
   }
+  // #865: clear the ownership-claim sentinel so each scenario can claim fresh.
+  await (await serverStateCollection()).deleteOne({ _id: OWNER_CLAIM_ID });
 });
 
 // --- HTTP helpers -----------------------------------------------------------

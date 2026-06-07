@@ -25,6 +25,7 @@ import {
 } from '../auth/refresh_store.ts';
 import { requireAuth, requireOwner, stepUpBeforeHandle } from '../auth/middleware.ts';
 import { rateLimit } from '../auth/rate_limit.ts';
+import { tryClaimOwnership, releaseOwnershipClaim } from '../auth/server_claim.ts';
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
@@ -179,54 +180,68 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         return { error: 'verification failed' };
       }
 
-      const claimed = await isClaimed();
-      if (claimed) {
-        if (!challengeRow.invite_code) {
-          set.status = 403;
-          return { error: 'invite required' };
-        }
-        await redeemInvite(challengeRow.invite_code, email);
+      // Atomically decide ownership (#865): exactly one concurrent first
+      // registration wins the single owner slot. A lost claim means the server
+      // is already claimed → this registration must be an invited member.
+      const wonOwnership = await tryClaimOwnership();
+      const role: 'owner' | 'member' = wonOwnership ? 'owner' : 'member';
+      if (!wonOwnership && !challengeRow.invite_code) {
+        set.status = 403;
+        return { error: 'invite required' };
       }
 
-      const role: 'owner' | 'member' = claimed ? 'member' : 'owner';
+      // All-or-nothing from here (#865): if anything fails, roll back the user
+      // we inserted and (if we made it) the ownership claim, so we never strand
+      // a credential-less owner or a "claimed" server with no owner account.
       const u = await usersCollection();
-      const userIns = await u.insertOne({
-        email,
-        role,
-        created_at: new Date().toISOString(),
-        last_seen_at: new Date().toISOString(),
-      });
-
-      const reg = verification.registrationInfo;
       const c = await credentialsCollection();
-      await c.insertOne({
-        user_id: userIns.insertedId,
-        credential_id: reg.credential.id,
-        public_key: Buffer.from(reg.credential.publicKey),
-        counter: reg.credential.counter,
-        transports: (body.credential.response?.transports ?? []) as string[],
-        device_label: body.device_label,
-        created_at: new Date().toISOString(),
-        last_used_at: new Date().toISOString(),
-      });
+      let userId: ObjectId | null = null;
+      try {
+        if (!wonOwnership) {
+          await redeemInvite(challengeRow.invite_code!, email);
+        }
+        const userIns = await u.insertOne({
+          email,
+          role,
+          created_at: new Date().toISOString(),
+          last_seen_at: new Date().toISOString(),
+        });
+        userId = userIns.insertedId;
 
-      const access_token = await signAccessToken(
-        { sub: userIns.insertedId.toHexString(), email, role },
-        jwtSecret(),
-      );
-      const refresh = await issueRefreshToken(userIns.insertedId, body.device_label);
-      cookie.maple_refresh.set({
-        value: refresh.raw,
-        httpOnly: true,
-        secure: true,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: REFRESH_TTL_SECONDS,
-      });
-      return {
-        access_token,
-        user: { id: userIns.insertedId.toHexString(), email, role },
-      };
+        const reg = verification.registrationInfo;
+        await c.insertOne({
+          user_id: userId,
+          credential_id: reg.credential.id,
+          public_key: Buffer.from(reg.credential.publicKey),
+          counter: reg.credential.counter,
+          transports: (body.credential.response?.transports ?? []) as string[],
+          device_label: body.device_label,
+          created_at: new Date().toISOString(),
+          last_used_at: new Date().toISOString(),
+        });
+
+        const access_token = await signAccessToken(
+          { sub: userId.toHexString(), email, role },
+          jwtSecret(),
+        );
+        const refresh = await issueRefreshToken(userId, body.device_label);
+        cookie.maple_refresh.set({
+          value: refresh.raw,
+          httpOnly: true,
+          secure: true,
+          sameSite: 'lax',
+          path: '/',
+          maxAge: REFRESH_TTL_SECONDS,
+        });
+        return {
+          access_token,
+          user: { id: userId.toHexString(), email, role },
+        };
+      } catch (e) {
+        if (userId) await u.deleteOne({ _id: userId });
+        if (wonOwnership) await releaseOwnershipClaim();
+        throw e;
+      }
     },
     {
       body: t.Object({
