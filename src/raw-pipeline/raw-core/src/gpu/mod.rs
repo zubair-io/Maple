@@ -63,7 +63,12 @@ pub async fn run_exposure_gpu_async(input: &[f32], ev: f32) -> Vec<f32> {
         _pad0: u32,
         _pad1: u32,
     }
-    let params = Params { ev, count: pixel_count, _pad0: 0, _pad1: 0 };
+    let params = Params {
+        ev,
+        count: pixel_count,
+        _pad0: 0,
+        _pad1: 0,
+    };
 
     let params_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("params"),
@@ -105,9 +110,18 @@ pub async fn run_exposure_gpu_async(input: &[f32], ev: f32) -> Vec<f32> {
         label: Some("exposure-bg"),
         layout: &pipeline.get_bind_group_layout(0),
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 1, resource: input_buf.as_entire_binding() },
-            wgpu::BindGroupEntry { binding: 2, resource: output_buf.as_entire_binding() },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: params_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: input_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: output_buf.as_entire_binding(),
+            },
         ],
     });
 
@@ -135,7 +149,9 @@ pub async fn run_exposure_gpu_async(input: &[f32], ev: f32) -> Vec<f32> {
     // await below resolves when the browser completes the map.
     #[cfg(not(target_arch = "wasm32"))]
     device.poll(wgpu::Maintain::Wait);
-    rx.await.expect("map channel dropped").expect("buffer map failed");
+    rx.await
+        .expect("map channel dropped")
+        .expect("buffer map failed");
 
     let data = slice.get_mapped_range();
     let out: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
