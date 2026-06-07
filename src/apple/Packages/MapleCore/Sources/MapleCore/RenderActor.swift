@@ -114,6 +114,21 @@ public actor RenderActor {
     /// model and are cross-session; only this in-memory cache changes.
     var decodedBakedModel: AdjustmentModel?
 
+    /// The sidecar mtime captured alongside `decodedBakedModel` — a pure
+    /// FAST-PATH gate, NOT the freshness source of truth (#950). The
+    /// freshness check runs on every `snapshot(forAsset:)`, i.e. every
+    /// slider tick, and recomputing `decodedBakedModel` is a synchronous
+    /// XMP parse + model alloc. During a stripped-field drag the on-disk
+    /// sidecar isn't changing, so an unchanged mtime is proof the file is
+    /// byte-identical ⇒ the baked model is unchanged ⇒ we can skip the
+    /// parse entirely. We only fall through to the parse-and-compare when
+    /// the mtime actually moved (a save landed). This keeps the per-tick
+    /// hot path allocation-free (CLAUDE.md § Performance invariants) while
+    /// the baked model remains the authoritative key — mtime can only make
+    /// us do MORE work (parse on a same-baked save), never serve a stale
+    /// buffer. `nil` mirrors `decodedBakedModel == nil` (no sidecar).
+    var decodedSidecarMtime: Date?
+
     var decodedAtModel: AdjustmentModel?
 
     /// Profile the cached `decodedImage` was developed for (#871). The
@@ -415,6 +430,13 @@ public actor RenderActor {
         self.decodedRawResolution = rawResolution
         self.decodedForAssetID = asset.id
         self.decodedBakedModel = bakedModel ?? Self.bakedModel(for: asset)
+        // Capture the live mtime as the fast-path gate ONLY when the baked
+        // model came from disk (production parity). An explicit override may
+        // intentionally diverge from the on-disk sidecar, so disable the
+        // fast path (nil mtime ⇒ always parse-and-compare) to keep the
+        // override authoritative (#950).
+        self.decodedSidecarMtime = (bakedModel == nil)
+            ? EditSession.sidecarMtime(for: asset) : nil
         self.decodedAtModel = decodedAtModel
         self.decodedIsFull = isFull
         self.decodedProfile = profile
