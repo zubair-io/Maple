@@ -275,21 +275,43 @@ export class AuthService {
     this.user.set(r.user);
   }
 
+  /**
+   * Fresh WebAuthn step-up ceremony (#861) → a short-lived step-up token.
+   * Sensitive actions (add/remove credential, create/rescind invite) require
+   * this on top of the access token, so a leaked short-lived access token can't
+   * escalate into persistent access. The browser prompts for the passkey.
+   */
+  private async stepUp(): Promise<string> {
+    const optionsJSON = await firstValueFrom(this.http.post<any>('/api/auth/step-up/options', {}));
+    const credential = await startAuthentication({ optionsJSON });
+    const r = await firstValueFrom(
+      this.http.post<{ step_up_token: string }>('/api/auth/step-up/verify', { credential }),
+    );
+    return r.step_up_token;
+  }
+
   async addCredential(deviceLabel: string): Promise<void> {
+    const stepUp = await this.stepUp();
     const optionsJSON = await firstValueFrom(
       this.http.post<any>('/api/auth/credentials/options', {}),
     );
     const credential = await startRegistration({ optionsJSON });
     await firstValueFrom(
-      this.http.post<any>('/api/auth/credentials/verify', {
-        device_label: deviceLabel,
-        credential,
-      }),
+      this.http.post<any>(
+        '/api/auth/credentials/verify',
+        { device_label: deviceLabel, credential },
+        { headers: { 'X-Step-Up': stepUp } },
+      ),
     );
   }
 
   async deleteCredential(id: string): Promise<void> {
-    await firstValueFrom(this.http.delete<any>(`/api/auth/credentials/${encodeURIComponent(id)}`));
+    const stepUp = await this.stepUp();
+    await firstValueFrom(
+      this.http.delete<any>(`/api/auth/credentials/${encodeURIComponent(id)}`, {
+        headers: { 'X-Step-Up': stepUp },
+      }),
+    );
   }
 
   async listInvites(): Promise<any[]> {
@@ -298,13 +320,23 @@ export class AuthService {
   }
 
   async createInvite(email: string): Promise<{ code: string; expires_at: string }> {
+    const stepUp = await this.stepUp();
     return firstValueFrom(
-      this.http.post<{ code: string; expires_at: string }>('/api/auth/invites', { email }),
+      this.http.post<{ code: string; expires_at: string }>(
+        '/api/auth/invites',
+        { email },
+        { headers: { 'X-Step-Up': stepUp } },
+      ),
     );
   }
 
   async rescindInvite(code: string): Promise<void> {
-    await firstValueFrom(this.http.delete<any>(`/api/auth/invites/${encodeURIComponent(code)}`));
+    const stepUp = await this.stepUp();
+    await firstValueFrom(
+      this.http.delete<any>(`/api/auth/invites/${encodeURIComponent(code)}`, {
+        headers: { 'X-Step-Up': stepUp },
+      }),
+    );
   }
 
   private acceptTokens(r: any): void {

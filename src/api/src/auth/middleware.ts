@@ -1,7 +1,7 @@
 // src/api/src/auth/middleware.ts
 import { Elysia } from 'elysia';
 import { ObjectId } from 'mongodb';
-import { verifyAccessToken, type AccessClaims } from './tokens.ts';
+import { verifyAccessToken, verifyStepUpToken, type AccessClaims } from './tokens.ts';
 import { usersCollection } from '../db/client.ts';
 
 function jwtSecret(): string {
@@ -61,3 +61,36 @@ export const requireOwner = new Elysia({ name: 'requireOwner' })
       return { error: 'owner role required' };
     }
   });
+
+interface StepUpContext {
+  auth?: { user: AccessClaims };
+  headers: Record<string, string | undefined>;
+  set: { status?: number | string };
+}
+
+/**
+ * Route `beforeHandle` that requires a fresh step-up token (#861) in the
+ * `X-Step-Up` header, minted by `/api/auth/step-up/verify` after a fresh
+ * WebAuthn assertion and matching the authenticated user. A valid access token
+ * alone is NOT enough for sensitive actions (add/remove credential, create/
+ * rescind invite) — so a leaked short-lived access token can't escalate into
+ * persistent access. Mount only on `requireAuth`-gated routes (it reads `auth`).
+ */
+export async function stepUpBeforeHandle({ auth, headers, set }: StepUpContext) {
+  const token = headers['x-step-up'];
+  if (!token) {
+    set.status = 403;
+    return { error: 'step-up required' };
+  }
+  let claims: { sub: string };
+  try {
+    claims = await verifyStepUpToken(token, jwtSecret());
+  } catch {
+    set.status = 403;
+    return { error: 'step-up invalid' };
+  }
+  if (!auth || claims.sub !== auth.user.sub) {
+    set.status = 403;
+    return { error: 'step-up subject mismatch' };
+  }
+}
