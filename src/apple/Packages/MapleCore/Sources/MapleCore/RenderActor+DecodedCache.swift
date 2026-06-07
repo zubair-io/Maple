@@ -179,14 +179,17 @@ extension RenderActor {
         // may not overwrite a fresh one. Full decodes always write. The
         // fullness flag drives refine's re-decode decision (#785).
         //
-        // Capture the live mtime once and reuse it for the stored
-        // `decodedSidecarMtime` so the write-gate and the value written
-        // can't disagree across a concurrent sidecar edit (TOCTOU).
-        let currentMtime = EditSession.sidecarMtime(for: asset)
+        // Capture the live baked model (stripped sidecar model) once and
+        // reuse it for the stored `decodedBakedModel` so the write-gate and
+        // the value written can't disagree across a concurrent sidecar edit
+        // (TOCTOU). #950 — the in-memory decode cache keys on the baked
+        // model, not sidecar mtime: a STRIPPED-field edit (re-applied live
+        // per tick) must not invalidate it, only a baked-field edit may.
+        let currentBaked = Self.bakedModel(for: asset)
         let sameAssetCached = (decodedForAssetID == asset.id) && (decodedImage != nil)
         let cachedIsFreshFull = sameAssetCached
             && decodedIsFull
-            && (decodedSidecarMtime == currentMtime)
+            && (decodedBakedModel == currentBaked)
         let shouldWrite = Self.shouldWriteDecodedCache(
             wantsFull: wantsFull, cachedIsFreshFull: cachedIsFreshFull
         )
@@ -195,7 +198,7 @@ extension RenderActor {
             decodedRawResolution = decoded.extent.size
             decodedForAssetID = asset.id
             decodedAtModel = EditSession.parseSidecarModel(for: asset)
-            decodedSidecarMtime = currentMtime
+            decodedBakedModel = currentBaked
             decodedIsFull = wantsFull
             decodedProfile = decodeProfile  // #871 — buffer is profile-keyed
         }
@@ -252,7 +255,7 @@ extension RenderActor {
         decodedImage = nil
         decodedRawResolution = .zero
         decodedForAssetID = nil
-        decodedSidecarMtime = nil
+        decodedBakedModel = nil
         decodedIsFull = false
         decodeTask = nil
         decodeTaskAssetID = nil
@@ -264,8 +267,15 @@ extension RenderActor {
     }
 
     public func snapshot(forAsset asset: AssetRef) -> DecodedSnapshot {
+        // #950 — freshness keys on the baked model (stripped sidecar model),
+        // not sidecar mtime. The decode reads the on-disk sidecar, so the
+        // buffer stays valid as long as the sidecar's *baked* (KEPT) fields
+        // are unchanged; a STRIPPED-field edit (re-applied live per tick)
+        // bumps mtime but not the baked model, so the cache stays fresh —
+        // the win. Recomputing the baked model is a cheap XMP parse, never
+        // the ~15 s decode the old mtime key triggered.
         let isFresh = (decodedForAssetID == asset.id)
-            && (EditSession.sidecarMtime(for: asset) == decodedSidecarMtime)
+            && (Self.bakedModel(for: asset) == decodedBakedModel)
         return DecodedSnapshot(
             image: decodedImage,
             decodedAtModel: decodedAtModel,
@@ -274,6 +284,38 @@ extension RenderActor {
             isFull: decodedIsFull,
             profile: decodedProfile
         )
+    }
+
+    // MARK: - Baked-model freshness key (#950)
+
+    /// The model the in-memory decode is keyed on: the asset's on-disk
+    /// sidecar model with the Apple-GPU (live-re-applied) stages stripped.
+    /// `nil` when no sidecar is on disk — the FFI then decodes from
+    /// `AdjustmentModel::default()`, whose stripped form is itself a fixed
+    /// default. We represent that "no sidecar" case as `nil` (rather than
+    /// `stripAppleGPUStages(.default)`) so a sidecar appearing/disappearing
+    /// is detected even when its baked fields happen to equal the defaults
+    /// — the decode call shape differs (xmp_path null vs a temp XMP), and
+    /// distinguishing the two preserves the old mtime key's nil-vs-present
+    /// semantics for the edges the existing tests cover.
+    ///
+    /// `profile` is deliberately normalised OUT of this key: profile
+    /// freshness is already owned by `decodedProfile` / `profileMatches`
+    /// (#871), and the decode's profile comes from the LIVE override, not
+    /// the sidecar. Leaving the sidecar's profile in the key would re-decode
+    /// ~750 ms after a profile toggle — when the debounced autosave finally
+    /// lands the new profile in the sidecar and this recompute stops
+    /// matching the stored value — even though the #871 path already
+    /// produced the correct buffer at toggle time. That is exactly the
+    /// wasteful re-decode #950 removes, just on the profile axis.
+    /// `stripAppleGPUStages` does NOT strip `profile`, so we reset it here.
+    nonisolated static func bakedModel(for asset: AssetRef) -> AdjustmentModel? {
+        guard EditSession.sidecarMtime(for: asset) != nil else { return nil }
+        var m = RawCoreBridge.stripAppleGPUStages(
+            EditSession.parseSidecarModel(for: asset)
+        )
+        m.profile = AdjustmentModel().profile  // #871 owns profile freshness
+        return m
     }
 
     public func seed(
@@ -285,7 +327,7 @@ extension RenderActor {
         self.decodedImage = decoded
         self.decodedRawResolution = rawResolution
         self.decodedForAssetID = asset.id
-        self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)
+        self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
         self.decodedAtModel = decodedAtModel
         // Seeded buffers (cached rendered preview / embedded JPEG) are
         // low-resolution display previews, never a full decode — refine
@@ -309,7 +351,7 @@ extension RenderActor {
         self.decodedImage = decoded
         self.decodedRawResolution = rawResolution
         self.decodedForAssetID = asset.id
-        self.decodedSidecarMtime = EditSession.sidecarMtime(for: asset)
+        self.decodedBakedModel = Self.bakedModel(for: asset)  // #950
         self.decodedAtModel = decodedAtModel
         self.decodedIsFull = false
         self.decodedProfile = nil  // #871 — see `seed(...)`
