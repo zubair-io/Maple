@@ -100,12 +100,17 @@ SHOULDER_POWER = 3.25                              # Sobotka default
 # corners of the wider AgX-Base triangle. Matches AgX-S2O3 default.
 COMPRESSION  = 0.20
 
-# Version key. Bump whenever the LUT bytes or coefficients change.
+# Version key. Bump whenever the view transform's output changes — this is
+# the cache-invalidation key propagated into RenderedPreviewCache's
+# viewTransformVersion, so it covers AgX changes that live outside this
+# generator (e.g. hue restoration) as well as LUT/coefficient edits here.
 #  v5: Blender 4.x AgX_Default_Contrast polynomial fit (mid-gray → 0.50).
 #  v6: Maple AgX 6th-order polynomial fit (mid-gray → 0.237, ~8% high).
 #  v7: Canonical Sobotka AgX with Rec.2020 inset/outset matrices + real
 #      Jed Smith sigmoid (#263). Mid-gray scene 0.18 → display 0.18 exact.
-AGX_VERSION  = 7
+#  v8: AgX hue restoration + Oklab gamut compression (#435). Cache-key bump
+#      only — these stages live outside this generator; LUT/coeffs unchanged.
+AGX_VERSION  = 8
 
 
 # ── Sobotka / Jed Smith sigmoid (port of AgX-S2O3 AgX.py L122-L207) ───────
@@ -322,12 +327,14 @@ def emit_rs(path: Path) -> None:
         "//! Canonical Sobotka AgX constants for the Rust raw-core view\n"
         "//! transform. The pipeline is:\n"
         "//!\n"
-        "//!     scene-linear Rec.2020\n"
-        "//!         → AGX_INSET_MATRIX\n"
-        "//!         → per-channel log2 encode + normalize\n"
-        "//!         → per-channel sigmoid LUT (agx_lut.bin)\n"
-        "//!         → AGX_OUTSET_MATRIX\n"
-        "//!         → clamp to [0, 1] = display-linear Rec.2020\n"
+        "//! ```text\n"
+        "//! scene-linear Rec.2020\n"
+        "//!     → AGX_INSET_MATRIX\n"
+        "//!     → per-channel log2 encode + normalize\n"
+        "//!     → per-channel sigmoid LUT (agx_lut.bin)\n"
+        "//!     → AGX_OUTSET_MATRIX\n"
+        "//!     → clamp to [0, 1] = display-linear Rec.2020\n"
+        "//! ```\n"
         "//!\n"
         "//! Re-run the derivation script when coefficients change; bump\n"
         "//! `viewTransformVersion` in RenderedPreviewCache (spec\n"

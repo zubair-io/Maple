@@ -3,12 +3,14 @@
 //! Canonical Sobotka AgX constants for the Rust raw-core view
 //! transform. The pipeline is:
 //!
-//!     scene-linear Rec.2020
-//!         → AGX_INSET_MATRIX
-//!         → per-channel log2 encode + normalize
-//!         → per-channel sigmoid LUT (agx_lut.bin)
-//!         → AGX_OUTSET_MATRIX
-//!         → clamp to [0, 1] = display-linear Rec.2020
+//! ```text
+//! scene-linear Rec.2020
+//!     → AGX_INSET_MATRIX
+//!     → per-channel log2 encode + normalize
+//!     → per-channel sigmoid LUT (agx_lut.bin)
+//!     → AGX_OUTSET_MATRIX
+//!     → clamp to [0, 1] = display-linear Rec.2020
+//! ```
 //!
 //! Re-run the derivation script when coefficients change; bump
 //! `viewTransformVersion` in RenderedPreviewCache (spec
