@@ -179,3 +179,56 @@ User returns to grid
 | Rendered previews    | `RenderedPreviewCache.clear()` or OS purges `~/Library/Caches/` | Cold-open of images takes ~300ms again           |
 | Decoded CIImage      | Automatic on `endEditing()`                                     | Next edit session re-decodes                     |
 | SMB file data        | Automatic on `endEditing()`                                     | Next edit session re-downloads                   |
+
+---
+
+## Web — Service Worker (Angular)
+
+The Apple caches above have browser counterparts (in-memory blob URLs +
+IndexedDB; see `LibraryCache`). On top of those, both web builds — Hosted
+(`projects/maple-syrup`) and Self-Hosted (`projects/maple`) — register the
+Angular service worker (`ngsw-config.json`, wired via `provideServiceWorker`).
+It adds an HTTP-layer cache that the application code never has to manage.
+
+### What the SW caches
+
+| Group        | Type       | Strategy                 | Contents                                                                     |
+| ------------ | ---------- | ------------------------ | ---------------------------------------------------------------------------- |
+| `app`        | assetGroup | prefetch                 | App shell: `index.html`, `manifest.webmanifest`, all `*.js`/`*.css`, favicon |
+| `raw-wasm`   | assetGroup | lazy + prefetch-upd      | `raw_wasm_bg.wasm`, `raw_wasm.js`                                            |
+| `fonts`      | assetGroup | lazy + prefetch-upd      | Bundled webfonts                                                             |
+| `images`     | assetGroup | lazy                     | Static bundle images (`/assets/**`, root `svg/png/webp/…`)                   |
+| `thumbnails` | dataGroup  | performance (1500 / 30d) | Thumbnail **HTTP** responses: `/api/fs/thumb`, `/api/assets/*/thumb`         |
+
+The `thumbnails` dataGroup is the SW-owned thumbnail cache. It only matches
+HTTP thumbnail endpoints, which today means the **Self-Hosted** Bun API
+(`/api/fs/thumb?path=…`, `/api/assets/:id/thumb?size=…`). On Hosted, thumbnails
+are produced from File System Access reads / WASM decodes — those are not HTTP
+requests, so a SW cannot intercept them; they keep the in-memory blob-URL +
+`.maple/thumbs/` disk cache described above. `performance` = cache-first: a
+cached thumbnail is served without touching the network, with an LRU cap of
+1500 entries and a 30-day max age.
+
+Library **data** APIs (`/api/fs/raw`, `/api/assets/:id/raw`, folder/asset
+listings, auth) are deliberately _not_ cached — they always hit the server, so
+MongoDB stays authoritative. `navigationUrls` also excludes `/api/**` so the SW
+never serves the app shell in place of an API response.
+
+### Background app updates
+
+`AppUpdateService` (`maple-common/src/lib/sw/`) owns the update lifecycle:
+
+1. The SW lazily downloads a freshly-deployed build in the background.
+2. On `VERSION_READY`, `AppUpdateService` arms the update and shows the in-app
+   install toast (`UpdateToastComponent`, rendered once by `RootShellComponent`).
+3. "Install" → `activateUpdate()` + reload. Otherwise the update stays armed and
+   the **next route change** triggers a hard `location.assign(target)` — a fresh
+   client boots on the new version and still lands on the intended page.
+4. A 30-min poll (`checkForUpdate`) catches deploys on long-lived tabs.
+
+### Clearing the SW caches
+
+| Cache              | How to Clear                                                  | Effect                             |
+| ------------------ | ------------------------------------------------------------- | ---------------------------------- |
+| SW thumbnails/data | DevTools → Application → Cache Storage (or unregister the SW) | Thumbnails re-fetched from the API |
+| App shell / assets | Deploy a new build (update flow) or unregister the SW         | Next load fetches the new bundle   |
