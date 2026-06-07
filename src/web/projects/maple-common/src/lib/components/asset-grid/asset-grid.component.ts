@@ -25,6 +25,7 @@ import { Asset, AssetId } from '../../models/asset';
 import { GridFolderItem } from '../../models/folder';
 import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
 import { FolderTileComponent } from '../folder-tile/folder-tile.component';
+import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
 
 export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'image'; asset: Asset };
 
@@ -158,31 +159,19 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   onThumbSizeChange(e: Event): void {
     const val = Number((e.target as HTMLInputElement).value);
     this.state.thumbSize.set(val);
-    try {
-      localStorage.setItem('cm.thumbSize', String(val));
-    } catch {
-      /* noop */
-    }
+    TypedStorage.setRaw(STORAGE_KEYS.THUMB_SIZE, String(val));
   }
 
   toggleSort(): void {
     const next = this.state.sort() === 'date' ? 'name' : 'date';
     this.state.sort.set(next);
-    try {
-      localStorage.setItem('cm.sort', JSON.stringify(next));
-    } catch {
-      /* noop */
-    }
+    TypedStorage.set(STORAGE_KEYS.SORT, next);
   }
 
   cycleFilter(): void {
     const cur = this.state.filter();
     const next = cur === 'all' ? 'picks' : cur === 'picks' ? '4stars' : 'all';
     this.state.filter.set(next);
-    try {
-      localStorage.setItem('cm.filter', JSON.stringify(next));
-    } catch {
-      /* noop */
-    }
+    TypedStorage.set(STORAGE_KEYS.FILTER, next);
   }
 }

@@ -21,7 +21,7 @@
 //     `toggleX` methods on this service write localStorage on each call.
 //   * thumbSize/sort/filter → write-back lives in the components that own
 //     those controls (`asset-grid.component.ts`) — they call
-//     `localStorage.setItem('cm.<key>', …)` alongside `signal.set(…)`.
+//     `TypedStorage.set(STORAGE_KEYS.<key>, …)` alongside `signal.set(…)`.
 //   * activeTab → callers do `state.activeTab.set('develop')` directly, so
 //     this service mirrors updates to `cm.tab` via an Angular `effect()`
 //     (see constructor) without requiring a setter wrapper.
@@ -31,6 +31,7 @@
 // fetcher in follow-up tickets.
 
 import { Injectable, effect, signal } from '@angular/core';
+import { STORAGE_KEYS, TypedStorage } from '../util/typed-storage';
 
 export type SortKey = 'date' | 'name';
 // `'edited'` added in responsive-program S2 (#623) to back the new
@@ -44,28 +45,34 @@ export type BrowseViewMode = 'folder' | 'timeline';
 export class BrowsePreferencesService {
   // ── Sidebar open/collapsed state ───────────────────────────────────────────
   readonly sectionOpen = signal<Record<string, boolean>>(
-    this._loadOrDefault('cm.sections', { folders: true, photos: true }),
+    this._loadOrDefault(STORAGE_KEYS.SECTIONS, { folders: true, photos: true }),
   );
 
   readonly folderOpen = signal<Record<string, boolean>>(
-    this._loadOrDefault('cm.folderOpen', { 'f-2026': true }),
+    this._loadOrDefault(STORAGE_KEYS.FOLDER_OPEN, { 'f-2026': true }),
   );
 
   // ── Thumbnail size (grid density) ─────────────────────────────────────────
-  readonly thumbSize = signal<number>(this._loadOrDefault('cm.thumbSize', 140) as number);
+  readonly thumbSize = signal<number>(this._loadOrDefault(STORAGE_KEYS.THUMB_SIZE, 140) as number);
 
   // ── Sort + filter ─────────────────────────────────────────────────────────
-  readonly sort = signal<SortKey>(this._loadOrDefault('cm.sort', 'date') as SortKey);
-  readonly filter = signal<CullFilter>(this._loadOrDefault('cm.filter', 'all') as CullFilter);
+  readonly sort = signal<SortKey>(this._loadOrDefault(STORAGE_KEYS.SORT, 'date') as SortKey);
+  readonly filter = signal<CullFilter>(
+    this._loadOrDefault(STORAGE_KEYS.FILTER, 'all') as CullFilter,
+  );
 
   // ── Panel visibility (persisted) ──────────────────────────────────────────
-  readonly sidebarVisible = signal<boolean>(this._loadOrDefault('cm.leftHidden', false) === false);
+  readonly sidebarVisible = signal<boolean>(
+    this._loadOrDefault(STORAGE_KEYS.LEFT_HIDDEN, false) === false,
+  );
   readonly inspectorVisible = signal<boolean>(
-    this._loadOrDefault('cm.detailHidden', false) === false,
+    this._loadOrDefault(STORAGE_KEYS.DETAIL_HIDDEN, false) === false,
   );
 
   // ── Active detail tab ─────────────────────────────────────────────────────
-  readonly activeTab = signal<DetailTab>(this._loadOrDefault('cm.tab', 'info') as DetailTab);
+  readonly activeTab = signal<DetailTab>(
+    this._loadOrDefault(STORAGE_KEYS.TAB, 'info') as DetailTab,
+  );
 
   constructor() {
     // Persist activeTab on every change. Other prefs in this service write
@@ -76,12 +83,7 @@ export class BrowsePreferencesService {
     // once on creation (writing back the seeded value, a no-op in the
     // common case) and on every subsequent `.set()`.
     effect(() => {
-      const v = this.activeTab();
-      try {
-        localStorage.setItem('cm.tab', JSON.stringify(v));
-      } catch {
-        /* noop */
-      }
+      TypedStorage.set(STORAGE_KEYS.TAB, this.activeTab());
     });
   }
 
@@ -90,38 +92,26 @@ export class BrowsePreferencesService {
     // Guard against corrupted/manipulated storage — anything other than the
     // two valid modes falls back to 'folder'.
     (() => {
-      const v = this._loadOrDefault<unknown>('cm.viewMode', 'folder');
+      const v = this._loadOrDefault<unknown>(STORAGE_KEYS.VIEW_MODE, 'folder');
       return v === 'timeline' ? 'timeline' : 'folder';
     })(),
   );
 
   setViewMode(mode: BrowseViewMode): void {
     this.viewMode.set(mode);
-    try {
-      localStorage.setItem('cm.viewMode', JSON.stringify(mode));
-    } catch {
-      /* noop */
-    }
+    TypedStorage.set(STORAGE_KEYS.VIEW_MODE, mode);
   }
 
   // ── Panel toggles ──────────────────────────────────────────────────────────
 
   toggleSidebar(): void {
     this.sidebarVisible.update((v) => !v);
-    try {
-      localStorage.setItem('cm.leftHidden', JSON.stringify(!this.sidebarVisible()));
-    } catch {
-      /* noop */
-    }
+    TypedStorage.set(STORAGE_KEYS.LEFT_HIDDEN, !this.sidebarVisible());
   }
 
   toggleInspector(): void {
     this.inspectorVisible.update((v) => !v);
-    try {
-      localStorage.setItem('cm.detailHidden', JSON.stringify(!this.inspectorVisible()));
-    } catch {
-      /* noop */
-    }
+    TypedStorage.set(STORAGE_KEYS.DETAIL_HIDDEN, !this.inspectorVisible());
   }
 
   // ── Tree expand state ──────────────────────────────────────────────────────
@@ -129,11 +119,7 @@ export class BrowsePreferencesService {
   toggleSection(id: string): void {
     this.sectionOpen.update((prev) => {
       const next = { ...prev, [id]: !prev[id] };
-      try {
-        localStorage.setItem('cm.sections', JSON.stringify(next));
-      } catch {
-        /* noop */
-      }
+      TypedStorage.set(STORAGE_KEYS.SECTIONS, next);
       return next;
     });
   }
@@ -141,11 +127,7 @@ export class BrowsePreferencesService {
   setFolderOpen(id: string, open: boolean): void {
     this.folderOpen.update((prev) => {
       const next = { ...prev, [id]: open };
-      try {
-        localStorage.setItem('cm.folderOpen', JSON.stringify(next));
-      } catch {
-        /* noop */
-      }
+      TypedStorage.set(STORAGE_KEYS.FOLDER_OPEN, next);
       return next;
     });
   }
@@ -153,11 +135,7 @@ export class BrowsePreferencesService {
   // ── Persistence helpers ───────────────────────────────────────────────────
 
   private _loadOrDefault<T>(key: string, fallback: T): T {
-    try {
-      const s = localStorage.getItem(key);
-      return s != null ? (JSON.parse(s) as T) : fallback;
-    } catch {
-      return fallback;
-    }
+    const loaded = TypedStorage.get<T>(key);
+    return loaded != null ? loaded : fallback;
   }
 }
