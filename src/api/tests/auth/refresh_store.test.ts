@@ -88,16 +88,17 @@ describe('refresh rotation (#858)', () => {
     ]);
     expect(results.some((r) => r.status === 'fulfilled')).toBe(true);
     // A live token survives — the family was not reuse-revoked by the race.
-    const live = await (await refreshTokensCollection()).findOne({ user_id: userId, revoked_at: null });
+    const live = await (
+      await refreshTokensCollection()
+    ).findOne({ user_id: userId, revoked_at: null });
     expect(live).not.toBeNull();
   });
 
   it('rejects an expired token', async () => {
     const t = await issueRefreshToken(userId, 'iPhone');
-    await (await refreshTokensCollection()).updateMany(
-      {},
-      { $set: { expires_at: new Date(Date.now() - 1000) } },
-    );
+    await (
+      await refreshTokensCollection()
+    ).updateMany({}, { $set: { expires_at: new Date(Date.now() - 1000) } });
     await expect(rotateRefreshToken(t.raw)).rejects.toThrow(/expired/i);
   });
 

@@ -10,7 +10,10 @@
  *      POST /api/auth/login/verify → tokens
  *   4. POST /api/auth/refresh with the refresh_token → new pair, refresh
  *      token rotated
- *   5. Re-using the original refresh_token → 4xx (replay rejected)
+ *   5. Replaying the original refresh_token within the grace window → 200
+ *      re-mint (benign retry, NOT a logout) — #858
+ *   6. After logout revokes the family, replaying it → 401 (genuine reuse
+ *      rejected; logout actually logs out) — #858
  */
 
 process.env.MAPLE_RP_ID = 'localhost';
@@ -46,11 +49,22 @@ beforeEach(async () => {
   }
 });
 
-async function postJson(path: string, body: unknown): Promise<Response> {
+async function postJson(path: string, body: unknown, cookie?: string): Promise<Response> {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    // Pin a source IP so this file's auth calls use their own rate-limit
+    // bucket (`auth:${ip}`, 10/min) — the in-memory limiter is shared across
+    // every test file in a run, and the #858 reuse flow adds refresh calls.
+    'x-forwarded-for': '198.51.100.50',
+  };
+  // Drive refresh/logout through the rotating httpOnly cookie, exactly as the
+  // web client does (the refresh handler only re-sets the cookie when the
+  // request authenticated via cookie — #857/#858).
+  if (cookie) headers['cookie'] = `maple_refresh=${cookie}`;
   return app.handle(
     new Request(`http://localhost${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     }),
   );
@@ -141,23 +155,32 @@ describe('WebAuthn end-to-end', () => {
     expect(loginRefresh.length).toBeGreaterThan(20);
     expect(loginRefresh).not.toBe(regRefresh);
 
-    // 4. Refresh — must rotate the refresh token (carried in the cookie).
-    const originalRefresh = loginRefresh;
-    const refreshRes = await postJson('/api/auth/refresh', {
-      refresh_token: originalRefresh,
-    });
+    // 4. Refresh through the rotating httpOnly cookie (the real web path) —
+    //    rotates to a new token (#858 atomic CAS).
+    const r0 = loginRefresh;
+    const refreshRes = await postJson('/api/auth/refresh', {}, r0);
     expect(refreshRes.status).toBe(200);
     const refreshBody = (await refreshRes.json()) as { access_token: string };
     expect(refreshBody.access_token).toBeDefined();
-    // #857: no refresh_token in the body; the rotated token is in the cookie.
+    // #857: no refresh_token in the body; the rotated token rides in the cookie.
     expect((refreshBody as { refresh_token?: string }).refresh_token).toBeUndefined();
-    expect(refreshCookie(refreshRes)).not.toBe(originalRefresh);
+    const r1 = refreshCookie(refreshRes);
+    expect(r1).not.toBe(r0);
 
-    // 5. Re-using the now-revoked original refresh token must fail (4xx).
-    const replayRes = await postJson('/api/auth/refresh', {
-      refresh_token: originalRefresh,
-    });
-    expect(replayRes.status).toBeGreaterThanOrEqual(400);
-    expect(replayRes.status).toBeLessThan(500);
+    // 5. Replaying the just-rotated r0 WITHIN the grace window is a benign
+    //    lost-response / concurrent retry — it RE-MINTS (200) rather than
+    //    revoking the session. Returning 4xx here was the original "refresh
+    //    token reuse detected — chain revoked" logout bug (#858).
+    const regrantRes = await postJson('/api/auth/refresh', {}, r0);
+    expect(regrantRes.status).toBe(200);
+    const r2 = refreshCookie(regrantRes);
+    expect(r2).not.toBe(r0);
+
+    // 6. Genuine reuse is still rejected: logout revokes the WHOLE device
+    //    family, so every token in it — the rotated head and the re-mint —
+    //    then 401s (#858 revokeFamilyByToken). Logout actually logs out.
+    expect((await postJson('/api/auth/logout', {}, r2)).status).toBe(204);
+    expect((await postJson('/api/auth/refresh', {}, r1)).status).toBe(401);
+    expect((await postJson('/api/auth/refresh', {}, r2)).status).toBe(401);
   });
 });
