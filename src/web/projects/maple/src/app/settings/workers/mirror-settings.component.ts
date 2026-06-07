@@ -17,6 +17,7 @@ import {
 } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { BunApiBackendService, type ApiFolder } from '@maple-common';
+import { SettingsIconComponent } from '../settings-icon.component';
 
 interface MirrorForm {
   path: string;
@@ -28,13 +29,19 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 @Component({
   selector: 'maple-mirror-settings',
   standalone: true,
-  imports: [],
+  imports: [SettingsIconComponent],
   templateUrl: './mirror-settings.component.html',
   styleUrl: './mirror-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MirrorSettingsComponent implements OnInit {
   private readonly backend = inject(BunApiBackendService);
+
+  /** Collapsed by default — the row expands to reveal per-library config. */
+  protected readonly expanded = signal(false);
+  protected toggle(): void {
+    this.expanded.update((v) => !v);
+  }
 
   protected readonly libraries = signal<ApiFolder[]>([]);
   protected readonly loading = signal(true);
