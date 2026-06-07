@@ -196,6 +196,12 @@ mod exposure;
 mod full_chain;
 mod image;
 mod noise_reduction;
+// Passthrough display proof (P1b / #988): wgpu → CAMetalLayer present. Apple-
+// only — `SurfaceTargetUnsafe::CoreAnimationLayer` is wgpu-gated on
+// `#[cfg(metal)]`, which is active on the four Apple slices. Absent on wasm /
+// Linux host.
+#[cfg(target_vendor = "apple")]
+mod present;
 mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
@@ -238,6 +244,9 @@ pub use white_balance::{apply_white_balance, WhiteBalancePass};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use exposure::run_exposure_gpu;
+
+#[cfg(target_vendor = "apple")]
+pub use present::present_test_pattern;
 
 /// Deterministic RGBA f32 test buffer spanning values < 1, = 1, > 1 (some
 /// channels exceed 1 so the multiply is exercised in scene-linear range).

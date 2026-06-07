@@ -66,6 +66,56 @@ pub extern "C" fn maple_gpu_exposure_parity(n_pixels: u32, ev: f32, out_max_diff
     0
 }
 
+/// Passthrough display proof (P1b / #988): create a wgpu surface from `layer`
+/// (a `CAMetalLayer*`), configure it at `width × height`, render the
+/// deterministic four-quadrant test pattern (red/green/blue/white — see
+/// `present.wgsl`), and present it — with NO CPU readback. This proves the
+/// second half of the #1 risk: that wgpu can present to a `CAMetalLayer` on
+/// Metal. It is PLUMBING only; the colour-correct display encode is P2.
+///
+/// The Swift caller hosts the `CAMetalLayer` (via `UIViewRepresentable` /
+/// `NSViewRepresentable`), sets its `colorspace` tag explicitly (the
+/// authoritative colour-space declaration), and passes the layer pointer here.
+///
+/// # Safety
+/// `layer` must be a valid, non-null `CAMetalLayer*` that remains valid for the
+/// duration of this call. The wgpu surface created from it is dropped before
+/// this function returns.
+///
+/// Returns:
+///   0  success — a frame was presented
+///  -1  `layer` is null
+///  -2  `width == 0` or `height == 0`
+///  -3  a wgpu step failed (adapter/device/surface/present) — see
+///       `maple_last_error` for the message
+///
+/// Apple-only: `raw_gpu::present_test_pattern` (and wgpu's `CoreAnimationLayer`
+/// surface) exist only on `target_vendor = "apple"`. raw-ffi only ever targets
+/// Apple slices + the macOS host, so this gate is a no-op there.
+#[cfg(target_vendor = "apple")]
+#[no_mangle]
+pub unsafe extern "C" fn maple_gpu_present_test_pattern(
+    layer: *mut std::ffi::c_void,
+    width: u32,
+    height: u32,
+) -> i32 {
+    if layer.is_null() {
+        return -1;
+    }
+    if width == 0 || height == 0 {
+        return -2;
+    }
+    // SAFETY: `layer` is non-null and is a valid CAMetalLayer* per this fn's
+    // contract; raw_gpu drops the surface before returning.
+    match unsafe { raw_gpu::present_test_pattern(layer, width, height) } {
+        Ok(()) => 0,
+        Err(msg) => {
+            crate::error::set_last_error(format!("gpu present: {msg}"));
+            -3
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
