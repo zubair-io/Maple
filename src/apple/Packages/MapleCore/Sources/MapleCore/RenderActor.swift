@@ -86,7 +86,34 @@ public actor RenderActor {
     var decodedImage: CIImage?
     var decodedRawResolution: CGSize = .zero
     var decodedForAssetID: AssetRef.ID?
-    var decodedSidecarMtime: Date?
+
+    /// The "baked" model the cached `decodedImage` was decoded from — the
+    /// `RawCoreBridge.stripAppleGPUStages(…)` of the asset's sidecar model
+    /// at decode time (#950). This replaces the old sidecar-mtime freshness
+    /// key for the IN-MEMORY decoded-image cache only.
+    ///
+    /// Why not mtime: the decoded scene-linear buffer is a pure function of
+    /// `(raw bytes, stripAppleGPUStages(model), profile, target)`. The
+    /// Apple-GPU stages are stripped before decode and re-applied LIVE per
+    /// tick (`maple_apply_scene_linear_chain`), so editing a STRIPPED field
+    /// (exposure, nrColor, sharpenAmount, …) does NOT change the decode —
+    /// yet the 750 ms-debounced XMP autosave bumps the sidecar mtime, so the
+    /// old key forced a full ~15 s re-decode on the first edit after any
+    /// drag pause. Keying on the stripped model is correct by construction:
+    /// identical stripped model ⇒ identical decode ⇒ cache hit; a change to
+    /// any *baked* (KEPT) field — `highlightRecovery`,
+    /// `captureSharpeningAmount/Sigma`, the unsharp `sharpenRadius/Detail/
+    /// Masking` — changes the value and forces a re-decode. We store the
+    /// stripped model itself and compare by value (`==`): a hash would be a
+    /// collision risk for zero benefit on a single in-memory comparison.
+    ///
+    /// `nil` = "no sidecar on disk at decode time" (the FFI used
+    /// `AdjustmentModel::default()`, which is already in the stripped state).
+    /// The rendered-preview DISK cache (`RenderedPreviewCache`) and the
+    /// deep-zoom tile cache KEEP sidecar-mtime — they depend on the FULL
+    /// model and are cross-session; only this in-memory cache changes.
+    var decodedBakedModel: AdjustmentModel?
+
     var decodedAtModel: AdjustmentModel?
 
     /// Profile the cached `decodedImage` was developed for (#871). The
@@ -370,11 +397,16 @@ public actor RenderActor {
 
     // MARK: - Test hooks
 
+    /// Seed the decoded-image cache directly for tests. `bakedModel` is the
+    /// stripped model the buffer is treated as having been decoded from
+    /// (#950) — pass it explicitly to drive freshness assertions, or leave
+    /// it `nil` to capture the asset's current on-disk sidecar (production
+    /// parity, matching `seed(...)`).
     internal func _testSeedDecodedCache(
         asset: AssetRef,
         decoded: CIImage,
         rawResolution: CGSize,
-        sidecarMtime: Date?,
+        bakedModel: AdjustmentModel? = nil,
         decodedAtModel: AdjustmentModel? = nil,
         isFull: Bool = true,
         profile: Profile? = nil
@@ -382,7 +414,7 @@ public actor RenderActor {
         self.decodedImage = decoded
         self.decodedRawResolution = rawResolution
         self.decodedForAssetID = asset.id
-        self.decodedSidecarMtime = sidecarMtime
+        self.decodedBakedModel = bakedModel ?? Self.bakedModel(for: asset)
         self.decodedAtModel = decodedAtModel
         self.decodedIsFull = isFull
         self.decodedProfile = profile

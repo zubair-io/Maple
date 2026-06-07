@@ -131,7 +131,7 @@ final class RenderActorTests: XCTestCase {
         let ci = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8))
         await actor._testSeedDecodedCache(
             asset: asset, decoded: ci, rawResolution: CGSize(width: 8, height: 8),
-            sidecarMtime: nil, isFull: true
+            isFull: true
         )
         var isFull = await actor._testDecodedIsFull()
         XCTAssertTrue(isFull, "test seed with isFull: true should report full")
