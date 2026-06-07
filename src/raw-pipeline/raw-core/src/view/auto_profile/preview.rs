@@ -16,16 +16,16 @@
 //!    X3F) return the trait default `None` and fall through to the next tier.
 //!    This is the in-process tier that works on the sandboxed Apple app, iOS,
 //!    and Web/WASM, none of which can spawn a subprocess (#927).
-//! 3. rawler `thumbnail_image()` — in-process. Recovers the reduced-res
-//!    (`NewSubFileType==1`) preview when it lives in the ROOT IFD rather than a
-//!    sub-IFD (some DNGs, e.g. Apple/iPhone), which `full_image` doesn't check.
-//!    Targets `NewSubFileType==1`, so it never returns the full-res RAW-as-JPEG
-//!    beside it — non-circular (#930).
+//! 3. rawler `thumbnail_image()` (DNG only) — in-process. Recovers the
+//!    reduced-res (`NewSubFileType==1`) preview when it lives in the ROOT IFD
+//!    rather than a sub-IFD (some DNGs, e.g. Apple/iPhone), which `full_image`
+//!    doesn't check. Targets `NewSubFileType==1`, so it never returns the
+//!    full-res RAW-as-JPEG beside it — non-circular (#930).
 //! 4. embedded-JPEG byte scan — in-process, last resort, ONLY for non-TIFF
-//!    containers rawler can't expose as IFDs (e.g. Sigma X3F). Such formats
-//!    embed a JPEG preview but never RAW-as-JPEG, so the largest color JPEG is
-//!    safely the preview; gated on "no Root IFD" so it can never fire on a
-//!    TIFF/DNG where a blind scan would be circular (#930).
+//!    containers (e.g. Sigma X3F). Such formats embed a JPEG preview but never
+//!    RAW-as-JPEG, so the largest color JPEG is safely the preview; gated on the
+//!    file lacking TIFF magic so it can never fire on a TIFF/DNG where a blind
+//!    scan would be circular (#930).
 //! 5. exiftool subprocess (path variant only) — last resort for files rawler
 //!    can't decode natively (e.g. iPhone 12 Pro LinearDNG, pre-2020 Adobe DNG).
 //!    UNAVAILABLE in the sandboxed macOS app, on iOS, and on Web/WASM, so it
@@ -38,7 +38,7 @@ use std::path::Path;
 use std::process::Command;
 
 use image::DynamicImage;
-use rawler::decoders::{RawDecodeParams, WellKnownIFD};
+use rawler::decoders::{FormatHint, RawDecodeParams};
 use rawler::rawsource::RawSource;
 
 use crate::color::matrices::{M_REC2020_TO_SRGB, M_XYZ_D65_TO_REC2020};
@@ -253,19 +253,27 @@ fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
         return Some(img);
     }
     // `full_image` only checks SUB-IFDs for the `NewSubFileType==1` reduced-res
-    // preview; some DNGs (e.g. Apple/iPhone) store that preview in the ROOT IFD,
-    // which rawler's `thumbnail_image` checks. It targets `NewSubFileType==1`,
-    // so it never returns the full-res RAW-as-JPEG (`NewSubFileType==0`) that can
-    // sit beside it in a lossy/linear DNG — non-circular (#930).
-    if let Ok(Some(img)) = decoder.thumbnail_image(src, &params) {
-        return Some(img);
+    // preview; some DNGs (e.g. Apple/iPhone) store it in the ROOT IFD instead,
+    // which rawler's `thumbnail_image` checks. It targets `NewSubFileType==1`, so
+    // it never returns the full-res RAW-as-JPEG (`NewSubFileType==0`) beside it in
+    // a lossy/linear DNG — non-circular (#930). Gate on DNG: the root-IFD preview
+    // is a DNG quirk, and `thumbnail_image`'s trait default logs a warning + does
+    // nothing for every other decoder, so calling it unconditionally would be
+    // log-noise on the X3F / no-preview paths that reach here.
+    if decoder.format_hint() == FormatHint::DNG {
+        if let Ok(Some(img)) = decoder.thumbnail_image(src, &params) {
+            return Some(img);
+        }
     }
-    // Last in-process resort for a non-TIFF container rawler can't expose as
-    // IFDs (e.g. Sigma X3F — Foveon, with no full/preview/thumbnail). Such
-    // formats embed a JPEG preview but never RAW-as-JPEG, so the largest color
-    // JPEG is safely the preview. GATE on "no Root IFD" so this can never run
-    // for a TIFF/DNG, where RAW-as-JPEG lives and a blind scan would be circular.
-    if decoder.ifd(WellKnownIFD::Root).ok().flatten().is_none() {
+    // Last in-process resort for a NON-TIFF container (e.g. Sigma X3F — Foveon,
+    // with no full/preview/thumbnail). Such formats embed a JPEG preview but
+    // never RAW-as-JPEG, so the largest color JPEG is safely the preview. GATE on
+    // the file NOT being a TIFF container: every format that can carry a
+    // RAW-as-JPEG (DNG and the other TIFF-based raws) starts with TIFF magic, so
+    // this can never run there and go circular. (`ifd(Root)` is NOT a usable
+    // "non-TIFF" proxy — only the DNG decoder implements `ifd()`, so every other
+    // TIFF raw also reports no Root IFD.)
+    if !is_tiff_container(src.buf()) {
         if let Some(img) = largest_embedded_jpeg(src.buf()) {
             return Some(img);
         }
@@ -273,10 +281,22 @@ fn extract_preview_from_rawsource(src: &RawSource) -> Option<DynamicImage> {
     None
 }
 
+/// TIFF container magic: little-endian `II 2A 00` or big-endian `MM 00 2A`. DNG
+/// and the TIFF-based raws (CR2/NEF/ARW/RW2/…) all start with it; non-TIFF
+/// containers (Sigma X3F `FOVb`, Canon CR3 BMFF, Fuji RAF `FUJIFILM`) do not.
+/// Used to gate the embedded-JPEG byte scan away from any container that could
+/// hold a RAW-as-JPEG.
+fn is_tiff_container(buf: &[u8]) -> bool {
+    matches!(
+        buf.get(0..4),
+        Some([0x49, 0x49, 0x2A, 0x00]) | Some([0x4D, 0x4D, 0x00, 0x2A])
+    )
+}
+
 /// Last-resort IN-PROCESS preview for non-TIFF containers (#930): scan `bytes`
 /// for embedded JPEG streams and return the largest COLOR JPEG that clears a
-/// min-edge threshold. Only reached when rawler exposes no Root IFD, so it can
-/// never see a TIFF RAW-as-JPEG. The filters are belt-and-suspenders:
+/// min-edge threshold. Only reached for non-TIFF files (see `is_tiff_container`),
+/// so it can never see a TIFF RAW-as-JPEG. The filters are belt-and-suspenders:
 ///   * require `FF D8 FF` (JPEG SOI + a marker) to skip the many coincidental
 ///     `FF D8` byte pairs in sensor data;
 ///   * reject grayscale decodes (a CFA RAW stored as a 1-component JPEG);
