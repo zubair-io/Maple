@@ -3,15 +3,24 @@
 //
 // EditSession caches the Rust scene-linear FFI's full-native output as
 // the actor's `decodedImage` so subsequent slider/zoom/pan calls reuse
-// it instead of re-crossing the FFI per tick. Two invariants are
-// load-bearing:
+// it instead of re-crossing the FFI per tick. The load-bearing invariants:
 //
 //   1. Same asset twice → second open hits the cache (fresh check
 //      returns true; the cold-path `sharedDecode` short-circuits).
-//   2. Sidecar mtime change → cache invalidates (fresh check returns
-//      false). The Rust path bakes sidecar-driven stages
-//      (highlight_recovery, profile-driven WB) into the buffer, so an
-//      external XMP edit demands a fresh decode.
+//   2. A change to a BAKED (KEPT) field — `highlightRecovery`,
+//      `captureSharpeningAmount/Sigma`, the unsharp radius/detail/masking
+//      — invalidates the cache (fresh check returns false). Those bake
+//      into the decoded buffer, so editing one demands a fresh decode.
+//   3. (#950) A change to a STRIPPED field — exposure, nrColor,
+//      sharpenAmount, WB, … — does NOT invalidate the cache. Those are
+//      stripped before decode and re-applied LIVE per tick
+//      (`maple_apply_scene_linear_chain`), so the decoded buffer is
+//      unchanged. The old freshness key was sidecar MTIME, which the
+//      750 ms-debounced autosave bumps on *every* save (including saves of
+//      stripped fields), forcing a spurious ~15 s re-decode on the first
+//      edit after a drag pause. #950 re-keys on the *baked* model (the
+//      `stripAppleGPUStages` of the sidecar model) so only invariant-2
+//      edits invalidate.
 //
 // These tests exercise the freshness state machine directly. The
 // fixture-gated companion test `testColdOpenSecondRenderUsesCachedDecode`
@@ -20,7 +29,7 @@
 //
 // Slice 2 of issue #194: the cache fields moved off EditSession onto
 // `RenderActor`. The test surface is `session.renderActor.…` instead of
-// `session.…`, but the assertions stay the same.
+// `session.…`.
 
 import XCTest
 import CoreImage
@@ -55,11 +64,20 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         return (attrs[.modificationDate] as? Date) ?? Date()
     }
 
+    /// Write a real XMP sidecar serialised from `model` so the freshness
+    /// key (`RenderActor.bakedModel(for:)` → `stripAppleGPUStages(parse)`)
+    /// sees the exact baked-vs-stripped field values under test (#950).
+    @discardableResult
+    private func writeSidecar(at url: URL, model: AdjustmentModel) throws -> Date {
+        let xml = XMPSerializer.serialize(model: model, culling: CullingState())
+        return try writeSidecar(at: url, content: xml)
+    }
+
     // MARK: - Tests
 
     /// A freshly-seeded cache (no sidecar on disk) is fresh — the
-    /// freshness check sees `decodedSidecarMtime == nil` and the live
-    /// mtime is also `nil` (file doesn't exist), so they match.
+    /// freshness check sees `decodedBakedModel == nil` and the live baked
+    /// model is also `nil` (no sidecar on disk), so they match (#950).
     func testFreshlySeededCacheIsFreshWhenNoSidecarPresent() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -68,8 +86,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         await session.renderActor._testSeedDecodedCache(
             asset: asset,
             decoded: makeDecoded(),
-            rawResolution: CGSize(width: 100, height: 100),
-            sidecarMtime: nil
+            rawResolution: CGSize(width: 100, height: 100)
         )
 
         let populated = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
@@ -79,67 +96,208 @@ final class EditSessionDecodedCacheTests: XCTestCase {
             "cache with no sidecar at decode and no sidecar live should be fresh")
     }
 
-    /// A freshly-seeded cache (sidecar on disk, mtime captured) is
-    /// fresh until the sidecar is touched.
-    func testFreshlySeededCacheIsFreshWhenSidecarMtimeMatches() async throws {
+    /// A freshly-seeded cache (sidecar on disk, baked model captured) is
+    /// fresh while the sidecar's baked fields are unchanged (#950).
+    func testFreshlySeededCacheIsFreshWhenBakedModelMatches() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
 
         guard let sidecarURL = asset.sidecarURL else {
             return XCTFail("file-backed asset must have a sidecar URL")
         }
-        let mtime = try writeSidecar(at: sidecarURL)
+        _ = try writeSidecar(at: sidecarURL)
 
         let session = EditSession(asset: asset)
         await session.renderActor._testSeedDecodedCache(
             asset: asset,
             decoded: makeDecoded(),
-            rawResolution: CGSize(width: 100, height: 100),
-            sidecarMtime: mtime
+            rawResolution: CGSize(width: 100, height: 100)
         )
 
         let fresh = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
         XCTAssertTrue(fresh,
-            "cache mtime equal to live sidecar mtime should be fresh")
+            "cache baked model equal to live sidecar baked model should be fresh")
     }
 
-    /// Bumping the sidecar (rewriting the XMP) flips the cache stale
-    /// — the live mtime now exceeds the captured one.
-    func testCacheIsStaleAfterSidecarMtimeBumps() async throws {
+    // MARK: - #950: baked vs stripped field freshness
+
+    /// THE WIN (#950): editing a STRIPPED field (exposure / nrColor /
+    /// sharpenAmount / WB) rewrites the sidecar — bumping its mtime — but
+    /// does NOT change the decoded buffer (those stages are stripped before
+    /// decode and re-applied live per tick). So the in-memory decode cache
+    /// must stay FRESH. Under the old sidecar-mtime key this returned stale
+    /// and forced a spurious ~15 s re-decode on the first edit after a
+    /// drag pause; the baked-model key fixes it.
+    func testStrippedFieldEditKeepsCacheFresh() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
-
         guard let sidecarURL = asset.sidecarURL else {
             return XCTFail("file-backed asset must have a sidecar URL")
         }
-        let mtime0 = try writeSidecar(at: sidecarURL)
 
+        // Decode-time sidecar: a non-default STRIPPED field already set.
+        try writeSidecar(at: sidecarURL, model: { var m = AdjustmentModel(); m.exposure = 0.4; return m }())
         let session = EditSession(asset: asset)
         await session.renderActor._testSeedDecodedCache(
             asset: asset,
             decoded: makeDecoded(),
-            rawResolution: CGSize(width: 100, height: 100),
-            sidecarMtime: mtime0
+            rawResolution: CGSize(width: 100, height: 100)
         )
         let freshBefore = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
         XCTAssertTrue(freshBefore,
-            "precondition: cache is fresh before sidecar bumps")
+            "precondition: cache fresh before the stripped-field edit")
 
-        // Sleep past 1 sec so APFS's whole-second mtime granularity
-        // actually records a change. Subsecond writes would no-op the
-        // mtime field on some macOS versions.
+        // The autosave lands a DIFFERENT stripped-field value (the slider
+        // moved). Sleep past APFS's 1 s mtime granularity so the mtime
+        // genuinely changes — proving the old key WOULD have gone stale.
         try await Task.sleep(for: .milliseconds(1100))
-        _ = try writeSidecar(at: sidecarURL, content: "<x:xmpmeta version=\"2\"/>")
+        try writeSidecar(at: sidecarURL, model: {
+            var m = AdjustmentModel()
+            m.exposure = 1.9    // exposure  — stripped
+            m.nrColor = 80      // nrColor   — stripped
+            m.saturation = -30  // saturation — stripped
+            m.temperature = 5200 // WB        — stripped
+            return m
+        }())
 
         let freshAfter = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
-        XCTAssertFalse(freshAfter,
-            "rewriting the sidecar should bump mtime and stale the cache")
+        XCTAssertTrue(freshAfter,
+            "a stripped-field edit must NOT invalidate the decode cache (#950) — "
+            + "the buffer is unchanged; the stages are re-applied live per tick")
     }
 
-    /// Capturing an mtime when no sidecar existed, then creating one
-    /// later, should also stale the cache — the Rust path used the
-    /// no-sidecar default model, but a sidecar now exists with
-    /// potentially different stages baked in.
+    /// The other half of #950: editing a BAKED (KEPT) field DOES change
+    /// the decoded buffer (those stages run inside the decode and have no
+    /// live Apple-GPU equivalent), so the cache must go STALE and force a
+    /// re-decode. This is the bug we must NOT introduce by dropping mtime.
+    func testKeptFieldEditInvalidatesCache() async throws {
+        let (asset, dir) = try makeAsset()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        guard let sidecarURL = asset.sidecarURL else {
+            return XCTFail("file-backed asset must have a sidecar URL")
+        }
+
+        try writeSidecar(at: sidecarURL, model: AdjustmentModel())
+        let session = EditSession(asset: asset)
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
+            decoded: makeDecoded(),
+            rawResolution: CGSize(width: 100, height: 100)
+        )
+        let freshBefore = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(freshBefore,
+            "precondition: cache fresh before the kept-field edit")
+
+        // highlightRecovery is a KEPT field (pre-DCP, no chain equivalent).
+        try await Task.sleep(for: .milliseconds(1100))
+        try writeSidecar(at: sidecarURL, model: {
+            var m = AdjustmentModel(); m.highlightRecovery = .blend; return m
+        }())
+        let staleAfterHR = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertFalse(staleAfterHR,
+            "editing highlightRecovery (a baked/KEPT field) must invalidate the "
+            + "decode cache — it bakes into the buffer (#950)")
+
+        // captureSharpeningAmount is the other classic KEPT field (runs in
+        // the Rust develop, post-DCP). Re-seed, then flip it.
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset,
+            decoded: makeDecoded(),
+            rawResolution: CGSize(width: 100, height: 100))
+        try await Task.sleep(for: .milliseconds(1100))
+        try writeSidecar(at: sidecarURL, model: {
+            var m = AdjustmentModel(); m.highlightRecovery = .blend
+            m.captureSharpeningAmount = 50; return m
+        }())
+        let staleAfterCS = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertFalse(staleAfterCS,
+            "editing captureSharpeningAmount (a baked/KEPT field) must invalidate "
+            + "the decode cache (#950)")
+    }
+
+    /// Belt-and-braces on the strip contract: a KEPT *detail* field
+    /// (`sharpenRadius`) invalidates while its STRIPPED sibling
+    /// (`sharpenAmount`) does not — the two live on the same tool but split
+    /// across the strip boundary (`RawCoreBridge` header).
+    func testSharpenRadiusKeptButAmountStripped() async throws {
+        let (asset, dir) = try makeAsset()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        guard let sidecarURL = asset.sidecarURL else {
+            return XCTFail("file-backed asset must have a sidecar URL")
+        }
+
+        try writeSidecar(at: sidecarURL, model: AdjustmentModel())
+        let session = EditSession(asset: asset)
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset, decoded: makeDecoded(),
+            rawResolution: CGSize(width: 100, height: 100))
+
+        // sharpenAmount (stripped) → still fresh.
+        try await Task.sleep(for: .milliseconds(1100))
+        try writeSidecar(at: sidecarURL, model: {
+            var m = AdjustmentModel(); m.sharpenAmount = 120; return m
+        }())
+        let freshAfterAmount = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(freshAfterAmount,
+            "sharpenAmount is stripped → no invalidation (#950)")
+
+        // sharpenRadius (kept) → stale. Re-seed against the current sidecar
+        // first so we isolate the radius change.
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset, decoded: makeDecoded(),
+            rawResolution: CGSize(width: 100, height: 100))
+        try writeSidecar(at: sidecarURL, model: {
+            var m = AdjustmentModel(); m.sharpenAmount = 120; m.sharpenRadius = 2.5; return m
+        }())
+        let staleAfterRadius = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertFalse(staleAfterRadius,
+            "sharpenRadius is KEPT → must invalidate (#950)")
+    }
+
+    /// `profile` must be normalised OUT of the baked-model freshness key:
+    /// a sidecar edit that changes ONLY the profile must keep the in-memory
+    /// decode cache FRESH (#950). Profile freshness is owned separately by
+    /// `decodedProfile` / `profileMatches` (#871); the decode's profile
+    /// comes from the live override, not the sidecar, and the autosave is
+    /// debounced — so if the sidecar profile were in the key, a profile
+    /// toggle would force a wasteful re-decode ~750 ms later (when the save
+    /// lands) even though the #871 path already produced the right buffer.
+    func testProfileOnlySidecarChangeKeepsCacheFresh() async throws {
+        let (asset, dir) = try makeAsset()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        guard let sidecarURL = asset.sidecarURL else {
+            return XCTFail("file-backed asset must have a sidecar URL")
+        }
+
+        // Decode-time sidecar: explicit Neutral profile.
+        try writeSidecar(at: sidecarURL, model: {
+            var m = AdjustmentModel(); m.profile = .neutral; return m
+        }())
+        let session = EditSession(asset: asset)
+        await session.renderActor._testSeedDecodedCache(
+            asset: asset, decoded: makeDecoded(),
+            rawResolution: CGSize(width: 100, height: 100))
+        let freshBefore = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(freshBefore, "precondition: cache fresh before the profile flip")
+
+        // The debounced autosave lands the toggled profile (Neutral → Auto)
+        // and NOTHING else. The baked-model key must ignore it.
+        try await Task.sleep(for: .milliseconds(1100))
+        try writeSidecar(at: sidecarURL, model: {
+            var m = AdjustmentModel(); m.profile = .auto; return m
+        }())
+        let freshAfter = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
+        XCTAssertTrue(freshAfter,
+            "a profile-only sidecar change must NOT invalidate the decode cache "
+            + "(#950 / #871) — profile freshness is keyed separately via decodedProfile")
+    }
+
+    /// Decoding with no sidecar (the FFI uses `AdjustmentModel::default()`,
+    /// baked model captured as `nil`), then a sidecar APPEARING, must stale
+    /// the cache — the decode call shape differs (null xmp_path vs a temp
+    /// XMP) and the new sidecar may carry baked stages. #950 preserves this
+    /// nil-vs-present edge by representing "no sidecar" as a `nil` baked
+    /// model rather than `stripAppleGPUStages(.default)`.
     func testCacheIsStaleWhenSidecarAppearsAfterDecode() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -148,13 +306,12 @@ final class EditSessionDecodedCacheTests: XCTestCase {
             return XCTFail("file-backed asset must have a sidecar URL")
         }
 
-        // Decode happened with no sidecar on disk → captured mtime nil.
+        // Decode happened with no sidecar on disk → captured baked nil.
         let session = EditSession(asset: asset)
         await session.renderActor._testSeedDecodedCache(
             asset: asset,
             decoded: makeDecoded(),
-            rawResolution: CGSize(width: 100, height: 100),
-            sidecarMtime: nil
+            rawResolution: CGSize(width: 100, height: 100)
         )
         let freshBefore = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
         XCTAssertTrue(freshBefore,
@@ -164,13 +321,13 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         _ = try writeSidecar(at: sidecarURL)
         let freshAfter = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
         XCTAssertFalse(freshAfter,
-            "live mtime present where decoded captured nil should stale the cache")
+            "a sidecar appearing where the decode captured nil should stale the cache")
     }
 
-    /// Conversely, capturing an mtime when a sidecar existed, then
-    /// deleting the sidecar, should also stale the cache — the cached
-    /// buffer was decoded with sidecar stages applied, but a fresh
-    /// decode would now use the default model.
+    /// Conversely, decoding with a sidecar present (baked model captured),
+    /// then DELETING the sidecar, should also stale the cache — the cached
+    /// buffer was decoded with the sidecar's baked stages, but a fresh
+    /// decode would now use the default model via a null xmp_path (#950).
     func testCacheIsStaleWhenSidecarDisappearsAfterDecode() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -178,14 +335,17 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         guard let sidecarURL = asset.sidecarURL else {
             return XCTFail("file-backed asset must have a sidecar URL")
         }
-        let mtime = try writeSidecar(at: sidecarURL)
+        // Give the decode-time sidecar a non-default BAKED field so its
+        // captured baked model is distinct from the post-delete `nil`.
+        try writeSidecar(at: sidecarURL, model: {
+            var m = AdjustmentModel(); m.highlightRecovery = .luminance; return m
+        }())
 
         let session = EditSession(asset: asset)
         await session.renderActor._testSeedDecodedCache(
             asset: asset,
             decoded: makeDecoded(),
-            rawResolution: CGSize(width: 100, height: 100),
-            sidecarMtime: mtime
+            rawResolution: CGSize(width: 100, height: 100)
         )
         let freshBefore = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
         XCTAssertTrue(freshBefore,
@@ -194,14 +354,13 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         try FileManager.default.removeItem(at: sidecarURL)
         let freshAfter = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
         XCTAssertFalse(freshAfter,
-            "live mtime nil where decoded captured a real value should stale the cache")
+            "a sidecar disappearing where the decode captured a baked model should stale the cache")
     }
 
-    /// `invalidateDecodedCache()` MUST clear every cache field —
-    /// otherwise a follow-up populated-check would still claim "we have
-    /// a cache" with stale data behind it. The `decodedSidecarMtime`
-    /// field was added in this branch and could be left lingering by an
-    /// incomplete invalidate.
+    /// `invalidate()` MUST clear every cache field — otherwise a follow-up
+    /// populated-check would still claim "we have a cache" with stale data
+    /// behind it. The `decodedBakedModel` freshness key (#950, replacing
+    /// `decodedSidecarMtime`) must be among the fields cleared.
     func testInvalidateClearsAllCacheFields() async throws {
         let (asset, dir) = try makeAsset()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -209,14 +368,13 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         guard let sidecarURL = asset.sidecarURL else {
             return XCTFail("file-backed asset must have a sidecar URL")
         }
-        let mtime = try writeSidecar(at: sidecarURL)
+        _ = try writeSidecar(at: sidecarURL)
 
         let session = EditSession(asset: asset)
         await session.renderActor._testSeedDecodedCache(
             asset: asset,
             decoded: makeDecoded(),
             rawResolution: CGSize(width: 100, height: 100),
-            sidecarMtime: mtime,
             decodedAtModel: AdjustmentModel.default
         )
         let populated = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
@@ -224,9 +382,6 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         let atModel = await session.renderActor._testDecodedAtModel
         XCTAssertNotNil(atModel)
 
-        // Public sync forwarder is fire-and-forget — fence on a direct
-        // actor invalidate so the test doesn't race against the Task
-        // queue.
         await session.renderActor.invalidate()
 
         let populatedAfter = await session.renderActor._testDecodedCachePopulated(forAsset: asset)
@@ -235,16 +390,15 @@ final class EditSessionDecodedCacheTests: XCTestCase {
         let atModelAfter = await session.renderActor._testDecodedAtModel
         XCTAssertNil(atModelAfter,
             "invalidate must clear decodedAtModel")
-        // Re-seed with the same mtime — if `decodedSidecarMtime` had
-        // not been cleared, this would short-circuit to "fresh"
-        // immediately. We seed afresh and check that freshness state
-        // depends only on the new seed, proving the invalidate cleared
-        // the prior mtime capture.
+        // After invalidate the cache is empty: `_testDecodedCachePopulated`
+        // is false because `decodedForAssetID`/`decodedImage` were cleared,
+        // and `decodedBakedModel` is nil. Re-seed afresh and confirm
+        // freshness depends only on the new seed (proving the prior baked
+        // capture didn't linger).
         await session.renderActor._testSeedDecodedCache(
             asset: asset,
             decoded: makeDecoded(),
-            rawResolution: CGSize(width: 100, height: 100),
-            sidecarMtime: mtime
+            rawResolution: CGSize(width: 100, height: 100)
         )
         let freshAgain = await session.renderActor._testDecodedCacheIsFresh(forAsset: asset)
         XCTAssertTrue(freshAgain)
