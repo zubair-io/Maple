@@ -80,7 +80,7 @@ Consequences:
 Alternatives considered and deferred:
 
 - **New `raw-gpu` crate.** Cleaner long-term boundary, but unnecessary
-  scaffolding to *prove* the approach. Introduce it in **P1** when the resource
+  scaffolding to _prove_ the approach. Introduce it in **P1** when the resource
   layer (buffer pool, ping-pong, surface handoff) actually grows — that is the
   natural home for a dedicated crate.
 - **Throwaway example/bin.** Fastest proof, but lays no foundation P1 builds on.
@@ -94,7 +94,7 @@ with iOS-device validation as a manual checkpoint.
 **The stage — Exposure.** Scene-linear `rgb *= 2^EV`, alpha untouched. Chosen
 because it is a pure per-channel multiply with **no LUT and no constants**: if
 parity fails, the cause is the GPU plumbing, not the color math. The spike
-implements exposure as a **standalone oracle**, deliberately *not* wired into the
+implements exposure as a **standalone oracle**, deliberately _not_ wired into the
 full decode pipeline (that integration is P1/P4) — so the spike isolates
 plumbing only.
 
@@ -116,7 +116,7 @@ additively in EV. The spike's oracle mirrors that multiply.
 4. **Native parity test** (`raw-core`, `gpu` feature) — a deterministic test
    buffer spanning values `< 1`, `= 1`, `> 1` (and near-zero / large to exercise
    float behavior); run the oracle vs the GPU kernel for `ev ∈ {-3, 0, +0.5,
-   +4}`; assert **max abs diff < 1e-4** (mirrors `glsl_port_matches_rust_lut` in
++4}`; assert **max abs diff < 1e-4** (mirrors `glsl_port_matches_rust_lut` in
    `raw-core/src/view/agx.rs`). On macOS this runs wgpu→**Metal** — which is the
    macOS validation.
 5. **Web harness** (`raw-wasm`, `gpu` feature) — a `wasm-bindgen` entry that
@@ -128,7 +128,7 @@ additively in EV. The spike's oracle mirrors that multiply.
 
 - **Dispatched** (one focused background agent — P0 is one cohesive spike, not a
   parallel fan-out): deps, oracle, WGSL kernel, native Metal parity test, web
-  WebGPU harness, *attempt* automated headless WebGPU validation, open a PR that
+  WebGPU harness, _attempt_ automated headless WebGPU validation, open a PR that
   closes the P0 ticket.
 - **Checkpoint (human-in-the-loop):**
   - **iOS-device** validation — manual deploy (devicectl tunnel; device logs not
@@ -152,13 +152,13 @@ additively in EV. The spike's oracle mirrors that multiply.
 
 ## Roadmap — P1–P5 (planned; detail firms up after P0)
 
-| Phase | Goal | Key risk / dependency | Folds in |
-|---|---|---|---|
-| **P1 — Resource layer** | Upload-once + ping-pong buffers; display straight from the GPU texture (no readback); preview vs full-res handling; two-phase fast/refine wiring. Likely introduce the `raw-gpu` crate here. | Unified-memory buffer storage modes on Apple Silicon; surface/texture handoff to the Apple display layer on device | — |
-| **P2 — Scene-linear chain → WGSL** | Port the scene-linear stages (WB, scene tone controls, tone curves, vibrance, saturation, clarity, texture, dehaze, AgX, Rec.2020→sRGB display encode, Auto Profile curve + residual LUT). **Extend codegen to emit WGSL** so matrices/LUTs/curve coefficients stay single-source. Each stage parity-gated. Fan out one agent per stage. | Re-scopes #662 (MSL-only → WGSL, now Apple + web); codegen-WGSL golden-file test | #662 |
-| **P3 — Spatial filters → WGSL compute** | Port the over-budget kernels: NLM noise reduction (luma + color), sharpen / capture-sharpen (Richardson-Lucy). | Compute-shader correctness vs CPU NLM; meeting the perf budget | #312 |
-| **P4 — Wire into live paths** | Apple: replace the FFI-CPU chain + remaining MSL kernels with the wgpu path (closes the #661 round-trip gap). Web: replace the WASM-CPU live path with WebGPU (provides the GPU substrate Auto Profile previews need). Retain CPU + WebGL2 fallback. | Live perf (16 ms slider target / 50 ms hard limit); fallback selection logic | #661, #394, #819 |
-| **P5 — Decommission** | Retire the redundant MSL + GLSL implementations once parity holds on all targets. | Only after P4 is parity-green on every target | — |
+| Phase                                   | Goal                                                                                                                                                                                                                                                                                                                                     | Key risk / dependency                                                                                              | Folds in         |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------- |
+| **P1 — Resource layer**                 | Upload-once + ping-pong buffers; display straight from the GPU texture (no readback); preview vs full-res handling; two-phase fast/refine wiring. Likely introduce the `raw-gpu` crate here.                                                                                                                                             | Unified-memory buffer storage modes on Apple Silicon; surface/texture handoff to the Apple display layer on device | —                |
+| **P2 — Scene-linear chain → WGSL**      | Port the scene-linear stages (WB, scene tone controls, tone curves, vibrance, saturation, clarity, texture, dehaze, AgX, Rec.2020→sRGB display encode, Auto Profile curve + residual LUT). **Extend codegen to emit WGSL** so matrices/LUTs/curve coefficients stay single-source. Each stage parity-gated. Fan out one agent per stage. | Re-scopes #662 (MSL-only → WGSL, now Apple + web); codegen-WGSL golden-file test                                   | #662             |
+| **P3 — Spatial filters → WGSL compute** | Port the over-budget kernels: NLM noise reduction (luma + color), sharpen / capture-sharpen (Richardson-Lucy).                                                                                                                                                                                                                           | Compute-shader correctness vs CPU NLM; meeting the perf budget                                                     | #312             |
+| **P4 — Wire into live paths**           | Apple: replace the FFI-CPU chain + remaining MSL kernels with the wgpu path (closes the #661 round-trip gap). Web: replace the WASM-CPU live path with WebGPU (provides the GPU substrate Auto Profile previews need). Retain CPU + WebGL2 fallback.                                                                                     | Live perf (16 ms slider target / 50 ms hard limit); fallback selection logic                                       | #661, #394, #819 |
+| **P5 — Decommission**                   | Retire the redundant MSL + GLSL implementations once parity holds on all targets.                                                                                                                                                                                                                                                        | Only after P4 is parity-green on every target                                                                      | —                |
 
 Each phase lands as its own child PR closing its own ticket; the epic closes
 when all phases are parity-green on every target.

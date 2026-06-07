@@ -17,6 +17,7 @@
 ## wgpu version note (read before Task 3)
 
 `wgpu`'s setup API shifts between minor versions. This plan targets **v23**, where:
+
 - `Instance::default()` constructs the instance.
 - `instance.request_adapter(&opts).await` returns `Option<Adapter>` → use `.expect(...)`.
 - `adapter.request_device(&desc).await` takes **one** arg (the trace path was removed in v22) and returns `Result<(Device, Queue), _>`.
@@ -29,24 +30,25 @@ If the pinned patch differs, **adjust to the compiler errors** — minor API dri
 
 ## File Structure
 
-| File | Responsibility |
-|---|---|
-| `src/raw-pipeline/raw-core/Cargo.toml` (modify) | Add optional `wgpu`, `pollster`, `futures-channel` deps + `gpu` feature |
-| `src/raw-pipeline/raw-core/src/lib.rs` (modify) | `#[cfg(feature = "gpu")] pub mod gpu;` |
-| `src/raw-pipeline/raw-core/src/gpu/mod.rs` (create) | CPU oracle, shared async `wgpu` runner, native sync wrapper, parity test |
-| `src/raw-pipeline/raw-core/src/gpu/exposure.wgsl` (create) | The WGSL compute kernel |
-| `src/raw-pipeline/raw-wasm/Cargo.toml` (modify) | Add optional `wgpu`, `wasm-bindgen-futures` + `gpu` feature |
-| `src/raw-pipeline/raw-wasm/src/lib.rs` (modify) | `#[cfg(feature = "gpu")] pub mod gpu;` |
-| `src/raw-pipeline/raw-wasm/src/gpu.rs` (create) | `#[wasm_bindgen] async fn exposure_gpu_parity(...)` |
-| `src/raw-pipeline/raw-wasm/harness/exposure-webgpu/index.html` (create) | Static WebGPU parity harness page |
-| `src/raw-pipeline/raw-wasm/harness/exposure-webgpu/README.md` (create) | Build + run instructions |
-| `src/raw-pipeline/raw-wasm/harness/exposure-webgpu/.gitignore` (create) | Ignore the built `pkg/` |
+| File                                                                    | Responsibility                                                           |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `src/raw-pipeline/raw-core/Cargo.toml` (modify)                         | Add optional `wgpu`, `pollster`, `futures-channel` deps + `gpu` feature  |
+| `src/raw-pipeline/raw-core/src/lib.rs` (modify)                         | `#[cfg(feature = "gpu")] pub mod gpu;`                                   |
+| `src/raw-pipeline/raw-core/src/gpu/mod.rs` (create)                     | CPU oracle, shared async `wgpu` runner, native sync wrapper, parity test |
+| `src/raw-pipeline/raw-core/src/gpu/exposure.wgsl` (create)              | The WGSL compute kernel                                                  |
+| `src/raw-pipeline/raw-wasm/Cargo.toml` (modify)                         | Add optional `wgpu`, `wasm-bindgen-futures` + `gpu` feature              |
+| `src/raw-pipeline/raw-wasm/src/lib.rs` (modify)                         | `#[cfg(feature = "gpu")] pub mod gpu;`                                   |
+| `src/raw-pipeline/raw-wasm/src/gpu.rs` (create)                         | `#[wasm_bindgen] async fn exposure_gpu_parity(...)`                      |
+| `src/raw-pipeline/raw-wasm/harness/exposure-webgpu/index.html` (create) | Static WebGPU parity harness page                                        |
+| `src/raw-pipeline/raw-wasm/harness/exposure-webgpu/README.md` (create)  | Build + run instructions                                                 |
+| `src/raw-pipeline/raw-wasm/harness/exposure-webgpu/.gitignore` (create) | Ignore the built `pkg/`                                                  |
 
 ---
 
 ## Task 1: Add the `gpu` feature to raw-core (off by default)
 
 **Files:**
+
 - Modify: `src/raw-pipeline/raw-core/Cargo.toml`
 - Modify: `src/raw-pipeline/raw-core/src/lib.rs:30` (after `pub mod view;`)
 - Create: `src/raw-pipeline/raw-core/src/gpu/mod.rs`
@@ -93,9 +95,11 @@ pub mod gpu;
 - [ ] **Step 4: Verify the default build is unchanged (no wgpu)**
 
 Run (NO output piping — print in full):
+
 ```bash
 cd src/raw-pipeline && cargo build -p raw-core
 ```
+
 Expected: builds clean; `cargo tree -p raw-core -i wgpu` reports `wgpu` is **not** in the default tree (errors with "package ID not found", which is the pass condition).
 
 - [ ] **Step 5: Verify the gpu feature compiles**
@@ -103,6 +107,7 @@ Expected: builds clean; `cargo tree -p raw-core -i wgpu` reports `wgpu` is **not
 ```bash
 cd src/raw-pipeline && cargo build -p raw-core --features gpu
 ```
+
 Expected: builds clean with wgpu now in the tree.
 
 - [ ] **Step 6: Commit (includes the design doc + this plan)**
@@ -121,6 +126,7 @@ git commit -m "feat(gpu): add feature-gated gpu module scaffold for #925 P0 spik
 ## Task 2: CPU oracle + WGSL kernel (TDD the oracle)
 
 **Files:**
+
 - Modify: `src/raw-pipeline/raw-core/src/gpu/mod.rs`
 - Create: `src/raw-pipeline/raw-core/src/gpu/exposure.wgsl`
 
@@ -153,6 +159,7 @@ mod tests {
 ```bash
 cd src/raw-pipeline && cargo test -p raw-core --features gpu exposure_gain_doubles -- --nocapture
 ```
+
 Expected: FAIL — `cannot find function apply_exposure_gain`.
 
 - [ ] **Step 3: Implement the oracle**
@@ -181,6 +188,7 @@ pub fn apply_exposure_gain(buf: &mut [f32], ev: f32) {
 ```bash
 cd src/raw-pipeline && cargo test -p raw-core --features gpu exposure_gain_doubles -- --nocapture
 ```
+
 Expected: PASS.
 
 - [ ] **Step 5: Create the WGSL kernel**
@@ -228,6 +236,7 @@ git commit -m "feat(gpu): exposure CPU oracle + WGSL kernel for #925 P0"
 ## Task 3: wgpu runner + native parity test (macOS → Metal proof)
 
 **Files:**
+
 - Modify: `src/raw-pipeline/raw-core/src/gpu/mod.rs`
 
 - [ ] **Step 1: Write the failing parity test**
@@ -272,6 +281,7 @@ Add inside the `tests` module in `gpu/mod.rs`:
 ```bash
 cd src/raw-pipeline && cargo test -p raw-core --features gpu wgsl_exposure_matches -- --nocapture
 ```
+
 Expected: FAIL — `cannot find function run_exposure_gpu`.
 
 - [ ] **Step 3: Implement the runner**
@@ -405,6 +415,7 @@ pub async fn run_exposure_gpu_async(input: &[f32], ev: f32) -> Vec<f32> {
 ```bash
 cd src/raw-pipeline && cargo test -p raw-core --features gpu wgsl_exposure_matches -- --nocapture
 ```
+
 Expected: PASS for all four EV values (max abs diff < 1e-4). This runs wgpu→Metal on macOS.
 
 - [ ] **Step 5: Run the full gpu-feature test set**
@@ -412,6 +423,7 @@ Expected: PASS for all four EV values (max abs diff < 1e-4). This runs wgpu→Me
 ```bash
 cd src/raw-pipeline && cargo test -p raw-core --features gpu
 ```
+
 Expected: all pass.
 
 - [ ] **Step 6: Commit**
@@ -426,6 +438,7 @@ git commit -m "feat(gpu): wgpu exposure runner + native 1e-4 parity test (#925 P
 ## Task 4: raw-wasm WebGPU binding
 
 **Files:**
+
 - Modify: `src/raw-pipeline/raw-wasm/Cargo.toml`
 - Modify: `src/raw-pipeline/raw-wasm/src/lib.rs`
 - Create: `src/raw-pipeline/raw-wasm/src/gpu.rs`
@@ -492,6 +505,7 @@ pub async fn exposure_gpu_parity(n_pixels: u32, ev: f32) -> Result<f32, JsError>
 cd src/raw-pipeline && cargo build -p raw-wasm --target wasm32-unknown-unknown
 cargo build -p raw-wasm --target wasm32-unknown-unknown --features gpu
 ```
+
 Expected: both compile. (First proves the default surface is untouched; second proves the WebGPU binding builds.)
 
 - [ ] **Step 5: Commit**
@@ -508,6 +522,7 @@ git commit -m "feat(gpu): raw-wasm WebGPU exposure parity binding (#925 P0)"
 ## Task 5: WebGPU harness page + validation attempt
 
 **Files:**
+
 - Create: `src/raw-pipeline/raw-wasm/harness/exposure-webgpu/index.html`
 - Create: `src/raw-pipeline/raw-wasm/harness/exposure-webgpu/README.md`
 - Create: `src/raw-pipeline/raw-wasm/harness/exposure-webgpu/.gitignore`
@@ -590,11 +605,13 @@ automated scraping.
 cd src/raw-pipeline/raw-wasm
 wasm-pack build --target web --out-dir harness/exposure-webgpu/pkg -- --features gpu
 ```
+
 Expected: `pkg/raw_wasm.js` + `.wasm` emitted, no errors.
 
 - [ ] **Step 5: Attempt automated WebGPU validation**
 
 Serve the harness (`python3 -m http.server 8765` from the harness dir, backgrounded) and load `http://localhost:8765/` in a **WebGPU-capable** browser, then read the page text / `window.__MAPLE_PARITY_RESULT`.
+
 - If a WebGPU browser is reachable: record the result. Expected: `OVERALL: PASS`.
 - **If no WebGPU browser is available in this environment:** do NOT fail the task. Record `NO_WEBGPU` and flag web validation for the human checkpoint. The harness + binding are the deliverable; the run is the checkpoint.
 
@@ -680,7 +697,7 @@ the design doc table is the canonical summary.
 
 - **P1 — Resource layer.** Upload-once + ping-pong buffer pool; display straight
   from the GPU texture (no readback); preview vs full-res; two-phase fast/refine
-  wiring. Likely extract a `raw-gpu` crate here. *Acceptance:* a multi-stage
+  wiring. Likely extract a `raw-gpu` crate here. _Acceptance:_ a multi-stage
   chain runs GPU-resident with a single upload and zero intermediate readback;
   display-from-texture verified on macOS + WebGPU.
 - **P2 — Scene-linear chain → WGSL** (re-scopes #662). Port WB, scene tone
@@ -688,18 +705,18 @@ the design doc table is the canonical summary.
   Rec.2020→sRGB encode, Auto Profile curve + residual LUT — each parity-gated
   vs its Rust stage. **Extend codegen** (`src/raw-pipeline/codegen/`) with a
   `Wgsl` target so matrices/LUTs stay single-source; add a golden-file check.
-  Fan out one agent per stage. *Acceptance:* every ported stage < its parity
+  Fan out one agent per stage. _Acceptance:_ every ported stage < its parity
   budget on macOS + WebGPU; codegen golden green.
 - **P3 — Spatial filters → WGSL compute** (folds in #312). NLM noise reduction
-  (luma + color), sharpen / capture-sharpen (Richardson-Lucy). *Acceptance:*
+  (luma + color), sharpen / capture-sharpen (Richardson-Lucy). _Acceptance:_
   parity vs CPU NLM/sharpen within budget; preview-res within the slider budget.
 - **P4 — Wire into live paths** (closes #661; substrate for #394/#819). Apple:
   replace the FFI-CPU chain + remaining MSL kernels with the wgpu path. Web:
   replace the WASM-CPU live path with WebGPU; retain CPU + WebGL2 fallback.
-  *Acceptance:* web meets 16 ms slider target at preview res with a real fast
+  _Acceptance:_ web meets 16 ms slider target at preview res with a real fast
   phase and no per-tick readback; Apple holds/improves latency, no live readback.
 - **P5 — Decommission.** Retire the redundant MSL + GLSL implementations once
-  parity holds everywhere. *Acceptance:* MSL/GLSL render code removed; all parity
+  parity holds everywhere. _Acceptance:_ MSL/GLSL render code removed; all parity
   gates green on every target.
 
 ---
