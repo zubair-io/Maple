@@ -22,6 +22,23 @@ futures-channel = "0.3"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = "0.4"
 
+# Web present proof (P1c / #989). wasm-only: the canvas surface path needs the
+# `web_sys::HtmlCanvasElement` handle to hand wgpu, and the display-p3 re-tag pokes
+# the canvas's WebGPU context through `js_sys` (Reflect/Object/Function) on untyped
+# values. We deliberately do NOT enable any `web_sys::Gpu*` feature: wgpu-23 vendors
+# its OWN private WebGPU bindings, so pulling the public ones too would make
+# wasm-bindgen reject the build (`duplicate string enums` for `GpuCanvasAlphaMode`
+# etc). `HtmlCanvasElement` is a DOM type wgpu does not redefine, so it's safe — and
+# it's all we need. These are already in the wasm tree transitively (wgpu pulls
+# web-sys + js-sys + wasm-bindgen on wasm32); declaring them here just makes the
+# `HtmlCanvasElement` feature reachable from raw-gpu. The host + default `raw-ffi`
+# builds never see them (no wgpu, no web-sys), so the shipping path stays
+# wgpu/web-sys-free.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+
 # Test-only: parity-gate WGSL stage kernels DIRECTLY against their raw-core Rust
 # stage (epic #925 P2 / #990) — the ticket's contract is "parity vs its Rust
 # stage," not "vs a hand-copied oracle." `default-features = false` keeps the
