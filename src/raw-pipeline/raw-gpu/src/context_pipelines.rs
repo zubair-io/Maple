@@ -355,6 +355,15 @@ impl GpuContext {
         self.cs_apply_pipeline
             .get_or_init(|| compile_cs(&self.device, "cs-apply", "apply_scale"))
     }
+
+    /// The cached dither + quantize pipeline (epic #925 P4b-core / #1027). The
+    /// TERMINAL display-output encode: f32-RGBA → packed-u8-RGB with an ordered
+    /// Bayer ±0.5-LSB dither. Standalone kernel (no Oklab / matrices), like
+    /// exposure / srgb_gamma — so no generated-color-matrix concat.
+    pub fn dither_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.dither_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "dither", include_str!("dither.wgsl")))
+    }
 }
 
 /// Compile a standalone WGSL kernel (no generated-matrix concat) into a cached
