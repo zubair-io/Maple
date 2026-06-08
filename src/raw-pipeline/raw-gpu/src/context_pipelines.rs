@@ -304,6 +304,47 @@ impl GpuContext {
         self.sharpen_mix_pipeline
             .get_or_init(|| compile_standalone(&self.device, "sharpen-mix", include_str!("sharpen_mix.wgsl")))
     }
+
+    // ── Capture-sharpening (Richardson–Lucy) pipelines (#925 P3 wave 2 / #991) ─
+    //
+    // Five entry points in ONE WGSL module (`capture_sharpening.wgsl`), selected
+    // by `compile_source_entry` (naga supports multiple entry points per module),
+    // mirroring `raw_core::stages::capture_sharpening`. The luma extract uses
+    // Rec.709 weights (raw-core's deliberate approximation, NOT Rec.2020); the
+    // blur is a TRUE Gaussian (CPU-uploaded kernel weights, clamp-to-edge),
+    // distinct from `box_blur.wgsl`'s shrinking window. No Oklab, so standalone.
+
+    /// `cs_extract`: RGBA → Rec.709 luma plane. 2 storage.
+    pub fn cs_extract_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.cs_extract_pipeline
+            .get_or_init(|| compile_cs(&self.device, "cs-extract", "extract_luma"))
+    }
+
+    /// `cs_gaussian`: separable true-Gaussian blur (one axis per dispatch,
+    /// clamp-to-edge, CPU-uploaded weights). 3 storage.
+    pub fn cs_gaussian_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.cs_gaussian_pipeline
+            .get_or_init(|| compile_cs(&self.device, "cs-gaussian", "gaussian_blur"))
+    }
+
+    /// `cs_ratio`: `clamp(original / max(blur_est, 1e-6), 0, 100)`. 3 storage.
+    pub fn cs_ratio_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.cs_ratio_pipeline
+            .get_or_init(|| compile_cs(&self.device, "cs-ratio", "ratio_step"))
+    }
+
+    /// `cs_multiply`: `estimate *= blur_ratio` (in place). 2 storage.
+    pub fn cs_multiply_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.cs_multiply_pipeline
+            .get_or_init(|| compile_cs(&self.device, "cs-multiply", "multiply_step"))
+    }
+
+    /// `cs_apply`: the highlight-faded per-channel scale (both skip-paths write
+    /// `dst = src`). 4 storage.
+    pub fn cs_apply_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.cs_apply_pipeline
+            .get_or_init(|| compile_cs(&self.device, "cs-apply", "apply_scale"))
+    }
 }
 
 /// Compile a standalone WGSL kernel (no generated-matrix concat) into a cached
@@ -333,6 +374,14 @@ fn compile_nr(device: &wgpu::Device, label: &str, entry: &str) -> wgpu::ComputeP
         include_str!("noise_reduction.wgsl"),
     );
     compile_source_entry(device, label, &source, entry)
+}
+
+/// Compile one of `capture_sharpening.wgsl`'s entry points (epic #925 P3 wave 2 /
+/// #991). The module is luma-only (no Oklab), so it needs NO generated-matrix
+/// concat — it compiles standalone; `entry` selects which `@compute` fn the
+/// pipeline targets, since all five capture-sharpening kernels share one source.
+fn compile_cs(device: &wgpu::Device, label: &str, entry: &str) -> wgpu::ComputePipeline {
+    compile_source_entry(device, label, include_str!("capture_sharpening.wgsl"), entry)
 }
 
 /// The shared module-create + pipeline-create boilerplate behind every accessor,
