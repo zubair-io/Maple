@@ -116,15 +116,27 @@ impl FramePool {
         self.frame_active = false;
     }
 
+    /// Drop every cached bucket — used when a new [`crate::LiveSession`] is bound
+    /// to this context. STALE-REFERENCE SAFETY: cached bind groups hold internal
+    /// references to the SESSION's ping-pong buffers; a new session at the same
+    /// dims (same signature) allocates fresh ping-pong buffers, so a bind group
+    /// cached against the old (dropped) ones would dangle. Clearing the cache on
+    /// session creation ties cache lifetime to the session's buffer lifetime. The
+    /// hot path is ticks WITHIN one session (where the cache is fully live), not
+    /// new-image churn, so the lost cross-session reuse costs nothing real.
+    pub fn reset(&mut self) {
+        self.buckets.clear();
+        self.frame_active = false;
+        self.dispatch_cursor = 0;
+        self.scratch_cursor = 0;
+        // `alloc_count` is intentionally NOT reset — it's a cumulative diagnostic
+        // the zero-alloc test snapshots a delta across, so it must survive resets.
+    }
+
     /// Total pool allocations (misses) so far — the honest zero-alloc hook. A
     /// same-signature re-render leaves this UNCHANGED.
     pub fn alloc_count(&self) -> u64 {
         self.alloc_count.get()
-    }
-
-    /// Whether a frame is currently in flight (a pooled render window is open).
-    pub fn frame_active(&self) -> bool {
-        self.frame_active
     }
 }
 
