@@ -21,10 +21,12 @@ export interface DeDuplicateSummary {
   deduped: number;
   /** Duplicate files relocated into `_duplicates/` across all assets. */
   movedFiles: number;
-  /** Assets skipped because an involved library was offline / unregistered. */
+  /** Assets skipped because a library was offline / unregistered, or a copy
+   * couldn't be stat'd (EACCES/EIO) — the full picture couldn't be verified. */
   skippedOffline: number;
-  /** Duplicate entries skipped because the file was already gone from disk
-   * (a stale entry — left for the discover / missing-reaper path). */
+  /** Assets skipped because fewer than two copies are actually on disk right
+   * now (a stale entry from an unreconciled move) — left for the discover /
+   * missing-reaper path. Guards against relocating the last real file. */
   skippedMissingFile: number;
   /** Assets that WOULD have been deduped but were left untouched (`dry_run`). */
   dryRun: number;
