@@ -58,21 +58,57 @@ final class ChangeFeedClient {
         task = nil
     }
 
+    /// Floor delay between any two reconnect attempts. Even a perfectly
+    /// clean close waits this long before redialling — without it a
+    /// server (or proxy) that closes an idle SSE stream promptly turns
+    /// the loop into a connect→EOF→connect hot loop that pins the CPU
+    /// and keeps the radio awake. On a backgrounded File Provider
+    /// extension that is a silent, continuous battery drain.
+    static let minReconnectDelayNs: UInt64 = 1_000_000_000   // 1s
+    static let maxReconnectDelayNs: UInt64 = 16_000_000_000  // 16s
+    /// A connection that stayed up at least this long was healthy — it
+    /// streamed events or held the keepalive — so the next reconnect
+    /// drops back to the floor. Anything shorter is treated as a flap
+    /// and grows the backoff.
+    static let healthyConnectionNs: UInt64 = 15_000_000_000  // 15s
+
+    /// Pure backoff policy, factored out so it can be unit-tested without
+    /// a live socket. Returns the base delay to wait before the next
+    /// reconnect, given how long the connection that just ended lived and
+    /// the delay used before it.
+    ///
+    /// - A long-lived (healthy) connection → reset to the floor.
+    /// - A short-lived one (idle-close, proxy 200+EOF, 409, fast error)
+    ///   → exponential growth, capped, so a misbehaving endpoint can't be
+    ///   hammered in a tight loop.
+    static func nextReconnectDelay(connectionLivedNs: UInt64,
+                                   previousDelayNs: UInt64) -> UInt64 {
+        if connectionLivedNs >= healthyConnectionNs {
+            return minReconnectDelayNs
+        }
+        let base = max(previousDelayNs, minReconnectDelayNs)
+        return min(base * 2, maxReconnectDelayNs)
+    }
+
     private func runForever() async {
-        var backoffNs: UInt64 = 2_000_000_000  // 2s
-        let maxBackoffNs: UInt64 = 16_000_000_000
+        var backoffNs = Self.minReconnectDelayNs
         while !Task.isCancelled {
+            let startedAt = DispatchTime.now().uptimeNanoseconds
             do {
                 try await runOneConnection()
-                // Clean server close — reset backoff for the retry.
-                backoffNs = 2_000_000_000
             } catch is CancellationError {
                 return
             } catch {
                 log.notice("SSE connection ended: \(error.localizedDescription, privacy: .public)")
-                try? await Task.sleep(nanoseconds: backoffNs)
-                backoffNs = min(backoffNs * 2, maxBackoffNs)
             }
+            if Task.isCancelled { return }
+            let livedNs = DispatchTime.now().uptimeNanoseconds &- startedAt
+            backoffNs = Self.nextReconnectDelay(connectionLivedNs: livedNs,
+                                                previousDelayNs: backoffNs)
+            // Small jitter so multiple domains (or devices) don't redial in
+            // lockstep after a shared server blip.
+            let jitter = backoffNs > 0 ? UInt64.random(in: 0...(backoffNs / 4)) : 0
+            try? await Task.sleep(nanoseconds: backoffNs + jitter)
         }
     }
 
