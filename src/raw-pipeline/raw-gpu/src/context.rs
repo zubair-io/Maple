@@ -169,6 +169,26 @@ pub struct GpuContext {
     /// `sharpen_mix`: the edge-aware amount/masking blend (central-difference
     /// gradient on the luma plane). 4 storage (observed + sharpened + luma + dst).
     pub(crate) sharpen_mix_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled capture-sharpening pipelines (epic #925 P3 wave 2 / #991).
+    /// Richardson–Lucy deconvolution on a luma plane (Rec.709 weights — raw-core's
+    /// deliberate approximation), TRUE Gaussian PSF with clamp-to-edge borders.
+    /// All five entry points share one WGSL module (`capture_sharpening.wgsl`).
+    /// `cs_extract`: RGBA → luma plane (Rec.709). 2 storage.
+    pub(crate) cs_extract_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `cs_gaussian`: separable true-Gaussian blur of a scalar plane (CPU-uploaded
+    /// kernel weights, clamp-to-edge), one axis per dispatch. 3 storage
+    /// (kernel + in + out). The RL inner blur — distinct from box_blur.wgsl.
+    pub(crate) cs_gaussian_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `cs_ratio`: `ratio = clamp(original / max(blur_est, 1e-6), 0, 100)`, the RL
+    /// divide step. 3 storage (original + blur_est + ratio).
+    pub(crate) cs_ratio_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `cs_multiply`: `estimate *= blur_ratio`, the RL update step (in place to
+    /// estimate). 2 storage (estimate + blur_ratio).
+    pub(crate) cs_multiply_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `cs_apply`: the highlight-faded per-channel scale `scale = y_target/y_old`,
+    /// with both CPU skip-paths written as `dst = src`. 4 storage
+    /// (original + estimate + src + dst).
+    pub(crate) cs_apply_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -226,6 +246,11 @@ impl GpuContext {
             sharpen_luma_pipeline: OnceCell::new(),
             sharpen_usm_pipeline: OnceCell::new(),
             sharpen_mix_pipeline: OnceCell::new(),
+            cs_extract_pipeline: OnceCell::new(),
+            cs_gaussian_pipeline: OnceCell::new(),
+            cs_ratio_pipeline: OnceCell::new(),
+            cs_multiply_pipeline: OnceCell::new(),
+            cs_apply_pipeline: OnceCell::new(),
         }
     }
 

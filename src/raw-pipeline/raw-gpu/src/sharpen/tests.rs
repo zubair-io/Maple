@@ -93,6 +93,7 @@ fn raw_core_sharpen(
 }
 
 /// Run `SharpenPass` on the GPU over `input`, read back the flat RGBA result.
+#[allow(clippy::too_many_arguments)] // test plumbing: ctx/input/dims/the four sliders.
 fn sharpen_gpu(
     ctx: &GpuContext,
     input: &[f32],
