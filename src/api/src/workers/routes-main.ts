@@ -36,9 +36,15 @@ import { buildClaimQuery, deriveBatchSize } from './run-stage.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
+import { DEDUPLICATE_NAME } from './dedupe.ts';
 import { DISCOVER_NAME } from './discover/register.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { loadPruneWindowHours, savePruneWindowHours } from './missing-reaper-config.repo.ts';
+import {
+  loadDeDuplicateConfig,
+  saveDeDuplicateConfig,
+  type DeDuplicateConfig,
+} from './dedupe-config.repo.ts';
 import { MIGRATIONS, getMigration } from './migration/index.ts';
 import {
   loadAllMigrationStates,
@@ -70,6 +76,7 @@ export const KNOWN_WORKER_NAMES = new Set<string>([
   ...ALL_STAGE_NAMES,
   MISSING_REAPER_NAME, // 'missing-reaper'
   MIGRATION_WORKER_NAME, // 'migration'
+  DEDUPLICATE_NAME, // 'deduplicate'
   DISCOVER_NAME, // 'discover'
 ]);
 
@@ -110,6 +117,33 @@ export function workerRoutes(): Elysia {
           }
         },
         { body: t.Object({ hours: t.Number({ minimum: 1, maximum: 8760 }) }) },
+      )
+
+      // DeDuplicate worker tunables: per-pass batch size + dry-run preview. The
+      // worker re-reads these each tick, so a PATCH takes effect on the next
+      // pass without a restart. (The worker itself starts paused — resume via
+      // POST /api/workers/deduplicate/resume.)
+      .get('/deduplicate/config', async () => {
+        return await loadDeDuplicateConfig();
+      })
+
+      .patch(
+        '/deduplicate/config',
+        async ({ body, set }) => {
+          try {
+            const config = await saveDeDuplicateConfig(body as Partial<DeDuplicateConfig>);
+            return { ok: true, config };
+          } catch (err) {
+            set.status = 500;
+            return { error: err instanceof Error ? err.message : String(err) };
+          }
+        },
+        {
+          body: t.Object({
+            batch_size: t.Optional(t.Number({ minimum: 1, maximum: 5000 })),
+            dry_run: t.Optional(t.Boolean()),
+          }),
+        },
       )
 
       // ── Migrations ────────────────────────────────────────────────────────

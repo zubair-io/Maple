@@ -11,6 +11,7 @@ import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
 import { SUPPORTED_EXTS, toPosixRelDir } from './types.ts';
 import type { WatchEvent } from './types.ts';
+import { DUPLICATES_DIR_NAME } from '../../fs/duplicates.ts';
 import * as frontier from './frontier.repo.ts';
 import type { FrontierDir } from './frontier.repo.ts';
 import { readCheckpoint, writeCheckpoint } from '../../indexer/checkpoint.ts';
@@ -45,6 +46,11 @@ export async function visitDirectory(
   for (const ent of entries) {
     const abs = path.join(dir.dir_path, ent.name);
     if (ent.isDirectory()) {
+      // Never descend into the DeDuplicate quarantine. A moved copy is
+      // byte-identical to the kept one, so re-discovering it would re-attach
+      // its location to the very asset it was split from (content-dedup). This
+      // skip is what makes the move stick.
+      if (ent.name === DUPLICATES_DIR_NAME) continue;
       subdirs.push(abs);
       continue;
     }
