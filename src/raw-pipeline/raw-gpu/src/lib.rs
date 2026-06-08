@@ -46,6 +46,15 @@
 //!   flags are computed in-crate (replicating apply.rs's predicates) so the Pass
 //!   gates itself with no raw-core dep. Parity-gated directly vs
 //!   `raw_core::view::auto_profile::apply::apply_curve`.
+//! - [`AgxPass`] + [`apply_agx`] — a P2 view-transform stage (#990): the AgX
+//!   chain (inset matrix -> ratio-preserving sigmoid -> outset matrix -> Oklab
+//!   hue-preserving gamut compression, the full post-#435 transform). The
+//!   sigmoid is evaluated by sampling the SAME baked 512-entry LUT
+//!   (`agx_lut.bin`) raw-core's `sample_lut` reads — uploaded to a storage
+//!   buffer — so the GPU stays on raw-core's exact numerical path. Reuses the
+//!   generated color matrices (the Oklab round-trip) + the generated AgX coeffs
+//!   (inset/outset + scalars). Parity-gated directly vs
+//!   `raw_core::view::agx::apply`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -53,6 +62,7 @@
 //! behind the `gpu` feature of `raw-core` / `raw-wasm`, so it is **absent from
 //! their default dependency trees** — default builds never compile wgpu.
 
+mod agx;
 mod auto_profile_curve;
 mod chain;
 mod context;
@@ -64,6 +74,7 @@ mod scene_tone_controls;
 mod vibrance;
 mod white_balance;
 
+pub use agx::{apply_agx, AgxPass};
 pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };
