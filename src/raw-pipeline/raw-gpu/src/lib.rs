@@ -27,6 +27,11 @@
 //!   recomputed from the running pixel at each step. No Oklab, so no generated
 //!   color matrices. Parity-gated directly vs
 //!   `raw_core::stages::scene_tone_controls::apply`.
+//! - [`DisplayEncodePass`] + [`apply_display_encode`] — a P2 view-transform
+//!   stage (#990): Rec.2020 → sRGB matrix + hue-preserving Oklab gamut
+//!   compression (the f32 → f32 display-encode step, NOT gamma/quantize). Reuses
+//!   the generated color matrices (sRGB-only Oklab pair) + the 24-iter bisection.
+//!   Parity-gated directly vs `raw_core::view::encode::rec2020_to_srgb`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -36,6 +41,7 @@
 
 mod chain;
 mod context;
+mod display_encode;
 mod exposure;
 mod image;
 mod scene_tone_controls;
@@ -44,6 +50,7 @@ mod white_balance;
 
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use context::GpuContext;
+pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use image::GpuImage;
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
