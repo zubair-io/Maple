@@ -199,6 +199,84 @@ pub fn box_blur_encode(
     );
 }
 
+/// Byte length of a `width × height` vec2 f32 plane (two f32 per pixel).
+#[inline]
+pub fn plane_vec2_byte_len(width: u32, height: u32) -> u64 {
+    (width as u64) * (height as u64) * 2 * std::mem::size_of::<f32>() as u64
+}
+
+/// Allocate an uninitialised scratch storage buffer for a vec2 f32 plane
+/// (`width × height × 2` f32). Same usage flags as [`alloc_plane`]; used by
+/// dehaze's general guided filter to hold its PACKED mean-planes (two scalar
+/// quantities blurred together — see [`box_blur_vec2_encode`]).
+pub fn alloc_plane_vec2(ctx: &GpuContext, width: u32, height: u32, label: &str) -> wgpu::Buffer {
+    ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size: plane_vec2_byte_len(width, height),
+        usage: wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::COPY_SRC
+            | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+/// The vec2 sibling of [`box_blur_encode`] (epic #925 P2 wave 3b / #990). Encodes
+/// a horizontal then a vertical sweep of a `width × height` vec2 f32 plane via the
+/// `box_blur_vec2.wgsl` kernel, identical border policy to the scalar primitive
+/// (shrinking partial average, exact in-bounds count). The two lanes blur
+/// independently, so each lane is bit-for-bit a scalar [`box_blur_encode`] of that
+/// lane — letting dehaze blur its packed (i,p)/(ip,ii) mean-planes in half the
+/// dispatches. `r == 0` short-circuits to a straight copy, like the scalar form.
+pub fn box_blur_vec2_encode(
+    ctx: &GpuContext,
+    encoder: &mut wgpu::CommandEncoder,
+    input: &wgpu::Buffer,
+    output: &wgpu::Buffer,
+    width: u32,
+    height: u32,
+    r: u32,
+) {
+    let count = width * height;
+    if r == 0 {
+        encoder.copy_buffer_to_buffer(input, 0, output, 0, plane_vec2_byte_len(width, height));
+        return;
+    }
+    let scratch = alloc_plane_vec2(ctx, width, height, "box-blur-vec2-h-scratch");
+    let pipeline = ctx.box_blur_vec2_pipeline();
+
+    let h_params = BoxBlurParams {
+        width,
+        height,
+        radius: r,
+        axis: 0,
+    };
+    encode_simple(
+        ctx,
+        encoder,
+        pipeline,
+        bytemuck::bytes_of(&h_params),
+        &[input, &scratch],
+        count,
+        "box-blur-vec2-horizontal",
+    );
+
+    let v_params = BoxBlurParams {
+        width,
+        height,
+        radius: r,
+        axis: 1,
+    };
+    encode_simple(
+        ctx,
+        encoder,
+        pipeline,
+        bytemuck::bytes_of(&v_params),
+        &[&scratch, output],
+        count,
+        "box-blur-vec2-vertical",
+    );
+}
+
 /// `repr(C)` uniform for the `guided_luma.wgsl` kernel: just the pixel count.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
