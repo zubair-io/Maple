@@ -138,37 +138,53 @@ async function processAsset(
   const liveEntries = fileinfo.filter((e) => isLiveFileInfo(e));
   if (liveEntries.length < 2) return; // not a live duplicate set
 
-  // All live entries on one asset share its `maple_id` (that is *why* they are
-  // one asset), so they are byte-identical — collapsing to one loses no content.
-  const keeper = selectKeeper(liveEntries);
-  const keeperKey = folderKey(keeper);
-  const removeEntries = liveEntries.filter((e) => !sameEntry(e, keeper));
-
-  // Mount guard: every involved library must be registered, or we can't resolve
-  // a source/destination root — skip the whole asset this pass.
-  for (const entry of [keeper, ...removeEntries]) {
-    if (!libs.get(entry.library_id.toHexString())) {
+  // Identify which copies ACTUALLY EXIST ON DISK before choosing anything to
+  // move. A user moving a file makes discover record the new path before its
+  // `removed` handler tombstones the old one, so for a window an asset has two
+  // "live" entries but only ONE physical file. We must never pick a stale entry
+  // as the keeper nor move the last real file — so we drive everything off the
+  // on-disk set and require ≥2 real copies before moving anything.
+  const onDisk: FileInfo[] = [];
+  let sawAbsent = false;
+  for (const entry of liveEntries) {
+    const root = libs.get(entry.library_id.toHexString());
+    if (!root) {
+      // Unresolvable library — can't verify the full picture; skip the asset.
+      summary.skippedOffline++;
+      return;
+    }
+    const segments = entry.path === '' ? [] : entry.path.split('/');
+    const kind = await statKind(path.join(root, ...segments, entry.filename));
+    if (kind === 'present') onDisk.push(entry);
+    else if (kind === 'absent') sawAbsent = true;
+    else {
+      // 'error' (EACCES/EIO/offline mount) — a sibling we can't verify. Don't
+      // act on a partial picture; skip the whole asset this pass.
       summary.skippedOffline++;
       return;
     }
   }
 
-  // Don't move the only on-disk copy while keeping a missing one. Skip if the
-  // keeper isn't present: 'absent' → genuinely gone, the reaper retags + we
-  // re-pick next pass; 'error' (EACCES/EIO/offline) → unreadable, don't act unproven.
-  const keeperRoot = libs.get(keeper.library_id.toHexString())!;
-  const keeperSegments = keeper.path === '' ? [] : keeper.path.split('/');
-  const keeperAbs = path.join(keeperRoot, ...keeperSegments, keeper.filename);
-  const keeperKind = await statKind(keeperAbs);
-  if (keeperKind !== 'present') {
-    if (keeperKind === 'absent') summary.skippedMissingFile++;
-    else summary.skippedOffline++;
+  // Fewer than two copies on disk → not a real duplicate set right now (the
+  // extra entries are stale and will be reconciled away by discover / the
+  // missing-reaper). This return is THE guard against "no file left on disk":
+  // we never move when only one physical copy exists.
+  if (onDisk.length < 2) {
+    if (sawAbsent) summary.skippedMissingFile++;
     return;
   }
 
-  // The current cache anchor = first live entry. If it is one of the copies we
-  // move away, the kept copy's folder has no `maple_id`-keyed thumb/preview, so
-  // re-arm those stages to regenerate at the new primary.
+  // Keeper is selected from — and so guaranteed to be — an on-disk copy; the
+  // copies we move are the OTHER on-disk ones (all confirmed present). They all
+  // share this asset's `maple_id`, so they are byte-identical — collapsing to
+  // one loses no content. Stale (absent) entries are left for the reconciler.
+  const keeper = selectKeeper(onDisk);
+  const keeperKey = folderKey(keeper);
+  const removeEntries = onDisk.filter((e) => !sameEntry(e, keeper));
+
+  // The current cache anchor = first live entry (which may be a stale/absent
+  // one). If the kept copy's folder differs, re-arm the location-keyed cache
+  // stages so the kept copy regenerates its thumb/preview at its folder.
   const oldPrimary = assetPrimaryFileInfo(doc as Pick<AssetDoc, 'fileinfo'>)!;
   const anchorMoves = folderKey(oldPrimary) !== keeperKey;
 
@@ -178,22 +194,14 @@ async function processAsset(
     const segments = entry.path === '' ? [] : entry.path.split('/');
     const abs = path.join(root, ...segments, entry.filename);
 
-    // Only relocate a present file. 'absent' → stale entry (the discover /
-    // missing-reaper path handles it); 'error' → unreadable/offline, never move
-    // on unproven absence. Skip just this entry; other copies may still move.
-    const kind = await statKind(abs);
-    if (kind !== 'present') {
-      if (kind === 'absent') summary.skippedMissingFile++;
-      else summary.skippedOffline++;
-      continue;
-    }
-
     if (dryRun) {
       log.info({ _id: String(doc._id), from: abs }, 'deduplicate dry-run: would move duplicate');
       moved.push(entry);
       continue;
     }
 
+    // `moveToDuplicates` returns an error (never throws) if the source vanished
+    // in the small window since we stat'd it — counted and skipped, not fatal.
     const res = await moveToDuplicates(abs, root);
     if (res.kind === 'error') {
       summary.errors++;

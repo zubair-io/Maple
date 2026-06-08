@@ -212,35 +212,45 @@ describe('runDeDuplicateOnce', () => {
     expect(asset!.fileinfo).toHaveLength(2); // untouched
   });
 
-  it('skips a duplicate whose file is already gone from disk', async () => {
+  // The move-in-progress race: discover recorded a new path before its `removed`
+  // handler tombstoned the old one, so the asset has two "live" entries but only
+  // ONE physical file. Nothing must be relocated — that would leave zero files
+  // on disk. Covered for the stale entry being either first or second in the list.
+  it('does not move anything when only one copy is actually on disk (stale entry first)', async () => {
     if (!mongoReachable) return;
+    // 'ghost' has no file (stale); only 'keep' exists on disk.
     writeFile('keep', 'IMG.dng');
-    // No file written for the 'ghost' copy — it is a stale entry.
     const id = await insertAsset([fi('ghost', 'IMG.dng'), fi('keep', 'IMG.dng')]);
 
     const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({});
 
-    // Keeper is 'keep' (rule 4 last); 'ghost' is the move candidate but absent.
-    expect(summary.skippedMissingFile).toBe(1);
+    expect(summary.movedFiles).toBe(0);
     expect(summary.deduped).toBe(0);
+    expect(summary.skippedMissingFile).toBe(1);
+    // The single real file stayed put; nothing was quarantined.
+    expect(existsSync(join(root, 'keep', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(root, DUP, 'keep', 'IMG.dng'))).toBe(false);
     const asset = await getAsset(id);
-    expect(asset!.fileinfo).toHaveLength(2); // nothing pulled — file wasn't moved
+    expect(asset!.fileinfo).toHaveLength(2); // nothing pulled
   });
 
-  it('skips the asset when the chosen keeper file is missing (lets the reaper retag)', async () => {
+  it('does not move anything when only one copy is actually on disk (stale entry last)', async () => {
     if (!mongoReachable) return;
-    // Keeper = last entry (rule 4) = 'b', but only 'a' is on disk. Moving 'a'
-    // while keeping the missing 'b' would break the asset, so the pass skips it.
+    // Only 'a' exists; 'b' is the stale entry. Even though rule 4 would prefer
+    // 'b' as keeper, it is not on disk so it is never chosen, and 'a' (the only
+    // real file) is never moved.
     writeFile('a', 'IMG.dng');
     const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
 
     const { runDeDuplicateOnce } = await import('./dedupe.ts');
     const summary = await runDeDuplicateOnce({});
 
-    expect(summary.skippedMissingFile).toBe(1);
+    expect(summary.movedFiles).toBe(0);
     expect(summary.deduped).toBe(0);
-    expect(existsSync(join(root, 'a', 'IMG.dng'))).toBe(true); // present copy untouched
+    expect(summary.skippedMissingFile).toBe(1);
+    expect(existsSync(join(root, 'a', 'IMG.dng'))).toBe(true); // only real copy untouched
+    expect(existsSync(join(root, DUP, 'a', 'IMG.dng'))).toBe(false);
     const asset = await getAsset(id);
     expect(asset!.fileinfo).toHaveLength(2);
   });
