@@ -41,6 +41,11 @@ pub struct GpuContext {
     /// matrices like vibrance. Built on first use via
     /// [`GpuContext::display_encode_pipeline`].
     display_encode_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled saturation compute pipeline (`saturation.wgsl` + the
+    /// generated color matrices). A P2 scene-linear stage (#990): Oklab chroma
+    /// scale + a gamut-hull bisection, so it concats the generated matrices like
+    /// vibrance. Built on first use via [`GpuContext::saturation_pipeline`].
+    saturation_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -75,6 +80,7 @@ impl GpuContext {
             white_balance_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),
+            saturation_pipeline: OnceCell::new(),
         }
     }
 
@@ -219,6 +225,39 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("display-encode-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached saturation compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Saturation rounds each pixel through Oklab (chroma scale + a gamut-hull
+    /// bisection), so the kernel needs the generated color-matrix helpers — same
+    /// concat-at-compile pattern as `vibrance_pipeline` / `display_encode_pipeline`:
+    /// the generated `color_matrices.wgsl` is prepended to `saturation.wgsl`
+    /// (WGSL has no `#include`). The gamut constants are inlined in the kernel,
+    /// not codegen'd.
+    pub fn saturation_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.saturation_pipeline.get_or_init(|| {
+            let source = format!(
+                "{}\n{}",
+                include_str!("generated/color_matrices.wgsl"),
+                include_str!("saturation.wgsl"),
+            );
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("saturation"),
+                    source: wgpu::ShaderSource::Wgsl(source.into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("saturation-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),
