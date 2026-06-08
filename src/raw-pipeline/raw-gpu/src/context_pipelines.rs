@@ -74,6 +74,16 @@ impl GpuContext {
         })
     }
 
+    /// The cached sRGB gamma-encode compute pipeline (epic #925 P4a / #992-pre).
+    ///
+    /// A pure per-channel IEC 61966-2-1 transfer (no Oklab, no matrices) — so,
+    /// like exposure / scene_tone_controls, the kernel compiles standalone with
+    /// no generated-color-matrix concat.
+    pub fn srgb_gamma_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.srgb_gamma_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "srgb-gamma", include_str!("srgb_gamma.wgsl")))
+    }
+
     /// The cached saturation compute pipeline (epic #925 P2 / #990).
     ///
     /// Saturation rounds each pixel through Oklab (chroma scale + a gamut-hull
