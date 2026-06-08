@@ -26,12 +26,23 @@ import { startMigration, type MigrationHandle } from './migration.ts';
 import { startMirrorScan, type MirrorScanHandle } from './mirror/scan.ts';
 import { startMirrorCopyWorker, type MirrorCopyHandle } from './mirror/copy.ts';
 import { installMirrorQueueSink } from './mirror/sink.ts';
+import { loadMirrorConfig } from '../fs/mirror-config.ts';
+import { child as childLogger } from '../log.ts';
+
+const log = childLogger('maintenance');
+
+/** How often the worker re-reads the library→mirror config from Mongo, so a
+ * mirror enabled/disabled/repointed via the API (a different process) takes
+ * effect here without a worker restart — the API process reloads its own
+ * registry inline on the PUT, this keeps the worker's in sync. */
+const MIRROR_CONFIG_RELOAD_MS = 60_000;
 
 let trashGc: TrashGcHandle | null = null;
 let missingReaper: MissingReaperHandle | null = null;
 let migration: MigrationHandle | null = null;
 let mirrorScan: MirrorScanHandle | null = null;
 let mirrorCopy: MirrorCopyHandle | null = null;
+let mirrorConfigReload: ReturnType<typeof setInterval> | null = null;
 
 /** Start every maintenance job. Idempotent — a second call is a no-op while a
  * prior set is still running. */
@@ -46,6 +57,21 @@ export function startMaintenanceJobs(): void {
   installMirrorQueueSink();
   if (!mirrorScan) mirrorScan = startMirrorScan({});
   if (!mirrorCopy) mirrorCopy = startMirrorCopyWorker({});
+  // Periodically re-read mirror config so a change made via the API process
+  // (PUT /api/folders/:id/mirror) propagates to this worker without a restart.
+  // worker-main does the initial load; this only catches later changes + retries
+  // a failed initial load.
+  if (!mirrorConfigReload) {
+    mirrorConfigReload = setInterval(() => {
+      void loadMirrorConfig().catch((err) => {
+        log.warn(
+          { err: err instanceof Error ? err.message : err },
+          'periodic mirror config reload failed — keeping previous registry',
+        );
+      });
+    }, MIRROR_CONFIG_RELOAD_MS);
+    mirrorConfigReload.unref?.();
+  }
 }
 
 /** Stop every maintenance job (cancels timers, unregisters the workers). Safe to
@@ -61,4 +87,8 @@ export function stopMaintenanceJobs(): void {
   mirrorScan = null;
   mirrorCopy?.stop();
   mirrorCopy = null;
+  if (mirrorConfigReload) {
+    clearInterval(mirrorConfigReload);
+    mirrorConfigReload = null;
+  }
 }

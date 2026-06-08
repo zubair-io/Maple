@@ -7,6 +7,13 @@
  *                                    reloads the in-memory registry)
  *   POST /api/mirror/test          — validate a candidate mirror path without
  *                                    saving (UI "Test" button)
+ *   GET  /api/mirror/status        — mirror reconcile queue depth (pending/dead)
+ *   POST /api/mirror/retry-dead    — re-arm dead-lettered mirror copies
+ *   GET  /api/mirror/orphans       — dry-run report of mirror files with no
+ *                                    primary counterpart (deletes nothing). The
+ *                                    deletion itself is the operator-toggled
+ *                                    `scrub-mirror-orphans` migration in
+ *                                    /settings/workers, not a route here.
  *
  * Mounted behind `requireAuth` — see `src/index.ts`.
  *
@@ -167,14 +174,9 @@ export const mirrorRoutes = new Elysia()
   // old-layout copies a backup-folder migration relocated on the primary but
   // (before the worker loaded the mirror registry) never removed on the mirror.
   // Reports only; deletes nothing. Skips any mirror whose primary is offline.
+  // The actual deletion is the operator-toggled `scrub-mirror-orphans` migration
+  // (/settings/workers), which batches + tracks progress — not a route here.
   .get('/api/mirror/orphans', async () => {
     const report = await runMirrorScrubOnce({ apply: false });
     return { report };
-  })
-  // Scrub orphans (DESTRUCTIVE): delete the mirror files the dry run reports.
-  // A deliberate POST so it can't be triggered by a stray GET; the UI gates it
-  // behind showing the dry-run count first. Same primary-offline guard applies.
-  .post('/api/mirror/scrub', async () => {
-    const report = await runMirrorScrubOnce({ apply: true });
-    return { ok: true, report };
   });

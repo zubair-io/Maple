@@ -35,12 +35,15 @@ async function main(): Promise<void> {
   // and the mirror silently drifts — and the mirror-scan/copy reconcile that
   // should catch the drift is itself gated off (`isMirroringActive()` is false).
   // The API process loads this in index.ts; the worker tier must do the same.
+  // After this initial load, `startMaintenanceJobs` re-reads the config on an
+  // interval, so a failure here self-heals (and later config changes propagate)
+  // without a worker restart.
   try {
     await loadMirrorConfig();
   } catch (e) {
     log.warn(
       { err: e instanceof Error ? e.message : e },
-      'mirror config load failed — mirroring inactive in worker until reload',
+      'initial mirror config load failed — the periodic reload will retry; mirroring inactive until it succeeds',
     );
   }
   await startWorkers();
