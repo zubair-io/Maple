@@ -148,9 +148,8 @@ final class EditSessionDecodedCacheTests: XCTestCase {
             "precondition: cache fresh before the stripped-field edit")
 
         // The autosave lands a DIFFERENT stripped-field value (the slider
-        // moved). Sleep past APFS's 1 s mtime granularity so the mtime
-        // genuinely changes — proving the old key WOULD have gone stale.
-        try await Task.sleep(for: .milliseconds(1100))
+        // moved). Under the baked-model key the mtime change is irrelevant;
+        // no sleep needed (#950 — the cache key is the baked model, not mtime).
         try writeSidecar(at: sidecarURL, model: {
             var m = AdjustmentModel()
             m.exposure = 1.9    // exposure  — stripped
@@ -189,7 +188,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
             "precondition: cache fresh before the kept-field edit")
 
         // highlightRecovery is a KEPT field (pre-DCP, no chain equivalent).
-        try await Task.sleep(for: .milliseconds(1100))
+        // No sleep needed — freshness is keyed on the baked model, not mtime (#950).
         try writeSidecar(at: sidecarURL, model: {
             var m = AdjustmentModel(); m.highlightRecovery = .blend; return m
         }())
@@ -200,11 +199,11 @@ final class EditSessionDecodedCacheTests: XCTestCase {
 
         // captureSharpeningAmount is the other classic KEPT field (runs in
         // the Rust develop, post-DCP). Re-seed, then flip it.
+        // No sleep needed — freshness is keyed on the baked model, not mtime (#950).
         await session.renderActor._testSeedDecodedCache(
             asset: asset,
             decoded: makeDecoded(),
             rawResolution: CGSize(width: 100, height: 100))
-        try await Task.sleep(for: .milliseconds(1100))
         try writeSidecar(at: sidecarURL, model: {
             var m = AdjustmentModel(); m.highlightRecovery = .blend
             m.captureSharpeningAmount = 50; return m
@@ -233,7 +232,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
             rawResolution: CGSize(width: 100, height: 100))
 
         // sharpenAmount (stripped) → still fresh.
-        try await Task.sleep(for: .milliseconds(1100))
+        // No sleep needed — freshness is keyed on the baked model, not mtime (#950).
         try writeSidecar(at: sidecarURL, model: {
             var m = AdjustmentModel(); m.sharpenAmount = 120; return m
         }())
@@ -282,7 +281,7 @@ final class EditSessionDecodedCacheTests: XCTestCase {
 
         // The debounced autosave lands the toggled profile (Neutral → Auto)
         // and NOTHING else. The baked-model key must ignore it.
-        try await Task.sleep(for: .milliseconds(1100))
+        // No sleep needed — freshness is keyed on the baked model, not mtime (#950).
         try writeSidecar(at: sidecarURL, model: {
             var m = AdjustmentModel(); m.profile = .auto; return m
         }())
