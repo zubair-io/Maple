@@ -199,6 +199,36 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
     }
 }
 
+/// Composition: clarity behaves as ONE [`Pass`] inside a multi-pass chain — the
+/// crux of the spatial pattern (it must read its `src` and write its `dst` like
+/// any per-pixel pass, so the ping-pong threads it cleanly). Run
+/// `[ExposurePass{0.0}, ClarityPass]` — exposure at ev=0 is identity, so the
+/// chained result must equal clarity-alone — AND `[ClarityPass, ClarityPass]`
+/// finishes without a validation error (the scratch buffers a spatial pass
+/// allocates per `encode` don't collide across two encodes of the same stage).
+#[test]
+fn clarity_composes_as_one_pass_in_a_chain() {
+    use crate::exposure::ExposurePass;
+    let ctx = GpuContext::new_blocking();
+    let (w, h) = (32usize, 32usize);
+    let input = border_varying_image(w, h);
+    let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
+    let runner = ChainRunner::new(&ctx, &img);
+
+    let solo = runner.run_blocking(&[&ClarityPass { clarity: 60.0 }]);
+    let chained = runner.run_blocking(&[&ExposurePass { ev: 0.0 }, &ClarityPass { clarity: 60.0 }]);
+    let (diff, _) = max_diff_at(&solo, &chained);
+    assert!(
+        diff < 1e-4,
+        "clarity after an identity exposure pass diverged from clarity-alone by {diff} \
+         — the stage does not compose as a clean src→dst Pass"
+    );
+
+    // Two spatial passes back-to-back must not trip a resource/validation error.
+    let twice = runner.run_blocking(&[&ClarityPass { clarity: 60.0 }, &ClarityPass { clarity: 60.0 }]);
+    assert!(twice.iter().all(|v| v.is_finite()), "double-clarity produced non-finite output");
+}
+
 /// Pure-black pixels (luma 0) must not yield NaN/Inf via the luma-ratio divide —
 /// the GPU's `max(luma, LUMA_FLOOR)` guard mirrors raw-core. Plant one bright
 /// pixel so the field isn't flat.
