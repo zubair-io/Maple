@@ -100,6 +100,14 @@ export const STAGE_META: Record<string, StageMeta> = {
     description:
       'Runs one-shot library migrations. Each migration has its own toggle in the panel below; the worker idles until one is enabled.',
   },
+  deduplicate: {
+    id: 'deduplicate',
+    group: 'Ingest',
+    icon: 'copy',
+    enrichment: null,
+    description:
+      'Collapses assets found at more than one path down to a single kept copy, moving the surplus originals (and their sidecars) into a reversible _duplicates/ folder. Starts paused — resume to enable.',
+  },
 };
 
 /** Fallback used when the server reports a stage we don't have metadata for —

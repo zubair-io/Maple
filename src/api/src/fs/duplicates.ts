@@ -1,0 +1,58 @@
+/**
+ * `_duplicates` reserved-folder move primitives for the DeDuplicate worker.
+ *
+ * Mirrors `fs/trash.ts`: a duplicate original (plus its paired XMP sidecars) is
+ * RELOCATED — never deleted — into `<libraryRoot>/_duplicates/<original rel
+ * path>`, so the operation is fully reversible and honours the "originals are
+ * sacred" invariant. The destination preserves the source's relative layout so
+ * an operator (or a future restore path) can see where each quarantined file
+ * came from.
+ *
+ * The `_duplicates` tree MUST stay out of the discover sweep — otherwise a moved
+ * copy is re-discovered and, because it is byte-identical to the kept copy,
+ * content-dedup re-attaches it to the very asset it was split from. The skip is
+ * enforced by `DUPLICATES_DIR_NAME` consumers in
+ * `workers/discover/sweeper.ts` and `routes/folders.ts`.
+ */
+
+// Mirror-aware drop-in: the move replicates to the library's backup root(s).
+import * as fs from './mirrored.ts';
+import * as path from 'node:path';
+import { pickFreePath, moveSidecarsAlongside, type MoveResult } from './trash.ts';
+
+/** Reserved top-level folder (under each library root) holding moved duplicate
+ * originals. Excluded from indexing — see the module docstring. */
+export const DUPLICATES_DIR_NAME = '_duplicates';
+
+/**
+ * Compute the `_duplicates`-side absolute path for a file under a library root:
+ * `<root>/_duplicates/<rel>` where `rel` is the file's path relative to `root`.
+ * Throws if `absPath` is not under `folderRoot` (same guard as `computeTrashPath`).
+ */
+export function computeDuplicatesPath(absPath: string, folderRoot: string): string {
+  const root = folderRoot.replace(/\/$/, '');
+  if (absPath !== root && !absPath.startsWith(root + '/')) {
+    throw new Error(`Path "${absPath}" is not under root "${root}"`);
+  }
+  const rel = absPath === root ? '' : absPath.slice(root.length + 1);
+  return path.join(root, DUPLICATES_DIR_NAME, rel);
+}
+
+/**
+ * Move `absPath` (a duplicate original) and every paired sidecar into
+ * `<folderRoot>/_duplicates/<rel>`, creating parent dirs and suffixing `.N` on
+ * collision so an existing quarantined file is never overwritten. Returns the
+ * new absolute path. Sidecar moves are best-effort (see `moveSidecarsAlongside`).
+ */
+export async function moveToDuplicates(absPath: string, folderRoot: string): Promise<MoveResult> {
+  const target = computeDuplicatesPath(absPath, folderRoot);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  const freeTarget = await pickFreePath(target);
+  try {
+    await fs.rename(absPath, freeTarget);
+  } catch (err) {
+    return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
+  }
+  await moveSidecarsAlongside(absPath, freeTarget);
+  return { kind: 'ok', newAbsPath: freeTarget };
+}
