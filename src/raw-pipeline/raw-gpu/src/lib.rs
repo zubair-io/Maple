@@ -38,6 +38,16 @@
 //!   compression (the f32 → f32 display-encode step, NOT gamma/quantize). Reuses
 //!   the generated color matrices (sRGB-only Oklab pair) + the 24-iter bisection.
 //!   Parity-gated directly vs `raw_core::view::encode::rec2020_to_srgb`.
+//! - [`SrgbGammaPass`] + [`apply_srgb_gamma`] — a P4a view-tail stage (#992-pre):
+//!   the per-channel IEC 61966-2-1 sRGB gamma/OETF encode
+//!   (`raw_core::view::encode::srgb_gamma_encode`). Clamp-to-`[0,1]`-then-
+//!   piecewise; pure per-channel (no Oklab), so it compiles standalone (no
+//!   generated matrices) like exposure / scene_tone_controls. Closes the view
+//!   tail's transfer gap — it runs between [`DisplayEncodePass`] and
+//!   [`AutoProfileCurvePass`] (the curve + residual LUT were fit in gamma space).
+//!   Parity-gated directly vs `raw_core::view::encode::srgb_gamma_encode` < 1e-4,
+//!   covering the negative-clamp, high-clamp (> 1), linear toe, knee, and power
+//!   branch.
 //! - [`AutoProfileCurvePass`] + [`apply_auto_profile_curve`] — a P2 view-transform
 //!   stage (#990): the per-pixel fitted Auto Profile tone CURVE (`compress_input`
 //!   soft-knee + a 32-anchor per-channel piecewise-linear curve + an optional 3×3
@@ -147,17 +157,22 @@
 //!   larger sigma, the highlight-fade ramp, and the full no-op guard set.
 //!
 //! - [`build_full_chain_passes`] / [`build_split`] + [`FullChainInputs`] — the
-//!   P4a capstone (epic #925, pre-#992): compose ALL 16 GPU-ported stages into one
+//!   P4a capstone (epic #925, pre-#992): compose ALL 17 GPU-ported stages into one
 //!   ordered `Vec<Box<dyn Pass>>` matching `raw_core::pipeline::develop` + the
 //!   `render` view tail (capture_sharpening → white_balance → scene_tone_controls
 //!   → tone_curves → vibrance → saturation → clarity → texture → dehaze → sharpen
-//!   → nr_luminance → nr_color → agx → display_encode → auto_profile_curve →
-//!   residual_lut), run through one [`ChainRunner`] with the chain's single
-//!   end-of-run readback. Composition only — no kernel changes. The end-to-end
-//!   parity test (`full_chain/tests.rs`) gates the composed GPU chain vs the same
-//!   real `raw-core` stage fns composed CPU-side in the same order. The view tail
-//!   is NOT yet GPU-resident end-to-end: `srgb_gamma_encode`, `look`, and
-//!   `dither_and_quantize` have no GPU pass (gaps documented in [`full_chain`]);
+//!   → nr_luminance → nr_color → agx → display_encode → srgb_gamma →
+//!   auto_profile_curve → residual_lut), run through one [`ChainRunner`] with the
+//!   chain's single end-of-run readback. Composition only — no kernel changes.
+//!   The end-to-end parity test (`full_chain/tests.rs`) gates the composed GPU
+//!   chain vs the same
+//!   real `raw-core` stage fns composed CPU-side in the same order. P4a closes the
+//!   view-tail transfer gap: `srgb_gamma_encode` is now a GPU [`Pass`]
+//!   ([`SrgbGammaPass`], inserted between `display_encode` and
+//!   `auto_profile_curve` — the curve + LUT were fit in gamma space), so the
+//!   composed f32 GPU chain now matches raw-core's full develop + view tail. What
+//!   remains: `look` (a no-op post-Auto-Profile-pivot — `view::look::apply` is
+//!   empty) and `dither_and_quantize` (the f32 → u8 display-OUTPUT step, P4b);
 //!   `auto_exposure` / `local_adjustments` stay CPU-side. Dehaze's airlight is
 //!   sourced via a mid-chain GPU readback (a headless affordance; the live P4b
 //!   path needs an on-GPU reduction).
@@ -186,6 +201,7 @@ mod saturation;
 mod scene_tone_controls;
 mod sharpen;
 mod spatial;
+mod srgb_gamma;
 mod texture;
 mod tone_curves;
 mod vibrance;
@@ -214,6 +230,7 @@ pub use spatial::{
     clarity_texture_encode, encode_simple, guided_filter_self_encode, luma_extract_encode,
     plane_byte_len, plane_vec2_byte_len,
 };
+pub use srgb_gamma::{apply_srgb_gamma, SrgbGammaPass};
 pub use texture::{apply_texture, TexturePass, TEXTURE_GUIDED_RADIUS};
 pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};
 pub use vibrance::{apply_vibrance, VibrancePass};
