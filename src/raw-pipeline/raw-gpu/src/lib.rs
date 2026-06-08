@@ -104,6 +104,8 @@ mod auto_profile_curve;
 mod chain;
 mod clarity;
 mod context;
+mod context_pipelines;
+mod dehaze;
 mod display_encode;
 mod exposure;
 mod image;
@@ -123,6 +125,7 @@ pub use auto_profile_curve::{
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use context::GpuContext;
+pub use dehaze::{apply_dehaze, compute_airlight, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use image::GpuImage;
@@ -130,8 +133,9 @@ pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPas
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
 pub use spatial::{
-    alloc_plane, alloc_rgba, box_blur_encode, clarity_texture_encode, encode_simple,
-    guided_filter_self_encode, luma_extract_encode, plane_byte_len,
+    alloc_plane, alloc_plane_vec2, alloc_rgba, box_blur_encode, box_blur_vec2_encode,
+    clarity_texture_encode, encode_simple, guided_filter_self_encode, luma_extract_encode,
+    plane_byte_len, plane_vec2_byte_len,
 };
 pub use texture::{apply_texture, TexturePass, TEXTURE_GUIDED_RADIUS};
 pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};

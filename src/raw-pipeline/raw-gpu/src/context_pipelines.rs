@@ -1,0 +1,270 @@
+//! `GpuContext`'s lazily-compiled compute-pipeline accessors (epic #925).
+//!
+//! Split out of `context.rs` (which keeps the struct + device/queue
+//! construction) purely for the file-size budget — the accessor list grew past
+//! 600 LOC once the P2 stages + the wave-3b spatial / dehaze kernels landed.
+//! Every accessor `get_or_init`s its `OnceCell` so each WGSL kernel compiles at
+//! most once per context and is reused thereafter (the reuse the substrate
+//! depends on). All use `layout: None`, deriving the bind-group layout from the
+//! WGSL bindings.
+
+use crate::context::GpuContext;
+
+impl GpuContext {
+    /// The cached exposure compute pipeline, compiling `exposure.wgsl` on first
+    /// call. The auto bind-group layout (`layout: None`) is shared by every
+    /// `ExposurePass` bind group via `pipeline.get_bind_group_layout(0)`.
+    pub fn exposure_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.exposure_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "exposure", include_str!("exposure.wgsl")))
+    }
+
+    /// The cached vibrance compute pipeline (epic #925 P2 / #990).
+    ///
+    /// WGSL has no `#include`, so the shader source is built by concatenating
+    /// the **generated** color-matrix module (`generated/color_matrices.wgsl`,
+    /// emitted by `codegen --schema color-matrices --target wgsl`) ahead of the
+    /// `vibrance.wgsl` kernel. The kernel calls the generated `mul_*` helpers;
+    /// `include_str!` of the committed generated file keeps raw-gpu free of a
+    /// build-time dependency on the `codegen` crate (the file rides the
+    /// codegen-drift CI gate instead). This concat-at-compile pattern is what
+    /// every Oklab/matrix fan-out stage reuses.
+    pub fn vibrance_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.vibrance_pipeline
+            .get_or_init(|| compile_with_matrices(&self.device, "vibrance", include_str!("vibrance.wgsl")))
+    }
+
+    /// The cached white-balance compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Unlike vibrance, this kernel does NOT concat the generated color
+    /// matrices: white balance is a pure per-pixel 3×3 matmul whose matrix is
+    /// supplied as a per-pass uniform (CPU-derived once via CAT16 / diagonal
+    /// gains). So `white_balance.wgsl` compiles standalone, like `exposure.wgsl`.
+    pub fn white_balance_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.white_balance_pipeline.get_or_init(|| {
+            compile_standalone(&self.device, "white-balance", include_str!("white_balance.wgsl"))
+        })
+    }
+
+    /// The cached scene-tone-controls compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Five luma-coupled tone steps (exposure / highlights / shadows / whites /
+    /// blacks), no Oklab — so, like exposure / white_balance, the kernel
+    /// compiles standalone with no generated-color-matrix concat.
+    pub fn scene_tone_controls_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.scene_tone_controls_pipeline.get_or_init(|| {
+            compile_standalone(
+                &self.device,
+                "scene-tone-controls",
+                include_str!("scene_tone_controls.wgsl"),
+            )
+        })
+    }
+
+    /// The cached display-encode compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Rec.2020 → sRGB + hue-preserving Oklab gamut compression, so the kernel
+    /// needs the generated color-matrix helpers (the sRGB↔LMS↔Lab + Rec.2020→sRGB
+    /// `mul_*` functions). Same concat-at-compile pattern as `vibrance_pipeline`:
+    /// the generated `color_matrices.wgsl` is prepended to `display_encode.wgsl`
+    /// (WGSL has no `#include`).
+    pub fn display_encode_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.display_encode_pipeline.get_or_init(|| {
+            compile_with_matrices(&self.device, "display-encode", include_str!("display_encode.wgsl"))
+        })
+    }
+
+    /// The cached saturation compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Saturation rounds each pixel through Oklab (chroma scale + a gamut-hull
+    /// bisection), so the kernel needs the generated color-matrix helpers — same
+    /// concat-at-compile pattern as `vibrance_pipeline` / `display_encode_pipeline`:
+    /// the generated `color_matrices.wgsl` is prepended to `saturation.wgsl`
+    /// (WGSL has no `#include`). The gamut constants are inlined in the kernel,
+    /// not codegen'd.
+    pub fn saturation_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.saturation_pipeline
+            .get_or_init(|| compile_with_matrices(&self.device, "saturation", include_str!("saturation.wgsl")))
+    }
+
+    /// The cached Auto Profile curve compute pipeline (epic #925 P2 / #990).
+    ///
+    /// The kernel's Oklab correction path uses the generated color-matrix
+    /// helpers, so — like `vibrance_pipeline` / `saturation_pipeline` — the
+    /// generated `color_matrices.wgsl` is prepended to `auto_profile_curve.wgsl`
+    /// at module creation (WGSL has no `#include`). The kernel uses a 4-binding
+    /// layout (meta uniform + src/dst storage + the flat-curve storage buffer);
+    /// `layout: None` derives it from the WGSL bindings.
+    pub fn auto_profile_curve_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.auto_profile_curve_pipeline.get_or_init(|| {
+            compile_with_matrices(
+                &self.device,
+                "auto-profile-curve",
+                include_str!("auto_profile_curve.wgsl"),
+            )
+        })
+    }
+
+    /// The cached AgX view-transform compute pipeline (epic #925 P2 / #990).
+    ///
+    /// The kernel needs BOTH generated WGSL modules: the Oklab + Rec.2020/sRGB
+    /// matrices (`color_matrices.wgsl`, for the gamut-compress round-trip) and
+    /// the AgX inset/outset matrices + log-encode scalars (`agx_coeffs.wgsl`,
+    /// emitted by `derive_agx_lut.py --wgsl`). Both are prepended to `agx.wgsl`
+    /// at module creation (WGSL has no `#include`) — same concat-at-compile
+    /// pattern as `vibrance_pipeline`, extended to two generated headers. The
+    /// kernel uses a 4-binding layout (params uniform + src/dst storage + the
+    /// baked-LUT storage buffer); `layout: None` derives it from the bindings.
+    pub fn agx_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.agx_pipeline.get_or_init(|| {
+            let source = format!(
+                "{}\n{}\n{}",
+                include_str!("generated/color_matrices.wgsl"),
+                include_str!("generated/agx_coeffs.wgsl"),
+                include_str!("agx.wgsl"),
+            );
+            compile_source(&self.device, "agx", &source)
+        })
+    }
+
+    /// The cached residual-LUT compute pipeline (epic #925 P2 / #990).
+    ///
+    /// The kernel is a pure trilinear 3D-LUT lookup (no Oklab), so — like
+    /// `exposure.wgsl` / `white_balance.wgsl` — it compiles standalone with no
+    /// generated-color-matrix concat. The per-image grid and its node count ride
+    /// per-pass buffers (storage + uniform); `layout: None` derives the 4-binding
+    /// layout from the WGSL bindings.
+    pub fn residual_lut_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.residual_lut_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "residual-lut", include_str!("residual_lut.wgsl")))
+    }
+
+    /// The cached tone-curves compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Luma coupling uses the inlined Rec.2020 weights (not the codegen
+    /// matrices), so — like `exposure.wgsl` / `white_balance.wgsl` — the kernel
+    /// compiles standalone with no generated-color-matrix concat. The prepared
+    /// curve slots + the branch flags ride per-pass buffers (storage + uniform);
+    /// `layout: None` derives the 4-binding layout from the WGSL bindings.
+    pub fn tone_curves_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.tone_curves_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "tone-curves", include_str!("tone_curves.wgsl")))
+    }
+
+    /// The cached separable box-blur compute pipeline (epic #925 P2 wave 3b /
+    /// #990). The spatial primitive: `box_blur.wgsl` runs one axis (horizontal or
+    /// vertical) per dispatch over a scalar f32 plane, with the same
+    /// shrinking-window border policy as `raw_core::stages::blur::box_blur_channel`.
+    /// Standalone kernel (no generated-matrix concat), like `exposure.wgsl`.
+    pub fn box_blur_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.box_blur_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "box-blur", include_str!("box_blur.wgsl")))
+    }
+
+    /// The cached guided-filter luma-extract pipeline (epic #925 P2 wave 3b /
+    /// #990). `guided_luma.wgsl`: RGBA → (luma, luma²) scalar planes, the start of
+    /// the self-guided base/detail decomposition. Standalone kernel (the Rec.2020
+    /// luma weights are inlined, like `tone_curves.wgsl`).
+    pub fn guided_luma_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.guided_luma_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "guided-luma", include_str!("guided_luma.wgsl")))
+    }
+
+    /// The cached guided-filter coefficient pipeline (epic #925 P2 wave 3b /
+    /// #990). `guided_ab.wgsl`: the self-guided `a`/`b` derivation from the
+    /// box-blurred (mean_i, mean_ii) planes. Standalone kernel.
+    pub fn guided_ab_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.guided_ab_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "guided-ab", include_str!("guided_ab.wgsl")))
+    }
+
+    /// The cached guided-filter combine pipeline (epic #925 P2 wave 3b / #990).
+    /// `guided_combine.wgsl`: the clarity/texture base/detail recombine reading
+    /// the original RGBA AND three derived planes at once — the MULTI-INPUT spatial
+    /// pass pattern dehaze + P3 reuse. Standalone kernel.
+    pub fn guided_combine_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.guided_combine_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "guided-combine", include_str!("guided_combine.wgsl")))
+    }
+
+    /// The cached dehaze min-filter pipeline (epic #925 P2 wave 3b / #990).
+    /// `dehaze_min.wgsl`: a direct 2D 15×15 window min serving the dark channel
+    /// (mode 0) and the transmission map (mode 1), with clamp-to-edge borders.
+    /// Standalone kernel.
+    pub fn dehaze_min_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.dehaze_min_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "dehaze-min", include_str!("dehaze_min.wgsl")))
+    }
+
+    /// The cached dehaze guided-products pipeline (epic #925 P2 wave 3b / #990).
+    /// `dehaze_products.wgsl`: packs the GENERAL guided filter's four pre-blur
+    /// quantities into two vec2 planes. Standalone kernel.
+    pub fn dehaze_products_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.dehaze_products_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "dehaze-products", include_str!("dehaze_products.wgsl")))
+    }
+
+    /// The cached vec2 box-blur pipeline (epic #925 P2 wave 3b / #990).
+    /// `box_blur_vec2.wgsl`: the vec2 sibling of `box_blur.wgsl`, same border
+    /// policy, blurring dehaze's packed mean-planes. Standalone kernel.
+    pub fn box_blur_vec2_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.box_blur_vec2_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "box-blur-vec2", include_str!("box_blur_vec2.wgsl")))
+    }
+
+    /// The cached dehaze guided-coefficient pipeline (epic #925 P2 wave 3b /
+    /// #990). `dehaze_guided_ab.wgsl`: the GENERAL (guide != p) a/b derivation
+    /// from the packed blurred means. Standalone kernel.
+    pub fn dehaze_guided_ab_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.dehaze_guided_ab_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "dehaze-guided-ab", include_str!("dehaze_guided_ab.wgsl")))
+    }
+
+    /// The cached dehaze sky-mask pipeline (epic #925 P2 wave 3b / #990).
+    /// `dehaze_sky_mask.wgsl`: the raw smoothstep sky mask (issue #272) over the
+    /// dark channel. Standalone kernel.
+    pub fn dehaze_sky_mask_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.dehaze_sky_mask_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "dehaze-sky-mask", include_str!("dehaze_sky_mask.wgsl")))
+    }
+
+    /// The cached dehaze recovery pipeline (epic #925 P2 wave 3b / #990).
+    /// `dehaze_recover.wgsl`: the MULTI-INPUT scene recovery (reconstruct
+    /// t_refined, `J=(I-A)/t_eff+A`, sky-mask blend). Standalone kernel.
+    pub fn dehaze_recover_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.dehaze_recover_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "dehaze-recover", include_str!("dehaze_recover.wgsl")))
+    }
+}
+
+/// Compile a standalone WGSL kernel (no generated-matrix concat) into a cached
+/// compute pipeline with an auto-derived bind-group layout. The common case;
+/// an alias for [`compile_source`] that reads at the call site as "this kernel
+/// needs no generated header."
+fn compile_standalone(device: &wgpu::Device, label: &str, source: &str) -> wgpu::ComputePipeline {
+    compile_source(device, label, source)
+}
+
+/// Compile a WGSL kernel that calls the generated Oklab / color-matrix helpers,
+/// by prepending `generated/color_matrices.wgsl` (WGSL has no `#include`). The
+/// concat-at-compile pattern every Oklab / matrix fan-out stage shares.
+fn compile_with_matrices(device: &wgpu::Device, label: &str, kernel: &str) -> wgpu::ComputePipeline {
+    let source = format!("{}\n{}", include_str!("generated/color_matrices.wgsl"), kernel);
+    compile_source(device, label, &source)
+}
+
+/// The shared module-create + pipeline-create boilerplate behind every accessor.
+fn compile_source(device: &wgpu::Device, label: &str, source: &str) -> wgpu::ComputePipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(label),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some(&format!("{label}-pipeline")),
+        layout: None,
+        module: &shader,
+        entry_point: Some("main"),
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    })
+}
