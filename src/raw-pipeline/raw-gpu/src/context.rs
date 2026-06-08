@@ -139,6 +139,25 @@ pub struct GpuContext {
     /// `J=(I-A)/t_eff+A`, and blends by the sky mask. 5-binding layout (params
     /// uniform + RGBA-orig + ab-in + sky-in + RGBA-out).
     pub(crate) dehaze_recover_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled NLM noise-reduction pipelines (epic #925 P3 wave 1 /
+    /// #991). All five entry points share one WGSL module
+    /// (`noise_reduction.wgsl` + the generated color matrices, for the Oklab
+    /// round-trip); each `OnceCell` caches the pipeline for one `@compute` entry.
+    /// `extract_channel`: RGBA → one Oklab channel (L/a/b) plane (2 storage).
+    pub(crate) nr_extract_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `accumulate_shift`: the per-shift NLM core — direct patch-SSD → weight →
+    /// acc/wsum/max_w (4 storage: plane + acc + wsum + max_w; no integral image,
+    /// so it fits the `downlevel_defaults()` cap).
+    pub(crate) nr_accumulate_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `finalize`: `(acc + mw·plane) / (wsum + mw)` written in place to acc
+    /// (4 storage: plane + acc + wsum + max_w).
+    pub(crate) nr_finalize_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `writeback_luma`: RGBA-src + denoised-L → RGBA-dst, a/b recomputed from
+    /// src (3 storage).
+    pub(crate) nr_writeback_luma_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `writeback_color`: RGBA-src + denoised-a + denoised-b → RGBA-dst, L
+    /// recomputed from src (4 storage).
+    pub(crate) nr_writeback_color_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -188,6 +207,11 @@ impl GpuContext {
             dehaze_guided_ab_pipeline: OnceCell::new(),
             dehaze_sky_mask_pipeline: OnceCell::new(),
             dehaze_recover_pipeline: OnceCell::new(),
+            nr_extract_pipeline: OnceCell::new(),
+            nr_accumulate_pipeline: OnceCell::new(),
+            nr_finalize_pipeline: OnceCell::new(),
+            nr_writeback_luma_pipeline: OnceCell::new(),
+            nr_writeback_color_pipeline: OnceCell::new(),
         }
     }
 
