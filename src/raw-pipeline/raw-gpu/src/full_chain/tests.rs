@@ -58,207 +58,21 @@ use super::*;
 use crate::chain::ChainRunner;
 use crate::context::GpuContext;
 use crate::dehaze::compute_airlight;
+use crate::full_chain::oracle::{
+    cpu_oracle, max_abs_diff, moved, nonidentity_curve, nonidentity_lut, scene_linear_rgba, Case,
+};
 use crate::image::GpuImage;
-use crate::tone_curves::CurveMode;
 use crate::PROFILE_CURVE_FLAT_LEN;
 
-use raw_core::image::{ColorSpace, Image};
 use raw_core::types::adjustment::AutoExposureMode;
 use raw_core::types::{ToneCurve, ToneCurveMode, WbMethod};
-use raw_core::view::auto_profile::apply::apply_curve;
-use raw_core::view::auto_profile::curve::{ChannelCurve, ProfileCurve};
-use raw_core::view::auto_profile::lut::ColorLut;
 use raw_core::xmp::AdjustmentModel;
 
-/// A scene-linear Rec.2020 RGBA test buffer (the kind the post-DCP develop chain
-/// produces). Spans the full working range every stage cares about:
-///   - shadow / midtone / highlight greys (tone, curve, NR),
-///   - saturated primaries (Oklab vibrance/saturation, WB channel coupling, the
-///     AgX hue-restoring sigmoid + the display-encode gamut compression),
-///   - HDR scene-headroom values > 1 (AgX sigmoid + compress_input soft-knee),
-///   - a slightly-negative channel (clamp paths),
-///   - spatial neighbours that differ from their surround (so the guided-filter /
-///     dehaze / sharpen / NLM kernels are non-vacuous — a flat field is a
-///     near-fixed-point for every spatial stage).
-///
-/// 8×8 = 64 pixels so the 15×15 dehaze window and radius-20 clarity box-blur
-/// have a meaningful interior + border (smaller and the shrinking-window border
-/// policy dominates; this keeps both regions exercised).
-fn scene_linear_rgba(w: usize, h: usize) -> Vec<f32> {
-    let mut v = Vec::with_capacity(w * h * 4);
-    for y in 0..h {
-        for x in 0..w {
-            let i = y * w + x;
-            // A deterministic, structured field: smooth gradients with a few
-            // sharp local features so spatial kernels see real edges.
-            let t = i as f32 / (w * h) as f32; // 0..1 ramp
-            let edge = if (x + y) % 5 == 0 { 0.6 } else { 0.0 }; // periodic edges
-            let r = (0.05 + t * 1.3 + edge).max(-0.02);
-            let g = 0.04 + (1.0 - t) * 0.9 + 0.5 * ((x as f32 * 0.7).sin().abs());
-            let b = 0.03 + t * 0.5 + 0.4 * ((y as f32 * 0.9).cos().abs());
-            // Seed a couple of saturated primaries + an HDR value explicitly.
-            let (r, g, b) = match i % 11 {
-                0 => (0.80, 0.10, 0.10), // saturated red
-                3 => (0.10, 0.80, 0.10), // saturated green
-                5 => (0.10, 0.10, 0.80), // saturated blue
-                7 => (5.00, 3.00, 1.50), // HDR scene-headroom
-                _ => (r, g, b),
-            };
-            v.extend_from_slice(&[r, g, b, 1.0]);
-        }
-    }
-    v
-}
-
-/// Derive the same 3×3 WB matrix raw-core's `apply` uses, single-sourced from
-/// raw-core (`wb_cat16_matrix` / `wb_gains`) — so the GPU `WhiteBalancePass`
-/// matmul is pinned to the CPU stage.
-fn wb_matrix(temperature: f32, tint: f32, method: WbMethod) -> [[f32; 3]; 3] {
-    match method {
-        WbMethod::Cat16 => raw_core::stages::white_balance::wb_cat16_matrix(temperature, tint).0,
-        WbMethod::DiagonalRec2020 => {
-            let g = raw_core::stages::white_balance::wb_gains(temperature, tint);
-            [[g[0], 0.0, 0.0], [0.0, g[1], 0.0], [0.0, 0.0, g[2]]]
-        }
-    }
-}
-
-/// Bridge a raw-gpu `CaptureSharpeningParams` to its raw-core twin (field-for-
-/// field; same names) so the CPU oracle calls the real stage with matching args.
-fn rc_capture(
-    p: &CaptureSharpeningParams,
-) -> raw_core::stages::capture_sharpening::CaptureSharpeningParams {
-    raw_core::stages::capture_sharpening::CaptureSharpeningParams {
-        sigma: p.sigma,
-        iterations: p.iterations,
-        highlight_threshold: p.highlight_threshold,
-        strength: p.strength,
-    }
-}
-
-/// Build the `AdjustmentModel` that drives BOTH sides for a case: the GPU Pass
-/// params are derived from these exact fields, and the CPU oracle hands this same
-/// model to `scene_tone_controls::apply` / `tone_curves::apply` and reads the
-/// scalar fields for the per-value stages. One source of truth.
-struct Case {
-    model: AdjustmentModel,
-    capture: Option<CaptureSharpeningParams>,
-    curve: ProfileCurve,
-    lut: ColorLut,
-    /// WB method (the model carries temp/tint; method is a separate enum field).
-    wb_method: WbMethod,
-}
-
-impl Case {
-    /// Assemble the GPU-side [`FullChainInputs`] from this case's model + per-
-    /// image data — the GPU stage params come straight from the CPU model.
-    fn gpu_inputs(&self) -> FullChainInputs {
-        FullChainInputs {
-            wb_matrix: wb_matrix(self.model.temperature, self.model.tint, self.wb_method),
-            tone: [
-                self.model.exposure,
-                self.model.highlights,
-                self.model.shadows,
-                self.model.whites,
-                self.model.blacks,
-            ],
-            tone_curves: ToneCurveInputs {
-                parametric: [
-                    self.model.parametric_shadows,
-                    self.model.parametric_darks,
-                    self.model.parametric_lights,
-                    self.model.parametric_highlights,
-                ],
-                luma: self.model.tone_curve_luma.points.clone(),
-                red: self.model.tone_curve_red.points.clone(),
-                green: self.model.tone_curve_green.points.clone(),
-                blue: self.model.tone_curve_blue.points.clone(),
-                mode: match self.model.tone_curve_mode {
-                    ToneCurveMode::PerChannel => CurveMode::PerChannel,
-                    ToneCurveMode::RatioPreserving => CurveMode::RatioPreserving,
-                },
-            },
-            vibrance: self.model.vibrance,
-            saturation: self.model.saturation,
-            clarity: self.model.clarity,
-            texture: self.model.texture,
-            dehaze: self.model.dehaze,
-            sharpen_amount: self.model.sharpen_amount,
-            sharpen_radius: self.model.sharpen_radius,
-            sharpen_detail: self.model.sharpen_detail,
-            sharpen_masking: self.model.sharpen_masking,
-            nr_luminance: self.model.nr_luminance,
-            nr_color: self.model.nr_color,
-            contrast: self.model.contrast,
-            capture_sharpening: self.capture,
-            profile_curve_flat: self.curve.to_flat(),
-            residual_lut_size: self.lut.size,
-            residual_lut_data: self.lut.data.clone(),
-        }
-    }
-}
-
-/// The CPU reference: run the SAME stages in the SAME order by calling the real
-/// `raw-core` stage functions on an `Image`, then the full view tail (incl.
-/// `srgb_gamma_encode` in its render position — see the module docs). Returns a
-/// flat interleaved RGBA buffer (alpha = 1.0).
-fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
-    let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
-    for (i, chunk) in input.chunks_exact(4).enumerate() {
-        img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
-    }
-
-    // --- scene-linear stages, in develop order ---
-    if let Some(p) = &case.capture {
-        raw_core::stages::capture_sharpening::apply_capture_sharpening(&mut img, &rc_capture(p));
-    }
-    raw_core::stages::white_balance::apply(
-        &mut img,
-        case.model.temperature,
-        case.model.tint,
-        case.wb_method,
-    );
-    raw_core::stages::scene_tone_controls::apply(&mut img, &case.model);
-    raw_core::stages::tone_curves::apply(&mut img, &case.model);
-    raw_core::stages::vibrance::apply(&mut img, case.model.vibrance);
-    raw_core::stages::saturation::apply(&mut img, case.model.saturation);
-    raw_core::stages::clarity::apply(&mut img, case.model.clarity);
-    raw_core::stages::texture::apply(&mut img, case.model.texture);
-    raw_core::stages::dehaze::apply(&mut img, case.model.dehaze);
-    raw_core::stages::sharpen::apply(
-        &mut img,
-        case.model.sharpen_amount,
-        case.model.sharpen_radius,
-        case.model.sharpen_detail,
-        case.model.sharpen_masking,
-    );
-    raw_core::stages::noise_reduction::apply_luminance(&mut img, case.model.nr_luminance);
-    raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color);
-
-    // --- view tail (agx → rec2020_to_srgb → srgb_gamma_encode → curve → LUT,
-    //     matching the GPU suffix AND raw-core's render tail exactly) ---
-    raw_core::view::agx::apply(&mut img, case.model.contrast);
-    raw_core::view::encode::rec2020_to_srgb(&mut img);
-    // srgb_gamma_encode: the per-channel IEC OETF. Runs HERE — between
-    // rec2020_to_srgb and the Auto Profile curve/LUT — because the curve + LUT
-    // were fit in gamma space (mirrors the GPU `SrgbGammaPass` position).
-    raw_core::view::encode::srgb_gamma_encode(&mut img);
-    // Buffer is now DisplayEncodedSrgb in [0,1]. apply_curve / ColorLut operate on
-    // an interleaved RGB f32 slice; run them on the same domain the GPU passes do.
-    let mut rgb: Vec<f32> = Vec::with_capacity(img.pixels.len() * 3);
-    for p in &img.pixels {
-        rgb.extend_from_slice(&[p[0], p[1], p[2]]);
-    }
-    apply_curve(&mut rgb, &case.curve);
-    case.lut.apply(&mut rgb);
-
-    // Repack to RGBA (alpha 1.0) to match the GPU readback shape.
-    let mut out = Vec::with_capacity(input.len());
-    for px in rgb.chunks_exact(3) {
-        out.extend_from_slice(&[px[0], px[1], px[2], 1.0]);
-    }
-    out
-}
+// The CPU oracle, `Case` builder, scene-linear fixture, and the non-identity
+// curve/LUT fixtures now live in `crate::full_chain::oracle` (shared with the
+// P4b `live_chain/tests.rs` gate). `CaptureSharpeningParams` is still needed
+// here for the aggressive case's capture-sharpening engagement.
+use crate::capture_sharpening::CaptureSharpeningParams;
 
 /// Run the composed GPU chain with a genuine mid-chain airlight readback:
 /// prefix → readback → `compute_airlight` → suffix (seeded from the prefix
@@ -297,21 +111,6 @@ fn run_gpu_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Vec
         "suffix run must read back exactly once"
     );
     out
-}
-
-/// Max absolute per-element difference between two equal-length buffers.
-fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
-    assert_eq!(a.len(), b.len(), "buffer length mismatch");
-    a.iter()
-        .zip(b)
-        .map(|(x, y)| (x - y).abs())
-        .fold(0.0_f32, f32::max)
-}
-
-/// How much the chain moved the image vs the raw input (sanity floor: a gate that
-/// passes only because nothing happened is vacuous).
-fn moved(input: &[f32], out: &[f32]) -> f32 {
-    max_abs_diff(input, out)
 }
 
 /// Accumulated-error budget for the full 17-stage composed chain.
@@ -427,37 +226,6 @@ fn aggressive_case() -> Case {
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
     }
-}
-
-/// A non-identity Auto Profile curve: real per-channel gamma curves + a small
-/// cross-channel matrix tweak, so the curve Pass's matrix + per-channel paths
-/// both run (an identity-only curve would leave that path vacuous).
-fn nonidentity_curve() -> ProfileCurve {
-    let gamma = |g: f32| {
-        let mut c = ChannelCurve::identity();
-        for a in c.anchors.iter_mut() {
-            a.1 = a.0.powf(g);
-        }
-        c
-    };
-    let mut c = ProfileCurve::identity();
-    c.r = gamma(0.9);
-    c.g = gamma(1.05);
-    c.b = gamma(0.95);
-    // A small off-diagonal cross-channel mix (keeps it near-identity but
-    // non-trivial so the matrix matmul is exercised).
-    c.matrix = [[0.98, 0.01, 0.01], [0.01, 0.98, 0.01], [0.01, 0.01, 0.98]];
-    c
-}
-
-/// A non-identity residual LUT: the identity grid warped by a mild per-node
-/// gamma so the trilinear lookup carries a real residual (not a pass-through).
-fn nonidentity_lut(size: usize) -> ColorLut {
-    let mut lut = ColorLut::identity(size);
-    for v in lut.data.iter_mut() {
-        *v = v.clamp(0.0, 1.0).powf(0.92);
-    }
-    lut
 }
 
 /// THE CAPSTONE GATE: the composed GPU chain matches the same stages composed on
