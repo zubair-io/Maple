@@ -46,6 +46,14 @@ pub struct GpuContext {
     /// scale + a gamut-hull bisection, so it concats the generated matrices like
     /// vibrance. Built on first use via [`GpuContext::saturation_pipeline`].
     saturation_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled Auto Profile curve compute pipeline
+    /// (`auto_profile_curve.wgsl` + the generated color matrices). A P2
+    /// view-transform stage (#990): the per-pixel fitted tone curve
+    /// (`compress_input` + per-channel eval + matrix + Oklab corrections), NOT
+    /// the residual 3D LUT. Concats the generated matrices like vibrance (the
+    /// Oklab correction path). Built on first use via
+    /// [`GpuContext::auto_profile_curve_pipeline`].
+    auto_profile_curve_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -81,6 +89,7 @@ impl GpuContext {
             scene_tone_controls_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),
             saturation_pipeline: OnceCell::new(),
+            auto_profile_curve_pipeline: OnceCell::new(),
         }
     }
 
@@ -258,6 +267,39 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("saturation-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached Auto Profile curve compute pipeline (epic #925 P2 / #990).
+    ///
+    /// The kernel's Oklab correction path uses the generated color-matrix
+    /// helpers, so — like `vibrance_pipeline` / `saturation_pipeline` — the
+    /// generated `color_matrices.wgsl` is prepended to `auto_profile_curve.wgsl`
+    /// at module creation (WGSL has no `#include`). The kernel uses a 4-binding
+    /// layout (meta uniform + src/dst storage + the flat-curve storage buffer);
+    /// `layout: None` derives it from the WGSL bindings.
+    pub fn auto_profile_curve_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.auto_profile_curve_pipeline.get_or_init(|| {
+            let source = format!(
+                "{}\n{}",
+                include_str!("generated/color_matrices.wgsl"),
+                include_str!("auto_profile_curve.wgsl"),
+            );
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("auto-profile-curve"),
+                    source: wgpu::ShaderSource::Wgsl(source.into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("auto-profile-curve-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),
