@@ -105,7 +105,11 @@ COMPRESSION  = 0.20
 #  v6: Maple AgX 6th-order polynomial fit (mid-gray → 0.237, ~8% high).
 #  v7: Canonical Sobotka AgX with Rec.2020 inset/outset matrices + real
 #      Jed Smith sigmoid (#263). Mid-gray scene 0.18 → display 0.18 exact.
-AGX_VERSION  = 7
+#  v8: Cache-bust only — no LUT/coefficient change from v7. Aligns this
+#      generator to the value already shipped in agx_coeffs.rs (the .rs
+#      had been bumped to 8 without bumping the generator, so a regen
+#      would otherwise downgrade the live RenderedPreviewCache key).
+AGX_VERSION  = 8
 
 
 # ── Sobotka / Jed Smith sigmoid (port of AgX-S2O3 AgX.py L122-L207) ───────
@@ -322,12 +326,14 @@ def emit_rs(path: Path) -> None:
         "//! Canonical Sobotka AgX constants for the Rust raw-core view\n"
         "//! transform. The pipeline is:\n"
         "//!\n"
+        "//! ```text\n"
         "//!     scene-linear Rec.2020\n"
         "//!         → AGX_INSET_MATRIX\n"
         "//!         → per-channel log2 encode + normalize\n"
         "//!         → per-channel sigmoid LUT (agx_lut.bin)\n"
         "//!         → AGX_OUTSET_MATRIX\n"
         "//!         → clamp to [0, 1] = display-linear Rec.2020\n"
+        "//! ```\n"
         "//!\n"
         "//! Re-run the derivation script when coefficients change; bump\n"
         "//! `viewTransformVersion` in RenderedPreviewCache (spec\n"
