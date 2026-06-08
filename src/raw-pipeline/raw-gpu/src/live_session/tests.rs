@@ -178,7 +178,7 @@ fn session_render_matches_direct_chain_plus_dither_byte_exact() {
         let session = LiveSession::new(&ctx, &input, w, h);
         let cancel = CancelToken::new();
         let got = session
-            .render_to_buffer(&inputs, airlight, &cancel)
+            .render_to_buffer(&ctx, &inputs, airlight, &cancel)
             .expect("uncancelled render returns Some");
 
         let want = reference_u8(&ctx, &input, w, h, &inputs);
@@ -213,7 +213,7 @@ fn pre_cancelled_render_returns_none() {
     let session = LiveSession::new(&ctx, &input, w, h);
     let cancel = CancelToken::new();
     cancel.cancel(); // pre-cancelled
-    let out = session.render_to_buffer(&inputs, airlight, &cancel);
+    let out = session.render_to_buffer(&ctx, &inputs, airlight, &cancel);
     assert!(out.is_none(), "pre-cancelled render must return None");
 }
 
@@ -231,8 +231,8 @@ fn rerender_same_inputs_is_byte_identical() {
 
     let session = LiveSession::new(&ctx, &input, w, h);
     let cancel = CancelToken::new();
-    let first = session.render_to_buffer(&inputs, airlight, &cancel).unwrap();
-    let second = session.render_to_buffer(&inputs, airlight, &cancel).unwrap();
+    let first = session.render_to_buffer(&ctx, &inputs, airlight, &cancel).unwrap();
+    let second = session.render_to_buffer(&ctx, &inputs, airlight, &cancel).unwrap();
     assert_eq!(first, second, "re-render at same dims/inputs must be byte-identical");
 }
 
@@ -261,13 +261,13 @@ fn second_render_same_signature_allocates_nothing() {
         let session = LiveSession::new(&ctx, &input, w, h);
 
         // First render: fills the pool (allocations expected).
-        let before_first = session.pool_alloc_count();
-        let first = session.render_to_buffer(&inputs, airlight, &cancel).unwrap();
-        let first_allocs = session.pool_alloc_count() - before_first;
+        let before_first = session.pool_alloc_count(&ctx);
+        let first = session.render_to_buffer(&ctx, &inputs, airlight, &cancel).unwrap();
+        let first_allocs = session.pool_alloc_count(&ctx) - before_first;
 
         // Second render, identical signature: must reuse everything.
-        let second = session.render_to_buffer(&inputs, airlight, &cancel).unwrap();
-        let second_allocs = session.pool_alloc_count() - before_first - first_allocs;
+        let second = session.render_to_buffer(&ctx, &inputs, airlight, &cancel).unwrap();
+        let second_allocs = session.pool_alloc_count(&ctx) - before_first - first_allocs;
 
         eprintln!(
             "ZERO-ALLOC [{name}]: first render = {first_allocs} pool allocs, \
@@ -344,12 +344,12 @@ fn same_signature_value_change_is_correct_and_zero_alloc() {
     let session = LiveSession::new(&ctx, &input, w, h);
 
     // Render base (fills the cache for this signature).
-    let _ = session.render_to_buffer(&base, airlight, &cancel).unwrap();
+    let _ = session.render_to_buffer(&ctx, &base, airlight, &cancel).unwrap();
 
     // Now the EDIT: same signature, changed values. Snapshot allocs around it.
-    let pre_edit = session.pool_alloc_count();
-    let got = session.render_to_buffer(&edited, airlight, &cancel).unwrap();
-    let edit_allocs = session.pool_alloc_count() - pre_edit;
+    let pre_edit = session.pool_alloc_count(&ctx);
+    let got = session.render_to_buffer(&ctx, &edited, airlight, &cancel).unwrap();
+    let edit_allocs = session.pool_alloc_count(&ctx) - pre_edit;
 
     // (a) Correct NEW pixels: matches a reference render of the EDITED inputs
     //     (direct chain+dither, no pool). If the uniform / data buffer weren't
@@ -397,11 +397,11 @@ fn signature_change_allocates_once_then_zero() {
 
     // Shape A: neutral (view tail only).
     let a = neutral_case().gpu_inputs();
-    let base = session.pool_alloc_count();
-    session.render_to_buffer(&a, airlight, &cancel).unwrap();
-    let a1 = session.pool_alloc_count() - base;
-    session.render_to_buffer(&a, airlight, &cancel).unwrap();
-    let a2 = session.pool_alloc_count() - base - a1;
+    let base = session.pool_alloc_count(&ctx);
+    session.render_to_buffer(&ctx, &a, airlight, &cancel).unwrap();
+    let a1 = session.pool_alloc_count(&ctx) - base;
+    session.render_to_buffer(&ctx, &a, airlight, &cancel).unwrap();
+    let a2 = session.pool_alloc_count(&ctx) - base - a1;
     assert!(a1 > 0, "shape A first render must allocate");
     assert_eq!(a2, 0, "shape A re-render must be zero-alloc");
 
@@ -409,11 +409,11 @@ fn signature_change_allocates_once_then_zero() {
     let mut b_case = neutral_case();
     b_case.model.dehaze = 40.0;
     let b = b_case.gpu_inputs();
-    let pre_b = session.pool_alloc_count();
-    session.render_to_buffer(&b, airlight, &cancel).unwrap();
-    let b1 = session.pool_alloc_count() - pre_b;
-    session.render_to_buffer(&b, airlight, &cancel).unwrap();
-    let b2 = session.pool_alloc_count() - pre_b - b1;
+    let pre_b = session.pool_alloc_count(&ctx);
+    session.render_to_buffer(&ctx, &b, airlight, &cancel).unwrap();
+    let b1 = session.pool_alloc_count(&ctx) - pre_b;
+    session.render_to_buffer(&ctx, &b, airlight, &cancel).unwrap();
+    let b2 = session.pool_alloc_count(&ctx) - pre_b - b1;
     eprintln!("SIGNATURE-CHANGE: shape A allocs={a1}, shape B allocs={b1} (B re-render={b2})");
     assert!(
         b1 > 0,
@@ -422,8 +422,8 @@ fn signature_change_allocates_once_then_zero() {
     assert_eq!(b2, 0, "shape B re-render must be zero-alloc");
 
     // Returning to shape A is zero-alloc (its bucket is still cached).
-    let pre_a3 = session.pool_alloc_count();
-    session.render_to_buffer(&a, airlight, &cancel).unwrap();
-    let a3 = session.pool_alloc_count() - pre_a3;
+    let pre_a3 = session.pool_alloc_count(&ctx);
+    session.render_to_buffer(&ctx, &a, airlight, &cancel).unwrap();
+    let a3 = session.pool_alloc_count(&ctx) - pre_a3;
     assert_eq!(a3, 0, "returning to shape A must reuse its cached bucket (zero-alloc)");
 }
