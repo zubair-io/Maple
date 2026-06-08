@@ -54,6 +54,15 @@ pub struct GpuContext {
     /// Oklab correction path). Built on first use via
     /// [`GpuContext::auto_profile_curve_pipeline`].
     auto_profile_curve_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled AgX view-transform compute pipeline (`agx.wgsl` + the
+    /// generated color matrices + the generated AgX coeffs). A P2
+    /// view-transform stage (#990): inset -> log encode -> ratio-preserving
+    /// sigmoid (sampling the baked LUT) -> outset -> Oklab hue-preserving
+    /// gamut compression. Concats BOTH generated WGSL modules (Oklab pair +
+    /// AgX matrices/scalars) ahead of the kernel, and uses a 4-binding layout
+    /// (params uniform + src/dst storage + the baked-LUT storage buffer).
+    /// Built on first use via [`GpuContext::agx_pipeline`].
+    agx_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -90,6 +99,7 @@ impl GpuContext {
             display_encode_pipeline: OnceCell::new(),
             saturation_pipeline: OnceCell::new(),
             auto_profile_curve_pipeline: OnceCell::new(),
+            agx_pipeline: OnceCell::new(),
         }
     }
 
@@ -300,6 +310,42 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("auto-profile-curve-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached AgX view-transform compute pipeline (epic #925 P2 / #990).
+    ///
+    /// The kernel needs BOTH generated WGSL modules: the Oklab + Rec.2020/sRGB
+    /// matrices (`color_matrices.wgsl`, for the gamut-compress round-trip) and
+    /// the AgX inset/outset matrices + log-encode scalars (`agx_coeffs.wgsl`,
+    /// emitted by `derive_agx_lut.py --wgsl`). Both are prepended to `agx.wgsl`
+    /// at module creation (WGSL has no `#include`) — same concat-at-compile
+    /// pattern as `vibrance_pipeline`, extended to two generated headers. The
+    /// kernel uses a 4-binding layout (params uniform + src/dst storage + the
+    /// baked-LUT storage buffer); `layout: None` derives it from the bindings.
+    pub fn agx_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.agx_pipeline.get_or_init(|| {
+            let source = format!(
+                "{}\n{}\n{}",
+                include_str!("generated/color_matrices.wgsl"),
+                include_str!("generated/agx_coeffs.wgsl"),
+                include_str!("agx.wgsl"),
+            );
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("agx"),
+                    source: wgpu::ShaderSource::Wgsl(source.into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("agx-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),
