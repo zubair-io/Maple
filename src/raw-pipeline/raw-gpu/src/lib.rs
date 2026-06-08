@@ -92,6 +92,18 @@
 //!   (fine-detail scale), so it reuses the WHOLE spatial pipeline
 //!   ([`clarity_texture_encode`]) and the shared CPU oracle — only the radius
 //!   constant differs. Parity-gated directly vs `raw_core::stages::texture::apply`.
+//! - [`DehazePass`] + [`apply_dehaze`] — the LAST P2 stage and the hardest
+//!   SPATIAL one (#990), completing the scene-linear chain on the GPU. A
+//!   dark-channel-prior haze removal: a 15×15 window MIN (dark channel +
+//!   transmission, CLAMP-TO-EDGE borders — a distinct policy from the box blur's
+//!   shrinking window, so its own 2D min kernel), a GENERAL guided-filter
+//!   transmission refine (guide=luma != p=t, so the four pre-blur means are
+//!   PACKED into vec2 planes to fit the 4-storage cap), a smoothstep sky mask
+//!   (issue #272), and a multi-input recovery `J=(I-A)/t_eff+A`. The GLOBAL
+//!   atmospheric-light reduction (mean of orig at the top-0.1% dark-channel
+//!   positions) runs CPU-side ([`compute_airlight`], byte-exact vs raw-core) and
+//!   rides a uniform — the clean headless-parity path for a global reduction.
+//!   Parity-gated directly vs `raw_core::stages::dehaze::apply`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
