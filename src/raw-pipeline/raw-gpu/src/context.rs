@@ -35,6 +35,12 @@ pub struct GpuContext {
     /// luma-coupled tone steps, no Oklab, so no generated color matrices. Built
     /// on first use via [`GpuContext::scene_tone_controls_pipeline`].
     scene_tone_controls_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled display-encode compute pipeline (`display_encode.wgsl` +
+    /// the generated color matrices). A P2 view-transform stage (#990):
+    /// Rec.2020 → sRGB + Oklab gamut compression, so it concats the generated
+    /// matrices like vibrance. Built on first use via
+    /// [`GpuContext::display_encode_pipeline`].
+    display_encode_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -68,6 +74,7 @@ impl GpuContext {
             vibrance_pipeline: OnceCell::new(),
             white_balance_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
+            display_encode_pipeline: OnceCell::new(),
         }
     }
 
@@ -180,6 +187,38 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("scene-tone-controls-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached display-encode compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Rec.2020 → sRGB + hue-preserving Oklab gamut compression, so the kernel
+    /// needs the generated color-matrix helpers (the sRGB↔LMS↔Lab + Rec.2020→sRGB
+    /// `mul_*` functions). Same concat-at-compile pattern as `vibrance_pipeline`:
+    /// the generated `color_matrices.wgsl` is prepended to `display_encode.wgsl`
+    /// (WGSL has no `#include`).
+    pub fn display_encode_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.display_encode_pipeline.get_or_init(|| {
+            let source = format!(
+                "{}\n{}",
+                include_str!("generated/color_matrices.wgsl"),
+                include_str!("display_encode.wgsl"),
+            );
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("display-encode"),
+                    source: wgpu::ShaderSource::Wgsl(source.into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("display-encode-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),
