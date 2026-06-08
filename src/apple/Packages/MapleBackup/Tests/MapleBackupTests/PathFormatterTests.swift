@@ -38,6 +38,33 @@ final class PathFormatterTests: XCTestCase {
             "2024/03/IMG_0420.HEIC")
     }
 
+    // Screenshot is filed under <year>/Screenshot, taking precedence over both
+    // the location and month layouts (TS parity: formatBackupPath isScreenshot).
+    func testScreenshot() throws {
+        XCTAssertEqual(
+            try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
+                                     location: nil, filename: "Screenshot.png",
+                                     isScreenshot: true),
+            "2024/Screenshot/Screenshot.png")
+    }
+
+    func testScreenshotWinsOverLocation() throws {
+        XCTAssertEqual(
+            try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
+                                     location: ["California", "San Francisco"],
+                                     filename: "Screenshot.png",
+                                     isScreenshot: true),
+            "2024/Screenshot/Screenshot.png")
+    }
+
+    func testIsScreenshotFalseUnchanged() throws {
+        XCTAssertEqual(
+            try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),
+                                     location: nil, filename: "IMG.heic",
+                                     isScreenshot: false),
+            "2024/03/IMG.heic")
+    }
+
     func testEmptyListTreatedAsNoLocation() throws {
         XCTAssertEqual(
             try PathFormatter.format(captureDate: date("2024-03-15T10:30:00Z"),

@@ -5,8 +5,15 @@
  * output on both sides).
  *
  * Layout:
+ *   Screenshot:       <year>/Screenshot/<filename>   (takes precedence)
  *   With location:    <year>/<seg1>/<seg2>/…/<filename>
  *   Without location: <year>/<MM>/<filename>
+ *
+ * A screenshot is filed under a single `<year>/Screenshot` folder regardless of
+ * its GPS — a phone/app UI capture isn't a "place" photo, so the location and
+ * month layouts don't apply. The caller decides `isScreenshot` (the backup
+ * ingest route uses the shared filename heuristic in `indexer/screenshot.ts`);
+ * the screenshot migration re-files existing screenshots into the same folder.
  *
  * `location` is an ordered list of geographic directory segments derived from
  * the reverse-geocoded place by `backupLocationSegments` (see
@@ -59,10 +66,21 @@ export function sanitizeLocationSegments(location: readonly string[] | null | un
   return out;
 }
 
+/**
+ * The fixed directory segment screenshots are filed under, below the year.
+ * A plain literal (no separators / traversal tokens) so it never needs
+ * sanitising. Shared with the screenshot migration so a freshly-ingested
+ * screenshot and a migrated one land in byte-identical folders.
+ */
+export const SCREENSHOT_DIR_SEGMENT = 'Screenshot';
+
 export function formatBackupPath(args: {
   captureDate: Date;
   location: readonly string[] | null;
   filename: string;
+  /** True when this asset is a screenshot — files it under `<year>/Screenshot`,
+   * ignoring `location` and the month fallback. */
+  isScreenshot?: boolean;
 }): string {
   if (!isSafeFilename(args.filename)) {
     throw new Error(`unsafe filename: ${args.filename}`);
@@ -70,6 +88,9 @@ export function formatBackupPath(args: {
 
   const y = args.captureDate.getUTCFullYear().toString().padStart(4, '0');
   const m = (args.captureDate.getUTCMonth() + 1).toString().padStart(2, '0');
+
+  // Screenshot wins over location and date — a UI capture isn't a place photo.
+  if (args.isScreenshot) return `${y}/${SCREENSHOT_DIR_SEGMENT}/${args.filename}`;
 
   const segs = sanitizeLocationSegments(args.location);
   if (segs.length > 0) return `${y}/${segs.join('/')}/${args.filename}`;
