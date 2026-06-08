@@ -67,6 +67,7 @@ struct MixParams {
 ///
 /// `radius_px` / `r_box` follow raw-core: `radius.clamp(0.5, 3.0).round() as
 /// usize`, floored to 1, then the box radius is `(radius_px / 3).max(1)`.
+#[allow(clippy::too_many_arguments)] // GPU encode plumbing: ctx/encoder/src/dst/dims/sliders.
 fn encode_sharpen(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
@@ -153,10 +154,10 @@ fn encode_sharpen(
 /// `raw_core::stages::sharpen::apply`; device, pipelines, and scratch planes come
 /// from the [`GpuContext`] / spatial substrate at encode time.
 ///
-/// * `amount`  — 0..150 (>100 boosts the mix beyond unity, up to 1.5).
-/// * `radius`  — PSF sigma in pixels (clamped 0.5..3.0).
-/// * `detail`  — 0..100 (how much sharpening leaks into flat regions when masking
-///               is non-zero).
+/// * `amount` — 0..150 (>100 boosts the mix beyond unity, up to 1.5).
+/// * `radius` — PSF sigma in pixels (clamped 0.5..3.0).
+/// * `detail` — 0..100 (how much sharpening leaks into flat regions when masking
+///   is non-zero).
 /// * `masking` — 0..100 (gradient threshold for the edge-only mix).
 pub struct SharpenPass {
     pub amount: f32,
