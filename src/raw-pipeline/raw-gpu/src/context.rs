@@ -21,6 +21,10 @@ pub struct GpuContext {
     /// Lazily-compiled exposure compute pipeline (`exposure.wgsl`). Built on
     /// first use via [`GpuContext::exposure_pipeline`] and reused thereafter.
     exposure_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled vibrance compute pipeline (`vibrance.wgsl` + the
+    /// generated color matrices). The P2 template (#990); built on first use
+    /// via [`GpuContext::vibrance_pipeline`].
+    vibrance_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -51,6 +55,7 @@ impl GpuContext {
             device,
             queue,
             exposure_pipeline: OnceCell::new(),
+            vibrance_pipeline: OnceCell::new(),
         }
     }
 
@@ -75,6 +80,41 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("exposure-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached vibrance compute pipeline (epic #925 P2 / #990).
+    ///
+    /// WGSL has no `#include`, so the shader source is built by concatenating
+    /// the **generated** color-matrix module (`generated/color_matrices.wgsl`,
+    /// emitted by `codegen --schema color-matrices --target wgsl`) ahead of the
+    /// `vibrance.wgsl` kernel. The kernel calls the generated `mul_*` helpers;
+    /// `include_str!` of the committed generated file keeps raw-gpu free of a
+    /// build-time dependency on the `codegen` crate (the file rides the
+    /// codegen-drift CI gate instead). This concat-at-compile pattern is what
+    /// every Oklab/matrix fan-out stage reuses.
+    pub fn vibrance_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.vibrance_pipeline.get_or_init(|| {
+            let source = format!(
+                "{}\n{}",
+                include_str!("generated/color_matrices.wgsl"),
+                include_str!("vibrance.wgsl"),
+            );
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("vibrance"),
+                    source: wgpu::ShaderSource::Wgsl(source.into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("vibrance-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),
