@@ -74,6 +74,11 @@ use crate::tone_curves::{ToneCurveInputs, ToneCurvesPass};
 use crate::vibrance::VibrancePass;
 use crate::white_balance::WhiteBalancePass;
 
+/// An ordered, owned list of chain stages. Boxed because the stages are
+/// heterogeneous [`Pass`] impls; owned (not `&dyn`) so the builder can hand back
+/// a self-contained Vec the caller borrows into `&dyn Pass` at run time.
+pub type BoxedPasses = Vec<Box<dyn Pass>>;
+
 /// The slider + per-image inputs that drive the full chain. One value per GPU
 /// stage, sourced from the same place the CPU oracle reads — so the GPU Vec and
 /// the CPU reference can never disagree on *what* each stage does (only on the
@@ -129,10 +134,7 @@ pub struct FullChainInputs {
 /// Returns `(prefix_passes, dehaze_and_suffix_passes)` where concatenating them
 /// in order is identical to a single full Vec — the canonical assembly artifact.
 /// Passing `airlight` builds the `DehazePass` at the head of the suffix.
-pub fn build_full_chain_passes(
-    inputs: &FullChainInputs,
-    airlight: [f32; 3],
-) -> Vec<Box<dyn Pass>> {
+pub fn build_full_chain_passes(inputs: &FullChainInputs, airlight: [f32; 3]) -> BoxedPasses {
     let (prefix, suffix) = build_split(inputs, airlight);
     let mut all = prefix;
     all.extend(suffix);
@@ -144,14 +146,16 @@ pub fn build_full_chain_passes(
 /// mid-chain airlight readback can run the prefix first, then build the suffix's
 /// `DehazePass` from the read-back buffer. Concatenated, the two are exactly the
 /// single full chain.
-pub fn build_split(
-    inputs: &FullChainInputs,
-    airlight: [f32; 3],
-) -> (Vec<Box<dyn Pass>>, Vec<Box<dyn Pass>>) {
+//
+// The push-after-Vec::new pattern (vs a `vec![]` literal) is deliberate: the
+// capture_sharpening pass is conditionally pushed, and the stage-per-line shape
+// keeps the develop-order assembly legible (one push = one stage, in order).
+#[allow(clippy::vec_init_then_push)]
+pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses, BoxedPasses) {
     // --- Prefix: capture_sharpening (FIRST, matching develop's 04b placement,
     //     pre-WB/pre-auto-exposure) through texture. Everything dehaze's
     //     airlight must be measured downstream of. ---
-    let mut prefix: Vec<Box<dyn Pass>> = Vec::new();
+    let mut prefix: BoxedPasses = Vec::new();
     if let Some(params) = inputs.capture_sharpening {
         prefix.push(Box::new(CaptureSharpeningPass { params }));
     }
@@ -184,7 +188,7 @@ pub fn build_split(
     // --- Suffix: dehaze (airlight from the prefix output) → sharpen → NR →
     //     view tail (agx → display_encode → auto_profile_curve → residual_lut).
     //     local_adjustments / srgb_gamma / look / dither are gaps (module docs). ---
-    let mut suffix: Vec<Box<dyn Pass>> = Vec::new();
+    let mut suffix: BoxedPasses = Vec::new();
     suffix.push(Box::new(DehazePass {
         dehaze: inputs.dehaze,
         airlight,
