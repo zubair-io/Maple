@@ -16,6 +16,11 @@
 //!   scene-linear stages fan out from. Its color matrices come from a generated
 //!   WGSL module (`generated/color_matrices.wgsl`), single-sourced from the same
 //!   `raw-core` constants the CPU pipeline uses.
+//! - [`WhiteBalancePass`] + [`apply_white_balance`] — a P2 scene-linear stage
+//!   (#990). The WB derivation (CAT16 / diagonal) runs CPU-side once into a 3×3
+//!   matrix; the kernel is a pure per-pixel matmul of that matrix (uploaded as
+//!   vec4 rows to dodge WGSL's column-major `mat3x3`). Parity-gated directly vs
+//!   `raw_core::stages::white_balance::apply`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -28,12 +33,14 @@ mod context;
 mod exposure;
 mod image;
 mod vibrance;
+mod white_balance;
 
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use context::GpuContext;
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use image::GpuImage;
 pub use vibrance::{apply_vibrance, VibrancePass};
+pub use white_balance::{apply_white_balance, WhiteBalancePass};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use exposure::run_exposure_gpu;
