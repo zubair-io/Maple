@@ -28,14 +28,13 @@
 //! — allocating once for the new shape, zero thereafter — and never binds a
 //! stale buffer to the wrong kernel. See [`crate::FramePool`].
 //!
-//! ## Staging (the plan's "sequence it last")
+//! ## Correctness tie-back
 //!
-//! This module is built correctness-first then pooled:
-//!   - [`LiveSession::render_to_buffer`] runs the chain + dither + single
-//!     readback. Its output is gated BIT-IDENTICAL to running `build_live_chain`
-//!     through a plain `ChainRunner` + `encode_dither` directly (tying C3 back to
-//!     C1/C2), so a pixel move can only be the pooling layer, isolated.
-//!   - The pool + the zero-alloc assertion layer on top.
+//! [`LiveSession::render_to_buffer`] runs the chain + dither + single readback;
+//! its output is gated BIT-IDENTICAL to running `build_live_chain` through a plain
+//! `ChainRunner` + `encode_dither` directly (tying C3 back to C1/C2 — see
+//! `live_session/tests.rs`), and a same-signature re-render is gated ZERO-ALLOC.
+//! So neither the fused chain+dither encoding nor the pool moves a pixel.
 
 use crate::chain::{CancelToken, Pass};
 use crate::context::GpuContext;
@@ -51,8 +50,7 @@ use crate::live_chain::{build_live_chain, chain_signature};
 ///
 /// Not `Send`/`Sync` — like [`GpuContext`], the session is single-threaded around
 /// the GPU (one render in flight). A new image or a dims change = a new session.
-pub struct LiveSession<'ctx> {
-    ctx: &'ctx GpuContext,
+pub struct LiveSession {
     /// The upload-once image (resident across ticks; never mutated by a render).
     image: GpuImage,
     /// The two ping-pong scratch buffers, sized to the image. Persistent — the
@@ -68,11 +66,16 @@ pub struct LiveSession<'ctx> {
     readback: wgpu::Buffer,
 }
 
-impl<'ctx> LiveSession<'ctx> {
+impl LiveSession {
     /// Create a session for `pixels` (interleaved RGBA f32, `width × height × 4`).
     /// Uploads the image and allocates the persistent ping-pong / dither-out /
     /// readback buffers ONCE — every subsequent render reuses them.
-    pub fn new(ctx: &'ctx GpuContext, pixels: &[f32], width: u32, height: u32) -> Self {
+    ///
+    /// The session does NOT borrow `ctx` — it holds only GPU buffers (independent
+    /// of the device handle once created), so it can outlive any single `&ctx`
+    /// borrow and be owned alongside a `GpuContext` in an FFI handle (C4). Every
+    /// render method takes `&GpuContext` per call.
+    pub fn new(ctx: &GpuContext, pixels: &[f32], width: u32, height: u32) -> Self {
         let image = GpuImage::upload(ctx, pixels, width, height);
         let f32_byte_len = image.byte_len();
         let make_ping = |label: &str| {
@@ -98,7 +101,6 @@ impl<'ctx> LiveSession<'ctx> {
         // reference safety; see `FramePool::reset`).
         ctx.frame_pool.borrow_mut().reset();
         Self {
-            ctx,
             image,
             ping_pong: [make_ping("live-ping-a"), make_ping("live-ping-b")],
             dither_out,
@@ -115,29 +117,24 @@ impl<'ctx> LiveSession<'ctx> {
     /// of actual `create_buffer` / `create_bind_group` calls the pool has made
     /// (misses). Snapshot it across a same-signature re-render — the delta must be
     /// 0 (no render-loop allocation). See [`crate::frame_pool`].
-    pub fn pool_alloc_count(&self) -> u64 {
-        self.ctx.frame_pool.borrow().alloc_count()
+    pub fn pool_alloc_count(&self, ctx: &GpuContext) -> u64 {
+        ctx.frame_pool.borrow().alloc_count()
     }
 
     /// Render one frame: the GATED live chain for `inputs` (airlight seeding the
     /// dehaze pass when engaged) → the terminal dither → a SINGLE readback of the
     /// packed-u8 RGB surface, unpacked to the flat `3·w·h` u8 layout. `None` if
     /// `cancel` fires before a pass is encoded (the refine pass abandoned by a
-    /// newer edit).
-    ///
-    /// CORRECTNESS-FIRST (this commit): the chain + dither encode into ONE command
-    /// encoder (no intermediate f32 readback — the chain's final ping-pong buffer
-    /// feeds dither on-device), but the per-dispatch scratch / uniforms / bind
-    /// groups are still allocated on the pool-free path. The pool layers on next,
-    /// gated by the zero-alloc-rerun test.
+    /// newer edit). `ctx` is the same context the session was created with.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn render_to_buffer(
         &self,
+        ctx: &GpuContext,
         inputs: &FullChainInputs,
         airlight: [f32; 3],
         cancel: &CancelToken,
     ) -> Option<Vec<u8>> {
-        pollster::block_on(self.render_async(inputs, airlight, Some(cancel)))
+        pollster::block_on(self.render_async(ctx, inputs, airlight, Some(cancel)))
     }
 
     /// The async render core, shared by native (`render_to_buffer`) and wasm
@@ -146,6 +143,7 @@ impl<'ctx> LiveSession<'ctx> {
     /// cancelled mid-encode.
     pub async fn render_async(
         &self,
+        ctx: &GpuContext,
         inputs: &FullChainInputs,
         airlight: [f32; 3],
         cancel: Option<&CancelToken>,
@@ -162,10 +160,9 @@ impl<'ctx> LiveSession<'ctx> {
         // `encode_simple` / `alloc_plane` / pooled-data call below draws from it,
         // so a same-signature re-render allocates ZERO new GPU resources.
         let sig = chain_signature(inputs, dims);
-        self.ctx.frame_pool.borrow_mut().begin_frame(sig);
+        ctx.frame_pool.borrow_mut().begin_frame(sig);
 
-        let mut encoder = self
-            .ctx
+        let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("live-session-encoder"),
@@ -182,7 +179,7 @@ impl<'ctx> LiveSession<'ctx> {
                 if t.is_cancelled() {
                     // Close the pooled window before bailing so the pool isn't
                     // left mid-frame for the next render.
-                    self.ctx.frame_pool.borrow_mut().end_frame();
+                    ctx.frame_pool.borrow_mut().end_frame();
                     return None;
                 }
             }
@@ -194,7 +191,7 @@ impl<'ctx> LiveSession<'ctx> {
             } else {
                 (&hi[0], &lo[0])
             };
-            pass.encode(self.ctx, &mut encoder, src, dst, dims);
+            pass.encode(ctx, &mut encoder, src, dst, dims);
             final_idx = dst_idx;
         }
 
@@ -202,7 +199,7 @@ impl<'ctx> LiveSession<'ctx> {
         // on-device (no intermediate f32 readback). Also pool-routed, so its
         // uniform + bind group are cached like every other dispatch.
         encode_dither(
-            self.ctx,
+            ctx,
             &mut encoder,
             &self.ping_pong[final_idx],
             &self.dither_out,
@@ -210,16 +207,16 @@ impl<'ctx> LiveSession<'ctx> {
         );
 
         // Close the pooled window — all dispatches for this render are encoded.
-        self.ctx.frame_pool.borrow_mut().end_frame();
+        ctx.frame_pool.borrow_mut().end_frame();
 
         // The single end-of-run readback: copy the packed-u8 surface to the
         // MAP_READ staging buffer.
         let packed_byte_len =
             (width as u64) * (height as u64) * std::mem::size_of::<u32>() as u64;
         encoder.copy_buffer_to_buffer(&self.dither_out, 0, &self.readback, 0, packed_byte_len);
-        self.ctx.queue.submit(Some(encoder.finish()));
+        ctx.queue.submit(Some(encoder.finish()));
 
-        let packed = map_packed_readback(self.ctx, &self.readback).await;
+        let packed = map_packed_readback(ctx, &self.readback).await;
         Some(unpack_rgb_u8(&packed))
     }
 }

@@ -38,6 +38,10 @@ mod error;
 // behind the `gpu` feature so wgpu is absent from the default xcframework.
 #[cfg(feature = "gpu")]
 mod gpu;
+// Epic #925 / P4b-core (#1027): the gpu-gated LIVE-session FFI (the pooled
+// zero-alloc render runner + its `MapleGpuLiveParams` struct). Same `gpu` gate.
+#[cfg(feature = "gpu")]
+mod gpu_live;
 mod handle;
 mod id;
 mod model;
@@ -56,6 +60,9 @@ pub use buffers::{MapleByteBuffer, MapleImageBuffer, MapleSceneLinearBuffer};
 pub use cancel::MapleCancelFlag;
 pub use handle::MapleRawHandle;
 pub use scene_linear_chain::MapleAdjustmentParams;
+// gpu-gated: the live-session FFI structs (absent from the default xcframework).
+#[cfg(feature = "gpu")]
+pub use gpu_live::{MapleGpuLiveParams, MapleGpuLiveSession};
 
 
 // Tests are split per-topic so each file stays well under the 600-LOC
