@@ -13,6 +13,9 @@
  *                      default but idles until an operator enables a specific
  *                      migration via /settings/workers (each migration has its
  *                      own toggle; the worker-level pause is the standard one).
+ *   - deduplicate    — collapses assets with >1 live on-disk location, moving
+ *                      the surplus copies into `_duplicates/`. Starts PAUSED;
+ *                      operator-gated via /api/workers/deduplicate/{pause,resume}.
  *
  * Both start as part of the worker tier (via `start-workers.ts`) and are
  * therefore gated by MAPLE_INDEXER_AUTOSTART. Each job is still individually
@@ -23,6 +26,7 @@
 import { startTrashGc, type TrashGcHandle } from './trash-gc.ts';
 import { startMissingReaper, type MissingReaperHandle } from './missing-reaper.ts';
 import { startMigration, type MigrationHandle } from './migration.ts';
+import { startDeDuplicate, type DeDuplicateHandle } from './dedupe.ts';
 import { startMirrorScan, type MirrorScanHandle } from './mirror/scan.ts';
 import { startMirrorCopyWorker, type MirrorCopyHandle } from './mirror/copy.ts';
 import { installMirrorQueueSink } from './mirror/sink.ts';
@@ -40,6 +44,7 @@ const MIRROR_CONFIG_RELOAD_MS = 60_000;
 let trashGc: TrashGcHandle | null = null;
 let missingReaper: MissingReaperHandle | null = null;
 let migration: MigrationHandle | null = null;
+let deduplicate: DeDuplicateHandle | null = null;
 let mirrorScan: MirrorScanHandle | null = null;
 let mirrorCopy: MirrorCopyHandle | null = null;
 let mirrorConfigReload: ReturnType<typeof setInterval> | null = null;
@@ -50,6 +55,7 @@ export function startMaintenanceJobs(): void {
   if (!trashGc) trashGc = startTrashGc({});
   if (!missingReaper) missingReaper = startMissingReaper();
   if (!migration) migration = startMigration();
+  if (!deduplicate) deduplicate = startDeDuplicate({});
   // Mirror reconcile: detector (scan → enqueue) + copy worker (drain queue).
   // Both no-op cheaply when no library has a mirror configured. The sink
   // routes inline replication failures (this process's mirrored writes — e.g.
@@ -83,6 +89,8 @@ export function stopMaintenanceJobs(): void {
   missingReaper = null;
   migration?.stop();
   migration = null;
+  deduplicate?.stop();
+  deduplicate = null;
   mirrorScan?.stop();
   mirrorScan = null;
   mirrorCopy?.stop();

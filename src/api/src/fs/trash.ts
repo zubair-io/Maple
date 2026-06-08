@@ -23,6 +23,36 @@ const log = childLogger('fs/trash');
 
 export type MoveResult = { kind: 'ok'; newAbsPath: string } | { kind: 'error'; error: string };
 
+/**
+ * Move every XMP sidecar paired to `oldAbsPath` next to `newAbsPath`, rewriting
+ * the basename with the SAME base-swap applied to the RAW so pairing stays
+ * correct (e.g. `IMG_1 (conflict from Mac).xmp` follows `IMG_1.ARW` →
+ * `IMG_1.1.ARW` to `IMG_1.1 (conflict from Mac).xmp`).
+ *
+ * Best-effort: a sidecar that fails to move is logged and skipped — the RAW has
+ * already moved and a lost sidecar copy is recoverable. Shared by `moveToTrash`,
+ * `moveOutOfTrash`, and the DeDuplicate worker's `moveToDuplicates`.
+ */
+export async function moveSidecarsAlongside(oldAbsPath: string, newAbsPath: string): Promise<void> {
+  const oldBase = path.basename(oldAbsPath, path.extname(oldAbsPath));
+  const newBase = path.basename(newAbsPath, path.extname(newAbsPath));
+  const sidecars = await listPairedSidecars(oldAbsPath);
+  for (const sidecar of sidecars) {
+    const sidecarName = path.basename(sidecar);
+    if (!sidecarName.startsWith(oldBase)) continue; // defensive
+    const renamed = newBase + sidecarName.slice(oldBase.length);
+    const destPath = path.join(path.dirname(newAbsPath), renamed);
+    try {
+      await fs.rename(sidecar, destPath);
+    } catch (err) {
+      log.warn(
+        { sidecar, destPath, err: err instanceof Error ? err.message : err },
+        'sidecar move failed — RAW moved, sidecar left in place',
+      );
+    }
+  }
+}
+
 /** Compute the trash-side absolute path for a RAW under a library root. */
 export function computeTrashPath(absPath: string, folderRoot: string): string {
   const root = folderRoot.replace(/\/$/, '');
@@ -114,25 +144,7 @@ export async function moveToTrash(absPath: string, folderRoot: string): Promise<
   } catch (err) {
     return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
   }
-  // Move sidecars. Each conflict sidecar carries the OLD base; the moved
-  // name swaps to the NEW base so pairing stays correct in trash.
-  const oldBase = path.basename(absPath, path.extname(absPath));
-  const newBase = path.basename(freeTarget, path.extname(freeTarget));
-  const sidecars = await listPairedSidecars(absPath);
-  for (const sidecar of sidecars) {
-    const sidecarName = path.basename(sidecar);
-    if (!sidecarName.startsWith(oldBase)) continue; // defensive
-    const renamed = newBase + sidecarName.slice(oldBase.length);
-    const destPath = path.join(path.dirname(freeTarget), renamed);
-    try {
-      await fs.rename(sidecar, destPath);
-    } catch (err) {
-      log.warn(
-        { sidecar, destPath, err: err instanceof Error ? err.message : err },
-        'sidecar move failed — RAW moved, sidecar left in place',
-      );
-    }
-  }
+  await moveSidecarsAlongside(absPath, freeTarget);
   return { kind: 'ok', newAbsPath: freeTarget };
 }
 
@@ -159,22 +171,6 @@ export async function moveOutOfTrash(
   } catch (err) {
     return { kind: 'error', error: err instanceof Error ? err.message : String(err) };
   }
-  const oldBase = path.basename(trashAbsPath, path.extname(trashAbsPath));
-  const newBase = path.basename(freeTarget, path.extname(freeTarget));
-  const sidecars = await listPairedSidecars(trashAbsPath);
-  for (const sidecar of sidecars) {
-    const sidecarName = path.basename(sidecar);
-    if (!sidecarName.startsWith(oldBase)) continue;
-    const renamed = newBase + sidecarName.slice(oldBase.length);
-    const destPath = path.join(path.dirname(freeTarget), renamed);
-    try {
-      await fs.rename(sidecar, destPath);
-    } catch (err) {
-      log.warn(
-        { sidecar, destPath, err: err instanceof Error ? err.message : err },
-        'sidecar restore failed — RAW restored, sidecar left in trash',
-      );
-    }
-  }
+  await moveSidecarsAlongside(trashAbsPath, freeTarget);
   return { kind: 'ok', newAbsPath: freeTarget };
 }
