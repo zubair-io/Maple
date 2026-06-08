@@ -10,6 +10,8 @@
 #                                            → Swift + TS + SCSS (ticket #606)
 #   - color-matrices (raw_core::color::{matrices,oklab}) → WGSL
 #                                            (epic #925 P2 / #990)
+#   - agx-coeffs     (src/scripts/derive_agx_lut.py) → WGSL
+#                                            (epic #925 P2 / #990)
 #
 # Outputs:
 #   - src/apple/Packages/MapleCore/Sources/MapleCore/Generated/AdjustmentModel+Generated.swift
@@ -18,6 +20,7 @@
 #   - src/web/projects/maple-common/src/lib/generated/ui-tokens.ts
 #   - src/web/projects/maple-common/src/lib/generated/_ui-tokens.scss
 #   - src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl
+#   - src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl
 #
 # The cbindgen step for the FFI header is handled by
 # `src/apple/scripts/build-xcframework.sh` as part of the xcframework build —
@@ -60,6 +63,24 @@ GPU_WGSL_OUT="src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl"
 
 "$BIN" --schema color-matrices --target wgsl --out "$GPU_WGSL_OUT"
 
+# --- AgX coefficients → WGSL (epic #925 P2 / #990) ------------------------
+# The headless GPU AgX kernel (raw-gpu/src/agx.wgsl) bakes the inset/outset
+# matrices + log-encode scalars as WGSL consts, single-sourced from the SAME
+# coefficients `derive_agx_lut.py` emits to agx_coeffs.rs + the GLSL shader.
+# Only the WGSL is regenerated here so the codegen-drift gate covers it.
+#
+# NOTE: agx_coeffs.rs / agx_lut.bin / the Apple-bundled LUT are deliberately
+# NOT regenerated here. They live with the existing AgX-derivation workflow
+# (the `--bin --rs --apple-bin` invocation in the script's usage docstring),
+# and the committed agx_coeffs.rs currently carries AGX_VERSION 8 while the
+# generator constant is 7 — a pre-existing version skew that is out of scope
+# for this codegen wiring (regenerating .rs here would revert that bump). The
+# WGSL emitter uses only the matrices + scalars, which are independent of
+# AGX_VERSION, so it is fully idempotent.
+AGX_WGSL_OUT="src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl"
+
+python3 src/scripts/derive_agx_lut.py --wgsl "$AGX_WGSL_OUT"
+
 echo "codegen.sh: outputs regenerated."
 echo "  - $SWIFT_OUT"
 echo "  - $TS_OUT"
@@ -67,3 +88,4 @@ echo "  - $UI_SWIFT_OUT"
 echo "  - $UI_TS_OUT"
 echo "  - $UI_SCSS_OUT"
 echo "  - $GPU_WGSL_OUT"
+echo "  - $AGX_WGSL_OUT"
