@@ -75,6 +75,17 @@
 //!   PerChannel / RatioPreserving mode); luma coupling uses the inlined Rec.2020
 //!   weights, so no generated color matrices. Parity-gated directly vs
 //!   `raw_core::stages::tone_curves::apply`.
+//! - [`ClarityPass`] + [`apply_clarity`] — the first SPATIAL stage (epic #925 P2
+//!   wave 3b / #990): luminance-preserving local-contrast enhancement via a
+//!   self-guided **guided filter** (He, Sun, Tang 2010) at the structure scale
+//!   (radius 20). NOT a per-pixel kernel — it reads pixel NEIGHBORHOODS, so it is
+//!   a small DAG (several separable box blurs over intermediate planes + a
+//!   multi-input recombine). It stays ONE [`Pass`] and orchestrates the DAG over
+//!   scratch buffers via the [`spatial`] substrate. Parity-gated directly vs
+//!   `raw_core::stages::clarity::apply` (incl. the shrinking-window box-blur
+//!   border policy). The reusable spatial primitives ([`box_blur_encode`],
+//!   [`guided_filter_self_encode`], [`alloc_plane`], [`encode_simple`]) are public
+//!   so dehaze + the P3 spatial filters build on them.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -85,6 +96,7 @@
 mod agx;
 mod auto_profile_curve;
 mod chain;
+mod clarity;
 mod context;
 mod display_encode;
 mod exposure;
@@ -92,6 +104,7 @@ mod image;
 mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
+mod spatial;
 mod tone_curves;
 mod vibrance;
 mod white_balance;
@@ -101,6 +114,7 @@ pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };
 pub use chain::{CancelToken, ChainRunner, Pass};
+pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use context::GpuContext;
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
@@ -108,6 +122,10 @@ pub use image::GpuImage;
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
+pub use spatial::{
+    alloc_plane, alloc_rgba, box_blur_encode, clarity_texture_encode, encode_simple,
+    guided_filter_self_encode, luma_extract_encode, plane_byte_len,
+};
 pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};
 pub use vibrance::{apply_vibrance, VibrancePass};
 pub use white_balance::{apply_white_balance, WhiteBalancePass};

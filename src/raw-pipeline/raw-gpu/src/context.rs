@@ -80,6 +80,31 @@ pub struct GpuContext {
     /// storage + the prepared-curve-slots storage buffer). Built on first use via
     /// [`GpuContext::tone_curves_pipeline`].
     tone_curves_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled separable box-blur compute pipeline (`box_blur.wgsl`). The
+    /// P2 wave-3b SPATIAL primitive (#990): a one-axis-per-dispatch box blur of a
+    /// scalar f32 plane, mirroring `raw_core::stages::blur::box_blur_channel`'s
+    /// shrinking-window border policy. Reused by every guided-filter / spatial
+    /// stage (clarity, texture, and the P3 spatial filters). Standalone kernel
+    /// (no generated matrices). 3-binding layout (params uniform + in/out f32
+    /// storage). Built on first use via [`GpuContext::box_blur_pipeline`].
+    box_blur_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled guided-filter luma-extract pipeline (`guided_luma.wgsl`).
+    /// A P2 wave-3b spatial helper (#990): RGBA → (luma, luma²) scalar planes for
+    /// the self-guided base/detail decomposition shared by clarity / texture.
+    /// 4-binding layout (params uniform + RGBA-in storage + two f32-out storage).
+    guided_luma_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled guided-filter coefficient pipeline (`guided_ab.wgsl`). A
+    /// P2 wave-3b spatial helper (#990): the self-guided `a`/`b` derivation from
+    /// the box-blurred (mean_i, mean_ii) planes. 5-binding layout (params uniform
+    /// + two f32-in storage + two f32-out storage).
+    guided_ab_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled guided-filter combine pipeline (`guided_combine.wgsl`). A
+    /// P2 wave-3b spatial helper (#990): the clarity/texture base/detail recombine
+    /// (`out = orig * (boost / max(luma, floor))`). A MULTI-INPUT pass — the first
+    /// kernel to read the original image AND derived planes simultaneously, the
+    /// pattern dehaze + P3 reuse. 6-binding layout (params uniform + RGBA-orig +
+    /// three f32-in + RGBA-out storage).
+    guided_combine_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -119,6 +144,10 @@ impl GpuContext {
             agx_pipeline: OnceCell::new(),
             residual_lut_pipeline: OnceCell::new(),
             tone_curves_pipeline: OnceCell::new(),
+            box_blur_pipeline: OnceCell::new(),
+            guided_luma_pipeline: OnceCell::new(),
+            guided_ab_pipeline: OnceCell::new(),
+            guided_combine_pipeline: OnceCell::new(),
         }
     }
 
@@ -419,6 +448,102 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("tone-curves-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached separable box-blur compute pipeline (epic #925 P2 wave 3b /
+    /// #990). The spatial primitive: `box_blur.wgsl` runs one axis (horizontal or
+    /// vertical) per dispatch over a scalar f32 plane, with the same
+    /// shrinking-window border policy as `raw_core::stages::blur::box_blur_channel`.
+    /// Standalone kernel (no generated-matrix concat), like `exposure.wgsl`.
+    pub fn box_blur_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.box_blur_pipeline.get_or_init(|| {
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("box-blur"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("box_blur.wgsl").into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("box-blur-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached guided-filter luma-extract pipeline (epic #925 P2 wave 3b /
+    /// #990). `guided_luma.wgsl`: RGBA → (luma, luma²) scalar planes, the start of
+    /// the self-guided base/detail decomposition. Standalone kernel (the Rec.2020
+    /// luma weights are inlined, like `tone_curves.wgsl`).
+    pub fn guided_luma_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.guided_luma_pipeline.get_or_init(|| {
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("guided-luma"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("guided_luma.wgsl").into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("guided-luma-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached guided-filter coefficient pipeline (epic #925 P2 wave 3b /
+    /// #990). `guided_ab.wgsl`: the self-guided `a`/`b` derivation from the
+    /// box-blurred (mean_i, mean_ii) planes. Standalone kernel.
+    pub fn guided_ab_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.guided_ab_pipeline.get_or_init(|| {
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("guided-ab"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("guided_ab.wgsl").into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("guided-ab-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached guided-filter combine pipeline (epic #925 P2 wave 3b / #990).
+    /// `guided_combine.wgsl`: the clarity/texture base/detail recombine reading
+    /// the original RGBA AND three derived planes at once — the MULTI-INPUT spatial
+    /// pass pattern dehaze + P3 reuse. Standalone kernel.
+    pub fn guided_combine_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.guided_combine_pipeline.get_or_init(|| {
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("guided-combine"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("guided_combine.wgsl").into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("guided-combine-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),
