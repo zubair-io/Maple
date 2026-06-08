@@ -202,7 +202,7 @@ pub use context::GpuContext;
 pub use dehaze::{apply_dehaze, compute_airlight, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
-pub use full_chain::{build_full_chain_passes, build_split, FullChainInputs};
+pub use full_chain::{build_full_chain_passes, build_split, BoxedPasses, FullChainInputs};
 pub use image::GpuImage;
 pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
