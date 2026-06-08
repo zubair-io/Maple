@@ -25,6 +25,11 @@ pub struct GpuContext {
     /// generated color matrices). The P2 template (#990); built on first use
     /// via [`GpuContext::vibrance_pipeline`].
     vibrance_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled white-balance compute pipeline (`white_balance.wgsl`).
+    /// A P2 scene-linear stage (#990); a pure per-pixel 3×3 matmul, so it needs
+    /// no generated color matrices (the WB matrix is a per-pass uniform). Built
+    /// on first use via [`GpuContext::white_balance_pipeline`].
+    white_balance_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -56,6 +61,7 @@ impl GpuContext {
             queue,
             exposure_pipeline: OnceCell::new(),
             vibrance_pipeline: OnceCell::new(),
+            white_balance_pipeline: OnceCell::new(),
         }
     }
 
@@ -115,6 +121,32 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("vibrance-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached white-balance compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Unlike vibrance, this kernel does NOT concat the generated color
+    /// matrices: white balance is a pure per-pixel 3×3 matmul whose matrix is
+    /// supplied as a per-pass uniform (CPU-derived once via CAT16 / diagonal
+    /// gains). So `white_balance.wgsl` compiles standalone, like `exposure.wgsl`.
+    pub fn white_balance_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.white_balance_pipeline.get_or_init(|| {
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("white-balance"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("white_balance.wgsl").into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("white-balance-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),
