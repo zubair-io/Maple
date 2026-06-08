@@ -6,7 +6,7 @@
 
 **Depends on P1a (`raw-gpu`, on this branch's base).** Stacked on PR #996 → #978.
 
-**Scope discipline:** debug/validation surface only. Do NOT wire the live edit path (P4). The `gpu` feature stays **OFF in the default/shipping/CI xcframework** (nothing ships till P5). Display **encode math** (Rec.2020→display, AgX) stays in P2 — P1b proves the surface *tag* + the plumbing, NOT a color-correct render.
+**Scope discipline:** debug/validation surface only. Do NOT wire the live edit path (P4). The `gpu` feature stays **OFF in the default/shipping/CI xcframework** (nothing ships till P5). Display **encode math** (Rec.2020→display, AgX) stays in P2 — P1b proves the surface _tag_ + the plumbing, NOT a color-correct render.
 
 ---
 
@@ -37,7 +37,7 @@
 
 - [ ] Add to `raw-ffi/Cargo.toml`: `[features]` → `gpu = ["raw-core/gpu"]` (raw-gpu arrives transitively via raw-core's `gpu`). Confirm `raw-core` exposes `gpu` → `raw-gpu` (from P1a).
 - [ ] Add a C-ABI parity entry mirroring the wasm binding (`raw-gpu`'s `run_exposure_gpu` + `apply_exposure_gain`), e.g.:
-  `#[no_mangle] pub extern "C" fn maple_gpu_exposure_parity(n_pixels: u32, ev: f32, out_max_diff: *mut f32) -> i32` — builds the same deterministic buffer, runs the GPU chain via `raw_gpu::run_exposure_gpu`, compares to the CPU oracle, writes max-diff, returns 0/!0. Gate the whole module behind `#[cfg(feature = "gpu")]`.
+      `#[no_mangle] pub extern "C" fn maple_gpu_exposure_parity(n_pixels: u32, ev: f32, out_max_diff: *mut f32) -> i32` — builds the same deterministic buffer, runs the GPU chain via `raw_gpu::run_exposure_gpu`, compares to the CPU oracle, writes max-diff, returns 0/!0. Gate the whole module behind `#[cfg(feature = "gpu")]`.
 - [ ] Verify the host build: `cd src/raw-pipeline && cargo build -p raw-ffi --features gpu` (NO output piping; generous timeout — first wgpu compile). Confirm `cargo build -p raw-ffi` (default) is unchanged (no wgpu).
 - [ ] Commit (every commit ends with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`).
 
@@ -82,4 +82,5 @@
 - Vendor-size delta for CI vendoring reported (decision deferred).
 
 ## Don'ts
+
 No live-edit wiring (P4). No `gpu` in the default xcframework. No silent vendor bloat. No `tail`/pipe on build output. Don't merge.
