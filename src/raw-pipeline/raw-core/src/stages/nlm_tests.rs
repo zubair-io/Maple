@@ -126,7 +126,7 @@ fn preset_cancel_returns_input_unchanged_before_any_shift() {
         h: 0.05,
     };
 
-    // Pre-set cancel ⇒ bails at the top of the first shift row ⇒ returns
+    // Pre-set cancel ⇒ bails on the first (dx, dy) iteration ⇒ returns
     // the EXACT input (bit-for-bit), proving no shift ran.
     let flag = AtomicBool::new(true);
     let cancelled = denoise_plane_cancellable(&plane, w, h, params, CancelToken::new(&flag));

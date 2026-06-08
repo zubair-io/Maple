@@ -89,18 +89,25 @@ pub unsafe extern "C" fn maple_cancel_flag_free(flag: *mut MapleCancelFlag) {
     }
 }
 
-/// Borrow a raw `MapleCancelFlag` pointer's inner `AtomicBool`, for building a
-/// `raw_core::CancelToken`. A null pointer (or null inner) yields `None`, so
-/// the caller constructs `CancelToken::never()` and every existing caller
-/// (which passes null) is unaffected.
+/// Extract the inner `AtomicBool` pointer from a raw `MapleCancelFlag`
+/// pointer, for building a `raw_core::CancelToken`. A null pointer (or null
+/// inner) yields `None`, so the caller constructs `CancelToken::never()` and
+/// every existing caller (which passes null) is unaffected.
+///
+/// Returns `NonNull<AtomicBool>` rather than `&'a AtomicBool` to avoid
+/// manufacturing an unconstrained lifetime that is not tied to the pointee —
+/// the FFI caller reconstructs a borrow with the correct scope.
 ///
 /// SAFETY: `flag` must be either null or a pointer returned by
-/// [`maple_cancel_flag_new`] that has not yet been freed, and it must remain
-/// valid for the lifetime of the returned reference.
-pub(crate) unsafe fn token_from_ptr<'a>(flag: *const MapleCancelFlag) -> Option<&'a AtomicBool> {
+/// [`maple_cancel_flag_new`] that has not yet been freed. The returned pointer
+/// is valid for as long as the flag has not been freed. The caller is
+/// responsible for not allowing the pointer to outlive the flag allocation.
+pub(crate) unsafe fn token_from_ptr(
+    flag: *const MapleCancelFlag,
+) -> Option<std::ptr::NonNull<AtomicBool>> {
     let handle = flag.as_ref()?;
     let inner = (handle.inner as *const Inner).as_ref()?;
-    Some(&inner.flag)
+    Some(std::ptr::NonNull::from(&inner.flag))
 }
 
 /// A `Send` shim so a raw `*const MapleCancelFlag` can cross the
@@ -138,15 +145,15 @@ mod tests {
         assert!(!flag.is_null());
         // Before set: not cancelled.
         unsafe {
-            let token = token_from_ptr(flag).expect("inner present");
-            assert!(!token.load(Ordering::Relaxed));
+            let ptr = token_from_ptr(flag).expect("inner present");
+            assert!(!ptr.as_ref().load(Ordering::Relaxed));
         }
-        // After set: cancelled (and observable through a fresh borrow, as the
+        // After set: cancelled (and observable through a fresh deref, as the
         // render worker would observe it).
         unsafe {
             maple_cancel_flag_set(flag);
-            let token = token_from_ptr(flag).expect("inner present");
-            assert!(token.load(Ordering::Relaxed));
+            let ptr = token_from_ptr(flag).expect("inner present");
+            assert!(ptr.as_ref().load(Ordering::Relaxed));
         }
         unsafe { maple_cancel_flag_free(flag) };
     }

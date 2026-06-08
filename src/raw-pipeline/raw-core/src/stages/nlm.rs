@@ -119,15 +119,17 @@ pub fn denoise_plane(plane: &[f32], w: usize, h: usize, params: NlmParams) -> Ve
 }
 
 /// Cancellable variant of [`denoise_plane`]. Identical math; additionally
-/// observes `cancel` **between NLM shifts** and returns the untouched input
-/// (`plane.to_vec()`) the moment cancellation is requested.
+/// observes `cancel` **between NLM shifts** (once per `(dx, dy)` pair) and
+/// returns the untouched input (`plane.to_vec()`) the moment cancellation
+/// is requested.
 ///
-/// The outer shift loop is the right granularity: `nr_color` is ~48 shifts
-/// (S = 3) and the dominant cold-open cost, so a between-shifts check turns
-/// an ~8.5 s uninterruptible pass into one that unwinds within a single
-/// shift (~one-48th). The per-pixel work inside `process_shift` runs through
-/// rayon and is *not* instrumented — a rayon parallel iterator can't `break`,
-/// and a per-pixel atomic load would add contention for no latency win.
+/// Checking once per shift (inside the inner `dx` loop) means worst-case
+/// cancel latency is one `process_shift` call (~one-(2S+1)²-th of total
+/// work) rather than one full `dy` row of shifts. The ~49 extra relaxed
+/// atomic loads per pass (S=3 ⇒ 49 shifts) are negligible. The per-pixel
+/// work inside `process_shift` runs through rayon and is *not* instrumented
+/// — a rayon parallel iterator can't `break`, and a per-pixel atomic load
+/// would add contention for no latency win.
 ///
 /// On cancel the develop chain bails immediately after this stage (it checks
 /// the same token and returns `Err(Cancelled)`), so the returned passthrough
@@ -167,17 +169,17 @@ pub fn denoise_plane_cancellable(
     let mut max_w = vec![0.0f32; n];
 
     for dy in -s..=s {
-        // Cancellation is checked once per shift row (the outer, sequential
-        // loop). One relaxed atomic load per ~(2S+1) shifts — negligible —
-        // bounds the cancel-to-bail latency to a single shift row. On a
-        // never-cancel token this is a no-op branch. Return the untouched
-        // input; the develop chain discards it and returns Err(Cancelled).
-        if cancel.is_cancelled() {
-            return plane.to_vec();
-        }
         for dx in -s..=s {
             if dx == 0 && dy == 0 {
                 continue;
+            }
+            // Cancellation is checked once per (dx, dy) shift — inside the
+            // inner loop — so worst-case cancel latency is at most one
+            // process_shift call. On a never-cancel token this is a no-op
+            // branch (Option::None short-circuits). Return the untouched
+            // input; the develop chain discards it and returns Err(Cancelled).
+            if cancel.is_cancelled() {
+                return plane.to_vec();
             }
             process_shift(
                 plane,
