@@ -71,6 +71,15 @@ pub struct GpuContext {
     /// per-image grid storage buffer). Built on first use via
     /// [`GpuContext::residual_lut_pipeline`].
     residual_lut_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled tone-curves compute pipeline (`tone_curves.wgsl`). A P2
+    /// scene-linear stage (#990): the parametric region sliders + per-channel
+    /// point curves, evaluated from CPU-prepared Fritsch-Carlson curves uploaded
+    /// to a storage buffer. Luma coupling uses the inlined Rec.2020 weights, so —
+    /// like exposure / white_balance — the kernel compiles standalone with no
+    /// generated-color-matrix concat. 4-binding layout (params uniform + src/dst
+    /// storage + the prepared-curve-slots storage buffer). Built on first use via
+    /// [`GpuContext::tone_curves_pipeline`].
+    tone_curves_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -109,6 +118,7 @@ impl GpuContext {
             auto_profile_curve_pipeline: OnceCell::new(),
             agx_pipeline: OnceCell::new(),
             residual_lut_pipeline: OnceCell::new(),
+            tone_curves_pipeline: OnceCell::new(),
         }
     }
 
@@ -382,6 +392,33 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("residual-lut-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached tone-curves compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Luma coupling uses the inlined Rec.2020 weights (not the codegen
+    /// matrices), so — like `exposure.wgsl` / `white_balance.wgsl` — the kernel
+    /// compiles standalone with no generated-color-matrix concat. The prepared
+    /// curve slots + the branch flags ride per-pass buffers (storage + uniform);
+    /// `layout: None` derives the 4-binding layout from the WGSL bindings.
+    pub fn tone_curves_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.tone_curves_pipeline.get_or_init(|| {
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("tone-curves"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("tone_curves.wgsl").into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("tone-curves-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),

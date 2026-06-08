@@ -64,6 +64,17 @@
 //!   family, which upload CPU-derived per-image *coefficients*). Pure lookup, so
 //!   no generated color matrices. Parity-gated directly vs
 //!   `raw_core::view::auto_profile::lut::ColorLut::apply`.
+//! - [`ToneCurvesPass`] + [`apply_tone_curves`] — a P2 scene-linear stage (#990):
+//!   the user-authored parametric region sliders + per-channel point curves
+//!   (luma / R / G / B), applied in scene-linear Rec.2020. The runtime data is
+//!   the PREPARED curves (sorted/clamped knots + Fritsch-Carlson tangents),
+//!   derived CPU-side per curve and uploaded to a storage buffer — the
+//!   white_balance / auto_profile "CPU-derived per-image coefficients" family
+//!   (distinct from the residual LUT's sampled-grid shape). One kernel runs the
+//!   whole sequenced apply (parametric -> luma -> per-channel, dispatched on the
+//!   PerChannel / RatioPreserving mode); luma coupling uses the inlined Rec.2020
+//!   weights, so no generated color matrices. Parity-gated directly vs
+//!   `raw_core::stages::tone_curves::apply`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -81,6 +92,7 @@ mod image;
 mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
+mod tone_curves;
 mod vibrance;
 mod white_balance;
 
@@ -96,6 +108,7 @@ pub use image::GpuImage;
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
+pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};
 pub use vibrance::{apply_vibrance, VibrancePass};
 pub use white_balance::{apply_white_balance, WhiteBalancePass};
 
