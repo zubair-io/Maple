@@ -352,26 +352,37 @@ struct RecoverParams {
     airlight: [f32; 4], // RAW A; .a unused
 }
 
-/// A GPU-resident dehaze stage. Carries only its `dehaze` slider value
-/// ([-100, +100]); the global airlight reduction runs CPU-side in `encode` (it
-/// reads `src` back once via [`compute_airlight`] — see the note there) and the
-/// rest of the pipeline runs on the GPU over [`spatial`] scratch buffers.
+/// A GPU-resident dehaze stage. Carries the `dehaze` slider value ([-100, +100])
+/// and a pre-computed atmospheric light; the per-pixel pipeline runs entirely on
+/// the GPU over [`spatial`] scratch buffers inside `encode`.
 pub struct DehazePass {
     pub dehaze: f32,
     /// Pre-computed atmospheric light A for the image being processed, RAW
     /// (unclamped). Computed CPU-side via [`compute_airlight`] so the global
-    /// top-0.1% reduction is byte-exact vs raw-core; passed into the min
-    /// (clamped there) and recovery (raw) kernels as a uniform. Caller supplies
-    /// it because the Pass cannot read its own `src` buffer back inside `encode`
-    /// (encode only records commands) — the chain hands it the same pixels.
+    /// top-0.1% reduction is byte-exact vs raw-core; passed into the min (clamped
+    /// there) and recovery (raw) kernels as a uniform. It rides the struct rather
+    /// than being derived in `encode` because `encode` only *records* commands —
+    /// it cannot read `src` back, and a global reduction is awkward to express as
+    /// a single dispatch.
+    ///
+    /// COMPOSITION CAVEAT (a P4 wiring concern, not a parity defect): A must be
+    /// derived from the EXACT pixels the chain feeds this pass as `src`. Unlike
+    /// [`crate::WhiteBalancePass`] (whose matrix comes from slider settings and is
+    /// position-independent), dehaze's A depends on the running pixel content, so
+    /// in a real multi-stage chain — where dehaze's `src` is the post-WB /
+    /// post-tone-controls buffer — A must be recomputed from the buffer at
+    /// dehaze's position (a GPU reduction or a readback). The headless tests run
+    /// dehaze first (or behind an identity stage), so `new(pixels, …)` from the
+    /// uploaded image is exact there. Live-chain placement is P4 (#992).
     pub airlight: [f32; 3],
 }
 
 impl DehazePass {
     /// Construct a [`DehazePass`], computing the airlight from `pixels`
     /// (interleaved RGBA f32 for `width × height`) via [`compute_airlight`]. The
-    /// convenience path the parity test + live callers use: the airlight MUST be
-    /// derived from the exact pixels the chain will feed this pass as `src`.
+    /// convenience path the parity test uses: `pixels` MUST be the exact buffer
+    /// the chain feeds this pass as `src` (see the COMPOSITION CAVEAT on
+    /// [`DehazePass::airlight`]).
     pub fn new(pixels: &[f32], width: usize, height: usize, dehaze: f32) -> Self {
         Self {
             dehaze,
