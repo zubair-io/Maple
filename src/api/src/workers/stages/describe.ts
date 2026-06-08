@@ -36,6 +36,7 @@ import { cachePathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { isVideoFilename } from '../../indexer/media-types.ts';
+import { relocateBackupScreenshot } from '../migration/restructure-backup-screenshots.ts';
 import {
   type DescribeProvider,
   getDescribeProvider,
@@ -111,7 +112,7 @@ export function setDescribeDepsForTests(deps: DescribeDeps | null): void {
   _deps = deps;
 }
 
-export async function describeHandler(image: ImageDoc, _ctx: StageContext): Promise<StageResult> {
+export async function describeHandler(image: ImageDoc, ctx: StageContext): Promise<StageResult> {
   // Video containers have no still frame for the vision model to caption.
   // They reach this stage because the library can hold mixed media (the
   // backup-ingest route has no extension allowlist), and the preview stage's
@@ -220,6 +221,31 @@ export async function describeHandler(image: ImageDoc, _ctx: StageContext): Prom
     // qwen2.5-vl has no per-token confidence the way a classic OCR engine does.
     mean_confidence: null,
   };
+
+  // The VLM verdict is the authoritative screenshot signal. If it flags a
+  // backup-origin asset the ingest filename heuristic missed, file it under
+  // <year>/Screenshot now (rather than waiting for an operator to re-run the
+  // screenshot migration). Best-effort: a move failure must never fail the
+  // describe stage — the migration is the backstop. The early `phasset_links`
+  // gate keeps non-backup assets (and unit-test docs) off the DB path entirely.
+  // moveBackupAsset repoints fileinfo directly; the metadata patch above does
+  // not touch fileinfo, so the relocation and the stage write don't collide.
+  if (vision.is_screenshot && (image.phasset_links?.length ?? 0) > 0) {
+    try {
+      const outcome = await relocateBackupScreenshot(image._id);
+      if (outcome === 'moved') {
+        ctx.log.info(
+          { assetId: image._id.toHexString() },
+          'filed screenshot under year/Screenshot (describe verdict)',
+        );
+      }
+    } catch (err) {
+      ctx.log.warn(
+        { assetId: image._id.toHexString(), err: err instanceof Error ? err.message : err },
+        'screenshot relocation failed — left for the screenshot migration',
+      );
+    }
+  }
 
   return { patch };
 }
