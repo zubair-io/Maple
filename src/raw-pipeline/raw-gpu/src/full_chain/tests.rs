@@ -13,14 +13,21 @@
 //! parity (each ≤ 3e-6 vs its Rust stage) survives composition: float error can
 //! only accumulate across the 16 stages, and this bounds the accumulated total.
 //!
-//! Two representative adjustment sets:
-//!   - **neutral** — every slider at its identity value (and the per-image
-//!     curve/LUT identity), so most stages short-circuit; proves the *plumbing*
-//!     (ping-pong threading, view-tail color-space hand-off) composes cleanly.
-//!   - **aggressive** — every stage engaged (non-default WB, tone, color, all
-//!     three spatial filters, NR, AgX contrast, a non-identity Auto Profile curve
-//!     + residual LUT), so every kernel runs for real and the accumulated error
-//!     is measured under load.
+//! Two representative adjustment sets, both with every per-pixel stage engaged
+//! PAST its raw-core no-op threshold so the CPU `apply` fns do NOT short-circuit
+//! and compute the same function the always-running GPU Passes do (see
+//! `mild_case` for why a truly-neutral all-identity case would diverge by
+//! design — short-circuiting is the *caller's* job, not this layer's):
+//!
+//! - **mild** — small but past-threshold settings on every stage; the lighter
+//!   composition (the accumulated error floor).
+//! - **aggressive** — every stage pushed hard (non-default WB, tone, color, all
+//!   three spatial filters, NR, AgX contrast, a non-identity Auto Profile curve +
+//!   residual LUT), so the accumulated error is measured under load.
+//!
+//! The all-identity *plumbing* (ping-pong threading + the view-tail color-space
+//! hand-off with every slider omitted) is covered by the structural pass-count /
+//! prefix+suffix tests, NOT a numeric parity case.
 //!
 //! ## The srgb_gamma asymmetry (a documented gap, handled symmetrically)
 //!
@@ -247,8 +254,8 @@ fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
 
 /// Run the composed GPU chain with a genuine mid-chain airlight readback:
 /// prefix → readback → `compute_airlight` → suffix (seeded from the prefix
-/// output). Returns the final RGBA buffer. `expected_readbacks` is asserted on
-/// each runner (one per `ChainRunner::run_blocking`).
+/// output). Returns the final RGBA buffer. Each phase asserts exactly one
+/// readback (`ChainRunner`'s single end-of-run readback per `run_blocking`).
 fn run_gpu_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Vec<f32> {
     let ctx = GpuContext::new_blocking();
 
@@ -424,11 +431,7 @@ fn nonidentity_curve() -> ProfileCurve {
     c.b = gamma(0.95);
     // A small off-diagonal cross-channel mix (keeps it near-identity but
     // non-trivial so the matrix matmul is exercised).
-    c.matrix = [
-        [0.98, 0.01, 0.01],
-        [0.01, 0.98, 0.01],
-        [0.01, 0.01, 0.98],
-    ];
+    c.matrix = [[0.98, 0.01, 0.01], [0.01, 0.98, 0.01], [0.01, 0.01, 0.98]];
     c
 }
 
@@ -507,7 +510,11 @@ fn single_vec_equals_prefix_plus_suffix() {
     );
     // The aggressive case engages every stage incl. capture_sharpening → all 16
     // GPU-ported passes are present.
-    assert_eq!(full.len(), 16, "aggressive full chain must have all 16 passes");
+    assert_eq!(
+        full.len(),
+        16,
+        "aggressive full chain must have all 16 passes"
+    );
 }
 
 /// A case with `capture: None` omits capture_sharpening (params None ⇒ stage
