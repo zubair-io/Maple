@@ -206,6 +206,13 @@ mod noise_reduction;
 // Linux host.
 #[cfg(target_vendor = "apple")]
 mod present;
+// Web counterpart (P1c / #989): wgpu → HTML `<canvas>` present. wasm-only —
+// `SurfaceTarget::Canvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`, active
+// on the wasm32 target. Absent on Apple / Linux host. Shares `present.wgsl`.
+#[cfg(target_arch = "wasm32")]
+mod present_web;
+#[cfg(target_arch = "wasm32")]
+mod present_web_colorspace;
 mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
@@ -256,6 +263,9 @@ pub use exposure::run_exposure_gpu;
 
 #[cfg(target_vendor = "apple")]
 pub use present::present_test_pattern;
+
+#[cfg(target_arch = "wasm32")]
+pub use present_web::{present_test_pattern_web, PresentReport, TARGET_COLOR_SPACE};
 
 /// Deterministic RGBA f32 test buffer spanning values < 1, = 1, > 1 (some
 /// channels exceed 1 so the multiply is exercised in scene-linear range).
