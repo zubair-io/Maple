@@ -237,8 +237,11 @@ export async function fetchStatusDbState(
 
   // `deduplicate` is not a claim stage either. Surface the count of assets with
   // more than one on-disk location (`fileinfo.1` exists) as `pending` so the
-  // Workers UI shows the duplicate backlog instead of 0/0/0. Coarse on purpose
-  // (it includes rows with a tombstoned sibling); the pass refines to live-only.
+  // Workers UI shows the duplicate backlog instead of 0/0/0. Backed by the
+  // `fileinfo_multi_location` partial index (db/client.ts), so this is an index
+  // COUNT_SCAN over the duplicate-location rows, not a COLLSCAN, on each
+  // (2s-cached) refresh. Coarse on purpose (it counts rows with a tombstoned
+  // sibling too); the worker pass refines to live-only.
   if (assets && stageNames.includes(DEDUPLICATE_NAME)) {
     try {
       pendingByStage.set(
