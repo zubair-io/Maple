@@ -289,6 +289,98 @@ fn second_render_same_signature_allocates_nothing() {
     }
 }
 
+/// THE LIVE-EDIT GATE: a slider drag WITHIN one signature (same active set,
+/// changed VALUE) must (a) produce the correct NEW pixels — matching a reference
+/// render of the new value — and (b) still allocate ZERO new GPU resources. This
+/// is the actual hot path P4b serves, and the one the same-inputs re-render tests
+/// can't see: with identical inputs, a stale uniform / stale data buffer would go
+/// green. Two value-change paths:
+///   - exposure 0.3 → 0.4: the UNIFORM-on-hit path (`encode_simple` rewrites the
+///     pooled uniform every call).
+///   - parametric_lights 15 → 40: the DATA-BUFFER-on-hit path (`pool_data_storage`
+///     must rewrite the pooled tone-curve storage every call — without that, the
+///     edit would bind the first render's stale curve and the preview would freeze).
+#[test]
+fn same_signature_value_change_is_correct_and_zero_alloc() {
+    let ctx = GpuContext::new_blocking();
+    let (w, h) = (8u32, 8u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let airlight = compute_airlight(&input, w as usize, h as usize);
+    let cancel = CancelToken::new();
+
+    // Build two cases that share an active-stage SET but differ in a VALUE.
+    let make_case = |mutate: &dyn Fn(&mut AdjustmentModel)| -> Case {
+        let mut model = noop_model();
+        // Engage scene-tone (exposure) AND tone-curves (parametric) on BOTH so the
+        // active mask — and thus the signature — is identical across the value
+        // change; the mutation only shifts magnitudes.
+        model.exposure = 0.3;
+        model.parametric_lights = 15.0;
+        mutate(&mut model);
+        Case {
+            model,
+            capture: None,
+            curve: nonidentity_curve(),
+            lut: nonidentity_lut(9),
+            wb_method: WbMethod::Cat16,
+        }
+    };
+
+    let base_case = make_case(&|_| {});
+    let edited_case = make_case(&|m| {
+        m.exposure = 0.4; // uniform-path change
+        m.parametric_lights = 40.0; // data-buffer-path change
+    });
+    let base = base_case.gpu_inputs();
+    let edited = edited_case.gpu_inputs();
+
+    // Same signature (only values differ)?
+    assert_eq!(
+        crate::chain_signature(&base, (w, h)),
+        crate::chain_signature(&edited, (w, h)),
+        "test setup: the two cases must share a chain signature (same active set)"
+    );
+
+    let session = LiveSession::new(&ctx, &input, w, h);
+
+    // Render base (fills the cache for this signature).
+    let _ = session.render_to_buffer(&base, airlight, &cancel).unwrap();
+
+    // Now the EDIT: same signature, changed values. Snapshot allocs around it.
+    let pre_edit = session.pool_alloc_count();
+    let got = session.render_to_buffer(&edited, airlight, &cancel).unwrap();
+    let edit_allocs = session.pool_alloc_count() - pre_edit;
+
+    // (a) Correct NEW pixels: matches a reference render of the EDITED inputs
+    //     (direct chain+dither, no pool). If the uniform / data buffer weren't
+    //     rewritten on the hit, `got` would still be the BASE output → mismatch.
+    let want = reference_u8(&ctx, &input, w, h, &edited);
+    let mismatches = got.iter().zip(&want).filter(|(a, b)| a != b).count();
+    eprintln!(
+        "LIVE-EDIT: edit render = {edit_allocs} pool allocs, {mismatches} / {} bytes differ vs reference",
+        want.len()
+    );
+    assert_eq!(
+        mismatches, 0,
+        "same-signature value change produced STALE pixels ({mismatches} bytes differ from the \
+         reference render of the edited inputs) — a pooled uniform/data buffer wasn't rewritten"
+    );
+
+    // (b) Zero-alloc: the edit reused the cached resources.
+    assert_eq!(
+        edit_allocs, 0,
+        "a same-signature value-change render allocated {edit_allocs} GPU resources — not zero-alloc"
+    );
+
+    // And the edited output must actually DIFFER from the base (else the test is
+    // vacuous — a no-op edit can't prove freshness).
+    let base_out = reference_u8(&ctx, &input, w, h, &base);
+    assert_ne!(
+        got, base_out,
+        "the edit produced the BASE pixels — the value change had no effect (vacuous)"
+    );
+}
+
 /// A slider crossing a GATING threshold (e.g. dehaze 0→engaged) changes the chain
 /// signature → a fresh pool bucket (allocations expected the first time that
 /// shape is seen), but a re-render of the NEW shape is again zero-alloc. This pins
