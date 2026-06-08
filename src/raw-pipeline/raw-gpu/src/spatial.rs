@@ -38,7 +38,6 @@
 use crate::context::GpuContext;
 use crate::frame_pool::{pool_dispatch, pool_scratch, DispatchResources};
 use std::rc::Rc;
-use wgpu::util::DeviceExt;
 
 /// A pooled GPU scratch buffer handle. `Rc<wgpu::Buffer>` so the live-render pool
 /// ([`crate::frame_pool`]) can own the buffer and hand out cheap refcount-bump
@@ -79,33 +78,39 @@ pub fn alloc_plane(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Pl
     })
 }
 
-/// Pooled, content-uploaded READ-ONLY STORAGE buffer for a per-image data array
-/// (the Auto Profile curve / residual-LUT grid / AgX LUT / prepared tone curves).
-/// These are SESSION-CONSTANT — same bytes every tick — so on a same-signature
-/// re-render the pool returns the cached buffer WITHOUT re-uploading `contents`
-/// (the upload happens only on the first render of the chain shape). `STORAGE |
-/// COPY_SRC | COPY_DST` (the pool's uniform scratch usage; the kernel binds it
-/// read-only). Returns an [`Plane`] (`Rc<Buffer>`); pass `data.as_ref()` to
+/// Pooled READ-ONLY STORAGE buffer for a per-image / per-edit data array (the
+/// Auto Profile curve / residual-LUT grid / AgX LUT / prepared tone curves). The
+/// buffer OBJECT is pooled — created once per chain shape, reused every tick (a
+/// same-signature re-render does NOT reallocate it) — but `contents` are written
+/// EVERY call via `queue.write_buffer` (a copy, not an allocation), so the data
+/// is always fresh. `STORAGE | COPY_SRC | COPY_DST`; the kernel binds it
+/// read-only. Returns an [`Plane`] (`Rc<Buffer>`); pass `data.as_ref()` to
 /// [`encode_simple`].
 ///
-/// PARITY NOTE: because the cached buffer is NOT re-uploaded on a hit, this is
-/// only sound for data that does not change within a session. The per-image
-/// curve/LUT are fit once at session start and fixed (a new image = a new
-/// session = a fresh pool), so this holds. The terminal `make` uploads `contents`
-/// via `create_buffer_init`.
+/// PARITY-CRITICAL: the contents MUST be rewritten unconditionally, mirroring the
+/// uniform-on-hit path in [`encode_simple`]. The chain signature keys the pool on
+/// the active-stage SET, not data VALUES — so a tone-curve edit (a moved curve
+/// point / parametric slider) keeps the same signature and hits the cached
+/// buffer; without the unconditional write it would bind STALE curve data and the
+/// live preview would freeze on a tone-curve edit. The AgX LUT / residual grid /
+/// fitted curve are session-constant so the write is a redundant-but-harmless
+/// copy for them; tone-curves genuinely needs it.
 pub fn pool_data_storage(ctx: &GpuContext, contents: &[u8], label: &str) -> Plane {
     let byte_len = contents.len() as u64;
-    let label = label.to_string();
-    // `contents` is borrowed; copy into an owned Vec the `move` closure can carry
-    // (the closure runs only on a miss, but must own its data to satisfy `'static`).
-    let owned: Vec<u8> = contents.to_vec();
-    pool_scratch(ctx, byte_len, move |device| {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&label),
-            contents: &owned,
+    let owned_label = label.to_string();
+    // Pool the (uninitialised) buffer OBJECT — created only on a miss.
+    let buf = pool_scratch(ctx, byte_len, move |device| {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&owned_label),
+            size: byte_len,
             usage: SCRATCH_USAGE,
+            mapped_at_creation: false,
         })
-    })
+    });
+    // Write the CURRENT contents every call (hit OR miss) — a copy, not an alloc,
+    // so the zero-alloc invariant holds while the data stays fresh.
+    ctx.queue.write_buffer(&buf, 0, contents);
+    buf
 }
 
 /// Pooled scratch storage buffer for an RGBA f32 image (`width × height × 4` f32).
