@@ -86,6 +86,12 @@
 //!   border policy). The reusable spatial primitives ([`box_blur_encode`],
 //!   [`guided_filter_self_encode`], [`alloc_plane`], [`encode_simple`]) are public
 //!   so dehaze + the P3 spatial filters build on them.
+//! - [`TexturePass`] + [`apply_texture`] — a P2 wave-3b SPATIAL stage (#990).
+//!   Texture IS clarity at a different scale: `raw_core::stages::texture::apply`
+//!   is clarity's body with the guided-filter radius changed from 20 to 2
+//!   (fine-detail scale), so it reuses the WHOLE spatial pipeline
+//!   ([`clarity_texture_encode`]) and the shared CPU oracle — only the radius
+//!   constant differs. Parity-gated directly vs `raw_core::stages::texture::apply`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -105,6 +111,7 @@ mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
 mod spatial;
+mod texture;
 mod tone_curves;
 mod vibrance;
 mod white_balance;
@@ -126,6 +133,7 @@ pub use spatial::{
     alloc_plane, alloc_rgba, box_blur_encode, clarity_texture_encode, encode_simple,
     guided_filter_self_encode, luma_extract_encode, plane_byte_len,
 };
+pub use texture::{apply_texture, TexturePass, TEXTURE_GUIDED_RADIUS};
 pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};
 pub use vibrance::{apply_vibrance, VibrancePass};
 pub use white_balance::{apply_white_balance, WhiteBalancePass};
