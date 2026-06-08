@@ -61,6 +61,9 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
+        // Compute the key BEFORE reading — if the file changes between here and
+        // fs::read we cache the new bytes under the new mtime, not the old one.
+        let cache_key = CacheKey::from_path(raw_path);
         let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
             Ok(b) => b,
             Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
@@ -70,7 +73,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
         // so the back-to-back Auto-Profile fit (same key) hits instead of
         // re-decoding. The `stage` wrapper stays so a hit reads as ~0ms.
         let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_file_cached(raw_path, &raw_bytes, ext)
+            decode_file_cached(cache_key.as_ref(), &raw_bytes, ext)
         }) {
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
@@ -191,6 +194,9 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
+        // Compute the key BEFORE reading — if the file changes between here and
+        // fs::read we cache the new bytes under the new mtime, not the old one.
+        let cache_key = CacheKey::from_path(raw_path);
         let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
             Ok(b) => b,
             Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
@@ -198,7 +204,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
         // #949: cache keyed on (path, mtime) — see the full-res variant above.
         let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_file_cached(raw_path, &raw_bytes, ext)
+            decode_file_cached(cache_key.as_ref(), &raw_bytes, ext)
         }) {
             Ok(r) => r,
             Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
@@ -292,18 +298,20 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
 /// `(canonical path, mtime)`. On a cache hit this skips the ~1.8s decode; the
 /// back-to-back Auto-Profile fit FFI builds the same path key and hits.
 ///
-/// `raw_bytes` is the already-read file content (the `ffi_raw_read` stage runs
-/// regardless — only the decode is cached). When the path can't be canonicalized
-/// / stat'd (`CacheKey::from_path` → `None`, e.g. a virtual filesystem with no
-/// mtime), this falls back to a plain uncached `decode_bytes` so behaviour is
-/// never worse than before the cache.
+/// `key` is a pre-computed [`CacheKey`] obtained by calling
+/// `CacheKey::from_path` BEFORE `std::fs::read` at the call site — computing
+/// it after the read would risk caching `T0`-content under a `T1`-mtime key if
+/// the file is replaced between read and stat (TOCTOU stale-hit). Callers pass
+/// `None` when `from_path` returned `None` (un-stattable path), and this helper
+/// falls back to a plain uncached `decode_bytes` — behaviour is never worse than
+/// before the cache.
 fn decode_file_cached(
-    raw_path: &std::path::Path,
+    key: Option<&CacheKey>,
     raw_bytes: &[u8],
     ext: &str,
 ) -> raw_core::Result<std::sync::Arc<raw_core::RawImage>> {
-    match CacheKey::from_path(raw_path) {
-        Some(key) => decode_bytes_cached(&key, raw_bytes, ext),
+    match key {
+        Some(k) => decode_bytes_cached(k, raw_bytes, ext),
         None => Ok(std::sync::Arc::new(decode_bytes(raw_bytes, ext)?)),
     }
 }

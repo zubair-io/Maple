@@ -338,6 +338,9 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
+        // Compute the key BEFORE reading — if the file changes between here and
+        // fs::read we cache the new bytes under the new mtime, not the old one.
+        let cache_key = CacheKey::from_path(raw_path);
         let raw_bytes =
             match raw_core::pipeline::stage("ffi_auto_lut_raw_read", || std::fs::read(raw_path)) {
                 Ok(b) => b,
@@ -352,7 +355,7 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
         // the same path key, so this is a hit and the ~1.8s decode is skipped.
         // The `ffi_auto_lut_decode` stage wrapper stays so a hit reads as ~0ms.
         let raw_img = match raw_core::pipeline::stage("ffi_auto_lut_decode", || {
-            decode_auto_lut_cached(raw_path, &raw_bytes, ext)
+            decode_auto_lut_cached(cache_key.as_ref(), &raw_bytes, ext)
         }) {
             Ok(r) => r,
             Err(e) => {
@@ -398,20 +401,24 @@ pub unsafe extern "C" fn maple_compute_auto_profile_lut(
 }
 
 /// Decode a RAW file for the Auto-Profile LUT path through the decoded-`RawImage`
-/// cache (#949), keyed on `(canonical path, mtime)`. This builds the SAME path
-/// key the scene-linear render FFI used moments earlier on a cold open, so it
-/// hits and the ~1.8s decode is skipped.
+/// cache (#949), keyed on `(canonical path, mtime)`. This uses the SAME path
+/// key the scene-linear render FFI computed moments earlier on a cold open, so
+/// it hits and the ~1.8s decode is skipped.
 ///
-/// Falls back to a plain uncached `decode_bytes` when the path can't be
-/// canonicalized / stat'd (`CacheKey::from_path` → `None`), so behaviour is
-/// never worse than before the cache. Mirrors `scene_linear_f32::decode_file_cached`.
+/// `key` is a pre-computed [`CacheKey`] obtained by calling
+/// `CacheKey::from_path` BEFORE `std::fs::read` at the call site — computing
+/// it after the read would risk caching `T0`-content under a `T1`-mtime key if
+/// the file is replaced between read and stat (TOCTOU stale-hit). Falls back to
+/// a plain uncached `decode_bytes` on `None` (un-stattable path), so behaviour
+/// is never worse than before the cache. Mirrors
+/// `scene_linear_f32::decode_file_cached`.
 fn decode_auto_lut_cached(
-    raw_path: &std::path::Path,
+    key: Option<&CacheKey>,
     raw_bytes: &[u8],
     ext: &str,
 ) -> raw_core::Result<std::sync::Arc<raw_core::RawImage>> {
-    match CacheKey::from_path(raw_path) {
-        Some(key) => decode_bytes_cached(&key, raw_bytes, ext),
+    match key {
+        Some(k) => decode_bytes_cached(k, raw_bytes, ext),
         None => Ok(std::sync::Arc::new(decode_bytes(raw_bytes, ext)?)),
     }
 }
