@@ -38,6 +38,14 @@
 //!   compression (the f32 → f32 display-encode step, NOT gamma/quantize). Reuses
 //!   the generated color matrices (sRGB-only Oklab pair) + the 24-iter bisection.
 //!   Parity-gated directly vs `raw_core::view::encode::rec2020_to_srgb`.
+//! - [`AutoProfileCurvePass`] + [`apply_auto_profile_curve`] — a P2 view-transform
+//!   stage (#990): the per-pixel fitted Auto Profile tone CURVE (`compress_input`
+//!   soft-knee + a 32-anchor per-channel piecewise-linear curve + an optional 3×3
+//!   matrix + Oklab chroma/offset/band corrections), NOT the residual 3D LUT. The
+//!   whole per-image curve rides a flat-f32 STORAGE buffer; the matrix/Oklab skip
+//!   flags are computed in-crate (replicating apply.rs's predicates) so the Pass
+//!   gates itself with no raw-core dep. Parity-gated directly vs
+//!   `raw_core::view::auto_profile::apply::apply_curve`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -45,6 +53,7 @@
 //! behind the `gpu` feature of `raw-core` / `raw-wasm`, so it is **absent from
 //! their default dependency trees** — default builds never compile wgpu.
 
+mod auto_profile_curve;
 mod chain;
 mod context;
 mod display_encode;
@@ -55,6 +64,9 @@ mod scene_tone_controls;
 mod vibrance;
 mod white_balance;
 
+pub use auto_profile_curve::{
+    apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
+};
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use context::GpuContext;
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
