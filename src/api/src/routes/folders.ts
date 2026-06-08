@@ -21,6 +21,7 @@ import { validateRoot } from '../fs/root.ts';
 import { RAW_EXTENSIONS, isUnderRoot } from '../fs/browse.ts';
 import { SHARP_EXTENSIONS } from '../fs/browse.ts';
 import { moveToTrash } from '../fs/trash.ts';
+import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
 import { listPairedSidecars } from '../fs/xmp.ts';
 import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
@@ -1318,7 +1319,10 @@ async function scanFolderAndDiscover(
         }
         for (const entry of entries) {
           const entryName = entry.name as unknown as string;
-          if (entryName.startsWith('.')) continue;
+          // Skip dotdirs (`.maple`, `.thumbnails`, …) and the DeDuplicate
+          // quarantine — `_duplicates` holds relocated copies that must not be
+          // re-indexed (they are byte-identical to the kept originals).
+          if (entryName.startsWith('.') || entryName === DUPLICATES_DIR_NAME) continue;
           const absPath = nodePath.join(dir, entryName);
           if (entry.isDirectory()) {
             queue.push(absPath);

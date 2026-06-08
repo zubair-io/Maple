@@ -14,6 +14,7 @@ import { deriveBatchSize } from './loop-policy.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
 import { MIGRATION_WORKER_NAME } from './migration.ts';
+import { DEDUPLICATE_NAME } from './dedupe.ts';
 import { DISCOVER_NAME } from './discover/register.ts';
 import type { StageStatusSnapshot } from './registry.ts';
 import { stageRegistry } from './registry.ts';
@@ -39,6 +40,7 @@ export const ALL_KNOWN_WORKER_NAMES: ReadonlyArray<string> = [
   ...ALL_STAGE_NAMES,
   MISSING_REAPER_NAME,
   MIGRATION_WORKER_NAME,
+  DEDUPLICATE_NAME,
   DISCOVER_NAME,
 ];
 
@@ -230,6 +232,21 @@ export async function fetchStatusDbState(
       pendingByStage.set('migration', await migrationPendingCount());
     } catch (err) {
       log.warn({ err }, 'could not compute migration pending count — leaving 0');
+    }
+  }
+
+  // `deduplicate` is not a claim stage either. Surface the count of assets with
+  // more than one on-disk location (`fileinfo.1` exists) as `pending` so the
+  // Workers UI shows the duplicate backlog instead of 0/0/0. Coarse on purpose
+  // (it includes rows with a tombstoned sibling); the pass refines to live-only.
+  if (assets && stageNames.includes(DEDUPLICATE_NAME)) {
+    try {
+      pendingByStage.set(
+        DEDUPLICATE_NAME,
+        await assets.countDocuments({ 'fileinfo.1': { $exists: true } }),
+      );
+    } catch (err) {
+      log.warn({ err }, 'countDocuments failed for deduplicate pending count — leaving 0');
     }
   }
 
