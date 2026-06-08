@@ -131,6 +131,20 @@
 //!   `raw_core::stages::sharpen::apply`, covering masking-off AND masking-on (the
 //!   gradient branch), amount past 100, and a step-edge fixture (so the USM is
 //!   non-vacuous — a smooth ramp is a near-fixed-point).
+//! - [`CaptureSharpeningPass`] — the LAST P3 stage (#991) and the only ITERATIVE
+//!   one: Richardson–Lucy deconvolution against a true Gaussian PSF, on a Rec.709
+//!   luma plane (`raw_core::stages::capture_sharpening::apply_capture_sharpening`).
+//!   Stays ONE [`Pass`] but its core is a fixed-point iteration — N rounds of
+//!   `estimate *= blur(original / blur(estimate))` — encoded as a per-iteration
+//!   DISPATCH loop over scratch planes (the NLM shift-loop precedent), all in one
+//!   command encoder. The PSF is a windowed/renormalized Gaussian (`gaussian_kernel_1d`
+//!   ported bit-for-bit, uploaded once) with CLAMP-TO-EDGE borders — distinct from
+//!   the box-blur primitive's shrinking window. Rec.709 luma weights (raw-core's
+//!   deliberate approximation here, NOT Rec.2020); both GPU skip-paths write
+//!   `dst = src` (a bare return would leave stale data in the separate dst
+//!   buffer). Every kernel ≤ 4 storage. Parity-gated directly vs
+//!   `apply_capture_sharpening` < 1e-4, covering 1/2/3 iterations, sub-pixel and
+//!   larger sigma, the highlight-fade ramp, and the full no-op guard set.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -140,6 +154,7 @@
 
 mod agx;
 mod auto_profile_curve;
+mod capture_sharpening;
 mod chain;
 mod clarity;
 mod context;
@@ -163,6 +178,7 @@ pub use agx::{apply_agx, AgxPass};
 pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };
+pub use capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use context::GpuContext;
