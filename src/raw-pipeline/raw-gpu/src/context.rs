@@ -41,6 +41,13 @@ pub struct GpuContext {
     /// matrices like vibrance. Built on first use via
     /// [`GpuContext::display_encode_pipeline`].
     pub(crate) display_encode_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled sRGB gamma-encode compute pipeline (`srgb_gamma.wgsl`). A
+    /// P4a view-tail stage (#992-pre): the per-channel IEC 61966-2-1 OETF
+    /// (`raw_core::view::encode::srgb_gamma_encode`). Pure per-channel transfer,
+    /// no Oklab — so, like exposure / scene_tone_controls, the kernel compiles
+    /// standalone with no generated-color-matrix concat. Built on first use via
+    /// [`GpuContext::srgb_gamma_pipeline`].
+    pub(crate) srgb_gamma_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled saturation compute pipeline (`saturation.wgsl` + the
     /// generated color matrices). A P2 scene-linear stage (#990): Oklab chroma
     /// scale + a gamut-hull bisection, so it concats the generated matrices like
@@ -223,6 +230,7 @@ impl GpuContext {
             white_balance_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),
+            srgb_gamma_pipeline: OnceCell::new(),
             saturation_pipeline: OnceCell::new(),
             auto_profile_curve_pipeline: OnceCell::new(),
             agx_pipeline: OnceCell::new(),

@@ -18,10 +18,11 @@
 //!   **clarity** · **texture** · **dehaze** · local_adjustments · **sharpen** ·
 //!   **nr_luminance** · **nr_color**
 //! then `render` appends the view tail:
-//!   **agx** · **rec2020_to_srgb** (= [`DisplayEncodePass`]) · srgb_gamma_encode ·
-//!   auto_profile-curve · auto_profile-residual-LUT · look · dither/quantize.
+//!   **agx** · **rec2020_to_srgb** (= [`DisplayEncodePass`]) ·
+//!   **srgb_gamma_encode** (= [`SrgbGammaPass`]) · auto_profile-curve ·
+//!   auto_profile-residual-LUT · look · dither/quantize.
 //!
-//! The **bold** stages are the 16 GPU-ported [`Pass`]es this module composes (in
+//! The **bold** stages are the 17 GPU-ported [`Pass`]es this module composes (in
 //! exactly that order). The rest are gaps:
 //!
 //! - **Upstream / out of scope** (run before the post-DCP scene-linear buffer this
@@ -30,17 +31,20 @@
 //! - **In-chain, NOT GPU-ported** — P4 must run these CPU-side around the GPU
 //!   chain: `auto_exposure` (a scalar mid-gray gain) and `local_adjustments`
 //!   (default empty → bit-identical no-op; non-empty is a CPU stage today).
-//! - **View-tail, NOT GPU-ported**: `srgb_gamma_encode` (the in-chain gap —
-//!   the view tail is NOT yet GPU-resident end-to-end; the curve + residual LUT
-//!   that follow it were *fit* in gamma space, so the live path needs a GPU gamma
-//!   pass between [`DisplayEncodePass`] and [`AutoProfileCurvePass`]), `look`
-//!   (empirical per-channel LUT), and `dither_and_quantize` (f32 → u8, outside
+//! - **View-tail, GPU-ported in P4a**: `srgb_gamma_encode` (= [`SrgbGammaPass`]),
+//!   inserted between [`DisplayEncodePass`] and [`AutoProfileCurvePass`] — the
+//!   curve + residual LUT that follow it were *fit* in gamma space, so the gamma
+//!   step must precede them (matching raw-core's render tail).
+//! - **View-tail, still gaps**: `look` (an empirical per-channel LUT that is a
+//!   no-op post-Auto-Profile-pivot — `view::look::apply` is intentionally empty),
+//!   and `dither_and_quantize` (the f32 → u8 display-OUTPUT step, P4b — outside
 //!   this f32-RGBA crate's scope).
 //!
-//! Because there is no GPU `srgb_gamma_encode`, the assembled chain's tail runs
-//! `display_encode → auto_profile_curve → residual_lut` directly (no gamma step).
-//! The end-to-end parity test mirrors that asymmetry on the CPU side (it also
-//! drops gamma) so the comparison is GPU-vs-CPU of the *same* composed stages —
+//! With `srgb_gamma_encode` ported, the assembled chain's tail runs
+//! `display_encode → srgb_gamma → auto_profile_curve → residual_lut` — the full
+//! f32 view tail (sans the f32 → u8 dither). The end-to-end parity test mirrors
+//! that exactly on the CPU side (it also runs `srgb_gamma_encode` in the same
+//! position) so the comparison is GPU-vs-CPU of the *same* composed stages —
 //! see `full_chain/tests.rs`.
 //!
 //! ## Dehaze airlight
@@ -69,6 +73,7 @@ use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
 use crate::sharpen::SharpenPass;
+use crate::srgb_gamma::SrgbGammaPass;
 use crate::texture::TexturePass;
 use crate::tone_curves::{ToneCurveInputs, ToneCurvesPass};
 use crate::vibrance::VibrancePass;
@@ -186,8 +191,8 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     }));
 
     // --- Suffix: dehaze (airlight from the prefix output) → sharpen → NR →
-    //     view tail (agx → display_encode → auto_profile_curve → residual_lut).
-    //     local_adjustments / srgb_gamma / look / dither are gaps (module docs). ---
+    //     view tail (agx → display_encode → srgb_gamma → auto_profile_curve →
+    //     residual_lut). local_adjustments / look / dither are gaps (module docs). ---
     let mut suffix: BoxedPasses = Vec::new();
     suffix.push(Box::new(DehazePass {
         dehaze: inputs.dehaze,
@@ -210,6 +215,11 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
         contrast: inputs.contrast,
     }));
     suffix.push(Box::new(DisplayEncodePass));
+    // srgb_gamma_encode: the per-channel IEC OETF. MUST sit between display_encode
+    // and the Auto Profile curve — the curve + residual LUT were fit in gamma
+    // space (matches raw-core's render tail: rec2020_to_srgb → srgb_gamma_encode →
+    // apply_curve → ColorLut::apply).
+    suffix.push(Box::new(SrgbGammaPass));
     suffix.push(Box::new(AutoProfileCurvePass {
         flat_curve: inputs.profile_curve_flat.clone(),
     }));
