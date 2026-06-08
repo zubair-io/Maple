@@ -43,6 +43,7 @@ import { startJobRunner, stopJobRunner } from '../job-runner/runner.ts';
 import { startImportRunner, stopImportRunner } from '../imports/worker.ts';
 import { writeWorkerStatus } from './worker-status.repo.ts';
 import { startMaintenanceJobs, stopMaintenanceJobs } from './maintenance.ts';
+import { flushPendingMirrorOps } from '../fs/mirrored.ts';
 
 const log = childLogger('workers');
 
@@ -260,5 +261,15 @@ export async function stopWorkers(): Promise<void> {
     await stopImportRunner();
   } catch (e) {
     log.warn({ err: e }, 'error stopping import runner');
+  }
+
+  // Every mirrored writer in this tier (migration relocations, import copies,
+  // trash deletes) is stopped now — flush their scheduled-but-not-yet-run mirror
+  // ops so a graceful shutdown doesn't drop in-flight copies. Best-effort; the
+  // scan/copy reconcile catches anything still missed.
+  try {
+    await flushPendingMirrorOps();
+  } catch (e) {
+    log.warn({ err: e }, 'error flushing pending mirror ops');
   }
 }

@@ -26,6 +26,7 @@ import { foldersCollection } from '../db/client.ts';
 import { validateRoot } from '../fs/root.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { mirrorQueueCounts, retryDeadMirrorCopies } from '../fs/mirror-queue.repo.ts';
+import { runMirrorScrubOnce } from '../workers/mirror/scrub.ts';
 import type { MirrorLocation } from '../db/schema.ts';
 
 const log = childLogger('mirror:routes');
@@ -161,4 +162,19 @@ export const mirrorRoutes = new Elysia()
   .post('/api/mirror/retry-dead', async () => {
     const revived = await retryDeadMirrorCopies();
     return { ok: true, revived };
+  })
+  // Orphan report (DRY RUN): mirror files with no primary counterpart — e.g. the
+  // old-layout copies a backup-folder migration relocated on the primary but
+  // (before the worker loaded the mirror registry) never removed on the mirror.
+  // Reports only; deletes nothing. Skips any mirror whose primary is offline.
+  .get('/api/mirror/orphans', async () => {
+    const report = await runMirrorScrubOnce({ apply: false });
+    return { report };
+  })
+  // Scrub orphans (DESTRUCTIVE): delete the mirror files the dry run reports.
+  // A deliberate POST so it can't be triggered by a stray GET; the UI gates it
+  // behind showing the dry-run count first. Same primary-offline guard applies.
+  .post('/api/mirror/scrub', async () => {
+    const report = await runMirrorScrubOnce({ apply: true });
+    return { ok: true, report };
   });
