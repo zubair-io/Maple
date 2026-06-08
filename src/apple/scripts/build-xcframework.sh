@@ -129,6 +129,9 @@ EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 #   - every .rs under raw-core/src and raw-ffi/src
 #   - Cargo.lock (exact dependency versions)
 #   - the workspace + raw-core + raw-ffi Cargo.toml files
+#   - raw-ffi/cbindgen.toml (drives header generation — its [defines] decide
+#     which symbols the guard expects, so a change here must force a rebuild
+#     even when no Rust/Cargo input moved)
 # Paths are hashed alongside bytes and sorted with NUL delimiters so that
 # renames/additions/deletions all register, independent of locale or
 # filesystem ordering.
@@ -140,7 +143,8 @@ compute_input_hash() {
             "$RAW_PIPELINE_DIR/Cargo.lock" \
             "$RAW_PIPELINE_DIR/Cargo.toml" \
             "$RAW_PIPELINE_DIR/raw-core/Cargo.toml" \
-            "$RAW_PIPELINE_DIR/raw-ffi/Cargo.toml"; do
+            "$RAW_PIPELINE_DIR/raw-ffi/Cargo.toml" \
+            "$RAW_FFI_DIR/cbindgen.toml"; do
             [[ -f "$f" ]] && shasum "$f"
         done
     } | shasum | awk '{print $1}'
