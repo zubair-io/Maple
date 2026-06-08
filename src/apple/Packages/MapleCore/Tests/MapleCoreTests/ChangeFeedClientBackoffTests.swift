@@ -32,7 +32,7 @@ final class ChangeFeedClientBackoffTests: XCTestCase {
             return delay
         }
         // 1s -> 2,4,8,16,16,16,16,16
-        XCTAssertEqual(observed.prefix(4), [2, 4, 8, 16].map { $0 * 1_000_000_000 })
+        XCTAssertEqual(Array(observed.prefix(4)), [2, 4, 8, 16].map { $0 * 1_000_000_000 })
         XCTAssertTrue(observed.allSatisfy { $0 <= cap })
         XCTAssertEqual(observed.last, cap, "must clamp at the cap, not grow unbounded")
     }
