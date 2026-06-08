@@ -235,3 +235,103 @@ fn rerender_same_inputs_is_byte_identical() {
     let second = session.render_to_buffer(&inputs, airlight, &cancel).unwrap();
     assert_eq!(first, second, "re-render at same dims/inputs must be byte-identical");
 }
+
+/// STEP 2b — THE ZERO-ALLOCATION GATE (CLAUDE.md: "allocation inside the render
+/// loop … does not ship"). A second render at the SAME dims + inputs (same chain
+/// signature) allocates ZERO new GPU buffers / bind groups, AND is bit-identical
+/// to the first. Non-vacuous: the FIRST render's allocation count must be > 0
+/// (else the hook isn't measuring anything). Run across a neutral (view-tail
+/// only), a mild, and an aggressive (every gated stage + dehaze + the spatial
+/// DAGs) signature, so the pool is exercised both near-empty and fully loaded.
+#[test]
+fn second_render_same_signature_allocates_nothing() {
+    let ctx = GpuContext::new_blocking();
+    let (w, h) = (8u32, 8u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let airlight = compute_airlight(&input, w as usize, h as usize);
+    let cancel = CancelToken::new();
+
+    for (name, case) in [
+        ("neutral", neutral_case()),
+        ("mild", mild_case()),
+        ("aggressive", aggressive_case()),
+    ] {
+        let inputs = case.gpu_inputs();
+        // A fresh session per case (reset() clears the prior case's cache).
+        let session = LiveSession::new(&ctx, &input, w, h);
+
+        // First render: fills the pool (allocations expected).
+        let before_first = session.pool_alloc_count();
+        let first = session.render_to_buffer(&inputs, airlight, &cancel).unwrap();
+        let first_allocs = session.pool_alloc_count() - before_first;
+
+        // Second render, identical signature: must reuse everything.
+        let second = session.render_to_buffer(&inputs, airlight, &cancel).unwrap();
+        let second_allocs = session.pool_alloc_count() - before_first - first_allocs;
+
+        eprintln!(
+            "ZERO-ALLOC [{name}]: first render = {first_allocs} pool allocs, \
+             second render = {second_allocs} pool allocs"
+        );
+        assert!(
+            first_allocs > 0,
+            "[{name}] first render did 0 pool allocs — the accounting hook is vacuous"
+        );
+        assert_eq!(
+            second_allocs, 0,
+            "[{name}] second render at the same signature allocated {second_allocs} GPU \
+             resources — the render loop is not zero-alloc"
+        );
+        assert_eq!(
+            first, second,
+            "[{name}] the zero-alloc re-render must be byte-identical to the first"
+        );
+    }
+}
+
+/// A slider crossing a GATING threshold (e.g. dehaze 0→engaged) changes the chain
+/// signature → a fresh pool bucket (allocations expected the first time that
+/// shape is seen), but a re-render of the NEW shape is again zero-alloc. This pins
+/// the signature-keyed cache: a new shape never reuses (binds) the old shape's
+/// resources, and each shape converges to zero-alloc independently.
+#[test]
+fn signature_change_allocates_once_then_zero() {
+    let ctx = GpuContext::new_blocking();
+    let (w, h) = (8u32, 8u32);
+    let input = scene_linear_rgba(w as usize, h as usize);
+    let airlight = compute_airlight(&input, w as usize, h as usize);
+    let cancel = CancelToken::new();
+    let session = LiveSession::new(&ctx, &input, w, h);
+
+    // Shape A: neutral (view tail only).
+    let a = neutral_case().gpu_inputs();
+    let base = session.pool_alloc_count();
+    session.render_to_buffer(&a, airlight, &cancel).unwrap();
+    let a1 = session.pool_alloc_count() - base;
+    session.render_to_buffer(&a, airlight, &cancel).unwrap();
+    let a2 = session.pool_alloc_count() - base - a1;
+    assert!(a1 > 0, "shape A first render must allocate");
+    assert_eq!(a2, 0, "shape A re-render must be zero-alloc");
+
+    // Shape B: dehaze engaged — a DIFFERENT signature → its own bucket allocates.
+    let mut b_case = neutral_case();
+    b_case.model.dehaze = 40.0;
+    let b = b_case.gpu_inputs();
+    let pre_b = session.pool_alloc_count();
+    session.render_to_buffer(&b, airlight, &cancel).unwrap();
+    let b1 = session.pool_alloc_count() - pre_b;
+    session.render_to_buffer(&b, airlight, &cancel).unwrap();
+    let b2 = session.pool_alloc_count() - pre_b - b1;
+    eprintln!("SIGNATURE-CHANGE: shape A allocs={a1}, shape B allocs={b1} (B re-render={b2})");
+    assert!(
+        b1 > 0,
+        "shape B (dehaze on) is a new signature — its first render must allocate"
+    );
+    assert_eq!(b2, 0, "shape B re-render must be zero-alloc");
+
+    // Returning to shape A is zero-alloc (its bucket is still cached).
+    let pre_a3 = session.pool_alloc_count();
+    session.render_to_buffer(&a, airlight, &cancel).unwrap();
+    let a3 = session.pool_alloc_count() - pre_a3;
+    assert_eq!(a3, 0, "returning to shape A must reuse its cached bucket (zero-alloc)");
+}

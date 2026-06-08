@@ -20,7 +20,6 @@
 //!    `[0, 1]` + the knee + the round-half boundary + out-of-range clamp ends.
 
 use crate::context::GpuContext;
-use wgpu::util::DeviceExt;
 
 /// The flattened canonical 8×8 Bayer matrix (`B(8)`, `y*8 + x`), inlined here for
 /// the CPU oracle. Pinned to `raw_core::view::dither::BAYER_8X8` by the test
@@ -115,39 +114,19 @@ pub fn encode_dither(
         _pad0: 0,
         _pad1: 0,
     };
-    let params_buf = ctx
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("dither-params"),
-            contents: bytemuck::bytes_of(&params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-    let pipeline = ctx.dither_pipeline();
-    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("dither-bg"),
-        layout: &pipeline.get_bind_group_layout(0),
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: params_buf.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: src.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: dst.as_entire_binding(),
-            },
-        ],
-    });
-    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-        label: Some("dither-pass"),
-        timestamp_writes: None,
-    });
-    pass.set_pipeline(pipeline);
-    pass.set_bind_group(0, &bind_group, &[]);
-    pass.dispatch_workgroups(count.div_ceil(64), 1, 1);
+    // Pool-routed like every other dispatch (P4b-core C3): params @0, f32-in @1,
+    // packed-u8-out @2. Inside a live render window the uniform + bind group are
+    // cached (zero alloc on a same-signature re-render); outside one (the dither
+    // unit test) the pool is dormant and this falls back to a plain create.
+    crate::spatial::encode_simple(
+        ctx,
+        encoder,
+        ctx.dither_pipeline(),
+        bytemuck::bytes_of(&params),
+        &[src, dst],
+        count,
+        "dither",
+    );
 }
 
 /// Unpack the dither kernel's `count`-u32 output (RGB in the low 24 bits) into
