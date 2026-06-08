@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Maple — WebGPU canvas present proof (#925 P1c)</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1.5rem;
+      }
+      /* Fixed CSS size; the JS sets the canvas BACKING-STORE size to match the
+         device pixel ratio so the present fills it crisply. The four quadrants
+         (red TL, green TR, blue BL, white BR) are the eyeball check. */
+      #gpu-canvas {
+        width: 320px;
+        height: 320px;
+        border: 1px solid #888;
+        display: block;
+        image-rendering: pixelated;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 0.75rem;
+        border-radius: 4px;
+        white-space: pre-wrap;
+      }
+      .pass {
+        color: #137333;
+        font-weight: 600;
+      }
+      .fail {
+        color: #c5221f;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebGPU canvas present proof (#925 P1c)</h1>
+    <p>
+      Presents a four-quadrant test pattern (red top-left, green top-right, blue bottom-left, white
+      bottom-right) to a <code>&lt;canvas&gt;</code> via <code>wgpu</code> &rarr; WebGPU, with no
+      CPU readback. The web counterpart of the Apple P1b <code>CAMetalLayer</code> present proof.
+    </p>
+    <canvas id="gpu-canvas" aria-label="WebGPU present canvas"></canvas>
+    <pre id="out">running…</pre>
+
+    <script type="module">
+      import init, { present_gpu, install_panic_hook } from './pkg/raw_wasm.js';
+
+      const out = document.getElementById('out');
+      const canvas = document.getElementById('gpu-canvas');
+
+      // The colour-space tag this project's canvases use (live WebGL pipeline +
+      // Apple Display P3). The Rust present path tries to re-tag the WebGPU canvas
+      // to this; we ALSO read the achieved tag back independently below, so the
+      // page reports ground truth, not intent.
+      const INTENDED_COLOR_SPACE = 'display-p3';
+
+      function finish(text, ok) {
+        out.textContent = text;
+        out.className = ok ? 'pass' : 'fail';
+        window.__MAPLE_PRESENT_RESULT = text;
+        window.__MAPLE_PRESENT_OK = ok;
+      }
+
+      if (!('gpu' in navigator)) {
+        finish(
+          'WebGPU not available in this browser (navigator.gpu missing).\n' +
+            'Open in Chrome/Edge ≥ 113 or Safari Technology Preview.',
+          false,
+        );
+      } else {
+        try {
+          await init();
+          install_panic_hook();
+
+          // Size the backing store to device pixels so the present is crisp.
+          const dpr = window.devicePixelRatio || 1;
+          const cssW = canvas.clientWidth || 320;
+          const cssH = canvas.clientHeight || 320;
+          canvas.width = Math.max(1, Math.round(cssW * dpr));
+          canvas.height = Math.max(1, Math.round(cssH * dpr));
+
+          // Present via wgpu. Returns { format, colorSpace } — colorSpace is what
+          // the Rust side read back from getConfiguration() after its re-tag.
+          const res = await present_gpu(canvas);
+
+          // Independent plain-JS read-back of the achieved colour-space tag — does
+          // not depend on the Rust unstable path. `getConfiguration()` is itself
+          // unstable (Chrome ~128+); guard it so older browsers still report.
+          let jsColorSpace = 'unavailable (getConfiguration unsupported)';
+          try {
+            const ctx = canvas.getContext('webgpu');
+            const cfg = ctx && ctx.getConfiguration ? ctx.getConfiguration() : null;
+            if (cfg && typeof cfg.colorSpace === 'string') {
+              jsColorSpace = cfg.colorSpace;
+            }
+          } catch (e) {
+            jsColorSpace = `read-back threw: ${e}`;
+          }
+
+          const reTagged = res.colorSpace === INTENDED_COLOR_SPACE;
+          const lines = [
+            'PRESENT: PASS — frame submitted + presented, no CPU readback.',
+            `  surface format:        ${res.format}`,
+            `  intended colour-space: ${INTENDED_COLOR_SPACE}`,
+            `  achieved (Rust):       ${res.colorSpace}`,
+            `  achieved (JS readback):${' '}${jsColorSpace}`,
+            '',
+            reTagged
+              ? `COLOUR-SPACE: display-p3 re-tag took.`
+              : `COLOUR-SPACE: NOTE — canvas is "${res.colorSpace}", not display-p3.` +
+                ` Expected on browsers without getConfiguration() (Chrome < ~128);` +
+                ` the present plumbing is unaffected.`,
+            '',
+            'Eyeball: the canvas above must show red (TL) / green (TR) / blue (BL) /' +
+              ' white (BR). A channel swap or all-grey = FAIL.',
+            '',
+            'OVERALL: PASS (present plumbing). Colour-space is a maintainer checkpoint.',
+          ];
+          // The PRESENT plumbing is the gated deliverable; it passed. The
+          // colour-space re-tag is a documented checkpoint, so it does NOT fail
+          // the page (matches the PR's validated-vs-checkpoint split).
+          finish(lines.join('\n'), true);
+        } catch (e) {
+          finish(`PRESENT: FAIL — ${e && e.stack ? e.stack : e}`, false);
+        }
+      }
+    </script>
+  </body>
+</html>
