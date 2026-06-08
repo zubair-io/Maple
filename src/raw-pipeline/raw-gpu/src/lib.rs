@@ -10,6 +10,12 @@
 //!   readback for the whole chain) and cooperative [`CancelToken`] cancellation.
 //! - [`ExposurePass`] + [`apply_exposure_gain`] — the exposure stage and its CPU
 //!   oracle; the N-pass exposure chain is the headless parity proof.
+//! - [`VibrancePass`] + [`apply_vibrance`] — the P2 scene-linear template stage
+//!   (epic #925 / #990): the first GPU kernel to round a pixel through Oklab, so
+//!   it establishes the matrix + sign-preserving-cbrt primitives the remaining
+//!   scene-linear stages fan out from. Its color matrices come from a generated
+//!   WGSL module (`generated/color_matrices.wgsl`), single-sourced from the same
+//!   `raw-core` constants the CPU pipeline uses.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -21,11 +27,13 @@ mod chain;
 mod context;
 mod exposure;
 mod image;
+mod vibrance;
 
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use context::GpuContext;
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use image::GpuImage;
+pub use vibrance::{apply_vibrance, VibrancePass};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use exposure::run_exposure_gpu;
