@@ -16,6 +16,12 @@
 //!   scene-linear stages fan out from. Its color matrices come from a generated
 //!   WGSL module (`generated/color_matrices.wgsl`), single-sourced from the same
 //!   `raw-core` constants the CPU pipeline uses.
+//! - [`SaturationPass`] + [`apply_saturation`] — a P2 scene-linear stage (#990),
+//!   the trickier Oklab sibling of vibrance: a uniform chroma scale plus, at
+//!   positive saturation, a 24-iteration gamut-hull **bisection** with a Reinhard
+//!   soft-knee that pulls out-of-gamut pixels back along the same Oklab hue line.
+//!   Reuses the generated color matrices; the gamut constants are inlined in the
+//!   kernel. Parity-gated directly vs `raw_core::stages::saturation::apply`.
 //! - [`WhiteBalancePass`] + [`apply_white_balance`] — a P2 scene-linear stage
 //!   (#990). The WB derivation (CAT16 / diagonal) runs CPU-side once into a 3×3
 //!   matrix; the kernel is a pure per-pixel matmul of that matrix (uploaded as
@@ -44,6 +50,7 @@ mod context;
 mod display_encode;
 mod exposure;
 mod image;
+mod saturation;
 mod scene_tone_controls;
 mod vibrance;
 mod white_balance;
@@ -53,6 +60,7 @@ pub use context::GpuContext;
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use image::GpuImage;
+pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
 pub use vibrance::{apply_vibrance, VibrancePass};
 pub use white_balance::{apply_white_balance, WhiteBalancePass};
