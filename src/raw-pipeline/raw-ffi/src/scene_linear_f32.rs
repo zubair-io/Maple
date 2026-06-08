@@ -78,8 +78,12 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
     let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
         let cancel = cancel; // capture the Send shim
-        let cancel_flag = token_from_ptr(cancel.0);
-        let token = cancel_flag.map(CancelToken::new).unwrap_or_else(CancelToken::never);
+        // SAFETY: worker is join-ed before the FFI call returns; the host keeps
+        // the flag allocation alive across the call (see module doc in cancel.rs).
+        let token = match token_from_ptr(cancel.0) {
+            Some(p) => CancelToken::new(p.as_ref()),
+            None => CancelToken::never(),
+        };
         let raw_path = std::path::Path::new(&raw_path_str);
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
@@ -158,8 +162,12 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_f32(
     let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
         let cancel = cancel;
-        let cancel_flag = token_from_ptr(cancel.0);
-        let token = cancel_flag.map(CancelToken::new).unwrap_or_else(CancelToken::never);
+        // SAFETY: worker is join-ed before the FFI call returns; the host keeps
+        // the flag allocation alive across the call (see module doc in cancel.rs).
+        let token = match token_from_ptr(cancel.0) {
+            Some(p) => CancelToken::new(p.as_ref()),
+            None => CancelToken::never(),
+        };
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
@@ -227,8 +235,12 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized_f32(
     let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
         let cancel = cancel;
-        let cancel_flag = token_from_ptr(cancel.0);
-        let token = cancel_flag.map(CancelToken::new).unwrap_or_else(CancelToken::never);
+        // SAFETY: worker is join-ed before the FFI call returns; the host keeps
+        // the flag allocation alive across the call (see module doc in cancel.rs).
+        let token = match token_from_ptr(cancel.0) {
+            Some(p) => CancelToken::new(p.as_ref()),
+            None => CancelToken::never(),
+        };
         let raw_path = std::path::Path::new(&raw_path_str);
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
@@ -310,8 +322,12 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized_f32(
     let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
         let cancel = cancel;
-        let cancel_flag = token_from_ptr(cancel.0);
-        let token = cancel_flag.map(CancelToken::new).unwrap_or_else(CancelToken::never);
+        // SAFETY: worker is join-ed before the FFI call returns; the host keeps
+        // the flag allocation alive across the call (see module doc in cancel.rs).
+        let token = match token_from_ptr(cancel.0) {
+            Some(p) => CancelToken::new(p.as_ref()),
+            None => CancelToken::never(),
+        };
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
