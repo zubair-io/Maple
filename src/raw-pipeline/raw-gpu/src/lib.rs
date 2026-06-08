@@ -55,6 +55,15 @@
 //!   generated color matrices (the Oklab round-trip) + the generated AgX coeffs
 //!   (inset/outset + scalars). Parity-gated directly vs
 //!   `raw_core::view::agx::apply`.
+//! - [`ResidualLutPass`] + [`apply_residual_lut`] — a P2 view-transform stage
+//!   (#990): the per-image residual 3D LUT (#924) layered onto the Auto Profile
+//!   cube, applied by **trilinear** interpolation. The grid is per-image RUNTIME
+//!   data (fitted from the embedded JPEG, NOT a codegen constant), uploaded to a
+//!   storage buffer per pass — the canonical "runtime 3D LUT in storage +
+//!   trilinear sample" pattern (distinct from the tone-curve / WB / auto_profile
+//!   family, which upload CPU-derived per-image *coefficients*). Pure lookup, so
+//!   no generated color matrices. Parity-gated directly vs
+//!   `raw_core::view::auto_profile::lut::ColorLut::apply`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -69,6 +78,7 @@ mod context;
 mod display_encode;
 mod exposure;
 mod image;
+mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
 mod vibrance;
@@ -83,6 +93,7 @@ pub use context::GpuContext;
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use image::GpuImage;
+pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
 pub use vibrance::{apply_vibrance, VibrancePass};
