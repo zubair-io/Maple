@@ -277,6 +277,33 @@ impl GpuContext {
         self.nr_writeback_color_pipeline
             .get_or_init(|| compile_nr(&self.device, "nr-writeback-color", "writeback_color"))
     }
+
+    // ── Sharpen (luma-only USM) pipelines (epic #925 P3 wave 2 / #991) ─────────
+    //
+    // Three standalone kernels: `sharpen_luma.wgsl` (RGBA → luma plane),
+    // `sharpen_usm.wgsl` (per-pixel USM scale → full-strength sharpened RGBA), and
+    // `sharpen_mix.wgsl` (the edge-aware amount/masking blend). All luma-only — no
+    // Oklab — so each compiles standalone, like `exposure.wgsl`.
+
+    /// `sharpen_luma`: RGBA → BT.2020 luma plane. 2 storage.
+    pub fn sharpen_luma_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.sharpen_luma_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "sharpen-luma", include_str!("sharpen_luma.wgsl")))
+    }
+
+    /// `sharpen_usm`: per-pixel luma USM scale (shadow guard + clamp) → the
+    /// full-strength sharpened RGBA. 4 storage.
+    pub fn sharpen_usm_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.sharpen_usm_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "sharpen-usm", include_str!("sharpen_usm.wgsl")))
+    }
+
+    /// `sharpen_mix`: the edge-aware amount/masking blend (central-difference luma
+    /// gradient). 4 storage.
+    pub fn sharpen_mix_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.sharpen_mix_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "sharpen-mix", include_str!("sharpen_mix.wgsl")))
+    }
 }
 
 /// Compile a standalone WGSL kernel (no generated-matrix concat) into a cached
