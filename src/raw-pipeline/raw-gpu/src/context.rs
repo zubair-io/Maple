@@ -196,6 +196,14 @@ pub struct GpuContext {
     /// with both CPU skip-paths written as `dst = src`. 4 storage
     /// (original + estimate + src + dst).
     pub(crate) cs_apply_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled dither + quantize pipeline (`dither.wgsl`). The P4b-core
+    /// TERMINAL display-output encode (#1027): f32-RGBA → packed-u8-RGB with an
+    /// ordered Bayer ±0.5-LSB dither (`raw_core::view::encode::dither_and_quantize`).
+    /// Standalone kernel (no Oklab / matrices). 3-binding layout (params uniform +
+    /// f32-RGBA-in storage + u32-packed-out storage). Built on first use via
+    /// [`GpuContext::dither_pipeline`]. Unlike every other pipeline its output is
+    /// not f32, so it runs as a terminal encode, not a ping-pong chain `Pass`.
+    pub(crate) dither_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -259,6 +267,7 @@ impl GpuContext {
             cs_ratio_pipeline: OnceCell::new(),
             cs_multiply_pipeline: OnceCell::new(),
             cs_apply_pipeline: OnceCell::new(),
+            dither_pipeline: OnceCell::new(),
         }
     }
 
