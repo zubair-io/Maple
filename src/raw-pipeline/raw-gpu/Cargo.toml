@@ -21,3 +21,12 @@ futures-channel = "0.3"
 # async core directly via wasm-bindgen-futures. Keep it off the wasm tree.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = "0.4"
+
+# Test-only: parity-gate WGSL stage kernels DIRECTLY against their raw-core Rust
+# stage (epic #925 P2 / #990) — the ticket's contract is "parity vs its Rust
+# stage," not "vs a hand-copied oracle." `default-features = false` keeps the
+# `gpu` feature OFF, so this is acyclic: raw-core references raw-gpu only through
+# its optional `gpu` feature, which stays disabled here. Dev-deps don't enter the
+# normal build graph, so raw-core / raw-wasm default + `gpu` trees are unchanged.
+[dev-dependencies]
+raw-core = { path = "../raw-core", default-features = false }
