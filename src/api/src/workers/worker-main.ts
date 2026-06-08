@@ -6,6 +6,7 @@
 import { installChildHardening } from '../runtime/child-process-worker.ts';
 import { getDb, ensureIndexes, closeDb } from '../db/client.ts';
 import { startWorkers, stopWorkers } from './start-workers.ts';
+import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { initOtel } from '../otel.ts';
 import {
   resolveObservabilityConfig,
@@ -27,6 +28,20 @@ async function main(): Promise<void> {
     await initOtel(resolveObservabilityConfig(await loadObservabilityConfig()));
   } catch (e) {
     log.warn({ err: e }, 'otel init failed');
+  }
+  // Load the library→mirror registry BEFORE the worker tier starts. Without it
+  // the worker process has an empty registry, so every mirror-aware write here
+  // (backup-folder migrations, imports, trash deletes) resolves to zero targets
+  // and the mirror silently drifts — and the mirror-scan/copy reconcile that
+  // should catch the drift is itself gated off (`isMirroringActive()` is false).
+  // The API process loads this in index.ts; the worker tier must do the same.
+  try {
+    await loadMirrorConfig();
+  } catch (e) {
+    log.warn(
+      { err: e instanceof Error ? e.message : e },
+      'mirror config load failed — mirroring inactive in worker until reload',
+    );
   }
   await startWorkers();
   log.info('worker tier started');
