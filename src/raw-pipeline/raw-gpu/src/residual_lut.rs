@@ -1,0 +1,215 @@
+//! Auto Profile residual 3D LUT — a P2 view-transform WGSL port (#925 / #990).
+//!
+//! Ports `raw_core::view::auto_profile::lut::ColorLut::sample` (#924): the
+//! per-image residual RGB→RGB grid layered onto the Auto Profile cube, applied by
+//! **trilinear** interpolation. The grid is PER-IMAGE RUNTIME DATA — fitted from
+//! the embedded JPEG at open time (`fit_lut_from_*`), NOT a codegen constant — so
+//! the flat grid rides a read-only storage buffer uploaded per pass. This is the
+//! canonical "runtime 3D LUT in storage + trilinear sample" pattern the spatial /
+//! P3 / P4 waves reuse (distinct from the tone-curve / WB / auto_profile family,
+//! which upload CPU-derived per-image *coefficients* rather than a sampled LUT).
+//!
+//! Three pieces (the per-stage template):
+//! 1. [`apply_residual_lut`] — the CPU oracle: a line-for-line port of
+//!    `ColorLut::sample` over a flat RGBA f32 buffer (alpha untouched), reading
+//!    the grid in the same `((b*N+g)*N+r)*3+c` layout.
+//! 2. [`ResidualLutPass`] — the GPU-resident [`Pass`]; carries the flat grid +
+//!    its node count `size`. The kernel needs NO generated color matrices (pure
+//!    trilinear lookup), so `residual_lut.wgsl` compiles standalone. Uploads the
+//!    grid to storage binding 3 and the `count` / `size` to uniform binding 0.
+//! 3. The headless parity test ([`mod tests`], in `residual_lut/tests.rs`) — GPU
+//!    vs the real `ColorLut::apply` (via the test-only `raw-core` dev-dep)
+//!    `< 1e-4` on a NON-identity fitted grid (so the trilinear interpolation runs
+//!    off the identity diagonal — the identity LUT alone would be a false green),
+//!    plus an identity-LUT passthrough and an alpha-passthrough guard.
+
+use crate::chain::Pass;
+use crate::context::GpuContext;
+use wgpu::util::DeviceExt;
+
+/// Number of floats in a `size`³ RGB grid: `size * size * size * 3`. Mirrors the
+/// `ColorLut::data` length (`n*n*n*3`).
+#[inline]
+pub fn residual_lut_flat_len(size: usize) -> usize {
+    size * size * size * 3
+}
+
+/// One grid node's RGB triplet at `(r, g, b)`. Mirrors `ColorLut::node`: manual
+/// flat index, no bounds clamp (the caller caps `lo` at `last - 1`, so `lo + 1`
+/// never exceeds `size - 1`).
+#[inline]
+fn node(data: &[f32], size: usize, r: usize, g: usize, b: usize) -> [f32; 3] {
+    let i = ((b * size + g) * size + r) * 3;
+    [data[i], data[i + 1], data[i + 2]]
+}
+
+/// Trilinear lookup of one RGB triplet (inputs clamped to `[0, 1]`). A
+/// line-for-line port of `ColorLut::sample` — same `lo`/`f` derivation (with the
+/// `min(_, last - 1)` top-cell guard so an input of exactly 1.0 lands in the top
+/// cell with `f = 1.0`) and the same r→g→b corner-blend nesting per channel.
+fn sample(data: &[f32], size: usize, rgb: [f32; 3]) -> [f32; 3] {
+    let last = (size - 1) as f32;
+    let mut lo = [0usize; 3];
+    let mut f = [0f32; 3];
+    for c in 0..3 {
+        let p = rgb[c].clamp(0.0, 1.0) * last;
+        let l = p.floor().min(last - 1.0);
+        lo[c] = l as usize;
+        f[c] = p - l;
+    }
+    let mut out = [0f32; 3];
+    for (c, out_c) in out.iter_mut().enumerate() {
+        let c000 = node(data, size, lo[0], lo[1], lo[2])[c];
+        let c100 = node(data, size, lo[0] + 1, lo[1], lo[2])[c];
+        let c010 = node(data, size, lo[0], lo[1] + 1, lo[2])[c];
+        let c110 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2])[c];
+        let c001 = node(data, size, lo[0], lo[1], lo[2] + 1)[c];
+        let c101 = node(data, size, lo[0] + 1, lo[1], lo[2] + 1)[c];
+        let c011 = node(data, size, lo[0], lo[1] + 1, lo[2] + 1)[c];
+        let c111 = node(data, size, lo[0] + 1, lo[1] + 1, lo[2] + 1)[c];
+        let c00 = c000 * (1.0 - f[0]) + c100 * f[0];
+        let c10 = c010 * (1.0 - f[0]) + c110 * f[0];
+        let c01 = c001 * (1.0 - f[0]) + c101 * f[0];
+        let c11 = c011 * (1.0 - f[0]) + c111 * f[0];
+        let c0 = c00 * (1.0 - f[1]) + c10 * f[1];
+        let c1 = c01 * (1.0 - f[1]) + c11 * f[1];
+        *out_c = c0 * (1.0 - f[2]) + c1 * f[2];
+    }
+    out
+}
+
+/// Apply a residual 3D LUT across an interleaved RGBA f32 buffer (alpha
+/// untouched). This is the CPU oracle — a line-for-line port of
+/// `raw_core::view::auto_profile::lut::ColorLut::sample`/`apply` (which operates
+/// on packed RGB; here the RGB lanes of each RGBA pixel are transformed
+/// identically and the alpha lane is carried through). `data` is the flat grid
+/// (`size`³ × 3 floats, layout `((b*N+g)*N+r)*3+c`).
+///
+/// # Panics
+/// Panics if `size < 2` or `data.len() != residual_lut_flat_len(size)`.
+pub fn apply_residual_lut(buf: &mut [f32], data: &[f32], size: usize) {
+    assert!(size >= 2, "residual LUT size must be >= 2, got {size}");
+    assert_eq!(
+        data.len(),
+        residual_lut_flat_len(size),
+        "residual LUT flat length must be size^3 * 3 = {}",
+        residual_lut_flat_len(size)
+    );
+    for px in buf.chunks_exact_mut(4) {
+        let out = sample(data, size, [px[0], px[1], px[2]]);
+        px[0] = out[0];
+        px[1] = out[1];
+        px[2] = out[2];
+        // px[3] (alpha) untouched
+    }
+}
+
+/// `repr(C)` params uniform shared by the WGSL kernel (`residual_lut.wgsl`).
+/// `count` is the RGBA pixel count; `size` is the LUT node count per axis;
+/// `_pad*` round to 16 bytes. (`params`, not `meta` — `meta` is a reserved WGSL
+/// keyword.)
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Params {
+    count: u32,
+    size: u32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
+/// A GPU-resident Auto Profile residual-LUT stage. Carries the per-image flat
+/// grid + its node count `size` (`data.len()` must be `size`³ × 3). Uploads the
+/// grid to storage binding 3 and the `count` / `size` to uniform binding 0 inside
+/// `encode`.
+pub struct ResidualLutPass {
+    /// Node count per axis (`N`); the grid is `N`³ RGB.
+    pub size: usize,
+    /// Flat residual grid (`size`³ × 3 floats, layout `((b*N+g)*N+r)*3+c`).
+    pub data: Vec<f32>,
+}
+
+impl Pass for ResidualLutPass {
+    fn encode(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        src: &wgpu::Buffer,
+        dst: &wgpu::Buffer,
+        dims: (u32, u32),
+    ) {
+        assert!(self.size >= 2, "residual LUT size must be >= 2, got {}", self.size);
+        assert_eq!(
+            self.data.len(),
+            residual_lut_flat_len(self.size),
+            "residual LUT flat length must be size^3 * 3 = {}",
+            residual_lut_flat_len(self.size)
+        );
+        let (width, height) = dims;
+        let pixel_count = width * height;
+
+        let params = Params {
+            count: pixel_count,
+            size: self.size as u32,
+            _pad0: 0,
+            _pad1: 0,
+        };
+        let params_buf = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("residual-lut-params"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        // Per-image grid in a READ-ONLY STORAGE buffer (4-byte stride). A uniform
+        // `array<f32>` would get a 16-byte per-element stride and silently
+        // misalign — same trap auto_profile_curve's flat-curve buffer dodges.
+        let lut_buf = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("residual-lut-grid"),
+                contents: bytemuck::cast_slice(&self.data),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+
+        let pipeline = ctx.residual_lut_pipeline();
+        // Fresh bind group per pass: a bind group's bound buffers are fixed at
+        // creation, so each ping-pong direction (src/dst) needs its own.
+        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("residual-lut-bg"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: src.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: dst.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: lut_buf.as_entire_binding(),
+                },
+            ],
+        });
+
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("residual-lut-pass"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(pixel_count.div_ceil(64), 1, 1);
+    }
+}
+
+// Parity tests live in a sibling file to keep this module under the 600-LOC
+// budget (mirrors auto_profile_curve's `tests.rs` split). Native test builds
+// only — the headless GPU harness has no wasm path.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "residual_lut/tests.rs"]
+mod tests;

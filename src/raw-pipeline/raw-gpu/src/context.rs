@@ -63,6 +63,14 @@ pub struct GpuContext {
     /// (params uniform + src/dst storage + the baked-LUT storage buffer).
     /// Built on first use via [`GpuContext::agx_pipeline`].
     agx_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled residual-LUT compute pipeline (`residual_lut.wgsl`). A P2
+    /// view-transform stage (#990): the per-image residual 3D LUT (#924) sampled
+    /// by trilinear interpolation. Pure lookup — no Oklab — so, like exposure /
+    /// white_balance, the kernel compiles standalone with no generated-matrix
+    /// concat. Uses a 4-binding layout (params uniform + src/dst storage + the
+    /// per-image grid storage buffer). Built on first use via
+    /// [`GpuContext::residual_lut_pipeline`].
+    residual_lut_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -100,6 +108,7 @@ impl GpuContext {
             saturation_pipeline: OnceCell::new(),
             auto_profile_curve_pipeline: OnceCell::new(),
             agx_pipeline: OnceCell::new(),
+            residual_lut_pipeline: OnceCell::new(),
         }
     }
 
@@ -346,6 +355,33 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("agx-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached residual-LUT compute pipeline (epic #925 P2 / #990).
+    ///
+    /// The kernel is a pure trilinear 3D-LUT lookup (no Oklab), so — like
+    /// `exposure.wgsl` / `white_balance.wgsl` — it compiles standalone with no
+    /// generated-color-matrix concat. The per-image grid and its node count ride
+    /// per-pass buffers (storage + uniform); `layout: None` derives the 4-binding
+    /// layout from the WGSL bindings.
+    pub fn residual_lut_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.residual_lut_pipeline.get_or_init(|| {
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("residual-lut"),
+                    source: wgpu::ShaderSource::Wgsl(include_str!("residual_lut.wgsl").into()),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("residual-lut-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),
