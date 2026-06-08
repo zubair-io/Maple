@@ -6,14 +6,18 @@
 // CAMetalLayer that wgpu presents a passthrough test pattern into.
 //
 // ENTIRELY gated behind `#if MAPLE_GPU`. That flag is OFF in every shipping /
-// CI / default build — the committed xcframework is wgpu-free and its header
-// declares no `maple_gpu_*` symbols, so naming them outside this gate would
-// break the default app build. The flag is set only for the local validation
-// build:
+// CI / default build — the committed xcframework is wgpu-free and, with
+// MAPLE_GPU undefined, its header declares no `maple_gpu_*` symbols (they are
+// wrapped in `#if defined(MAPLE_GPU)`; see raw-ffi/cbindgen.toml), so naming
+// them outside this gate would break the default app build. The flag must be
+// defined for BOTH the Swift gate (`-D MAPLE_GPU`) AND the Clang module
+// importer that parses RawPipeline.h (`-Xcc -DMAPLE_GPU`) — without the latter
+// the C declarations stay hidden behind the header guard and Swift can't see
+// them. It is set only for the local validation build:
 //
 //   xcodebuild -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
 //     -destination 'platform=macOS' \
-//     OTHER_SWIFT_FLAGS='$(inherited) -D MAPLE_GPU' build
+//     OTHER_SWIFT_FLAGS='$(inherited) -D MAPLE_GPU -Xcc -DMAPLE_GPU' build
 //
 // and the matching gpu-variant xcframework must be on disk:
 //
