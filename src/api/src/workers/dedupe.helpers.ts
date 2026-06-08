@@ -111,3 +111,21 @@ export function selectKeeper(liveEntries: FileInfo[]): FileInfo {
   }
   return keeper;
 }
+
+/** Pipeline stages whose output is keyed to the primary location's folder.
+ * When the cache anchor moves to the kept copy they must regenerate there. */
+export const CACHE_STAGES = ['thumb', 'preview'] as const;
+
+/** `$set` that re-queues the location-keyed cache stages (version → 0) so the
+ * kept copy regenerates its thumb + preview at the new primary folder. */
+export function reArmCacheStages(): Record<string, unknown> {
+  const set: Record<string, unknown> = {};
+  for (const name of CACHE_STAGES) {
+    set[`stages.${name}.version`] = 0;
+    set[`stages.${name}.attempts`] = 0;
+    set[`stages.${name}.last_error`] = null;
+    set[`stages.${name}.processed_at`] = null;
+    set[`stages.${name}.dead`] = false;
+  }
+  return set;
+}

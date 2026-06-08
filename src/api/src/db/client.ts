@@ -554,6 +554,23 @@ export async function ensureIndexes(): Promise<void> {
     },
   );
 
+  // Multi-location assets (the DeDuplicate worker's candidate set). Both the
+  // worker's per-pass `find` and the /status pending count query
+  //   { "fileinfo.1": { $exists: true } }
+  // — i.e. "has a 2nd location" — which without an index is a COLLSCAN every
+  // pass and every (2s-cached) /status refresh. A partial index whose filter is
+  // exactly that predicate contains ONLY the (rare) duplicate-location rows, so
+  // both queries become O(matches): the find seeks just those rows and the count
+  // is answered by an index COUNT_SCAN. `$exists: true` is a supported partial
+  // filter operator. Same narrow-partial pattern as `fileinfo_missing_since_1`.
+  await db.collection('assets').createIndex(
+    { 'fileinfo.1': 1 },
+    {
+      name: 'fileinfo_multi_location',
+      partialFilterExpression: { 'fileinfo.1': { $exists: true } },
+    },
+  );
+
   // Fold the legacy root-level `missing_since` tag down onto the row's
   // `fileinfo` entries (it moved per-location), then drop the root field.
   // Each entry inherits the root timestamp unless it already carries its own,
