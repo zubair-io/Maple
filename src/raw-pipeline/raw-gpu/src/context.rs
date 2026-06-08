@@ -30,6 +30,11 @@ pub struct GpuContext {
     /// no generated color matrices (the WB matrix is a per-pass uniform). Built
     /// on first use via [`GpuContext::white_balance_pipeline`].
     white_balance_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled scene-tone-controls compute pipeline
+    /// (`scene_tone_controls.wgsl`). A P2 scene-linear stage (#990); five
+    /// luma-coupled tone steps, no Oklab, so no generated color matrices. Built
+    /// on first use via [`GpuContext::scene_tone_controls_pipeline`].
+    scene_tone_controls_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -62,6 +67,7 @@ impl GpuContext {
             exposure_pipeline: OnceCell::new(),
             vibrance_pipeline: OnceCell::new(),
             white_balance_pipeline: OnceCell::new(),
+            scene_tone_controls_pipeline: OnceCell::new(),
         }
     }
 
@@ -147,6 +153,33 @@ impl GpuContext {
             self.device
                 .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     label: Some("white-balance-pipeline"),
+                    layout: None,
+                    module: &shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                })
+        })
+    }
+
+    /// The cached scene-tone-controls compute pipeline (epic #925 P2 / #990).
+    ///
+    /// Five luma-coupled tone steps (exposure / highlights / shadows / whites /
+    /// blacks), no Oklab — so, like exposure / white_balance, the kernel
+    /// compiles standalone with no generated-color-matrix concat.
+    pub fn scene_tone_controls_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.scene_tone_controls_pipeline.get_or_init(|| {
+            let shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("scene-tone-controls"),
+                    source: wgpu::ShaderSource::Wgsl(
+                        include_str!("scene_tone_controls.wgsl").into(),
+                    ),
+                });
+            self.device
+                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("scene-tone-controls-pipeline"),
                     layout: None,
                     module: &shader,
                     entry_point: Some("main"),

@@ -21,6 +21,12 @@
 //!   matrix; the kernel is a pure per-pixel matmul of that matrix (uploaded as
 //!   vec4 rows to dodge WGSL's column-major `mat3x3`). Parity-gated directly vs
 //!   `raw_core::stages::white_balance::apply`.
+//! - [`SceneToneControlsPass`] + [`apply_scene_tone_controls`] — a P2
+//!   scene-linear stage (#990): the five luma-coupled tone steps (exposure /
+//!   highlights / shadows / whites / blacks), applied sequentially with luma
+//!   recomputed from the running pixel at each step. No Oklab, so no generated
+//!   color matrices. Parity-gated directly vs
+//!   `raw_core::stages::scene_tone_controls::apply`.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -32,6 +38,7 @@ mod chain;
 mod context;
 mod exposure;
 mod image;
+mod scene_tone_controls;
 mod vibrance;
 mod white_balance;
 
@@ -39,6 +46,7 @@ pub use chain::{CancelToken, ChainRunner, Pass};
 pub use context::GpuContext;
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use image::GpuImage;
+pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
 pub use vibrance::{apply_vibrance, VibrancePass};
 pub use white_balance::{apply_white_balance, WhiteBalancePass};
 
