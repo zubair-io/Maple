@@ -36,7 +36,22 @@
 //! lifetime contract as a per-pass uniform.
 
 use crate::context::GpuContext;
+use crate::frame_pool::{pool_dispatch, pool_scratch, DispatchResources};
+use std::rc::Rc;
 use wgpu::util::DeviceExt;
+
+/// A pooled GPU scratch buffer handle. `Rc<wgpu::Buffer>` so the live-render pool
+/// ([`crate::frame_pool`]) can own the buffer and hand out cheap refcount-bump
+/// clones (NOT GPU allocations) on a same-signature re-render. Derefs to
+/// `&wgpu::Buffer` at function-arg / `as_entire_binding` positions; pass `&*plane`
+/// (or `plane.as_ref()`) where a `&wgpu::Buffer` slice element is needed.
+pub type Plane = Rc<wgpu::Buffer>;
+
+/// The standard scratch usage: `STORAGE | COPY_SRC | COPY_DST` (sub-pass src/dst,
+/// seeded by a copy, or read back).
+const SCRATCH_USAGE: wgpu::BufferUsages = wgpu::BufferUsages::STORAGE
+    .union(wgpu::BufferUsages::COPY_SRC)
+    .union(wgpu::BufferUsages::COPY_DST);
 
 /// Byte length of a `width × height` scalar f32 plane (one f32 per pixel).
 #[inline]
@@ -44,33 +59,68 @@ pub fn plane_byte_len(width: u32, height: u32) -> u64 {
     (width as u64) * (height as u64) * std::mem::size_of::<f32>() as u64
 }
 
-/// Allocate an uninitialised scratch storage buffer for a scalar f32 plane
-/// (`width × height` f32). `STORAGE | COPY_SRC | COPY_DST` so it can be a sub-pass
-/// src/dst or be seeded by a copy. Reused by every spatial stage for its
-/// intermediates (luma, blurred means, guided coefficients, …).
-pub fn alloc_plane(ctx: &GpuContext, width: u32, height: u32, label: &str) -> wgpu::Buffer {
-    ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some(label),
-        size: plane_byte_len(width, height),
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_SRC
-            | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
+/// Allocate (or REUSE, on a same-signature re-render) a scratch storage buffer
+/// for a scalar f32 plane (`width × height` f32). `STORAGE | COPY_SRC | COPY_DST`
+/// so it can be a sub-pass src/dst or be seeded by a copy. Drawn from the live
+/// pool ([`crate::frame_pool`]) — the first render of a chain shape creates it,
+/// subsequent same-shape renders reuse the same `Rc<Buffer>` (zero allocation).
+/// Outside a render window (stage unit tests) the pool is dormant and this is a
+/// plain create. Returns an [`Plane`] (`Rc<Buffer>`); deref for `&Buffer`.
+pub fn alloc_plane(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Plane {
+    let byte_len = plane_byte_len(width, height);
+    let label = label.to_string();
+    pool_scratch(ctx, byte_len, move |device| {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&label),
+            size: byte_len,
+            usage: SCRATCH_USAGE,
+            mapped_at_creation: false,
+        })
     })
 }
 
-/// Allocate an uninitialised scratch storage buffer for an RGBA f32 image
-/// (`width × height × 4` f32). Same usage flags as [`alloc_plane`]; used when a
-/// spatial stage needs an extra full-image scratch beyond the chain's ping-pong
-/// pair.
-pub fn alloc_rgba(ctx: &GpuContext, width: u32, height: u32, label: &str) -> wgpu::Buffer {
-    ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some(label),
-        size: (width as u64) * (height as u64) * 4 * std::mem::size_of::<f32>() as u64,
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_SRC
-            | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
+/// Pooled, content-uploaded READ-ONLY STORAGE buffer for a per-image data array
+/// (the Auto Profile curve / residual-LUT grid / AgX LUT / prepared tone curves).
+/// These are SESSION-CONSTANT — same bytes every tick — so on a same-signature
+/// re-render the pool returns the cached buffer WITHOUT re-uploading `contents`
+/// (the upload happens only on the first render of the chain shape). `STORAGE |
+/// COPY_SRC | COPY_DST` (the pool's uniform scratch usage; the kernel binds it
+/// read-only). Returns an [`Plane`] (`Rc<Buffer>`); pass `data.as_ref()` to
+/// [`encode_simple`].
+///
+/// PARITY NOTE: because the cached buffer is NOT re-uploaded on a hit, this is
+/// only sound for data that does not change within a session. The per-image
+/// curve/LUT are fit once at session start and fixed (a new image = a new
+/// session = a fresh pool), so this holds. The terminal `make` uploads `contents`
+/// via `create_buffer_init`.
+pub fn pool_data_storage(ctx: &GpuContext, contents: &[u8], label: &str) -> Plane {
+    let byte_len = contents.len() as u64;
+    let label = label.to_string();
+    // `contents` is borrowed; copy into an owned Vec the `move` closure can carry
+    // (the closure runs only on a miss, but must own its data to satisfy `'static`).
+    let owned: Vec<u8> = contents.to_vec();
+    pool_scratch(ctx, byte_len, move |device| {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&label),
+            contents: &owned,
+            usage: SCRATCH_USAGE,
+        })
+    })
+}
+
+/// Pooled scratch storage buffer for an RGBA f32 image (`width × height × 4` f32).
+/// Same usage + pooling as [`alloc_plane`]; used when a spatial stage needs an
+/// extra full-image scratch beyond the chain's ping-pong pair.
+pub fn alloc_rgba(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Plane {
+    let byte_len = (width as u64) * (height as u64) * 4 * std::mem::size_of::<f32>() as u64;
+    let label = label.to_string();
+    pool_scratch(ctx, byte_len, move |device| {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&label),
+            size: byte_len,
+            usage: SCRATCH_USAGE,
+            mapped_at_creation: false,
+        })
     })
 }
 
@@ -85,14 +135,23 @@ struct BoxBlurParams {
     axis: u32,
 }
 
-/// Record one compute dispatch: build a `params` uniform from `params_bytes`, an
+/// Record one compute dispatch: a `params` uniform from `params_bytes` + an
 /// auto-derived bind group binding `[params, buffers...]` at successive bindings
-/// (params = 0, then `buffers[k]` = `k + 1`), and dispatch
-/// `count.div_ceil(64)` workgroups of the cached `pipeline`.
+/// (params = 0, then `buffers[k]` = `k + 1`), dispatching `count.div_ceil(64)`
+/// workgroups of the cached `pipeline`.
 ///
-/// The workhorse behind every spatial sub-pass — including the MULTI-INPUT
-/// combine that reads the original image plus three derived planes. `label`
-/// names the params buffer / bind group / compute pass for capture traces.
+/// The workhorse behind EVERY GPU dispatch (P4b-core C3 unification): the spatial
+/// sub-passes AND, now, every per-pixel `Pass` route through here, so the live
+/// pool ([`crate::frame_pool`]) has ONE allocation boundary to cache + count. On
+/// the first render of a chain shape the uniform + bind group are created; on a
+/// same-signature re-render the cached pair is reused and `params_bytes` is
+/// rewritten into the SAME uniform via `queue.write_buffer` (cheap — NOT a
+/// counted allocation), so a slider drag stays zero-alloc. The storage `buffers`
+/// (src/dst ping-pong, pooled scratch, pooled per-image data) keep stable
+/// identity per signature — they're owned by the session / the pool — so the
+/// cached bind group's internal references never dangle.
+///
+/// `label` names the resources / compute pass for capture traces.
 pub fn encode_simple(
     ctx: &GpuContext,
     encoder: &mut wgpu::CommandEncoder,
@@ -102,35 +161,55 @@ pub fn encode_simple(
     count: u32,
     label: &str,
 ) {
-    let params_buf = ctx
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    let params_len = params_bytes.len() as u64;
+    let layout = pipeline.get_bind_group_layout(0);
+
+    // Get-or-create the pooled uniform + bind group. `make` runs ONLY on a cache
+    // miss (so a hit allocates nothing); it builds the uniform + the bind group
+    // referencing it + the passed storage buffers.
+    let pooled = pool_dispatch(ctx, |device| {
+        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(label),
-            contents: params_bytes,
-            usage: wgpu::BufferUsages::UNIFORM,
+            size: params_len,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-    let mut entries = Vec::with_capacity(buffers.len() + 1);
-    entries.push(wgpu::BindGroupEntry {
-        binding: 0,
-        resource: params_buf.as_entire_binding(),
-    });
-    for (k, buf) in buffers.iter().enumerate() {
+        let mut entries = Vec::with_capacity(buffers.len() + 1);
         entries.push(wgpu::BindGroupEntry {
-            binding: (k + 1) as u32,
-            resource: buf.as_entire_binding(),
+            binding: 0,
+            resource: uniform.as_entire_binding(),
         });
-    }
-    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some(label),
-        layout: &pipeline.get_bind_group_layout(0),
-        entries: &entries,
+        for (k, buf) in buffers.iter().enumerate() {
+            entries.push(wgpu::BindGroupEntry {
+                binding: (k + 1) as u32,
+                resource: buf.as_entire_binding(),
+            });
+        }
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &layout,
+            entries: &entries,
+        });
+        DispatchResources {
+            bind_group,
+            uniform,
+            // The storage buffers are kept alive by the session (ping-pong) and
+            // the pool (scratch / data) — not by the dispatch entry — so `data`
+            // is empty (no double-ownership). See `frame_pool` docs.
+            data: Vec::new(),
+        }
     });
+
+    // Write the CURRENT params into the (possibly reused) uniform every call —
+    // param values change per tick, the buffer object does not.
+    ctx.queue.write_buffer(&pooled.uniform, 0, params_bytes);
+
     let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
         label: Some(label),
         timestamp_writes: None,
     });
     pass.set_pipeline(pipeline);
-    pass.set_bind_group(0, &bind_group, &[]);
+    pass.set_bind_group(0, pooled.bind_group.as_ref(), &[]);
     pass.dispatch_workgroups(count.div_ceil(64), 1, 1);
 }
 
@@ -205,18 +284,20 @@ pub fn plane_vec2_byte_len(width: u32, height: u32) -> u64 {
     (width as u64) * (height as u64) * 2 * std::mem::size_of::<f32>() as u64
 }
 
-/// Allocate an uninitialised scratch storage buffer for a vec2 f32 plane
-/// (`width × height × 2` f32). Same usage flags as [`alloc_plane`]; used by
-/// dehaze's general guided filter to hold its PACKED mean-planes (two scalar
-/// quantities blurred together — see [`box_blur_vec2_encode`]).
-pub fn alloc_plane_vec2(ctx: &GpuContext, width: u32, height: u32, label: &str) -> wgpu::Buffer {
-    ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some(label),
-        size: plane_vec2_byte_len(width, height),
-        usage: wgpu::BufferUsages::STORAGE
-            | wgpu::BufferUsages::COPY_SRC
-            | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
+/// Pooled scratch storage buffer for a vec2 f32 plane (`width × height × 2` f32).
+/// Same usage + pooling as [`alloc_plane`]; used by dehaze's general guided
+/// filter to hold its PACKED mean-planes (two scalar quantities blurred together
+/// — see [`box_blur_vec2_encode`]). Returns an [`Plane`] (`Rc<Buffer>`).
+pub fn alloc_plane_vec2(ctx: &GpuContext, width: u32, height: u32, label: &str) -> Plane {
+    let byte_len = plane_vec2_byte_len(width, height);
+    let label = label.to_string();
+    pool_scratch(ctx, byte_len, move |device| {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&label),
+            size: byte_len,
+            usage: SCRATCH_USAGE,
+            mapped_at_creation: false,
+        })
     })
 }
 
