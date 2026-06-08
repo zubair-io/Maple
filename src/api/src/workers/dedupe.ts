@@ -55,6 +55,7 @@ import { loadDeDuplicateConfig, DEFAULT_BATCH_SIZE } from './dedupe-config.repo.
 import {
   emptySummary,
   folderKey,
+  reArmCacheStages,
   sameEntry,
   selectKeeper,
   type DeDuplicateSummary,
@@ -67,10 +68,6 @@ export const DEDUPLICATE_NAME = 'deduplicate';
 
 /** Low-urgency library sweep — a duplicate set is not time-critical. */
 const DEFAULT_INTERVAL_MS = 300_000;
-
-/** Cache stages whose output is keyed to the primary location's folder. When
- * the anchor moves to the kept copy they must regenerate there. */
-const CACHE_STAGES = ['thumb', 'preview'] as const;
 
 /** Minimal projected shape the pass needs from each candidate row. */
 interface DedupeCandidate {
@@ -103,10 +100,10 @@ export async function runDeDuplicateOnce(
 
   const summary = emptySummary();
 
-  // Coarse gate: a 2nd fileinfo entry exists. Equivalent to the operator's
-  // `{$expr:{$gt:[{$size:'$fileinfo'},1]}}` but `fileinfo.1` is index-friendlier
-  // and skips the $expr COLLSCAN cost. Liveness is refined per-row below — a row
-  // with one live entry and one tombstoned sibling is NOT a live duplicate set.
+  // Coarse gate: a 2nd fileinfo entry exists (≡ the operator's
+  // `{$expr:{$gt:[{$size:'$fileinfo'},1]}}`), backed by the
+  // `fileinfo_multi_location` partial index so it seeks only the rare dup rows.
+  // Liveness is refined per-row below (a lone tombstoned sibling doesn't count).
   const candidates = (await coll
     .find({ 'fileinfo.1': { $exists: true } }, { projection: { _id: 1, fileinfo: 1, maple_id: 1 } })
     .limit(batchSize)
@@ -156,15 +153,16 @@ async function processAsset(
     }
   }
 
-  // Never move the only on-disk copy while keeping a missing one: if the chosen
-  // keeper's file isn't present (a stale liveness state), skip this asset and let
-  // the missing-reaper retag it. Next pass the keeper is re-picked among the
-  // copies that are actually on disk — self-correcting.
+  // Don't move the only on-disk copy while keeping a missing one. Skip if the
+  // keeper isn't present: 'absent' → genuinely gone, the reaper retags + we
+  // re-pick next pass; 'error' (EACCES/EIO/offline) → unreadable, don't act unproven.
   const keeperRoot = libs.get(keeper.library_id.toHexString())!;
   const keeperSegments = keeper.path === '' ? [] : keeper.path.split('/');
   const keeperAbs = path.join(keeperRoot, ...keeperSegments, keeper.filename);
-  if ((await statKind(keeperAbs)) !== 'present') {
-    summary.skippedMissingFile++;
+  const keeperKind = await statKind(keeperAbs);
+  if (keeperKind !== 'present') {
+    if (keeperKind === 'absent') summary.skippedMissingFile++;
+    else summary.skippedOffline++;
     return;
   }
 
@@ -180,10 +178,13 @@ async function processAsset(
     const segments = entry.path === '' ? [] : entry.path.split('/');
     const abs = path.join(root, ...segments, entry.filename);
 
-    // Only relocate a file that is actually present. An absent one is already
-    // gone (a stale entry) — leave it for the discover / missing-reaper path.
-    if ((await statKind(abs)) !== 'present') {
-      summary.skippedMissingFile++;
+    // Only relocate a present file. 'absent' → stale entry (the discover /
+    // missing-reaper path handles it); 'error' → unreadable/offline, never move
+    // on unproven absence. Skip just this entry; other copies may still move.
+    const kind = await statKind(abs);
+    if (kind !== 'present') {
+      if (kind === 'absent') summary.skippedMissingFile++;
+      else summary.skippedOffline++;
       continue;
     }
 
@@ -261,20 +262,6 @@ async function cleanFolderCache(folderAbs: string, mapleId: string): Promise<voi
       await fs.unlink(path.join(previewsDir, name)).catch(() => {});
     }
   }
-}
-
-/** `$set` that re-queues the location-keyed cache stages (version → 0) so the
- * kept copy regenerates its thumb + preview at the new primary folder. */
-function reArmCacheStages(): Record<string, unknown> {
-  const set: Record<string, unknown> = {};
-  for (const name of CACHE_STAGES) {
-    set[`stages.${name}.version`] = 0;
-    set[`stages.${name}.attempts`] = 0;
-    set[`stages.${name}.last_error`] = null;
-    set[`stages.${name}.processed_at`] = null;
-    set[`stages.${name}.dead`] = false;
-  }
-  return set;
 }
 
 export interface DeDuplicateHandle {
