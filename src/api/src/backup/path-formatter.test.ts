@@ -1,5 +1,10 @@
 import { describe, test, expect } from 'bun:test';
-import { formatBackupPath, isSafeFilename, sanitizeLocationSegments } from './path-formatter.ts';
+import {
+  formatBackupPath,
+  isSafeFilename,
+  sanitizeLocationSegments,
+  SCREENSHOT_DIR_SEGMENT,
+} from './path-formatter.ts';
 
 const capture = new Date('2024-03-15T10:30:00Z');
 
@@ -74,6 +79,52 @@ describe('formatBackupPath', () => {
     expect(
       formatBackupPath({ captureDate: capture, location: ['', '  '], filename: 'IMG.heic' }),
     ).toBe('2024/03/IMG.heic');
+  });
+
+  test('screenshot → year/Screenshot/filename', () => {
+    expect(
+      formatBackupPath({
+        captureDate: capture,
+        location: null,
+        filename: 'Screenshot.png',
+        isScreenshot: true,
+      }),
+    ).toBe('2024/Screenshot/Screenshot.png');
+  });
+
+  test('screenshot wins over a GPS location', () => {
+    // A screenshot with stray GPS still goes to <year>/Screenshot, not the
+    // location layout.
+    expect(
+      formatBackupPath({
+        captureDate: capture,
+        location: ['California', 'San Francisco'],
+        filename: 'Screenshot.png',
+        isScreenshot: true,
+      }),
+    ).toBe(`2024/${SCREENSHOT_DIR_SEGMENT}/Screenshot.png`);
+  });
+
+  test('isScreenshot:false behaves exactly like the date/location layout', () => {
+    expect(
+      formatBackupPath({
+        captureDate: capture,
+        location: null,
+        filename: 'IMG.heic',
+        isScreenshot: false,
+      }),
+    ).toBe('2024/03/IMG.heic');
+  });
+
+  test('screenshot still rejects an unsafe filename', () => {
+    expect(() =>
+      formatBackupPath({
+        captureDate: capture,
+        location: null,
+        filename: '../etc/passwd',
+        isScreenshot: true,
+      }),
+    ).toThrow('unsafe filename');
   });
 });
 

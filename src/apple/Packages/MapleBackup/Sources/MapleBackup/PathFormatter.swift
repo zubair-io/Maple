@@ -5,8 +5,13 @@
 // (a parity pair — identical inputs must produce byte-identical output).
 //
 // Layout:
+//   Screenshot:       <year>/Screenshot/<filename>   (takes precedence)
 //   With location:    <year>/<seg1>/<seg2>/…/<filename>
 //   Without location: <year>/<MM>/<filename>
+//
+// A screenshot is filed under a single <year>/Screenshot folder regardless of
+// GPS — the server decides this from the asset's filename heuristic at ingest;
+// this mirror carries the same `isScreenshot` branch for parity.
 //
 // `location` is an ordered list of geographic directory segments derived from
 // the reverse-geocoded place:
@@ -34,6 +39,10 @@ public enum PathFormatterError: Error, Equatable {
 }
 
 public enum PathFormatter {
+
+    /// The fixed directory segment screenshots are filed under, below the year.
+    /// Mirrors `SCREENSHOT_DIR_SEGMENT` on the server.
+    public static let screenshotDirSegment = "Screenshot"
 
     /// Reject filenames that could escape the library root. Mirrors
     /// `isSafeFilename` on the server.
@@ -70,7 +79,8 @@ public enum PathFormatter {
 
     public static func format(captureDate: Date,
                               location: [String]?,
-                              filename: String) throws -> String {
+                              filename: String,
+                              isScreenshot: Bool = false) throws -> String {
         guard isSafeFilename(filename) else {
             throw PathFormatterError.unsafeFilename(filename)
         }
@@ -80,6 +90,11 @@ public enum PathFormatter {
         let comps = cal.dateComponents([.year, .month], from: captureDate)
         let y = String(format: "%04d", comps.year ?? 0)
         let m = String(format: "%02d", comps.month ?? 0)
+
+        // Screenshot wins over location and date — a UI capture isn't a place photo.
+        if isScreenshot {
+            return "\(y)/\(screenshotDirSegment)/\(filename)"
+        }
 
         let segs = sanitizeLocationSegments(location)
         if !segs.isEmpty {
