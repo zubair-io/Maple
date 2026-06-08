@@ -33,7 +33,7 @@
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use wgpu::util::DeviceExt;
+use crate::spatial::{encode_simple, pool_data_storage};
 
 /// The baked AgX sigmoid LUT — byte-identical to raw-core's embedded copy
 /// (`raw_core::view::agx` `include_bytes!`s the same file). 512 x f32 LE.
@@ -312,57 +312,23 @@ impl Pass for AgxPass {
             _pad0: 0,
             _pad1: 0,
         };
-        let params_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("agx-params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         // Baked LUT in a READ-ONLY STORAGE buffer (4-byte stride). A uniform
         // array<f32> would get a 16-byte per-element stride and silently
         // misalign — same trap auto_profile_curve's flat-curve buffer dodges.
-        let lut_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("agx-lut"),
-                contents: AGX_LUT_BYTES,
-                usage: wgpu::BufferUsages::STORAGE,
-            });
+        // POOLED (P4b-core C3): the baked LUT is a constant — uploaded once per
+        // chain shape, reused every tick (never re-uploaded on a same-sig hit).
+        let lut_buf = pool_data_storage(ctx, AGX_LUT_BYTES, "agx-lut");
 
-        let pipeline = ctx.agx_pipeline();
-        // Fresh bind group per pass: a bind group's bound buffers are fixed at
-        // creation, so each ping-pong direction (src/dst) needs its own.
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("agx-bg"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: src.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: dst.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: lut_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("agx-pass"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(pixel_count.div_ceil(64), 1, 1);
+        // Pooled 4-binding dispatch: params @0, src @1, dst @2, LUT @3.
+        encode_simple(
+            ctx,
+            encoder,
+            ctx.agx_pipeline(),
+            bytemuck::bytes_of(&params),
+            &[src, dst, lut_buf.as_ref()],
+            pixel_count,
+            "agx",
+        );
     }
 }
 

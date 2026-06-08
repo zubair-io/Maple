@@ -32,11 +32,11 @@ mod prep;
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
+use crate::spatial::{encode_simple, pool_data_storage};
 use prep::{
     build_parametric_knots, eval_curve_scene_linear, prepare_curve, prepare_curve_from_slice,
     PreparedCurve, CURVE_CAP,
 };
-use wgpu::util::DeviceExt;
 
 /// Rec.2020 luma weights — inlined (mirror `mod::LUMA_REC2020` / the WGSL
 /// `LUMA_*`), NOT the codegen color matrices.
@@ -273,58 +273,24 @@ impl Pass for ToneCurvesPass {
             _pad1: 0,
             _pad2: 0,
         };
-        let params_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("tone-curves-params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         // Prepared curve slots in a READ-ONLY STORAGE buffer (4-byte stride). A
         // uniform array<f32> would get a 16-byte per-element stride and silently
         // misalign — the same trap auto_profile_curve's flat-curve buffer dodges.
+        // POOLED (P4b-core C3): the prepared curves are session-constant — built
+        // once per chain shape, reused every tick (not re-uploaded on a hit).
         let flat = self.inputs.to_flat();
-        let curves_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("tone-curves-slots"),
-                contents: bytemuck::cast_slice(&flat),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
+        let curves_buf = pool_data_storage(ctx, bytemuck::cast_slice(&flat), "tone-curves-slots");
 
-        let pipeline = ctx.tone_curves_pipeline();
-        // Fresh bind group per pass: a bind group's bound buffers are fixed at
-        // creation, so each ping-pong direction (src/dst) needs its own.
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("tone-curves-bg"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: src.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: dst.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: curves_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("tone-curves-pass"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(pixel_count.div_ceil(64), 1, 1);
+        // Pooled 4-binding dispatch: params @0, src @1, dst @2, curves @3.
+        encode_simple(
+            ctx,
+            encoder,
+            ctx.tone_curves_pipeline(),
+            bytemuck::bytes_of(&params),
+            &[src, dst, curves_buf.as_ref()],
+            pixel_count,
+            "tone-curves",
+        );
     }
 }
 

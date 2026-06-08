@@ -194,6 +194,7 @@ mod dehaze;
 mod dither;
 mod display_encode;
 mod exposure;
+mod frame_pool;
 mod full_chain;
 mod image;
 mod live_chain;
@@ -240,7 +241,7 @@ pub use sharpen::SharpenPass;
 pub use spatial::{
     alloc_plane, alloc_plane_vec2, alloc_rgba, box_blur_encode, box_blur_vec2_encode,
     clarity_texture_encode, encode_simple, guided_filter_self_encode, luma_extract_encode,
-    plane_byte_len, plane_vec2_byte_len,
+    plane_byte_len, plane_vec2_byte_len, pool_data_storage, Plane,
 };
 pub use srgb_gamma::{apply_srgb_gamma, SrgbGammaPass};
 pub use texture::{apply_texture, TexturePass, TEXTURE_GUIDED_RADIUS};
