@@ -15,6 +15,7 @@
 //! (`.github/workflows/cross.yml`) runs the script then `git diff
 //! --exit-code` so hand-edits to `Generated/` files fail fast.
 
+mod color_matrices;
 mod ui_tokens;
 
 use std::fs;
@@ -31,6 +32,9 @@ enum Target {
     /// SCSS / CSS custom-property output. Only valid for `--schema ui-tokens`;
     /// the adjustment schema has no SCSS surface.
     Scss,
+    /// WGSL output. Only valid for `--schema color-matrices` (epic #925 P2 /
+    /// #990) — emits the GPU scene-linear kernels' baked color matrices.
+    Wgsl,
 }
 
 #[derive(Copy, Clone, Debug, ValueEnum, PartialEq, Eq)]
@@ -41,6 +45,9 @@ enum Schema {
     /// `raw_core::ui_tokens::{COLOR_TOKENS, MOTION_TOKENS}` — design-system
     /// color hex strings + motion duration/easing pairs. Ticket #606.
     UiTokens,
+    /// Oklab + Rec.2020/sRGB color matrices (forward + inverse) consumed by the
+    /// GPU scene-linear WGSL kernels. WGSL target only. Epic #925 P2 / #990.
+    ColorMatrices,
 }
 
 #[derive(Parser, Debug)]
@@ -72,13 +79,22 @@ fn main() {
     let out = match (cli.schema, cli.target) {
         (Schema::Adjustment, Target::Swift) => emit_swift(ADJUSTMENT_SCHEMA),
         (Schema::Adjustment, Target::Ts) => emit_ts(ADJUSTMENT_SCHEMA),
-        (Schema::Adjustment, Target::Scss) => {
-            eprintln!("codegen: --schema adjustment has no SCSS target");
+        (Schema::Adjustment, Target::Scss | Target::Wgsl) => {
+            eprintln!("codegen: --schema adjustment supports only swift / ts targets");
             std::process::exit(2);
         }
         (Schema::UiTokens, Target::Swift) => ui_tokens::emit_swift(COLOR_TOKENS, MOTION_TOKENS),
         (Schema::UiTokens, Target::Ts) => ui_tokens::emit_ts(COLOR_TOKENS, MOTION_TOKENS),
         (Schema::UiTokens, Target::Scss) => ui_tokens::emit_scss(COLOR_TOKENS, MOTION_TOKENS),
+        (Schema::UiTokens, Target::Wgsl) => {
+            eprintln!("codegen: --schema ui-tokens has no WGSL target");
+            std::process::exit(2);
+        }
+        (Schema::ColorMatrices, Target::Wgsl) => color_matrices::emit_wgsl(),
+        (Schema::ColorMatrices, Target::Swift | Target::Ts | Target::Scss) => {
+            eprintln!("codegen: --schema color-matrices supports only the wgsl target");
+            std::process::exit(2);
+        }
     };
     if let Some(parent) = cli.out.parent() {
         fs::create_dir_all(parent).expect("create parent dir");
