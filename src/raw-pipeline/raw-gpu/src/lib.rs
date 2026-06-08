@@ -146,6 +146,22 @@
 //!   `apply_capture_sharpening` < 1e-4, covering 1/2/3 iterations, sub-pixel and
 //!   larger sigma, the highlight-fade ramp, and the full no-op guard set.
 //!
+//! - [`build_full_chain_passes`] / [`build_split`] + [`FullChainInputs`] — the
+//!   P4a capstone (epic #925, pre-#992): compose ALL 16 GPU-ported stages into one
+//!   ordered `Vec<Box<dyn Pass>>` matching `raw_core::pipeline::develop` + the
+//!   `render` view tail (capture_sharpening → white_balance → scene_tone_controls
+//!   → tone_curves → vibrance → saturation → clarity → texture → dehaze → sharpen
+//!   → nr_luminance → nr_color → agx → display_encode → auto_profile_curve →
+//!   residual_lut), run through one [`ChainRunner`] with the chain's single
+//!   end-of-run readback. Composition only — no kernel changes. The end-to-end
+//!   parity test (`full_chain/tests.rs`) gates the composed GPU chain vs the same
+//!   real `raw-core` stage fns composed CPU-side in the same order. The view tail
+//!   is NOT yet GPU-resident end-to-end: `srgb_gamma_encode`, `look`, and
+//!   `dither_and_quantize` have no GPU pass (gaps documented in [`full_chain`]);
+//!   `auto_exposure` / `local_adjustments` stay CPU-side. Dehaze's airlight is
+//!   sourced via a mid-chain GPU readback (a headless affordance; the live P4b
+//!   path needs an on-GPU reduction).
+//!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
 //! (#988) / P1c (#989). The live edit loop is P4 (#992). This crate is gated
@@ -162,6 +178,7 @@ mod context_pipelines;
 mod dehaze;
 mod display_encode;
 mod exposure;
+mod full_chain;
 mod image;
 mod noise_reduction;
 mod residual_lut;
@@ -185,6 +202,7 @@ pub use context::GpuContext;
 pub use dehaze::{apply_dehaze, compute_airlight, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
+pub use full_chain::{build_full_chain_passes, build_split, FullChainInputs};
 pub use image::GpuImage;
 pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
