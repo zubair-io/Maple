@@ -6,8 +6,13 @@
 import type { Migration } from './types.ts';
 import { restructureBackupFolders } from './restructure-backup-folders.ts';
 import { restructureBackupGeo } from './restructure-backup-geo.ts';
+import { scrubMirrorOrphans } from './scrub-mirror-orphans.ts';
 
-export const MIGRATIONS: readonly Migration[] = [restructureBackupFolders, restructureBackupGeo];
+export const MIGRATIONS: readonly Migration[] = [
+  restructureBackupFolders,
+  restructureBackupGeo,
+  scrubMirrorOrphans,
+];
 
 export function getMigration(id: string): Migration | undefined {
   return MIGRATIONS.find((m) => m.id === id);
