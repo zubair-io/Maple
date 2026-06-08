@@ -156,7 +156,7 @@ fn encode_denoise_plane(
     height: u32,
     channel: Channel,
     params: NlmParams,
-) -> wgpu::Buffer {
+) -> crate::spatial::Plane {
     let count = width * height;
 
     // Extract the channel plane from the RGBA source, then run the NLM core.
@@ -177,7 +177,7 @@ fn encode_denoise_plane(
         "nr-extract",
     );
 
-    encode_nlm_on_plane(ctx, encoder, &plane, width, height, params)
+    encode_nlm_on_plane(ctx, encoder, plane.as_ref(), width, height, params)
 }
 
 /// The NLM core on an ALREADY-EXTRACTED scalar plane (mirrors
@@ -193,7 +193,7 @@ pub(crate) fn encode_nlm_on_plane(
     width: u32,
     height: u32,
     params: NlmParams,
-) -> wgpu::Buffer {
+) -> crate::spatial::Plane {
     let count = width * height;
 
     // Accumulators, zeroed (raw-core's `vec![0.0; n]`).

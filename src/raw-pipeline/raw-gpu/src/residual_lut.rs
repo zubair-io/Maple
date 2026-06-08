@@ -25,7 +25,7 @@
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use wgpu::util::DeviceExt;
+use crate::spatial::{encode_simple, pool_data_storage};
 
 /// Number of floats in a `size`³ RGB grid: `size * size * size * 3`. Mirrors the
 /// `ColorLut::data` length (`n*n*n*3`).
@@ -153,57 +153,23 @@ impl Pass for ResidualLutPass {
             _pad0: 0,
             _pad1: 0,
         };
-        let params_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("residual-lut-params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         // Per-image grid in a READ-ONLY STORAGE buffer (4-byte stride). A uniform
         // `array<f32>` would get a 16-byte per-element stride and silently
         // misalign — same trap auto_profile_curve's flat-curve buffer dodges.
-        let lut_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("residual-lut-grid"),
-                contents: bytemuck::cast_slice(&self.data),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
+        // POOLED (P4b-core C3): the grid is session-constant, so on a same-
+        // signature re-render the cached buffer is reused — NOT re-uploaded.
+        let lut_buf = pool_data_storage(ctx, bytemuck::cast_slice(&self.data), "residual-lut-grid");
 
-        let pipeline = ctx.residual_lut_pipeline();
-        // Fresh bind group per pass: a bind group's bound buffers are fixed at
-        // creation, so each ping-pong direction (src/dst) needs its own.
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("residual-lut-bg"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: src.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: dst.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: lut_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("residual-lut-pass"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(pixel_count.div_ceil(64), 1, 1);
+        // Pooled 4-binding dispatch: params @0, src @1, dst @2, grid @3.
+        encode_simple(
+            ctx,
+            encoder,
+            ctx.residual_lut_pipeline(),
+            bytemuck::bytes_of(&params),
+            &[src, dst, lut_buf.as_ref()],
+            pixel_count,
+            "residual-lut",
+        );
     }
 }
 

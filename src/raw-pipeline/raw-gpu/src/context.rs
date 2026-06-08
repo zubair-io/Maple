@@ -7,7 +7,8 @@
 //! consume is genuinely reusable rather than recompiling the kernel every
 //! dispatch.
 
-use std::cell::OnceCell;
+use crate::frame_pool::FramePool;
+use std::cell::{OnceCell, RefCell};
 
 /// Device/queue handle plus lazily-compiled, cached compute pipelines.
 ///
@@ -204,6 +205,15 @@ pub struct GpuContext {
     /// [`GpuContext::dither_pipeline`]. Unlike every other pipeline its output is
     /// not f32, so it runs as a terminal encode, not a ping-pong chain `Pass`.
     pub(crate) dither_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// The dims/signature-keyed live-render resource pool (epic #925 P4b-core /
+    /// #1027). Pools per-dispatch uniforms / bind groups + spatial scratch planes
+    /// so a same-signature re-render allocates ZERO new GPU resources (the
+    /// CLAUDE.md render-loop invariant). `RefCell` for interior mutability —
+    /// `Pass::encode` only sees `&GpuContext`; ctx is `!Sync` so one render is in
+    /// flight at a time. Outside a [`crate::LiveSession`] render window the pool
+    /// is dormant and allocators fall back to plain creates (so stage unit tests
+    /// are unaffected). See [`crate::frame_pool`].
+    pub(crate) frame_pool: RefCell<FramePool>,
 }
 
 impl GpuContext {
@@ -268,6 +278,7 @@ impl GpuContext {
             cs_multiply_pipeline: OnceCell::new(),
             cs_apply_pipeline: OnceCell::new(),
             dither_pipeline: OnceCell::new(),
+            frame_pool: RefCell::new(FramePool::default()),
         }
     }
 

@@ -25,7 +25,7 @@
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use wgpu::util::DeviceExt;
+use crate::spatial::encode_simple;
 
 /// `repr(C)` params uniform shared by the WGSL kernel (`srgb_gamma.wgsl`).
 /// `count` is the RGBA pixel count; `_pad*` round the struct to 16 bytes.
@@ -86,43 +86,19 @@ impl Pass for SrgbGammaPass {
             _pad1: 0,
             _pad2: 0,
         };
-        let params_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("srgb-gamma-params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-
-        let pipeline = ctx.srgb_gamma_pipeline();
-        // Fresh bind group per pass: a bind group's bound buffers are fixed at
-        // creation, so each ping-pong direction (src/dst) needs its own.
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("srgb-gamma-bg"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: src.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: dst.as_entire_binding(),
-                },
-            ],
-        });
-
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("srgb-gamma-pass"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(pixel_count.div_ceil(64), 1, 1);
+        // The shared pool-aware dispatch primitive (P4b-core C3): params @0,
+        // src @1, dst @2 — the per-pixel pass shape. Routing every pass through
+        // it (vs. an inline create_buffer_init + create_bind_group here) gives
+        // the live session ONE allocation boundary to pool + count.
+        encode_simple(
+            ctx,
+            encoder,
+            ctx.srgb_gamma_pipeline(),
+            bytemuck::bytes_of(&params),
+            &[src, dst],
+            pixel_count,
+            "srgb-gamma",
+        );
     }
 }
 
