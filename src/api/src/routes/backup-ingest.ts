@@ -34,6 +34,7 @@ import {
   moveNoClobber,
 } from '../backup/fs-util.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
+import { isScreenshotFilename } from '../indexer/screenshot.ts';
 import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
@@ -124,10 +125,17 @@ export const backupIngestRoutes = new Elysia().post(
     const lon = parseFloat(lonRaw ?? 'NaN');
     const location = await resolveBackupLocation(lat, lon);
 
+    // A screenshot is filed under `<year>/Screenshot`, not by location/date.
+    // The only signal available this early (no EXIF parsed yet) is the
+    // device-reported filename, so reuse the same heuristic the EXIF stage
+    // seeds `is_screenshot` with; the describe stage + the screenshot
+    // migration catch anything the name doesn't reveal.
+    const isScreenshot = isScreenshotFilename(filename);
+
     // Compute the destination relative path.
     let targetRelPath: string;
     try {
-      targetRelPath = formatBackupPath({ captureDate, location, filename });
+      targetRelPath = formatBackupPath({ captureDate, location, filename, isScreenshot });
     } catch (e: any) {
       set.status = 400;
       return { error: e?.message ?? 'invalid filename' };
@@ -532,6 +540,11 @@ export const backupIngestRoutes = new Elysia().post(
       color_label: '',
       indexed_at: new Date().toISOString(),
       maple_id: mapleId,
+      // Seed the screenshot flag from the same filename heuristic that chose
+      // the `<year>/Screenshot` folder, so the row matches its on-disk home
+      // before the EXIF stage runs. The EXIF stage re-affirms it (now with
+      // camera_make) and the describe stage refines it with the vision verdict.
+      is_screenshot: isScreenshot,
       phasset_links: [link],
       deleted_from_photos: false,
     } as any);

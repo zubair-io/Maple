@@ -11,7 +11,10 @@
  * Scope: backup-origin assets (`phasset_links`) whose canonical entry
  * (`fileinfo[0]`) is live, that HAVE been reverse-geocoded (`place` is set —
  * resolved or an unresolvable stub), and that have not yet been stamped into
- * this layout (`backup_layout_version !== 2`). Assets with GPS that the geocode
+ * this layout (`backup_layout_version !== 2`). Screenshots (`is_screenshot`) are
+ * excluded — they are filed under `<year>/Screenshot` by the dedicated
+ * `restructure-backup-screenshots` migration, not by location. Assets with GPS
+ * that the geocode
  * worker hasn't reached yet (`place == null`) are intentionally NOT candidates:
  * their final folder isn't known, so they're left until geocoding fills `place`
  * and a later run picks them up. No-GPS assets are already in the (unchanged)
@@ -42,11 +45,15 @@ const log = childLogger('migration:geo');
 /** Layout generation stamped on a migrated asset. See `AssetDoc.backup_layout_version`. */
 export const BACKUP_GEO_LAYOUT_VERSION = 2;
 
-/** Selects geocoded backup-origin assets not yet in the geo layout. */
+/** Selects geocoded backup-origin assets not yet in the geo layout. Screenshots
+ * are deliberately excluded (`is_screenshot: { $ne: true }`): they belong in the
+ * `<year>/Screenshot` folder, owned by `restructure-backup-screenshots`, so the
+ * two migrations never fight over a GPS-bearing screenshot. */
 function candidateFilter() {
   return {
     'phasset_links.0': { $exists: true },
     'fileinfo.0.deleted_at': null,
+    is_screenshot: { $ne: true },
     place: { $type: 'object' },
     backup_layout_version: { $ne: BACKUP_GEO_LAYOUT_VERSION },
   } as const;

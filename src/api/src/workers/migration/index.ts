@@ -6,11 +6,13 @@
 import type { Migration } from './types.ts';
 import { restructureBackupFolders } from './restructure-backup-folders.ts';
 import { restructureBackupGeo } from './restructure-backup-geo.ts';
+import { restructureBackupScreenshots } from './restructure-backup-screenshots.ts';
 import { scrubMirrorOrphans } from './scrub-mirror-orphans.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   restructureBackupFolders,
   restructureBackupGeo,
+  restructureBackupScreenshots,
   scrubMirrorOrphans,
 ];
 
