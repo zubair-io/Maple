@@ -291,7 +291,6 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
     let lut_size = 9usize;
     let curve = nonidentity_curve();
     let lut = nonidentity_lut(lut_size);
-    let airlight = raw_gpu::compute_airlight(&input, w as usize, h as usize);
 
     for (name, model, wb_method) in [
         ("mild", mild_model(), WbMethod::Cat16),
@@ -309,7 +308,7 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
 
         let mut out = vec![0u8; (w * h * 3) as usize];
         let rc = unsafe {
-            maple_gpu_live_render(&handle, &params, airlight.as_ptr(), out.as_mut_ptr())
+            maple_gpu_live_render(&handle, &params, out.as_mut_ptr())
         };
         assert_eq!(rc, 0, "[{name}] gpu_live_render rc {rc}");
         unsafe { maple_gpu_live_close(&mut handle) };
@@ -318,7 +317,7 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
         //     `raw_gpu::LiveSession` render built from the same FullChainInputs —
         //     this isolates "did the C-ABI marshaling reproduce the inputs
         //     exactly" from the (looser) f32→u8 quantization-boundary noise.
-        let direct = direct_raw_gpu(&input, w, h, &model, wb_method, &curve, &lut, airlight);
+        let direct = direct_raw_gpu(&input, w, h, &model, wb_method, &curve, &lut);
         let marshal_mismatches = out.iter().zip(&direct).filter(|(a, b)| a != b).count();
         assert_eq!(
             marshal_mismatches, 0,
@@ -326,12 +325,14 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
              {marshal_mismatches} bytes — the C-ABI marshaling diverges"
         );
 
-        // (2) HOST-PARITY gate (vs the CPU pipeline): the underlying f32 chain is
-        //     < 1e-4 vs CPU (C1), but on the u8 surface a few pixels straddle a
-        //     quantize boundary that the Bayer dither (±0.5 LSB) + the few-ULP f32
-        //     diff tip across — so the byte delta is ≤ 2 LSB on a small fraction,
-        //     NOT exactly 0. This is the same f32→u8 boundary noise the CPU vs GPU
-        //     comparison shows everywhere; bit-exactness is not the gate post-dither.
+        // (2) HOST-PARITY gate (vs the CPU pipeline): with the airlight measured
+        //     post-prefix on BOTH sides (C5a — raw-core's `dehaze::apply` measures
+        //     A at dehaze's position), the underlying f32 chain is < 1e-4 vs CPU
+        //     (C1) and the dither is identical (C2), so the u8 surface agrees to ≤ 1
+        //     LSB on at most a handful of pixels that straddle a quantize boundary
+        //     the Bayer dither (±0.5 LSB) tips across. Bit-exactness isn't the gate
+        //     post-dither, but the boundary noise is now ≤ 1 LSB (was ≤ 2 before
+        //     C5a fixed the airlight position).
         let want = cpu_reference(&input, w, h, &model, wb_method, &curve, &lut);
         assert_eq!(out.len(), want.len(), "[{name}] length mismatch");
         let max_delta = out
@@ -349,11 +350,11 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
             frac * 100.0
         );
         assert!(
-            max_delta <= 2,
-            "[{name}] FFI vs CPU max byte delta {max_delta} > 2 — beyond f32→u8 boundary noise"
+            max_delta <= 1,
+            "[{name}] FFI vs CPU max byte delta {max_delta} > 1 — beyond f32→u8 boundary noise"
         );
         assert!(
-            frac < 0.20,
+            frac < 0.05,
             "[{name}] {:.1}% of bytes differ from CPU — too many for boundary noise (a real divergence)",
             frac * 100.0
         );
@@ -372,7 +373,6 @@ fn direct_raw_gpu(
     wb_method: WbMethod,
     curve: &ProfileCurve,
     lut: &ColorLut,
-    airlight: [f32; 3],
 ) -> Vec<u8> {
     use raw_gpu::{CurveMode, FullChainInputs, GpuContext, LiveSession, ToneCurveInputs};
 
@@ -425,7 +425,7 @@ fn direct_raw_gpu(
     let session = LiveSession::new(&ctx, input, w, h);
     let cancel = raw_gpu::CancelToken::new();
     session
-        .render_to_buffer(&ctx, &inputs, airlight, &cancel)
+        .render_to_buffer(&ctx, &inputs, &cancel)
         .expect("direct render returns Some")
 }
 
@@ -464,7 +464,6 @@ fn gpu_live_rerender_is_byte_identical() {
     let lut = nonidentity_lut(9);
     let arr = owned_arrays(&model, &curve, &lut);
     let params = make_params(&model, WbMethod::Cat16, 9, &arr);
-    let airlight = raw_gpu::compute_airlight(&input, w as usize, h as usize);
 
     let mut handle = MapleGpuLiveSession {
         inner: std::ptr::null_mut(),
@@ -476,11 +475,11 @@ fn gpu_live_rerender_is_byte_identical() {
     let mut a = vec![0u8; (w * h * 3) as usize];
     let mut b = vec![0u8; (w * h * 3) as usize];
     assert_eq!(
-        unsafe { maple_gpu_live_render(&handle, &params, airlight.as_ptr(), a.as_mut_ptr()) },
+        unsafe { maple_gpu_live_render(&handle, &params, a.as_mut_ptr()) },
         0
     );
     assert_eq!(
-        unsafe { maple_gpu_live_render(&handle, &params, airlight.as_ptr(), b.as_mut_ptr()) },
+        unsafe { maple_gpu_live_render(&handle, &params, b.as_mut_ptr()) },
         0
     );
     unsafe { maple_gpu_live_close(&mut handle) };

@@ -38,10 +38,11 @@
 
 use crate::chain::{CancelToken, Pass};
 use crate::context::GpuContext;
+use crate::dehaze::compute_airlight;
 use crate::dither::{alloc_packed_rgb, encode_dither, unpack_rgb_u8};
 use crate::full_chain::FullChainInputs;
 use crate::image::GpuImage;
-use crate::live_chain::{build_live_chain, chain_signature};
+use crate::live_chain::{build_live_chain, build_live_split, chain_signature, dehaze_is_active};
 
 /// A persistent live-render session bound to one uploaded image at one set of
 /// dims. Owns the GPU-resident image, the ping-pong scratch pair, the readback
@@ -64,6 +65,13 @@ pub struct LiveSession {
     /// The `MAP_READ` staging buffer for the single end-of-run readback of
     /// `dither_out`. Session-owned (fixed count → create once).
     readback: wgpu::Buffer,
+    /// The `MAP_READ` staging buffer for the MID-CHAIN airlight readback (C5a):
+    /// when dehaze is engaged, the post-prefix buffer is copied here and mapped so
+    /// `compute_airlight` can measure A from the EXACT buffer dehaze sees (raw-core
+    /// measures it post-prefix, not from the original input). Sized to the f32
+    /// image (`width × height × 4` f32). Session-owned (zero-alloc). Unused when
+    /// dehaze is inactive (single-submit path, no readback).
+    airlight_staging: wgpu::Buffer,
 }
 
 impl LiveSession {
@@ -96,6 +104,16 @@ impl LiveSession {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+        let airlight_staging = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("live-session-airlight-staging"),
+            size: f32_byte_len,
+            // MAP_READ may only combine with COPY_DST (wgpu rule): the prefix
+            // output is copied IN, then mapped for `compute_airlight`. The suffix
+            // is seeded directly from the (still-resident) ping-pong buffer, not
+            // from here, so this never needs COPY_SRC.
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
         // Drop any cache from a prior session on this ctx — its bind groups
         // reference the OLD session's (now-dropped) ping-pong buffers (stale-
         // reference safety; see `FramePool::reset`).
@@ -105,6 +123,7 @@ impl LiveSession {
             ping_pong: [make_ping("live-ping-a"), make_ping("live-ping-b")],
             dither_out,
             readback,
+            airlight_staging,
         }
     }
 
@@ -121,101 +140,196 @@ impl LiveSession {
         ctx.frame_pool.borrow().alloc_count()
     }
 
-    /// Render one frame: the GATED live chain for `inputs` (airlight seeding the
-    /// dehaze pass when engaged) → the terminal dither → a SINGLE readback of the
-    /// packed-u8 RGB surface, unpacked to the flat `3·w·h` u8 layout. `None` if
-    /// `cancel` fires before a pass is encoded (the refine pass abandoned by a
-    /// newer edit). `ctx` is the same context the session was created with.
+    /// Render one frame: the GATED live chain for `inputs` → the terminal dither
+    /// → a readback of the packed-u8 RGB surface, unpacked to the flat `3·w·h` u8
+    /// layout. `None` if `cancel` fires before a pass is encoded (the refine pass
+    /// abandoned by a newer edit). `ctx` is the same context the session was
+    /// created with.
+    ///
+    /// AIRLIGHT (C5a): when dehaze is engaged, the atmospheric light A is measured
+    /// INTERNALLY from the post-prefix buffer dehaze actually sees (a mid-chain
+    /// readback — raw-core's `dehaze::apply` measures A at dehaze's position, NOT
+    /// from the original input), so the caller doesn't (and can't) supply it. When
+    /// dehaze is inactive the chain runs in one submit with no readback.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn render_to_buffer(
         &self,
         ctx: &GpuContext,
         inputs: &FullChainInputs,
-        airlight: [f32; 3],
         cancel: &CancelToken,
     ) -> Option<Vec<u8>> {
-        pollster::block_on(self.render_async(ctx, inputs, airlight, Some(cancel)))
+        pollster::block_on(self.render_async(ctx, inputs, Some(cancel)))
     }
 
     /// The async render core, shared by native (`render_to_buffer`) and wasm
-    /// callers. `cancel` is checked before each pass is encoded; `None` ⇒ no
-    /// cancellation. Returns the unpacked `3·w·h` u8 RGB buffer, or `None` if
-    /// cancelled mid-encode.
+    /// callers. Branches on whether dehaze is engaged (see [`Self::render_to_buffer`]):
+    /// the no-dehaze path is a single submit; the dehaze path takes a mid-chain
+    /// airlight readback. `cancel` is checked before each pass; `None` ⇒ no
+    /// cancellation. Returns the `3·w·h` u8 RGB buffer, or `None` if cancelled.
     pub async fn render_async(
         &self,
         ctx: &GpuContext,
         inputs: &FullChainInputs,
-        airlight: [f32; 3],
         cancel: Option<&CancelToken>,
     ) -> Option<Vec<u8>> {
         let dims = self.image.dims();
-        let (width, height) = dims;
-        let f32_byte_len = self.image.byte_len();
 
-        let passes = build_live_chain(inputs, airlight);
-        let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
-
-        // Open the pooled render window for THIS chain shape: the pool rewinds its
-        // cursors and serves cached resources for this signature. Every
-        // `encode_simple` / `alloc_plane` / pooled-data call below draws from it,
+        // Open the pooled render window for THIS chain shape — it SPANS both the
+        // prefix and suffix encoders (the cursor runs prefix→suffix continuously),
         // so a same-signature re-render allocates ZERO new GPU resources.
         let sig = chain_signature(inputs, dims);
         ctx.frame_pool.borrow_mut().begin_frame(sig);
+
+        let result = if dehaze_is_active(inputs) {
+            self.render_dehaze_split(ctx, inputs, cancel).await
+        } else {
+            self.render_single(ctx, inputs, cancel).await
+        };
+
+        ctx.frame_pool.borrow_mut().end_frame();
+        result
+    }
+
+    /// The no-dehaze path: the gated chain (dehaze omitted) + dither in ONE
+    /// command encoder, one readback, no mid-chain stall. `airlight` is unused
+    /// (dehaze isn't in the chain), so it's a placeholder.
+    async fn render_single(
+        &self,
+        ctx: &GpuContext,
+        inputs: &FullChainInputs,
+        cancel: Option<&CancelToken>,
+    ) -> Option<Vec<u8>> {
+        let dims = self.image.dims();
+        let f32_byte_len = self.image.byte_len();
+        let passes = build_live_chain(inputs, [0.0; 3]);
+        let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
 
         let mut encoder = ctx
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("live-session-encoder"),
             });
-
-        // Seed ping-pong buffer A from the immutable image.
+        // Seed ping-pong A from the immutable image, run the chain, dither.
         encoder.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
+        let final_idx = match self.encode_chain(ctx, &mut encoder, &pass_refs, 0, cancel) {
+            Some(idx) => idx,
+            None => return None, // cancelled mid-encode
+        };
+        encode_dither(ctx, &mut encoder, &self.ping_pong[final_idx], &self.dither_out, dims);
+        self.submit_and_read_surface(ctx, encoder).await
+    }
 
-        // Ping-pong: pass i reads ping_pong[i % 2], writes ping_pong[(i+1) % 2].
-        // After N passes the chain's f32 result is in ping_pong[N % 2].
-        let mut final_idx = 0usize;
-        for (i, pass) in pass_refs.iter().enumerate() {
+    /// The dehaze path (C5a): run the pre-dehaze PREFIX, read the post-prefix
+    /// buffer back, `compute_airlight` from the EXACT buffer dehaze sees, then run
+    /// the dehaze SUFFIX (built with the real A) + dither + the final readback.
+    /// Two submits — the mid-chain readback is the honest correctness path; the
+    /// on-GPU reduction that removes it is C5b.
+    async fn render_dehaze_split(
+        &self,
+        ctx: &GpuContext,
+        inputs: &FullChainInputs,
+        cancel: Option<&CancelToken>,
+    ) -> Option<Vec<u8>> {
+        let dims = self.image.dims();
+        let f32_byte_len = self.image.byte_len();
+
+        // Phase 1: the pre-dehaze prefix (airlight unknown → placeholder; only the
+        // prefix runs here). Encode prefix from ping-pong A, then copy the
+        // post-prefix result to the airlight staging buffer.
+        let (prefix, _) = build_live_split(inputs, [0.0; 3]);
+        let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
+
+        let mut enc1 = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("live-prefix-encoder"),
+            });
+        enc1.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
+        let prefix_final = match self.encode_chain(ctx, &mut enc1, &prefix_refs, 0, cancel) {
+            Some(idx) => idx,
+            None => return None,
+        };
+        enc1.copy_buffer_to_buffer(
+            &self.ping_pong[prefix_final],
+            0,
+            &self.airlight_staging,
+            0,
+            f32_byte_len,
+        );
+        ctx.queue.submit(Some(enc1.finish()));
+
+        // Read the post-prefix buffer back and measure A exactly as raw-core does.
+        let pre_dehaze = map_f32_readback(ctx, &self.airlight_staging).await;
+        let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
+
+        // Phase 2: dehaze + suffix (built with the REAL airlight) + dither. The
+        // post-prefix data is STILL RESIDENT in `ping_pong[prefix_final]` (submit 1
+        // didn't touch it after the staging copy), so the suffix runs from THAT
+        // index directly — no re-seed copy, no parity-index bookkeeping.
+        let (_, suffix) = build_live_split(inputs, airlight);
+        let suffix_refs: Vec<&dyn Pass> = suffix.iter().map(|p| p.as_ref()).collect();
+
+        let mut enc2 = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("live-suffix-encoder"),
+            });
+        let suffix_final = match self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel)
+        {
+            Some(idx) => idx,
+            None => return None,
+        };
+        encode_dither(ctx, &mut enc2, &self.ping_pong[suffix_final], &self.dither_out, dims);
+        self.submit_and_read_surface(ctx, enc2).await
+    }
+
+    /// Encode `passes` over the ping-pong pair starting at buffer `start_idx`
+    /// (pass i reads `ping_pong[(start_idx + i) % 2]`, writes the other). Returns
+    /// the final buffer index, or `None` if `cancel` fired before a pass. Shared
+    /// by the single / prefix / suffix encode loops.
+    fn encode_chain(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        passes: &[&dyn Pass],
+        start_idx: usize,
+        cancel: Option<&CancelToken>,
+    ) -> Option<usize> {
+        let dims = self.image.dims();
+        let mut final_idx = start_idx;
+        for (i, pass) in passes.iter().enumerate() {
             if let Some(t) = cancel {
                 if t.is_cancelled() {
-                    // Close the pooled window before bailing so the pool isn't
-                    // left mid-frame for the next render.
-                    ctx.frame_pool.borrow_mut().end_frame();
                     return None;
                 }
             }
-            let src_idx = i % 2;
-            let dst_idx = (i + 1) % 2;
+            let src_idx = (start_idx + i) % 2;
+            let dst_idx = (start_idx + i + 1) % 2;
             let (lo, hi) = self.ping_pong.split_at(1);
             let (src, dst) = if src_idx == 0 {
                 (&lo[0], &hi[0])
             } else {
                 (&hi[0], &lo[0])
             };
-            pass.encode(ctx, &mut encoder, src, dst, dims);
+            pass.encode(ctx, encoder, src, dst, dims);
             final_idx = dst_idx;
         }
+        Some(final_idx)
+    }
 
-        // Terminal: dither the chain's final f32 buffer → packed-u8 dither_out,
-        // on-device (no intermediate f32 readback). Also pool-routed, so its
-        // uniform + bind group are cached like every other dispatch.
-        encode_dither(
-            ctx,
-            &mut encoder,
-            &self.ping_pong[final_idx],
-            &self.dither_out,
-            dims,
-        );
-
-        // Close the pooled window — all dispatches for this render are encoded.
-        ctx.frame_pool.borrow_mut().end_frame();
-
-        // The single end-of-run readback: copy the packed-u8 surface to the
-        // MAP_READ staging buffer.
+    /// Submit `encoder` (with the dither already encoded into `dither_out`), copy
+    /// the packed-u8 surface to the readback staging buffer, map it, and unpack to
+    /// the `3·w·h` u8 RGB layout. The terminal of every render path.
+    async fn submit_and_read_surface(
+        &self,
+        ctx: &GpuContext,
+        mut encoder: wgpu::CommandEncoder,
+    ) -> Option<Vec<u8>> {
+        let dims = self.image.dims();
         let packed_byte_len =
-            (width as u64) * (height as u64) * std::mem::size_of::<u32>() as u64;
+            (dims.0 as u64) * (dims.1 as u64) * std::mem::size_of::<u32>() as u64;
         encoder.copy_buffer_to_buffer(&self.dither_out, 0, &self.readback, 0, packed_byte_len);
         ctx.queue.submit(Some(encoder.finish()));
-
         let packed = map_packed_readback(ctx, &self.readback).await;
         Some(unpack_rgb_u8(&packed))
     }
@@ -238,6 +352,28 @@ async fn map_packed_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<u
         .expect("buffer map failed");
     let data = slice.get_mapped_range();
     let out: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
+    drop(data);
+    readback.unmap();
+    out
+}
+
+/// Map the f32 mid-chain readback staging buffer (the post-prefix buffer, C5a)
+/// and cast it to `Vec<f32>` for `compute_airlight`. The f32 sibling of
+/// [`map_packed_readback`].
+#[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
+async fn map_f32_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<f32> {
+    let slice = readback.slice(..);
+    let (tx, rx) = futures_channel::oneshot::channel();
+    slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx.send(res);
+    });
+    #[cfg(not(target_arch = "wasm32"))]
+    ctx.device.poll(wgpu::Maintain::Wait);
+    rx.await
+        .expect("map channel dropped")
+        .expect("buffer map failed");
+    let data = slice.get_mapped_range();
+    let out: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
     drop(data);
     readback.unmap();
     out
