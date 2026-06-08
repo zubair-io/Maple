@@ -14,9 +14,9 @@
  * `maple_id` at insert time.
  */
 import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import type { ObjectId } from 'mongodb';
 import { readExif } from '../../indexer/exif.ts';
+import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 import { deriveId } from '../../indexer/id.ts';
 import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
 import { assetsCollection } from '../../db/client.ts';
@@ -28,34 +28,11 @@ import { defineStage, runStage, type RunStageHandle } from '../run-stage.ts';
 
 const SHA1_HEAD_BYTES = 64 * 1024;
 
-/** Filename patterns that almost always indicate a screenshot.
- *
- *   iOS:     "Screenshot 2026-05-19 at 10.04.32.png"
- *   macOS:   "Screen Shot 2024-12-01 at 1.23.45 PM.png"
- *   Android: "Screenshot_20240601_102030.png" / "Screenshot_2024-06-01.png"
- *
- * Anchored to start-of-name so a file someone explicitly named
- * "my-screenshot-of-X.png" doesn't get auto-categorised.
- */
-const SCREENSHOT_FILENAME_RE = /^(Screenshot[\s_-]|Screen[\s]Shot[\s])/i;
-
-/** Heuristic screenshot detection from filename + EXIF. Conservative
- * — only fires when the camera_make is empty AND the filename matches
- * a known screenshot pattern. False positives are worse than false
- * negatives because the describe stage will correct false negatives on
- * its next pass but a false positive sticks in the "Photos" view until
- * the operator manually clears it.
- *
- * The describe stage overwrites this with the qwen2.5-vl verdict once
- * it runs, which handles cropped screenshots and photos-of-screens. */
-export function isLikelyScreenshot(
-  filename: string,
-  cameraMake: string | null | undefined,
-): boolean {
-  if (cameraMake && cameraMake.trim().length > 0) return false;
-  const base = path.basename(filename);
-  return SCREENSHOT_FILENAME_RE.test(base);
-}
+// `isLikelyScreenshot` (the filename + camera-make heuristic that seeds
+// `is_screenshot`) lives in `indexer/screenshot.ts` so the backup-ingest route
+// can share it without importing this exifr-heavy module. Re-exported here so
+// existing importers (and this stage's tests) keep their `./exif.ts` import.
+export { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 
 async function readHead(absPath: string): Promise<Uint8Array> {
   const fd = await fs.open(absPath, 'r');
