@@ -158,6 +158,17 @@ pub struct GpuContext {
     /// `writeback_color`: RGBA-src + denoised-a + denoised-b → RGBA-dst, L
     /// recomputed from src (4 storage).
     pub(crate) nr_writeback_color_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled sharpen pipelines (epic #925 P3 wave 2 / #991). Three
+    /// standalone kernels mirroring `raw_core::stages::sharpen::apply` (luma-only
+    /// USM — no Oklab, so no generated color matrices).
+    /// `sharpen_luma`: RGBA → luma plane (BT.2020 weights). 2 storage.
+    pub(crate) sharpen_luma_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `sharpen_usm`: per-pixel luma USM scale (shadow guard + clamp) → the
+    /// full-strength sharpened RGBA. 4 storage (src + luma + luma_blur + sharpened).
+    pub(crate) sharpen_usm_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// `sharpen_mix`: the edge-aware amount/masking blend (central-difference
+    /// gradient on the luma plane). 4 storage (observed + sharpened + luma + dst).
+    pub(crate) sharpen_mix_pipeline: OnceCell<wgpu::ComputePipeline>,
 }
 
 impl GpuContext {
@@ -212,6 +223,9 @@ impl GpuContext {
             nr_finalize_pipeline: OnceCell::new(),
             nr_writeback_luma_pipeline: OnceCell::new(),
             nr_writeback_color_pipeline: OnceCell::new(),
+            sharpen_luma_pipeline: OnceCell::new(),
+            sharpen_usm_pipeline: OnceCell::new(),
+            sharpen_mix_pipeline: OnceCell::new(),
         }
     }
 
