@@ -42,7 +42,7 @@ use crate::context::GpuContext;
 use crate::dither::{alloc_packed_rgb, encode_dither, unpack_rgb_u8};
 use crate::full_chain::FullChainInputs;
 use crate::image::GpuImage;
-use crate::live_chain::build_live_chain;
+use crate::live_chain::{build_live_chain, chain_signature};
 
 /// A persistent live-render session bound to one uploaded image at one set of
 /// dims. Owns the GPU-resident image, the ping-pong scratch pair, the readback
@@ -93,6 +93,10 @@ impl<'ctx> LiveSession<'ctx> {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+        // Drop any cache from a prior session on this ctx — its bind groups
+        // reference the OLD session's (now-dropped) ping-pong buffers (stale-
+        // reference safety; see `FramePool::reset`).
+        ctx.frame_pool.borrow_mut().reset();
         Self {
             ctx,
             image,
@@ -105,6 +109,14 @@ impl<'ctx> LiveSession<'ctx> {
     /// The session's image dimensions.
     pub fn dims(&self) -> (u32, u32) {
         self.image.dims()
+    }
+
+    /// Cumulative pool allocation count (the honest zero-alloc hook): the number
+    /// of actual `create_buffer` / `create_bind_group` calls the pool has made
+    /// (misses). Snapshot it across a same-signature re-render — the delta must be
+    /// 0 (no render-loop allocation). See [`crate::frame_pool`].
+    pub fn pool_alloc_count(&self) -> u64 {
+        self.ctx.frame_pool.borrow().alloc_count()
     }
 
     /// Render one frame: the GATED live chain for `inputs` (airlight seeding the
@@ -145,6 +157,13 @@ impl<'ctx> LiveSession<'ctx> {
         let passes = build_live_chain(inputs, airlight);
         let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
 
+        // Open the pooled render window for THIS chain shape: the pool rewinds its
+        // cursors and serves cached resources for this signature. Every
+        // `encode_simple` / `alloc_plane` / pooled-data call below draws from it,
+        // so a same-signature re-render allocates ZERO new GPU resources.
+        let sig = chain_signature(inputs, dims);
+        self.ctx.frame_pool.borrow_mut().begin_frame(sig);
+
         let mut encoder = self
             .ctx
             .device
@@ -161,6 +180,9 @@ impl<'ctx> LiveSession<'ctx> {
         for (i, pass) in pass_refs.iter().enumerate() {
             if let Some(t) = cancel {
                 if t.is_cancelled() {
+                    // Close the pooled window before bailing so the pool isn't
+                    // left mid-frame for the next render.
+                    self.ctx.frame_pool.borrow_mut().end_frame();
                     return None;
                 }
             }
@@ -177,7 +199,8 @@ impl<'ctx> LiveSession<'ctx> {
         }
 
         // Terminal: dither the chain's final f32 buffer → packed-u8 dither_out,
-        // on-device (no intermediate f32 readback).
+        // on-device (no intermediate f32 readback). Also pool-routed, so its
+        // uniform + bind group are cached like every other dispatch.
         encode_dither(
             self.ctx,
             &mut encoder,
@@ -185,6 +208,9 @@ impl<'ctx> LiveSession<'ctx> {
             &self.dither_out,
             dims,
         );
+
+        // Close the pooled window — all dispatches for this render are encoded.
+        self.ctx.frame_pool.borrow_mut().end_frame();
 
         // The single end-of-run readback: copy the packed-u8 surface to the
         // MAP_READ staging buffer.

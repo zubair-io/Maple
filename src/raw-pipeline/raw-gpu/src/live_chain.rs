@@ -266,6 +266,84 @@ pub fn build_live_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedP
 /// the floor without re-counting the tail by hand.
 pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 
+/// The active-stage bitmask — which gated passes [`build_live_split`] includes
+/// for `inputs`, one bit per scene-linear stage (the view tail is always-on, so
+/// it isn't represented). SINGLE-SOURCED with the builder: every bit uses the
+/// exact same predicate the corresponding `if` in `build_live_split` uses, so the
+/// mask can't disagree with which passes actually get pushed. Used by
+/// [`chain_signature`] to key the live pool's bind-group cache.
+fn active_mask(inputs: &FullChainInputs) -> u32 {
+    let mut m = 0u32;
+    if inputs.capture_sharpening.is_some() {
+        m |= 1 << 0;
+    }
+    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
+        m |= 1 << 1;
+    }
+    if !scene_tone_is_noop(&inputs.tone) {
+        m |= 1 << 2;
+    }
+    if !tone_curves_is_noop(&inputs.tone_curves) {
+        m |= 1 << 3;
+    }
+    if inputs.vibrance.abs() >= SLIDER_EPS {
+        m |= 1 << 4;
+    }
+    if inputs.saturation.abs() >= SLIDER_EPS {
+        m |= 1 << 5;
+    }
+    if inputs.clarity.abs() >= SLIDER_EPS {
+        m |= 1 << 6;
+    }
+    if inputs.texture.abs() >= SLIDER_EPS {
+        m |= 1 << 7;
+    }
+    if inputs.dehaze.abs() >= SLIDER_EPS {
+        m |= 1 << 8;
+    }
+    if inputs.sharpen_amount.abs() >= SLIDER_EPS {
+        m |= 1 << 9;
+    }
+    if inputs.nr_luminance.abs() >= SLIDER_EPS {
+        m |= 1 << 10;
+    }
+    if inputs.nr_color.abs() >= SLIDER_EPS {
+        m |= 1 << 11;
+    }
+    m
+}
+
+/// The chain SIGNATURE for the live pool ([`crate::frame_pool`]): a hash of the
+/// active-stage mask + the render dims + anything that changes the DISPATCH COUNT
+/// within an active stage. The pool keys its bind-group / scratch cache by this,
+/// so two renders with the same signature share resources (zero alloc on the
+/// second) while a signature change (a slider crossing a gating threshold, a dims
+/// change, a different capture-sharpening iteration count) lands in a fresh
+/// bucket — never binding a stale buffer to the wrong kernel.
+///
+/// Dispatch-count drivers folded in beyond the on/off mask:
+/// - **capture-sharpening `iterations`**: its encode loop is `for _ in
+///   0..iterations`, so a different count = a different dispatch sequence.
+/// - NLM's shift-loop count is a CONST per pass (`LUMA_SEARCH_RADIUS` /
+///   `CHROMA_SEARCH_RADIUS`), captured by the nr_luminance / nr_color mask bits —
+///   no extra field needed. The box-blur sweeps and dehaze's DAG are fixed once
+///   their stage is active.
+pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32)) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    active_mask(inputs).hash(&mut h);
+    dims.0.hash(&mut h);
+    dims.1.hash(&mut h);
+    // Capture-sharpening iterations drive the RL dispatch-loop length.
+    let cs_iters = inputs
+        .capture_sharpening
+        .as_ref()
+        .map(|p| p.iterations)
+        .unwrap_or(0);
+    cs_iters.hash(&mut h);
+    h.finish()
+}
+
 // Parity tests live in a sibling file to keep this module under the 600-LOC
 // budget (mirrors full_chain / dehaze's tests.rs split). They drive the SHARED
 // `crate::full_chain::oracle` harness so the live gate's CPU reference can't
