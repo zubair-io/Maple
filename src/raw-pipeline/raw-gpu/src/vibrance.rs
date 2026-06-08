@@ -277,10 +277,85 @@ mod tests {
         ]
     }
 
-    /// The P2 parity proof: the WGSL vibrance kernel matches the CPU oracle
-    /// within 1e-4 across a spread of slider values, including the negative,
-    /// neutral, and skin-hue branches. Mirrors the exposure precedent's
-    /// `wgsl_exposure_matches_cpu_oracle_within_1e_4`.
+    /// Run `raw_core::stages::vibrance::apply` on a flat interleaved RGBA f32
+    /// buffer, returning a new buffer (alpha carried through untouched, matching
+    /// the kernel + local oracle). This is the ticket's actual reference — the
+    /// Rust stage itself, not a reimplementation.
+    fn raw_core_vibrance(buf: &[f32], vibrance: f32) -> Vec<f32> {
+        use raw_core::image::{ColorSpace, Image};
+        let count = buf.len() / 4;
+        let mut img = Image::new(count as u32, 1, ColorSpace::SceneLinearRec2020);
+        for (i, chunk) in buf.chunks_exact(4).enumerate() {
+            img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
+        }
+        raw_core::stages::vibrance::apply(&mut img, vibrance);
+        let mut out = Vec::with_capacity(buf.len());
+        for (i, p) in img.pixels.iter().enumerate() {
+            out.extend_from_slice(&[p[0], p[1], p[2], buf[i * 4 + 3]]);
+        }
+        out
+    }
+
+    /// THE PARITY GATE (the ticket's contract): the WGSL vibrance kernel matches
+    /// `raw_core::stages::vibrance::apply` — the actual Rust stage, via a
+    /// test-only dev-dep on raw-core — within 1e-4 across a spread of slider
+    /// values, on a buffer exercising the negative-LMS, pure-black-passthrough,
+    /// and skin-hue branches. This is stronger than "WGSL == local oracle":
+    /// it pins the GPU output to the canonical CPU stage directly, so a
+    /// transcription error in the local oracle cannot mask a kernel bug.
+    #[test]
+    fn wgsl_vibrance_matches_raw_core_stage_within_1e_4() {
+        let ctx = GpuContext::new_blocking();
+        let input = branchy_buffer();
+        let count = (input.len() / 4) as u32;
+
+        for &vib in &[-100.0_f32, -50.0, 25.0, 60.0, 100.0] {
+            let reference = raw_core_vibrance(&input, vib);
+
+            let img = GpuImage::upload(&ctx, &input, count, 1);
+            let runner = ChainRunner::new(&ctx, &img);
+            let gpu = runner.run_blocking(&[&VibrancePass { vibrance: vib }]);
+
+            let max_diff = reference
+                .iter()
+                .zip(&gpu)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0_f32, f32::max);
+            eprintln!("PARITY vs raw-core vibrance={vib}: max abs diff = {max_diff:e}");
+            assert!(
+                max_diff < 1e-4,
+                "vibrance={vib}: GPU vs raw-core stage max abs diff {max_diff} exceeds 1e-4"
+            );
+        }
+    }
+
+    /// Pin the local CPU oracle (`apply_vibrance`) to `raw_core`'s stage too, so
+    /// the convenience oracle this crate exports can't silently drift from the
+    /// canonical math. (The GPU gate above doesn't depend on the local oracle at
+    /// all — this is belt-and-braces for the public `apply_vibrance` surface.)
+    #[test]
+    fn local_oracle_matches_raw_core_stage_within_1e_4() {
+        let input = branchy_buffer();
+        for &vib in &[-100.0_f32, -50.0, 25.0, 60.0, 100.0] {
+            let reference = raw_core_vibrance(&input, vib);
+            let mut local = input.clone();
+            apply_vibrance(&mut local, vib);
+            let max_diff = reference
+                .iter()
+                .zip(&local)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0_f32, f32::max);
+            assert!(
+                max_diff < 1e-4,
+                "vibrance={vib}: local oracle vs raw-core stage diff {max_diff} exceeds 1e-4"
+            );
+        }
+    }
+
+    /// Self-contained fallback gate: the WGSL kernel matches the local CPU
+    /// oracle within 1e-4 (no raw-core dep needed to run). Kept alongside the
+    /// raw-core gate as a fast, dependency-free signal. Mirrors the exposure
+    /// precedent's `wgsl_exposure_matches_cpu_oracle_within_1e_4`.
     #[test]
     fn wgsl_vibrance_matches_cpu_oracle_within_1e_4() {
         let ctx = GpuContext::new_blocking();
