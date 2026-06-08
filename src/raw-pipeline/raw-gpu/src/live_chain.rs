@@ -258,6 +258,16 @@ pub fn build_live_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedP
     (prefix, suffix)
 }
 
+/// Whether the dehaze stage is engaged for `inputs` — the SAME predicate
+/// [`build_live_split`] gates the `DehazePass` on (`|dehaze| >= 1e-3`). Public so
+/// the live session ([`crate::LiveSession`]) can decide whether it must take the
+/// mid-chain airlight readback path (dehaze active → A is measured from the
+/// post-prefix buffer) vs. the single-submit no-readback path (dehaze inactive).
+/// Single-sourced here so it can't disagree with whether the pass was pushed.
+pub fn dehaze_is_active(inputs: &FullChainInputs) -> bool {
+    inputs.dehaze.abs() >= SLIDER_EPS
+}
+
 /// The number of always-on view-tail passes (`agx`, `display_encode`,
 /// `srgb_gamma`, `auto_profile_curve`, `residual_lut`). A neutral chain has
 /// exactly this many passes; each engaged slider adds one (or, for the spatial

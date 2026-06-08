@@ -23,12 +23,28 @@ use raw_core::types::adjustment::AutoExposureMode;
 use raw_core::types::{ToneCurve, ToneCurveMode, WbMethod};
 use raw_core::xmp::AdjustmentModel;
 
-/// Reference path: run the gated `build_live_chain` through a plain `ChainRunner`
-/// (the C1 entry) to the final f32 buffer, then re-upload that buffer and run the
-/// C2 `encode_dither` standalone → the unpacked `3·w·h` u8 RGB surface. This is
-/// the "direct" composition the session must match bit-for-bit.
+/// Reference path: the "direct" composition the session must match bit-for-bit —
+/// the gated `build_live_chain` through a plain `ChainRunner` to the final f32
+/// buffer, then the C2 `encode_dither` standalone → the `3·w·h` u8 RGB surface.
+///
+/// AIRLIGHT (C5a): when dehaze is engaged the session measures A from the
+/// POST-PREFIX buffer (not the input), so the reference does too — run the
+/// `build_live_split` prefix through a ChainRunner, `compute_airlight` on that
+/// read-back buffer, then build the full chain with the SAME A. When dehaze is
+/// off, A is unused.
 fn reference_u8(ctx: &GpuContext, input: &[f32], w: u32, h: u32, inputs: &crate::FullChainInputs) -> Vec<u8> {
-    let airlight = compute_airlight(input, w as usize, h as usize);
+    let airlight = if crate::dehaze_is_active(inputs) {
+        // Run the pre-dehaze prefix, read it back, measure A from it — exactly the
+        // buffer dehaze sees, matching the session.
+        let (prefix, _) = crate::build_live_split(inputs, [0.0; 3]);
+        let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
+        let pimg = GpuImage::upload(ctx, input, w, h);
+        let prunner = ChainRunner::new(ctx, &pimg);
+        let pre_dehaze = prunner.run_blocking(&prefix_refs);
+        compute_airlight(&pre_dehaze, w as usize, h as usize)
+    } else {
+        [0.0; 3]
+    };
     let passes = build_live_chain(inputs, airlight);
     let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
 
@@ -173,12 +189,11 @@ fn session_render_matches_direct_chain_plus_dither_byte_exact() {
         ("aggressive", aggressive_case()),
     ] {
         let inputs = case.gpu_inputs();
-        let airlight = compute_airlight(&input, w as usize, h as usize);
-
+    
         let session = LiveSession::new(&ctx, &input, w, h);
         let cancel = CancelToken::new();
         let got = session
-            .render_to_buffer(&ctx, &inputs, airlight, &cancel)
+            .render_to_buffer(&ctx, &inputs, &cancel)
             .expect("uncancelled render returns Some");
 
         let want = reference_u8(&ctx, &input, w, h, &inputs);
@@ -208,12 +223,11 @@ fn pre_cancelled_render_returns_none() {
     let input = scene_linear_rgba(w as usize, h as usize);
     let case = aggressive_case();
     let inputs = case.gpu_inputs();
-    let airlight = compute_airlight(&input, w as usize, h as usize);
 
     let session = LiveSession::new(&ctx, &input, w, h);
     let cancel = CancelToken::new();
     cancel.cancel(); // pre-cancelled
-    let out = session.render_to_buffer(&ctx, &inputs, airlight, &cancel);
+    let out = session.render_to_buffer(&ctx, &inputs, &cancel);
     assert!(out.is_none(), "pre-cancelled render must return None");
 }
 
@@ -227,12 +241,11 @@ fn rerender_same_inputs_is_byte_identical() {
     let input = scene_linear_rgba(w as usize, h as usize);
     let case = aggressive_case();
     let inputs = case.gpu_inputs();
-    let airlight = compute_airlight(&input, w as usize, h as usize);
 
     let session = LiveSession::new(&ctx, &input, w, h);
     let cancel = CancelToken::new();
-    let first = session.render_to_buffer(&ctx, &inputs, airlight, &cancel).unwrap();
-    let second = session.render_to_buffer(&ctx, &inputs, airlight, &cancel).unwrap();
+    let first = session.render_to_buffer(&ctx, &inputs, &cancel).unwrap();
+    let second = session.render_to_buffer(&ctx, &inputs, &cancel).unwrap();
     assert_eq!(first, second, "re-render at same dims/inputs must be byte-identical");
 }
 
@@ -248,7 +261,6 @@ fn second_render_same_signature_allocates_nothing() {
     let ctx = GpuContext::new_blocking();
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
-    let airlight = compute_airlight(&input, w as usize, h as usize);
     let cancel = CancelToken::new();
 
     for (name, case) in [
@@ -262,11 +274,11 @@ fn second_render_same_signature_allocates_nothing() {
 
         // First render: fills the pool (allocations expected).
         let before_first = session.pool_alloc_count(&ctx);
-        let first = session.render_to_buffer(&ctx, &inputs, airlight, &cancel).unwrap();
+        let first = session.render_to_buffer(&ctx, &inputs, &cancel).unwrap();
         let first_allocs = session.pool_alloc_count(&ctx) - before_first;
 
         // Second render, identical signature: must reuse everything.
-        let second = session.render_to_buffer(&ctx, &inputs, airlight, &cancel).unwrap();
+        let second = session.render_to_buffer(&ctx, &inputs, &cancel).unwrap();
         let second_allocs = session.pool_alloc_count(&ctx) - before_first - first_allocs;
 
         eprintln!(
@@ -305,7 +317,6 @@ fn same_signature_value_change_is_correct_and_zero_alloc() {
     let ctx = GpuContext::new_blocking();
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
-    let airlight = compute_airlight(&input, w as usize, h as usize);
     let cancel = CancelToken::new();
 
     // Build two cases that share an active-stage SET but differ in a VALUE.
@@ -344,11 +355,11 @@ fn same_signature_value_change_is_correct_and_zero_alloc() {
     let session = LiveSession::new(&ctx, &input, w, h);
 
     // Render base (fills the cache for this signature).
-    let _ = session.render_to_buffer(&ctx, &base, airlight, &cancel).unwrap();
+    let _ = session.render_to_buffer(&ctx, &base, &cancel).unwrap();
 
     // Now the EDIT: same signature, changed values. Snapshot allocs around it.
     let pre_edit = session.pool_alloc_count(&ctx);
-    let got = session.render_to_buffer(&ctx, &edited, airlight, &cancel).unwrap();
+    let got = session.render_to_buffer(&ctx, &edited, &cancel).unwrap();
     let edit_allocs = session.pool_alloc_count(&ctx) - pre_edit;
 
     // (a) Correct NEW pixels: matches a reference render of the EDITED inputs
@@ -391,16 +402,15 @@ fn signature_change_allocates_once_then_zero() {
     let ctx = GpuContext::new_blocking();
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
-    let airlight = compute_airlight(&input, w as usize, h as usize);
     let cancel = CancelToken::new();
     let session = LiveSession::new(&ctx, &input, w, h);
 
     // Shape A: neutral (view tail only).
     let a = neutral_case().gpu_inputs();
     let base = session.pool_alloc_count(&ctx);
-    session.render_to_buffer(&ctx, &a, airlight, &cancel).unwrap();
+    session.render_to_buffer(&ctx, &a, &cancel).unwrap();
     let a1 = session.pool_alloc_count(&ctx) - base;
-    session.render_to_buffer(&ctx, &a, airlight, &cancel).unwrap();
+    session.render_to_buffer(&ctx, &a, &cancel).unwrap();
     let a2 = session.pool_alloc_count(&ctx) - base - a1;
     assert!(a1 > 0, "shape A first render must allocate");
     assert_eq!(a2, 0, "shape A re-render must be zero-alloc");
@@ -410,9 +420,9 @@ fn signature_change_allocates_once_then_zero() {
     b_case.model.dehaze = 40.0;
     let b = b_case.gpu_inputs();
     let pre_b = session.pool_alloc_count(&ctx);
-    session.render_to_buffer(&ctx, &b, airlight, &cancel).unwrap();
+    session.render_to_buffer(&ctx, &b, &cancel).unwrap();
     let b1 = session.pool_alloc_count(&ctx) - pre_b;
-    session.render_to_buffer(&ctx, &b, airlight, &cancel).unwrap();
+    session.render_to_buffer(&ctx, &b, &cancel).unwrap();
     let b2 = session.pool_alloc_count(&ctx) - pre_b - b1;
     eprintln!("SIGNATURE-CHANGE: shape A allocs={a1}, shape B allocs={b1} (B re-render={b2})");
     assert!(
@@ -423,7 +433,7 @@ fn signature_change_allocates_once_then_zero() {
 
     // Returning to shape A is zero-alloc (its bucket is still cached).
     let pre_a3 = session.pool_alloc_count(&ctx);
-    session.render_to_buffer(&ctx, &a, airlight, &cancel).unwrap();
+    session.render_to_buffer(&ctx, &a, &cancel).unwrap();
     let a3 = session.pool_alloc_count(&ctx) - pre_a3;
     assert_eq!(a3, 0, "returning to shape A must reuse its cached bucket (zero-alloc)");
 }

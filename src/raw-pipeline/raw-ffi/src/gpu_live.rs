@@ -289,22 +289,21 @@ pub unsafe extern "C" fn maple_gpu_live_open(
 /// the canonical `dither_and_quantize` layout). `out_ptr` MUST hold at least
 /// `3 × width × height` bytes (query dims from the open call).
 ///
-/// `airlight` (3 f32) seeds the dehaze pass when dehaze is engaged; pass the
-/// CPU-computed atmospheric light of the pre-dehaze buffer (the on-GPU reduction
-/// is C5). When dehaze is disabled it is ignored — pass any value.
+/// The dehaze atmospheric light is measured INTERNALLY from the post-prefix
+/// buffer (a mid-chain readback when dehaze is engaged — raw-core measures A at
+/// dehaze's position, not from the original input), so the host does not supply
+/// it. The on-GPU reduction that removes that per-tick readback is C5b.
 ///
 /// Returns 0 on success. Non-zero on error (call `maple_last_error`):
-///   -1 handle/params/out null · -2 the render was cancelled (never, here —
-///   reserved) · -3 the GPU render returned no buffer.
+///   -1 handle/params/out null · -3 the GPU render returned no buffer.
 ///
 /// # Safety
 /// `handle` a live handle from [`maple_gpu_live_open`]; `params` valid (incl. its
-/// array pointers); `airlight` 3 readable f32; `out_ptr` valid for `3*w*h` bytes.
+/// array pointers); `out_ptr` valid for `3*w*h` bytes.
 #[no_mangle]
 pub unsafe extern "C" fn maple_gpu_live_render(
     handle: *const MapleGpuLiveSession,
     params: *const MapleGpuLiveParams,
-    airlight: *const f32,
     out_ptr: *mut u8,
 ) -> i32 {
     if handle.is_null() || params.is_null() || out_ptr.is_null() {
@@ -318,19 +317,10 @@ pub unsafe extern "C" fn maple_gpu_live_render(
     }
     let inner = &*inner_ptr;
     let p = &*params;
-    let a = if airlight.is_null() {
-        [0.0_f32; 3]
-    } else {
-        let s = std::slice::from_raw_parts(airlight, 3);
-        [s[0], s[1], s[2]]
-    };
 
     let inputs = inputs_from_params(p);
     let cancel = CancelToken::new();
-    let out = match inner
-        .session
-        .render_to_buffer(&inner.ctx, &inputs, a, &cancel)
-    {
+    let out = match inner.session.render_to_buffer(&inner.ctx, &inputs, &cancel) {
         Some(v) => v,
         None => {
             set_last_error("gpu_live_render: render returned None".into());
