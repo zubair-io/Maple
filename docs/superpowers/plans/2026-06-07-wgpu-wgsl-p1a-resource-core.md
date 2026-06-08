@@ -22,21 +22,21 @@ P0 found `wgpu 23.0.1`'s `request_device` **still takes the trace-path arg** (`N
 
 ## File structure
 
-| File | Responsibility |
-|---|---|
-| `src/raw-pipeline/Cargo.toml` (modify) | Add `raw-gpu` to `[workspace] members` |
-| `src/raw-pipeline/raw-gpu/Cargo.toml` (create) | New crate; `wgpu`/`pollster`/`futures-channel`/`bytemuck` deps; no default features pull GPU into dependents |
-| `src/raw-pipeline/raw-gpu/src/lib.rs` (create) | Crate root; re-exports `GpuContext`, `GpuImage`, `Pass`, `ChainRunner`, `ExposurePass`, `apply_exposure_gain` |
-| `src/raw-pipeline/raw-gpu/src/context.rs` (create) | `GpuContext` (instance/adapter/device/queue), native `block_on` + shared async |
-| `src/raw-pipeline/raw-gpu/src/image.rs` (create) | `GpuImage` — upload-once scene-linear RGBA → GPU storage buffer + dims; final readback helper |
-| `src/raw-pipeline/raw-gpu/src/chain.rs` (create) | `Pass` trait, `ChainRunner` (ping-pong two buffers across passes; one final readback; cancellation token) |
-| `src/raw-pipeline/raw-gpu/src/exposure.rs` (create) | `ExposurePass { ev }` + `apply_exposure_gain` oracle (moved from P0) |
-| `src/raw-pipeline/raw-gpu/src/exposure.wgsl` (move) | The P0 kernel, moved here |
-| `src/raw-pipeline/raw-core/Cargo.toml` (modify) | `gpu` feature → `["dep:raw-gpu"]`; drop wgpu/pollster/futures-channel direct deps |
-| `src/raw-pipeline/raw-core/src/lib.rs` (modify) | Remove `#[cfg(feature="gpu")] pub mod gpu;` (re-export `pub use raw_gpu as gpu;` only if needed for back-compat) |
-| `src/raw-pipeline/raw-core/src/gpu/` (delete) | Module contents move to `raw-gpu` |
-| `src/raw-pipeline/raw-wasm/Cargo.toml` (modify) | `gpu` feature → depend on `raw-gpu` instead of `raw-core/gpu` |
-| `src/raw-pipeline/raw-wasm/src/gpu.rs` (modify) | Call `raw_gpu::*` instead of `raw_core::gpu::*` |
+| File                                                | Responsibility                                                                                                   |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `src/raw-pipeline/Cargo.toml` (modify)              | Add `raw-gpu` to `[workspace] members`                                                                           |
+| `src/raw-pipeline/raw-gpu/Cargo.toml` (create)      | New crate; `wgpu`/`pollster`/`futures-channel`/`bytemuck` deps; no default features pull GPU into dependents     |
+| `src/raw-pipeline/raw-gpu/src/lib.rs` (create)      | Crate root; re-exports `GpuContext`, `GpuImage`, `Pass`, `ChainRunner`, `ExposurePass`, `apply_exposure_gain`    |
+| `src/raw-pipeline/raw-gpu/src/context.rs` (create)  | `GpuContext` (instance/adapter/device/queue), native `block_on` + shared async                                   |
+| `src/raw-pipeline/raw-gpu/src/image.rs` (create)    | `GpuImage` — upload-once scene-linear RGBA → GPU storage buffer + dims; final readback helper                    |
+| `src/raw-pipeline/raw-gpu/src/chain.rs` (create)    | `Pass` trait, `ChainRunner` (ping-pong two buffers across passes; one final readback; cancellation token)        |
+| `src/raw-pipeline/raw-gpu/src/exposure.rs` (create) | `ExposurePass { ev }` + `apply_exposure_gain` oracle (moved from P0)                                             |
+| `src/raw-pipeline/raw-gpu/src/exposure.wgsl` (move) | The P0 kernel, moved here                                                                                        |
+| `src/raw-pipeline/raw-core/Cargo.toml` (modify)     | `gpu` feature → `["dep:raw-gpu"]`; drop wgpu/pollster/futures-channel direct deps                                |
+| `src/raw-pipeline/raw-core/src/lib.rs` (modify)     | Remove `#[cfg(feature="gpu")] pub mod gpu;` (re-export `pub use raw_gpu as gpu;` only if needed for back-compat) |
+| `src/raw-pipeline/raw-core/src/gpu/` (delete)       | Module contents move to `raw-gpu`                                                                                |
+| `src/raw-pipeline/raw-wasm/Cargo.toml` (modify)     | `gpu` feature → depend on `raw-gpu` instead of `raw-core/gpu`                                                    |
+| `src/raw-pipeline/raw-wasm/src/gpu.rs` (modify)     | Call `raw_gpu::*` instead of `raw_core::gpu::*`                                                                  |
 
 ---
 
@@ -61,14 +61,17 @@ P0 found `wgpu 23.0.1`'s `request_device` **still takes the trace-path arg** (`N
 ```bash
 cd src/raw-pipeline && cargo test -p raw-gpu wgsl_exposure_matches_cpu_oracle_within_1e_4 -- --nocapture
 ```
+
 Expected: PASS, same numbers as P0 (`0 / 0 / 2.38e-7 / 0`).
 
 - [ ] **Step 6: Prove default builds unchanged.**
+
 ```bash
 cd src/raw-pipeline && cargo build -p raw-core && cargo build -p raw-wasm --target wasm32-unknown-unknown
 cargo tree -p raw-core -i wgpu   # expect "did not match any packages"
 cargo build -p raw-core --features gpu && cargo build -p raw-wasm --target wasm32-unknown-unknown --features gpu
 ```
+
 Expected: default builds clean with wgpu absent; `--features gpu` builds clean (now via raw-gpu).
 
 - [ ] **Step 7: Commit** (append the `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` trailer to every commit in this plan).
@@ -171,9 +174,9 @@ fn chain_runner_cancels_between_passes() {
 }
 ```
 
-- [ ] **Step 2:** Implement the two-size upload (just parameterized dims — downscaling the *pixels* is the caller's job, P4) and `run_cancellable(passes, &CancelToken) -> Option<Vec<f32>>` that checks the token before each pass-encode and bails. Run → PASS.
+- [ ] **Step 2:** Implement the two-size upload (just parameterized dims — downscaling the _pixels_ is the caller's job, P4) and `run_cancellable(passes, &CancelToken) -> Option<Vec<f32>>` that checks the token before each pass-encode and bails. Run → PASS.
 
-- [ ] **Step 3:** Update the module docs to state the two-phase contract (preview = small upload, refine = full upload; cancellation via the token; the *resolution-selection policy* and live wiring are P4). Commit.
+- [ ] **Step 3:** Update the module docs to state the two-phase contract (preview = small upload, refine = full upload; cancellation via the token; the _resolution-selection policy_ and live wiring are P4). Commit.
 
 ---
 
@@ -188,6 +191,6 @@ fn chain_runner_cancels_between_passes() {
 
 **Spec coverage:** `raw-gpu` crate → Task 1; upload-once → Task 2; ping-pong + zero inter-pass readback → Task 3 (+ readback_count assert); multi-pass parity proof → Task 4; preview/full-res + cancellable two-phase → Task 5. Off-by-default preserved → Task 1 Step 6. Headless-only / no live wiring → stated throughout. Acceptance items from #987 all mapped.
 
-**Placeholder scan:** no vague steps; every test has concrete code. Buffer-pool *internals* are intentionally left to the implementer (with the wgpu-drift note) — the API shape (`GpuContext`, `GpuImage`, `Pass`, `ChainRunner`, `ExposurePass`, `CancelToken`) and the parity contract are fixed here. That is design latitude, not a placeholder.
+**Placeholder scan:** no vague steps; every test has concrete code. Buffer-pool _internals_ are intentionally left to the implementer (with the wgpu-drift note) — the API shape (`GpuContext`, `GpuImage`, `Pass`, `ChainRunner`, `ExposurePass`, `CancelToken`) and the parity contract are fixed here. That is design latitude, not a placeholder.
 
 **Type consistency:** `apply_exposure_gain(&mut [f32], f32)`, `GpuImage::upload(&ctx, &[f32], u32, u32)`, `ChainRunner::run_blocking(&[&dyn Pass]) -> Vec<f32>`, `run_cancellable(&[&dyn Pass], &CancelToken) -> Option<Vec<f32>>`, `last_readback_count() -> u32` used consistently across Tasks 2–5.
