@@ -272,17 +272,19 @@ mkdir -p "$INCLUDE_DIR" "$HEADERS_DIR"
 echo "==> cbindgen — generating RawPipeline.h"
 (
     cd "$RAW_FFI_DIR"
-    # cbindgen evaluates `#[cfg(feature = "...")]` against cargo's
-    # CARGO_FEATURE_<NAME> env vars. In the gpu variant we export
-    # CARGO_FEATURE_GPU=1 so the gpu-gated FFI (`maple_gpu_exposure_parity`)
-    # is emitted into the header — required both for the symbol guard (which
-    # derives expected `maple_*` symbols from the header) and for Swift to
-    # see the declaration. In the default variant it stays unset, so the
-    # header is wgpu-free, exactly as shipped.
-    if [[ "$GPU_VARIANT" == "1" ]]; then
-        export CARGO_FEATURE_GPU=1
-    fi
+    # cbindgen parses source text regardless of the active Cargo feature set,
+    # so CARGO_FEATURE_GPU has NO effect on its output (verified). The gpu-gated
+    # FFI (`maple_gpu_*`, src/gpu.rs) is instead handled by cbindgen.toml's
+    # [defines] map, which wraps those declarations in `#if defined(MAPLE_GPU)`
+    # (Apple-only present entry: `#if (defined(MAPLE_GPU) && defined(__APPLE__))`)
+    # rather than emitting them unconditionally. In the default (shipping) build
+    # MAPLE_GPU is undefined for the Clang module importer, so the header
+    # declares NO `maple_gpu_*` symbols — keeping it in sync with the wgpu-free
+    # static libs (the symbol guard below depends on this exact correspondence).
+    # The gpu validation build defines MAPLE_GPU on both the Swift and -Xcc
+    # sides (see GpuDebugView.swift) to expose them.
     cbindgen \
+        --config cbindgen.toml \
         --lang C \
         --output "$INCLUDE_DIR/RawPipeline.h" \
         --crate raw-ffi \
@@ -382,13 +384,40 @@ rm -rf "$STAGING"
 # ---------------------------------------------------------------------------
 echo "==> symbol guard — verifying header symbols are present in every slice"
 
+# The gpu-gated FFI (`maple_gpu_*`) is emitted into the header wrapped in
+# `#if defined(MAPLE_GPU)` (see cbindgen.toml), and is compiled into the static
+# libs ONLY in the gpu variant (`--features gpu`). The expected symbol set must
+# therefore match the variant: in the default build the libs are wgpu-free and
+# the header's MAPLE_GPU-guarded declarations must be EXCLUDED; in the gpu
+# variant they are present in every slice and must be CHECKED. `header_active_text`
+# strips `#if ... MAPLE_GPU ... #endif` regions (nesting-aware) for the default
+# build and passes the header through unchanged for the gpu variant — so the
+# derived expectation always mirrors what was actually compiled.
+header_active_text() {
+    if [[ "$GPU_VARIANT" == "1" ]]; then
+        cat "$INCLUDE_DIR/RawPipeline.h"
+    else
+        awk '
+            /^[[:space:]]*#[[:space:]]*(if|ifdef|ifndef)/ {
+                parent = (sp > 0 ? st[sp] : 0)
+                cur = (index($0, "MAPLE_GPU") > 0 || parent) ? 1 : 0
+                sp++; st[sp] = cur
+                next
+            }
+            /^[[:space:]]*#[[:space:]]*endif/ { if (sp > 0) sp--; next }
+            { if (!(sp > 0 && st[sp])) print }
+        ' "$INCLUDE_DIR/RawPipeline.h"
+    fi
+}
+
 # (No `mapfile` — the Xcode/CLI shebang resolves to macOS's bash 3.2, which
 # lacks it. Read line-by-line into the array the portable way.)
 EXPECTED_SYMBOLS=()
 while IFS= read -r sym; do
     [[ -n "$sym" ]] && EXPECTED_SYMBOLS+=("$sym")
 done < <(
-    grep -vE '^[[:space:]]*\*' "$INCLUDE_DIR/RawPipeline.h" \
+    header_active_text \
+        | grep -vE '^[[:space:]]*\*' \
         | grep -oE '\bmaple_[a-z0-9_]+\(' \
         | sed 's/(//' \
         | sort -u
