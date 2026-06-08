@@ -134,13 +134,23 @@ public enum RawCoreBridge {
     /// treats a null xmp_path as "use AdjustmentModel::default()". Note
     /// (#973): that default is NOT identical to the stripped model — the
     /// strip forces `nrColor`/`sharpenAmount` to 0 while the Rust default
-    /// bakes them at 25/40. This is safe because the only live callers that
-    /// reach this nil/nil branch are the tile / `openRawHandle` openers
-    /// (`renderTile`, `decodePreviewTile`), which do NOT re-apply nr_color/
-    /// sharpen via Metal afterward — so there's no double-apply to avoid.
-    /// The scene-linear AgX path that DOES double-apply never reaches this
-    /// branch: it only runs for RAW assets, which always pass a non-nil
-    /// `profileOverride`, so it always takes the strip-temp-XMP branch.
+    /// bakes them at 25/40 (non-zero, so the decode runs both stages).
+    ///
+    /// The nil/nil branch IS reachable: unit tests and the tile /
+    /// `openRawHandle` openers (`renderTile`, `decodePreviewTile`,
+    /// `decodeSceneLinear` called without a `profileOverride`) all arrive
+    /// here. On that path the decode runs with `AdjustmentModel::default()`
+    /// (nrColor=25, sharpenAmount=40), but those callers do NOT execute the
+    /// Apple Metal post-decode `nr_color`/`sharpen` re-apply pass — so
+    /// there is no double-apply on this path.
+    ///
+    /// The PRODUCTION scene-linear AgX path (the one that WOULD double-apply
+    /// if nrColor/sharpenAmount were left non-zero in the decode) always
+    /// passes a non-nil `profileOverride`. That means it always takes the
+    /// strip-temp-XMP branch, which zeros both fields before the decode —
+    /// Metal then owns the sole live pass. This invariant is what #977
+    /// enforces; the nil/nil shortcut is never taken by that path.
+    ///
     /// When `profileOverride` is non-nil a temp XMP is always written (even
     /// with no sidecar) so the override lands.
     ///
