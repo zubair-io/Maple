@@ -104,6 +104,22 @@
 //!   positions) runs CPU-side ([`compute_airlight`], byte-exact vs raw-core) and
 //!   rides a uniform — the clean headless-parity path for a global reduction.
 //!   Parity-gated directly vs `raw_core::stages::dehaze::apply`.
+//! - [`NlmLumaPass`] / [`NlmColorPass`] — the first P3 SPATIAL stages (epic #925
+//!   P3 wave 1 / #991): fast non-local-means denoising in Oklab space (luma on
+//!   the L plane, color on the a/b planes with a wider search window). Unlike the
+//!   guided-filter / dehaze DAGs, NLM's outer loop is over SHIFTS — each offset in
+//!   the search window contributes a patch-similarity-weighted sample to a running
+//!   accumulator — so it stays ONE [`Pass`] and orchestrates a per-shift dispatch
+//!   loop over scratch planes. The (2P+1)² patch-SSD is recomputed DIRECTLY in the
+//!   accumulate kernel (NOT via raw-core's per-shift integral image), because an
+//!   integral-image accumulate would need a 5th storage buffer — over the
+//!   `downlevel_defaults()` 4-storage cap; the direct sum is the same set of terms
+//!   (~1e-6 order delta). The `fast_neg_exp` LUT weight is reproduced as
+//!   `lerp(exp(-x_i), exp(-x_{i+1}), frac)` on the grid it snaps to, so the GPU
+//!   matches raw-core's table-interpolated weight (not raw `exp`). Parity-gated
+//!   directly vs `raw_core::stages::noise_reduction::{apply_luminance,apply_color}`,
+//!   plus a plane-level gate vs `raw_core::stages::nlm::denoise_plane` that
+//!   isolates the NLM math from the Oklab round-trip.
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -121,6 +137,7 @@ mod dehaze;
 mod display_encode;
 mod exposure;
 mod image;
+mod noise_reduction;
 mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
@@ -141,6 +158,7 @@ pub use dehaze::{apply_dehaze, compute_airlight, DehazePass};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use image::GpuImage;
+pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};

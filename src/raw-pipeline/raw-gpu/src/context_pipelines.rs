@@ -235,6 +235,48 @@ impl GpuContext {
         self.dehaze_recover_pipeline
             .get_or_init(|| compile_standalone(&self.device, "dehaze-recover", include_str!("dehaze_recover.wgsl")))
     }
+
+    // ── Noise-reduction (NLM) pipelines (epic #925 P3 wave 1 / #991) ──────────
+    //
+    // All five entry points live in ONE WGSL module (`noise_reduction.wgsl`) —
+    // the extract / writeback kernels round pixels through Oklab, so the module
+    // concats the generated color matrices (like `vibrance_pipeline`). Each
+    // accessor compiles that shared source selecting its OWN `@compute` entry
+    // point (naga supports multiple entry points per module; `layout: None`
+    // derives the per-entry bind-group layout). The kernel proper recomputes the
+    // patch-SSD directly (no integral image) so the accumulate kernel fits the
+    // 4-storage cap — see `noise_reduction.wgsl`.
+
+    /// `extract_channel`: RGBA → one Oklab channel (L/a/b) scalar plane.
+    pub fn nr_extract_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.nr_extract_pipeline
+            .get_or_init(|| compile_nr(&self.device, "nr-extract", "extract_channel"))
+    }
+
+    /// `accumulate_shift`: the per-shift NLM core (direct patch-SSD → weight →
+    /// acc/wsum/max_w). 4 storage: plane + acc + wsum + max_w.
+    pub fn nr_accumulate_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.nr_accumulate_pipeline
+            .get_or_init(|| compile_nr(&self.device, "nr-accumulate", "accumulate_shift"))
+    }
+
+    /// `finalize`: `(acc + mw·plane) / (wsum + mw)`, written in place to acc.
+    pub fn nr_finalize_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.nr_finalize_pipeline
+            .get_or_init(|| compile_nr(&self.device, "nr-finalize", "finalize"))
+    }
+
+    /// `writeback_luma`: RGBA-src + denoised L → RGBA-dst (a/b recomputed).
+    pub fn nr_writeback_luma_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.nr_writeback_luma_pipeline
+            .get_or_init(|| compile_nr(&self.device, "nr-writeback-luma", "writeback_luma"))
+    }
+
+    /// `writeback_color`: RGBA-src + denoised a + denoised b → RGBA-dst (L recomputed).
+    pub fn nr_writeback_color_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.nr_writeback_color_pipeline
+            .get_or_init(|| compile_nr(&self.device, "nr-writeback-color", "writeback_color"))
+    }
 }
 
 /// Compile a standalone WGSL kernel (no generated-matrix concat) into a cached
@@ -253,8 +295,33 @@ fn compile_with_matrices(device: &wgpu::Device, label: &str, kernel: &str) -> wg
     compile_source(device, label, &source)
 }
 
-/// The shared module-create + pipeline-create boilerplate behind every accessor.
+/// Compile one of `noise_reduction.wgsl`'s entry points (epic #925 P3 / #991).
+/// The module rounds pixels through Oklab, so it concats the generated color
+/// matrices (like `compile_with_matrices`); `entry` selects which `@compute` fn
+/// the pipeline targets, since all five NLM kernels share one source file.
+fn compile_nr(device: &wgpu::Device, label: &str, entry: &str) -> wgpu::ComputePipeline {
+    let source = format!(
+        "{}\n{}",
+        include_str!("generated/color_matrices.wgsl"),
+        include_str!("noise_reduction.wgsl"),
+    );
+    compile_source_entry(device, label, &source, entry)
+}
+
+/// The shared module-create + pipeline-create boilerplate behind every accessor,
+/// for the common single-entry-point (`main`) case.
 fn compile_source(device: &wgpu::Device, label: &str, source: &str) -> wgpu::ComputePipeline {
+    compile_source_entry(device, label, source, "main")
+}
+
+/// As [`compile_source`], but selects a named `@compute` entry point — for WGSL
+/// modules that pack several kernels (the NLM stage's five entry points).
+fn compile_source_entry(
+    device: &wgpu::Device,
+    label: &str,
+    source: &str,
+    entry: &str,
+) -> wgpu::ComputePipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
         source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -263,7 +330,7 @@ fn compile_source(device: &wgpu::Device, label: &str, source: &str) -> wgpu::Com
         label: Some(&format!("{label}-pipeline")),
         layout: None,
         module: &shader,
-        entry_point: Some("main"),
+        entry_point: Some(entry),
         compilation_options: wgpu::PipelineCompilationOptions::default(),
         cache: None,
     })
