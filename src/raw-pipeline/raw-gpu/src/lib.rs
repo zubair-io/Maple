@@ -197,6 +197,7 @@ mod exposure;
 mod full_chain;
 mod image;
 mod live_chain;
+mod live_session;
 mod noise_reduction;
 // Passthrough display proof (P1b / #988): wgpu → CAMetalLayer present. Apple-
 // only — `SurfaceTargetUnsafe::CoreAnimationLayer` is wgpu-gated on
@@ -230,6 +231,7 @@ pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use full_chain::{build_full_chain_passes, build_split, BoxedPasses, FullChainInputs};
 pub use image::GpuImage;
 pub use live_chain::{build_live_chain, build_live_split, VIEW_TAIL_PASS_COUNT};
+pub use live_session::LiveSession;
 pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
