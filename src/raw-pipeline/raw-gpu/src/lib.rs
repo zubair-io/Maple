@@ -120,6 +120,17 @@
 //!   directly vs `raw_core::stages::noise_reduction::{apply_luminance,apply_color}`,
 //!   plus a plane-level gate vs `raw_core::stages::nlm::denoise_plane` that
 //!   isolates the NLM math from the Oklab round-trip.
+//! - [`SharpenPass`] — a P3 wave-2 SPATIAL stage (#991): luminance-only
+//!   unsharp-mask sharpening (`raw_core::stages::sharpen::apply`). A short linear
+//!   sub-pass chain — extract luma → blur it (raw-core's `gaussian_blur_plane` =
+//!   3 box-blur passes at `(radius_px/3).max(1)`, reusing [`box_blur_encode`]) →
+//!   per-pixel USM scale (shadow-guard smoothstep + scale clamp, luma-only so
+//!   chroma ratios survive) → an edge-aware amount/masking blend (a
+//!   central-difference luma gradient with clamp-to-edge borders). Stays ONE
+//!   [`Pass`]; every kernel ≤ 4 storage. Parity-gated directly vs
+//!   `raw_core::stages::sharpen::apply`, covering masking-off AND masking-on (the
+//!   gradient branch), amount past 100, and a step-edge fixture (so the USM is
+//!   non-vacuous — a smooth ramp is a near-fixed-point).
 //!
 //! **Headless only.** No platform display surface, no Swift, no web — the wgpu →
 //! `CAMetalLayer` (Apple) and wgpu → WebGPU-canvas (web) display paths are P1b
@@ -141,6 +152,7 @@ mod noise_reduction;
 mod residual_lut;
 mod saturation;
 mod scene_tone_controls;
+mod sharpen;
 mod spatial;
 mod texture;
 mod tone_curves;
@@ -162,6 +174,7 @@ pub use noise_reduction::{NlmColorPass, NlmLumaPass};
 pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPass};
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
+pub use sharpen::SharpenPass;
 pub use spatial::{
     alloc_plane, alloc_plane_vec2, alloc_rgba, box_blur_encode, box_blur_vec2_encode,
     clarity_texture_encode, encode_simple, guided_filter_self_encode, luma_extract_encode,
