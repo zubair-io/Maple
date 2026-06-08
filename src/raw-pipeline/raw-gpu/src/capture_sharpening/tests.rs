@@ -318,6 +318,59 @@ fn capture_border_and_interior_coverage_non_vacuous() {
     assert!(interior_worst < 1e-4, "interior diff {interior_worst} exceeds 1e-4");
 }
 
+/// The two PER-PIXEL skip-paths in `apply_scale` (raw-core's
+/// `if y_old < 1e-6 { return }` and `if blend <= 0.0 { return }`) — the silent
+/// trap where a bare GPU return would leave stale `dst` instead of `dst = src`.
+/// Other fixtures never TRIGGER them (soft-step floors at luma ~0.25, the
+/// highlight fixture tops at ~0.997), so this one plants a NEAR-BLACK pixel
+/// (extracted luma < 1e-6 → first skip) and a FULLY-CLIPPED pixel (luma >= 1.0 →
+/// `blend = strength * clamp((1-1)/(1-hi),0,1) = 0` → second skip) and confirms the
+/// GPU still matches raw-core `< 1e-4` (i.e. both write the source value through).
+#[test]
+fn capture_apply_scale_skip_paths_match_raw_core() {
+    let ctx = GpuContext::new_blocking();
+    let (w, h) = (32usize, 16usize);
+    // Mid-tone soft step (so most pixels DO get scaled — the gate isn't trivial)
+    // with two planted pathological pixels.
+    let mut input = soft_step_image(w, h);
+    let black = (0 * w + 0) * 4; // top-left: drive extracted luma to 0.
+    input[black] = 0.0;
+    input[black + 1] = 0.0;
+    input[black + 2] = 0.0;
+    let clipped = (8 * w + 16) * 4; // interior: luma >= 1.0 → blend == 0.
+    input[clipped] = 1.2;
+    input[clipped + 1] = 1.2;
+    input[clipped + 2] = 1.2;
+
+    let params = CaptureSharpeningParams::default();
+    let reference = raw_core_capture(&input, w as u32, h as u32, params);
+    let gpu = capture_gpu(&ctx, &input, w as u32, h as u32, params);
+
+    // The two planted pixels must come back unchanged on BOTH sides (raw-core's
+    // per-pixel `return` leaves them == input; the GPU must do the same via
+    // dst = src, NOT leave stale buffer data).
+    for (label, base) in [("near-black", black), ("clipped", clipped)] {
+        for c in 0..3 {
+            assert!(
+                (reference[base + c] - input[base + c]).abs() < 1e-6,
+                "{label} pixel: raw-core did not pass it through (policy drift)"
+            );
+            assert!(
+                (gpu[base + c] - input[base + c]).abs() < 1e-4,
+                "{label} pixel ch{c}: GPU skip-path left {} not src {} — dst=src missing",
+                gpu[base + c],
+                input[base + c]
+            );
+        }
+    }
+    let (max_diff, _) = max_diff_at(&reference, &gpu);
+    eprintln!("CAPTURE PARITY (skip-paths planted): max abs diff = {max_diff:e}");
+    assert!(
+        max_diff < 1e-4,
+        "skip-path fixture max abs diff {max_diff} exceeds 1e-4"
+    );
+}
+
 // ── Identity / robustness (the no-op guard set) ──────────────────────────────────
 
 /// `strength == 0.0` is a bit-exact no-op (raw-core's `disabled_at_zero_strength`):
