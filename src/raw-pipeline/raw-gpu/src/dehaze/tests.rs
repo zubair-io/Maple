@@ -5,24 +5,33 @@
 //! `sky_mask`, `recover_with_mask`) are all private in raw-core, so the only
 //! cross-crate surface is the public `apply` — we gate end-to-end through it.
 //!
-//! Dehaze's GLOBAL airlight reduction makes the test image design load-bearing:
-//! a UNIQUE bright patch gives the dark channel an unambiguous top-0.1% so the
-//! `sort_unstable_by` top-N selection can't tie-break differently between the
-//! CPU airlight derive and raw-core. The image is 128×128 so the guided filter's
-//! radius-60 window has interior pixels with FULL (non-truncated) windows as well
-//! as the truncated border ring.
+//! Dehaze's GLOBAL airlight reduction makes the test image design load-bearing.
+//! The top-0.1% of the dark channel must be selected UNAMBIGUOUSLY — the same
+//! pixels regardless of the sort comparator — or the CPU airlight derive and
+//! raw-core's `sort_unstable_by` could tie-break differently and `A` (which
+//! feeds both transmission and recovery) would diverge. In this image that
+//! unambiguity comes from the smooth diagonal gradient: the brightest
+//! dark-channel positions have DISTINCT values, so no two straddle the cut
+//! (the `total_cmp`-vs-`partial_cmp` cross-check in
+//! `compute_airlight_is_byte_exact_vs_independent_selection` confirms it — the
+//! measured A is ~[0.666, 0.627, 0.576], drawn from the bright gradient/border,
+//! NOT the small specular patch, whose 15×15 min-erosion keeps it out of the
+//! top-N). The image is 128×128 so the guided filter's radius-60 window has
+//! interior pixels with FULL (non-truncated) windows as well as the truncated
+//! border ring.
 
 use super::*;
 use crate::chain::ChainRunner;
 use crate::image::GpuImage;
 
-/// A 128×128 hazy RGBA f32 test image with: a hazy base + diagonal gradient, a
-/// darker low-transmission structure block (gives the dark channel real spatial
-/// variation), border-hugging features (so the clamp-to-edge min and the
-/// shrinking-window guided blurs both differ at the frame), and ONE small bright
-/// "haze source" patch whose dark channel is the unique global maximum — pinning
-/// the atmospheric-light top-0.1% selection. A slight per-channel skew keeps
-/// R:G:B non-neutral so the per-channel recovery is a real test.
+/// A 128×128 hazy RGBA f32 test image with: a hazy base + diagonal gradient
+/// (whose distinct dark-channel values give the airlight top-N an unambiguous,
+/// comparator-independent cut), a darker low-transmission structure block (gives
+/// the dark channel real spatial variation), border-hugging features (so the
+/// clamp-to-edge min and the shrinking-window guided blurs both differ at the
+/// frame), and a small bright "specular" patch that adds chroma variety. A
+/// slight per-channel skew keeps R:G:B non-neutral so the per-channel recovery is
+/// a real test.
 fn hazy_image(w: usize, h: usize) -> Vec<f32> {
     let mut v = vec![0.0f32; w * h * 4];
     for y in 0..h {
@@ -50,10 +59,12 @@ fn hazy_image(w: usize, h: usize) -> Vec<f32> {
             v[i + 3] = 1.0;
         }
     }
-    // Unique bright "haze source" patch — its dark channel is the global max, so
-    // atmospheric-light's top-0.1% selection is unambiguous (no sort tie-break
-    // divergence). 12×12 (> the 15×15 min neighbourhood's half-extent enough to
-    // give interior cells a window fully inside the patch) near the top-right.
+    // A small bright "specular" patch (12×12) near the top-right for extra
+    // chroma variety. NOTE: the 15×15 dark-channel min erodes a patch this
+    // small, so it does NOT dominate the airlight top-0.1% (the measured A is
+    // ~[0.666,…], drawn from the bright gradient/border). Airlight unambiguity
+    // comes from the gradient's distinct dc values, not this patch — see the
+    // module header and the byte-exact selection test.
     for y in 8..20 {
         for x in (w - 20)..(w - 8) {
             let i = (y * w + x) * 4;
