@@ -11,14 +11,23 @@ use crate::{
 };
 
 /// Ottosson's M1: linear sRGB → LMS. Published in his 2020 paper.
-const M1_SRGB_TO_LMS: Matrix3 = Matrix3([
+///
+/// `pub` so the cross-language codegen (`codegen` crate, epic #925 P2 /
+/// #990) can read it and emit the matching WGSL `const` for the GPU Oklab
+/// kernels. The single source of truth stays here — the WGSL emitter never
+/// re-types these numbers, it formats *this* constant. Widened from private
+/// in #990; no math changed.
+pub const M1_SRGB_TO_LMS: Matrix3 = Matrix3([
     [0.412_221_47, 0.536_332_54, 0.051_445_99],
     [0.211_903_50, 0.680_699_55, 0.107_396_96],
     [0.088_302_46, 0.281_718_84, 0.629_978_70],
 ]);
 
 /// Ottosson's M2: cube-rooted LMS → Lab. Published in his 2020 paper.
-const M2_LMS_TO_LAB: Matrix3 = Matrix3([
+///
+/// `pub` for the same reason as [`M1_SRGB_TO_LMS`] — the codegen WGSL
+/// emitter (#990) single-sources the Oklab matrices from these consts.
+pub const M2_LMS_TO_LAB: Matrix3 = Matrix3([
     [ 0.210_454_26,  0.793_617_79, -0.004_072_05],
     [ 1.977_998_50, -2.428_592_21,  0.450_593_71],
     [ 0.025_904_04,  0.782_771_77, -0.808_675_77],
