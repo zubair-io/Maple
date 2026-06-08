@@ -6,12 +6,12 @@
 //!
 //! ## What this gates
 //!
-//! The composed GPU chain (all 16 GPU-ported [`Pass`]es, in develop order) vs
+//! The composed GPU chain (all 17 GPU-ported [`Pass`]es, in develop order) vs
 //! the SAME stages composed on the CPU in the same order by calling the REAL
 //! `raw-core` stage functions sequentially (the test-only `raw-core` dev-dep) —
 //! not a hand-copied oracle. This is the capstone validation that the per-stage
 //! parity (each ≤ 3e-6 vs its Rust stage) survives composition: float error can
-//! only accumulate across the 16 stages, and this bounds the accumulated total.
+//! only accumulate across the 17 stages, and this bounds the accumulated total.
 //!
 //! Two representative adjustment sets, both with every per-pixel stage engaged
 //! PAST its raw-core no-op threshold so the CPU `apply` fns do NOT short-circuit
@@ -29,17 +29,19 @@
 //! hand-off with every slider omitted) is covered by the structural pass-count /
 //! prefix+suffix tests, NOT a numeric parity case.
 //!
-//! ## The srgb_gamma asymmetry (a documented gap, handled symmetrically)
+//! ## The full f32 view tail (P4a — gamma now GPU-resident)
 //!
-//! There is no GPU `srgb_gamma_encode` pass, so the assembled chain's view tail
-//! is `agx → display_encode (rec2020_to_srgb) → auto_profile_curve →
-//! residual_lut` with NO gamma step between display_encode and the curve. The CPU
-//! oracle MUST mirror that exactly — it also drops gamma — so the comparison is
-//! GPU-vs-CPU of the *same* composed stages (a true parity test), not GPU vs the
-//! production view tail. `rec2020_to_srgb`'s Oklab compression already lands
-//! values in `[0, 1]`, so the curve + LUT stay in-domain and non-degenerate. The
-//! missing gamma pass is reported as the headline view-tail gap P4b must fill
-//! (the live curve/LUT were fit in gamma space).
+//! With `SrgbGammaPass` ported (P4a), the assembled chain's view tail is
+//! `agx → display_encode (rec2020_to_srgb) → srgb_gamma → auto_profile_curve →
+//! residual_lut` — the complete f32 view tail, matching raw-core's `render`
+//! ordering (`rec2020_to_srgb → srgb_gamma_encode → apply_curve → ColorLut`)
+//! exactly. The CPU oracle mirrors it stage-for-stage (it also runs
+//! `srgb_gamma_encode` in that position), so the comparison is GPU-vs-CPU of the
+//! *same* composed stages — and the gamma step makes the curve + LUT operate on
+//! the gamma-encoded domain they were *fit in*, so this is now the production
+//! view tail (sans the final f32 → u8 `dither_and_quantize`, the display-OUTPUT
+//! step of P4b). `srgb_gamma`'s clamp lands values in `[0, 1]`, keeping the curve
+//! + LUT in-domain and non-degenerate.
 //!
 //! ## Dehaze airlight via a genuine mid-chain readback
 //!
@@ -197,8 +199,9 @@ impl Case {
 }
 
 /// The CPU reference: run the SAME stages in the SAME order by calling the real
-/// `raw-core` stage functions on an `Image`, then the view tail (NO gamma — see
-/// the module docs). Returns a flat interleaved RGBA buffer (alpha = 1.0).
+/// `raw-core` stage functions on an `Image`, then the full view tail (incl.
+/// `srgb_gamma_encode` in its render position — see the module docs). Returns a
+/// flat interleaved RGBA buffer (alpha = 1.0).
 fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
     for (i, chunk) in input.chunks_exact(4).enumerate() {
@@ -232,10 +235,15 @@ fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     raw_core::stages::noise_reduction::apply_luminance(&mut img, case.model.nr_luminance);
     raw_core::stages::noise_reduction::apply_color(&mut img, case.model.nr_color);
 
-    // --- view tail (NO srgb_gamma_encode — mirrors the GPU chain's gap) ---
+    // --- view tail (agx → rec2020_to_srgb → srgb_gamma_encode → curve → LUT,
+    //     matching the GPU suffix AND raw-core's render tail exactly) ---
     raw_core::view::agx::apply(&mut img, case.model.contrast);
     raw_core::view::encode::rec2020_to_srgb(&mut img);
-    // Buffer is now DisplayLinearSrgb in [0,1]. apply_curve / ColorLut operate on
+    // srgb_gamma_encode: the per-channel IEC OETF. Runs HERE — between
+    // rec2020_to_srgb and the Auto Profile curve/LUT — because the curve + LUT
+    // were fit in gamma space (mirrors the GPU `SrgbGammaPass` position).
+    raw_core::view::encode::srgb_gamma_encode(&mut img);
+    // Buffer is now DisplayEncodedSrgb in [0,1]. apply_curve / ColorLut operate on
     // an interleaved RGB f32 slice; run them on the same domain the GPU passes do.
     let mut rgb: Vec<f32> = Vec::with_capacity(img.pixels.len() * 3);
     for p in &img.pixels {
@@ -306,15 +314,22 @@ fn moved(input: &[f32], out: &[f32]) -> f32 {
     max_abs_diff(input, out)
 }
 
-/// Accumulated-error budget for the full 16-stage composed chain.
+/// Accumulated-error budget for the full 17-stage composed chain.
 ///
-/// Per-stage parity is ≤ 3e-6 vs each Rust stage; 16 stages of f32 arithmetic
+/// Per-stage parity is ≤ 3e-6 vs each Rust stage; 17 stages of f32 arithmetic
 /// (including the iterative capture-sharpening RL loop FIRST, whose error then
 /// feeds every downstream stage, plus three spatial DAGs and two NLM passes)
 /// accumulate well under the per-stage `1e-4` ceiling the whole epic gates at.
-/// We keep the same `1e-4` ceiling the per-stage tests use; the measured value
-/// is printed so any regression toward it is visible. (Investigated: the
-/// measured aggressive-case max sits far below this — see the eprintln output.)
+///
+/// The P4a `srgb_gamma` stage is a per-channel AMPLIFIER of the accumulated
+/// scene/view diff, by design: the OETF slope just above the 0.0031308 knee is
+/// ~13×, so a few-ULP upstream diff on a deep-shadow pixel grows by an order of
+/// magnitude through gamma; additionally a pixel that straddles the knee can take
+/// the linear branch on one side and the power branch on the other (the sRGB
+/// curve's ~2.4e-5 join discontinuity). Both mechanisms are inherent — they lift
+/// the measured full-chain max above the pre-gamma 8.4e-6, but it stays well
+/// under `1e-4`. We keep the same `1e-4` ceiling the per-stage tests use; the
+/// measured value is printed so any regression toward it is visible.
 const FULL_CHAIN_BUDGET: f32 = 1e-4;
 
 /// The mild case: every per-pixel stage engaged just PAST its raw-core no-op
@@ -483,9 +498,10 @@ fn aggressive_case_is_non_vacuous() {
     let case = aggressive_case();
     let cpu = cpu_oracle(&input, w as u32, h as u32, &case);
     let m = moved(&input, &cpu);
-    // The view transform alone (AgX + display-encode + gamma-domain curve) moves
-    // every pixel substantially; an engaged slider chain moves it more. A floor
-    // of 0.1 is comfortably below the real delta and well above float noise.
+    // The view transform alone (AgX + display-encode + srgb_gamma + the
+    // gamma-space curve) moves every pixel substantially; an engaged slider chain
+    // moves it more. A floor of 0.1 is comfortably below the real delta and well
+    // above float noise.
     assert!(
         m > 0.1,
         "aggressive chain moved the image by only {m:e} — gate would be vacuous"
@@ -508,17 +524,17 @@ fn single_vec_equals_prefix_plus_suffix() {
         prefix.len() + suffix.len(),
         "single-Vec assembly must equal prefix + suffix length"
     );
-    // The aggressive case engages every stage incl. capture_sharpening → all 16
-    // GPU-ported passes are present.
+    // The aggressive case engages every stage incl. capture_sharpening → all 17
+    // GPU-ported passes are present (16 scene/view stages + srgb_gamma).
     assert_eq!(
         full.len(),
-        16,
-        "aggressive full chain must have all 16 passes"
+        17,
+        "aggressive full chain must have all 17 passes"
     );
 }
 
 /// A case with `capture: None` omits capture_sharpening (params None ⇒ stage
-/// absent, exactly as develop omits it), so the assembled chain has 15 passes —
+/// absent, exactly as develop omits it), so the assembled chain has 16 passes —
 /// proving the builder mirrors develop's capture-sharpening gating (the one
 /// legitimate builder gate) rather than always including it.
 #[test]
@@ -528,8 +544,8 @@ fn neutral_chain_omits_capture_sharpening() {
     let full = build_full_chain_passes(&inputs, [0.0; 3]);
     assert_eq!(
         full.len(),
-        15,
-        "neutral chain (no capture-sharpening) must have 15 passes"
+        16,
+        "neutral chain (no capture-sharpening) must have 16 passes"
     );
     // Sanity: PROFILE_CURVE_FLAT_LEN is the curve flat length the Pass asserts —
     // the neutral identity curve must match it (else the Pass panics at encode).
