@@ -40,12 +40,18 @@ console_error_panic_hook = { version = "0.1" }
 # Future↔Promise glue for the exported async WebGPU parity binding. wasm-only;
 # optional + gated by `gpu`. (wgpu itself now comes via the `raw-gpu` dep.)
 wasm-bindgen-futures = { version = "0.4", optional = true }
+# Canvas handle for the P1c (#989) web present binding: the exported
+# `present_gpu(canvas)` takes a `web_sys::HtmlCanvasElement` to hand to
+# `raw_gpu::present_test_pattern_web`. wasm-only; optional + gated by `gpu` so
+# default + host builds never pull web-sys. (web-sys is already in the wasm tree
+# transitively via wgpu; this turns on the `HtmlCanvasElement` feature gate.)
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"], optional = true }
 
 [features]
 default = []
 # Enable the parallel (rayon + wasm-bindgen-rayon) thread-pool entry points.
 # The WASM build turns this on via `wasm-pack build -- --features parallel`.
 parallel = ["dep:wasm-bindgen-rayon", "dep:rayon"]
-# Epic #925: WebGPU exposure parity binding, backed by the `raw-gpu` resource
-# core. OFF by default.
-gpu = ["dep:raw-gpu", "dep:wasm-bindgen-futures"]
+# Epic #925: WebGPU exposure parity binding + web present proof (P1c / #989),
+# backed by the `raw-gpu` resource core. OFF by default.
+gpu = ["dep:raw-gpu", "dep:wasm-bindgen-futures", "dep:web-sys"]
