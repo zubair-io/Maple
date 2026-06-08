@@ -1,0 +1,275 @@
+//! Gated LIVE-chain builder (epic #925, P4b-core / #1027).
+//!
+//! [`crate::build_full_chain_passes`] / [`crate::build_split`] (P4a) compose the
+//! full develop+view chain but run **every pass unconditionally** — that is the
+//! *composition* layer, and `full_chain/tests.rs` proves the resulting
+//! neutral-slider divergence (~3.7e-3 vs the CPU pipeline) is **by design**: the
+//! per-stage short-circuit (each `raw_core::stages::*::apply` early-returns at its
+//! no-op threshold) is the **caller's** job, "the P4b live chain, NOT this
+//! composition layer."
+//!
+//! This module is that caller. [`build_live_chain`] decides pass INCLUSION from
+//! the live `AdjustmentModel` (carried as [`FullChainInputs`]) using the SAME
+//! predicates raw-core's `apply` fns use, then delegates pass CONSTRUCTION to the
+//! `build_split` primitives (same structs, same develop order). The result: a
+//! neutral model omits every no-op pass and the GPU output matches `develop` +
+//! `render`'s neutral output within `1e-4` — Risk A closed.
+//!
+//! ## Why a new wrapper (not a flag on `build_split`)
+//!
+//! `build_split`'s tests assert specific pass COUNTS (the aggressive case = 17
+//! passes; the capture-sharpening-off case = 16). Pushing gating into it would
+//! break those structural gates and conflate "compose the canonical chain" with
+//! "decide which passes a given edit needs." Gating lives here; `build_split`
+//! stays the canonical-assembly artifact. We can't introspect `Box<dyn Pass>`, so
+//! this REPLICATES `build_split`'s one-push-per-stage body with `if predicate {
+//! push(SameStruct) }` rather than calling `build_split` then filtering. The lone
+//! drift hazard — develop order now living in two places — is covered by the
+//! numeric parity gate (a reordered or missing pass fails it) plus the
+//! pass-count/order structural tests in `live_chain/tests.rs`.
+//!
+//! ## The gate predicates (single-sourced from `raw-core/src/stages/*`)
+//!
+//! - `vibrance` / `saturation` / `clarity` / `texture` / `dehaze`:
+//!   `slider.abs() < 1e-3` → omit (each stage's `apply` returns early there).
+//! - `white_balance`: `(temp - 6500).abs() < 0.5 && tint.abs() < 0.5` → omit.
+//!   The live builder gates on the temp/tint [`FullChainInputs`] carries (NOT a
+//!   matrix near-identity test — at 6500K the CAT16 round-trip matrix is ~6.9e-3
+//!   off identity, and a temp 0.5K past the band produces an indistinguishable
+//!   matrix, so no matrix tolerance separates apply from skip). See [`wb_is_noop`].
+//! - `scene_tone_controls`: omit only if ALL of `exposure.abs() < 1e-6 &&
+//!   {highlights,shadows,whites,blacks}.abs() < 1e-3` (raw-core `mod.rs:22-28`).
+//! - `tone_curves`: omit only if no parametric field `≥ 1e-3` AND every point
+//!   curve is identity (raw-core `mod.rs:82-102`).
+//! - `sharpen`: `amount.abs() < 1e-3` → omit. `nr_luminance` / `nr_color`:
+//!   `< 1e-3` → omit.
+//! - `capture_sharpening`: already gated via `Option` (generalised here).
+//! - View tail (`agx`, `display_encode`, `srgb_gamma`, `auto_profile_curve`,
+//!   `residual_lut`) ALWAYS run — even a neutral image must go through the view
+//!   transform to become a display image. `dither` (P4b terminal) is appended by
+//!   the live session, not here (this builder is f32-RGBA, like `build_split`).
+
+use crate::agx::AgxPass;
+use crate::auto_profile_curve::AutoProfileCurvePass;
+use crate::capture_sharpening::CaptureSharpeningPass;
+use crate::clarity::ClarityPass;
+use crate::dehaze::DehazePass;
+use crate::display_encode::DisplayEncodePass;
+use crate::full_chain::{BoxedPasses, FullChainInputs};
+use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
+use crate::residual_lut::ResidualLutPass;
+use crate::saturation::SaturationPass;
+use crate::scene_tone_controls::SceneToneControlsPass;
+use crate::sharpen::SharpenPass;
+use crate::srgb_gamma::SrgbGammaPass;
+use crate::texture::TexturePass;
+use crate::tone_curves::ToneCurvesPass;
+use crate::vibrance::VibrancePass;
+use crate::white_balance::WhiteBalancePass;
+
+/// The per-pixel slider no-op threshold raw-core uses across vibrance,
+/// saturation, clarity, texture, dehaze, sharpen, NR, and the scene-tone
+/// non-exposure fields (`raw_core::stages::*` all gate at `abs() < 1e-3`).
+const SLIDER_EPS: f32 = 1e-3;
+/// Exposure's tighter threshold (`scene_tone_controls::apply` gates exposure at
+/// `abs() < 1e-6`, the other four tone fields at `< 1e-3`).
+const EXPOSURE_EPS: f32 = 1e-6;
+/// White-balance neutral white point (Kelvin) and the half-degree short-circuit
+/// band `white_balance::apply` uses (`(temp - 6500).abs() < 0.5 && tint.abs() <
+/// 0.5`). The live builder gates on these directly (see [`wb_is_noop`]).
+const WB_NEUTRAL_KELVIN: f32 = 6500.0;
+const WB_SKIP_BAND: f32 = 0.5;
+
+/// Whether the scene-tone-controls stage is a no-op for these sliders — the EXACT
+/// predicate from `raw_core::stages::scene_tone_controls::apply` (`mod.rs:22-28`):
+/// exposure within `1e-6` AND highlights/shadows/whites/blacks each within `1e-3`.
+/// `tone = [exposure, highlights, shadows, whites, blacks]`.
+fn scene_tone_is_noop(tone: &[f32; 5]) -> bool {
+    tone[0].abs() < EXPOSURE_EPS
+        && tone[1].abs() < SLIDER_EPS
+        && tone[2].abs() < SLIDER_EPS
+        && tone[3].abs() < SLIDER_EPS
+        && tone[4].abs() < SLIDER_EPS
+}
+
+/// Whether the tone-curves stage is a no-op — mirrors
+/// `raw_core::stages::tone_curves::apply` (`mod.rs:82-102`): no parametric field
+/// `≥ 1e-3` AND every point curve (luma / R / G / B) is identity.
+///
+/// A point curve is identity iff its point list is EMPTY — this is exactly
+/// `raw_core::types::ToneCurve::is_identity` (`curves.rs:74` = `points.is_empty()`),
+/// which treats even `[(0,0),(1,1)]` as a real (non-identity) curve that the
+/// stage runs. The live builder carries the curves as flat point lists
+/// (`ToneCurveInputs`), so the test is the same emptiness check here (no
+/// raw-core dep), keeping the GPU's pass-inclusion bit-for-bit with develop's.
+fn tone_curves_is_noop(inputs: &crate::tone_curves::ToneCurveInputs) -> bool {
+    let parametric_active = inputs.parametric.iter().any(|p| p.abs() >= SLIDER_EPS);
+    if parametric_active {
+        return false;
+    }
+    inputs.luma.is_empty()
+        && inputs.red.is_empty()
+        && inputs.green.is_empty()
+        && inputs.blue.is_empty()
+}
+
+/// Whether white balance is a no-op for `(temperature, tint)` — the EXACT
+/// predicate `raw_core::stages::white_balance::apply` short-circuits on
+/// (`white_balance.rs:169`): `(temp - 6500).abs() < 0.5 && tint.abs() < 0.5`.
+///
+/// Gating on temp/tint (not the derived matrix) is REQUIRED for parity: at 6500K
+/// the CAT16 round-trip matrix sits ~6.9e-3 off identity (a matrix-identity test
+/// would wrongly fire and OMIT WB even when the CPU applies it), and conversely a
+/// temp 0.5K outside the band yields a matrix indistinguishable from the 6500K
+/// one — so no matrix tolerance can separate "CPU applies" from "CPU skips". The
+/// temp/tint the matrix was derived from is the only sound discriminator.
+fn wb_is_noop(temperature: f32, tint: f32) -> bool {
+    (temperature - WB_NEUTRAL_KELVIN).abs() < WB_SKIP_BAND && tint.abs() < WB_SKIP_BAND
+}
+
+/// Build the LIVE develop+view chain for `inputs`, OMITTING every no-op pass
+/// (the gated counterpart to [`crate::build_full_chain_passes`]). A neutral
+/// `AdjustmentModel` yields only the always-on view tail; each engaged slider
+/// adds exactly its pass. The view tail's `dither` terminal (P4b) is appended by
+/// the live session, not here — this builder stays f32-RGBA, like `build_split`.
+///
+/// `airlight` seeds the `DehazePass` (only built when dehaze is engaged). For the
+/// live loop the airlight is produced on-GPU (C5); the headless gate passes the
+/// CPU [`crate::compute_airlight`] of the pre-dehaze buffer.
+pub fn build_live_chain(inputs: &FullChainInputs, airlight: [f32; 3]) -> BoxedPasses {
+    let (prefix, suffix) = build_live_split(inputs, airlight);
+    let mut all = prefix;
+    all.extend(suffix);
+    all
+}
+
+/// The split form of [`build_live_chain`], mirroring [`crate::build_split`]'s
+/// `(prefix, suffix)` shape so the airlight readback path (C5a) can run the
+/// pre-dehaze prefix, derive the airlight, then build the dehaze+suffix.
+///
+/// Returns `(prefix, suffix)` where:
+///   - `prefix` = the gated scene-linear stages BEFORE dehaze (capture_sharpening
+///     through texture), each included only if engaged.
+///   - `suffix` = dehaze (only if engaged) + sharpen + NR (each gated) + the
+///     always-on view tail.
+///
+/// DEGENERATE-DEHAZE NOTE: when dehaze is omitted (`|dehaze| < 1e-3`), the suffix
+/// simply has no `DehazePass` at its head — it is still a coherent, runnable Vec
+/// (sharpen/NR/view-tail). Callers that need the mid-chain airlight readback
+/// (C5a) must therefore check whether dehaze is engaged before bothering with the
+/// prefix→readback→suffix dance: with dehaze off there is nothing position-
+/// dependent to measure and `build_live_chain` (one run) is the right entry. The
+/// `airlight` argument is ignored when dehaze is omitted.
+#[allow(clippy::vec_init_then_push)]
+pub fn build_live_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses, BoxedPasses) {
+    // --- Prefix: capture_sharpening (FIRST, develop's 04b placement) through
+    //     texture. Each pass is included only when its stage is NOT a no-op,
+    //     replicating develop's per-stage `if` guards / the `apply` short-circuit. ---
+    let mut prefix: BoxedPasses = Vec::new();
+    if let Some(params) = inputs.capture_sharpening {
+        // Already `Option`-gated in `build_split`; `Some` === develop ran the stage.
+        prefix.push(Box::new(CaptureSharpeningPass { params }));
+    }
+    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
+        prefix.push(Box::new(WhiteBalancePass {
+            matrix: inputs.wb_matrix,
+        }));
+    }
+    if !scene_tone_is_noop(&inputs.tone) {
+        prefix.push(Box::new(SceneToneControlsPass {
+            exposure: inputs.tone[0],
+            highlights: inputs.tone[1],
+            shadows: inputs.tone[2],
+            whites: inputs.tone[3],
+            blacks: inputs.tone[4],
+        }));
+    }
+    if !tone_curves_is_noop(&inputs.tone_curves) {
+        prefix.push(Box::new(ToneCurvesPass {
+            inputs: inputs.tone_curves.clone(),
+        }));
+    }
+    if inputs.vibrance.abs() >= SLIDER_EPS {
+        prefix.push(Box::new(VibrancePass {
+            vibrance: inputs.vibrance,
+        }));
+    }
+    if inputs.saturation.abs() >= SLIDER_EPS {
+        prefix.push(Box::new(SaturationPass {
+            saturation: inputs.saturation,
+        }));
+    }
+    if inputs.clarity.abs() >= SLIDER_EPS {
+        prefix.push(Box::new(ClarityPass {
+            clarity: inputs.clarity,
+        }));
+    }
+    if inputs.texture.abs() >= SLIDER_EPS {
+        prefix.push(Box::new(TexturePass {
+            texture: inputs.texture,
+        }));
+    }
+
+    // --- Suffix: dehaze (gated; airlight from the prefix output) → sharpen → NR
+    //     (gated) → the always-on view tail. ---
+    let mut suffix: BoxedPasses = Vec::new();
+    if inputs.dehaze.abs() >= SLIDER_EPS {
+        suffix.push(Box::new(DehazePass {
+            dehaze: inputs.dehaze,
+            airlight,
+        }));
+    }
+    if inputs.sharpen_amount.abs() >= SLIDER_EPS {
+        suffix.push(Box::new(SharpenPass {
+            amount: inputs.sharpen_amount,
+            radius: inputs.sharpen_radius,
+            detail: inputs.sharpen_detail,
+            masking: inputs.sharpen_masking,
+        }));
+    }
+    if inputs.nr_luminance.abs() >= SLIDER_EPS {
+        suffix.push(Box::new(NlmLumaPass {
+            nr_luminance: inputs.nr_luminance,
+        }));
+    }
+    if inputs.nr_color.abs() >= SLIDER_EPS {
+        suffix.push(Box::new(NlmColorPass {
+            nr_color: inputs.nr_color,
+        }));
+    }
+
+    // View tail — ALWAYS runs (the scene→display transform). AgX at contrast 0
+    // is the neutral view transform, not a no-op: it still tone-maps. Mirrors
+    // `build_split`'s tail order exactly (agx → display_encode → srgb_gamma →
+    // auto_profile_curve → residual_lut). `dither` is the session's terminal.
+    suffix.push(Box::new(AgxPass {
+        contrast: inputs.contrast,
+    }));
+    suffix.push(Box::new(DisplayEncodePass));
+    suffix.push(Box::new(SrgbGammaPass));
+    suffix.push(Box::new(AutoProfileCurvePass {
+        flat_curve: inputs.profile_curve_flat.clone(),
+    }));
+    suffix.push(Box::new(ResidualLutPass {
+        size: inputs.residual_lut_size,
+        data: inputs.residual_lut_data.clone(),
+    }));
+
+    (prefix, suffix)
+}
+
+/// The number of always-on view-tail passes (`agx`, `display_encode`,
+/// `srgb_gamma`, `auto_profile_curve`, `residual_lut`). A neutral chain has
+/// exactly this many passes; each engaged slider adds one (or, for the spatial
+/// stages, still one `Pass` — they orchestrate their own sub-dispatches). Public
+/// so the live-session terminal-`dither` wiring (C2/C3) and the tests can assert
+/// the floor without re-counting the tail by hand.
+pub const VIEW_TAIL_PASS_COUNT: usize = 5;
+
+// Parity tests live in a sibling file to keep this module under the 600-LOC
+// budget (mirrors full_chain / dehaze's tests.rs split). They drive the SHARED
+// `crate::full_chain::oracle` harness so the live gate's CPU reference can't
+// drift from the P4a gate's. Native test builds only.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_chain/tests.rs"]
+mod tests;
