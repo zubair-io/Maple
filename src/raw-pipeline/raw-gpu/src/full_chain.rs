@@ -99,6 +99,18 @@ pub struct FullChainInputs {
     /// Pre-derived linear-Rec.2020 white-balance matrix (raw-core's
     /// `wb_cat16_matrix` or a diagonal from `wb_gains`).
     pub wb_matrix: [[f32; 3]; 3],
+    /// The white-balance temperature (Kelvin) + tint the `wb_matrix` was derived
+    /// from. Carried alongside the matrix so the LIVE builder
+    /// ([`crate::build_live_chain`]) can gate WB on raw-core's EXACT short-circuit
+    /// predicate — `(temp - 6500).abs() < 0.5 && tint.abs() < 0.5` — instead of a
+    /// matrix near-identity test, which is structurally broken here: at 6500K the
+    /// CAT16 round-trip yields a matrix ~6.9e-3 off identity (so a matrix-identity
+    /// gate wrongly fires), and a temp 0.5K past the skip band produces a matrix
+    /// indistinguishable from the 6500K one (no tolerance separates apply from
+    /// skip). The composition builder ([`build_split`]) ignores these — it always
+    /// pushes WB — so they're inert outside the live path.
+    pub wb_temperature: f32,
+    pub wb_tint: f32,
     /// Scene-tone-controls sliders (exposure / highlights / shadows / whites /
     /// blacks), each `[-100, 100]` (exposure in EV).
     pub tone: [f32; 5],
@@ -230,6 +242,14 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
 
     (prefix, suffix)
 }
+
+// Shared test-support harness (CPU oracle + `Case` + the scene-linear fixture),
+// declared once here and reached by BOTH this module's `tests.rs` and the P4b
+// `live_chain/tests.rs` via `crate::full_chain::oracle::*` — so the live gate
+// drives the same reference rather than a drifting copy. Test+native only.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "full_chain/oracle.rs"]
+pub(crate) mod oracle;
 
 // Parity tests live in a sibling file to keep this module under the 600-LOC
 // budget (mirrors clarity / dehaze's tests.rs split). Native test builds only —
