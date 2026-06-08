@@ -30,7 +30,7 @@
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use wgpu::util::DeviceExt;
+use crate::spatial::encode_simple;
 
 /// `repr(C)` params uniform shared by the WGSL kernel (`saturation.wgsl`).
 /// `scale` is `1.0 + saturation / 100.0`; `count` is the RGBA pixel count;
@@ -260,43 +260,16 @@ impl Pass for SaturationPass {
             _pad0: 0,
             _pad1: 0,
         };
-        let params_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("saturation-params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-
-        let pipeline = ctx.saturation_pipeline();
-        // Fresh bind group per pass: a bind group's bound buffers are fixed at
-        // creation, so each ping-pong direction (src/dst) needs its own.
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("saturation-bg"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: src.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: dst.as_entire_binding(),
-                },
-            ],
-        });
-
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("saturation-pass"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(pixel_count.div_ceil(64), 1, 1);
+        // Pooled per-pixel dispatch (P4b-core C3): params @0, src @1, dst @2.
+        encode_simple(
+            ctx,
+            encoder,
+            ctx.saturation_pipeline(),
+            bytemuck::bytes_of(&params),
+            &[src, dst],
+            pixel_count,
+            "saturation",
+        );
     }
 }
 

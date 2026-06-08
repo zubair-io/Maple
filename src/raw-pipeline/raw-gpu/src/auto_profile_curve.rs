@@ -35,7 +35,7 @@
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use wgpu::util::DeviceExt;
+use crate::spatial::{encode_simple, pool_data_storage};
 
 /// Flat f32 length of a serialized `ProfileCurve` — mirrors
 /// `raw_core::view::auto_profile::curve::PROFILE_CURVE_FLAT_LEN`:
@@ -299,57 +299,27 @@ impl Pass for AutoProfileCurvePass {
             apply_chroma: should_apply_chroma(&self.flat_curve) as u32,
             _pad0: 0,
         };
-        let meta_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("auto-profile-curve-meta"),
-                contents: bytemuck::bytes_of(&meta),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         // Curve params in a READ-ONLY STORAGE buffer (4-byte stride). A uniform
         // `array<f32, N>` would get a 16-byte per-element stride and silently
         // misalign — the analog of white_balance's mat3x3 column-major trap.
-        let curve_buf = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("auto-profile-curve-params"),
-                contents: bytemuck::cast_slice(&self.flat_curve),
-                usage: wgpu::BufferUsages::STORAGE,
-            });
+        // POOLED (P4b-core C3): the fitted curve is session-constant — uploaded
+        // once per chain shape, reused every tick (not re-uploaded on a hit).
+        let curve_buf = pool_data_storage(
+            ctx,
+            bytemuck::cast_slice(&self.flat_curve),
+            "auto-profile-curve-params",
+        );
 
-        let pipeline = ctx.auto_profile_curve_pipeline();
-        // Fresh bind group per pass: a bind group's bound buffers are fixed at
-        // creation, so each ping-pong direction (src/dst) needs its own.
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("auto-profile-curve-bg"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: meta_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: src.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: dst.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: curve_buf.as_entire_binding(),
-                },
-            ],
-        });
-
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("auto-profile-curve-pass"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(pixel_count.div_ceil(64), 1, 1);
+        // Pooled 4-binding dispatch: meta @0, src @1, dst @2, curve @3.
+        encode_simple(
+            ctx,
+            encoder,
+            ctx.auto_profile_curve_pipeline(),
+            bytemuck::bytes_of(&meta),
+            &[src, dst, curve_buf.as_ref()],
+            pixel_count,
+            "auto-profile-curve",
+        );
     }
 }
 
