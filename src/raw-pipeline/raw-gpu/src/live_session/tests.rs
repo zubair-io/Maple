@@ -16,6 +16,7 @@ use crate::chain::ChainRunner;
 use crate::dither::encode_dither;
 use crate::full_chain::oracle::{nonidentity_curve, nonidentity_lut, scene_linear_rgba, Case};
 use crate::image::GpuImage;
+use crate::dehaze::AirlightSource;
 use crate::live_chain::build_live_chain;
 use crate::{compute_airlight, CancelToken, GpuContext, Pass};
 
@@ -32,11 +33,17 @@ use raw_core::xmp::AdjustmentModel;
 /// `build_live_split` prefix through a ChainRunner, `compute_airlight` on that
 /// read-back buffer, then build the full chain with the SAME A. When dehaze is
 /// off, A is unused.
-fn reference_u8(ctx: &GpuContext, input: &[f32], w: u32, h: u32, inputs: &crate::FullChainInputs) -> Vec<u8> {
+pub(super) fn reference_u8(
+    ctx: &GpuContext,
+    input: &[f32],
+    w: u32,
+    h: u32,
+    inputs: &crate::FullChainInputs,
+) -> Vec<u8> {
     let airlight = if crate::dehaze_is_active(inputs) {
         // Run the pre-dehaze prefix, read it back, measure A from it — exactly the
         // buffer dehaze sees, matching the session.
-        let (prefix, _) = crate::build_live_split(inputs, [0.0; 3]);
+        let (prefix, _) = crate::build_live_split(inputs, AirlightSource::Cpu([0.0; 3]));
         let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
         let pimg = GpuImage::upload(ctx, input, w, h);
         let prunner = ChainRunner::new(ctx, &pimg);
@@ -45,7 +52,7 @@ fn reference_u8(ctx: &GpuContext, input: &[f32], w: u32, h: u32, inputs: &crate:
     } else {
         [0.0; 3]
     };
-    let passes = build_live_chain(inputs, airlight);
+    let passes = build_live_chain(inputs, AirlightSource::Cpu(airlight));
     let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
 
     // Chain → final f32 (one readback).
@@ -173,32 +180,19 @@ fn neutral_case() -> Case {
     }
 }
 
-/// A DEHAZE-ONLY case: the all-no-op base + `dehaze = 45`, neutral WB (6500/0),
-/// exposure 0. Nothing else is engaged, so at a realistic size the ONLY active
-/// scene-linear stage is dehaze and any parity delta is unambiguously dehaze /
-/// airlight — no sharpen/NR/clarity/texture interior kernels to confound the
-/// attribution. Curve/LUT stay non-identity (the view tail still runs).
-fn dehaze_only_case() -> Case {
-    let model = AdjustmentModel {
-        dehaze: 45.0,
-        sharpen_amount: 0.0,
-        nr_color: 0.0,
-        auto_exposure: AutoExposureMode::Off,
-        ..AdjustmentModel::default()
-    };
-    Case {
-        model,
-        capture: None,
-        curve: nonidentity_curve(),
-        lut: nonidentity_lut(9),
-        wb_method: WbMethod::Cat16,
-    }
-}
-
 /// STEP 1 GATE: `LiveSession::render_to_buffer` is BIT-IDENTICAL to the direct
 /// `build_live_chain` + `ChainRunner` + `encode_dither` composition, across a
 /// neutral / mild / aggressive adjustment set. (Byte-exact: both run the same
 /// math; the session just fuses chain→dither into one encoder.)
+///
+/// This is a PLUMBING gate — it isolates the session's chain→dither fusion +
+/// single readback, NOT the airlight method. So it runs against the CPU-readback
+/// session (`new_with_airlight_readback`), which shares the EXACT `compute_airlight`
+/// the `reference_u8` composition uses, keeping the byte-exact contract meaningful.
+/// The DEFAULT on-GPU airlight (#1033) intentionally diverges from the CPU sort at
+/// the degenerate 8×8 `top_n = 1` argmax; its end-to-end dehaze parity is gated
+/// (with a tolerance, on a realistic fixture) by
+/// `on_gpu_dehaze_matches_cpu_reference_on_hazy_fixture`.
 #[test]
 fn session_render_matches_direct_chain_plus_dither_byte_exact() {
     let ctx = GpuContext::new_blocking();
@@ -211,8 +205,8 @@ fn session_render_matches_direct_chain_plus_dither_byte_exact() {
         ("aggressive", aggressive_case()),
     ] {
         let inputs = case.gpu_inputs();
-    
-        let session = LiveSession::new(&ctx, &input, w, h);
+
+        let session = LiveSession::new_with_airlight_readback(&ctx, &input, w, h);
         let cancel = CancelToken::new();
         let got = session
             .render_to_buffer(&ctx, &inputs, &cancel)
@@ -460,105 +454,3 @@ fn signature_change_allocates_once_then_zero() {
     assert_eq!(a3, 0, "returning to shape A must reuse its cached bucket (zero-alloc)");
 }
 
-/// THE INTERIOR-AIRLIGHT GATE (C5a, Risk B "realistic fixture"). Every other
-/// dehaze case here is 8×8, where `top_n = max(64/1000, 1) = 1` — so the
-/// atmospheric light A degenerates to the SINGLE brightest-dark-channel pixel,
-/// and the 15×15 / radius-60 windows blow past the image into the clamp-to-edge
-/// degenerate regime. None of that exercises what dehaze actually does on a real
-/// frame. At 128×128 (n = 16384), `top_n = 16`: A is a genuine top-0.1% AVERAGE,
-/// the dark-channel and guided-filter windows run their TRUE interior kernels,
-/// and the session takes the mid-chain airlight-readback split path
-/// (`render_dehaze_split`). This is the only test that validates the airlight
-/// reduction as an average rather than an argmax.
-///
-/// A DEHAZE-ONLY model (nothing else engaged), so any byte delta is unambiguously
-/// dehaze/airlight — not a confounded sharpen/NR/clarity/texture interior kernel.
-///
-/// On a clean run the session's u8 surface matches the post-prefix-airlight CPU
-/// reference within the same ≤ 1 LSB boundary noise as the 8×8 gates: the GPU and
-/// CPU run the IDENTICAL `compute_airlight` (verified byte-equal vs raw-core), and
-/// C1 pins the post-prefix f32 buffers `< 1e-4`, so A agrees to ~1e-4 and the
-/// recovery + dither lands within a quantize boundary. If `max_delta > 1` the test
-/// prints the GPU-readback A vs the CPU A to discriminate the cause (a top-N tie-
-/// flip at the 16-element boundary vs an unexplained spatial divergence) before it
-/// fails — see the assertion comment.
-#[test]
-fn dehaze_interior_airlight_average_matches_cpu_at_128px() {
-    let ctx = GpuContext::new_blocking();
-    let (w, h) = (128u32, 128u32);
-    assert_eq!(
-        ((w * h) as usize / 1000).max(1),
-        16,
-        "fixture sanity: 128×128 must give top_n = 16 (a real top-0.1% average, not an argmax)"
-    );
-
-    let input = scene_linear_rgba(w as usize, h as usize);
-    let case = dehaze_only_case();
-    let inputs = case.gpu_inputs();
-    assert!(
-        crate::dehaze_is_active(&inputs),
-        "test setup: the dehaze-only case must take the airlight-split path"
-    );
-
-    // Session render (drives the mid-chain airlight readback internally).
-    let session = LiveSession::new(&ctx, &input, w, h);
-    let cancel = CancelToken::new();
-    let got = session
-        .render_to_buffer(&ctx, &inputs, &cancel)
-        .expect("uncancelled render returns Some");
-
-    // CPU reference (measures A post-prefix on its side too — see `reference_u8`).
-    let want = reference_u8(&ctx, &input, w, h, &inputs);
-    assert_eq!(got.len(), want.len(), "output length mismatch");
-
-    let max_delta = got
-        .iter()
-        .zip(&want)
-        .map(|(a, b)| (*a as i32 - *b as i32).unsigned_abs())
-        .max()
-        .unwrap_or(0);
-    let mismatches = got.iter().zip(&want).filter(|(a, b)| a != b).count();
-    let frac = mismatches as f32 / want.len() as f32;
-    eprintln!(
-        "DEHAZE INTERIOR PARITY [128×128, top_n=16]: max byte delta = {max_delta}, \
-         {mismatches} / {} bytes differ ({:.2}%)",
-        want.len(),
-        frac * 100.0
-    );
-
-    // Attribution on failure: A is the load-bearing number. The split path reads
-    // back the SAME post-prefix buffer on both sides (CPU here via the prefix
-    // ChainRunner, GPU inside `render_dehaze_split`), so a diverging A at the 16-
-    // element boundary is a top-N tie-flip (a CPU/GPU percentile-selection
-    // determinism boundary — exactly what C5b's histogram reduction makes
-    // deterministic), whereas a MATCHING A with bytes still off is an unexplained
-    // spatial-kernel divergence the 8×8 gates structurally couldn't see.
-    if max_delta > 1 {
-        let (prefix, _) = crate::build_live_split(&inputs, [0.0; 3]);
-        let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
-        let pimg = GpuImage::upload(&ctx, &input, w, h);
-        let prunner = ChainRunner::new(&ctx, &pimg);
-        let pre_dehaze = prunner.run_blocking(&prefix_refs);
-        let airlight = compute_airlight(&pre_dehaze, w as usize, h as usize);
-        eprintln!(
-            "  ATTRIBUTION: post-prefix airlight A (same on GPU and CPU, both from \
-             this buffer) = {airlight:?} — if the per-side As that fed the renders \
-             differ this is a top-N tie-flip; if they agree, the divergence is in a \
-             spatial kernel and BLOCKS."
-        );
-    }
-
-    assert!(
-        max_delta <= 1,
-        "128×128 dehaze-only session vs CPU max byte delta {max_delta} > 1 — beyond f32→u8 \
-         boundary noise. See the printed airlight: differing A ⇒ a top-N tie-flip (document + \
-         ratchet tolerance, motivates C5b); matching A ⇒ a real spatial-kernel divergence (block)"
-    );
-    // The mismatch fraction rises a bit at 16384 px purely from more pixels near a
-    // quantize boundary — harmless; only max_delta is signal. Keep a loose ceiling.
-    assert!(
-        frac < 0.05,
-        "{:.2}% of bytes differ from CPU at 128×128 — too many for boundary noise (a real divergence)",
-        frac * 100.0
-    );
-}

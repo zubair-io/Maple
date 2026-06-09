@@ -144,8 +144,18 @@ fn cpu_reference_u8(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<u8> {
 /// Run the GPU present path to its offscreen u8 surface: upload the scene-linear
 /// fixture into a `LiveSession`, run the gated chain to its final f32 buffer, then
 /// present (dither/quantize FS → `Bgra8Unorm` → readback → RGB).
+///
+/// Uses the CPU-READBACK airlight session (`new_with_airlight_readback`): this is
+/// a PRESENT-shader gate vs the CPU `develop`+`render` oracle, so it must share
+/// the oracle's `compute_airlight`. The fixture here is `scene_linear_rgba`, whose
+/// dark channel is FLAT (saturated primaries every 11 px → every window's min is
+/// 0.1) — so "top 0.1%" is an all-tied selection where the on-GPU histogram
+/// (whole-image average) and the CPU sort legitimately diverge (~20 LSB after
+/// dehaze=45), NEITHER being "the airlight". That degeneracy is a property of this
+/// synthetic image, not the present path; the on-GPU airlight's end-to-end dehaze
+/// parity is gated on a HAZY fixture in `live_session/tests.rs`. (#1033)
 fn gpu_present_u8(ctx: &GpuContext, input: &[f32], w: u32, h: u32, inputs: &crate::FullChainInputs) -> Vec<u8> {
-    let session = LiveSession::new(ctx, input, w, h);
+    let session = LiveSession::new_with_airlight_readback(ctx, input, w, h);
     let cancel = CancelToken::new();
     let final_idx = session
         .render_chain_to_f32(ctx, inputs, &cancel)
