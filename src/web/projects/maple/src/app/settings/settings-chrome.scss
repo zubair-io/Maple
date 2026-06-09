@@ -362,3 +362,18 @@
     }
   }
 }
+
+// At ≤1023px the worker/stage table stops being a table: each `maple-settings-row`
+// becomes a self-contained bordered card (the inner grid re-flows separately per
+// consumer). Shared by the Workers page rows and the Mirror row so both read as
+// cards on tablet/phone. `--srow-border: none` drops the inner list separator the
+// card border replaces.
+@mixin settings-row-mobile-card {
+  display: block;
+  border: 0.5px solid var(--s-border);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: var(--s-surface);
+  --srow-border: none;
+}

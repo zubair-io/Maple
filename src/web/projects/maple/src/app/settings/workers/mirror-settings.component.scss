@@ -251,3 +251,76 @@
     color: var(--s-ok);
   }
 }
+
+// ── Responsive ──────────────────────────────────────────────────────────────
+// Match the worker stage rows: at ≤1023px the row stops being a column grid and
+// becomes a bordered card with its summary children stacked, and the expanded
+// body aligns to the card edge. (The worker card reflow lives in
+// workers.component.scss; the Mirror row has its own cells, so its reflow lives
+// here — the shared bit is the card chrome mixin.)
+@media (max-width: 1023px) {
+  maple-settings-row {
+    @include chrome.settings-row-mobile-card;
+  }
+
+  .mirror-row {
+    height: auto;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      'stage   action'
+      'status  status'
+      'readout readout';
+    gap: 10px 12px;
+    padding: 14px;
+
+    // Chevron is redundant on a tap-anywhere card.
+    > maple-settings-icon:first-child {
+      display: none;
+    }
+    .stage-id {
+      grid-area: stage;
+      align-self: center;
+    }
+    .reconcile-btn {
+      grid-area: action;
+      justify-self: end;
+      align-self: center;
+    }
+    .status-pill {
+      grid-area: status;
+    }
+    .mirror-readout {
+      grid-area: readout;
+      grid-column: auto; // reset the desktop column span
+      white-space: normal; // let the readout wrap rather than truncate
+    }
+  }
+
+  // Align the expanded body with the card edge (drop the desktop left indent).
+  .desc-bar {
+    padding: 12px 16px;
+  }
+  .block {
+    padding: 0 16px 16px;
+  }
+}
+
+// Phone (≤767px): full-width footer/header actions so they stay tappable.
+@media (max-width: 767px) {
+  .reconcile-head {
+    flex-wrap: wrap;
+  }
+  .row-footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 8px;
+
+    .footer-spacer {
+      display: none;
+    }
+    button {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+}
