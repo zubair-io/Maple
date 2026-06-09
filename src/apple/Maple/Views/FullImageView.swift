@@ -310,6 +310,12 @@ struct FullImageView: View {
                 panOffset = .zero
                 basePan = .zero
                 syncSessionToViewport(viewportSize)
+                #if MAPLE_GPU
+                // Drop the GPU frame-time window so the new image's HUD doesn't
+                // carry the prior image's samples (the driver/session persist
+                // across the reused view). No-op when the HUD isn't recording.
+                session.gpuLiveDriver?.frameStats.reset()
+                #endif
             }
         }
         .background(MapleTokens.imageCanvas)
