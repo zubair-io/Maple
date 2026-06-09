@@ -1,13 +1,21 @@
 /// <reference lib="webworker" />
 
 import { render_bytes, render_bytes_scene_linear } from './pkg/raw_wasm';
-// Namespace import so the gpu-gated `render_bytes_gpu` (epic #925, P4b-web /
-// #1029) can be accessed DYNAMICALLY: it exists only in the `gpu`-feature WASM
-// build, so a named import would break the default (gpu-off) bundle's type-check
-// + load. We read it off the module object and existence-check before calling.
+// Namespace import so the gpu-gated `render_bytes_gpu` + `WebLiveSession` (epic
+// #925, P4b-web / #1029, #1038) can be accessed DYNAMICALLY: they exist only in
+// the `gpu`-feature WASM build, so a named import would break the default (gpu-off)
+// bundle's type-check + load. We read them off the module object and existence-check
+// before use.
 import * as wasm from './pkg/raw_wasm';
 import { initRawWasm, type RawWasmInitResult } from './raw-wasm-init';
-import type { DecodeRequest, DecodeSceneLinearRequest, WorkerResponse } from './raw-pipeline.types';
+import type {
+  DecodeRequest,
+  DecodeSceneLinearRequest,
+  OpenSessionRequest,
+  RenderSessionRequest,
+  WorkerResponse,
+  WorkerRequest,
+} from './raw-pipeline.types';
 
 // Forward worker console output to the main thread so Rust panic-hook messages
 // (which call console.error inside the worker) are visible in browser DevTools
@@ -60,21 +68,29 @@ function ensureReady(): Promise<RawWasmInitResult> {
 // for the first decode request.
 void ensureReady();
 
-addEventListener(
-  'message',
-  async (event: MessageEvent<DecodeRequest | DecodeSceneLinearRequest>) => {
-    const req = event.data;
-    if (req.type === 'decode') {
+addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
+  const req = event.data;
+  switch (req.type) {
+    case 'decode':
       await handleLegacyDecode(req);
       return;
-    }
-    if (req.type === 'decode-scene-linear') {
+    case 'decode-scene-linear':
       await handleSceneLinearDecode(req);
       return;
-    }
-    // Unknown request type — silently ignore (matches the prior early-return shape).
-  },
-);
+    case 'open-session':
+      await handleOpenSession(req);
+      return;
+    case 'render-session':
+      await handleRenderSession(req);
+      return;
+    case 'close-session':
+      handleCloseSession();
+      return;
+    default:
+      // Unknown request type — silently ignore (matches the prior early-return).
+      return;
+  }
+});
 
 /**
  * The gpu-gated GPU live-render entry (`render_bytes_gpu`, #1029) — present only
@@ -191,4 +207,156 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
     };
     (self as unknown as Worker).postMessage(response);
   }
+}
+
+// ── Persistent GPU live session (epic #925, P4b-web / #1038) ─────────────────
+// The worker owns ONE `WebLiveSession` (the GPU-resident state for the focused
+// image). `open-session` builds it + presents the first frame; `render-session`
+// re-renders for an edit (#846) and presents — both straight to the transferred
+// `OffscreenCanvas`, NO CPU readback. The handle is wasm-only (`gpu`-feature build);
+// against a gpu-off bundle the open reports an error and the component falls back
+// to the 2D `decode()` path.
+
+/**
+ * The `WebLiveSession` class from the `gpu`-feature WASM build (#1038). Typed
+ * locally (the default bundle omits it); read off the module namespace and
+ * existence-checked. `open` is a static async constructor; the instance exposes an
+ * async `render(xmp)` and getters for dims + As-Shot WB.
+ */
+interface WebLiveSessionInstance {
+  render(xmp: string | null): Promise<string>;
+  readonly width: number;
+  readonly height: number;
+  readonly asShotTemperature: number;
+  readonly asShotTint: number;
+  readonly colorSpace: string;
+  free(): void;
+}
+interface WebLiveSessionCtor {
+  open(
+    raw: Uint8Array,
+    ext: string,
+    xmp: string | null,
+    canvas: OffscreenCanvas,
+  ): Promise<WebLiveSessionInstance>;
+}
+
+function liveSessionCtor(): WebLiveSessionCtor | null {
+  // `Reflect.get` with a runtime key so the bundler doesn't statically resolve the
+  // member (it would warn "always undefined" against the default gpu-OFF bundle,
+  // which omits `WebLiveSession`). The SAME built code works against both bundles.
+  const ctor = Reflect.get(wasm as object, 'WebLiveSession');
+  return typeof ctor === 'function' ? (ctor as unknown as WebLiveSessionCtor) : null;
+}
+
+/** The single open session, or null. Only one image is live at a time. */
+let liveSession: WebLiveSessionInstance | null = null;
+
+// Re-entrancy gate (the wasm-bindgen `&mut self` borrow hazard): `render` holds the
+// session's mutable borrow for its whole Promise (across awaits), so a second
+// `render()` entering before the first resolves throws "recursive use of an object
+// detected". A full-res develop+chain can exceed the 150ms edit debounce, so
+// overlap is reachable on a drag. Serialize: at most one session op runs at a time;
+// the next chains after it. (#846's generation counter drops stale RESULTS on the
+// main thread — necessary but not sufficient; this prevents the re-entrant CALL.)
+let sessionChain: Promise<unknown> = Promise.resolve();
+function enqueueSessionOp<T>(op: () => Promise<T>): Promise<T> {
+  const next = sessionChain.then(op, op);
+  sessionChain = next.catch(() => undefined);
+  return next;
+}
+
+function postSessionError(id: number, message: string): void {
+  const response: WorkerResponse = { id, type: 'session-error', message };
+  (self as unknown as Worker).postMessage(response);
+}
+
+async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
+  await enqueueSessionOp(async () => {
+    try {
+      await ensureReady();
+      const ctor = liveSessionCtor();
+      if (!ctor) {
+        // gpu-off bundle (the default build) — no GPU live session. The component
+        // falls back to the 2D `decode()` path on this error.
+        postSessionError(
+          req.id,
+          'WebLiveSession unavailable: this WASM bundle was not built with the `gpu` feature',
+        );
+        return;
+      }
+      // Tear down any prior session before opening a new one (asset switch).
+      liveSession?.free();
+      liveSession = null;
+
+      const bytes = new Uint8Array(req.bytes);
+      performance.mark(`maple:session-open:${req.id}:start`);
+      const session = await ctor.open(bytes, req.ext, req.xmp ?? null, req.canvas);
+      performance.mark(`maple:session-open:${req.id}:end`);
+      performance.measure(
+        'maple:session-open',
+        `maple:session-open:${req.id}:start`,
+        `maple:session-open:${req.id}:end`,
+      );
+      liveSession = session;
+      const response: WorkerResponse = {
+        id: req.id,
+        type: 'open-session-success',
+        width: session.width,
+        height: session.height,
+        asShotTemperature: session.asShotTemperature,
+        asShotTint: session.asShotTint,
+        // The TRUTH the browser configured after the one-time display-p3 retag
+        // `open` did (read back via `getConfiguration()`), never an assumption.
+        colorSpace: session.colorSpace,
+      };
+      (self as unknown as Worker).postMessage(response);
+    } catch (e) {
+      const err = e instanceof Error ? e : null;
+      if (err?.stack) {
+        console.error('[raw-pipeline.worker] open-session threw:', err.message, err.stack);
+      }
+      postSessionError(req.id, err?.message ?? String(e));
+    }
+  });
+}
+
+async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
+  await enqueueSessionOp(async () => {
+    if (!liveSession) {
+      postSessionError(req.id, 'render-session: no open session');
+      return;
+    }
+    try {
+      performance.mark(`maple:session-render:${req.id}:start`);
+      const colorSpace = await liveSession.render(req.xmp ?? null);
+      performance.mark(`maple:session-render:${req.id}:end`);
+      performance.measure(
+        'maple:session-render',
+        `maple:session-render:${req.id}:start`,
+        `maple:session-render:${req.id}:end`,
+      );
+      const response: WorkerResponse = {
+        id: req.id,
+        type: 'render-session-success',
+        colorSpace,
+      };
+      (self as unknown as Worker).postMessage(response);
+    } catch (e) {
+      const err = e instanceof Error ? e : null;
+      if (err?.stack) {
+        console.error('[raw-pipeline.worker] render-session threw:', err.message, err.stack);
+      }
+      postSessionError(req.id, err?.message ?? String(e));
+    }
+  });
+}
+
+function handleCloseSession(): void {
+  // No enqueue — `free()` must not run while a render holds the borrow, but the
+  // chain guarantees ordering: close after the in-flight op via the same queue.
+  void enqueueSessionOp(async () => {
+    liveSession?.free();
+    liveSession = null;
+  });
 }

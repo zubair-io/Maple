@@ -36,6 +36,65 @@ export interface DecodeError {
   message: string;
 }
 
+// ── Persistent GPU live-session (epic #925, P4b-web / #1038) ─────────────────
+// The 16ms-ready web live-render path: the worker keeps a `WebLiveSession`
+// (cached GPU context + uploaded image) resident across slider ticks and presents
+// straight to a transferred `OffscreenCanvas` with NO CPU readback. Distinct from
+// the one-shot `decode(gpu)` path (#1029), which still returns u8 RGB for the 2D
+// canvas + the gpu-off-bundle fallback. Gated behind `GPU_LIVE_RENDER_ENABLED`;
+// the worker further requires the `gpu`-feature WASM bundle (else it reports an
+// error and the component falls back to the 2D `decode()` path).
+
+/** Open a persistent live session: transfers the `OffscreenCanvas` + the RAW. */
+export interface OpenSessionRequest {
+  id: number;
+  type: 'open-session';
+  bytes: ArrayBuffer; // transferable RAW bytes
+  ext: string;
+  xmp?: string;
+  /** The editor canvas, transferred via `transferControlToOffscreen()`. */
+  canvas: OffscreenCanvas; // transferable
+}
+
+/** Re-render the open session for a new develop model (the #846 edit path). */
+export interface RenderSessionRequest {
+  id: number;
+  type: 'render-session';
+  xmp?: string;
+}
+
+/** Tear down the open session (asset switch / component destroy). */
+export interface CloseSessionRequest {
+  id: number;
+  type: 'close-session';
+}
+
+/** Reply to `open-session`: the session is live + presenting its first frame. */
+export interface OpenSessionSuccess {
+  id: number;
+  type: 'open-session-success';
+  width: number;
+  height: number;
+  asShotTemperature: number;
+  asShotTint: number;
+  /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
+  colorSpace: string;
+}
+
+/** Reply to `render-session`: a frame was presented to the surface. */
+export interface RenderSessionSuccess {
+  id: number;
+  type: 'render-session-success';
+  colorSpace: string;
+}
+
+/** Error from any session op (incl. "gpu bundle absent" → component falls back). */
+export interface SessionError {
+  id: number;
+  type: 'session-error';
+  message: string;
+}
+
 /** T10: broadcast from the worker after WASM init reports thread-pool state. */
 export interface WorkerStatus {
   id: 0;
@@ -57,8 +116,19 @@ export type WorkerResponse =
   | DecodeError
   | DecodeSceneLinearSuccess
   | DecodeSceneLinearError
+  | OpenSessionSuccess
+  | RenderSessionSuccess
+  | SessionError
   | WorkerStatus
   | WorkerLog;
+
+/** All request messages the raw-pipeline worker accepts. */
+export type WorkerRequest =
+  | DecodeRequest
+  | DecodeSceneLinearRequest
+  | OpenSessionRequest
+  | RenderSessionRequest
+  | CloseSessionRequest;
 
 export interface DecodedImage {
   width: number;
