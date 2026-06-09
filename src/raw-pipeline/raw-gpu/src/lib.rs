@@ -293,10 +293,11 @@ pub use present_chain::present_chain_to_surface;
 
 #[cfg(target_arch = "wasm32")]
 pub use present_web::{present_test_pattern_web, PresentReport, TARGET_COLOR_SPACE};
-// Web chain-output present (P4b-web / #1029): the live chain's resident f32 buffer
-// → a WebGPU `OffscreenCanvas` surface, zero readback. wasm-only.
+// Web chain-output present (P4b-web / #1029, #1038): the live chain's resident f32
+// buffer → a persistent WebGPU `OffscreenCanvas` surface, zero readback, recompiling
+// nothing per tick. wasm-only.
 #[cfg(target_arch = "wasm32")]
-pub use present_chain_web::present_chain_to_canvas;
+pub use present_chain_web::WebPresentSurface;
 
 /// Deterministic RGBA f32 test buffer spanning values < 1, = 1, > 1 (some
 /// channels exceed 1 so the multiply is exercised in scene-linear range).

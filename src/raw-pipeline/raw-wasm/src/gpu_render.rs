@@ -83,12 +83,30 @@ fn auto_will_fit(model: &AdjustmentModel, bytes: &[u8], ext: &str) -> bool {
 /// WB is pinned to the 6500K/0 neutral so `white_balance::apply` returns at its
 /// identity short-circuit (`(temp-6500).abs()<0.5 && tint.abs()<0.5`); the GPU
 /// chain applies the user's ABSOLUTE WB instead.
+///
+/// ## Why the GPU-only SUB-params are also neutralized (#1038)
+///
+/// `build_full_chain_inputs` feeds the live chain `sharpen_radius/detail/masking`,
+/// `tone_curve_mode`, and `wb_method` — but those ride stages that are ZEROED /
+/// PINNED in this prefix (`sharpen_amount = 0` short-circuits the sharpen stage at
+/// `amount.abs() < 1e-3`; the tone-curve point sets are emptied; WB is pinned
+/// neutral so its method is inert), so they have NO effect on the developed buffer
+/// here. We pin them to their defaults anyway so the prefix model is a function of
+/// ONLY the fields that genuinely shape the buffer. Without this, dragging e.g. the
+/// sharpen-radius slider (with the default `sharpen_amount = 40` active on the GPU)
+/// would change the prefix model and trigger a SPURIOUS re-develop + re-upload
+/// every tick in the persistent session — correctness held, but the persistence
+/// win was lost. The `prefix_model_for`-equality boundary test pins this invariant.
 #[cfg(any(target_arch = "wasm32", test))]
 fn stripped_prefix_model(full: &AdjustmentModel, ae_mode: AutoExposureMode) -> AdjustmentModel {
+    use raw_core::types::{ToneCurveMode, WbMethod};
     AdjustmentModel {
         // Neutral WB → the stage no-ops; the GPU chain re-applies absolute WB.
         temperature: 6500.0,
         tint: 0.0,
+        // WB method is inert at the neutral short-circuit; pin it so toggling the
+        // method doesn't spuriously change the prefix (the GPU chain owns WB).
+        wb_method: WbMethod::Cat16,
         // Effective AE mode from the probe (Off when Auto Profile will fit).
         auto_exposure: ae_mode,
         // Every stage the GPU chain re-runs → no-op default so develop skips it.
@@ -106,17 +124,26 @@ fn stripped_prefix_model(full: &AdjustmentModel, ae_mode: AutoExposureMode) -> A
         tone_curve_red: Default::default(),
         tone_curve_green: Default::default(),
         tone_curve_blue: Default::default(),
+        // Inert with the point curves emptied; pinned so the curve MODE toggle
+        // doesn't spuriously re-develop (the GPU chain applies the curves).
+        tone_curve_mode: ToneCurveMode::PerChannel,
         vibrance: 0.0,
         saturation: 0.0,
         clarity: 0.0,
         texture: 0.0,
         dehaze: 0.0,
+        // Sharpen is short-circuited (`amount = 0`), so its sub-params are inert;
+        // pin them to defaults so dragging radius/detail/masking (with the GPU's
+        // real `sharpen_amount` active) doesn't spuriously re-develop.
         sharpen_amount: 0.0,
+        sharpen_radius: 1.0,
+        sharpen_detail: 25.0,
+        sharpen_masking: 0.0,
         nr_luminance: 0.0,
         nr_color: 0.0,
-        // KEEP: highlight_recovery, capture_sharpening_*, profile, wb_method,
-        // and every decode-upstream field — they shape the post-AE buffer the
-        // GPU chain consumes.
+        // KEEP: highlight_recovery, capture_sharpening_*, profile, and every
+        // decode-upstream field — they shape the post-AE buffer the GPU chain
+        // consumes (so a change to any of them legitimately re-develops).
         ..full.clone()
     }
 }
@@ -194,43 +221,85 @@ fn build_full_chain_inputs(
     }
 }
 
-/// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
-/// a NATIVE (Metal) host test can drive the exact same plumbing the wasm entry
-/// runs — `render_bytes_gpu` is `#[wasm_bindgen]` (wasm-only), but everything
-/// below the `async` boundary is platform-neutral (`GpuContext::new_async` +
-/// `LiveSession::render_async` run on Metal too). Takes the ALREADY-decoded
-/// `raw_img` + the parsed `model` (with the fresh-open WB substitution applied by
-/// the caller) and returns the EXIF-oriented `(w, h, u8 RGB)` surface — the same
-/// bytes `render_from_raw_with_quality_and_source` produces, but via the GPU.
-///
-/// `raw` / `ext` are the original RAW bytes + extension, needed for the
-/// `auto_will_fit` probe and the Auto Profile fit (which read the embedded JPEG).
+/// The effective auto-exposure mode the stripped-prefix develop must use — the
+/// SAME one the CPU render uses (`auto_will_fit` → Off when Auto Profile fits,
+/// else the model's mode). Pulled out so [`render_gpu_core`] and the persistent
+/// [`crate::web_live_session::WebLiveSession`] derive the prefix model identically.
 #[cfg(any(target_arch = "wasm32", test))]
-async fn render_gpu_core(
+fn effective_ae_mode(model: &AdjustmentModel, raw: &[u8], ext: &str) -> AutoExposureMode {
+    if auto_will_fit(model, raw, ext) {
+        AutoExposureMode::Off
+    } else {
+        model.auto_exposure
+    }
+}
+
+/// Derive the stripped-prefix model for `model` WITHOUT developing — the cheap
+/// change-detector the persistent [`crate::web_live_session::WebLiveSession`] uses
+/// to decide whether a render must re-develop + re-upload. Equal to the
+/// `prefix_model` [`develop_prefix_rgba`] returns (BOTH call `effective_ae_mode` +
+/// `stripped_prefix_model`, so the equivalence is by construction), making a
+/// compare against the cached prefix model the sound re-upload boundary. Pure model
+/// arithmetic + the `auto_will_fit` probe (a cache / embedded-JPEG check); no
+/// develop, no upload.
+///
+/// wasm-only: the persistent session (its only caller) is wasm-only. The host
+/// parity/boundary tests exercise its components (`effective_ae_mode` +
+/// `stripped_prefix_model`) directly.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn prefix_model_for(
     raw_img: &raw_core::image::RawImage,
     raw: &[u8],
     ext: &str,
     model: &AdjustmentModel,
-) -> Result<(u32, u32, Vec<u8>), String> {
-    // Pin auto-exposure to the SAME effective mode the CPU render uses (the
-    // `auto_will_fit` probe), then develop the stripped prefix to the post-AE
-    // buffer the GPU chain consumes.
-    let ae_mode = if auto_will_fit(model, raw, ext) {
-        AutoExposureMode::Off
-    } else {
-        model.auto_exposure
-    };
+) -> AdjustmentModel {
+    let _ = raw_img; // symmetry with develop_prefix_rgba; the probe reads bytes, not the image
+    let ae_mode = effective_ae_mode(model, raw, ext);
+    stripped_prefix_model(model, ae_mode)
+}
+
+/// Develop the STRIPPED PREFIX to the post-`auto_exposure` scene-linear Rec.2020
+/// buffer the GPU chain consumes, packed to interleaved RGBA f32 (alpha 1.0) — the
+/// upload shape [`LiveSession::new`] expects. Returns `(rgba, w, h, prefix_model)`;
+/// the returned `prefix_model` is the EXACT model this buffer was developed from
+/// (equal to [`prefix_model_for`]), so a caller can cache it and re-develop ONLY
+/// when it changes (the persistent session's zero-re-upload boundary — an identical
+/// prefix model ⇒ an identical buffer, by construction). The hot-path GPU-rerun
+/// sliders are zeroed in the prefix, so they never change it.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn develop_prefix_rgba(
+    raw_img: &raw_core::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+) -> Result<(Vec<f32>, u32, u32, AdjustmentModel), String> {
+    let ae_mode = effective_ae_mode(model, raw, ext);
     let prefix_model = stripped_prefix_model(model, ae_mode);
     let scene =
         develop_scene_linear_from_raw_with_quality(raw_img, &prefix_model, RenderQuality::Full)
             .map_err(|e| e.to_string())?;
     let (w, h) = (scene.width, scene.height);
+    let mut rgba: Vec<f32> = Vec::with_capacity(scene.pixels.len() * 4);
+    for p in &scene.pixels {
+        rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
+    }
+    Ok((rgba, w, h, prefix_model))
+}
 
-    // Fit the Auto Profile curve + residual LUT against the embedded JPEG (the
-    // SAME entry `apply_auto_profile` shares a cache with — see #924 / #972). The
-    // GPU chain applies them as separate curve + LUT passes in the view tail. A
-    // `None` (Neutral, no preview, degenerate fit) collapses to identity → the
-    // chain's view tail is pure AgX, matching `Profile::Neutral`.
+/// Fit the Auto Profile curve + residual LUT against the embedded JPEG (the SAME
+/// entry `apply_auto_profile` shares a cache with — see #924 / #972) and flatten
+/// them into the `(profile_curve_flat, residual_lut_size, residual_lut_data)` shape
+/// [`build_full_chain_inputs`] consumes. A `None` (Neutral, no preview, degenerate
+/// fit) collapses to identity → the chain's view tail is pure AgX, matching
+/// `Profile::Neutral`. The fit is keyed on the RAW BYTES (not the model), so after
+/// the first call it is cache-served — re-running it per slider tick is cheap.
+#[cfg(any(target_arch = "wasm32", test))]
+fn fit_profile_artifacts(
+    raw_img: &raw_core::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+) -> (Vec<f32>, usize, Vec<f32>) {
     let (curve, lut) = match model.profile {
         Profile::Auto => fit_auto_profile_from_raw(
             raw_img,
@@ -251,20 +320,51 @@ async fn render_gpu_core(
             (id.size, id.data)
         }
     };
+    (profile_curve_flat, residual_lut_size, residual_lut_data)
+}
 
-    let inputs = build_full_chain_inputs(
-        model,
-        profile_curve_flat,
-        residual_lut_size,
-        residual_lut_data,
-    );
+/// Assemble the [`FullChainInputs`] for `model` from the RAW + the (cache-served)
+/// Auto Profile fit. The view-tail-and-WB shape the live chain re-applies every
+/// render; cheap (no decode, no GPU compile), so the persistent session rebuilds
+/// it per tick from the latest model while reusing the uploaded prefix buffer.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn chain_inputs_for_model(
+    raw_img: &raw_core::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+) -> FullChainInputs {
+    let (profile_curve_flat, residual_lut_size, residual_lut_data) =
+        fit_profile_artifacts(raw_img, raw, ext, model);
+    build_full_chain_inputs(model, profile_curve_flat, residual_lut_size, residual_lut_data)
+}
 
-    // Pack the developed scene-linear buffer to interleaved RGBA f32 (alpha 1.0)
-    // — the upload shape `LiveSession::new` expects.
-    let mut rgba: Vec<f32> = Vec::with_capacity(scene.pixels.len() * 4);
-    for p in &scene.pixels {
-        rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
-    }
+/// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
+/// a NATIVE (Metal) host test can drive the exact same plumbing the wasm entry
+/// runs — `render_bytes_gpu` is `#[wasm_bindgen]` (wasm-only), but everything
+/// below the `async` boundary is platform-neutral (`GpuContext::new_async` +
+/// `LiveSession::render_async` run on Metal too). Takes the ALREADY-decoded
+/// `raw_img` + the parsed `model` (with the fresh-open WB substitution applied by
+/// the caller) and returns the EXIF-oriented `(w, h, u8 RGB)` surface — the same
+/// bytes `render_from_raw_with_quality_and_source` produces, but via the GPU.
+///
+/// `raw` / `ext` are the original RAW bytes + extension, needed for the
+/// `auto_will_fit` probe and the Auto Profile fit (which read the embedded JPEG).
+///
+/// This is the ONE-SHOT u8-readback path (the W1 parity gate + the gpu-off-bundle
+/// fallback). The persistent zero-readback path
+/// ([`crate::web_live_session::WebLiveSession`]) reuses the SAME
+/// [`develop_prefix_rgba`] / [`chain_inputs_for_model`] helpers but uploads once
+/// and presents to a surface instead of reading back.
+#[cfg(any(target_arch = "wasm32", test))]
+async fn render_gpu_core(
+    raw_img: &raw_core::image::RawImage,
+    raw: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+) -> Result<(u32, u32, Vec<u8>), String> {
+    let (rgba, w, h, _prefix_model) = develop_prefix_rgba(raw_img, raw, ext, model)?;
+    let inputs = chain_inputs_for_model(raw_img, raw, ext, model);
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.

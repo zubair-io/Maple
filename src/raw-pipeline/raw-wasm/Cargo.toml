@@ -42,10 +42,13 @@ console_error_panic_hook = { version = "0.1" }
 wasm-bindgen-futures = { version = "0.4", optional = true }
 # Canvas handle for the P1c (#989) web present binding: the exported
 # `present_gpu(canvas)` takes a `web_sys::HtmlCanvasElement` to hand to
-# `raw_gpu::present_test_pattern_web`. wasm-only; optional + gated by `gpu` so
-# default + host builds never pull web-sys. (web-sys is already in the wasm tree
-# transitively via wgpu; this turns on the `HtmlCanvasElement` feature gate.)
-web-sys = { version = "0.3", features = ["HtmlCanvasElement"], optional = true }
+# `raw_gpu::present_test_pattern_web`; `WebLiveSession::open(.., canvas)` takes a
+# `web_sys::OffscreenCanvas` (the live editor canvas is transferred to the worker
+# via `transferControlToOffscreen`, P4b-web / #1038). wasm-only; optional + gated
+# by `gpu` so default + host builds never pull web-sys. (web-sys is already in the
+# wasm tree transitively via wgpu; this turns on the feature gates.) NO `Gpu*`
+# feature — wgpu-23 vendors its own WebGPU bindings (`duplicate string enums`).
+web-sys = { version = "0.3", features = ["HtmlCanvasElement", "OffscreenCanvas"], optional = true }
 
 [features]
 default = []
