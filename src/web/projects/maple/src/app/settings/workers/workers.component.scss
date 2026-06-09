@@ -427,16 +427,9 @@
 
   // Each row becomes a bordered card. The shared row component is the host
   // element here, so style it directly (its inner `.row` still drives the
-  // expand background at all widths).
+  // expand background at all widths). Shared with the Mirror row via the mixin.
   maple-settings-row {
-    display: block;
-    border: 0.5px solid var(--s-border);
-    border-radius: 8px;
-    margin-bottom: 10px;
-    overflow: hidden;
-    background: var(--s-surface);
-    // The card border replaces the inner row's list separator.
-    --srow-border: none;
+    @include chrome.settings-row-mobile-card;
   }
 
   // Re-flow the flat summary children into a card grid via named areas (the
