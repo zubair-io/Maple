@@ -1,11 +1,9 @@
-// MirrorSettingsComponent — the "Mirror / backup" section embedded in the
-// Workers settings page. Per-library backup-location config (path + enable +
-// Test + Save) plus the mirror reconcile-queue status and a Retry-dead action.
-//
-// Self-contained (its own signals + API calls) so it drops into the Workers
-// page with a single tag and doesn't entangle that component's state. Backed by
-// GET/PUT /api/folders/:id/mirror, POST /api/mirror/test, GET /api/mirror/status,
-// POST /api/mirror/retry-dead.
+// MirrorSettingsComponent — the "Mirror / backup" row on the Workers settings
+// page. Renders in the same column grid as the worker stage rows. Surfaces the
+// live two-stage reconcile (scanning → copying) with per-stage counts, the
+// current file, and an error log; plus per-library backup-location config.
+// Backed by GET/PUT /api/folders/:id/mirror, POST /api/mirror/test,
+// GET /api/mirror/status, POST /api/mirror/retry-dead, POST /api/mirror/reconcile.
 
 import {
   ChangeDetectionStrategy,
@@ -20,7 +18,7 @@ import { firstValueFrom } from 'rxjs';
 import {
   BunApiBackendService,
   type ApiFolder,
-  type MirrorScanProgress,
+  type MirrorReconcileProgress,
   errorMessage,
 } from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
@@ -44,7 +42,7 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 export class MirrorSettingsComponent implements OnInit, OnDestroy {
   private readonly backend = inject(BunApiBackendService);
 
-  /** Collapsed by default — the row expands to reveal per-library config. */
+  /** Collapsed by default — the row expands to reveal config + reconcile detail. */
   protected readonly expanded = signal(false);
   protected toggle(): void {
     this.expanded.update((v) => !v);
@@ -58,12 +56,6 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
   protected readonly mirrorActive = computed(() =>
     Object.values(this.forms()).some((m) => m.enabled && m.path.trim().length > 0),
   );
-  protected statusLabel(): string {
-    return this.mirrorActive() ? 'Active' : 'Not configured';
-  }
-  protected statusColor(): string {
-    return this.mirrorActive() ? 'var(--s-ok)' : 'var(--s-text-dim)';
-  }
 
   /** Per-library editable form (one mirror per library in this UI). */
   protected readonly forms = signal<Record<string, MirrorForm>>({});
@@ -72,24 +64,64 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
   protected readonly testState = signal<Record<string, TestState>>({});
   protected readonly testMsg = signal<Record<string, string | null>>({});
 
+  /** Standing queue depth (pending waiting to copy / dead-lettered). */
   protected readonly status = signal<{ pending: number; dead: number } | null>(null);
   protected readonly retrying = signal(false);
 
-  /** Live progress of the last/current "Scan now" pass (null before any run). */
-  protected readonly scan = signal<MirrorScanProgress | null>(null);
-  /** True from clicking "Scan now" until the pass reports idle. */
-  protected readonly scanning = signal(false);
-  /** Poll timer that refreshes status while a scan is in flight. */
+  /** Live two-stage reconcile progress (null before any run). */
+  protected readonly reconcile = signal<MirrorReconcileProgress | null>(null);
+  /** True from clicking "Reconcile now" until the run reports idle. */
+  protected readonly running = signal(false);
+  /** Poll timer that refreshes status while a reconcile is in flight. */
   private pollTimer: ReturnType<typeof setInterval> | null = null;
-  /** Guards against overlapping status fetches when one takes longer than the
-   * poll interval. */
+  /** Guards against overlapping status fetches when one runs long. */
   private polling = false;
 
-  /** Disable the Scan-now button while a pass we can see is running — our local
-   * click state, or the API-process scan reported on /status. (The worker's
-   * hourly background scan runs in another process and isn't reflected here.) */
-  protected scanBusy(): boolean {
-    return this.scanning() || this.scan()?.phase === 'scanning';
+  /** A reconcile is active when we just kicked one or the server reports a
+   * non-idle phase (scanning/copying in the API process). */
+  protected reconcileBusy(): boolean {
+    return this.running() || (this.reconcile()?.phase ?? 'idle') !== 'idle';
+  }
+
+  /** Button label while a run is in flight. */
+  protected busyLabel(): string {
+    switch (this.reconcile()?.phase) {
+      case 'scanning':
+        return 'Scanning…';
+      case 'copying':
+        return 'Copying…';
+      default:
+        return 'Working…';
+    }
+  }
+
+  /** Summary status pill text — the active stage, else the mirror config state. */
+  protected statusLabel(): string {
+    const phase = this.reconcile()?.phase;
+    if (phase === 'scanning') return 'Scanning';
+    if (phase === 'copying') return 'Copying';
+    return this.mirrorActive() ? 'Active' : 'Not configured';
+  }
+  protected statusColor(): string {
+    if ((this.reconcile()?.phase ?? 'idle') !== 'idle') return 'var(--s-accent)';
+    return this.mirrorActive() ? 'var(--s-ok)' : 'var(--s-text-dim)';
+  }
+
+  /** One-line readout for the collapsed row (the active stage, else the queue). */
+  protected reconcileSummary(): string {
+    const r = this.reconcile();
+    if (r?.phase === 'scanning') {
+      return `Scanning · ${r.scan.scanned} checked · ${r.scan.toCopy} to copy`;
+    }
+    if (r?.phase === 'copying') {
+      const errs = r.copy.errors > 0 ? ` · ${r.copy.errors} failed` : '';
+      return `Copying · ${r.copy.copied}/${r.copy.total} · ${r.copy.remaining} left${errs}`;
+    }
+    const q = this.status();
+    if (q && (q.pending > 0 || q.dead > 0)) {
+      return `${q.pending} pending · ${q.dead} failed`;
+    }
+    return this.mirrorActive() ? 'Up to date' : '';
   }
 
   async ngOnInit(): Promise<void> {
@@ -110,11 +142,10 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
       );
       this.forms.set(forms);
       await this.refreshStatus();
-      // If a scan is already running server-side (it was started before this
-      // reload — possibly in another tab), reflect it and resume live polling so
-      // the UI tracks it to completion instead of showing a frozen snapshot and
-      // a stuck-disabled button.
-      this.resumeIfScanning();
+      // If a reconcile is already running server-side (started before this reload,
+      // possibly in another tab), reflect it and resume live polling so the UI
+      // tracks it to completion instead of a frozen snapshot / stuck button.
+      this.resumeIfRunning();
     } catch (e) {
       this.error.set(this.msg(e));
     } finally {
@@ -143,7 +174,6 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
 
   protected setPath(id: string, value: string): void {
     this.forms.update((m) => ({ ...m, [id]: { ...m[id], path: value } }));
-    // Editing invalidates a prior test/save result.
     this.testState.update((m) => ({ ...m, [id]: 'idle' }));
     this.saveState.update((m) => ({ ...m, [id]: 'idle' }));
   }
@@ -202,38 +232,31 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
     }
   }
 
-  /** Kick a reconcile scan pass, then poll status so the operator can watch the
-   * walk move (current file + counts) and the pending queue fill. */
-  protected async scanNow(): Promise<void> {
+  /** Kick a full reconcile (scan → copy), then poll status so the operator can
+   * watch the stages move (current file + per-stage counts). */
+  protected async reconcileNow(): Promise<void> {
     this.error.set(null);
-    this.scanning.set(true);
+    this.running.set(true);
     try {
-      const res = await firstValueFrom(this.backend.runMirrorScanNow());
-      if (!res.started) {
-        // Already running, or no mirror configured — surface the reason and let
-        // polling (if a pass is live) reflect it.
-        if (res.reason) this.error.set(`Scan not started: ${res.reason}`);
-      }
+      const res = await firstValueFrom(this.backend.runMirrorReconcile());
+      if (!res.started && res.reason) this.error.set(`Reconcile not started: ${res.reason}`);
       await this.refreshStatus();
-      // Only poll while a pass is actually in flight; a tiny library can finish
-      // before the first refresh, in which case there's nothing to watch.
-      if (this.scan()?.phase === 'scanning') {
+      // Poll only while a run is actually in flight; a tiny library can finish
+      // before the first refresh, leaving nothing to watch.
+      if ((this.reconcile()?.phase ?? 'idle') !== 'idle') {
         this.startPolling();
       } else {
-        this.scanning.set(false);
+        this.running.set(false);
       }
     } catch (e) {
       this.error.set(this.msg(e));
-      this.scanning.set(false);
+      this.running.set(false);
     }
   }
 
-  /** Reflect an already-running server-side scan after a (re)load: mark busy and
-   * resume polling so the UI tracks it live and the button stays disabled until
-   * the pass finishes. No-op when nothing is scanning. */
-  private resumeIfScanning(): void {
-    if (this.scan()?.phase === 'scanning') {
-      this.scanning.set(true);
+  private resumeIfRunning(): void {
+    if ((this.reconcile()?.phase ?? 'idle') !== 'idle') {
+      this.running.set(true);
       this.startPolling();
     }
   }
@@ -241,22 +264,22 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
   private startPolling(): void {
     this.stopPolling();
     this.pollTimer = setInterval(() => {
-      // Skip this tick if the previous refresh hasn't returned — never let slow
-      // status fetches stack up into overlapping requests.
+      // Skip a tick while the previous refresh is still in flight — never let
+      // slow status fetches stack into overlapping requests.
       if (this.polling) return;
       this.polling = true;
       void (async () => {
         try {
           await this.refreshStatus();
-          if (this.scan()?.phase !== 'scanning') {
+          if ((this.reconcile()?.phase ?? 'idle') === 'idle') {
             this.stopPolling();
-            this.scanning.set(false);
+            this.running.set(false);
           }
         } finally {
           this.polling = false;
         }
       })();
-    }, 1500);
+    }, 1200);
   }
 
   private stopPolling(): void {
@@ -274,12 +297,12 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
     try {
       const res = await firstValueFrom(this.backend.getMirrorStatus());
       this.status.set(res.queue);
-      // Treat a "never run" idle snapshot (no timestamps, no error) as null so the
-      // "no scan yet" hint shows until a real pass has run — otherwise the UI
-      // would read "0 checked · 0 queued" with no context.
-      const sc = res.scan;
-      const neverRun = !sc || (sc.phase === 'idle' && !sc.startedAt && !sc.finishedAt && !sc.error);
-      this.scan.set(neverRun ? null : sc);
+      // Treat a "never run" idle snapshot (no timestamps, no errors) as null so
+      // the "not run yet" hint shows until a real reconcile has happened.
+      const r = res.reconcile;
+      const neverRun =
+        !r || (r.phase === 'idle' && !r.startedAt && !r.finishedAt && r.errorLog.length === 0);
+      this.reconcile.set(neverRun ? null : r);
     } catch {
       // Status is informational — a fetch failure shouldn't surface an error banner.
     }

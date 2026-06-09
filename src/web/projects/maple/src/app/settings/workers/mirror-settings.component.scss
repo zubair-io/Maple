@@ -9,19 +9,32 @@
   display: block;
 }
 
-// Summary content projected into <maple-settings-row> (which owns the row
-// shell + click/keyboard a11y + the expanded body).
-.mirror-summary {
-  height: 56px;
-  display: flex;
+// Summary row — the SAME column grid as the worker stage rows
+// (workers.component.scss `.row-grid`) so the chevron / name / status line up
+// under the shared column header.
+.mirror-row {
+  display: grid;
+  grid-template-columns:
+    24px /* chevron */
+    minmax(min-content, 1.6fr) /* stage */
+    minmax(min-content, 1fr) /* status */
+    minmax(min-content, 0.6fr) /* concur */
+    minmax(min-content, 0.8fr) /* in flight */
+    minmax(min-content, 1.4fr) /* ready / blocked */
+    minmax(min-content, 0.7fr) /* dead */
+    minmax(min-content, 1fr) /* throughput */
+    32px /* kebab */
+    32px; /* pause */
   align-items: center;
   gap: 10px;
   padding: 0 16px;
+  height: 56px;
 
   .stage-id {
     display: flex;
     align-items: center;
     gap: 8px;
+    min-width: 0;
 
     .mono {
       font-size: 13px;
@@ -30,41 +43,55 @@
     }
   }
 
-  .summary-spacer {
-    flex: 1;
-  }
-}
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
 
-.status-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .status-label {
+      font-size: 12.5px;
+      color: var(--s-text-mid);
+    }
   }
-  .status-label {
-    font-size: 12.5px;
+
+  // The live readout fills the metric columns (concur … kebab); the action sits
+  // in the last column where the worker rows put pause.
+  .mirror-readout {
+    grid-column: 4 / 10;
+    font-size: 12px;
     color: var(--s-text-mid);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
   }
-}
 
-.queue-chips {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
+  .reconcile-btn {
+    grid-column: 10 / 11;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    transition: background 120ms;
 
-// In-progress indicator shown in the collapsed summary so a running scan is
-// visible without expanding the row.
-.scan-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--s-text-mid);
+    &:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.06);
+    }
+    &:disabled {
+      cursor: default;
+    }
+  }
 }
 
 .desc-bar {
@@ -102,33 +129,119 @@
 .block {
   padding: 14px 24px 4px 50px;
 }
-// Divider only BETWEEN consecutive library blocks. (`:first-of-type` wouldn't
-// work — the expanded body has earlier siblings like `.desc-bar`.)
 .block + .block {
   border-top: 0.5px solid var(--s-border);
   margin-top: 14px;
   padding-top: 18px;
 }
 
-// Reconcile-scan controls + live progress.
-.scan-row {
+// ── Reconcile two-stage progress ────────────────────────────────────────────
+.reconcile-block {
+  .reconcile-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+
+    .footer-spacer {
+      flex: 1;
+    }
+  }
+}
+
+.stages {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 6px;
 }
-.scan-stats {
-  font-size: 12px;
+
+.stage-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
   color: var(--s-text-mid);
+
+  .stage-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--s-text-dim);
+    align-self: center;
+    flex: none;
+  }
+  .stage-name {
+    width: 72px;
+    flex: none;
+    color: var(--s-text);
+  }
+  .stage-nums {
+    font-variant-numeric: tabular-nums;
+  }
+  .is-error {
+    color: var(--s-err);
+  }
+
+  &.active {
+    .stage-dot {
+      background: var(--s-accent);
+    }
+    .stage-name {
+      color: var(--s-accent);
+      font-weight: 600;
+    }
+  }
 }
-.scan-current {
-  margin-top: 8px;
+
+.current-file {
+  margin-top: 10px;
   font-size: 11.5px;
   color: var(--s-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+
+  .current-label {
+    color: var(--s-text-dim);
+  }
+}
+
+.error-log {
+  margin-top: 12px;
+  border-top: 0.5px solid var(--s-border);
+  padding-top: 10px;
+
+  .error-log-head {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--s-err);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+  .error-line {
+    display: flex;
+    gap: 10px;
+    font-size: 11px;
+    padding: 2px 0;
+
+    .error-path {
+      color: var(--s-text-mid);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 45%;
+      flex: none;
+    }
+    .error-msg {
+      color: var(--s-err);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
 }
 
 .test-result {

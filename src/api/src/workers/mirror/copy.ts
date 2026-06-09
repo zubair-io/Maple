@@ -33,6 +33,17 @@ export interface MirrorCopyOptions {
   leaseMs?: number;
   /** Dead-letter a row after this many failed attempts. */
   maxAttempts?: number;
+  /** Per-claimed-row progress hook: the source file being copied + running
+   * counts. Used by the manual reconcile to surface the current file. */
+  onProgress?: (snapshot: {
+    claimed: number;
+    copied: number;
+    skipped: number;
+    failed: number;
+    currentPath: string;
+  }) => void;
+  /** Per-failure hook: source path + message, for an operator-visible error log. */
+  onError?: (failure: { path: string; error: string }) => void;
 }
 
 export interface MirrorCopySummary {
@@ -53,6 +64,14 @@ export async function runMirrorCopyOnce(opts: MirrorCopyOptions = {}): Promise<M
     const entry = await claimNextMirrorCopy(leaseMs);
     if (!entry) break;
     summary.claimed++;
+    // Surface the file we're about to act on (the "current file" readout).
+    opts.onProgress?.({
+      claimed: summary.claimed,
+      copied: summary.copied,
+      skipped: summary.skipped,
+      failed: summary.failed,
+      currentPath: entry.primary_path,
+    });
     try {
       const primaryStat = await statOrNull(entry.primary_path);
       if (primaryStat === null || !primaryStat.isFile()) {
@@ -76,6 +95,7 @@ export async function runMirrorCopyOnce(opts: MirrorCopyOptions = {}): Promise<M
       const msg = err instanceof Error ? err.message : String(err);
       await failMirrorCopy(entry._id, msg, maxAttempts).catch(() => {});
       summary.failed++;
+      opts.onError?.({ path: entry.primary_path, error: msg });
       log.warn({ mirror: entry.mirror_path, err: msg }, 'mirror copy failed — will retry');
     }
   }
