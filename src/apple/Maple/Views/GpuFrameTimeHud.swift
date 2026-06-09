@@ -56,7 +56,7 @@ struct GpuFrameTimeHud: View {
                     .foregroundStyle(.white.opacity(0.7))
             }
             row(label: "last", value: stats.lastMs, color: budgetColor)
-            row(label: "avg", value: stats.avgMs, color: .white)
+            row(label: "avg", value: stats.avgMs, color: Self.color(for: stats.avgMs))
             row(label: "max", value: stats.maxMs, color: maxColor)
         }
         .padding(.horizontal, 8)
