@@ -35,9 +35,23 @@ export interface MirrorLocation {
   enabled: boolean;
 }
 
-/** mirror_queue depth, surfaced on the Workers settings page. */
+/** Live progress of an operator "Scan now" mirror reconcile pass. */
+export interface MirrorScanProgress {
+  phase: 'idle' | 'scanning';
+  scanned: number;
+  enqueued: number;
+  upToDate: number;
+  currentPath: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: string | null;
+}
+
+/** mirror_queue depth + scan progress, surfaced on the Workers settings page. */
 export interface MirrorQueueStatus {
   queue: { pending: number; dead: number };
+  /** Optional so older/mocked responses without scan progress still type-check. */
+  scan?: MirrorScanProgress;
 }
 
 export interface ApiAsset {
@@ -313,6 +327,14 @@ export class BunApiBackendService {
 
   retryDeadMirrors(): Observable<{ ok: boolean; revived: number }> {
     return this.http.post<{ ok: boolean; revived: number }>(`${this.base}/mirror/retry-dead`, {});
+  }
+
+  /** Kick a reconcile scan pass now; poll getMirrorStatus() for live progress. */
+  runMirrorScanNow(): Observable<{ started: boolean; phase: string; reason?: string }> {
+    return this.http.post<{ started: boolean; phase: string; reason?: string }>(
+      `${this.base}/mirror/scan-now`,
+      {},
+    );
   }
 
   listDir(absPath: string, showAll = false): Observable<ApiDirListing> {
