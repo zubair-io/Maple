@@ -206,6 +206,13 @@ mod noise_reduction;
 // Linux host.
 #[cfg(target_vendor = "apple")]
 mod present;
+// Chain-output present (P4b-apple / #1028): the live chain's final f32 buffer →
+// a display surface (Apple `CAMetalLayer`) or, for the host parity gate, an
+// offscreen `Bgra8Unorm` texture. Native-only (the offscreen readback + its CPU
+// oracle have no wasm path; the surface entry is further `target_vendor=apple`-
+// gated inside). Absent on wasm.
+#[cfg(not(target_arch = "wasm32"))]
+mod present_chain;
 // Web counterpart (P1c / #989): wgpu → HTML `<canvas>` present. wasm-only —
 // `SurfaceTarget::Canvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`, active
 // on the wasm32 target. Absent on Apple / Linux host. Shares `present.wgsl`.
@@ -263,6 +270,13 @@ pub use exposure::run_exposure_gpu;
 
 #[cfg(target_vendor = "apple")]
 pub use present::present_test_pattern;
+
+// Chain-output present (P4b-apple / #1028). The offscreen entry is the host
+// parity path (any native target); the surface entry is Apple-only.
+#[cfg(not(target_arch = "wasm32"))]
+pub use present_chain::present_chain_to_offscreen;
+#[cfg(target_vendor = "apple")]
+pub use present_chain::present_chain_to_surface;
 
 #[cfg(target_arch = "wasm32")]
 pub use present_web::{present_test_pattern_web, PresentReport, TARGET_COLOR_SPACE};
