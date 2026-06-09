@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Maple — WebGPU render parity (#925 P4b-web / #1029 W3)</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 1.5rem;
+      }
+      canvas {
+        width: 192px;
+        height: 192px;
+        border: 1px solid #888;
+        image-rendering: pixelated;
+      }
+      pre {
+        background: #f4f4f4;
+        padding: 0.75rem;
+        border-radius: 4px;
+        white-space: pre-wrap;
+      }
+      .pass {
+        color: #137333;
+        font-weight: 600;
+      }
+      .fail {
+        color: #c5221f;
+        font-weight: 600;
+      }
+      .row {
+        display: flex;
+        align-items: flex-start;
+        gap: 1rem;
+      }
+      figure {
+        margin: 0;
+      }
+      figcaption {
+        font-size: 0.8rem;
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>WebGPU render parity (#925 P4b-web / #1029 W3)</h1>
+    <p>
+      Runs the full <code>render_bytes_gpu</code> (the wgpu+WGSL chain on real WebGPU, read back to
+      u8 RGB) and the CPU <code>render_bytes</code> on the committed synthetic-grey DNG, then diffs
+      the RGB output. On the flat grey the W1 native gate is byte-exact; a real divergence = FAIL.
+    </p>
+    <div class="row">
+      <figure>
+        <canvas id="cpu-canvas" aria-label="CPU render"></canvas>
+        <figcaption>CPU render_bytes</figcaption>
+      </figure>
+      <figure>
+        <canvas id="gpu-canvas" aria-label="GPU render"></canvas>
+        <figcaption>GPU render_bytes_gpu (WebGPU)</figcaption>
+      </figure>
+    </div>
+    <pre id="out">running…</pre>
+
+    <script type="module">
+      import init, { render_bytes, render_bytes_gpu, install_panic_hook } from './pkg/raw_wasm.js';
+
+      const out = document.getElementById('out');
+      function finish(text, ok) {
+        out.textContent = text;
+        out.className = ok ? 'pass' : 'fail';
+        window.__MAPLE_RENDER_PARITY_RESULT = text;
+        window.__MAPLE_RENDER_OK = ok;
+      }
+      function draw(canvasId, r) {
+        const c = document.getElementById(canvasId);
+        c.width = r.width;
+        c.height = r.height;
+        const rgb = r.rgb;
+        const rgba = new Uint8ClampedArray(r.width * r.height * 4);
+        for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
+          rgba[j] = rgb[i];
+          rgba[j + 1] = rgb[i + 1];
+          rgba[j + 2] = rgb[i + 2];
+          rgba[j + 3] = 255;
+        }
+        c.getContext('2d').putImageData(new ImageData(rgba, r.width, r.height), 0, 0);
+      }
+
+      if (!('gpu' in navigator)) {
+        finish(
+          'WebGPU not available (navigator.gpu missing). Open in Chrome/Edge ≥ 113 or Safari TP.',
+          false,
+        );
+      } else {
+        try {
+          await init();
+          install_panic_hook();
+          const raw = new Uint8Array(await (await fetch('./grey-l018-rggb.dng')).arrayBuffer());
+
+          // CPU reference first — it populates the shared bytes-keyed auto_profile
+          // cache, so the GPU path then reuses the SAME fitted profile and the
+          // delta is run-order-stable (not skewed by a different fit target).
+          const cpu = render_bytes(raw, 'dng', undefined);
+          const t0 = performance.now();
+          const gpu = await render_bytes_gpu(raw, 'dng', undefined);
+          const gpuMs = performance.now() - t0;
+
+          if (cpu.width !== gpu.width || cpu.height !== gpu.height) {
+            finish(
+              `DIMENSION MISMATCH: cpu ${cpu.width}×${cpu.height} vs gpu ${gpu.width}×${gpu.height}`,
+              false,
+            );
+          } else {
+            draw('cpu-canvas', cpu);
+            draw('gpu-canvas', gpu);
+            const a = cpu.rgb,
+              b = gpu.rgb;
+            let maxDelta = 0,
+              nDiff = 0;
+            for (let i = 0; i < a.length; i++) {
+              const d = Math.abs(a[i] - b[i]);
+              if (d > 0) nDiff++;
+              if (d > maxDelta) maxDelta = d;
+            }
+            const total = a.length;
+            // Flat synthetic grey: W1 native gate = byte-exact (0). Allow ≤2 LSB for
+            // any real-WebGPU-vs-Metal backend rounding (the documented bound).
+            const ok = maxDelta <= 2;
+            const lines = [
+              `RENDER PARITY (render_bytes_gpu vs render_bytes), synthetic grey ${cpu.width}×${cpu.height}:`,
+              `  max byte delta:   ${maxDelta}`,
+              `  bytes differing:  ${nDiff} / ${total} (${((100 * nDiff) / total).toFixed(3)}%)`,
+              `  GPU render time:  ${gpuMs.toFixed(1)} ms (coarse; full 16ms is the live-app User-Timing)`,
+              '',
+              `WebGPU backend: real adapter (navigator.gpu present).`,
+              '',
+              ok
+                ? `OVERALL: PASS — GPU chain matches CPU within ≤2 LSB on real WebGPU.`
+                : `OVERALL: FAIL — max delta ${maxDelta} > 2 LSB (not the expected backend rounding).`,
+            ];
+            finish(lines.join('\n'), ok);
+          }
+        } catch (e) {
+          finish(`RENDER PARITY: FAIL — ${e && e.stack ? e.stack : e}`, false);
+        }
+      }
+    </script>
+  </body>
+</html>
