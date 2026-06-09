@@ -19,6 +19,13 @@ use std::cell::{OnceCell, RefCell};
 pub struct GpuContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    /// The adapter the device was created from. Held so a display surface (the
+    /// P4b present paths — Apple `CAMetalLayer` #1028, web canvas #1029) can query
+    /// `Surface::get_capabilities(&adapter)` and configure itself on THIS device
+    /// (the live chain's f32 buffer lives here, so the present pass that samples
+    /// it must run on the same device). The headless paths never touch it; it is
+    /// `Send`/`Sync`, so holding it does not change the context's threading model.
+    pub adapter: wgpu::Adapter,
     /// Lazily-compiled exposure compute pipeline (`exposure.wgsl`). Built on
     /// first use via [`GpuContext::exposure_pipeline`] and reused thereafter.
     pub(crate) exposure_pipeline: OnceCell<wgpu::ComputePipeline>,
@@ -243,6 +250,7 @@ impl GpuContext {
         Self {
             device,
             queue,
+            adapter,
             exposure_pipeline: OnceCell::new(),
             vibrance_pipeline: OnceCell::new(),
             white_balance_pipeline: OnceCell::new(),
