@@ -57,6 +57,16 @@
   gap: 10px;
 }
 
+// In-progress indicator shown in the collapsed summary so a running scan is
+// visible without expanding the row.
+.scan-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--s-text-mid);
+}
+
 .desc-bar {
   padding: 12px 24px 4px 50px;
   display: flex;
