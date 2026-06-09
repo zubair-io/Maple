@@ -251,6 +251,15 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     focused = signal<Asset | null>(null);
     models = new Map();
     decodeSpy = vi.fn(() => Promise.resolve(decoded()));
+    // A tiny 1×1 RGB readback snapshot, mirroring what the worker folds into the
+    // session reply (#1045) so the component can feed the scopes' `currentPixels`.
+    const scopeSnap = (): DecodedImage => ({
+      width: 1,
+      height: 1,
+      rgb: new Uint8Array([12, 34, 56]),
+      asShotTemperature: 6500,
+      asShotTint: 0,
+    });
     openSessionSpy = vi.fn(() =>
       Promise.resolve({
         width: 4000,
@@ -258,9 +267,12 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
         asShotTemperature: 5200,
         asShotTint: 0,
         colorSpace: 'display-p3',
+        scopePixels: scopeSnap(),
       }),
     );
-    renderSessionSpy = vi.fn(() => Promise.resolve('display-p3'));
+    renderSessionSpy = vi.fn(() =>
+      Promise.resolve({ colorSpace: 'display-p3', scopePixels: scopeSnap() }),
+    );
     closeSessionSpy = vi.fn();
 
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -412,5 +424,61 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     // The previous session was closed; a new one opened for 'b'.
     expect(closeSessionSpy).toHaveBeenCalled();
     expect(openSessionSpy).toHaveBeenCalledTimes(2);
+  });
+
+  // ── Scope feed on the GPU path (#1045) ─────────────────────────────────────
+  // The zero-readback present produces no `currentPixels`; the worker folds a small
+  // readback snapshot into the session reply, which the component publishes so the
+  // scopes update instead of going stale.
+  it('cold-open publishes the readback snapshot to currentPixels for the scopes', async () => {
+    const canvasSvc = TestBed.inject(ImageCanvasService);
+    focused.set(fakeAsset('a'));
+    await settle(REFINE_MS + 50);
+
+    expect(openSessionSpy).toHaveBeenCalledTimes(1);
+    const px = canvasSvc.currentPixels();
+    expect(px).not.toBeNull();
+    expect(Array.from(px!.rgb)).toEqual([12, 34, 56]);
+  });
+
+  it('an edit refreshes currentPixels from the session readback (scopes update)', async () => {
+    const canvasSvc = TestBed.inject(ImageCanvasService);
+    focused.set(fakeAsset('a'));
+    await settle(REFINE_MS + 50);
+
+    // Make the edit's render reply a DISTINCT snapshot so we can prove a refresh.
+    renderSessionSpy.mockResolvedValueOnce({
+      colorSpace: 'display-p3',
+      scopePixels: {
+        width: 1,
+        height: 1,
+        rgb: new Uint8Array([99, 88, 77]),
+        asShotTemperature: 6500,
+        asShotTint: 0,
+      },
+    });
+    setModel('a', { exposure: 1.0 });
+    await settle(REFINE_MS + 10);
+
+    expect(renderSessionSpy).toHaveBeenCalledTimes(1);
+    expect(Array.from(canvasSvc.currentPixels()!.rgb)).toEqual([99, 88, 77]);
+  });
+
+  it('a missing readback snapshot leaves currentPixels null on open (scopes fall back)', async () => {
+    // Worker couldn't snapshot the surface → no `scopePixels`.
+    openSessionSpy.mockResolvedValueOnce({
+      width: 4000,
+      height: 3000,
+      asShotTemperature: 5200,
+      asShotTint: 0,
+      colorSpace: 'display-p3',
+    });
+    const canvasSvc = TestBed.inject(ImageCanvasService);
+    focused.set(fakeAsset('a'));
+    await settle(REFINE_MS + 50);
+
+    expect(openSessionSpy).toHaveBeenCalledTimes(1);
+    // Null → scopes render their pseudo fallback (no regression vs today).
+    expect(canvasSvc.currentPixels()).toBeNull();
   });
 });
