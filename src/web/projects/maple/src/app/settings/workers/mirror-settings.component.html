@@ -17,6 +17,15 @@
       <span class="status-label">{{ statusLabel() }}</span>
     </span>
 
+    @if (scan(); as sc) {
+      @if (sc.phase === 'scanning') {
+        <span class="scan-indicator" data-testid="mirror-scan-indicator">
+          <maple-settings-icon name="retry" [size]="11" [color]="'#a8a29e'" />
+          Scanning… {{ sc.scanned }}
+        </span>
+      }
+    }
+
     <span class="summary-spacer"></span>
 
     @if (status(); as q) {

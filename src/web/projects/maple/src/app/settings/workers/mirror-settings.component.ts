@@ -110,6 +110,11 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
       );
       this.forms.set(forms);
       await this.refreshStatus();
+      // If a scan is already running server-side (it was started before this
+      // reload — possibly in another tab), reflect it and resume live polling so
+      // the UI tracks it to completion instead of showing a frozen snapshot and
+      // a stuck-disabled button.
+      this.resumeIfScanning();
     } catch (e) {
       this.error.set(this.msg(e));
     } finally {
@@ -220,6 +225,16 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
     } catch (e) {
       this.error.set(this.msg(e));
       this.scanning.set(false);
+    }
+  }
+
+  /** Reflect an already-running server-side scan after a (re)load: mark busy and
+   * resume polling so the UI tracks it live and the button stays disabled until
+   * the pass finishes. No-op when nothing is scanning. */
+  private resumeIfScanning(): void {
+    if (this.scan()?.phase === 'scanning') {
+      this.scanning.set(true);
+      this.startPolling();
     }
   }
 
