@@ -330,11 +330,16 @@ export class BunApiBackendService {
   }
 
   /** Kick a reconcile scan pass now; poll getMirrorStatus() for live progress. */
-  runMirrorScanNow(): Observable<{ started: boolean; phase: string; reason?: string }> {
-    return this.http.post<{ started: boolean; phase: string; reason?: string }>(
-      `${this.base}/mirror/scan-now`,
-      {},
-    );
+  runMirrorScanNow(): Observable<{
+    started: boolean;
+    phase: MirrorScanProgress['phase'];
+    reason?: string;
+  }> {
+    return this.http.post<{
+      started: boolean;
+      phase: MirrorScanProgress['phase'];
+      reason?: string;
+    }>(`${this.base}/mirror/scan-now`, {});
   }
 
   listDir(absPath: string, showAll = false): Observable<ApiDirListing> {
