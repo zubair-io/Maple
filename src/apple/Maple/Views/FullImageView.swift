@@ -200,6 +200,25 @@ struct FullImageView: View {
         }
     }
 
+    // MARK: - GPU frame-time HUD (validation-only overlay)
+
+    /// The GPU frame-time HUD overlay (#1053). Like `canvasContent(geo:)`, the
+    /// `#if MAPLE_GPU` lives INSIDE this ViewBuilder (never interleaved with the
+    /// body's brace structure). Renders the HUD only when the GPU live path is
+    /// active AND the HUD sub-flag is on (`MAPLE_GPU_HUD=1`); an `EmptyView`
+    /// otherwise — and in every non-gpu build the whole thing compiles out.
+    @ViewBuilder
+    private func frameTimeHud() -> some View {
+        #if MAPLE_GPU
+        if GpuLiveFlag.isEnabled, GpuHudFlag.isEnabled,
+           let stats = session.gpuLiveDriver?.frameStats {
+            GpuFrameTimeHud(stats: stats)
+        }
+        #else
+        EmptyView()
+        #endif
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -260,6 +279,11 @@ struct FullImageView: View {
             .clipped()
             .overlay(alignment: .bottomLeading) {
                 zoomIndicator(viewport: geo.size)
+            }
+            .overlay(alignment: .topTrailing) {
+                // GPU frame-time HUD — validation-only (gpu build +
+                // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise.
+                frameTimeHud()
             }
             .onAppear {
                 viewportSize = geo.size
