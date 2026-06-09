@@ -187,7 +187,7 @@ public final class EditSession {
     /// runs unchanged. Owns the per-dims `GpuLiveSession` + the registered
     /// `CAMetalLayer`; `decodeAndRender` drives it instead of publishing a
     /// `CIImage`, and `FullImageView` registers its canvas layer into it.
-    @ObservationIgnored lazy var gpuLiveDriver: GpuLiveDriver? =
+    @ObservationIgnored public lazy var gpuLiveDriver: GpuLiveDriver? =
         GpuLiveFlag.isEnabled ? GpuLiveDriver() : nil
     #endif
 
