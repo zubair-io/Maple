@@ -1,25 +1,29 @@
 /// <reference lib="webworker" />
 
 import { render_bytes, render_bytes_scene_linear } from './pkg/raw_wasm';
+// Namespace import so the gpu-gated `render_bytes_gpu` (epic #925, P4b-web /
+// #1029) can be accessed DYNAMICALLY: it exists only in the `gpu`-feature WASM
+// build, so a named import would break the default (gpu-off) bundle's type-check
+// + load. We read it off the module object and existence-check before calling.
+import * as wasm from './pkg/raw_wasm';
 import { initRawWasm, type RawWasmInitResult } from './raw-wasm-init';
-import type {
-  DecodeRequest,
-  DecodeSceneLinearRequest,
-  WorkerResponse,
-} from './raw-pipeline.types';
+import type { DecodeRequest, DecodeSceneLinearRequest, WorkerResponse } from './raw-pipeline.types';
 
 // Forward worker console output to the main thread so Rust panic-hook messages
 // (which call console.error inside the worker) are visible in browser DevTools
 // and in test harnesses that only read the main-frame console.
 {
-  const forward = (level: 'log' | 'warn' | 'error', orig: (...args: unknown[]) => void) =>
+  const forward =
+    (level: 'log' | 'warn' | 'error', orig: (...args: unknown[]) => void) =>
     (...args: unknown[]) => {
       try {
         (self as unknown as Worker).postMessage({
           id: 0,
           type: 'worker-log',
           level,
-          text: args.map((a) => (a instanceof Error ? a.stack ?? a.message : String(a))).join(' '),
+          text: args
+            .map((a) => (a instanceof Error ? (a.stack ?? a.message) : String(a)))
+            .join(' '),
         });
       } catch {
         /* ignore — main thread may be gone */
@@ -72,21 +76,49 @@ addEventListener(
   },
 );
 
+/**
+ * The gpu-gated GPU live-render entry (`render_bytes_gpu`, #1029) — present only
+ * in the `gpu`-feature WASM build. Typed locally (not imported) because the
+ * default bundle doesn't export it; the worker reads it off the module namespace
+ * and existence-checks before use. Async (drives WebGPU); returns the SAME
+ * `MapleRender` shape `render_bytes` does (u8 RGB), so the response path is
+ * unchanged.
+ */
+type RenderBytesGpuFn = (
+  raw: Uint8Array,
+  ext: string,
+  xmp: string | null,
+) => Promise<ReturnType<typeof render_bytes>>;
+
+function gpuEntry(): RenderBytesGpuFn | null {
+  // `Reflect.get` with a runtime key so the bundler does NOT statically resolve
+  // the member (it would emit an "always undefined" warning when built against
+  // the default gpu-OFF bundle, which omits `render_bytes_gpu`). Genuinely
+  // runtime: the SAME built code works against the GPU bundle (has it) and the
+  // default bundle (omits it → falls back to `render_bytes`).
+  const fn = Reflect.get(wasm as object, 'render_bytes_gpu');
+  return typeof fn === 'function' ? (fn as RenderBytesGpuFn) : null;
+}
+
 async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
   try {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
-    // Worker-local mark so DevTools' Performance panel shows the WASM
-    // `render_bytes` call as a distinct entry independent of the
-    // main-thread round-trip the service brackets.
+    // Route through the GPU live chain when the request opts in (#1029) AND the
+    // loaded bundle actually exports it; otherwise fall back to the WASM-CPU
+    // `render_bytes`. Flag-on against a gpu-off bundle (the default build) thus
+    // renders correctly via the CPU path rather than throwing.
+    const gpuFn = req.gpu ? gpuEntry() : null;
+    // Worker-local mark so DevTools' Performance panel shows the WASM render
+    // call as a distinct entry independent of the main-thread round-trip the
+    // service brackets. The mark name distinguishes the GPU path for profiling.
+    const markTag = gpuFn ? 'maple:wasm-gpu' : 'maple:wasm';
     performance.mark(`maple:wasm:${req.id}:start`);
-    const result = render_bytes(bytes, req.ext, req.xmp ?? null);
+    const result = gpuFn
+      ? await gpuFn(bytes, req.ext, req.xmp ?? null)
+      : render_bytes(bytes, req.ext, req.xmp ?? null);
     performance.mark(`maple:wasm:${req.id}:end`);
-    performance.measure(
-      `maple:wasm`,
-      `maple:wasm:${req.id}:start`,
-      `maple:wasm:${req.id}:end`,
-    );
+    performance.measure(markTag, `maple:wasm:${req.id}:start`, `maple:wasm:${req.id}:end`);
     const rgb = result.rgb;
     const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
     const response: WorkerResponse = {
@@ -123,12 +155,7 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
     const bytes = new Uint8Array(req.bytes);
     // Worker-local mark mirrors the legacy `maple:wasm` perf entry.
     performance.mark(`maple:wasm-scene-linear:${req.id}:start`);
-    const result = render_bytes_scene_linear(
-      bytes,
-      req.ext,
-      req.xmp ?? null,
-      req.qualityPreview,
-    );
+    const result = render_bytes_scene_linear(bytes, req.ext, req.xmp ?? null, req.qualityPreview);
     performance.mark(`maple:wasm-scene-linear:${req.id}:end`);
     performance.measure(
       `maple:wasm-scene-linear`,
@@ -155,11 +182,7 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
   } catch (e) {
     const err = e instanceof Error ? e : null;
     if (err?.stack) {
-      console.error(
-        '[raw-pipeline.worker] decode-scene-linear threw:',
-        err.message,
-        err.stack,
-      );
+      console.error('[raw-pipeline.worker] decode-scene-linear threw:', err.message, err.stack);
     }
     const response: WorkerResponse = {
       id: req.id,

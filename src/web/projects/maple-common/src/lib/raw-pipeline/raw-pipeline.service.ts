@@ -7,7 +7,7 @@
 // (Safari / Firefox default, or any host without COOP+COEP). The observable
 // starts undefined and emits once the worker's WASM init reports back.
 
-import { Injectable, OnDestroy } from '@angular/core';
+import { Injectable, OnDestroy, inject } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import type {
   DecodedImage,
@@ -16,11 +16,19 @@ import type {
   DecodeSceneLinearRequest,
   WorkerResponse,
 } from './raw-pipeline.types';
+import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
 import { isNonRawExtension } from '../state/raw-extensions';
 import { decodeNonRawToRgb, decodeNonRawToSceneLinear } from './image-utils';
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
+  // Routes the legacy display-encoded `decode()` through the GPU live chain
+  // (`render_bytes_gpu`) when true (epic #925, P4b-web / #1029). Off by default
+  // → the WASM-CPU `render_bytes` path, byte-for-byte today. The worker further
+  // gates on whether the loaded bundle exports the GPU entry, so flag-on against
+  // a gpu-off WASM build still falls back to `render_bytes`.
+  private readonly gpuLiveRender = inject(GPU_LIVE_RENDER_ENABLED);
+
   private worker: Worker | null = null;
   private nextId = 1;
   private pending = new Map<
@@ -148,7 +156,16 @@ export class RawPipelineService implements OnDestroy {
       bytes.byteOffset,
       bytes.byteOffset + bytes.byteLength,
     ) as ArrayBuffer;
-    const request: DecodeRequest = { id, type: 'decode', bytes: buffer, ext, xmp };
+    const request: DecodeRequest = {
+      id,
+      type: 'decode',
+      bytes: buffer,
+      ext,
+      xmp,
+      // GPU live-render routing (#1029). Only the legacy display-encoded path
+      // (this method) participates; the scene-linear WebGL2 path is unchanged.
+      gpu: this.gpuLiveRender,
+    };
     // Bracket the full decode (post + worker round-trip) with a performance
     // mark so the browser's Performance panel shows a distinct entry per
     // decode. Name includes id so concurrent decodes don't collide.

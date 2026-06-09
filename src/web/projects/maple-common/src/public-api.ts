@@ -18,6 +18,7 @@ export * from './lib/state/library-status.service';
 export * from './lib/state/browse-preferences.service';
 export * from './lib/raw-pipeline/raw-pipeline.service';
 export * from './lib/raw-pipeline/raw-pipeline.types';
+export * from './lib/raw-pipeline/gpu-live-render.token';
 export * from './lib/raw-pipeline/image-utils';
 
 // Plan 3 M2.1 — WebGL2 dev-chain pipeline (hand-rolled).

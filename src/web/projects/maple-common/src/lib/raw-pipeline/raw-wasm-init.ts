@@ -29,11 +29,31 @@
 // 5-second timeout is deliberately generous — cold WASM + worker spawn on
 // low-end hardware can take a beat.
 
-import init, { install_panic_hook, initThreadPool } from './pkg/raw_wasm';
+import init, { install_panic_hook } from './pkg/raw_wasm';
+// Namespace access for `initThreadPool`: it is exported ONLY by the `parallel`
+// (wasm-bindgen-rayon) build. The GPU build (`--features gpu`, RUSTFLAGS="") is
+// single-threaded — wgpu and rayon's shared-memory atomics are mutually
+// exclusive — so it OMITS `initThreadPool`. A static named import would break
+// that bundle at resolution; reading it off the module object lets the gpu-only
+// bundle load and simply stay single-threaded (epic #925, P4b-web / #1029).
+import * as wasm from './pkg/raw_wasm';
 
 export interface RawWasmInitResult {
   readonly threaded: boolean;
   readonly threads: number;
+}
+
+/** The rayon thread-pool initialiser — present only in the `parallel` build. */
+type InitThreadPoolFn = (numThreads: number) => Promise<void>;
+
+function threadPoolInit(): InitThreadPoolFn | null {
+  // `Reflect.get` with a runtime key so the bundler does NOT statically resolve
+  // the member against whichever pkg happens to be synced at build time (it would
+  // emit an "always undefined" warning for the GPU bundle, which legitimately
+  // omits `initThreadPool`). The lookup is genuinely runtime — the SAME built code
+  // works against both the parallel bundle (has it) and the GPU bundle (omits it).
+  const fn = Reflect.get(wasm as object, 'initThreadPool');
+  return typeof fn === 'function' ? (fn as InitThreadPoolFn) : null;
 }
 
 /**
@@ -50,6 +70,11 @@ export async function initRawWasm(): Promise<RawWasmInitResult> {
   } catch {
     // If the build is missing `install_panic_hook` (older pkg), carry on.
   }
+
+  // The GPU build omits `initThreadPool` entirely (single-threaded by
+  // construction) — stay single-threaded without touching SAB.
+  const initThreadPool = threadPoolInit();
+  if (!initThreadPool) return { threaded: false, threads: 1 };
 
   // `crossOriginIsolated` is the gate for SharedArrayBuffer. Without it
   // rayon's atomics would trap; without SAB the thread pool can't share
