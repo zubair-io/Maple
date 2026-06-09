@@ -28,14 +28,24 @@ const LUMA_G: f32 = 0.6780;
 const LUMA_B: f32 = 0.0593;
 const T0: f32 = 0.1;   // transmission floor — raw-core's t0.
 
+// AIRLIGHT (epic #925 P4b / #1033): A rides a SECOND uniform binding (binding 5),
+// NOT the `Params` struct. Recovery already binds 4 storage buffers (orig + ab +
+// sky + out) — the `downlevel_defaults()` cap — so A could not become a 5th
+// storage binding; a uniform doesn't count against the storage cap (the uniform
+// cap is 12). The same binding serves whether A was computed CPU-side (written via
+// `queue.write_buffer`) or on-GPU (copied GPU→GPU from the airlight-reduce output
+// — no readback).
 struct Params {
     count: u32,
     scale: f32,   // clamp(dehaze / 100, -1, 1), precomputed CPU-side.
     _pad0: u32,
     _pad1: u32,
-    // Atmospheric light A (RAW, unclamped — the recovery value). vec4 for
-    // alignment; .a unused.
-    airlight: vec4<f32>,
+};
+
+// Atmospheric light A (RAW, unclamped — the recovery value). vec4 for alignment;
+// .a unused.
+struct Airlight {
+    value: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -43,6 +53,7 @@ struct Params {
 @group(0) @binding(2) var<storage, read> ab_buf: array<vec2<f32>>;
 @group(0) @binding(3) var<storage, read> sky_buf: array<f32>;
 @group(0) @binding(4) var<storage, read_write> output_buf: array<vec4<f32>>;
+@group(0) @binding(5) var<uniform> airlight: Airlight;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -64,7 +75,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         t_eff = max(min(t + (1.0 - t) * (-scale), 1.0), T0);
     }
 
-    let a = params.airlight.rgb;      // RAW A.
+    let a = airlight.value.rgb;       // RAW A.
     let j = (p.rgb - a) / t_eff + a;
 
     let m = clamp(sky_buf[i], 0.0, 1.0);

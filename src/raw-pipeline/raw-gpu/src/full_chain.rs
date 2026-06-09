@@ -66,7 +66,7 @@ use crate::auto_profile_curve::AutoProfileCurvePass;
 use crate::capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
 use crate::chain::Pass;
 use crate::clarity::ClarityPass;
-use crate::dehaze::DehazePass;
+use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
@@ -206,9 +206,12 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     //     view tail (agx → display_encode → srgb_gamma → auto_profile_curve →
     //     residual_lut). local_adjustments / look / dither are gaps (module docs). ---
     let mut suffix: BoxedPasses = Vec::new();
+    // P4a is the headless COMPOSITION gate (no live loop), so it always supplies a
+    // CPU airlight measured from the post-prefix buffer (#1033's on-GPU source is
+    // the live path's concern, selected by `build_live_split`).
     suffix.push(Box::new(DehazePass {
         dehaze: inputs.dehaze,
-        airlight,
+        airlight: AirlightSource::Cpu(airlight),
     }));
     suffix.push(Box::new(SharpenPass {
         amount: inputs.sharpen_amount,

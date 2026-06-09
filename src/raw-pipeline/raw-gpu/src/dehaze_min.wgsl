@@ -18,14 +18,25 @@
 //   * The per-channel ratio in mode 1 divides by `max(A, 1e-6)` (the
 //     `a[c].max(1e-6)` guard raw-core applies INSIDE transmission only). The
 //     raw, unclamped A is used later in recovery — that is a separate kernel.
+//
+// AIRLIGHT (epic #925 P4b / #1033): the atmospheric light A rides a SEPARATE
+// uniform binding (binding 3), not the `Params` struct, so the SAME binding
+// serves whether A was computed CPU-side (written via `queue.write_buffer`) or
+// on-GPU (copied GPU→GPU from the airlight-reduce output into this uniform — no
+// readback). Mode 0 (dark channel) ignores it.
 
 struct Params {
     width: u32,
     height: u32,
     mode: u32,        // 0 = dark channel, 1 = transmission
     _pad0: u32,
-    // Atmospheric light (mode 1 only). vec4 for 16-byte alignment; .a unused.
-    airlight: vec4<f32>,
+};
+
+// Atmospheric light (mode 1 only). vec4 for 16-byte alignment; .a unused. A
+// SECOND uniform (#1033) so the airlight source — CPU `write_buffer` or an
+// on-GPU `copy_buffer_to_buffer` — is transparent to the kernel.
+struct Airlight {
+    value: vec4<f32>,
 };
 
 const DARK_RADIUS: i32 = 7;   // 15×15 neighbourhood — raw-core's DARK_RADIUS.
@@ -35,6 +46,7 @@ const A_FLOOR: f32 = 1e-6;    // transmission-only per-channel A guard.
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> input_buf: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read_write> output_buf: array<f32>;
+@group(0) @binding(3) var<uniform> airlight: Airlight;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -49,7 +61,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Per-channel reciprocal of the (clamped) airlight for mode 1. Computed once
     // per pixel; `max(A, A_FLOOR)` mirrors raw-core's `a[c].max(1e-6)`.
-    let a = params.airlight;
+    let a = airlight.value;
     let inv_a = vec3<f32>(
         1.0 / max(a.r, A_FLOOR),
         1.0 / max(a.g, A_FLOOR),

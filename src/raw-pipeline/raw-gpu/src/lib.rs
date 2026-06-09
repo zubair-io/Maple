@@ -184,6 +184,7 @@
 //! their default dependency trees** — default builds never compile wgpu.
 
 mod agx;
+mod airlight;
 mod auto_profile_curve;
 mod capture_sharpening;
 mod chain;
@@ -236,10 +237,11 @@ pub use auto_profile_curve::{
     apply_auto_profile_curve, AutoProfileCurvePass, PROFILE_CURVE_FLAT_LEN,
 };
 pub use capture_sharpening::{CaptureSharpeningParams, CaptureSharpeningPass};
+pub use airlight::{encode_airlight, AIRLIGHT_BINS};
 pub use chain::{CancelToken, ChainRunner, Pass};
 pub use clarity::{apply_clarity, ClarityPass, CLARITY_GUIDED_RADIUS};
 pub use context::GpuContext;
-pub use dehaze::{apply_dehaze, compute_airlight, DehazePass};
+pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
 pub use dither::{alloc_packed_rgb, dither_and_quantize, encode_dither, unpack_rgb_u8};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};

@@ -38,7 +38,7 @@
 
 use crate::chain::{CancelToken, Pass};
 use crate::context::GpuContext;
-use crate::dehaze::compute_airlight;
+use crate::dehaze::{compute_airlight, AirlightSource};
 use crate::dither::{alloc_packed_rgb, encode_dither, unpack_rgb_u8};
 use crate::full_chain::FullChainInputs;
 use crate::image::GpuImage;
@@ -65,13 +65,22 @@ pub struct LiveSession {
     /// The `MAP_READ` staging buffer for the single end-of-run readback of
     /// `dither_out`. Session-owned (fixed count → create once).
     readback: wgpu::Buffer,
-    /// The `MAP_READ` staging buffer for the MID-CHAIN airlight readback (C5a):
-    /// when dehaze is engaged, the post-prefix buffer is copied here and mapped so
-    /// `compute_airlight` can measure A from the EXACT buffer dehaze sees (raw-core
-    /// measures it post-prefix, not from the original input). Sized to the f32
-    /// image (`width × height × 4` f32). Session-owned (zero-alloc). Unused when
-    /// dehaze is inactive (single-submit path, no readback).
+    /// The `MAP_READ` staging buffer for the MID-CHAIN airlight readback — the C5a
+    /// FALLBACK path only (`airlight_readback_fallback == true`). When dehaze is
+    /// engaged AND the fallback is selected, the post-prefix buffer is copied here
+    /// and mapped so `compute_airlight` can measure A from the EXACT buffer dehaze
+    /// sees. Sized to the f32 image (`width × height × 4` f32). Session-owned
+    /// (zero-alloc). UNUSED on the default on-GPU path (#1033 — A is reduced
+    /// on-device, no readback) and when dehaze is inactive.
     airlight_staging: wgpu::Buffer,
+    /// Whether to use the C5a CPU-readback airlight path instead of the default
+    /// on-GPU reduction (#1033). `false` (the default, via [`LiveSession::new`]):
+    /// the dehaze airlight is computed on-device with NO per-tick GPU→CPU readback,
+    /// so the dehaze-active chain meets the 16ms budget and runs in ONE submit.
+    /// `true` (via [`LiveSession::new_with_airlight_readback`]): the legacy
+    /// prefix→readback→`compute_airlight`→suffix split — kept as a fallback and for
+    /// the parity test that pins the on-GPU A against the CPU A.
+    airlight_readback_fallback: bool,
 }
 
 impl LiveSession {
@@ -84,6 +93,28 @@ impl LiveSession {
     /// borrow and be owned alongside a `GpuContext` in an FFI handle (C4). Every
     /// render method takes `&GpuContext` per call.
     pub fn new(ctx: &GpuContext, pixels: &[f32], width: u32, height: u32) -> Self {
+        Self::new_inner(ctx, pixels, width, height, false)
+    }
+
+    /// Like [`LiveSession::new`] but forces the C5a CPU-readback airlight path (the
+    /// fallback / parity-reference path; see [`Self::airlight_readback_fallback`]).
+    /// The default [`LiveSession::new`] uses the on-GPU reduction (#1033).
+    pub fn new_with_airlight_readback(
+        ctx: &GpuContext,
+        pixels: &[f32],
+        width: u32,
+        height: u32,
+    ) -> Self {
+        Self::new_inner(ctx, pixels, width, height, true)
+    }
+
+    fn new_inner(
+        ctx: &GpuContext,
+        pixels: &[f32],
+        width: u32,
+        height: u32,
+        airlight_readback_fallback: bool,
+    ) -> Self {
         let image = GpuImage::upload(ctx, pixels, width, height);
         let f32_byte_len = image.byte_len();
         let make_ping = |label: &str| {
@@ -124,6 +155,7 @@ impl LiveSession {
             dither_out,
             readback,
             airlight_staging,
+            airlight_readback_fallback,
         }
     }
 
@@ -146,11 +178,12 @@ impl LiveSession {
     /// abandoned by a newer edit). `ctx` is the same context the session was
     /// created with.
     ///
-    /// AIRLIGHT (C5a): when dehaze is engaged, the atmospheric light A is measured
-    /// INTERNALLY from the post-prefix buffer dehaze actually sees (a mid-chain
-    /// readback — raw-core's `dehaze::apply` measures A at dehaze's position, NOT
-    /// from the original input), so the caller doesn't (and can't) supply it. When
-    /// dehaze is inactive the chain runs in one submit with no readback.
+    /// AIRLIGHT (#1033): on the DEFAULT on-GPU path the dehaze atmospheric light A
+    /// is computed ON-DEVICE — the `DehazePass` reduces it from the post-prefix
+    /// buffer it sees (raw-core measures A at dehaze's position, not from the
+    /// original input) with NO GPU→CPU readback, so the whole chain runs in ONE
+    /// submit whether or not dehaze is engaged. The C5a CPU-readback split survives
+    /// only behind [`Self::new_with_airlight_readback`].
     #[cfg(not(target_arch = "wasm32"))]
     pub fn render_to_buffer(
         &self,
@@ -162,9 +195,11 @@ impl LiveSession {
     }
 
     /// The async render core, shared by native (`render_to_buffer`) and wasm
-    /// callers. Branches on whether dehaze is engaged (see [`Self::render_to_buffer`]):
-    /// the no-dehaze path is a single submit; the dehaze path takes a mid-chain
-    /// airlight readback. `cancel` is checked before each pass; `None` ⇒ no
+    /// callers. On the default on-GPU airlight path (#1033) this is ALWAYS the
+    /// single-submit path — dehaze self-computes A on-device — so there is no
+    /// per-tick readback. Only the explicit readback fallback
+    /// ([`Self::new_with_airlight_readback`]) takes the C5a mid-chain split when
+    /// dehaze is engaged. `cancel` is checked before each pass; `None` ⇒ no
     /// cancellation. Returns the `3·w·h` u8 RGB buffer, or `None` if cancelled.
     pub async fn render_async(
         &self,
@@ -180,9 +215,10 @@ impl LiveSession {
         let sig = chain_signature(inputs, dims);
         ctx.frame_pool.borrow_mut().begin_frame(sig);
 
-        let result = if dehaze_is_active(inputs) {
+        let result = if self.airlight_readback_fallback && dehaze_is_active(inputs) {
             self.render_dehaze_split(ctx, inputs, cancel).await
         } else {
+            // On-GPU airlight (or dehaze inactive): one submit, no readback.
             self.render_single(ctx, inputs, cancel).await
         };
 
@@ -190,9 +226,10 @@ impl LiveSession {
         result
     }
 
-    /// The no-dehaze path: the gated chain (dehaze omitted) + dither in ONE
-    /// command encoder, one readback, no mid-chain stall. `airlight` is unused
-    /// (dehaze isn't in the chain), so it's a placeholder.
+    /// The single-submit path: the gated chain + dither in ONE command encoder, one
+    /// readback of the u8 surface, no mid-chain stall. On the default path dehaze
+    /// (if active) self-computes its airlight on-GPU ([`AirlightSource::OnGpu`]); on
+    /// the no-dehaze chain the airlight source is unused.
     async fn render_single(
         &self,
         ctx: &GpuContext,
@@ -201,7 +238,7 @@ impl LiveSession {
     ) -> Option<Vec<u8>> {
         let dims = self.image.dims();
         let f32_byte_len = self.image.byte_len();
-        let passes = build_live_chain(inputs, [0.0; 3]);
+        let passes = build_live_chain(inputs, AirlightSource::OnGpu);
         let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
 
         let mut encoder = ctx
@@ -219,11 +256,12 @@ impl LiveSession {
         self.submit_and_read_surface(ctx, encoder).await
     }
 
-    /// The dehaze path (C5a): run the pre-dehaze PREFIX, read the post-prefix
-    /// buffer back, `compute_airlight` from the EXACT buffer dehaze sees, then run
-    /// the dehaze SUFFIX (built with the real A) + dither + the final readback.
-    /// Two submits — the mid-chain readback is the honest correctness path; the
-    /// on-GPU reduction that removes it is C5b.
+    /// The C5a CPU-readback FALLBACK path (`airlight_readback_fallback == true`):
+    /// run the pre-dehaze PREFIX, read the post-prefix buffer back,
+    /// `compute_airlight` from the EXACT buffer dehaze sees, then run the dehaze
+    /// SUFFIX (built with the real CPU A) + dither + the final readback. Two
+    /// submits + a per-tick GPU→CPU readback — superseded by the default on-GPU
+    /// reduction (#1033), kept for the parity reference + as a fallback.
     async fn render_dehaze_split(
         &self,
         ctx: &GpuContext,
@@ -236,7 +274,7 @@ impl LiveSession {
         // Phase 1: the pre-dehaze prefix (airlight unknown → placeholder; only the
         // prefix runs here). Encode prefix from ping-pong A, then copy the
         // post-prefix result to the airlight staging buffer.
-        let (prefix, _) = build_live_split(inputs, [0.0; 3]);
+        let (prefix, _) = build_live_split(inputs, AirlightSource::Cpu([0.0; 3]));
         let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
 
         let mut enc1 = ctx
@@ -266,7 +304,7 @@ impl LiveSession {
         // post-prefix data is STILL RESIDENT in `ping_pong[prefix_final]` (submit 1
         // didn't touch it after the staging copy), so the suffix runs from THAT
         // index directly — no re-seed copy, no parity-index bookkeeping.
-        let (_, suffix) = build_live_split(inputs, airlight);
+        let (_, suffix) = build_live_split(inputs, AirlightSource::Cpu(airlight));
         let suffix_refs: Vec<&dyn Pass> = suffix.iter().map(|p| p.as_ref()).collect();
 
         let mut enc2 = ctx
@@ -324,9 +362,10 @@ impl LiveSession {
         let sig = chain_signature(inputs, dims);
         ctx.frame_pool.borrow_mut().begin_frame(sig);
 
-        let result = if dehaze_is_active(inputs) {
+        let result = if self.airlight_readback_fallback && dehaze_is_active(inputs) {
             self.encode_chain_f32_dehaze_split(ctx, inputs, cancel).await
         } else {
+            // On-GPU airlight (or dehaze inactive): one submit, no readback.
             self.encode_chain_f32_single(ctx, inputs, cancel)
         };
 
@@ -334,10 +373,11 @@ impl LiveSession {
         result
     }
 
-    /// The no-dehaze chain-only path: seed ping-pong A from the image, run the
-    /// gated chain (dehaze omitted) in ONE submit, leave the f32 result resident.
-    /// Returns the final ping-pong index (the present pass reads it). One submit,
-    /// no readback, no mid-chain stall.
+    /// The single-submit chain-only path: seed ping-pong A from the image, run the
+    /// gated chain in ONE submit, leave the f32 result resident. Returns the final
+    /// ping-pong index (the present pass reads it). On the default path dehaze (if
+    /// active) self-computes its airlight on-GPU ([`AirlightSource::OnGpu`]); no
+    /// readback, no mid-chain stall.
     fn encode_chain_f32_single(
         &self,
         ctx: &GpuContext,
@@ -345,7 +385,7 @@ impl LiveSession {
         cancel: Option<&CancelToken>,
     ) -> Option<usize> {
         let f32_byte_len = self.image.byte_len();
-        let passes = build_live_chain(inputs, [0.0; 3]);
+        let passes = build_live_chain(inputs, AirlightSource::OnGpu);
         let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
 
         let mut encoder = ctx
@@ -359,11 +399,12 @@ impl LiveSession {
         Some(final_idx)
     }
 
-    /// The dehaze chain-only path (C5a): run the pre-dehaze PREFIX, read the
+    /// The C5a CPU-readback FALLBACK chain-only path
+    /// (`airlight_readback_fallback == true`): run the pre-dehaze PREFIX, read the
     /// post-prefix buffer back, `compute_airlight` from the EXACT buffer dehaze
-    /// sees, then run the dehaze SUFFIX (built with the real A) — leaving the f32
-    /// result resident, NO dither. Two submits; the mid-chain readback is the
-    /// honest correctness path (the on-GPU reduction that removes it is #1033).
+    /// sees, then run the dehaze SUFFIX (built with the real CPU A) — leaving the
+    /// f32 result resident, NO dither. Two submits + a readback; superseded by the
+    /// default on-GPU reduction (#1033), kept as a fallback.
     async fn encode_chain_f32_dehaze_split(
         &self,
         ctx: &GpuContext,
@@ -373,7 +414,7 @@ impl LiveSession {
         let dims = self.image.dims();
         let f32_byte_len = self.image.byte_len();
 
-        let (prefix, _) = build_live_split(inputs, [0.0; 3]);
+        let (prefix, _) = build_live_split(inputs, AirlightSource::Cpu([0.0; 3]));
         let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
 
         let mut enc1 = ctx
@@ -395,7 +436,7 @@ impl LiveSession {
         let pre_dehaze = map_f32_readback(ctx, &self.airlight_staging).await;
         let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
 
-        let (_, suffix) = build_live_split(inputs, airlight);
+        let (_, suffix) = build_live_split(inputs, AirlightSource::Cpu(airlight));
         let suffix_refs: Vec<&dyn Pass> = suffix.iter().map(|p| p.as_ref()).collect();
 
         let mut enc2 = ctx
