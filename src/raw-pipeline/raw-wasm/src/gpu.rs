@@ -10,8 +10,19 @@
 //!   chosen surface format + the achieved canvas colour-space tag for in-page
 //!   self-reporting.
 
+// wasm-only: every binding in this module is a `#[wasm_bindgen]` export gated to
+// `wasm32` (the async exposure-parity probe + the P1c present), so the prelude is
+// unused on the native host build the gpu-feature test compiles for.
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+// wasm-only: the `#[wasm_bindgen] async fn` expansion references
+// `wasm_bindgen_futures` (a wasm-only dep here), and the binding is meaningful
+// only in the browser — the native-host equivalent is `maple_gpu_exposure_parity`
+// in `raw-ffi`. Gating it lets the gpu-feature HOST test build
+// (`gpu_render/tests.rs`, #1029) compile without pulling wasm-bindgen-futures
+// onto the native target. Mirrors the existing `present_gpu` gate below.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn exposure_gpu_parity(n_pixels: u32, ev: f32) -> Result<f32, JsError> {
     let n = n_pixels as usize;
