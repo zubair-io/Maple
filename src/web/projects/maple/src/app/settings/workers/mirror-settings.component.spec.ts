@@ -90,4 +90,34 @@ describe('MirrorSettingsComponent', () => {
     expect(stats?.textContent).toContain('42 checked');
     expect(stats?.textContent).toContain('3 queued');
   });
+
+  it('reflects an in-progress scan reported on load (collapsed indicator)', async () => {
+    fixture.detectChanges();
+    http.expectOne('/api/folders').flush([]);
+    await tick();
+    // Status reports a scan already running server-side (e.g. started before reload).
+    http.expectOne('/api/mirror/status').flush({
+      queue: { pending: 5, dead: 0 },
+      scan: {
+        phase: 'scanning',
+        scanned: 17,
+        enqueued: 5,
+        upToDate: 12,
+        currentPath: '/lib/2024/IMG.dng',
+        startedAt: '2026-06-09T00:00:00Z',
+        finishedAt: null,
+        error: null,
+      },
+    });
+    await tick();
+    fixture.detectChanges();
+
+    // The collapsed summary surfaces the running scan without expanding.
+    const indicator = el().querySelector('[data-testid="mirror-scan-indicator"]');
+    expect(indicator?.textContent).toContain('Scanning');
+    expect(indicator?.textContent).toContain('17');
+
+    // Tear down to clear the resumed poll timer before http.verify().
+    fixture.destroy();
+  });
 });
