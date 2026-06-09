@@ -6,6 +6,16 @@ export interface DecodeRequest {
   bytes: ArrayBuffer; // transferable
   ext: string;
   xmp?: string;
+  /**
+   * Route this render through the wgpu+WGSL GPU live chain (`render_bytes_gpu`)
+   * instead of the WASM-CPU `render_bytes` path (epic #925, P4b-web / #1029).
+   * Set from `GPU_LIVE_RENDER_ENABLED`. The worker honours it only when the
+   * loaded WASM bundle actually exports `render_bytes_gpu` (the `gpu`-feature
+   * build); otherwise — and when absent/false — it falls back to `render_bytes`,
+   * so a flag-on request against the default (gpu-off) bundle is still correct.
+   * The `decode-success` response shape is identical either way (u8 RGB).
+   */
+  gpu?: boolean;
 }
 
 export interface DecodeSuccess {
