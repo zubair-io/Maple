@@ -283,6 +283,139 @@ impl LiveSession {
         self.submit_and_read_surface(ctx, enc2).await
     }
 
+    /// Run the GATED live chain for `inputs` to its FINAL f32 buffer and STOP —
+    /// no dither, no readback. Returns the ping-pong index holding the chain's
+    /// sRGB-gamma-encoded f32-RGBA output (read it via [`Self::ping_pong_buffer`]),
+    /// or `None` if `cancel` fired before a pass was encoded. The f32 result is
+    /// left RESIDENT on the GPU so a present pass (P4b-apple #1028 / P4b-web #1029)
+    /// can sample it directly into a display surface — the surface-bound sibling of
+    /// [`Self::render_to_buffer`] (which appends dither + reads the u8 surface back).
+    ///
+    /// AIRLIGHT (C5a): identical to [`Self::render_to_buffer`] — when dehaze is
+    /// engaged the chain runs as a prefix→mid-chain-readback→suffix split (A is
+    /// measured from the post-prefix buffer); otherwise it is one submit. The
+    /// chain submit(s) complete before this returns, so the named buffer is ready
+    /// for the present pass's separate submit.
+    ///
+    /// Opens/closes the SAME signature-keyed pool window as [`Self::render_async`],
+    /// so a same-signature re-render here is zero-alloc too.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn render_chain_to_f32(
+        &self,
+        ctx: &GpuContext,
+        inputs: &FullChainInputs,
+        cancel: &CancelToken,
+    ) -> Option<usize> {
+        pollster::block_on(self.render_chain_to_f32_async(ctx, inputs, Some(cancel)))
+    }
+
+    /// The async core of [`Self::render_chain_to_f32`], shared by native and (a
+    /// future) wasm present caller. Runs the gated chain to its final f32 buffer
+    /// WITHOUT the terminal dither/readback, returning the ping-pong index that
+    /// holds the result. `cancel` is checked before each pass; `None` ⇒ no
+    /// cancellation.
+    pub async fn render_chain_to_f32_async(
+        &self,
+        ctx: &GpuContext,
+        inputs: &FullChainInputs,
+        cancel: Option<&CancelToken>,
+    ) -> Option<usize> {
+        let dims = self.image.dims();
+        let sig = chain_signature(inputs, dims);
+        ctx.frame_pool.borrow_mut().begin_frame(sig);
+
+        let result = if dehaze_is_active(inputs) {
+            self.encode_chain_f32_dehaze_split(ctx, inputs, cancel).await
+        } else {
+            self.encode_chain_f32_single(ctx, inputs, cancel)
+        };
+
+        ctx.frame_pool.borrow_mut().end_frame();
+        result
+    }
+
+    /// The no-dehaze chain-only path: seed ping-pong A from the image, run the
+    /// gated chain (dehaze omitted) in ONE submit, leave the f32 result resident.
+    /// Returns the final ping-pong index (the present pass reads it). One submit,
+    /// no readback, no mid-chain stall.
+    fn encode_chain_f32_single(
+        &self,
+        ctx: &GpuContext,
+        inputs: &FullChainInputs,
+        cancel: Option<&CancelToken>,
+    ) -> Option<usize> {
+        let f32_byte_len = self.image.byte_len();
+        let passes = build_live_chain(inputs, [0.0; 3]);
+        let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
+
+        let mut encoder = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("live-present-chain-encoder"),
+            });
+        encoder.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
+        let final_idx = self.encode_chain(ctx, &mut encoder, &pass_refs, 0, cancel)?;
+        ctx.queue.submit(Some(encoder.finish()));
+        Some(final_idx)
+    }
+
+    /// The dehaze chain-only path (C5a): run the pre-dehaze PREFIX, read the
+    /// post-prefix buffer back, `compute_airlight` from the EXACT buffer dehaze
+    /// sees, then run the dehaze SUFFIX (built with the real A) — leaving the f32
+    /// result resident, NO dither. Two submits; the mid-chain readback is the
+    /// honest correctness path (the on-GPU reduction that removes it is #1033).
+    async fn encode_chain_f32_dehaze_split(
+        &self,
+        ctx: &GpuContext,
+        inputs: &FullChainInputs,
+        cancel: Option<&CancelToken>,
+    ) -> Option<usize> {
+        let dims = self.image.dims();
+        let f32_byte_len = self.image.byte_len();
+
+        let (prefix, _) = build_live_split(inputs, [0.0; 3]);
+        let prefix_refs: Vec<&dyn Pass> = prefix.iter().map(|p| p.as_ref()).collect();
+
+        let mut enc1 = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("live-present-prefix-encoder"),
+            });
+        enc1.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
+        let prefix_final = self.encode_chain(ctx, &mut enc1, &prefix_refs, 0, cancel)?;
+        enc1.copy_buffer_to_buffer(
+            &self.ping_pong[prefix_final],
+            0,
+            &self.airlight_staging,
+            0,
+            f32_byte_len,
+        );
+        ctx.queue.submit(Some(enc1.finish()));
+
+        let pre_dehaze = map_f32_readback(ctx, &self.airlight_staging).await;
+        let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
+
+        let (_, suffix) = build_live_split(inputs, airlight);
+        let suffix_refs: Vec<&dyn Pass> = suffix.iter().map(|p| p.as_ref()).collect();
+
+        let mut enc2 = ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("live-present-suffix-encoder"),
+            });
+        let suffix_final = self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel)?;
+        ctx.queue.submit(Some(enc2.finish()));
+        Some(suffix_final)
+    }
+
+    /// Borrow the ping-pong buffer at `idx` (0 or 1) — the f32 chain output a
+    /// present pass samples after [`Self::render_chain_to_f32`]. `STORAGE |
+    /// COPY_SRC | COPY_DST`, so it binds as read-only storage in the present
+    /// fragment shader. Panics on an out-of-range index (only 0/1 are valid).
+    pub fn ping_pong_buffer(&self, idx: usize) -> &wgpu::Buffer {
+        &self.ping_pong[idx]
+    }
+
     /// Encode `passes` over the ping-pong pair starting at buffer `start_idx`
     /// (pass i reads `ping_pong[(start_idx + i) % 2]`, writes the other). Returns
     /// the final buffer index, or `None` if `cancel` fired before a pass. Shared
