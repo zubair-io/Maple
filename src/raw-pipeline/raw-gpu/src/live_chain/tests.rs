@@ -28,7 +28,7 @@
 use super::*;
 use crate::chain::ChainRunner;
 use crate::context::GpuContext;
-use crate::dehaze::compute_airlight;
+use crate::dehaze::{compute_airlight, AirlightSource};
 use crate::full_chain::oracle::{
     cpu_oracle, identity_curve, identity_lut, max_abs_diff, moved, scene_linear_rgba, Case,
 };
@@ -125,7 +125,7 @@ fn neutral_case() -> Case {
 fn run_live_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Vec<f32> {
     let ctx = GpuContext::new_blocking();
     let airlight = compute_airlight(input, w as usize, h as usize);
-    let passes = build_live_chain(inputs, airlight);
+    let passes = build_live_chain(inputs, AirlightSource::Cpu(airlight));
     let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
     let img = GpuImage::upload(&ctx, input, w, h);
     let runner = ChainRunner::new(&ctx, &img);
@@ -161,7 +161,7 @@ fn neutral_live_chain_matches_cpu_and_omits_noop_passes() {
     // (a) Structural: the neutral chain is EXACTLY the view tail. No WB, no tone,
     //     no vibrance/saturation/clarity/texture/dehaze/sharpen/NR — every one is
     //     a no-op at default, so the gated builder omits it.
-    let passes = build_live_chain(&inputs, [0.0; 3]);
+    let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
         passes.len(),
         VIEW_TAIL_PASS_COUNT,
@@ -315,7 +315,7 @@ fn single_stage_active_includes_exactly_that_pass_and_matches_cpu() {
         let inputs = case.gpu_inputs();
 
         // (a) exactly one pass added over the neutral floor.
-        let passes = build_live_chain(&inputs, [0.0; 3]);
+        let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
         assert_eq!(
             passes.len(),
             VIEW_TAIL_PASS_COUNT + 1,
@@ -361,8 +361,8 @@ fn live_split_concatenates_to_live_chain_and_handles_omitted_dehaze() {
     let case = neutral_case();
     let inputs = case.gpu_inputs();
 
-    let full = build_live_chain(&inputs, [0.0; 3]);
-    let (prefix, suffix) = build_live_split(&inputs, [0.0; 3]);
+    let full = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
+    let (prefix, suffix) = build_live_split(&inputs, AirlightSource::Cpu([0.0; 3]));
     assert_eq!(
         full.len(),
         prefix.len() + suffix.len(),
@@ -380,7 +380,7 @@ fn live_split_concatenates_to_live_chain_and_handles_omitted_dehaze() {
     let mut dehazed = neutral_case();
     dehazed.model.dehaze = 40.0;
     let dehazed_inputs = dehazed.gpu_inputs();
-    let (dprefix, dsuffix) = build_live_split(&dehazed_inputs, [0.1, 0.1, 0.1]);
+    let (dprefix, dsuffix) = build_live_split(&dehazed_inputs, AirlightSource::Cpu([0.1, 0.1, 0.1]));
     assert_eq!(dprefix.len(), 0, "dehaze-only prefix is still empty");
     assert_eq!(
         dsuffix.len(),
