@@ -53,69 +53,65 @@ describe('MirrorSettingsComponent', () => {
     expect(el().querySelector('.expanded')).not.toBeNull();
     expect(el().querySelector('.row-summary')?.getAttribute('aria-expanded')).toBe('true');
 
-    // Toggling again collapses it.
     el().querySelector<HTMLElement>('.row-summary')!.click();
     fixture.detectChanges();
     expect(el().querySelector('.expanded')).toBeNull();
   });
 
-  it('"Scan now" posts a scan and renders the returned progress', async () => {
+  it('"Reconcile now" posts and renders the returned two-stage results', async () => {
     await init();
-    el().querySelector<HTMLElement>('.row-summary')!.click(); // expand
+    el().querySelector<HTMLElement>('.row-summary')!.click(); // expand to reveal the stages
     fixture.detectChanges();
 
-    el().querySelector<HTMLButtonElement>('[data-testid="mirror-scan-now"]')!.click();
+    el().querySelector<HTMLButtonElement>('[data-testid="mirror-reconcile-now-full"]')!.click();
 
-    http.expectOne('/api/mirror/scan-now').flush({ started: true, phase: 'scanning' });
-    await tick(); // let scanNow continue into refreshStatus
+    http.expectOne('/api/mirror/reconcile').flush({ started: true, phase: 'scanning' });
+    await tick();
 
-    // Return an already-finished pass so no polling interval starts.
+    // Return a finished run so no polling interval starts.
     http.expectOne('/api/mirror/status').flush({
-      queue: { pending: 3, dead: 0 },
-      scan: {
+      queue: { pending: 0, dead: 0 },
+      reconcile: {
         phase: 'idle',
-        scanned: 42,
-        enqueued: 3,
-        upToDate: 39,
+        scan: { scanned: 42, toCopy: 3, upToDate: 39, errors: 0 },
+        copy: { total: 3, copied: 3, remaining: 0, errors: 0 },
         currentPath: null,
-        startedAt: '2026-06-08T00:00:00Z',
-        finishedAt: '2026-06-08T00:00:01Z',
-        error: null,
+        startedAt: '2026-06-09T00:00:00Z',
+        finishedAt: '2026-06-09T00:00:05Z',
+        errorLog: [],
       },
     });
     await tick();
     fixture.detectChanges();
 
-    const stats = el().querySelector('[data-testid="mirror-scan-stats"]');
-    expect(stats?.textContent).toContain('42 checked');
-    expect(stats?.textContent).toContain('3 queued');
+    const stages = el().querySelector('[data-testid="mirror-stages"]');
+    expect(stages?.textContent).toContain('42 scanned');
+    expect(stages?.textContent).toContain('3 / 3 copied');
   });
 
-  it('reflects an in-progress scan reported on load (collapsed indicator)', async () => {
+  it('reflects an in-progress reconcile reported on load (collapsed readout)', async () => {
     fixture.detectChanges();
     http.expectOne('/api/folders').flush([]);
     await tick();
-    // Status reports a scan already running server-side (e.g. started before reload).
     http.expectOne('/api/mirror/status').flush({
-      queue: { pending: 5, dead: 0 },
-      scan: {
-        phase: 'scanning',
-        scanned: 17,
-        enqueued: 5,
-        upToDate: 12,
+      queue: { pending: 6, dead: 0 },
+      reconcile: {
+        phase: 'copying',
+        scan: { scanned: 50, toCopy: 10, upToDate: 40, errors: 0 },
+        copy: { total: 10, copied: 4, remaining: 6, errors: 0 },
         currentPath: '/lib/2024/IMG.dng',
         startedAt: '2026-06-09T00:00:00Z',
         finishedAt: null,
-        error: null,
+        errorLog: [],
       },
     });
     await tick();
     fixture.detectChanges();
 
-    // The collapsed summary surfaces the running scan without expanding.
-    const indicator = el().querySelector('[data-testid="mirror-scan-indicator"]');
-    expect(indicator?.textContent).toContain('Scanning');
-    expect(indicator?.textContent).toContain('17');
+    expect(el().querySelector('[data-testid="mirror-status"]')?.textContent).toContain('Copying');
+    const readout = el().querySelector('[data-testid="mirror-readout"]');
+    expect(readout?.textContent).toContain('Copying');
+    expect(readout?.textContent).toContain('4/10');
 
     // Tear down to clear the resumed poll timer before http.verify().
     fixture.destroy();

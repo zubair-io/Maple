@@ -35,23 +35,29 @@ export interface MirrorLocation {
   enabled: boolean;
 }
 
-/** Live progress of an operator "Scan now" mirror reconcile pass. */
-export interface MirrorScanProgress {
-  phase: 'idle' | 'scanning';
-  scanned: number;
-  enqueued: number;
-  upToDate: number;
+/** One per-file error from a reconcile run (mirrors the server type). */
+export interface MirrorReconcileError {
+  path: string;
+  error: string;
+  at: string;
+}
+
+/** Live two-stage progress of an operator "Reconcile now" run (scan → copy). */
+export interface MirrorReconcileProgress {
+  phase: 'idle' | 'scanning' | 'copying';
+  scan: { scanned: number; toCopy: number; upToDate: number; errors: number };
+  copy: { total: number; copied: number; remaining: number; errors: number };
   currentPath: string | null;
   startedAt: string | null;
   finishedAt: string | null;
-  error: string | null;
+  errorLog: MirrorReconcileError[];
 }
 
-/** mirror_queue depth + scan progress, surfaced on the Workers settings page. */
+/** mirror_queue depth + reconcile progress, surfaced on the Workers settings page. */
 export interface MirrorQueueStatus {
   queue: { pending: number; dead: number };
-  /** Optional so older/mocked responses without scan progress still type-check. */
-  scan?: MirrorScanProgress;
+  /** Optional so older/mocked responses without reconcile progress still type-check. */
+  reconcile?: MirrorReconcileProgress;
 }
 
 export interface ApiAsset {
@@ -329,17 +335,18 @@ export class BunApiBackendService {
     return this.http.post<{ ok: boolean; revived: number }>(`${this.base}/mirror/retry-dead`, {});
   }
 
-  /** Kick a reconcile scan pass now; poll getMirrorStatus() for live progress. */
-  runMirrorScanNow(): Observable<{
+  /** Kick a full reconcile (scan → copy) now; poll getMirrorStatus() for live
+   * two-stage progress. */
+  runMirrorReconcile(): Observable<{
     started: boolean;
-    phase: MirrorScanProgress['phase'];
+    phase: MirrorReconcileProgress['phase'];
     reason?: string;
   }> {
     return this.http.post<{
       started: boolean;
-      phase: MirrorScanProgress['phase'];
+      phase: MirrorReconcileProgress['phase'];
       reason?: string;
-    }>(`${this.base}/mirror/scan-now`, {});
+    }>(`${this.base}/mirror/reconcile`, {});
   }
 
   listDir(absPath: string, showAll = false): Observable<ApiDirListing> {
