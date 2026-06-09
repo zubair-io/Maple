@@ -1,5 +1,0 @@
-// Pixelated rendering can't be expressed as a Tailwind utility (no
-// `image-rendering` plugin in v4 by default).
-.image {
-  image-rendering: pixelated;
-}
