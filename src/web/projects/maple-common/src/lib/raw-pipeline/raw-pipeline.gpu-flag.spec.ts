@@ -136,4 +136,85 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     replyOnePixel(workerStub, sent.id);
     await promise;
   });
+
+  // ── Persistent live session plumbing (epic #925, P4b-web / #1038) ──────────
+  // The 16ms-ready path: the service posts open/render/close-session messages and
+  // transfers the OffscreenCanvas. Worker-side WebLiveSession selection + the GPU
+  // pixels are the W3 checkpoint; this gates the main-thread → worker plumbing.
+
+  it('gpuLiveRenderEnabled reflects the token', () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: GPU_LIVE_RENDER_ENABLED, useValue: true }],
+    });
+    expect(TestBed.inject(RawPipelineService).gpuLiveRenderEnabled).toBe(true);
+  });
+
+  it('openLiveSession posts open-session and TRANSFERS the OffscreenCanvas', async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: GPU_LIVE_RENDER_ENABLED, useValue: true }],
+    });
+    const service = TestBed.inject(RawPipelineService);
+    const canvas = {} as OffscreenCanvas;
+
+    const promise = service.openLiveSession(canvas, new Uint8Array([0x44, 0x4e, 0x47]), 'dng');
+    await Promise.resolve();
+
+    expect(workerStub.postMessage).toHaveBeenCalledTimes(1);
+    const [msg, transfer] = workerStub.postMessage.mock.calls[0] as [
+      { type: string; ext: string; canvas: OffscreenCanvas },
+      Transferable[],
+    ];
+    expect(msg.type).toBe('open-session');
+    expect(msg.ext).toBe('dng');
+    expect(msg.canvas).toBe(canvas);
+    // BOTH the byte buffer and the canvas must be in the transfer list.
+    expect(transfer).toContain(canvas);
+    expect(transfer.length).toBe(2);
+
+    // Resolve the open so the promise settles.
+    workerStub.reply({
+      id: (msg as unknown as { id: number }).id,
+      type: 'open-session-success',
+      width: 4000,
+      height: 3000,
+      asShotTemperature: 5200,
+      asShotTint: 0,
+      colorSpace: 'display-p3',
+    });
+    const info = await promise;
+    expect(info.width).toBe(4000);
+    expect(info.colorSpace).toBe('display-p3');
+  });
+
+  it('renderLiveSession posts render-session and resolves the colour-space tag', async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: GPU_LIVE_RENDER_ENABLED, useValue: true }],
+    });
+    const service = TestBed.inject(RawPipelineService);
+
+    const xmp = '<x:xmpmeta><t crs:Exposure2012="0.5"/></x:xmpmeta>';
+    const promise = service.renderLiveSession(xmp);
+    await Promise.resolve();
+
+    const msg = workerStub.postMessage.mock.calls[0][0] as { type: string; xmp: string; id: number };
+    expect(msg.type).toBe('render-session');
+    expect(msg.xmp).toBe(xmp);
+
+    workerStub.reply({ id: msg.id, type: 'render-session-success', colorSpace: 'srgb' });
+    expect(await promise).toBe('srgb');
+  });
+
+  it('a session-error rejects the open promise (component then falls back)', async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: GPU_LIVE_RENDER_ENABLED, useValue: true }],
+    });
+    const service = TestBed.inject(RawPipelineService);
+
+    const promise = service.openLiveSession({} as OffscreenCanvas, new Uint8Array([0x44]), 'dng');
+    await Promise.resolve();
+    const msg = workerStub.postMessage.mock.calls[0][0] as { id: number };
+    workerStub.reply({ id: msg.id, type: 'session-error', message: 'WebLiveSession unavailable' });
+
+    await expect(promise).rejects.toThrow('WebLiveSession unavailable');
+  });
 });

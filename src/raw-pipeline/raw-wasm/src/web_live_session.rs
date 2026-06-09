@@ -242,6 +242,14 @@ impl WebLiveSession {
     pub fn height(&self) -> u32 {
         self.height
     }
+
+    /// The achieved canvas colour-space tag from the one-time display-p3 retag
+    /// (`"display-p3"` / `"srgb"` / `"unknown"`) — surfaced so the worker reports
+    /// the TRUTH the browser configured after `open`, never an assumption.
+    #[wasm_bindgen(getter, js_name = colorSpace)]
+    pub fn color_space(&self) -> String {
+        self.present.color_space().to_string()
+    }
 }
 
 impl WebLiveSession {

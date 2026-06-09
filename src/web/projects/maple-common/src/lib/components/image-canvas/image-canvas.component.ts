@@ -21,6 +21,7 @@ import { imageDataToBitmap } from '../../raw-pipeline/image-utils';
 import { ImageCanvasService } from './image-canvas.service';
 import { AssetId } from '../../models/asset';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
+import { isNonRawExtension } from '../../state/raw-extensions';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -41,6 +42,25 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
 
   readonly loading = signal(false);
   readonly imageBitmap = signal<ImageBitmap | null>(null);
+
+  // ── GPU live-render path (epic #925, P4b-web / #1038) ────────────────────
+  // When `GPU_LIVE_RENDER_ENABLED` is on, a RAW asset renders through a persistent
+  // `WebLiveSession` in the worker that presents straight to a transferred
+  // `OffscreenCanvas` (zero readback, 16ms-ready) instead of the `decode()` → u8 →
+  // 2D-canvas path. Flag OFF (the default) keeps the EXACT 2D path below, untouched.
+  //
+  // SCOPE (invariant #6 — stated, not silently dropped): the GPU path renders the
+  // plain live preview only. Before/after-split + the gradient placeholder stay on
+  // the 2D path (flag-off / mock assets); they are not supported on the GPU live
+  // canvas this ticket. The histogram/waveform scopes read `currentPixels`, which
+  // the zero-readback GPU path does not populate — they go stale on the flag-on
+  // path (a documented follow-up; the flag is off by default).
+  //
+  // `transferControlToOffscreen()` is ONE-WAY per element, so each session-open
+  // creates a FRESH GPU canvas element (a new asset = a new session at possibly new
+  // dims); the previous element is removed.
+  readonly gpuSessionActive = signal(false);
+  private gpuCanvasEl: HTMLCanvasElement | null = null;
 
   private ro?: ResizeObserver;
   private wrapW = signal<number>(800);
@@ -161,6 +181,9 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
         // post-seed XMP below so the seed-driven effect fire dedups out.
         this.renderGeneration++;
         this.clearRerenderTimers();
+        // Tear down any GPU live session from the previous asset (its surface is
+        // bound to that image's dims; a new asset opens a fresh session + canvas).
+        this.teardownGpuSession();
         this.currentBytes = null;
         this.currentExt = '';
         this.lastRenderedXmp = null;
@@ -237,7 +260,15 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
         const _____ = this.wrapW();
         const ______ = this.wrapH();
         const _______ = this.imageBitmap();
-        this.draw();
+        const ________ = this.gpuSessionActive();
+        // On the GPU live path the OffscreenCanvas holds the pixels (worker-owned);
+        // we only CSS-position/scale it here (the surface is image-res). The 2D
+        // `draw()` is for the flag-off / mock / before-after path.
+        if (this.gpuSessionActive()) {
+          this.applyGpuCanvasView();
+        } else {
+          this.draw();
+        }
       },
       { injector: this.injector },
     );
@@ -253,21 +284,35 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
     // Invalidate any in-flight re-render so a late decode can't touch a
     // destroyed component's signals.
     this.renderGeneration++;
+    // Tear down the GPU live session (frees the worker-side GPU handle + removes
+    // the GPU canvas element); no-op on the flag-off path.
+    this.teardownGpuSession();
     this.imageBitmap()?.close();
   }
 
   private async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
+    const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+    // Retain bytes + ext for adjustment-driven re-renders (no XMP on this
+    // cold-open decode — raw-core substitutes the camera As-Shot WB).
+    this.currentBytes = bytes;
+    this.currentExt = ext;
+
+    // GPU live-render path (#1038): a RAW asset with the flag on renders through a
+    // persistent worker session presenting to an OffscreenCanvas. Falls back to the
+    // 2D decode path below on any failure (incl. a gpu-off WASM bundle). Non-RAW
+    // images + the flag-off default always take the 2D path.
+    if (this.pipeline.gpuLiveRenderEnabled && !isNonRawExtension(ext)) {
+      const ok = await this.loadViaGpuSession(assetId, bytes, ext);
+      if (ok) return;
+      // GPU open failed (e.g. non-gpu bundle / no WebGPU) — fall through to 2D.
+    }
+
     this.loading.set(true);
     // Bracket the whole click → pixels path. `maple:open` is the outer
     // measure; `maple:decode` (service) and `maple:wasm` (worker) are nested
     // sub-intervals. View in DevTools → Performance → User Timings.
     performance.mark(`maple:open:${assetId}:start`);
     try {
-      const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-      // Retain bytes + ext for adjustment-driven re-renders (no XMP on this
-      // cold-open decode — raw-core substitutes the camera As-Shot WB).
-      this.currentBytes = bytes;
-      this.currentExt = ext;
       const decoded = await this.pipeline.decode(bytes, ext);
 
       // Update dimensions on the asset.
@@ -327,6 +372,115 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
+   * Cold-open a RAW through the persistent GPU live session (#1038): create a fresh
+   * GPU canvas, transfer it to the worker, and open the session (which presents the
+   * first frame with no readback). Returns `true` on success, `false` on any failure
+   * (a gpu-off WASM bundle, no WebGPU, decode error) so the caller falls back to the
+   * 2D `decode()` path. Mirrors the cold-open bookkeeping of `loadReal` (dims, the
+   * As-Shot WB seed, the `coldOpenDone` gate + `lastRenderedXmp` dedup) so the #846
+   * adjustment effect behaves identically — only the render mechanism differs.
+   */
+  private async loadViaGpuSession(
+    assetId: AssetId,
+    bytes: Uint8Array,
+    ext: string,
+  ): Promise<boolean> {
+    // `OffscreenCanvas` / `transferControlToOffscreen` must exist (they do on every
+    // WebGPU-capable browser; guard so an old browser falls back cleanly).
+    if (typeof OffscreenCanvas === 'undefined') return false;
+    this.loading.set(true);
+    performance.mark(`maple:open:${assetId}:start`);
+    try {
+      const canvasEl = this.createGpuCanvas();
+      const offscreen = canvasEl.transferControlToOffscreen();
+      const info = await this.pipeline.openLiveSession(offscreen, bytes, ext);
+
+      // Stale guard: a fast asset switch may have moved on (or torn this down)
+      // while the open was in flight.
+      if (assetId !== this.currentAssetId || this.gpuCanvasEl !== canvasEl) {
+        return true; // superseded; the newer open/teardown owns the canvas now
+      }
+
+      this.gpuSessionActive.set(true);
+      // Clear the 2D bitmap so the (hidden) 2D canvas doesn't retain stale pixels.
+      this.imageBitmap()?.close();
+      this.imageBitmap.set(null);
+      this.canvasSvc.currentPixels.set(null);
+
+      // Same cold-open bookkeeping as the 2D path so #846 dedups identically.
+      this.state.updateAssetDimensions(assetId, info.width, info.height);
+      this.state.seedAsShotWhiteBalance(assetId, info.asShotTemperature, info.asShotTint);
+      this.coldOpenDone = true;
+      const liveXmp = this.xmpSerializer.serialize(this.state.adjustmentFor(assetId)());
+      if (this.lastRenderedXmp === null) {
+        this.lastRenderedXmp = liveXmp;
+      }
+      performance.mark(`maple:open:${assetId}:paint`);
+      performance.measure(
+        `maple:open`,
+        `maple:open:${assetId}:start`,
+        `maple:open:${assetId}:paint`,
+      );
+      return true;
+    } catch (e) {
+      // gpu-off bundle / no WebGPU / decode error → tear down + signal fallback.
+      console.warn('[image-canvas] GPU live session open failed; falling back to 2D:', e);
+      this.teardownGpuSession();
+      return false;
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  /**
+   * Create a fresh GPU canvas element, style it like the 2D canvas (absolute,
+   * centered, CSS-scaled by the same pan transform), append it to the canvas wrap,
+   * and remove any previous one. `transferControlToOffscreen()` is one-way per
+   * element, so a new element is required for every session-open.
+   */
+  private createGpuCanvas(): HTMLCanvasElement {
+    this.removeGpuCanvasEl();
+    const el = document.createElement('canvas');
+    el.className = 'block absolute top-1/2 left-1/2';
+    el.setAttribute('data-gpu-live', '');
+    // Match the 2D canvas's pan transform; `draw()` sizes/positions the 2D canvas,
+    // and `applyGpuCanvasView()` keeps this one in sync on zoom/pan/resize.
+    this.wrapRef.nativeElement.appendChild(el);
+    this.gpuCanvasEl = el;
+    this.applyGpuCanvasView();
+    return el;
+  }
+
+  /** Tear down the GPU live session + remove its canvas element. Idempotent. */
+  private teardownGpuSession(): void {
+    if (this.gpuSessionActive() || this.gpuCanvasEl) {
+      this.pipeline.closeLiveSession();
+    }
+    this.gpuSessionActive.set(false);
+    this.removeGpuCanvasEl();
+  }
+
+  private removeGpuCanvasEl(): void {
+    this.gpuCanvasEl?.remove();
+    this.gpuCanvasEl = null;
+  }
+
+  /**
+   * Position + CSS-scale the GPU canvas to match the 2D canvas's layout (the
+   * surface is image-resolution; CSS scales it to the viewport, same model as the
+   * 2D canvas's `drawImage` target). Driven by the same zoom/pan/resize effect.
+   */
+  private applyGpuCanvasView(): void {
+    const el = this.gpuCanvasEl;
+    if (!el) return;
+    const { canvasW, canvasH } = this.effectivePx();
+    el.style.width = `${canvasW}px`;
+    el.style.height = `${canvasH}px`;
+    const pan = this.canvasSvc.pan();
+    el.style.transform = `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px))`;
+  }
+
+  /**
    * Schedule a debounced re-render for the current adjustment model. Called
    * from the adjustment effect on every model change; trailing-edge debounced
    * so a slider drag doesn't enqueue a full-res decode per tick — exactly one
@@ -352,17 +506,39 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Decode the retained RAW bytes with the given XMP and publish the result —
-   * but only if `generation` is still current when the decode returns. A
-   * `render_bytes` call runs to completion behind the service's serialization
-   * gate, so a newer edit can't interrupt an in-flight decode; the generation
-   * guard instead drops the stale result so it never overwrites a fresher
-   * bitmap.
+   * Re-render the retained RAW bytes with the given XMP and publish the result —
+   * but only if `generation` is still current when the render returns. A render runs
+   * to completion behind a serialization gate (the service's decode gate, or the
+   * worker's session-render queue), so a newer edit can't interrupt an in-flight
+   * render; the generation guard instead drops the stale result so it never
+   * overwrites a fresher frame.
+   *
+   * GPU live path (#1038): when the session is active, route to
+   * `renderLiveSession(xmp)` — the worker re-renders + presents to the OffscreenCanvas
+   * (zero readback), so there's no bitmap to publish. The worker serializes renders
+   * (the wasm `&mut self` re-entrancy guard), so an overlapping debounce fire can't
+   * trip "recursive use of an object detected". Otherwise the 2D `decode()` path runs.
    */
   private async runRender(xmp: string, generation: number): Promise<void> {
     const bytes = this.currentBytes;
     const ext = this.currentExt;
     if (!bytes) return;
+
+    if (this.gpuSessionActive()) {
+      try {
+        await this.pipeline.renderLiveSession(xmp);
+        // Stale guard: a newer edit / asset switch superseded this render. The
+        // presented frame is already on-screen; for a superseded one we accept the
+        // last-writer-wins present (the next render repaints), matching the 2D
+        // path's "drop the stale result" intent without a CPU buffer to discard.
+        if (generation !== this.renderGeneration) return;
+        this.lastRenderedXmp = xmp;
+      } catch (e) {
+        console.error('[image-canvas] GPU session re-render failed:', e);
+      }
+      return;
+    }
+
     try {
       const decoded = await this.pipeline.decode(bytes, ext, xmp);
       // Stale guard: a newer edit (or asset switch) bumped the generation
