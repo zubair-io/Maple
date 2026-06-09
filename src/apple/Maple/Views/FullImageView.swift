@@ -125,8 +125,33 @@ struct FullImageView: View {
                 // Background
                 MapleTokens.imageCanvas.ignoresSafeArea()
 
+                #if MAPLE_GPU
+                // wgpu live canvas (epic #925, P4b-apple) — when the runtime flag
+                // is on and the native size has seeded, the wgpu chain presents
+                // directly into a CAMetalLayer (no `renderedPreview` CIImage). The
+                // before/after toggle still falls back to the CPU `CIImageView`
+                // (the GPU path has no "original" buffer), so this is gated on
+                // `!showingOriginal`.
+                if GpuLiveFlag.isEnabled, !session.showingOriginal,
+                   let frameInPoints = canvasMath(viewport: geo.size).displayFrameInPoints {
+                    GpuLiveCanvasView(session: session)
+                        .frame(width: frameInPoints.width, height: frameInPoints.height)
+                        .offset(panOffset)
+                        .gesture(magnificationGesture(viewport: geo.size))
+                        .simultaneousGesture(dragGesture(viewport: geo.size))
+                        .onTapGesture(count: 2) { resetZoom() }
+                        .accessibilityIdentifier(
+                            FullImageViewVM.canvasAccessibilityID(
+                                isRendering: session.isRendering,
+                                hasPreview: true // the GPU path presents directly
+                            )
+                        )
+                } else if let ci = session.showingOriginal ? nil : session.renderedPreview,
+                   let frameInPoints = canvasMath(viewport: geo.size).displayFrameInPoints {
+                #else
                 if let ci = session.showingOriginal ? nil : session.renderedPreview,
                    let frameInPoints = canvasMath(viewport: geo.size).displayFrameInPoints {
+                #endif
                     // Frame on the *virtual* image size — `nativeImageSize`
                     // exclusively. The CIImage itself may be at a smaller
                     // resolution (embedded preview, cached JPEG, half-res

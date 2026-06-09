@@ -179,6 +179,18 @@ public final class EditSession {
     /// `writeXMP` API instead.
     @ObservationIgnored let sidecarStore: (any SidecarStoreProtocol)?
 
+    #if MAPLE_GPU
+    /// The wgpu live-render driver (epic #925, P4b-apple / #1028). Created
+    /// lazily ONLY when the runtime flag is on (`GpuLiveFlag.isEnabled` — a
+    /// gpu-variant build launched with `MAPLE_GPU_LIVE=1`), so a normal
+    /// gpu-build with the flag off allocates nothing and the CPU + Metal path
+    /// runs unchanged. Owns the per-dims `GpuLiveSession` + the registered
+    /// `CAMetalLayer`; `decodeAndRender` drives it instead of publishing a
+    /// `CIImage`, and `FullImageView` registers its canvas layer into it.
+    @ObservationIgnored lazy var gpuLiveDriver: GpuLiveDriver? =
+        GpuLiveFlag.isEnabled ? GpuLiveDriver() : nil
+    #endif
+
     /// True while `loadSidecar()` is applying persisted state. Hydration must
     /// not behave like a user edit: it should not schedule preview renders
     /// for every session pre-created by the browse grid, and it should not
