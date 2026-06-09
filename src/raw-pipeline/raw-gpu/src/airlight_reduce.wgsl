@@ -56,6 +56,18 @@ var<workgroup> sum_g: array<f32, WG>;
 var<workgroup> sum_b: array<f32, WG>;
 var<workgroup> cnt: array<f32, WG>;
 
+// Map a dark-channel value to its histogram bin — MUST be identical to
+// `airlight_hist.wgsl::dc_to_bin` so "selected" (bin >= tau) matches the scanned
+// counts. The monotonic tonemap `t = dc / (1 + dc)` (see the hist kernel header).
+fn dc_to_bin(dc: f32, bins: u32) -> u32 {
+    let t = max(dc, 0.0) / (1.0 + max(dc, 0.0));
+    var bin = u32(t * f32(bins));
+    if (bin >= bins) {
+        bin = bins - 1u;
+    }
+    return bin;
+}
+
 @compute @workgroup_size(WG)
 fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
     let tid = lid.x;
@@ -93,9 +105,7 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
         if (i >= n) { break; }
         // Bin this pixel's dark channel the SAME way airlight_hist.wgsl does, so
         // "selected" (bin >= tau) is consistent with the scanned counts.
-        let dc = clamp(dc_buf[i], 0.0, 1.0);
-        var bin = u32(dc * f32(bins));
-        if (bin >= bins) { bin = bins - 1u; }
+        let bin = dc_to_bin(dc_buf[i], bins);
         if (bin >= threshold_bin) {
             let p = orig_buf[i];
             lr = lr + p.r;

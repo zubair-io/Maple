@@ -15,12 +15,21 @@
 // `airlight/tests.rs`.
 //
 // THIS kernel is stage 1: an atomic histogram of the dark channel `dc` into
-// `BINS` uniform bins over [0, 1]. The dark channel is min(r,g,b) of the
-// scene-linear image; values < 0 clamp to bin 0 and values >= 1 clamp to the top
-// bin (HDR-headroom dark-channel values are the brightest, so the top bin is
-// where the airlight selection lives anyway — clamping there is correct, not a
-// loss). Integer atomic adds commute, so the histogram is order-independent /
-// deterministic across threads (unlike the float sort it replaces).
+// `BINS` bins.
+//
+// BINNING SPACE — the dark channel is min(r,g,b) of the SCENE-LINEAR image, which
+// is UNBOUNDED above (HDR headroom: a window min over a > 1.0 region is itself
+// > 1.0). Binning over a fixed [0, 1] would collapse the entire bright tail into
+// the top bin, so the threshold scan would average far MORE than `top_n` pixels
+// with wildly different colours — exactly the brightest pixels the airlight cares
+// about. Instead we bin over the MONOTONIC tonemap `t = dc / (1 + dc)` ∈ [0, 1):
+// it is strictly increasing in `dc` (dc >= 0), so the percentile ordering — and
+// thus the top-0.1% selection — is IDENTICAL to binning raw `dc`, but the bright
+// tail (incl. dc > 1) spreads across distinct high bins instead of piling into
+// one. Negative dc (a clamp artefact) maps to bin 0. The reduce kernel uses the
+// SAME transform so "selected" is consistent. Integer atomic adds commute, so the
+// histogram is order-independent / deterministic across threads (unlike the float
+// sort it replaces).
 //
 // 2 storage buffers (dc read + histogram atomic read_write) — well within the
 // `downlevel_defaults()` 4-storage cap. The bin count rides the uniform so the
@@ -37,20 +46,24 @@ struct Params {
 @group(0) @binding(1) var<storage, read> dc_buf: array<f32>;
 @group(0) @binding(2) var<storage, read_write> hist_buf: array<atomic<u32>>;
 
+// Map a dark-channel value to its histogram bin via the monotonic tonemap
+// `t = dc / (1 + dc)` (dc >= 0 → t ∈ [0, 1)). MUST be identical to the reduce
+// kernel's copy so the scanned counts and the masked-average selection agree.
+fn dc_to_bin(dc: f32, bins: u32) -> u32 {
+    let t = max(dc, 0.0) / (1.0 + max(dc, 0.0));   // negative dc → 0
+    var bin = u32(t * f32(bins));
+    if (bin >= bins) {
+        bin = bins - 1u;   // guard the t→1 limit (only as dc→∞).
+    }
+    return bin;
+}
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
     if (i >= params.count) {
         return;
     }
-    let bins = params.bins;
-    // Bin index: floor(dc * bins) clamped to [0, bins-1]. clamp(dc, 0, 1) first so
-    // negative / >1 dark-channel values land in the end bins rather than indexing
-    // out of range.
-    let dc = clamp(dc_buf[i], 0.0, 1.0);
-    var bin = u32(dc * f32(bins));
-    if (bin >= bins) {
-        bin = bins - 1u;   // dc == 1.0 maps to `bins`, fold into the top bin.
-    }
+    let bin = dc_to_bin(dc_buf[i], params.bins);
     atomicAdd(&hist_buf[bin], 1u);
 }
