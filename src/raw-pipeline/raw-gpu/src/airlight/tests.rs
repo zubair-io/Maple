@@ -231,8 +231,8 @@ fn gpu_airlight_holds_on_steeper_gradient() {
     for px in input.chunks_exact_mut(4) {
         let m = px[0].min(px[1]).min(px[2]);
         if m > 0.55 {
-            for c in 0..3 {
-                px[c] = (px[c] * 1.15).min(2.0);
+            for ch in px[..3].iter_mut() {
+                *ch = (*ch * 1.15).min(2.0);
             }
         }
     }
