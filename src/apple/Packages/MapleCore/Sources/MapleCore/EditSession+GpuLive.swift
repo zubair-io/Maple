@@ -114,6 +114,10 @@ extension EditSession {
             }
         }
 
+        // Clear any prior error BEFORE the present (optimistic) so a recovered
+        // present drops the banner; the `onError` closure re-sets it on failure
+        // (clearing AFTER would swallow the very error the closure just set).
+        renderError = nil
         await driver.present(model: m) { [weak self] error in
             // A real GPU/present failure: surface it on the session banner
             // (device logs aren't capturable). We've already committed to the
@@ -121,7 +125,6 @@ extension EditSession {
             // the next tick re-attempts; a persistent failure shows the banner.
             self?.renderError = error
         }
-        renderError = nil
         editSessionLogger.debug(
             "GPU live presented gen=\(gen ?? 0) \(dims.width)x\(dims.height)")
         return true
