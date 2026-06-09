@@ -60,6 +60,17 @@ public final class GpuLiveDriver {
     /// The RAW path + decode quality for the Auto Profile fit (set on open).
     private var autoProfileFitDone = false
 
+    /// Cancel flag of the most-recent present. The CPU path drops a stale
+    /// render at the `renderedPreview =` generation gate; the GPU present has
+    /// no such gate — once `present_chain_to_surface` runs, it's on screen. So
+    /// before issuing a new present we FLIP this (the FFI bails at its entry →
+    /// `RC_PRESENT_CANCELLED`) so a queued-but-superseded present under a fast
+    /// slider drag never lands after the newer one. The `GpuLiveSession` actor
+    /// serializes the presents themselves (one render in flight), so this is
+    /// purely the "supersede the one already queued" guard. Held weakly: it's
+    /// owned for the duration of its present call by `present(...)` below.
+    private weak var inFlightCancel: CancelFlag?
+
     public init() {}
 
     /// Register the canvas layer the driver presents into. Called by
@@ -99,16 +110,27 @@ public final class GpuLiveDriver {
         }
     }
 
-    /// Present `model` to the registered layer via the GPU chain. `cancel` is
-    /// flipped by the caller when a newer edit supersedes this present (the FFI
-    /// drops a superseded present at its entry). A no-op when there is no session or
-    /// no layer yet (the canvas keeps its prior frame). Surfaces a render error
-    /// through `onError` (device logs aren't capturable).
-    public func present(model: AdjustmentModel, cancel: CancelFlag?, onError: (Error) -> Void) async {
+    /// Present `model` to the registered layer via the GPU chain. SUPERSEDES
+    /// any present still queued behind the actor: flips the prior present's
+    /// cancel flag (the FFI drops a superseded present at its entry) and mints a
+    /// fresh flag for this one, so the last present issued wins. A no-op when
+    /// there is no session or no layer yet (the canvas keeps its prior frame).
+    /// Surfaces a real GPU/present error through `onError` (device logs aren't
+    /// capturable — the in-app HUD is the only on-device surface).
+    public func present(model: AdjustmentModel, onError: (Error) -> Void) async {
         guard let s = session else { return }
         guard let layer = layer else { return }
+        // Supersede the prior present (if it hasn't already started on the
+        // actor) before queuing this one — last-write-wins under a fast drag.
+        inFlightCancel?.requestCancel()
+        let cancel = CancelFlag()
+        inFlightCancel = cancel
         do {
+            // Hold a strong ref to `cancel` across the whole await so the
+            // Rust entry's flag read can't race a dealloc (the RenderCancelFlag
+            // strong-reference contract).
             try await s.present(model: model, layer: layer, cancel: cancel)
+            withExtendedLifetime(cancel) {}
         } catch {
             gpuDriverLog.error("GPU present failed: \(error.localizedDescription, privacy: .public)")
             onError(error)
@@ -117,6 +139,18 @@ public final class GpuLiveDriver {
 
     /// Whether a session is open (so the EditSession knows the GPU path is live).
     public var hasSession: Bool { session != nil }
+
+    /// Whether a canvas layer has been registered (the host view has laid out).
+    /// Until then the GPU path has nothing to present into and the caller keeps
+    /// publishing a CIImage via the CPU path so the canvas isn't blank.
+    public var hasLayer: Bool { layer != nil }
+
+    /// Whether the current session is open at exactly `width × height` — the
+    /// upload-once guard. `decodeAndRender` re-opens (re-reads-back + re-uploads)
+    /// only when this is `false` (a new decode or a viewport ⇄ full resize).
+    public func isOpen(width: Int, height: Int) -> Bool {
+        session != nil && sessionDims?.width == width && sessionDims?.height == height
+    }
 
     /// The current session dims, if open.
     public var currentDims: (width: Int, height: Int)? { sessionDims }

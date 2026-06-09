@@ -312,6 +312,17 @@ extension EditSession {
             let isRaw = asset.isRaw
             let assetID = asset.id
             if let cached, cacheFresh {
+                #if MAPLE_GPU
+                // wgpu live present (epic #925, P4b-apple) — flag-gated parallel
+                // path. When it handles the frame (present → CAMetalLayer) we
+                // skip the CPU `processSceneLinear` + `renderedPreview` publish.
+                // Returns false (CPU fallback) when off / no layer / non-RAW /
+                // readback fails. See EditSession+GpuLive.swift.
+                if await presentViaGpuLive(decoded: cached, targetSize: targetSize, gen: gen) {
+                    isRendering = false
+                    return
+                }
+                #endif
                 image = await Task.detached(priority: .userInitiated) {
                     mapleStage(filterStageName) {
                         if !isRaw {
@@ -367,6 +378,14 @@ extension EditSession {
                 guard let decoded else {
                     throw RenderError.pipelineFailed
                 }
+                #if MAPLE_GPU
+                // wgpu live present on the fresh decode (epic #925, P4b-apple) —
+                // same flag-gated parallel path as the cached branch above.
+                if await presentViaGpuLive(decoded: decoded, targetSize: targetSize, gen: gen) {
+                    isRendering = false
+                    return
+                }
+                #endif
                 let freshSnapshot = await renderActor.snapshot(forAsset: asset)
                 let freshDecodedAtModel = freshSnapshot.decodedAtModel
                 let processed = await Task.detached(priority: .userInitiated) {
