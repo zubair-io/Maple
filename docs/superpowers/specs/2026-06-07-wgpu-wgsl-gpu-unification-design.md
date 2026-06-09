@@ -65,8 +65,10 @@ Consequences:
   existing budgets.
 - **Not removing the Rust reference** — it stays as oracle + fallback (headless
   CI, no-GPU machines, browsers without WebGPU).
-- **Not dropping the WebGL2/GLSL fragment path yet** — WGSL compute is
-  WebGPU-only, so GLSL is retained as the fallback for the browser tail.
+- **No new browser fallback.** WGSL compute is WebGPU-only; the no-WebGPU
+  browser tail falls back to the existing WASM-CPU `render_bytes` path (drawn
+  to a 2D canvas), not a fragment-shader path. The dead WebGL2/GLSL dev chain
+  was removed in P5a (#1042).
 - **Decode / demosaic stay on CPU** for now (separate effort).
 
 ## Approach decision — where the wgpu code lives
@@ -157,13 +159,13 @@ additively in EV. The spike's oracle mirrors that multiply.
 
 ## Roadmap — P1–P5 (planned; detail firms up after P0)
 
-| Phase                                   | Goal                                                                                                                                                                                                                                                                                                                                     | Key risk / dependency                                                                                              | Folds in         |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------- |
-| **P1 — Resource layer**                 | Upload-once + ping-pong buffers; display straight from the GPU texture (no readback); preview vs full-res handling; two-phase fast/refine wiring. Likely introduce the `raw-gpu` crate here.                                                                                                                                             | Unified-memory buffer storage modes on Apple Silicon; surface/texture handoff to the Apple display layer on device | —                |
-| **P2 — Scene-linear chain → WGSL**      | Port the scene-linear stages (WB, scene tone controls, tone curves, vibrance, saturation, clarity, texture, dehaze, AgX, Rec.2020→sRGB display encode, Auto Profile curve + residual LUT). **Extend codegen to emit WGSL** so matrices/LUTs/curve coefficients stay single-source. Each stage parity-gated. Fan out one agent per stage. | Re-scopes #662 (MSL-only → WGSL, now Apple + web); codegen-WGSL golden-file test                                   | #662             |
-| **P3 — Spatial filters → WGSL compute** | Port the over-budget kernels: NLM noise reduction (luma + color), sharpen / capture-sharpen (Richardson-Lucy).                                                                                                                                                                                                                           | Compute-shader correctness vs CPU NLM; meeting the perf budget                                                     | #312             |
-| **P4 — Wire into live paths**           | Apple: replace the FFI-CPU chain + remaining MSL kernels with the wgpu path (closes the #661 round-trip gap). Web: replace the WASM-CPU live path with WebGPU (provides the GPU substrate Auto Profile previews need). Retain CPU + WebGL2 fallback.                                                                                     | Live perf (16 ms slider target / 50 ms hard limit); fallback selection logic                                       | #661, #394, #819 |
-| **P5 — Decommission**                   | Retire the redundant MSL + GLSL implementations once parity holds on all targets.                                                                                                                                                                                                                                                        | Only after P4 is parity-green on every target                                                                      | —                |
+| Phase                                   | Goal                                                                                                                                                                                                                                                                                                                                                     | Key risk / dependency                                                                                              | Folds in         |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------- |
+| **P1 — Resource layer**                 | Upload-once + ping-pong buffers; display straight from the GPU texture (no readback); preview vs full-res handling; two-phase fast/refine wiring. Likely introduce the `raw-gpu` crate here.                                                                                                                                                             | Unified-memory buffer storage modes on Apple Silicon; surface/texture handoff to the Apple display layer on device | —                |
+| **P2 — Scene-linear chain → WGSL**      | Port the scene-linear stages (WB, scene tone controls, tone curves, vibrance, saturation, clarity, texture, dehaze, AgX, Rec.2020→sRGB display encode, Auto Profile curve + residual LUT). **Extend codegen to emit WGSL** so matrices/LUTs/curve coefficients stay single-source. Each stage parity-gated. Fan out one agent per stage.                 | Re-scopes #662 (MSL-only → WGSL, now Apple + web); codegen-WGSL golden-file test                                   | #662             |
+| **P3 — Spatial filters → WGSL compute** | Port the over-budget kernels: NLM noise reduction (luma + color), sharpen / capture-sharpen (Richardson-Lucy).                                                                                                                                                                                                                                           | Compute-shader correctness vs CPU NLM; meeting the perf budget                                                     | #312             |
+| **P4 — Wire into live paths**           | Apple: replace the FFI-CPU chain + remaining MSL kernels with the wgpu path (closes the #661 round-trip gap). Web: replace the WASM-CPU live path with WebGPU (provides the GPU substrate Auto Profile previews need). Retain the WASM-CPU `render_bytes` path as the no-WebGPU browser fallback (the dead WebGL2/GLSL chain was removed in P5a, #1042). | Live perf (16 ms slider target / 50 ms hard limit); fallback selection logic                                       | #661, #394, #819 |
+| **P5 — Decommission**                   | Retire the redundant MSL + GLSL implementations once parity holds on all targets.                                                                                                                                                                                                                                                                        | Only after P4 is parity-green on every target                                                                      | —                |
 
 Each phase lands as its own child PR closing its own ticket; the epic closes
 when all phases are parity-green on every target.
@@ -224,8 +226,10 @@ from Rust. Not needed for P0 (exposure has no constants).
 
 ## Risks / open questions
 
-- **WebGPU browser coverage** — keep the WebGL2/GLSL fragment path as the
-  fallback for the tail; WGSL compute is WebGPU-only.
+- **WebGPU browser coverage** — WGSL compute is WebGPU-only; the no-WebGPU
+  browser tail falls back to the WASM-CPU `render_bytes` path. (The dead
+  WebGL2/GLSL dev chain was removed in P5a, #1042 — it was never on a
+  production path.)
 - **WebGPU in the agent's environment** — headless WebGPU may be unavailable;
   P0's web validation falls back to the manual checkpoint if so.
 - **iOS integration** — fold `wgpu` into the Rust staticlib already linked via
