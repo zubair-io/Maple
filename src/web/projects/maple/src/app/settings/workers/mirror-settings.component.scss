@@ -9,55 +9,12 @@
   display: block;
 }
 
-// Summary row — the SAME column grid as the worker stage rows
-// (workers.component.scss `.row-grid`) so the chevron / name / status line up
-// under the shared column header.
+// Summary row — reuses the worker stage-row grid + common cells via the shared
+// mixins (settings-chrome) so it lines up under the same column header and the
+// two definitions can never drift.
 .mirror-row {
-  display: grid;
-  grid-template-columns:
-    24px /* chevron */
-    minmax(min-content, 1.6fr) /* stage */
-    minmax(min-content, 1fr) /* status */
-    minmax(min-content, 0.6fr) /* concur */
-    minmax(min-content, 0.8fr) /* in flight */
-    minmax(min-content, 1.4fr) /* ready / blocked */
-    minmax(min-content, 0.7fr) /* dead */
-    minmax(min-content, 1fr) /* throughput */
-    32px /* kebab */
-    32px; /* pause */
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  height: 56px;
-
-  .stage-id {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-
-    .mono {
-      font-size: 13px;
-      color: var(--s-text);
-      letter-spacing: 0.2px;
-    }
-  }
-
-  .status-pill {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-    }
-    .status-label {
-      font-size: 12.5px;
-      color: var(--s-text-mid);
-    }
-  }
+  @include chrome.worker-row-grid;
+  @include chrome.worker-row-cells;
 
   // The live readout fills the metric columns (concur … kebab); the action sits
   // in the last column where the worker rows put pause.

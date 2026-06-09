@@ -293,3 +293,72 @@
     font-family: var(--s-mono);
   }
 }
+
+// ── Worker / stage table row ────────────────────────────────────────────────
+// The 10-column grid + the cells common to every row in it. Shared by the
+// Workers page stage rows (`workers.component.scss`) and the Mirror row
+// (`mirror-settings.component.scss`) so the two line up under one column header
+// and can't drift. Worker-only cells (dead, throughput, pause) stay in the
+// workers stylesheet; the Mirror row reuses just the grid + these common cells.
+@mixin worker-row-grid {
+  display: grid;
+  grid-template-columns:
+    24px /* chevron */
+    minmax(min-content, 1.6fr) /* stage */
+    minmax(min-content, 1fr) /* status */
+    minmax(min-content, 0.6fr) /* concur */
+    minmax(min-content, 0.8fr) /* in flight */
+    minmax(min-content, 1.4fr) /* ready / blocked */
+    minmax(min-content, 0.7fr) /* dead */
+    minmax(min-content, 1fr) /* throughput */
+    32px /* kebab */
+    32px; /* pause */
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  height: 56px;
+}
+
+@mixin worker-row-cells {
+  .stage-id {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+
+    .mono {
+      font-size: 13px;
+      color: var(--s-text);
+      letter-spacing: 0.2px;
+    }
+  }
+  .r {
+    text-align: right;
+    font-family: var(--s-mono);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--s-text);
+    white-space: nowrap;
+  }
+  .r.mid {
+    color: var(--s-text-mid);
+  }
+  .dim {
+    color: var(--s-text-dim);
+  }
+  .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .status-label {
+      font-size: 12.5px;
+      color: var(--s-text-mid);
+    }
+  }
+}
