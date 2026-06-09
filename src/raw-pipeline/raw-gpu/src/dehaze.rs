@@ -36,6 +36,7 @@
 //!   `raw_core::stages::dehaze::apply` `< 1e-4` across the strength range, with
 //!   non-vacuous border coverage.
 
+use crate::airlight;
 use crate::chain::Pass;
 use crate::context::GpuContext;
 use crate::spatial;
@@ -310,7 +311,8 @@ pub fn apply_dehaze(buf: &mut [f32], width: usize, height: usize, dehaze: f32) {
 
 // ── `repr(C)` uniforms for the dehaze kernels ─────────────────────────────────
 
-/// `dehaze_min.wgsl` uniform: dims + mode + the (clamped-in-kernel) airlight.
+/// `dehaze_min.wgsl` uniform: dims + mode. The airlight rides a SEPARATE uniform
+/// (#1033), so it isn't packed here.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct MinParams {
@@ -318,7 +320,17 @@ struct MinParams {
     height: u32,
     mode: u32, // 0 = dark channel, 1 = transmission
     _pad0: u32,
-    airlight: [f32; 4], // .a unused; vec4 for 16-byte alignment
+}
+
+/// The standalone airlight uniform (#1033) shared by the transmission min kernel
+/// (mode 1) and the recovery kernel: one `vec4<f32>` (rgb = A, .a unused). The
+/// SAME 16-byte layout the airlight-reduce kernel writes, so an on-GPU A can be
+/// copied straight in via `copy_buffer_to_buffer` (no readback) — or the CPU A is
+/// written via `queue.write_buffer`.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct AirlightUniform {
+    value: [f32; 4],
 }
 
 /// `dehaze_products.wgsl` / `dehaze_sky_mask.wgsl` uniform: just the pixel count.
@@ -341,7 +353,8 @@ struct AbParams {
     _pad1: u32,
 }
 
-/// `dehaze_recover.wgsl` uniform: count + precomputed scale + RAW airlight.
+/// `dehaze_recover.wgsl` uniform: count + precomputed scale. The RAW airlight
+/// rides a SEPARATE uniform (#1033), so it isn't packed here.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct RecoverParams {
@@ -349,44 +362,62 @@ struct RecoverParams {
     scale: f32, // clamp(dehaze / 100, -1, 1)
     _pad0: u32,
     _pad1: u32,
-    airlight: [f32; 4], // RAW A; .a unused
+}
+
+/// Where a [`DehazePass`] gets its atmospheric light A from.
+///
+/// A is a GLOBAL reduction over the EXACT pixels the chain feeds dehaze as `src`
+/// (the post-prefix buffer in a real chain — unlike [`crate::WhiteBalancePass`]'s
+/// position-independent matrix, A depends on the running pixel content). Two
+/// sources, both ending at the same airlight UNIFORM the transmission + recovery
+/// kernels read:
+///
+/// - [`AirlightSource::Cpu`] — a pre-computed `[f32; 3]` (via [`compute_airlight`],
+///   byte-exact vs raw-core's sort + top-N average). Written into the uniform with
+///   `queue.write_buffer`. The headless / P4a path: the caller supplies A measured
+///   from the buffer dehaze will see.
+/// - [`AirlightSource::OnGpu`] — compute A on-device during `encode` from `src` +
+///   the dark channel this pass already produces ([`crate::airlight::encode_airlight`]),
+///   copied (GPU→GPU) into the uniform. The LIVE path (#1033): no GPU→CPU readback,
+///   so the dehaze-active chain meets the 16ms budget and runs in one submit.
+#[derive(Clone)]
+pub enum AirlightSource {
+    /// CPU-computed RAW airlight `[r, g, b]` (the headless / P4a path).
+    Cpu([f32; 3]),
+    /// Compute the airlight on-GPU during `encode` (the live path, #1033).
+    OnGpu,
 }
 
 /// A GPU-resident dehaze stage. Carries the `dehaze` slider value ([-100, +100])
-/// and a pre-computed atmospheric light; the per-pixel pipeline runs entirely on
-/// the GPU over [`spatial`] scratch buffers inside `encode`.
+/// and an [`AirlightSource`]; the per-pixel pipeline runs entirely on the GPU over
+/// [`spatial`] scratch buffers inside `encode`.
 pub struct DehazePass {
     pub dehaze: f32,
-    /// Pre-computed atmospheric light A for the image being processed, RAW
-    /// (unclamped). Computed CPU-side via [`compute_airlight`] so the global
-    /// top-0.1% reduction is byte-exact vs raw-core; passed into the min (clamped
-    /// there) and recovery (raw) kernels as a uniform. It rides the struct rather
-    /// than being derived in `encode` because `encode` only *records* commands —
-    /// it cannot read `src` back, and a global reduction is awkward to express as
-    /// a single dispatch.
-    ///
-    /// COMPOSITION CAVEAT (a P4 wiring concern, not a parity defect): A must be
-    /// derived from the EXACT pixels the chain feeds this pass as `src`. Unlike
-    /// [`crate::WhiteBalancePass`] (whose matrix comes from slider settings and is
-    /// position-independent), dehaze's A depends on the running pixel content, so
-    /// in a real multi-stage chain — where dehaze's `src` is the post-WB /
-    /// post-tone-controls buffer — A must be recomputed from the buffer at
-    /// dehaze's position (a GPU reduction or a readback). The headless tests run
-    /// dehaze first (or behind an identity stage), so `new(pixels, …)` from the
-    /// uploaded image is exact there. Live-chain placement is P4 (#992).
-    pub airlight: [f32; 3],
+    /// How A is sourced — a pre-computed CPU value or an on-GPU reduction (#1033).
+    /// See [`AirlightSource`].
+    pub airlight: AirlightSource,
 }
 
 impl DehazePass {
-    /// Construct a [`DehazePass`], computing the airlight from `pixels`
+    /// Construct a [`DehazePass`] with a CPU-computed airlight from `pixels`
     /// (interleaved RGBA f32 for `width × height`) via [`compute_airlight`]. The
     /// convenience path the parity test uses: `pixels` MUST be the exact buffer
-    /// the chain feeds this pass as `src` (see the COMPOSITION CAVEAT on
-    /// [`DehazePass::airlight`]).
+    /// the chain feeds this pass as `src` (see [`AirlightSource`]).
     pub fn new(pixels: &[f32], width: usize, height: usize, dehaze: f32) -> Self {
         Self {
             dehaze,
-            airlight: compute_airlight(pixels, width, height),
+            airlight: AirlightSource::Cpu(compute_airlight(pixels, width, height)),
+        }
+    }
+
+    /// Construct a [`DehazePass`] that computes its airlight on-GPU (#1033) — the
+    /// live path. A is measured during `encode` from the `src` buffer the chain
+    /// hands this pass (exactly the post-prefix pixels raw-core measures from), so
+    /// there is no GPU→CPU readback and the dehaze-active chain runs in one submit.
+    pub fn new_on_gpu(dehaze: f32) -> Self {
+        Self {
+            dehaze,
+            airlight: AirlightSource::OnGpu,
         }
     }
 }
@@ -409,26 +440,57 @@ impl Pass for DehazePass {
             return;
         }
         let count = width * height;
-        let a4 = [self.airlight[0], self.airlight[1], self.airlight[2], 0.0];
+
+        // The standalone airlight UNIFORM (#1033) the transmission + recovery
+        // kernels read (binding 3 / binding 5). Pooled (zero-alloc re-render) with
+        // `UNIFORM | COPY_DST | COPY_SRC` — `COPY_DST` so it can be filled by EITHER
+        // a CPU `write_buffer` or an on-GPU `copy_buffer_to_buffer`.
+        let airlight_uniform = airlight::alloc_airlight_uniform(ctx);
 
         // 1. Dark channel (mode 0) — direct 2D 15×15 window min, clamp-to-edge.
+        // Mode 0 ignores the airlight; bind the (still-to-be-filled) uniform anyway
+        // so every `dehaze_min` dispatch uses the SAME 4-binding layout.
         let dc = spatial::alloc_plane(ctx, width, height, "dehaze-dc");
         let dc_params = MinParams {
             width,
             height,
             mode: 0,
             _pad0: 0,
-            airlight: [0.0; 4],
         };
         spatial::encode_simple(
             ctx,
             encoder,
             ctx.dehaze_min_pipeline(),
             bytemuck::bytes_of(&dc_params),
-            &[src, &dc],
+            &[src, &dc, &airlight_uniform],
             count,
             "dehaze-dark-channel",
         );
+
+        // 1b. Fill the airlight uniform from the chosen source (#1033). CPU: write
+        //     the pre-computed A directly. On-GPU: run the histogram + reduce over
+        //     `src` and its dark channel `dc`, then copy the result (GPU→GPU, no
+        //     readback) into the uniform. Either way the transmission + recovery
+        //     dispatches below read A from the same binding.
+        match &self.airlight {
+            AirlightSource::Cpu(a) => {
+                let a_uniform = AirlightUniform {
+                    value: [a[0], a[1], a[2], 0.0],
+                };
+                ctx.queue
+                    .write_buffer(&airlight_uniform, 0, bytemuck::bytes_of(&a_uniform));
+            }
+            AirlightSource::OnGpu => {
+                let a_out = airlight::encode_airlight(ctx, encoder, src, &dc, count);
+                encoder.copy_buffer_to_buffer(
+                    &a_out,
+                    0,
+                    &airlight_uniform,
+                    0,
+                    airlight::AIRLIGHT_BYTE_LEN,
+                );
+            }
+        }
 
         // 2. Transmission (mode 1) — same window, A in the uniform (clamped in-kernel).
         let t_raw = spatial::alloc_plane(ctx, width, height, "dehaze-t-raw");
@@ -437,14 +499,13 @@ impl Pass for DehazePass {
             height,
             mode: 1,
             _pad0: 0,
-            airlight: a4,
         };
         spatial::encode_simple(
             ctx,
             encoder,
             ctx.dehaze_min_pipeline(),
             bytemuck::bytes_of(&t_params),
-            &[src, &t_raw],
+            &[src, &t_raw, &airlight_uniform],
             count,
             "dehaze-transmission",
         );
@@ -514,21 +575,22 @@ impl Pass for DehazePass {
         let sky = spatial::alloc_plane(ctx, width, height, "dehaze-sky");
         spatial::box_blur_encode(ctx, encoder, &sky_raw, &sky, width, height, SKY_MASK_BLUR_RADIUS);
 
-        // 5. Recovery (MULTI-INPUT, 4 storage): orig + mean_ab + sky → dst.
+        // 5. Recovery (MULTI-INPUT, 4 storage + 2 uniforms): orig + mean_ab + sky →
+        //    dst, with A read from the airlight uniform (binding 5, #1033 — so A is
+        //    NOT a 5th storage binding; storage stays at the 4-cap).
         let scale = (self.dehaze / 100.0).clamp(-1.0, 1.0);
         let rec_params = RecoverParams {
             count,
             scale,
             _pad0: 0,
             _pad1: 0,
-            airlight: a4,
         };
         spatial::encode_simple(
             ctx,
             encoder,
             ctx.dehaze_recover_pipeline(),
             bytemuck::bytes_of(&rec_params),
-            &[src, &mean_ab, &sky, dst],
+            &[src, &mean_ab, &sky, dst, &airlight_uniform],
             count,
             "dehaze-recover",
         );

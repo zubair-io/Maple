@@ -151,9 +151,23 @@ pub struct GpuContext {
     /// Lazily-compiled dehaze recovery pipeline (`dehaze_recover.wgsl`). A P2
     /// wave-3b dehaze helper (#990): the final MULTI-INPUT scene recovery —
     /// reconstructs t_refined from the packed guided coefficients, applies
-    /// `J=(I-A)/t_eff+A`, and blends by the sky mask. 5-binding layout (params
-    /// uniform + RGBA-orig + ab-in + sky-in + RGBA-out).
+    /// `J=(I-A)/t_eff+A`, and blends by the sky mask. 6-binding layout (params
+    /// uniform + airlight uniform + RGBA-orig + ab-in + sky-in + RGBA-out — the
+    /// airlight rides a SECOND uniform, so storage stays at 4 / the cap; #1033).
     pub(crate) dehaze_recover_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled on-GPU airlight histogram pipeline (`airlight_hist.wgsl`).
+    /// The dehaze C5b reduction (epic #925 P4b / #1033): an atomic histogram of the
+    /// dark channel, stage 1 of computing the atmospheric light A on-device (no
+    /// GPU→CPU readback). Standalone kernel. 2-binding storage layout (dc-in +
+    /// atomic-histogram-rw) + params uniform.
+    pub(crate) airlight_hist_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled on-GPU airlight reduce pipeline (`airlight_reduce.wgsl`).
+    /// The dehaze C5b reduction (epic #925 P4b / #1033): a single-workgroup
+    /// threshold scan + masked average of the original rgb over the brightest
+    /// top-0.1% dark-channel pixels → the airlight vec4, stage 2. Standalone
+    /// kernel. 4-binding storage layout (hist-in + dc-in + orig-in + airlight-rw)
+    /// + params uniform. Dispatched as ONE workgroup.
+    pub(crate) airlight_reduce_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled NLM noise-reduction pipelines (epic #925 P3 wave 1 /
     /// #991). All five entry points share one WGSL module
     /// (`noise_reduction.wgsl` + the generated color matrices, for the Oklab
@@ -272,6 +286,8 @@ impl GpuContext {
             dehaze_guided_ab_pipeline: OnceCell::new(),
             dehaze_sky_mask_pipeline: OnceCell::new(),
             dehaze_recover_pipeline: OnceCell::new(),
+            airlight_hist_pipeline: OnceCell::new(),
+            airlight_reduce_pipeline: OnceCell::new(),
             nr_extract_pipeline: OnceCell::new(),
             nr_accumulate_pipeline: OnceCell::new(),
             nr_finalize_pipeline: OnceCell::new(),

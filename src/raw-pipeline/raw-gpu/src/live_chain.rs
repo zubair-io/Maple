@@ -53,7 +53,7 @@ use crate::agx::AgxPass;
 use crate::auto_profile_curve::AutoProfileCurvePass;
 use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
-use crate::dehaze::DehazePass;
+use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::full_chain::{BoxedPasses, FullChainInputs};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
@@ -133,10 +133,12 @@ fn wb_is_noop(temperature: f32, tint: f32) -> bool {
 /// adds exactly its pass. The view tail's `dither` terminal (P4b) is appended by
 /// the live session, not here — this builder stays f32-RGBA, like `build_split`.
 ///
-/// `airlight` seeds the `DehazePass` (only built when dehaze is engaged). For the
-/// live loop the airlight is produced on-GPU (C5); the headless gate passes the
-/// CPU [`crate::compute_airlight`] of the pre-dehaze buffer.
-pub fn build_live_chain(inputs: &FullChainInputs, airlight: [f32; 3]) -> BoxedPasses {
+/// `airlight` selects the `DehazePass`'s airlight source (only built when dehaze
+/// is engaged). The LIVE loop passes [`AirlightSource::OnGpu`] (#1033): A is
+/// computed on-device with NO GPU→CPU readback, so the dehaze-active chain runs in
+/// ONE submit. The headless gate passes [`AirlightSource::Cpu`] of the pre-dehaze
+/// buffer (the byte-exact-vs-raw-core reference path).
+pub fn build_live_chain(inputs: &FullChainInputs, airlight: AirlightSource) -> BoxedPasses {
     let (prefix, suffix) = build_live_split(inputs, airlight);
     let mut all = prefix;
     all.extend(suffix);
@@ -155,13 +157,20 @@ pub fn build_live_chain(inputs: &FullChainInputs, airlight: [f32; 3]) -> BoxedPa
 ///
 /// DEGENERATE-DEHAZE NOTE: when dehaze is omitted (`|dehaze| < 1e-3`), the suffix
 /// simply has no `DehazePass` at its head — it is still a coherent, runnable Vec
-/// (sharpen/NR/view-tail). Callers that need the mid-chain airlight readback
-/// (C5a) must therefore check whether dehaze is engaged before bothering with the
-/// prefix→readback→suffix dance: with dehaze off there is nothing position-
-/// dependent to measure and `build_live_chain` (one run) is the right entry. The
-/// `airlight` argument is ignored when dehaze is omitted.
+/// (sharpen/NR/view-tail). The `airlight` argument is ignored when dehaze is
+/// omitted.
+///
+/// AIRLIGHT SOURCE (#1033): with [`AirlightSource::OnGpu`] (the live path) the
+/// `DehazePass` measures A on-device from its `src` — which in this chain IS the
+/// post-prefix buffer (dehaze is the first suffix pass) — so the old C5a
+/// prefix→readback→suffix split is no longer needed for the live loop; the whole
+/// chain runs in one submit. With [`AirlightSource::Cpu`] the caller supplies A
+/// (the readback fallback / the headless reference path).
 #[allow(clippy::vec_init_then_push)]
-pub fn build_live_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses, BoxedPasses) {
+pub fn build_live_split(
+    inputs: &FullChainInputs,
+    airlight: AirlightSource,
+) -> (BoxedPasses, BoxedPasses) {
     // --- Prefix: capture_sharpening (FIRST, develop's 04b placement) through
     //     texture. Each pass is included only when its stage is NOT a no-op,
     //     replicating develop's per-stage `if` guards / the `apply` short-circuit. ---
@@ -216,7 +225,7 @@ pub fn build_live_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedP
     if inputs.dehaze.abs() >= SLIDER_EPS {
         suffix.push(Box::new(DehazePass {
             dehaze: inputs.dehaze,
-            airlight,
+            airlight: airlight.clone(),
         }));
     }
     if inputs.sharpen_amount.abs() >= SLIDER_EPS {
