@@ -206,6 +206,13 @@ mod noise_reduction;
 // Linux host.
 #[cfg(target_vendor = "apple")]
 mod present;
+// The device-agnostic chain-present pipeline + pass-encode helpers (P4b — #1028
+// Apple, #1029 web). Pure wgpu, no platform deps, so it compiles on every target
+// and lets the native (`present_chain`) and web (`present_chain_web`) entries
+// share the dither/quantize draw + the bind-group layout (single-sourced). Both
+// present paths live behind `#[cfg]`s, so the helpers are only referenced from
+// one of them per target.
+mod present_chain_pipeline;
 // Chain-output present (P4b-apple / #1028): the live chain's final f32 buffer →
 // a display surface (Apple `CAMetalLayer`) or, for the host parity gate, an
 // offscreen `Bgra8Unorm` texture. Native-only (the offscreen readback + its CPU
@@ -218,6 +225,12 @@ mod present_chain;
 // on the wasm32 target. Absent on Apple / Linux host. Shares `present.wgsl`.
 #[cfg(target_arch = "wasm32")]
 mod present_web;
+// Web chain-output present (P4b-web / #1029): the live chain's final f32 buffer →
+// a WebGPU `OffscreenCanvas` surface, zero readback. wasm-only — `SurfaceTarget::
+// OffscreenCanvas` is wgpu-gated on `#[cfg(any(webgpu, webgl))]`. Shares
+// `present_chain.wgsl` + `present_chain_pipeline` with the Apple path.
+#[cfg(target_arch = "wasm32")]
+mod present_chain_web;
 #[cfg(target_arch = "wasm32")]
 mod present_web_colorspace;
 mod residual_lut;
@@ -280,6 +293,10 @@ pub use present_chain::present_chain_to_surface;
 
 #[cfg(target_arch = "wasm32")]
 pub use present_web::{present_test_pattern_web, PresentReport, TARGET_COLOR_SPACE};
+// Web chain-output present (P4b-web / #1029): the live chain's resident f32 buffer
+// → a WebGPU `OffscreenCanvas` surface, zero readback. wasm-only.
+#[cfg(target_arch = "wasm32")]
+pub use present_chain_web::present_chain_to_canvas;
 
 /// Deterministic RGBA f32 test buffer spanning values < 1, = 1, > 1 (some
 /// channels exceed 1 so the multiply is exercised in scene-linear range).
