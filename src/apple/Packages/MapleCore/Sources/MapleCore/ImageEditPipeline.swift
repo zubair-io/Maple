@@ -67,7 +67,10 @@ public actor ImageEditPipeline {
         }
     }
 
-    private let context: CIContext
+    // `internal` (not `private`) so the gpu-gated `ImageEditPipeline+GpuLive`
+    // extension (a sibling file) can materialise a decoded CIImage to f32 via
+    // this shared Metal-backed context. Same-module access only.
+    let context: CIContext
 
     /// Single-entry LRU cache around `applySceneLinearChainViaFFI`. When
     /// the user drags a post-FFI slider (sharpen* / nrColor / capture
@@ -504,73 +507,6 @@ public actor ImageEditPipeline {
         let cs = cg.map { $0.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) } ?? nil
         return (cg, cs)
     }
-
-    // MARK: GPU live path — scene-linear f32 readback (epic #925, P4b-apple)
-
-    #if MAPLE_GPU
-    /// Materialise a decoded scene-linear CIImage (Rec.2020 fp16, as produced
-    /// by `decodeSceneLinear*`) into the interleaved `width·height·4` f32 RGBA
-    /// buffer the wgpu `GpuLiveSession` uploads ONCE per decode. Prescales to
-    /// `targetSize` first (the viewport-sized fast pass) so the uploaded image
-    /// — and therefore the `CAMetalLayer` it presents into — is at the display
-    /// resolution the present samples 1:1. Reuses the exact `context.render(
-    /// toBitmap:)` path `applySceneLinearChainViaFFI` already uses to hand
-    /// pixels to the Rust FFI, in the SAME `extendedLinearITUR_2020` space, so
-    /// the GPU chain sees the canonical post-DCP D65 buffer (the decode-boundary
-    /// contract: AE + capture-sharpening already baked, WB landed at 6500/0).
-    ///
-    /// This is a per-DECODE cost (called when the driver opens a session for a
-    /// new buffer/dims), NOT per slider tick — the live render loop then runs
-    /// entirely on the GPU-resident upload with no further readback. Returns
-    /// `nil` on a degenerate extent or a `CIContext.render` failure (the caller
-    /// then falls back to the CPU + Metal present path).
-    nonisolated func sceneLinearFloats(
-        from decoded: CIImage,
-        targetSize: CGSize?
-    ) -> (pixels: [Float], width: Int, height: Int)? {
-        let scaled = Self.prescaleForDisplay(decoded, targetSize: targetSize)
-        let extent = scaled.extent
-        let w = Int(extent.width.rounded())
-        let h = Int(extent.height.rounded())
-        guard w > 0, h > 0 else {
-            logger.error("sceneLinearFloats: degenerate extent \(w)x\(h)")
-            return nil
-        }
-        let lanes = w * h * 4
-        let bytesPerPixel = 16 // 4 f32 lanes
-        let rowBytes = w * bytesPerPixel
-        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
-
-        var pixels = [Float](repeating: 0, count: lanes)
-        let ok: Bool = pixels.withUnsafeMutableBytes { buf -> Bool in
-            guard let base = buf.baseAddress else { return false }
-            context.render(
-                scaled,
-                toBitmap: base,
-                rowBytes: rowBytes,
-                bounds: CGRect(x: 0, y: 0, width: w, height: h),
-                format: .RGBAf,
-                colorSpace: space
-            )
-            return true
-        }
-        guard ok else {
-            logger.error("sceneLinearFloats: CIContext.render failed for \(w)x\(h)")
-            return nil
-        }
-        return (pixels, w, h)
-    }
-
-    /// The extent `sceneLinearFloats` would produce for `decoded` at
-    /// `targetSize` — i.e. the post-`prescaleForDisplay` extent — computed
-    /// WITHOUT materialising any pixels. The GPU driver reads this to decide
-    /// whether its upload-once session is already at the right dims (a cheap
-    /// no-op check that avoids a per-tick readback). `nonisolated` + pure (no
-    /// actor state), so the call site needs no actor hop.
-    nonisolated func prescaledExtent(of decoded: CIImage, targetSize: CGSize?) -> CGRect {
-        Self.prescaleForDisplay(decoded, targetSize: targetSize).extent
-    }
-    #endif
 
     // MARK: FFI per-tick chain helper
 
@@ -1099,7 +1035,9 @@ public actor ImageEditPipeline {
     /// would be ≥ 0.99. Ported from Maple reference — the CIImage returned
     /// is lazy, so the downscale and the filter chain fuse into a single
     /// render plan and the full-res intermediate never materialises.
-    nonisolated private static func prescaleForDisplay(
+    // `internal` (not `private`) so the gpu-gated `ImageEditPipeline+GpuLive`
+    // extension can compute the same post-prescale extent the GPU upload uses.
+    nonisolated static func prescaleForDisplay(
         _ input: CIImage,
         targetSize: CGSize?
     ) -> CIImage {
