@@ -205,7 +205,57 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     expect(msg.xmp).toBe(xmp);
 
     workerStub.reply({ id: msg.id, type: 'render-session-success', colorSpace: 'srgb' });
-    expect(await promise).toBe('srgb');
+    const result = await promise;
+    expect(result.colorSpace).toBe('srgb');
+    // No `scope` in the reply → no readback pixels (scopes keep their fallback).
+    expect(result.scopePixels).toBeUndefined();
+  });
+
+  it('threads a scope readback snapshot from open + render into DecodedImage (#1045)', async () => {
+    TestBed.configureTestingModule({
+      providers: [{ provide: GPU_LIVE_RENDER_ENABLED, useValue: true }],
+    });
+    const service = TestBed.inject(RawPipelineService);
+
+    // Open: reply with a 2×1 RGB scope snapshot folded into the success message.
+    const openPromise = service.openLiveSession(
+      {} as OffscreenCanvas,
+      new Uint8Array([0x44]),
+      'dng',
+    );
+    await Promise.resolve();
+    const openMsg = workerStub.postMessage.mock.calls[0][0] as { id: number };
+    const openRgb = new Uint8Array([10, 20, 30, 40, 50, 60]); // 2 px
+    workerStub.reply({
+      id: openMsg.id,
+      type: 'open-session-success',
+      width: 4000,
+      height: 3000,
+      asShotTemperature: 5200,
+      asShotTint: 0,
+      colorSpace: 'display-p3',
+      scope: { width: 2, height: 1, rgb: openRgb.buffer },
+    });
+    const opened = await openPromise;
+    expect(opened.scopePixels).toBeDefined();
+    expect(opened.scopePixels!.width).toBe(2);
+    expect(opened.scopePixels!.rgb).toBeInstanceOf(Uint8Array);
+    expect(Array.from(opened.scopePixels!.rgb)).toEqual([10, 20, 30, 40, 50, 60]);
+
+    // Render: same fold-in on the edit path.
+    const renderPromise = service.renderLiveSession('<x/>');
+    await Promise.resolve();
+    const renderMsg = workerStub.postMessage.mock.calls[1][0] as { id: number };
+    const renderRgb = new Uint8Array([1, 2, 3]); // 1 px
+    workerStub.reply({
+      id: renderMsg.id,
+      type: 'render-session-success',
+      colorSpace: 'srgb',
+      scope: { width: 1, height: 1, rgb: renderRgb.buffer },
+    });
+    const rendered = await renderPromise;
+    expect(rendered.scopePixels).toBeDefined();
+    expect(Array.from(rendered.scopePixels!.rgb)).toEqual([1, 2, 3]);
   });
 
   it('a session-error rejects the open promise (component then falls back)', async () => {

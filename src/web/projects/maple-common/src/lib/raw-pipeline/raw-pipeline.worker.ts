@@ -13,6 +13,7 @@ import type {
   DecodeSceneLinearRequest,
   OpenSessionRequest,
   RenderSessionRequest,
+  ScopeSnapshot,
   WorkerResponse,
   WorkerRequest,
 } from './raw-pipeline.types';
@@ -252,6 +253,80 @@ function liveSessionCtor(): WebLiveSessionCtor | null {
 /** The single open session, or null. Only one image is live at a time. */
 let liveSession: WebLiveSessionInstance | null = null;
 
+// ── Scope readback (#1045) ───────────────────────────────────────────────────
+// The GPU live path presents straight to the transferred `OffscreenCanvas` with NO
+// CPU readback, so the histogram/waveform/parade/vectorscope scopes (which read a
+// CPU-side `currentPixels` RGBA on the 2D path) had no pixel source and went stale.
+// We retain the canvas JS ref here (passing it to wasm `open()` does NOT neuter the
+// ref) and, AFTER each present, draw it — downsampled — onto a small 2D canvas and
+// read back a tiny RGB snapshot to fold into the session reply. Scopes are
+// statistical reductions, so a small downsampled readback of exactly the displayed
+// pixels is the apt source (cheaper than a full-res buffer, and reflects what the
+// user sees). Wrapped in try/catch: any failure (gpu-off bundle never opens a
+// session; a surface that isn't `drawImage`-able; a 2D-context miss) returns null,
+// the reply omits the snapshot, and the component leaves `currentPixels` null →
+// the scopes render their pseudo fallback, i.e. exactly today's flag-on behaviour.
+
+/** The transferred editor `OffscreenCanvas` for the open session — the readback source. */
+let liveCanvas: OffscreenCanvas | null = null;
+
+/** Long-edge cap for the scope readback. Scopes are ~100–250px wide; a 512px long
+ *  edge oversamples them comfortably while keeping the readback + transfer trivial. */
+const SCOPE_READBACK_MAX_DIM = 512;
+
+/** Reusable downsample target so a slider drag doesn't churn `OffscreenCanvas`es. */
+let scopeReadbackCanvas: OffscreenCanvas | null = null;
+
+/**
+ * Draw the presented GPU `OffscreenCanvas` onto a small 2D canvas and read back a
+ * downsampled, packed-RGB snapshot for the scopes (#1045). Returns null (caller
+ * omits the snapshot → scopes keep their pseudo fallback) on any failure, so the
+ * GPU path is never WORSE than today even if a browser won't snapshot the surface.
+ *
+ * `OffscreenCanvas` is undefined-guarded by the open path already; this only runs
+ * after a successful present, when `liveCanvas` is set.
+ */
+function readbackScopeSnapshot(): ScopeSnapshot | null {
+  const src = liveCanvas;
+  if (!src || typeof OffscreenCanvas === 'undefined') return null;
+  try {
+    const srcW = src.width;
+    const srcH = src.height;
+    if (srcW === 0 || srcH === 0) return null;
+    const scale = Math.min(1, SCOPE_READBACK_MAX_DIM / Math.max(srcW, srcH));
+    const w = Math.max(1, Math.round(srcW * scale));
+    const h = Math.max(1, Math.round(srcH * scale));
+
+    if (!scopeReadbackCanvas) {
+      scopeReadbackCanvas = new OffscreenCanvas(w, h);
+    } else if (scopeReadbackCanvas.width !== w || scopeReadbackCanvas.height !== h) {
+      scopeReadbackCanvas.width = w;
+      scopeReadbackCanvas.height = h;
+    }
+    const ctx = scopeReadbackCanvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, w, h);
+    // A webgpu-context canvas is a valid `drawImage` SOURCE (its current presented
+    // contents are snapshotted); we can't `getContext('2d')` on it, hence the
+    // separate 2D target. The snapshot reflects the last presented frame.
+    ctx.drawImage(src as unknown as CanvasImageSource, 0, 0, w, h);
+    const { data } = ctx.getImageData(0, 0, w, h);
+    // Pack RGBA → RGB to match the `DecodedImage` / `DecodeSuccess.rgb` contract.
+    const rgb = new Uint8Array(w * h * 3);
+    for (let i = 0, j = 0; i < data.length; i += 4, j += 3) {
+      rgb[j] = data[i];
+      rgb[j + 1] = data[i + 1];
+      rgb[j + 2] = data[i + 2];
+    }
+    const buffer = rgb.buffer.slice(0, rgb.byteLength) as ArrayBuffer;
+    return { width: w, height: h, rgb: buffer };
+  } catch (e) {
+    // Surface-not-snapshottable / context miss → no snapshot (scopes stay on pseudo).
+    console.warn('[raw-pipeline.worker] scope readback failed; scopes use fallback:', e);
+    return null;
+  }
+}
+
 // Re-entrancy gate (the wasm-bindgen `&mut self` borrow hazard): `render` holds the
 // session's mutable borrow for its whole Promise (across awaits), so a second
 // `render()` entering before the first resolves throws "recursive use of an object
@@ -288,6 +363,7 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
       // Tear down any prior session before opening a new one (asset switch).
       liveSession?.free();
       liveSession = null;
+      liveCanvas = null;
 
       const bytes = new Uint8Array(req.bytes);
       performance.mark(`maple:session-open:${req.id}:start`);
@@ -299,6 +375,10 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
         `maple:session-open:${req.id}:end`,
       );
       liveSession = session;
+      // Retain the canvas (the readback source) — `open()` did not neuter the JS ref.
+      // `open` already presented the first frame, so a snapshot here reflects it.
+      liveCanvas = req.canvas;
+      const scope = readbackScopeSnapshot();
       const response: WorkerResponse = {
         id: req.id,
         type: 'open-session-success',
@@ -309,8 +389,12 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
         // The TRUTH the browser configured after the one-time display-p3 retag
         // `open` did (read back via `getConfiguration()`), never an assumption.
         colorSpace: session.colorSpace,
+        // Downsampled RGB readback of the first frame for the scopes (#1045);
+        // undefined on any readback failure → scopes keep their pseudo fallback.
+        scope: scope ?? undefined,
       };
-      (self as unknown as Worker).postMessage(response);
+      // Transfer the snapshot buffer when present (small; avoids a main-thread copy).
+      (self as unknown as Worker).postMessage(response, scope ? [scope.rgb] : []);
     } catch (e) {
       const err = e instanceof Error ? e : null;
       if (err?.stack) {
@@ -336,12 +420,17 @@ async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
         `maple:session-render:${req.id}:start`,
         `maple:session-render:${req.id}:end`,
       );
+      // Read back the just-presented frame for the scopes (#1045). The render is
+      // serialized on `sessionChain`, so the canvas holds this edit's frame here;
+      // null on any failure → the scopes keep their previous (or pseudo) data.
+      const scope = readbackScopeSnapshot();
       const response: WorkerResponse = {
         id: req.id,
         type: 'render-session-success',
         colorSpace,
+        scope: scope ?? undefined,
       };
-      (self as unknown as Worker).postMessage(response);
+      (self as unknown as Worker).postMessage(response, scope ? [scope.rgb] : []);
     } catch (e) {
       const err = e instanceof Error ? e : null;
       if (err?.stack) {
@@ -359,5 +448,8 @@ function handleCloseSession(): void {
   void enqueueSessionOp(async () => {
     liveSession?.free();
     liveSession = null;
+    // Drop the readback source too (its control was transferred to the worker; the
+    // element is owned by the now-closed session). A re-open installs a fresh one.
+    liveCanvas = null;
   });
 }
