@@ -553,7 +553,12 @@ async fn map_f32_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<f32>
     out
 }
 
-// Tests live in a sibling file (600-LOC budget). Native test builds only.
+// Tests live in sibling files (600-LOC budget). Native test builds only. The
+// airlight end-to-end gates (C5a readback + C5b on-GPU, #1033) are split into
+// their own file; they reuse `tests::reference_u8` (pub(super) there).
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests.rs"]
 mod tests;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/airlight_tests.rs"]
+mod airlight_tests;
