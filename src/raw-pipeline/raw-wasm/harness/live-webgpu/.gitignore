@@ -1,0 +1,4 @@
+# wasm-pack output (built locally per the README recipe)
+pkg/
+# served copy of the committed fixture (source: src/apple/MapleUITests/Fixtures/synthetic/)
+grey-l018-rggb.dng
