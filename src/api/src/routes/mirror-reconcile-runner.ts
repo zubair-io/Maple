@@ -32,6 +32,10 @@ const log = childLogger('mirror:reconcile');
 const ERROR_LOG_CAP = 50;
 const COPY_BATCH = 50;
 const MAX_COPY_PASSES = 100_000; // safety net against an unbounded drain loop
+const IDLE_WAIT_MS = 1_000; // pause between polls when the background worker holds the leases
+const MAX_IDLE_WAITS = 20; // ~20s with no pending decrease ⇒ hand the rest to the worker
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 export interface MirrorReconcileError {
   path: string;
@@ -159,6 +163,8 @@ export function startMirrorReconcileNow(): ReconcileResult {
       progress.copy = { total, copied: 0, remaining: total, errors: 0 };
       log.info({ toCopy: total }, 'reconcile: copying started');
 
+      let idleWaits = 0;
+      let lastPending = total;
       for (let pass = 0; pass < MAX_COPY_PASSES; pass++) {
         const res = await runMirrorCopyOnce({
           batchSize: COPY_BATCH,
@@ -174,9 +180,30 @@ export function startMirrorReconcileNow(): ReconcileResult {
         progress.copy.remaining = counts.pending;
         progress.copy.errors = newDead;
         progress.copy.copied = Math.max(0, total - counts.pending - newDead);
-        // Nothing left we can claim (all copied, dead, or leased by the
-        // background worker) → our side of the drain is done.
-        if (res.claimed === 0) break;
+
+        if (counts.pending === 0) break; // queue fully drained
+        if (res.claimed > 0) {
+          // Copied this pass — keep draining immediately.
+          idleWaits = 0;
+          lastPending = counts.pending;
+          continue;
+        }
+        // Couldn't claim anything yet rows remain: they're leased by the
+        // background worker (or briefly between retries). Wait for them to
+        // resolve instead of flipping to idle while the queue is still draining
+        // (`pending` counts leased rows too). Give up only after a bounded stall
+        // with no pending decrease, leaving the rest to the worker — `remaining`
+        // stays accurate either way.
+        if (counts.pending < lastPending) idleWaits = 0;
+        else if (++idleWaits >= MAX_IDLE_WAITS) {
+          log.info(
+            { remaining: counts.pending },
+            'reconcile: copy stage handing remaining (worker-leased) rows to the background worker',
+          );
+          break;
+        }
+        lastPending = counts.pending;
+        await sleep(IDLE_WAIT_MS);
       }
       log.info(
         {
