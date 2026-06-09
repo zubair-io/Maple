@@ -30,6 +30,15 @@ const DEFAULT_MAX_ENQUEUE = 10_000; // safety cap per pass
 export interface MirrorScanOptions {
   /** Stop enqueueing after this many rows in one pass (runaway guard). */
   maxEnqueue?: number;
+  /** Optional live-progress hook, fired once per primary file checked. Powers the
+   * operator "Scan now" readout so you can see the walk is actually touching the
+   * filesystem. Must be cheap + synchronous (an in-memory snapshot) — no I/O. */
+  onProgress?: (snapshot: {
+    scanned: number;
+    enqueued: number;
+    upToDate: number;
+    currentPath: string;
+  }) => void;
 }
 
 export interface MirrorScanSummary {
@@ -119,6 +128,15 @@ export async function runMirrorScanOnce(opts: MirrorScanOptions = {}): Promise<M
         summary.errors++;
         log.warn({ primaryAbs, err: err instanceof Error ? err.message : err }, 'scan row failed');
       }
+
+      // Surface live progress (the file just checked + running counts) so the
+      // "Scan now" UI can show the walk in motion.
+      opts.onProgress?.({
+        scanned: summary.scanned,
+        enqueued: summary.enqueued,
+        upToDate: summary.upToDate,
+        currentPath: primaryAbs,
+      });
     }
   }
 
