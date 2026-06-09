@@ -32,9 +32,5 @@
     "strictTemplates": true
   },
   "include": ["./preview.ts", "../projects/**/*.stories.ts"],
-  "exclude": [
-    "../**/*.spec.ts",
-    "../projects/maple-common/src/lib/raw-pipeline/**",
-    "../projects/maple-common/src/lib/webgl/dev/**"
-  ]
+  "exclude": ["../**/*.spec.ts", "../projects/maple-common/src/lib/raw-pipeline/**"]
 }

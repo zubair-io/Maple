@@ -21,8 +21,6 @@ export * from './lib/raw-pipeline/raw-pipeline.types';
 export * from './lib/raw-pipeline/gpu-live-render.token';
 export * from './lib/raw-pipeline/image-utils';
 
-// Plan 3 M2.1 — WebGL2 dev-chain pipeline (hand-rolled).
-export { Pipeline, WebglFp16Unsupported } from './lib/webgl/pipeline';
 // T10 note: `raw-wasm-init.ts` is intentionally NOT re-exported from the
 // library entry point. It imports directly from `./pkg/raw_wasm` (wasm-pack
 // output) which is only resolvable by Angular's application builder (via the
