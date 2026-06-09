@@ -29,6 +29,15 @@ pub mod gpu;
 #[cfg(feature = "gpu")]
 mod gpu_render;
 
+// The persistent, zero-readback web live-render handle (`WebLiveSession`, P4b-web
+// / #1038): keeps the GPU context + uploaded image resident across slider ticks
+// and presents straight to a WebGPU `OffscreenCanvas` surface. wasm-only (it owns
+// an `OffscreenCanvas` + drives WebGPU via `wasm_bindgen_futures`); gpu-gated. The
+// native-host build (the `gpu_render` parity test) does not compile it — its core
+// helpers are shared from `gpu_render`, which the test drives directly.
+#[cfg(all(feature = "gpu", target_arch = "wasm32"))]
+mod web_live_session;
+
 // Re-export wasm-bindgen-rayon's `initThreadPool` when the `parallel` feature
 // is enabled. JS imports it as `initThreadPool` from the generated bindings.
 #[cfg(all(target_arch = "wasm32", feature = "parallel"))]
