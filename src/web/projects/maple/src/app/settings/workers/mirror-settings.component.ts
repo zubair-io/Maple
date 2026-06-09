@@ -81,8 +81,13 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
   protected readonly scanning = signal(false);
   /** Poll timer that refreshes status while a scan is in flight. */
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  /** Guards against overlapping status fetches when one takes longer than the
+   * poll interval. */
+  private polling = false;
 
-  /** Disable the Scan-now button while a pass (ours or a background one) runs. */
+  /** Disable the Scan-now button while a pass we can see is running — our local
+   * click state, or the API-process scan reported on /status. (The worker's
+   * hourly background scan runs in another process and isn't reflected here.) */
   protected scanBusy(): boolean {
     return this.scanning() || this.scan()?.phase === 'scanning';
   }
@@ -221,11 +226,19 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
   private startPolling(): void {
     this.stopPolling();
     this.pollTimer = setInterval(() => {
+      // Skip this tick if the previous refresh hasn't returned — never let slow
+      // status fetches stack up into overlapping requests.
+      if (this.polling) return;
+      this.polling = true;
       void (async () => {
-        await this.refreshStatus();
-        if (this.scan()?.phase !== 'scanning') {
-          this.stopPolling();
-          this.scanning.set(false);
+        try {
+          await this.refreshStatus();
+          if (this.scan()?.phase !== 'scanning') {
+            this.stopPolling();
+            this.scanning.set(false);
+          }
+        } finally {
+          this.polling = false;
         }
       })();
     }, 1500);
@@ -246,7 +259,12 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
     try {
       const res = await firstValueFrom(this.backend.getMirrorStatus());
       this.status.set(res.queue);
-      this.scan.set(res.scan ?? null);
+      // Treat a "never run" idle snapshot (no timestamps, no error) as null so the
+      // "no scan yet" hint shows until a real pass has run — otherwise the UI
+      // would read "0 checked · 0 queued" with no context.
+      const sc = res.scan;
+      const neverRun = !sc || (sc.phase === 'idle' && !sc.startedAt && !sc.finishedAt && !sc.error);
+      this.scan.set(neverRun ? null : sc);
     } catch {
       // Status is informational — a fetch failure shouldn't surface an error banner.
     }
