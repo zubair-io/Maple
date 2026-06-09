@@ -33,29 +33,11 @@
 }
 
 .row-grid {
-  display: grid;
-  // Data columns size to their own content: a `min-content` floor (the
-  // cells are `nowrap`, so that's the value on one line) with an `fr` weight
-  // that shares the slack. The table therefore fills wide screens without
-  // cramping, and its intrinsic minimum (~660px here) stays comfortably
-  // under the content width at 1024px. Below 1024px the layout flips to
-  // cards (see Responsive), which also guards against any overflow band.
-  grid-template-columns:
-    24px /* chevron */
-    minmax(min-content, 1.6fr) /* stage */
-    minmax(min-content, 1fr) /* status */
-    minmax(min-content, 0.6fr) /* concur */
-    minmax(min-content, 0.8fr) /* in flight */
-    minmax(min-content, 1.4fr) /* ready / blocked */
-    minmax(min-content, 0.7fr) /* dead */
-    minmax(min-content, 1fr) /* throughput */
-    32px /* kebab */
-    32px; /* pause */
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  // The data rows are 56px tall; the column header overrides to 36px below.
-  height: 56px;
+  // The 10-column grid is shared with the Mirror row via this mixin
+  // (settings-chrome) so the two tables line up and can't drift. The column
+  // header is a `.row-grid` too, so it inherits the same template and overrides
+  // only its height below.
+  @include chrome.worker-row-grid;
 }
 
 .col-header {
@@ -90,48 +72,9 @@
 // `:not(.col-header)` keeps the `.r` column styling off the column header,
 // which is a `.row-grid` too and uses `.r` only for right-alignment.
 .row-grid:not(.col-header) {
-  .stage-id {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-
-    .mono {
-      font-size: 13px;
-      color: var(--s-text);
-      letter-spacing: 0.2px;
-    }
-  }
-  .r {
-    text-align: right;
-    font-family: var(--s-mono);
-    font-size: 12.5px;
-    font-variant-numeric: tabular-nums;
-    color: var(--s-text);
-    white-space: nowrap;
-  }
-  .r.mid {
-    color: var(--s-text-mid);
-  }
-  .dim {
-    color: var(--s-text-dim);
-  }
-
-  .status-pill {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-    }
-    .status-label {
-      font-size: 12.5px;
-      color: var(--s-text-mid);
-    }
-  }
+  // Stage id, status pill, and numeric cells come from the shared mixin so the
+  // Mirror row renders them identically (single source of truth).
+  @include chrome.worker-row-cells;
 
   .dead-cell {
     display: inline-flex;
