@@ -69,6 +69,27 @@ export interface CloseSessionRequest {
   type: 'close-session';
 }
 
+/**
+ * A small, downsampled RGB snapshot of the GPU-presented frame, read back on the
+ * worker side so the histogram/waveform/parade/vectorscope scopes have a pixel
+ * source on the zero-readback GPU live path (#1045). Packed display-RGB
+ * (`3 * width * height`), the SAME contract as `DecodeSuccess.rgb` — the scopes
+ * are statistical reductions and were fed sRGB-ish bytes on the CPU path too, so
+ * a downsampled p3-or-srgb readback is an apt source.
+ *
+ * OPTIONAL on every session reply: the readback is wrapped in try/catch in the
+ * worker, so a gpu-off bundle, a non-`drawImage`-able surface, or any failure
+ * simply omits it — the component then leaves `currentPixels` null and the scopes
+ * fall back to their pseudo render, i.e. exactly today's flag-on behaviour (no
+ * regression). Tiny by construction (long edge clamped), so folding it into the
+ * existing reply costs ~one extra small transfer, no new round-trip.
+ */
+export interface ScopeSnapshot {
+  width: number;
+  height: number;
+  rgb: ArrayBuffer; // transferable, packed RGB (3 * width * height)
+}
+
 /** Reply to `open-session`: the session is live + presenting its first frame. */
 export interface OpenSessionSuccess {
   id: number;
@@ -79,6 +100,8 @@ export interface OpenSessionSuccess {
   asShotTint: number;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
   colorSpace: string;
+  /** Downsampled RGB readback of the first presented frame, for the scopes (#1045). */
+  scope?: ScopeSnapshot;
 }
 
 /** Reply to `render-session`: a frame was presented to the surface. */
@@ -86,6 +109,8 @@ export interface RenderSessionSuccess {
   id: number;
   type: 'render-session-success';
   colorSpace: string;
+  /** Downsampled RGB readback of the presented frame, for the scopes (#1045). */
+  scope?: ScopeSnapshot;
 }
 
 /** Error from any session op (incl. "gpu bundle absent" → component falls back). */
