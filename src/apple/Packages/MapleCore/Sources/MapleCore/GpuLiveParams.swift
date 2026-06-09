@@ -1,0 +1,134 @@
+// GpuLiveParams.swift — map an AdjustmentModel to the wgpu live chain's
+// `MapleGpuLiveParams`, honoring the DECODE-BOUNDARY CONTRACT (epic #925,
+// P4b-apple / #1028).
+//
+// ENTIRELY gated behind `#if MAPLE_GPU` — the `MapleGpuLiveParams` struct is in
+// the gpu-variant header only (the default xcframework is wgpu-free). Flag OFF =
+// this file compiles to nothing, so the live render path is unchanged.
+//
+// ## The decode-boundary contract (the load-bearing part)
+//
+// Apple decode (`maple_render_file_scene_linear_f32`) BAKES `auto_exposure` +
+// `capture_sharpening` into the cached scene-linear buffer the live session
+// uploads. So the live wgpu chain MUST:
+//
+//   * pass `capture_sharpening_enabled = 0` — it is already baked; including it
+//     would double-apply (and there is zero harness coverage of that).
+//   * NOT re-run auto-exposure — the chain has no AE stage; the buffer is already
+//     AE-developed. (For Profile::Auto the decode runs AE-OFF and the Auto curve
+//     owns the brightness mapping; for Neutral, AE-ON. The decoded buffer's AE
+//     state is correct by construction — the editor's decode cache is profile-
+//     keyed — so the chain just must not stack another AE.)
+//   * derive WB from the live `temperature`/`tint` as the ABSOLUTE matrix (NOT a
+//     delta vs as-shot). `MapleGpuLiveParams` carries temp/tint and the FFI
+//     derives `wb_cat16_matrix(temp, tint)` — exactly develop's absolute
+//     `white_balance::apply(scene, model.temperature, model.tint, …)`
+//     (`develop/mod.rs:369`), on the D65/6500K-landed buffer. The Apple CPU path's
+//     `apply_delta(live, asShot)` is the per-platform divergence this CONVERGES
+//     away from (toward canonical `render`).
+//   * pass the REAL `sharpen_amount` / `nr_color` / `nr_luminance` — the chain
+//     runs them at their canonical scene-linear positions, REPLACING the post-AgX
+//     Metal kernels (`MetalKernels.applySceneSharpen` / `applySceneNRColor`). This
+//     is the sanctioned "convergence" divergence: sharpen + nr_color move from
+//     display-linear (post-AgX) into the scene-linear chain.
+//
+// Auto Profile rides the chain's curve + residual-LUT passes (the A2
+// `maple_gpu_fit_auto_profile` artifacts), NOT a pre-composed CIColorCube — wired
+// at the session's render call, not here (the pointers must outlive the call).
+
+#if MAPLE_GPU
+
+import Foundation
+import RawPipeline
+
+extension PipelineRenderer {
+    /// Build the SCALAR fields of `MapleGpuLiveParams` from `model`, applying the
+    /// decode-boundary contract (see the file header). The variable-length array
+    /// pointers (the Auto Profile curve, the residual LUT, and — once Swift mirrors
+    /// them — point tone curves) are left NULL/zero here and wired by the caller
+    /// inside a `withUnsafe…` scope where the backing buffers are alive (the FFI
+    /// reads them only for the duration of the render call; storing them here would
+    /// dangle).
+    ///
+    /// `wb_method` defaults to CAT16 (0) — the Apple model carries no WB-method
+    /// field, matching `develop`'s default. `tone_curve_mode` defaults to
+    /// PerChannel (0). Per-channel POINT curves are not yet mirrored on the Swift
+    /// `AdjustmentModel` (only the parametric region sliders are — see
+    /// `AdjustmentModel`'s tone-curve comment), so those arrays stay empty; the
+    /// parametric fields carry the user's tone-region edits.
+    public static func makeGpuLiveParams(from model: AdjustmentModel) -> MapleGpuLiveParams {
+        // Per-field assignment (not a literal init) — the Swift expression type-
+        // checker hits its complexity ceiling on a ~40-field literal init, exactly
+        // as `makeParams` documents for the 18-field `MapleAdjustmentParams`.
+        var p = MapleGpuLiveParams()
+
+        // --- white balance (ABSOLUTE — the FFI derives wb_cat16_matrix(temp,tint),
+        //     matching develop's absolute apply; NOT a delta vs as-shot) ---
+        p.temperature = Float(model.temperature)
+        p.tint = Float(model.tint)
+        p.wb_method = 0 // CAT16 (the Apple model carries no method field)
+
+        // --- scene tone controls ---
+        p.exposure = Float(model.exposure)
+        p.highlights = Float(model.highlights)
+        p.shadows = Float(model.shadows)
+        p.whites = Float(model.whites)
+        p.blacks = Float(model.blacks)
+
+        // --- AgX contrast (routed to the sigmoid slope) ---
+        p.contrast = Float(model.contrast)
+
+        // --- parametric tone-curve region sliders ---
+        p.parametric_shadows = Float(model.parametricShadows)
+        p.parametric_darks = Float(model.parametricDarks)
+        p.parametric_lights = Float(model.parametricLights)
+        p.parametric_highlights = Float(model.parametricHighlights)
+        p.tone_curve_mode = 0 // PerChannel (Apple model has no per-channel mode field)
+
+        // --- color / spatial sliders ---
+        p.vibrance = Float(model.vibrance)
+        p.saturation = Float(model.saturation)
+        p.clarity = Float(model.clarity)
+        p.texture = Float(model.texture)
+        p.dehaze = Float(model.dehaze)
+
+        // REAL sharpen + NR — run IN the scene-linear chain (replacing the post-AgX
+        // Metal kernels), the sanctioned convergence divergence.
+        p.sharpen_amount = Float(model.sharpenAmount)
+        p.sharpen_radius = Float(model.sharpenRadius)
+        p.sharpen_detail = Float(model.sharpenDetail)
+        p.sharpen_masking = Float(model.sharpenMasking)
+        p.nr_luminance = Float(model.nrLuminance)
+        p.nr_color = Float(model.nrColor)
+
+        // CAPTURE SHARPENING: DISABLED — already baked into the decoded buffer at
+        // decode time (the decode-boundary contract). Including it would double-
+        // apply. The remaining capture-sharpening fields are inert when disabled.
+        p.capture_sharpening_enabled = 0
+        p.capture_sharpening_sigma = 0
+        p.capture_sharpening_iterations = 0
+        p.capture_sharpening_highlight_threshold = 0
+        p.capture_sharpening_strength = 0
+
+        // Variable-length arrays — wired by the caller in a live `withUnsafe…`
+        // scope (NULL/zero here so a forgotten wire is an explicit identity, not a
+        // dangling read). Point tone curves are not mirrored on Swift yet.
+        p.tone_curve_luma_ptr = nil
+        p.tone_curve_luma_len = 0
+        p.tone_curve_red_ptr = nil
+        p.tone_curve_red_len = 0
+        p.tone_curve_green_ptr = nil
+        p.tone_curve_green_len = 0
+        p.tone_curve_blue_ptr = nil
+        p.tone_curve_blue_len = 0
+        p.profile_curve_ptr = nil
+        p.profile_curve_len = 0
+        p.residual_lut_size = 0
+        p.residual_lut_ptr = nil
+        p.residual_lut_len = 0
+
+        return p
+    }
+}
+
+#endif
