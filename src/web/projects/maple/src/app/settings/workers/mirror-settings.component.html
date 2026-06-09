@@ -52,6 +52,46 @@
     }
   </div>
 
+  <div class="block">
+    <div class="subhead">Reconcile scan</div>
+    <div class="scan-row">
+      <button
+        type="button"
+        class="btn-ghost"
+        data-testid="mirror-scan-now"
+        [disabled]="scanBusy()"
+        (click)="scanNow()"
+      >
+        <maple-settings-icon name="retry" [size]="12" />
+        {{ scanBusy() ? 'Scanning…' : 'Scan now' }}
+      </button>
+      @if (scan(); as sc) {
+        <span class="scan-stats mono" data-testid="mirror-scan-stats">
+          {{ sc.scanned }} checked · {{ sc.enqueued }} queued · {{ sc.upToDate }} up to date
+        </span>
+      }
+    </div>
+    @if (scan(); as sc) {
+      @if (sc.phase === 'scanning' && sc.currentPath) {
+        <div class="scan-current mono" data-testid="mirror-scan-current" [title]="sc.currentPath">
+          Scanning: {{ sc.currentPath }}
+        </div>
+      } @else if (sc.finishedAt) {
+        <div class="field-hint">
+          Last scan checked {{ sc.scanned }} files and queued {{ sc.enqueued }} copies.
+        </div>
+      }
+      @if (sc.error) {
+        <div class="save-error">{{ sc.error }}</div>
+      }
+    } @else {
+      <div class="field-hint">
+        Walk every library's files and queue any that are missing or stale on the mirror; the copy
+        worker then drains the queue (watch Pending above). A background scan also runs hourly.
+      </div>
+    }
+  </div>
+
   @if (error()) {
     <p class="banner-error">{{ error() }}</p>
   }

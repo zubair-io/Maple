@@ -98,8 +98,13 @@ describe('mirror-scan detector', () => {
     setMirrorRoots({ [primaryRoot]: [mirrorRoot] });
 
     const { runMirrorScanOnce } = await import('./scan.ts');
-    const summary = await runMirrorScanOnce();
+    const progressPaths: string[] = [];
+    const summary = await runMirrorScanOnce({
+      onProgress: (p) => progressPaths.push(p.currentPath),
+    });
     expect(summary.enqueued).toBe(2);
+    // The progress hook fired for the walked original (proves the walk is live).
+    expect(progressPaths).toContain(join(primaryRoot, 'IMG.dng'));
 
     const queued = await db!
       .collection('mirror_queue')

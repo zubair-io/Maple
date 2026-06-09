@@ -10,13 +10,19 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  OnDestroy,
   OnInit,
   computed,
   inject,
   signal,
 } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { BunApiBackendService, type ApiFolder, errorMessage } from '@maple-common';
+import {
+  BunApiBackendService,
+  type ApiFolder,
+  type MirrorScanProgress,
+  errorMessage,
+} from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { SettingsRowComponent } from '../settings-row.component';
 
@@ -35,7 +41,7 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
   styleUrl: './mirror-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MirrorSettingsComponent implements OnInit {
+export class MirrorSettingsComponent implements OnInit, OnDestroy {
   private readonly backend = inject(BunApiBackendService);
 
   /** Collapsed by default — the row expands to reveal per-library config. */
@@ -68,6 +74,18 @@ export class MirrorSettingsComponent implements OnInit {
 
   protected readonly status = signal<{ pending: number; dead: number } | null>(null);
   protected readonly retrying = signal(false);
+
+  /** Live progress of the last/current "Scan now" pass (null before any run). */
+  protected readonly scan = signal<MirrorScanProgress | null>(null);
+  /** True from clicking "Scan now" until the pass reports idle. */
+  protected readonly scanning = signal(false);
+  /** Poll timer that refreshes status while a scan is in flight. */
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Disable the Scan-now button while a pass (ours or a background one) runs. */
+  protected scanBusy(): boolean {
+    return this.scanning() || this.scan()?.phase === 'scanning';
+  }
 
   async ngOnInit(): Promise<void> {
     try {
@@ -174,10 +192,61 @@ export class MirrorSettingsComponent implements OnInit {
     }
   }
 
+  /** Kick a reconcile scan pass, then poll status so the operator can watch the
+   * walk move (current file + counts) and the pending queue fill. */
+  protected async scanNow(): Promise<void> {
+    this.error.set(null);
+    this.scanning.set(true);
+    try {
+      const res = await firstValueFrom(this.backend.runMirrorScanNow());
+      if (!res.started) {
+        // Already running, or no mirror configured — surface the reason and let
+        // polling (if a pass is live) reflect it.
+        if (res.reason) this.error.set(`Scan not started: ${res.reason}`);
+      }
+      await this.refreshStatus();
+      // Only poll while a pass is actually in flight; a tiny library can finish
+      // before the first refresh, in which case there's nothing to watch.
+      if (this.scan()?.phase === 'scanning') {
+        this.startPolling();
+      } else {
+        this.scanning.set(false);
+      }
+    } catch (e) {
+      this.error.set(this.msg(e));
+      this.scanning.set(false);
+    }
+  }
+
+  private startPolling(): void {
+    this.stopPolling();
+    this.pollTimer = setInterval(() => {
+      void (async () => {
+        await this.refreshStatus();
+        if (this.scan()?.phase !== 'scanning') {
+          this.stopPolling();
+          this.scanning.set(false);
+        }
+      })();
+    }, 1500);
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer !== null) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.stopPolling();
+  }
+
   private async refreshStatus(): Promise<void> {
     try {
       const res = await firstValueFrom(this.backend.getMirrorStatus());
       this.status.set(res.queue);
+      this.scan.set(res.scan ?? null);
     } catch {
       // Status is informational — a fetch failure shouldn't surface an error banner.
     }
