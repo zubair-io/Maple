@@ -42,6 +42,12 @@ mod gpu;
 // zero-alloc render runner + its `MapleGpuLiveParams` struct). Same `gpu` gate.
 #[cfg(feature = "gpu")]
 mod gpu_live;
+// Epic #925 / P4b-apple (#1028): the gpu-gated Auto Profile artifact FFI — fit
+// the per-image curve + residual LUT as SEPARATE artifacts (the un-composed
+// inputs the wgpu live chain's curve + residual-LUT passes consume), vs the
+// default cube FFI's pre-composed CIColorCube. Same `gpu` gate.
+#[cfg(feature = "gpu")]
+mod gpu_auto_profile;
 mod handle;
 mod id;
 mod model;
