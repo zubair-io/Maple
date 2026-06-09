@@ -1731,6 +1731,7 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "getrandom",
+ "pollster",
  "raw-core",
  "raw-gpu",
  "rayon",
@@ -1740,6 +1741,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-rayon",
  "web-sys",
+ "wgpu",
 ]
 
 [[package]]
