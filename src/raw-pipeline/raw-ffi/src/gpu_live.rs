@@ -209,10 +209,68 @@ unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInputs {
         nr_color: p.nr_color,
         contrast: p.contrast,
         capture_sharpening,
-        profile_curve_flat: read_floats(p.profile_curve_ptr, p.profile_curve_len),
-        residual_lut_size: p.residual_lut_size as usize,
-        residual_lut_data: read_floats(p.residual_lut_ptr, p.residual_lut_len),
+        // The view tail ALWAYS runs the Auto Profile curve + residual-LUT passes
+        // (`build_live_chain`), and both require valid runtime data:
+        // `AutoProfileCurvePass` asserts a `PROFILE_CURVE_FLAT_LEN` curve, and
+        // `ResidualLutPass` asserts `size >= 2` + `size³·3` data. When the host
+        // supplies NO Auto artifacts (Neutral, or an image with no Auto tail), the
+        // pointers are NULL → empty here, which would panic the passes. Default to
+        // the IDENTITY curve + an identity 2³ LUT: both are exact no-ops, so the
+        // tail collapses to plain AgX — the canonical `Profile::Neutral` render.
+        profile_curve_flat: curve_flat_or_identity(p.profile_curve_ptr, p.profile_curve_len),
+        residual_lut_size: residual_size_or_identity(p.residual_lut_size as usize),
+        residual_lut_data: residual_data_or_identity(
+            p.residual_lut_ptr,
+            p.residual_lut_len,
+            p.residual_lut_size as usize,
+        ),
     }
+}
+
+/// The host-supplied flat Auto Profile curve, or the IDENTITY curve's flat
+/// serialization when absent (NULL / wrong length). The view tail's
+/// `AutoProfileCurvePass` requires a `PROFILE_CURVE_FLAT_LEN` curve; an identity
+/// curve makes it a no-op (= plain AgX). Validating the length here also guards
+/// against a truncated host buffer reaching the pass's assert.
+///
+/// # Safety
+/// `ptr` valid for `len` f32 reads, or null.
+unsafe fn curve_flat_or_identity(ptr: *const f32, len: usize) -> Vec<f32> {
+    use raw_core::view::auto_profile::{ProfileCurve, PROFILE_CURVE_FLAT_LEN};
+    let supplied = read_floats(ptr, len);
+    if supplied.len() == PROFILE_CURVE_FLAT_LEN {
+        supplied
+    } else {
+        ProfileCurve::identity().to_flat()
+    }
+}
+
+/// The residual LUT edge to use: the host's when `>= 2`, else 2 (the identity
+/// fallback's edge). `ResidualLutPass` asserts `size >= 2`.
+fn residual_size_or_identity(size: usize) -> usize {
+    if size >= 2 {
+        size
+    } else {
+        2
+    }
+}
+
+/// The host-supplied residual LUT grid, or an identity `2³` grid when absent
+/// (NULL / `size < 2` / wrong length). Paired with [`residual_size_or_identity`]
+/// so the size + data always agree (the pass asserts `data.len() == size³·3`).
+///
+/// # Safety
+/// `ptr` valid for `len` f32 reads, or null.
+unsafe fn residual_data_or_identity(ptr: *const f32, len: usize, size: usize) -> Vec<f32> {
+    use raw_core::view::auto_profile::lut::ColorLut;
+    let expected = size.saturating_mul(size).saturating_mul(size).saturating_mul(3);
+    if size >= 2 {
+        let supplied = read_floats(ptr, len);
+        if supplied.len() == expected {
+            return supplied;
+        }
+    }
+    ColorLut::identity(2).data
 }
 
 /// Internal handle state: the owned context + session. Behind the opaque pointer.
