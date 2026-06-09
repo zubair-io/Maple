@@ -28,6 +28,22 @@ use raw_core::decode::decode_bytes;
 use raw_core::pipeline::{fit_auto_profile_from_raw, RawInput, RenderQuality};
 use std::ffi::{c_char, CStr};
 
+/// The flat-`f32` length of a serialized `ProfileCurve` — the size the host must
+/// allocate for `maple_gpu_fit_auto_profile`'s `curve_out` (and the
+/// `profile_curve_len` it sets on `MapleGpuLiveParams`). The Swift host has no
+/// other source for it (raw-core's `PROFILE_CURVE_FLAT_LEN` is a cross-crate const
+/// cbindgen can't evaluate), so this literal is emitted into the header as a
+/// `#define`. The `const _` assertion below PINS it to raw-core's value — a drift
+/// fails the build, not just the FFI's runtime `to_flat().len()` check.
+pub const MAPLE_PROFILE_CURVE_FLAT_LEN: usize = 220;
+
+/// Compile-time pin: the header constant MUST equal raw-core's authoritative
+/// `PROFILE_CURVE_FLAT_LEN` (a curve-layout change there breaks the host ABI here).
+const _: () = assert!(
+    MAPLE_PROFILE_CURVE_FLAT_LEN == raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN,
+    "MAPLE_PROFILE_CURVE_FLAT_LEN drifted from raw-core's PROFILE_CURVE_FLAT_LEN"
+);
+
 /// Fit the per-image Auto Profile tail (#550 curve + #924 residual LUT) for a RAW
 /// file + XMP sidecar and write the curve + residual as SEPARATE artifacts (the
 /// un-composed inputs the wgpu live chain's curve + residual-LUT passes consume —
