@@ -55,3 +55,12 @@ parallel = ["dep:wasm-bindgen-rayon", "dep:rayon"]
 # Epic #925: WebGPU exposure parity binding + web present proof (P1c / #989),
 # backed by the `raw-gpu` resource core. OFF by default.
 gpu = ["dep:raw-gpu", "dep:wasm-bindgen-futures", "dep:web-sys"]
+
+# Native-host test deps for the `render_bytes_gpu` parity gate (#1029). wgpu +
+# pollster drive the GPU core on Metal in `gpu_render/tests.rs`; both are already
+# in the tree transitively via `raw-gpu` when `gpu` is on. Non-wasm only — the
+# wasm test target awaits the browser and never block_ons. These are dev-only, so
+# they don't affect the shipped wasm bundle or the default (gpu-off) build.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+pollster = "0.4"
+wgpu = "23"
