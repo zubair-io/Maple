@@ -27,6 +27,7 @@
       data-testid="mirror-reconcile-now"
       [disabled]="reconcileBusy()"
       [title]="reconcileBusy() ? busyLabel() : 'Reconcile now (scan + copy)'"
+      [attr.aria-label]="reconcileBusy() ? busyLabel() : 'Reconcile now (scan and copy)'"
       (click)="reconcileNow()"
     >
       <maple-settings-icon
