@@ -21,7 +21,9 @@
 }
 
 .workers-body {
-  padding: 20px 36px;
+  // Extra bottom padding so the last group (Import) clears the viewport edge and
+  // its expanded body is easy to reach when scrolled to the bottom.
+  padding: 20px 36px 96px;
 }
 
 .loading {
@@ -469,7 +471,7 @@
 // removes every horizontal-overflow band.
 @media (max-width: 1023px) {
   .workers-body {
-    padding: 12px 20px 18px;
+    padding: 12px 20px 64px;
   }
 
   // The header row only makes sense for the grid layout — cards self-label.
@@ -606,7 +608,7 @@
     margin: 12px 16px 0;
   }
   .workers-body {
-    padding: 8px 16px 16px;
+    padding: 8px 16px 56px;
   }
 
   .row-footer {

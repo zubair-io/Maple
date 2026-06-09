@@ -8,7 +8,10 @@
  *   POST /api/mirror/test          — validate a candidate mirror path without
  *                                    saving (UI "Test" button)
  *   GET  /api/mirror/status        — mirror reconcile queue depth (pending/dead)
+ *                                    + live "Scan now" progress
  *   POST /api/mirror/retry-dead    — re-arm dead-lettered mirror copies
+ *   POST /api/mirror/scan-now      — run a reconcile scan pass now (live progress
+ *                                    on /status); enqueues missing/stale copies
  *   GET  /api/mirror/orphans       — dry-run report of mirror files with no
  *                                    primary counterpart (deletes nothing). The
  *                                    deletion itself is the operator-toggled
@@ -34,6 +37,7 @@ import { validateRoot } from '../fs/root.ts';
 import { loadMirrorConfig } from '../fs/mirror-config.ts';
 import { mirrorQueueCounts, retryDeadMirrorCopies } from '../fs/mirror-queue.repo.ts';
 import { runMirrorScrubOnce } from '../workers/mirror/scrub.ts';
+import { getMirrorScanProgress, startMirrorScanNow } from './mirror-scan-runner.ts';
 import type { MirrorLocation } from '../db/schema.ts';
 
 const log = childLogger('mirror:routes');
@@ -158,11 +162,18 @@ export const mirrorRoutes = new Elysia()
     },
     { body: t.Object({ path: t.String({ minLength: 1 }) }) },
   )
-  // Mirror reconcile queue status — pending + dead copy counts, for the
-  // mirror section of the Workers settings page.
+  // Mirror reconcile queue status — pending + dead copy counts, plus live
+  // "Scan now" progress, for the mirror section of the Workers settings page.
   .get('/api/mirror/status', async () => {
     const counts = await mirrorQueueCounts();
-    return { queue: counts };
+    return { queue: counts, scan: getMirrorScanProgress() };
+  })
+  // Run a reconcile scan pass now (operator "Scan now" button). Walks live
+  // assets, enqueues any missing/stale mirror copies, and exposes live progress
+  // on GET /api/mirror/status. Returns immediately; a pass already running is a
+  // no-op. The worker's copy worker drains whatever this enqueues.
+  .post('/api/mirror/scan-now', async () => {
+    return startMirrorScanNow();
   })
   // Re-arm every dead-lettered copy (operator "retry" button). Returns how
   // many rows were revived.

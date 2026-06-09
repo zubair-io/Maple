@@ -58,4 +58,36 @@ describe('MirrorSettingsComponent', () => {
     fixture.detectChanges();
     expect(el().querySelector('.expanded')).toBeNull();
   });
+
+  it('"Scan now" posts a scan and renders the returned progress', async () => {
+    await init();
+    el().querySelector<HTMLElement>('.row-summary')!.click(); // expand
+    fixture.detectChanges();
+
+    el().querySelector<HTMLButtonElement>('[data-testid="mirror-scan-now"]')!.click();
+
+    http.expectOne('/api/mirror/scan-now').flush({ started: true, phase: 'scanning' });
+    await tick(); // let scanNow continue into refreshStatus
+
+    // Return an already-finished pass so no polling interval starts.
+    http.expectOne('/api/mirror/status').flush({
+      queue: { pending: 3, dead: 0 },
+      scan: {
+        phase: 'idle',
+        scanned: 42,
+        enqueued: 3,
+        upToDate: 39,
+        currentPath: null,
+        startedAt: '2026-06-08T00:00:00Z',
+        finishedAt: '2026-06-08T00:00:01Z',
+        error: null,
+      },
+    });
+    await tick();
+    fixture.detectChanges();
+
+    const stats = el().querySelector('[data-testid="mirror-scan-stats"]');
+    expect(stats?.textContent).toContain('42 checked');
+    expect(stats?.textContent).toContain('3 queued');
+  });
 });
