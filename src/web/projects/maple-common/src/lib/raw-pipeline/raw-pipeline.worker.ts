@@ -353,8 +353,9 @@ async function handleRenderSession(req: RenderSessionRequest): Promise<void> {
 }
 
 function handleCloseSession(): void {
-  // No enqueue — `free()` must not run while a render holds the borrow, but the
-  // chain guarantees ordering: close after the in-flight op via the same queue.
+  // Enqueue the free so it runs AFTER any in-flight render — `free()` must not run
+  // while a render holds the wasm `&mut self` borrow (that throws). The shared queue
+  // guarantees the ordering. Fire-and-forget (no reply).
   void enqueueSessionOp(async () => {
     liveSession?.free();
     liveSession = null;

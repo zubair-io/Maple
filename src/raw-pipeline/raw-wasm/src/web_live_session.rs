@@ -6,7 +6,7 @@
 //! the cached [`GpuContext`] (its ~35 compiled pipelines), the upload-once
 //! [`LiveSession`], the decoded [`raw_core::image::RawImage`], and the WebGPU
 //! `OffscreenCanvas` surface — and presents each tick DIRECTLY to that surface with
-//! NO CPU readback ([`raw_gpu::present_chain_to_canvas`]). Contrast the one-shot
+//! NO CPU readback (via the persistent [`raw_gpu::WebPresentSurface`]). Contrast the one-shot
 //! [`crate::gpu_render::render_bytes_gpu`], which rebuilds the context (recompiling
 //! every pipeline), re-decodes, AND reads back to u8 per call.
 //!
