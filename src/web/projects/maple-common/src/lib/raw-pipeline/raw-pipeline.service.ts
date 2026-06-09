@@ -17,6 +17,7 @@ import type {
   OpenSessionRequest,
   RenderSessionRequest,
   CloseSessionRequest,
+  ScopeSnapshot,
   WorkerResponse,
 } from './raw-pipeline.types';
 import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
@@ -35,6 +36,22 @@ export interface OpenedLiveSession {
   asShotTemperature: number;
   asShotTint: number;
   colorSpace: string;
+  /**
+   * Downsampled RGB readback of the first presented frame, for the scopes (#1045).
+   * Packed into the `DecodedImage` shape so it drops straight into `currentPixels`.
+   * `undefined` when the worker couldn't snapshot the surface → scopes keep their
+   * pseudo fallback (no regression vs today's flag-on path).
+   */
+  scopePixels?: DecodedImage;
+}
+
+/**
+ * Result of re-rendering a live session for an edit (#846): the achieved canvas
+ * colour-space tag plus an optional downsampled readback for the scopes (#1045).
+ */
+export interface RenderedLiveSession {
+  colorSpace: string;
+  scopePixels?: DecodedImage;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -67,10 +84,23 @@ export class RawPipelineService implements OnDestroy {
       }
     | {
         kind: 'render-session';
-        resolve: (colorSpace: string) => void;
+        resolve: (result: RenderedLiveSession) => void;
         reject: (err: Error) => void;
       }
   >();
+
+  /** Pack a worker `ScopeSnapshot` reply into a `DecodedImage` for `currentPixels`. */
+  private scopeToDecoded(scope: ScopeSnapshot | undefined): DecodedImage | undefined {
+    if (!scope) return undefined;
+    return {
+      width: scope.width,
+      height: scope.height,
+      rgb: new Uint8Array(scope.rgb),
+      // The scopes ignore WB; these are placeholders (a readback has no As-Shot WB).
+      asShotTemperature: 6500,
+      asShotTint: 0,
+    };
+  }
 
   // T10: threaded-state signal. `null` = not yet reported by the worker.
   private readonly threadedSubject = new BehaviorSubject<boolean | null>(null);
@@ -132,9 +162,13 @@ export class RawPipelineService implements OnDestroy {
             asShotTemperature: msg.asShotTemperature,
             asShotTint: msg.asShotTint,
             colorSpace: msg.colorSpace,
+            scopePixels: this.scopeToDecoded(msg.scope),
           });
         } else if (msg.type === 'render-session-success' && handler.kind === 'render-session') {
-          handler.resolve(msg.colorSpace);
+          handler.resolve({
+            colorSpace: msg.colorSpace,
+            scopePixels: this.scopeToDecoded(msg.scope),
+          });
         } else if (
           msg.type === 'session-error' &&
           (handler.kind === 'open-session' || handler.kind === 'render-session')
@@ -364,10 +398,11 @@ export class RawPipelineService implements OnDestroy {
   /**
    * Re-render the open live session for the develop model serialized in `xmp` and
    * present to the canvas (the #846 edit path). Resolves with the achieved canvas
-   * colour-space tag. Rejects if no session is open or on a GPU error. The worker
+   * colour-space tag plus an optional downsampled scope readback of the presented
+   * frame (#1045). Rejects if no session is open or on a GPU error. The worker
    * serializes these against each other + the open.
    */
-  renderLiveSession(xmp?: string): Promise<string> {
+  renderLiveSession(xmp?: string): Promise<RenderedLiveSession> {
     let worker: Worker;
     try {
       worker = this.ensureWorker();
@@ -376,7 +411,7 @@ export class RawPipelineService implements OnDestroy {
     }
     const id = this.nextId++;
     const request: RenderSessionRequest = { id, type: 'render-session', xmp };
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<RenderedLiveSession>((resolve, reject) => {
       this.pending.set(id, { kind: 'render-session', resolve, reject });
       worker.postMessage(request);
     });

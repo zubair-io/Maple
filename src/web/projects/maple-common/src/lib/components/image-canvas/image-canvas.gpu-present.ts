@@ -12,9 +12,15 @@
 // SCOPE (invariant #6 — stated, not silently dropped): the GPU path renders the
 // plain live preview only. Before/after-split + the gradient placeholder stay on the
 // 2D path (flag-off / mock assets); they are not supported on the GPU live canvas
-// this ticket. The histogram/waveform scopes read `currentPixels`, which the
-// zero-readback GPU path does not populate — they go stale on the flag-on path (a
-// documented follow-up; the flag is off by default).
+// this ticket.
+//
+// SCOPES (#1045): the histogram/waveform/parade/vectorscope read a CPU-side
+// `currentPixels` RGBA. The zero-readback present produces none, so the worker reads
+// back a SMALL downsampled RGB snapshot of the presented frame (drawing the webgpu
+// `OffscreenCanvas` onto a 2D canvas) and folds it into the open/render reply; `open`
+// and `render` below set `currentPixels` from it. A readback miss leaves it null (on
+// open) / unchanged (on edit), so the scopes degrade to their pseudo fallback rather
+// than regressing — see `raw-pipeline.worker.ts` `readbackScopeSnapshot`.
 //
 // `transferControlToOffscreen()` is ONE-WAY per element, so each session-open creates
 // a FRESH GPU canvas element (a new asset = a new session at possibly new dims); the
@@ -110,7 +116,10 @@ export class ImageCanvasGpuPresent {
       // Clear the 2D bitmap so the (hidden) 2D canvas doesn't retain stale pixels.
       this.host.imageBitmap()?.close();
       this.host.imageBitmap.set(null);
-      this.host.canvasSvc.currentPixels.set(null);
+      // Feed the scopes from the GPU readback of the first presented frame (#1045);
+      // null when the worker couldn't snapshot the surface → scopes use their
+      // pseudo fallback (today's flag-on behaviour, no regression).
+      this.host.canvasSvc.currentPixels.set(info.scopePixels ?? null);
 
       // Same cold-open bookkeeping as the 2D path so #846 dedups identically.
       this.host.state.updateAssetDimensions(assetId, info.width, info.height);
@@ -139,18 +148,30 @@ export class ImageCanvasGpuPresent {
 
   /**
    * Re-render the open session for `xmp` and present to the OffscreenCanvas (the #846
-   * edit path) — the worker re-renders + presents with zero readback, so there's no
-   * bitmap to publish. The worker serializes renders (the wasm `&mut self` re-entrancy
-   * guard), so an overlapping debounce fire can't trip "recursive use of an object
-   * detected". Returns `true` once the result is accepted as current; on a stale
-   * (superseded) generation it returns `false` and accepts the last-writer-wins
-   * present (the next render repaints), matching the 2D path's "drop the stale result"
-   * intent without a CPU buffer to discard.
+   * edit path). The display present itself is zero-readback (the OffscreenCanvas holds
+   * the pixels, no bitmap to publish); the worker additionally folds a SMALL
+   * downsampled readback of the presented frame into the reply for the scopes (#1045),
+   * which we publish to `currentPixels`. The worker serializes renders (the wasm
+   * `&mut self` re-entrancy guard), so an overlapping debounce fire can't trip
+   * "recursive use of an object detected". Returns `true` once the result is accepted
+   * as current; on a stale (superseded) generation it returns `false` and accepts the
+   * last-writer-wins present (the next render repaints), matching the 2D path's "drop
+   * the stale result" intent.
    */
   async render(xmp: string, generation: number): Promise<boolean> {
     try {
-      await this.host.pipeline.renderLiveSession(xmp);
+      const result = await this.host.pipeline.renderLiveSession(xmp);
+      // Stale guard (same intent as the 2D path's generation check): a newer edit
+      // bumped the generation while this render was in flight — drop its result so
+      // a stale scope readback can't overwrite a fresher frame's.
       if (generation !== this.host.renderGeneration) return false;
+      // Update the scopes from the GPU readback of the just-presented frame (#1045).
+      // Only overwrite `currentPixels` when the worker returned a snapshot, so a
+      // one-off readback miss leaves the previous (correct-enough) scope data in
+      // place rather than blanking the scopes to their pseudo fallback mid-edit.
+      if (result.scopePixels) {
+        this.host.canvasSvc.currentPixels.set(result.scopePixels);
+      }
       return true;
     } catch (e) {
       console.error('[image-canvas] GPU session re-render failed:', e);
