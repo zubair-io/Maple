@@ -14,11 +14,28 @@ import type {
   DecodedSceneLinearImage,
   DecodeRequest,
   DecodeSceneLinearRequest,
+  OpenSessionRequest,
+  RenderSessionRequest,
+  CloseSessionRequest,
   WorkerResponse,
 } from './raw-pipeline.types';
 import { GPU_LIVE_RENDER_ENABLED } from './gpu-live-render.token';
 import { isNonRawExtension } from '../state/raw-extensions';
 import { decodeNonRawToRgb, decodeNonRawToSceneLinear } from './image-utils';
+
+/**
+ * Result of opening a persistent GPU live session (epic #925, P4b-web / #1038):
+ * the oriented image dims (== the transferred canvas dims), the camera As-Shot WB
+ * (for seeding the sliders, like the `decode()` path), and the achieved canvas
+ * colour-space tag the browser configured.
+ */
+export interface OpenedLiveSession {
+  width: number;
+  height: number;
+  asShotTemperature: number;
+  asShotTint: number;
+  colorSpace: string;
+}
 
 @Injectable({ providedIn: 'root' })
 export class RawPipelineService implements OnDestroy {
@@ -41,6 +58,16 @@ export class RawPipelineService implements OnDestroy {
     | {
         kind: 'scene-linear';
         resolve: (img: DecodedSceneLinearImage) => void;
+        reject: (err: Error) => void;
+      }
+    | {
+        kind: 'open-session';
+        resolve: (info: OpenedLiveSession) => void;
+        reject: (err: Error) => void;
+      }
+    | {
+        kind: 'render-session';
+        resolve: (colorSpace: string) => void;
         reject: (err: Error) => void;
       }
   >();
@@ -97,6 +124,21 @@ export class RawPipelineService implements OnDestroy {
             asShotTint: msg.asShotTint,
           });
         } else if (msg.type === 'decode-scene-linear-error' && handler.kind === 'scene-linear') {
+          handler.reject(new Error(msg.message));
+        } else if (msg.type === 'open-session-success' && handler.kind === 'open-session') {
+          handler.resolve({
+            width: msg.width,
+            height: msg.height,
+            asShotTemperature: msg.asShotTemperature,
+            asShotTint: msg.asShotTint,
+            colorSpace: msg.colorSpace,
+          });
+        } else if (msg.type === 'render-session-success' && handler.kind === 'render-session') {
+          handler.resolve(msg.colorSpace);
+        } else if (
+          msg.type === 'session-error' &&
+          (handler.kind === 'open-session' || handler.kind === 'render-session')
+        ) {
           handler.reject(new Error(msg.message));
         } else {
           // Mismatched response type and handler kind — should never happen
@@ -258,6 +300,98 @@ export class RawPipelineService implements OnDestroy {
       });
       worker.postMessage(request, [buffer]);
     });
+  }
+
+  // ── Persistent GPU live session (epic #925, P4b-web / #1038) ───────────────
+  // The 16ms-ready web live-render path: open a `WebLiveSession` in the worker that
+  // keeps the GPU context + uploaded image resident and presents straight to a
+  // transferred `OffscreenCanvas` (NO CPU readback). The component routes here only
+  // when `gpuLiveRender` is true; otherwise it stays on the `decode()` + 2D-canvas
+  // path (flag-off == today, byte-for-byte). Session renders are serialized in the
+  // worker (the wasm `&mut self` re-entrancy guard), so concurrent `render()` calls
+  // can't trip "recursive use of an object detected".
+
+  /** Whether the GPU live-render path is enabled for this deployment (#1038). */
+  get gpuLiveRenderEnabled(): boolean {
+    return this.gpuLiveRender;
+  }
+
+  /**
+   * Open a persistent GPU live session for `bytes`, transferring `canvas` (an
+   * `OffscreenCanvas` from `transferControlToOffscreen()`) to the worker. The first
+   * frame is presented to the canvas before this resolves. Rejects if the loaded
+   * WASM bundle lacks the `gpu` feature (the caller falls back to `decode()`), or on
+   * a decode / GPU error. Outside the `decode()` serialization gate — the session
+   * lives entirely in the worker and owns its own render queue.
+   *
+   * The transferred `canvas` is owned by the worker after this call; the caller
+   * must not draw to it on the main thread.
+   */
+  openLiveSession(
+    canvas: OffscreenCanvas,
+    bytes: Uint8Array,
+    ext: string,
+    xmp?: string,
+  ): Promise<OpenedLiveSession> {
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    const id = this.nextId++;
+    // Copy the bytes off the caller's view before transferring (the view stays
+    // usable for a later 2D fallback / re-open), mirroring `decodeOnce`.
+    const buffer = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+    const request: OpenSessionRequest = {
+      id,
+      type: 'open-session',
+      bytes: buffer,
+      ext,
+      xmp,
+      canvas,
+    };
+    return new Promise<OpenedLiveSession>((resolve, reject) => {
+      this.pending.set(id, { kind: 'open-session', resolve, reject });
+      // Transfer BOTH the byte buffer and the OffscreenCanvas to the worker.
+      worker.postMessage(request, [buffer, canvas]);
+    });
+  }
+
+  /**
+   * Re-render the open live session for the develop model serialized in `xmp` and
+   * present to the canvas (the #846 edit path). Resolves with the achieved canvas
+   * colour-space tag. Rejects if no session is open or on a GPU error. The worker
+   * serializes these against each other + the open.
+   */
+  renderLiveSession(xmp?: string): Promise<string> {
+    let worker: Worker;
+    try {
+      worker = this.ensureWorker();
+    } catch {
+      return Promise.reject(new Error('RawPipelineService: worker unavailable'));
+    }
+    const id = this.nextId++;
+    const request: RenderSessionRequest = { id, type: 'render-session', xmp };
+    return new Promise<string>((resolve, reject) => {
+      this.pending.set(id, { kind: 'render-session', resolve, reject });
+      worker.postMessage(request);
+    });
+  }
+
+  /**
+   * Tear down the open live session (asset switch / component destroy). Fire-and-
+   * forget — the worker frees the handle behind its render queue (so it never frees
+   * while a render holds the borrow). No-op if no worker exists yet.
+   */
+  closeLiveSession(): void {
+    if (!this.worker) return;
+    const id = this.nextId++;
+    const request: CloseSessionRequest = { id, type: 'close-session' };
+    this.worker.postMessage(request);
   }
 
   ngOnDestroy(): void {
