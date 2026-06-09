@@ -178,8 +178,18 @@ public actor GpuLiveSession {
     /// the GPU. Returns normally on success or a silent drop (cancelled); throws on
     /// a real GPU/present failure so the caller can surface it.
     ///
+    /// Returns the GPU render+present latency in MILLISECONDS for a real present
+    /// (`rc == 0`), or `nil` when the present was cancelled (`rc == 4`, a newer
+    /// edit superseded it). The latency is a `CACurrentMediaTime()` delta around
+    /// the `maple_gpu_present_chain` FFI — the encode+submit+present span that
+    /// maps to the 16ms slider-tick budget — with NO added GPU sync/readback (that
+    /// would distort the very number we measure). The HUD's recorder drops the
+    /// `nil` (cancelled) frames so they don't flatter the rolling average; see
+    /// `GpuFrameTimeStats`.
+    ///
     /// The actor serializes this — one render in flight (the `!Send` Rust context).
-    public func present(model: AdjustmentModel, layer: CAMetalLayer, cancel: CancelFlag?) throws {
+    @discardableResult
+    public func present(model: AdjustmentModel, layer: CAMetalLayer, cancel: CancelFlag?) throws -> Double? {
         guard var h = handle else {
             throw GpuLiveError(message: "present: session is closed")
         }
@@ -191,16 +201,26 @@ public actor GpuLiveSession {
         // for the whole FFI call (storing them on `params` outside would dangle).
         // The helper yields a pointer to the (array-wired) params so the FFI call
         // doesn't re-borrow `params` (Swift exclusivity).
+        //
+        // Stamp the wall clock immediately around the FFI: this span is the GPU
+        // encode+submit+present — the meaningful edit→on-screen latency. The two
+        // `CACurrentMediaTime()` reads are sub-microsecond, so the measurement
+        // does not perturb the number (and is unconditional — the HUD flag gates
+        // RECORDING, not the cheap timestamp).
+        let t0 = CACurrentMediaTime()
         let rc = withGpuLiveParams(params) { pp in
             maple_gpu_present_chain(&h, pp, layerPtr, cancelPtr)
         }
+        let elapsedMs = (CACurrentMediaTime() - t0) * 1000.0
 
         switch rc {
         case 0:
-            return // presented
+            return elapsedMs // presented — real edit→on-screen frame
         case 4:
-            // RC_PRESENT_CANCELLED — a newer edit superseded this present; drop quietly.
-            return
+            // RC_PRESENT_CANCELLED — a newer edit superseded this present; drop
+            // quietly AND report `nil` so the cancelled (near-zero) frame never
+            // enters the HUD's rolling stats.
+            return nil
         default:
             throw GpuLiveError(message: Self.lastError() ?? "maple_gpu_present_chain rc=\(rc)")
         }

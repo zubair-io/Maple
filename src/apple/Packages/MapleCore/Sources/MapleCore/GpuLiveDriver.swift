@@ -60,6 +60,15 @@ public final class GpuLiveDriver {
     /// The RAW path + decode quality for the Auto Profile fit (set on open).
     private var autoProfileFitDone = false
 
+    /// Rolling per-tick GPU render+present latency for the in-app frame-time HUD
+    /// (#1053). The driver records every REAL present's elapsed ms here (cancelled
+    /// presents return `nil` and are skipped), but ONLY when `GpuHudFlag.isEnabled`
+    /// — so a gpu build with the HUD off does zero extra work on the render path.
+    /// `@Observable`, so `FullImageView`'s overlay re-renders as frames land.
+    /// Owned by the driver (the natural recorder); the view reads it via
+    /// `session.gpuLiveDriver?.frameStats`.
+    public let frameStats = GpuFrameTimeStats()
+
     /// Cancel flag of the most-recent present. The CPU path drops a stale
     /// render at the `renderedPreview =` generation gate; the GPU present has
     /// no such gate — once `present_chain_to_surface` runs, it's on screen. So
@@ -128,9 +137,15 @@ public final class GpuLiveDriver {
         do {
             // Hold a strong ref to `cancel` across the whole await so the
             // Rust entry's flag read can't race a dealloc (the RenderCancelFlag
-            // strong-reference contract).
-            try await s.present(model: model, layer: layer, cancel: cancel)
+            // strong-reference contract). `present` returns the GPU render+present
+            // latency in ms for a REAL frame, or `nil` if it was superseded
+            // (cancelled). Feed the HUD only the real frames, and only when the
+            // HUD flag is on (flag-on/HUD-off does no recording at all).
+            let elapsedMs = try await s.present(model: model, layer: layer, cancel: cancel)
             withExtendedLifetime(cancel) {}
+            if GpuHudFlag.isEnabled, let elapsedMs {
+                frameStats.record(elapsedMs)
+            }
         } catch {
             gpuDriverLog.error("GPU present failed: \(error.localizedDescription, privacy: .public)")
             onError(error)
