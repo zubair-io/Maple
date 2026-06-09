@@ -23,6 +23,12 @@ pub mod auto_tone;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 
+// The GPU-resident web live-render entry (`render_bytes_gpu`, P4b-web / #1029).
+// gpu-gated alongside `gpu`; absent from default builds. Its `#[wasm_bindgen]`
+// export is picked up by wasm-bindgen from this module.
+#[cfg(feature = "gpu")]
+mod gpu_render;
+
 // Re-export wasm-bindgen-rayon's `initThreadPool` when the `parallel` feature
 // is enabled. JS imports it as `initThreadPool` from the generated bindings.
 #[cfg(all(target_arch = "wasm32", feature = "parallel"))]
@@ -54,6 +60,24 @@ pub struct MapleRender {
     rgb: Vec<u8>,
     as_shot_temperature: f32,
     as_shot_tint: f32,
+}
+
+impl MapleRender {
+    /// Internal constructor so the gpu-gated `render_bytes_gpu` entry
+    /// (`gpu_render.rs`) can build the same return type as `render_bytes`
+    /// without naming the private fields across the submodule boundary. wasm-only
+    /// with `render_bytes_gpu` itself (the native host parity test drives
+    /// `render_gpu_core`, which returns a raw `(w, h, Vec<u8>)`).
+    #[cfg(all(feature = "gpu", target_arch = "wasm32"))]
+    pub(crate) fn new(
+        width: u32,
+        height: u32,
+        rgb: Vec<u8>,
+        as_shot_temperature: f32,
+        as_shot_tint: f32,
+    ) -> Self {
+        Self { width, height, rgb, as_shot_temperature, as_shot_tint }
+    }
 }
 
 #[wasm_bindgen]
