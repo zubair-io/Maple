@@ -196,7 +196,11 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     const promise = service.renderLiveSession(xmp);
     await Promise.resolve();
 
-    const msg = workerStub.postMessage.mock.calls[0][0] as { type: string; xmp: string; id: number };
+    const msg = workerStub.postMessage.mock.calls[0][0] as {
+      type: string;
+      xmp: string;
+      id: number;
+    };
     expect(msg.type).toBe('render-session');
     expect(msg.xmp).toBe(xmp);
 
