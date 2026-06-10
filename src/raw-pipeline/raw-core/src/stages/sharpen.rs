@@ -6,6 +6,19 @@
 //! edge-mix step at the bottom of this stage scales with the amount /
 //! detail / masking sliders.
 //!
+//! The unsharp blur is a TRUE separable Gaussian parameterised by the float
+//! `radius` (PSF sigma, 0.5..3.0) via `blur::gaussian_blur_plane_sigma`.
+//! #1083: the previous `radius.round() as usize` → `(radius_px / 3).max(1)`
+//! box-cascade truncated to the SAME 1-px box for every legal radius, so the
+//! Radius slider was a no-op. Box cascades fundamentally can't express
+//! sub-pixel sigmas (the smallest non-identity 3-pass cascade is already
+//! σ≈1.42), which is most of this slider's range — hence the true Gaussian,
+//! the same approach capture sharpening adopted in #452 for the same bug.
+//! Platform copies that must stay in lockstep: raw-gpu's `SharpenPass`
+//! (gaussian sub-passes over the shared `gaussian_blur` WGSL kernel) and the
+//! Apple Metal fallback (`MetalKernels.applySceneSharpen` →
+//! `applySeparableTrueGaussianBlur`).
+//!
 //! Replaces the per-channel Richardson-Lucy iteration + overdrive that
 //! lived in this file previously. The 3-iteration RL implementation
 //! produced saturated chroma artefacts in shadow regions where one
@@ -32,7 +45,7 @@
 use crate::{
     cancel::CancelToken,
     image::{ColorSpace, Image},
-    stages::blur::gaussian_blur_plane,
+    stages::blur::gaussian_blur_plane_sigma,
 };
 
 const LUMA_R: f32 = 0.2627;
@@ -46,7 +59,11 @@ const MIN_SCALE: f32 = 0.0;
 /// Apply luminance-only USM sharpening on a scene-linear Rec.2020 image.
 ///
 /// * `amount`  — 0..150 slider (>100 boosts the mix beyond unity).
-/// * `radius`  — Gaussian PSF sigma in pixels (clamped 0.5..3.0).
+/// * `radius`  — Gaussian PSF sigma in pixels (clamped 0.5..3.0). The unsharp
+///               blur is a true separable Gaussian at exactly this sigma
+///               (`gaussian_blur_plane_sigma`), so sub-pixel steps move the
+///               kernel — see #1083 for the integer-box-radius round-off that
+///               previously collapsed every radius to one kernel.
 /// * `detail`  — 0..100 slider; controls how much sharpening leaks into
 ///               flat regions when masking is non-zero.
 /// * `masking` — 0..100 slider; gradient threshold for edge-only mix.
@@ -87,9 +104,11 @@ pub fn apply_cancellable(
     img.assert_space(ColorSpace::SceneLinearRec2020);
     if amount.abs() < 1e-3 { return; }
 
-    // Convert radius (PSF sigma) to integer blur radius for our box-approx.
-    let radius_px = radius.clamp(0.5, 3.0).round() as usize;
-    let radius_px = radius_px.max(1);
+    // `radius` IS the Gaussian PSF sigma — keep it float all the way down.
+    // (Pre-#1083 this was rounded to an integer box radius whose `/ 3`
+    // truncated to the same 1-px box cascade for EVERY legal radius, making
+    // the Radius slider a complete no-op.)
+    let sigma = radius.clamp(0.5, 3.0);
 
     let w_usize = img.width as usize;
     let h_usize = img.height as usize;
@@ -101,7 +120,7 @@ pub fn apply_cancellable(
     let luma: Vec<f32> = img.pixels.iter()
         .map(|p| LUMA_R * p[0] + LUMA_G * p[1] + LUMA_B * p[2])
         .collect();
-    let luma_blur = gaussian_blur_plane(&luma, w_usize, h_usize, radius_px);
+    let luma_blur = gaussian_blur_plane_sigma(&luma, w_usize, h_usize, sigma);
 
     // --- Per-pixel luma USM with shadow guard (mirrors the Metal kernel) ---
     let observed_pixels = img.pixels.clone();
@@ -203,8 +222,7 @@ mod tests {
     ) {
         img.assert_space(ColorSpace::SceneLinearRec2020);
         if amount.abs() < 1e-3 { return; }
-        let radius_px = radius.clamp(0.5, 3.0).round() as usize;
-        let radius_px = radius_px.max(1);
+        let sigma = radius.clamp(0.5, 3.0);
         let w = img.width as usize;
         let h = img.height as usize;
 
@@ -215,9 +233,9 @@ mod tests {
             img.pixels.iter().map(|p| p[2]).collect(),
         ];
         let blurred: [Vec<f32>; 3] = [
-            gaussian_blur_plane(&planes[0], w, h, radius_px),
-            gaussian_blur_plane(&planes[1], w, h, radius_px),
-            gaussian_blur_plane(&planes[2], w, h, radius_px),
+            gaussian_blur_plane_sigma(&planes[0], w, h, sigma),
+            gaussian_blur_plane_sigma(&planes[1], w, h, sigma),
+            gaussian_blur_plane_sigma(&planes[2], w, h, sigma),
         ];
 
         // Per-channel unsharp: each channel's sharpened value is built from
@@ -551,5 +569,115 @@ mod tests {
         assert!((smoothstep(0.0, 1.0, 0.5) - 0.5).abs() < 1e-6);
         assert_eq!(smoothstep(0.0, 1.0, 1.0), 1.0);
         assert_eq!(smoothstep(0.0, 1.0, 1.5), 1.0);
+    }
+
+    /// A 32×32 mid-gray field with a single bright impulse at the centre —
+    /// luma everywhere is far above `SHADOW_EPSILON`, so the USM scale is
+    /// live at every pixel and the blur kernel's footprint shows up directly
+    /// in the sharpen response ring around the impulse.
+    fn impulse_image() -> Image {
+        let mut img = Image::new(32, 32, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels { *p = [0.18, 0.18, 0.18]; }
+        img.pixels[16 * 32 + 16] = [1.0, 1.0, 1.0];
+        img
+    }
+
+    /// Sum of |out - in| over all pixels at Chebyshev distance >= `min_d`
+    /// from the impulse — the sharpening "halo energy" beyond a given ring.
+    /// The unsharp delta at a ring pixel is proportional to the blur
+    /// kernel's weight at that distance, so this grows with sigma.
+    fn halo_energy_beyond(before: &Image, after: &Image, min_d: i32) -> f32 {
+        let w = 32i32;
+        let (cx, cy) = (16i32, 16i32);
+        let mut e = 0.0f32;
+        for y in 0..32i32 {
+            for x in 0..32i32 {
+                let d = (x - cx).abs().max((y - cy).abs());
+                if d < min_d { continue; }
+                let i = (y * w + x) as usize;
+                for c in 0..3 {
+                    e += (after.pixels[i][c] - before.pixels[i][c]).abs();
+                }
+            }
+        }
+        e
+    }
+
+    /// THE #1083 REGRESSION TEST: radius 0.5 and radius 3.0 must produce
+    /// materially different outputs with everything else fixed. Pre-fix,
+    /// `radius.round() as usize` → `(radius_px / 3).max(1)` collapsed every
+    /// legal radius to the SAME 1-px box cascade, so this assertion fails on
+    /// the old code (the two renders were bit-identical).
+    #[test]
+    fn radius_extremes_produce_different_outputs() {
+        let base = impulse_image();
+
+        let mut narrow = base.clone();
+        apply(&mut narrow, 100.0, 0.5, 25.0, 0.0);
+        let mut wide = base.clone();
+        apply(&mut wide, 100.0, 3.0, 25.0, 0.0);
+
+        // Both must actually sharpen (non-vacuous).
+        let narrow_moved = halo_energy_beyond(&base, &narrow, 0);
+        let wide_moved = halo_energy_beyond(&base, &wide, 0);
+        assert!(narrow_moved > 1e-3, "radius=0.5 did nothing ({narrow_moved})");
+        assert!(wide_moved > 1e-3, "radius=3.0 did nothing ({wide_moved})");
+
+        // And they must differ from EACH OTHER, materially.
+        let mut diff = 0.0f32;
+        let mut max_px_diff = 0.0f32;
+        for (a, b) in narrow.pixels.iter().zip(wide.pixels.iter()) {
+            for c in 0..3 {
+                let d = (a[c] - b[c]).abs();
+                diff += d;
+                max_px_diff = max_px_diff.max(d);
+            }
+        }
+        assert!(
+            diff > 0.05 && max_px_diff > 1e-3,
+            "radius 0.5 vs 3.0 outputs are (near-)identical: total |diff| = {diff:e}, \
+             max per-pixel = {max_px_diff:e} — the Radius slider is a no-op again (#1083)"
+        );
+
+        // The wide radius must spread its halo further than the narrow one:
+        // beyond 2 px from the impulse, σ=0.5's Gaussian weight is ~0 while
+        // σ=3.0's is substantial.
+        let narrow_far = halo_energy_beyond(&base, &narrow, 2);
+        let wide_far = halo_energy_beyond(&base, &wide, 2);
+        assert!(
+            wide_far > narrow_far * 4.0,
+            "radius=3.0 halo beyond 2 px ({wide_far:e}) is not materially wider than \
+             radius=0.5's ({narrow_far:e})"
+        );
+    }
+
+    /// Blur footprint grows MONOTONICALLY across the documented radius range
+    /// {0.5, 1, 2, 3}: the sharpen-response energy beyond 2 px from an
+    /// impulse strictly increases with sigma. Locks the radius → kernel
+    /// mapping as injective-and-ordered, not merely "extremes differ".
+    #[test]
+    fn radius_monotonically_widens_halo() {
+        let base = impulse_image();
+        let radii = [0.5f32, 1.0, 2.0, 3.0];
+        let mut spreads = Vec::with_capacity(radii.len());
+        for &r in &radii {
+            let mut img = base.clone();
+            apply(&mut img, 100.0, r, 25.0, 0.0);
+            spreads.push(halo_energy_beyond(&base, &img, 2));
+        }
+        eprintln!("sharpen halo energy beyond 2 px over radii {radii:?}: {spreads:?}");
+        for i in 1..spreads.len() {
+            assert!(
+                spreads[i] > spreads[i - 1],
+                "halo energy not strictly increasing at radius {} -> {}: {:?}",
+                radii[i - 1], radii[i], spreads
+            );
+        }
+        // Non-vacuous: the full range must spread the halo by a wide margin.
+        assert!(
+            spreads[3] > spreads[0] * 4.0,
+            "radius 3.0 halo ({:e}) not materially wider than radius 0.5's ({:e})",
+            spreads[3], spreads[0]
+        );
     }
 }
