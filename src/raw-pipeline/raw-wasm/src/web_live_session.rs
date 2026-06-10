@@ -135,8 +135,8 @@ impl WebLiveSession {
         xmp: Option<String>,
         canvas: OffscreenCanvas,
     ) -> Result<WebLiveSession, JsError> {
-        let raw_img = raw_core::decode::decode_bytes(&raw, &ext)
-            .map_err(|e| JsError::new(&e.to_string()))?;
+        let raw_img =
+            raw_core::decode::decode_bytes(&raw, &ext).map_err(|e| JsError::new(&e.to_string()))?;
 
         // As-shot derivation + fresh-open WB substitution — IDENTICAL to
         // `render_bytes` / `render_bytes_gpu`.
@@ -152,8 +152,13 @@ impl WebLiveSession {
         let (rgba, width, height, prefix_model) =
             develop_prefix_rgba(&raw_img, &raw, &ext, &model).map_err(|e| JsError::new(&e))?;
 
-        let ctx = GpuContext::new_async().await;
-        let session = LiveSession::new(&ctx, &rgba, width, height);
+        // Fallible (#1079): no WebGPU adapter/device, or an image past the
+        // device's buffer/binding limits, surfaces as a JsError — the worker
+        // falls back to the CPU render path instead of trapping.
+        let ctx = GpuContext::new_async()
+            .await
+            .map_err(|e| JsError::new(&e))?;
+        let session = LiveSession::new(&ctx, &rgba, width, height).map_err(|e| JsError::new(&e))?;
 
         // Size the canvas to the oriented image dims so the present's
         // surface-dims == image-dims invariant holds (the FS recovers each pixel
@@ -178,7 +183,10 @@ impl WebLiveSession {
             as_shot_temperature,
             as_shot_tint,
         };
-        handle.present_for_model(&model).await.map_err(|e| JsError::new(&e))?;
+        handle
+            .present_for_model(&model)
+            .await
+            .map_err(|e| JsError::new(&e))?;
         Ok(handle)
     }
 
@@ -192,9 +200,8 @@ impl WebLiveSession {
     /// (always present after `open`; `None` is treated as a fresh As-Shot import).
     #[wasm_bindgen]
     pub async fn render(&mut self, xmp: Option<String>) -> Result<String, JsError> {
-        let model =
-            parse_model_with_as_shot_wb(&xmp, self.as_shot_temperature, self.as_shot_tint)
-                .map_err(|e| JsError::new(&e))?;
+        let model = parse_model_with_as_shot_wb(&xmp, self.as_shot_temperature, self.as_shot_tint)
+            .map_err(|e| JsError::new(&e))?;
 
         // Re-develop + re-upload iff the prefix model changed. The hot-path sliders
         // are zeroed in the prefix, so a WB/tone/vibrance/… tick takes the cheap
@@ -212,11 +219,14 @@ impl WebLiveSession {
                     self.width, self.height
                 )));
             }
-            self.session = LiveSession::new(&self.ctx, &rgba, w, h);
+            self.session =
+                LiveSession::new(&self.ctx, &rgba, w, h).map_err(|e| JsError::new(&e))?;
             self.prefix_model = prefix_model;
         }
 
-        self.present_for_model(&model).await.map_err(|e| JsError::new(&e))
+        self.present_for_model(&model)
+            .await
+            .map_err(|e| JsError::new(&e))
     }
 
     /// Camera-side "As Shot" CCT in Kelvin (rawler-derived) — same value the
@@ -263,6 +273,7 @@ impl WebLiveSession {
             .session
             .render_chain_to_f32_async(&self.ctx, &inputs, None)
             .await
+            .map_err(|e| format!("WebLiveSession: {e}"))?
             .ok_or_else(|| "WebLiveSession: live chain returned no buffer".to_string())?;
         // The present recompiles nothing (the pipeline + surface are session-owned);
         // it only fetches the next surface texture, encodes the dither/quantize pass,
