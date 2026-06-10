@@ -1,7 +1,7 @@
-# Coral Pano — Panorama Stitching Pipeline Tech Spec
+# Maple Pano — Panorama Stitching Pipeline Tech Spec
 
 **Status:** Draft v2 (supersedes the approach in Maple PR #17)
-**Component:** `coral_pano` (Rust core) → CoralPano.xcframework (Swift) / WASM (Just Maple)
+**Component:** `maple_pano` (Rust core) → MaplePano.xcframework (Swift) / WASM (Just Maple)
 **Author:** Zubair Lawrence
 
 ---
@@ -125,7 +125,7 @@ This is the core fix.
 
 ## 6. Data Model
 
-Carried unchanged from the Coral Pano pipeline spec: planar `Image<f32>` with explicit `ColorSpace { primaries, white_point, transfer: Linear }`, validity masks on every buffer, `palette`-based color math, no sRGB assumptions anywhere in core. UniFFI `Pipeline` API gains:
+Carried unchanged from the Maple Pano pipeline spec: planar `Image<f32>` with explicit `ColorSpace { primaries, white_point, transfer: Linear }`, validity masks on every buffer, `palette`-based color math, no sRGB assumptions anywhere in core. UniFFI `Pipeline` API gains:
 
 ```rust
 pub struct StitchReport {
