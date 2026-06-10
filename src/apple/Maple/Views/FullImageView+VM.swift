@@ -64,6 +64,34 @@ enum FullImageViewVM {
         isRendering && !hasPreview
     }
 
+    // MARK: - Canvas path selection (GPU live vs CPU)
+
+    /// True when the canvas should present via the wgpu live path
+    /// (`GpuLiveCanvasView` → `CAMetalLayer`), false when it should raster
+    /// `renderedPreview` through the CPU `CIImageView`. All three terms must
+    /// hold:
+    ///
+    ///   * `flagEnabled` — the runtime GPU-live gate (`GpuLiveFlag.isEnabled`,
+    ///     default on / `MAPLE_GPU_LIVE != 0`).
+    ///   * `isRaw` — the live chain IS the RAW scene-linear chain; non-RAW
+    ///     assets (JPEG / HEIC / PNG) keep the CPU path. This MIRRORS
+    ///     `EditSession.presentViaGpuLive`'s own `guard asset.isRaw`: without
+    ///     this term the view shows the opaque `CAMetalLayer` while
+    ///     `presentViaGpuLive` returns `false` and never presents into it, so a
+    ///     non-RAW image renders to a permanently blank canvas — the CPU
+    ///     `renderedPreview` is published (EditSession+Render) but never
+    ///     displayed.
+    ///   * `!showingOriginal` — the before/after "original" overlay always uses
+    ///     the CPU path (the GPU chain presents the edited frame, it has no
+    ///     before-image to show).
+    static func shouldPresentViaGpuCanvas(
+        flagEnabled: Bool,
+        isRaw: Bool,
+        showingOriginal: Bool
+    ) -> Bool {
+        flagEnabled && isRaw && !showingOriginal
+    }
+
     // MARK: - Zoom math
 
     /// Upper clamp on `pixelScale`. Reference caps at 8× so a 24MP image
