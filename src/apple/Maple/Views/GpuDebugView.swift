@@ -5,29 +5,14 @@
 // aren't capturable on-device, so the number must be visible), and it hosts a
 // CAMetalLayer that wgpu presents a passthrough test pattern into.
 //
-// ENTIRELY gated behind `#if MAPLE_GPU`. That flag is OFF in every shipping /
-// CI / default build — the committed xcframework is wgpu-free and, with
-// MAPLE_GPU undefined, its header declares no `maple_gpu_*` symbols (they are
-// wrapped in `#if defined(MAPLE_GPU)`; see raw-ffi/cbindgen.toml), so naming
-// them outside this gate would break the default app build. The flag must be
-// defined for BOTH the Swift gate (`-D MAPLE_GPU`) AND the Clang module
-// importer that parses RawPipeline.h (`-Xcc -DMAPLE_GPU`) — without the latter
-// the C declarations stay hidden behind the header guard and Swift can't see
-// them. It is set only for the local validation build:
+// Runtime-gated, reached only when launched with `MAPLE_GPU_DEBUG=1` (see
+// `MapleApp.body`). The GPU FFI surface (`maple_gpu_*`) it calls is now compiled
+// into the xcframework unconditionally (gpu is the default xcframework build —
+// see scripts/build-xcframework.sh; the cbindgen header declares the symbols
+// unconditionally), so this view always compiles and links.
 //
-//   xcodebuild -project src/apple/Maple.xcodeproj -scheme "Maple Exposure" \
-//     -destination 'platform=macOS' \
-//     OTHER_SWIFT_FLAGS='$(inherited) -D MAPLE_GPU -Xcc -DMAPLE_GPU' build
-//
-// and the matching gpu-variant xcframework must be on disk:
-//
-//   MAPLE_XCFRAMEWORK_GPU=1 FORCE_XCFRAMEWORK_REBUILD=1 \
-//     ./src/apple/scripts/build-xcframework.sh --release
-//
-// Nothing here ships until P5; the live edit path is P4. P1b proves the surface
-// tag + plumbing (passthrough), NOT a colour-correct render (that is P2).
-
-#if MAPLE_GPU
+// Nothing here ships in the normal shell; the live edit path is P4. P1b proves
+// the surface tag + plumbing (passthrough), NOT a colour-correct render (P2).
 
 import SwiftUI
 import Observation
@@ -322,5 +307,3 @@ struct GpuDebugView: View {
         }
     }
 }
-
-#endif

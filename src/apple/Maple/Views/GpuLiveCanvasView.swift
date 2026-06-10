@@ -1,11 +1,9 @@
 // GpuLiveCanvasView.swift — the live editor canvas backed by the wgpu chain
 // presenting into a CAMetalLayer (epic #925, P4b-apple / #1028).
 //
-// ENTIRELY gated behind `#if MAPLE_GPU`. With the flag undefined this file
-// compiles to nothing and `FullImageView` shows the CPU `CIImageView` path
-// byte-for-byte. Even WITH the flag compiled in, it is only used when
-// `GpuLiveFlag.isEnabled` (a gpu build launched with `MAPLE_GPU_LIVE=1`); a gpu
-// build with the env flag off still renders via `CIImageView`.
+// Runtime-gated: used only when `GpuLiveFlag.isEnabled` (default on /
+// `MAPLE_GPU_LIVE != 0`). With the flag off, `FullImageView` shows the CPU
+// `CIImageView` path byte-for-byte.
 //
 // ## Role — host + register, the scheduler presents
 //
@@ -31,8 +29,6 @@
 // Colour space: tagged Display P3 authoritatively on the Swift side (the chain
 // outputs sRGB-primary gamma-encoded; CoreAnimation converts sRGB → P3 with
 // everything in-gamut), mirroring `MetalPresentLayerController`.
-
-#if MAPLE_GPU
 
 import SwiftUI
 import MapleCore
@@ -173,6 +169,4 @@ struct GpuLiveCanvasView: UIViewRepresentable {
         }
     }
 }
-#endif
-
 #endif

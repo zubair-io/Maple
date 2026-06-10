@@ -93,10 +93,7 @@ struct MapleApp: App {
 
     var body: some Scene {
         WindowGroup {
-            #if MAPLE_GPU
-            // GPU validation harness (#988), OFF in every shipping/CI build —
-            // the whole branch only compiles when the `MAPLE_GPU` flag is set
-            // (the gpu-variant validation build). Launch with
+            // GPU validation harness (#988), runtime-gated. Launch with
             // `MAPLE_GPU_DEBUG=1` to replace the shell with the wgpu/Metal
             // proof screen (parity readout + CAMetalLayer passthrough). Reuses
             // the same launch-environment pattern as the UITest fixture hook.
@@ -105,9 +102,6 @@ struct MapleApp: App {
             } else {
                 appShell
             }
-            #else
-            appShell
-            #endif
         }
         #if os(macOS)
         .windowStyle(.titleBar)
@@ -124,7 +118,7 @@ struct MapleApp: App {
         #endif
     }
 
-    /// The normal app shell, extracted so the `#if MAPLE_GPU` debug-view branch
+    /// The normal app shell, extracted so the `MAPLE_GPU_DEBUG` debug-view branch
     /// in `body` can fall back to it without duplicating the modifier chain.
     @ViewBuilder
     private var appShell: some View {

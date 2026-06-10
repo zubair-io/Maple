@@ -1,11 +1,11 @@
 // GpuFrameTimeStats.swift — the rolling frame-time buffer behind the GPU HUD
 // (epic #925, P4b-apple validation / #1053).
 //
-// ENTIRELY gated behind `#if MAPLE_GPU` (flag OFF = compiles to nothing). Records
-// the per-slider-tick GPU render+present latency the driver measures around the
-// `maple_gpu_present_chain` FFI, and exposes last / rolling-avg / max ms for the
-// HUD overlay. `@Observable` + `@MainActor`, so the SwiftUI overlay re-renders
-// each time a frame lands.
+// Always compiled; the recorder no-ops unless the HUD sub-flag is on
+// (`GpuHudFlag.isEnabled`). Records the per-slider-tick GPU render+present latency
+// the driver measures around the `maple_gpu_present_chain` FFI, and exposes last /
+// rolling-avg / max ms for the HUD overlay. `@Observable` + `@MainActor`, so the
+// SwiftUI overlay re-renders each time a frame lands.
 //
 // ## Why a ring buffer (and why these three numbers)
 //
@@ -28,8 +28,6 @@
 // `GpuLiveSession.present` returns `nil` for a cancelled present, and the driver
 // calls `record(_:)` only for a real (non-nil) elapsed time, so cancelled frames
 // are excluded by construction.
-
-#if MAPLE_GPU
 
 import Foundation
 
@@ -96,5 +94,3 @@ public final class GpuFrameTimeStats {
         sampleCount = 0
     }
 }
-
-#endif

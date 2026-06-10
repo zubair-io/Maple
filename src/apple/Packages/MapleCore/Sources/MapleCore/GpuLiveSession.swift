@@ -1,10 +1,10 @@
 // GpuLiveSession.swift — Swift owner of a wgpu live-render session (epic #925,
 // P4b-apple / #1028).
 //
-// ENTIRELY gated behind `#if MAPLE_GPU` — the `MapleGpuLiveSession` /
-// `MapleGpuLiveParams` types and the `maple_gpu_live_*` / `maple_gpu_present_chain`
-// symbols live in the gpu-variant header only (the default xcframework is
-// wgpu-free). Flag OFF = this file compiles to nothing.
+// Always compiled — the `MapleGpuLiveSession` / `MapleGpuLiveParams` types and the
+// `maple_gpu_live_*` / `maple_gpu_present_chain` symbols are in the default
+// xcframework header now (gpu is the default xcframework build). Used only when
+// the runtime flag is on (`GpuLiveFlag.isEnabled`).
 //
 // ## Why an actor (the serialization invariant)
 //
@@ -31,8 +31,6 @@
 // A dims change (viewport ⇄ full-res) is a NEW session — `LiveSession` is
 // upload-once per dims. The caller re-opens on resize (pairs with the sized-fast /
 // full-refine decode logic in `EditSession+Render`).
-
-#if MAPLE_GPU
 
 import Foundation
 import RawPipeline
@@ -298,5 +296,3 @@ public actor GpuLiveSession {
         return String(cString: c)
     }
 }
-
-#endif
