@@ -59,6 +59,17 @@ pub fn half_res_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken
     let out_h = in_h / 2;
     let mut out = Image::new(out_w as u32, out_h as u32, ColorSpace::CameraNativeLinearRgb);
 
+    // Degenerate input (< 2 px on an axis) halves to a zero dimension, and
+    // `par_chunks_mut(0)` below panics ("chunk_size must not be zero").
+    // Such mosaics can't carry a full Bayer quad and are rejected at decode
+    // (`decode_bytes` enforces ≥ 2×2 — #1087), so this is defense in depth
+    // for direct callers: return the (empty) half-size image instead of
+    // aborting the process. Falling back to `bilinear` here is not an
+    // option — its mirror-border sampling also assumes ≥ 2 px per axis.
+    if out_w == 0 || out_h == 0 {
+        return out;
+    }
+
     // Sample a 4×4 window around each output pixel and accumulate by
     // channel. The window column range is 2x-1..=2x+2 (4 inputs); same
     // for rows. Border pixels clamp to the in-bounds range; the count
@@ -165,6 +176,23 @@ mod tests {
             assert!((p[1] - 0.4).abs() < 1e-5);
             assert!((p[2] - 0.2).abs() < 1e-5);
         }
+    }
+
+    /// Regression test for #1087 — a 1-px-wide (or 1-px-tall) mosaic halves
+    /// to a zero output dimension; pre-fix the 1-px-wide case panicked in
+    /// `par_chunks_mut(0)` ("chunk_size must not be zero"). Degenerate
+    /// mosaics are rejected at decode (`decode_bytes` enforces ≥ 2×2), so
+    /// for direct callers `half_res` now just returns the empty half-size
+    /// image instead of aborting the process.
+    #[test]
+    fn one_px_axis_mosaic_returns_empty_image_without_panicking() {
+        let out = half_res(&rggb_uniform(1, 8, 0.3, 0.5, 0.7), CfaPattern::Rggb);
+        assert_eq!((out.width, out.height), (0, 4));
+        assert!(out.pixels.is_empty());
+
+        let out = half_res(&rggb_uniform(8, 1, 0.3, 0.5, 0.7), CfaPattern::Rggb);
+        assert_eq!((out.width, out.height), (4, 0));
+        assert!(out.pixels.is_empty());
     }
 
     /// Regression test for the test_0004 (Hasselblad H5D-40 Digital ColorChecker
