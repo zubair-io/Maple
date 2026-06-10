@@ -4,8 +4,12 @@
 # wasm-bindgen-rayon requires specific flags that wasm-pack alone doesn't
 # infer. Without `--features parallel` and `-Z build-std=panic_abort,std`,
 # the resulting wasm either panics with "time not implemented" or fails
-# to link with rayon TLS errors. Centralise the canonical command so
-# nobody has to re-derive it.
+# to link with rayon TLS errors. `--features gpu` additionally co-builds
+# wgpu (the WebGPU live-render chain, epic #925 / #1059) into the SAME bundle;
+# the two features co-exist (spike-confirmed), so there is ONE shipped bundle —
+# the worker picks the GPU entry when WebGPU is present and the threaded-CPU
+# `render_bytes` otherwise. Centralise the canonical command so nobody has to
+# re-derive it.
 #
 # Usage: ./scripts/build-raw-wasm.sh
 # Output: src/raw-pipeline/raw-wasm/pkg/
@@ -20,9 +24,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RAW_WASM_DIR="$(cd "$SCRIPT_DIR/../raw-wasm" && pwd)"
 
 cd "$RAW_WASM_DIR"
-echo "==> wasm-pack build --target web --release  (parallel + build-std)"
+echo "==> wasm-pack build --target web --release  (gpu + parallel + build-std)"
 wasm-pack build --target web --release -- \
-    --features parallel \
+    --features gpu,parallel \
     -Z build-std=panic_abort,std
 
 echo "==> Done. Output: $RAW_WASM_DIR/pkg/"
