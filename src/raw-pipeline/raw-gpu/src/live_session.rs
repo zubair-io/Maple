@@ -94,11 +94,10 @@ impl LiveSession {
     /// render method takes `&GpuContext` per call.
     ///
     /// Fallible (#1079): the dims are validated against the DEVICE's actual
-    /// limits BEFORE any GPU allocation — the session binds whole-image f32
-    /// buffers (`width × height × 16` bytes) as single storage bindings, so an
-    /// image past `max_storage_buffer_binding_size` / `max_buffer_size` would
-    /// otherwise hit wgpu's fatal validation panic mid-render. The `Err` is a
-    /// descriptive message hosts surface (and CPU-fallback on).
+    /// limits BEFORE any GPU allocation ([`limits::validate_dims`]) — an image
+    /// past the storage-binding / buffer-size ceilings would otherwise hit
+    /// wgpu's fatal validation panic mid-render. The `Err` is a descriptive
+    /// message hosts surface (and CPU-fallback on).
     pub fn new(ctx: &GpuContext, pixels: &[f32], width: u32, height: u32) -> Result<Self, String> {
         Self::new_inner(ctx, pixels, width, height, false)
     }
@@ -115,39 +114,6 @@ impl LiveSession {
         Self::new_inner(ctx, pixels, width, height, true)
     }
 
-    /// Validate `width × height` against `ctx`'s device limits (#1079). Checked
-    /// BEFORE any buffer allocation, so rejecting an absurd size is cheap. The
-    /// session's largest single binding is the whole-image RGBA f32 buffer
-    /// (`w · h · 16` bytes); it must fit both the storage-binding and the
-    /// buffer-size ceilings.
-    fn validate_dims(ctx: &GpuContext, width: u32, height: u32) -> Result<u64, String> {
-        if width == 0 || height == 0 {
-            return Err(format!("LiveSession: zero dimension {width}x{height}"));
-        }
-        let f32_byte_len = (width as u64)
-            .checked_mul(height as u64)
-            .and_then(|px| px.checked_mul(4 * std::mem::size_of::<f32>() as u64))
-            .ok_or_else(|| format!("LiveSession: pixel-count overflow {width}x{height}"))?;
-        let limits = ctx.device.limits();
-        if f32_byte_len > limits.max_storage_buffer_binding_size as u64 {
-            return Err(format!(
-                "LiveSession: image {width}x{height} needs a {f32_byte_len}-byte storage \
-                 binding, over the device's max_storage_buffer_binding_size {} — render at \
-                 a smaller size or fall back to the CPU path",
-                limits.max_storage_buffer_binding_size
-            ));
-        }
-        if f32_byte_len > limits.max_buffer_size {
-            return Err(format!(
-                "LiveSession: image {width}x{height} needs a {f32_byte_len}-byte buffer, \
-                 over the device's max_buffer_size {} — render at a smaller size or fall \
-                 back to the CPU path",
-                limits.max_buffer_size
-            ));
-        }
-        Ok(f32_byte_len)
-    }
-
     fn new_inner(
         ctx: &GpuContext,
         pixels: &[f32],
@@ -155,7 +121,7 @@ impl LiveSession {
         height: u32,
         airlight_readback_fallback: bool,
     ) -> Result<Self, String> {
-        Self::validate_dims(ctx, width, height)?;
+        limits::validate_dims(ctx, width, height)?;
         let expected_lanes = (width as usize) * (height as usize) * 4;
         if pixels.len() != expected_lanes {
             return Err(format!(
@@ -353,7 +319,7 @@ impl LiveSession {
         ctx.queue.submit(Some(enc1.finish()));
 
         // Read the post-prefix buffer back and measure A exactly as raw-core does.
-        let pre_dehaze = map_f32_readback(ctx, &self.airlight_staging).await?;
+        let pre_dehaze = limits::map_f32_readback(ctx, &self.airlight_staging).await?;
         let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
 
         // Phase 2: dehaze + suffix (built with the REAL airlight) + dither. The
@@ -500,7 +466,7 @@ impl LiveSession {
         );
         ctx.queue.submit(Some(enc1.finish()));
 
-        let pre_dehaze = map_f32_readback(ctx, &self.airlight_staging).await?;
+        let pre_dehaze = limits::map_f32_readback(ctx, &self.airlight_staging).await?;
         let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
 
         let (_, suffix) = build_live_split(inputs, AirlightSource::Cpu(airlight));
@@ -575,65 +541,19 @@ impl LiveSession {
         let packed_byte_len = (dims.0 as u64) * (dims.1 as u64) * std::mem::size_of::<u32>() as u64;
         encoder.copy_buffer_to_buffer(&self.dither_out, 0, &self.readback, 0, packed_byte_len);
         ctx.queue.submit(Some(encoder.finish()));
-        let packed = map_packed_readback(ctx, &self.readback).await?;
+        let packed = limits::map_packed_readback(ctx, &self.readback).await?;
         Ok(unpack_rgb_u8(&packed))
     }
 }
 
-/// Map the packed-u32 readback staging buffer and cast it to `Vec<u32>`. Native
-/// polls the queue; wasm awaits the browser-driven map. Mirrors
-/// `chain::map_readback_async` but for the u32 surface (not f32). A failed map
-/// is an `Err`, not a panic (#1079).
-#[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
-async fn map_packed_readback(
-    ctx: &GpuContext,
-    readback: &wgpu::Buffer,
-) -> Result<Vec<u32>, String> {
-    let slice = readback.slice(..);
-    let (tx, rx) = futures_channel::oneshot::channel();
-    slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx.send(res);
-    });
-    #[cfg(not(target_arch = "wasm32"))]
-    ctx.device.poll(wgpu::Maintain::Wait);
-    rx.await
-        .map_err(|_| "live-session readback: map channel dropped".to_string())?
-        .map_err(|e| format!("live-session readback: buffer map failed: {e}"))?;
-    let data = slice.get_mapped_range();
-    let out: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
-    drop(data);
-    readback.unmap();
-    Ok(out)
-}
-
-/// Map the f32 mid-chain readback staging buffer (the post-prefix buffer, C5a)
-/// and cast it to `Vec<f32>` for `compute_airlight`. The f32 sibling of
-/// [`map_packed_readback`].
-#[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
-async fn map_f32_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Result<Vec<f32>, String> {
-    let slice = readback.slice(..);
-    let (tx, rx) = futures_channel::oneshot::channel();
-    slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx.send(res);
-    });
-    #[cfg(not(target_arch = "wasm32"))]
-    ctx.device.poll(wgpu::Maintain::Wait);
-    rx.await
-        .map_err(|_| "live-session airlight readback: map channel dropped".to_string())?
-        .map_err(|e| format!("live-session airlight readback: buffer map failed: {e}"))?;
-    let data = slice.get_mapped_range();
-    let out: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-    drop(data);
-    readback.unmap();
-    Ok(out)
-}
-
-// Tests live in sibling files (600-LOC budget). Native test builds only. The
-// airlight end-to-end gates (C5a readback + C5b on-GPU, #1033) are split into
-// their own file; they reuse `tests::reference_u8` (pub(super) there).
+// Sibling modules (600-LOC budget): `limits` = the #1079 containment cluster
+// (device-limit dim validation + fallible readback maps); tests are native
+// builds only — the airlight end-to-end gates (C5a + C5b, #1033) live in their
+// own file and reuse `tests::reference_u8` (pub(super) there).
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/airlight_tests.rs"]
 mod airlight_tests;
+mod limits;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/tests.rs"]
 mod tests;
