@@ -84,6 +84,13 @@ pub(crate) fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec
 /// internally uses 3 box passes of `radius / 3`.
 ///
 /// A radius of 0 returns a clone of the input unchanged.
+///
+/// NOTE the integer math: `(radius / 3).max(1)` floors to a box radius of 1
+/// for every `radius < 6`, so all small radii produce the SAME blur (an
+/// effective Gaussian sigma of ~1.42 px). Fine for the fixed structure-scale
+/// radii texture uses; useless for a sub-pixel-tunable PSF. Callers that need
+/// a sigma-faithful blur (sharpen, capture sharpening) use
+/// [`gaussian_blur_plane_sigma`] instead — see #1083.
 pub fn gaussian_blur_plane(buf: &[f32], w: usize, h: usize, radius: usize) -> Vec<f32> {
     if radius == 0 {
         return buf.to_vec();
@@ -94,6 +101,109 @@ pub fn gaussian_blur_plane(buf: &[f32], w: usize, h: usize, radius: usize) -> Ve
         plane = box_blur_channel(&plane, w, h, r_box);
     }
     plane
+}
+
+/// Hard ceiling on the Gaussian sigma [`gaussian_kernel_1d`] will accept, in
+/// pixels. Defense-in-depth against an unbounded `2 * ceil(3σ) + 1`-tap kernel
+/// allocation (OOM/DoS) from a direct caller — the pipeline helpers clamp
+/// XMP-sourced sigmas far lower (8 px for capture sharpening, 3 px for
+/// sharpen). At `sigma = 50.0` the kernel is 301 taps: large but bounded.
+///
+/// Moved here from `capture_sharpening.rs` (#1083) so the sharpen stage can
+/// share the exact same true-Gaussian primitive.
+pub(crate) const MAX_GAUSSIAN_SIGMA_PX: f32 = 50.0;
+
+/// Build a windowed, renormalized 1D Gaussian kernel of length `2*half+1`,
+/// where `half = ceil(3 * sigma).max(1) as usize`. The kernel is symmetric
+/// around index `half`; weights are `exp(-(k^2)/(2σ²))` and the whole array
+/// is divided by its sum so the convolution preserves DC.
+///
+/// `sigma` is clamped to `(0, MAX_GAUSSIAN_SIGMA_PX]` and non-finite values
+/// are rounded up to a tiny lower bound — the stage entry points reject bogus
+/// sigma upfront, so the clamp here is the last-line safeguard against an
+/// unbounded allocation if a future entry point forgets to validate.
+///
+/// Moved verbatim from `capture_sharpening.rs` (#1083); raw-gpu carries a
+/// bit-for-bit port (`raw_gpu::capture_sharpening::gaussian_kernel_1d`) that
+/// must stay in lockstep.
+pub(crate) fn gaussian_kernel_1d(sigma: f32) -> Vec<f32> {
+    let sigma = if sigma.is_finite() && sigma > 0.0 {
+        sigma.min(MAX_GAUSSIAN_SIGMA_PX)
+    } else {
+        // Smallest sigma that still produces a kernel; only reachable via
+        // kernel-only unit tests (stage entry points validate upfront).
+        1e-3
+    };
+    let half = (3.0 * sigma).ceil().max(1.0) as usize;
+    let two_sigma_sq = 2.0 * sigma * sigma;
+    let mut k: Vec<f32> = (0..=2 * half)
+        .map(|i| {
+            let x = i as f32 - half as f32;
+            (-(x * x) / two_sigma_sq).exp()
+        })
+        .collect();
+    let sum: f32 = k.iter().sum();
+    let inv = 1.0 / sum;
+    for v in &mut k {
+        *v *= inv;
+    }
+    k
+}
+
+/// Separable TRUE-Gaussian blur of a single-channel plane, parameterised by a
+/// float `sigma` (the PSF sigma in pixels). Two 1D convolutions (horizontal
+/// then vertical) against the windowed/renormalized kernel from
+/// [`gaussian_kernel_1d`]; edge handling clamps the sample index to
+/// `[0, w-1]` / `[0, h-1]`.
+///
+/// This is the sigma-faithful sibling of [`gaussian_blur_plane`]: distinct
+/// sigmas produce distinct kernels even below 1 px, which the tripled-box
+/// approximation cannot express (its integer box radius floors every small
+/// radius to the same width — the #1083 sharpen-radius no-op). Used by the
+/// sharpen stage (sigma 0.5..3.0) and capture sharpening (sigma 0.5..8.0).
+///
+/// Cost vs the box path: per pixel, `2 * (2*ceil(3σ)+1)` multiply-adds
+/// (14 taps at the sharpen default σ=1.0, ≤ 38 at the σ=3.0 ceiling) against
+/// the box cascade's 6 running-sum updates — a 2–6× wider blur inner loop,
+/// O(n·σ) instead of O(n). It runs on ONE luma plane inside sharpen, where
+/// the per-pixel USM + edge-mix sweeps dominate; capture sharpening already
+/// pays exactly this cost for FOUR blurs per render at comparable sigma.
+/// Both sweeps are rayon-parallel over rows (per-pixel tap order is
+/// unchanged, so the result is bit-identical to the serial form this
+/// replaces in `capture_sharpening.rs`).
+pub(crate) fn gaussian_blur_plane_sigma(buf: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
+    let kernel = gaussian_kernel_1d(sigma);
+    let half = kernel.len() / 2;
+
+    // Horizontal pass: tmp[y*w + x] = sum_k kernel[k] * buf[y*w + clamp(x + k - half)]
+    let mut tmp = vec![0.0_f32; buf.len()];
+    let w_i = w as isize;
+    tmp.par_chunks_mut(w).enumerate().for_each(|(y, row_out)| {
+        let row_in = &buf[y * w..(y + 1) * w];
+        for (x, out) in row_out.iter_mut().enumerate() {
+            let mut acc = 0.0_f32;
+            for (k_idx, &k) in kernel.iter().enumerate() {
+                let xi = (x as isize + k_idx as isize - half as isize).clamp(0, w_i - 1) as usize;
+                acc += k * row_in[xi];
+            }
+            *out = acc;
+        }
+    });
+
+    // Vertical pass: out[y*w + x] = sum_k kernel[k] * tmp[clamp(y + k - half)*w + x]
+    let mut out = vec![0.0_f32; buf.len()];
+    let h_i = h as isize;
+    out.par_chunks_mut(w).enumerate().for_each(|(y, row_out)| {
+        for (x, out_px) in row_out.iter_mut().enumerate() {
+            let mut acc = 0.0_f32;
+            for (k_idx, &k) in kernel.iter().enumerate() {
+                let yi = (y as isize + k_idx as isize - half as isize).clamp(0, h_i - 1) as usize;
+                acc += k * tmp[yi * w + x];
+            }
+            *out_px = acc;
+        }
+    });
+    out
 }
 
 /// Edge-preserving local-mean filter (He, Sun, Tang 2010 — "Guided

@@ -256,6 +256,59 @@ fn sharpen_border_and_interior_coverage_non_vacuous() {
     );
 }
 
+/// THE RADIUS GATE (#1083): every documented radius {0.5, 1, 2, 3} matches
+/// raw-core `< 1e-4`, AND distinct radii produce DISTINCT GPU outputs. Pre-#1083
+/// both sides collapsed every radius to the same 1-px box cascade, so a parity
+/// gate at a single radius could never catch the slider being a no-op; this
+/// sweeps the documented range and pins the differentiation on the GPU output
+/// itself (not just via the oracle).
+#[test]
+fn sharpen_pass_matches_raw_core_across_radius_sweep() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (48usize, 32usize);
+    let input = stepped_image(w, h);
+    let radii = [0.5f32, 1.0, 2.0, 3.0];
+    let mut gpu_outputs: Vec<Vec<f32>> = Vec::with_capacity(radii.len());
+    for &radius in &radii {
+        let reference = raw_core_sharpen(&input, w as u32, h as u32, 100.0, radius, 25.0, 0.0);
+        let (moved, _) = max_diff_at(&input, &reference);
+        let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, 100.0, radius, 25.0, 0.0);
+        let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
+        let px = worst_i / 4;
+        eprintln!(
+            "SHARPEN PARITY radius={radius}: max abs diff = {max_diff:e} at pixel ({},{}); \
+             raw-core moved input by {moved:e}",
+            px % w,
+            px / w
+        );
+        assert!(
+            moved > 1e-3,
+            "sharpen radius={radius} barely moved the image ({moved:e}) — gate is vacuous"
+        );
+        assert!(
+            max_diff < 1e-4,
+            "SharpenPass vs apply radius={radius} max abs diff {max_diff} exceeds 1e-4"
+        );
+        gpu_outputs.push(gpu);
+    }
+    // Distinct radii ⇒ distinct outputs (the no-op regression check, GPU-side).
+    for i in 1..radii.len() {
+        let (pair_diff, _) = max_diff_at(&gpu_outputs[i - 1], &gpu_outputs[i]);
+        eprintln!(
+            "SHARPEN RADIUS DIFFERENTIATION {} vs {}: max abs diff = {pair_diff:e}",
+            radii[i - 1],
+            radii[i]
+        );
+        assert!(
+            pair_diff > 1e-3,
+            "radius {} and {} produced (near-)identical GPU outputs ({pair_diff:e}) — \
+             the Radius slider is a no-op again (#1083)",
+            radii[i - 1],
+            radii[i]
+        );
+    }
+}
+
 // ── Identity / robustness ────────────────────────────────────────────────────────
 
 /// `amount == 0` is identity: the GPU reproduces the input bit-for-bit (the Pass

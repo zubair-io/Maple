@@ -912,102 +912,94 @@ final class SceneLinearPipelineTests: XCTestCase {
 
     // MARK: - Plan 2 v2 v3 M4: Swift scalar mirror of apply_sharpen
 
+    /// Pure-Swift mirror of `gaussian_blur_plane_sigma` from
+    /// raw-core/src/stages/blur.rs (#1083): a TRUE separable Gaussian at
+    /// float `sigma` — windowed/renormalized taps from
+    /// `MetalKernels.gaussianKernel1D` (the same builder the production
+    /// Metal path uploads), clamp-to-edge sample indices, H sweep then V
+    /// sweep. Per-pixel tap order matches the Rust loop exactly.
+    static func swiftGaussianBlurPlaneSigma(
+        _ buf: [Float], w: Int, h: Int, sigma: Float
+    ) -> [Float] {
+        let kernel = MetalKernels.gaussianKernel1D(sigma: sigma)
+        let half = kernel.count / 2
+
+        var tmp = [Float](repeating: 0, count: buf.count)
+        for y in 0..<h {
+            for x in 0..<w {
+                var acc: Float = 0
+                for (kIdx, k) in kernel.enumerated() {
+                    let xi = max(0, min(w - 1, x + kIdx - half))
+                    acc += k * buf[y * w + xi]
+                }
+                tmp[y * w + x] = acc
+            }
+        }
+        var out = [Float](repeating: 0, count: buf.count)
+        for y in 0..<h {
+            for x in 0..<w {
+                var acc: Float = 0
+                for (kIdx, k) in kernel.enumerated() {
+                    let yi = max(0, min(h - 1, y + kIdx - half))
+                    acc += k * tmp[yi * w + x]
+                }
+                out[y * w + x] = acc
+            }
+        }
+        return out
+    }
+
     /// Pure-Swift mirror of `sharpen::apply` from
-    /// raw-core/src/stages/sharpen.rs:22-124. Byte-faithful to the Rust
-    /// implementation:
-    ///   1. amount.abs() < 1e-3 -> identity (line :30)
-    ///   2. radius_px = max(1, round(clamp(radius, 0.5, 3.0))) (lines
-    ///      :33-34)
-    ///   3. RL_ITERS = 3 iterations of:
-    ///        reblur = gaussianBlurRGB(estimate, radius_px)
-    ///        ratio = observed / max(reblur, 1e-5)
-    ///        correction = gaussianBlurRGB(ratio, radius_px)
-    ///        estimate = estimate * correction
-    ///      (lines :42-61)
-    ///   4. Optional overdrive when amount > 100 (lines :65-76)
-    ///   5. Edge-aware final mix (lines :79-123): luma compute, central-
-    ///      difference gradient, threshold via masking, blend observed
-    ///      -> sharpened.
+    /// raw-core/src/stages/sharpen.rs — the CURRENT luma-only USM
+    /// implementation (#439 replaced the per-channel Richardson-Lucy this
+    /// mirror used to track), with the sigma-faithful true-Gaussian unsharp
+    /// blur of #1083:
+    ///   1. amount.abs() < 1e-3 -> identity
+    ///   2. sigma = clamp(radius, 0.5, 3.0) — FLOAT, no integer rounding
+    ///      (the old round-to-radius_px conversion was the #1083 no-op)
+    ///   3. luma = BT.2020 dot product; luma_blur = trueGaussian(luma, sigma)
+    ///   4. per-pixel luma USM: scale = 1 + smoothstepShadowGuard *
+    ///      (clamp(luma_out / safe_luma, 0, 4) - 1), applied to ALL three
+    ///      channels (chroma ratios preserved by construction)
+    ///   5. edge-aware final mix (amount/detail/masking; central-difference
+    ///      gradient on the ORIGINAL luma plane)
+    /// Constants stay in lockstep with sharpen.rs / SharpenLumaUSM.metal.
     static func swiftApplySharpen(
         _ rgbBuf: [[Float]],
         w: Int, h: Int,
         amount: Float, radius: Float, detail: Float, masking: Float
     ) -> [[Float]] {
         if abs(amount) < 1e-3 { return rgbBuf }
-        let clamped = max(Float(0.5), min(Float(3.0), radius))
-        let radiusPx = max(1, Int(roundf(clamped)))
-
-        // RL iteration loop. Per-channel blur via swiftGaussianBlurPlane
-        // (one per channel — Rust's gaussian_blur_rgb runs the same
-        // box-blur on each channel independently).
-        var estimate = rgbBuf
+        let sigma = max(Float(0.5), min(Float(3.0), radius))
         let observed = rgbBuf
-        for _ in 0..<3 {
-            // Split estimate into 3 channel planes; blur each.
-            var rPlane = [Float](repeating: 0, count: w * h)
-            var gPlane = [Float](repeating: 0, count: w * h)
-            var bPlane = [Float](repeating: 0, count: w * h)
-            for i in 0..<(w * h) {
-                rPlane[i] = estimate[i][0]
-                gPlane[i] = estimate[i][1]
-                bPlane[i] = estimate[i][2]
-            }
-            let rBlur = Self.swiftGaussianBlurPlane(rPlane, w: w, h: h, radius: radiusPx)
-            let gBlur = Self.swiftGaussianBlurPlane(gPlane, w: w, h: h, radius: radiusPx)
-            let bBlur = Self.swiftGaussianBlurPlane(bPlane, w: w, h: h, radius: radiusPx)
 
-            // ratio = observed / max(reblur, 1e-5)
-            var ratio = [[Float]](repeating: [0, 0, 0], count: w * h)
-            let EPS: Float = 1e-5
-            for i in 0..<(w * h) {
-                ratio[i] = [
-                    observed[i][0] / max(rBlur[i], EPS),
-                    observed[i][1] / max(gBlur[i], EPS),
-                    observed[i][2] / max(bBlur[i], EPS),
-                ]
-            }
-            // correction = blur(ratio)
-            for i in 0..<(w * h) {
-                rPlane[i] = ratio[i][0]
-                gPlane[i] = ratio[i][1]
-                bPlane[i] = ratio[i][2]
-            }
-            let rCorr = Self.swiftGaussianBlurPlane(rPlane, w: w, h: h, radius: radiusPx)
-            let gCorr = Self.swiftGaussianBlurPlane(gPlane, w: w, h: h, radius: radiusPx)
-            let bCorr = Self.swiftGaussianBlurPlane(bPlane, w: w, h: h, radius: radiusPx)
-            // estimate = estimate * correction
-            for i in 0..<(w * h) {
-                estimate[i] = [
-                    estimate[i][0] * rCorr[i],
-                    estimate[i][1] * gCorr[i],
-                    estimate[i][2] * bCorr[i],
-                ]
-            }
+        // Luma plane (BT.2020 weights) and its true-Gaussian blur.
+        var luma = [Float](repeating: 0, count: w * h)
+        for i in 0..<(w * h) {
+            luma[i] = 0.2627 * observed[i][0] + 0.6780 * observed[i][1] + 0.0593 * observed[i][2]
         }
+        let lumaBlur = Self.swiftGaussianBlurPlaneSigma(luma, w: w, h: h, sigma: sigma)
 
-        var sharpened = estimate
-
-        // Overdrive (amount > 100).
-        if amount > 100.0 {
-            let overMix = (amount - 100.0) / 100.0
-            var rPlane = [Float](repeating: 0, count: w * h)
-            var gPlane = [Float](repeating: 0, count: w * h)
-            var bPlane = [Float](repeating: 0, count: w * h)
-            for i in 0..<(w * h) {
-                rPlane[i] = sharpened[i][0]
-                gPlane[i] = sharpened[i][1]
-                bPlane[i] = sharpened[i][2]
-            }
-            let rB = Self.swiftGaussianBlurPlane(rPlane, w: w, h: h, radius: radiusPx)
-            let gB = Self.swiftGaussianBlurPlane(gPlane, w: w, h: h, radius: radiusPx)
-            let bB = Self.swiftGaussianBlurPlane(bPlane, w: w, h: h, radius: radiusPx)
-            for i in 0..<(w * h) {
-                sharpened[i] = [
-                    sharpened[i][0] + (sharpened[i][0] - rB[i]) * overMix,
-                    sharpened[i][1] + (sharpened[i][1] - gB[i]) * overMix,
-                    sharpened[i][2] + (sharpened[i][2] - bB[i]) * overMix,
-                ]
-            }
+        // Per-pixel luma USM with the smoothstep shadow guard.
+        let SHADOW_EPSILON: Float = 1e-4
+        let SHADOW_BAND: Float = 4.0
+        let MAX_SCALE: Float = 4.0
+        let MIN_SCALE: Float = 0.0
+        func smoothstep(_ e0: Float, _ e1: Float, _ x: Float) -> Float {
+            let t = max(Float(0.0), min(Float(1.0), (x - e0) / (e1 - e0)))
+            return t * t * (3.0 - 2.0 * t)
+        }
+        var sharpened = [[Float]](repeating: [0, 0, 0], count: w * h)
+        for i in 0..<(w * h) {
+            let li = luma[i]
+            let lb = lumaBlur[i]
+            let lo = li + (li - lb)
+            let weight = smoothstep(SHADOW_EPSILON, SHADOW_BAND * SHADOW_EPSILON, li)
+            let safeLuma = max(li, SHADOW_EPSILON)
+            let bounded = max(MIN_SCALE, min(MAX_SCALE, lo / safeLuma))
+            let scale = 1.0 + weight * (bounded - 1.0)
+            let o = observed[i]
+            sharpened[i] = [o[0] * scale, o[1] * scale, o[2] * scale]
         }
 
         // Edge-aware final mix.
@@ -1015,11 +1007,6 @@ final class SceneLinearPipelineTests: XCTestCase {
         let detailAtten = max(Float(0.0), min(Float(1.0), detail / 100.0))
         let maskingThreshold = max(Float(0.0), min(Float(1.0), masking / 100.0))
 
-        // Compute luma plane.
-        var luma = [Float](repeating: 0, count: w * h)
-        for i in 0..<(w * h) {
-            luma[i] = 0.2627 * observed[i][0] + 0.6780 * observed[i][1] + 0.0593 * observed[i][2]
-        }
         // Helper: clamped index.
         func idxAt(_ x: Int, _ y: Int) -> Int {
             let xc = max(0, min(w - 1, x))
