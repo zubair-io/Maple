@@ -333,7 +333,7 @@ fn capture_apply_scale_skip_paths_match_raw_core() {
     // Mid-tone soft step (so most pixels DO get scaled — the gate isn't trivial)
     // with two planted pathological pixels.
     let mut input = soft_step_image(w, h);
-    let black = (0 * w + 0) * 4; // top-left: drive extracted luma to 0.
+    let black = 0usize; // top-left (x=0,y=0): (0 * w + 0) * 4 == 0; drive extracted luma to 0.
     input[black] = 0.0;
     input[black + 1] = 0.0;
     input[black + 2] = 0.0;
