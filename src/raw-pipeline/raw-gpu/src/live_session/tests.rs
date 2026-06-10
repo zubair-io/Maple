@@ -13,10 +13,10 @@
 
 use super::*;
 use crate::chain::ChainRunner;
+use crate::dehaze::AirlightSource;
 use crate::dither::encode_dither;
 use crate::full_chain::oracle::{nonidentity_curve, nonidentity_lut, scene_linear_rgba, Case};
 use crate::image::GpuImage;
-use crate::dehaze::AirlightSource;
 use crate::live_chain::build_live_chain;
 use crate::{compute_airlight, CancelToken, GpuContext, Pass};
 
@@ -195,7 +195,7 @@ fn neutral_case() -> Case {
 /// `on_gpu_dehaze_matches_cpu_reference_on_hazy_fixture`.
 #[test]
 fn session_render_matches_direct_chain_plus_dither_byte_exact() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
 
@@ -206,10 +206,11 @@ fn session_render_matches_direct_chain_plus_dither_byte_exact() {
     ] {
         let inputs = case.gpu_inputs();
 
-        let session = LiveSession::new_with_airlight_readback(&ctx, &input, w, h);
+        let session = LiveSession::new_with_airlight_readback(&ctx, &input, w, h).expect("session");
         let cancel = CancelToken::new();
         let got = session
             .render_to_buffer(&ctx, &inputs, &cancel)
+            .expect("render ok")
             .expect("uncancelled render returns Some");
 
         let want = reference_u8(&ctx, &input, w, h, &inputs);
@@ -220,7 +221,10 @@ fn session_render_matches_direct_chain_plus_dither_byte_exact() {
             "[{name}] session vs direct output length mismatch"
         );
         let mismatches = got.iter().zip(&want).filter(|(a, b)| a != b).count();
-        eprintln!("LIVE-SESSION STEP1 [{name}]: {mismatches} / {} bytes differ", want.len());
+        eprintln!(
+            "LIVE-SESSION STEP1 [{name}]: {mismatches} / {} bytes differ",
+            want.len()
+        );
         assert_eq!(
             mismatches, 0,
             "[{name}] session render not byte-identical to direct chain+dither: \
@@ -234,16 +238,18 @@ fn session_render_matches_direct_chain_plus_dither_byte_exact() {
 /// newer edit).
 #[test]
 fn pre_cancelled_render_returns_none() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let case = aggressive_case();
     let inputs = case.gpu_inputs();
 
-    let session = LiveSession::new(&ctx, &input, w, h);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
     let cancel = CancelToken::new();
     cancel.cancel(); // pre-cancelled
-    let out = session.render_to_buffer(&ctx, &inputs, &cancel);
+    let out = session
+        .render_to_buffer(&ctx, &inputs, &cancel)
+        .expect("render ok");
     assert!(out.is_none(), "pre-cancelled render must return None");
 }
 
@@ -252,17 +258,26 @@ fn pre_cancelled_render_returns_none() {
 /// now through the full chain+dither path).
 #[test]
 fn rerender_same_inputs_is_byte_identical() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let case = aggressive_case();
     let inputs = case.gpu_inputs();
 
-    let session = LiveSession::new(&ctx, &input, w, h);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
     let cancel = CancelToken::new();
-    let first = session.render_to_buffer(&ctx, &inputs, &cancel).unwrap();
-    let second = session.render_to_buffer(&ctx, &inputs, &cancel).unwrap();
-    assert_eq!(first, second, "re-render at same dims/inputs must be byte-identical");
+    let first = session
+        .render_to_buffer(&ctx, &inputs, &cancel)
+        .expect("render ok")
+        .unwrap();
+    let second = session
+        .render_to_buffer(&ctx, &inputs, &cancel)
+        .expect("render ok")
+        .unwrap();
+    assert_eq!(
+        first, second,
+        "re-render at same dims/inputs must be byte-identical"
+    );
 }
 
 /// STEP 2b — THE ZERO-ALLOCATION GATE (CLAUDE.md: "allocation inside the render
@@ -274,7 +289,7 @@ fn rerender_same_inputs_is_byte_identical() {
 /// DAGs) signature, so the pool is exercised both near-empty and fully loaded.
 #[test]
 fn second_render_same_signature_allocates_nothing() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let cancel = CancelToken::new();
@@ -286,15 +301,21 @@ fn second_render_same_signature_allocates_nothing() {
     ] {
         let inputs = case.gpu_inputs();
         // A fresh session per case (reset() clears the prior case's cache).
-        let session = LiveSession::new(&ctx, &input, w, h);
+        let session = LiveSession::new(&ctx, &input, w, h).expect("session");
 
         // First render: fills the pool (allocations expected).
         let before_first = session.pool_alloc_count(&ctx);
-        let first = session.render_to_buffer(&ctx, &inputs, &cancel).unwrap();
+        let first = session
+            .render_to_buffer(&ctx, &inputs, &cancel)
+            .expect("render ok")
+            .unwrap();
         let first_allocs = session.pool_alloc_count(&ctx) - before_first;
 
         // Second render, identical signature: must reuse everything.
-        let second = session.render_to_buffer(&ctx, &inputs, &cancel).unwrap();
+        let second = session
+            .render_to_buffer(&ctx, &inputs, &cancel)
+            .expect("render ok")
+            .unwrap();
         let second_allocs = session.pool_alloc_count(&ctx) - before_first - first_allocs;
 
         eprintln!(
@@ -330,7 +351,7 @@ fn second_render_same_signature_allocates_nothing() {
 ///     edit would bind the first render's stale curve and the preview would freeze).
 #[test]
 fn same_signature_value_change_is_correct_and_zero_alloc() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let cancel = CancelToken::new();
@@ -368,14 +389,20 @@ fn same_signature_value_change_is_correct_and_zero_alloc() {
         "test setup: the two cases must share a chain signature (same active set)"
     );
 
-    let session = LiveSession::new(&ctx, &input, w, h);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
 
     // Render base (fills the cache for this signature).
-    let _ = session.render_to_buffer(&ctx, &base, &cancel).unwrap();
+    let _ = session
+        .render_to_buffer(&ctx, &base, &cancel)
+        .expect("render ok")
+        .unwrap();
 
     // Now the EDIT: same signature, changed values. Snapshot allocs around it.
     let pre_edit = session.pool_alloc_count(&ctx);
-    let got = session.render_to_buffer(&ctx, &edited, &cancel).unwrap();
+    let got = session
+        .render_to_buffer(&ctx, &edited, &cancel)
+        .expect("render ok")
+        .unwrap();
     let edit_allocs = session.pool_alloc_count(&ctx) - pre_edit;
 
     // (a) Correct NEW pixels: matches a reference render of the EDITED inputs
@@ -415,18 +442,24 @@ fn same_signature_value_change_is_correct_and_zero_alloc() {
 /// resources, and each shape converges to zero-alloc independently.
 #[test]
 fn signature_change_allocates_once_then_zero() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let cancel = CancelToken::new();
-    let session = LiveSession::new(&ctx, &input, w, h);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
 
     // Shape A: neutral (view tail only).
     let a = neutral_case().gpu_inputs();
     let base = session.pool_alloc_count(&ctx);
-    session.render_to_buffer(&ctx, &a, &cancel).unwrap();
+    session
+        .render_to_buffer(&ctx, &a, &cancel)
+        .expect("render ok")
+        .unwrap();
     let a1 = session.pool_alloc_count(&ctx) - base;
-    session.render_to_buffer(&ctx, &a, &cancel).unwrap();
+    session
+        .render_to_buffer(&ctx, &a, &cancel)
+        .expect("render ok")
+        .unwrap();
     let a2 = session.pool_alloc_count(&ctx) - base - a1;
     assert!(a1 > 0, "shape A first render must allocate");
     assert_eq!(a2, 0, "shape A re-render must be zero-alloc");
@@ -436,9 +469,15 @@ fn signature_change_allocates_once_then_zero() {
     b_case.model.dehaze = 40.0;
     let b = b_case.gpu_inputs();
     let pre_b = session.pool_alloc_count(&ctx);
-    session.render_to_buffer(&ctx, &b, &cancel).unwrap();
+    session
+        .render_to_buffer(&ctx, &b, &cancel)
+        .expect("render ok")
+        .unwrap();
     let b1 = session.pool_alloc_count(&ctx) - pre_b;
-    session.render_to_buffer(&ctx, &b, &cancel).unwrap();
+    session
+        .render_to_buffer(&ctx, &b, &cancel)
+        .expect("render ok")
+        .unwrap();
     let b2 = session.pool_alloc_count(&ctx) - pre_b - b1;
     eprintln!("SIGNATURE-CHANGE: shape A allocs={a1}, shape B allocs={b1} (B re-render={b2})");
     assert!(
@@ -449,8 +488,51 @@ fn signature_change_allocates_once_then_zero() {
 
     // Returning to shape A is zero-alloc (its bucket is still cached).
     let pre_a3 = session.pool_alloc_count(&ctx);
-    session.render_to_buffer(&ctx, &a, &cancel).unwrap();
+    session
+        .render_to_buffer(&ctx, &a, &cancel)
+        .expect("render ok")
+        .unwrap();
     let a3 = session.pool_alloc_count(&ctx) - pre_a3;
-    assert_eq!(a3, 0, "returning to shape A must reuse its cached bucket (zero-alloc)");
+    assert_eq!(
+        a3, 0,
+        "returning to shape A must reuse its cached bucket (zero-alloc)"
+    );
 }
 
+/// DIM VALIDATION (#1079): opening a session with dims whose whole-image f32
+/// buffer can't fit the device's storage-binding / buffer-size limits returns a
+/// descriptive `Err` — BEFORE any GPU buffer is allocated (so this is cheap; an
+/// empty pixel slice never gets far enough to matter). 20000×20000 RGBA f32 is
+/// 6.4 GB, past the 4 GiB-1 ceiling `max_storage_buffer_binding_size: u32` can
+/// even express, so this rejects on EVERY adapter. Without the validation, the
+/// first render would hit wgpu's fatal validation panic instead — which unwinds
+/// through the `extern "C"` FFI on Apple and aborts the app.
+#[test]
+fn session_open_rejects_dims_beyond_device_limits() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+
+    let err = LiveSession::new(&ctx, &[], 20_000, 20_000)
+        .err()
+        .expect("a 20000x20000 session must be rejected (6.4 GB binding)");
+    assert!(
+        err.contains("max_storage_buffer_binding_size") || err.contains("max_buffer_size"),
+        "error must name the violated device limit, got: {err}"
+    );
+
+    // Zero dims and mismatched pixel lengths are clean Errs too (not panics).
+    assert!(
+        LiveSession::new(&ctx, &[], 0, 8).is_err(),
+        "zero width must be Err"
+    );
+    assert!(
+        LiveSession::new(&ctx, &[0.0; 4], 8, 8).is_err(),
+        "pixel-len mismatch must be Err"
+    );
+
+    // And a valid size still opens (the validation isn't over-eager).
+    let input = scene_linear_rgba(8, 8);
+    assert!(
+        LiveSession::new(&ctx, &input, 8, 8).is_ok(),
+        "8x8 must still open"
+    );
+}

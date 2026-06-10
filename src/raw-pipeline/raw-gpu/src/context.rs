@@ -242,21 +242,55 @@ pub struct GpuContext {
     pub(crate) frame_pool: RefCell<FramePool>,
 }
 
+/// The device limits Maple requests: `downlevel_defaults()` as the baseline,
+/// with the SIZE ceilings (texture dimension, storage-binding size, buffer size)
+/// raised to whatever the adapter actually supports (#1079). The downlevel
+/// defaults alone cap textures at 2048 px and storage bindings at 128 MiB — a
+/// Retina-window canvas or any session past ~8.4 MP blows straight through them
+/// and wgpu's validation turns it into a fatal error.
+///
+/// `max_storage_buffers_per_shader_stage` is deliberately NOT raised: the
+/// ≤ 4-storage-buffers-per-stage ceiling is a hard project contract (the WebGPU
+/// downlevel baseline shared by the Apple + web chains — epic #925), and every
+/// kernel is shaped to fit it. Explicit field assignment (not
+/// `using_resolution`) so that cap can't drift if wgpu adds fields.
+pub(crate) fn adapter_clamped_limits(adapter: &wgpu::Adapter) -> wgpu::Limits {
+    let adapter_limits = adapter.limits();
+    let mut limits = wgpu::Limits::downlevel_defaults();
+    // `.max(..)` (not a plain copy) so an adapter reporting LESS than the
+    // downlevel baseline still requests the baseline — identical to today's
+    // behaviour on such an adapter (the device request fails either way).
+    limits.max_texture_dimension_2d = limits
+        .max_texture_dimension_2d
+        .max(adapter_limits.max_texture_dimension_2d);
+    limits.max_storage_buffer_binding_size = limits
+        .max_storage_buffer_binding_size
+        .max(adapter_limits.max_storage_buffer_binding_size);
+    limits.max_buffer_size = limits.max_buffer_size.max(adapter_limits.max_buffer_size);
+    limits
+}
+
 impl GpuContext {
     /// Async constructor shared by native (`new_blocking`) and wasm callers.
-    /// Picks the default adapter (Metal on macOS, WebGPU in the browser).
-    pub async fn new_async() -> Self {
+    /// Picks the default adapter (Metal on macOS, WebGPU in the browser) and
+    /// requests the adapter-clamped limits ([`adapter_clamped_limits`]).
+    ///
+    /// Fallible (#1079): "no adapter" / "device request failed" are real
+    /// conditions on user machines (headless boxes, driver resets, browsers
+    /// without WebGPU), and a panic here unwinds across the `extern "C"` FFI on
+    /// Apple — an abort. Hosts treat the `Err` as "fall back to the CPU path".
+    pub async fn new_async() -> Result<Self, String> {
         let instance = wgpu::Instance::default();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await
-            .expect("no suitable GPU adapter");
+            .ok_or_else(|| "no suitable GPU adapter".to_string())?;
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("maple-gpu"),
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_defaults(),
+                    required_limits: adapter_clamped_limits(&adapter),
                     memory_hints: wgpu::MemoryHints::default(),
                 },
                 // wgpu 23.0.1 still takes the trace-path arg (the plan's note
@@ -265,8 +299,8 @@ impl GpuContext {
                 None,
             )
             .await
-            .expect("device request failed");
-        Self {
+            .map_err(|e| format!("device request failed: {e}"))?;
+        Ok(Self {
             device,
             queue,
             adapter,
@@ -309,13 +343,14 @@ impl GpuContext {
             cs_apply_pipeline: OnceCell::new(),
             dither_pipeline: OnceCell::new(),
             frame_pool: RefCell::new(FramePool::default()),
-        }
+        })
     }
 
     /// Native blocking constructor (drives the adapter/device request via
     /// pollster). Not compiled for wasm, which awaits [`GpuContext::new_async`].
+    /// Fallible like [`GpuContext::new_async`]; tests `.expect(..)` it.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn new_blocking() -> Self {
+    pub fn new_blocking() -> Result<Self, String> {
         pollster::block_on(Self::new_async())
     }
 }

@@ -136,7 +136,7 @@ fn max_diff_at(a: &[f32], b: &[f32]) -> (f32, usize) {
 /// uniform `overall_mix`). Asserts raw-core actually sharpened (moved ≫ 1e-4).
 #[test]
 fn sharpen_pass_matches_raw_core_masking_off() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 32usize);
     let input = stepped_image(w, h);
     for &amount in &[50.0_f32, 100.0, 140.0] {
@@ -169,7 +169,7 @@ fn sharpen_pass_matches_raw_core_masking_off() {
 /// `g_norm >= threshold` gate over the step edge.
 #[test]
 fn sharpen_pass_matches_raw_core_masking_on() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 32usize);
     let input = stepped_image(w, h);
     for &masking in &[20.0_f32, 70.0] {
@@ -202,7 +202,7 @@ fn sharpen_pass_matches_raw_core_masking_on() {
 /// that the interior actually MOVED from the input (sharpening happened there).
 #[test]
 fn sharpen_border_and_interior_coverage_non_vacuous() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 32usize);
     let input = stepped_image(w, h);
     let reference = raw_core_sharpen(&input, w as u32, h as u32, 100.0, 2.0, 30.0, 50.0);
@@ -246,8 +246,14 @@ fn sharpen_border_and_interior_coverage_non_vacuous() {
         interior_moved > 1e-4,
         "interior never moved ({interior_moved:e}) — sharpening is a no-op, gate is vacuous"
     );
-    assert!(border_worst < 1e-4, "border-ring diff {border_worst} exceeds 1e-4");
-    assert!(interior_worst < 1e-4, "interior diff {interior_worst} exceeds 1e-4");
+    assert!(
+        border_worst < 1e-4,
+        "border-ring diff {border_worst} exceeds 1e-4"
+    );
+    assert!(
+        interior_worst < 1e-4,
+        "interior diff {interior_worst} exceeds 1e-4"
+    );
 }
 
 // ── Identity / robustness ────────────────────────────────────────────────────────
@@ -256,7 +262,7 @@ fn sharpen_border_and_interior_coverage_non_vacuous() {
 /// copies src → dst). Mirrors raw-core's `amount.abs() < 1e-3` early return.
 #[test]
 fn sharpen_amount_zero_is_identity() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16usize, 16usize);
     let input = stepped_image(w, h);
     let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, 0.0, 1.0, 25.0, 0.0);
@@ -270,7 +276,7 @@ fn sharpen_amount_zero_is_identity() {
 /// guarantee.
 #[test]
 fn sharpen_preserves_chroma_ratio_on_saturated_edge() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 8usize);
     let left = [0.40f32, 0.05, 0.05];
     let right = [0.05f32, 0.40, 0.40];
@@ -309,7 +315,7 @@ fn sharpen_preserves_chroma_ratio_on_saturated_edge() {
 /// mirrors raw-core's `preserves_scene_headroom`.
 #[test]
 fn sharpen_preserves_scene_headroom() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16usize, 16usize);
     let mut input = vec![0.0f32; w * h * 4];
     for y in 0..h {
@@ -324,5 +330,8 @@ fn sharpen_preserves_scene_headroom() {
         }
     }
     let gpu = sharpen_gpu(&ctx, &input, w as u32, h as u32, 100.0, 1.0, 25.0, 0.0);
-    assert!(gpu.iter().all(|v| v.is_finite()), "sharpen produced non-finite output");
+    assert!(
+        gpu.iter().all(|v| v.is_finite()),
+        "sharpen produced non-finite output"
+    );
 }

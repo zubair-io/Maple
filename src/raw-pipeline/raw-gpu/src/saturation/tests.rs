@@ -64,7 +64,7 @@ fn raw_core_saturation(buf: &[f32], saturation: f32) -> Vec<f32> {
 /// a kernel bug.
 #[test]
 fn wgsl_saturation_matches_raw_core_stage_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = branchy_buffer();
     let count = (input.len() / 4) as u32;
 
@@ -117,7 +117,7 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
 /// alongside the raw-core gate; mirrors the vibrance precedent.
 #[test]
 fn wgsl_saturation_matches_cpu_oracle_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = branchy_buffer();
     let count = (input.len() / 4) as u32;
 
@@ -148,7 +148,7 @@ fn wgsl_saturation_matches_cpu_oracle_within_1e_4() {
 /// branch the step-1 analysis flagged as load-bearing for NaN-safety.
 #[test]
 fn pure_black_hits_neutral_guard_bit_exact_on_gpu() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = vec![0.0_f32, 0.0, 0.0, 0.9];
     let img = GpuImage::upload(&ctx, &input, 1, 1);
     let runner = ChainRunner::new(&ctx, &img);
@@ -166,7 +166,7 @@ fn pure_black_hits_neutral_guard_bit_exact_on_gpu() {
 /// into gamut (not just that it numerically matches the oracle).
 #[test]
 fn plus_100_keeps_all_channels_non_negative_on_gpu() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let cases: [[f32; 4]; 5] = [
         [0.9, 0.05, 0.05, 1.0], // near-Rec.2020 red
         [0.05, 0.9, 0.05, 1.0], // near-Rec.2020 green
@@ -195,11 +195,21 @@ fn plus_100_keeps_all_channels_non_negative_on_gpu() {
 /// returns the round-tripped pixel, skipping the gamut check) end-to-end.
 #[test]
 fn minus_100_makes_achromatic_on_gpu() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = vec![0.8_f32, 0.1, 0.1, 1.0];
     let img = GpuImage::upload(&ctx, &input, 1, 1);
     let runner = ChainRunner::new(&ctx, &img);
     let gpu = runner.run_blocking(&[&SaturationPass { saturation: -100.0 }]);
-    assert!((gpu[0] - gpu[1]).abs() < 0.05, "R {} vs G {}", gpu[0], gpu[1]);
-    assert!((gpu[1] - gpu[2]).abs() < 0.05, "G {} vs B {}", gpu[1], gpu[2]);
+    assert!(
+        (gpu[0] - gpu[1]).abs() < 0.05,
+        "R {} vs G {}",
+        gpu[0],
+        gpu[1]
+    );
+    assert!(
+        (gpu[1] - gpu[2]).abs() < 0.05,
+        "G {} vs B {}",
+        gpu[1],
+        gpu[2]
+    );
 }

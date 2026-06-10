@@ -56,7 +56,9 @@
 
 use crate::context::GpuContext;
 use crate::live_session::LiveSession;
-use crate::present_chain_pipeline::{build_present_pipeline, encode_present_pass, pick_surface_format};
+use crate::present_chain_pipeline::{
+    build_present_pipeline, encode_present_pass, pick_surface_format,
+};
 use wasm_bindgen::JsValue;
 use web_sys::OffscreenCanvas;
 
@@ -99,7 +101,19 @@ impl WebPresentSurface {
         height: u32,
     ) -> Result<Self, String> {
         if width == 0 || height == 0 {
-            return Err(format!("WebPresentSurface: invalid image size {width}x{height}"));
+            return Err(format!(
+                "WebPresentSurface: invalid image size {width}x{height}"
+            ));
+        }
+        // Validate against the DEVICE's actual texture limit BEFORE configuring
+        // (#1079): a >limit configure is a fatal wgpu validation error; a clean
+        // Err lets the worker fall back to the CPU render path.
+        let max_dim = ctx.device.limits().max_texture_dimension_2d;
+        if width > max_dim || height > max_dim {
+            return Err(format!(
+                "WebPresentSurface: canvas {width}x{height} exceeds the device's max \
+                 texture dimension {max_dim}"
+            ));
         }
         let (cw, ch) = (canvas.width(), canvas.height());
         if (cw, ch) != (width, height) {

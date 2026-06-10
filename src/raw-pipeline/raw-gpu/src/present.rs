@@ -100,13 +100,27 @@ async unsafe fn present_test_pattern_async(
             &wgpu::DeviceDescriptor {
                 label: Some("maple-gpu-present"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
+                // Adapter-clamped (#1079): downlevel_defaults caps textures at
+                // 2048 px, which a Retina/4K window exceeds; raise the size
+                // ceilings to the adapter's (the ≤4-storage cap stays).
+                required_limits: crate::context::adapter_clamped_limits(&adapter),
                 memory_hints: wgpu::MemoryHints::default(),
             },
             None,
         )
         .await
         .map_err(|e| format!("device request failed: {e}"))?;
+
+    // Validate the surface dims against the DEVICE's actual limit BEFORE
+    // configuring — a too-large configure is a fatal wgpu validation error
+    // (uncatchable downstream), not a recoverable Err (#1079).
+    let max_dim = device.limits().max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        return Err(format!(
+            "present_test_pattern: surface {width}x{height} exceeds the device's max \
+             texture dimension {max_dim}"
+        ));
+    }
 
     let caps = surface.get_capabilities(&adapter);
     if caps.formats.is_empty() {

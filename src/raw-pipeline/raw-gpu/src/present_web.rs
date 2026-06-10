@@ -113,16 +113,29 @@ pub async fn present_test_pattern_web(canvas: HtmlCanvasElement) -> Result<Prese
             &wgpu::DeviceDescriptor {
                 label: Some("maple-gpu-present-web"),
                 required_features: wgpu::Features::empty(),
-                // WebGPU baseline. A passthrough present needs zero storage
-                // buffers, so this is comfortably inside the ≤4-storage-buffer
-                // rule (#925 hard constraint).
-                required_limits: wgpu::Limits::downlevel_defaults(),
+                // Adapter-clamped (#1079): downlevel_defaults caps textures at
+                // 2048 px, which a hi-DPI canvas exceeds; raise the size
+                // ceilings to the adapter's. The ≤4-storage-buffer rule (#925
+                // hard constraint) is preserved — `adapter_clamped_limits`
+                // never raises `max_storage_buffers_per_shader_stage`.
+                required_limits: crate::context::adapter_clamped_limits(&adapter),
                 memory_hints: wgpu::MemoryHints::default(),
             },
             None,
         )
         .await
         .map_err(|e| format!("device request failed: {e}"))?;
+
+    // Validate the canvas dims against the DEVICE's actual limit BEFORE
+    // configuring — a too-large configure is a fatal wgpu validation error,
+    // not a recoverable Err (#1079).
+    let max_dim = device.limits().max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        return Err(format!(
+            "present_test_pattern_web: canvas {width}x{height} exceeds the device's max \
+             texture dimension {max_dim}"
+        ));
+    }
 
     let caps = surface.get_capabilities(&adapter);
     if caps.formats.is_empty() {

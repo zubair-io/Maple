@@ -161,7 +161,7 @@ fn inlined_bayer_matches_raw_core() {
 /// half boundary, clamp ends, the full Bayer tile, a neutral column).
 #[test]
 fn wgsl_dither_matches_raw_core_byte_exact() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (8u32, 8u32);
     let input = dither_fixture(w as usize, h as usize);
 
@@ -211,7 +211,7 @@ fn local_oracle_matches_raw_core_byte_exact() {
 /// chroma noise). Mirrors raw-core's "neutral input stays neutral" invariant.
 #[test]
 fn neutral_input_stays_neutral_on_gpu() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (8u32, 8u32);
     // Every pixel a (different) neutral grey across the range.
     let mut input = Vec::with_capacity((w * h * 4) as usize);
@@ -225,6 +225,9 @@ fn neutral_input_stays_neutral_on_gpu() {
             px[0], px[1],
             "neutral grey gained chroma on the GPU: {px:?}"
         );
-        assert_eq!(px[1], px[2], "neutral grey gained chroma on the GPU: {px:?}");
+        assert_eq!(
+            px[1], px[2],
+            "neutral grey gained chroma on the GPU: {px:?}"
+        );
     }
 }
