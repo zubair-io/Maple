@@ -40,6 +40,11 @@ struct MapleAppDriver {
         // inside or outside the sandboxed app's accessible filesystem.
         app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = fixture
         app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = root
+        // Pin the CPU + Metal render path. This driver's only consumer is
+        // the golden visual-regression gate, whose committed PNG is a CPU
+        // render; the GPU live path is default-on since #1064, so disable
+        // it here to keep the canvas byte-comparable to the goldens.
+        app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
         app.launch()
         return MapleAppDriver(app: app)
     }

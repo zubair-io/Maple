@@ -184,6 +184,10 @@ final class BaselineMatrixUITests: XCTestCase {
         app.launchArguments += ["-ApplePersistenceIgnoreState", "YES"]
         app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = stagedRaw.lastPathComponent
         app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = tmp.path
+        // Pin the CPU + Metal render path: this gate diffs the canvas
+        // against an ACR/CPU reference, so disable the default-on (#1064)
+        // GPU live path and keep the render byte-comparable to the baseline.
+        app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
         app.launch()
         defer { app.terminate() }
 
