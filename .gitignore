@@ -7,6 +7,9 @@
 test-fixtures/*
 # Exception: the per-case ΔE budget table IS committed (it's the CI ratchet).
 !test-fixtures/budgets.json
+# Exception: the pano per-set metric budget table IS committed (CI ratchet
+# for src/scripts/test_pano_pipeline.sh — #1120).
+!test-fixtures/pano-budgets.json
 # Exception: drift / state notes that travel with budgets.json.
 !test-fixtures/BUDGETS_DRIFT.md
 # Exception: face-clustering fixtures are small (~2 MB) and IS committed
