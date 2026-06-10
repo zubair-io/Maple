@@ -1,6 +1,8 @@
 # Maple — Panorama Pipeline Design Spec
 
-**Status:** Draft v0.3 (tightened against current `raw-core`, `raw-ffi`, `raw-wasm`, `MapleCore`, and the verifier harness)
+> **⚠️ Superseded (2026-06-10).** Replaced by the Coral Pano spec set under `docs/superpowers/specs/` (`2026-06-10-coral-pano-stitching-spec.md`, `-product-spec.md`, `-eng-design-spec.md`). Key reversals there: Rec.2020 D65 linear working space (not ProPhoto), rotation model + global bundle adjustment (not homography chaining), UniFFI for the report/control plane. This file is kept for historical reference; its repo paths predate the current tree.
+
+**Status:** Draft v0.3 (tightened against current `raw-core`, `raw-ffi`, `raw-wasm`, `MapleCore`, and the verifier harness) — **superseded, see banner**
 **Owner:** Zubair
 **Targets:** new crate `pano-core` in the existing `raw-pipeline/` workspace → WASM bundle delivered into `web/projects/editor/src/assets/raw-wasm/`, and `RawPipeline.xcframework` consumed by the `RawPipeline` and `MapleCore` Swift packages (macOS / iPadOS / iOS / visionOS).
 **Phase:** Phase 4 — Advanced Editing (see `docs/product-status.md` and `docs/spec/12-maple-apps-spec.md`). Phases 1–2 are complete; Phase 3 (Color Engine) is the current gate. This spec is executable once Phase A of `docs/maple-maple-pipeline-rewrite-tdd-v2.md` and Phase 3's color work land.
