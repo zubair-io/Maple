@@ -21,8 +21,14 @@ architecture, using RapidRAW and RawTherapee as prior art.
 
 1. "Image title" in the request is read as **image tiling** ("edit the smaller section of
    image"), consistent with the adjacent zoom/sizing asks.
-2. "Pinch to zoom" targets the **web app** (touch + trackpad). Apple already ships it
-   (`MagnifyGesture`, docs/zoom.md, verified in `FullImageView.swift`).
+2. Zoom/pinch/tiling target the **new responsive UI** (epic #577: S4 loupe, S5 editor) on
+   **both platforms**. The full zoom system in docs/zoom.md exists only in the legacy
+   `FullImageView` (which the responsive program replaces); the new Apple `EditorView`
+   hardcodes `pixelScale: 0` (fit-only — no zoom, pan, or pinch while editing), the new
+   web editor wraps `ImageCanvasComponent` (stepped zoom buttons + unanchored wheel, no
+   pinch, full-res render per tick), and the web loupe does not exist (library cell tap
+   routes straight to the editor, #789). docs/zoom.md is treated as the reference design
+   to be adopted by the new UI, not as shipped behavior.
 3. ACR references remain the color baseline (per project memory and #443 history); nothing
    here re-litigates the view transform.
 4. New GPU work lands in the unified **wgpu/WGSL** pipeline (post-#925/#1063/#1064). The
@@ -41,8 +47,8 @@ architecture, using RapidRAW and RawTherapee as prior art.
 | Detail-masked shadows/highlights | S/H/whites/blacks exist but are purely per-pixel luminance-keyed; shadows only acts below Y≈0.1, highlights only above Y=1.0. | §4.2. |
 | Chroma-noise-suppressing pre-processing | `nrColor` (NLM on Oklab a/b) is a late-chain slider stage, ~2.5 s at default on 25 MP, excluded from the slider-tick path. Nothing runs at decode time. | §3.1. |
 | BM3D | Absent. | §3.2. |
-| Zoom + pinch | Apple: full system (fit→800%, pinch, pan, keyboard). Web: zoom buttons + wheel + drag-pan only; no pinch; canvas backing store is image-sized, not viewport-sized. | §5.2. |
-| Zoom-to-fit renders low-res | Apple: yes (`refinedTargetSize = native × min(pixelScale, 1)`, refine skipped at fit). Web: **no** — every slider tick decodes and renders full resolution; the sized FFI entry (`maple_render_bytes_scene_linear_sized`) exists but web never calls it. | §5.1. |
+| Zoom + pinch | **Legacy** `FullImageView` (Apple): full system (fit→800%, pinch, pan, keyboard) — being replaced by the responsive program. **New UI:** Apple `EditorView` is fit-only (`pixelScale: 0` hardcoded); web editor (`ImageCanvasComponent` via `<editor-image-canvas>`) has stepped zoom buttons + unanchored wheel, no pinch; web loupe absent. | §5.0. |
+| Zoom-to-fit renders low-res | The render machinery is zoom-aware on Apple (`CanvasMath.refinedTargetSize = native × min(pixelScale, 1)`, refine skipped at fit) and the new `EditorView` already runs on `EditSession`/`CanvasMath` — but with zoom pinned to fit it can never exercise it. Web: **no** — every slider tick decodes and renders full resolution; the sized FFI entry (`maple_render_bytes_scene_linear_sized`) exists but web never calls it. | §5.0–5.1. |
 | Edit only the visible section (tiles) | Apple deep-zoom tile code exists but is gated off (`EditSession.deepZoomEnabled = false`) by tile-seam color parity, ticket #11. FFI tile entry points exist. | §5.3. |
 
 ## 3. Noise: a three-tier architecture
@@ -252,7 +258,51 @@ continues under the Auto Profile track #530/#536/#394). Adding a user-facing sho
 control or alternate looks ("Punchy") stays out of scope — it would fight the ACR-parity
 baseline and the Auto Profile direction.
 
-## 5. Zoom and tiled rendering
+## 5. Zoom and tiled rendering — in the new responsive UI
+
+Everything in §5 lands in the responsive-program surfaces (epic #577): the S5 editor on
+both platforms, and the S4 loupe as a consumer of the same primitive. The legacy
+`FullImageView` gets no new work — it is the donor, not the target.
+
+### 5.0 Zoom while editing (both platforms)
+
+The product ask: pinch/zoom into a section of the image **inside the editor**, with
+rendering that follows zoom (fit = proxy resolution, 100% = pixel-perfect, §5.1/§5.3 for
+how that render happens). The docs/zoom.md `pixelScale` model is adopted wholesale —
+0 = fit, 1.0 = pixel-perfect in real (dpr-aware) pixels, cap 8.0, snap-to-fit below
+`fit × 1.02` — as a shared canvas capability:
+
+- **Apple:** extract the zoom/pan/gesture host from `FullImageView` (gesture handling,
+  pan clamping, zoom badge, `CanvasMath` plumbing) into a reusable canvas host and wire
+  `EditorView` to a live `pixelScale` instead of the hardcoded 0. The render side needs
+  nothing: `EditorView` already runs on `EditSession`/`CanvasMath`, whose zoom-aware
+  fast/refine targets and visible-rect refine are shipped and exercised by the legacy
+  view. S4's `LoupeView` adopts the same host under #577 (its phone spec already calls
+  for pinch `[1, 6]` + double-tap).
+- **Web:** the same model implemented in `ImageCanvasComponent` (`<editor-image-canvas>`,
+  shared by the S5 editor in both the `maple` and `maple-syrup` apps): replace the
+  stepped `ZoomLevel` (0.25/0.5/1/2/4/fit) with continuous `pixelScale`, add the gesture
+  set below, render targets per §5.1.
+
+**Gesture arbitration.** The S5 editor already owns canvas gestures for editing (S5b:
+canvas drag adjusts the armed tool at 0.5:1; desktop scroll wheel nudges the armed tool;
+bare `0` resets the armed tool). Zoom must compose without breaking those contracts:
+
+| Input | At fit | Zoomed in (pixelScale > fit) |
+| --- | --- | --- |
+| Pinch (touch) / trackpad pinch (web: `wheel` + `ctrlKey`) | Zoom, anchored at gesture centroid/cursor | Same |
+| One-finger / mouse drag on canvas | Armed-tool adjust, 0.5:1 (S5b, unchanged) | **Pan** (tool adjust stays available via drag bar / wheel detents) |
+| Plain wheel over canvas | Armed-tool nudge ±1/detent (S5, unchanged) | Pan (two-finger scroll = pan when zoomed) |
+| Cmd/Ctrl + wheel | Zoom anchored at cursor | Same |
+| Double-tap / double-click | Toggle fit ↔ 100% | Same (returns to fit) |
+| Keyboard | `Cmd/Ctrl+0` fit, `Cmd/Ctrl+1` 100% (legacy Apple convention; bare `0`/`1` stay S5 tool-reset/rating) | Same |
+
+Two intentional divergences, called out for review: the editor's double-tap toggles
+fit ↔ 100% (pixel-perfect is what you need to judge NR/sharpening) while the S4 loupe
+keeps its specced 1× ↔ 2.5×; and bare `0`/`1` remain S5 tool keys, so fit/100% take the
+modifier — matching the legacy Apple shortcuts.
+
+Zoom indicator badge (percent, always visible) ships on both platforms, per docs/zoom.md.
 
 ### 5.1 Web render parity: proxy-resolution rendering (fit = low-res)
 
@@ -273,23 +323,19 @@ Apple's contract (docs/zoom.md) is the design; web implements it:
 4. The decoded scene-linear buffer uploads to the WebGPU device once per decode and stays
    resident; per-tick work is uniforms + dispatch, mirroring Apple.
 
-### 5.2 Web zoom UX: pixelScale model + pinch
-
-Port the documented Apple semantics (docs/zoom.md) rather than inventing a second model:
-`pixelScale` = real screen pixels per image pixel; 0 = fit; 1.0 = pixel-perfect 100%
-(dpr-aware); cap 8.0; snap-to-fit below `fit × 1.02`.
+### 5.2 Web zoom mechanics (implementation of §5.0)
 
 - **Touch pinch:** Pointer Events two-pointer tracking; scale = current/initial pointer
   distance, multiplied into a start-captured pixelScale (the same compounding bug Apple's
   `pinchStartScale` guards against), anchored at the gesture centroid.
-- **Trackpad pinch:** browsers deliver macOS/Windows trackpad pinch as `wheel` events with
-  `ctrlKey` — handle as zoom (anchored at cursor), `preventDefault` to stop browser page
-  zoom. Plain wheel zoom becomes cursor-anchored too (today it's an unanchored stepper).
-- Pan: existing drag-pan, plus two-finger pan while zoomed; fit-mode horizontal swipe
-  stays filmstrip navigation (matches Apple's behavior split).
-- Buttons/shortcuts: Fit / 100% buttons (exist), add keyboard parity (0/1/+/−) per
-  ui-spec conventions.
-- Zoom indicator badge (percent), as Apple.
+- **Trackpad pinch:** browsers deliver macOS/Windows trackpad pinch as `wheel` events
+  with `ctrlKey` — route to zoom (anchored at cursor) and `preventDefault` to stop
+  browser page zoom. Plain wheel keeps its S5 meaning per the §5.0 table (tool nudge at
+  fit; pan when zoomed).
+- One-finger drag routes per the §5.0 table (tool adjust at fit, pan when zoomed);
+  fit-mode horizontal swipe stays filmstrip/next-image navigation.
+- Fit / 100% buttons (exist today) rebind to pixelScale; `Cmd/Ctrl+0`/`Cmd/Ctrl+1`
+  shortcuts per §5.0.
 
 Renders at zoom reuse §5.1's target-size formula. Until §5.3 lands, 100% zoom on web
 renders full-native on refine — same as Apple's current gated state, slow but correct.
@@ -322,7 +368,10 @@ tile entries are shared; web follows Apple in a second step, after §5.1/§5.2).
 
 **Payoff:** 100%-zoom refine on 100 MP goes from whole-image (~7 s observed on iPad) to
 visible-viewport work (≈3–7 MP with overlap, >10× less), and pan-while-zoomed refines
-incrementally by tile instead of re-rendering the world.
+incrementally by tile instead of re-rendering the world. Because the new `EditorView`
+sits on the shared `EditSession`, the tile path serves the S5 editor directly — this is
+what makes "zoom in and edit just that section" real in the new UI rather than a
+slow-but-correct fallback.
 
 ## 6. Cross-cutting contracts
 
@@ -352,15 +401,16 @@ its own GitHub issue(s) on the Files board (every PR closes a ticket):
 
 | Phase | Scope | New tickets |
 | --- | --- | --- |
-| **1. Web render + zoom parity** | §5.1 sized decode + fast phase + canvas rework; §5.2 pixelScale/pinch/wheel zoom | 2 (render parity; zoom UX) — link the existing "fast phase deferred" follow-up noted in image-canvas.component.ts (#846 thread) |
+| **1. Zoom in the new editor UI + web render parity** | §5.0 Apple: extract the FullImageView zoom host, wire EditorView off `pixelScale: 0`; §5.0/§5.2 web: pixelScale + pinch + gesture arbitration in `ImageCanvasComponent`; §5.1 sized decode + fast phase + viewport canvas | 3 (Apple editor zoom; web editor zoom; web render parity) — link the "fast phase deferred" follow-up noted in image-canvas.component.ts (#846 thread) and coordinate with the S4 loupe item under #577 |
 | **2. Tone** | §4.1 brightness (full stack incl. predictor); §4.2 S/H rework + detail mask | 2 |
 | **3. Noise** | §3.1 chroma pre-filter + default calibration; §3.2 BM3D (CPU, cached, progress UI) + patent review subtask | 2 |
 | **4. Deep zoom** | §5.3 stage-class overlap + proxy planes; flip `deepZoomEnabled`; then web tiles | continues existing #11 (+1 for web adoption) |
 
-Phase ordering rationale: 1 is pure wiring with the highest UX-per-risk (the FFI already
-exists); 2 touches slider response and wants the calibration harness time; 3 introduces
-new stages with cache/key changes; 4 has the hardest correctness gate and benefits from
-§4.2's radius-registration work landing first.
+Phase ordering rationale: 1 is UI wiring against render machinery that already ships
+(the sized FFI exists; the new EditorView already sits on the zoom-aware
+EditSession/CanvasMath) — highest UX-per-risk; 2 touches slider response and wants the
+calibration harness time; 3 introduces new stages with cache/key changes; 4 has the
+hardest correctness gate and benefits from §4.2's radius-registration work landing first.
 
 ## 8. Risks
 
