@@ -29,6 +29,25 @@ final class EditSessionTests: XCTestCase {
         XCTAssertEqual(model.tint, -8, accuracy: 0.01)
     }
 
+    // #1069 — the loading-indicator readiness predicate. The bug-encoding case:
+    // on the GPU path a hydration-seeded renderedPreview must NOT count as a
+    // frame on screen (the GPU canvas is the Metal layer, blank until presented).
+    func testCanvasHasFrame_gpuPath_usesGpuFramePresented_notRenderedPreview() {
+        // Seeded renderedPreview but no GPU present yet → no frame on screen.
+        XCTAssertFalse(EditSession.canvasHasFrame(
+            gpuActive: true, gpuFramePresented: false, hasRenderedPreview: true))
+        // GPU has presented → frame on screen (even with renderedPreview nil).
+        XCTAssertTrue(EditSession.canvasHasFrame(
+            gpuActive: true, gpuFramePresented: true, hasRenderedPreview: false))
+    }
+
+    func testCanvasHasFrame_cpuPath_usesRenderedPreview() {
+        XCTAssertTrue(EditSession.canvasHasFrame(
+            gpuActive: false, gpuFramePresented: false, hasRenderedPreview: true))
+        XCTAssertFalse(EditSession.canvasHasFrame(
+            gpuActive: false, gpuFramePresented: true, hasRenderedPreview: false))
+    }
+
     /// Fit-to-window opens are the common case; if `RenderedPreviewCache`
     /// only writes on `phase == .refine` then those opens never populate
     /// the cache and every re-open redoes the Rust pipeline. Verify that

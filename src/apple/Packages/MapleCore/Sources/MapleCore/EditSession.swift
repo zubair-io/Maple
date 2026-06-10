@@ -111,6 +111,15 @@ public final class EditSession {
     /// Last render error, if any. Views can surface a banner when non-nil.
     public var renderError: Error?
 
+    /// True once the wgpu live path has PRESENTED at least one frame into the
+    /// canvas `CAMetalLayer` for this session. The GPU path presents directly
+    /// to the layer and never assigns `renderedPreview`, so the loading
+    /// indicator and the canvas-ready sentinel cannot use `renderedPreview != nil`
+    /// to know the GPU canvas has content (hydration also seeds `renderedPreview`
+    /// early). Monotonic per session — a new image is a new `EditSession`, so
+    /// this resets to `false` naturally. Set in `presentViaGpuLive`. See #1069.
+    public var gpuFramePresented: Bool = false
+
     /// Native image size in sensor pixels. Populated on the first decode and
     /// kept stable across phases/renders. Fit-to-viewport and zoom math must
     /// read this rather than `renderedPreview.extent` — the preview buffer

@@ -124,9 +124,27 @@ extension EditSession {
             // the next tick re-attempts; a persistent failure shows the banner.
             self?.renderError = error
         }
+        // A frame is now on the canvas layer — drive the loading indicator +
+        // canvas-ready sentinel off this (renderedPreview is never set on this
+        // path). NOT set in the stale-drop branch above (no frame presented). #1069
+        gpuFramePresented = true
         editSessionLogger.debug(
             "GPU live presented gen=\(gen ?? 0) \(dims.width)x\(dims.height)")
         return true
+    }
+
+    /// Whether the ACTIVE canvas currently has a frame on screen — the input the
+    /// loading spinner + `canvas-render-ready` sentinel need. The GPU live path's
+    /// canvas IS the `CAMetalLayer` (`gpuFramePresented`); the CPU path's canvas
+    /// is `renderedPreview`. Keyed on the active path so neither a hydration-seeded
+    /// `renderedPreview` (GPU path) nor a hardcoded constant drives readiness. Pure
+    /// (all inputs explicit) so it is unit-testable without env/flags. See #1069.
+    public static func canvasHasFrame(
+        gpuActive: Bool,
+        gpuFramePresented: Bool,
+        hasRenderedPreview: Bool
+    ) -> Bool {
+        gpuActive ? gpuFramePresented : hasRenderedPreview
     }
 
     /// The post-prescale pixel dims the GPU session/layer use for `decoded` at
