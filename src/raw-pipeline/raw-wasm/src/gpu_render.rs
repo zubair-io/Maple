@@ -2,8 +2,8 @@
 //! P4b-web / #1029).
 //!
 //! The WASM counterpart of [`crate::render_bytes`]: decodes a RAW from bytes and
-//! produces the SAME u8 RGB display surface, but routes the scene-linear-subset
-//! + view-tail + dither through the merged wgpu+WGSL chain ([`raw_gpu::LiveSession`])
+//! produces the SAME u8 RGB display surface, but routes the scene-linear-subset +
+//! view-tail + dither through the merged wgpu+WGSL chain ([`raw_gpu::LiveSession`])
 //! instead of `raw-core`'s CPU pipeline. Gated behind `raw-wasm`'s `gpu` feature
 //! (off by default; the CPU `render_bytes` + WebGL2 paths remain the fallback —
 //! deletion is P5).
