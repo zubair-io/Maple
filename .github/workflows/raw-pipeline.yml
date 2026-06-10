@@ -31,15 +31,21 @@ on:
     paths:
       - 'src/raw-pipeline/**'
       - 'test-fixtures/budgets.json'
+      - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
       - 'src/scripts/compare_images.py'
+      - 'src/scripts/test_pano_pipeline.sh'
+      - 'src/scripts/pano_metrics.py'
       - '.github/workflows/raw-pipeline.yml'
   pull_request:
     paths:
       - 'src/raw-pipeline/**'
       - 'test-fixtures/budgets.json'
+      - 'test-fixtures/pano-budgets.json'
       - 'src/scripts/test_color_pipeline.sh'
       - 'src/scripts/compare_images.py'
+      - 'src/scripts/test_pano_pipeline.sh'
+      - 'src/scripts/pano_metrics.py'
       - '.github/workflows/raw-pipeline.yml'
 
 concurrency:
@@ -136,3 +142,64 @@ jobs:
         env:
           MANIFEST: /nonexistent/test-fixtures-not-provisioned.json
         run: bash src/scripts/test_color_pipeline.sh
+
+  # Pano regression harness (Maple Pano M0b, #1120). Mirrors the
+  # color-pipeline job: fixture probe up front, the harness itself
+  # skip-passes without the gitignored corpus (test-fixtures/raws/pano_*/
+  # + references/<set>/<set>.png), and the per-set ceilings in the tracked
+  # test-fixtures/pano-budgets.json are a one-way ratchet.
+  #
+  # Two deliberate differences from the color job:
+  #   * Python deps (numpy + Pillow) install on BOTH branches because the
+  #     harness's always-on validation — pano_metrics.py --self-test — runs
+  #     procedurally even without fixtures, so this job gates the metric
+  #     implementation on every PR that touches it.
+  #   * The Rust toolchain is only provisioned when fixtures exist: that is
+  #     the only path on which the harness builds maple-cli (to probe for
+  #     the `pano stitch` candidate generator, which does not exist yet —
+  #     the harness prints "candidate generator not available" and exits 0
+  #     until Maple Pano M1+ lands the subcommand).
+  pano-pipeline:
+    name: pano-pipeline (test_pano_pipeline.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe fixtures
+        id: probe
+        run: |
+          if ls -d test-fixtures/raws/pano_*/ >/dev/null 2>&1; then
+            echo "have_fixtures=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have_fixtures=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::test-fixtures/raws/pano_* not present — pano candidate gates are a no-op on this runner; the metrics self-test still runs."
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The pano metric tool deliberately needs only numpy + Pillow (a
+      # subset of src/scripts/requirements.txt) — keep this install tight
+      # so the fixture-less self-test branch stays fast.
+      - name: Install Python metric deps
+        run: pip install 'numpy>=1.26' 'Pillow>=10'
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.probe.outputs.have_fixtures == 'true'
+
+      - name: Cache cargo registry + raw-pipeline target
+        if: steps.probe.outputs.have_fixtures == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: raw-pipeline-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+
+      # One step for both branches: the harness's own discovery decides
+      # whether the candidate phase runs (no fixtures → self-test + budgets
+      # validation, then an explicit skip-pass with exit 0).
+      - name: Run pano-pipeline harness
+        run: bash src/scripts/test_pano_pipeline.sh
