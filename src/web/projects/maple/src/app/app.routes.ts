@@ -75,6 +75,15 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/workers/workers.component').then((m) => m.WorkersComponent),
   },
+  // Backup: mirror each library's originals + XMP sidecars to a second
+  // location, with a live two-stage reconcile (scan → copy). Moved out of the
+  // Workers page into its own section.
+  {
+    path: 'settings/backup',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/backup/backup.component').then((m) => m.BackupComponent),
+  },
   // #742 — Imports: copy a server-local folder into a registered library.
   {
     path: 'settings/imports',

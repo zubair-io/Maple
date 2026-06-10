@@ -1,7 +1,7 @@
-// MirrorSettingsComponent — the "Mirror / backup" row on the Workers settings
-// page. Renders in the same column grid as the worker stage rows. Surfaces the
-// live two-stage reconcile (scanning → copying) with per-stage counts, the
-// current file, and an error log; plus per-library backup-location config.
+// MirrorSettingsComponent — the Mirror/backup panel shown in the Backup settings
+// section. Always-visible (not a collapsible row): per-library backup-location
+// config + the live two-stage reconcile (scanning → copying) with per-stage
+// counts, the current file, a copied-files log, and an error log.
 // Backed by GET/PUT /api/folders/:id/mirror, POST /api/mirror/test,
 // GET /api/mirror/status, POST /api/mirror/retry-dead, POST /api/mirror/reconcile.
 
@@ -22,7 +22,6 @@ import {
   errorMessage,
 } from '@maple-common';
 import { SettingsIconComponent } from '../settings-icon.component';
-import { SettingsRowComponent } from '../settings-row.component';
 
 interface MirrorForm {
   path: string;
@@ -34,19 +33,13 @@ type TestState = 'idle' | 'testing' | 'ok' | 'fail';
 @Component({
   selector: 'maple-mirror-settings',
   standalone: true,
-  imports: [SettingsIconComponent, SettingsRowComponent],
+  imports: [SettingsIconComponent],
   templateUrl: './mirror-settings.component.html',
   styleUrl: './mirror-settings.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MirrorSettingsComponent implements OnInit, OnDestroy {
   private readonly backend = inject(BunApiBackendService);
-
-  /** Collapsed by default — the row expands to reveal config + reconcile detail. */
-  protected readonly expanded = signal(false);
-  protected toggle(): void {
-    this.expanded.update((v) => !v);
-  }
 
   protected readonly libraries = signal<ApiFolder[]>([]);
   protected readonly loading = signal(true);
@@ -107,7 +100,7 @@ export class MirrorSettingsComponent implements OnInit, OnDestroy {
     return this.mirrorActive() ? 'var(--s-ok)' : 'var(--s-text-dim)';
   }
 
-  /** One-line readout for the collapsed row (the active stage, else the queue). */
+  /** One-line readout for the panel header (the active stage, else the queue). */
   protected reconcileSummary(): string {
     const r = this.reconcile();
     if (r?.phase === 'scanning') {
