@@ -119,7 +119,7 @@ fn pass(input: &[f32], w: usize, h: usize, dehaze: f32) -> DehazePass {
 /// worst-index report confirms which region drives the max.
 #[test]
 fn wgsl_dehaze_matches_raw_core_stage_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (128usize, 128usize);
     let input = hazy_image(w, h);
 
@@ -151,7 +151,7 @@ fn wgsl_dehaze_matches_raw_core_stage_within_1e_4() {
 /// from the interior) and confirm parity there too.
 #[test]
 fn wgsl_dehaze_border_ring_matches_raw_core() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (128usize, 128usize);
     let input = hazy_image(w, h);
     let dehaze = 100.0f32;
@@ -189,7 +189,7 @@ fn wgsl_dehaze_border_ring_matches_raw_core() {
 /// behind a border-dominated global max (or vice versa).
 #[test]
 fn wgsl_dehaze_interior_matches_raw_core() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (128usize, 128usize);
     let input = hazy_image(w, h);
     let dehaze = 80.0f32;
@@ -223,7 +223,7 @@ fn wgsl_dehaze_interior_matches_raw_core() {
 /// Pass copies src → dst). Mirrors raw-core's `|dehaze| < 1e-3` early return.
 #[test]
 fn wgsl_dehaze_zero_is_identity() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let input = hazy_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
@@ -337,7 +337,7 @@ fn independent_dark_channel(pixels: &[[f32; 3]], w: usize, h: usize) -> Vec<f32>
 #[test]
 fn dehaze_composes_as_one_pass_in_a_chain() {
     use crate::exposure::ExposurePass;
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64usize, 64usize);
     let input = hazy_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
@@ -364,7 +364,7 @@ fn dehaze_composes_as_one_pass_in_a_chain() {
 /// flat (and so the airlight is well-defined).
 #[test]
 fn wgsl_dehaze_handles_pure_black() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let mut input = vec![0.0f32; w * h * 4];
     for px in input.chunks_exact_mut(4) {

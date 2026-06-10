@@ -136,9 +136,16 @@ fn gaussian_kernel_matches_raw_core_structure() {
     for &sigma in &[0.25_f32, 0.5, 0.68, 1.0, 1.5, 2.0] {
         let k = gaussian_kernel_1d(sigma);
         let sum: f32 = k.iter().sum();
-        assert!((sum - 1.0).abs() < 1e-6, "kernel for sigma={sigma} sums to {sum}");
+        assert!(
+            (sum - 1.0).abs() < 1e-6,
+            "kernel for sigma={sigma} sums to {sum}"
+        );
         let expected_half = (3.0 * sigma).ceil().max(1.0) as usize;
-        assert_eq!(k.len(), 2 * expected_half + 1, "kernel len for sigma={sigma}");
+        assert_eq!(
+            k.len(),
+            2 * expected_half + 1,
+            "kernel len for sigma={sigma}"
+        );
         for i in 0..k.len() / 2 {
             assert!(
                 (k[i] - k[k.len() - 1 - i]).abs() < 1e-6,
@@ -155,7 +162,7 @@ fn gaussian_kernel_matches_raw_core_structure() {
 /// loop. Asserts raw-core actually deconvolved (moved ≫ 1e-4).
 #[test]
 fn capture_pass_matches_raw_core_across_iterations() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64usize, 24usize);
     let input = soft_step_image(w, h);
     for &iterations in &[1u32, 2, 3] {
@@ -190,7 +197,7 @@ fn capture_pass_matches_raw_core_across_iterations() {
 /// weights + clamp-to-edge conv match raw-core at both ends of the sigma range.
 #[test]
 fn capture_pass_matches_raw_core_across_sigma() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64usize, 24usize);
     let input = soft_step_image(w, h);
     for &sigma in &[0.5_f32, 1.5] {
@@ -227,7 +234,7 @@ fn capture_pass_matches_raw_core_across_sigma() {
 /// the soft-step fixture (luma ≤ ~0.76) does NOT fully exercise.
 #[test]
 fn capture_pass_matches_raw_core_highlight_fade() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 16usize);
     // Soft step from a near-clipped highlight (0.995) down to mid (0.5), so a
     // band of pixels lands above the default 0.99 highlight threshold.
@@ -269,7 +276,7 @@ fn capture_pass_matches_raw_core_highlight_fade() {
 /// interior BOTH match `< 1e-4`, and the interior actually MOVED from the input.
 #[test]
 fn capture_border_and_interior_coverage_non_vacuous() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64usize, 24usize);
     let params = CaptureSharpeningParams::default(); // sigma 0.68 → half = ceil(2.04) = 3
     let strip = (3.0_f32 * params.sigma).ceil().max(1.0) as usize;
@@ -314,8 +321,14 @@ fn capture_border_and_interior_coverage_non_vacuous() {
         interior_moved > 1e-4,
         "interior never moved ({interior_moved:e}) — deconvolution is a no-op, gate vacuous"
     );
-    assert!(border_worst < 1e-4, "border-strip diff {border_worst} exceeds 1e-4");
-    assert!(interior_worst < 1e-4, "interior diff {interior_worst} exceeds 1e-4");
+    assert!(
+        border_worst < 1e-4,
+        "border-strip diff {border_worst} exceeds 1e-4"
+    );
+    assert!(
+        interior_worst < 1e-4,
+        "interior diff {interior_worst} exceeds 1e-4"
+    );
 }
 
 /// The two PER-PIXEL skip-paths in `apply_scale` (raw-core's
@@ -328,7 +341,7 @@ fn capture_border_and_interior_coverage_non_vacuous() {
 /// GPU still matches raw-core `< 1e-4` (i.e. both write the source value through).
 #[test]
 fn capture_apply_scale_skip_paths_match_raw_core() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 16usize);
     // Mid-tone soft step (so most pixels DO get scaled — the gate isn't trivial)
     // with two planted pathological pixels.
@@ -377,7 +390,7 @@ fn capture_apply_scale_skip_paths_match_raw_core() {
 /// the GPU must reproduce the input bit-for-bit (the Pass copies src → dst).
 #[test]
 fn capture_zero_strength_is_identity() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16usize, 16usize);
     let input = soft_step_image(w, h);
     let gpu = capture_gpu(
@@ -390,7 +403,10 @@ fn capture_zero_strength_is_identity() {
             ..Default::default()
         },
     );
-    assert_eq!(gpu, input, "strength=0 must pass the image through unchanged");
+    assert_eq!(
+        gpu, input,
+        "strength=0 must pass the image through unchanged"
+    );
 }
 
 /// The remaining no-op guards each copy src → dst: zero iterations, zero / huge /
@@ -398,7 +414,7 @@ fn capture_zero_strength_is_identity() {
 /// raw-core's leading guard set — all must reproduce the input bit-for-bit.
 #[test]
 fn capture_noop_guards_are_identity() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16usize, 16usize);
     let input = soft_step_image(w, h);
     let base = CaptureSharpeningParams::default();
@@ -439,7 +455,7 @@ fn capture_noop_guards_are_identity() {
 /// `preserves_flat_regions_within_tolerance`, carried through the GPU path.
 #[test]
 fn capture_flat_field_stays_flat() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let input: Vec<f32> = (0..w * h).flat_map(|_| [0.5f32, 0.5, 0.5, 1.0]).collect();
     let gpu = capture_gpu(
@@ -449,7 +465,10 @@ fn capture_flat_field_stays_flat() {
         h as u32,
         CaptureSharpeningParams::default(),
     );
-    assert!(gpu.iter().all(|v| v.is_finite()), "flat field produced non-finite output");
+    assert!(
+        gpu.iter().all(|v| v.is_finite()),
+        "flat field produced non-finite output"
+    );
     let (diff, _) = max_diff_at(&input, &gpu);
     assert!(diff < 1e-3, "flat field drifted by {diff} (expected ~0)");
 }
@@ -461,7 +480,7 @@ fn capture_flat_field_stays_flat() {
 #[test]
 fn capture_composes_as_one_pass_in_a_chain() {
     use crate::exposure::ExposurePass;
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 24usize);
     let input = soft_step_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
@@ -469,10 +488,8 @@ fn capture_composes_as_one_pass_in_a_chain() {
     let params = CaptureSharpeningParams::default();
 
     let solo = runner.run_blocking(&[&CaptureSharpeningPass { params }]);
-    let chained = runner.run_blocking(&[
-        &ExposurePass { ev: 0.0 },
-        &CaptureSharpeningPass { params },
-    ]);
+    let chained =
+        runner.run_blocking(&[&ExposurePass { ev: 0.0 }, &CaptureSharpeningPass { params }]);
     let (diff, _) = max_diff_at(&solo, &chained);
     assert!(
         diff < 1e-4,

@@ -154,18 +154,29 @@ fn cpu_reference_u8(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<u8> {
 /// dehaze=45), NEITHER being "the airlight". That degeneracy is a property of this
 /// synthetic image, not the present path; the on-GPU airlight's end-to-end dehaze
 /// parity is gated on a HAZY fixture in `live_session/tests.rs`. (#1033)
-fn gpu_present_u8(ctx: &GpuContext, input: &[f32], w: u32, h: u32, inputs: &crate::FullChainInputs) -> Vec<u8> {
-    let session = LiveSession::new_with_airlight_readback(ctx, input, w, h);
+fn gpu_present_u8(
+    ctx: &GpuContext,
+    input: &[f32],
+    w: u32,
+    h: u32,
+    inputs: &crate::FullChainInputs,
+) -> Vec<u8> {
+    let session = LiveSession::new_with_airlight_readback(ctx, input, w, h).expect("session");
     let cancel = CancelToken::new();
     let final_idx = session
         .render_chain_to_f32(ctx, inputs, &cancel)
+        .expect("chain-to-f32 ok")
         .expect("uncancelled chain-to-f32 returns Some");
-    present_chain_to_offscreen(ctx, &session, final_idx)
+    present_chain_to_offscreen(ctx, &session, final_idx).expect("offscreen present ok")
 }
 
 /// Compare two equal-length u8 RGB buffers; return `(max_byte_delta, mismatch_fraction)`.
 fn byte_diff(got: &[u8], want: &[u8]) -> (u32, f32) {
-    assert_eq!(got.len(), want.len(), "present vs reference length mismatch");
+    assert_eq!(
+        got.len(),
+        want.len(),
+        "present vs reference length mismatch"
+    );
     let max_delta = got
         .iter()
         .zip(want)
@@ -185,7 +196,7 @@ fn byte_diff(got: &[u8], want: &[u8]) -> (u32, f32) {
 /// interiors — an 8×8 would degenerate them).
 #[test]
 fn offscreen_present_matches_cpu_render_within_1_lsb() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64u32, 64u32);
     let input = scene_linear_rgba(w as usize, h as usize);
 
@@ -226,7 +237,7 @@ fn offscreen_present_matches_cpu_render_within_1_lsb() {
 /// presented surface must NOT be a flat grey field — its byte range must be wide.
 #[test]
 fn present_paints_the_image_not_the_clear_color() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64u32, 64u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let inputs = aggressive_case().gpu_inputs();
@@ -236,7 +247,10 @@ fn present_paints_the_image_not_the_clear_color() {
     let max = *got.iter().max().unwrap();
     // The clear colour is a single grey ~127; a real image spans a wide range.
     // Require the spread to comfortably exceed any plausible all-grey clear.
-    eprintln!("PRESENT NON-VACUOUS: byte range [{min}, {max}] (spread {})", max - min);
+    eprintln!(
+        "PRESENT NON-VACUOUS: byte range [{min}, {max}] (spread {})",
+        max - min
+    );
     assert!(
         max - min > 80,
         "presented surface byte range [{min},{max}] is too narrow — the FS likely failed to \
@@ -250,14 +264,16 @@ fn present_paints_the_image_not_the_clear_color() {
 /// edit supersedes the in-flight present.)
 #[test]
 fn pre_cancelled_chain_to_f32_returns_none() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16u32, 16u32);
     let input = scene_linear_rgba(w as usize, h as usize);
     let inputs = aggressive_case().gpu_inputs();
 
-    let session = LiveSession::new(&ctx, &input, w, h);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
     let cancel = CancelToken::new();
     cancel.cancel(); // pre-cancelled
-    let out = session.render_chain_to_f32(&ctx, &inputs, &cancel);
+    let out = session
+        .render_chain_to_f32(&ctx, &inputs, &cancel)
+        .expect("chain-to-f32 ok");
     assert!(out.is_none(), "pre-cancelled chain-to-f32 must return None");
 }

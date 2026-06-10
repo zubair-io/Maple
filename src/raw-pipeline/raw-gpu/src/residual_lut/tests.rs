@@ -57,7 +57,10 @@ fn raw_core_apply(rgba: &[f32], lut: &ColorLut) -> Vec<f32> {
 }
 
 fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0_f32, f32::max)
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0_f32, f32::max)
 }
 
 /// A NON-identity fitted residual grid, built via the real
@@ -93,7 +96,7 @@ fn fitted_residual_lut(size: usize) -> ColorLut {
 /// catch any `size`-uniform off-by-one.
 #[test]
 fn wgsl_residual_lut_matches_raw_core_apply_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = lut_rgba();
     let count = (input.len() / 4) as u32;
 
@@ -152,7 +155,7 @@ fn local_oracle_matches_raw_core_apply_within_1e_4() {
 /// alongside the raw-core gate; mirrors the vibrance / auto_profile_curve precedent.
 #[test]
 fn wgsl_residual_lut_matches_cpu_oracle_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = lut_rgba();
     let count = (input.len() / 4) as u32;
 
@@ -182,7 +185,7 @@ fn wgsl_residual_lut_matches_cpu_oracle_within_1e_4() {
 /// index-order bug in `((b*N+g)*N+r)` that would skew even a true identity grid.
 #[test]
 fn identity_lut_is_near_passthrough_on_gpu() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = lut_rgba();
     let count = (input.len() / 4) as u32;
     let size = 17usize;
@@ -213,7 +216,7 @@ fn identity_lut_is_near_passthrough_on_gpu() {
 /// only RGB). Mirrors the per-stage alpha-passthrough contract.
 #[test]
 fn gpu_alpha_passthrough() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = lut_rgba();
     let count = (input.len() / 4) as u32;
     let lut = fitted_residual_lut(49);

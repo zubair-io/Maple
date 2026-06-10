@@ -162,7 +162,7 @@ fn assert_parity(input: &[f32], width: u32, height: u32, ctx: &GpuContext) {
 /// combinations exercising each step's branches — on the 1-D strip.
 #[test]
 fn wgsl_scene_tone_controls_matches_raw_core_stage_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = tone_buffer();
     let count = (input.len() / 4) as u32;
     assert_parity(&input, count, 1, &ctx);
@@ -173,7 +173,7 @@ fn wgsl_scene_tone_controls_matches_raw_core_stage_within_1e_4() {
 /// texture (#1103).
 #[test]
 fn wgsl_scene_tone_dag_matches_raw_core_on_2d_image() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (input, w, h) = tone_image_2d();
     assert_parity(&input, w, h, &ctx);
 }
@@ -215,7 +215,7 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
 /// analogue of the Rust stage's identity short-circuit.
 #[test]
 fn subthreshold_sliders_are_passthrough_on_gpu() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = tone_buffer();
     let count = (input.len() / 4) as u32;
     let img = GpuImage::upload(&ctx, &input, count, 1);

@@ -118,10 +118,22 @@ mod tests {
     fn gamma_buffer() -> Vec<f32> {
         vec![
             // r,      g,    b,    a       branch
-            -0.10, 0.00, 0.001, 1.0, // r: neg-clamp, g: toe@0, b: toe
-            0.003_130_8, 0.05, 0.18, 0.7, // r: knee, g/b: power branch
-            0.50, 1.00, 2.00, 1.0, // r: power, g: high edge, b: upper-clamp
-            5.00, -0.50, 0.20, 0.5, // r: upper-clamp, g: neg-clamp, b: power
+            -0.10,
+            0.00,
+            0.001,
+            1.0, // r: neg-clamp, g: toe@0, b: toe
+            0.003_130_8,
+            0.05,
+            0.18,
+            0.7, // r: knee, g/b: power branch
+            0.50,
+            1.00,
+            2.00,
+            1.0, // r: power, g: high edge, b: upper-clamp
+            5.00,
+            -0.50,
+            0.20,
+            0.5, // r: upper-clamp, g: neg-clamp, b: power
         ]
     }
 
@@ -151,7 +163,7 @@ mod tests {
     /// branch (the full [0, 1]+ range).
     #[test]
     fn wgsl_srgb_gamma_matches_raw_core_stage_within_1e_4() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = gamma_buffer();
         let count = (input.len() / 4) as u32;
 
@@ -199,13 +211,17 @@ mod tests {
     /// as a NaN from `pow(neg, 1/2.4)` on the negative channel.)
     #[test]
     fn out_of_range_input_clamps_both_ends_on_gpu() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         // r negative → 0, g HDR → 1, b in-range mid, alpha = 0.5 (must survive).
         let input = vec![-0.3_f32, 4.0, 0.18, 0.5];
         let img = GpuImage::upload(&ctx, &input, 1, 1);
         let runner = ChainRunner::new(&ctx, &img);
         let gpu = runner.run_blocking(&[&SrgbGammaPass]);
-        assert!(gpu[0].abs() < 1e-6, "negative channel must clamp to 0: {}", gpu[0]);
+        assert!(
+            gpu[0].abs() < 1e-6,
+            "negative channel must clamp to 0: {}",
+            gpu[0]
+        );
         assert!(
             (gpu[1] - 1.0).abs() < 1e-6,
             "HDR-overshoot channel must clamp to 1: {}",

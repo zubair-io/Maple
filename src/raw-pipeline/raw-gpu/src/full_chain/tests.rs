@@ -79,7 +79,7 @@ use crate::capture_sharpening::CaptureSharpeningParams;
 /// output). Returns the final RGBA buffer. Each phase asserts exactly one
 /// readback (`ChainRunner`'s single end-of-run readback per `run_blocking`).
 fn run_gpu_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Vec<f32> {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
 
     // Phase 1: the pre-dehaze prefix. airlight is unknown yet, so build the
     // split with a placeholder — only the prefix is used here.

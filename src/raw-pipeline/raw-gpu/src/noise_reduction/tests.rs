@@ -120,7 +120,7 @@ fn denoise_plane_gpu(
     let denoised = encode_nlm_on_plane(ctx, &mut encoder, &plane_buf, w, h, params);
     let byte_len = (w as u64) * (h as u64) * std::mem::size_of::<f32>() as u64;
     ctx.queue.submit(Some(encoder.finish()));
-    pollster::block_on(read_buffer_async(ctx, &denoised, byte_len))
+    pollster::block_on(read_buffer_async(ctx, &denoised, byte_len)).expect("readback")
 }
 
 /// `raw_core::stages::nlm::denoise_plane` on the same plane — the plane-level
@@ -188,7 +188,7 @@ fn max_diff_at(a: &[f32], b: &[f32]) -> (f32, usize) {
 /// math (direct patch-SSD summation + the `fast_neg_exp` grid-lerp weight).
 #[test]
 fn nlm_core_matches_denoise_plane_luma_params() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 48usize);
     let plane = modest_plane(w, h);
     let params = luma_params(100.0);
@@ -214,7 +214,7 @@ fn nlm_core_matches_denoise_plane_luma_params() {
 /// regime most sensitive to weight error).
 #[test]
 fn nlm_core_matches_denoise_plane_chroma_params() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 48usize);
     let plane = modest_plane(w, h);
     let params = chroma_params(100.0);
@@ -235,7 +235,7 @@ fn nlm_core_matches_denoise_plane_chroma_params() {
 /// confirms the `inv_norm` scaling is right at a non-maximal strength.
 #[test]
 fn nlm_core_matches_denoise_plane_half_strength() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (40usize, 40usize);
     let plane = modest_plane(w, h);
     let params = luma_params(50.0);
@@ -255,7 +255,7 @@ fn nlm_core_matches_denoise_plane_half_strength() {
 /// gate isn't trivially satisfied by an identity transform).
 #[test]
 fn nlm_core_border_and_interior_coverage_non_vacuous() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 48usize);
     let p = LUMA_PATCH_RADIUS;
     let plane = modest_plane(w, h);
@@ -321,7 +321,7 @@ fn nlm_core_border_and_interior_coverage_non_vacuous() {
 /// writeback (L restored, a/b recomputed) — the whole Oklab round-trip.
 #[test]
 fn nlm_luma_pass_matches_raw_core_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 48usize);
     let input = modest_image(w, h);
     for &amount in &[40.0_f32, 75.0, 100.0] {
@@ -366,7 +366,7 @@ fn nlm_luma_pass_matches_raw_core_within_1e_4() {
 /// shifts `input` by ≫ 1e-4 — mirroring the plane test's `interior_moved` guard.
 #[test]
 fn nlm_color_pass_matches_raw_core_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 48usize);
     let input = modest_image(w, h);
     for &amount in &[40.0_f32, 75.0, 100.0] {
@@ -403,7 +403,7 @@ fn nlm_color_pass_matches_raw_core_within_1e_4() {
 /// (the Pass copies src → dst). Mirrors raw-core's `|amount| < 1e-3` early return.
 #[test]
 fn nlm_luma_zero_is_identity() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16usize, 16usize);
     let input = modest_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
@@ -418,7 +418,7 @@ fn nlm_luma_zero_is_identity() {
 /// `nr_color = 0` is identity (same contract as luma).
 #[test]
 fn nlm_color_zero_is_identity() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16usize, 16usize);
     let input = modest_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
@@ -436,7 +436,7 @@ fn nlm_color_zero_is_identity() {
 /// neutral-axis Oklab path either.
 #[test]
 fn nlm_flat_field_stays_flat() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let input: Vec<f32> = (0..w * h).flat_map(|_| [0.4f32, 0.4, 0.4, 1.0]).collect();
     let reference_l = raw_core_nr_luma(&input, w as u32, h as u32, 100.0);
@@ -469,7 +469,7 @@ fn nlm_flat_field_stays_flat() {
 #[test]
 fn nlm_composes_as_one_pass_in_a_chain() {
     use crate::exposure::ExposurePass;
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let input = modest_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);

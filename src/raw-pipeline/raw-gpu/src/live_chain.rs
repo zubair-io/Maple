@@ -350,6 +350,16 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
 ///   `CHROMA_SEARCH_RADIUS`), captured by the nr_luminance / nr_color mask bits —
 ///   no extra field needed. The box-blur sweeps and dehaze's DAG are fixed once
 ///   their stage is active.
+///
+/// Pooled-data-buffer SIZE drivers folded in (#1079):
+/// - **`residual_lut_size`**: the residual-LUT pass's pooled storage buffer is
+///   `size³·3` floats — the ONE pooled data buffer whose byte length can vary at
+///   a constant active mask (the Auto Profile curve is `PROFILE_CURVE_FLAT_LEN`-
+///   fixed, the tone-curve slots are `NUM_SLOTS × SLOT_STRIDE`-fixed, the AgX
+///   LUT is a const). Without it, a residual LUT GROWING mid-session would make
+///   `pool_scratch` replace the too-small buffer while the cached bind group at
+///   the same signature kept referencing the OLD one — the dispatch would read
+///   stale LUT data. Folding the size in lands the new shape in a fresh bucket.
 pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32)) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -363,6 +373,9 @@ pub fn chain_signature(inputs: &FullChainInputs, dims: (u32, u32)) -> u64 {
         .map(|p| p.iterations)
         .unwrap_or(0);
     cs_iters.hash(&mut h);
+    // The residual-LUT edge drives the pooled grid buffer's byte length (#1079).
+    // Hash as u64 so the signature is stable across usize widths.
+    (inputs.residual_lut_size as u64).hash(&mut h);
     h.finish()
 }
 

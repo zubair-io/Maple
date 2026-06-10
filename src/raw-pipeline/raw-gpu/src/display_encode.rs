@@ -274,7 +274,7 @@ mod tests {
     /// bisection path.
     #[test]
     fn wgsl_display_encode_matches_raw_core_stage_within_1e_4() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = encode_buffer();
         let count = (input.len() / 4) as u32;
 
@@ -371,7 +371,7 @@ mod tests {
     /// `saturated_rec2020_red_preserves_hue` contract.
     #[test]
     fn out_of_gamut_red_lands_in_box_and_keeps_red_dominance_on_gpu() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = vec![1.0_f32, 0.0, 0.0, 1.0]; // pure Rec.2020 red
         let img = GpuImage::upload(&ctx, &input, 1, 1);
         let runner = ChainRunner::new(&ctx, &img);

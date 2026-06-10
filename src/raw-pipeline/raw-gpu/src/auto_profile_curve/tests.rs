@@ -100,11 +100,7 @@ fn identity_matrix_curve() -> ProfileCurve {
 fn full_curve() -> ProfileCurve {
     let mut c = identity_matrix_curve();
     // Mild cross-channel mixing (rows sum near 1 so it stays a sane color op).
-    c.matrix = [
-        [0.95, 0.03, 0.02],
-        [0.04, 0.92, 0.04],
-        [0.02, 0.05, 0.93],
-    ];
+    c.matrix = [[0.95, 0.03, 0.02], [0.04, 0.92, 0.04], [0.02, 0.05, 0.93]];
     c.chroma_boost = 1.15;
     c.chroma_offset = [0.01, -0.012];
     c.lightness_offset = 0.008;
@@ -127,7 +123,7 @@ fn full_curve() -> ProfileCurve {
 /// Oklab + band path; the identity case isolates `compress_input` + `eval_channel`.
 #[test]
 fn wgsl_auto_profile_curve_matches_raw_core_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = branchy_rgba();
     let count = (input.len() / 4) as u32;
 
@@ -141,9 +137,7 @@ fn wgsl_auto_profile_curve_matches_raw_core_within_1e_4() {
 
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&AutoProfileCurvePass {
-            flat_curve: flat,
-        }]);
+        let gpu = runner.run_blocking(&[&AutoProfileCurvePass { flat_curve: flat }]);
 
         let max_diff = reference
             .iter()
@@ -189,7 +183,7 @@ fn local_oracle_matches_raw_core_within_1e_4() {
 /// alongside the raw-core gate; mirrors the vibrance precedent. Covers both curves.
 #[test]
 fn wgsl_auto_profile_curve_matches_cpu_oracle_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = branchy_rgba();
     let count = (input.len() / 4) as u32;
 
@@ -228,7 +222,10 @@ fn wgsl_auto_profile_curve_matches_cpu_oracle_within_1e_4() {
 #[test]
 fn flag_predicates_classify_curves_like_raw_core() {
     let id_flat = identity_matrix_curve().to_flat();
-    assert!(matrix_is_identity(&id_flat), "identity-matrix curve: matrix must be identity");
+    assert!(
+        matrix_is_identity(&id_flat),
+        "identity-matrix curve: matrix must be identity"
+    );
     assert!(
         !should_apply_chroma(&id_flat),
         "identity-matrix curve: apply_chroma must be false (no-op Oklab)"
@@ -253,7 +250,7 @@ fn flag_predicates_classify_curves_like_raw_core() {
 /// eval_channel's interpolation introduces sub-1e-6 noise on non-anchor inputs.)
 #[test]
 fn identity_profile_curve_is_near_passthrough_on_gpu() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = vec![
         0.20_f32, 0.40, 0.60, 1.0, //
         0.50, 0.50, 0.50, 0.7, //
