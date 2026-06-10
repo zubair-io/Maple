@@ -1,27 +1,21 @@
 # cbindgen configuration for raw-ffi → RawPipeline.h.
 #
-# The default/shipping xcframework is wgpu-free: the GPU FFI surface
-# (`maple_gpu_*`, src/gpu.rs) is gated behind `#[cfg(feature = "gpu")]` in Rust
-# and is compiled into the static libs only by the opt-in gpu variant
-# (`MAPLE_XCFRAMEWORK_GPU=1`, see scripts/build-xcframework.sh).
+# As of #1064 the Apple xcframework is always-gpu: scripts/build-xcframework.sh
+# builds raw-ffi with `--features gpu` by default, so every slice's static lib
+# contains the GPU FFI surface (`maple_gpu_*`, src/gpu.rs + src/gpu_live.rs).
+# cbindgen therefore declares those symbols UNCONDITIONALLY — there is no longer a
+# `feature = gpu` → `MAPLE_GPU` mapping wrapping them in `#if defined(MAPLE_GPU)`.
+# (cbindgen parses source text regardless of the active Cargo feature set, so the
+# symbols appear in the header either way; the prior [defines] entry only existed
+# to hide them from the wgpu-free default build, which no longer exists.)
 #
-# cbindgen parses source text regardless of the active Cargo feature set, so
-# CARGO_FEATURE_GPU has NO effect on its output. Without the [defines] map
-# below cbindgen emits the `maple_gpu_*` declarations UNCONDITIONALLY (and
-# warns: "Missing `[defines]` entry for `feature = gpu`"). That left the default
-# header declaring symbols the default (wgpu-free) static libs don't contain —
-# which tripped the build script's symbol-consistency guard.
-#
-# The [defines] map instead wraps the gpu-gated declarations in
-# `#if defined(MAPLE_GPU)` (and `#if (defined(MAPLE_GPU) && defined(__APPLE__))`
-# for the Apple-only present entry). __APPLE__ is auto-defined by Clang on Apple
-# targets; MAPLE_GPU is not. So in any default build the Clang module importer
-# sees NO `maple_gpu_*` declarations — matching the wgpu-free contract and the
-# header to the libs. The gpu validation build defines MAPLE_GPU for both Swift
-# (`-D MAPLE_GPU`) and the Clang importer (`-Xcc -DMAPLE_GPU`) to expose them;
-# see src/apple/Maple/Views/GpuDebugView.swift.
+# The Apple-only present entries (`maple_gpu_present_chain` /
+# `maple_gpu_present_test_pattern`) are `#[cfg(target_vendor = "apple")]` in Rust,
+# so cbindgen wraps them in `#if defined(__APPLE__)` via the map below. __APPLE__
+# is auto-defined by Clang on every Apple target (all xcframework slices + the
+# macOS host), so the Clang module importer always sees them — the wrap just keeps
+# the header honest about the Rust cfg.
 language = "C"
 
 [defines]
-"feature = gpu" = "MAPLE_GPU"
 "target_vendor = apple" = "__APPLE__"
