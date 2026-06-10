@@ -111,34 +111,42 @@ impl<'a> ChainRunner<'a> {
     }
 
     /// Run `passes` to completion and read the result back. Native blocking.
+    /// Panics on a GPU readback failure — this is the headless test/harness
+    /// path, never the interactive one (which rides [`crate::LiveSession`]'s
+    /// `Result`-returning renders).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run_blocking(&self, passes: &[&dyn Pass]) -> Vec<f32> {
         pollster::block_on(self.run_async(passes))
+            .expect("GPU chain readback failed")
             .expect("run_async without a cancel token never returns None")
     }
 
     /// Run `passes`, bailing early if `token` is cancelled before a pass is
-    /// encoded. Returns `None` if cancelled. Native blocking.
+    /// encoded. Returns `None` if cancelled. Native blocking; panics on a GPU
+    /// readback failure (test/harness path, like [`ChainRunner::run_blocking`]).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn run_cancellable(&self, passes: &[&dyn Pass], token: &CancelToken) -> Option<Vec<f32>> {
         pollster::block_on(self.run_cancellable_async(passes, Some(token)))
+            .expect("GPU chain readback failed")
     }
 
     /// Async run with no cancellation. Shared by native (`run_blocking`) and
-    /// wasm callers. Always `Some` (kept `Option` to share the core).
-    pub async fn run_async(&self, passes: &[&dyn Pass]) -> Option<Vec<f32>> {
+    /// wasm callers. Always `Ok(Some(..))` on success (kept `Option` to share
+    /// the core); `Err` on a GPU readback failure (#1079).
+    pub async fn run_async(&self, passes: &[&dyn Pass]) -> Result<Option<Vec<f32>>, String> {
         self.run_cancellable_async(passes, None).await
     }
 
     /// The shared execution core. Encodes every pass into one command buffer
     /// (ping-ponging the two scratch buffers), submits once, and performs a
-    /// single readback. With `token` set, returns `None` as soon as the token
-    /// is cancelled before encoding a pass (checked before each pass).
+    /// single readback. With `token` set, returns `Ok(None)` as soon as the
+    /// token is cancelled before encoding a pass (checked before each pass);
+    /// `Err` if the end-of-run readback map fails (#1079).
     pub async fn run_cancellable_async(
         &self,
         passes: &[&dyn Pass],
         token: Option<&CancelToken>,
-    ) -> Option<Vec<f32>> {
+    ) -> Result<Option<Vec<f32>>, String> {
         self.readback_count.set(0);
         let dims = self.image.dims();
         let byte_len = self.image.byte_len();
@@ -160,7 +168,7 @@ impl<'a> ChainRunner<'a> {
             // Cooperative cancellation: bail before doing this pass's work.
             if let Some(t) = token {
                 if t.is_cancelled() {
-                    return None;
+                    return Ok(None);
                 }
             }
             let src_idx = i % 2;
@@ -186,17 +194,21 @@ impl<'a> ChainRunner<'a> {
         encoder.copy_buffer_to_buffer(result_buf, 0, &readback, 0, byte_len);
         self.ctx.queue.submit(Some(encoder.finish()));
 
-        let out = map_readback_async(self.ctx, &readback).await;
+        let out = map_readback_async(self.ctx, &readback).await?;
         self.readback_count.set(1);
-        Some(out)
+        Ok(Some(out))
     }
 }
 
 /// Map a `MAP_READ` buffer and cast its contents to `Vec<f32>`. The buffer must
 /// already have been filled (its `copy_buffer_to_buffer` submitted). `ctx` is
 /// used only on native (to poll the queue); on wasm the browser drives the map.
+/// A failed map (device loss / OOM) is an `Err`, not a panic (#1079).
 #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
-async fn map_readback_async(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<f32> {
+pub(crate) async fn map_readback_async(
+    ctx: &GpuContext,
+    readback: &wgpu::Buffer,
+) -> Result<Vec<f32>, String> {
     let slice = readback.slice(..);
     let (tx, rx) = futures_channel::oneshot::channel();
     slice.map_async(wgpu::MapMode::Read, move |res| {
@@ -207,13 +219,13 @@ async fn map_readback_async(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<f3
     #[cfg(not(target_arch = "wasm32"))]
     ctx.device.poll(wgpu::Maintain::Wait);
     rx.await
-        .expect("map channel dropped")
-        .expect("buffer map failed");
+        .map_err(|_| "chain readback: map channel dropped".to_string())?
+        .map_err(|e| format!("chain readback: buffer map failed: {e}"))?;
     let data = slice.get_mapped_range();
     let out: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
     drop(data);
     readback.unmap();
-    out
+    Ok(out)
 }
 
 /// Copy an arbitrary GPU buffer to the CPU as `Vec<f32>` via a one-shot
@@ -224,7 +236,7 @@ pub(crate) async fn read_buffer_async(
     ctx: &GpuContext,
     buffer: &wgpu::Buffer,
     byte_len: u64,
-) -> Vec<f32> {
+) -> Result<Vec<f32>, String> {
     let readback = ctx.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("image-readback"),
         size: byte_len,
@@ -266,7 +278,7 @@ mod tests {
 
     #[test]
     fn chain_runner_two_identity_passes_round_trip() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = test_buffer(256);
         let img = GpuImage::upload(&ctx, &input, 16, 16);
         let runner = ChainRunner::new(&ctx, &img);
@@ -278,7 +290,7 @@ mod tests {
     fn chain_runner_reports_single_readback() {
         // Structural proof of zero inter-pass readback: an N-pass run performs
         // exactly one readback regardless of pass count.
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = test_buffer(256);
         let img = GpuImage::upload(&ctx, &input, 16, 16);
 
@@ -301,7 +313,7 @@ mod tests {
     fn chain_runner_immutable_image_supports_rerun() {
         // The upload-once invariant: re-running the same image (e.g. preview
         // then refine) yields the same result — the image buffer is not mutated.
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = test_buffer(256);
         let img = GpuImage::upload(&ctx, &input, 16, 16);
         let runner = ChainRunner::new(&ctx, &img);
@@ -313,7 +325,7 @@ mod tests {
 
     #[test]
     fn chain_runner_cancels_between_passes() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let img = GpuImage::upload(&ctx, &test_buffer(256), 16, 16);
         let token = CancelToken::new();
         token.cancel(); // pre-cancelled
@@ -333,7 +345,7 @@ mod tests {
     #[test]
     fn chain_runner_uncancelled_token_completes() {
         // A live (un-cancelled) token runs to completion and reads back once.
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = test_buffer(256);
         let img = GpuImage::upload(&ctx, &input, 16, 16);
         let token = CancelToken::new();

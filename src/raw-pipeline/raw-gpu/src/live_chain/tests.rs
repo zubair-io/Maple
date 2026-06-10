@@ -123,14 +123,18 @@ fn neutral_case() -> Case {
 /// dance is C5's concern, for dehaze placed downstream of engaged stages.) One
 /// `ChainRunner` run, one readback.
 fn run_live_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Vec<f32> {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let airlight = compute_airlight(input, w as usize, h as usize);
     let passes = build_live_chain(inputs, AirlightSource::Cpu(airlight));
     let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
     let img = GpuImage::upload(&ctx, input, w, h);
     let runner = ChainRunner::new(&ctx, &img);
     let out = runner.run_blocking(&pass_refs);
-    assert_eq!(runner.last_readback_count(), 1, "live chain reads back once");
+    assert_eq!(
+        runner.last_readback_count(),
+        1,
+        "live chain reads back once"
+    );
     out
 }
 
@@ -138,7 +142,7 @@ fn run_live_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Ve
 /// airlight-from-input convention. Used ONLY to measure the neutral divergence
 /// the gating removes — the non-vacuous contrast in the gating proof.
 fn run_ungated_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Vec<f32> {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let airlight = compute_airlight(input, w as usize, h as usize);
     let passes = build_full_chain_passes(inputs, airlight);
     let pass_refs: Vec<&dyn Pass> = passes.iter().map(|p| p.as_ref()).collect();
@@ -380,11 +384,49 @@ fn live_split_concatenates_to_live_chain_and_handles_omitted_dehaze() {
     let mut dehazed = neutral_case();
     dehazed.model.dehaze = 40.0;
     let dehazed_inputs = dehazed.gpu_inputs();
-    let (dprefix, dsuffix) = build_live_split(&dehazed_inputs, AirlightSource::Cpu([0.1, 0.1, 0.1]));
+    let (dprefix, dsuffix) =
+        build_live_split(&dehazed_inputs, AirlightSource::Cpu([0.1, 0.1, 0.1]));
     assert_eq!(dprefix.len(), 0, "dehaze-only prefix is still empty");
     assert_eq!(
         dsuffix.len(),
         VIEW_TAIL_PASS_COUNT + 1,
         "dehaze-engaged suffix must add the DehazePass head to the view tail"
+    );
+}
+
+/// STALE-BIND-GROUP GUARD (#1079): `chain_signature` must fold in
+/// `residual_lut_size` — the ONE pooled data buffer whose byte length can change
+/// at a constant active-stage mask. Two input sets differing ONLY in the residual
+/// LUT edge must land in DIFFERENT pool buckets; otherwise a LUT growing
+/// mid-session would make `pool_scratch` replace the too-small grid buffer while
+/// the cached bind group kept referencing the replaced one (stale data). Same
+/// size ⇒ same signature (the zero-alloc hot path is untouched).
+#[test]
+fn chain_signature_folds_in_residual_lut_size() {
+    let dims = (8u32, 8u32);
+
+    let mut small = neutral_case();
+    small.lut = identity_lut(9);
+    let mut large = neutral_case();
+    large.lut = identity_lut(17);
+
+    let small_inputs = small.gpu_inputs();
+    let large_inputs = large.gpu_inputs();
+
+    assert_ne!(
+        chain_signature(&small_inputs, dims),
+        chain_signature(&large_inputs, dims),
+        "two chains differing only in residual_lut_size must get different signatures \
+         (a grown LUT at the same signature binds a stale pooled grid buffer)"
+    );
+
+    // Same size ⇒ same signature (the LUT *values* must not change the bucket —
+    // a slider drag at constant shape stays zero-alloc).
+    let mut same_size = neutral_case();
+    same_size.lut = identity_lut(9);
+    assert_eq!(
+        chain_signature(&small_inputs, dims),
+        chain_signature(&same_size.gpu_inputs(), dims),
+        "equal residual_lut_size must keep the signature stable"
     );
 }

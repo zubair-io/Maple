@@ -97,7 +97,11 @@ fn cpu_topn_average(pixels: &[[f32; 3]], dc: &[f32]) -> [f32; 3] {
     let n = dc.len();
     let top_n = (n / 1000).max(1);
     let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_unstable_by(|&a, &b| dc[b].partial_cmp(&dc[a]).unwrap_or(std::cmp::Ordering::Equal));
+    idx.sort_unstable_by(|&a, &b| {
+        dc[b]
+            .partial_cmp(&dc[a])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut sum = [0.0f32; 3];
     for &i in &idx[..top_n] {
         sum[0] += pixels[i][0];
@@ -119,7 +123,8 @@ fn gpu_airlight(ctx: &GpuContext, orig: &[f32], dc: &[f32], w: u32, h: u32) -> [
 
     // Upload the dark channel into a scalar plane (COPY_DST via the scratch usage).
     let dc_plane = alloc_plane(ctx, w, h, "airlight-test-dc");
-    ctx.queue.write_buffer(&dc_plane, 0, bytemuck::cast_slice(dc));
+    ctx.queue
+        .write_buffer(&dc_plane, 0, bytemuck::cast_slice(dc));
 
     let mut encoder = ctx
         .device
@@ -167,7 +172,7 @@ fn to_rgb(buf: &[f32]) -> Vec<[f32; 3]> {
 ///   (3) the selection is non-vacuous (A finite, drawn from the bright region).
 #[test]
 fn gpu_airlight_matches_compute_airlight_at_128px() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (128usize, 128usize);
     assert_eq!(
         (w * h / 1000).max(1),
@@ -203,7 +208,10 @@ fn gpu_airlight_matches_compute_airlight_at_128px() {
     );
 
     // Pin 3: non-vacuous (A is drawn from the bright haze region, ~[0.67,0.63,0.58]).
-    assert!(gpu_a.iter().all(|v| v.is_finite()), "GPU airlight must be finite, got {gpu_a:?}");
+    assert!(
+        gpu_a.iter().all(|v| v.is_finite()),
+        "GPU airlight must be finite, got {gpu_a:?}"
+    );
     assert!(
         gpu_a.iter().any(|&v| v > 0.1),
         "GPU airlight {gpu_a:?} is ~black — the masked average selected nothing (vacuous)"
@@ -224,7 +232,7 @@ fn gpu_airlight_matches_compute_airlight_at_128px() {
 /// one gradient slope.
 #[test]
 fn gpu_airlight_holds_on_steeper_gradient() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (128usize, 128usize);
     let mut input = hazy_image(w, h);
     // Steepen: push the brightest quartile higher so the top dc values separate.
@@ -248,7 +256,10 @@ fn gpu_airlight_holds_on_steeper_gradient() {
         "AIRLIGHT PARITY [steeper 128×128]: GPU A = {gpu_a:?}, CPU A = {cpu_a:?}, \
          worst channel delta = {worst:e} (tol {AIRLIGHT_TOL:e})"
     );
-    assert!(gpu_a.iter().all(|v| v.is_finite()), "GPU airlight must be finite");
+    assert!(
+        gpu_a.iter().all(|v| v.is_finite()),
+        "GPU airlight must be finite"
+    );
     assert!(
         worst < AIRLIGHT_TOL,
         "steeper-gradient on-GPU airlight {gpu_a:?} vs compute_airlight {cpu_a:?} worst delta \

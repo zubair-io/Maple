@@ -83,7 +83,7 @@ fn max_diff_at(a: &[f32], b: &[f32]) -> (f32, usize) {
 /// report confirms which region drives the max.
 #[test]
 fn wgsl_clarity_matches_raw_core_stage_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64usize, 64usize);
     let input = border_varying_image(w, h);
 
@@ -116,7 +116,7 @@ fn wgsl_clarity_matches_raw_core_stage_within_1e_4() {
 /// dominate the global max.
 #[test]
 fn wgsl_clarity_border_ring_matches_raw_core() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (64usize, 64usize);
     let input = border_varying_image(w, h);
     let clarity = 100.0f32;
@@ -153,20 +153,23 @@ fn wgsl_clarity_border_ring_matches_raw_core() {
 /// (the Pass copies src → dst). Mirrors raw-core's `|clarity| < 1e-3` early return.
 #[test]
 fn wgsl_clarity_zero_is_identity() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16usize, 16usize);
     let input = border_varying_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
     let runner = ChainRunner::new(&ctx, &img);
     let gpu = runner.run_blocking(&[&ClarityPass { clarity: 0.0 }]);
-    assert_eq!(gpu, input, "clarity=0 must pass the image through unchanged");
+    assert_eq!(
+        gpu, input,
+        "clarity=0 must pass the image through unchanged"
+    );
 }
 
 /// A flat neutral field has no detail, so clarity is a no-op at any amount — the
 /// GPU must keep every pixel on the flat value (raw-core's closed-form invariant).
 #[test]
 fn wgsl_clarity_flat_stays_flat() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let input: Vec<f32> = (0..w * h).flat_map(|_| [0.5f32, 0.5, 0.5, 1.0]).collect();
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
@@ -209,7 +212,7 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
 #[test]
 fn clarity_composes_as_one_pass_in_a_chain() {
     use crate::exposure::ExposurePass;
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let input = border_varying_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
@@ -225,8 +228,14 @@ fn clarity_composes_as_one_pass_in_a_chain() {
     );
 
     // Two spatial passes back-to-back must not trip a resource/validation error.
-    let twice = runner.run_blocking(&[&ClarityPass { clarity: 60.0 }, &ClarityPass { clarity: 60.0 }]);
-    assert!(twice.iter().all(|v| v.is_finite()), "double-clarity produced non-finite output");
+    let twice = runner.run_blocking(&[
+        &ClarityPass { clarity: 60.0 },
+        &ClarityPass { clarity: 60.0 },
+    ]);
+    assert!(
+        twice.iter().all(|v| v.is_finite()),
+        "double-clarity produced non-finite output"
+    );
 }
 
 /// Pure-black pixels (luma 0) must not yield NaN/Inf via the luma-ratio divide —
@@ -234,7 +243,7 @@ fn clarity_composes_as_one_pass_in_a_chain() {
 /// pixel so the field isn't flat.
 #[test]
 fn wgsl_clarity_handles_pure_black() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let mut input = vec![0.0f32; w * h * 4];
     for px in input.chunks_exact_mut(4) {
@@ -247,5 +256,8 @@ fn wgsl_clarity_handles_pure_black() {
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
     let runner = ChainRunner::new(&ctx, &img);
     let gpu = runner.run_blocking(&[&ClarityPass { clarity: 100.0 }]);
-    assert!(gpu.iter().all(|v| v.is_finite()), "clarity produced non-finite output");
+    assert!(
+        gpu.iter().all(|v| v.is_finite()),
+        "clarity produced non-finite output"
+    );
 }

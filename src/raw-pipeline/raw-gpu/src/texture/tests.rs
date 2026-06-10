@@ -76,7 +76,7 @@ fn max_diff_at(a: &[f32], b: &[f32]) -> (f32, usize) {
 /// drives the max.
 #[test]
 fn wgsl_texture_matches_raw_core_stage_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 48usize);
     let input = border_varying_image(w, h);
 
@@ -107,7 +107,7 @@ fn wgsl_texture_matches_raw_core_stage_within_1e_4() {
 /// non-vacuously — diff only that frame and confirm parity there too.
 #[test]
 fn wgsl_texture_border_ring_matches_raw_core() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 48usize);
     let input = border_varying_image(w, h);
     let texture = 100.0f32;
@@ -144,19 +144,22 @@ fn wgsl_texture_border_ring_matches_raw_core() {
 /// copies src → dst). Mirrors raw-core's `|texture| < 1e-3` early return.
 #[test]
 fn wgsl_texture_zero_is_identity() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (16usize, 16usize);
     let input = border_varying_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
     let runner = ChainRunner::new(&ctx, &img);
     let gpu = runner.run_blocking(&[&TexturePass { texture: 0.0 }]);
-    assert_eq!(gpu, input, "texture=0 must pass the image through unchanged");
+    assert_eq!(
+        gpu, input,
+        "texture=0 must pass the image through unchanged"
+    );
 }
 
 /// A flat neutral field has no detail, so texture is a no-op at any amount.
 #[test]
 fn wgsl_texture_flat_stays_flat() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (32usize, 32usize);
     let input: Vec<f32> = (0..w * h).flat_map(|_| [0.5f32, 0.5, 0.5, 1.0]).collect();
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
@@ -194,7 +197,7 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
 #[test]
 fn texture_differs_from_clarity_on_fine_detail() {
     use crate::clarity::ClarityPass;
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (48usize, 48usize);
     let input = border_varying_image(w, h);
     let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);

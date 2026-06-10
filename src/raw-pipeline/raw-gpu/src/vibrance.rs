@@ -278,7 +278,7 @@ mod tests {
     /// transcription error in the local oracle cannot mask a kernel bug.
     #[test]
     fn wgsl_vibrance_matches_raw_core_stage_within_1e_4() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = branchy_buffer();
         let count = (input.len() / 4) as u32;
 
@@ -331,7 +331,7 @@ mod tests {
     /// precedent's `wgsl_exposure_matches_cpu_oracle_within_1e_4`.
     #[test]
     fn wgsl_vibrance_matches_cpu_oracle_within_1e_4() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = branchy_buffer();
         let count = (input.len() / 4) as u32;
 
@@ -365,7 +365,7 @@ mod tests {
     /// in the kernel.)
     #[test]
     fn pure_black_hits_passthrough_branch_bit_exact_on_gpu() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = vec![0.0_f32, 0.0, 0.0, 0.9];
         let img = GpuImage::upload(&ctx, &input, 1, 1);
         let runner = ChainRunner::new(&ctx, &img);

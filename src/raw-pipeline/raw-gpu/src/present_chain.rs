@@ -40,7 +40,9 @@ use crate::live_session::LiveSession;
 // present (`present_chain_web.rs`) via this module so the dither/quantize draw and
 // the bind-group layout are single-sourced across Apple `CAMetalLayer` + web
 // `OffscreenCanvas` + the host offscreen parity gate.
-use crate::present_chain_pipeline::{build_present_pipeline, encode_present_pass, pick_surface_format};
+use crate::present_chain_pipeline::{
+    build_present_pipeline, encode_present_pass, pick_surface_format,
+};
 use std::ffi::c_void;
 
 /// Present the live chain's final f32 buffer (left resident by
@@ -67,7 +69,20 @@ pub unsafe fn present_chain_to_surface(
     }
     let (width, height) = session.dims();
     if width == 0 || height == 0 {
-        return Err(format!("present_chain: invalid image size {width}x{height}"));
+        return Err(format!(
+            "present_chain: invalid image size {width}x{height}"
+        ));
+    }
+    // Validate the surface dims against the DEVICE's actual texture limit BEFORE
+    // configuring (#1079): a >limit configure trips wgpu's `handle_error_fatal`
+    // panic, which unwinds through the `extern "C"` FFI and aborts the app. A
+    // clean Err lets the Swift host fall back to the CPU render path instead.
+    let max_dim = ctx.device.limits().max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        return Err(format!(
+            "present_chain: surface {width}x{height} exceeds the device's max texture \
+             dimension {max_dim}"
+        ));
     }
 
     let instance = wgpu::Instance::default();
@@ -115,7 +130,15 @@ pub unsafe fn present_chain_to_surface(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("present-chain-encoder"),
         });
-    encode_present_pass(ctx, &mut encoder, &pipeline, &bgl, chain_buf, &view, (width, height));
+    encode_present_pass(
+        ctx,
+        &mut encoder,
+        &pipeline,
+        &bgl,
+        chain_buf,
+        &view,
+        (width, height),
+    );
     ctx.queue.submit(Some(encoder.finish()));
     frame.present();
     Ok(())
@@ -129,14 +152,23 @@ pub unsafe fn present_chain_to_surface(
 /// diff it against the CPU `render` + `dither_and_quantize` reference.
 ///
 /// `final_idx` is the ping-pong index [`LiveSession::render_chain_to_f32`]
-/// returned. Native blocking (drives the readback via pollster).
+/// returned. Native blocking (drives the readback via pollster). Fallible
+/// (#1079): dims beyond the device's texture limit and a failed readback map
+/// surface as `Err` instead of a wgpu panic.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn present_chain_to_offscreen(
     ctx: &GpuContext,
     session: &LiveSession,
     final_idx: usize,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, String> {
     let (width, height) = session.dims();
+    let max_dim = ctx.device.limits().max_texture_dimension_2d;
+    if width == 0 || height == 0 || width > max_dim || height > max_dim {
+        return Err(format!(
+            "present_chain_to_offscreen: target {width}x{height} outside the device's \
+             supported texture dimensions (1..={max_dim})"
+        ));
+    }
     let format = wgpu::TextureFormat::Bgra8Unorm;
     let target = ctx.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("present-chain-offscreen"),
@@ -162,7 +194,15 @@ pub fn present_chain_to_offscreen(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("present-chain-offscreen-encoder"),
         });
-    encode_present_pass(ctx, &mut encoder, &pipeline, &bgl, chain_buf, &view, (width, height));
+    encode_present_pass(
+        ctx,
+        &mut encoder,
+        &pipeline,
+        &bgl,
+        chain_buf,
+        &view,
+        (width, height),
+    );
 
     // Copy the rendered texture to a padded readback buffer (wgpu requires the
     // bytes-per-row to be 256-aligned for texture→buffer copies).
@@ -199,7 +239,7 @@ pub fn present_chain_to_offscreen(
     );
     ctx.queue.submit(Some(encoder.finish()));
 
-    let padded = pollster::block_on(map_u8_readback(ctx, &readback));
+    let padded = pollster::block_on(map_u8_readback(ctx, &readback))?;
     // Unpad rows and drop the surface's BGRA→RGB (Bgra8Unorm stores B,G,R,A per
     // texel; the canonical `dither_and_quantize` layout is R,G,B), yielding the
     // flat 3·w·h RGB bytes the parity test compares.
@@ -215,13 +255,14 @@ pub fn present_chain_to_offscreen(
             out[dst + 2] = texel[0];
         }
     }
-    out
+    Ok(out)
 }
 
 /// Map a `MAP_READ` staging buffer and copy its bytes out. Native polls the queue
-/// to resolve the map. The u8 sibling of the chain/dither readbacks.
+/// to resolve the map. The u8 sibling of the chain/dither readbacks. A failed
+/// `map_async` (device loss / OOM) is an `Err`, not a panic (#1079).
 #[cfg(not(target_arch = "wasm32"))]
-async fn map_u8_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<u8> {
+async fn map_u8_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Result<Vec<u8>, String> {
     let slice = readback.slice(..);
     let (tx, rx) = futures_channel::oneshot::channel();
     slice.map_async(wgpu::MapMode::Read, move |res| {
@@ -229,13 +270,13 @@ async fn map_u8_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<u8> {
     });
     ctx.device.poll(wgpu::Maintain::Wait);
     rx.await
-        .expect("map channel dropped")
-        .expect("buffer map failed");
+        .map_err(|_| "present-chain readback: map channel dropped".to_string())?
+        .map_err(|e| format!("present-chain readback: buffer map failed: {e}"))?;
     let data = slice.get_mapped_range();
     let out = data.to_vec();
     drop(data);
     readback.unmap();
-    out
+    Ok(out)
 }
 
 // Host parity tests live in a sibling file (600-LOC budget). Native test builds

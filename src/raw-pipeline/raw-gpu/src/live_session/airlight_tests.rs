@@ -69,7 +69,7 @@ fn dehaze_only_case() -> Case {
 /// fails — see the assertion comment.
 #[test]
 fn dehaze_interior_airlight_average_matches_cpu_at_128px() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (128u32, 128u32);
     assert_eq!(
         ((w * h) as usize / 1000).max(1),
@@ -90,10 +90,11 @@ fn dehaze_interior_airlight_average_matches_cpu_at_128px() {
     // tight. The DEFAULT on-GPU reduction (#1033) is gated separately, with its own
     // documented tolerance, in `airlight/tests.rs` (the histogram-percentile A is
     // close-but-not-bit-exact to the sort, by design).
-    let session = LiveSession::new_with_airlight_readback(&ctx, &input, w, h);
+    let session = LiveSession::new_with_airlight_readback(&ctx, &input, w, h).expect("session");
     let cancel = CancelToken::new();
     let got = session
         .render_to_buffer(&ctx, &inputs, &cancel)
+        .expect("render ok")
         .expect("uncancelled render returns Some");
 
     // CPU reference (measures A post-prefix on its side too — see `reference_u8`).
@@ -165,18 +166,22 @@ fn dehaze_interior_airlight_average_matches_cpu_at_128px() {
 /// is unambiguously the on-GPU-vs-CPU airlight difference, not a confounded stage.
 #[test]
 fn on_gpu_dehaze_matches_cpu_reference_on_hazy_fixture() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let (w, h) = (128u32, 128u32);
     let input = hazy_image(w as usize, h as usize);
     let case = dehaze_only_case();
     let inputs = case.gpu_inputs();
-    assert!(crate::dehaze_is_active(&inputs), "test setup: dehaze must be engaged");
+    assert!(
+        crate::dehaze_is_active(&inputs),
+        "test setup: dehaze must be engaged"
+    );
 
     // DEFAULT session = on-GPU airlight (no readback), the path #1033 ships.
-    let session = LiveSession::new(&ctx, &input, w, h);
+    let session = LiveSession::new(&ctx, &input, w, h).expect("session");
     let cancel = CancelToken::new();
     let got = session
         .render_to_buffer(&ctx, &inputs, &cancel)
+        .expect("render ok")
         .expect("uncancelled render returns Some");
 
     // CPU reference: the same chain with CPU `compute_airlight` (post-prefix).

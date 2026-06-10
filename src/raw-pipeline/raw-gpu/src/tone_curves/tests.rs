@@ -115,13 +115,22 @@ fn raw_core_apply(rgba: &[f32], model: &AdjustmentModel) -> Vec<f32> {
 }
 
 fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0_f32, f32::max)
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0_f32, f32::max)
 }
 
 /// A smooth non-identity S-ish contrast curve (anchors authored by hand so the
 /// Fritsch-Carlson interpolant runs across real, non-linear knots).
 fn s_curve() -> Vec<(f32, f32)> {
-    vec![(0.0, 0.0), (0.25, 0.18), (0.5, 0.5), (0.75, 0.82), (1.0, 1.0)]
+    vec![
+        (0.0, 0.0),
+        (0.25, 0.18),
+        (0.5, 0.5),
+        (0.75, 0.82),
+        (1.0, 1.0),
+    ]
 }
 /// A brightening lift curve (distinct from `s_curve` so per-channel curves
 /// differ across lanes).
@@ -241,7 +250,7 @@ fn cases() -> Vec<(&'static str, Case)> {
 /// for the branches it doesn't touch.
 #[test]
 fn wgsl_tone_curves_matches_raw_core_stage_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = tc_rgba();
     let count = (input.len() / 4) as u32;
 
@@ -288,7 +297,7 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
 /// alongside the raw-core gate; mirrors the vibrance / auto_profile_curve precedent.
 #[test]
 fn wgsl_tone_curves_matches_cpu_oracle_within_1e_4() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = tc_rgba();
     let count = (input.len() / 4) as u32;
 
@@ -316,7 +325,7 @@ fn wgsl_tone_curves_matches_cpu_oracle_within_1e_4() {
 /// curve must land in the len-0 -> pass-through path, not the len-1 constant path.
 #[test]
 fn all_default_is_exact_passthrough_on_gpu() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = tc_rgba();
     let count = (input.len() / 4) as u32;
     let inputs = ToneCurveInputs {
@@ -341,7 +350,7 @@ fn all_default_is_exact_passthrough_on_gpu() {
 /// RGB). Mirrors the per-stage alpha-passthrough contract.
 #[test]
 fn gpu_alpha_passthrough() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = tc_rgba();
     let count = (input.len() / 4) as u32;
     let inputs = Case {
@@ -372,7 +381,7 @@ fn gpu_alpha_passthrough() {
 /// PerChannel shifts hue (per-lane); RatioPreserving preserves R:G:B ratios.
 #[test]
 fn per_channel_and_ratio_preserving_differ() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = tc_rgba();
     let count = (input.len() / 4) as u32;
     let per = Case {
