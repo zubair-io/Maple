@@ -1,8 +1,8 @@
-# Coral Pano — Panorama Stitching Product Spec
+# Maple Pano — Panorama Stitching Product Spec
 
 **Status:** Draft v1
-**Companions:** `2026-06-10-coral-pano-stitching-spec.md` (pipeline tech spec — algorithm source of truth) · `2026-06-10-coral-pano-eng-design-spec.md` (engineering design)
-**Component:** Coral Pano, surfaced in the host apps (Aperture, RedSunsetMaple — names per the stitching spec)
+**Companions:** `2026-06-10-maple-pano-stitching-spec.md` (pipeline tech spec — algorithm source of truth) · `2026-06-10-maple-pano-eng-design-spec.md` (engineering design)
+**Component:** Maple Pano, surfaced in the host apps (Aperture, RedSunsetMaple — names per the stitching spec)
 **Author:** Zubair Lawrence
 **Date:** 2026-06-10
 
@@ -162,7 +162,7 @@ The result view offers a **projection override** (Auto → rectilinear / cylindr
 
 ## 10. Success metrics
 
-Coral Pano runs on-device with no telemetry, so success is measured at the gate and through qualitative channels — not via in-product analytics.
+Maple Pano runs on-device with no telemetry, so success is measured at the gate and through qualitative channels — not via in-product analytics.
 
 **Leading (release gates, measured on the fixed regression corpus — these are the ship/no-ship signals):**
 
