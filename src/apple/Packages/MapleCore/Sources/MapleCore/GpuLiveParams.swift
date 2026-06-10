@@ -2,9 +2,9 @@
 // `MapleGpuLiveParams`, honoring the DECODE-BOUNDARY CONTRACT (epic #925,
 // P4b-apple / #1028).
 //
-// ENTIRELY gated behind `#if MAPLE_GPU` — the `MapleGpuLiveParams` struct is in
-// the gpu-variant header only (the default xcframework is wgpu-free). Flag OFF =
-// this file compiles to nothing, so the live render path is unchanged.
+// Always compiled — the `MapleGpuLiveParams` struct is in the default xcframework
+// header now (gpu is the default xcframework build). Used only when the runtime
+// flag is on (`GpuLiveFlag.isEnabled`); otherwise the live render path is unused.
 //
 // ## The decode-boundary contract (the load-bearing part)
 //
@@ -35,8 +35,6 @@
 // Auto Profile rides the chain's curve + residual-LUT passes (the A2
 // `maple_gpu_fit_auto_profile` artifacts), NOT a pre-composed CIColorCube — wired
 // at the session's render call, not here (the pointers must outlive the call).
-
-#if MAPLE_GPU
 
 import Foundation
 import RawPipeline
@@ -130,5 +128,3 @@ extension PipelineRenderer {
         return p
     }
 }
-
-#endif

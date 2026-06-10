@@ -119,16 +119,13 @@ struct FullImageView: View {
 
     // MARK: - Canvas content (CPU CIImage vs wgpu live present)
 
-    /// The canvas image. The `#if MAPLE_GPU` branch lives here at statement
-    /// level (NOT interleaved with the `body`'s ZStack braces — that breaks the
-    /// brace balance across the conditional-compilation boundary). When the
-    /// runtime flag is on and not showing the before/after original, the wgpu
-    /// chain presents directly into a `CAMetalLayer` (`GpuLiveCanvasView`, no
-    /// `renderedPreview` CIImage). Otherwise — and in every non-gpu build — the
-    /// CPU `CIImageView` rasters `renderedPreview` exactly as before.
+    /// The canvas image. When the runtime flag is on (`GpuLiveFlag.isEnabled`)
+    /// and not showing the before/after original, the wgpu chain presents
+    /// directly into a `CAMetalLayer` (`GpuLiveCanvasView`, no `renderedPreview`
+    /// CIImage). Otherwise the CPU `CIImageView` rasters `renderedPreview`
+    /// exactly as before.
     @ViewBuilder
     private func canvasContent(geo: GeometryProxy) -> some View {
-        #if MAPLE_GPU
         if GpuLiveFlag.isEnabled, !session.showingOriginal,
            let frameInPoints = canvasMath(viewport: geo.size).displayFrameInPoints {
             GpuLiveCanvasView(session: session)
@@ -146,14 +143,11 @@ struct FullImageView: View {
         } else {
             cpuCanvasContent(geo: geo)
         }
-        #else
-        cpuCanvasContent(geo: geo)
-        #endif
     }
 
     /// The CPU canvas: raster `renderedPreview` via `CIImageView`, or the
-    /// placeholder while the first render is in flight. This is the path every
-    /// shipping build takes (and the flag-off fallback under `#if MAPLE_GPU`).
+    /// placeholder while the first render is in flight. This is the path taken
+    /// whenever the GPU live flag is off (`GpuLiveFlag.isEnabled == false`).
     @ViewBuilder
     private func cpuCanvasContent(geo: GeometryProxy) -> some View {
         if let ci = session.showingOriginal ? nil : session.renderedPreview,
@@ -202,21 +196,17 @@ struct FullImageView: View {
 
     // MARK: - GPU frame-time HUD (validation-only overlay)
 
-    /// The GPU frame-time HUD overlay (#1053). Like `canvasContent(geo:)`, the
-    /// `#if MAPLE_GPU` lives INSIDE this ViewBuilder (never interleaved with the
-    /// body's brace structure). Renders the HUD only when the GPU live path is
-    /// active AND the HUD sub-flag is on (`MAPLE_GPU_HUD=1`); an `EmptyView`
-    /// otherwise — and in every non-gpu build the whole thing compiles out.
+    /// The GPU frame-time HUD overlay (#1053). Renders the HUD only when the GPU
+    /// live path is active AND the HUD sub-flag is on (`MAPLE_GPU_HUD=1`); an
+    /// `EmptyView` otherwise.
     @ViewBuilder
     private func frameTimeHud() -> some View {
-        #if MAPLE_GPU
         if GpuLiveFlag.isEnabled, GpuHudFlag.isEnabled,
            let stats = session.gpuLiveDriver?.frameStats {
             GpuFrameTimeHud(stats: stats)
+        } else {
+            EmptyView()
         }
-        #else
-        EmptyView()
-        #endif
     }
 
     // MARK: - Body
@@ -230,8 +220,7 @@ struct FullImageView: View {
                 // Canvas content — the wgpu live path (when the runtime flag is
                 // on) presents into a CAMetalLayer via `GpuLiveCanvasView`;
                 // otherwise the CPU `CIImageView` rasters `renderedPreview`. The
-                // `#if MAPLE_GPU` lives cleanly inside `canvasContent(geo:)` (a
-                // ViewBuilder) so it never interleaves with this brace structure.
+                // runtime branch lives inside `canvasContent(geo:)`.
                 canvasContent(geo: geo)
 
                 // Before/After overlay
@@ -310,12 +299,10 @@ struct FullImageView: View {
                 panOffset = .zero
                 basePan = .zero
                 syncSessionToViewport(viewportSize)
-                #if MAPLE_GPU
                 // Drop the GPU frame-time window so the new image's HUD doesn't
                 // carry the prior image's samples (the driver/session persist
                 // across the reused view). No-op when the HUD isn't recording.
                 session.gpuLiveDriver?.frameStats.reset()
-                #endif
             }
         }
         .background(MapleTokens.imageCanvas)

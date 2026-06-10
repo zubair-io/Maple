@@ -1,17 +1,14 @@
 // ImageEditPipeline+GpuLive.swift — the f32-readback bridge that feeds the wgpu
 // live render path (epic #925, P4b-apple / #1028).
 //
-// ENTIRELY gated behind `#if MAPLE_GPU`. With the flag undefined this file
-// compiles to nothing and `ImageEditPipeline` is unchanged — the CPU + Metal
-// path runs byte-for-byte. Split out of `ImageEditPipeline.swift` (an already
-// large, budget-allowlisted orchestrator) so the GPU concern is isolated and the
-// orchestrator doesn't grow.
+// Always compiled (the GPU FFI is in the default xcframework now); reached only
+// when the runtime flag is on (`GpuLiveFlag.isEnabled`). Split out of
+// `ImageEditPipeline.swift` (an already large, budget-allowlisted orchestrator)
+// so the GPU concern is isolated and the orchestrator doesn't grow.
 //
 // The wgpu chain uploads a GPU-resident f32 RGBA image ONCE per decode; these two
 // helpers turn the editor's decoded `CIImage` into that buffer (and its dims)
 // without paying a readback on the per-tick path.
-
-#if MAPLE_GPU
 
 import Foundation
 import CoreImage
@@ -89,5 +86,3 @@ extension ImageEditPipeline {
     fileprivate static let gpuLiveLog = Logger(
         subsystem: "app.justmaple.aperture", category: "ImageEditPipeline.GpuLive")
 }
-
-#endif

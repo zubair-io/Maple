@@ -1,12 +1,10 @@
 // GpuFrameTimeHud.swift — the in-app GPU frame-time HUD overlay (epic #925,
 // P4b-apple validation / #1053).
 //
-// ENTIRELY gated behind `#if MAPLE_GPU` (flag OFF = this file compiles to nothing
-// and `FullImageView`'s `frameTimeHud()` is an `EmptyView`). Even WITH the flag
-// compiled in, the overlay only appears when BOTH the GPU live path is active
-// (`GpuLiveFlag.isEnabled`, `MAPLE_GPU_LIVE=1`) AND the HUD sub-flag is on
-// (`GpuHudFlag.isEnabled`, `MAPLE_GPU_HUD=1`) — a validation-only surface, off in
-// normal flag-on use.
+// Runtime-gated: the overlay only appears when BOTH the GPU live path is active
+// (`GpuLiveFlag.isEnabled`, default on / `MAPLE_GPU_LIVE != 0`) AND the HUD
+// sub-flag is on (`GpuHudFlag.isEnabled`, `MAPLE_GPU_HUD=1`) — a validation-only
+// surface, off in normal use (`FullImageView`'s `frameTimeHud()` is `EmptyView`).
 //
 // ## Role — make the 16ms validation objective
 //
@@ -24,8 +22,6 @@
 // give the steady-state + worst-case context. Only real presented frames are in
 // the buffer — cancelled (superseded) presents are dropped upstream so the
 // numbers don't flatter under a fast drag.
-
-#if MAPLE_GPU
 
 import SwiftUI
 import MapleCore
@@ -119,5 +115,3 @@ struct GpuFrameTimeHud: View {
             + "Target \(Int(Self.targetMs)) milliseconds."
     }
 }
-
-#endif

@@ -1,13 +1,9 @@
 // GpuLiveSessionTests.swift — the autonomous A3 gates (epic #925, P4b-apple /
 // #1028).
 //
-// ENTIRELY gated behind `#if MAPLE_GPU` — these tests exercise the gpu-variant
-// FFI surface (`MapleGpuLiveParams`, `maple_gpu_live_*`) which is absent from the
-// default xcframework. They run only in the gpu-variant build:
-//
-//   xcodebuild test … -only-testing:MapleCoreTests/GpuLiveSessionTests \
-//     OTHER_SWIFT_FLAGS='$(inherited) -D MAPLE_GPU -Xcc -DMAPLE_GPU'
-//   (with the gpu xcframework on disk: MAPLE_XCFRAMEWORK_GPU=1 … build-xcframework.sh)
+// These tests exercise the GPU FFI surface (`MapleGpuLiveParams`,
+// `maple_gpu_live_*`), which is now in the default xcframework (gpu is the default
+// xcframework build per #1064), so they run in the standard `swift test`.
 //
 // Two layers, per the A3 plan:
 //  1. PARAM-MAPPING (deterministic, no GPU) — the decode-boundary contract is the
@@ -21,8 +17,6 @@
 //     from `processSceneLinear` — sharpen + nr_color move into the scene-linear
 //     chain, Auto Profile goes cube→passes. The color-correctness proof is the
 //     raw-gpu host present-parity gate, ≤1 LSB vs the CPU oracle.)
-
-#if MAPLE_GPU
 
 import Foundation
 import XCTest
@@ -221,5 +215,3 @@ final class GpuLiveSessionTests: XCTestCase {
         XCTAssertEqual(first, second, "re-render at same model must be byte-identical")
     }
 }
-
-#endif
