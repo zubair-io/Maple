@@ -82,9 +82,33 @@ describe('RawPipelineService — GPU live-render flag routing (#1029)', () => {
     });
   });
 
-  it('defaults to gpu:false (flag-off == today, CPU render_bytes path)', async () => {
-    // No provider override → the token's default factory (`false`).
+  it('defaults to gpu:true (GPU live-render is the shipping default, #1059)', async () => {
+    // No provider override → the token's default factory (now `true`, #1059). The
+    // request carries gpu:true; the worker still gates the ACTUAL GPU entry on
+    // `'gpu' in navigator` + the bundle export + an adapter-failure CPU fallback,
+    // so a no-WebGPU host stays on the threaded-CPU `render_bytes` path.
     TestBed.configureTestingModule({});
+    const service = TestBed.inject(RawPipelineService);
+
+    const promise = service.decode(new Uint8Array([0x44, 0x4e, 0x47, 0x00]), 'dng');
+    await Promise.resolve(); // flush the decodeChain microtask
+
+    expect(workerStub.postMessage).toHaveBeenCalledTimes(1);
+    const sent = workerStub.postMessage.mock.calls[0][0] as DecodeRequest;
+    expect(sent.type).toBe('decode');
+    expect(sent.gpu).toBe(true);
+
+    replyOnePixel(workerStub, sent.id);
+    await promise;
+  });
+
+  it('operator kill-switch (useValue:false) sends gpu:false (CPU render_bytes path)', async () => {
+    // Overriding the token to `false` is the operator off-switch (#1059): the
+    // request carries gpu:false, so the worker takes the unchanged threaded-CPU
+    // `render_bytes` path — byte-for-byte today's behaviour everywhere.
+    TestBed.configureTestingModule({
+      providers: [{ provide: GPU_LIVE_RENDER_ENABLED, useValue: false }],
+    });
     const service = TestBed.inject(RawPipelineService);
 
     const promise = service.decode(new Uint8Array([0x44, 0x4e, 0x47, 0x00]), 'dng');

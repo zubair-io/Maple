@@ -45,13 +45,18 @@ if ! command -v wasm-pack >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[raw-wasm] Building with --features parallel (atomics + bulk-memory + rayon)"
+# --features gpu,parallel co-builds wgpu (WebGPU live render, epic #925 / #1059)
+# AND wasm-bindgen-rayon (multi-threaded CPU decode) into ONE shipped bundle: the
+# worker picks the GPU entry (`render_bytes_gpu` / `WebLiveSession`) when WebGPU is
+# present (`'gpu' in navigator`) and falls back to threaded-CPU `render_bytes`
+# otherwise. The two features co-exist (spike-confirmed) — no dual bundle.
+echo "[raw-wasm] Building with --features gpu,parallel (wgpu WebGPU + atomics + bulk-memory + rayon)"
 wasm-pack build \
   --target web \
   --release \
   --out-dir pkg \
   -- \
-  --features parallel \
+  --features gpu,parallel \
   -Z build-std=panic_abort,std
 
 touch "$STAMP"
