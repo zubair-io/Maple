@@ -32,6 +32,9 @@
 ///   0  success — `*out_max_diff` written
 ///  -1  `out_max_diff` is null
 ///  -2  `n_pixels == 0` (nothing to compare)
+///  -3  the GPU run failed (no adapter / device / readback) — see
+///      `maple_last_error`
+///  99  a Rust-side panic was contained (#1079)
 #[no_mangle]
 pub extern "C" fn maple_gpu_exposure_parity(n_pixels: u32, ev: f32, out_max_diff: *mut f32) -> i32 {
     if out_max_diff.is_null() {
@@ -41,29 +44,38 @@ pub extern "C" fn maple_gpu_exposure_parity(n_pixels: u32, ev: f32, out_max_diff
         return -2;
     }
 
-    let n = n_pixels as usize;
-    // Same spread as raw_gpu::test_buffer / the wasm binding: some channels
-    // exceed 1.0 so the scene-linear multiply is exercised above white.
-    let mut input = Vec::with_capacity(n * 4);
-    for i in 0..n {
-        let t = i as f32 / (n.max(2) - 1) as f32; // 0..=1
-        input.extend_from_slice(&[t * 2.0, t, t * 0.5 + 0.25, 1.0]);
-    }
+    // Panic barrier (#1079): no panic may unwind through this `extern "C"` frame.
+    crate::error::catch_panic_rc("gpu_exposure_parity", || {
+        let n = n_pixels as usize;
+        // Same spread as raw_gpu::test_buffer / the wasm binding: some channels
+        // exceed 1.0 so the scene-linear multiply is exercised above white.
+        let mut input = Vec::with_capacity(n * 4);
+        for i in 0..n {
+            let t = i as f32 / (n.max(2) - 1) as f32; // 0..=1
+            input.extend_from_slice(&[t * 2.0, t, t * 0.5 + 0.25, 1.0]);
+        }
 
-    let gpu = raw_gpu::run_exposure_gpu(&input, ev);
-    let mut cpu = input;
-    raw_gpu::apply_exposure_gain(&mut cpu, ev);
+        let gpu = match raw_gpu::run_exposure_gpu(&input, ev) {
+            Ok(v) => v,
+            Err(e) => {
+                crate::error::set_last_error(format!("gpu_exposure_parity: {e}"));
+                return -3;
+            }
+        };
+        let mut cpu = input;
+        raw_gpu::apply_exposure_gain(&mut cpu, ev);
 
-    let max_diff = cpu
-        .iter()
-        .zip(&gpu)
-        .map(|(a, b)| (a - b).abs())
-        .fold(0.0_f32, f32::max);
+        let max_diff = cpu
+            .iter()
+            .zip(&gpu)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f32, f32::max);
 
-    unsafe {
-        *out_max_diff = max_diff;
-    }
-    0
+        unsafe {
+            *out_max_diff = max_diff;
+        }
+        0
+    })
 }
 
 /// Passthrough display proof (P1b / #988): create a wgpu surface from `layer`
@@ -88,6 +100,7 @@ pub extern "C" fn maple_gpu_exposure_parity(n_pixels: u32, ev: f32, out_max_diff
 ///  -2  `width == 0` or `height == 0`
 ///  -3  a wgpu step failed (adapter/device/surface/present) — see
 ///       `maple_last_error` for the message
+///  99  a Rust-side panic was contained (#1079)
 ///
 /// Apple-only: `raw_gpu::present_test_pattern` (and wgpu's `CoreAnimationLayer`
 /// surface) exist only on `target_vendor = "apple"`. raw-ffi only ever targets
@@ -105,15 +118,18 @@ pub unsafe extern "C" fn maple_gpu_present_test_pattern(
     if width == 0 || height == 0 {
         return -2;
     }
-    // SAFETY: `layer` is non-null and is a valid CAMetalLayer* per this fn's
-    // contract; raw_gpu drops the surface before returning.
-    match unsafe { raw_gpu::present_test_pattern(layer, width, height) } {
-        Ok(()) => 0,
-        Err(msg) => {
-            crate::error::set_last_error(format!("gpu present: {msg}"));
-            -3
+    // Panic barrier (#1079): no panic may unwind through this `extern "C"` frame.
+    crate::error::catch_panic_rc("gpu_present_test_pattern", || {
+        // SAFETY: `layer` is non-null and is a valid CAMetalLayer* per this fn's
+        // contract; raw_gpu drops the surface before returning.
+        match raw_gpu::present_test_pattern(layer, width, height) {
+            Ok(()) => 0,
+            Err(msg) => {
+                crate::error::set_last_error(format!("gpu present: {msg}"));
+                -3
+            }
         }
-    }
+    })
 }
 
 #[cfg(test)]
