@@ -1,6 +1,6 @@
 # Maple — Panorama Pipeline Design Spec
 
-> **⚠️ Superseded (2026-06-10).** Replaced by the Coral Pano spec set under `docs/superpowers/specs/` (`2026-06-10-coral-pano-stitching-spec.md`, `-product-spec.md`, `-eng-design-spec.md`). Key reversals there: Rec.2020 D65 linear working space (not ProPhoto), rotation model + global bundle adjustment (not homography chaining), UniFFI for the report/control plane. This file is kept for historical reference; its repo paths predate the current tree.
+> **⚠️ Superseded (2026-06-10).** Replaced by the Maple Pano spec set under `docs/superpowers/specs/` (`2026-06-10-maple-pano-stitching-spec.md`, `-product-spec.md`, `-eng-design-spec.md`). Key reversals there: Rec.2020 D65 linear working space (not ProPhoto), rotation model + global bundle adjustment (not homography chaining), UniFFI for the report/control plane. This file is kept for historical reference; its repo paths predate the current tree.
 
 **Status:** Draft v0.3 (tightened against current `raw-core`, `raw-ffi`, `raw-wasm`, `MapleCore`, and the verifier harness) — **superseded, see banner**
 **Owner:** Zubair
