@@ -119,14 +119,24 @@ struct FullImageView: View {
 
     // MARK: - Canvas content (CPU CIImage vs wgpu live present)
 
-    /// The canvas image. When the runtime flag is on (`GpuLiveFlag.isEnabled`)
-    /// and not showing the before/after original, the wgpu chain presents
-    /// directly into a `CAMetalLayer` (`GpuLiveCanvasView`, no `renderedPreview`
-    /// CIImage). Otherwise the CPU `CIImageView` rasters `renderedPreview`
-    /// exactly as before.
+    /// The canvas image. The wgpu chain presents directly into a `CAMetalLayer`
+    /// (`GpuLiveCanvasView`, no `renderedPreview` CIImage) only when
+    /// `FullImageViewVM.shouldPresentViaGpuCanvas` holds — the runtime flag is
+    /// on (`GpuLiveFlag.isEnabled`), the asset is RAW, and we're not showing the
+    /// before/after original. Otherwise the CPU `CIImageView` rasters
+    /// `renderedPreview` exactly as before.
+    ///
+    /// The `asset.isRaw` gate mirrors `EditSession.presentViaGpuLive`'s own
+    /// `guard asset.isRaw`: the GPU live chain only handles RAW, so a non-RAW
+    /// asset must fall through to `cpuCanvasContent`. Without it the view would
+    /// show the opaque (and never-presented) `CAMetalLayer` for a JPEG / HEIC /
+    /// PNG — a permanently blank canvas.
     @ViewBuilder
     private func canvasContent(geo: GeometryProxy) -> some View {
-        if GpuLiveFlag.isEnabled, !session.showingOriginal,
+        if FullImageViewVM.shouldPresentViaGpuCanvas(
+               flagEnabled: GpuLiveFlag.isEnabled,
+               isRaw: session.asset.isRaw,
+               showingOriginal: session.showingOriginal),
            let frameInPoints = canvasMath(viewport: geo.size).displayFrameInPoints {
             GpuLiveCanvasView(session: session)
                 .frame(width: frameInPoints.width, height: frameInPoints.height)
