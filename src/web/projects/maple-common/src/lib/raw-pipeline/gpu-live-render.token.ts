@@ -15,7 +15,7 @@
 // Operator override per deployment in `app.config.ts` (e.g. a kill-switch):
 //   { provide: GPU_LIVE_RENDER_ENABLED, useValue: false }
 // A DB-backed settings gate for runtime operator ramp/kill is tracked as a
-// fast-follow (see #1059's follow-up); until then this token is the switch.
+// fast-follow (#1062); until then this token is the switch.
 //
 // Real-WebGPU-browser parity + the 16 ms slider-tick budget remain a manual
 // checkpoint (W3 / #1029) — headless CI WebGPU is unreliable.
