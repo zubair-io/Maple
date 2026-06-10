@@ -31,7 +31,9 @@ pub async fn exposure_gpu_parity(n_pixels: u32, ev: f32) -> Result<f32, JsError>
         let t = i as f32 / (n.max(2) - 1) as f32;
         input.extend_from_slice(&[t * 2.0, t, t * 0.5 + 0.25, 1.0]);
     }
-    let gpu = raw_gpu::run_exposure_gpu_async(&input, ev).await;
+    let gpu = raw_gpu::run_exposure_gpu_async(&input, ev)
+        .await
+        .map_err(|e| JsError::new(&e))?;
     let mut cpu = input.clone();
     raw_gpu::apply_exposure_gain(&mut cpu, ev);
     let max_diff = cpu

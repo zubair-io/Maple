@@ -23,7 +23,9 @@
 //! mirroring `test_color_pipeline.sh`'s "no fixtures, skipping" pattern.
 
 use raw_core::pipeline::{render_from_raw_with_quality_and_source, RawInput, RenderQuality};
-use raw_core::types::adjustment::{AutoExposureMode, HighlightRecoveryMode, Profile, ToneCurveMode};
+use raw_core::types::adjustment::{
+    AutoExposureMode, HighlightRecoveryMode, Profile, ToneCurveMode,
+};
 use raw_core::types::ToneCurve;
 use raw_core::view::auto_profile;
 use raw_core::xmp::AdjustmentModel;
@@ -41,8 +43,8 @@ fn synthetic_dng_path() -> Option<std::path::PathBuf> {
 }
 
 /// Whether a Metal (or any) GPU adapter is available — guards the test so a
-/// headless box with no GPU soft-passes instead of panicking in
-/// `GpuContext::new_async`'s `expect`.
+/// headless box with no GPU soft-passes instead of failing on
+/// `GpuContext::new_async`'s "no suitable GPU adapter" error.
 fn gpu_available() -> bool {
     let instance = wgpu::Instance::default();
     pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).is_some()
@@ -52,7 +54,12 @@ fn gpu_available() -> bool {
 /// `render_from_raw_with_quality_and_source` with the bytes source (so Auto
 /// Profile, when active, fits against the embedded JPEG the same way). Returns
 /// the oriented u8 RGB surface.
-fn cpu_reference(raw_img: &raw_core::image::RawImage, bytes: &[u8], ext: &str, model: &AdjustmentModel) -> (u32, u32, Vec<u8>) {
+fn cpu_reference(
+    raw_img: &raw_core::image::RawImage,
+    bytes: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+) -> (u32, u32, Vec<u8>) {
     render_from_raw_with_quality_and_source(
         raw_img,
         model,
@@ -70,12 +77,22 @@ fn cpu_reference(raw_img: &raw_core::image::RawImage, bytes: &[u8], ext: &str, m
 /// the FULL upstream develop (DCP / AE / highlight recovery) on both sides rather
 /// than a hand-built scene-linear fixture, so any tiny upstream f32 nondeterminism
 /// (none expected — it's deterministic) would surface as boundary pixels.
-fn assert_gpu_matches_cpu(name: &str, raw_img: &raw_core::image::RawImage, bytes: &[u8], ext: &str, model: &AdjustmentModel) {
+fn assert_gpu_matches_cpu(
+    name: &str,
+    raw_img: &raw_core::image::RawImage,
+    bytes: &[u8],
+    ext: &str,
+    model: &AdjustmentModel,
+) {
     let (cw, ch, cpu) = cpu_reference(raw_img, bytes, ext, model);
-    let (gw, gh, gpu) =
-        pollster::block_on(super::render_gpu_core(raw_img, bytes, ext, model)).expect("GPU core render failed");
+    let (gw, gh, gpu) = pollster::block_on(super::render_gpu_core(raw_img, bytes, ext, model))
+        .expect("GPU core render failed");
 
-    assert_eq!((cw, ch), (gw, gh), "[{name}] GPU dims {gw}x{gh} != CPU {cw}x{ch}");
+    assert_eq!(
+        (cw, ch),
+        (gw, gh),
+        "[{name}] GPU dims {gw}x{gh} != CPU {cw}x{ch}"
+    );
     assert_eq!(cpu.len(), gpu.len(), "[{name}] surface length mismatch");
 
     let max_delta = cpu
@@ -232,7 +249,11 @@ fn stripped_prefix_model_neutralizes_rerun_and_preserves_upstream() {
     assert_eq!(s.tint, 0.0, "WB tint must be pinned neutral");
 
     // (b) AE mode carried through from the argument.
-    assert_eq!(s.auto_exposure, AutoExposureMode::Off, "AE mode must come from the arg");
+    assert_eq!(
+        s.auto_exposure,
+        AutoExposureMode::Off,
+        "AE mode must come from the arg"
+    );
 
     // (c) Every GPU-re-run stage zeroed (→ develop short-circuits it bit-exactly).
     assert_eq!(s.exposure, 0.0);
@@ -245,8 +266,14 @@ fn stripped_prefix_model_neutralizes_rerun_and_preserves_upstream() {
     assert_eq!(s.parametric_darks, 0.0);
     assert_eq!(s.parametric_lights, 0.0);
     assert_eq!(s.parametric_highlights, 0.0);
-    assert!(s.tone_curve_luma.points.is_empty(), "luma curve must be identity");
-    assert!(s.tone_curve_red.points.is_empty(), "red curve must be identity");
+    assert!(
+        s.tone_curve_luma.points.is_empty(),
+        "luma curve must be identity"
+    );
+    assert!(
+        s.tone_curve_red.points.is_empty(),
+        "red curve must be identity"
+    );
     assert_eq!(s.vibrance, 0.0);
     assert_eq!(s.saturation, 0.0);
     assert_eq!(s.clarity, 0.0);
@@ -258,8 +285,15 @@ fn stripped_prefix_model_neutralizes_rerun_and_preserves_upstream() {
 
     // (d) Decode-upstream fields preserved verbatim — these shape the post-AE
     //     buffer the GPU chain consumes.
-    assert_eq!(s.highlight_recovery, HighlightRecoveryMode::Off, "HR mode must survive the strip");
-    assert_eq!(s.capture_sharpening_amount, 65.0, "capture-sharpening must survive (baked in prefix)");
+    assert_eq!(
+        s.highlight_recovery,
+        HighlightRecoveryMode::Off,
+        "HR mode must survive the strip"
+    );
+    assert_eq!(
+        s.capture_sharpening_amount, 65.0,
+        "capture-sharpening must survive (baked in prefix)"
+    );
     assert_eq!(s.capture_sharpening_sigma, 1.2);
     assert_eq!(s.profile, Profile::Neutral, "profile must survive");
     assert_eq!(s.wb_method, full.wb_method, "wb_method must survive");
@@ -284,7 +318,10 @@ fn auto_will_fit_matches_profile_and_cache() {
     let hit_bytes = b"p4b-web-auto-will-fit-hit-key-unique-0003" as &[u8];
 
     // Neutral profile → never fits (short-circuits before any cache/preview probe).
-    let neutral = AdjustmentModel { profile: Profile::Neutral, ..AdjustmentModel::default() };
+    let neutral = AdjustmentModel {
+        profile: Profile::Neutral,
+        ..AdjustmentModel::default()
+    };
     assert!(
         !super::auto_will_fit(&neutral, neutral_bytes, ext),
         "Neutral profile must not fit"
@@ -292,7 +329,10 @@ fn auto_will_fit_matches_profile_and_cache() {
 
     // Auto profile, cold cache (these bytes never inserted), no extractable
     // preview (garbage bytes → no embedded JPEG) → false.
-    let auto = AdjustmentModel { profile: Profile::Auto, ..AdjustmentModel::default() };
+    let auto = AdjustmentModel {
+        profile: Profile::Auto,
+        ..AdjustmentModel::default()
+    };
     assert!(
         !super::auto_will_fit(&auto, cold_bytes, ext),
         "Auto with cold cache + no preview must not fit"
@@ -393,25 +433,40 @@ fn stripped_prefix_changes_on_genuine_prefix_edits() {
 
     // (b) capture_sharpening (baked in the prefix at its canonical position).
     let cs = super::stripped_prefix_model(
-        &AdjustmentModel { capture_sharpening_amount: 65.0, ..AdjustmentModel::default() },
+        &AdjustmentModel {
+            capture_sharpening_amount: 65.0,
+            ..AdjustmentModel::default()
+        },
         ae,
     );
-    assert_ne!(base, cs, "capture-sharpening change must re-develop the prefix");
+    assert_ne!(
+        base, cs,
+        "capture-sharpening change must re-develop the prefix"
+    );
 
     // (c) highlight_recovery (a decode-upstream stage the GPU chain does not run).
     let hr = super::stripped_prefix_model(
-        &AdjustmentModel { highlight_recovery: HighlightRecoveryMode::Off, ..AdjustmentModel::default() },
+        &AdjustmentModel {
+            highlight_recovery: HighlightRecoveryMode::Off,
+            ..AdjustmentModel::default()
+        },
         ae,
     );
     // Only asserts difference when Off != the default mode; if equal, skip the claim.
     if AdjustmentModel::default().highlight_recovery != HighlightRecoveryMode::Off {
-        assert_ne!(base, hr, "highlight-recovery change must re-develop the prefix");
+        assert_ne!(
+            base, hr,
+            "highlight-recovery change must re-develop the prefix"
+        );
     }
 
     // (d) profile (kept in the prefix; an Auto↔Neutral flip also flips the AE
     //     decision upstream, so the prefix legitimately differs).
     let prof = super::stripped_prefix_model(
-        &AdjustmentModel { profile: Profile::Neutral, ..AdjustmentModel::default() },
+        &AdjustmentModel {
+            profile: Profile::Neutral,
+            ..AdjustmentModel::default()
+        },
         ae,
     );
     if AdjustmentModel::default().profile != Profile::Neutral {
@@ -436,7 +491,9 @@ fn stripped_prefix_changes_on_genuine_prefix_edits() {
 /// values, so a synthetic upload exercises it fully.
 #[test]
 fn render_chain_to_f32_second_render_is_zero_alloc() {
-    use raw_gpu::{CancelToken, CurveMode, FullChainInputs, GpuContext, LiveSession, ToneCurveInputs};
+    use raw_gpu::{
+        CancelToken, CurveMode, FullChainInputs, GpuContext, LiveSession, ToneCurveInputs,
+    };
     if !gpu_available() {
         eprintln!("render_chain_to_f32 zero-alloc: no GPU adapter — skipping (soft pass)");
         return;
@@ -449,8 +506,8 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         rgba.extend_from_slice(&[t * 0.8, t * 0.5 + 0.1, t * 0.3 + 0.2, 1.0]);
     }
 
-    let ctx = GpuContext::new_blocking();
-    let session = LiveSession::new(&ctx, &rgba, w, h);
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let session = LiveSession::new(&ctx, &rgba, w, h).expect("session");
     // A neutral-ish chain (dehaze inactive → the single-submit f32 path the present
     // uses). Default inputs keep the signature stable across the two renders.
     let inputs = FullChainInputs {
@@ -480,19 +537,23 @@ fn render_chain_to_f32_second_render_is_zero_alloc() {
         contrast: 0.0,
         capture_sharpening: None,
         profile_curve_flat: auto_profile::curve::ProfileCurve::identity().to_flat(),
-        residual_lut_size: auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE).size,
-        residual_lut_data: auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE).data,
+        residual_lut_size: auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE)
+            .size,
+        residual_lut_data: auto_profile::lut::ColorLut::identity(auto_profile::DEFAULT_LUT_SIZE)
+            .data,
     };
     let cancel = CancelToken::new();
 
     let before_first = session.pool_alloc_count(&ctx);
     let idx1 = session
         .render_chain_to_f32(&ctx, &inputs, &cancel)
+        .expect("first chain-to-f32 render ok")
         .expect("first chain-to-f32 render");
     let first_allocs = session.pool_alloc_count(&ctx) - before_first;
 
     let idx2 = session
         .render_chain_to_f32(&ctx, &inputs, &cancel)
+        .expect("second chain-to-f32 render ok")
         .expect("second chain-to-f32 render");
     let second_allocs = session.pool_alloc_count(&ctx) - before_first - first_allocs;
 

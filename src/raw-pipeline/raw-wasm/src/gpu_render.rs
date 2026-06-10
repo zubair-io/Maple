@@ -338,7 +338,12 @@ pub(crate) fn chain_inputs_for_model(
 ) -> FullChainInputs {
     let (profile_curve_flat, residual_lut_size, residual_lut_data) =
         fit_profile_artifacts(raw_img, raw, ext, model);
-    build_full_chain_inputs(model, profile_curve_flat, residual_lut_size, residual_lut_data)
+    build_full_chain_inputs(
+        model,
+        profile_curve_flat,
+        residual_lut_size,
+        residual_lut_data,
+    )
 }
 
 /// The decode-boundary + GPU-chain CORE, factored out of [`render_bytes_gpu`] so
@@ -370,16 +375,28 @@ async fn render_gpu_core(
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.
-    let ctx = GpuContext::new_async().await;
-    let session = LiveSession::new(&ctx, &rgba, w, h);
+    // Every GPU step is fallible (#1079): no adapter / device, dims past the
+    // device's limits, a failed readback — each surfaces as a JsError so the
+    // worker falls back to the CPU `render_bytes` path instead of trapping.
+    let ctx = GpuContext::new_async()
+        .await
+        .map_err(|e| format!("render_bytes_gpu: {e}"))?;
+    let session =
+        LiveSession::new(&ctx, &rgba, w, h).map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let rgb = session
         .render_async(&ctx, &inputs, None)
         .await
+        .map_err(|e| format!("render_bytes_gpu: {e}"))?
         .ok_or_else(|| "render_bytes_gpu: live chain returned no buffer".to_string())?;
 
     // EXIF-orient the u8 surface last, exactly as `render_bytes` does (the GPU
     // chain is orientation-agnostic; the develop buffer is in sensor framing).
-    Ok(raw_core::image::apply_orientation(&rgb, w, h, raw_img.orientation))
+    Ok(raw_core::image::apply_orientation(
+        &rgb,
+        w,
+        h,
+        raw_img.orientation,
+    ))
 }
 
 /// Render a RAW from bytes to a u8 RGB display surface via the GPU live chain
@@ -409,8 +426,8 @@ pub async fn render_bytes_gpu(
     ext: String,
     xmp: Option<String>,
 ) -> Result<MapleRender, JsError> {
-    let raw_img = raw_core::decode::decode_bytes(&raw, &ext)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let raw_img =
+        raw_core::decode::decode_bytes(&raw, &ext).map_err(|e| JsError::new(&e.to_string()))?;
 
     // As-shot derivation + fresh-open WB substitution — IDENTICAL to
     // `render_bytes` (see crate::render_bytes for the rationale), so the GPU
@@ -434,7 +451,13 @@ pub async fn render_bytes_gpu(
         .await
         .map_err(|e| JsError::new(&e))?;
 
-    Ok(MapleRender::new(ow, oh, oriented, as_shot_temperature, as_shot_tint))
+    Ok(MapleRender::new(
+        ow,
+        oh,
+        oriented,
+        as_shot_temperature,
+        as_shot_tint,
+    ))
 }
 
 // Native (Metal) host parity gate for the decode-boundary + GPU-chain plumbing
