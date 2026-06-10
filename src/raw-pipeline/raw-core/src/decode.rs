@@ -188,6 +188,29 @@ pub fn decode_bytes(bytes: &[u8], ext: &str) -> Result<RawImage> {
     let width = raw.width as u32;
     let height = raw.height as u32;
 
+    // Reject zero / degenerate dimensions before they reach the pipeline
+    // (#1087). Rawler passes malformed declarations through on some
+    // container paths (e.g. an uncompressed DNG strip with ImageLength = 0
+    // decodes "successfully" to an empty buffer), and downstream stages
+    // hard-panic on them instead of erroring: `sensor_linearize` feeds the
+    // width into rayon's `par_chunks_mut`, which aborts on a chunk size of
+    // zero, and the half-res demosaic halves each axis first (1 px → 0) so
+    // even a 1-px-wide input dies the same way. A Bayer mosaic needs at
+    // least one full 2×2 CFA quad to mean anything (and no real camera
+    // file of any kind is under 2 px on a side), so enforce that floor
+    // here — decode must fail with a structured error, never panic, on
+    // untrusted input.
+    if width < 2 || height < 2 {
+        return Err(Error::Decode {
+            path: std::path::PathBuf::from(&hint_path),
+            reason: format!(
+                "invalid sensor dimensions {}×{}: a decodable RAW must be \
+                 at least 2×2 pixels",
+                width, height
+            ),
+        });
+    }
+
     // ── 4. Black / white levels ───────────────────────────────────────────
     // `as_bayer_array()` returns 4 values in [top-left, top-right, bottom-left, bottom-right]
     // order matching the 2×2 Bayer tile — i.e. the same per-position indexing
@@ -769,6 +792,50 @@ mod tests {
         })?;
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         decode_bytes(&bytes, ext)
+    }
+
+    /// Regression test for #1087 — malformed files declaring degenerate
+    /// dimensions must fail decode with a structured `Error::Decode`, never
+    /// panic. Pre-fix, all three of these synthetic DNGs decoded `Ok` and
+    /// the zero/one-px dimension propagated into the pipeline:
+    /// `sensor_linearize` feeds the width into `par_chunks_mut`, which
+    /// panics on a chunk size of zero, and `demosaic::half_res` halves
+    /// each axis first, so even a 1-px-wide input dies the same way.
+    #[test]
+    fn decode_rejects_degenerate_dimensions() {
+        use crate::test_support::synth_dng::SyntheticGreyDng;
+        for (w, h) in [(8u32, 0u32), (1, 8), (8, 1)] {
+            let dng = SyntheticGreyDng { width: w, height: h, ..Default::default() };
+            let bytes = dng.write_to_bytes();
+            let err = match decode_bytes(&bytes, "dng") {
+                Err(e) => e,
+                Ok(raw) => panic!(
+                    "a {}×{} DNG must fail decode, got Ok({}×{})",
+                    w, h, raw.width, raw.height
+                ),
+            };
+            match err {
+                Error::Decode { reason, .. } => assert!(
+                    reason.contains("invalid sensor dimensions"),
+                    "unexpected decode-error reason for {}×{}: {}", w, h, reason
+                ),
+                other => panic!("expected Error::Decode for {}×{}, got {:?}", w, h, other),
+            }
+        }
+
+        // Zero-*width*: rawler's own uncompressed-strip reader trips first
+        // on the synthetic container (it catches an internal panic and
+        // surfaces a decode error), so raw-core's validation never sees the
+        // dimensions on this path. The contract still holds either way:
+        // a structured error, not a process abort. Kept here so the full
+        // zero/one-px matrix is pinned against rawler upgrades — if a
+        // future rawler starts log-and-continuing on this path too, this
+        // case falls through to the same `width < 2` guard as the rest.
+        let dng = SyntheticGreyDng { width: 0, height: 8, ..Default::default() };
+        assert!(
+            decode_bytes(&dng.write_to_bytes(), "dng").is_err(),
+            "a 0×8 DNG must fail decode with an error"
+        );
     }
 
     #[test]

@@ -66,6 +66,15 @@ pub fn sensor_linearize_region(
     let rw = rect_w as usize;
     let mut img = Image::new(rect_w, rect_h, ColorSpace::CameraNativeMosaic);
 
+    // Zero-area rect: nothing to linearize. Return the empty image rather
+    // than reaching `par_chunks_mut(0)`, which panics ("chunk_size must
+    // not be zero"). Unreachable via `decode_bytes` — it rejects zero-dim
+    // sensors (#1087) — so this is defense in depth for direct callers
+    // that build a `RawImage` by hand.
+    if rect_w == 0 || rect_h == 0 {
+        return img;
+    }
+
     let wl = raw.white_level as f32;
     img.pixels
         .par_chunks_mut(rw)
@@ -244,6 +253,28 @@ mod tests {
         assert_eq!(img.pixels[0][0], 0.0);
         // G at (1,0): (100 - 50) / (1023 - 50) ≈ 0.0514
         assert!((img.pixels[1][1] - 0.0514).abs() < 1e-3);
+    }
+
+    /// Regression test for #1087 — a zero-dim sensor (or a zero-area
+    /// region) must produce an empty image, not panic. Pre-fix, a zero
+    /// rect width reached `par_chunks_mut(0)`, which aborts with
+    /// "chunk_size must not be zero". `decode_bytes` now rejects such
+    /// files outright; this covers the hand-built-`RawImage` surface
+    /// that bypasses decode validation.
+    #[test]
+    fn zero_dim_input_linearizes_to_empty_image_without_panicking() {
+        // Zero-width sensor through the full-image entry point.
+        let raw = tiny_raw(vec![], 0, 4);
+        let img = sensor_linearize(&raw);
+        assert_eq!((img.width, img.height), (0, 4));
+        assert!(img.pixels.is_empty());
+
+        // Zero-width region of an otherwise valid sensor — the rect shape
+        // that hit `par_chunks_mut(0)` pre-fix.
+        let raw = tiny_raw(vec![0, 512, 1023, 256], 2, 2);
+        let img = sensor_linearize_region(&raw, 0, 0, 0, 2);
+        assert_eq!((img.width, img.height), (0, 2));
+        assert!(img.pixels.is_empty());
     }
 
     #[test]
