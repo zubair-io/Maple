@@ -44,6 +44,9 @@ export interface MirrorCopyOptions {
   }) => void;
   /** Per-failure hook: source path + message, for an operator-visible error log. */
   onError?: (failure: { path: string; error: string }) => void;
+  /** Per-success hook: the source path that was just copied to the mirror, for
+   * an operator-visible "copied" log. */
+  onCopied?: (path: string) => void;
 }
 
 export interface MirrorCopySummary {
@@ -91,6 +94,7 @@ export async function runMirrorCopyOnce(opts: MirrorCopyOptions = {}): Promise<M
       await copyFileToMirror(entry.primary_path, entry.mirror_path);
       await completeMirrorCopy(entry._id);
       summary.copied++;
+      opts.onCopied?.(entry.primary_path);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       await failMirrorCopy(entry._id, msg, maxAttempts).catch(() => {});

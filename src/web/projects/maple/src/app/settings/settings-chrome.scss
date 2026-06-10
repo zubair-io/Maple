@@ -295,11 +295,10 @@
 }
 
 // ── Worker / stage table row ────────────────────────────────────────────────
-// The 10-column grid + the cells common to every row in it. Shared by the
-// Workers page stage rows (`workers.component.scss`) and the Mirror row
-// (`mirror-settings.component.scss`) so the two line up under one column header
-// and can't drift. Worker-only cells (dead, throughput, pause) stay in the
-// workers stylesheet; the Mirror row reuses just the grid + these common cells.
+// The 10-column grid + the cells common to every row in it, used by the Workers
+// page stage rows (`workers.component.scss`) so every row lines up under one
+// column header. Worker-only cells (dead, throughput, pause) stay in the workers
+// stylesheet; these are the grid + the cells shared across stage rows.
 @mixin worker-row-grid {
   display: grid;
   grid-template-columns:
@@ -364,10 +363,10 @@
 }
 
 // At ≤1023px the worker/stage table stops being a table: each `maple-settings-row`
-// becomes a self-contained bordered card (the inner grid re-flows separately per
-// consumer). Shared by the Workers page rows and the Mirror row so both read as
-// cards on tablet/phone. `--srow-border: none` drops the inner list separator the
-// card border replaces.
+// becomes a self-contained bordered card (the inner grid re-flows in the Workers
+// stylesheet). Used by the Workers page rows so they read as cards on
+// tablet/phone. `--srow-border: none` drops the inner list separator the card
+// border replaces.
 @mixin settings-row-mobile-card {
   display: block;
   border: 0.5px solid var(--s-border);
