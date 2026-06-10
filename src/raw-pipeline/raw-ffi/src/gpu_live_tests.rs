@@ -310,9 +310,7 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
         assert_eq!(rc, 0, "[{name}] gpu_live_open rc {rc}");
 
         let mut out = vec![0u8; (w * h * 3) as usize];
-        let rc = unsafe {
-            maple_gpu_live_render(&handle, &params, out.as_mut_ptr())
-        };
+        let rc = unsafe { maple_gpu_live_render(&handle, &params, out.as_mut_ptr()) };
         assert_eq!(rc, 0, "[{name}] gpu_live_render rc {rc}");
         unsafe { maple_gpu_live_close(&mut handle) };
 
@@ -380,7 +378,9 @@ fn direct_raw_gpu(
     use raw_gpu::{CurveMode, FullChainInputs, GpuContext, LiveSession, ToneCurveInputs};
 
     let wb_matrix = match wb_method {
-        WbMethod::Cat16 => raw_core::stages::white_balance::wb_cat16_matrix(model.temperature, model.tint).0,
+        WbMethod::Cat16 => {
+            raw_core::stages::white_balance::wb_cat16_matrix(model.temperature, model.tint).0
+        }
         WbMethod::DiagonalRec2020 => {
             let g = raw_core::stages::white_balance::wb_gains(model.temperature, model.tint);
             [[g[0], 0.0, 0.0], [0.0, g[1], 0.0], [0.0, 0.0, g[2]]]
@@ -431,11 +431,12 @@ fn direct_raw_gpu(
         residual_lut_size: lut.size,
         residual_lut_data: lut.data.clone(),
     };
-    let ctx = GpuContext::new_blocking();
-    let session = LiveSession::new(&ctx, input, w, h);
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let session = LiveSession::new(&ctx, input, w, h).expect("session");
     let cancel = raw_gpu::CancelToken::new();
     session
         .render_to_buffer(&ctx, &inputs, &cancel)
+        .expect("direct render ok")
         .expect("direct render returns Some")
 }
 
@@ -494,4 +495,38 @@ fn gpu_live_rerender_is_byte_identical() {
     );
     unsafe { maple_gpu_live_close(&mut handle) };
     assert_eq!(a, b, "FFI re-render at same inputs must be byte-identical");
+}
+
+/// PANIC CONTAINMENT (#1079): the gpu entries wrap their bodies in
+/// `catch_panic_rc`, mirroring the CPU entries' worker-panic rc-99 pattern in
+/// `error.rs`. A panic inside the body must surface as rc 99 + a
+/// `maple_last_error` message, NOT unwind through the `extern "C"` frame (which
+/// aborts the app on Apple). Exercised directly on the barrier — provoking a
+/// real wgpu panic through valid FFI args would require GPU fault injection.
+#[test]
+fn catch_panic_rc_contains_panics_as_rc_99() {
+    let rc = crate::error::catch_panic_rc("test_entry", || {
+        panic!("synthetic wgpu validation failure");
+    });
+    assert_eq!(
+        rc,
+        crate::error::RC_PANICKED,
+        "a contained panic must map to rc 99"
+    );
+
+    let msg = unsafe {
+        let p = crate::error::maple_last_error();
+        assert!(
+            !p.is_null(),
+            "last error must be set after a contained panic"
+        );
+        std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
+    };
+    assert!(
+        msg.contains("test_entry") && msg.contains("synthetic wgpu validation failure"),
+        "last error must carry the entry name + panic payload, got: {msg}"
+    );
+
+    // A non-panicking body passes its rc through untouched.
+    assert_eq!(crate::error::catch_panic_rc("test_entry", || -7), -7);
 }

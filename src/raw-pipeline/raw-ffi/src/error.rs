@@ -64,6 +64,41 @@ where
     }
 }
 
+/// Return code for "the FFI body panicked" — mirrors [`with_large_stack`]'s
+/// worker-panic rc (99) so hosts see one consistent "Rust-side panic" code.
+/// Used by the gpu entries' [`catch_panic_rc`] (#1079).
+#[cfg(feature = "gpu")]
+pub(crate) const RC_PANICKED: i32 = 99;
+
+/// Run an FFI body with a panic barrier (#1079): a panic anywhere inside
+/// (wgpu's `handle_error_fatal`, a slipped `assert`, …) is caught at this
+/// boundary instead of unwinding through the `extern "C"` frame — which is
+/// undefined behaviour and in practice aborts the app on Apple. On panic the
+/// payload's message lands in `LAST_ERROR` and the caller gets
+/// [`RC_PANICKED`], mirroring the CPU entries' `with_large_stack` rc-99
+/// pattern (there the thread JOIN is the panic barrier; gpu entries run on the
+/// caller's thread — the GPU handle is `!Send` — so they need an explicit
+/// `catch_unwind`).
+///
+/// `AssertUnwindSafe` is sound here: on the error path the closure's captures
+/// are never touched again (the host treats nonzero as "fall back to CPU" and
+/// closes the handle), so observing broken invariants is not possible.
+#[cfg(feature = "gpu")]
+pub(crate) fn catch_panic_rc<F: FnOnce() -> i32>(entry: &str, body: F) -> i32 {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(body)) {
+        Ok(rc) => rc,
+        Err(payload) => {
+            let msg = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic payload".to_string());
+            set_last_error(format!("{entry}: panicked: {msg}"));
+            RC_PANICKED
+        }
+    }
+}
+
 /// Returns the most recent error message for the current thread, or null.
 /// The returned pointer remains valid until the next FFI call on this thread.
 #[no_mangle]
