@@ -58,6 +58,8 @@ impl GpuImage {
 
     /// Copy the image buffer back to the CPU as RGBA f32. Test/export only —
     /// never the interactive path. Native blocking; wasm awaits the map.
+    /// Panics on a readback failure (the interactive path rides
+    /// [`crate::LiveSession`]'s `Result`-returning renders instead).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn read_back_blocking(&self, ctx: &GpuContext) -> Vec<f32> {
         pollster::block_on(crate::chain::read_buffer_async(
@@ -65,6 +67,7 @@ impl GpuImage {
             &self.buffer,
             self.byte_len(),
         ))
+        .expect("GPU image readback failed")
     }
 }
 
@@ -75,7 +78,7 @@ mod tests {
 
     #[test]
     fn gpu_image_uploads_and_reads_back_identity() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = test_buffer(256); // 256 RGBA pixels
         let img = GpuImage::upload(&ctx, &input, 16, 16);
         let out = img.read_back_blocking(&ctx);
@@ -86,7 +89,7 @@ mod tests {
     fn gpu_image_uploads_at_two_sizes() {
         // The same upload path serves "full" (16x16) and "preview" (8x8) sizes;
         // each round-trips. (Downscaling the *pixels* is the caller's job — P4.)
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
 
         let full = test_buffer(256);
         let full_img = GpuImage::upload(&ctx, &full, 16, 16);

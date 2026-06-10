@@ -92,7 +92,14 @@ impl LiveSession {
     /// of the device handle once created), so it can outlive any single `&ctx`
     /// borrow and be owned alongside a `GpuContext` in an FFI handle (C4). Every
     /// render method takes `&GpuContext` per call.
-    pub fn new(ctx: &GpuContext, pixels: &[f32], width: u32, height: u32) -> Self {
+    ///
+    /// Fallible (#1079): the dims are validated against the DEVICE's actual
+    /// limits BEFORE any GPU allocation — the session binds whole-image f32
+    /// buffers (`width × height × 16` bytes) as single storage bindings, so an
+    /// image past `max_storage_buffer_binding_size` / `max_buffer_size` would
+    /// otherwise hit wgpu's fatal validation panic mid-render. The `Err` is a
+    /// descriptive message hosts surface (and CPU-fallback on).
+    pub fn new(ctx: &GpuContext, pixels: &[f32], width: u32, height: u32) -> Result<Self, String> {
         Self::new_inner(ctx, pixels, width, height, false)
     }
 
@@ -104,8 +111,41 @@ impl LiveSession {
         pixels: &[f32],
         width: u32,
         height: u32,
-    ) -> Self {
+    ) -> Result<Self, String> {
         Self::new_inner(ctx, pixels, width, height, true)
+    }
+
+    /// Validate `width × height` against `ctx`'s device limits (#1079). Checked
+    /// BEFORE any buffer allocation, so rejecting an absurd size is cheap. The
+    /// session's largest single binding is the whole-image RGBA f32 buffer
+    /// (`w · h · 16` bytes); it must fit both the storage-binding and the
+    /// buffer-size ceilings.
+    fn validate_dims(ctx: &GpuContext, width: u32, height: u32) -> Result<u64, String> {
+        if width == 0 || height == 0 {
+            return Err(format!("LiveSession: zero dimension {width}x{height}"));
+        }
+        let f32_byte_len = (width as u64)
+            .checked_mul(height as u64)
+            .and_then(|px| px.checked_mul(4 * std::mem::size_of::<f32>() as u64))
+            .ok_or_else(|| format!("LiveSession: pixel-count overflow {width}x{height}"))?;
+        let limits = ctx.device.limits();
+        if f32_byte_len > limits.max_storage_buffer_binding_size as u64 {
+            return Err(format!(
+                "LiveSession: image {width}x{height} needs a {f32_byte_len}-byte storage \
+                 binding, over the device's max_storage_buffer_binding_size {} — render at \
+                 a smaller size or fall back to the CPU path",
+                limits.max_storage_buffer_binding_size
+            ));
+        }
+        if f32_byte_len > limits.max_buffer_size {
+            return Err(format!(
+                "LiveSession: image {width}x{height} needs a {f32_byte_len}-byte buffer, \
+                 over the device's max_buffer_size {} — render at a smaller size or fall \
+                 back to the CPU path",
+                limits.max_buffer_size
+            ));
+        }
+        Ok(f32_byte_len)
     }
 
     fn new_inner(
@@ -114,7 +154,16 @@ impl LiveSession {
         width: u32,
         height: u32,
         airlight_readback_fallback: bool,
-    ) -> Self {
+    ) -> Result<Self, String> {
+        Self::validate_dims(ctx, width, height)?;
+        let expected_lanes = (width as usize) * (height as usize) * 4;
+        if pixels.len() != expected_lanes {
+            return Err(format!(
+                "LiveSession: pixel buffer len {} != width*height*4 ({width}x{height} = \
+                 {expected_lanes})",
+                pixels.len()
+            ));
+        }
         let image = GpuImage::upload(ctx, pixels, width, height);
         let f32_byte_len = image.byte_len();
         let make_ping = |label: &str| {
@@ -149,14 +198,14 @@ impl LiveSession {
         // reference the OLD session's (now-dropped) ping-pong buffers (stale-
         // reference safety; see `FramePool::reset`).
         ctx.frame_pool.borrow_mut().reset();
-        Self {
+        Ok(Self {
             image,
             ping_pong: [make_ping("live-ping-a"), make_ping("live-ping-b")],
             dither_out,
             readback,
             airlight_staging,
             airlight_readback_fallback,
-        }
+        })
     }
 
     /// The session's image dimensions.
@@ -174,9 +223,9 @@ impl LiveSession {
 
     /// Render one frame: the GATED live chain for `inputs` → the terminal dither
     /// → a readback of the packed-u8 RGB surface, unpacked to the flat `3·w·h` u8
-    /// layout. `None` if `cancel` fires before a pass is encoded (the refine pass
-    /// abandoned by a newer edit). `ctx` is the same context the session was
-    /// created with.
+    /// layout. `Ok(None)` if `cancel` fires before a pass is encoded (the refine
+    /// pass abandoned by a newer edit); `Err` if a GPU readback fails (#1079).
+    /// `ctx` is the same context the session was created with.
     ///
     /// AIRLIGHT (#1033): on the DEFAULT on-GPU path the dehaze atmospheric light A
     /// is computed ON-DEVICE — the `DehazePass` reduces it from the post-prefix
@@ -190,7 +239,7 @@ impl LiveSession {
         ctx: &GpuContext,
         inputs: &FullChainInputs,
         cancel: &CancelToken,
-    ) -> Option<Vec<u8>> {
+    ) -> Result<Option<Vec<u8>>, String> {
         pollster::block_on(self.render_async(ctx, inputs, Some(cancel)))
     }
 
@@ -200,13 +249,14 @@ impl LiveSession {
     /// per-tick readback. Only the explicit readback fallback
     /// ([`Self::new_with_airlight_readback`]) takes the C5a mid-chain split when
     /// dehaze is engaged. `cancel` is checked before each pass; `None` ⇒ no
-    /// cancellation. Returns the `3·w·h` u8 RGB buffer, or `None` if cancelled.
+    /// cancellation. Returns the `3·w·h` u8 RGB buffer, `Ok(None)` if cancelled,
+    /// or `Err` on a GPU readback failure (#1079).
     pub async fn render_async(
         &self,
         ctx: &GpuContext,
         inputs: &FullChainInputs,
         cancel: Option<&CancelToken>,
-    ) -> Option<Vec<u8>> {
+    ) -> Result<Option<Vec<u8>>, String> {
         let dims = self.image.dims();
 
         // Open the pooled render window for THIS chain shape — it SPANS both the
@@ -235,7 +285,7 @@ impl LiveSession {
         ctx: &GpuContext,
         inputs: &FullChainInputs,
         cancel: Option<&CancelToken>,
-    ) -> Option<Vec<u8>> {
+    ) -> Result<Option<Vec<u8>>, String> {
         let dims = self.image.dims();
         let f32_byte_len = self.image.byte_len();
         let passes = build_live_chain(inputs, AirlightSource::OnGpu);
@@ -250,10 +300,16 @@ impl LiveSession {
         encoder.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
         let final_idx = match self.encode_chain(ctx, &mut encoder, &pass_refs, 0, cancel) {
             Some(idx) => idx,
-            None => return None, // cancelled mid-encode
+            None => return Ok(None), // cancelled mid-encode
         };
-        encode_dither(ctx, &mut encoder, &self.ping_pong[final_idx], &self.dither_out, dims);
-        self.submit_and_read_surface(ctx, encoder).await
+        encode_dither(
+            ctx,
+            &mut encoder,
+            &self.ping_pong[final_idx],
+            &self.dither_out,
+            dims,
+        );
+        Ok(Some(self.submit_and_read_surface(ctx, encoder).await?))
     }
 
     /// The C5a CPU-readback FALLBACK path (`airlight_readback_fallback == true`):
@@ -267,7 +323,7 @@ impl LiveSession {
         ctx: &GpuContext,
         inputs: &FullChainInputs,
         cancel: Option<&CancelToken>,
-    ) -> Option<Vec<u8>> {
+    ) -> Result<Option<Vec<u8>>, String> {
         let dims = self.image.dims();
         let f32_byte_len = self.image.byte_len();
 
@@ -285,7 +341,7 @@ impl LiveSession {
         enc1.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
         let prefix_final = match self.encode_chain(ctx, &mut enc1, &prefix_refs, 0, cancel) {
             Some(idx) => idx,
-            None => return None,
+            None => return Ok(None),
         };
         enc1.copy_buffer_to_buffer(
             &self.ping_pong[prefix_final],
@@ -297,7 +353,7 @@ impl LiveSession {
         ctx.queue.submit(Some(enc1.finish()));
 
         // Read the post-prefix buffer back and measure A exactly as raw-core does.
-        let pre_dehaze = map_f32_readback(ctx, &self.airlight_staging).await;
+        let pre_dehaze = map_f32_readback(ctx, &self.airlight_staging).await?;
         let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
 
         // Phase 2: dehaze + suffix (built with the REAL airlight) + dither. The
@@ -312,19 +368,26 @@ impl LiveSession {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("live-suffix-encoder"),
             });
-        let suffix_final = match self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel)
-        {
-            Some(idx) => idx,
-            None => return None,
-        };
-        encode_dither(ctx, &mut enc2, &self.ping_pong[suffix_final], &self.dither_out, dims);
-        self.submit_and_read_surface(ctx, enc2).await
+        let suffix_final =
+            match self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel) {
+                Some(idx) => idx,
+                None => return Ok(None),
+            };
+        encode_dither(
+            ctx,
+            &mut enc2,
+            &self.ping_pong[suffix_final],
+            &self.dither_out,
+            dims,
+        );
+        Ok(Some(self.submit_and_read_surface(ctx, enc2).await?))
     }
 
     /// Run the GATED live chain for `inputs` to its FINAL f32 buffer and STOP —
     /// no dither, no readback. Returns the ping-pong index holding the chain's
     /// sRGB-gamma-encoded f32-RGBA output (read it via [`Self::ping_pong_buffer`]),
-    /// or `None` if `cancel` fired before a pass was encoded. The f32 result is
+    /// `Ok(None)` if `cancel` fired before a pass was encoded, or `Err` if the
+    /// fallback path's mid-chain readback fails (#1079). The f32 result is
     /// left RESIDENT on the GPU so a present pass (P4b-apple #1028 / P4b-web #1029)
     /// can sample it directly into a display surface — the surface-bound sibling of
     /// [`Self::render_to_buffer`] (which appends dither + reads the u8 surface back).
@@ -343,12 +406,12 @@ impl LiveSession {
         ctx: &GpuContext,
         inputs: &FullChainInputs,
         cancel: &CancelToken,
-    ) -> Option<usize> {
+    ) -> Result<Option<usize>, String> {
         pollster::block_on(self.render_chain_to_f32_async(ctx, inputs, Some(cancel)))
     }
 
-    /// The async core of [`Self::render_chain_to_f32`], shared by native and (a
-    /// future) wasm present caller. Runs the gated chain to its final f32 buffer
+    /// The async core of [`Self::render_chain_to_f32`], shared by native and the
+    /// wasm present caller. Runs the gated chain to its final f32 buffer
     /// WITHOUT the terminal dither/readback, returning the ping-pong index that
     /// holds the result. `cancel` is checked before each pass; `None` ⇒ no
     /// cancellation.
@@ -357,16 +420,17 @@ impl LiveSession {
         ctx: &GpuContext,
         inputs: &FullChainInputs,
         cancel: Option<&CancelToken>,
-    ) -> Option<usize> {
+    ) -> Result<Option<usize>, String> {
         let dims = self.image.dims();
         let sig = chain_signature(inputs, dims);
         ctx.frame_pool.borrow_mut().begin_frame(sig);
 
         let result = if self.airlight_readback_fallback && dehaze_is_active(inputs) {
-            self.encode_chain_f32_dehaze_split(ctx, inputs, cancel).await
+            self.encode_chain_f32_dehaze_split(ctx, inputs, cancel)
+                .await
         } else {
             // On-GPU airlight (or dehaze inactive): one submit, no readback.
-            self.encode_chain_f32_single(ctx, inputs, cancel)
+            Ok(self.encode_chain_f32_single(ctx, inputs, cancel))
         };
 
         ctx.frame_pool.borrow_mut().end_frame();
@@ -410,7 +474,7 @@ impl LiveSession {
         ctx: &GpuContext,
         inputs: &FullChainInputs,
         cancel: Option<&CancelToken>,
-    ) -> Option<usize> {
+    ) -> Result<Option<usize>, String> {
         let dims = self.image.dims();
         let f32_byte_len = self.image.byte_len();
 
@@ -423,7 +487,10 @@ impl LiveSession {
                 label: Some("live-present-prefix-encoder"),
             });
         enc1.copy_buffer_to_buffer(&self.image.buffer, 0, &self.ping_pong[0], 0, f32_byte_len);
-        let prefix_final = self.encode_chain(ctx, &mut enc1, &prefix_refs, 0, cancel)?;
+        let prefix_final = match self.encode_chain(ctx, &mut enc1, &prefix_refs, 0, cancel) {
+            Some(idx) => idx,
+            None => return Ok(None),
+        };
         enc1.copy_buffer_to_buffer(
             &self.ping_pong[prefix_final],
             0,
@@ -433,7 +500,7 @@ impl LiveSession {
         );
         ctx.queue.submit(Some(enc1.finish()));
 
-        let pre_dehaze = map_f32_readback(ctx, &self.airlight_staging).await;
+        let pre_dehaze = map_f32_readback(ctx, &self.airlight_staging).await?;
         let airlight = compute_airlight(&pre_dehaze, dims.0 as usize, dims.1 as usize);
 
         let (_, suffix) = build_live_split(inputs, AirlightSource::Cpu(airlight));
@@ -444,9 +511,13 @@ impl LiveSession {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("live-present-suffix-encoder"),
             });
-        let suffix_final = self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel)?;
+        let suffix_final =
+            match self.encode_chain(ctx, &mut enc2, &suffix_refs, prefix_final, cancel) {
+                Some(idx) => idx,
+                None => return Ok(None),
+            };
         ctx.queue.submit(Some(enc2.finish()));
-        Some(suffix_final)
+        Ok(Some(suffix_final))
     }
 
     /// Borrow the ping-pong buffer at `idx` (0 or 1) — the f32 chain output a
@@ -493,27 +564,31 @@ impl LiveSession {
 
     /// Submit `encoder` (with the dither already encoded into `dither_out`), copy
     /// the packed-u8 surface to the readback staging buffer, map it, and unpack to
-    /// the `3·w·h` u8 RGB layout. The terminal of every render path.
+    /// the `3·w·h` u8 RGB layout. The terminal of every render path. A failed
+    /// readback map (device loss / OOM) is an `Err`, not a panic (#1079).
     async fn submit_and_read_surface(
         &self,
         ctx: &GpuContext,
         mut encoder: wgpu::CommandEncoder,
-    ) -> Option<Vec<u8>> {
+    ) -> Result<Vec<u8>, String> {
         let dims = self.image.dims();
-        let packed_byte_len =
-            (dims.0 as u64) * (dims.1 as u64) * std::mem::size_of::<u32>() as u64;
+        let packed_byte_len = (dims.0 as u64) * (dims.1 as u64) * std::mem::size_of::<u32>() as u64;
         encoder.copy_buffer_to_buffer(&self.dither_out, 0, &self.readback, 0, packed_byte_len);
         ctx.queue.submit(Some(encoder.finish()));
-        let packed = map_packed_readback(ctx, &self.readback).await;
-        Some(unpack_rgb_u8(&packed))
+        let packed = map_packed_readback(ctx, &self.readback).await?;
+        Ok(unpack_rgb_u8(&packed))
     }
 }
 
 /// Map the packed-u32 readback staging buffer and cast it to `Vec<u32>`. Native
 /// polls the queue; wasm awaits the browser-driven map. Mirrors
-/// `chain::map_readback_async` but for the u32 surface (not f32).
+/// `chain::map_readback_async` but for the u32 surface (not f32). A failed map
+/// is an `Err`, not a panic (#1079).
 #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
-async fn map_packed_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<u32> {
+async fn map_packed_readback(
+    ctx: &GpuContext,
+    readback: &wgpu::Buffer,
+) -> Result<Vec<u32>, String> {
     let slice = readback.slice(..);
     let (tx, rx) = futures_channel::oneshot::channel();
     slice.map_async(wgpu::MapMode::Read, move |res| {
@@ -522,20 +597,20 @@ async fn map_packed_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<u
     #[cfg(not(target_arch = "wasm32"))]
     ctx.device.poll(wgpu::Maintain::Wait);
     rx.await
-        .expect("map channel dropped")
-        .expect("buffer map failed");
+        .map_err(|_| "live-session readback: map channel dropped".to_string())?
+        .map_err(|e| format!("live-session readback: buffer map failed: {e}"))?;
     let data = slice.get_mapped_range();
     let out: Vec<u32> = bytemuck::cast_slice(&data).to_vec();
     drop(data);
     readback.unmap();
-    out
+    Ok(out)
 }
 
 /// Map the f32 mid-chain readback staging buffer (the post-prefix buffer, C5a)
 /// and cast it to `Vec<f32>` for `compute_airlight`. The f32 sibling of
 /// [`map_packed_readback`].
 #[cfg_attr(target_arch = "wasm32", allow(unused_variables))]
-async fn map_f32_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<f32> {
+async fn map_f32_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Result<Vec<f32>, String> {
     let slice = readback.slice(..);
     let (tx, rx) = futures_channel::oneshot::channel();
     slice.map_async(wgpu::MapMode::Read, move |res| {
@@ -544,21 +619,21 @@ async fn map_f32_readback(ctx: &GpuContext, readback: &wgpu::Buffer) -> Vec<f32>
     #[cfg(not(target_arch = "wasm32"))]
     ctx.device.poll(wgpu::Maintain::Wait);
     rx.await
-        .expect("map channel dropped")
-        .expect("buffer map failed");
+        .map_err(|_| "live-session airlight readback: map channel dropped".to_string())?
+        .map_err(|e| format!("live-session airlight readback: buffer map failed: {e}"))?;
     let data = slice.get_mapped_range();
     let out: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
     drop(data);
     readback.unmap();
-    out
+    Ok(out)
 }
 
 // Tests live in sibling files (600-LOC budget). Native test builds only. The
 // airlight end-to-end gates (C5a readback + C5b on-GPU, #1033) are split into
 // their own file; they reuse `tests::reference_u8` (pub(super) there).
 #[cfg(all(test, not(target_arch = "wasm32")))]
-#[path = "live_session/tests.rs"]
-mod tests;
-#[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "live_session/airlight_tests.rs"]
 mod airlight_tests;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "live_session/tests.rs"]
+mod tests;

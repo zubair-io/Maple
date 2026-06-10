@@ -106,9 +106,10 @@ impl Pass for ExposurePass {
 
 /// Native blocking entry: run the WGSL exposure kernel on the default adapter
 /// (Metal on macOS) and return the result buffer. Not compiled for wasm (which
-/// awaits the async fn directly).
+/// awaits the async fn directly). `Err` when no adapter/device is available or
+/// the readback fails (#1079).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn run_exposure_gpu(input: &[f32], ev: f32) -> Vec<f32> {
+pub fn run_exposure_gpu(input: &[f32], ev: f32) -> Result<Vec<f32>, String> {
     pollster::block_on(run_exposure_gpu_async(input, ev))
 }
 
@@ -116,15 +117,17 @@ pub fn run_exposure_gpu(input: &[f32], ev: f32) -> Vec<f32> {
 /// Builds a one-pixel-row `GpuImage` and runs a single-pass exposure chain, so
 /// it shares the exact code path the substrate exercises. GPU-resident: upload →
 /// dispatch → one readback (readback is test/export-only, never interactive).
-pub async fn run_exposure_gpu_async(input: &[f32], ev: f32) -> Vec<f32> {
-    let ctx = GpuContext::new_async().await;
+/// `Err` when GPU init or the readback fails (#1079) — the parity bindings
+/// surface it instead of aborting through the FFI.
+pub async fn run_exposure_gpu_async(input: &[f32], ev: f32) -> Result<Vec<f32>, String> {
+    let ctx = GpuContext::new_async().await?;
     let pixel_count = (input.len() / 4) as u32;
     let img = crate::image::GpuImage::upload(&ctx, input, pixel_count, 1);
     let runner = crate::chain::ChainRunner::new(&ctx, &img);
-    runner
+    Ok(runner
         .run_async(&[&ExposurePass { ev }])
-        .await
-        .expect("single-pass exposure chain never cancels")
+        .await?
+        .expect("single-pass exposure chain never cancels"))
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -155,7 +158,7 @@ mod tests {
         for &ev in &[-3.0_f32, 0.0, 0.5, 4.0] {
             let mut cpu = input.clone();
             apply_exposure_gain(&mut cpu, ev);
-            let gpu = run_exposure_gpu(&input, ev);
+            let gpu = run_exposure_gpu(&input, ev).expect("gpu exposure run");
             let max_diff = cpu
                 .iter()
                 .zip(&gpu)
@@ -174,7 +177,7 @@ mod tests {
     /// readback for the whole chain (zero inter-pass CPU readback).
     #[test]
     fn n_pass_exposure_chain_matches_composed_oracle_within_1e_4() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = test_buffer(256);
         let evs = [0.5_f32, -1.0, 2.0]; // composed gain = 2^(0.5 - 1 + 2)
         let img = GpuImage::upload(&ctx, &input, 256, 1);

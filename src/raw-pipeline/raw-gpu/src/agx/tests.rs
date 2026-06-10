@@ -65,7 +65,7 @@ fn max_abs_diff(a: &[f32], b: &[f32]) -> f32 {
 /// the deep-shadow ratio branch (including RATIO_FLOOR).
 #[test]
 fn wgsl_agx_matches_raw_core_stage_within_1e_4_contrast_0() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = agx_buffer();
     let count = (input.len() / 4) as u32;
 
@@ -89,7 +89,7 @@ fn wgsl_agx_matches_raw_core_stage_within_1e_4_contrast_0() {
 /// positive and a negative contrast are checked.
 #[test]
 fn wgsl_agx_matches_raw_core_stage_within_1e_4_nonzero_contrast() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = agx_buffer();
     let count = (input.len() / 4) as u32;
 
@@ -101,7 +101,9 @@ fn wgsl_agx_matches_raw_core_stage_within_1e_4_nonzero_contrast() {
         let gpu = runner.run_blocking(&[&AgxPass { contrast }]);
 
         let max_diff = max_abs_diff(&reference, &gpu);
-        eprintln!("PARITY vs raw-core agx::apply (contrast {contrast}): max abs diff = {max_diff:e}");
+        eprintln!(
+            "PARITY vs raw-core agx::apply (contrast {contrast}): max abs diff = {max_diff:e}"
+        );
         assert!(
             max_diff < 1e-4,
             "GPU vs raw-core agx::apply (contrast {contrast}) max abs diff {max_diff} exceeds 1e-4"
@@ -131,7 +133,7 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
 /// touches only RGB). Mirrors the per-stage alpha-passthrough contract.
 #[test]
 fn gpu_alpha_passthrough() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = agx_buffer();
     let count = (input.len() / 4) as u32;
     let img = GpuImage::upload(&ctx, &input, count, 1);
@@ -154,7 +156,7 @@ fn gpu_alpha_passthrough() {
 /// mid-gray near AGX_MID_DISPLAY (0.18).
 #[test]
 fn gpu_neutral_axis_preserved() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let neutrals = [0.001_f32, 0.01, 0.05, 0.18, 0.5, 1.0, 5.0];
     let mut input = Vec::new();
     for &v in &neutrals {
@@ -189,7 +191,7 @@ fn gpu_neutral_axis_preserved() {
 /// / the #435 no-magenta acceptance criterion.
 #[test]
 fn gpu_saturated_red_lands_in_box_and_keeps_red_dominance() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = vec![3.6_f32, 0.18, 0.18, 1.0]; // saturated red specular (20x mid-gray)
     let img = GpuImage::upload(&ctx, &input, 1, 1);
     let runner = ChainRunner::new(&ctx, &img);
@@ -213,7 +215,7 @@ fn gpu_saturated_red_lands_in_box_and_keeps_red_dominance() {
 /// oracle numerically).
 #[test]
 fn gpu_positive_contrast_steepens_around_mid_gray() {
-    let ctx = GpuContext::new_blocking();
+    let ctx = GpuContext::new_blocking().expect("gpu context");
     let input = vec![
         0.5_f32, 0.5, 0.5, 1.0, // bright
         0.05, 0.05, 0.05, 1.0, // dark
@@ -243,10 +245,10 @@ fn gpu_positive_contrast_steepens_around_mid_gray() {
 /// re-read the file relative to CARGO_MANIFEST_DIR and compare to our embed.
 #[test]
 fn embedded_lut_matches_raw_core_file() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../raw-core/src/view/agx_lut.bin");
-    let on_disk = std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("read {} failed: {}", path.display(), e));
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../raw-core/src/view/agx_lut.bin");
+    let on_disk =
+        std::fs::read(&path).unwrap_or_else(|e| panic!("read {} failed: {}", path.display(), e));
     assert_eq!(
         on_disk.as_slice(),
         AGX_LUT_BYTES,

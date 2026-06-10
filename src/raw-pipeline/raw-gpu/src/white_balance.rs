@@ -168,7 +168,9 @@ mod tests {
     /// derivation in raw-gpu.
     fn wb_matrix(temperature: f32, tint: f32, method: WbMethod) -> [[f32; 3]; 3] {
         match method {
-            WbMethod::Cat16 => raw_core::stages::white_balance::wb_cat16_matrix(temperature, tint).0,
+            WbMethod::Cat16 => {
+                raw_core::stages::white_balance::wb_cat16_matrix(temperature, tint).0
+            }
             WbMethod::DiagonalRec2020 => {
                 let g = raw_core::stages::white_balance::wb_gains(temperature, tint);
                 [[g[0], 0.0, 0.0], [0.0, g[1], 0.0], [0.0, 0.0, g[2]]]
@@ -184,7 +186,7 @@ mod tests {
     /// `wb_gains`, so the GPU output is pinned to the canonical CPU stage.
     #[test]
     fn wgsl_white_balance_matches_raw_core_stage_within_1e_4() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = wb_buffer();
         let count = (input.len() / 4) as u32;
 
@@ -249,7 +251,7 @@ mod tests {
     /// not enqueuing a pass).
     #[test]
     fn identity_matrix_is_passthrough_on_gpu() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         let input = wb_buffer();
         let count = (input.len() / 4) as u32;
         let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
@@ -261,7 +263,10 @@ mod tests {
             .zip(&gpu)
             .map(|(a, b)| (a - b).abs())
             .fold(0.0_f32, f32::max);
-        assert_eq!(max_diff, 0.0, "identity WB matrix must be a bit-exact passthrough");
+        assert_eq!(
+            max_diff, 0.0,
+            "identity WB matrix must be a bit-exact passthrough"
+        );
     }
 
     /// Row-major guard: a deliberately ASYMMETRIC matrix produces the row-major
@@ -269,7 +274,7 @@ mod tests {
     /// `mat3x3` column-major transpose trap the kernel avoids by using vec4 rows.
     #[test]
     fn asymmetric_matrix_applies_row_major_not_transposed() {
-        let ctx = GpuContext::new_blocking();
+        let ctx = GpuContext::new_blocking().expect("gpu context");
         // A matrix where M != Mᵀ so a transpose would give a different answer.
         let m = [[1.0, 2.0, 3.0], [0.1, 0.5, 0.2], [0.0, 0.3, 0.7]];
         let input = vec![0.2_f32, 0.4, 0.6, 1.0];
