@@ -4,7 +4,11 @@
 
 The requested feature list is RapidRAW's release notes v1.4.2–v1.5.0 (verified against
 github.com/CyberTimon/RapidRAW releases). This design maps each item onto Maple's
-architecture, using RapidRAW and RawTherapee as prior art.
+architecture, using RapidRAW and RawTherapee as prior art. §10 extends coverage to the
+rest of the missing-feature inventory: the new-UI editor tools that exist as stubs today
+(HSL, crop, presets are in `STUB_TOOLS`; vignette/grain/split-tone pills write schema
+fields the pipeline ignores, #643), plus small pipeline gaps surfaced by the research.
+§11 is the ledger of larger absent features deliberately not designed here.
 
 ## 0. Sources and licensing
 
@@ -50,6 +54,9 @@ architecture, using RapidRAW and RawTherapee as prior art.
 | Zoom + pinch | **Legacy** `FullImageView` (Apple): full system (fit→800%, pinch, pan, keyboard) — being replaced by the responsive program. **New UI:** Apple `EditorView` is fit-only (`pixelScale: 0` hardcoded); web editor (`ImageCanvasComponent` via `<editor-image-canvas>`) has stepped zoom buttons + unanchored wheel, no pinch; web loupe absent. | §5.0. |
 | Zoom-to-fit renders low-res | The render machinery is zoom-aware on Apple (`CanvasMath.refinedTargetSize = native × min(pixelScale, 1)`, refine skipped at fit) and the new `EditorView` already runs on `EditSession`/`CanvasMath` — but with zoom pinned to fit it can never exercise it. Web: **no** — every slider tick decodes and renders full resolution; the sized FFI entry (`maple_render_bytes_scene_linear_sized`) exists but web never calls it. | §5.0–5.1. |
 | Edit only the visible section (tiles) | Apple deep-zoom tile code exists but is gated off (`EditSession.deepZoomEnabled = false`) by tile-seam color parity, ticket #11. FFI tile entry points exist. | §5.3. |
+| New-UI editor tools: vignette / grain / split tone | Pills shipped, fields persist to XMP, **pipeline ignores them** (identity stubs, #643). | §10.1–10.3. |
+| New-UI editor tools: HSL / crop / presets | Declared stubs (`STUB_TOOLS` in tool-model.ts); no schema fields exist for HSL or crop. | §10.4, §10.5, §10.7. |
+| Hot/dead-pixel suppression | Absent (RT ships it pre-demosaic; flagged Phase-4+ in spec docs). | §10.6. |
 
 ## 3. Noise: a three-tier architecture
 
@@ -405,6 +412,13 @@ its own GitHub issue(s) on the Files board (every PR closes a ticket):
 | **2. Tone** | §4.1 brightness (full stack incl. predictor); §4.2 S/H rework + detail mask | 2 |
 | **3. Noise** | §3.1 chroma pre-filter + default calibration; §3.2 BM3D (CPU, cached, progress UI) + patent review subtask | 2 |
 | **4. Deep zoom** | §5.3 stage-class overlap + proxy planes; flip `deepZoomEnabled`; then web tiles | continues existing #11 (+1 for web adoption) |
+| **5. Effects tools become real** | §10.0 multi-param pill model; §10.1 vignette; §10.2 grain; §10.3 split toning (closes the #643 placeholders) | 4 (pill model; one per tool) |
+| **6. HSL** | §10.4 stage + 24 `crs:` fields + new slider-matrix cases; pill leaves `STUB_TOOLS` | 1 |
+| **7. Crop & straighten** | §10.5 geometry stage + overlay UI + zoom/tile/vignette integration | 1–2 (pipeline; UI) |
+| **8. Presets** | §10.7 storage + apply/save UI (no pipeline; can run in parallel with any phase) | 1 |
+
+§10.6 hot/dead-pixel suppression rides with Phase 3 (it is tier 0 of the same noise
+story and shares the calibration-sweep machinery).
 
 Phase ordering rationale: 1 is UI wiring against render machinery that already ships
 (the sized FFI exists; the new EditorView already sits on the zoom-aware
@@ -442,3 +456,171 @@ hardest correctness gate and benefits from §4.2's radius-registration work land
 - **Fixed bigger tile overlap (e.g. 128 px) instead of stage-class system** — rejected:
   clarity's scaled radius (≈246 px @100 MP) breaks any constant; cost scales wrongly.
 - **`crs:Brightness` for Lightroom interop** — rejected: PV2010 semantics mismatch.
+
+## 10. Completing the new-UI editor: remaining tool designs
+
+The S5 editor ships 22 tool pills; today `hsl`, `crop`, and `presets` are declared stubs
+(`tool-model.ts STUB_TOOLS`), and the three Effects tools (vignette, grain, split tone)
+write `papp:` fields that no pipeline stage reads (#643's staged placeholders). This
+section makes every pill real. Each design inherits the §6 cross-cutting checklist
+(schema→codegen→XMP ×3, CPU reference + WGSL, predictors, parity budgets, tile-class
+registration) — only deltas are stated.
+
+### 10.0 Tool-model placement (UI deltas)
+
+- **Multi-param pills.** S5b's model is one drag bar for the armed tool. Tools below have
+  2–24 parameters, so the tool model gains a **sub-parameter row**: arming a multi-param
+  pill shows a compact selector above the drag bar (text chips for vignette/grain/split
+  tone; 8 color dots + H/S/L toggle for HSL). The drag bar, chip overlay, fine mode, and
+  haptics are unchanged — they act on the armed (tool, sub-param) pair. Single-param
+  tools keep today's behavior exactly.
+- **Light group gains Brightness** (§4.1) between Exposure and Highlights → 7 pills.
+- **Noise pill becomes multi-param**: Luminance, Color (existing NLM), Deep (§3.2 BM3D),
+  Prefilter (§3.1) — Detail group keeps 5 pills, no new glyph needed beyond sub-chips.
+- Value-chip text shows the sub-param ("EFFECTS · VIGNETTE · FEATHER · 35").
+
+### 10.1 Vignette (post-crop)
+
+Scene-linear radial gain, anchored to the user crop rect (§10.5; DefaultCrop when none).
+Late in the scene chain (after local adjustments, before capture sharpening), so AgX's
+shoulder rolls the darkened/ lightened corners off filmically — the "highlight priority"
+look falls out of the architecture instead of being a style option.
+
+```
+r    = normalized elliptical distance from crop center (aspect-matched ellipse)
+m(r) = smoothstep(m0 − f·0.5, m0 + f·0.5, r)      // m0 = 0.7 fixed midpoint
+gain = exp2(K · amount/100 · m(r))                 // K ≈ 1.5 EV at ±100, calibrated
+```
+
+`f` maps `vignetteFeather` 0–100 → transition width 0.05–0.9. Existing schema fields
+(`papp:VignetteAmount`, `papp:VignetteFeather`) are kept as-is; midpoint/roundness are
+schema extensions only if calibration shows they're needed, not shipped speculatively.
+Predictor is position-aware: `predict_vignette(x, y, w, h, params)` exact closed form;
+the synthetic-grey flatness invariant is explicitly waived for this stage and replaced by
+center-identity + corner-attenuation assertions. GPU: point op given a tile-origin
+uniform (tile-safe by construction). On a uniform grey card the center pixel is identity
+— grey predictor cases pin the formula at sampled coordinates.
+
+### 10.2 Film grain
+
+Display-linear stage (post-AgX, before target gamut), because grain is a display-domain
+aesthetic and scene-linear injection would make grain amplitude swing with exposure.
+Luminance-modulated, monochromatic (luma-dominant like silver halide):
+
+```
+pitch  = lerp(1, 6, size/100) · longEdge/2000          // resolution-stable
+n(x,y) = value-noise(hash2D(⌊x/pitch⌋, ⌊y/pitch⌋, SEED)), quintic-smoothed,
+         + roughness/100 · second octave at 2× frequency, zero-mean
+w(Yd)  = 4·Yd·(1−Yd) clamped                            // fades in deep blacks + near white
+RGB'   = RGB + K · amount/100 · w(Yd) · n(x,y)          // same n on all channels
+```
+
+The hash is an integer PCG-style mix with identical constants in Rust and WGSL — fully
+deterministic (fixed SEED; no RNG), so renders are reproducible and cross-platform
+parity-exact. Coordinates are absolute image pixels → tile-safe and pan-stable. Gates:
+mean-preservation on grey (zero-mean noise) plus a predicted standard deviation; preview
+vs export parity across resolutions is **statistical, not pointwise** (grain re-samples
+per resolution) — stated as the contract. Default 0 → no harness movement.
+
+### 10.3 Split toning
+
+Display-linear, in Oklab, ACR-compatible mental model. With `Yd` = display luminance,
+balance `bal` ∈ [−100, +100]:
+
+```
+γ        = exp2(bal/100)                     // balance shifts the crossover
+wS       = (1 − Yd)^γ · sS/100,  wH = Yd^(1/γ) · sH/100
+(a, b)+  = K · [wS·(cos hS, sin hS) + wH·(cos hH, sin hH)]   // Oklab a/b shift; L unchanged
+```
+
+Existing five `papp:SplitTone*` fields; hues in degrees. Neutral-preserving at zero
+saturations; L invariance keeps tone untouched. Predictor: exact Oklab (a,b) shift on
+grey at known Yd. Point op in WGSL.
+
+### 10.4 HSL (8-band hue/saturation/luminance)
+
+New schema: the 24 ACR fields (`crs:HueAdjustmentRed…Magenta`,
+`crs:SaturationAdjustment…`, `crs:LuminanceAdjustment…`, −100..+100, default 0) — `crs:`
+namespace deliberately, for Lightroom interop. Scene-linear stage adjacent to the
+existing vibrance/saturation block, computed in Oklab:
+
+- Band weights: raised-cosine partition of unity over 8 hue centers aligned to ACR's
+  bands, circular in hue angle.
+- **Chroma gating:** weights scale by `smoothstep(0, C0, C)` so the neutral axis is
+  exactly stable — hue is undefined at zero chroma, and this makes grey-card gates pass
+  by construction.
+- Hue slider rotates hue within the band (max rotation calibrated against ACR
+  slider-matrix references), saturation scales C, luminance scales L (applied as a
+  uniform RGB factor recovering the Oklab L change, hue-preserving).
+
+Gates: new ACR slider-matrix cases (per-band XMPs rendered through the ACR reference
+procedure in CLAUDE.md), budgets initialized by the standard new-case procedure. UI: the
+`hsl` pill leaves `STUB_TOOLS`; sub-param row per §10.0. Targeted-adjust (drag on image
+to edit the band under the cursor) is explicitly v2.
+
+### 10.5 Crop & straighten
+
+New schema: ACR-compatible `crs:CropTop/Left/Bottom/Right` (normalized), `crs:CropAngle`
+(degrees, ±45), `crs:HasCrop`. Geometry stage at the end of the scene-linear chain,
+before the view transform (matching the existing "AgX operates on the cropped frame"
+ordering): inverse-transform sampling with rotation about the crop center — bilinear in
+the fast phase, Lanczos on refine/export. Pipeline consequences, all designed in:
+
+- `nativeImageSize` consumers (CanvasMath fit/zoom math, §5.0) switch to the **cropped,
+  rotated extent**; the rendered-preview cache key already hashes adjustments, so crop
+  changes invalidate correctly.
+- Tiles: the geometry stage maps tile rects through the inverse transform with a 2 px
+  sampling ring — registered with the §5.3 overlap calculator.
+- Vignette (§10.1) anchors to this rect; thumbnails render post-crop.
+- UI: the `crop` pill enters a canvas overlay mode — fit zoom forced, thirds grid, corner
+  handles, aspect presets as sub-chips, and **the drag bar becomes the angle control**
+  (±45°, fine mode for 0.1° — reusing S5b instead of inventing a rotation wheel).
+  Predictors: geometry-only stage, exempt from tone predictors; correctness gated by
+  round-trip tests (crop→render extent math) and an ACR interop fixture (LR-written crop
+  XMP renders with the same framing).
+
+### 10.6 Hot/dead-pixel suppression (tier 0 of the §3 noise story)
+
+Pre-demosaic, raw-domain, as in RawTherapee's preprocess block: for each CFA site,
+compare against same-color neighbors; flag `v > k·max(neighbors) + τ` (hot) or
+`v < k'·min(neighbors)` (dead, stuck-low) and replace with the same-color neighborhood
+median. Conservative thresholds; parameter `papp:HotPixelSuppression` (off/on, default
+off until the §3.1-style harness sweep shows it's free on clean fixtures). Runs inside
+the decode product — zero per-tick cost, invisible to predictors (identity on synthetic
+grey by construction since the card has no impulses).
+
+### 10.7 Presets
+
+Pure product feature — no pipeline work. A preset is a named, schema-versioned **sparse
+AdjustmentModel** (only non-default fields, same field names codegen already emits).
+
+- **Storage:** Apple — JSON documents in Application Support (sync later); web — a
+  `presets` collection in the existing API/Mongo layer, served through maple-common.
+  Built-ins ship as bundled JSON (neutral utility set; no color-claim names).
+- **Apply** = sparse merge into the current model → one undo-ring entry → normal
+  debounced XMP save. **Save preset** captures current non-defaults. Unknown fields from
+  newer schema versions are preserved on round-trip (same passthrough rule as XMP).
+- UI: `presets` pill opens an S1c bottom sheet (phone) / popover (desktop) listing
+  built-ins + user presets with apply/save/delete. Leaves `STUB_TOOLS`.
+
+## 11. Ledger: larger absent features, deliberately not designed here
+
+Listed so "missing" is complete; each needs its own spec/program:
+
+- **Masking / local-adjustment UI** — the pipeline hook exists (`local_adjustments`,
+  #280) but no authoring UI. Linear/radial gradients + luminance range mask is the
+  Capture-One-grade core; AI subject masks (RapidRAW uses SAM-class models) are a
+  separate research track.
+- **Lens corrections** (distortion/CA/vignetting from a lens database) — needs a lensfun-
+  class data source decision + a geometry stage; interacts with crop (§10.5) and tiles.
+- **Panorama** — spec exists (`docs/tickets/04`); P3/P4 currently blocked upstream.
+- **X-Trans premium demosaic** — Markesteijn shipped; an AMaZE-class upgrade is a
+  raw-core-only project gated by the parity harness.
+- **ICC output profiles** — four compiled matrices today; arbitrary ICC needs an LCMS2
+  decision (binary size + parity implications on web/WASM).
+- **Parametric tone region sliders** — fields exist (#273), no XMP/UI; superseded in
+  priority by §4 but kept on the ledger.
+- **White-balance picker (eyedropper)** — small, high-value; needs canvas hit-testing →
+  scene-linear sample → temp/tint solve. Natural follow-up to §5.0's canvas work.
+- **Engineering debt adjacent to this spec** (tracked, not features): Apple `nr_color`
+  Gaussian-vs-NLM parity break; MSL removal (#1043); web fast-phase follow-up (#846).
