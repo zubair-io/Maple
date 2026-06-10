@@ -127,7 +127,10 @@ extension EditSession {
         // A frame is now on the canvas layer — drive the loading indicator +
         // canvas-ready sentinel off this (renderedPreview is never set on this
         // path). NOT set in the stale-drop branch above (no frame presented). #1069
-        gpuFramePresented = true
+        // Latch once per session: `EditSession` is `@Observable` and fires on
+        // every assignment (no same-value dedup), so an unguarded per-present
+        // write would invalidate observing views each frame.
+        if !gpuFramePresented { gpuFramePresented = true }
         editSessionLogger.debug(
             "GPU live presented gen=\(gen ?? 0) \(dims.width)x\(dims.height)")
         return true
@@ -138,8 +141,9 @@ extension EditSession {
     /// canvas IS the `CAMetalLayer` (`gpuFramePresented`); the CPU path's canvas
     /// is `renderedPreview`. Keyed on the active path so neither a hydration-seeded
     /// `renderedPreview` (GPU path) nor a hardcoded constant drives readiness. Pure
-    /// (all inputs explicit) so it is unit-testable without env/flags. See #1069.
-    public static func canvasHasFrame(
+    /// (all inputs explicit) so it is unit-testable without env/flags, and
+    /// `nonisolated` so it's callable off the MainActor. See #1069.
+    public nonisolated static func canvasHasFrame(
         gpuActive: Bool,
         gpuFramePresented: Bool,
         hasRenderedPreview: Bool
