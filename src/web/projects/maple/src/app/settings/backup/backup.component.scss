@@ -1,0 +1,22 @@
+@use '../settings-chrome' as chrome;
+
+// Page chrome (tokens + .page-header atom). The Mirror/backup panel brings its
+// own styles via the child component.
+:host {
+  @include chrome.settings-vars;
+  @include chrome.settings-atoms;
+
+  display: block;
+}
+
+@media (max-width: 767px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 20px 16px 14px;
+
+    h1 {
+      font-size: 22px;
+    }
+  }
+}
