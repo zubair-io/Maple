@@ -30,7 +30,7 @@
 //! opaque pointer. Single-threaded around the GPU — the host keeps the handle on
 //! one owner, exactly as the P1a/P1b notes require.
 
-use crate::error::set_last_error;
+use crate::error::{catch_panic_rc, set_last_error};
 use raw_gpu::{CancelToken, FullChainInputs, GpuContext, LiveSession};
 use std::os::raw::c_void;
 
@@ -280,7 +280,10 @@ fn residual_size_or_identity(size: usize) -> usize {
 /// `ptr` valid for `len` f32 reads, or null.
 unsafe fn residual_data_or_identity(ptr: *const f32, len: usize, size: usize) -> Vec<f32> {
     use raw_core::view::auto_profile::lut::ColorLut;
-    let expected = size.saturating_mul(size).saturating_mul(size).saturating_mul(3);
+    let expected = size
+        .saturating_mul(size)
+        .saturating_mul(size)
+        .saturating_mul(3);
     if size >= 2 {
         let supplied = read_floats(ptr, len);
         if supplied.len() == expected {
@@ -319,7 +322,12 @@ pub struct MapleGpuLiveSession {
 /// Returns 0 on success and writes the handle into `*handle_out` (always written,
 /// null on error). Non-zero on error (call `maple_last_error`):
 ///   -1 `handle_out` null · -2 `pixels` null · -3 zero dimension ·
-///   -4 pixel-count overflow.
+///   -4 pixel-count overflow · -5 GPU init failed (no adapter / device request) ·
+///   -6 the session was rejected (image exceeds the device's buffer/binding
+///      limits — #1079) · 99 a Rust-side panic was contained (see
+///      `maple_last_error`; mirrors the CPU entries' worker-panic rc).
+///
+/// A nonzero return is always safe to treat as "use the CPU render path".
 ///
 /// # Safety
 /// `pixels` valid for `width*height*4` f32 reads; `handle_out` a valid `*mut`.
@@ -349,22 +357,42 @@ pub unsafe extern "C" fn maple_gpu_live_open(
     {
         Some(n) => n,
         None => {
-            set_last_error(format!("gpu_live_open: pixel-count overflow {width}x{height}"));
+            set_last_error(format!(
+                "gpu_live_open: pixel-count overflow {width}x{height}"
+            ));
             return -4;
         }
     };
     let px = std::slice::from_raw_parts(pixels, lanes);
 
-    let ctx = GpuContext::new_blocking();
-    let session = LiveSession::new(&ctx, px, width, height);
-    let boxed = Box::new(LiveHandleInner {
-        ctx,
-        session,
-        width,
-        height,
-    });
-    (*handle_out).inner = Box::into_raw(boxed) as *mut c_void;
-    0
+    // Panic barrier (#1079): wgpu validation/`handle_error_fatal` panics must not
+    // unwind through this `extern "C"` frame (an abort on Apple). rc 99 + a
+    // last-error message instead — the Swift host CPU-falls-back on any nonzero.
+    catch_panic_rc("gpu_live_open", || {
+        let ctx = match GpuContext::new_blocking() {
+            Ok(ctx) => ctx,
+            Err(e) => {
+                set_last_error(format!("gpu_live_open: {e}"));
+                return -5;
+            }
+        };
+        // Validates dims against the device's REAL limits before allocating.
+        let session = match LiveSession::new(&ctx, px, width, height) {
+            Ok(s) => s,
+            Err(e) => {
+                set_last_error(format!("gpu_live_open: {e}"));
+                return -6;
+            }
+        };
+        let boxed = Box::new(LiveHandleInner {
+            ctx,
+            session,
+            width,
+            height,
+        });
+        (*handle_out).inner = Box::into_raw(boxed) as *mut c_void;
+        0
+    })
 }
 
 /// Render one edit on a live session: build the gated chain from `params`, run it
@@ -379,7 +407,12 @@ pub unsafe extern "C" fn maple_gpu_live_open(
 /// it. The on-GPU reduction that removes that per-tick readback is C5b.
 ///
 /// Returns 0 on success. Non-zero on error (call `maple_last_error`):
-///   -1 handle/params/out null · -3 the GPU render returned no buffer.
+///   -1 handle/params/out null · -3 the GPU render returned no buffer
+///   (cancelled internally) · -4 the GPU render failed (init/readback error) ·
+///   -5 internal output-size mismatch (`out_ptr` is NOT written) ·
+///   99 a Rust-side panic was contained.
+///
+/// A nonzero return is always safe to treat as "use the CPU render path".
 ///
 /// # Safety
 /// `handle` a live handle from [`maple_gpu_live_open`]; `params` valid (incl. its
@@ -402,21 +435,37 @@ pub unsafe extern "C" fn maple_gpu_live_render(
     let inner = &*inner_ptr;
     let p = &*params;
 
-    let inputs = inputs_from_params(p);
-    let cancel = CancelToken::new();
-    let out = match inner.session.render_to_buffer(&inner.ctx, &inputs, &cancel) {
-        Some(v) => v,
-        None => {
-            set_last_error("gpu_live_render: render returned None".into());
-            return -3;
-        }
-    };
+    // Panic barrier (#1079) — see `maple_gpu_live_open`.
+    catch_panic_rc("gpu_live_render", || {
+        let inputs = inputs_from_params(p);
+        let cancel = CancelToken::new();
+        let out = match inner.session.render_to_buffer(&inner.ctx, &inputs, &cancel) {
+            Ok(Some(v)) => v,
+            Ok(None) => {
+                set_last_error("gpu_live_render: render returned None".into());
+                return -3;
+            }
+            Err(e) => {
+                set_last_error(format!("gpu_live_render: {e}"));
+                return -4;
+            }
+        };
 
-    let expected = (inner.width as usize) * (inner.height as usize) * 3;
-    debug_assert_eq!(out.len(), expected, "dither output len mismatch");
-    let out_slice = std::slice::from_raw_parts_mut(out_ptr, expected);
-    out_slice.copy_from_slice(&out);
-    0
+        // REAL length check (#1079; was debug_assert_eq! only): a short buffer
+        // here would under- or over-run the host's `3*w*h` allocation in release
+        // builds. Bail with an rc instead of copying.
+        let expected = (inner.width as usize) * (inner.height as usize) * 3;
+        if out.len() != expected {
+            set_last_error(format!(
+                "gpu_live_render: internal: dither output len {} != expected {expected}",
+                out.len()
+            ));
+            return -5;
+        }
+        let out_slice = std::slice::from_raw_parts_mut(out_ptr, expected);
+        out_slice.copy_from_slice(&out);
+        0
+    })
 }
 
 /// Free a live-render session handle. Idempotent for a null `inner`; after this
@@ -432,8 +481,15 @@ pub unsafe extern "C" fn maple_gpu_live_close(handle: *mut MapleGpuLiveSession) 
     }
     let inner = (*handle).inner;
     if !inner.is_null() {
-        drop(Box::from_raw(inner as *mut LiveHandleInner));
+        // Null the handle BEFORE the drop so a contained panic can't leave a
+        // dangling pointer for a later double-free. Panic barrier (#1079):
+        // releasing wgpu resources can panic on a lost device; swallowing it
+        // (after recording the message) beats aborting the app on teardown.
         (*handle).inner = std::ptr::null_mut();
+        let _ = catch_panic_rc("gpu_live_close", || {
+            drop(Box::from_raw(inner as *mut LiveHandleInner));
+            0
+        });
     }
 }
 
@@ -470,8 +526,12 @@ pub unsafe extern "C" fn maple_gpu_live_close(handle: *mut MapleGpuLiveSession) 
 /// for the message):
 ///   -1 handle/params/layer null or a closed handle ·
 ///    4 cancelled before rendering (see [`RC_PRESENT_CANCELLED`]) ·
-///   -3 the GPU chain returned no buffer (only when NOT cancelled) ·
-///   -4 the present (surface/draw) failed.
+///   -3 the GPU chain returned no buffer or failed (only when NOT cancelled) ·
+///   -4 the present (surface size/configure/draw) failed ·
+///   99 a Rust-side panic was contained.
+///
+/// A nonzero return (other than 4) is always safe to treat as "use the CPU
+/// render path".
 ///
 /// # Safety
 /// `handle` a live handle from [`maple_gpu_live_open`]; `params` valid (incl. its
@@ -505,28 +565,38 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
         }
     }
 
-    let inputs = inputs_from_params(p);
-    let token = CancelToken::new();
-    let final_idx = match inner
-        .session
-        .render_chain_to_f32(&inner.ctx, &inputs, &token)
-    {
-        Some(idx) => idx,
-        None => {
-            set_last_error("gpu_present_chain: chain render returned None".into());
-            return -3;
-        }
-    };
+    // Panic barrier (#1079): THIS entry is the documented abort path — a canvas
+    // past the device's texture limit used to panic inside surface configure and
+    // unwind through this frame. The configure is now validated Err-first in
+    // raw-gpu; the barrier contains anything that still slips (rc 99).
+    catch_panic_rc("gpu_present_chain", || {
+        let inputs = inputs_from_params(p);
+        let token = CancelToken::new();
+        let final_idx = match inner
+            .session
+            .render_chain_to_f32(&inner.ctx, &inputs, &token)
+        {
+            Ok(Some(idx)) => idx,
+            Ok(None) => {
+                set_last_error("gpu_present_chain: chain render returned None".into());
+                return -3;
+            }
+            Err(e) => {
+                set_last_error(format!("gpu_present_chain: {e}"));
+                return -3;
+            }
+        };
 
-    // SAFETY: `layer` is non-null and a valid CAMetalLayer* per this fn's
-    // contract; `present_chain_to_surface` drops the surface before returning.
-    match raw_gpu::present_chain_to_surface(&inner.ctx, &inner.session, final_idx, layer) {
-        Ok(()) => 0,
-        Err(msg) => {
-            set_last_error(format!("gpu_present_chain present: {msg}"));
-            -4
+        // SAFETY: `layer` is non-null and a valid CAMetalLayer* per this fn's
+        // contract; `present_chain_to_surface` drops the surface before returning.
+        match raw_gpu::present_chain_to_surface(&inner.ctx, &inner.session, final_idx, layer) {
+            Ok(()) => 0,
+            Err(msg) => {
+                set_last_error(format!("gpu_present_chain present: {msg}"));
+                -4
+            }
         }
-    }
+    })
 }
 
 #[cfg(test)]
