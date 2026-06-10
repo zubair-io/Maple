@@ -133,10 +133,12 @@ struct FullImageView: View {
     /// PNG — a permanently blank canvas.
     @ViewBuilder
     private func canvasContent(geo: GeometryProxy) -> some View {
-        if FullImageViewVM.shouldPresentViaGpuCanvas(
-               flagEnabled: GpuLiveFlag.isEnabled,
-               isRaw: session.asset.isRaw,
-               showingOriginal: session.showingOriginal),
+        let useGpuCanvas = FullImageViewVM.shouldPresentViaGpuCanvas(
+            flagEnabled: GpuLiveFlag.isEnabled,
+            isRaw: session.asset.isRaw,
+            showingOriginal: session.showingOriginal
+        )
+        if useGpuCanvas,
            let frameInPoints = canvasMath(viewport: geo.size).displayFrameInPoints {
             GpuLiveCanvasView(session: session)
                 .frame(width: frameInPoints.width, height: frameInPoints.height)
