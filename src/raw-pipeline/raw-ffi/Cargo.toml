@@ -9,10 +9,13 @@ license.workspace = true
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
-# Epic #925 / P1b (#988): compile the GPU-gated FFI surface (`src/gpu.rs`),
-# which calls `raw_gpu` directly. OFF by default — the default xcframework is
-# wgpu-free. Enabled only by the opt-in xcframework gpu variant
-# (`MAPLE_XCFRAMEWORK_GPU=1`) and the host validation build. Build-time only.
+# Epic #925: compile the GPU FFI surface (`src/gpu.rs` + `src/gpu_live.rs`),
+# which calls `raw_gpu` directly. Build-time only, and OFF by default at the
+# Cargo level — a bare `cargo build -p raw-ffi` stays wgpu-free (the CI
+# `build-raw-ffi` gate depends on this). The Apple xcframework build is the one
+# consumer that turns it ON: as of #1064 `build-xcframework.sh` passes
+# `--features gpu` unconditionally (the Apple build is always-gpu), so every
+# slice contains `maple_gpu_*`. The host GPU validation tests also enable it.
 #
 # `dep:raw-gpu` is required because raw-core's own `gpu` feature only pulls
 # raw-gpu into the dependency *tree* — it does not re-export the crate, so the
