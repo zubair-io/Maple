@@ -64,12 +64,14 @@ fi
 # link proof). This variant is for VALIDATION ONLY — the committed/shipping
 # xcframework stays wgpu-free, and the gpu-variant binary is never committed.
 #
-# Crucially the gpu variant resolves crates FROM crates.io (NON-offline,
-# vendored-sources OFF): wgpu's dep tree is large and is deliberately NOT in
-# `vendor/`, so requiring it offline would force a multi-tens-of-MB vendor
-# bloat. Vendoring wgpu for CI is a separate, explicit decision (see #988) —
-# do not do it silently. The DEFAULT path below is byte-for-byte unchanged
-# (offline + vendored), so normal/shipping builds are unaffected.
+# The gpu variant builds OFFLINE from the vendored sources, exactly like the
+# default path. wgpu's full dep tree IS vendored under `src/raw-pipeline/vendor/`
+# (`cargo vendor` after #996 — wgpu/wgpu-core/wgpu-hal/wgpu-types, naga, metal,
+# ash, gpu-alloc*/gpu-descriptor*, pollster, futures-channel, … all present with
+# their `.cargo-checksum.json`), so the gpu validation build is hermetic too:
+# no crates.io round-trip, no intermittent "Could not resolve host" DNS flake on
+# the Xcode Cloud workers, and a loud failure if vendor/ is ever stale instead of
+# a silent network fallback. The DEFAULT path below is byte-for-byte unchanged.
 GPU_VARIANT=0
 if [[ "${MAPLE_XCFRAMEWORK_GPU:-}" == "1" ]]; then
     GPU_VARIANT=1
@@ -85,7 +87,7 @@ echo "    raw-ffi:    $RAW_FFI_DIR"
 echo "    frameworks: $FRAMEWORKS_DIR"
 echo "    profile:    $PROFILE"
 if [[ "$GPU_VARIANT" == "1" ]]; then
-    echo "    GPU variant: ON (--features gpu, crates.io, NOT vendored — VALIDATION ONLY, do not commit)"
+    echo "    GPU variant: ON (--features gpu, offline + vendored — VALIDATION ONLY, do not commit)"
 fi
 
 LIB_NAME="libraw_ffi.a"
@@ -225,13 +227,18 @@ build_target() {
                 export MACOSX_DEPLOYMENT_TARGET=14.0 ;;
         esac
         if [[ "$GPU_VARIANT" == "1" ]]; then
-            # GPU VALIDATION variant (#988): build with `--features gpu` and
-            # resolve from crates.io (NO --offline, NO vendored-sources). wgpu's
-            # large dep tree is deliberately absent from vendor/, so this proves
-            # wgpu cross-compiles + links into every slice (incl.
-            # aarch64-apple-ios — the #1 risk) WITHOUT bloating vendor/. This
-            # path is never used by the shipping/default build.
-            CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build $CARGO_PROFILE_FLAG \
+            # GPU VALIDATION variant (#988 / #1060): build with `--features gpu`,
+            # OFFLINE against the vendored sources — same hermetic resolution as
+            # the default path below. wgpu's full dep tree IS vendored under
+            # src/raw-pipeline/vendor/ (#996), so this proves wgpu cross-compiles
+            # + links into every slice (incl. aarch64-apple-ios — the #1 risk)
+            # with no crates.io round-trip and no network DNS flake. The source
+            # replacement is passed inline (absolute vendor dir) so it scopes to
+            # this Apple raw-ffi build only and never leaks into the WASM/API
+            # builds. This path is never used by the shipping/default build.
+            CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
+                --config 'source.crates-io.replace-with="vendored-sources"' \
+                --config "source.vendored-sources.directory=\"$RAW_PIPELINE_DIR/vendor\"" \
                 --target "$triple" \
                 --package raw-ffi \
                 --features gpu \
