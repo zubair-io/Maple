@@ -113,7 +113,17 @@ if [ "$installed_cbindgen_version" != "$CBINDGEN_VERSION" ]; then
 fi
 
 # --release matches what an archive build should link against.
-echo "==> Building RawPipeline.xcframework (release)"
+#
+# #1064: the wgpu+WGSL live render path is the Apple shipping default. The
+# project defines MAPLE_GPU (Swift `SWIFT_ACTIVE_COMPILATION_CONDITIONS` +
+# Clang `-Xcc -DMAPLE_GPU`), so the app links the gpu-gated `maple_gpu_*` FFI;
+# the xcframework must therefore be the gpu variant or the archive link fails.
+# MAPLE_XCFRAMEWORK_GPU=1 builds raw-ffi with `--features gpu` (offline, from the
+# vendored wgpu tree — no crates.io round-trip). The in-Xcode "Build Rust
+# xcframework" run script also sets this and fast-path-skips against the gpu
+# stamp written here, so there is no double build.
+export MAPLE_XCFRAMEWORK_GPU=1
+echo "==> Building RawPipeline.xcframework (release, gpu variant)"
 "$APPLE_DIR/scripts/build-xcframework.sh" --release
 
 echo "==> ci_post_clone.sh done"

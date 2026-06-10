@@ -601,7 +601,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -eu\n# build-xcframework.sh internally fast-paths when no Rust source has\n# changed since the last successful build, so this is cheap on no-op builds.\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\" --release\nelse\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\"\nfi\n";
+			shellScript = "set -eu\n# build-xcframework.sh internally fast-paths when no Rust source has\n# changed since the last successful build, so this is cheap on no-op builds.\n# #1064: the wgpu+WGSL live render path is the Apple shipping default, and the\n# project defines MAPLE_GPU (Swift + -Xcc), so the app links the gpu-gated\n# `maple_gpu_*` FFI. Build the gpu xcframework variant here to match — a default\n# (wgpu-free) variant would strip those symbols and break the link, and its\n# variant-aware stamp would clobber any gpu xcframework already on disk.\nexport MAPLE_XCFRAMEWORK_GPU=1\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\" --release\nelse\n  bash \"${SRCROOT}/scripts/build-xcframework.sh\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1042,8 +1042,14 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "MAPLE_GPU $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.10;
+				OTHER_SWIFT_FLAGS = (
+					"$(inherited)",
+					"-Xcc",
+					"-DMAPLE_GPU",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -1121,8 +1127,14 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "MAPLE_GPU $(inherited)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.10;
+				OTHER_SWIFT_FLAGS = (
+					"$(inherited)",
+					"-Xcc",
+					"-DMAPLE_GPU",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
