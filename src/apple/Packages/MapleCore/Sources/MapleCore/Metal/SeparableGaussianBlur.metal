@@ -93,3 +93,63 @@ kernel void separableBoxBlurV(
     half4 out = half4(acc / float(count));
     dst.write(out, gid);
 }
+
+// --- True separable Gaussian (#1083) -------------------------------------
+//
+// Weighted 1D convolution against a CPU-precomputed windowed/renormalized
+// Gaussian kernel, clamp-to-edge. Mirrors raw-core's
+// `gaussian_blur_plane_sigma` (stages/blur.rs): out = Σ_k w[k] · src[clamp(c
+// + k - half)]. The weights come from the Swift port of `gaussian_kernel_1d`
+// (MetalKernels.gaussianKernel1D) so the taps match raw-core's f32 build.
+//
+// Used by `applySceneSharpen`'s PSF blur: the sharpen Radius slider is a
+// float sigma (0.5..3.0), which the 3-pass box cascade above cannot express
+// — its integer `r_box` collapsed every legal radius to the same 1-px box
+// (the #1083 no-op). nr_color keeps the box cascade (its radius is a real
+// integer scale, matching raw-core's `gaussian_blur_plane`).
+//
+// `tapCount` ≤ 19 for the sharpen sigma ceiling (half = ceil(3σ) ≤ 9).
+// Reads/writes float4 directly (the textures are rgba32Float) — no fp16
+// round-trip on the weighted sum.
+
+kernel void separableTrueGaussianH(
+    texture2d<float, access::read>  src      [[texture(0)]],
+    texture2d<float, access::write> dst      [[texture(1)]],
+    constant uint& tapCount                  [[buffer(0)]],
+    constant float* weights                  [[buffer(1)]],
+    uint2 gid                                [[thread_position_in_grid]]
+) {
+    const uint w = src.get_width();
+    const uint h = src.get_height();
+    if (gid.x >= w || gid.y >= h) return;
+
+    const int half_taps = int(tapCount) / 2;
+    float4 acc = float4(0.0);
+    for (int k = 0; k < int(tapCount); ++k) {
+        int x = int(gid.x) + k - half_taps;
+        x = clamp(x, 0, int(w) - 1);
+        acc += weights[k] * src.read(uint2(uint(x), gid.y));
+    }
+    dst.write(acc, gid);
+}
+
+kernel void separableTrueGaussianV(
+    texture2d<float, access::read>  src      [[texture(0)]],
+    texture2d<float, access::write> dst      [[texture(1)]],
+    constant uint& tapCount                  [[buffer(0)]],
+    constant float* weights                  [[buffer(1)]],
+    uint2 gid                                [[thread_position_in_grid]]
+) {
+    const uint w = src.get_width();
+    const uint h = src.get_height();
+    if (gid.x >= w || gid.y >= h) return;
+
+    const int half_taps = int(tapCount) / 2;
+    float4 acc = float4(0.0);
+    for (int k = 0; k < int(tapCount); ++k) {
+        int y = int(gid.y) + k - half_taps;
+        y = clamp(y, 0, int(h) - 1);
+        acc += weights[k] * src.read(uint2(gid.x, uint(y)));
+    }
+    dst.write(acc, gid);
+}

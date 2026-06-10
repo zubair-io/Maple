@@ -55,6 +55,11 @@ public enum MetalKernels {
     private static var _separableGaussianBlurLib: MTLLibrary?
     private static var _separableBoxBlurHPipeline: MTLComputePipelineState?
     private static var _separableBoxBlurVPipeline: MTLComputePipelineState?
+    // True-Gaussian pair (#1083): weighted 1D convolutions against the
+    // CPU-precomputed sigma kernel. Used by the sharpen PSF blur, which
+    // needs sub-pixel sigma fidelity the box cascade can't express.
+    private static var _separableTrueGaussianHPipeline: MTLComputePipelineState?
+    private static var _separableTrueGaussianVPipeline: MTLComputePipelineState?
     /// Cached default Metal device — needed to build pipelines and
     /// allocate scratch textures. Lazy / process-lifetime cached, like
     /// the other kernel slots above.
@@ -86,8 +91,11 @@ public enum MetalKernels {
     /// Apply the shared 3-pass box-blur Gaussian approximation (mirrors
     /// `gaussian_blur_rgb` in raw-core/src/stages/blur.rs) on a CIImage in
     /// scene-linear Rec.2020 fp16. Returns a new CIImage tagged
-    /// extendedLinearITUR_2020. Used internally by `applySceneSharpen`
-    /// (PSF blur) and `applySceneNRColor` (Oklab a/b blur).
+    /// extendedLinearITUR_2020. Used internally by `applySceneNRColor`
+    /// (Oklab a/b blur). `applySceneSharpen` used to route its PSF blur
+    /// here too, but its radius is a float sigma the integer box cascade
+    /// cannot express — it now uses `applySeparableTrueGaussianBlur`
+    /// (#1083).
     ///
     /// The blur runs as 6 compute dispatches (H, V, H, V, H, V) on a
     /// single command buffer with two ping-pong RGBA16Float textures.
@@ -211,6 +219,128 @@ public enum MetalKernels {
         return CIImage(mtlTexture: texPong, options: opts) ?? input
     }
 
+    // MARK: SeparableTrueGaussianBlur (#1083)
+
+    /// Build the windowed, renormalized 1D Gaussian taps for `sigma` —
+    /// a port of `raw_core::stages::blur::gaussian_kernel_1d`:
+    /// `half = ceil(3σ).max(1)`, weights `exp(-(k²)/(2σ²))` for
+    /// `k ∈ [-half, half]`, divided by their sum. Non-finite / non-positive
+    /// sigma falls back to a tiny lower bound and the sigma is ceilinged at
+    /// 50 px, matching the Rust defensive clamp.
+    static func gaussianKernel1D(sigma: Float) -> [Float] {
+        let s: Float = (sigma.isFinite && sigma > 0.0) ? min(sigma, 50.0) : 1e-3
+        let half = max(1, Int(ceilf(3.0 * s)))
+        let twoSigmaSq = 2.0 * s * s
+        var k = (0...(2 * half)).map { i -> Float in
+            let x = Float(i - half)
+            return expf(-(x * x) / twoSigmaSq)
+        }
+        let sum = k.reduce(0, +)
+        let inv = 1.0 / sum
+        for i in k.indices { k[i] *= inv }
+        return k
+    }
+
+    /// Apply a TRUE separable Gaussian blur at float `sigma` (PSF sigma in
+    /// pixels) on a CIImage in scene-linear Rec.2020 f32. Mirrors raw-core's
+    /// `gaussian_blur_plane_sigma` (stages/blur.rs): one horizontal + one
+    /// vertical weighted convolution against the `gaussianKernel1D` taps,
+    /// clamp-to-edge borders.
+    ///
+    /// This is the sigma-faithful sibling of `applySeparableGaussianBlur`
+    /// (the 3-pass box cascade above): distinct sigmas produce distinct
+    /// kernels even below 1 px, which the box cascade's integer `r_box`
+    /// cannot express — `max(1, radius / 3)` floored every sharpen radius to
+    /// the same 1-px box, making the Radius slider a no-op (#1083). Used by
+    /// `applySceneSharpen`; nr_color keeps the box cascade (its radius is a
+    /// genuine integer scale, matching raw-core).
+    ///
+    /// Texture / command-buffer orchestration matches the box wrapper:
+    /// render the input into an rgba32Float `texSrc`, dispatch H (`texSrc`
+    /// → `texPing`) then V (`texPing` → `texPong`), return a CIImage
+    /// wrapping `texPong`. Silent `return input` on any pipeline/texture
+    /// failure, per the wrapper convention in this file.
+    public static func applySeparableTrueGaussianBlur(
+        to input: CIImage,
+        sigma: Float
+    ) -> CIImage {
+        guard sigma.isFinite, sigma > 0.0 else { return input }
+
+        guard let device = metalDevice(),
+              let pipelineH = separableTrueGaussianHPipeline(),
+              let pipelineV = separableTrueGaussianVPipeline() else {
+            return input
+        }
+
+        var weights = gaussianKernel1D(sigma: sigma)
+        var tapCount = UInt32(weights.count)
+
+        let extent = input.extent
+        let w = max(1, Int(extent.width.rounded()))
+        let h = max(1, Int(extent.height.rounded()))
+
+        let desc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba32Float,
+            width: w, height: h, mipmapped: false
+        )
+        desc.usage = [.shaderRead, .shaderWrite, .renderTarget]
+        desc.storageMode = .private
+        guard let texSrc = device.makeTexture(descriptor: desc),
+              let texPing = device.makeTexture(descriptor: desc),
+              let texPong = device.makeTexture(descriptor: desc) else {
+            return input
+        }
+
+        let space = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
+        let ciCtx = CIContext(mtlDevice: device, options: [
+            .workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+            .workingFormat: CIFormat.RGBAf,
+            .cacheIntermediates: false,
+        ])
+        guard let queue = device.makeCommandQueue(),
+              let commandBuffer = queue.makeCommandBuffer() else {
+            return input
+        }
+        ciCtx.render(
+            input,
+            to: texSrc,
+            commandBuffer: commandBuffer,
+            bounds: extent,
+            colorSpace: space
+        )
+
+        // Two dispatches on the same command buffer:
+        //   texSrc  --H-->  texPing
+        //   texPing --V-->  texPong
+        let dispatches: [(MTLComputePipelineState, MTLTexture, MTLTexture)] = [
+            (pipelineH, texSrc, texPing),
+            (pipelineV, texPing, texPong),
+        ]
+        for (pipeline, src, dst) in dispatches {
+            guard let enc = commandBuffer.makeComputeCommandEncoder() else {
+                return input
+            }
+            enc.setComputePipelineState(pipeline)
+            enc.setTexture(src, index: 0)
+            enc.setTexture(dst, index: 1)
+            enc.setBytes(&tapCount, length: MemoryLayout<UInt32>.size, index: 0)
+            enc.setBytes(&weights, length: MemoryLayout<Float>.size * weights.count, index: 1)
+            let tgSize = MTLSize(width: 16, height: 16, depth: 1)
+            let tgCount = MTLSize(
+                width:  (w + tgSize.width  - 1) / tgSize.width,
+                height: (h + tgSize.height - 1) / tgSize.height,
+                depth: 1
+            )
+            enc.dispatchThreadgroups(tgCount, threadsPerThreadgroup: tgSize)
+            enc.endEncoding()
+        }
+        commandBuffer.commit()
+        // Don't wait synchronously — CoreImage syncs at the next dependent render.
+
+        let opts: [CIImageOption: Any] = [.colorSpace: space]
+        return CIImage(mtlTexture: texPong, options: opts) ?? input
+    }
+
     // MARK: SceneNRColor
 
     /// Apply scene-linear Rec.2020 chroma noise reduction (Oklab
@@ -262,17 +392,18 @@ public enum MetalKernels {
 
     // MARK: SceneSharpen
 
-    /// Apply scene-linear Rec.2020 capture sharpening (3-iteration
-    /// Richardson-Lucy with Gaussian PSF + edge-aware mix). Mirrors
-    /// `sharpen::apply` from raw-core/src/stages/sharpen.rs:22-124.
+    /// Apply scene-linear Rec.2020 sharpening (luminance-only unsharp mask
+    /// against a true Gaussian PSF + edge-aware mix). Mirrors
+    /// `sharpen::apply` from raw-core/src/stages/sharpen.rs.
     ///
     /// Slider params (per AdjustmentModel.swift:47-50, mirroring xmp.rs:
     /// 35-38):
     ///   * amount: 0..150, default 0. 0 skips, 100 is full RL, >100 adds
     ///     unsharp overdrive.
-    ///   * radius: 0.5..3.0, default 0.5. PSF Gaussian sigma; converted
-    ///     to integer box radius via clamp(0.5, 3.0).round().max(1)
-    ///     mirroring sharpen.rs:33-34.
+    ///   * radius: 0.5..3.0, default 0.5. PSF Gaussian sigma, kept FLOAT
+    ///     and fed to the true separable Gaussian (#1083 — the previous
+    ///     round-to-integer box-radius conversion collapsed every legal
+    ///     radius to the same kernel, a slider no-op).
     ///   * detail: 0..100, default 25. Edge-attenuation strength.
     ///   * masking: 0..100, default 0. Edge-mask threshold.
     ///
@@ -301,20 +432,18 @@ public enum MetalKernels {
     ) -> CIImage {
         if abs(amount) < 1e-3 { return input }
 
-        // Integer radius mirrors sharpen.rs byte-for-byte:
-        //   radius_px = radius.clamp(0.5, 3.0).round() as usize;
-        //   let radius_px = radius_px.max(1);
-        let clamped = max(0.5, min(3.0, radius))
-        let rounded = Int(roundf(clamped))
-        let radiusPx = max(1, rounded)
+        // Sigma mirrors sharpen.rs byte-for-byte: `radius.clamp(0.5, 3.0)`,
+        // kept float all the way into the Gaussian taps (#1083).
+        let sigma = max(0.5, min(3.0, radius))
 
         guard let lumaUSMKernel = sharpenLumaUSMKernel() else {
             return input
         }
 
         let observed = input
-        // Single Gaussian blur (replaces the 3-iter RL loop).
-        let blurred = applySeparableGaussianBlur(to: observed, radius: radiusPx)
+        // Single TRUE-Gaussian blur at the PSF sigma (replaces the 3-pass
+        // box cascade whose integer radius made the Radius slider a no-op).
+        let blurred = applySeparableTrueGaussianBlur(to: observed, sigma: sigma)
         // Full-strength sharpened buffer via luma-only USM. Slider
         // amount is applied below by `sharpenEdgeMix`, NOT here.
         guard let sharpened = lumaUSMKernel.apply(
@@ -482,6 +611,46 @@ public enum MetalKernels {
             return nil
         }
         return _separableBoxBlurVPipeline
+    }
+
+    private static func separableTrueGaussianHPipeline() -> MTLComputePipelineState? {
+        if let p = _separableTrueGaussianHPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = separableGaussianBlurLibrary(),
+              let fn = lib.makeFunction(name: "separableTrueGaussianH") else {
+            os_log(.error, log: kernelLog,
+                "separableTrueGaussianH function missing from compiled library")
+            return nil
+        }
+        do {
+            _separableTrueGaussianHPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(separableTrueGaussianH) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _separableTrueGaussianHPipeline
+    }
+
+    private static func separableTrueGaussianVPipeline() -> MTLComputePipelineState? {
+        if let p = _separableTrueGaussianVPipeline { return p }
+        guard let device = metalDevice(),
+              let lib = separableGaussianBlurLibrary(),
+              let fn = lib.makeFunction(name: "separableTrueGaussianV") else {
+            os_log(.error, log: kernelLog,
+                "separableTrueGaussianV function missing from compiled library")
+            return nil
+        }
+        do {
+            _separableTrueGaussianVPipeline = try device.makeComputePipelineState(function: fn)
+        } catch {
+            os_log(.error, log: kernelLog,
+                "makeComputePipelineState(separableTrueGaussianV) failed: %{public}@",
+                String(describing: error))
+            return nil
+        }
+        return _separableTrueGaussianVPipeline
     }
 
     // MARK: Helpers
