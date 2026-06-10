@@ -19,8 +19,9 @@
 //!   presents. It re-develops + re-uploads ONLY when a prefix-affecting field
 //!   changes (see below); the hot-path sliders just rebuild [`FullChainInputs`] and
 //!   re-run the resident chain — allocating zero new GPU buffers and recompiling no
-//!   pipelines (the CLAUDE.md render-loop invariant; gated by
-//!   `web_live_session/tests.rs`' zero-alloc proof).
+//!   pipelines (the CLAUDE.md render-loop invariant; the zero-alloc re-render is
+//!   proven on the shared `raw_gpu::LiveSession` substrate in
+//!   `raw-gpu/src/live_session/tests.rs`).
 //! - Drop releases the GPU context + session.
 //!
 //! ## Re-develop boundary (correct by construction)
