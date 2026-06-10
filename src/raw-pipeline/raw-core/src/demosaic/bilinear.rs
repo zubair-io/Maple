@@ -27,6 +27,14 @@ pub fn bilinear_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken
     let w_usize = mosaic.width as usize;
     let mut out = Image::new(mosaic.width, mosaic.height, ColorSpace::CameraNativeLinearRgb);
 
+    // Zero-dim input: return the empty image rather than reaching
+    // `par_chunks_mut(0)`, which panics ("chunk_size must not be zero").
+    // Unreachable via `decode_bytes` — it rejects sub-2×2 sensors (#1087)
+    // — so this is defense in depth for direct callers.
+    if mosaic.width == 0 || mosaic.height == 0 {
+        return out;
+    }
+
     let sample = |x: i32, y: i32, channel: usize| -> f32 {
         // Mirror-reflect borders.
         let mx = if x < 0 { -x } else if x >= w { 2*(w-1) - x } else { x };
@@ -95,6 +103,18 @@ mod tests {
             }
         }
         img
+    }
+
+    /// Regression test for #1087 — a zero-width mosaic must return an
+    /// empty image, not panic in `par_chunks_mut(0)` ("chunk_size must
+    /// not be zero"). `decode_bytes` rejects sub-2×2 sensors, so this
+    /// pins the defense-in-depth guard for direct callers.
+    #[test]
+    fn zero_width_mosaic_returns_empty_image_without_panicking() {
+        let mosaic = Image::new(0, 4, ColorSpace::CameraNativeMosaic);
+        let out = bilinear(&mosaic, CfaPattern::Rggb);
+        assert_eq!((out.width, out.height), (0, 4));
+        assert!(out.pixels.is_empty());
     }
 
     #[test]
