@@ -1,9 +1,10 @@
 // GpuLiveDriver.swift — the EditSession-owned driver for the wgpu live render
 // path (epic #925, P4b-apple / #1028).
 //
-// ENTIRELY gated behind `#if MAPLE_GPU`. Flag OFF = absent; the editor uses the
-// CPU + Metal + CIColorCube path (`processSceneLinear` → `renderedPreview` →
-// `CIImageView`) byte-for-byte.
+// Always compiled, but only instantiated when the runtime flag is on
+// (`GpuLiveFlag.isEnabled` — `EditSession.gpuLiveDriver` is `nil` otherwise). Flag
+// OFF = the editor uses the CPU + Metal + CIColorCube path
+// (`processSceneLinear` → `renderedPreview` → `CIImageView`) byte-for-byte.
 //
 // ## Role
 //
@@ -31,8 +32,6 @@
 // a stale present (superseded by a newer edit) is simply not the one that lands on
 // screen, exactly as today. A per-present `CancelFlag` lets a queued-but-stale
 // present bail at the FFI entry before burning a GPU cycle.
-
-#if MAPLE_GPU
 
 import Foundation
 import QuartzCore
@@ -170,5 +169,3 @@ public final class GpuLiveDriver {
     /// The current session dims, if open.
     public var currentDims: (width: Int, height: Int)? { sessionDims }
 }
-
-#endif

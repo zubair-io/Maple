@@ -1,9 +1,10 @@
 // EditSession+GpuLive.swift — the wgpu LIVE-render present branch (epic #925,
 // P4b-apple / #1028).
 //
-// ENTIRELY gated behind `#if MAPLE_GPU`. With the flag undefined this file
-// compiles to nothing and `decodeAndRender` (EditSession+Render) runs the CPU +
-// Metal + CIColorCube path byte-for-byte — the "flag-off == today" guarantee.
+// Always compiled (the GPU FFI is in the default xcframework now). Reached only
+// when the runtime flag is on (`GpuLiveFlag.isEnabled`); with it off,
+// `decodeAndRender` (EditSession+Render) runs the CPU + Metal + CIColorCube path
+// byte-for-byte — the "flag-off == today" guarantee.
 //
 // ## Why a parallel present, not a `processSceneLinear` rewrite
 //
@@ -31,8 +32,6 @@
 // of a pre-composed CIColorCube) — convergence toward canonical `render`, not a
 // regression. The colour-correctness proof is the raw-gpu host present-parity
 // gate (≤ 1 LSB vs the CPU oracle), NOT a flag-on-vs-flag-off pixel diff.
-
-#if MAPLE_GPU
 
 import Foundation
 import CoreImage
@@ -147,5 +146,3 @@ extension EditSession {
         return (w, h)
     }
 }
-
-#endif
