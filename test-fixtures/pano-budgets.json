@@ -1,0 +1,5 @@
+{
+  "_comment": "Maple Pano per-set metric ceilings, gated by src/scripts/test_pano_pipeline.sh (#1120). ONE-WAY RATCHET: ceilings only go down, in the same commit that delivers the improvement. New sets: run the harness once, it FAILs with no-budget-entry and prints the observed numbers; add ceilings 5-10% above observed under fixtures.<set>.stitch and commit them together with the change. Gateable keys (any subset): rmse, seam_energy, wrap_closure_px (360-degree sets only), mean_reproj_px, max_reproj_px, horizon_tilt_deg (gated on absolute value). Empty until `maple-cli pano stitch` lands (Maple Pano M1+) - candidates cannot be generated before then.",
+  "version": 1,
+  "fixtures": {}
+}
