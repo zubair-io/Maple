@@ -149,7 +149,7 @@ struct FullImageView: View {
                 .accessibilityIdentifier(
                     FullImageViewVM.canvasAccessibilityID(
                         isRendering: session.isRendering,
-                        hasPreview: true // the GPU path presents directly to the layer
+                        hasPreview: session.gpuFramePresented // true once the wgpu chain presented a frame (#1069)
                     )
                 )
         } else {
@@ -269,7 +269,11 @@ struct FullImageView: View {
                 // slider ticks don't flash a spinner on every frame.
                 if FullImageViewVM.shouldShowRenderIndicator(
                     isRendering: session.isRendering,
-                    hasPreview: session.renderedPreview != nil
+                    hasPreview: EditSession.canvasHasFrame(
+                        gpuActive: GpuLiveFlag.isEnabled && !session.showingOriginal,
+                        gpuFramePresented: session.gpuFramePresented,
+                        hasRenderedPreview: session.renderedPreview != nil
+                    )
                 ) {
                     ProgressView()
                         .controlSize(.small)
