@@ -1,12 +1,12 @@
-# Coral Pano — Engineering Design Spec
+# Maple Pano — Engineering Design Spec
 
 **Status:** Draft v1
-**Companions:** `2026-06-10-coral-pano-stitching-spec.md` (pipeline tech spec — algorithm source of truth) · `2026-06-10-coral-pano-product-spec.md` (product spec)
+**Companions:** `2026-06-10-maple-pano-stitching-spec.md` (pipeline tech spec — algorithm source of truth) · `2026-06-10-maple-pano-product-spec.md` (product spec)
 **Workspace:** `src/raw-pipeline/` (this repo — where PR #17 lives today)
 **Author:** Zubair Lawrence
 **Date:** 2026-06-10
 
-This document does not restate the algorithms — the tech spec owns those (§5 stage specs, §9 decisions). It covers how Coral Pano is built into the codebase: current-state inventory and migration, packaging and FFI, module layout, memory and GPU strategy, public API, the DNG writer, the test harness, milestones, and risks.
+This document does not restate the algorithms — the tech spec owns those (§5 stage specs, §9 decisions). It covers how Maple Pano is built into the codebase: current-state inventory and migration, packaging and FFI, module layout, memory and GPU strategy, public API, the DNG writer, the test harness, milestones, and risks.
 
 ---
 
@@ -14,7 +14,7 @@ This document does not restate the algorithms — the tech spec owns those (§5 
 
 | Document                                                                                                            | Status                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `2026-06-10-coral-pano-stitching-spec.md` (Draft v2, 2026-06-10)                                                    | **Authoritative** for pipeline design and decisions §9.1–9.4.                                                                                                                                                                                                                                                                                                                                                   |
+| `2026-06-10-maple-pano-stitching-spec.md` (Draft v2, 2026-06-10)                                                    | **Authoritative** for pipeline design and decisions §9.1–9.4.                                                                                                                                                                                                                                                                                                                                                   |
 | `docs/tickets/04-maple-panorama-spec.md` (Draft v0.3; same lineage as Coral-Maple's `coral-maple-panorama-spec.md`) | **Superseded.** Three deliberate reversals: (a) working space is **Rec.2020 D65 linear**, not ProPhoto D50 — this matches what `raw-core`'s DCP stage actually outputs today; (b) pairwise-homography alignment is replaced by the rotation model + global BA; (c) the "No UniFFI" stance is revised — see Decision D2. Its repo paths (`web/projects/editor`, justfile recipes) also predate the current tree. |
 | Maple PR #17 ("Pano/alignment refinement", open)                                                                    | **Superseded as an approach; mined as a parts bin.** See §2.1 disposition table. Build step 11 deletes this path.                                                                                                                                                                                                                                                                                               |
 
@@ -22,7 +22,7 @@ This document does not restate the algorithms — the tech spec owns those (§5 
 
 ### 2.1 Maple PR #17 `pano-core` — module disposition
 
-The PR contains a full crate at `src/raw-pipeline/pano-core/`. Per-module plan for the `coral_pano` rebuild:
+The PR contains a full crate at `src/raw-pipeline/pano-core/`. Per-module plan for the `maple_pano` rebuild:
 
 | Module (PR #17)                                                                          | Disposition               | Rationale                                                                                                                                                   |
 | ---------------------------------------------------------------------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -41,12 +41,12 @@ The PR contains a full crate at `src/raw-pipeline/pano-core/`. Per-module plan f
 | `backends/alicevision/*`                                                                 | **Delete**                | SfM is an explicit non-goal; we point users at AliceVision, we don't link it.                                                                               |
 | `ingest.rs`, `color.rs`, `types.rs`, `error.rs`                                          | **Adapt**                 | Ingest gains vignette pre-correction and gimbal-prior XMP ingestion; color space pinned to Rec.2020 D65 linear.                                             |
 
-**Migration mechanics:** build `coral_pano` as a fresh crate on main via a stacked PR series; cherry-pick modules from the PR #17 branch per the table. PR #17 itself closes unmerged once step 11's regression run passes. Do not try to morph the PR #17 branch in place — the alignment model swap touches every consumer of the camera type.
+**Migration mechanics:** build `maple_pano` as a fresh crate on main via a stacked PR series; cherry-pick modules from the PR #17 branch per the table. PR #17 itself closes unmerged once step 11's regression run passes. Do not try to morph the PR #17 branch in place — the alignment model swap touches every consumer of the camera type.
 
 ### 2.2 Other assets
 
 - **`~/Projects/Maple Pano` standalone prototype (DronePano, local to the author's machine):** working ALIKED + LightGlue + `ort` CLI. Second source for the detector/matcher carry-over and for `ort` version/EP pinning experience.
-- **`raw-gpu` (epic #925, shipping default on Apple + web):** Maple's headless GPU resource core — `GpuContext` (device/queue + lazily-cached compute pipelines), `GpuImage` (upload-once scene-linear f32 images), `Pass`/`ChainRunner` (ordered passes ping-ponging scratch buffers, zero inter-pass CPU readback), cooperative `CancelToken`, WGSL color matrices generated from the same `raw-core` constants the CPU path uses, and the per-stage CPU-oracle parity-gate pattern. Coral Pano's GPU stages are implemented **as `raw-gpu` passes** — same wgpu version pin, same vendored-offline xcframework flow (#1005/#1061), same WGSL authoring constraints (notably **≤ 4 storage buffers per compute stage** for WebGPU compatibility), same `navigator.gpu` routing on web. Pano introduces no second GPU stack.
+- **`raw-gpu` (epic #925, shipping default on Apple + web):** Maple's headless GPU resource core — `GpuContext` (device/queue + lazily-cached compute pipelines), `GpuImage` (upload-once scene-linear f32 images), `Pass`/`ChainRunner` (ordered passes ping-ponging scratch buffers, zero inter-pass CPU readback), cooperative `CancelToken`, WGSL color matrices generated from the same `raw-core` constants the CPU path uses, and the per-stage CPU-oracle parity-gate pattern. Maple Pano's GPU stages are implemented **as `raw-gpu` passes** — same wgpu version pin, same vendored-offline xcframework flow (#1005/#1061), same WGSL authoring constraints (notably **≤ 4 storage buffers per compute stage** for WebGPU compatibility), same `navigator.gpu` routing on web. Pano introduces no second GPU stack.
 - **`ort` history:** the earlier pano effort was blocked on an upstream `ort` 2.0 rc compile bug (VitisAI, rc.10/rc.12). Pin the exact known-good `ort` version from the prototype; treat `ort` upgrades as isolated PRs with the full pano regression run.
 
 ## 3. Packaging & FFI architecture
@@ -55,19 +55,19 @@ The PR contains a full crate at `src/raw-pipeline/pano-core/`. Per-module plan f
 src/raw-pipeline/  (existing Cargo workspace)
 ├── raw-core            (existing — decode, demosaic, WB, DCP, matrices; gains decode_for_pano)
 ├── raw-gpu             (existing — GpuContext / GpuImage / Pass / ChainRunner / CancelToken)
-├── coral-pano          (NEW crate `coral_pano` — all stitching stages; depends on raw-core + raw-gpu)
-├── raw-ffi             (existing C-FFI staticlib — gains `pano` feature → links coral-pano)
-├── raw-wasm            (existing wasm-bindgen cdylib — gains `pano` feature → links coral-pano)
+├── maple-pano          (NEW crate `maple_pano` — all stitching stages; depends on raw-core + raw-gpu)
+├── raw-ffi             (existing C-FFI staticlib — gains `pano` feature → links maple-pano)
+├── raw-wasm            (existing wasm-bindgen cdylib — gains `pano` feature → links maple-pano)
 └── maple-cli           (existing — gains `pano stitch` subcommand for the harness)
 ```
 
 ### D1 — One Rust binary artifact, separate Swift API module (flagged for author sign-off)
 
-The tech spec header names a **CoralPano.xcframework**. Building that as a _second Rust staticlib_ alongside `RawPipeline.xcframework` is a link-time hazard: both libs would embed `raw-core` and the Rust std runtime, and two Rust staticlibs in one app binary produce duplicate-symbol failures. Resolution:
+The tech spec header names a **MaplePano.xcframework**. Building that as a _second Rust staticlib_ alongside `RawPipeline.xcframework` is a link-time hazard: both libs would embed `raw-core` and the Rust std runtime, and two Rust staticlibs in one app binary produce duplicate-symbol failures. Resolution:
 
-- **Compile once:** `coral_pano` is linked into the existing Rust binary artifact via a `pano` cargo feature on `raw-ffi` (the same pattern raw-wasm uses on web). The existing `build-xcframework.sh` + vendored-offline flow gains the feature flag; no second framework build pipeline.
-- **Expose separately:** the _Swift_ surface ships as a distinct **`CoralPano` Swift module** (SPM target next to `MapleCore`), containing the UniFFI-generated bindings + a hand-written async facade. App code sees "CoralPano" exactly as the spec intends; the linker sees one Rust binary.
-- **Documented alternative:** a true separate `CoralPano.xcframework` built as a _dynamic_ framework (cdylib) avoids the duplicate-symbol problem at the cost of shipping a second copy of raw-core + std (~tens of MB) and a second build pipeline. Only worth it if pano must ship on a separate release cadence from the raw pipeline.
+- **Compile once:** `maple_pano` is linked into the existing Rust binary artifact via a `pano` cargo feature on `raw-ffi` (the same pattern raw-wasm uses on web). The existing `build-xcframework.sh` + vendored-offline flow gains the feature flag; no second framework build pipeline.
+- **Expose separately:** the _Swift_ surface ships as a distinct **`MaplePano` Swift module** (SPM target next to `MapleCore`), containing the UniFFI-generated bindings + a hand-written async facade. App code sees "MaplePano" exactly as the spec intends; the linker sees one Rust binary.
+- **Documented alternative:** a true separate `MaplePano.xcframework` built as a _dynamic_ framework (cdylib) avoids the duplicate-symbol problem at the cost of shipping a second copy of raw-core + std (~tens of MB) and a second build pipeline. Only worth it if pano must ship on a separate release cadence from the raw pipeline.
 
 ### D2 — UniFFI for the control plane only; pixels never cross as UniFFI types
 
@@ -156,15 +156,15 @@ pub fn stitch(
 
 `StitchReport` exactly as tech spec §6 (`cameras`, `mean/max_reproj_error_px`, `dropped_images: Vec<DropReason>`, `projection`, `fov_deg`). `DropReason ∈ {Disconnected, HighResidual, LowOverlap, LowTexturePlacedByPrior}` — the last is reported, not dropped, but rides the same diagnostics channel. Projection override re-render: `rewarp(report, new_projection, …)` reuses solved cameras without re-running features/BA (powers the product's cheap projection switch).
 
-### Apple (UniFFI `CoralPano` module + facade)
+### Apple (UniFFI `MaplePano` module + facade)
 
 ```swift
-let report = try await CoralPano.stitch(
+let report = try await MaplePano.stitch(
     assets: selection,                      // resolved to bytes by the source layer
     to: destinationURL,
     options: .default,
     progress: { stage, fraction in … }      // 4 UI stages
-)   // throws CoralPanoError; report.notices drives the result sheet
+)   // throws MaplePanoError; report.notices drives the result sheet
 ```
 
 A thin notices mapper (`StitchReport → [UserNotice]`) lives in the Swift/TS layer, not in Rust — copy is a product asset and localizes there.
@@ -218,7 +218,7 @@ Mapping of tech-spec build steps 1–11; each gate is a script exit code, not a 
 | BA convergence on degenerate graphs (long thin strips, sparse overlap)                          | Gimbal prior + spanning-tree init (§5.3); basin bench in CI; acceptance gate drops outlier frames rather than shipping a bad solve.              |
 | iPhone memory ceiling                                                                           | §6 tiling + mmap staging is v1-mandatory, not an optimization; peak-RSS is a budgeted, ratcheted metric from M0.                                 |
 | DNG reader compatibility (LinearRaw + headroom + Rec.2020 matrices is an unusual combo)         | Step-9 survey before the writer freezes; `dng_validate` + multi-reader smoke in CI; headroom only on merged input.                               |
-| Two-Rust-staticlibs link failure if the spec's literal "CoralPano.xcframework" is built naively | Decision D1 (single artifact, separate Swift module); dynamic-framework fallback documented.                                                     |
+| Two-Rust-staticlibs link failure if the spec's literal "MaplePano.xcframework" is built naively | Decision D1 (single artifact, separate Swift module); dynamic-framework fallback documented.                                                     |
 | Graph-cut wall time on n-way 360° overlaps                                                      | Seams solved at 1–2 MP only (bounded); BK maxflow already ported (PR #17); budget tracked per-set in the harness.                                |
 | Corpus acquisition (fixtures are gitignored; gates skip without them)                           | Treat corpus assembly as M0 _deliverable_, not ambient; one nightly/release runner must hold the fixtures or the gates never bite.               |
 | WASM worker + OPFS plumbing underestimated                                                      | Web integration scoped into M3 explicitly; web canvas cap (Q3) keeps the first web ship inside browser memory reality.                           |
@@ -227,11 +227,11 @@ Mapping of tech-spec build steps 1–11; each gate is a script exit code, not a 
 
 Binding, in addition to tech-spec §9.1–9.4 (argmin-not-Ceres; shared focal with automatic fallback; 16-bit LinearRaw default with f16 opt-in; notices-in-UI/numbers-in-log):
 
-- **D1** — One Rust binary artifact; `CoralPano` ships as a Swift API module over it, not a second staticlib. _(Flagged for author sign-off — diverges in mechanics, not intent, from the spec header's "CoralPano.xcframework".)_
+- **D1** — One Rust binary artifact; `MaplePano` ships as a Swift API module over it, not a second staticlib. _(Flagged for author sign-off — diverges in mechanics, not intent, from the spec header's "MaplePano.xcframework".)_
 - **D2** — UniFFI for control plane only; pixel data never crosses an FFI as a value; primary output is the DNG file; web stays wasm-bindgen.
 - **D3** — Working space Rec.2020 D65 linear f32, planar, validity-masked; supersedes the ProPhoto-era predecessor specs.
 - **D4** — GPU stages are `raw-gpu` passes riding the existing wgpu/WGSL toolchain and constraints (`GpuContext`, `CancelToken`, vendored wgpu, offline xcframework flow, ≤ 4 storage buffers/stage); no parallel GPU stack.
-- **D5** — Fresh `coral-pano` crate on main via stacked PRs, mining PR #17 per the §2.1 table; PR #17 closes unmerged at M4.
+- **D5** — Fresh `maple-pano` crate on main via stacked PRs, mining PR #17 per the §2.1 table; PR #17 closes unmerged at M4.
 - **D6** — CPU reference implementations are retained for warp/blend solely as parity gates for the WGSL paths.
 
 ## 13. Open questions (engineering)
@@ -243,4 +243,4 @@ Binding, in addition to tech-spec §9.1–9.4 (argmin-not-Ceres; shared focal wi
 | Q3  | Web default canvas cap (64 MP proposed) and the OPFS-vs-download delivery of the output DNG.                                                                                                                | M3                 |
 | Q4  | `rewarp` (projection switch without re-solve): v1.0 or v1.x? Product wants it on the result sheet; cost is small once cameras are solved.                                                                   | M3 scoping         |
 | Q5  | Where the stitch-metadata XMP block's schema is registered (sidecar-schema docs) and whether the editor surfaces any of it read-only.                                                                       | M3                 |
-| Q6  | Tiled GPU runner shape: `ChainRunner` is single-image ping-pong; pano needs a canvas-tile loop over multi-source reads. Extend `raw-gpu` with a sibling runner vs. compose passes manually in `coral_pano`. | M2                 |
+| Q6  | Tiled GPU runner shape: `ChainRunner` is single-image ping-pong; pano needs a canvas-tile loop over multi-source reads. Extend `raw-gpu` with a sibling runner vs. compose passes manually in `maple_pano`. | M2                 |
