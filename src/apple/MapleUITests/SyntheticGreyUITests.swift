@@ -105,6 +105,10 @@ final class SyntheticGreyUITests: XCTestCase {
                 let app = XCUIApplication()
                 app.launchEnvironment["MAPLE_UITEST_FIXTURE"] = "grey-l018-rggb.dng"
                 app.launchEnvironment["MAPLE_UITEST_FIXTURE_ROOT"] = tmp.path
+                // Pin the CPU + Metal render path: the per-case expected
+                // means below are Rust CPU view-tail values, so disable the
+                // default-on (#1064) GPU live path and keep Apple on CPU+Metal.
+                app.launchEnvironment["MAPLE_GPU_LIVE"] = "0"
                 app.launch()
                 defer { app.terminate() }
 
