@@ -83,16 +83,20 @@ impl Default for CaptureSharpeningParams {
 }
 
 /// Build a windowed, renormalized 1D Gaussian kernel — a bit-for-bit port of
-/// `raw_core::stages::capture_sharpening::gaussian_kernel_1d`. `half =
+/// `raw_core::stages::blur::gaussian_kernel_1d` (moved there from
+/// capture_sharpening in #1083; the math is unchanged). `half =
 /// ceil(3·sigma).max(1)`; weights `exp(-(k²)/(2σ²))` for `k ∈ [-half, half]`,
 /// divided by their sum. Both sides are Rust f32, so the uploaded kernel is
 /// IDENTICAL to the one raw-core convolves with — the GPU's only delta is float
 /// summation order in the conv itself (~1e-6).
 ///
 /// `sigma` is clamped to `(0, MAX_SIGMA_PX_STAGE]` and non-finite rounds up to a
-/// tiny lower bound, matching raw-core's same-named private fn (the stage-level
+/// tiny lower bound, matching raw-core's same-named fn (the stage-level
 /// guard rejects bogus sigma upstream, so this clamp is only the last safeguard).
-fn gaussian_kernel_1d(sigma: f32) -> Vec<f32> {
+///
+/// `pub(crate)`: the sharpen stage shares this builder (and the `gaussian_blur`
+/// WGSL entry point) for its sigma-faithful unsharp blur — see #1083.
+pub(crate) fn gaussian_kernel_1d(sigma: f32) -> Vec<f32> {
     let sigma = if sigma.is_finite() && sigma > 0.0 {
         sigma.min(MAX_SIGMA_PX_STAGE)
     } else {
@@ -125,13 +129,14 @@ struct CountParams {
 }
 
 /// `repr(C)` uniform for `gaussian_blur`: dims, kernel length, swept axis.
+/// `pub(crate)`: the sharpen stage drives the same WGSL entry point (#1083).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct GaussParams {
-    width: u32,
-    height: u32,
-    klen: u32,
-    axis: u32,
+pub(crate) struct GaussParams {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) klen: u32,
+    pub(crate) axis: u32,
 }
 
 /// `repr(C)` uniform for `apply_scale`: count + strength + the clamped highlight

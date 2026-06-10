@@ -8,6 +8,10 @@
 //! tripled-box-blur approximation — at the small sigmas this stage uses
 //! (0.5..2.0 px) the box-blur fit was visibly different from a real
 //! Gaussian, and the integer-radius round-off prevented sub-pixel tuning.
+//! The kernel builder + separable convolution moved to `stages::blur`
+//! (`gaussian_kernel_1d` / `gaussian_blur_plane_sigma`) in #1083 so the
+//! sharpen stage — whose integer box radius had the exact same round-off
+//! bug, collapsed all the way to a radius no-op — shares one copy.
 //!
 //! Off by default: the helper at `pipeline::capture_sharpening_helper`
 //! returns `None` when `amount == 0`, so this stage is never called and
@@ -21,7 +25,10 @@
 //! operates on; a Rec.2020-exact vector can be swapped in later if the
 //! parity harness flags it.
 
-use crate::image::{ColorSpace, Image};
+use crate::{
+    image::{ColorSpace, Image},
+    stages::blur::{gaussian_blur_plane_sigma, MAX_GAUSSIAN_SIGMA_PX},
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct CaptureSharpeningParams {
@@ -63,85 +70,9 @@ const LUM_WEIGHTS: [f32; 3] = [0.2126, 0.7152, 0.0722];
 ///
 /// At `sigma = 50.0` the kernel is `2 * ceil(3 * 50) + 1 = 301` taps, which
 /// is large but bounded; anything above that is treated as bogus and the
-/// stage exits early.
-const MAX_SIGMA_PX_STAGE: f32 = 50.0;
-
-/// Build a windowed, renormalized 1D Gaussian kernel of length `2*half+1`,
-/// where `half = ceil(3 * sigma).max(1) as usize`. The kernel is symmetric
-/// around index `half`; weights are `exp(-(k^2)/(2σ²))` and the whole array
-/// is divided by its sum so the convolution preserves DC.
-///
-/// `sigma` is clamped to `(0, MAX_SIGMA_PX_STAGE]` and non-finite values are
-/// rounded up to the lower bound — this function is private to the stage but
-/// has the same defensive contract as `apply_capture_sharpening`, so callers
-/// (the RL inner loop) can't accidentally trigger an unbounded allocation
-/// when a future entry point forgets to validate.
-fn gaussian_kernel_1d(sigma: f32) -> Vec<f32> {
-    let sigma = if sigma.is_finite() && sigma > 0.0 {
-        sigma.min(MAX_SIGMA_PX_STAGE)
-    } else {
-        // Smallest sigma that still produces a kernel; the caller-facing
-        // `apply_capture_sharpening` rejects non-finite/<=0 sigma upfront,
-        // so this branch is only reachable via the kernel-only unit tests.
-        1e-3
-    };
-    let half = (3.0 * sigma).ceil().max(1.0) as usize;
-    let two_sigma_sq = 2.0 * sigma * sigma;
-    let mut k: Vec<f32> = (0..=2 * half)
-        .map(|i| {
-            let x = i as f32 - half as f32;
-            (-(x * x) / two_sigma_sq).exp()
-        })
-        .collect();
-    let sum: f32 = k.iter().sum();
-    let inv = 1.0 / sum;
-    for v in &mut k {
-        *v *= inv;
-    }
-    k
-}
-
-/// Separable 1D Gaussian blur of a single-channel plane. Edge handling
-/// clamps the sample index to `[0, w-1]` / `[0, h-1]` — matches the
-/// previous box-blur behavior at borders.
-fn gaussian_blur_plane(buf: &[f32], w: usize, h: usize, sigma: f32) -> Vec<f32> {
-    let kernel = gaussian_kernel_1d(sigma);
-    let half = kernel.len() / 2;
-
-    // Horizontal pass: tmp[y*w + x] = sum_k kernel[k] * buf[y*w + clamp(x + k - half)]
-    let mut tmp = vec![0.0_f32; buf.len()];
-    let w_i = w as isize;
-    for y in 0..h {
-        let row_in = &buf[y * w..(y + 1) * w];
-        let row_out = &mut tmp[y * w..(y + 1) * w];
-        for x in 0..w {
-            let mut acc = 0.0_f32;
-            for (k_idx, &k) in kernel.iter().enumerate() {
-                let xi = (x as isize + k_idx as isize - half as isize)
-                    .clamp(0, w_i - 1) as usize;
-                acc += k * row_in[xi];
-            }
-            row_out[x] = acc;
-        }
-    }
-
-    // Vertical pass: out[y*w + x] = sum_k kernel[k] * tmp[clamp(y + k - half)*w + x]
-    let mut out = vec![0.0_f32; buf.len()];
-    let h_i = h as isize;
-    for y in 0..h {
-        let row_out = &mut out[y * w..(y + 1) * w];
-        for x in 0..w {
-            let mut acc = 0.0_f32;
-            for (k_idx, &k) in kernel.iter().enumerate() {
-                let yi = (y as isize + k_idx as isize - half as isize)
-                    .clamp(0, h_i - 1) as usize;
-                acc += k * tmp[yi * w + x];
-            }
-            row_out[x] = acc;
-        }
-    }
-    out
-}
+/// stage exits early. The value is single-sourced with the kernel builder's
+/// own clamp in `stages::blur` (#1083 moved both there).
+const MAX_SIGMA_PX_STAGE: f32 = MAX_GAUSSIAN_SIGMA_PX;
 
 /// Apply capture sharpening in place.
 ///
@@ -183,13 +114,13 @@ pub fn apply_capture_sharpening(image: &mut Image, params: &CaptureSharpeningPar
     // Two iterations by default — matches the reference engine's behaviour.
     let mut estimate = original.clone();
     for _ in 0..params.iterations {
-        let blur_est = gaussian_blur_plane(&estimate, w, h, params.sigma);
+        let blur_est = gaussian_blur_plane_sigma(&estimate, w, h, params.sigma);
         let mut ratio = vec![0.0_f32; n];
         for (i, r) in ratio.iter_mut().enumerate() {
             let denom = blur_est[i].max(1e-6);
             *r = (original[i] / denom).clamp(0.0, 100.0);
         }
-        let blur_ratio = gaussian_blur_plane(&ratio, w, h, params.sigma);
+        let blur_ratio = gaussian_blur_plane_sigma(&ratio, w, h, params.sigma);
         for (e, &b) in estimate.iter_mut().zip(blur_ratio.iter()) {
             *e *= b;
         }
@@ -232,6 +163,7 @@ pub fn apply_capture_sharpening(image: &mut Image, params: &CaptureSharpeningPar
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stages::blur::gaussian_kernel_1d;
 
     fn build_image(w: u32, h: u32, f: impl Fn(u32, u32) -> [f32; 3]) -> Image {
         let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
@@ -574,8 +506,8 @@ mod tests {
         let mut buf = vec![0.0_f32; 21 * 21];
         buf[10 * 21 + 10] = 1.0;
 
-        let small = gaussian_blur_plane(&buf, 21, 21, 0.5);
-        let large = gaussian_blur_plane(&buf, 21, 21, 0.9);
+        let small = gaussian_blur_plane_sigma(&buf, 21, 21, 0.5);
+        let large = gaussian_blur_plane_sigma(&buf, 21, 21, 0.9);
 
         // Center retains less energy under the larger blur.
         assert!(

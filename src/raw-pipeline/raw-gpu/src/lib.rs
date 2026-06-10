@@ -132,15 +132,17 @@
 //!   isolates the NLM math from the Oklab round-trip.
 //! - [`SharpenPass`] — a P3 wave-2 SPATIAL stage (#991): luminance-only
 //!   unsharp-mask sharpening (`raw_core::stages::sharpen::apply`). A short linear
-//!   sub-pass chain — extract luma → blur it (raw-core's `gaussian_blur_plane` =
-//!   3 box-blur passes at `(radius_px/3).max(1)`, reusing [`box_blur_encode`]) →
+//!   sub-pass chain — extract luma → blur it (raw-core's
+//!   `gaussian_blur_plane_sigma` = a TRUE separable Gaussian at the float PSF
+//!   sigma, H+V sweeps of the shared `gaussian_blur` WGSL entry; #1083 replaced
+//!   the box-blur cascade whose integer radius made the Radius slider a no-op) →
 //!   per-pixel USM scale (shadow-guard smoothstep + scale clamp, luma-only so
 //!   chroma ratios survive) → an edge-aware amount/masking blend (a
 //!   central-difference luma gradient with clamp-to-edge borders). Stays ONE
 //!   [`Pass`]; every kernel ≤ 4 storage. Parity-gated directly vs
 //!   `raw_core::stages::sharpen::apply`, covering masking-off AND masking-on (the
-//!   gradient branch), amount past 100, and a step-edge fixture (so the USM is
-//!   non-vacuous — a smooth ramp is a near-fixed-point).
+//!   gradient branch), amount past 100, distinct radii, and a step-edge fixture
+//!   (so the USM is non-vacuous — a smooth ramp is a near-fixed-point).
 //! - [`CaptureSharpeningPass`] — the LAST P3 stage (#991) and the only ITERATIVE
 //!   one: Richardson–Lucy deconvolution against a true Gaussian PSF, on a Rec.709
 //!   luma plane (`raw_core::stages::capture_sharpening::apply_capture_sharpening`).

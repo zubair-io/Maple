@@ -10,10 +10,14 @@
 //! ## The unsharp mask, in four sub-passes
 //!
 //! 1. **luma extract** (`sharpen_luma.wgsl`): RGBA → a luma plane (BT.2020).
-//! 2. **blur** (the box-blur primitive ×3): raw-core's `gaussian_blur_plane` is
-//!    THREE successive box-blur passes at `r_box = (radius_px / 3).max(1)` (Wells
-//!    1986 Gaussian approximation), so we chain three [`spatial::box_blur_encode`]
-//!    calls — already bit-faithful to `box_blur_channel`'s shrinking window.
+//! 2. **blur** (the shared `gaussian_blur` WGSL entry from
+//!    `capture_sharpening.wgsl`, H + V dispatches): raw-core's
+//!    `gaussian_blur_plane_sigma` is a TRUE windowed/renormalized separable
+//!    Gaussian at `sigma = radius.clamp(0.5, 3.0)`, clamp-to-edge borders. The
+//!    taps are built CPU-side by the same bit-for-bit `gaussian_kernel_1d` port
+//!    capture-sharpening uses and uploaded once per encode (#1083 — the previous
+//!    3× box-blur cascade truncated every legal radius to the same 1-px box,
+//!    making the Radius slider a no-op on BOTH the CPU and GPU paths).
 //! 3. **USM scale** (`sharpen_usm.wgsl`): the per-pixel luma USM with the shadow
 //!    guard + scale clamp, producing the "full-strength sharpened" RGBA
 //!    (amount=100, masking=0). Luma-only: one scalar scales all three channels, so
@@ -25,16 +29,31 @@
 //! ## Buffer budget (every kernel ≤ 4 storage)
 //!
 //! - luma extract: src + luma (2).
-//! - box blur: in + out (+ an internal h-scratch) (≤ 3, via the primitive).
+//! - gaussian blur: kernel + in + out (3).
 //! - USM scale: src + luma + luma_blur + sharpened (4).
 //! - edge-mix: observed(src) + sharpened + luma + dst (4).
+//!
+//! ## Live-pool note (zero-alloc invariant)
+//!
+//! The kernel taps live in a [`spatial::pool_data_storage`] buffer of FIXED
+//! [`MAX_SHARPEN_KLEN`] capacity (the actual `klen` rides in the uniform), so a
+//! radius drag rewrites the pooled buffer's contents every tick without ever
+//! resizing it — the buffer object (and the bind group caching it) stays stable
+//! within a chain signature, and the dispatch COUNT is radius-independent.
 //!
 //! Parity-gated DIRECTLY vs `raw_core::stages::sharpen::apply` `< 1e-4` — no CPU
 //! oracle in this crate (the test drives the real raw-core stage via the dev-dep).
 
+use crate::capture_sharpening::{gaussian_kernel_1d, GaussParams};
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use crate::spatial::{alloc_plane, alloc_rgba, box_blur_encode, encode_simple};
+use crate::spatial::{alloc_plane, alloc_rgba, encode_simple, pool_data_storage};
+
+/// Fixed tap-capacity of the pooled sharpen kernel buffer: the longest kernel
+/// the clamped sigma range can demand. `sigma <= 3.0` → `half = ceil(3σ) <= 9`
+/// → `klen = 2*half + 1 <= 19`. Allocating at the ceiling keeps the pooled
+/// buffer's size constant across radius edits (see the live-pool note above).
+const MAX_SHARPEN_KLEN: usize = 19;
 
 /// `repr(C)` uniform for `sharpen_luma.wgsl` / `sharpen_usm.wgsl`: pixel count.
 #[repr(C)]
@@ -65,8 +84,8 @@ struct MixParams {
 /// (RGBA). Mirrors `raw_core::stages::sharpen::apply` exactly. The caller handles
 /// the `amount.abs() < 1e-3` identity short-circuit; this always runs the chain.
 ///
-/// `radius_px` / `r_box` follow raw-core: `radius.clamp(0.5, 3.0).round() as
-/// usize`, floored to 1, then the box radius is `(radius_px / 3).max(1)`.
+/// `sigma` follows raw-core: `radius.clamp(0.5, 3.0)`, kept FLOAT — the taps
+/// come from the same `gaussian_kernel_1d` raw-core convolves with (#1083).
 #[allow(clippy::too_many_arguments)] // GPU encode plumbing: ctx/encoder/src/dst/dims/sliders.
 fn encode_sharpen(
     ctx: &GpuContext,
@@ -82,9 +101,20 @@ fn encode_sharpen(
 ) {
     let count = width * height;
 
-    // radius (PSF sigma) → integer box radius, mirroring raw-core's two clamps.
-    let radius_px = (radius.clamp(0.5, 3.0).round() as i64).max(1) as usize;
-    let r_box = (radius_px / 3).max(1) as u32;
+    // radius (PSF sigma) → the true-Gaussian taps, mirroring raw-core's clamp.
+    let sigma = radius.clamp(0.5, 3.0);
+    let taps = gaussian_kernel_1d(sigma);
+    debug_assert!(
+        taps.len() <= MAX_SHARPEN_KLEN,
+        "sharpen kernel ({} taps) exceeds the pooled buffer capacity ({MAX_SHARPEN_KLEN})",
+        taps.len()
+    );
+    let klen = taps.len().min(MAX_SHARPEN_KLEN) as u32;
+    // Fixed-capacity upload (zero-padded tail) so the pooled buffer never
+    // resizes across radius edits — see the live-pool note in the module docs.
+    let mut padded = [0.0f32; MAX_SHARPEN_KLEN];
+    padded[..klen as usize].copy_from_slice(&taps[..klen as usize]);
+    let kernel = pool_data_storage(ctx, bytemuck::cast_slice(&padded), "sharpen-gauss-kernel");
 
     // 1. Extract the luma plane (BT.2020).
     let luma = alloc_plane(ctx, width, height, "sharpen-luma");
@@ -104,16 +134,42 @@ fn encode_sharpen(
         "sharpen-luma",
     );
 
-    // 2. Blur the luma plane: raw-core's gaussian_blur_plane == 3 box passes at
-    //    r_box. Ping-pong between `luma_blur` and a scratch so the final blurred
-    //    plane lands in `luma_blur` (3 passes → odd count → ends in the buffer the
-    //    first pass wrote, so seed accordingly).
+    // 2. Blur the luma plane: raw-core's `gaussian_blur_plane_sigma` == one
+    //    H sweep then one V sweep of the true windowed Gaussian, clamp-to-edge.
+    //    Same `gaussian_blur` WGSL entry capture-sharpening uses; the V dispatch
+    //    sees the H output via wgpu's implicit inter-pass barrier.
     let luma_blur = alloc_plane(ctx, width, height, "sharpen-luma-blur");
     let blur_scratch = alloc_plane(ctx, width, height, "sharpen-blur-scratch");
-    // pass 0: luma -> luma_blur ; pass 1: luma_blur -> scratch ; pass 2: scratch -> luma_blur
-    box_blur_encode(ctx, encoder, &luma, &luma_blur, width, height, r_box);
-    box_blur_encode(ctx, encoder, &luma_blur, &blur_scratch, width, height, r_box);
-    box_blur_encode(ctx, encoder, &blur_scratch, &luma_blur, width, height, r_box);
+    let h_params = GaussParams {
+        width,
+        height,
+        klen,
+        axis: 0,
+    };
+    encode_simple(
+        ctx,
+        encoder,
+        ctx.cs_gaussian_pipeline(),
+        bytemuck::bytes_of(&h_params),
+        &[kernel.as_ref(), &luma, &blur_scratch],
+        count,
+        "sharpen-gauss-h",
+    );
+    let v_params = GaussParams {
+        width,
+        height,
+        klen,
+        axis: 1,
+    };
+    encode_simple(
+        ctx,
+        encoder,
+        ctx.cs_gaussian_pipeline(),
+        bytemuck::bytes_of(&v_params),
+        &[kernel.as_ref(), &blur_scratch, &luma_blur],
+        count,
+        "sharpen-gauss-v",
+    );
 
     // 3. Per-pixel USM scale → the full-strength sharpened RGBA.
     let sharpened = alloc_rgba(ctx, width, height, "sharpen-sharpened");
@@ -155,7 +211,8 @@ fn encode_sharpen(
 /// from the [`GpuContext`] / spatial substrate at encode time.
 ///
 /// * `amount` — 0..150 (>100 boosts the mix beyond unity, up to 1.5).
-/// * `radius` — PSF sigma in pixels (clamped 0.5..3.0).
+/// * `radius` — PSF sigma in pixels (clamped 0.5..3.0), driving the true
+///   separable Gaussian unsharp blur — kept float end-to-end (#1083).
 /// * `detail` — 0..100 (how much sharpening leaks into flat regions when masking
 ///   is non-zero).
 /// * `masking` — 0..100 (gradient threshold for the edge-only mix).
