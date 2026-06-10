@@ -1,139 +1,116 @@
-<maple-settings-row [expanded]="expanded()" (toggle)="toggle()" testid="mirror-settings">
-  <!-- Summary rendered in the same column grid as the worker stage rows so it
-       lines up under the shared column header. -->
-  <div class="row-grid mirror-row" srow-summary>
-    <maple-settings-icon
-      [name]="expanded() ? 'chev-d' : 'chev-r'"
-      [size]="12"
-      [stroke]="2"
-      [color]="'#a8a29e'"
-    />
-
-    <span class="stage-id">
-      <maple-settings-icon name="copy" [size]="14" [color]="'#a8a29e'" />
-      <span class="mono">Mirror / backup</span>
-    </span>
-
+<!-- Always-visible Backup panel. No collapse: the live reconcile (status,
+     stages, current file, copied-files log, error log) stays on screen, with
+     the per-library backup-location config below it. -->
+<div class="mirror-panel" data-testid="mirror-settings">
+  <!-- Live status header: phase pill + one-line readout + actions. -->
+  <div class="panel-head">
     <span class="status-pill">
       <span class="status-dot" [style.background]="statusColor()"></span>
       <span class="status-label" data-testid="mirror-status">{{ statusLabel() }}</span>
     </span>
-
-    <span class="mirror-readout mono" data-testid="mirror-readout">{{ reconcileSummary() }}</span>
-
+    <span class="readout mono" data-testid="mirror-readout">{{ reconcileSummary() }}</span>
+    <span class="head-spacer"></span>
+    @if (status(); as q) {
+      @if (q.dead > 0) {
+        <button
+          type="button"
+          class="btn-ghost danger"
+          [disabled]="retrying()"
+          (click)="retryDead()"
+        >
+          {{ retrying() ? 'Retrying…' : 'Retry ' + q.dead + ' failed' }}
+        </button>
+      }
+    }
     <button
       type="button"
-      class="reconcile-btn"
+      class="btn-primary"
       data-testid="mirror-reconcile-now"
       [disabled]="reconcileBusy()"
       [title]="reconcileBusy() ? busyLabel() : 'Reconcile now (scan + copy)'"
-      [attr.aria-label]="reconcileBusy() ? busyLabel() : 'Reconcile now (scan and copy)'"
       (click)="reconcileNow()"
     >
-      <maple-settings-icon
-        name="retry"
-        [size]="13"
-        [color]="reconcileBusy() ? '#78706a' : '#a8a29e'"
-      />
+      {{ reconcileBusy() ? busyLabel() : 'Reconcile now' }}
     </button>
   </div>
 
-  <!-- Expanded body -->
-  <div class="desc-bar">
-    <p>
-      Replicate each library's originals and XMP sidecars to a second location. Writes and moves go
-      to both; <strong>Reconcile now</strong> runs a full scan then copy so a freshly-configured or
-      drifted mirror is brought up to date — the background worker also reconciles on its own
-      cadence.
-    </p>
+  <!-- Two-stage progress (scanning → copying) with per-stage counts. -->
+  <div class="stages" data-testid="mirror-stages">
+    <!-- Stage 1 — scanning -->
+    <div class="stage-line" [class.active]="reconcile()?.phase === 'scanning'">
+      <span class="stage-dot"></span>
+      <span class="stage-name">Scanning</span>
+      @if (reconcile(); as r) {
+        <span class="stage-nums mono">
+          {{ r.scan.scanned }} scanned · {{ r.scan.upToDate }} up to date · {{ r.scan.toCopy }} to
+          copy
+          @if (r.scan.errors > 0) {
+            · <span class="is-error">{{ r.scan.errors }} errors</span>
+          }
+        </span>
+      } @else {
+        <span class="stage-nums dim">not run yet</span>
+      }
+    </div>
+
+    <!-- Stage 2 — copying -->
+    <div class="stage-line" [class.active]="reconcile()?.phase === 'copying'">
+      <span class="stage-dot"></span>
+      <span class="stage-name">Copying</span>
+      @if (reconcile(); as r) {
+        <span class="stage-nums mono">
+          {{ r.copy.copied }} / {{ r.copy.total }} copied · {{ r.copy.remaining }} remaining
+          @if (r.copy.errors > 0) {
+            · <span class="is-error">{{ r.copy.errors }} failed</span>
+          }
+        </span>
+      } @else {
+        <span class="stage-nums dim">not run yet</span>
+      }
+    </div>
   </div>
 
-  <!-- Reconcile: two-stage progress + error log -->
-  <div class="block reconcile-block">
-    <div class="reconcile-head">
-      <div class="subhead">Reconcile</div>
-      <span class="footer-spacer"></span>
-      @if (status(); as q) {
-        @if (q.dead > 0) {
-          <button
-            type="button"
-            class="btn-ghost danger"
-            [disabled]="retrying()"
-            (click)="retryDead()"
-          >
-            {{ retrying() ? 'Retrying…' : 'Retry ' + q.dead + ' failed' }}
-          </button>
-        }
-      }
-      <button
-        type="button"
-        class="btn-primary"
-        data-testid="mirror-reconcile-now-full"
-        [disabled]="reconcileBusy()"
-        (click)="reconcileNow()"
-      >
-        {{ reconcileBusy() ? busyLabel() : 'Reconcile now' }}
-      </button>
+  @if (reconcile()?.currentPath; as cp) {
+    <div class="current-file mono" data-testid="mirror-current-file" [title]="cp">
+      <span class="current-label">Copying:</span> {{ cp }}
     </div>
+  }
 
-    <div class="stages" data-testid="mirror-stages">
-      <!-- Stage 1 — scanning -->
-      <div class="stage-line" [class.active]="reconcile()?.phase === 'scanning'">
-        <span class="stage-dot"></span>
-        <span class="stage-name">Scanning</span>
-        @if (reconcile(); as r) {
-          <span class="stage-nums mono">
-            {{ r.scan.scanned }} scanned · {{ r.scan.upToDate }} up to date · {{ r.scan.toCopy }} to
-            copy
-            @if (r.scan.errors > 0) {
-              · <span class="is-error">{{ r.scan.errors }} errors</span>
-            }
-          </span>
-        } @else {
-          <span class="stage-nums dim">not run yet</span>
-        }
-      </div>
-
-      <!-- Stage 2 — copying -->
-      <div class="stage-line" [class.active]="reconcile()?.phase === 'copying'">
-        <span class="stage-dot"></span>
-        <span class="stage-name">Copying</span>
-        @if (reconcile(); as r) {
-          <span class="stage-nums mono">
-            {{ r.copy.copied }} / {{ r.copy.total }} copied · {{ r.copy.remaining }} remaining
-            @if (r.copy.errors > 0) {
-              · <span class="is-error">{{ r.copy.errors }} failed</span>
-            }
-          </span>
-        } @else {
-          <span class="stage-nums dim">not run yet</span>
-        }
-      </div>
-    </div>
-
-    @if (reconcile()?.currentPath; as cp) {
-      <div class="current-file mono" data-testid="mirror-current-file" [title]="cp">
-        <span class="current-label">Current:</span> {{ cp }}
-      </div>
-    }
-
-    @if (reconcile()?.errorLog?.length) {
-      <div class="error-log" data-testid="mirror-error-log">
-        <div class="error-log-head">Errors ({{ reconcile()!.errorLog.length }})</div>
-        @for (e of reconcile()!.errorLog; track e.at + e.path) {
-          <div class="error-line mono">
-            <span class="error-path" [title]="e.path">{{ e.path }}</span>
-            <span class="error-msg">{{ e.error }}</span>
+  <!-- Copied-files log: files already mirrored this run (most recent first). -->
+  @if (reconcile()?.copiedLog?.length) {
+    <div class="copied-log" data-testid="mirror-copied-log">
+      <div class="copied-log-head">Copied ({{ reconcile()!.copiedLog.length }})</div>
+      <!-- Track by index: a path can repeat (same primary copied to >1 mirror),
+           so the string isn't a unique key — this is a flat positional log. -->
+      <div class="copied-list">
+        @for (p of reconcile()!.copiedLog; track $index) {
+          <div class="copied-line mono" [title]="p">
+            <maple-settings-icon name="check" [size]="11" [color]="'#4ade80'" />
+            <span class="copied-path">{{ p }}</span>
           </div>
         }
       </div>
-    }
-  </div>
+    </div>
+  }
+
+  <!-- Error log: per-file copy failures (capped). -->
+  @if (reconcile()?.errorLog?.length) {
+    <div class="error-log" data-testid="mirror-error-log">
+      <div class="error-log-head">Errors ({{ reconcile()!.errorLog.length }})</div>
+      @for (e of reconcile()!.errorLog; track e.at + e.path) {
+        <div class="error-line mono">
+          <span class="error-path" [title]="e.path">{{ e.path }}</span>
+          <span class="error-msg">{{ e.error }}</span>
+        </div>
+      }
+    </div>
+  }
 
   @if (error()) {
     <p class="banner-error">{{ error() }}</p>
   }
 
+  <!-- Per-library backup-location config. -->
   @if (loading()) {
     <p class="loading">Loading libraries…</p>
   } @else if (libraries().length === 0) {
@@ -201,4 +178,4 @@
       </div>
     }
   }
-</maple-settings-row>
+</div>

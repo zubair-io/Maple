@@ -17,4 +17,19 @@ describe('mirror reconcile-now runner', () => {
     expect(res.reason).toBe('no mirror configured');
     expect(getMirrorReconcileProgress().phase).toBe('idle');
   });
+
+  it('exposes an empty copied-files log before any run', () => {
+    const p = getMirrorReconcileProgress();
+    expect(p.copiedLog).toEqual([]);
+    expect(p.errorLog).toEqual([]);
+  });
+
+  it('returns a defensive snapshot — mutating the log arrays does not leak back', () => {
+    const a = getMirrorReconcileProgress();
+    a.copiedLog.push('/leak.dng');
+    a.errorLog.push({ path: '/leak.dng', error: 'nope', at: new Date().toISOString() });
+    const b = getMirrorReconcileProgress();
+    expect(b.copiedLog).toEqual([]);
+    expect(b.errorLog).toEqual([]);
+  });
 });

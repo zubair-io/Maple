@@ -160,12 +160,9 @@ describe('WorkersComponent', () => {
 
   afterEach(() => {
     component.ngOnDestroy();
-    // The embedded mirror section (MirrorSettingsComponent) fetches the library
-    // list + reconcile-queue status on init; flush those so verify() — which
-    // asserts no open requests — doesn't trip on them. No folders ⇒ no
-    // per-library mirror fetches.
+    // The Imports group fetches the library list on init; flush any pending so
+    // verify() — which asserts no open requests — doesn't trip on it.
     for (const r of http.match('/api/folders')) r.flush([]);
-    for (const r of http.match('/api/mirror/status')) r.flush({ queue: { pending: 0, dead: 0 } });
     http.verify();
   });
 
@@ -200,13 +197,11 @@ describe('WorkersComponent', () => {
   /** Flush the one-shot GETs the side panels fire on init, so
    * HttpTestingController.verify() is satisfied at teardown:
    *   - Migrations panel (#748): the registry list.
-   *   - Imports group (#761): the library-label fetch + the job list.
-   *   - Mirror section: the library list (a SECOND /api/folders) + queue status. */
+   *   - Imports group (#761): the library-label fetch + the job list. */
   function flushPanelPolls(): void {
     http.expectOne('/api/workers/migration/migrations').flush({ migrations: [] });
-    // Both the Imports group and the embedded mirror section fetch /api/folders.
+    // The Imports group fetches /api/folders for library labels.
     for (const r of http.match('/api/folders')) r.flush([]);
-    for (const r of http.match('/api/mirror/status')) r.flush({ queue: { pending: 0, dead: 0 } });
     http.expectOne('/api/imports?limit=25').flush({ imports: [] });
   }
 

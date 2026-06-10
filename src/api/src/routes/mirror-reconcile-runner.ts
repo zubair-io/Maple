@@ -30,6 +30,7 @@ import { child as childLogger } from '../log.ts';
 const log = childLogger('mirror:reconcile');
 
 const ERROR_LOG_CAP = 50;
+const COPIED_LOG_CAP = 100;
 const COPY_BATCH = 50;
 const MAX_COPY_PASSES = 100_000; // safety net against an unbounded drain loop
 const IDLE_WAIT_MS = 1_000; // pause between polls when the background worker holds the leases
@@ -73,6 +74,8 @@ export interface MirrorReconcileProgress {
   finishedAt: string | null;
   /** Recent per-file errors (most-recent-last, capped); also sent to the logger. */
   errorLog: MirrorReconcileError[];
+  /** Recent files copied to the mirror this run (most-recent-first, capped). */
+  copiedLog: string[];
 }
 
 function idle(): MirrorReconcileProgress {
@@ -84,6 +87,7 @@ function idle(): MirrorReconcileProgress {
     startedAt: null,
     finishedAt: null,
     errorLog: [],
+    copiedLog: [],
   };
 }
 
@@ -97,6 +101,7 @@ export function getMirrorReconcileProgress(): MirrorReconcileProgress {
     scan: { ...progress.scan },
     copy: { ...progress.copy },
     errorLog: progress.errorLog.slice(),
+    copiedLog: progress.copiedLog.slice(),
   };
 }
 
@@ -111,6 +116,11 @@ function recordError(path: string, error: string): void {
   progress.errorLog.push({ path, error, at: new Date().toISOString() });
   if (progress.errorLog.length > ERROR_LOG_CAP) progress.errorLog.shift();
   log.error({ path, err: error }, 'reconcile: file error');
+}
+
+function recordCopied(path: string): void {
+  progress.copiedLog.unshift(path); // most-recent-first for the UI log
+  if (progress.copiedLog.length > COPIED_LOG_CAP) progress.copiedLog.pop();
 }
 
 /**
@@ -171,6 +181,7 @@ export function startMirrorReconcileNow(): ReconcileResult {
           onProgress: (s) => {
             progress.currentPath = s.currentPath;
           },
+          onCopied: (p) => recordCopied(p),
           onError: (e) => recordError(e.path, e.error),
         });
         // Derive counts from the live queue so they stay correct regardless of
