@@ -35,11 +35,13 @@
 #   — and that synced `pkg/` is gitignored (built artifact). `ng build`
 #   therefore fails at module resolution unless the WASM is built first.
 #   `bun run build`'s `prebuild` lifecycle hook builds it via
-#   `raw-wasm/build.sh` -> `wasm-pack build --features parallel
+#   `raw-wasm/build.sh` -> `wasm-pack build --features gpu,parallel
 #   -Z build-std=panic_abort,std`, which needs nightly Rust + rust-src +
 #   the wasm32 target + wasm-pack. `initThreadPool` only exists with
-#   `--features parallel` (wasm-bindgen-rayon), so a plain `wasm-pack build`
-#   is not enough — the canonical build is required.
+#   `--features parallel` (wasm-bindgen-rayon) and the WebGPU live entry
+#   (`render_bytes_gpu` / `WebLiveSession`) only with `--features gpu`
+#   (#1059), so a plain `wasm-pack build` is not enough — the canonical
+#   build (one bundle, both features) is required.
 #
 #   So this gate provisions a Rust + wasm toolchain (unlike the lightweight
 #   cross.yml jobs) and builds the WASM explicitly before `ng build`. We run

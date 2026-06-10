@@ -121,19 +121,47 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
   try {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
-    // Route through the GPU live chain when the request opts in (#1029) AND the
-    // loaded bundle actually exports it; otherwise fall back to the WASM-CPU
-    // `render_bytes`. Flag-on against a gpu-off bundle (the default build) thus
-    // renders correctly via the CPU path rather than throwing.
-    const gpuFn = req.gpu ? gpuEntry() : null;
+    // Route through the GPU live chain (#1029) only when ALL hold:
+    //   1. the request opts in (`req.gpu`, set from `GPU_LIVE_RENDER_ENABLED` —
+    //      the operator on/off switch);
+    //   2. the runtime advertises WebGPU (`'gpu' in navigator`). The shipped
+    //      bundle now co-builds the `gpu` feature (#1059), so `gpuEntry()` is
+    //      non-null on EVERY browser — without this check we'd call
+    //      `render_bytes_gpu` on a no-WebGPU browser and its `requestAdapter()`
+    //      would fail. Gating here keeps the no-WebGPU path byte-for-byte the
+    //      threaded-CPU `render_bytes` it is today;
+    //   3. the loaded bundle actually exports `render_bytes_gpu` (the `gpu`
+    //      feature). Belt-and-braces — false against a hypothetical gpu-off
+    //      bundle, true here.
+    const gpuFn = req.gpu && 'gpu' in navigator ? gpuEntry() : null;
     // Worker-local mark so DevTools' Performance panel shows the WASM render
     // call as a distinct entry independent of the main-thread round-trip the
     // service brackets. The mark name distinguishes the GPU path for profiling.
     const markTag = gpuFn ? 'maple:wasm-gpu' : 'maple:wasm';
     performance.mark(`maple:wasm:${req.id}:start`);
-    const result = gpuFn
-      ? await gpuFn(bytes, req.ext, req.xmp ?? null)
-      : render_bytes(bytes, req.ext, req.xmp ?? null);
+    let result;
+    if (gpuFn) {
+      try {
+        result = await gpuFn(bytes, req.ext, req.xmp ?? null);
+      } catch (gpuErr) {
+        // Runtime-adapter-failure fallback (#1059): WebGPU was advertised
+        // (`'gpu' in navigator`) but the adapter is broken/unavailable —
+        // `requestAdapter()` returned null, or device creation/render failed.
+        // Without this retry the whole decode would error and the canvas would
+        // stay blank on a machine whose GPU path is dead-on-arrival. Re-run the
+        // SAME develop on the threaded-CPU `render_bytes` so the image still
+        // renders (slower, but correct). The outer catch still handles a genuine
+        // CPU decode failure.
+        console.warn(
+          '[raw-pipeline.worker] GPU render failed; falling back to CPU render_bytes:',
+          gpuErr,
+        );
+        result = render_bytes(bytes, req.ext, req.xmp ?? null);
+      }
+    } else {
+      // Unchanged threaded-CPU path — byte-for-byte today's no-GPU behaviour.
+      result = render_bytes(bytes, req.ext, req.xmp ?? null);
+    }
     performance.mark(`maple:wasm:${req.id}:end`);
     performance.measure(markTag, `maple:wasm:${req.id}:start`, `maple:wasm:${req.id}:end`);
     const rgb = result.rgb;
@@ -350,13 +378,20 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
   await enqueueSessionOp(async () => {
     try {
       await ensureReady();
-      const ctor = liveSessionCtor();
+      // Gate the GPU session on BOTH the bundle exporting `WebLiveSession` AND the
+      // runtime advertising WebGPU. The shipped bundle now co-builds the `gpu`
+      // feature (#1059), so `liveSessionCtor()` is non-null on EVERY browser —
+      // the `'gpu' in navigator` check is what keeps a no-WebGPU browser from
+      // attempting (and failing) to open a session. Either miss posts a
+      // session-error → the component (`ImageCanvasGpuPresent.open`) falls back to
+      // the 2D `decode()` path, which on a no-WebGPU runtime routes threaded-CPU.
+      const ctor = 'gpu' in navigator ? liveSessionCtor() : null;
       if (!ctor) {
-        // gpu-off bundle (the default build) — no GPU live session. The component
-        // falls back to the 2D `decode()` path on this error.
         postSessionError(
           req.id,
-          'WebLiveSession unavailable: this WASM bundle was not built with the `gpu` feature',
+          'gpu' in navigator
+            ? 'WebLiveSession unavailable: this WASM bundle was not built with the `gpu` feature'
+            : 'WebLiveSession unavailable: this browser does not expose WebGPU (navigator.gpu)',
         );
         return;
       }
