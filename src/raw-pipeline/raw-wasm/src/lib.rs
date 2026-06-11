@@ -66,6 +66,8 @@ pub fn install_panic_hook() {
 pub struct MapleRender {
     width: u32,
     height: u32,
+    full_width: u32,
+    full_height: u32,
     rgb: Vec<u8>,
     as_shot_temperature: f32,
     as_shot_tint: f32,
@@ -76,7 +78,8 @@ impl MapleRender {
     /// (`gpu_render.rs`) can build the same return type as `render_bytes`
     /// without naming the private fields across the submodule boundary. wasm-only
     /// with `render_bytes_gpu` itself (the native host parity test drives
-    /// `render_gpu_core`, which returns a raw `(w, h, Vec<u8>)`).
+    /// `render_gpu_core`, which returns a raw `(w, h, Vec<u8>)`). The GPU
+    /// one-shot renders full resolution, so `full_*` == the buffer dims.
     #[cfg(all(feature = "gpu", target_arch = "wasm32"))]
     pub(crate) fn new(
         width: u32,
@@ -85,7 +88,15 @@ impl MapleRender {
         as_shot_temperature: f32,
         as_shot_tint: f32,
     ) -> Self {
-        Self { width, height, rgb, as_shot_temperature, as_shot_tint }
+        Self {
+            width,
+            height,
+            full_width: width,
+            full_height: height,
+            rgb,
+            as_shot_temperature,
+            as_shot_tint,
+        }
     }
 }
 
@@ -95,6 +106,15 @@ impl MapleRender {
     pub fn width(&self) -> u32 { self.width }
     #[wasm_bindgen(getter)]
     pub fn height(&self) -> u32 { self.height }
+    /// Oriented dimensions a full-resolution render of the SAME RAW would
+    /// produce (`raw_core::pipeline::native_render_dims`). Equal to
+    /// `width`/`height` on the full-res entries; on `render_bytes_sized` they
+    /// carry the native dims so the caller can do fit/100% zoom math while
+    /// holding only a viewport-sized buffer (#1101).
+    #[wasm_bindgen(getter)]
+    pub fn full_width(&self) -> u32 { self.full_width }
+    #[wasm_bindgen(getter)]
+    pub fn full_height(&self) -> u32 { self.full_height }
     #[wasm_bindgen(getter)]
     pub fn rgb(&self) -> Vec<u8> { self.rgb.clone() }
     /// Camera-side "As Shot" correlated colour temperature in Kelvin, as
@@ -173,6 +193,80 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
     Ok(MapleRender {
         width: w,
         height: h,
+        full_width: w,
+        full_height: h,
+        rgb: bytes,
+        as_shot_temperature,
+        as_shot_tint,
+    })
+}
+
+/// Sized variant of [`render_bytes`] — the display-encoded counterpart of the
+/// Apple FFI's `maple_render_bytes_scene_linear_sized` sizing contract (#1101,
+/// spec §5.1): develops through raw-core's early-downsample chain so every
+/// post-demosaic stage runs on a buffer capped at `max_long_edge`, then runs
+/// the IDENTICAL view tail (`render_sized_from_raw_with_quality_and_source`
+/// shares its body with the unsized entry). Never upscales — a cap at or
+/// above the native long edge renders byte-identically to [`render_bytes`].
+///
+/// `quality_preview = true` runs the half-res Preview demosaic (the web
+/// fast-phase cost profile, matching Apple's editor first paint); `false`
+/// runs Full (the refine phase). `max_long_edge` must be > 0.
+///
+/// The returned [`MapleRender`] carries the sized buffer in `width`/`height`
+/// and the NATIVE oriented dims in `full_width`/`full_height`
+/// (`native_render_dims`), so the editor can do fit/100% zoom math without a
+/// full-res decode.
+#[wasm_bindgen]
+pub fn render_bytes_sized(
+    raw: &[u8],
+    ext: &str,
+    xmp: Option<String>,
+    quality_preview: bool,
+    max_long_edge: u32,
+) -> Result<MapleRender, JsError> {
+    if max_long_edge == 0 {
+        return Err(JsError::new("render_bytes_sized: max_long_edge must be > 0"));
+    }
+    let raw_img = raw_core::decode::decode_bytes(raw, ext)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    // As-shot derivation + fresh-open WB substitution — IDENTICAL to
+    // `render_bytes` so a sized cold open seeds the same sliders.
+    let as_shot_temperature = raw_img
+        .as_shot_cct
+        .unwrap_or_else(|| estimate_cct_from_neutral(raw_img.as_shot_neutral));
+    let as_shot_tint = 0.0_f32;
+
+    let fresh_open = xmp.is_none();
+    let mut model = match xmp {
+        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
+        None => xmp_mod::AdjustmentModel::default(),
+    };
+    if fresh_open {
+        model.temperature = as_shot_temperature;
+        model.tint = as_shot_tint;
+    }
+
+    let quality = if quality_preview {
+        raw_core::pipeline::RenderQuality::Preview
+    } else {
+        raw_core::pipeline::RenderQuality::Full
+    };
+    let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
+    let (w, h, bytes) = raw_core::pipeline::render_sized_from_raw_with_quality_and_source(
+        &raw_img,
+        &model,
+        quality,
+        Some(raw_core::pipeline::RawInput::Bytes { bytes: raw, ext }),
+        max_long_edge,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(MapleRender {
+        width: w,
+        height: h,
+        full_width,
+        full_height,
         rgb: bytes,
         as_shot_temperature,
         as_shot_tint,
@@ -190,6 +284,8 @@ pub fn render_bytes(raw: &[u8], ext: &str, xmp: Option<String>) -> Result<MapleR
 pub struct MapleSceneLinearRender {
     width: u32,
     height: u32,
+    full_width: u32,
+    full_height: u32,
     fp16_rgba: Vec<u16>,
     as_shot_temperature: f32,
     as_shot_tint: f32,
@@ -201,6 +297,13 @@ impl MapleSceneLinearRender {
     pub fn width(&self) -> u32 { self.width }
     #[wasm_bindgen(getter)]
     pub fn height(&self) -> u32 { self.height }
+    /// Oriented dimensions a full-resolution render of the SAME RAW would
+    /// produce — see [`MapleRender::full_width`]. Equal to `width`/`height`
+    /// on the full-res entry; the sized entry carries the native dims here.
+    #[wasm_bindgen(getter)]
+    pub fn full_width(&self) -> u32 { self.full_width }
+    #[wasm_bindgen(getter)]
+    pub fn full_height(&self) -> u32 { self.full_height }
     /// fp16 RGBA lanes (4 channels, 2 bytes per lane). Length is always
     /// `4 * width * height`. Alpha lane is fp16 1.0 (`0x3c00`).
     /// Returned as `Uint16Array` over the WASM heap on the JS side.
@@ -272,6 +375,78 @@ pub fn render_bytes_scene_linear(
     Ok(MapleSceneLinearRender {
         width: w,
         height: h,
+        full_width: w,
+        full_height: h,
+        fp16_rgba,
+        as_shot_temperature,
+        as_shot_tint,
+    })
+}
+
+/// Sized variant of [`render_bytes_scene_linear`] — the WASM mirror of the
+/// Apple FFI's `maple_render_bytes_scene_linear_sized` (#1101, spec §5.1):
+/// the SAME raw-core path
+/// (`render_scene_linear_sized_from_raw_with_quality`), which downsamples to
+/// fit within `max_long_edge` immediately after demosaic so every later
+/// stage runs on the viewport-sized buffer. Never upscales. Output contract
+/// matches the full-size entry (packed Rec.2020 fp16 RGBA, straight alpha
+/// 1.0, EXIF-oriented); `full_width`/`full_height` carry the native oriented
+/// dims so the caller keeps its fit/zoom math without a full-res decode.
+///
+/// `max_long_edge` is a single long-edge scalar (the Plan 1 v2 Task 8 API
+/// decision — one scalar keeps the JS binding signature shorter; aspect math
+/// stays inside the renderer). Must be > 0.
+#[wasm_bindgen]
+pub fn render_bytes_scene_linear_sized(
+    raw: &[u8],
+    ext: &str,
+    xmp: Option<String>,
+    quality_preview: bool,
+    max_long_edge: u32,
+) -> Result<MapleSceneLinearRender, JsError> {
+    if max_long_edge == 0 {
+        return Err(JsError::new(
+            "render_bytes_scene_linear_sized: max_long_edge must be > 0",
+        ));
+    }
+    let raw_img = raw_core::decode::decode_bytes(raw, ext)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    // Same as_shot derivation + fresh-open WB substitution as the full-size
+    // entry — see `render_bytes_scene_linear`.
+    let as_shot_temperature = raw_img
+        .as_shot_cct
+        .unwrap_or_else(|| estimate_cct_from_neutral(raw_img.as_shot_neutral));
+    let as_shot_tint = 0.0_f32;
+
+    let fresh_open = xmp.is_none();
+    let mut model = match xmp {
+        Some(x) => xmp_mod::parse(&x).map_err(|e| JsError::new(&e.to_string()))?,
+        None => xmp_mod::AdjustmentModel::default(),
+    };
+    if fresh_open {
+        model.temperature = as_shot_temperature;
+        model.tint = as_shot_tint;
+    }
+
+    let quality = if quality_preview {
+        raw_core::pipeline::RenderQuality::Preview
+    } else {
+        raw_core::pipeline::RenderQuality::Full
+    };
+    let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
+    let (w, h, fp16_rgba) = raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
+        &raw_img,
+        &model,
+        quality,
+        max_long_edge,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+    Ok(MapleSceneLinearRender {
+        width: w,
+        height: h,
+        full_width,
+        full_height,
         fp16_rgba,
         as_shot_temperature,
         as_shot_tint,
@@ -442,5 +617,71 @@ mod tests {
         let any_nonzero_rgb = (0..256.min(w as usize * h as usize))
             .any(|i| lanes[i * 4] != 0 || lanes[i * 4 + 1] != 0 || lanes[i * 4 + 2] != 0);
         assert!(any_nonzero_rgb, "all R/G/B lanes were zero — pipeline failure");
+    }
+
+    /// Repo-root fixture path (raw-wasm sits two levels below src/). Skip-pass
+    /// when the gitignored RAW is absent, mirroring the raw-core pattern.
+    fn fixture_path() -> Option<std::path::PathBuf> {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0002.dng");
+        if path.exists() {
+            Some(path)
+        } else {
+            eprintln!("fixture missing at {:?} — skipping", path);
+            None
+        }
+    }
+
+    /// #1101: the sized scene-linear entry respects the long-edge cap, keeps
+    /// the fp16 RGBA contract (alpha = 0x3c00), and reports native dims that
+    /// match raw-core's `native_render_dims`.
+    #[test]
+    fn render_bytes_scene_linear_sized_caps_long_edge_and_reports_native_dims() {
+        let Some(path) = fixture_path() else { return };
+        let bytes = std::fs::read(&path).expect("read fixture");
+        let cap = 768u32;
+        let result = render_bytes_scene_linear_sized(&bytes, "dng", None, true, cap)
+            .expect("sized scene-linear render ok");
+        let (w, h) = (result.width(), result.height());
+        assert!(w.max(h) <= cap, "long edge {} exceeds cap {}", w.max(h), cap);
+        let lanes: Vec<u16> = result.fp16_rgba();
+        assert_eq!(lanes.len(), (w as usize) * (h as usize) * 4, "4 fp16 lanes per pixel");
+        assert_eq!(lanes[3], 0x3c00, "alpha lane must be fp16 1.0");
+
+        let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let (nw, nh) = raw_core::pipeline::native_render_dims(&raw_img);
+        assert_eq!(
+            (result.full_width(), result.full_height()),
+            (nw, nh),
+            "full_* getters must carry the native oriented dims"
+        );
+        assert!(result.full_width().max(result.full_height()) > cap,
+            "fixture should be larger than the cap for this test to be meaningful");
+    }
+
+    /// #1101: the sized display entry respects the cap, reports native dims,
+    /// and keeps the `render_bytes` contract (RGB bytes + As-Shot WB seed).
+    #[test]
+    fn render_bytes_sized_caps_long_edge_and_matches_as_shot_seed() {
+        let Some(path) = fixture_path() else { return };
+        let bytes = std::fs::read(&path).expect("read fixture");
+        let cap = 768u32;
+        let sized = render_bytes_sized(&bytes, "dng", None, false, cap)
+            .expect("sized display render ok");
+        let (w, h) = (sized.width(), sized.height());
+        assert!(w.max(h) <= cap, "long edge {} exceeds cap {}", w.max(h), cap);
+        assert_eq!(sized.rgb().len(), (w as usize) * (h as usize) * 3, "packed RGB bytes");
+
+        let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").expect("decode");
+        let (nw, nh) = raw_core::pipeline::native_render_dims(&raw_img);
+        assert_eq!((sized.full_width(), sized.full_height()), (nw, nh));
+
+        // As-Shot derivation must match the full-size entry bit-for-bit (the
+        // sized cold open seeds the same WB sliders).
+        let expected_cct = raw_img
+            .as_shot_cct
+            .unwrap_or_else(|| estimate_cct_from_neutral(raw_img.as_shot_neutral));
+        assert_eq!(sized.as_shot_temperature(), expected_cct);
+        assert_eq!(sized.as_shot_tint(), 0.0);
     }
 }

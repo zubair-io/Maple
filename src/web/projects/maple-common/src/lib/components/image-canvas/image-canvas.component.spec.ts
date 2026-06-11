@@ -1,16 +1,19 @@
-// ImageCanvasComponent — live-canvas re-render on adjustment change (#846).
+// ImageCanvasComponent — two-phase live render (#846 → #1101).
 //
 // Covers the TS-layer wiring that threads the current AdjustmentModel's XMP
-// into the WASM decode and re-renders on edits, debounced + cancellable:
-//   - cold open issues exactly one decode (no spurious pre-seed/seed decode)
-//   - a burst of edits coalesces to a single debounced decode (no storm)
-//   - switching assets cancels a pending re-render (timer cleared)
-//   - Profile Auto→Neutral and a slider move each trigger a re-render
+// into the WASM decode and re-renders on edits:
+//   - cold open issues exactly one VIEWPORT-SIZED decode (no spurious decode)
+//   - every edit tick fires an immediate fast-phase sized decode (coalesced
+//     latest-wins while one is in flight — no storm)
+//   - at fit, the refine pass is skipped (fast target == refine target)
+//   - zoomed in, the trailing 150ms refine fires at native × min(scale, 1)
+//   - zooming in without an edit schedules a refine for the current model
+//   - switching assets cancels pending renders
 //
 // Zoneless project: effects run on `fixture.detectChanges()`; the debounce
 // timer is driven with vitest fake timers. The WASM render itself is exercised
-// by raw-core's fixture-gated tests; this spec stubs RawPipelineService.decode
-// and asserts on the requests it receives.
+// by raw-core's fixture-gated tests; this spec stubs RawPipelineService and
+// asserts on the requests it receives.
 
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { signal, type WritableSignal } from '@angular/core';
@@ -26,32 +29,51 @@ import type { Asset, AssetId } from '../../models/asset';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
 
 const REFINE_MS = 150;
+// jsdom wrap has no layout → the component falls back to 800×600 CSS px and
+// devicePixelRatio 1, so the fast-phase target is the 800 px viewport long edge.
+const VIEWPORT_LONG = 800;
+const NATIVE_W = 4000;
+const NATIVE_H = 2500;
 
 function fakeAsset(id: AssetId): Asset {
   return { id, filename: `${id}.dng` } as Asset;
 }
 
-function decoded(): DecodedImage {
+/** An honest sized-decode reply: dims = the requested cap (never above native),
+ *  native dims alongside — mirroring `render_bytes_sized`'s contract. The rgb
+ *  payload is tiny; `imageDataToBitmap` zero-fills the remainder. */
+function decodedAt(maxLongEdge: number): DecodedImage {
+  const long = Math.min(maxLongEdge, NATIVE_W);
+  const w = long;
+  const h = Math.max(1, Math.round((long * NATIVE_H) / NATIVE_W));
   return {
-    width: 1,
-    height: 1,
+    width: w,
+    height: h,
+    nativeWidth: NATIVE_W,
+    nativeHeight: NATIVE_H,
     rgb: new Uint8Array([0x80, 0x80, 0x80]),
     asShotTemperature: 5200,
     asShotTint: 0,
   };
 }
 
-describe('ImageCanvasComponent — live re-render on adjustment change (#846)', () => {
+describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () => {
   let focused: WritableSignal<Asset | null>;
   let models: Map<AssetId, WritableSignal<AdjustmentModel>>;
-  let decodeSpy: ReturnType<typeof vi.fn>;
+  let decodeSizedSpy: ReturnType<typeof vi.fn>;
+  let zoom: WritableSignal<'fit' | number>;
+  let updateDimsSpy: ReturnType<typeof vi.fn>;
   let fixture: ComponentFixture<ImageCanvasComponent>;
 
   beforeEach(() => {
     vi.useFakeTimers();
     focused = signal<Asset | null>(null);
     models = new Map();
-    decodeSpy = vi.fn(() => Promise.resolve(decoded()));
+    zoom = signal<'fit' | number>('fit');
+    decodeSizedSpy = vi.fn((_b: Uint8Array, _e: string, mle: number) =>
+      Promise.resolve(decodedAt(mle)),
+    );
+    updateDimsSpy = vi.fn();
 
     // jsdom has neither; the component observes resize + (de)allocates bitmaps.
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
@@ -71,13 +93,13 @@ describe('ImageCanvasComponent — live re-render on adjustment change (#846)', 
       },
       bytesFor: () => new Uint8Array([0x44, 0x4e, 0x47]),
       seedAsShotWhiteBalance: vi.fn(),
-      updateAssetDimensions: vi.fn(),
+      updateAssetDimensions: updateDimsSpy,
       openDownloadProgress: signal(null),
     } as unknown as Partial<LibraryStateService>;
 
     const canvasStub = {
       currentPixels: signal<DecodedImage | null>(null),
-      zoom: signal<'fit' | number>('fit'),
+      zoom,
       pan: signal({ x: 0, y: 0 }),
       beforeAfterSplitX: signal<number | null>(null),
       showBeforeAfter: signal(false),
@@ -95,7 +117,7 @@ describe('ImageCanvasComponent — live re-render on adjustment change (#846)', 
         XmpSerializerService,
         { provide: LibraryStateService, useValue: stateStub },
         { provide: ImageCanvasService, useValue: canvasStub },
-        { provide: RawPipelineService, useValue: { decode: decodeSpy } },
+        { provide: RawPipelineService, useValue: { decodeSized: decodeSizedSpy } },
       ],
     });
     fixture = TestBed.createComponent(ImageCanvasComponent);
@@ -122,84 +144,136 @@ describe('ImageCanvasComponent — live re-render on adjustment change (#846)', 
     sig.set({ ...sig(), ...patch });
   }
 
-  it('cold open issues exactly one decode and no spurious pre-seed/seed decode', async () => {
+  it('cold open issues exactly one viewport-sized decode and records native dims', async () => {
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
 
-    expect(decodeSpy).toHaveBeenCalledTimes(1);
-    // Cold open decodes with NO xmp (raw-core substitutes As-Shot WB).
-    expect(decodeSpy.mock.calls[0][2]).toBeUndefined();
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(1);
+    // Cold open decodes with NO xmp (raw-core substitutes As-Shot WB) at the
+    // viewport long edge (the §5.1 fast target), Preview quality.
+    const [, , maxLongEdge, xmp, preview] = decodeSizedSpy.mock.calls[0];
+    expect(maxLongEdge).toBe(VIEWPORT_LONG);
+    expect(xmp).toBeUndefined();
+    expect(preview).not.toBe(false); // default true
+    // Asset dims are the NATIVE dims from the sized reply, not the buffer's.
+    expect(updateDimsSpy).toHaveBeenCalledWith('a', NATIVE_W, NATIVE_H);
   });
 
-  it('an edit after cold open re-renders with the serialized XMP', async () => {
+  it('an edit fires an immediate fast-phase decode; at fit no refine follows', async () => {
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
-    expect(decodeSpy).toHaveBeenCalledTimes(1);
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(1);
 
     setModel('a', { exposure: 1.0 });
-    await settle(REFINE_MS + 10);
+    await settle(0); // NO debounce wait — the fast phase is per-tick
 
-    expect(decodeSpy).toHaveBeenCalledTimes(2);
-    const xmp = decodeSpy.mock.calls[1][2] as string;
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(2);
+    const [, , maxLongEdge, xmp, preview] = decodeSizedSpy.mock.calls[1];
+    expect(maxLongEdge).toBe(VIEWPORT_LONG);
     expect(typeof xmp).toBe('string');
-    expect(xmp).toContain('crs:Exposure2012="1"');
+    expect(xmp as string).toContain('crs:Exposure2012="1"');
+    expect(preview).toBe(true);
+
+    // At fit the refine target equals the fast target → refine is skipped.
+    await settle(REFINE_MS + 50);
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('a Profile Auto→Neutral toggle re-renders', async () => {
+  it('zoomed in, the trailing refine fires at native × min(scale, 1), Full quality', async () => {
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
-    expect(decodeSpy).toHaveBeenCalledTimes(1);
+    zoom.set(1); // 100% CSS zoom @ dpr 1 → real scale 1 → refine at native
+    await settle(REFINE_MS + 50); // absorb the zoom-driven refine
+    decodeSizedSpy.mockClear();
 
-    setModel('a', { profile: 'Neutral' });
+    setModel('a', { exposure: 1.0 });
+    await settle(0);
+    // Fast phase landed immediately…
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(1);
+    expect(decodeSizedSpy.mock.calls[0][2]).toBe(VIEWPORT_LONG);
+
+    // …and the refine fires after the debounce, at the native long edge.
     await settle(REFINE_MS + 10);
-
-    expect(decodeSpy).toHaveBeenCalledTimes(2);
-    expect(decodeSpy.mock.calls[1][2] as string).toContain('papp:Profile="Neutral"');
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(2);
+    const [, , maxLongEdge, xmp, preview] = decodeSizedSpy.mock.calls[1];
+    expect(maxLongEdge).toBe(NATIVE_W);
+    expect(xmp as string).toContain('crs:Exposure2012="1"');
+    expect(preview).toBe(false);
   });
 
-  it('coalesces a burst of edits into a single debounced decode (no storm)', async () => {
+  it('zooming in without an edit schedules a refine for the current model', async () => {
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
-    expect(decodeSpy).toHaveBeenCalledTimes(1);
+    decodeSizedSpy.mockClear();
 
-    // Simulate a slider drag: many model writes inside the debounce window.
+    zoom.set(1);
+    await settle(0);
+    expect(decodeSizedSpy).not.toHaveBeenCalled(); // debounced
+
+    await settle(REFINE_MS + 10);
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(1);
+    const [, , maxLongEdge, , preview] = decodeSizedSpy.mock.calls[0];
+    expect(maxLongEdge).toBe(NATIVE_W);
+    expect(preview).toBe(false);
+  });
+
+  it('coalesces a burst of edits while a fast render is in flight (no storm)', async () => {
+    focused.set(fakeAsset('a'));
+    await settle(REFINE_MS + 50);
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(1);
+
+    // Hold the next fast decode open so the burst piles up behind it.
+    let release!: (img: DecodedImage) => void;
+    decodeSizedSpy.mockImplementationOnce(
+      () => new Promise<DecodedImage>((resolve) => (release = resolve)),
+    );
+
+    // Simulate a slider drag: many model writes while the first render runs.
     for (let i = 1; i <= 8; i += 1) {
       setModel('a', { exposure: i * 0.1 });
-      await settle(20); // < REFINE_MS each → trailing debounce keeps resetting
+      await settle(0);
     }
-    // No decode yet beyond cold open — the trailing debounce hasn't elapsed.
-    expect(decodeSpy).toHaveBeenCalledTimes(1);
+    // Only the first tick's fast render started; the rest coalesced behind it.
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(2);
 
-    await settle(REFINE_MS + 10);
+    release(decodedAt(VIEWPORT_LONG));
+    await settle(0);
 
-    // Exactly one refine decode fires, carrying the LAST edit's XMP.
-    expect(decodeSpy).toHaveBeenCalledTimes(2);
-    expect(decodeSpy.mock.calls[1][2] as string).toContain('crs:Exposure2012="0.8"');
+    // Exactly one more fast decode fires, carrying the LAST edit's XMP.
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(3);
+    expect(decodeSizedSpy.mock.calls[2][3] as string).toContain('crs:Exposure2012="0.8"');
   });
 
-  it('switching assets cancels a pending re-render', async () => {
+  it('switching assets cancels pending renders', async () => {
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
-    expect(decodeSpy).toHaveBeenCalledTimes(1);
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(1);
+    zoom.set(1); // make the refine pass reachable (off-fit)
+    await settle(REFINE_MS + 50); // absorb the zoom-driven refine
+    decodeSizedSpy.mockClear();
 
     setModel('a', { exposure: 1.0 });
-    await settle(20); // edit scheduled but debounce not yet elapsed
+    await settle(0); // fast fired; refine still pending
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(1);
 
     // Switch to a new asset before the refine timer fires.
     focused.set(fakeAsset('b'));
     await settle(REFINE_MS + 50); // b's cold-open decode; a's timer was cleared
 
-    // a's pending edit decode must have been cancelled; only the two cold
-    // opens (a + b), both no-XMP, should have run.
-    const xmps = decodeSpy.mock.calls.map((c) => c[2]);
-    expect(decodeSpy).toHaveBeenCalledTimes(2);
-    expect(xmps.every((x) => x === undefined)).toBe(true);
+    // a's pending refine was cancelled: no subsequent decode may carry a's
+    // edit. (b's cold open is XMP-free; with zoom still at 1 its own refine
+    // legitimately carries b's default-model XMP.)
+    const calls = decodeSizedSpy.mock.calls.slice(1);
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+    expect(
+      calls.every((c) => c[3] === undefined || !(c[3] as string).includes('crs:Exposure2012="1"')),
+    ).toBe(true);
   });
 
   // ── flag-off invariant (epic #925, P4b-web / #1038) ────────────────────────
   // With `gpuLiveRenderEnabled` falsy (the default stub), the GPU live-render path
   // must be completely inert: NO `openLiveSession`/`renderLiveSession` calls and NO
-  // `transferControlToOffscreen` — the 2D `decode()` path is byte-for-byte today.
+  // `transferControlToOffscreen` — the 2D sized-decode path is the only route.
   it('flag-off: never opens a GPU session nor transfers an OffscreenCanvas', async () => {
     const openSpy = vi.fn();
     const transferSpy = vi.fn();
@@ -223,8 +297,8 @@ describe('ImageCanvasComponent — live re-render on adjustment change (#846)', 
     setModel('a', { exposure: 1.0 });
     await settle(REFINE_MS + 10);
 
-    // The 2D path ran (cold open + one edit decode); the GPU path was never touched.
-    expect(decodeSpy).toHaveBeenCalledTimes(2);
+    // The 2D path ran (cold open + one fast edit decode); the GPU path was never touched.
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(2);
     expect(openSpy).not.toHaveBeenCalled();
     expect(transferSpy).not.toHaveBeenCalled();
     createSpy.mockRestore();
@@ -234,12 +308,13 @@ describe('ImageCanvasComponent — live re-render on adjustment change (#846)', 
 // ── flag-ON GPU live-render path (epic #925, P4b-web / #1038) ───────────────
 // With `gpuLiveRenderEnabled` true and a session-capable pipeline stub, a RAW asset
 // routes cold-open through `openLiveSession` (transferring a fresh OffscreenCanvas)
-// and #846 edits through `renderLiveSession` — NOT `decode()`. Reuses the same
-// dedup/generation/debounce machinery; only the render mechanism differs.
+// and #846 edits through `renderLiveSession` — NOT `decodeSized()`. The session is
+// the 16ms live path: edits render IMMEDIATELY (coalesced latest-wins), with no
+// trailing debounce and no refine pass (the session presents full-res).
 describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
   let focused: WritableSignal<Asset | null>;
   let models: Map<AssetId, WritableSignal<AdjustmentModel>>;
-  let decodeSpy: ReturnType<typeof vi.fn>;
+  let decodeSizedSpy: ReturnType<typeof vi.fn>;
   let openSessionSpy: ReturnType<typeof vi.fn>;
   let renderSessionSpy: ReturnType<typeof vi.fn>;
   let closeSessionSpy: ReturnType<typeof vi.fn>;
@@ -250,7 +325,9 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     vi.useFakeTimers();
     focused = signal<Asset | null>(null);
     models = new Map();
-    decodeSpy = vi.fn(() => Promise.resolve(decoded()));
+    decodeSizedSpy = vi.fn((_b: Uint8Array, _e: string, mle: number) =>
+      Promise.resolve(decodedAt(mle)),
+    );
     // A tiny 1×1 RGB readback snapshot, mirroring what the worker folds into the
     // session reply (#1045) so the component can feed the scopes' `currentPixels`.
     const scopeSnap = (): DecodedImage => ({
@@ -323,7 +400,7 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     } as unknown as Partial<ImageCanvasService>;
 
     const pipelineStub = {
-      decode: decodeSpy,
+      decodeSized: decodeSizedSpy,
       gpuLiveRenderEnabled: true,
       openLiveSession: openSessionSpy,
       renderLiveSession: renderSessionSpy,
@@ -370,47 +447,59 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
     expect(openSessionSpy).toHaveBeenCalledTimes(1);
     expect(transferSpy).toHaveBeenCalledTimes(1);
     // The 2D decode path must NOT run on the GPU cold-open.
-    expect(decodeSpy).not.toHaveBeenCalled();
+    expect(decodeSizedSpy).not.toHaveBeenCalled();
   });
 
-  it('an edit re-renders via the session (renderLiveSession), not decode', async () => {
+  it('an edit re-renders via the session IMMEDIATELY (the 16ms live path)', async () => {
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
     expect(openSessionSpy).toHaveBeenCalledTimes(1);
 
     setModel('a', { exposure: 1.0 });
-    await settle(REFINE_MS + 10);
+    await settle(0); // no debounce wait — session ticks are per-edit
 
     expect(renderSessionSpy).toHaveBeenCalledTimes(1);
     const xmp = renderSessionSpy.mock.calls[0][0] as string;
     expect(xmp).toContain('crs:Exposure2012="1"');
-    expect(decodeSpy).not.toHaveBeenCalled();
+    expect(decodeSizedSpy).not.toHaveBeenCalled();
+
+    // No additional (refine) render after the debounce — the session is full-res.
+    await settle(REFINE_MS + 50);
+    expect(renderSessionSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('a burst of edits coalesces to a single session render (no storm)', async () => {
+  it('a burst of edits coalesces latest-wins behind the in-flight render (no storm)', async () => {
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
 
+    // Hold the first edit's render open so the burst piles up behind it.
+    let release!: (r: { colorSpace: string }) => void;
+    renderSessionSpy.mockImplementationOnce(
+      () => new Promise<{ colorSpace: string }>((resolve) => (release = resolve)),
+    );
+
     for (let i = 1; i <= 6; i += 1) {
       setModel('a', { exposure: i * 0.1 });
-      await settle(20);
+      await settle(0);
     }
-    expect(renderSessionSpy).not.toHaveBeenCalled(); // debounce not elapsed
+    expect(renderSessionSpy).toHaveBeenCalledTimes(1); // in flight, rest queued
 
-    await settle(REFINE_MS + 10);
-    expect(renderSessionSpy).toHaveBeenCalledTimes(1);
-    expect(renderSessionSpy.mock.calls[0][0] as string).toContain('crs:Exposure2012="0.6"');
+    release({ colorSpace: 'display-p3' });
+    await settle(0);
+    // Exactly one more render fires, carrying the LAST edit's XMP.
+    expect(renderSessionSpy).toHaveBeenCalledTimes(2);
+    expect(renderSessionSpy.mock.calls[1][0] as string).toContain('crs:Exposure2012="0.6"');
   });
 
-  it('falls back to the 2D decode path when openLiveSession fails (gpu-off bundle)', async () => {
+  it('falls back to the 2D sized-decode path when openLiveSession fails (gpu-off bundle)', async () => {
     openSessionSpy.mockRejectedValueOnce(new Error('WebLiveSession unavailable'));
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
 
-    // GPU open was attempted, failed, then the 2D decode path took over.
+    // GPU open was attempted, failed, then the 2D sized decode took over.
     expect(openSessionSpy).toHaveBeenCalledTimes(1);
-    expect(decodeSpy).toHaveBeenCalledTimes(1);
-    expect(decodeSpy.mock.calls[0][2]).toBeUndefined(); // cold-open, no XMP
+    expect(decodeSizedSpy).toHaveBeenCalledTimes(1);
+    expect(decodeSizedSpy.mock.calls[0][3]).toBeUndefined(); // cold-open, no XMP
   });
 
   it('switching assets closes the GPU session', async () => {
@@ -458,7 +547,7 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
       },
     });
     setModel('a', { exposure: 1.0 });
-    await settle(REFINE_MS + 10);
+    await settle(0);
 
     expect(renderSessionSpy).toHaveBeenCalledTimes(1);
     expect(Array.from(canvasSvc.currentPixels()!.rgb)).toEqual([99, 88, 77]);
