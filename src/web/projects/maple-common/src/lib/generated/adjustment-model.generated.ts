@@ -31,6 +31,8 @@ export interface GeneratedAdjustmentModel {
   wbMethod: WbMethod;
   /** Linear exposure in EV stops applied in scene-linear. Range: [-4.0, 4.0]. */
   exposure: number;
+  /** Brightness — scene-linear midtone-band gain (#1102, tone/zoom design spec § 4.1). XMP key `papp:Brightness` (NOT `crs:Brightness`, an ACR PV2010 key with different semantics). Range: [-100.0, 100.0]. */
+  brightness: number;
   /** Contrast — routed to AgX slope per spec § 3.6a. Range: [-100.0, 100.0]. */
   contrast: number;
   /** Highlights tone-region control. Range: [-100.0, 100.0]. */
@@ -114,6 +116,7 @@ export const ADJUSTMENT_RANGES = {
   temperature: [2000.0, 12000.0] as const,
   tint: [-100.0, 100.0] as const,
   exposure: [-4.0, 4.0] as const,
+  brightness: [-100.0, 100.0] as const,
   contrast: [-100.0, 100.0] as const,
   highlights: [-100.0, 100.0] as const,
   shadows: [-100.0, 100.0] as const,
@@ -156,6 +159,7 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     tint: 0.0,
     wbMethod: 'Cat16',
     exposure: 0.0,
+    brightness: 0.0,
     contrast: 0.0,
     highlights: 0.0,
     shadows: 0.0,

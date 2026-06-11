@@ -18,6 +18,7 @@ extension AdjustmentModel {
         case tint = "tint"
         case wbMethod = "wb_method"
         case exposure = "exposure"
+        case brightness = "brightness"
         case contrast = "contrast"
         case highlights = "highlights"
         case shadows = "shadows"
@@ -66,6 +67,8 @@ extension AdjustmentModel {
     public static let tintRange: ClosedRange<Double> = -100.0...100.0
     /// Linear exposure in EV stops applied in scene-linear.
     public static let exposureRange: ClosedRange<Double> = -4.0...4.0
+    /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design spec § 4.1). XMP key `papp:Brightness` (NOT `crs:Brightness`, an ACR PV2010 key with different semantics).
+    public static let brightnessRange: ClosedRange<Double> = -100.0...100.0
     /// Contrast — routed to AgX slope per spec § 3.6a.
     public static let contrastRange: ClosedRange<Double> = -100.0...100.0
     /// Highlights tone-region control.
