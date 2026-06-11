@@ -13,65 +13,108 @@ use super::residual::{
 use super::{BaOptions, BaSolution, FrameStats};
 
 /// Stage-C detection floor: frames whose median residual is already
-/// below this aren't probed — there is nothing material to recover.
+/// below this aren't candidates — there is nothing material to recover.
 const PROBE_MEDIAN_FLOOR_PX: f64 = 0.3;
-/// Minimum |mean signed radial residual| / mean residual norm for a
-/// frame to count as "systematically radial" (decision §9.2).
-const RADIAL_SIGNATURE_MIN: f64 = 0.4;
-/// Required relative drop of the frame's median residual under the
-/// one-parameter focal probe for the focal to actually be freed.
-const PROBE_MEDIAN_DROP_MIN: f64 = 0.25;
+/// Cohort trigger: a frame is a fallback candidate when its median
+/// residual exceeds this multiple of the cohort's median-of-medians. A
+/// wrong per-frame focal concentrates error in that frame's blocks;
+/// honest frames sit together at the shared noise floor.
+const COHORT_MEDIAN_EXCESS_MIN: f64 = 2.0;
+/// A freed focal must move away from the shared focal by at least this
+/// relative amount — staying at the shared value means the extra
+/// parameter merely fit noise and the frame keeps the shared focal.
+const PROBE_FOCAL_SHIFT_MIN: f64 = 0.01;
 
-/// Decision §9.2 detection. For each frame: measure the radial residual
-/// signature in its pixel plane; when it is systematic, run a probe LM
-/// that frees only this frame's focal (rotations and shared intrinsics
-/// frozen) and keep the override exactly when the frame's median
-/// residual drops by ≥ [`PROBE_MEDIAN_DROP_MIN`]. Probes that don't
-/// qualify are rolled back, so the state leaves this function carrying
-/// overrides only for the returned (freed) frames — a warm start for
-/// the joint re-solve.
-pub(super) fn focal_fallback_frames(
+/// Stage-C outcome bookkeeping for [`super::solve`].
+pub(super) struct StageC {
+    pub iterations: usize,
+    pub converged: bool,
+    pub final_cost: f64,
+}
+
+/// Decision §9.2: the per-image focal fallback.
+///
+/// The physical signature of a wrong per-frame focal is a radial
+/// residual field, but by the time Stage B has converged the joint
+/// rotations have absorbed its uniform component, and what is left is
+/// neither radial about the principal point nor recoverable by a
+/// frozen-neighbor single-frame probe (the probe LM stalls against the
+/// compensated rotations — measured, not hypothesized). What works is
+/// letting the *joint* stage test the candidates:
+///
+/// 1. Candidates = frames whose median residual stands ≥
+///    [`COHORT_MEDIAN_EXCESS_MIN`] above the cohort median-of-medians.
+/// 2. One joint re-solve with all candidate focals freed.
+/// 3. A candidate's freed focal is kept only when it moved ≥
+///    [`PROBE_FOCAL_SHIFT_MIN`] from the shared focal (else it fit
+///    noise) **and** its frame rescued to within the acceptance budget
+///    (else the frame's problem is not focal — e.g. an inconsistent
+///    pose — and the §5.3 gate must drop it, not a fake focal absorb
+///    it).
+/// 4. When only a subset is kept, the state is restored and re-solved
+///    with exactly that subset, so rejected candidates never leak into
+///    the returned state. At most two extra joint solves, once per
+///    [`super::solve`] call.
+pub(super) fn focal_fallback(
     blocks: &[Block],
     frames: &[FrameMeta],
     state: &mut State,
     n_local: usize,
+    gauge: usize,
     opts: &BaOptions,
     lm_opts: &LmOptions,
-) -> Vec<usize> {
+) -> Option<StageC> {
     let before = frame_stats(blocks, frames, state, n_local);
-    let mut freed = Vec::new();
-    for f in 0..n_local {
-        if before[f].blocks == 0 || before[f].median_px < PROBE_MEDIAN_FLOOR_PX {
-            continue;
-        }
-        let (mut radial, mut norm) = (0.0_f64, 0.0_f64);
-        for block in blocks.iter().filter(|b| b.dst == f) {
-            let Some(r) = eval_residual(state, frames, block) else {
-                continue;
-            };
-            let (dx, dy) = (block.p_dst.0 - frames[f].cx, block.p_dst.1 - frames[f].cy);
-            let len = (dx * dx + dy * dy).sqrt();
-            if len < 1.0 {
-                continue;
-            }
-            radial += (r[0] * dx + r[1] * dy) / len;
-            norm += (r[0] * r[0] + r[1] * r[1]).sqrt();
-        }
-        if norm <= 0.0 || (radial.abs() / norm) < RADIAL_SIGNATURE_MIN {
-            continue;
-        }
-        let saved = state.focal_overrides[f];
-        state.focal_overrides[f] = Some(state.focal(f));
-        let layout = ParamLayout::focal_probe(n_local, f);
-        let _ = minimize(blocks, frames, state, &layout, opts.huber_delta_px, lm_opts);
-        let after = frame_stats(blocks, frames, state, n_local);
-        if after[f].median_px <= before[f].median_px * (1.0 - PROBE_MEDIAN_DROP_MIN) {
-            freed.push(f);
-        } else {
-            state.focal_overrides[f] = saved;
-        }
+    let cohort = median(before.iter().filter(|s| s.blocks > 0).map(|s| s.median_px)).unwrap_or(0.0);
+    let trigger = (cohort * COHORT_MEDIAN_EXCESS_MIN).max(PROBE_MEDIAN_FLOOR_PX);
+    let candidates: Vec<usize> = (0..n_local)
+        .filter(|&f| before[f].blocks > 0 && before[f].median_px >= trigger)
+        .collect();
+    if candidates.is_empty() {
+        return None;
     }
-    freed
+
+    let snapshot = state.clone();
+    for &f in &candidates {
+        state.focal_overrides[f] = Some(state.shared_focal);
+    }
+    let layout = ParamLayout::full(n_local, gauge, &candidates);
+    let first = minimize(blocks, frames, state, &layout, opts.huber_delta_px, lm_opts);
+    let after = frame_stats(blocks, frames, state, n_local);
+    let kept: Vec<usize> = candidates
+        .iter()
+        .copied()
+        .filter(|&f| {
+            let moved = (state.focal(f) - state.shared_focal).abs() / state.shared_focal
+                >= PROBE_FOCAL_SHIFT_MIN;
+            moved && after[f].median_px <= opts.mean_budget_px
+        })
+        .collect();
+
+    if kept.len() == candidates.len() {
+        return Some(StageC {
+            iterations: first.iterations,
+            converged: first.converged,
+            final_cost: first.final_cost,
+        });
+    }
+
+    *state = snapshot;
+    if kept.is_empty() {
+        // Nothing here is a focal problem — leave the elevated frames
+        // to the acceptance gate.
+        return None;
+    }
+    for &f in &kept {
+        state.focal_overrides[f] = Some(state.shared_focal);
+    }
+    let layout = ParamLayout::full(n_local, gauge, &kept);
+    let second = minimize(blocks, frames, state, &layout, opts.huber_delta_px, lm_opts);
+    Some(StageC {
+        iterations: first.iterations + second.iterations,
+        converged: second.converged,
+        final_cost: second.final_cost,
+    })
 }
 
 /// Two directed blocks per inlier correspondence of every edge whose
@@ -310,7 +353,10 @@ mod tests {
         let graph = empty_graph(3);
         assert_eq!(
             solve(&images(2), &graph, &BaOptions::default()),
-            Err(BaError::ImageCountMismatch { images: 2, graph: 3 })
+            Err(BaError::ImageCountMismatch {
+                images: 2,
+                graph: 3
+            })
         );
         let opts = BaOptions {
             initial_rotations: Some(vec![None; 2]),
@@ -318,7 +364,10 @@ mod tests {
         };
         assert_eq!(
             solve(&images(3), &graph, &opts),
-            Err(BaError::InitialRotationsLength { given: 2, expected: 3 })
+            Err(BaError::InitialRotationsLength {
+                given: 2,
+                expected: 3
+            })
         );
     }
 
@@ -337,8 +386,14 @@ mod tests {
         assert_eq!(
             solution.dropped,
             vec![
-                DroppedFrame { index: 1, reason: DropReason::Disconnected },
-                DroppedFrame { index: 2, reason: DropReason::Disconnected },
+                DroppedFrame {
+                    index: 1,
+                    reason: DropReason::Disconnected
+                },
+                DroppedFrame {
+                    index: 2,
+                    reason: DropReason::Disconnected
+                },
             ]
         );
         assert_eq!(solution.frame_stats[0].as_ref().unwrap().blocks, 0);
