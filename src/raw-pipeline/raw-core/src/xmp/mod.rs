@@ -142,6 +142,10 @@ fn set_field(
         // above; this one runs inside the decode product). Absent attribute
         // → default 0 (stage is a bit-identical skip).
         "papp:ChromaPrefilter" => m.chroma_prefilter = v()?,
+        // BM3D deep denoise (#1105, tone/zoom design § 3.2). Maple-
+        // proprietary `papp:` key; input-referred decode-product stage.
+        // Absent attribute → default 0 (bit-identical skip).
+        "papp:DeepDenoise" => m.deep_denoise = v()?,
         "crs:Dehaze"         => m.dehaze      = v()?,
         // S5 effects fields (ticket #643). Lightroom-compatible `crs:` keys
         // so sidecars interchange with Lightroom for these tools. Pipeline
@@ -305,8 +309,8 @@ fn set_field(
 /// XMP sidecar writing lives in the Swift and TypeScript layers per
 /// `docs/architecture.md`. Only the Maple-proprietary `papp:` keys with no
 /// `crs:` home are emitted here (`papp:Profile`, `papp:Brightness`,
-/// `papp:ChromaPrefilter`, `papp:HotPixelSuppression`); the legacy
-/// `papp:Look` is deliberately NOT serialized — newly-written
+/// `papp:ChromaPrefilter`, `papp:HotPixelSuppression`, `papp:DeepDenoise`);
+/// the legacy `papp:Look` is deliberately NOT serialized — newly-written
 /// sidecars carry the new attribute name only, and old sidecars still
 /// round-trip via the `papp:Look` migration in [`set_field`].
 pub fn serialize(model: &AdjustmentModel) -> String {
@@ -335,6 +339,10 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // (`Off`), same convention.
     if model.hot_pixel_suppression != HotPixelSuppressionMode::default() {
         out.push_str(r#" papp:HotPixelSuppression="On""#);
+    }
+    // BM3D deep denoise (#1105) — emitted only when non-default (0).
+    if model.deep_denoise != 0.0 {
+        out.push_str(&format!(r#" papp:DeepDenoise="{}""#, model.deep_denoise));
     }
     out
 }

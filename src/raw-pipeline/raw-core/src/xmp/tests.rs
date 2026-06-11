@@ -319,6 +319,35 @@ fn chroma_prefilter_serialize_roundtrip_and_default_omission() {
     assert_eq!(parsed.chroma_prefilter, 35.0);
 }
 
+/// BM3D deep denoise (#1105): parses from the Maple-proprietary
+/// `papp:DeepDenoise` key; absent → default 0 (bit-identical skip); the
+/// serializer omits the attribute at the default; non-default values
+/// round-trip serialize → parse.
+#[test]
+fn deep_denoise_parse_serialize_roundtrip_and_default_omission() {
+    let xml = r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:papp="http://ns.justmaple.app/1.0/"
+              papp:DeepDenoise="70"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.deep_denoise, 70.0);
+
+    let mut m = AdjustmentModel::default();
+    assert!(!serialize(&m).contains("papp:DeepDenoise"),
+        "default deep_denoise must not be serialized");
+    m.deep_denoise = 70.0;
+    let frag = serialize(&m);
+    assert!(frag.contains(r#"papp:DeepDenoise="70""#), "got fragment: {}", frag);
+    let xml = format!(
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"{frag}/></x>"#
+    );
+    let parsed = parse(&xml).unwrap();
+    assert_eq!(parsed.deep_denoise, 70.0);
+}
+
 /// S5 effects fields (ticket #643): vignette / grain / split-tone scalars
 /// parse from Lightroom-compatible `crs:` keys (PostCropVignette*, Grain*,
 /// SplitToning*). `crs:GrainFrequency` lands on `grain_roughness` — Maple's

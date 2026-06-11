@@ -31,7 +31,7 @@ use crate::{
     image::{CropRect, Image, RawImage},
     linearize,
     stages::{
-        auto_exposure, capture_sharpening, chroma_prefilter, clarity, dehaze,
+        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, local_adjustments,
         noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
         vibrance, white_balance,
@@ -358,6 +358,19 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
         chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
     });
     dump_after("04a_chroma_prefilter", &scene);
+    // BM3D deep denoise (#1105, tone/zoom design § 3.2) — input-referred,
+    // immediately after the chroma pre-filter, composing into the cached
+    // decode product. No-op (bit-identical skip) at the default 0; the
+    // heaviest stage in the chain when engaged, so it takes the cancel
+    // token and reports coarse progress through the MAPLE_PROFILE log
+    // (UI progress wiring is the editor-UI phase, #1108).
+    stage("deep_denoise", || {
+        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::env_progress())
+    });
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    dump_after("04ab_deep_denoise", &scene);
     // Capture sharpening — Richardson-Lucy deconvolution against a Gaussian
     // PSF, run first thing in scene-linear Rec.2020 so it sees the
     // calibrated sensor signal before any user-facing tone/WB transforms.

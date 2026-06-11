@@ -21,8 +21,8 @@
 use crate::buffers::MapleSceneLinearBuffer;
 use crate::error::{set_last_error, with_large_stack};
 use crate::model::{
-    dehaze_active, force_ae_off_if_auto_will_fit_bytes, force_ae_off_if_auto_will_fit_path,
-    load_xmp_model_owned, LoadModel,
+    deep_denoise_active, dehaze_active, force_ae_off_if_auto_will_fit_bytes,
+    force_ae_off_if_auto_will_fit_path, load_xmp_model_owned, LoadModel,
 };
 use raw_core::decode::decode_bytes;
 use std::ffi::{CStr, c_char};
@@ -375,6 +375,12 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
             set_last_error("dehaze unsupported on tile path".into());
             return 10;
         }
+        if deep_denoise_active(&model) {
+            // #1105: BM3D's reference grid is frame-anchored — per-tile
+            // grids would seam. Same fallback contract as dehaze.
+            set_last_error("deepDenoise unsupported on tile path".into());
+            return 10;
+        }
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(
             &raw_img, &model, src_x, src_y, src_w, src_h, out_w, out_h, quality,
         ) {
@@ -454,6 +460,12 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
         };
         if dehaze_active(&model) {
             set_last_error("dehaze unsupported on tile path".into());
+            return 10;
+        }
+        if deep_denoise_active(&model) {
+            // #1105: BM3D's reference grid is frame-anchored — per-tile
+            // grids would seam. Same fallback contract as dehaze.
+            set_last_error("deepDenoise unsupported on tile path".into());
             return 10;
         }
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_tile_from_raw_with_quality(

@@ -213,6 +213,14 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// `papp:HotPixelSuppression`; `.off` (default) = bit-identical skip.
     public var hotPixelSuppression: HotPixelSuppressionMode
 
+    /// BM3D deep denoise (#1105, tone/zoom design § 3.2). Input-referred,
+    /// baked into the Rust decode product immediately after
+    /// `chromaPrefilter` — same KEPT/strip + #950 baked-model cache-key
+    /// story (changing it re-decodes; the cached decoded buffer is what
+    /// amortises the seconds-scale runtime). XMP key `papp:DeepDenoise`;
+    /// 0 (default) = bit-identical stage skip.
+    public var deepDenoise: Double  // 0..100, default 0
+
     public init(
         temperature: Double = 6500,
         tint: Double = 0,
@@ -254,7 +262,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         look: Look = .default,
         profile: Profile = .auto,
         chromaPrefilter: Double = 0,
-        hotPixelSuppression: HotPixelSuppressionMode = .off
+        hotPixelSuppression: HotPixelSuppressionMode = .off,
+        deepDenoise: Double = 0
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -297,6 +306,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.profile = profile
         self.chromaPrefilter = chromaPrefilter
         self.hotPixelSuppression = hotPixelSuppression
+        self.deepDenoise = deepDenoise
     }
 
     public static let `default` = AdjustmentModel()
