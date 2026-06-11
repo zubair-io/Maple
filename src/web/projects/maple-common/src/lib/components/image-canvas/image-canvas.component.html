@@ -45,7 +45,10 @@
   (mouseup)="onMouseUp()"
   (mouseleave)="onMouseUp()"
 >
-  <canvas #canvas class="block absolute top-1/2 left-1/2"></canvas>
+  <!-- Viewport-sized backing store (#1101): the canvas fills the wrap; the
+       backing store is viewport × devicePixelRatio and zoom/pan are a draw
+       transform inside `draw()` — never an image-sized canvas. -->
+  <canvas #canvas class="block absolute inset-0 h-full w-full"></canvas>
 
   <!-- Before/after divider -->
   @if (canvasSvc.showBeforeAfter()) {
