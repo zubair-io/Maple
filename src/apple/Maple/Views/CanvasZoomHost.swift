@@ -1,0 +1,315 @@
+// CanvasZoomHost.swift — reusable zoom/pan/gesture canvas host (#1099).
+//
+// The shared canvas capability extracted from the legacy `FullImageView`
+// (spec §5.0): pixelScale zoom (0 = fit … 8.0 cap), clamped pan, pinch
+// via `MagnifyGesture` with a start-captured scale, double-tap, Cmd+
+// scroll-wheel zoom, wheel pan, and the always-visible zoom badge. Both
+// the legacy full-image surface and the S5 `EditorView` embed this host;
+// the S4 loupe adopts it under #577.
+//
+// The host owns the viewport: it reports the live size into the
+// `CanvasZoomController` (which pushes `previewSize` / `pixelScale` /
+// the visible tile rect into the `EditSession`), frames the consumer's
+// canvas leaf at the resolved display frame, and clips overflow so a
+// zoomed-in canvas pans inside a fixed window.
+//
+// Gesture arbitration (spec §5.0 — the editor's editing gestures keep
+// working):
+//
+//   • Pinch                → zoom, anchored at the gesture location.
+//   • Drag                 → pan when zoomed; INERT at fit (the drag
+//                            belongs to the editing surface / system
+//                            gestures — attached via simultaneousGesture
+//                            so nothing else is starved).
+//   • Plain wheel (macOS)  → pan when zoomed; at fit it routes to
+//                            `onWheelEditing` (armed-tool nudge in the
+//                            editor) or passes through when nil (legacy).
+//   • Cmd+wheel (macOS)    → zoom anchored at the cursor.
+//   • Double-tap / click   → per `doubleTapBehavior` (legacy: reset to
+//                            fit; editor: toggle fit ↔ 100%).
+//
+// Keyboard shortcuts stay with the consumers (legacy toolbar ⌘0/⌘1/⌘=/⌘-,
+// editor toolbar ⌘0/⌘1) — they call the controller's command methods.
+
+import SwiftUI
+import MapleCore
+
+struct CanvasZoomHost<CanvasLeaf: View, Fallback: View>: View {
+    /// Zoom state + EditSession plumbing. Owned by the consumer so
+    /// toolbar / keyboard commands can drive the same state.
+    let controller: CanvasZoomController
+    /// Double-tap routing — `.resetToFit` (legacy) or
+    /// `.toggleFitAnd100` (editor, spec §5.0).
+    var doubleTapBehavior: CanvasZoomModel.DoubleTapBehavior = .resetToFit
+    /// At-fit plain-wheel hook (macOS): the editor routes detents into
+    /// the armed tool (steps, unit-per-step). `nil` (legacy) lets the
+    /// event pass through unhandled.
+    var onWheelEditing: ((Int, Double) -> Void)? = nil
+    /// True when the consumer has pixels to show — the leaf renders
+    /// framed + gestured; otherwise the fallback shows.
+    let canvasReady: Bool
+    /// The canvas leaf (CIImage raster / GPU layer). The host frames it
+    /// to the resolved display frame; the leaf fills that proposal.
+    @ViewBuilder let canvasLeaf: () -> CanvasLeaf
+    /// Shown while no frame can resolve (no preview yet / no native
+    /// size). Receives the viewport's full size.
+    @ViewBuilder let fallback: () -> Fallback
+
+    @Environment(\.displayScale) private var displayScale
+    #if os(macOS)
+    @State private var nudgeAccumulator = CanvasWheelNudgeAccumulator()
+    #endif
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                if canvasReady, let frame = controller.displayFrameInPoints {
+                    canvasLeaf()
+                        .frame(width: frame.width, height: frame.height)
+                        .offset(controller.panOffset)
+                } else {
+                    fallback()
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+            .contentShape(Rectangle())
+            .gesture(magnifyGesture)
+            .simultaneousGesture(dragGesture)
+            .onTapGesture(count: 2) { location in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    controller.doubleTap(at: location, behavior: doubleTapBehavior)
+                }
+            }
+            .background(wheelCatcher)
+            .overlay(alignment: .bottomLeading) { zoomBadge }
+            .onAppear {
+                controller.viewportChanged(points: geo.size, displayScale: displayScale)
+            }
+            .onChange(of: geo.size) { _, newSize in
+                controller.viewportChanged(points: newSize, displayScale: displayScale)
+            }
+            .onChange(of: displayScale) { _, newScale in
+                // Window dragged to a display with a different backing
+                // scale — same points, different real pixels. Re-resolve
+                // so 100% stays pixel-perfect on the new screen.
+                controller.viewportChanged(points: geo.size, displayScale: newScale)
+            }
+            .onChange(of: controller.session.nativeImageSize) { _, _ in
+                // Pre-decode, fit mode guesses; recompute once the real
+                // size lands so the idle refine stays at viewport
+                // resolution (legacy FullImageView did the same).
+                controller.nativeImageSizeChanged()
+            }
+            .onChange(of: controller.session.asset.id) { _, _ in
+                // Asset switched under a reused view — reset to fit so a
+                // stale pixelScale doesn't retarget the new image's
+                // refine at full native.
+                controller.assetChanged()
+            }
+        }
+    }
+
+    // MARK: - Gestures
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                // The controller captures the start scale/pan/anchor on
+                // the first frame — `magnification` is cumulative, so
+                // anchoring against the live scale would compound.
+                controller.pinchChanged(
+                    magnification: value.magnification,
+                    location: value.startLocation
+                )
+            }
+            .onEnded { value in
+                controller.pinchEnded(magnification: value.magnification)
+            }
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                // Pans only when zoomed in; a no-op at fit so the
+                // editing surface (armed-tool scrub on DragBar, system
+                // edge-swipe) keeps full ownership of fit-mode drags.
+                controller.dragChanged(translation: value.translation)
+            }
+            .onEnded { _ in
+                controller.dragEnded()
+            }
+    }
+
+    // MARK: - Scroll wheel (macOS)
+
+    /// Transparent wheel-event catcher behind the canvas. Compiles to
+    /// nothing off macOS (no scroll wheel there; pinch covers zoom).
+    @ViewBuilder
+    private var wheelCatcher: some View {
+        #if os(macOS)
+        ScrollWheelCatcher { event in
+            handleWheel(event)
+        }
+        #else
+        Color.clear
+        #endif
+    }
+
+    #if os(macOS)
+    /// Wheel routing per the spec §5.0 table. Returns true when the
+    /// event was consumed.
+    private func handleWheel(_ event: ScrollWheelCatcher.WheelEvent) -> Bool {
+        switch controller.wheelIntent(commandHeld: event.commandHeld) {
+        case .zoom:
+            // Momentum tails from a previous flick shouldn't keep
+            // zooming once Cmd goes down mid-coast.
+            guard !event.isMomentum else { return true }
+            let normalized = event.precise ? event.deltaY : event.deltaY * 8
+            guard normalized != 0 else { return true }
+            controller.wheelZoom(normalizedDeltaY: normalized, location: event.location)
+            return true
+        case .pan:
+            let factor: CGFloat = event.precise ? 1 : 8
+            controller.wheelPan(
+                delta: CGSize(width: event.deltaX * factor, height: event.deltaY * factor)
+            )
+            return true
+        case .editing:
+            // At fit the wheel belongs to the editing surface: the
+            // editor nudges the armed tool ±1 per detent (±10 shift,
+            // ±0.1 option — S5 desktop contract). Consumers without a
+            // handler (legacy full image) pass the event through.
+            guard let onWheelEditing else { return false }
+            guard !event.isMomentum else { return true }
+            let steps = nudgeAccumulator.steps(deltaY: event.deltaY, precise: event.precise)
+            guard steps != 0 else { return true }
+            let unit: Double = event.shiftHeld ? 10 : (event.optionHeld ? 0.1 : 1)
+            onWheelEditing(steps, unit)
+            return true
+        }
+    }
+    #endif
+
+    // MARK: - Zoom badge
+
+    /// Always-visible zoom percentage (docs/zoom.md § Zoom Indicator),
+    /// pinned to the viewport's bottom-leading corner — the `.clipped()`
+    /// container above keeps it anchored to the visible canvas, not the
+    /// potentially-huge image frame.
+    private var zoomBadge: some View {
+        let scale = controller.effectivePixelScale
+        return Text(FullImageViewVM.zoomPercentLabel(for: scale))
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 4))
+            .padding(8)
+            .accessibilityLabel(FullImageViewVM.zoomAccessibilityLabel(for: scale))
+            .accessibilityIdentifier("canvas-zoom-indicator")
+    }
+}
+
+// MARK: - ScrollWheelCatcher (macOS)
+
+#if os(macOS)
+/// Invisible NSView that observes scroll-wheel events over its own
+/// frame via a local event monitor. `hitTest` returns nil so clicks and
+/// drags pass straight through to the SwiftUI gestures above it; the
+/// monitor sees every scroll event first and only intercepts those whose
+/// cursor location falls inside this view's bounds in the key window.
+struct ScrollWheelCatcher: NSViewRepresentable {
+    struct WheelEvent {
+        let deltaX: CGFloat
+        let deltaY: CGFloat
+        /// True for trackpads (continuous point deltas); false for
+        /// line-based mouse wheels.
+        let precise: Bool
+        /// Cursor location in this view's (flipped, top-left-origin)
+        /// coordinates — matches SwiftUI's local space.
+        let location: CGPoint
+        let commandHeld: Bool
+        let shiftHeld: Bool
+        let optionHeld: Bool
+        /// True during inertial-scroll momentum tails.
+        let isMomentum: Bool
+    }
+
+    /// Return true to consume the event (it never reaches AppKit),
+    /// false to pass it through unchanged.
+    let onWheel: @MainActor (WheelEvent) -> Bool
+
+    func makeNSView(context: Context) -> CatcherView {
+        let view = CatcherView()
+        view.onWheel = onWheel
+        return view
+    }
+
+    func updateNSView(_ nsView: CatcherView, context: Context) {
+        nsView.onWheel = onWheel
+    }
+
+    final class CatcherView: NSView {
+        var onWheel: (@MainActor (WheelEvent) -> Bool)?
+        private var monitor: Any?
+
+        /// Top-left-origin local coordinates, matching SwiftUI.
+        override var isFlipped: Bool { true }
+
+        /// Never participate in hit-testing — clicks, drags and pinches
+        /// belong to the SwiftUI layer; this view only watches the
+        /// event monitor.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window != nil {
+                installMonitorIfNeeded()
+            } else {
+                removeMonitorIfNeeded()
+            }
+        }
+
+        deinit {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+        }
+
+        private func installMonitorIfNeeded() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { [weak self] event in
+                guard let self,
+                      let handler = self.onWheel,
+                      let window = self.window,
+                      event.window === window
+                else { return event }
+                let local = self.convert(event.locationInWindow, from: nil)
+                guard self.bounds.contains(local) else { return event }
+                let wheel = WheelEvent(
+                    deltaX: event.scrollingDeltaX,
+                    deltaY: event.scrollingDeltaY,
+                    precise: event.hasPreciseScrollingDeltas,
+                    location: local,
+                    commandHeld: event.modifierFlags.contains(.command),
+                    shiftHeld: event.modifierFlags.contains(.shift),
+                    optionHeld: event.modifierFlags.contains(.option),
+                    isMomentum: event.momentumPhase != []
+                )
+                // Local monitors fire on the main thread; the handler
+                // touches MainActor state (controller / EditorState).
+                let consumed = MainActor.assumeIsolated { handler(wheel) }
+                return consumed ? nil : event
+            }
+        }
+
+        private func removeMonitorIfNeeded() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+    }
+}
+#endif
