@@ -51,6 +51,7 @@ import { ImportsPanelService } from './imports-panel.service';
 import { SettingsShellComponent } from '../settings-shell.component';
 import { SettingsIconComponent } from '../settings-icon.component';
 import { SettingsRowComponent } from '../settings-row.component';
+import { MirrorSettingsComponent } from './mirror-settings.component';
 import {
   FIXED_DESCRIBE_MODEL,
   groupStagesByPipeline,
@@ -85,6 +86,7 @@ import {
     SettingsShellComponent,
     SettingsIconComponent,
     SettingsRowComponent,
+    MirrorSettingsComponent,
   ],
   templateUrl: './workers.component.html',
   styleUrl: './workers.component.scss',
