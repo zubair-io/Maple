@@ -93,97 +93,11 @@ enum FullImageViewVM {
     }
 
     // MARK: - Zoom math
-
-    /// Upper clamp on `pixelScale`. Reference caps at 8× so a 24MP image
-    /// can show pixel-level noise without the refine target blowing past
-    /// sensible memory budgets. Exposed here so the view file can reference
-    /// a single source of truth and the unit tests don't drift from it.
-    static let maxPixelScale: CGFloat = 8.0
-
-    /// Minimum scale floor applied by `setZoom(to:)` — keeps explicit
-    /// keyboard / programmatic targets above a degenerate 0 (which would
-    /// otherwise re-enter fit mode silently). Mirrors the reference's
-    /// `max(scale, 0.05)` clamp.
-    static let minExplicitZoom: CGFloat = 0.05
-
-    /// Multiplier used by `zoomIn` / `zoomOut` keyboard shortcuts (⌘= / ⌘-).
-    /// 1.25 yields the classic "five steps to double" feel from the
-    /// reference implementation.
-    static let zoomStep: CGFloat = 1.25
-
-    /// Snap-to-fit threshold — when the user lets go of a pinch (or steps
-    /// down with ⌘-) within 2% of fit, we reset to actual fit mode so the
-    /// HUD reads cleanly and the refine pass uses viewport resolution.
-    static let snapToFitTolerance: CGFloat = 1.02
-
-    /// Resolves the live pinch math. `start` is the pixelScale captured at
-    /// gesture begin; `magnification` is `MagnifyGesture.value.magnification`
-    /// (cumulative since gesture begin). Clamps below to `fit * 0.5` so the
-    /// user can pinch slightly past fit before we snap, and above to `max`.
-    static func pinchScale(
-        start: CGFloat,
-        magnification: CGFloat,
-        fit: CGFloat,
-        maxScale: CGFloat = maxPixelScale
-    ) -> CGFloat {
-        max(fit * 0.5, min(start * magnification, maxScale))
-    }
-
-    /// True when `scale` is within `snapToFitTolerance` of `fit` and the
-    /// view should reset to fit mode (pixelScale = 0). Used after the pinch
-    /// gesture ends and after ⌘- steps down. Equivalent to the reference's
-    /// `newScale <= fit * 1.02` check.
-    static func shouldSnapToFit(_ scale: CGFloat, fit: CGFloat) -> Bool {
-        scale <= fit * snapToFitTolerance
-    }
-
-    /// Clamps a programmatic zoom target (toolbar "100%", ⌘1) into the
-    /// allowed range. Reference: `min(max(scale, 0.05), maxPixelScale)`.
-    static func clampedExplicitZoom(_ scale: CGFloat, maxScale: CGFloat = maxPixelScale) -> CGFloat {
-        min(max(scale, minExplicitZoom), maxScale)
-    }
-
-    /// Next scale after a ⌘= zoom-in step. `current` is the live effective
-    /// pixel scale (so the first ⌘= out of fit actually moves the camera).
-    static func zoomInTarget(current: CGFloat, maxScale: CGFloat = maxPixelScale) -> CGFloat {
-        min(current * zoomStep, maxScale)
-    }
-
-    /// Outcome of a ⌘- zoom-out step. Either snap to fit (when the next
-    /// step lands within tolerance) or take the clamped step. Modelled as
-    /// an enum so the view file can pattern-match without re-running the
-    /// snap-threshold check.
-    enum ZoomOutResult: Equatable {
-        /// Reset to fit mode (pixelScale = 0, pans cleared).
-        case snapToFit
-        /// Apply this concrete pixelScale and keep pans.
-        case scale(CGFloat)
-    }
-
-    /// Computes the result of a ⌘- step from `current`. Mirrors the
-    /// reference: divide by `zoomStep`, snap if within tolerance of fit,
-    /// otherwise floor at `fit * 0.5` (so we can ease toward fit without
-    /// undershooting wildly).
-    static func zoomOutTarget(current: CGFloat, fit: CGFloat) -> ZoomOutResult {
-        let next = current / zoomStep
-        if next <= fit * snapToFitTolerance {
-            return .snapToFit
-        }
-        return .scale(max(next, fit * 0.5))
-    }
-
-    // MARK: - Pan accumulation
-
-    /// Accumulates a drag translation onto the base pan captured at gesture
-    /// start. Pure point-arithmetic — no `@State` capture, no clamping.
-    /// (Clamping pan against the visible source rect lives in `CanvasMath`
-    /// in MapleCore; this helper only handles the additive step.)
-    static func accumulatedPan(base: CGSize, translation: CGSize) -> CGSize {
-        CGSize(
-            width: base.width + translation.width,
-            height: base.height + translation.height
-        )
-    }
+    //
+    // The zoom constants + transition math (max scale, snap-to-fit
+    // threshold, pinch / step / explicit-zoom clamps, pan accumulation)
+    // moved to `MapleCore.CanvasZoomModel` in #1099 so the shared canvas
+    // host, the editor, and the unit tests source one implementation.
 
     // MARK: - Viewport conversion
 
