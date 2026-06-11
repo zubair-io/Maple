@@ -207,7 +207,31 @@ export class RawPipelineService implements OnDestroy {
   // decode sits in the worker at any moment.
   private decodeChain: Promise<unknown> = Promise.resolve();
 
-  decode(bytes: Uint8Array, ext: string, xmp?: string): Promise<DecodedImage> {
+  /**
+   * @param maxLongEdge Cap the render's long edge in REAL (backing-store)
+   *   pixels (#1101, spec §5.1) — the editor passes viewport × devicePixelRatio
+   *   for the fast phase. Routes the threaded-CPU sized entry
+   *   (`render_bytes_sized`): the develop downsamples right after demosaic so
+   *   every later stage runs at the capped size. Never upscales; the reply
+   *   carries the NATIVE oriented dims in `nativeWidth`/`nativeHeight` so the
+   *   caller keeps its fit/100% zoom math. Absent ⇒ full-res `render_bytes`,
+   *   byte-for-byte today's behaviour. (PR #1096 gives the GPU one-shot route
+   *   the same cap — same field, same units.)
+   * @param qualityPreview Only honoured with `maxLongEdge`: `true` runs the
+   *   half-res Preview demosaic (the fast-phase cost profile), `false`/absent
+   *   runs Full (the refine phase).
+   *
+   * Non-RAW images decode browser-natively at their full size — they're
+   * already display-encoded and cheap to draw; sizing them is the canvas's
+   * draw transform's job.
+   */
+  decode(
+    bytes: Uint8Array,
+    ext: string,
+    xmp?: string,
+    maxLongEdge?: number,
+    qualityPreview?: boolean,
+  ): Promise<DecodedImage> {
     // Non-RAW images (jpg/png/heic/webp/…) are already developed sRGB pixels —
     // decode them browser-natively, mirroring Apple's ImageIO path. They never
     // touch the WASM RAW heap, so this runs outside the serialization gate and
@@ -215,42 +239,10 @@ export class RawPipelineService implements OnDestroy {
     if (isNonRawExtension(ext)) {
       return decodeNonRawToRgb(bytes);
     }
-    const run = () => this.decodeOnce(bytes, ext, xmp);
+    const run = () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview);
     const next = this.decodeChain.then(run, run);
     // Preserve the chain regardless of success/failure so one bad decode
     // doesn't stall the queue.
-    this.decodeChain = next.catch(() => undefined);
-    return next;
-  }
-
-  /**
-   * Sized display decode (#1101, spec §5.1): renders capped at `maxLongEdge`
-   * (long edge, real pixels — the caller passes viewport × devicePixelRatio
-   * for the fast phase). Routes the threaded-CPU sized entry
-   * (`render_bytes_sized`); the develop downsamples right after demosaic so
-   * every later stage runs viewport-sized. Never upscales. The reply carries
-   * the NATIVE oriented dims in `nativeWidth`/`nativeHeight` so the caller
-   * keeps its fit/100% zoom math.
-   *
-   * `qualityPreview = true` (the fast phase) runs the half-res Preview
-   * demosaic; `false` (the refine phase) runs Full.
-   *
-   * Non-RAW images decode browser-natively at their full size — they're
-   * already display-encoded and cheap to draw; sizing them is the canvas's
-   * draw transform's job.
-   */
-  decodeSized(
-    bytes: Uint8Array,
-    ext: string,
-    maxLongEdge: number,
-    xmp?: string,
-    qualityPreview: boolean = true,
-  ): Promise<DecodedImage> {
-    if (isNonRawExtension(ext)) {
-      return decodeNonRawToRgb(bytes);
-    }
-    const run = () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview);
-    const next = this.decodeChain.then(run, run);
     this.decodeChain = next.catch(() => undefined);
     return next;
   }
