@@ -36,8 +36,7 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
     colorNR: [0, 100],
     vignette: [-100, 100], // wired at #1109 (drag bar = vignetteAmount)
     grain: [0, 100], // wired at #1110 (drag bar = grainAmount)
-    // splitTone is intentionally absent — re-gated to a stub at #952, so
-    // it has no display range (asserted null below).
+    splitTone: [-100, 100], // wired at #1111 (drag bar = splitToneBalance)
   };
 
   for (const [tool, range] of Object.entries(expected) as [ToolId, readonly [number, number]][]) {
@@ -47,11 +46,10 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
   }
 
   it('returns null for stub tools', () => {
-    // The #952-gated splitTone joins hsl / crop / presets: no range, so
-    // the drag-bar and value chip treat them identically (no phantom
-    // track, no misleading midpoint value). vignette left the list at
-    // #1109, grain at #1110.
-    for (const tool of ['hsl', 'crop', 'presets', 'splitTone'] as const) {
+    // hsl / crop are stubs pending their own specs; presets is wired but
+    // value-less. No range, so the drag-bar and value chip treat them
+    // identically (no phantom track, no misleading midpoint value).
+    for (const tool of ['hsl', 'crop', 'presets'] as const) {
       expect(displayRange(tool)).toBeNull();
     }
   });
@@ -96,14 +94,21 @@ describe('value mapping (internal -100..100 ↔ display)', () => {
     expect(internalValueFromDisplay('colorNR', 25)).toBe(-50);
   });
 
-  it('gated stub tools map to 0, never a misleading midpoint (#952)', () => {
-    // With no DISPLAY_RANGE entry the mapping is identity, so an unset
-    // stub reads 0 — matching hsl / crop / presets. (vignette left the
-    // gated set at #1109, grain at #1110.)
-    for (const tool of ['splitTone'] as const) {
+  it('range-less tools map to 0, never a misleading midpoint', () => {
+    // With no DISPLAY_RANGE entry the mapping is identity, so the chip
+    // reads 0 for hsl / crop / presets. (The S5 effects all left the
+    // gated set: #1109 / #1110 / #1111.)
+    for (const tool of ['hsl', 'crop', 'presets'] as const) {
       expect(displayValueFromInternal(tool, 0)).toBe(0);
       expect(internalValueFromDisplay(tool, 0)).toBe(0);
     }
+  });
+
+  it('splitTone maps its symmetric balance range linearly (#1111)', () => {
+    expect(displayValueFromInternal('splitTone', 0)).toBe(0);
+    expect(displayValueFromInternal('splitTone', 100)).toBe(100);
+    expect(displayValueFromInternal('splitTone', -100)).toBe(-100);
+    expect(internalValueFromDisplay('splitTone', -25)).toBe(-25);
   });
 
   it('grain maps its one-sided 0..100 range affinely (#1110)', () => {

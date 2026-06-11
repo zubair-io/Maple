@@ -62,9 +62,36 @@ describe('sub-param catalog', () => {
     expect(defaultSubParamId('grain')).toBe('amount');
   });
 
-  it('every other tool is single-param (splitTone joins data-only at #1111)', () => {
+  it('splitTone declares Balance + the hue/sat pairs (#1111)', () => {
+    const subs = subParamsFor('splitTone');
+    expect(subs.map((s) => s.id)).toEqual([
+      'balance',
+      'shadowHue',
+      'shadowSat',
+      'highlightHue',
+      'highlightSat',
+    ]);
+    expect(subs.map((s) => s.field)).toEqual([
+      'splitToneBalance',
+      'splitToneShadowHue',
+      'splitToneShadowSaturation',
+      'splitToneHighlightHue',
+      'splitToneHighlightSaturation',
+    ]);
+    expect(isMultiParam('splitTone')).toBe(true);
+    // Balance leads — the schema-declared primary drag-bar field.
+    expect(defaultSubParamId('splitTone')).toBe('balance');
+  });
+
+  it('every other tool is single-param (HSL/crop pending their own specs)', () => {
     for (const tool of ALL_TOOLS) {
-      if (tool === 'noise' || tool === 'sharpen' || tool === 'vignette' || tool === 'grain')
+      if (
+        tool === 'noise' ||
+        tool === 'sharpen' ||
+        tool === 'vignette' ||
+        tool === 'grain' ||
+        tool === 'splitTone'
+      )
         continue;
       expect(subParamsFor(tool as ToolId)).toEqual([]);
       expect(isMultiParam(tool as ToolId)).toBe(false);

@@ -128,15 +128,15 @@ extension AdjustmentModel {
     public static let grainSizeRange: ClosedRange<Double> = 0.0...100.0
     /// Grain roughness (#1110) — mixes a second noise octave at 2x frequency.
     public static let grainRoughnessRange: ClosedRange<Double> = 0.0...100.0
-    /// Split-tone shadow hue in degrees (ticket #643).
+    /// Split-tone shadow hue in degrees (#1111, tone/zoom design spec § 10.3) — display-linear Oklab tint.
     public static let splitToneShadowHueRange: ClosedRange<Double> = 0.0...360.0
-    /// Split-tone shadow saturation (ticket #643).
+    /// Split-tone shadow saturation (#1111); 0 disables the shadow tint.
     public static let splitToneShadowSaturationRange: ClosedRange<Double> = 0.0...100.0
-    /// Split-tone highlight hue in degrees (ticket #643).
+    /// Split-tone highlight hue in degrees (#1111).
     public static let splitToneHighlightHueRange: ClosedRange<Double> = 0.0...360.0
-    /// Split-tone highlight saturation (ticket #643).
+    /// Split-tone highlight saturation (#1111); 0 disables the highlight tint.
     public static let splitToneHighlightSaturationRange: ClosedRange<Double> = 0.0...100.0
-    /// Split-tone balance — shifts the shadow/highlight split point (ticket #643). Primary drag-bar field for the Split Tone tool.
+    /// Split-tone balance — shifts the shadow/highlight crossover via exp2(bal/100) weight exponents (#1111). Primary drag-bar field for the Split Tone tool.
     public static let splitToneBalanceRange: ClosedRange<Double> = -100.0...100.0
     /// Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.
     public static let chromaPrefilterRange: ClosedRange<Double> = 0.0...100.0

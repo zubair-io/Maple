@@ -91,6 +91,16 @@ pub struct MapleAdjustmentParams {
     pub grain_amount: f32,
     pub grain_size: f32,
     pub grain_roughness: f32,
+    /// Split toning (#1111, tone/zoom design § 10.3) — display-linear
+    /// Oklab tint, applied with AgX (post-AgX, before grain; skipped
+    /// together on the non-RAW `skip_agx` path). Appended at the struct
+    /// tail; un-set saturations read 0 = identity (hues / balance inert
+    /// at zero saturation).
+    pub split_tone_shadow_hue: f32,
+    pub split_tone_shadow_saturation: f32,
+    pub split_tone_highlight_hue: f32,
+    pub split_tone_highlight_saturation: f32,
+    pub split_tone_balance: f32,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -177,6 +187,11 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.grain_amount = p.grain_amount;
     model.grain_size = p.grain_size;
     model.grain_roughness = p.grain_roughness;
+    model.split_tone_shadow_hue = p.split_tone_shadow_hue;
+    model.split_tone_shadow_saturation = p.split_tone_shadow_saturation;
+    model.split_tone_highlight_hue = p.split_tone_highlight_hue;
+    model.split_tone_highlight_saturation = p.split_tone_highlight_saturation;
+    model.split_tone_balance = p.split_tone_balance;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
@@ -288,6 +303,11 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.grain_amount = p.grain_amount;
     model.grain_size = p.grain_size;
     model.grain_roughness = p.grain_roughness;
+    model.split_tone_shadow_hue = p.split_tone_shadow_hue;
+    model.split_tone_shadow_saturation = p.split_tone_shadow_saturation;
+    model.split_tone_highlight_hue = p.split_tone_highlight_hue;
+    model.split_tone_highlight_saturation = p.split_tone_highlight_saturation;
+    model.split_tone_balance = p.split_tone_balance;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);

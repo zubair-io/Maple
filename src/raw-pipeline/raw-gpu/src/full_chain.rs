@@ -18,12 +18,12 @@
 //!   **clarity** · **texture** · **dehaze** · local_adjustments · **vignette** ·
 //!   **sharpen** · **nr_luminance** · **nr_color**
 //! then `render` appends the view tail:
-//!   **agx** · **grain** (#1110, display-linear) ·
+//!   **agx** · **split_tone** (#1111) · **grain** (#1110, both display-linear) ·
 //!   **rec2020_to_srgb** (= [`DisplayEncodePass`]) ·
 //!   **srgb_gamma_encode** (= [`SrgbGammaPass`]) · auto_profile-curve ·
 //!   auto_profile-residual-LUT · look · dither/quantize.
 //!
-//! The **bold** stages are the 19 GPU-ported [`Pass`]es this module composes (in
+//! The **bold** stages are the 20 GPU-ported [`Pass`]es this module composes (in
 //! exactly that order). The rest are gaps:
 //!
 //! - **Upstream / out of scope** (run before the post-DCP scene-linear buffer this
@@ -75,6 +75,7 @@ use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
 use crate::scene_tone_controls::SceneToneControlsPass;
 use crate::sharpen::SharpenPass;
+use crate::split_tone::SplitTonePass;
 use crate::srgb_gamma::SrgbGammaPass;
 use crate::texture::TexturePass;
 use crate::tone_curves::{ToneCurveInputs, ToneCurvesPass};
@@ -134,6 +135,14 @@ pub struct FullChainInputs {
     pub grain_amount: f32,
     pub grain_size: f32,
     pub grain_roughness: f32,
+    /// Split toning (#1111): hues in degrees [0, 360], saturations [0, 100],
+    /// balance [-100, 100]. Display-linear Oklab tint — runs in the view
+    /// tail between agx and grain.
+    pub split_tone_shadow_hue: f32,
+    pub split_tone_shadow_saturation: f32,
+    pub split_tone_highlight_hue: f32,
+    pub split_tone_highlight_saturation: f32,
+    pub split_tone_balance: f32,
     pub sharpen_amount: f32,
     pub sharpen_radius: f32,
     pub sharpen_detail: f32,
@@ -248,6 +257,15 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     // View tail.
     suffix.push(Box::new(AgxPass {
         contrast: inputs.contrast,
+    }));
+    // Split toning (#1111) — display-linear Oklab tint, post-AgX, before
+    // grain (the render tail's 16a position).
+    suffix.push(Box::new(SplitTonePass {
+        shadow_hue: inputs.split_tone_shadow_hue,
+        shadow_sat: inputs.split_tone_shadow_saturation,
+        highlight_hue: inputs.split_tone_highlight_hue,
+        highlight_sat: inputs.split_tone_highlight_saturation,
+        balance: inputs.split_tone_balance,
     }));
     // Film grain (#1110) — display-linear, post-AgX, before the target
     // gamut (the render tail's 16b position).

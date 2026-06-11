@@ -10,7 +10,8 @@
 //! Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 //! → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
 //! `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx`
-//! → `grain` (the AgX + display tail runs when `skip_agx == false`).
+//! → `split_tone` → `grain` (the AgX + display tail runs when
+//! `skip_agx == false`).
 //!
 //! **Deliberately omits** `sharpen` and `nr_color` — those two stay on
 //! the Apple GPU path (Metal compute pipelines). See the per-function
@@ -28,8 +29,8 @@ use crate::{error::Result, xmp::AdjustmentModel};
 /// Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 /// → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
 /// `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx`
-/// → `grain` (AgX + the display-linear grain skipped together on the
-/// non-RAW path).
+/// → `split_tone` → `grain` (AgX + the display-linear stages skipped
+/// together on the non-RAW path).
 ///
 /// **Deliberately omits** `sharpen` and `nr_color`. Those two stages are
 /// kept on the Apple GPU path (Metal compute pipelines) because:
@@ -78,7 +79,8 @@ pub fn apply_scene_linear_chain(
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, dehaze, grain, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, texture, tone_curves, vibrance, vignette, white_balance,
+        scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette,
+        white_balance,
     };
     use crate::view::agx;
 
@@ -167,6 +169,19 @@ pub fn apply_scene_linear_chain(
     // nr_color omitted — kept on Metal GPU path alongside sharpen
     if !skip_agx {
         stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
+        // Split toning (#1111) — display-linear Oklab tint, post-AgX,
+        // before grain (the canonical render-tail order). Skipped with
+        // AgX on the non-RAW path, like every display-domain stage.
+        stage("ffi_chain_split_tone", || {
+            split_tone::apply(
+                &mut img,
+                model.split_tone_shadow_hue,
+                model.split_tone_shadow_saturation,
+                model.split_tone_highlight_hue,
+                model.split_tone_highlight_saturation,
+                model.split_tone_balance,
+            )
+        });
         // Film grain (#1110) — display-linear, post-AgX (same position as
         // the canonical render tail). Skipped with AgX on the non-RAW path:
         // the display-domain effects ride the view transform, and the
@@ -216,7 +231,8 @@ pub fn apply_scene_linear_chain_f32(
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, dehaze, grain, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, texture, tone_curves, vibrance, vignette, white_balance,
+        scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette,
+        white_balance,
     };
     use crate::view::agx;
 
@@ -289,7 +305,17 @@ pub fn apply_scene_linear_chain_f32(
     // nr_color omitted — kept on Metal GPU path alongside sharpen
     if !skip_agx {
         stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
-        // Film grain (#1110) — see the fp16 sibling.
+        // Split toning (#1111) + film grain (#1110) — see the fp16 sibling.
+        stage("ffi_chain_split_tone", || {
+            split_tone::apply(
+                &mut img,
+                model.split_tone_shadow_hue,
+                model.split_tone_shadow_saturation,
+                model.split_tone_highlight_hue,
+                model.split_tone_highlight_saturation,
+                model.split_tone_balance,
+            )
+        });
         stage("ffi_chain_grain", || {
             grain::apply(&mut img, model.grain_amount, model.grain_size, model.grain_roughness)
         });
