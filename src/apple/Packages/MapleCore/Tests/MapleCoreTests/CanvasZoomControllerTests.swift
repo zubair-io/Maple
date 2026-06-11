@@ -57,6 +57,38 @@ final class CanvasZoomControllerTests: XCTestCase {
         XCTAssertEqual(controller.session.pixelScale, 0.5, accuracy: 1e-9)
     }
 
+    func testViewportResizeRepushesVisibleRect() {
+        let controller = makeController()
+        controller.zoomToScale(1.0)
+        XCTAssertEqual(controller.session.viewportSourceRect.width, 2000, accuracy: 1e-6)
+        XCTAssertEqual(controller.session.viewportSourceRect.height, 1600, accuracy: 1e-6)
+        // Window grows — same zoom, more source pixels visible. The
+        // visible rect must follow the new viewport, not stay stale
+        // (#1125 review).
+        controller.viewportChanged(points: CGSize(width: 1200, height: 900), displayScale: 2)
+        let rect = controller.session.viewportSourceRect
+        XCTAssertEqual(rect.width, 2400, accuracy: 1e-6)
+        XCTAssertEqual(rect.height, 1800, accuracy: 1e-6)
+        XCTAssertEqual(rect.midX, 4000, accuracy: 1e-6, "still centered (no pan)")
+        XCTAssertEqual(controller.session.pixelScale, 1.0, accuracy: 1e-9,
+                       "a resize never changes the zoom")
+    }
+
+    func testNativeImageSizeChangedRepushesVisibleRect() {
+        let controller = makeController()
+        // Fit mode pushed the full pre-seed extent on mount.
+        XCTAssertEqual(controller.session.viewportSourceRect.width, 8000, accuracy: 1e-6)
+        XCTAssertEqual(controller.session.viewportSourceRect.height, 6000, accuracy: 1e-6)
+        // Metadata seed corrects the native size — the visible rect must
+        // re-resolve against the new extent (#1125 review).
+        controller.session.nativeImageSize = CGSize(width: 4000, height: 3000)
+        controller.nativeImageSizeChanged()
+        let rect = controller.session.viewportSourceRect
+        XCTAssertEqual(rect.origin, .zero)
+        XCTAssertEqual(rect.width, 4000, accuracy: 1e-6)
+        XCTAssertEqual(rect.height, 3000, accuracy: 1e-6)
+    }
+
     // MARK: - Commit-on-end contract
 
     func testPinchFramesDoNotRetargetSessionUntilEnd() {
@@ -137,6 +169,45 @@ final class CanvasZoomControllerTests: XCTestCase {
         XCTAssertGreaterThan(controller.session.pixelScale, 0.25)
         XCTAssertEqual(controller.session.pixelScale, controller.effectivePixelScale,
                        accuracy: 1e-9)
+    }
+
+    // MARK: - Early commands (no viewport yet)
+
+    func testZoomCommandBeforeViewportDefersCommit() {
+        // Early toolbar shortcut: ⌘1 can fire before the host reports a
+        // viewport. CanvasMath resolves fit against the degenerate
+        // viewport as 1, so committing would write a wrong
+        // `session.pixelScale` and schedule refines against the wrong
+        // target (#1125 review). The model queues the intent; the commit
+        // flushes when the real viewport arrives.
+        let session = EditSession.preview()
+        session.nativeImageSize = CGSize(width: 8000, height: 6000)
+        let controller = CanvasZoomController(session: session)
+
+        controller.zoomToScale(1.0)
+        controller.stepZoomIn()
+        XCTAssertEqual(session.pixelScale, 0,
+                       "no session write against a degenerate viewport")
+        XCTAssertEqual(session.viewportSourceRect, .zero)
+        XCTAssertEqual(controller.model.pixelScale, 1.25, accuracy: 1e-9,
+                       "the model holds the queued intent")
+
+        controller.viewportChanged(points: CGSize(width: 1000, height: 800), displayScale: 2)
+        XCTAssertEqual(session.pixelScale, 1.25, accuracy: 1e-9,
+                       "the deferred commit flushes with the real viewport")
+        XCTAssertEqual(session.viewportSourceRect.width, 1600, accuracy: 1e-6)
+        XCTAssertEqual(session.viewportSourceRect.height, 1280, accuracy: 1e-6)
+    }
+
+    func testResetToFitBeforeViewportLeavesSessionUntouched() {
+        let session = EditSession.preview()
+        session.nativeImageSize = CGSize(width: 8000, height: 6000)
+        let controller = CanvasZoomController(session: session)
+
+        controller.resetToFit()
+        XCTAssertEqual(session.pixelScale, 0)
+        XCTAssertEqual(session.previewSize, .zero)
+        XCTAssertEqual(session.viewportSourceRect, .zero)
     }
 
     // MARK: - Asset change
