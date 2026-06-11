@@ -1289,6 +1289,8 @@ dependencies = [
  "libloading",
  "ort",
  "png 0.17.16",
+ "quick-xml",
+ "raw-core",
  "rayon",
  "serde",
  "serde_json",
