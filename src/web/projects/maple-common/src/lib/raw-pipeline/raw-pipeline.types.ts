@@ -22,10 +22,12 @@ export interface DecodeRequest {
    * downsamples right after demosaic so every later stage runs at the capped
    * size. Never upscales. When set, the render runs on the threaded-CPU sized
    * path (the editor's 2D fast/refine phases — the GPU live path uses the
-   * persistent session instead, see `OpenSessionRequest`). PR #1096 adds the
-   * same field for the GPU one-shot route (`render_bytes_gpu`) — same name,
-   * same units, same never-upscale contract; once both land, the field means
-   * "cap the render long edge" on every route.
+   * persistent session instead, see `OpenSessionRequest`, whose develop is fit
+   * to the same target per #1080). The GPU one-shot route (`render_bytes_gpu`)
+   * shares the contract — same name, same units, same never-upscale — and the
+   * worker passes the field through to it; unsized GPU one-shots self-cap at
+   * the WASM-side 2048 default (#1080), so no route develops a 100 MP frame at
+   * full sensor res.
    */
   maxLongEdge?: number;
   /**
@@ -80,6 +82,15 @@ export interface OpenSessionRequest {
   xmp?: string;
   /** The editor canvas, transferred via `transferControlToOffscreen()`. */
   canvas: OffscreenCanvas; // transferable
+  /**
+   * Viewport target in REAL (backing-store) pixels (#1080): the session's
+   * develop fits the image to this long edge (aspect preserved, never
+   * upscaled) and sizes the canvas to the developed dims, so a 100 MP frame
+   * no longer configures an over-texture-cap surface (black canvas) or
+   * allocates ~2.8 GB of transient f32 in the wasm heap. Absent/0 ⇒ the
+   * WASM-side 2048 default cap (the downlevel WebGPU texture baseline).
+   */
+  maxLongEdge?: number;
 }
 
 /** Re-render the open session for a new develop model (the #846 edit path). */
@@ -120,8 +131,16 @@ export interface ScopeSnapshot {
 export interface OpenSessionSuccess {
   id: number;
   type: 'open-session-success';
+  /** Developed (viewport-sized per #1080) dims — also the canvas dims. */
   width: number;
   height: number;
+  /**
+   * NATIVE oriented dims — what a full-res render would produce (see
+   * `DecodeSuccess.nativeWidth`). The session is viewport-sized (#1080), so
+   * the editor records THESE on the asset for its fit/100% zoom math (#1101).
+   */
+  nativeWidth: number;
+  nativeHeight: number;
   asShotTemperature: number;
   asShotTint: number;
   /** Achieved canvas colour-space tag (`display-p3` / `srgb` / `unknown`). */
