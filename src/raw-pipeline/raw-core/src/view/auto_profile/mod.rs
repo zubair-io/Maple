@@ -16,7 +16,9 @@
 //!   the curve layers on top as a tone residual (vs the retired scene-linear
 //!   fit that replaced AgX and carried a matrix + Oklab corrections).
 //! - [`cache`]: bounded LRU keyed on `(raw_identity, mtime)` / bytes-hash
-//!   that short-circuits the fit on second-and-after slider ticks.
+//!   that short-circuits the fit on second-and-after slider ticks. Sound as a
+//!   RAW-identity key because every fit samples the PINNED default-model
+//!   develop (#1085) — see `pipeline::render::auto_fit::fit_develop_model`.
 
 pub mod apply;
 pub mod apply_pipeline;
@@ -30,7 +32,7 @@ pub mod preview;
 mod solve;
 
 pub use apply::{apply_curve, compress_input};
-pub use apply_pipeline::{apply_auto_profile, AutoSource};
+pub use apply_pipeline::apply_auto_profile;
 pub use bake::{bake_auto_profile_lut, bake_profile_lut, DEFAULT_LUT_SIZE, MAX_LUT_SIZE};
 pub use curve::{
     eval_channel, fit_channel_curve, ChannelCurve, ProfileCurve, IDENTITY_MATRIX,

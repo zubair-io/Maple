@@ -18,17 +18,16 @@
 //!   practice and runs in microseconds. blake3 is already a workspace
 //!   dependency.
 //!
-//! Staleness note: keys do NOT include any per-edit sidecar/adjustment
-//! version. `AdjustmentModel` carries no such field today. The fit
-//! depends on the source-pixel distribution (which slider ticks change),
-//! so within one editing session the cached curve may correspond to an
-//! earlier tick's source pixels rather than the current tick's. This
-//! matches the spec's "key on raw_identity + sidecar" intent and is
-//! measured as acceptable: the curve is robust to small input
-//! perturbation, and the visible effect during a tight slider drag is
-//! at the noise floor of the JPEG-matching residual. When a future PR
-//! plumbs an adjustment generation counter through the render API, this
-//! key gains that field and the staleness window collapses.
+//! Keying invariant (#1085): the fit is PINNED to the default adjustment
+//! model — every fit entry develops `AdjustmentModel::default()` with only
+//! `auto_exposure: Off` pinned and the caller's `profile` carried (see
+//! `pipeline::render::auto_fit::fit_develop_model`), never the caller's live
+//! edit model. The fitted curve/LUT are therefore a pure function of the RAW
+//! (at a given develop quality/size), so a RAW-identity key needs no
+//! adjustment digest or generation counter: slider ticks cannot change what
+//! a fit would produce, and a warm entry is always exactly what a cold fit
+//! would re-compute. (Develop quality/size are NOT in the key — pre-existing,
+//! documented contract: the fit quality "MUST match the host's render".)
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -38,13 +37,17 @@ use std::time::SystemTime;
 use super::curve::ProfileCurve;
 use super::lut::ColorLut;
 
-/// Cache capacity in entries. One `ProfileCurve` ~2 KB → total cap ~64 KB.
+/// Shared capacity, in entries, of BOTH the curve and LUT caches. The two
+/// stores are touched with the same keys in the same order (a fit inserts
+/// both; a render bumps both), so equal capacities keep them evicting in
+/// lockstep — a curve can't outlive its paired residual by 24 generations the
+/// way the old 32-vs-8 split allowed (#1085). Sized for the LUT, the larger
+/// artifact: a 49³ [`ColorLut`] is 49³×3×4 ≈ 1.4 MB, so 32 entries cap at
+/// ~45 MB — still well under one decoded frame (a 100 MP f32 buffer is
+/// ~1.2 GB), and a re-fit costs a multi-second develop, so trading bounded
+/// memory for fewer refits is the right side of the budget. The curve side is
+/// noise (~2 KB each → ~64 KB total).
 const CAPACITY: usize = 32;
-
-/// LUT cache capacity in entries. A 49³ [`ColorLut`] is 49³×3×4 ≈ 1.4 MB, so a
-/// small cap of 8 holds ~11 MB — still well under a decoded frame, while covering
-/// a handful of recently-touched RAWs in a session.
-const LUT_CAPACITY: usize = 8;
 
 /// Bytes-hash discriminator window. Prefix + suffix bytes hashed; tunable.
 const HASH_WINDOW: usize = 64 * 1024;
@@ -174,8 +177,8 @@ struct LutLruInner {
 impl LutLruInner {
     fn new() -> Self {
         Self {
-            map: HashMap::with_capacity(LUT_CAPACITY),
-            order: VecDeque::with_capacity(LUT_CAPACITY),
+            map: HashMap::with_capacity(CAPACITY),
+            order: VecDeque::with_capacity(CAPACITY),
         }
     }
 }
@@ -200,7 +203,7 @@ pub fn get_lut(key: &CacheKey) -> Option<ColorLut> {
 }
 
 /// Insert `lut` under `key` in the LUT cache. Evicts the oldest entry when at
-/// [`LUT_CAPACITY`]; replaces in place + bumps to MRU when `key` already
+/// [`CAPACITY`]; replaces in place + bumps to MRU when `key` already
 /// present. Mirrors [`insert`].
 pub fn insert_lut(key: CacheKey, lut: ColorLut) {
     let Ok(mut guard) = lut_cell().lock() else { return };
@@ -212,7 +215,7 @@ pub fn insert_lut(key: CacheKey, lut: ColorLut) {
         }
         return;
     }
-    if guard.order.len() >= LUT_CAPACITY {
+    if guard.order.len() >= CAPACITY {
         if let Some(oldest) = guard.order.pop_front() {
             guard.map.remove(&oldest);
         }

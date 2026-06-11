@@ -13,11 +13,12 @@
 //!
 //! ## Per-image, not per-tick
 //!
-//! The fitted curve is keyed on the embedded JPEG (stable across slider
-//! edits — see `super::cache`). A host bakes the LUT ONCE per image when the
-//! curve is first fit, uploads it to a GPU sampler, and re-samples it on
-//! every slider tick WITHOUT re-baking. Baking is an `O(N³)` cold-path step,
-//! never a render-loop operation.
+//! The fitted curve is fit from a PINNED default-model develop and cached
+//! keyed on RAW identity — `(path, mtime)` / bytes-hash, see `super::cache` —
+//! so it is stable across slider edits by construction (#1085). A host bakes
+//! the LUT ONCE per image when the curve is first fit, uploads it to a GPU
+//! sampler, and re-samples it on every slider tick WITHOUT re-baking. Baking
+//! is an `O(N³)` cold-path step, never a render-loop operation.
 
 use super::apply::apply_curve;
 use super::curve::ProfileCurve;

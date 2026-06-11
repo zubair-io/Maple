@@ -7,14 +7,12 @@
 //! residual the separable curve can't (`fit_lut_from_pairs` seeds identity and
 //! adds a confidence-weighted delta, so a tiny residual ⇒ near-identity LUT ⇒
 //! `strength = 0` reproduces the pure #550 curve exactly).
-use std::path::Path;
-
 use rayon::prelude::*;
 
 use crate::image::ExifOrientation;
 
 use super::pairs::DisplayPair;
-use super::preview::{self, JpegColorSpace};
+use super::preview::JpegColorSpace;
 
 /// Grid layout matches `bake.rs`: index = ((b*N + g)*N + r)*3 + c, values in [0,1].
 #[derive(Clone, Debug, PartialEq)]
@@ -91,6 +89,67 @@ impl ColorLut {
             p[2] = o[2];
         });
     }
+
+    /// Apply with a residual strength `k`: `p' = p + k·(sample(p) − p)`.
+    ///
+    /// Strength is an APPLY-time knob since #1085 — the fit always produces
+    /// (and the cache stores) the full-strength LUT, so `MAPLE_AUTO_LUT_STRENGTH`
+    /// can never be baked into a cached artifact. Because trilinear sampling is
+    /// linear in the node values and the identity grid reproduces its input,
+    /// this lerp equals sampling a `with_strength(k)`-scaled LUT (up to float
+    /// rounding, and up to the node clamp at the gamut corners for `k < 1`).
+    /// `k == 1.0` routes through [`ColorLut::apply`] (bit-identical to the
+    /// pre-#1085 full-strength apply); `k == 0.0` is an exact no-op.
+    pub fn apply_with_strength(&self, rgb: &mut [f32], k: f32) {
+        if k == 0.0 {
+            return;
+        }
+        if k == 1.0 {
+            self.apply(rgb);
+            return;
+        }
+        rgb.par_chunks_mut(3).for_each(|p| {
+            let o = self.sample([p[0], p[1], p[2]]);
+            p[0] += k * (o[0] - p[0]);
+            p[1] += k * (o[1] - p[1]);
+            p[2] += k * (o[2] - p[2]);
+        });
+    }
+
+    /// A copy with the residual scaled toward identity by `k`:
+    /// `node' = clamp01(id + k·(node − id))`. `k == 1.0` is a plain clone.
+    /// Used by the GPU fit entries to honour `MAPLE_AUTO_LUT_STRENGTH` on the
+    /// RETURNED artifact while the cache keeps the canonical full-strength LUT
+    /// (#1085).
+    pub fn with_strength(&self, k: f32) -> ColorLut {
+        if k == 1.0 {
+            return self.clone();
+        }
+        let id = ColorLut::identity(self.size);
+        let mut out = self.clone();
+        for (o, i) in out.data.iter_mut().zip(&id.data) {
+            *o = (i + k * (*o - i)).clamp(0.0, 1.0);
+        }
+        out
+    }
+}
+
+/// `MAPLE_AUTO_LUT_STRENGTH` (default `1.0`) — the verify-harness knob that
+/// blends the residual toward identity (`0` ⇒ exactly the #550 curve, the
+/// accuracy floor). Read at APPLY/RETURN time, never at fit time (#1085).
+pub fn lut_strength_from_env() -> f32 {
+    std::env::var("MAPLE_AUTO_LUT_STRENGTH")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(1.0)
+}
+
+/// `MAPLE_DISABLE_AUTO_LUT` — when set, the residual-LUT stage is skipped
+/// ENTIRELY: no pair sampling, no fit, no cache insert, nothing applied or
+/// returned (#1085; pre-fix only the apply was gated, so the fit still ran
+/// and its result was cached).
+pub fn lut_disabled_by_env() -> bool {
+    std::env::var_os("MAPLE_DISABLE_AUTO_LUT").is_some()
 }
 
 const FIT_CONF_COUNT: f32 = 8.0; // confidence half-count: c = count / (count + FIT_CONF_COUNT)
@@ -189,54 +248,26 @@ pub fn fit_lut_from_pairs(pairs: &[DisplayPair], size: usize, strength: f32) -> 
     lut
 }
 
-/// Fit a per-image color [`ColorLut`] from the embedded JPEG of the RAW at
-/// `raw_path`, against the developed display buffer.
+/// Fit a per-image color [`ColorLut`] from an ALREADY-extracted embedded
+/// preview, against the developed display buffer (#1085 — the caller extracts
+/// the preview once and threads it through both fits).
 ///
-/// Mirrors #550's [`super::fit_display::fit_curve_from_raw_display`]: extract the
-/// embedded preview, detect its color space, then sample display-space
-/// correspondences and fit the smooth grid. `source_rgb` is the caller's
+/// Mirrors #550's [`super::fit_display::fit_curve_from_preview_display`]:
+/// sample display-space correspondences, gate on a minimum pair count, then
+/// fit the smooth grid at [`LUT_SIZE`]. `source_rgb` is the caller's
 /// interleaved RGB f32 buffer in **f32 sRGB-encoded display space**
 /// ([`crate::image::ColorSpace::DisplayEncodedSrgb`], values nominally `[0, 1]`),
-/// sensor-oriented (the render applies `orientation` after this stage).
+/// sensor-oriented (the render applies `orientation` after this stage);
+/// `preview` is the SENSOR-oriented embedded JPEG.
 ///
-/// Returns `None` (→ identity / Neutral fallback) when there's no embedded JPEG
-/// or too few clean pairs survive ([`MIN_LUT_PAIRS`]).
-pub fn fit_lut_from_raw_display<P: AsRef<Path>>(
-    raw_path: P,
-    source_rgb: &[f32],
-    source_w: usize,
-    source_h: usize,
-    orientation: ExifOrientation,
-) -> Option<ColorLut> {
-    let preview = preview::extract_preview(raw_path.as_ref())?;
-    let cs = preview::detect_jpeg_color_space(raw_path.as_ref());
-    fit_lut_from_preview(source_rgb, source_w, source_h, preview, cs, orientation)
-}
-
-/// Bytes/WASM variant of [`fit_lut_from_raw_display`]. Uses
-/// [`preview::extract_preview_from_bytes`] (no exiftool fallback — WASM has no
-/// subprocess access). `ext` is the file extension (e.g. `"dng"`) used as a
-/// rawler format hint; pass `""` if unknown.
-pub fn fit_lut_from_bytes_display(
-    raw_bytes: &[u8],
-    ext: &str,
-    source_rgb: &[f32],
-    source_w: usize,
-    source_h: usize,
-    orientation: ExifOrientation,
-) -> Option<ColorLut> {
-    let preview = preview::extract_preview_from_bytes(raw_bytes, ext)?;
-    let cs = preview::detect_jpeg_color_space_from_bytes(raw_bytes, ext);
-    fit_lut_from_preview(source_rgb, source_w, source_h, preview, cs, orientation)
-}
-
-/// Shared tail of the two entry points: sample display-space pairs, gate on a
-/// minimum pair count, then fit the LUT at [`LUT_SIZE`].
+/// Always fits at FULL strength — `MAPLE_AUTO_LUT_STRENGTH` is an apply-time
+/// knob ([`ColorLut::apply_with_strength`] / [`ColorLut::with_strength`]), so
+/// the env value can never be baked into a cached LUT (#1085; pre-fix the env
+/// was read here and the scaled grid landed in the shared cache).
 ///
-/// The `MAPLE_AUTO_LUT_STRENGTH` env override lets the verify harness render
-/// LUT-off (`k = 0` ⇒ identity residual ⇒ exactly the #550 curve) vs LUT-on
-/// (`k = 1`).
-fn fit_lut_from_preview(
+/// Returns `None` (→ identity / Neutral fallback) when too few clean pairs
+/// survive ([`MIN_LUT_PAIRS`]).
+pub fn fit_lut_from_preview(
     source_rgb: &[f32],
     source_w: usize,
     source_h: usize,
@@ -249,11 +280,7 @@ fn fit_lut_from_preview(
     if pairs.len() < MIN_LUT_PAIRS {
         return None;
     }
-    let k = std::env::var("MAPLE_AUTO_LUT_STRENGTH")
-        .ok()
-        .and_then(|s| s.parse::<f32>().ok())
-        .unwrap_or(1.0);
-    Some(fit_lut_from_pairs(&pairs, LUT_SIZE, k))
+    Some(fit_lut_from_pairs(&pairs, LUT_SIZE, 1.0))
 }
 
 /// In-place separable 1-2-1 smoothing of the per-cell delta grid over each RGB
@@ -363,6 +390,65 @@ mod tests {
         let id = ColorLut::identity(9);
         assert!((lut.node(0, 0, 0)[0] - id.node(0, 0, 0)[0]).abs() < 1e-3);
         assert!((lut.node(0, 0, 0)[2] - id.node(0, 0, 0)[2]).abs() < 1e-3);
+    }
+
+    /// #1085 strength contract: the cache stores the full-strength LUT and
+    /// strength is applied at apply/return time. `apply_with_strength(_, 1.0)`
+    /// must be BIT-identical to `apply` (the default path the harness gates);
+    /// `0.0` must be an exact no-op; a mid `k` must lerp input → sample.
+    #[test]
+    fn apply_with_strength_matches_contract() {
+        let mut lut = ColorLut::identity(9);
+        for n in lut.data.chunks_mut(3) {
+            n[0] = (n[0] + 0.2).min(1.0); // +0.2 red everywhere
+        }
+        let src = vec![0.4f32, 0.5, 0.6];
+
+        let mut full = src.clone();
+        lut.apply(&mut full);
+        let mut k1 = src.clone();
+        lut.apply_with_strength(&mut k1, 1.0);
+        assert_eq!(k1, full, "k=1.0 must be bit-identical to plain apply");
+
+        let mut k0 = src.clone();
+        lut.apply_with_strength(&mut k0, 0.0);
+        assert_eq!(k0, src, "k=0.0 must be an exact no-op");
+
+        let mut half = src.clone();
+        lut.apply_with_strength(&mut half, 0.5);
+        for c in 0..3 {
+            let expect = src[c] + 0.5 * (full[c] - src[c]);
+            assert!(
+                (half[c] - expect).abs() < 1e-6,
+                "k=0.5 channel {c}: got {} want {expect}",
+                half[c]
+            );
+        }
+    }
+
+    /// `with_strength` (the GPU-return scaling) agrees with the apply-time
+    /// lerp away from the node clamp, and `1.0` is a plain clone.
+    #[test]
+    fn with_strength_scales_nodes_toward_identity() {
+        let mut lut = ColorLut::identity(9);
+        for n in lut.data.chunks_mut(3) {
+            n[0] = (n[0] + 0.2).min(1.0);
+        }
+        assert_eq!(lut.with_strength(1.0), lut, "k=1.0 is a plain clone");
+        let half = lut.with_strength(0.5);
+        // Mid-grey is far from the clamp: scaled-LUT sample == lerped apply.
+        let mut via_scaled = vec![0.4f32, 0.5, 0.6];
+        half.apply(&mut via_scaled);
+        let mut via_lerp = vec![0.4f32, 0.5, 0.6];
+        lut.apply_with_strength(&mut via_lerp, 0.5);
+        for c in 0..3 {
+            assert!(
+                (via_scaled[c] - via_lerp[c]).abs() < 1e-6,
+                "channel {c}: scaled {} vs lerp {}",
+                via_scaled[c],
+                via_lerp[c]
+            );
+        }
     }
 
     #[test]
