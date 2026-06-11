@@ -421,4 +421,3 @@ fn fit_under_cap(
         v_range / height as f64,
     )
 }
-
