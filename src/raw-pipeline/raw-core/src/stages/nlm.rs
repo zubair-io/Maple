@@ -63,7 +63,17 @@ const FAST_EXP_TABLE_SIZE: usize = 512;
 
 #[inline(always)]
 fn fast_neg_exp(x: f32) -> f32 {
-    // x is always >= 0 (it's `ssd * inv_norm`, both non-negative).
+    // Negative-input guard — defense layer 2 of 2 for #1086. In exact math
+    // x = ssd·inv_norm ≥ 0, and layer 1 (the `.max(0.0)` clamp on the
+    // integral-image rect query in `process_shift`) restores that in f32.
+    // Unguarded, a negative x is silently catastrophic here: `t as usize`
+    // saturates to 0, `frac` goes negative, and the first table segment
+    // EXTRAPOLATES to ≈ 1 + |x| — a weight growing linearly in |x| instead
+    // of capping at 1, letting one shift dominate the average. exp(0) = 1
+    // is the correct limit for ssd → 0⁻, so return exactly 1.0.
+    if x < 0.0 {
+        return 1.0;
+    }
     // exp(-x) ranges from 1.0 at x=0 down to ~3.4e-4 at x=8.
     if x >= FAST_EXP_RANGE {
         return 0.0;
@@ -163,6 +173,10 @@ pub fn denoise_plane_cancellable(
 
     // Persistent scratch — allocated once, reused across all shifts.
     let mut sqdiff = vec![0.0f32; n];
+    // f32 integral-image precision at 100MP-scale offsets — structural fix
+    // (sliding box-sum) tracked in #1089. Until then the rect query clamps
+    // negative cancellation residue and `fast_neg_exp` guards negative
+    // input (both #1086), so weights stay ≤ 1.
     let mut ii = vec![0.0f32; iw * ih];
     let mut acc = vec![0.0f32; n];
     let mut wsum = vec![0.0f32; n];
@@ -362,6 +376,13 @@ fn process_shift(
                 let x0 = x - p;
                 let x1 = x + p + 1;
                 let ssd = ii_bot[x1] - ii_top[x1] - ii_bot[x0] + ii_top[x0];
+                // True patch-SSD is ≥ 0, but this four-term f32 query can
+                // cancel to a NEGATIVE residue when the true patch mass is
+                // near zero and the integral values are large (far from the
+                // origin, straddling a binade boundary). Clamp — defense
+                // layer 1 of 2 for #1086; `fast_neg_exp` independently
+                // guards negative input.
+                let ssd = ssd.max(0.0);
                 let weight = fast_neg_exp(ssd * inv_norm);
                 let sx = (x as isize + dx) as usize;
                 acc_row[x] += weight * shift_row[sx];
