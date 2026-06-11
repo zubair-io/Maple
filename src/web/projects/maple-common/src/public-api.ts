@@ -130,6 +130,13 @@ export * from './lib/editor/group-tabs.component';
 export * from './lib/editor/tool-pill-row.component';
 export * from './lib/editor/editor.component';
 export * from './lib/editor/editor-page.component';
+
+// Presets (#1115, spec §10.7) — sparse-model storage + apply/save UI.
+export * from './lib/editor/presets/preset-model';
+export * from './lib/editor/presets/builtin-presets';
+export * from './lib/editor/presets/user-preset-store';
+export * from './lib/editor/presets/presets.service';
+export * from './lib/editor/presets/presets-panel.component';
 export * from './lib/components/folder-tree/folder-tree.component';
 export * from './lib/components/asset-grid/asset-grid.component';
 export * from './lib/components/asset-thumb/asset-thumb.component';
