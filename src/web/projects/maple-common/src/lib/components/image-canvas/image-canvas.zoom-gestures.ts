@@ -110,10 +110,8 @@ export interface ZoomGestureHost {
   /** Commit a settled pixelScale (0 = fit) + pan (CSS px, clamped here). */
   commitView(pixelScale: number, pan: { x: number; y: number }): void;
   pan(): { x: number; y: number };
-  /** Before/after divider drag (kept on the wrap's pointer stream). */
-  dividerDragging(): boolean;
+  /** Before/after divider position update (the drag rides the wrap's pointer stream). */
   moveDivider(clientX: number): void;
-  endDividerDrag(): void;
 }
 
 /** Minimal pointer shape (structurally satisfied by PointerEvent). */
@@ -134,8 +132,80 @@ export class CanvasZoomGestures {
   private pinchStartScale: number | null = null;
   private pinchStartDist = 0;
   private dragLast: { x: number; y: number } | null = null;
+  /** True while the before/after divider owns the pointer stream. */
+  private dividerDrag = false;
 
   constructor(private readonly host: ZoomGestureHost) {}
+
+  // ── DOM wiring ─────────────────────────────────────────────────────────
+
+  /**
+   * Attach the gesture listeners to the canvas wrap. Imperative (same
+   * precedent as `image-canvas.gpu-present.ts`'s DOM work) so the wheel
+   * listener is explicitly non-passive (`preventDefault` must work) and the
+   * component stays inside its file-size budget. Returns the detach fn.
+   */
+  attach(el: HTMLElement): () => void {
+    const down = (e: PointerEvent) => {
+      if (this.dividerDrag) return; // divider owns this pointer
+      // Mouse: left or middle button drags (parity with the old mouse path).
+      if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
+      // Capture on the wrap so drags/pinches survive leaving the element.
+      el.setPointerCapture?.(e.pointerId);
+      this.onPointerDown(e);
+    };
+    const move = (e: PointerEvent) => this.onPointerMove(e);
+    const up = (e: PointerEvent) => {
+      el.releasePointerCapture?.(e.pointerId);
+      this.onPointerUp(e);
+    };
+    const wheel = (e: WheelEvent) => {
+      if (this.onWheel(e)) e.preventDefault();
+    };
+    const dblclick = (e: MouseEvent) => this.onDoubleClick(e.clientX, e.clientY);
+
+    el.addEventListener('pointerdown', down);
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('wheel', wheel, { passive: false });
+    el.addEventListener('dblclick', dblclick);
+    return () => {
+      el.removeEventListener('pointerdown', down);
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      el.removeEventListener('wheel', wheel);
+      el.removeEventListener('dblclick', dblclick);
+    };
+  }
+
+  /** Divider handle pointerdown: the divider owns the stream until release. */
+  onDividerDown(e: PointerEvent, wrapEl: HTMLElement): void {
+    e.stopPropagation();
+    this.dividerDrag = true;
+    // Capture on the wrap so the drag keeps tracking (and ends) even when
+    // the pointer leaves the element mid-drag.
+    wrapEl.setPointerCapture?.(e.pointerId);
+  }
+
+  /**
+   * Cmd/Ctrl+0 → fit, Cmd/Ctrl+1 → 100% (legacy Apple convention; bare
+   * `0`/`1` keep their S5 tool/rating meanings — those handlers skip
+   * modifier presses). `enabled` gates on a focused asset.
+   */
+  onKeydown(e: KeyboardEvent, enabled: boolean): void {
+    if (!enabled || !(e.metaKey || e.ctrlKey)) return;
+    const target = e.target as HTMLElement | null;
+    if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+    if (e.key === '0') {
+      e.preventDefault();
+      this.commit(0, { x: 0, y: 0 });
+    } else if (e.key === '1') {
+      e.preventDefault();
+      this.commit(1, { x: 0, y: 0 });
+    }
+  }
 
   // ── Derived state ──────────────────────────────────────────────────────
 
@@ -151,6 +221,35 @@ export class CanvasZoomGestures {
     const { w, h } = this.host.wrapSize();
     if (!native) return 1;
     return fitPixelScale(native.w, native.h, w, h, this.host.devicePixelRatio());
+  }
+
+  /** Zoom badge text: percent of the EFFECTIVE real scale, always visible. */
+  zoomPercent(): string {
+    const ps = this.host.pixelScale();
+    if (ps !== 0) return `${Math.round(ps * 100)}%`;
+    // At fit the percent derives from viewport/native — readable once the
+    // cold open has reported native dims.
+    if (!this.host.nativeSize()) return 'Fit';
+    return `${Math.round(this.fitScale() * 100)}%`;
+  }
+
+  /**
+   * Clamped commit: fit recenters; otherwise the pan is clamped so the image
+   * edges stop at the viewport (a fitting axis stays centered).
+   */
+  private commit(ps: number, pan: { x: number; y: number }): void {
+    if (ps === 0) {
+      this.host.commitView(0, { x: 0, y: 0 });
+      return;
+    }
+    const native = this.host.nativeSize();
+    if (!native) {
+      this.host.commitView(ps, pan);
+      return;
+    }
+    const css = ps / this.host.devicePixelRatio();
+    const { w, h } = this.host.wrapSize();
+    this.host.commitView(ps, clampPan(pan, native.w * css, native.h * css, w, h));
   }
 
   /** Anchor (CSS px, relative to the wrap center) for a client point. */
@@ -176,13 +275,13 @@ export class CanvasZoomGestures {
     const after = next === 0 ? fit : next;
     if (next === 0) {
       // Snapped to fit — recenter (docs/zoom.md: fit resets pan).
-      this.host.commitView(0, { x: 0, y: 0 });
+      this.commit(0, { x: 0, y: 0 });
       return;
     }
     const dpr = this.host.devicePixelRatio();
     const anchor = this.anchorFor(clientX, clientY);
     const pan = panForAnchoredZoom(this.host.pan(), anchor, before / dpr, after / dpr);
-    this.host.commitView(next, pan);
+    this.commit(next, pan);
   }
 
   // ── Pointer events (touch pinch + drag-pan) ────────────────────────────
@@ -201,7 +300,7 @@ export class CanvasZoomGestures {
   }
 
   onPointerMove(e: PointerLike): void {
-    if (this.host.dividerDragging()) {
+    if (this.dividerDrag) {
       this.host.moveDivider(e.clientX);
       return;
     }
@@ -227,20 +326,20 @@ export class CanvasZoomGestures {
       const dy = e.clientY - this.dragLast.y;
       this.dragLast = { x: e.clientX, y: e.clientY };
       const p = this.host.pan();
-      this.host.commitView(this.host.pixelScale(), { x: p.x + dx, y: p.y + dy });
+      this.commit(this.host.pixelScale(), { x: p.x + dx, y: p.y + dy });
     }
   }
 
   onPointerUp(e: PointerLike): void {
     this.pointers.delete(e.pointerId);
-    this.host.endDividerDrag();
+    this.dividerDrag = false;
     if (this.pointers.size < 2 && this.pinchStartScale !== null) {
       // Pinch ended: settle (snap to fit below fit×1.02, else keep).
       this.pinchStartScale = null;
       const ps = this.host.pixelScale();
       const settled = settlePixelScale(ps === 0 ? this.fitScale() : ps, this.fitScale());
-      if (settled === 0) this.host.commitView(0, { x: 0, y: 0 });
-      else this.host.commitView(settled, this.host.pan());
+      if (settled === 0) this.commit(0, { x: 0, y: 0 });
+      else this.commit(settled, this.host.pan());
       // The remaining finger (if any) continues as a drag-pan.
       const rest = Array.from(this.pointers.values());
       this.dragLast = rest.length === 1 ? { x: rest[0].x, y: rest[0].y } : null;
@@ -275,7 +374,7 @@ export class CanvasZoomGestures {
     if (this.host.pixelScale() !== 0) {
       // Zoomed: plain wheel (two-finger scroll) pans.
       const p = this.host.pan();
-      this.host.commitView(this.host.pixelScale(), { x: p.x - e.deltaX, y: p.y - e.deltaY });
+      this.commit(this.host.pixelScale(), { x: p.x - e.deltaX, y: p.y - e.deltaY });
       return true;
     }
     // Fit + plain wheel: not ours (S5 armed-tool nudge owns it).
@@ -289,7 +388,7 @@ export class CanvasZoomGestures {
     if (this.host.pixelScale() === 0) {
       this.zoomAnchored(1, clientX, clientY, true);
     } else {
-      this.host.commitView(0, { x: 0, y: 0 });
+      this.commit(0, { x: 0, y: 0 });
     }
   }
 
