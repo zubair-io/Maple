@@ -11,8 +11,10 @@
 //! Web consumes f32 directly (RGBA32F FBOs).
 //!
 //! Split out of `scene_linear.rs` so each file stays under the 600-LOC
-//! budget. The strip / dehaze-guard contract documented in
-//! `scene_linear.rs` applies here too.
+//! budget. The strip / dehaze-guard / Auto-Profile-AE contracts documented
+//! in `scene_linear.rs` apply here too — in particular, post-#927 these
+//! buffers are AE-off for every preview-bearing RAW under `Profile::Auto`,
+//! and are only display-faithful with the fitted tail applied (#1174).
 
 use crate::buffers::MapleSceneLinearBufferF32;
 use crate::cancel::{token_from_ptr, MapleCancelFlag, SendCancelPtr};

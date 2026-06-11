@@ -215,9 +215,10 @@ final class AppleRenderHarnessTests: XCTestCase {
 
     /// Single-fixture render helper. Mirrors the live app's path:
     ///   1. `decodeSceneLinear(asset:xmpPath:)`             — Rust FFI
-    ///   2. `processSceneLinear(decoded:model:targetSize:asShot:decodedAtModel:)`
+    ///   2. `AutoProfileLUT.shared.filter(forRawAt:…)`      — Auto Profile cube (#871/#1174)
+    ///   3. `processSceneLinear(decoded:model:targetSize:asShot:decodedAtModel:profileLUT:)`
     ///                                                       — Apple Metal kernels
-    ///   3. `CIContext.createCGImage(_, format:.RGBA8, colorSpace:sRGB)`
+    ///   4. `CIContext.createCGImage(_, format:.RGBA8, colorSpace:sRGB)`
     ///                                                       — sRGB 8-bit raster
     ///
     /// The CIContext settings (extendedLinearSRGB working space + RGBAh
@@ -286,12 +287,26 @@ final class AppleRenderHarnessTests: XCTestCase {
         let refExtent = try Self.peekPNGSize(at: refPNGURL)
         let targetSize = CGSize(width: refExtent.width, height: refExtent.height)
 
+        // Apply the Auto Profile tail exactly like production (#1174).
+        // Under `profile: .auto` (the sidecar default) the FFI decode above
+        // developed the buffer with auto-exposure forced Off (#871); the
+        // fitted cube owns the scene→JPEG brightness re-anchor. `nil` is
+        // legitimate here (fixtures without an embedded preview, e.g.
+        // test_0001, render plain AgX — same as production). `quality`
+        // matches the `.preview` decode above.
+        let profileLUT = await AutoProfileLUT.shared.filter(
+            forRawAt: rawURL,
+            profile: liveModel.profile,
+            quality: .preview
+        )
+
         let processed = pipeline.processSceneLinear(
             decoded: decoded,
             model: liveModel,
             targetSize: targetSize,
             asShot: asShot,
-            decodedAtModel: decodedAtModel
+            decodedAtModel: decodedAtModel,
+            profileLUT: profileLUT
         )
 
         // CIContext mirrors `ImageEditPipeline.init` (and therefore
