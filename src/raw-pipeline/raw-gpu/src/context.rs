@@ -56,6 +56,10 @@ pub struct GpuContext {
     /// generated color matrices). The #1111 display-linear Oklab tint. Built
     /// on first use via [`GpuContext::split_tone_pipeline`].
     pub(crate) split_tone_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled 8-band HSL compute pipeline (`hsl.wgsl` + the generated
+    /// color matrices). The #1112 scene-linear Oklab HSL stage. Built on first
+    /// use via [`GpuContext::hsl_pipeline`].
+    pub(crate) hsl_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled masked shadows/highlights compute pipeline
     /// (`scene_tone_sh.wgsl`, #1103): one tone step through the tonal detail
     /// mask (blurred-luma regional vs per-pixel mix). Built on first use via
@@ -324,6 +328,7 @@ impl GpuContext {
             vignette_pipeline: OnceCell::new(),
             grain_pipeline: OnceCell::new(),
             split_tone_pipeline: OnceCell::new(),
+            hsl_pipeline: OnceCell::new(),
             scene_tone_sh_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),
             srgb_gamma_pipeline: OnceCell::new(),
