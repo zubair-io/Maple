@@ -70,11 +70,12 @@ final class SceneLinearVisualRegressionTests: XCTestCase {
     // MARK: - Visual regression test
 
     /// Visual-regression gate (unit-test variant). Loads `test_0017.dng`,
-    /// runs it through `decodeSceneLinear` + `processSceneLinear` with
-    /// the default `AdjustmentModel`, renders the result to an sRGB PNG,
-    /// and compares against the committed golden via the Swift CIEDE2000
-    /// port. First run writes the baseline + fails with a "baseline
-    /// written" message — re-record by deleting
+    /// runs it through `decodeSceneLinear` + the `AutoProfileLUT` cube +
+    /// `processSceneLinear` with the default `AdjustmentModel` — the same
+    /// three-step path `EditSession` drives in production — renders the
+    /// result to an sRGB PNG, and compares against the committed golden
+    /// via the Swift CIEDE2000 port. First run writes the baseline + fails
+    /// with a "baseline written" message — re-record by deleting
     /// `MapleUITests/Goldens/test_0017-default.png` and re-running.
     ///
     /// Budgets match the XCUITest variant (per the harness brief § 7):
@@ -118,11 +119,36 @@ final class SceneLinearVisualRegressionTests: XCTestCase {
             return
         }
 
+        // Apply the Auto Profile tail exactly like production (#1174).
+        // The default model is `profile: .auto`, so the FFI decode above
+        // developed the buffer with auto-exposure forced Off (#871) on the
+        // expectation that the fitted curve∘residual cube re-anchors
+        // brightness. `EditSession+Render` fetches this cube and passes it
+        // to every `processSceneLinear` call; omitting it here renders the
+        // AE-off buffer with no tail — darker than the app by the full AE
+        // anchor gain (~2–3× scene-linear). `quality` matches the
+        // `.preview` decode above per the `AutoProfileLUT.filter` contract.
+        let profileLUT = await AutoProfileLUT.shared.filter(
+            forRawAt: fixture,
+            profile: AdjustmentModel.default.profile,
+            quality: .preview
+        )
+        guard let profileLUT else {
+            XCTFail(
+                "Auto Profile fit returned no cube for test_0017.dng. Post-#927 " +
+                "the embedded preview extracts in-process, so nil means the " +
+                "extraction/fit regressed — failing rather than silently " +
+                "measuring the AE-off no-tail render (#1174)."
+            )
+            return
+        }
+
         let processed = pipeline.processSceneLinear(
             decoded: decoded,
             model: AdjustmentModel.default,
             targetSize: nil,
-            asShot: nil
+            asShot: nil,
+            profileLUT: profileLUT
         )
 
         // Build a CIContext that mirrors the production pipeline's

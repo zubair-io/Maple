@@ -161,6 +161,19 @@ public actor ImageEditPipeline {
     /// pre-AgX, pre-Rec.2020->sRGB, so callers must apply a view transform
     /// before display. Tagged `extendedLinearITUR_2020` so CoreImage
     /// applies the correct primaries-to-working-space matrix on read.
+    ///
+    /// ⚠️ Auto Profile contract (#871 × #927 — see #1174): under
+    /// `Profile.auto` (the default) the FFI develops this buffer with
+    /// auto-exposure forced **Off** whenever the file's embedded preview is
+    /// extractable, because the fitted Auto Profile cube owns the entire
+    /// scene→JPEG brightness re-anchor. Since #927 made extraction work
+    /// in-process, that is effectively *every* preview-bearing RAW — so a
+    /// display render built from this buffer is only brightness-correct if
+    /// the caller also passes `AutoProfileLUT.shared.filter(...)` into
+    /// `processSceneLinear(profileLUT:)` (as `EditSession` does), or pins
+    /// `profileOverride: .neutral` here to keep auto-exposure in the
+    /// decode. Rendering the Auto buffer without the cube lands ~the AE
+    /// anchor gain (2–3×) too dark.
     nonisolated public func decodeSceneLinear(
         asset: AssetRef,
         quality: PipelineRenderer.Quality = .preview,
