@@ -278,6 +278,7 @@ pub(super) fn median(values: impl Iterator<Item = f64>) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ba::{solve, BaError, BaOptions, DropReason, DroppedFrame};
     use crate::graph::VerifiedEdge;
     use crate::twoview::PixelCorrespondence;
 
