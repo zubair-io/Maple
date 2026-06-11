@@ -52,6 +52,30 @@ extension AdjustmentModel {
         case splitToneHighlightHue = "split_tone_highlight_hue"
         case splitToneHighlightSaturation = "split_tone_highlight_saturation"
         case splitToneBalance = "split_tone_balance"
+        case hueAdjustmentRed = "hue_adjustment_red"
+        case hueAdjustmentOrange = "hue_adjustment_orange"
+        case hueAdjustmentYellow = "hue_adjustment_yellow"
+        case hueAdjustmentGreen = "hue_adjustment_green"
+        case hueAdjustmentAqua = "hue_adjustment_aqua"
+        case hueAdjustmentBlue = "hue_adjustment_blue"
+        case hueAdjustmentPurple = "hue_adjustment_purple"
+        case hueAdjustmentMagenta = "hue_adjustment_magenta"
+        case saturationAdjustmentRed = "saturation_adjustment_red"
+        case saturationAdjustmentOrange = "saturation_adjustment_orange"
+        case saturationAdjustmentYellow = "saturation_adjustment_yellow"
+        case saturationAdjustmentGreen = "saturation_adjustment_green"
+        case saturationAdjustmentAqua = "saturation_adjustment_aqua"
+        case saturationAdjustmentBlue = "saturation_adjustment_blue"
+        case saturationAdjustmentPurple = "saturation_adjustment_purple"
+        case saturationAdjustmentMagenta = "saturation_adjustment_magenta"
+        case luminanceAdjustmentRed = "luminance_adjustment_red"
+        case luminanceAdjustmentOrange = "luminance_adjustment_orange"
+        case luminanceAdjustmentYellow = "luminance_adjustment_yellow"
+        case luminanceAdjustmentGreen = "luminance_adjustment_green"
+        case luminanceAdjustmentAqua = "luminance_adjustment_aqua"
+        case luminanceAdjustmentBlue = "luminance_adjustment_blue"
+        case luminanceAdjustmentPurple = "luminance_adjustment_purple"
+        case luminanceAdjustmentMagenta = "luminance_adjustment_magenta"
         case highlightRecovery = "highlight_recovery"
         case autoExposure = "auto_exposure"
         case look = "look"
@@ -138,6 +162,54 @@ extension AdjustmentModel {
     public static let splitToneHighlightSaturationRange: ClosedRange<Double> = 0.0...100.0
     /// Split-tone balance — shifts the shadow/highlight crossover via exp2(bal/100) weight exponents (#1111). Primary drag-bar field for the Split Tone tool.
     public static let splitToneBalanceRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Red hue adjustment (#1112, tone/zoom design spec § 10.4). Oklab hue rotation on the Red band; ±100 ↔ ±30° (pending ACR calibration). XMP: crs:HueAdjustmentRed.
+    public static let hueAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Orange hue adjustment (#1112). XMP: crs:HueAdjustmentOrange.
+    public static let hueAdjustmentOrangeRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Yellow hue adjustment (#1112). XMP: crs:HueAdjustmentYellow.
+    public static let hueAdjustmentYellowRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Green hue adjustment (#1112). XMP: crs:HueAdjustmentGreen.
+    public static let hueAdjustmentGreenRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Aqua hue adjustment (#1112). XMP: crs:HueAdjustmentAqua.
+    public static let hueAdjustmentAquaRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Blue hue adjustment (#1112). XMP: crs:HueAdjustmentBlue.
+    public static let hueAdjustmentBlueRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Purple hue adjustment (#1112). XMP: crs:HueAdjustmentPurple.
+    public static let hueAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Magenta hue adjustment (#1112). XMP: crs:HueAdjustmentMagenta.
+    public static let hueAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Red saturation adjustment (#1112). Scales Oklab chroma on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:SaturationAdjustmentRed.
+    public static let saturationAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Orange saturation adjustment (#1112). XMP: crs:SaturationAdjustmentOrange.
+    public static let saturationAdjustmentOrangeRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Yellow saturation adjustment (#1112). XMP: crs:SaturationAdjustmentYellow.
+    public static let saturationAdjustmentYellowRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Green saturation adjustment (#1112). XMP: crs:SaturationAdjustmentGreen.
+    public static let saturationAdjustmentGreenRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Aqua saturation adjustment (#1112). XMP: crs:SaturationAdjustmentAqua.
+    public static let saturationAdjustmentAquaRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Blue saturation adjustment (#1112). XMP: crs:SaturationAdjustmentBlue.
+    public static let saturationAdjustmentBlueRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Purple saturation adjustment (#1112). XMP: crs:SaturationAdjustmentPurple.
+    public static let saturationAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Magenta saturation adjustment (#1112). XMP: crs:SaturationAdjustmentMagenta.
+    public static let saturationAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Red luminance adjustment (#1112). Scales Oklab L on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:LuminanceAdjustmentRed.
+    public static let luminanceAdjustmentRedRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Orange luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentOrange.
+    public static let luminanceAdjustmentOrangeRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Yellow luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentYellow.
+    public static let luminanceAdjustmentYellowRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Green luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentGreen.
+    public static let luminanceAdjustmentGreenRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Aqua luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentAqua.
+    public static let luminanceAdjustmentAquaRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Blue luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentBlue.
+    public static let luminanceAdjustmentBlueRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Purple luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentPurple.
+    public static let luminanceAdjustmentPurpleRange: ClosedRange<Double> = -100.0...100.0
+    /// HSL Magenta luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentMagenta.
+    public static let luminanceAdjustmentMagentaRange: ClosedRange<Double> = -100.0...100.0
     /// Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.
     public static let chromaPrefilterRange: ClosedRange<Double> = 0.0...100.0
     /// BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key.
