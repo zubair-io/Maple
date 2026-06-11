@@ -5,6 +5,7 @@
 
 pub mod synth_dng;
 pub mod predictions;
+pub mod predictions_display;
 pub mod hasselblad_dcp;
 pub mod colorchecker;
 pub mod synth_chart;
