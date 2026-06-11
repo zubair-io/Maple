@@ -99,9 +99,7 @@ describe('CanvasZoomGestures controller (#1100)', () => {
         pixelScale = ps;
         pan = ps === 0 ? { x: 0, y: 0 } : p;
       },
-      dividerDragging: () => false,
       moveDivider: () => {},
-      endDividerDrag: () => {},
     };
     g = new CanvasZoomGestures(host);
   });
