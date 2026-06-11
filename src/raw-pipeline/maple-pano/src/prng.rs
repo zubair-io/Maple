@@ -1,8 +1,12 @@
 //! SplitMix64 — tiny deterministic PRNG for the ground-truth renderer.
 //!
-//! `rand` is deliberately not a dependency: the renderer's contract is
-//! "same seed → byte-identical outputs" across platforms and crate-version
-//! bumps, so the generator is pinned in-tree. SplitMix64 is the standard
+//! `rand` is deliberately not a dependency: the renderer needs a PRNG
+//! *stream* that is stable across platforms and crate-version bumps, so
+//! the generator is pinned in-tree (the stream is pure integer math). Note
+//! this stabilizes only the randomness — whole-output byte-identity is
+//! guaranteed per platform + toolchain, not across them, because
+//! transcendental math and PNG encoding can differ between targets (see
+//! the determinism note in `render`). SplitMix64 is the standard
 //! 64-bit mixer from Steele et al., "Fast Splittable Pseudorandom Number
 //! Generators" (OOPSLA 2014); passes BigCrush, one u64 of state.
 
