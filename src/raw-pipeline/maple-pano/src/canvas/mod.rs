@@ -245,7 +245,6 @@ pub(super) struct CameraSamples {
     sees_nadir: bool,
 }
 
-
 mod auto;
 pub use auto::{angular_extent_deg, auto_canvas};
 
