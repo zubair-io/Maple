@@ -8,7 +8,8 @@
 //! wrong dark channel (radius 67 px on the reference scenes). BM3D's
 //! reference-patch grid is frame-anchored, so per-tile grids would seam.
 //! The core tile entry (`render_scene_linear_tile_from_raw_with_quality`)
-//! rejects both itself since #1084 — these FFI pre-checks remain as
+//! rejects both itself (dehaze since #1084; deep denoise per #1105) — these
+//! FFI pre-checks remain as
 //! belt-and-braces with a shorter, host-facing error message, and both
 //! layers map to the same rc=10 "fall back to fit-zoom" contract.
 
