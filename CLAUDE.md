@@ -179,10 +179,10 @@ cd src/raw-pipeline/raw-wasm
 wasm-pack build --target web
 # sync into maple-common (the consumer) — see src/web/scripts/sync-raw-wasm.sh
 
-# Format + lint
+# Format + test (there is no web lint step — Prettier is the only style gate)
 cd src/web
-bun run format
-bun run lint
+bun run format        # prettier --write over files this branch changes vs origin/main
+bun run format:check  # mirrors CI's format gate (.github/workflows/cross.yml format-check)
 bun run test
 ```
 

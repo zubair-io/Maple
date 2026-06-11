@@ -72,21 +72,21 @@ See `§ Angular — Observables and view models` below for the pattern in detail
 Prettier handles all formatting. Editor must format on save.
 
 ```json
-// .prettierrc
+// src/web/.prettierrc — the config CI uses (everything else is Prettier defaults)
 {
-  "tabWidth": 4,
-  "useTabs": false,
-  "singleQuote": true,
-  "trailingComma": "all",
   "printWidth": 100,
-  "semi": true
+  "singleQuote": true,
+  "overrides": [{ "files": "*.html", "options": { "parser": "angular" } }]
 }
 ```
 
 ```bash
-bun run format          # format all
-bun run format:check    # CI gate
+cd src/web
+bun run format          # prettier --write over files your branch changes vs origin/main
+bun run format:check    # the CI gate (cross.yml format-check): --check over the same files
 ```
+
+There is no web lint step — Prettier is the only TypeScript/HTML style gate; CI (`.github/workflows/cross.yml`) runs it over the files a PR changes, repo-wide (`src/api` and `docs/` included).
 
 **Do not manually format code.** If Prettier output looks wrong, fix Prettier config — don't fight the tool.
 
