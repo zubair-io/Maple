@@ -18,6 +18,17 @@ import { LibraryStateService } from './library-state.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import type { ApiFolder } from '../api/bun-api-backend.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
+import { STORAGE_KEYS } from '../util/typed-storage';
+
+// This spec constructs the real BrowsePreferencesService (via
+// LibraryStateService); its persistence effects write `cm.*` keys into the
+// jsdom localStorage that vitest shares across spec files on a worker. Clear
+// them around each test so nothing leaks into sibling spec files (#1142).
+const clearPrefKeys = (): void => {
+  for (const key of Object.values(STORAGE_KEYS)) localStorage.removeItem(key);
+};
+beforeEach(clearPrefKeys);
+afterEach(clearPrefKeys);
 
 class ApiStub {
   putXmp = vi.fn((_path: string, _xml: string) => of(undefined as void));

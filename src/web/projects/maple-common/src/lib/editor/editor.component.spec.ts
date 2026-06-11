@@ -14,6 +14,18 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EditorComponent } from './editor.component';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { API_BASE_URL } from '../api/api-base-url.token';
+import { STORAGE_KEYS } from '../util/typed-storage';
+
+// This spec constructs the real BrowsePreferencesService (via
+// EditorComponent → LibraryStateService); its persistence effects write
+// `cm.*` keys into the jsdom localStorage that vitest shares across spec
+// files on a worker. Clear them around each test so nothing leaks into
+// sibling spec files (#1142).
+const clearPrefKeys = (): void => {
+  for (const key of Object.values(STORAGE_KEYS)) localStorage.removeItem(key);
+};
+beforeEach(clearPrefKeys);
+afterEach(clearPrefKeys);
 
 describe('EditorComponent — canvas wiring (#650)', () => {
   let http: HttpTestingController;

@@ -16,10 +16,25 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-import { LibraryStateService, SUPPORTED_RAW_EXTENSIONS, isSupportedRaw } from './library-state.service';
+import {
+  LibraryStateService,
+  SUPPORTED_RAW_EXTENSIONS,
+  isSupportedRaw,
+} from './library-state.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
+import { STORAGE_KEYS } from '../util/typed-storage';
+
+// This spec constructs the real BrowsePreferencesService (via
+// LibraryStateService); its persistence effects write `cm.*` keys into the
+// jsdom localStorage that vitest shares across spec files on a worker. Clear
+// them around each test so nothing leaks into sibling spec files (#1142).
+const clearPrefKeys = (): void => {
+  for (const key of Object.values(STORAGE_KEYS)) localStorage.removeItem(key);
+};
+beforeEach(clearPrefKeys);
+afterEach(clearPrefKeys);
 
 describe('LibraryStateService.addImportedAsset', () => {
   let svc: LibraryStateService;
@@ -73,7 +88,25 @@ describe('isSupportedRaw', () => {
   it('accepts every extension listed in the landing-page accept attribute', () => {
     // Keep this list in sync with projects/maple-syrup/src/app/landing/landing.component.html
     // and with SUPPORTED_RAW_EXTENSIONS in library-state.service.ts.
-    const accepted = ['cr3', 'nef', 'arw', 'dng', 'cr2', 'raf', 'orf', 'rw2', 'pef', 'srw', '3fr', 'fff', 'dcr', 'mos', 'iiq', 'mrw', 'raw'];
+    const accepted = [
+      'cr3',
+      'nef',
+      'arw',
+      'dng',
+      'cr2',
+      'raf',
+      'orf',
+      'rw2',
+      'pef',
+      'srw',
+      '3fr',
+      'fff',
+      'dcr',
+      'mos',
+      'iiq',
+      'mrw',
+      'raw',
+    ];
     for (const ext of accepted) {
       expect(isSupportedRaw(`IMG_0001.${ext}`), ext).toBe(true);
       expect(isSupportedRaw(`IMG_0001.${ext.toUpperCase()}`), `uppercase ${ext}`).toBe(true);
