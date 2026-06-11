@@ -69,8 +69,8 @@ mod support;
 mod types;
 
 use support::{
-    build_blocks, finalize, finalize_trivial, focal_fallback_frames, frame_stats,
-    largest_subcomponent, median,
+    build_blocks, finalize, finalize_trivial, focal_fallback, frame_stats, largest_subcomponent,
+    median,
 };
 pub use types::{BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats};
 
@@ -185,18 +185,26 @@ pub fn solve(
 
         let gauge = 0; // Local index of the smallest active image index.
         if first_round {
-            // Stage A: rotations only, intrinsics frozen at the seed.
+            // Stage A: rotations only, intrinsics frozen at the seed —
+            // graduated non-convexity. Far inits (the §9.1 basin bench
+            // perturbs 5–15° ≈ hundreds of px) sit deep in the Huber
+            // linear regime where a δ=2 px landscape folds into twist
+            // minima; widening δ first makes the far field quadratic and
+            // walks the rotations home, then the tight δ restores
+            // outlier robustness. Final accuracy is set by Stage B.
             let layout_a = ParamLayout::rotations_only(active.len(), gauge);
-            let a = minimize(
-                &blocks,
-                &frames,
-                &mut state,
-                &layout_a,
-                opts.huber_delta_px,
-                &lm_opts,
-            );
-            solution.lm_iterations += a.iterations;
-            solution.converged &= a.converged;
+            for delta_scale in [32.0, 8.0, 1.0] {
+                let a = minimize(
+                    &blocks,
+                    &frames,
+                    &mut state,
+                    &layout_a,
+                    opts.huber_delta_px * delta_scale,
+                    &lm_opts,
+                );
+                solution.lm_iterations += a.iterations;
+                solution.converged &= a.converged;
+            }
         }
         // Stage B: joint rotations + shared focal + k1 + k2.
         let layout_b = ParamLayout::full(active.len(), gauge, &[]);
@@ -213,29 +221,27 @@ pub fn solve(
         solution.final_cost = b.final_cost;
         first_round = false;
 
-        // Stage C (decision §9.2, once per solve): frames whose residuals
-        // carry a systematic radial signature — the fingerprint of a wrong
-        // per-frame focal — and whose median residual drops materially
-        // under a one-parameter focal probe get their focal freed, and the
-        // joint stage re-runs with those overrides in the parameter set.
-        // Shared focal stays the regularizer for everything else.
+        // Stage C (decision §9.2, once per solve): cohort-outlier frames
+        // get their focals tested by a joint re-solve; a freed focal is
+        // kept only when it moves materially off the shared value AND
+        // rescues its frame to within the acceptance budget. Shared focal
+        // stays the regularizer for everything else; frames whose problem
+        // is not focal fall through to the gate below. See
+        // `support::focal_fallback` for the full decision rule.
         if !fallback_probed {
             fallback_probed = true;
-            let freed =
-                focal_fallback_frames(&blocks, &frames, &mut state, active.len(), opts, &lm_opts);
-            if !freed.is_empty() {
-                let layout_c = ParamLayout::full(active.len(), gauge, &freed);
-                let c = minimize(
-                    &blocks,
-                    &frames,
-                    &mut state,
-                    &layout_c,
-                    opts.huber_delta_px,
-                    &lm_opts,
-                );
-                solution.lm_iterations += c.iterations;
-                solution.converged &= c.converged;
-                solution.final_cost = c.final_cost;
+            if let Some(stage_c) = focal_fallback(
+                &blocks,
+                &frames,
+                &mut state,
+                active.len(),
+                gauge,
+                opts,
+                &lm_opts,
+            ) {
+                solution.lm_iterations += stage_c.iterations;
+                solution.converged &= stage_c.converged;
+                solution.final_cost = stage_c.final_cost;
             }
         }
 
@@ -261,7 +267,15 @@ pub fn solve(
 
         let Some((bad_local, mean_px, max_px)) = worst else {
             // Every surviving frame passes: finalize.
-            finalize(&mut solution, images, &active, &state, &stats, &blocks, &frames);
+            finalize(
+                &mut solution,
+                images,
+                &active,
+                &state,
+                &stats,
+                &blocks,
+                &frames,
+            );
             solution.dropped.append(&mut dropped);
             solution.dropped.sort_by_key(|d| d.index);
             return Ok(solution);

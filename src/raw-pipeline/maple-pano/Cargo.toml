@@ -80,3 +80,13 @@ libloading = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
 # models.toml manifest parsing.
 toml = { workspace = true, optional = true }
+
+[[test]]
+name = "ba_gates"
+path = "tests/ba_gates.rs"
+required-features = ["testkit"]
+
+[[test]]
+name = "ml_glue"
+path = "tests/ml_glue.rs"
+required-features = ["ml"]

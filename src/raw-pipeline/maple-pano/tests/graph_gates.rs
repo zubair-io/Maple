@@ -105,8 +105,8 @@ fn gate_ring_full_eight_is_connected_with_all_edges_verified() {
         // member of the matches the pair was verified against.
         assert_eq!(e.inlier_matches.len(), e.inlier_count);
         let mut rng = SplitMix64::new(0x00C0_FFEE ^ ((e.a as u64) << 32) ^ e.b as u64);
-        let source = generate_pair_correspondences(&cams[e.a], &cams[e.b], &corr, &mut rng)
-            .pixel_pairs();
+        let source =
+            generate_pair_correspondences(&cams[e.a], &cams[e.b], &corr, &mut rng).pixel_pairs();
         assert!(
             e.inlier_matches.iter().all(|m| source.contains(m)),
             "edge ({},{}) inlier payload contains a correspondence that was never an input",
