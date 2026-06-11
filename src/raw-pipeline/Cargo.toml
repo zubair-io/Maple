@@ -30,3 +30,25 @@ bytemuck = { version = "1", features = ["derive"] }
 # in the lockfile transitively via `png`.
 miniz_oxide = "0.8"
 rayon = "1"
+# ONNX Runtime bindings for the maple-pano ML stack (ALIKED + LightGlue,
+# #1139). Pinned to exactly 2.0.0-rc.10 — the rc.10/rc.12 line has a history
+# of compile breaks in the VitisAI execution-provider glue (the failure that
+# blocked the earlier pano-core ML attempt, see PR #17's Cargo.toml), so any
+# bump is its own PR gated on the pano regression run. `default-features =
+# false` + `load-dynamic`: the onnxruntime dylib is loaded at runtime
+# (`ORT_DYLIB_PATH` / `ort::init_from`), never statically linked and never
+# downloaded by the build — keeps the vendored offline build hermetic and the
+# vendor tree small. Verified compiling clean against ort-sys 2.0.0-rc.10 on
+# Rust 1.95 (2026-06-11).
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dynamic"] }
+# Pre-flight dlopen check for the onnxruntime dylib (maple-pano ml feature):
+# `ort` with `load-dynamic` *panics* when the dylib is missing/unloadable, so
+# the loader probes with libloading first and returns a typed error instead.
+# 0.8 matches the version ort-sys already pulls — no second copy in the tree.
+libloading = "0.8"
+# SHA-256 verification of the ALIKED/LightGlue ONNX files against the pinned
+# digests in maple-pano/models.toml (models are downloaded, never committed).
+sha2 = "0.10"
+# maple-pano/models.toml manifest parsing. 0.8 is already in the lockfile
+# (and vendored) via cbindgen's dependency tree.
+toml = "0.8"
