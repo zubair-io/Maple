@@ -61,7 +61,7 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
   let focused: WritableSignal<Asset | null>;
   let models: Map<AssetId, WritableSignal<AdjustmentModel>>;
   let decodeSpy: ReturnType<typeof vi.fn>;
-  let zoom: WritableSignal<'fit' | number>;
+  let canvasSvc: ImageCanvasService;
   let updateDimsSpy: ReturnType<typeof vi.fn>;
   let fixture: ComponentFixture<ImageCanvasComponent>;
 
@@ -69,7 +69,6 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
     vi.useFakeTimers();
     focused = signal<Asset | null>(null);
     models = new Map();
-    zoom = signal<'fit' | number>('fit');
     decodeSpy = vi.fn((_b: Uint8Array, _e: string, _x: string | undefined, mle: number) =>
       Promise.resolve(decodedAt(mle)),
     );
@@ -107,29 +106,17 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
       openDownloadProgress: signal(null),
     } as unknown as Partial<LibraryStateService>;
 
-    const canvasStub = {
-      currentPixels: signal<DecodedImage | null>(null),
-      zoom,
-      pan: signal({ x: 0, y: 0 }),
-      beforeAfterSplitX: signal<number | null>(null),
-      showBeforeAfter: signal(false),
-      resetView: vi.fn(),
-      toggleBeforeAfter: vi.fn(),
-      zoomIn: vi.fn(),
-      zoomOut: vi.fn(),
-      setSplit: vi.fn(),
-      applyPanDelta: vi.fn(),
-    } as unknown as Partial<ImageCanvasService>;
-
     TestBed.configureTestingModule({
       imports: [ImageCanvasComponent],
       providers: [
         XmpSerializerService,
         { provide: LibraryStateService, useValue: stateStub },
-        { provide: ImageCanvasService, useValue: canvasStub },
         { provide: RawPipelineService, useValue: { decode: decodeSpy } },
       ],
     });
+    // The REAL pan/zoom service (#1100): tiny and dependency-free, and the
+    // component's gesture/zoom wiring is part of what these tests cover.
+    canvasSvc = TestBed.inject(ImageCanvasService);
     fixture = TestBed.createComponent(ImageCanvasComponent);
     fixture.detectChanges(); // renders the real template + runs ngAfterViewInit
   });
@@ -192,7 +179,7 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
   it('zoomed in, the trailing refine fires at native × min(scale, 1), Full quality', async () => {
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
-    zoom.set(1); // 100% CSS zoom @ dpr 1 → real scale 1 → refine at native
+    canvasSvc.pixelScale.set(1); // pixelScale 1 @ dpr 1 → real scale 1 → refine at native
     await settle(REFINE_MS + 50); // absorb the zoom-driven refine
     decodeSpy.mockClear();
 
@@ -216,7 +203,7 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
     await settle(REFINE_MS + 50);
     decodeSpy.mockClear();
 
-    zoom.set(1);
+    canvasSvc.pixelScale.set(1);
     await settle(0);
     expect(decodeSpy).not.toHaveBeenCalled(); // debounced
 
@@ -258,7 +245,7 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
     focused.set(fakeAsset('a'));
     await settle(REFINE_MS + 50);
     expect(decodeSpy).toHaveBeenCalledTimes(1);
-    zoom.set(1); // make the refine pass reachable (off-fit)
+    canvasSvc.pixelScale.set(1); // make the refine pass reachable (off-fit)
     await settle(REFINE_MS + 50); // absorb the zoom-driven refine
     decodeSpy.mockClear();
 
@@ -395,20 +382,6 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
       openDownloadProgress: signal(null),
     } as unknown as Partial<LibraryStateService>;
 
-    const canvasStub = {
-      currentPixels: signal<DecodedImage | null>(null),
-      zoom: signal<'fit' | number>('fit'),
-      pan: signal({ x: 0, y: 0 }),
-      beforeAfterSplitX: signal<number | null>(null),
-      showBeforeAfter: signal(false),
-      resetView: vi.fn(),
-      toggleBeforeAfter: vi.fn(),
-      zoomIn: vi.fn(),
-      zoomOut: vi.fn(),
-      setSplit: vi.fn(),
-      applyPanDelta: vi.fn(),
-    } as unknown as Partial<ImageCanvasService>;
-
     const pipelineStub = {
       decode: decodeSpy,
       gpuLiveRenderEnabled: true,
@@ -422,7 +395,6 @@ describe('ImageCanvasComponent — GPU live-render path (#1038)', () => {
       providers: [
         XmpSerializerService,
         { provide: LibraryStateService, useValue: stateStub },
-        { provide: ImageCanvasService, useValue: canvasStub },
         { provide: RawPipelineService, useValue: pipelineStub },
       ],
     });
