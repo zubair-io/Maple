@@ -129,3 +129,4 @@ pub mod glue;
 // later WGSL passes are gated against these modules (eng design D6).
 // Appended after the ingest block — keep lib.rs additions append-only.
 pub mod canvas;
+pub mod warp;
