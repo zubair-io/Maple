@@ -27,29 +27,50 @@ pub fn predict_brightness(scene: f32, b_slider: f32) -> f32 {
     scene * gain
 }
 
-/// scene_tone_controls::apply, step 2. Luma-coupled highlights — for a
-/// neutral input R=G=B=scene, Y collapses to scalar `scene`, so the
-/// per-channel scale `Y_new/Y_old` collapses to the same closed form
-/// the previous per-channel implementation produced for neutrals.
+/// scene_tone_controls::apply, step 2 (#1103, tone/zoom design § 4.2).
+/// Highlights — for a neutral input R=G=B=scene, Y collapses to scalar
+/// `scene` and (on a uniform field) the detail mask degenerates to the
+/// per-pixel curve, so the output is `scene · highlights_mult(scene)`:
+///
+/// - weighted gain `exp2(−0.7 · h/100 · smoothstep(0.4, 1.0, Y))` — engages
+///   below the clip point (positive h darkens toward the knee, negative h
+///   brightens; sign conventions unchanged);
+/// - above the knee (Y > 1), sign-branched shape: h ≥ 0 keeps the
+///   `1 + (Y−1)/(1+2h)` compression; h < 0 expands by `1 + (Y−1)·(1+2|h|)` —
+///   the pole-free mirror (#1081 / PR #1117; the legacy shared denominator
+///   crossed zero at h = −50).
 pub fn predict_highlights(scene: f32, h_slider: f32) -> f32 {
     if h_slider.abs() < 1e-3 { return scene; }
-    if scene <= 1.0 { return scene; }
     let h_amount = h_slider / 100.0;
-    let h_denom = 1.0 + h_amount * 2.0;
-    if h_denom.abs() < 1e-6 { return scene; }
-    let y_new = 1.0 + (scene - 1.0) / h_denom;
-    // scale = y_new/scene; output = scene * scale = y_new (on neutrals).
-    y_new
+    let w = smoothstep(0.4, 1.0, scene);
+    let g = (-0.7 * h_amount * w).exp2();
+    let shape = if scene > 1.0 {
+        let y_new = if h_amount >= 0.0 {
+            1.0 + (scene - 1.0) / (1.0 + h_amount * 2.0)
+        } else {
+            1.0 + (scene - 1.0) * (1.0 + 2.0 * h_amount.abs())
+        };
+        y_new / scene
+    } else {
+        1.0
+    };
+    scene * shape * g
 }
 
-/// scene_tone_controls::apply, step 3. For a neutral pixel R=G=B=scene,
-/// luma == scene, so the per-channel math collapses to scalar math.
+/// scene_tone_controls::apply, step 3 (#1103, tone/zoom design § 4.2).
+/// Shadows — for a neutral pixel R=G=B=scene on a uniform field the detail
+/// mask degenerates and the output is `scene · shadows_mult(scene)`:
+/// `w_s(Y) = (1 − smoothstep(0, 0.25, Y))²` (engagement widened from 0.1),
+/// `mult = mix(1, exp2(1.5 · s/100), w_s)` — 2.83× lift / 0.35× crush cap
+/// at slider ±100 (the monotonicity-bounded calibration of the spec's ≈4×,
+/// see `S_GAIN_EV` in the stage), exactly 1 at Y ≥ 0.25. Sign conventions
+/// unchanged.
 pub fn predict_shadows(scene: f32, s_slider: f32) -> f32 {
     if s_slider.abs() < 1e-3 { return scene; }
-    let s_factor = (s_slider / 100.0) * 0.5;
-    let mask = 1.0 - smoothstep(0.0, 0.1, scene);
-    let lift = mask * s_factor;
-    scene * (1.0 + lift)
+    let t = 1.0 - smoothstep(0.0, 0.25, scene);
+    let w = t * t;
+    let mult = 1.0 + ((1.5 * s_slider / 100.0).exp2() - 1.0) * w;
+    scene * mult
 }
 
 /// scene_tone_controls::apply, step 4. Parametric upper-end curve
@@ -293,14 +314,72 @@ mod tests {
         }
     }
 
-    #[test] fn highlights_below_knee_is_identity()  { round_trip_highlights(0.50, 50.0); }
+    // #1103: the engagement floor is Y = 0.4 (exact identity below — w_h
+    // clamps to 0); the band acts below the clip point; above-knee keeps
+    // compression for h ≥ 0 and the #1081 pole-free expansion for h < 0.
+    #[test] fn highlights_below_engagement_is_identity() { round_trip_highlights(0.35, 50.0); }
+    #[test] fn highlights_below_knee_engages()      { round_trip_highlights(0.70, 50.0); }
     #[test] fn highlights_above_knee_compresses()   { round_trip_highlights(2.0, 50.0); }
     #[test] fn highlights_zero_is_identity()        { round_trip_highlights(2.0, 0.0); }
+    // #1081 / #1103 — negative half (pole-free expansion branch), incl. the
+    // old h = -50 pole and the full-range endpoint.
+    #[test] fn highlights_minus25_expands()           { round_trip_highlights(2.0, -25.0); }
+    #[test] fn highlights_minus50_expands_no_pole()   { round_trip_highlights(2.0, -50.0); }
+    #[test] fn highlights_minus100_expands()          { round_trip_highlights(2.0, -100.0); }
+    #[test] fn highlights_negative_below_engagement_is_identity() {
+        round_trip_highlights(0.35, -50.0);
+    }
 
     #[test] fn shadows_plus50_lifts_dark()    { round_trip_shadows(0.05, 50.0); }
     #[test] fn shadows_minus50_crushes_dark() { round_trip_shadows(0.05, -50.0); }
+    // #1103: engagement ceiling widened 0.1 → 0.25; 0.18 now engages,
+    // 0.50 stays exactly outside.
+    #[test] fn shadows_mid_engages()          { round_trip_shadows(0.18, 50.0); }
     #[test] fn shadows_above_mask_no_op()     { round_trip_shadows(0.50, 50.0); }
     #[test] fn shadows_zero_is_identity()     { round_trip_shadows(0.05, 0.0); }
+
+    /// #1103 — closed-form pins for the reworked responses (guards against
+    /// silently re-deriving different constants on either side):
+    /// shadows: Y→0 ⇒ w→1 ⇒ mult → exp2(±1.5) = 2.8284 / 0.3536.
+    /// highlights above knee at h=−50, Y=2: shape = (1+1·2)/2, g = 2^0.35.
+    #[test]
+    fn sh_rework_closed_form_pins() {
+        assert!((predict_shadows(0.0, 100.0) - 0.0).abs() < 1e-9); // 0·mult = 0
+        let m_plus = predict_shadows(0.001, 100.0) / 0.001;
+        assert!((m_plus - 1.5_f32.exp2()).abs() < 0.01, "shadows +100 deep mult {} != 2.83", m_plus);
+        let m_minus = predict_shadows(0.001, -100.0) / 0.001;
+        assert!((m_minus - (-1.5_f32).exp2()).abs() < 0.01,
+            "shadows -100 deep mult {} != 0.354", m_minus);
+        let h = predict_highlights(2.0, -50.0);
+        let expect = 3.0 * (0.35_f32).exp2(); // (1+(2−1)·2) · 2^(0.7·0.5·1)
+        assert!((h - expect).abs() < 1e-4, "highlights -50 @Y=2: {} != {}", h, expect);
+        let hp = predict_highlights(2.0, 100.0);
+        let expect_p = (4.0 / 3.0) * (-0.7_f32).exp2(); // (1+1/3) · 2^−0.7
+        assert!((hp - expect_p).abs() < 1e-4, "highlights +100 @Y=2: {} != {}", hp, expect_p);
+    }
+
+    /// #1103 — the reworked per-pixel responses are MONOTONE in Y at the
+    /// slider rails (the property that bounded S_GAIN_EV/H_GAIN_EV; an
+    /// inverted tone curve solarizes smooth gradients). Dense Y sweep
+    /// through both bands and across the knee.
+    #[test]
+    fn sh_rework_monotone_in_y_at_rails() {
+        for &(name, f) in &[
+            ("shadows+100", (|y: f32| predict_shadows(y, 100.0)) as fn(f32) -> f32),
+            ("shadows-100", |y: f32| predict_shadows(y, -100.0)),
+            ("highlights+100", |y: f32| predict_highlights(y, 100.0)),
+            ("highlights-100", |y: f32| predict_highlights(y, -100.0)),
+        ] {
+            let mut prev = f(0.0);
+            for i in 1..=600 {
+                let y = i as f32 * 0.005; // 0 → 3.0
+                let out = f(y);
+                assert!(out >= prev - 1e-6,
+                    "{} non-monotone at Y={}: {} < {}", name, y, out, prev);
+                prev = out;
+            }
+        }
+    }
 
     // Post-#267: whites is smoothstep-weighted with pivot at Y=0.5.
     // The lift / pull-down behaviour tests now sample a brighter input

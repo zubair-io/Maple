@@ -50,26 +50,51 @@ fn exposure_preserves_scene_headroom() {
 
 #[test]
 fn highlights_positive_compresses_above_knee() {
-    // Neutral pixel above the knee: Y = 2.0 > 1.0. Y_new = 1 + 1/3,
-    // scale = (4/3) / 2 = 2/3. All channels land at 4/3 ≈ 1.333.
+    // Neutral pixel above the knee: Y = 2.0 > 1.0 (#1103 response).
+    // Shape: Y_new = 1 + 1/3 (the kept pre-#1103 compression), times the
+    // weighted gain g = 2^(−0.7·1·w_h(2)) with w_h saturated at 1.
+    // All channels land at (4/3)·2^−0.7 ≈ 0.8208.
     let mut img = fresh_img([2.0, 2.0, 2.0]);
     let mut m = model_default();
     m.highlights = 100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
-    assert!((p[0] - (1.0 + 1.0 / 3.0)).abs() < 1e-4, "R was {}", p[0]);
+    let expected = (1.0 + 1.0 / 3.0) * (-0.7_f32).exp2();
+    assert!((p[0] - expected).abs() < 1e-4, "R was {}, expected {}", p[0], expected);
 }
 
 #[test]
-fn highlights_leaves_below_knee_untouched() {
-    // Y = 0.5 — below the knee, so the new luma-coupled code skips
-    // entirely. (Same behaviour as the legacy per-channel code on
-    // this input.)
-    let mut img = fresh_img([0.5, 0.5, 0.5]);
+fn highlights_leaves_below_engagement_untouched() {
+    // #1103: the engagement floor is Y = 0.4 — below it `w_h` clamps to
+    // exactly 0, the gain is exp2(0) = 1.0, and (below the knee) the shape
+    // term is 1: bit-exact passthrough even at the slider rail.
+    let mut img = fresh_img([0.35, 0.35, 0.35]);
     let mut m = model_default();
     m.highlights = 100.0;
     apply(&mut img, &m);
-    assert_eq!(img.pixels[0], [0.5, 0.5, 0.5]);
+    assert_eq!(img.pixels[0], [0.35, 0.35, 0.35]);
+}
+
+#[test]
+fn highlights_engages_below_the_knee() {
+    // #1103: the headline behaviour change — a bright-but-unclipped tone
+    // (Y = 0.7 < 1.0) now responds. w_h(0.7) = smoothstep(0.4, 1, 0.7) =
+    // 0.5, so +100 darkens by 2^(−0.7·0.5) ≈ 0.7846 and −100 brightens by
+    // the mirror factor.
+    let g = (-0.7_f32 * 0.5).exp2();
+    let mut img = fresh_img([0.7, 0.7, 0.7]);
+    let mut m = model_default();
+    m.highlights = 100.0;
+    apply(&mut img, &m);
+    let p = img.pixels[0];
+    assert!((p[0] - 0.7 * g).abs() < 1e-4, "+100 expected {}, got {}", 0.7 * g, p[0]);
+
+    let mut img = fresh_img([0.7, 0.7, 0.7]);
+    let mut m = model_default();
+    m.highlights = -100.0;
+    apply(&mut img, &m);
+    let p = img.pixels[0];
+    assert!((p[0] - 0.7 / g).abs() < 1e-4, "-100 expected {}, got {}", 0.7 / g, p[0]);
 }
 
 #[test]
@@ -82,8 +107,9 @@ fn highlights_preserves_hue_on_partial_specular_below_knee_luma() {
     // while G and B stayed at 0.5 — R:G:B drifted from 4:1:1 to
     // 2.67:1:1, a hue rotation.
     //
-    // Post-fix (luma-coupled): Y < knee, no compression triggers,
-    // ratios preserved identically.
+    // Post-fix (luma-coupled): Y < knee so the shape term is 1; the
+    // #1103 weighted gain does engage (w_h(0.895) > 0) but it is a
+    // single uniform scalar — ratios preserved identically.
     let mut img = fresh_img([2.0, 0.5, 0.5]);
     let mut m = model_default();
     m.highlights = 100.0;
@@ -106,8 +132,9 @@ fn highlights_preserves_hue_on_specular_above_knee_luma() {
     // 1.333 (excess 1.0 → 1/3) but G and B from 1.5 to 1.167
     // (excess 0.5 → 1/6) — drift in R:G:B.
     //
-    // Post-fix scales by Y_new/Y_old = (1 + 0.6364/3) / 1.6364 ≈ 0.741.
-    // All three channels scale by the same factor → ratios preserved.
+    // Post-fix scales by the shape (1 + 0.6364/3) / 1.6364 ≈ 0.741 times
+    // the #1103 weighted gain 2^−0.7 — still one uniform factor for all
+    // three channels → ratios preserved.
     let mut img = fresh_img([2.0, 1.5, 1.5]);
     let mut m = model_default();
     m.highlights = 100.0;
@@ -126,9 +153,17 @@ fn shadows_lifts_deep_values() {
     m.shadows = 100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
-    // luma = 0.02, smoothstep(0, 0.1, 0.02) = small → mask ~0.9,
-    // lift = 0.9 * 0.5 = 0.45, p += p * 0.45 → p ≈ 0.029
+    // #1103: luma = 0.02 → w_s = (1 − smoothstep(0, 0.25, 0.02))² ≈ 0.963,
+    // mult = 1 + (2^1.5 − 1)·w_s ≈ 2.76 → p ≈ 0.055.
     assert!(p[0] > 0.02, "expected lift, got {}", p[0]);
+    let expected = 0.02 * (1.0 + ((1.5_f32).exp2() - 1.0) * {
+        let t = 1.0 - {
+            let tt = (0.02_f32 / 0.25).clamp(0.0, 1.0);
+            tt * tt * (3.0 - 2.0 * tt)
+        };
+        t * t
+    });
+    assert!((p[0] - expected).abs() < 1e-5, "expected {}, got {}", expected, p[0]);
 }
 
 #[test]
@@ -137,7 +172,8 @@ fn shadows_leaves_midtones_alone() {
     let mut m = model_default();
     m.shadows = 100.0;
     apply(&mut img, &m);
-    // luma 0.3 >> threshold 0.1 → mask = 0 → no change.
+    // #1103: luma 0.3 ≥ engagement ceiling 0.25 → w_s = 0 exactly → no
+    // change even at the rail.
     for p in &img.pixels {
         for &c in p {
             assert!((c - 0.3).abs() < 1e-5);
@@ -328,12 +364,10 @@ fn blacks_positive_leaves_midtones_alone() {
 
 #[test]
 fn shadows_preserves_hue_on_saturated_deep_shadow() {
-    // Saturated deep red [0.06, 0.02, 0.01]: Y ≈ 0.0299, so
-    // smoothstep(0, 0.1, Y) ≈ 0.215 and mask = 1 - 0.215 ≈ 0.785.
-    // With shadows=+100, s_factor = 0.5 → lift = 0.5 * 0.785 ≈ 0.393,
-    // so each channel scales by (1 + 0.393) — a uniform scalar
-    // multiply. R:G and R:B ratios must survive within 0.1% (no
-    // per-channel drift).
+    // Saturated deep red [0.06, 0.02, 0.01]: Y ≈ 0.0299, well inside the
+    // #1103 engagement band (Y < 0.25), so mix(1, 2^1.5, w_s(Y)) > 1 and
+    // each channel scales by the SAME factor — a uniform scalar multiply.
+    // R:G and R:B ratios must survive within 0.1% (no per-channel drift).
     let mut img = fresh_img([0.06, 0.02, 0.01]);
     let mut m = model_default();
     m.shadows = 100.0;
@@ -353,9 +387,9 @@ fn shadows_preserves_hue_on_saturated_deep_shadow() {
 
 #[test]
 fn shadows_negative_preserves_hue_on_saturated_deep_shadow() {
-    // Symmetric: shadows=-100 multiplies by (1 - 0.5*mask) — still a
-    // uniform scalar so ratios survive. Verify both direction (crush)
-    // and hue preservation.
+    // Symmetric: shadows=-100 multiplies by mix(1, 2^−1.5, w_s) (#1103) —
+    // still a uniform scalar so ratios survive. Verify both direction
+    // (crush) and hue preservation.
     let mut img = fresh_img([0.06, 0.02, 0.01]);
     let mut m = model_default();
     m.shadows = -100.0;
@@ -550,13 +584,16 @@ fn scene_referred_does_not_clip_negatives_introduced_upstream() {
 
 #[test]
 fn exposure_and_highlights_compose() {
-    // Exposure +1 doubles 0.6 → 1.2 (above knee). Then highlights +100 compresses.
+    // Exposure +1 doubles 0.6 → 1.2 (above knee). Then highlights +100
+    // applies the #1103 response at the post-exposure luma: shape
+    // (1 + 0.2/3)/1.2 times weighted gain 2^(−0.7·w_h(1.2)) with w_h
+    // saturated at 1 → out = 1.0667 · 2^−0.7 ≈ 0.6566.
     let mut img = fresh_img([0.6, 0.6, 0.6]);
     let mut m = model_default();
     m.exposure = 1.0;
     m.highlights = 100.0;
     apply(&mut img, &m);
     let p = img.pixels[0];
-    // After exposure: 1.2. excess=0.2, denom=3, compressed=0.0667 → 1.0667
-    assert!((p[0] - (1.0 + 0.2 / 3.0)).abs() < 1e-4, "R was {}", p[0]);
+    let expected = (1.0 + 0.2 / 3.0) * (-0.7_f32).exp2();
+    assert!((p[0] - expected).abs() < 1e-4, "R was {}, expected {}", p[0], expected);
 }
