@@ -4,7 +4,8 @@
 //! Renders N virtual cameras with exactly known rotation/focal/distortion
 //! from an equirectangular linear source, writing 16-bit PNG frames plus
 //! `ground_truth.json` (schema: `maple_pano::gt`). Deterministic: the same
-//! flags + seed produce byte-identical outputs.
+//! flags + seed produce byte-identical outputs on a given platform and
+//! toolchain (cross-platform runs agree to float tolerance, not bytes).
 //!
 //! ```text
 //! # Self-sufficient: procedural source, 6-camera ring, defaults
@@ -113,7 +114,7 @@ struct Args {
     supersample: u32,
 
     /// Master seed (synthetic scene + camera jitter). Same seed + flags →
-    /// byte-identical outputs.
+    /// byte-identical outputs on the same platform + toolchain.
     #[arg(long, default_value_t = 0)]
     seed: u64,
 }

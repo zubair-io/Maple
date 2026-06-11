@@ -14,10 +14,14 @@ use maple_pano::prng::SplitMix64;
 use maple_pano::render::{run, CameraSetOptions, Pattern, RenderJob, SourceKind};
 
 /// Unique temp dir per test invocation (no tempfile dep in the workspace).
+/// pid + per-process counter + tag make collisions impossible even with
+/// parallel tests on a platform with coarse clock resolution.
 fn temp_dir(tag: &str) -> PathBuf {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "maple-pano-test-{tag}-{}-{:x}",
+        "maple-pano-test-{tag}-{}-{}-{:x}",
         std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

@@ -13,10 +13,15 @@
 //!
 //! # Determinism
 //!
-//! Same options + same seed → byte-identical frames and JSON. All
-//! randomness (camera jitter, synthetic scene) comes from [`SplitMix64`]
-//! streams derived from the master seed; per-pixel work is pure, so rayon
-//! row-parallelism cannot affect values.
+//! Same options + same seed → byte-identical frames and JSON **on a given
+//! platform and toolchain**. All randomness (camera jitter, synthetic
+//! scene) comes from [`SplitMix64`] streams derived from the master seed;
+//! per-pixel work is pure, so rayon row-parallelism cannot affect values.
+//! Across *different* targets or dependency bumps, transcendentals
+//! (`sin_cos`, `atan2`, …) come from the platform libm and PNG bytes from
+//! the `png` encoder, so cross-platform identity is not promised — the
+//! parity harness compares cross-platform outputs with a tolerance, not
+//! byte equality.
 //!
 //! # Camera parameter quantization
 //!
@@ -75,7 +80,23 @@ pub struct CameraSetOptions {
 /// parameter to `f32` (see module docs). `rng` drives the jitter — three
 /// draws per camera, consumed even when `jitter_deg = 0` so the stream
 /// layout is flag-independent.
-pub fn build_camera_set(opts: &CameraSetOptions, rng: &mut SplitMix64) -> Vec<CameraGt> {
+///
+/// Errors with [`PanoError::InvalidOptions`] on a zero camera count or a
+/// `Grid { rows: 0 }` pattern (which would otherwise divide by zero).
+pub fn build_camera_set(
+    opts: &CameraSetOptions,
+    rng: &mut SplitMix64,
+) -> Result<Vec<CameraGt>, PanoError> {
+    if opts.count == 0 {
+        return Err(PanoError::InvalidOptions(
+            "camera count must be >= 1".into(),
+        ));
+    }
+    if let Pattern::Grid { rows: 0 } = opts.pattern {
+        return Err(PanoError::InvalidOptions(
+            "grid pattern requires rows >= 1".into(),
+        ));
+    }
     let hfov = opts.fov_deg.to_radians();
     let vfov = 2.0 * ((hfov * 0.5).tan() * opts.height as f64 / opts.width as f64).atan();
     let focal = focal_px_for_hfov(opts.fov_deg, opts.width) as f32;
@@ -89,7 +110,7 @@ pub fn build_camera_set(opts: &CameraSetOptions, rng: &mut SplitMix64) -> Vec<Ca
     };
     let v_step = vfov * (1.0 - opts.overlap);
 
-    (0..opts.count)
+    Ok((0..opts.count)
         .map(|i| {
             // Jitter draws happen for every camera regardless of pattern
             // math, keeping the PRNG stream layout stable.
@@ -123,7 +144,7 @@ pub fn build_camera_set(opts: &CameraSetOptions, rng: &mut SplitMix64) -> Vec<Ca
                 height: opts.height,
             }
         })
-        .collect()
+        .collect())
 }
 
 /// Render one camera's frame: row-major interleaved RGB, 16-bit.
@@ -239,7 +260,7 @@ pub fn run(
     // Independent jitter stream: cameras stay identical whether the scene
     // is synthetic or file-based.
     let mut cam_rng = SplitMix64::new(job.seed ^ 0xA076_1D64_78BD_642F);
-    let cameras = build_camera_set(&job.set, &mut cam_rng);
+    let cameras = build_camera_set(&job.set, &mut cam_rng)?;
 
     std::fs::create_dir_all(out_dir).map_err(|e| PanoError::io(out_dir, e))?;
     for (i, gt_cam) in cameras.iter().enumerate() {
@@ -254,7 +275,7 @@ pub fn run(
         convention: Convention::current(),
         source: SourceSpec {
             projection: "equirectangular".into(),
-            kind: match job.source {
+            kind: match &job.source {
                 SourceKind::Synthetic { .. } => "synthetic".into(),
                 SourceKind::File { .. } => "file".into(),
             },
@@ -262,7 +283,7 @@ pub fn run(
             height: source.height,
             lon_range_deg: [-180.0, 180.0],
             lat_range_deg: [-90.0, 90.0],
-            seed: match job.source {
+            seed: match &job.source {
                 SourceKind::Synthetic { .. } => Some(job.seed),
                 SourceKind::File { .. } => None,
             },
@@ -329,6 +350,35 @@ mod tests {
     }
 
     #[test]
+    fn build_camera_set_rejects_invalid_options() {
+        let base = CameraSetOptions {
+            count: 4,
+            pattern: Pattern::Ring { full: false },
+            fov_deg: 60.0,
+            overlap: 0.3,
+            pitch_deg: 0.0,
+            jitter_deg: 0.0,
+            k1: 0.0,
+            k2: 0.0,
+            width: 64,
+            height: 48,
+        };
+        let zero_rows = CameraSetOptions {
+            pattern: Pattern::Grid { rows: 0 },
+            ..base.clone()
+        };
+        assert!(matches!(
+            build_camera_set(&zero_rows, &mut SplitMix64::new(0)),
+            Err(PanoError::InvalidOptions(_))
+        ));
+        let zero_count = CameraSetOptions { count: 0, ..base };
+        assert!(matches!(
+            build_camera_set(&zero_count, &mut SplitMix64::new(0)),
+            Err(PanoError::InvalidOptions(_))
+        ));
+    }
+
+    #[test]
     fn ring_full_spaces_cameras_evenly() {
         let opts = CameraSetOptions {
             count: 4,
@@ -342,7 +392,7 @@ mod tests {
             width: 64,
             height: 48,
         };
-        let cams = build_camera_set(&opts, &mut SplitMix64::new(0));
+        let cams = build_camera_set(&opts, &mut SplitMix64::new(0)).expect("valid options");
         assert_eq!(cams.len(), 4);
         // Camera i looks at lon = i·90°; check via the optical axis.
         for (i, gt_cam) in cams.iter().enumerate() {
@@ -369,7 +419,7 @@ mod tests {
             width: 64,
             height: 48,
         };
-        let cams = build_camera_set(&opts, &mut SplitMix64::new(0));
+        let cams = build_camera_set(&opts, &mut SplitMix64::new(0)).expect("valid options");
         // 2×2 grid centered on (0, 0): yaw/pitch means must be ~0, top row
         // pitched up relative to the bottom row.
         let axes: Vec<_> = cams
@@ -400,7 +450,7 @@ mod tests {
             width: 64,
             height: 48,
         };
-        let cams = build_camera_set(&opts, &mut SplitMix64::new(99));
+        let cams = build_camera_set(&opts, &mut SplitMix64::new(99)).expect("valid options");
         let cam1 = cams[1].to_camera();
         let h_step = 50.0_f64.to_radians() * 0.6;
         let want = Mat3::rotation_y(h_step).mul_mat(&Mat3::rotation_x(10.0_f64.to_radians()));
