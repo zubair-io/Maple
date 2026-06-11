@@ -123,6 +123,20 @@ export interface PointerLike {
 }
 
 /**
+ * `setPointerCapture` THROWS (`NotFoundError`) when the browser no longer
+ * considers the pointer active — a real race when the contact lifts before
+ * the handler runs (and the norm for synthetic test events). A failed
+ * capture must degrade to uncaptured tracking, never kill the gesture.
+ */
+function capturePointer(el: HTMLElement, pointerId: number): void {
+  try {
+    el.setPointerCapture?.(pointerId);
+  } catch {
+    // Inactive pointer — continue uncaptured.
+  }
+}
+
+/**
  * Pointer-Events pinch/drag + wheel/double-click/keyboard zoom controller.
  * Pinch uses a START-CAPTURED scale (`pinchStartScale`) so the cumulative
  * two-pointer magnification never compounds frame-over-frame.
@@ -151,12 +165,16 @@ export class CanvasZoomGestures {
       // Mouse: left or middle button drags (parity with the old mouse path).
       if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
       // Capture on the wrap so drags/pinches survive leaving the element.
-      el.setPointerCapture?.(e.pointerId);
+      capturePointer(el, e.pointerId);
       this.onPointerDown(e);
     };
     const move = (e: PointerEvent) => this.onPointerMove(e);
     const up = (e: PointerEvent) => {
-      el.releasePointerCapture?.(e.pointerId);
+      try {
+        el.releasePointerCapture?.(e.pointerId);
+      } catch {
+        // Already released / never captured — nothing to undo.
+      }
       this.onPointerUp(e);
     };
     const wheel = (e: WheelEvent) => {
@@ -186,7 +204,7 @@ export class CanvasZoomGestures {
     this.dividerDrag = true;
     // Capture on the wrap so the drag keeps tracking (and ends) even when
     // the pointer leaves the element mid-drag.
-    wrapEl.setPointerCapture?.(e.pointerId);
+    capturePointer(wrapEl, e.pointerId);
   }
 
   /**
