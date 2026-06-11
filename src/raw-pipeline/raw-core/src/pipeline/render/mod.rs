@@ -27,7 +27,7 @@ use crate::{
     cancel::CancelToken,
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
-    stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance, vignette},
+    stages::{clarity, dehaze, grain, noise_reduction, saturation, sharpen, texture, vibrance, vignette},
     types::adjustment::{AutoExposureMode, Profile},
     view::{agx, auto_profile, encode, look},
     xmp::AdjustmentModel,
@@ -204,6 +204,15 @@ fn render_display_from_raw(
     // toward the JPEG distribution rather than a wholesale replacement.
     stage("agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
+    // Film grain (#1110, tone/zoom design § 10.2) — display-linear
+    // (post-AgX, before the target gamut): grain is a display-domain
+    // aesthetic; injected scene-linear its amplitude would swing with
+    // exposure. Identity short-circuit at amount 0 keeps the baseline
+    // bit-identical.
+    stage("grain", || {
+        grain::apply(&mut scene, model.grain_amount, model.grain_size, model.grain_roughness)
+    });
+    dump_after("16b_grain", &scene);
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     // Buffer is in display-linear sRGB primaries here. Gamma encoding
     // happens later in `srgb_gamma_encode`. Name reflects that —
@@ -501,6 +510,11 @@ pub fn render_from_scene_linear(
     dump_after("00_synthetic_input", &scene);
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
+    // Film grain (#1110) — same display-linear position as the RAW path.
+    stage("synth_grain", || {
+        grain::apply(&mut scene, model.grain_amount, model.grain_size, model.grain_roughness)
+    });
+    dump_after("16b_grain", &scene);
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
@@ -575,6 +589,11 @@ pub fn render_from_scene_linear_with_chain(
     dump_after("15_nr_color", &scene);
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
+    // Film grain (#1110) — same display-linear position as the RAW path.
+    stage("synth_grain", || {
+        grain::apply(&mut scene, model.grain_amount, model.grain_size, model.grain_roughness)
+    });
+    dump_after("16b_grain", &scene);
     stage("synth_rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);

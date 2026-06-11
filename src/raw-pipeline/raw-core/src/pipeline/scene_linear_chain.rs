@@ -10,7 +10,7 @@
 //! Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 //! → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
 //! `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx`
-//! (when `skip_agx == false`).
+//! → `grain` (the AgX + display tail runs when `skip_agx == false`).
 //!
 //! **Deliberately omits** `sharpen` and `nr_color` — those two stay on
 //! the Apple GPU path (Metal compute pipelines). See the per-function
@@ -27,7 +27,9 @@ use crate::{error::Result, xmp::AdjustmentModel};
 ///
 /// Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 /// → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
-/// `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx`.
+/// `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx`
+/// → `grain` (AgX + the display-linear grain skipped together on the
+/// non-RAW path).
 ///
 /// **Deliberately omits** `sharpen` and `nr_color`. Those two stages are
 /// kept on the Apple GPU path (Metal compute pipelines) because:
@@ -75,8 +77,8 @@ pub fn apply_scene_linear_chain(
 ) -> Result<Vec<u16>> {
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
-        clarity, dehaze, local_adjustments, noise_reduction, saturation, scene_tone_controls,
-        texture, tone_curves, vibrance, vignette, white_balance,
+        clarity, dehaze, grain, local_adjustments, noise_reduction, saturation,
+        scene_tone_controls, texture, tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -165,6 +167,13 @@ pub fn apply_scene_linear_chain(
     // nr_color omitted — kept on Metal GPU path alongside sharpen
     if !skip_agx {
         stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
+        // Film grain (#1110) — display-linear, post-AgX (same position as
+        // the canonical render tail). Skipped with AgX on the non-RAW path:
+        // the display-domain effects ride the view transform, and the
+        // skip_agx buffer never enters DisplayLinearRec2020.
+        stage("ffi_chain_grain", || {
+            grain::apply(&mut img, model.grain_amount, model.grain_size, model.grain_roughness)
+        });
     }
 
     // Pack post-AgX (DisplayLinearRec2020, [0,1]) back to fp16 RGBA.
@@ -206,8 +215,8 @@ pub fn apply_scene_linear_chain_f32(
 ) -> Result<Vec<f32>> {
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
-        clarity, dehaze, local_adjustments, noise_reduction, saturation, scene_tone_controls,
-        texture, tone_curves, vibrance, vignette, white_balance,
+        clarity, dehaze, grain, local_adjustments, noise_reduction, saturation,
+        scene_tone_controls, texture, tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -280,6 +289,10 @@ pub fn apply_scene_linear_chain_f32(
     // nr_color omitted — kept on Metal GPU path alongside sharpen
     if !skip_agx {
         stage("ffi_chain_agx", || agx::apply(&mut img, model.contrast));
+        // Film grain (#1110) — see the fp16 sibling.
+        stage("ffi_chain_grain", || {
+            grain::apply(&mut img, model.grain_amount, model.grain_size, model.grain_roughness)
+        });
     }
 
     // Pack post-AgX (DisplayLinearRec2020, [0,1]) back to f32 RGBA.

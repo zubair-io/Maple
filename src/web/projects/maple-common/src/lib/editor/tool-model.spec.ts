@@ -35,8 +35,9 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
     noise: [0, 100],
     colorNR: [0, 100],
     vignette: [-100, 100], // wired at #1109 (drag bar = vignetteAmount)
-    // grain / splitTone are intentionally absent — re-gated to stubs at
-    // #952, so they have no display range (asserted null below).
+    grain: [0, 100], // wired at #1110 (drag bar = grainAmount)
+    // splitTone is intentionally absent — re-gated to a stub at #952, so
+    // it has no display range (asserted null below).
   };
 
   for (const [tool, range] of Object.entries(expected) as [ToolId, readonly [number, number]][]) {
@@ -46,10 +47,11 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
   }
 
   it('returns null for stub tools', () => {
-    // The #952-gated effects join hsl / crop / presets: no range, so the
-    // drag-bar and value chip treat them identically (no phantom track,
-    // no misleading midpoint value). vignette left the list at #1109.
-    for (const tool of ['hsl', 'crop', 'presets', 'grain', 'splitTone'] as const) {
+    // The #952-gated splitTone joins hsl / crop / presets: no range, so
+    // the drag-bar and value chip treat them identically (no phantom
+    // track, no misleading midpoint value). vignette left the list at
+    // #1109, grain at #1110.
+    for (const tool of ['hsl', 'crop', 'presets', 'splitTone'] as const) {
       expect(displayRange(tool)).toBeNull();
     }
   });
@@ -95,14 +97,22 @@ describe('value mapping (internal -100..100 ↔ display)', () => {
   });
 
   it('gated stub tools map to 0, never a misleading midpoint (#952)', () => {
-    // Regression for the Grain "50" chip: a 0..100 tool would otherwise map
-    // internal 0 → display 50 (see colorNR above). With no DISPLAY_RANGE
-    // entry the mapping is identity, so an unset stub reads 0 — matching
-    // hsl / crop / presets. (vignette left the gated set at #1109.)
-    for (const tool of ['grain', 'splitTone'] as const) {
+    // With no DISPLAY_RANGE entry the mapping is identity, so an unset
+    // stub reads 0 — matching hsl / crop / presets. (vignette left the
+    // gated set at #1109, grain at #1110.)
+    for (const tool of ['splitTone'] as const) {
       expect(displayValueFromInternal(tool, 0)).toBe(0);
       expect(internalValueFromDisplay(tool, 0)).toBe(0);
     }
+  });
+
+  it('grain maps its one-sided 0..100 range affinely (#1110)', () => {
+    // The noise/colorNR family: internal -100 → 0, 0 → 50, +100 → 100.
+    expect(displayValueFromInternal('grain', -100)).toBe(0);
+    expect(displayValueFromInternal('grain', 0)).toBe(50);
+    expect(displayValueFromInternal('grain', 100)).toBe(100);
+    expect(internalValueFromDisplay('grain', 0)).toBe(-100);
+    expect(internalValueFromDisplay('grain', 40)).toBe(-20);
   });
 
   it('vignette maps its symmetric amount range linearly (#1109)', () => {

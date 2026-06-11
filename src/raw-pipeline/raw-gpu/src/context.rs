@@ -48,6 +48,10 @@ pub struct GpuContext {
     /// generated color matrices. Built on first use via
     /// [`GpuContext::vignette_pipeline`].
     pub(crate) vignette_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled film-grain compute pipeline (`grain.wgsl`). The #1110
+    /// display-linear deterministic hash noise — a windowed point op, no
+    /// Oklab. Built on first use via [`GpuContext::grain_pipeline`].
+    pub(crate) grain_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled masked shadows/highlights compute pipeline
     /// (`scene_tone_sh.wgsl`, #1103): one tone step through the tonal detail
     /// mask (blurred-luma regional vs per-pixel mix). Built on first use via
@@ -314,6 +318,7 @@ impl GpuContext {
             white_balance_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
             vignette_pipeline: OnceCell::new(),
+            grain_pipeline: OnceCell::new(),
             scene_tone_sh_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),
             srgb_gamma_pipeline: OnceCell::new(),

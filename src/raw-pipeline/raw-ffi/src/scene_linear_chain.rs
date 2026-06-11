@@ -83,6 +83,14 @@ pub struct MapleAdjustmentParams {
     /// the 0 a stale caller leaves here is harmless; live hosts pass the
     /// model's value (default 50).
     pub vignette_feather: f32,
+    /// Film grain (#1110, tone/zoom design § 10.2) — display-linear
+    /// deterministic noise, applied with AgX (skipped together on the
+    /// non-RAW `skip_agx` path). Appended at the struct tail per the
+    /// offset-stable ABI convention; un-set amount reads 0 = identity
+    /// (size / roughness inert at amount 0).
+    pub grain_amount: f32,
+    pub grain_size: f32,
+    pub grain_roughness: f32,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -166,6 +174,9 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.dehaze = p.dehaze;
     model.vignette_amount = p.vignette_amount;
     model.vignette_feather = p.vignette_feather;
+    model.grain_amount = p.grain_amount;
+    model.grain_size = p.grain_size;
+    model.grain_roughness = p.grain_roughness;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
@@ -274,6 +285,9 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.dehaze = p.dehaze;
     model.vignette_amount = p.vignette_amount;
     model.vignette_feather = p.vignette_feather;
+    model.grain_amount = p.grain_amount;
+    model.grain_size = p.grain_size;
+    model.grain_roughness = p.grain_roughness;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);

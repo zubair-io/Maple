@@ -122,11 +122,11 @@ extension AdjustmentModel {
     public static let vignetteAmountRange: ClosedRange<Double> = -100.0...100.0
     /// Vignette transition softness from center to edge (#1109) — maps onto mask width 0.05–0.9 around the fixed 0.7 midpoint.
     public static let vignetteFeatherRange: ClosedRange<Double> = 0.0...100.0
-    /// Grain intensity (ticket #643).
+    /// Grain intensity — display-linear deterministic film grain (#1110, tone/zoom design spec § 10.2); 0 disables the stage.
     public static let grainAmountRange: ClosedRange<Double> = 0.0...100.0
-    /// Grain particle size (ticket #643).
+    /// Grain particle size (#1110) — maps onto the noise pitch 1–6 px at a 2000-px long edge (resolution-stable).
     public static let grainSizeRange: ClosedRange<Double> = 0.0...100.0
-    /// Grain particle roughness / variance (ticket #643).
+    /// Grain roughness (#1110) — mixes a second noise octave at 2x frequency.
     public static let grainRoughnessRange: ClosedRange<Double> = 0.0...100.0
     /// Split-tone shadow hue in degrees (ticket #643).
     public static let splitToneShadowHueRange: ClosedRange<Double> = 0.0...360.0
