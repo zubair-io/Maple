@@ -621,7 +621,9 @@ public struct PipelineRenderer: Sendable {
     /// Throws `PipelineError.renderFailed`. Notable codes (mirroring the
     /// Rust FFI):
     ///   - 9: bad geometry (any of `srcW`/`srcH`/`outW`/`outH` is 0)
-    ///   - 10: dehaze active in the handle's model — tile path unsafe
+    ///   - 10: model not tile-compatible (dehaze, vignette, deep denoise,
+    ///         a local adjustment, or capture sharpening active — #1084 /
+    ///         #1105 / #1109); fall back to the non-tile refine
     ///   - 11: upscale attempt (out > src) — tile path is downscale-only
     ///   - 12: mismatched aspect — `outW/outH` aspect must match
     ///         `srcW/srcH` aspect (the tile path's downsampler is

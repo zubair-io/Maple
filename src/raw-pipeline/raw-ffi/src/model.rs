@@ -3,13 +3,14 @@
 //! `AdjustmentModel`, and report the matching error code via
 //! `set_last_error`.
 //!
-//! Tile-path dehaze guard. Dehaze relies on a full-image dark-channel
-//! computation; running it on a crop tile would produce a wrong dark
-//! channel (radius 67 px on the reference scenes). The non-tile FFI
-//! paths catch this via raw-core's stage error (and bubble up as rc=10);
-//! the tile path needs an explicit pre-check before calling the core
-//! renderer or the rejection is silently bypassed and tiles render with
-//! no dehaze (silent degradation rather than the contracted hard error).
+//! Tile-path dehaze / deep-denoise guards. Dehaze relies on a full-image
+//! dark-channel computation; running it on a crop tile would produce a
+//! wrong dark channel (radius 67 px on the reference scenes). BM3D's
+//! reference-patch grid is frame-anchored, so per-tile grids would seam.
+//! The core tile entry (`render_scene_linear_tile_from_raw_with_quality`)
+//! rejects both itself since #1084 — these FFI pre-checks remain as
+//! belt-and-braces with a shorter, host-facing error message, and both
+//! layers map to the same rc=10 "fall back to fit-zoom" contract.
 
 use crate::error::set_last_error;
 use raw_core::xmp;
