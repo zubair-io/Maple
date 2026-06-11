@@ -27,6 +27,7 @@ mod develop_sized;
 mod downsample;
 mod fp16;
 mod orient;
+mod pano;
 mod render;
 mod scene_linear_chain;
 mod tile;
@@ -52,6 +53,7 @@ pub use render::{
     render_scene_linear_sized_from_raw_with_quality_f32,
     render_scene_linear_sized_from_raw_with_quality_f32_cancellable, RawInput,
 };
+pub use pano::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
 pub use scene_linear_chain::{
     apply_scene_linear_chain, apply_scene_linear_chain_f32, encode_display_srgb_f32,
 };
