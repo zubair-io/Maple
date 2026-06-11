@@ -60,8 +60,9 @@ fn generate(
     let set = generate_pair_correspondences(cam_a, cam_b, opts, &mut SplitMix64::new(seed));
     assert!(
         set.len() == opts.count,
-        "overlap too small for the requested correspondence count: {}",
-        set.len()
+        "overlap too small: generated {} of {} requested correspondences",
+        set.len(),
+        opts.count
     );
     set
 }
