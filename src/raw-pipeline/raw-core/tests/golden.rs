@@ -40,12 +40,17 @@ fn budget_for(case_class: &str) -> Budget {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/budgets.toml");
     let s = std::fs::read_to_string(&path).expect("budgets.toml");
     let mut section = false;
-    let mut b = Budget { mean: f32::INFINITY, p95: f32::INFINITY, max: f32::INFINITY };
+    let mut found_section = false;
+    // NaN sentinels: a class section that never sets a field, an unknown
+    // class, or an unparseable value must FAIL the test, not default to an
+    // infinite (always-passing) budget (#1082).
+    let mut b = Budget { mean: f32::NAN, p95: f32::NAN, max: f32::NAN };
     for line in s.lines() {
         let t = line.trim();
         if t.starts_with('#') || t.is_empty() { continue; }
         if t.starts_with('[') {
             section = t == format!("[{}]", case_class);
+            found_section |= section;
             continue;
         }
         if !section { continue; }
@@ -53,14 +58,26 @@ fn budget_for(case_class: &str) -> Budget {
             let k = k.trim();
             // Strip inline comments (e.g. "23.0  # RELAXED ...") before parsing.
             let v = v.trim().split('#').next().unwrap_or("").trim();
+            let parsed = || -> f32 {
+                v.parse().unwrap_or_else(|e| {
+                    panic!("budgets.toml: unparseable {} = {:?} in [{}]: {}", k, v, case_class, e)
+                })
+            };
             match k {
-                "mean_delta_e" => b.mean = v.parse().unwrap_or(f32::INFINITY),
-                "p95_delta_e"  => b.p95  = v.parse().unwrap_or(f32::INFINITY),
-                "max_delta_e"  => b.max  = v.parse().unwrap_or(f32::INFINITY),
+                "mean_delta_e" => b.mean = parsed(),
+                "p95_delta_e"  => b.p95  = parsed(),
+                "max_delta_e"  => b.max  = parsed(),
                 _ => {}
             }
         }
     }
+    assert!(found_section, "budgets.toml has no [{}] section — unknown case class", case_class);
+    assert!(
+        b.mean.is_finite() && b.p95.is_finite() && b.max.is_finite(),
+        "budgets.toml [{}] is missing one of mean_delta_e / p95_delta_e / max_delta_e \
+         (got mean={} p95={} max={})",
+        case_class, b.mean, b.p95, b.max
+    );
     b
 }
 
@@ -73,10 +90,20 @@ fn run_case(stem: &str, case: &str, class: &str) {
         .unwrap_or_else(|| panic!("no raw for {} found in {}", stem, raw_glob.display()));
     let xmp_path = root.join(format!("test-fixtures/references/{}/xmp/{}.xmp", stem, case));
     let ref_path = root.join(format!("test-fixtures/references/{}/down/{}.png", stem, case));
-    if !xmp_path.exists() || !ref_path.exists() {
-        eprintln!("skip {}/{}: xmp or reference missing", stem, case);
-        return;
-    }
+    // `--features golden` is an explicit opt-in, so a missing sidecar or
+    // reference is broken provisioning — fail, don't silently skip (#1082).
+    assert!(
+        xmp_path.exists(),
+        "{}/{}: xmp missing at {} (provision test-fixtures/references/, \
+         or run without --features golden)",
+        stem, case, xmp_path.display()
+    );
+    assert!(
+        ref_path.exists(),
+        "{}/{}: reference missing at {} (provision test-fixtures/references/, \
+         or run without --features golden)",
+        stem, case, ref_path.display()
+    );
 
     let xml = std::fs::read_to_string(&xmp_path).unwrap();
     let model = xmp::parse(&xml).unwrap();
