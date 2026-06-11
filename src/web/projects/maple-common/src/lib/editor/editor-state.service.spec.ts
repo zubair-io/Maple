@@ -94,13 +94,24 @@ describe('EditorStateService', () => {
     });
 
     it('rejects writes to stub tools', () => {
-      // The stub tools are HSL / Crop / Presets plus vignette / grain /
-      // splitTone — the latter three were re-gated at #952 because they
-      // had AdjustmentModel fields but no pipeline apply code.
+      // The stub tools are HSL / Crop plus vignette / grain / splitTone —
+      // the latter three were re-gated at #952 because they had
+      // AdjustmentModel fields but no pipeline apply code.
       const before = { ...lib.adjustmentFor(ID)() };
       svc.armTool('crop');
       svc.setArmedDisplayValue(50);
       expect(lib.adjustmentFor(ID)()).toEqual(before);
+    });
+
+    it('presets is wired but value-less: drags and resets are inert (#1115)', () => {
+      const before = { ...lib.adjustmentFor(ID)() };
+      svc.armTool('presets');
+      svc.setArmedDisplayValue(50);
+      svc.resetArmedTool();
+      expect(lib.adjustmentFor(ID)()).toEqual(before);
+      expect(svc.armedDisplayValue()).toBe(0);
+      // A field-less reset must not push junk undo entries either.
+      expect(svc.canUndo()).toBe(false);
     });
 
     it('rejects writes to the gated S5 effects tools (#952)', () => {

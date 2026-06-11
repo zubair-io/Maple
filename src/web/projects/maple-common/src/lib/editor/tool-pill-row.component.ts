@@ -5,7 +5,7 @@
 // & label. Modified-indicator dot bottom-right of the circle when the
 // tool's display value differs from its default.
 
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, output } from '@angular/core';
 
 import { MapleIconComponent } from '../icons/maple-icon.component';
 import { EditorStateService } from './editor-state.service';
@@ -29,6 +29,10 @@ import {
 })
 export class ToolPillRowComponent {
   protected readonly state = inject(EditorStateService);
+
+  /** Fires when the presets pill is tapped — the host (EditorComponent)
+   *  opens the presets sheet (phone) / popover (desktop). #1115. */
+  readonly presetsTap = output<void>();
 
   protected readonly displayName = TOOL_DISPLAY;
   protected readonly tools = computed<readonly ToolId[]>(
@@ -54,5 +58,8 @@ export class ToolPillRowComponent {
   protected select(tool: ToolId): void {
     this.state.armTool(tool);
     this.state.haptic('switch');
+    if (tool === 'presets') {
+      this.presetsTap.emit();
+    }
   }
 }

@@ -14,17 +14,20 @@ import {
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 
 import { ImageCanvasComponent } from '../components/image-canvas/image-canvas.component';
 import { LayoutService } from '../layout-service';
 import { LibraryStateService } from '../state/library-state.service';
+import { BottomSheetComponent } from '../shells/bottom-sheet.component';
 import { TabBarVisibilityService } from '../shells/tab-bar-visibility.service';
 
 import { DragBarComponent } from './drag-bar.component';
 import { EditorHeaderComponent } from './editor-header.component';
 import { EditorStateService } from './editor-state.service';
 import { GroupTabsComponent } from './group-tabs.component';
+import { PresetsPanelComponent } from './presets/presets-panel.component';
 import { ToolPillRowComponent } from './tool-pill-row.component';
 import { ValueChipComponent } from './value-chip.component';
 import { TOOLS_IN_GROUP, type ToolGroup, type ToolId, groupOf } from './tool-model';
@@ -33,10 +36,12 @@ import { TOOLS_IN_GROUP, type ToolGroup, type ToolId, groupOf } from './tool-mod
   selector: 'app-editor',
   standalone: true,
   imports: [
+    BottomSheetComponent,
     DragBarComponent,
     EditorHeaderComponent,
     GroupTabsComponent,
     ImageCanvasComponent,
+    PresetsPanelComponent,
     ToolPillRowComponent,
     ValueChipComponent,
   ],
@@ -57,6 +62,11 @@ export class EditorComponent implements OnInit, OnDestroy {
   readonly share = output<void>();
 
   protected readonly currentFilename = computed(() => this.filename() || this.assetId());
+
+  /** Presets pill UI (#1115): bottom sheet on phone/tablet, popover card
+   *  on desktop. Owned here so both presentations share one open flag. */
+  protected readonly presetsOpen = signal(false);
+  protected readonly presetsAsPopover = computed(() => this.layout.layout() === 'desktop');
 
   ngOnInit(): void {
     this.tabBar.hidden.set(true);
@@ -109,6 +119,12 @@ export class EditorComponent implements OnInit, OnDestroy {
     }
     if (ev.key === 'Escape') {
       ev.preventDefault();
+      // The presets popover swallows the first Escape (the phone sheet
+      // handles its own — see BottomSheetComponent).
+      if (this.presetsOpen()) {
+        this.presetsOpen.set(false);
+        return;
+      }
       this.dismiss.emit();
       return;
     }

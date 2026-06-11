@@ -4,11 +4,12 @@
 // the Apple `Tool` enum + `ToolValueMapping` in
 // `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/EditorState.swift`.
 //
-// Stub tools (HSL/Vignette/Grain/SplitTone/Crop/Presets) render in the pill
-// row but reject writes (see STUB_TOOLS). HSL/Crop/Presets have no
-// AdjustmentModel field; Vignette/Grain/SplitTone have fields but no pipeline
-// apply code yet (#952), so they are gated identically. Follow-up tickets
-// land the math and re-wire them.
+// Stub tools (HSL/Vignette/Grain/SplitTone/Crop) render in the pill row
+// but reject writes (see STUB_TOOLS). HSL/Crop have no AdjustmentModel
+// field; Vignette/Grain/SplitTone have fields but no pipeline apply code
+// yet (#952), so they are gated identically. Follow-up tickets land the
+// math and re-wire them. Presets (#1115) is wired: the pill opens the
+// presets sheet/popover instead of carrying a drag-bar value.
 
 import type { AdjustmentModel } from '../models/adjustment-model';
 import { ADJUSTMENT_RANGES, defaultGeneratedAdjustmentModel } from '../models/adjustment-model';
@@ -95,9 +96,11 @@ export function groupOf(tool: ToolId): ToolGroup {
 // but no *apply* code in any pipeline (raw-core, Apple Metal, WebGL) — they
 // were live drag-bars that wrote XMP for a silent no-op (#952). Gated back to
 // stubs until their pipeline math lands; re-wire when #664 (vignette) / #665
-// (grain) / #666 (split-tone) deliver the effects. HSL (#636), Crop (#638),
-// Presets (#639) remain stubs pending their own specs.
-const STUB_TOOLS = new Set<ToolId>(['hsl', 'vignette', 'grain', 'splitTone', 'crop', 'presets']);
+// (grain) / #666 (split-tone) deliver the effects. HSL (#636) and Crop (#638)
+// remain stubs pending their own specs. Presets left the stub list at #1115:
+// the pill opens the presets sheet/popover (see EditorComponent) — it has no
+// drag-bar value, so `fieldFor` stays null and the value pipe is inert.
+const STUB_TOOLS = new Set<ToolId>(['hsl', 'vignette', 'grain', 'splitTone', 'crop']);
 
 export function isWired(tool: ToolId): boolean {
   return !STUB_TOOLS.has(tool);
@@ -126,11 +129,13 @@ const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   noise: ADJUSTMENT_RANGES.nrLuminance,
   colorNR: ADJUSTMENT_RANGES.nrColor,
   // vignette / grain / splitTone have no entry on purpose: they are gated
-  // stubs (#952), identical to hsl / crop / presets. With no range, both
+  // stubs (#952), identical to hsl / crop. With no range, both
   // `displayRange` (→ null) and the value mapping (→ identity, so the chip
   // reads 0) treat them as inert — no misleading midpoint value surfaces.
   // To re-wire (#664 / #665 / #666): add the `ADJUSTMENT_RANGES.*` entry
   // back here AND restore the one-sided mapping arm (grain is 0..100).
+  // presets is wired but value-less (#1115) — also no entry, same inert
+  // mapping.
 };
 
 export function displayRange(tool: ToolId): readonly [number, number] | null {
@@ -206,9 +211,10 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
       return 'nrColor';
     // vignette / grain / splitTone are gated stubs (#952) — no apply code
     // exists yet (#664 / #665 / #666). Return null so no XMP field is
-    // written and no modified-dot fires, matching hsl / crop / presets.
-    // The vignetteAmount / grainAmount / splitToneBalance schema fields
+    // written and no modified-dot fires, matching hsl / crop. The
+    // vignetteAmount / grainAmount / splitToneBalance schema fields
     // still round-trip via passthrough; this only stops new edits.
+    // presets is wired but value-less (#1115) — also null.
     default:
       return null;
   }
