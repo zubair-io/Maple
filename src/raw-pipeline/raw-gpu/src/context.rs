@@ -43,6 +43,11 @@ pub struct GpuContext {
     /// luma-coupled tone steps, no Oklab, so no generated color matrices. Built
     /// on first use via [`GpuContext::scene_tone_controls_pipeline`].
     pub(crate) scene_tone_controls_pipeline: OnceCell<wgpu::ComputePipeline>,
+    /// Lazily-compiled vignette compute pipeline (`vignette.wgsl`). The #1109
+    /// scene-linear radial gain — a windowed point op, no Oklab, so no
+    /// generated color matrices. Built on first use via
+    /// [`GpuContext::vignette_pipeline`].
+    pub(crate) vignette_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled masked shadows/highlights compute pipeline
     /// (`scene_tone_sh.wgsl`, #1103): one tone step through the tonal detail
     /// mask (blurred-luma regional vs per-pixel mix). Built on first use via
@@ -308,6 +313,7 @@ impl GpuContext {
             vibrance_pipeline: OnceCell::new(),
             white_balance_pipeline: OnceCell::new(),
             scene_tone_controls_pipeline: OnceCell::new(),
+            vignette_pipeline: OnceCell::new(),
             scene_tone_sh_pipeline: OnceCell::new(),
             display_encode_pipeline: OnceCell::new(),
             srgb_gamma_pipeline: OnceCell::new(),
