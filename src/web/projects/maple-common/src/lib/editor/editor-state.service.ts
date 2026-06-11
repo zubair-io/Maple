@@ -27,12 +27,22 @@ import {
   type ToolId,
   TOOLS_IN_GROUP,
   defaultDisplayValue,
+  displayRange,
   displayValueFromInternal,
   fieldFor,
   groupOf,
   internalValueFromDisplay,
   isWired,
 } from './tool-model';
+import {
+  type ToolSubParam,
+  defaultSubParamId,
+  subParamById,
+  subParamDefaultDisplay,
+  subParamDisplayFromInternal,
+  subParamInternalFromDisplay,
+  subParamsFor,
+} from './tool-sub-param';
 
 /** Cap on the editor's undo/redo ring (per spec §4). */
 export const UNDO_STACK_CAP = 32;
@@ -60,6 +70,15 @@ export class EditorStateService {
   readonly armedTool = signal<ToolId>('exposure');
   readonly fineMode = signal<boolean>(false);
 
+  /** Armed sub-param id for multi-param tools (#1108, spec §10.0);
+   * `null` while a single-param tool is armed. */
+  readonly armedSubParamId = signal<string | null>(defaultSubParamId('exposure'));
+
+  /** Last-armed sub-param per tool, remembered for the SPA session only —
+   * never persisted (NOT in XMP, not in `cm.*`). Survives `bind()` so
+   * filmstrip image switches keep the selection. */
+  private readonly subParamMemory = new Map<ToolId, string>();
+
   // ── Snapshot ring (full AdjustmentModel; cap 32) ─────────────────────────
   private readonly _undoStack = signal<AdjustmentModel[]>([]);
   private readonly _redoStack = signal<AdjustmentModel[]>([]);
@@ -73,22 +92,52 @@ export class EditorStateService {
     return id == null ? null : this.library.adjustmentFor(id)();
   });
 
-  /** Internal `[-100, +100]` value for the currently-armed tool. */
+  /** Ordered sub-params of the armed tool (empty for single-param tools). */
+  readonly armedSubParams = computed<readonly ToolSubParam[]>(() => subParamsFor(this.armedTool()));
+
+  /** The armed (tool, subParam) pair's sub-param — `null` while a
+   * single-param tool is armed, in which case the tool-level mapping
+   * applies unchanged. */
+  readonly armedSubParam = computed<ToolSubParam | null>(() => {
+    const id = this.armedSubParamId();
+    return id == null ? null : subParamById(this.armedTool(), id);
+  });
+
+  /** Internal `[-100, +100]` value for the armed (tool, subParam) pair. */
   readonly armedInternalValue = computed<number>(() => {
     const adj = this.currentAdjustment();
-    const tool = this.armedTool();
     if (!adj) return 0;
-    return readToolInternal(adj, tool);
+    const sub = this.armedSubParam();
+    if (sub) return subParamInternalFromDisplay(sub, adj[sub.field]);
+    return readToolInternal(adj, this.armedTool());
   });
 
   /** Display-range value (EV / K / unitless ±100). */
-  readonly armedDisplayValue = computed<number>(() =>
-    displayValueFromInternal(this.armedTool(), this.armedInternalValue()),
-  );
+  readonly armedDisplayValue = computed<number>(() => {
+    const sub = this.armedSubParam();
+    if (sub) return subParamDisplayFromInternal(sub, this.armedInternalValue());
+    return displayValueFromInternal(this.armedTool(), this.armedInternalValue());
+  });
+
+  /** True when the armed (tool, subParam) pair can take drag-bar /
+   * wheel / reset value edits — mirrors Apple's
+   * `EditorState.armedToolAcceptsValueEdits`. Sub-params always carry a
+   * generated range + field; single-param tools need a wired field and a
+   * display range (presets and the #952 stubs fail this). The drag bar
+   * gates its pointer-down `commit()` on it so value-less tools can't
+   * push junk undo snapshots. */
+  readonly armedToolAcceptsValueEdits = computed<boolean>(() => {
+    const tool = this.armedTool();
+    if (!isWired(tool)) return false;
+    if (this.armedSubParam() != null) return true;
+    return fieldFor(tool) != null && displayRange(tool) != null;
+  });
 
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
-  /** Bind the editor to an asset. Resets undo/redo stacks. */
+  /** Bind the editor to an asset. Resets undo/redo stacks. The armed
+   * sub-param is re-resolved from the session memory (it is per-session
+   * state, so an image switch keeps the selection). */
   bind(id: AssetId, armed?: { group: ToolGroup; tool: ToolId }): void {
     this.imageId.set(id);
     this._undoStack.set([]);
@@ -97,6 +146,7 @@ export class EditorStateService {
       this.armedGroup.set(armed.group);
       this.armedTool.set(armed.tool);
     }
+    this.armedSubParamId.set(this._resolveSubParamId(this.armedTool()));
   }
 
   /** Snapshot the current model onto the undo stack. Call at the start
@@ -153,44 +203,72 @@ export class EditorStateService {
   armTool(tool: ToolId): void {
     this.armedTool.set(tool);
     this.armedGroup.set(groupOf(tool));
+    this.armedSubParamId.set(this._resolveSubParamId(tool));
   }
 
   armGroup(group: ToolGroup): void {
     this.armedGroup.set(group);
     if (groupOf(this.armedTool()) !== group) {
-      this.armedTool.set(TOOLS_IN_GROUP[group][0]);
+      this.armTool(TOOLS_IN_GROUP[group][0]);
     }
+  }
+
+  /** Arm a sub-param of the armed tool (#1108). No-op for ids the tool
+   * doesn't declare (and therefore for single-param tools). Remembered
+   * per tool for the session. */
+  armSubParam(id: string): void {
+    const tool = this.armedTool();
+    const sub = subParamById(tool, id);
+    if (!sub) return;
+    this.armedSubParamId.set(sub.id);
+    this.subParamMemory.set(tool, sub.id);
+  }
+
+  /** Remembered (session) sub-param for `tool`, falling back to the
+   * first-declared; `null` for single-param tools. */
+  private _resolveSubParamId(tool: ToolId): string | null {
+    const remembered = this.subParamMemory.get(tool);
+    if (remembered && subParamById(tool, remembered)) return remembered;
+    return defaultSubParamId(tool);
   }
 
   // ── Value pipe ──────────────────────────────────────────────────────────
 
-  /** Apply a display-range value to the armed tool (no debounce here;
-   * LibraryFetchService.scheduleSidecarWrite is the 750ms coalescer). */
+  /** Apply a display-range value to the armed (tool, subParam) pair (no
+   * debounce here; LibraryFetchService.scheduleSidecarWrite is the 750ms
+   * coalescer). */
   setArmedDisplayValue(value: number): void {
     const id = this.imageId();
-    const tool = this.armedTool();
-    if (id == null || !isWired(tool)) return;
-    const field = fieldFor(tool);
+    if (id == null || !this.armedToolAcceptsValueEdits()) return;
+    const sub = this.armedSubParam();
+    const field = sub ? sub.field : fieldFor(this.armedTool());
     if (!field) return;
     this.library.updateAdjustment(id, { [field]: value } as Partial<AdjustmentModel>);
   }
 
-  /** Apply an internal `[-100, +100]` value to the armed tool. */
+  /** Apply an internal `[-100, +100]` value to the armed pair. */
   setArmedInternalValue(internal: number): void {
-    const tool = this.armedTool();
-    this.setArmedDisplayValue(displayValueFromInternal(tool, internal));
+    const sub = this.armedSubParam();
+    if (sub) {
+      this.setArmedDisplayValue(subParamDisplayFromInternal(sub, internal));
+      return;
+    }
+    this.setArmedDisplayValue(displayValueFromInternal(this.armedTool(), internal));
   }
 
-  /** Reset the armed tool to its canonical default and fire the reset
-   *  haptic. The haptic lives here so every reset entry point (drag-bar
-   *  double-tap, keyboard `0`) gets consistent feedback. The `fieldFor`
-   *  guard skips field-less tools (presets) so they can't push junk
-   *  undo entries. */
+  /** Reset the armed (tool, subParam) pair to its canonical default and
+   *  fire the reset haptic. The haptic lives here so every reset entry
+   *  point (drag-bar double-tap, keyboard `0`) gets consistent feedback.
+   *  The acceptance guard skips value-less tools (presets, stubs) so
+   *  they can't push junk undo entries. For a multi-param tool only the
+   *  ARMED sub-param resets — the others keep their values. */
   resetArmedTool(): void {
-    const tool = this.armedTool();
-    if (!isWired(tool) || !fieldFor(tool)) return;
+    if (!this.armedToolAcceptsValueEdits()) return;
     this.commit();
-    this.setArmedDisplayValue(defaultDisplayValue(tool));
+    const sub = this.armedSubParam();
+    this.setArmedDisplayValue(
+      sub ? subParamDefaultDisplay(sub) : defaultDisplayValue(this.armedTool()),
+    );
     this.haptic('reset');
   }
 

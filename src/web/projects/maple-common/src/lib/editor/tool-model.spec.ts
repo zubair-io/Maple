@@ -18,6 +18,7 @@ import {
 describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
   const expected: Partial<Record<ToolId, readonly [number, number]>> = {
     exposure: [-4, 4],
+    brightness: [-100, 100],
     temp: [2000, 12000],
     tint: [-100, 100],
     contrast: [-100, 100],

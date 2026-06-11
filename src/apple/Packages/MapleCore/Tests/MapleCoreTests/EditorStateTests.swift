@@ -355,30 +355,50 @@ final class EditorStateTests: XCTestCase {
 
     // MARK: - Tool catalog sanity
 
-    func testTwentyFourToolsExist() {
+    func testTwentyFiveToolsExist() {
         // 22 base tools + Capture Sharpening Amount / Sigma, relocated to
-        // the Detail group when the Develop tab was removed (#875).
-        XCTAssertEqual(Tool.allCases.count, 24)
+        // the Detail group when the Develop tab was removed (#875), +
+        // Brightness in Light (#1108 / #1102).
+        XCTAssertEqual(Tool.allCases.count, 25)
     }
 
     func testToolGroupMembership() {
-        XCTAssertEqual(Tool.tools(in: .light).count, 6)
+        // Light gained Brightness (#1108): 6 → 7.
+        XCTAssertEqual(Tool.tools(in: .light).count, 7)
         XCTAssertEqual(Tool.tools(in: .color).count, 5)
         XCTAssertEqual(Tool.tools(in: .effects).count, 6)
         // Detail gained captureSharpen + captureSigma (#875): 5 → 7.
         XCTAssertEqual(Tool.tools(in: .detail).count, 7)
     }
 
-    func testWiredToolsCoverNineteenTools() {
+    func testBrightnessToolWiresToModel() {
+        // Brightness (#1108): real pipeline stage since #1102
+        // (scene_tone_controls midtone-band gain), symmetric ±100,
+        // placed in Light directly after Exposure.
+        XCTAssertEqual(Tool.tools(in: .light)[1], .brightness)
+        let session = makeSession()
+        let state = EditorState(session: session)
+        state.arm(tool: .brightness)
+        XCTAssertEqual(state.armedGroup, .light)
+        state.setArmedDisplayValue(30)
+        XCTAssertEqual(session.model.brightness, 30, accuracy: 1e-9)
+        state.setArmedInternalValue(-50)
+        XCTAssertEqual(session.model.brightness, -50, accuracy: 1e-9)
+        state.resetArmedTool()
+        XCTAssertEqual(session.model.brightness, 0, accuracy: 1e-9)
+    }
+
+    func testWiredToolsCoverTwentyTools() {
         // #952: vignette / grain / splitTone gained AdjustmentModel fields
         // at #643 but never gained pipeline apply code, so they are re-gated
         // as stubs (re-wire at #664 / #665 / #666). HSL (#636) / Crop (#638)
         // remain stubs pending their own specs. Per #875: captureSharpen /
         // captureSigma stay wired to the captureSharpening* fields.
         // Presets left the stub list at #1115 — wired, but value-less
-        // (nil displayRange keeps its value pipe inert).
+        // (nil displayRange keeps its value pipe inert). Brightness joined
+        // wired at #1108.
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 19)
+        XCTAssertEqual(wired.count, 20)
         XCTAssertFalse(Tool.hsl.isWired)
         XCTAssertFalse(Tool.vignette.isWired)
         XCTAssertFalse(Tool.grain.isWired)

@@ -120,6 +120,7 @@ export * from './lib/info/enrichment-status-badge.component';
 
 // S5 (#625) — Editor (shell + drag bar + tool model + placeholder glyphs).
 export * from './lib/editor/tool-model';
+export * from './lib/editor/tool-sub-param';
 export * from './lib/editor/tool-glyph';
 export * from './lib/editor/drag-bar-math';
 export * from './lib/editor/editor-state.service';
@@ -127,6 +128,7 @@ export * from './lib/editor/drag-bar.component';
 export * from './lib/editor/editor-header.component';
 export * from './lib/editor/value-chip.component';
 export * from './lib/editor/group-tabs.component';
+export * from './lib/editor/sub-param-row.component';
 export * from './lib/editor/tool-pill-row.component';
 export * from './lib/editor/editor.component';
 export * from './lib/editor/editor-page.component';

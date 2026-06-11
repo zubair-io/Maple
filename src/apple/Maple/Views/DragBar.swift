@@ -22,14 +22,12 @@ import UIKit
 struct DragBar: View {
     @Bindable var state: EditorState
 
-    /// Backing value for the marker — driven by `state.armedTool`'s
-    /// current display value, normalized into the bar's internal
-    /// `[-100, +100]` scale via `ToolValueMapping`.
+    /// Backing value for the marker — the armed (tool, subParam) pair's
+    /// value on the internal `[-100, +100]` scale. `EditorState` owns
+    /// the display↔internal resolution so the marker tracks the armed
+    /// sub-param's mapping on multi-param tools (#1108).
     var internalValue: Double {
-        ToolValueMapping.internalValue(
-            for: state.armedTool,
-            displayValue: state.armedDisplayValue
-        )
+        state.armedInternalValue
     }
 
     /// Track the gesture's start value so per-frame deltas can apply on

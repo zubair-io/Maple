@@ -18,6 +18,9 @@ enum ToolGlyph {
         switch tool {
         // Light
         case .exposure:   return "sun.max"
+        // Brightness (#1108) — midtone-band gain; the smaller sun reads
+        // as the gentler sibling of the exposure sun.
+        case .brightness: return "sun.min"
         case .contrast:   return "circle.righthalf.filled"
         case .highlights: return "sun.max.fill"
         case .shadows:    return "moon.fill"
