@@ -76,6 +76,36 @@ pub fn extract_preview<P: AsRef<Path>>(path: P) -> Option<DynamicImage> {
     extract_preview_via_exiftool(path.as_ref())
 }
 
+/// A decoded embedded preview plus its detected color space — the unit the
+/// Auto Profile fits consume. Extracted ONCE per cold fit and threaded through
+/// the curve fit, the residual-LUT fit, and the render path's will-it-fit
+/// probe (#1085): pre-fix, each of those three extracted + JPEG-decoded the
+/// preview independently (and detected the color space twice).
+#[derive(Clone, Debug)]
+pub struct ExtractedPreview {
+    /// The embedded preview, SENSOR-oriented (as stored in the RAW).
+    pub image: DynamicImage,
+    /// The preview's color space per [`detect_jpeg_color_space`].
+    pub color_space: JpegColorSpace,
+}
+
+/// Extract the embedded preview AND detect its color space in one pass — the
+/// bundle every Auto Profile fit shares (#1085). Path variant (exiftool
+/// fallback included via [`extract_preview`]).
+pub fn extract_for_fit<P: AsRef<Path>>(path: P) -> Option<ExtractedPreview> {
+    let image = extract_preview(path.as_ref())?;
+    let color_space = detect_jpeg_color_space(path.as_ref());
+    Some(ExtractedPreview { image, color_space })
+}
+
+/// Bytes/WASM mirror of [`extract_for_fit`] (no exiftool tier — see
+/// [`extract_preview_from_bytes`]).
+pub fn extract_for_fit_from_bytes(bytes: &[u8], ext: &str) -> Option<ExtractedPreview> {
+    let image = extract_preview_from_bytes(bytes, ext)?;
+    let color_space = detect_jpeg_color_space_from_bytes(bytes, ext);
+    Some(ExtractedPreview { image, color_space })
+}
+
 /// EXIF orientation (TIFF tag 0x0112) for the RAW at `path`, read from
 /// rawler's `raw_metadata().exif.orientation` — the SAME primary source
 /// `decode.rs` uses to orient the final render, so the preview and the render
