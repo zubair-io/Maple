@@ -274,6 +274,31 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         case "crs:SplitToningHighlightHue":      model.splitToneHighlightHue       = d(value) ?? model.splitToneHighlightHue
         case "crs:SplitToningHighlightSaturation": model.splitToneHighlightSaturation = d(value) ?? model.splitToneHighlightSaturation
         case "crs:SplitToningBalance":           model.splitToneBalance            = d(value) ?? model.splitToneBalance
+        // HSL 8-band adjustments (#1112) — crs: keys for interchange with Lightroom.
+        case "crs:HueAdjustmentRed":         model.hueAdjustmentRed       = d(value) ?? model.hueAdjustmentRed
+        case "crs:HueAdjustmentOrange":      model.hueAdjustmentOrange    = d(value) ?? model.hueAdjustmentOrange
+        case "crs:HueAdjustmentYellow":      model.hueAdjustmentYellow    = d(value) ?? model.hueAdjustmentYellow
+        case "crs:HueAdjustmentGreen":       model.hueAdjustmentGreen     = d(value) ?? model.hueAdjustmentGreen
+        case "crs:HueAdjustmentAqua":        model.hueAdjustmentAqua      = d(value) ?? model.hueAdjustmentAqua
+        case "crs:HueAdjustmentBlue":        model.hueAdjustmentBlue      = d(value) ?? model.hueAdjustmentBlue
+        case "crs:HueAdjustmentPurple":      model.hueAdjustmentPurple    = d(value) ?? model.hueAdjustmentPurple
+        case "crs:HueAdjustmentMagenta":     model.hueAdjustmentMagenta   = d(value) ?? model.hueAdjustmentMagenta
+        case "crs:SaturationAdjustmentRed":      model.saturationAdjustmentRed       = d(value) ?? model.saturationAdjustmentRed
+        case "crs:SaturationAdjustmentOrange":   model.saturationAdjustmentOrange    = d(value) ?? model.saturationAdjustmentOrange
+        case "crs:SaturationAdjustmentYellow":   model.saturationAdjustmentYellow    = d(value) ?? model.saturationAdjustmentYellow
+        case "crs:SaturationAdjustmentGreen":    model.saturationAdjustmentGreen     = d(value) ?? model.saturationAdjustmentGreen
+        case "crs:SaturationAdjustmentAqua":     model.saturationAdjustmentAqua      = d(value) ?? model.saturationAdjustmentAqua
+        case "crs:SaturationAdjustmentBlue":     model.saturationAdjustmentBlue      = d(value) ?? model.saturationAdjustmentBlue
+        case "crs:SaturationAdjustmentPurple":   model.saturationAdjustmentPurple    = d(value) ?? model.saturationAdjustmentPurple
+        case "crs:SaturationAdjustmentMagenta":  model.saturationAdjustmentMagenta   = d(value) ?? model.saturationAdjustmentMagenta
+        case "crs:LuminanceAdjustmentRed":       model.luminanceAdjustmentRed       = d(value) ?? model.luminanceAdjustmentRed
+        case "crs:LuminanceAdjustmentOrange":    model.luminanceAdjustmentOrange    = d(value) ?? model.luminanceAdjustmentOrange
+        case "crs:LuminanceAdjustmentYellow":    model.luminanceAdjustmentYellow    = d(value) ?? model.luminanceAdjustmentYellow
+        case "crs:LuminanceAdjustmentGreen":     model.luminanceAdjustmentGreen     = d(value) ?? model.luminanceAdjustmentGreen
+        case "crs:LuminanceAdjustmentAqua":      model.luminanceAdjustmentAqua      = d(value) ?? model.luminanceAdjustmentAqua
+        case "crs:LuminanceAdjustmentBlue":      model.luminanceAdjustmentBlue      = d(value) ?? model.luminanceAdjustmentBlue
+        case "crs:LuminanceAdjustmentPurple":    model.luminanceAdjustmentPurple    = d(value) ?? model.luminanceAdjustmentPurple
+        case "crs:LuminanceAdjustmentMagenta":   model.luminanceAdjustmentMagenta   = d(value) ?? model.luminanceAdjustmentMagenta
         case "crs:WhiteBalance":
             if let (t, ti) = wbPreset(value) {
                 model.temperature = t
@@ -445,6 +470,32 @@ public struct XMPSerializer {
         if model.splitToneBalance != 0 {
             attrs.append(("crs:SplitToningBalance", String(format: "%.0f", model.splitToneBalance)))
         }
+        // HSL 8-band adjustments (#1112) — emit only when non-default (!=0)
+        // so sidecars from older builds stay byte-identical.
+        if model.hueAdjustmentRed      != 0 { attrs.append(("crs:HueAdjustmentRed",      String(format: "%.0f", model.hueAdjustmentRed))) }
+        if model.hueAdjustmentOrange   != 0 { attrs.append(("crs:HueAdjustmentOrange",   String(format: "%.0f", model.hueAdjustmentOrange))) }
+        if model.hueAdjustmentYellow   != 0 { attrs.append(("crs:HueAdjustmentYellow",   String(format: "%.0f", model.hueAdjustmentYellow))) }
+        if model.hueAdjustmentGreen    != 0 { attrs.append(("crs:HueAdjustmentGreen",    String(format: "%.0f", model.hueAdjustmentGreen))) }
+        if model.hueAdjustmentAqua     != 0 { attrs.append(("crs:HueAdjustmentAqua",     String(format: "%.0f", model.hueAdjustmentAqua))) }
+        if model.hueAdjustmentBlue     != 0 { attrs.append(("crs:HueAdjustmentBlue",     String(format: "%.0f", model.hueAdjustmentBlue))) }
+        if model.hueAdjustmentPurple   != 0 { attrs.append(("crs:HueAdjustmentPurple",   String(format: "%.0f", model.hueAdjustmentPurple))) }
+        if model.hueAdjustmentMagenta  != 0 { attrs.append(("crs:HueAdjustmentMagenta",  String(format: "%.0f", model.hueAdjustmentMagenta))) }
+        if model.saturationAdjustmentRed      != 0 { attrs.append(("crs:SaturationAdjustmentRed",      String(format: "%.0f", model.saturationAdjustmentRed))) }
+        if model.saturationAdjustmentOrange   != 0 { attrs.append(("crs:SaturationAdjustmentOrange",   String(format: "%.0f", model.saturationAdjustmentOrange))) }
+        if model.saturationAdjustmentYellow   != 0 { attrs.append(("crs:SaturationAdjustmentYellow",   String(format: "%.0f", model.saturationAdjustmentYellow))) }
+        if model.saturationAdjustmentGreen    != 0 { attrs.append(("crs:SaturationAdjustmentGreen",    String(format: "%.0f", model.saturationAdjustmentGreen))) }
+        if model.saturationAdjustmentAqua     != 0 { attrs.append(("crs:SaturationAdjustmentAqua",     String(format: "%.0f", model.saturationAdjustmentAqua))) }
+        if model.saturationAdjustmentBlue     != 0 { attrs.append(("crs:SaturationAdjustmentBlue",     String(format: "%.0f", model.saturationAdjustmentBlue))) }
+        if model.saturationAdjustmentPurple   != 0 { attrs.append(("crs:SaturationAdjustmentPurple",   String(format: "%.0f", model.saturationAdjustmentPurple))) }
+        if model.saturationAdjustmentMagenta  != 0 { attrs.append(("crs:SaturationAdjustmentMagenta",  String(format: "%.0f", model.saturationAdjustmentMagenta))) }
+        if model.luminanceAdjustmentRed      != 0 { attrs.append(("crs:LuminanceAdjustmentRed",      String(format: "%.0f", model.luminanceAdjustmentRed))) }
+        if model.luminanceAdjustmentOrange   != 0 { attrs.append(("crs:LuminanceAdjustmentOrange",   String(format: "%.0f", model.luminanceAdjustmentOrange))) }
+        if model.luminanceAdjustmentYellow   != 0 { attrs.append(("crs:LuminanceAdjustmentYellow",   String(format: "%.0f", model.luminanceAdjustmentYellow))) }
+        if model.luminanceAdjustmentGreen    != 0 { attrs.append(("crs:LuminanceAdjustmentGreen",    String(format: "%.0f", model.luminanceAdjustmentGreen))) }
+        if model.luminanceAdjustmentAqua     != 0 { attrs.append(("crs:LuminanceAdjustmentAqua",     String(format: "%.0f", model.luminanceAdjustmentAqua))) }
+        if model.luminanceAdjustmentBlue     != 0 { attrs.append(("crs:LuminanceAdjustmentBlue",     String(format: "%.0f", model.luminanceAdjustmentBlue))) }
+        if model.luminanceAdjustmentPurple   != 0 { attrs.append(("crs:LuminanceAdjustmentPurple",   String(format: "%.0f", model.luminanceAdjustmentPurple))) }
+        if model.luminanceAdjustmentMagenta  != 0 { attrs.append(("crs:LuminanceAdjustmentMagenta",  String(format: "%.0f", model.luminanceAdjustmentMagenta))) }
         if model.highlightRecovery != .chromaticAdaptation {
             attrs.append(("papp:HighlightRecoveryMode", model.highlightRecovery.rawValue))
         }

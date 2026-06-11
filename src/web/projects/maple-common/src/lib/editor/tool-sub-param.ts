@@ -50,8 +50,176 @@ export interface ToolSubParam {
 // future tiers — Deep (BM3D, #1105) and Prefilter (§3.1) — join the
 // `noise` list data-only when their pipeline stages land. Vignette joined
 // at #1109, grain at #1110, split tone at #1111 (Balance leads — the
-// schema-declared primary drag-bar field).
+// schema-declared primary drag-bar field). HSL joined at #1112 with 24
+// sub-params across 3 rows (Hue/Sat/Lum × 8 bands); Hue Red leads.
 const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
+  hsl: [
+    // Hue row (bands Red → Magenta)
+    { id: 'hueRed', label: 'H Red', field: 'hueAdjustmentRed', mapping: 'anchored', decimals: 0 },
+    {
+      id: 'hueOrange',
+      label: 'H Orange',
+      field: 'hueAdjustmentOrange',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'hueYellow',
+      label: 'H Yellow',
+      field: 'hueAdjustmentYellow',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'hueGreen',
+      label: 'H Green',
+      field: 'hueAdjustmentGreen',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'hueAqua',
+      label: 'H Aqua',
+      field: 'hueAdjustmentAqua',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'hueBlue',
+      label: 'H Blue',
+      field: 'hueAdjustmentBlue',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'huePurple',
+      label: 'H Purple',
+      field: 'hueAdjustmentPurple',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'hueMagenta',
+      label: 'H Magenta',
+      field: 'hueAdjustmentMagenta',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    // Saturation row
+    {
+      id: 'satRed',
+      label: 'S Red',
+      field: 'saturationAdjustmentRed',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'satOrange',
+      label: 'S Orange',
+      field: 'saturationAdjustmentOrange',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'satYellow',
+      label: 'S Yellow',
+      field: 'saturationAdjustmentYellow',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'satGreen',
+      label: 'S Green',
+      field: 'saturationAdjustmentGreen',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'satAqua',
+      label: 'S Aqua',
+      field: 'saturationAdjustmentAqua',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'satBlue',
+      label: 'S Blue',
+      field: 'saturationAdjustmentBlue',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'satPurple',
+      label: 'S Purple',
+      field: 'saturationAdjustmentPurple',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'satMagenta',
+      label: 'S Magenta',
+      field: 'saturationAdjustmentMagenta',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    // Luminance row
+    {
+      id: 'lumRed',
+      label: 'L Red',
+      field: 'luminanceAdjustmentRed',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'lumOrange',
+      label: 'L Orange',
+      field: 'luminanceAdjustmentOrange',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'lumYellow',
+      label: 'L Yellow',
+      field: 'luminanceAdjustmentYellow',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'lumGreen',
+      label: 'L Green',
+      field: 'luminanceAdjustmentGreen',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'lumAqua',
+      label: 'L Aqua',
+      field: 'luminanceAdjustmentAqua',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'lumBlue',
+      label: 'L Blue',
+      field: 'luminanceAdjustmentBlue',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'lumPurple',
+      label: 'L Purple',
+      field: 'luminanceAdjustmentPurple',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'lumMagenta',
+      label: 'L Magenta',
+      field: 'luminanceAdjustmentMagenta',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+  ],
   vignette: [
     { id: 'amount', label: 'Amount', field: 'vignetteAmount', mapping: 'anchored', decimals: 0 },
     { id: 'feather', label: 'Feather', field: 'vignetteFeather', mapping: 'linear', decimals: 0 },

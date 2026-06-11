@@ -184,6 +184,36 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     public var splitToneHighlightSaturation: Double // 0..100, default 0
     public var splitToneBalance: Double            // -100..100, default 0
 
+    // HSL per-band adjustments (#1112, tone/zoom design spec § 10.4).
+    // Scene-linear Oklab, normalized raised-cosine partition of unity.
+    // All three rows (Hue / Saturation / Luminance) × 8 ACR-aligned bands.
+    // Range -100..+100, default 0. XMP keys: crs:HueAdjustmentRed, etc.
+    // Names match the generated schema (hue_adjustment_red → hueAdjustmentRed).
+    public var hueAdjustmentRed: Double         // -100..100, default 0
+    public var hueAdjustmentOrange: Double      // -100..100, default 0
+    public var hueAdjustmentYellow: Double      // -100..100, default 0
+    public var hueAdjustmentGreen: Double       // -100..100, default 0
+    public var hueAdjustmentAqua: Double        // -100..100, default 0
+    public var hueAdjustmentBlue: Double        // -100..100, default 0
+    public var hueAdjustmentPurple: Double      // -100..100, default 0
+    public var hueAdjustmentMagenta: Double     // -100..100, default 0
+    public var saturationAdjustmentRed: Double      // -100..100, default 0
+    public var saturationAdjustmentOrange: Double   // -100..100, default 0
+    public var saturationAdjustmentYellow: Double   // -100..100, default 0
+    public var saturationAdjustmentGreen: Double    // -100..100, default 0
+    public var saturationAdjustmentAqua: Double     // -100..100, default 0
+    public var saturationAdjustmentBlue: Double     // -100..100, default 0
+    public var saturationAdjustmentPurple: Double   // -100..100, default 0
+    public var saturationAdjustmentMagenta: Double  // -100..100, default 0
+    public var luminanceAdjustmentRed: Double       // -100..100, default 0
+    public var luminanceAdjustmentOrange: Double    // -100..100, default 0
+    public var luminanceAdjustmentYellow: Double    // -100..100, default 0
+    public var luminanceAdjustmentGreen: Double     // -100..100, default 0
+    public var luminanceAdjustmentAqua: Double      // -100..100, default 0
+    public var luminanceAdjustmentBlue: Double      // -100..100, default 0
+    public var luminanceAdjustmentPurple: Double    // -100..100, default 0
+    public var luminanceAdjustmentMagenta: Double   // -100..100, default 0
+
     // Highlight recovery (Maple-proprietary)
     public var highlightRecovery: HighlightRecoveryMode
 
@@ -258,6 +288,30 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         splitToneHighlightHue: Double = 0,
         splitToneHighlightSaturation: Double = 0,
         splitToneBalance: Double = 0,
+        hueAdjustmentRed: Double = 0,
+        hueAdjustmentOrange: Double = 0,
+        hueAdjustmentYellow: Double = 0,
+        hueAdjustmentGreen: Double = 0,
+        hueAdjustmentAqua: Double = 0,
+        hueAdjustmentBlue: Double = 0,
+        hueAdjustmentPurple: Double = 0,
+        hueAdjustmentMagenta: Double = 0,
+        saturationAdjustmentRed: Double = 0,
+        saturationAdjustmentOrange: Double = 0,
+        saturationAdjustmentYellow: Double = 0,
+        saturationAdjustmentGreen: Double = 0,
+        saturationAdjustmentAqua: Double = 0,
+        saturationAdjustmentBlue: Double = 0,
+        saturationAdjustmentPurple: Double = 0,
+        saturationAdjustmentMagenta: Double = 0,
+        luminanceAdjustmentRed: Double = 0,
+        luminanceAdjustmentOrange: Double = 0,
+        luminanceAdjustmentYellow: Double = 0,
+        luminanceAdjustmentGreen: Double = 0,
+        luminanceAdjustmentAqua: Double = 0,
+        luminanceAdjustmentBlue: Double = 0,
+        luminanceAdjustmentPurple: Double = 0,
+        luminanceAdjustmentMagenta: Double = 0,
         highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
         look: Look = .default,
         profile: Profile = .auto,
@@ -301,6 +355,30 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.splitToneHighlightHue = splitToneHighlightHue
         self.splitToneHighlightSaturation = splitToneHighlightSaturation
         self.splitToneBalance = splitToneBalance
+        self.hueAdjustmentRed = hueAdjustmentRed
+        self.hueAdjustmentOrange = hueAdjustmentOrange
+        self.hueAdjustmentYellow = hueAdjustmentYellow
+        self.hueAdjustmentGreen = hueAdjustmentGreen
+        self.hueAdjustmentAqua = hueAdjustmentAqua
+        self.hueAdjustmentBlue = hueAdjustmentBlue
+        self.hueAdjustmentPurple = hueAdjustmentPurple
+        self.hueAdjustmentMagenta = hueAdjustmentMagenta
+        self.saturationAdjustmentRed = saturationAdjustmentRed
+        self.saturationAdjustmentOrange = saturationAdjustmentOrange
+        self.saturationAdjustmentYellow = saturationAdjustmentYellow
+        self.saturationAdjustmentGreen = saturationAdjustmentGreen
+        self.saturationAdjustmentAqua = saturationAdjustmentAqua
+        self.saturationAdjustmentBlue = saturationAdjustmentBlue
+        self.saturationAdjustmentPurple = saturationAdjustmentPurple
+        self.saturationAdjustmentMagenta = saturationAdjustmentMagenta
+        self.luminanceAdjustmentRed = luminanceAdjustmentRed
+        self.luminanceAdjustmentOrange = luminanceAdjustmentOrange
+        self.luminanceAdjustmentYellow = luminanceAdjustmentYellow
+        self.luminanceAdjustmentGreen = luminanceAdjustmentGreen
+        self.luminanceAdjustmentAqua = luminanceAdjustmentAqua
+        self.luminanceAdjustmentBlue = luminanceAdjustmentBlue
+        self.luminanceAdjustmentPurple = luminanceAdjustmentPurple
+        self.luminanceAdjustmentMagenta = luminanceAdjustmentMagenta
         self.highlightRecovery = highlightRecovery
         self.look = look
         self.profile = profile

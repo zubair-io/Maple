@@ -83,14 +83,15 @@ describe('sub-param catalog', () => {
     expect(defaultSubParamId('splitTone')).toBe('balance');
   });
 
-  it('every other tool is single-param (HSL/crop pending their own specs)', () => {
+  it('every other tool is single-param (crop pending its own spec)', () => {
     for (const tool of ALL_TOOLS) {
       if (
         tool === 'noise' ||
         tool === 'sharpen' ||
         tool === 'vignette' ||
         tool === 'grain' ||
-        tool === 'splitTone'
+        tool === 'splitTone' ||
+        tool === 'hsl' // HSL wired at #1112: 24 sub-params
       )
         continue;
       expect(subParamsFor(tool as ToolId)).toEqual([]);

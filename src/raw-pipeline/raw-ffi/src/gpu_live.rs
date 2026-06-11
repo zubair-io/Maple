@@ -142,6 +142,34 @@ pub struct MapleGpuLiveParams {
     pub split_tone_highlight_hue: f32,
     pub split_tone_highlight_saturation: f32,
     pub split_tone_balance: f32,
+    // --- HSL 8-band per-channel adjustments — scene-linear Oklab (#1112,
+    //     tone/zoom design § 10.4; runs after saturation / before clarity).
+    //     Appended at the tail per the same ABI convention; un-set fields
+    //     read as 0.0 = identity. ---
+    pub hsl_hue_red: f32,
+    pub hsl_hue_orange: f32,
+    pub hsl_hue_yellow: f32,
+    pub hsl_hue_green: f32,
+    pub hsl_hue_aqua: f32,
+    pub hsl_hue_blue: f32,
+    pub hsl_hue_purple: f32,
+    pub hsl_hue_magenta: f32,
+    pub hsl_sat_red: f32,
+    pub hsl_sat_orange: f32,
+    pub hsl_sat_yellow: f32,
+    pub hsl_sat_green: f32,
+    pub hsl_sat_aqua: f32,
+    pub hsl_sat_blue: f32,
+    pub hsl_sat_purple: f32,
+    pub hsl_sat_magenta: f32,
+    pub hsl_lum_red: f32,
+    pub hsl_lum_orange: f32,
+    pub hsl_lum_yellow: f32,
+    pub hsl_lum_green: f32,
+    pub hsl_lum_aqua: f32,
+    pub hsl_lum_blue: f32,
+    pub hsl_lum_purple: f32,
+    pub hsl_lum_magenta: f32,
 }
 
 /// Internal handle state: the owned context + session. Behind the opaque pointer.
