@@ -80,7 +80,12 @@ const previewStage = defineStage({
     // An ENOENT here (original gone) is tagged `missing_since` by the runner
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     await generatePreview(absPath, previewPath);
-    return { patch: { preview_path: previewPath } };
+    // The preview now lives on disk at the content-addressed path. We do NOT
+    // persist that path on the asset: readers recompute it from (library root,
+    // fileinfo[0].path, maple_id) via `cachePathForAsset`, so a stored
+    // `preview_path` would be dead, redundant data. `{ wrote: true }` marks the
+    // stage done without patching any asset field.
+    return { wrote: true };
   },
 });
 
