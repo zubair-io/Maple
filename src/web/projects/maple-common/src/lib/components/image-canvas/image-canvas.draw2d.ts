@@ -135,6 +135,54 @@ export interface Draw2dInputs {
 }
 
 /**
+ * Gradient placeholder images, cached per URL (PR #1124 review): `drawCanvas2d`
+ * runs on every pan/zoom/split tick, and constructing a fresh `Image()` per
+ * tick meant repeated decode work plus a pending `onload` closure per frame
+ * that could paint out of order when an older load resolved late. The cache
+ * makes every draw after the first synchronous; entries live for the session
+ * (mock-asset gradients are a handful of tiny data URLs).
+ */
+interface GradientImageEntry {
+  img: HTMLImageElement;
+  state: 'loading' | 'ready' | 'failed';
+}
+
+const gradientImageCache = new Map<string, GradientImageEntry>();
+
+/**
+ * Latest paint generation per canvas. A deferred gradient repaint (scheduled
+ * while its image was still loading) only fires if no newer `drawCanvas2d`
+ * frame painted the canvas in the meantime — a stale URL's late load can
+ * never paint over a newer frame (different gradient or a real bitmap).
+ */
+const canvasPaintGeneration = new WeakMap<HTMLCanvasElement, number>();
+
+/**
+ * Resolve the cached image for `url`, creating + loading it on first sight.
+ * Returns the element when ready to draw synchronously; returns `null` while
+ * loading (caller paints the procedural fallback and `repaint` runs when the
+ * load lands) or after a failed load (procedural fallback, permanently — no
+ * per-frame retry, no listener accumulation).
+ */
+function ensureGradientImage(url: string, repaint: () => void): HTMLImageElement | null {
+  let entry = gradientImageCache.get(url);
+  if (!entry) {
+    const img = new Image();
+    const created: GradientImageEntry = { img, state: 'loading' };
+    // Assigned before any per-frame 'load' listener attaches, so `state` is
+    // already 'ready' when those listeners re-enter `drawCanvas2d`.
+    img.onload = () => (created.state = 'ready');
+    img.onerror = () => (created.state = 'failed');
+    img.src = url;
+    entry = created;
+    gradientImageCache.set(url, entry);
+  }
+  if (entry.state === 'ready') return entry.img;
+  if (entry.state === 'loading') entry.img.addEventListener('load', repaint, { once: true });
+  return null;
+}
+
+/**
  * Paint the viewport-sized backing store (#1101): the canvas element fills
  * the wrap and its backing store is `viewport × dpr`; zoom/pan are a draw
  * transform (the destination rect), never the canvas size. The bitmap may be
@@ -145,6 +193,8 @@ export interface Draw2dInputs {
  */
 export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): void {
   const { wrapW, wrapH, canvasW, canvasH, pan, bitmap, split, gradientUrl } = inputs;
+  const generation = (canvasPaintGeneration.get(canvas) ?? 0) + 1;
+  canvasPaintGeneration.set(canvas, generation);
   const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
   const bw = Math.max(1, Math.round(wrapW * dpr));
   const bh = Math.max(1, Math.round(wrapH * dpr));
@@ -192,29 +242,40 @@ export function drawCanvas2d(canvas: HTMLCanvasElement, inputs: Draw2dInputs): v
     }
   } else {
     // Gradient placeholder for mock assets — fills the would-be image rect.
+    // The first frame for a URL paints the procedural fallback while the
+    // image loads, then repaints once the load lands — unless a newer frame
+    // painted this canvas in the meantime (generation guard above).
+    const gradientImg = gradientUrl
+      ? ensureGradientImage(gradientUrl, () => {
+          if (canvasPaintGeneration.get(canvas) === generation) drawCanvas2d(canvas, inputs);
+        })
+      : null;
     if (split !== null) {
       const splitPx = Math.round(bw * split);
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, splitPx, bh);
       ctx.clip();
-      drawGradient(ctx, gradientUrl, dx, dy, dw, dh, 0);
+      drawGradient(ctx, gradientImg, dx, dy, dw, dh, 0);
       ctx.restore();
       ctx.save();
       ctx.beginPath();
       ctx.rect(splitPx, 0, bw - splitPx, bh);
       ctx.clip();
-      drawGradient(ctx, gradientUrl, dx, dy, dw, dh, 15);
+      drawGradient(ctx, gradientImg, dx, dy, dw, dh, 15);
       ctx.restore();
     } else {
-      drawGradient(ctx, gradientUrl, dx, dy, dw, dh, 0);
+      drawGradient(ctx, gradientImg, dx, dy, dw, dh, 0);
     }
   }
 }
 
+/** Paint one gradient-placeholder rect: the cached image when loaded, else
+ *  the procedural two-stop fallback. Always synchronous — load waiting lives
+ *  in `ensureGradientImage` / the caller's repaint closure. */
 function drawGradient(
   ctx: CanvasRenderingContext2D,
-  gradientUrl: string | undefined,
+  img: HTMLImageElement | null,
   x: number,
   y: number,
   w: number,
@@ -228,21 +289,8 @@ function drawGradient(
   ctx.rect(x, y, w, h);
   ctx.clip();
 
-  if (gradientUrl) {
-    const img = new Image();
-    img.onload = () => {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x, y, w, h);
-      ctx.clip();
-      ctx.drawImage(img, x, y, w, h);
-      if (lightenBy > 0) {
-        ctx.fillStyle = `rgba(255,255,255,${lightenBy / 100})`;
-        ctx.fillRect(x, y, w, h);
-      }
-      ctx.restore();
-    };
-    img.src = gradientUrl;
+  if (img) {
+    ctx.drawImage(img, x, y, w, h);
   } else {
     const grd = ctx.createLinearGradient(x, y, x + w, y + h);
     grd.addColorStop(0, '#3a4050');
