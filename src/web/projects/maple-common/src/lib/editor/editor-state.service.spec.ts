@@ -242,7 +242,9 @@ describe('EditorStateService', () => {
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
       svc.armTool('splitTone'); // wired at #1111
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
-      for (const tool of ['presets', 'hsl', 'crop'] as const) {
+      svc.armTool('hsl'); // wired at #1112 — multi-param, sub-param chip routes edits
+      expect(svc.armedToolAcceptsValueEdits()).toBe(true);
+      for (const tool of ['presets', 'crop'] as const) {
         svc.armTool(tool);
         expect(svc.armedToolAcceptsValueEdits()).toBe(false);
       }
@@ -388,15 +390,15 @@ describe('EditorStateService', () => {
       expect(TOOLS_IN_GROUP.detail.length).toBe(5);
     });
 
-    it('wires 21 of 23 tools (S5 effects un-stubbed at #1109/#1110/#1111)', () => {
+    it('wires 22 of 23 tools (S5 effects un-stubbed at #1109/#1110/#1111, HSL at #1112)', () => {
       const wired = ALL_TOOLS.filter(isWired);
-      expect(wired.length).toBe(21);
+      expect(wired.length).toBe(22);
       expect(isWired('vignette')).toBe(true);
       expect(isWired('grain')).toBe(true);
       expect(isWired('splitTone')).toBe(true);
-      for (const t of ['hsl', 'crop'] as const) {
-        expect(isWired(t)).toBe(false);
-      }
+      // HSL left the stub list at #1112 — wired with 24 sub-params (no primary drag-bar field).
+      expect(isWired('hsl')).toBe(true);
+      expect(isWired('crop')).toBe(false);
       // presets left STUB_TOOLS at #1115 — wired, but value-less.
       expect(isWired('presets')).toBe(true);
     });
