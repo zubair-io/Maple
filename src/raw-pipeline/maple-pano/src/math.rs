@@ -57,6 +57,14 @@ impl std::ops::Sub for Vec3 {
     }
 }
 
+impl std::ops::Add for Vec3 {
+    type Output = Vec3;
+
+    fn add(self, o: Vec3) -> Vec3 {
+        Vec3::new(self.x + o.x, self.y + o.y, self.z + o.z)
+    }
+}
+
 /// Row-major 3×3 matrix of `f64`: `Mat3([[r0c0, r0c1, r0c2], …])`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Mat3(pub [[f64; 3]; 3]);

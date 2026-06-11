@@ -78,6 +78,23 @@ impl Camera {
             .to_degrees()
     }
 
+    /// Back-project a continuous pixel coordinate to a unit direction in
+    /// the **camera frame** (+X right, +Y down, +Z optical axis), ignoring
+    /// the pose entirely.
+    ///
+    /// This is the bearing used by two-view geometry
+    /// ([`crate::twoview`]), where the pose is the unknown being solved
+    /// for — only the intrinsics (`focal_px`, `k1`, `k2`, principal
+    /// point) participate. Same domain/`None` semantics as
+    /// [`Self::pixel_to_world_dir`].
+    pub fn pixel_to_camera_dir(&self, px: f64, py: f64) -> Option<Vec3> {
+        let (cx, cy) = self.principal_point();
+        let xd = (px - cx) / self.focal_px;
+        let yd = (py - cy) / self.focal_px;
+        let (x, y) = undistort(xd, yd, self.k1, self.k2)?;
+        Vec3::new(x, y, 1.0).normalized()
+    }
+
     /// Back-project a continuous pixel coordinate to a unit world
     /// direction.
     ///
@@ -85,11 +102,7 @@ impl Camera {
     /// returns `None` only when the distortion polynomial is not invertible
     /// at that radius (see [`crate::distortion::undistort`]).
     pub fn pixel_to_world_dir(&self, px: f64, py: f64) -> Option<Vec3> {
-        let (cx, cy) = self.principal_point();
-        let xd = (px - cx) / self.focal_px;
-        let yd = (py - cy) / self.focal_px;
-        let (x, y) = undistort(xd, yd, self.k1, self.k2)?;
-        let d_cam = Vec3::new(x, y, 1.0).normalized()?;
+        let d_cam = self.pixel_to_camera_dir(px, py)?;
         Some(self.rotation.mul_vec(d_cam))
     }
 
@@ -171,6 +184,24 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    /// The camera-frame bearing is pose-independent, and the pose maps it
+    /// to the world direction.
+    #[test]
+    fn camera_dir_ignores_pose_and_world_dir_applies_it() {
+        let posed = Camera::new([0.3, -1.1, 0.2], 700.0, -0.06, 0.025, 1024, 768);
+        let unposed = Camera::new([0.0; 3], 700.0, -0.06, 0.025, 1024, 768);
+        for (px, py) in [(512.0, 384.0), (100.5, 50.5), (900.0, 700.0)] {
+            let bearing = posed.pixel_to_camera_dir(px, py).unwrap();
+            let same = unposed.pixel_to_camera_dir(px, py).unwrap();
+            assert!((bearing - same).norm() < 1e-15, "bearing depends on pose");
+            let world = posed.pixel_to_world_dir(px, py).unwrap();
+            assert!(
+                (posed.rotation.mul_vec(bearing) - world).norm() < 1e-15,
+                "world dir must be rotation · camera dir"
+            );
         }
     }
 
