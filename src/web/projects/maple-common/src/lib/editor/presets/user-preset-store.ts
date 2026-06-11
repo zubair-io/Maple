@@ -100,5 +100,7 @@ export class IdbUserPresetStore implements UserPresetStore {
  *  in-memory otherwise (SSR, ancient browsers — presets then last for
  *  the session, which beats a hard failure). */
 export function createHostedUserPresetStore(): UserPresetStore {
-  return typeof indexedDB === 'undefined' ? new InMemoryUserPresetStore() : new IdbUserPresetStore();
+  return typeof indexedDB === 'undefined'
+    ? new InMemoryUserPresetStore()
+    : new IdbUserPresetStore();
 }

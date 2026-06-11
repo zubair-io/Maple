@@ -56,7 +56,7 @@ export function validatePresetName(raw: unknown): { name: string } | { error: st
   }
   // Control characters never belong in a display name (and break list UIs).
   // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x1f\x7f]/.test(name)) return { error: "name contains control characters" };
+  if (/[\x00-\x1f\x7f]/.test(name)) return { error: 'name contains control characters' };
   return { name };
 }
 
