@@ -274,6 +274,51 @@ fn brightness_serialize_roundtrip_and_default_omission() {
     assert_eq!(parsed.brightness, 42.0);
 }
 
+/// Chroma pre-filter (#1104): parses from the Maple-proprietary
+/// `papp:ChromaPrefilter` key. Deliberately distinct from ACR's
+/// `crs:ColorNoiseReduction` (which maps onto the late-chain `nr_color`
+/// NLM) — this stage runs inside the decode product.
+#[test]
+fn parse_chroma_prefilter() {
+    let xml = r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+              xmlns:papp="http://ns.justmaple.app/1.0/"
+              papp:ChromaPrefilter="35"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.chroma_prefilter, 35.0);
+    // The decode-key field must not leak onto the NLM slider or vice versa.
+    assert_eq!(m.nr_color, 25.0, "nr_color must stay at its default");
+}
+
+/// Absent `papp:ChromaPrefilter` leaves the default (0 — bit-identical
+/// stage skip), the serializer omits the attribute at the default, and
+/// non-default values round-trip through serialize → parse.
+#[test]
+fn chroma_prefilter_serialize_roundtrip_and_default_omission() {
+    let mut m = AdjustmentModel::default();
+    assert!(!serialize(&m).contains("papp:ChromaPrefilter"),
+        "default chroma_prefilter must not be serialized");
+
+    m.chroma_prefilter = 35.0;
+    let frag = serialize(&m);
+    assert!(frag.contains(r#"papp:ChromaPrefilter="35""#), "got fragment: {}", frag);
+
+    let xml = format!(
+        r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:papp="http://ns.justmaple.app/1.0/"{frag}/>
+          </rdf:RDF>
+        </x:xmpmeta>"#
+    );
+    let parsed = parse(&xml).unwrap();
+    assert_eq!(parsed.chroma_prefilter, 35.0);
+}
+
 /// S5 effects fields (ticket #643): vignette / grain / split-tone scalars
 /// parse from Lightroom-compatible `crs:` keys (PostCropVignette*, Grain*,
 /// SplitToning*). `crs:GrainFrequency` lands on `grain_roughness` — Maple's

@@ -57,6 +57,7 @@ extension AdjustmentModel {
         case look = "look"
         case profile = "profile"
         case toneCurveMode = "tone_curve_mode"
+        case chromaPrefilter = "chroma_prefilter"
     }
 
     // MARK: - Range constants (canonical, generated)
@@ -135,4 +136,6 @@ extension AdjustmentModel {
     public static let splitToneHighlightSaturationRange: ClosedRange<Double> = 0.0...100.0
     /// Split-tone balance — shifts the shadow/highlight split point (ticket #643). Primary drag-bar field for the Split Tone tool.
     public static let splitToneBalanceRange: ClosedRange<Double> = -100.0...100.0
+    /// Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.
+    public static let chromaPrefilterRange: ClosedRange<Double> = 0.0...100.0
 }

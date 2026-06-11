@@ -62,6 +62,9 @@ extension AdjustmentModel.FieldName {
         case .splitToneHighlightHue:        return \.splitToneHighlightHue
         case .splitToneHighlightSaturation: return \.splitToneHighlightSaturation
         case .splitToneBalance:             return \.splitToneBalance
+        // Decode-time chroma pre-filter (#1104) — numeric decode-product
+        // field; capture/apply like any slider.
+        case .chromaPrefilter:              return \.chromaPrefilter
         // Deprecated alias — no Swift property (see AdjustmentModel docs).
         case .captureSharpeningRadius:      return nil
         // Enum-valued / not in the Swift model.
@@ -111,6 +114,7 @@ extension AdjustmentModel.FieldName {
         case .splitToneHighlightSaturation:
             return AdjustmentModel.splitToneHighlightSaturationRange
         case .splitToneBalance:             return AdjustmentModel.splitToneBalanceRange
+        case .chromaPrefilter:              return AdjustmentModel.chromaPrefilterRange
         default:                            return nil
         }
     }
