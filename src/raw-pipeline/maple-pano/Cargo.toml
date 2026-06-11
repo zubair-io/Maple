@@ -13,9 +13,29 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# Synthetic-correspondence generation for geometry gates (M1a, #1138).
+# A public feature (not a dev-only module) so later milestones (BA) and
+# sibling crates can reuse the generator; the crate's own gate tests
+# enable it via `required-features` below. Adds no dependencies.
+testkit = []
+
 [[bin]]
 name = "pano-gt-render"
 path = "src/bin/pano-gt-render.rs"
+
+# M1a gate tests need the testkit; `cargo test -p maple-pano` (no
+# features) skips them, `--all-features` runs them. Other test targets
+# under tests/ remain auto-discovered.
+[[test]]
+name = "twoview_gates"
+path = "tests/twoview_gates.rs"
+required-features = ["testkit"]
+
+[[test]]
+name = "graph_gates"
+path = "tests/graph_gates.rs"
+required-features = ["testkit"]
 
 [dependencies]
 clap.workspace = true

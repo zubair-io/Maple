@@ -51,6 +51,11 @@
 //! | [`source`]     | Equirect loading + bilinear sampling                  |
 //! | [`render`]     | Camera-set builder, frame renderer, output writing    |
 //! | [`gt`]         | `ground_truth.json` schema types                      |
+//! | [`eigen`]      | Jacobi symmetric eigensolver (q-method backend)       |
+//! | [`twoview`]    | Bearings + closed-form relative rotation (Wahba)      |
+//! | [`robust`]     | MAGSAC-style robust two-view verification             |
+//! | [`graph`]      | Match-graph builder, candidate providers, components  |
+//! | [`testkit`]    | Synthetic correspondences (cargo feature `testkit`)   |
 
 pub mod camera;
 pub mod distortion;
@@ -66,3 +71,13 @@ pub mod synthetic;
 pub use camera::Camera;
 pub use error::PanoError;
 pub use project::Projection;
+
+// M1a (#1138): match graph + rotation-model two-view estimation. Appended
+// after the M0a block (not interleaved) to stay merge-friendly with
+// concurrently landing module additions.
+pub mod eigen;
+pub mod graph;
+pub mod robust;
+#[cfg(feature = "testkit")]
+pub mod testkit;
+pub mod twoview;
