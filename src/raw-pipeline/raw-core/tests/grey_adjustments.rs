@@ -461,3 +461,52 @@ fn highlights_compresses_above_knee() {
     assert_predicted_scene_linear(0.95, configure, predict);
     assert_neutral_display(0.95, configure);
 }
+
+/// #1081 / #1103 — negative highlights at the OLD division pole (h = -50,
+/// where the legacy 1 + 2h denominator hit zero and the stage silently
+/// skipped). Same above-knee drive as the positive case: exposure(+1) on
+/// L=0.95 → scene 1.9, then highlights(-50) expands per the pole-free
+/// #1103 response (shape ×(1+2|h|) · gain 2^(0.7·|h|·w_h)).
+#[test]
+fn highlights_minus50_expands_above_knee() {
+    let configure = |m: &mut AdjustmentModel| {
+        m.exposure = 1.0;
+        m.highlights = -50.0;
+    };
+    let predict = |s: f32| predict_highlights(predict_exposure(s, 1.0), -50.0);
+    assert_predicted_scene_linear(0.95, configure, predict);
+    assert_neutral_display(0.95, configure);
+}
+
+/// #1081 / #1103 — full-range negative highlights (the legacy form
+/// produced negative RGB here for any pixel above Y = 2).
+#[test]
+fn highlights_minus100_expands_above_knee() {
+    let configure = |m: &mut AdjustmentModel| {
+        m.exposure = 1.0;
+        m.highlights = -100.0;
+    };
+    let predict = |s: f32| predict_highlights(predict_exposure(s, 1.0), -100.0);
+    assert_predicted_scene_linear(0.95, configure, predict);
+    assert_neutral_display(0.95, configure);
+}
+
+/// #1103 — highlights now engages BELOW the clip point: L=0.7 sits inside
+/// the (0.4, 1.0) engagement band, where the pre-#1103 stage was a no-op.
+#[test]
+fn highlights_engages_below_knee_grey() {
+    for h in [60.0_f32, -60.0] {
+        assert_predicted_scene_linear(0.7, |m| m.highlights = h, move |s| predict_highlights(s, h));
+        assert_neutral_display(0.7, |m| m.highlights = h);
+    }
+}
+
+/// #1103 — shadows engagement widened to Y < 0.25: L=0.18 responds now
+/// (pre-#1103 the mask zeroed out above Y = 0.1).
+#[test]
+fn shadows_engages_at_mid_grey() {
+    for s in [60.0_f32, -60.0] {
+        assert_predicted_scene_linear(0.18, |m| m.shadows = s, move |sc| predict_shadows(sc, s));
+        assert_neutral_display(0.18, |m| m.shadows = s);
+    }
+}
