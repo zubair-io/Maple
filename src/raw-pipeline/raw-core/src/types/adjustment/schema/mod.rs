@@ -415,6 +415,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "ToneCurveMode",
         doc: "Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue.",
     },
+    FieldSpec {
+        name: "chroma_prefilter",
+        kind: FieldKind::F32,
+        range: (0.0, 100.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.",
+    },
 ];
 
 

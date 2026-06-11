@@ -109,6 +109,8 @@ export interface GeneratedAdjustmentModel {
   profile: Profile;
   /** Tone-curve application mode (ticket #436). 'PerChannel' applies the three R/G/B curves independently (hue shifts); 'RatioPreserving' folds them through Rec.2020 luma to preserve hue. */
   toneCurveMode: ToneCurveMode;
+  /** Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key. Range: [0.0, 100.0]. */
+  chromaPrefilter: number;
 }
 
 /** Canonical `[min, max]` range for each scalar field, generated from raw-core. */
@@ -150,6 +152,7 @@ export const ADJUSTMENT_RANGES = {
   splitToneHighlightHue: [0.0, 360.0] as const,
   splitToneHighlightSaturation: [0.0, 100.0] as const,
   splitToneBalance: [-100.0, 100.0] as const,
+  chromaPrefilter: [0.0, 100.0] as const,
 } as const;
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -198,5 +201,6 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     look: 'Default',
     profile: 'Auto',
     toneCurveMode: 'PerChannel',
+    chromaPrefilter: 0.0,
   };
 }

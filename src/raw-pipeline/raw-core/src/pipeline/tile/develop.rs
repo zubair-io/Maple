@@ -13,8 +13,9 @@ use crate::{
     error::Result,
     image::RawImage,
     stages::{
-        clarity, highlight_recovery, highlight_recovery_oklab, noise_reduction, saturation,
-        scene_tone_controls, sharpen, texture, vibrance, white_balance,
+        chroma_prefilter, clarity, highlight_recovery, highlight_recovery_oklab,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, vibrance,
+        white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -103,6 +104,12 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
             crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
         });
     }
+    // Decode-time chroma pre-filter (#1104). Translation-invariant with a
+    // ±4 px stencil — well inside TILE_OVERLAP_PX (48), so the padded tile
+    // renders the same pixels the full-image path does. No-op at default 0.
+    stage("tile_chroma_prefilter", || {
+        chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
+    });
     // NOTE: auto_exposure intentionally omitted on the tile path. A tile is
     // a sub-region of the image, so its histogram is not representative of
     // the whole scene — running AE here would give a different gain per

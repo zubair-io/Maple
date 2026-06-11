@@ -316,6 +316,21 @@ fn tint_minus_pushes_green() {
         default_diff, tinted_diff);
 }
 
+/// Decode-time chroma pre-filter (#1104, tone/zoom design spec § 3.1).
+/// On a uniform grey card every tap sees equal luma AND equal chroma, so
+/// the delta-form filter is exactly identity at ANY strength — the
+/// closed-form predictor is the identity function. Covers the engaged
+/// settings the default-0 baseline never exercises.
+#[test]
+fn chroma_prefilter_engaged_is_identity_on_grey() {
+    for strength in [25.0_f32, 50.0, 100.0] {
+        for L in [0.05, 0.18, 0.50] {
+            assert_predicted_scene_linear(L, |m| m.chroma_prefilter = strength, |s| s);
+            assert_neutral_display(L, |m| m.chroma_prefilter = strength);
+        }
+    }
+}
+
 #[test]
 fn contrast_plus_creates_s_curve() {
     // Contrast is AgX-internal — assert direction in display-encoded u8.

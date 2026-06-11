@@ -117,28 +117,29 @@ Identical on Swift and TypeScript:
 
 Fields emit **only when non-default** — reduces sidecar size and matches what
 
-| Field            | XMP key                   | Default |
-| ---------------- | ------------------------- | ------- |
-| `exposure`       | `crs:Exposure2012`        | 0       |
-| `brightness`     | `papp:Brightness`         | 0       |
-| `contrast`       | `crs:Contrast2012`        | 0       |
-| `highlights`     | `crs:Highlights2012`      | 0       |
-| `shadows`        | `crs:Shadows2012`         | 0       |
-| `whites`         | `crs:Whites2012`          | 0       |
-| `blacks`         | `crs:Blacks2012`          | 0       |
-| `temperature`    | `crs:Temperature`         | 6500    |
-| `tint`           | `crs:Tint`                | 0       |
-| `vibrance`       | `crs:Vibrance`            | 0       |
-| `saturation`     | `crs:Saturation`          | 0       |
-| `clarity`        | `crs:Clarity2012`         | 0       |
-| `texture`        | `crs:Texture`             | 0       |
-| `dehaze`         | `crs:Dehaze`              | 0       |
-| `sharpenAmount`  | `crs:SharpenAmount`       | 0       |
-| `sharpenRadius`  | `crs:SharpenRadius`       | 1.0     |
-| `sharpenDetail`  | `crs:SharpenDetail`       | 25      |
-| `sharpenMasking` | `crs:SharpenEdgeMasking`  | 0       |
-| `nrLuminance`    | `crs:LuminanceSmoothing`  | 0       |
-| `nrColor`        | `crs:ColorNoiseReduction` | 25      |
+| Field             | XMP key                   | Default |
+| ----------------- | ------------------------- | ------- |
+| `exposure`        | `crs:Exposure2012`        | 0       |
+| `brightness`      | `papp:Brightness`         | 0       |
+| `contrast`        | `crs:Contrast2012`        | 0       |
+| `highlights`      | `crs:Highlights2012`      | 0       |
+| `shadows`         | `crs:Shadows2012`         | 0       |
+| `whites`          | `crs:Whites2012`          | 0       |
+| `blacks`          | `crs:Blacks2012`          | 0       |
+| `temperature`     | `crs:Temperature`         | 6500    |
+| `tint`            | `crs:Tint`                | 0       |
+| `vibrance`        | `crs:Vibrance`            | 0       |
+| `saturation`      | `crs:Saturation`          | 0       |
+| `clarity`         | `crs:Clarity2012`         | 0       |
+| `texture`         | `crs:Texture`             | 0       |
+| `dehaze`          | `crs:Dehaze`              | 0       |
+| `sharpenAmount`   | `crs:SharpenAmount`       | 0       |
+| `sharpenRadius`   | `crs:SharpenRadius`       | 1.0     |
+| `sharpenDetail`   | `crs:SharpenDetail`       | 25      |
+| `sharpenMasking`  | `crs:SharpenEdgeMasking`  | 0       |
+| `nrLuminance`     | `crs:LuminanceSmoothing`  | 0       |
+| `nrColor`         | `crs:ColorNoiseReduction` | 25      |
+| `chromaPrefilter` | `papp:ChromaPrefilter`    | 0       |
 
 **Always-emitted attributes** (process-version signaling):
 
