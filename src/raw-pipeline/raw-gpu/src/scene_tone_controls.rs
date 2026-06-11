@@ -1,73 +1,234 @@
-//! Scene tone controls — a P2 scene-linear WGSL port (epic #925 / #990).
+//! Scene tone controls — a P2 scene-linear WGSL port (epic #925 / #990),
+//! reworked at #1103 into a small spatial DAG (tone/zoom design § 4.2).
 //!
-//! Mirrors the vibrance template. Ports the six luma-coupled tone steps of
-//! `raw_core::stages::scene_tone_controls::apply` (spec § 3.6 + § 4.1): exposure,
-//! brightness, highlights, shadows, whites, blacks — applied SEQUENTIALLY with
-//! luma recomputed from the running pixel at each step (the parity-critical
-//! detail).
-//! Contrast and the parametric / tone-curve steps are intentionally excluded:
-//! the Rust stage applies neither here (contrast modulates the AgX slope
-//! downstream).
+//! Ports the six tone steps of `raw_core::stages::scene_tone_controls::apply`
+//! (spec § 3.6 + § 4.1–4.2): exposure, brightness, highlights, shadows,
+//! whites, blacks. The point steps (exposure/brightness and whites/blacks)
+//! run in `scene_tone_controls.wgsl`; highlights and shadows are spatial
+//! since #1103 — each is a `scene_tone_sh.wgsl` dispatch reading a
+//! gaussian-blurred luma plane (σ = 15 px · longEdge/2000) prepared with the
+//! shared `box_blur.wgsl` primitive, mirroring raw-core's per-step
+//! `masked_multiplier_pass`. Like clarity/dehaze, the stage stays ONE
+//! [`Pass`] from the chain's point of view and orchestrates the DAG over
+//! pooled scratch buffers via [`crate::spatial`].
+//!
+//! Encode plan (stages whose sliders are inactive are skipped, exactly like
+//! the Rust `apply_*` flags; when neither highlights nor shadows is active
+//! the whole stage collapses to ONE point dispatch — the pre-#1103 shape):
+//!
+//! ```text
+//! [point: exposure+brightness] → [luma → 3× box blur → SH(highlights)]
+//!                              → [luma → 3× box blur → SH(shadows)]
+//!                              → [point: whites+blacks]
+//! ```
 //!
 //! Three pieces (the per-stage template):
-//! 1. [`apply_scene_tone_controls`] — the CPU oracle: a line-for-line port of
-//!    the Rust stage's per-pixel loop over a flat RGBA f32 buffer.
+//! 1. [`apply_scene_tone_controls`] — the CPU oracle: a faithful port of the
+//!    Rust stage over a flat RGBA f32 buffer (now width/height-aware — the
+//!    detail mask blurs a 2-D luma plane).
 //! 2. [`SceneToneControlsPass`] — the GPU-resident [`Pass`]; carries the six
 //!    slider values.
 //! 3. The headless parity test (in `#[cfg(test)] mod tests`) — GPU vs
 //!    `raw_core::stages::scene_tone_controls::apply` (the real stage, via the
-//!    test-only `raw-core` dev-dep) `< 1e-4` across a spread of slider combos.
+//!    dev-dep) within 1e-4.
 
 use crate::chain::Pass;
 use crate::context::GpuContext;
-use crate::spatial::encode_simple;
+use crate::spatial::{self, alloc_plane, alloc_rgba, box_blur_encode, encode_simple};
 
-/// `repr(C)` params uniform shared by the WGSL kernel
-/// (`scene_tone_controls.wgsl`): the six raw slider values + the RGBA pixel
-/// `count` + padding to 32 bytes (8 × u32/f32; the kernel's `Params` matches).
+/// `repr(C)` params uniform for the POINT kernel (`scene_tone_controls.wgsl`):
+/// exposure / brightness / whites / blacks + the RGBA pixel `count` + padding
+/// to 32 bytes (8 × u32/f32; the kernel's `Params` matches). Highlights and
+/// shadows left this struct at #1103 — they dispatch `scene_tone_sh.wgsl`
+/// with [`ShParams`].
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Params {
     exposure: f32,
     brightness: f32,
-    highlights: f32,
-    shadows: f32,
     whites: f32,
     blacks: f32,
     count: u32,
     _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+}
+
+/// `repr(C)` params uniform for the masked S/H kernel (`scene_tone_sh.wgsl`).
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct ShParams {
+    count: u32,
+    /// 0 = highlights, 1 = shadows.
+    mode: u32,
+    /// slider / 100 (signed).
+    amount: f32,
+    _pad0: u32,
 }
 
 /// Rec.2020 luma weights — verbatim from
-/// `raw_core::stages::scene_tone_controls::LUMA_REC2020`. Kept here as the local
-/// oracle's copy; the WGSL kernel inlines the same triple. (A stage-local
-/// constant, not a codegen color matrix.)
+/// `raw_core::stages::scene_tone_controls::LUMA_REC2020`.
 const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
+
+// raw-core scene_tone_controls #1103 constants. Transcribed (raw-core is a
+// dev-dep only); the parity test pins every one of them to the real stage.
+const S_T1: f32 = 0.25;
+const S_GAIN_EV: f32 = 1.5;
+const H_W0: f32 = 0.4;
+const H_W1: f32 = 1.0;
+const H_GAIN_EV: f32 = 0.7;
+const SH_MASK_EDGE0: f32 = 0.05;
+const SH_MASK_EDGE1: f32 = 0.25;
+const SH_MASK_SIGMA_REF_PX: f32 = 15.0;
+const SH_MASK_REF_LONG_EDGE: f32 = 2000.0;
 
 #[inline]
 fn luma(p: [f32; 3]) -> f32 {
     LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2]
 }
 
-#[inline]
 fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
+/// `raw_core::stages::scene_tone_controls::sh_mask_blur_radius`, transcribed:
+/// blur radius (in 3×-box-pass gaussian terms) for the S/H detail mask at a
+/// given long edge. σ = 15 px · longEdge/2000; radius = 3σ (box radius ≈ σ
+/// per Wells 1986). The parity test pins the transcription.
+fn sh_mask_blur_radius(long_edge: u32) -> u32 {
+    let sigma = SH_MASK_SIGMA_REF_PX * (long_edge as f32) / SH_MASK_REF_LONG_EDGE;
+    ((3.0 * sigma).round() as u32).max(1)
+}
+
+/// `shadows_mult` — verbatim from the raw-core stage (#1103).
+fn shadows_mult(y: f32, s_amount: f32) -> f32 {
+    let t = 1.0 - smoothstep(0.0, S_T1, y);
+    let w = t * t;
+    1.0 + ((S_GAIN_EV * s_amount).exp2() - 1.0) * w
+}
+
+/// `highlights_mult` — verbatim from the raw-core stage (#1103): weighted
+/// gain engaging below clip + the sign-branched above-knee shape (h ≥ 0
+/// keeps the legacy compression; h < 0 expands by the #1081 pole-free
+/// mirror — do not collapse the branches back into one denominator).
+fn highlights_mult(y: f32, h_amount: f32) -> f32 {
+    let w = smoothstep(H_W0, H_W1, y);
+    let g = (-H_GAIN_EV * h_amount * w).exp2();
+    let shape = if y > 1.0 {
+        let y_new = if h_amount >= 0.0 {
+            1.0 + (y - 1.0) / (1.0 + h_amount * 2.0)
+        } else {
+            1.0 + (y - 1.0) * (1.0 + 2.0 * h_amount.abs())
+        };
+        y_new / y
+    } else {
+        1.0
+    };
+    shape * g
+}
+
+/// Serial separable box blur of a scalar plane — line-faithful local copy of
+/// `raw_core::stages::blur::box_blur_channel` (`pub(crate)` there, so
+/// unreachable from this crate; same precedent as the clarity oracle's copy).
+/// Shrinking-window partial average; `r == 0` is identity.
+fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
+    if r == 0 {
+        return buf.to_vec();
+    }
+    let mut tmp = vec![0.0f32; buf.len()];
+    for y in 0..h {
+        let row = &buf[y * w..(y + 1) * w];
+        let out_row = &mut tmp[y * w..(y + 1) * w];
+        let right0 = r.min(w - 1);
+        let mut acc: f32 = row[0..=right0].iter().sum();
+        let mut count = right0 + 1;
+        out_row[0] = acc / count as f32;
+        for x in 1..w {
+            if x + r < w {
+                acc += row[x + r];
+                count += 1;
+            }
+            if x > r {
+                acc -= row[x - r - 1];
+                count -= 1;
+            }
+            out_row[x] = acc / count as f32;
+        }
+    }
+    let mut out = vec![0.0f32; buf.len()];
+    for x in 0..w {
+        let bot0 = r.min(h - 1);
+        let mut acc: f32 = (0..=bot0).map(|i| tmp[i * w + x]).sum();
+        let mut count = bot0 + 1;
+        out[x] = acc / count as f32;
+        for y in 1..h {
+            if y + r < h {
+                acc += tmp[(y + r) * w + x];
+                count += 1;
+            }
+            if y > r {
+                acc -= tmp[(y - r - 1) * w + x];
+                count -= 1;
+            }
+            out[y * w + x] = acc / count as f32;
+        }
+    }
+    out
+}
+
+/// `gaussian_blur_plane` — local copy of raw-core's 3×-box approximation
+/// (Wells 1986): 3 passes of `box_blur_channel` at radius `radius/3`.
+fn gaussian_blur_plane(buf: &[f32], w: usize, h: usize, radius: usize) -> Vec<f32> {
+    if radius == 0 {
+        return buf.to_vec();
+    }
+    let r_box = (radius / 3).max(1);
+    let mut plane = buf.to_vec();
+    for _ in 0..3 {
+        plane = box_blur_channel(&plane, w, h, r_box);
+    }
+    plane
+}
+
+/// One masked S/H step over the interleaved RGBA buffer — the oracle mirror
+/// of raw-core's `masked_multiplier_pass` + `scene_tone_sh.wgsl`.
+fn masked_pass(buf: &mut [f32], width: usize, height: usize, mult_of_y: impl Fn(f32) -> f32) {
+    let luma_plane: Vec<f32> = buf
+        .chunks_exact(4)
+        .map(|px| luma([px[0], px[1], px[2]]))
+        .collect();
+    let radius = sh_mask_blur_radius(width.max(height) as u32) as usize;
+    let yb = gaussian_blur_plane(&luma_plane, width, height, radius);
+    for (i, px) in buf.chunks_exact_mut(4).enumerate() {
+        let y = luma_plane[i];
+        let ybi = yb[i];
+        let edge = (y.max(0.0).sqrt() - ybi.max(0.0).sqrt()).abs();
+        let halo = smoothstep(SH_MASK_EDGE0, SH_MASK_EDGE1, edge);
+        let m_regional = mult_of_y(ybi);
+        let m_local = mult_of_y(y);
+        let mult = m_regional + (m_local - m_regional) * halo;
+        px[0] *= mult;
+        px[1] *= mult;
+        px[2] *= mult;
+    }
+}
+
 /// Scene-referred tone controls on an interleaved RGBA f32 buffer (alpha
-/// untouched). This is the CPU oracle — a line-for-line port of the per-pixel
-/// loop in `raw_core::stages::scene_tone_controls::apply` (spec § 3.6 + § 4.1).
-/// The six steps run sequentially with luma recomputed from the running pixel
-/// at each; every per-field threshold and nested guard is reproduced.
+/// untouched). This is the CPU oracle — a faithful port of
+/// `raw_core::stages::scene_tone_controls::apply` (spec § 3.6 + § 4.1–4.2),
+/// including the #1103 masked S/H steps (which is why it now needs
+/// `width`/`height`: the detail mask blurs a 2-D luma plane).
 ///
 /// The whole-image identity short-circuit (all six fields ~0) lives in
 /// raw-core's `apply`; on the GPU the chain simply doesn't enqueue the pass,
-/// mirroring vibrance. This function applies the per-field flags directly, so it
-/// is a faithful oracle even when called with a partially-neutral model.
+/// mirroring vibrance. This function applies the per-field flags directly, so
+/// it is a faithful oracle even when called with a partially-neutral model.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_scene_tone_controls(
     buf: &mut [f32],
+    width: usize,
+    height: usize,
     exposure: f32,
     brightness: f32,
     highlights: f32,
@@ -75,6 +236,7 @@ pub fn apply_scene_tone_controls(
     whites: f32,
     blacks: f32,
 ) {
+    debug_assert_eq!(buf.len(), width * height * 4);
     let apply_exposure = exposure.abs() >= 1e-6;
     let apply_brightness = brightness.abs() >= 1e-3;
     let apply_highlights = highlights.abs() >= 1e-3;
@@ -83,98 +245,78 @@ pub fn apply_scene_tone_controls(
     let apply_blacks = blacks.abs() >= 1e-3;
 
     let exp_gain = exposure.exp2();
-
     // Brightness EV-per-unit-weight amount — raw-core B_STRENGTH = 0.7
     // (#1102, tone-zoom design § 4.1).
     let br_amount = 0.7 * brightness / 100.0;
-
     let h_amount = highlights / 100.0;
-    let h_denom = 1.0 + h_amount * 2.0;
-
     let s_amount = shadows / 100.0;
-    let s_factor = s_amount * 0.5;
-
     let w_amount = whites / 200.0;
+    let b_amount = blacks / 100.0;
+    let b_add_pos = blacks / 400.0;
 
-    let b_amount = blacks / 100.0; // -1..+1
-    let b_add_pos = blacks / 400.0; // additive lift amount, positive branch only
-
-    for px in buf.chunks_exact_mut(4) {
-        // 1. Exposure.
-        if apply_exposure {
-            px[0] *= exp_gain;
-            px[1] *= exp_gain;
-            px[2] *= exp_gain;
-        }
-
-        // 1b. Brightness — midtone-band gain (#1102): w(Y) =
-        //     smoothstep(0.05, 0.25, Y)·(1 − smoothstep(1.0, 4.0, Y)),
-        //     gain = exp2(br_amount · w). Uniform scalar → hue-preserving;
-        //     exactly 1.0 outside the band (ends pinned).
-        if apply_brightness {
-            let y = luma([px[0], px[1], px[2]]);
-            let w = smoothstep(0.05, 0.25, y) * (1.0 - smoothstep(1.0, 4.0, y));
-            let gain = (br_amount * w).exp2();
-            px[0] *= gain;
-            px[1] *= gain;
-            px[2] *= gain;
-        }
-
-        // 2. Highlights — luminance-coupled soft compression above knee = 1.0.
-        if apply_highlights && h_denom.abs() > 1e-6 {
-            let y_old = luma([px[0], px[1], px[2]]);
-            if y_old > 1.0 {
-                let y_new = 1.0 + (y_old - 1.0) / h_denom;
-                let scale = y_new / y_old;
-                px[0] *= scale;
-                px[1] *= scale;
-                px[2] *= scale;
+    // 1 + 1b. Exposure, then brightness — point ops.
+    if apply_exposure || apply_brightness {
+        for px in buf.chunks_exact_mut(4) {
+            if apply_exposure {
+                px[0] *= exp_gain;
+                px[1] *= exp_gain;
+                px[2] *= exp_gain;
+            }
+            if apply_brightness {
+                let y = luma([px[0], px[1], px[2]]);
+                let w = smoothstep(0.05, 0.25, y) * (1.0 - smoothstep(1.0, 4.0, y));
+                let gain = (br_amount * w).exp2();
+                px[0] *= gain;
+                px[1] *= gain;
+                px[2] *= gain;
             }
         }
+    }
 
-        // 3. Shadows — luminance-masked lift of deep values.
-        if apply_shadows {
-            let l = luma([px[0], px[1], px[2]]);
-            let mask = 1.0 - smoothstep(0.0, 0.1, l);
-            let lift = mask * s_factor;
-            px[0] += px[0] * lift;
-            px[1] += px[1] * lift;
-            px[2] += px[2] * lift;
-        }
+    // 2. Highlights — masked pass (#1103).
+    if apply_highlights {
+        masked_pass(buf, width, height, |y| highlights_mult(y, h_amount));
+    }
 
-        // 4. Whites — smoothstep-weighted gain near the diffuse-white endpoint.
-        if apply_whites {
-            let y_old = luma([px[0], px[1], px[2]]);
-            let w = smoothstep(0.5, 1.0, y_old);
-            let w_gain = 1.0 + w_amount * w;
-            px[0] *= w_gain;
-            px[1] *= w_gain;
-            px[2] *= w_gain;
-        }
+    // 3. Shadows — masked pass (#1103), reading the post-highlights state.
+    if apply_shadows {
+        masked_pass(buf, width, height, |y| shadows_mult(y, s_amount));
+    }
 
-        // 5. Blacks — smoothstep-weighted toe (sign-branched).
-        if apply_blacks {
-            let y_old = luma([px[0], px[1], px[2]]);
-            let w = 1.0 - smoothstep(0.0, 0.2, y_old);
-            if b_amount < 0.0 {
-                let factor = 1.0 + b_amount * w;
-                px[0] *= factor;
-                px[1] *= factor;
-                px[2] *= factor;
-            } else {
-                let delta = b_add_pos * w;
-                px[0] += delta;
-                px[1] += delta;
-                px[2] += delta;
+    // 4 + 5. Whites, then blacks — point ops.
+    if apply_whites || apply_blacks {
+        for px in buf.chunks_exact_mut(4) {
+            if apply_whites {
+                let y_old = luma([px[0], px[1], px[2]]);
+                let w = smoothstep(0.5, 1.0, y_old);
+                let w_gain = 1.0 + w_amount * w;
+                px[0] *= w_gain;
+                px[1] *= w_gain;
+                px[2] *= w_gain;
+            }
+            if apply_blacks {
+                let y_old = luma([px[0], px[1], px[2]]);
+                let w = 1.0 - smoothstep(0.0, 0.2, y_old);
+                if b_amount < 0.0 {
+                    let factor = 1.0 + b_amount * w;
+                    px[0] *= factor;
+                    px[1] *= factor;
+                    px[2] *= factor;
+                } else {
+                    let delta = b_add_pos * w;
+                    px[0] += delta;
+                    px[1] += delta;
+                    px[2] += delta;
+                }
             }
         }
-        // px[3] (alpha) untouched
     }
 }
 
-/// A GPU-resident scene-tone-controls stage. Carries the six slider values; the
-/// device, pipeline, and ping-pong buffers come from the [`GpuContext`] /
-/// [`ChainRunner`]. Builds its own params uniform + bind group in `encode`.
+/// A GPU-resident scene-tone-controls stage. Carries the six slider values;
+/// the device, pipelines, and ping-pong buffers come from the [`GpuContext`] /
+/// [`ChainRunner`]. Encodes the #1103 DAG (point ops + per-step blurred-luma
+/// masked S/H) over pooled scratch buffers.
 pub struct SceneToneControlsPass {
     pub exposure: f32,
     pub brightness: f32,
@@ -182,6 +324,102 @@ pub struct SceneToneControlsPass {
     pub shadows: f32,
     pub whites: f32,
     pub blacks: f32,
+}
+
+/// The sub-stages of the scene-tone DAG, in chain order.
+#[derive(Clone, Copy)]
+enum Step {
+    /// Point kernel: exposure + brightness (whites/blacks zeroed).
+    PointPre,
+    /// Masked kernel, mode 0.
+    Highlights,
+    /// Masked kernel, mode 1.
+    Shadows,
+    /// Point kernel: whites + blacks (exposure/brightness zeroed).
+    PointPost,
+    /// Single point kernel with all four fields — the collapsed fast path
+    /// when neither highlights nor shadows is active.
+    PointAll,
+}
+
+impl SceneToneControlsPass {
+    fn encode_point(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        src: &wgpu::Buffer,
+        dst: &wgpu::Buffer,
+        count: u32,
+        fields: (f32, f32, f32, f32),
+    ) {
+        let (exposure, brightness, whites, blacks) = fields;
+        let params = Params {
+            exposure,
+            brightness,
+            whites,
+            blacks,
+            count,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
+        };
+        encode_simple(
+            ctx,
+            encoder,
+            ctx.scene_tone_controls_pipeline(),
+            bytemuck::bytes_of(&params),
+            &[src, dst],
+            count,
+            "scene-tone-controls",
+        );
+    }
+
+    /// Encode one masked S/H step: luma extract → 3× box blur (the
+    /// `gaussian_blur_plane` 3-box approximation at radius/3) → the
+    /// `scene_tone_sh.wgsl` mix dispatch.
+    #[allow(clippy::too_many_arguments)]
+    fn encode_masked(
+        &self,
+        ctx: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        src: &wgpu::Buffer,
+        dst: &wgpu::Buffer,
+        width: u32,
+        height: u32,
+        mode: u32,
+        amount: f32,
+    ) {
+        let count = width * height;
+        let luma = alloc_plane(ctx, width, height, "scene-tone-sh-luma");
+        let luma2 = alloc_plane(ctx, width, height, "scene-tone-sh-luma2");
+        // Reuses the clarity/texture luma-extract kernel; the luma² lane is
+        // simply unused here.
+        spatial::luma_extract_encode(ctx, encoder, src, &luma, &luma2, count);
+
+        let r_box = (sh_mask_blur_radius(width.max(height)) / 3).max(1);
+        let tmp = alloc_plane(ctx, width, height, "scene-tone-sh-blur");
+        // 3 box passes: luma → tmp → luma → tmp (Yb ends in `tmp`), matching
+        // raw-core's gaussian_blur_plane pass order exactly.
+        box_blur_encode(ctx, encoder, &luma, &tmp, width, height, r_box);
+        box_blur_encode(ctx, encoder, &tmp, &luma, width, height, r_box);
+        box_blur_encode(ctx, encoder, &luma, &tmp, width, height, r_box);
+
+        let params = ShParams {
+            count,
+            mode,
+            amount,
+            _pad0: 0,
+        };
+        encode_simple(
+            ctx,
+            encoder,
+            ctx.scene_tone_sh_pipeline(),
+            bytemuck::bytes_of(&params),
+            &[src, &tmp, dst],
+            count,
+            "scene-tone-sh",
+        );
+    }
 }
 
 impl Pass for SceneToneControlsPass {
@@ -194,237 +432,108 @@ impl Pass for SceneToneControlsPass {
         dims: (u32, u32),
     ) {
         let (width, height) = dims;
-        let pixel_count = width * height;
+        let count = width * height;
 
-        let params = Params {
-            exposure: self.exposure,
-            brightness: self.brightness,
-            highlights: self.highlights,
-            shadows: self.shadows,
-            whites: self.whites,
-            blacks: self.blacks,
-            count: pixel_count,
-            _pad0: 0,
-        };
-        // Pooled per-pixel dispatch (P4b-core C3): params @0, src @1, dst @2.
-        encode_simple(
-            ctx,
-            encoder,
-            ctx.scene_tone_controls_pipeline(),
-            bytemuck::bytes_of(&params),
-            &[src, dst],
-            pixel_count,
-            "scene-tone-controls",
-        );
+        let apply_pre = self.exposure.abs() >= 1e-6 || self.brightness.abs() >= 1e-3;
+        let apply_h = self.highlights.abs() >= 1e-3;
+        let apply_s = self.shadows.abs() >= 1e-3;
+        let apply_post = self.whites.abs() >= 1e-3 || self.blacks.abs() >= 1e-3;
+
+        // Build the active step list in chain order.
+        let mut steps: Vec<Step> = Vec::with_capacity(4);
+        if !apply_h && !apply_s {
+            // Fast path — the pre-#1103 single point dispatch (the kernel runs
+            // 1 → 1b → 4 → 5 sequentially, identical to the Rust loops when
+            // highlights/shadows are inactive).
+            steps.push(Step::PointAll);
+        } else {
+            if apply_pre {
+                steps.push(Step::PointPre);
+            }
+            if apply_h {
+                steps.push(Step::Highlights);
+            }
+            if apply_s {
+                steps.push(Step::Shadows);
+            }
+            if apply_post {
+                steps.push(Step::PointPost);
+            }
+        }
+
+        // Thread the steps through pooled RGBA scratch, last one landing on
+        // `dst`. (The chain only enqueues this pass when at least one field is
+        // active, but guard the degenerate empty list with a copy anyway.)
+        if steps.is_empty() {
+            let byte_len = (count as u64) * 4 * std::mem::size_of::<f32>() as u64;
+            encoder.copy_buffer_to_buffer(src, 0, dst, 0, byte_len);
+            return;
+        }
+        let scratch_a = alloc_rgba(ctx, width, height, "scene-tone-ping");
+        let scratch_b = alloc_rgba(ctx, width, height, "scene-tone-pong");
+        let mut cur: &wgpu::Buffer = src;
+        for (i, step) in steps.iter().enumerate() {
+            let last = i + 1 == steps.len();
+            let out: &wgpu::Buffer = if last {
+                dst
+            } else if i % 2 == 0 {
+                &scratch_a
+            } else {
+                &scratch_b
+            };
+            match step {
+                Step::PointAll => self.encode_point(
+                    ctx,
+                    encoder,
+                    cur,
+                    out,
+                    count,
+                    (self.exposure, self.brightness, self.whites, self.blacks),
+                ),
+                Step::PointPre => self.encode_point(
+                    ctx,
+                    encoder,
+                    cur,
+                    out,
+                    count,
+                    (self.exposure, self.brightness, 0.0, 0.0),
+                ),
+                Step::PointPost => self.encode_point(
+                    ctx,
+                    encoder,
+                    cur,
+                    out,
+                    count,
+                    (0.0, 0.0, self.whites, self.blacks),
+                ),
+                Step::Highlights => self.encode_masked(
+                    ctx,
+                    encoder,
+                    cur,
+                    out,
+                    width,
+                    height,
+                    0,
+                    self.highlights / 100.0,
+                ),
+                Step::Shadows => self.encode_masked(
+                    ctx,
+                    encoder,
+                    cur,
+                    out,
+                    width,
+                    height,
+                    1,
+                    self.shadows / 100.0,
+                ),
+            }
+            cur = out;
+        }
     }
 }
 
+// Parity tests live in a sibling file to keep this module under the 600-LOC
+// budget (mirrors clarity's `tests.rs` split). Native test builds only.
 #[cfg(all(test, not(target_arch = "wasm32")))]
-mod tests {
-    use super::*;
-    use crate::chain::ChainRunner;
-    use crate::image::GpuImage;
-    use raw_core::AdjustmentModel;
-
-    /// A buffer that exercises every branch the tone steps depend on:
-    ///   - DEEP shadow (Y < 0.1) → shadows mask ≈ 1, blacks toe ≈ 1,
-    ///   - midtone (Y ~ 0.18) → whites/blacks weights ≈ 0 (untouched region),
-    ///   - HDR-headroom (Y > 1.0) → the highlights `y_old > 1.0` compression
-    ///     branch (the only path that fires for highlights),
-    ///   - near-white (Y ~ 1.0) → whites smoothstep saturates,
-    ///   - a slightly-negative channel (sign handling through the scalars).
-    fn tone_buffer() -> Vec<f32> {
-        vec![
-            // r,    g,    b,    a
-            0.01, 0.01, 0.01, 1.0, // deep shadow → shadows lift + blacks toe
-            0.18, 0.18, 0.18, 0.7, // midtone (whites/blacks weight ~0)
-            0.50, 0.50, 0.50, 1.0, // upper-mid (whites smoothstep ramps in)
-            0.95, 0.95, 0.95, 1.0, // near diffuse white
-            3.00, 2.00, 1.20, 1.0, // HDR headroom → highlights compression
-            0.04, 0.30, 0.50, 0.5, // colored shadow (luma-coupled scale, hue test)
-            -0.01, 0.06, 0.02, 1.0, // tiny-negative channel
-            0.70, 0.20, 0.10, 1.0, // saturated warm midtone
-        ]
-    }
-
-    /// Run `raw_core::stages::scene_tone_controls::apply` on a flat interleaved
-    /// RGBA f32 buffer with the given slider values, returning a new buffer
-    /// (alpha carried through). The ticket's actual reference — the Rust stage.
-    #[allow(clippy::too_many_arguments)]
-    fn raw_core_tone(
-        buf: &[f32],
-        exposure: f32,
-        brightness: f32,
-        highlights: f32,
-        shadows: f32,
-        whites: f32,
-        blacks: f32,
-    ) -> Vec<f32> {
-        use raw_core::image::{ColorSpace, Image};
-        let count = buf.len() / 4;
-        let mut img = Image::new(count as u32, 1, ColorSpace::SceneLinearRec2020);
-        for (i, chunk) in buf.chunks_exact(4).enumerate() {
-            img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
-        }
-        // Only the six tone fields are set; everything else stays at default.
-        // (The stage reads only exposure/brightness/highlights/shadows/whites/blacks.)
-        let model = AdjustmentModel {
-            exposure,
-            brightness,
-            highlights,
-            shadows,
-            whites,
-            blacks,
-            ..Default::default()
-        };
-        raw_core::stages::scene_tone_controls::apply(&mut img, &model);
-        let mut out = Vec::with_capacity(buf.len());
-        for (i, p) in img.pixels.iter().enumerate() {
-            out.extend_from_slice(&[p[0], p[1], p[2], buf[i * 4 + 3]]);
-        }
-        out
-    }
-
-    /// The slider combinations under test — each deliberately drives a different
-    /// mix of branches (and at least one field non-zero so the stage doesn't
-    /// whole-image short-circuit).
-    /// `(exposure, brightness, highlights, shadows, whites, blacks)`.
-    const CASES: &[(f32, f32, f32, f32, f32, f32)] = &[
-        (1.0, 0.0, 0.0, 0.0, 0.0, 0.0),       // exposure only
-        (0.0, 70.0, 0.0, 0.0, 0.0, 0.0),      // brightness lift only (#1102)
-        (0.0, -85.0, 0.0, 0.0, 0.0, 0.0),     // brightness darken only (#1102)
-        (0.0, 0.0, 60.0, 0.0, 0.0, 0.0),      // highlights compression only
-        (0.0, 0.0, 0.0, 80.0, 0.0, 0.0),      // shadows lift only
-        (0.0, 0.0, 0.0, 0.0, 75.0, 0.0),      // whites gain only
-        (0.0, 0.0, 0.0, 0.0, 0.0, 50.0),      // blacks lift (positive → additive)
-        (0.0, 0.0, 0.0, 0.0, 0.0, -70.0),     // blacks crush (negative → multiplicative)
-        (0.5, 35.0, 40.0, 30.0, 20.0, -25.0), // everything together
-        (-1.0, -45.0, -50.0, -40.0, -60.0, 90.0), // negative exposure + mixed signs
-    ];
-
-    /// THE PARITY GATE (the ticket's contract): the WGSL scene-tone-controls
-    /// kernel matches `raw_core::stages::scene_tone_controls::apply` — the
-    /// actual Rust stage, via the test-only raw-core dev-dep — within 1e-4
-    /// across a spread of slider combinations exercising each step's branches.
-    #[test]
-    fn wgsl_scene_tone_controls_matches_raw_core_stage_within_1e_4() {
-        let ctx = GpuContext::new_blocking();
-        let input = tone_buffer();
-        let count = (input.len() / 4) as u32;
-
-        for &(e, br, h, s, w, b) in CASES {
-            let reference = raw_core_tone(&input, e, br, h, s, w, b);
-
-            let img = GpuImage::upload(&ctx, &input, count, 1);
-            let runner = ChainRunner::new(&ctx, &img);
-            let gpu = runner.run_blocking(&[&SceneToneControlsPass {
-                exposure: e,
-                brightness: br,
-                highlights: h,
-                shadows: s,
-                whites: w,
-                blacks: b,
-            }]);
-
-            let max_diff = reference
-                .iter()
-                .zip(&gpu)
-                .map(|(a, b)| (a - b).abs())
-                .fold(0.0_f32, f32::max);
-            eprintln!(
-                "PARITY vs raw-core scene_tone_controls (e={e} br={br} h={h} s={s} w={w} b={b}): \
-                 max abs diff = {max_diff:e}"
-            );
-            assert!(
-                max_diff < 1e-4,
-                "(e={e} br={br} h={h} s={s} w={w} b={b}): GPU vs raw-core stage max abs diff \
-                 {max_diff} exceeds 1e-4"
-            );
-        }
-    }
-
-    /// Pin the local CPU oracle to raw-core's stage too, so the convenience
-    /// oracle this crate exports can't silently drift. (The GPU gate above
-    /// doesn't depend on the local oracle.)
-    #[test]
-    fn local_oracle_matches_raw_core_stage_within_1e_4() {
-        let input = tone_buffer();
-        for &(e, br, h, s, w, b) in CASES {
-            let reference = raw_core_tone(&input, e, br, h, s, w, b);
-            let mut local = input.clone();
-            apply_scene_tone_controls(&mut local, e, br, h, s, w, b);
-            let max_diff = reference
-                .iter()
-                .zip(&local)
-                .map(|(a, b)| (a - b).abs())
-                .fold(0.0_f32, f32::max);
-            assert!(
-                max_diff < 1e-4,
-                "(e={e} br={br} h={h} s={s} w={w} b={b}): local oracle vs raw-core stage diff \
-                 {max_diff} exceeds 1e-4"
-            );
-        }
-    }
-
-    /// Sub-threshold sliders are a bit-exact passthrough on the GPU (the
-    /// per-field activation guard). Pins that values below the |·| ≥ 1e-3 (or
-    /// 1e-6 for exposure) thresholds don't perturb pixels — the per-field
-    /// analogue of the Rust stage's identity short-circuit.
-    #[test]
-    fn subthreshold_sliders_are_passthrough_on_gpu() {
-        let ctx = GpuContext::new_blocking();
-        let input = tone_buffer();
-        let count = (input.len() / 4) as u32;
-        let img = GpuImage::upload(&ctx, &input, count, 1);
-        let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&SceneToneControlsPass {
-            exposure: 1e-7,
-            brightness: 1e-4,
-            highlights: 1e-4,
-            shadows: -1e-4,
-            whites: 1e-4,
-            blacks: -1e-4,
-        }]);
-        let max_diff = input
-            .iter()
-            .zip(&gpu)
-            .map(|(a, b)| (a - b).abs())
-            .fold(0.0_f32, f32::max);
-        assert_eq!(
-            max_diff, 0.0,
-            "sub-threshold tone sliders must be a bit-exact passthrough"
-        );
-    }
-
-    /// Oracle sanity, independent of the GPU: positive shadows LIFT a deep-
-    /// shadow pixel (the defining shadows property) while leaving a bright
-    /// pixel essentially untouched (the luma mask dies above Y = 0.1).
-    #[test]
-    fn oracle_shadows_lift_deep_not_bright() {
-        let mut buf = vec![0.02_f32, 0.02, 0.02, 1.0, 0.9, 0.9, 0.9, 1.0];
-        apply_scene_tone_controls(&mut buf, 0.0, 0.0, 0.0, 80.0, 0.0, 0.0);
-        assert!(buf[0] > 0.02, "deep shadow should lift, got {}", buf[0]);
-        assert!(
-            (buf[4] - 0.9).abs() < 1e-3,
-            "bright pixel should be ~untouched by shadows, got {}",
-            buf[4]
-        );
-    }
-
-    /// Oracle sanity for brightness (#1102): positive brightness LIFTS a
-    /// midtone pixel while leaving a deep shadow (Y ≤ 0.05) and a
-    /// scene-ref-max pixel (Y ≥ 4.0) BIT-EXACTLY untouched — the band
-    /// weight is exactly 0 at both ends.
-    #[test]
-    fn oracle_brightness_lifts_midtone_pins_ends() {
-        let mut buf = vec![
-            0.03_f32, 0.03, 0.03, 1.0, // deep shadow — pinned
-            0.18, 0.18, 0.18, 1.0,     // midtone — lifted
-            5.0, 5.0, 5.0, 1.0,        // scene-ref-max — pinned
-        ];
-        apply_scene_tone_controls(&mut buf, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0);
-        assert_eq!(buf[0], 0.03, "deep shadow must be bit-exact, got {}", buf[0]);
-        assert!(buf[4] > 0.18, "midtone should lift, got {}", buf[4]);
-        assert_eq!(buf[8], 5.0, "scene-ref-max must be bit-exact, got {}", buf[8]);
-    }
-}
+#[path = "scene_tone_controls/tests.rs"]
+mod tests;

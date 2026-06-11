@@ -46,11 +46,13 @@ impl GpuContext {
         })
     }
 
-    /// The cached scene-tone-controls compute pipeline (epic #925 P2 / #990).
+    /// The cached scene-tone-controls POINT compute pipeline (epic #925 P2 /
+    /// #990, reshaped at #1103).
     ///
-    /// Five luma-coupled tone steps (exposure / highlights / shadows / whites /
-    /// blacks), no Oklab — so, like exposure / white_balance, the kernel
-    /// compiles standalone with no generated-color-matrix concat.
+    /// Point tone steps (exposure / brightness / whites / blacks), no Oklab —
+    /// so, like exposure / white_balance, the kernel compiles standalone with
+    /// no generated-color-matrix concat. Highlights/shadows live in
+    /// [`GpuContext::scene_tone_sh_pipeline`] since #1103.
     pub fn scene_tone_controls_pipeline(&self) -> &wgpu::ComputePipeline {
         self.scene_tone_controls_pipeline.get_or_init(|| {
             compile_standalone(
@@ -58,6 +60,16 @@ impl GpuContext {
                 "scene-tone-controls",
                 include_str!("scene_tone_controls.wgsl"),
             )
+        })
+    }
+
+    /// The cached masked shadows/highlights compute pipeline (#1103, tone/zoom
+    /// design § 4.2): one reworked tone step (mode-selected) through the tonal
+    /// detail mask, reading the blurred luma plane the host prepares with
+    /// [`crate::spatial::box_blur_encode`]. Compiles standalone.
+    pub fn scene_tone_sh_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.scene_tone_sh_pipeline.get_or_init(|| {
+            compile_standalone(&self.device, "scene-tone-sh", include_str!("scene_tone_sh.wgsl"))
         })
     }
 
