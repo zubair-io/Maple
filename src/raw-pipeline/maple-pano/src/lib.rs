@@ -113,3 +113,13 @@ pub mod ingest;
 // focal fallback (decision §9.2), up-vector leveling, and the
 // acceptance-gate frame dropping. Appended after the ingest block.
 pub mod ba;
+
+// --- M1b (#1154): leveling + ML→geometry glue ----------------------------
+//
+// `leveling` solves the post-BA up-vector correction (spec §5.3 —
+// the banana fix); `glue` adapts `matching::MlMatch` records into the
+// verifier's `PixelCorrespondence` input. Appended after the ba block.
+pub mod leveling;
+
+#[cfg(feature = "ml")]
+pub mod glue;
