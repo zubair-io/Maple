@@ -17,7 +17,7 @@
 // (`highlights_mult` / `shadows_mult`; the parity test pins this file to the
 // real Rust stage):
 //
-// * highlights (mode 0): weighted gain exp2(−0.7·h·smoothstep(0.4, 1, Y))
+// * highlights (mode 0): weighted gain exp2(−0.7·h·smoothstep(0.25, 1, Y))
 //   engaging below clip, times the sign-branched above-knee shape — h ≥ 0
 //   keeps the legacy (1 + (Y−1)/(1+2h)) compression; h < 0 expands by
 //   ×(1 + 2|h|), the pole-free mirror (#1081: the legacy shared denominator
@@ -35,7 +35,7 @@ const LUMA_REC2020: vec3<f32> = vec3<f32>(0.2627, 0.6780, 0.0593);
 // raw-core scene_tone_controls constants (#1103). Pinned by the parity test.
 const S_T1: f32 = 0.25;
 const S_GAIN_EV: f32 = 1.5;
-const H_W0: f32 = 0.4;
+const H_W0: f32 = 0.25;
 const H_W1: f32 = 1.0;
 const H_GAIN_EV: f32 = 0.7;
 const SH_MASK_EDGE0: f32 = 0.05;

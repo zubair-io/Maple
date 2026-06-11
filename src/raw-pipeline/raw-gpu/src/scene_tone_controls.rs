@@ -74,7 +74,7 @@ const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 // dev-dep only); the parity test pins every one of them to the real stage.
 const S_T1: f32 = 0.25;
 const S_GAIN_EV: f32 = 1.5;
-const H_W0: f32 = 0.4;
+const H_W0: f32 = 0.25;
 const H_W1: f32 = 1.0;
 const H_GAIN_EV: f32 = 0.7;
 const SH_MASK_EDGE0: f32 = 0.05;
