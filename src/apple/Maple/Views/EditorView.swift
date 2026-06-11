@@ -28,12 +28,6 @@ struct EditorView: View {
     let onShare: () -> Void
     let onInfo: () -> Void
 
-    /// Real-pixel conversion factor for the canvas geometry. The render
-    /// pipeline targets hardware pixels, so the points the canvas reports
-    /// are scaled by this before they reach `session.previewSize`. Mirrors
-    /// `FullImageView`'s use of the same environment value.
-    @Environment(\.displayScale) private var displayScale
-
     /// Optional filmstrip data — when empty the strip collapses to zero
     /// height (v0.1; the strip auto-shows when there are siblings).
     var filmstripAssets: [AssetRef] = []
@@ -50,6 +44,11 @@ struct EditorView: View {
     /// open (#875 item 4b). Defaults to shown.
     @State private var filmstripVisible = true
 
+    /// Timestamp of the last wheel armed-tool nudge — nudges within a
+    /// burst share one undo snapshot (committing per detent would flood
+    /// the 32-entry ring); a pause starts a new burst (#1099).
+    @State private var lastWheelNudgeAt: Date = .distantPast
+
     var body: some View {
         VStack(spacing: 0) {
             EditorHeader(
@@ -60,38 +59,49 @@ struct EditorView: View {
             )
 
             // Canvas region (flex). The actual image render is owned by
-            // the existing pipeline — for v0.1 the canvas hosts the
-            // session's `renderedPreview` if present, otherwise a placeholder
-            // tile sized to the dominant aspect ratio. The ValueChipOverlay
+            // the existing pipeline — the canvas hosts the session's
+            // `renderedPreview` if present, otherwise a placeholder tile
+            // sized to the dominant aspect ratio. The ValueChipOverlay
             // floats on top, 14pt below the top of the canvas region.
-            GeometryReader { geo in
-                ZStack(alignment: .top) {
-                    canvasContent(viewport: geo.size)
-                    ValueChipOverlay(state: state)
-                        .padding(.top, 14)
+            //
+            // The shared `CanvasZoomHost` (#1099, spec §5.0) owns the
+            // canvas geometry: it reports the live viewport into the
+            // session (`previewSize` in real pixels — what used to be the
+            // `canvasSizeReader` here), frames the leaf at the resolved
+            // zoom (fit by default; goldens unaffected), and routes
+            // gestures per the spec table — pinch zooms anchored at the
+            // gesture, drag pans ONLY when zoomed in, double-tap toggles
+            // fit ↔ 100%, ⌘+wheel zooms at the cursor, and the plain
+            // wheel at fit nudges the armed tool (S5 desktop contract).
+            //
+            // NOTE: at fit, one-finger canvas drags stay intentionally
+            // inert — tool value-adjust is NOT wired to a canvas drag
+            // (#875 item 5: on iPhone the side-nav edge-swipe lives over
+            // the canvas; routing canvas drags into the armed tool meant
+            // an edge-swipe to open the nav also nudged the tool).
+            // Value-adjust lives on `DragBar` (1:1 scrubbing) and, on
+            // desktop, the wheel detents. This deviates from the spec
+            // §5.0 row "drag at fit = armed-tool adjust 0.5:1" per the
+            // user's explicit #875 request; when zoomed in the drag pans,
+            // exactly per the table.
+            ZStack(alignment: .top) {
+                CanvasZoomHost(
+                    controller: state.zoom,
+                    doubleTapBehavior: .toggleFitAnd100,
+                    onWheelEditing: { steps, unit in
+                        handleWheelNudge(steps: steps, unit: unit)
+                    },
+                    canvasReady: state.session.renderedPreview != nil
+                ) {
+                    canvasLeaf
+                } fallback: {
+                    canvasPlaceholder
                 }
-                .frame(width: geo.size.width, height: geo.size.height)
+                ValueChipOverlay(state: state)
+                    .padding(.top, 14)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(MapleTokens.bg)
-            // Report the canvas region's live size into the session so the
-            // render pipeline has a real target. Captured on the
-            // always-present container (NOT inside `CanvasImageView`, which
-            // only exists once a preview lands) — otherwise the first render
-            // would never get a non-zero `previewSize` and the canvas would
-            // stay on the placeholder forever. Mirrors FullImageView's
-            // `syncSessionToViewport`. iOS 17 / macOS 14 deployment targets
-            // predate `onGeometryChange`, so we use the GeometryReader +
-            // `onChange(of:)` pattern (same as FullImageView).
-            .background(canvasSizeReader)
-            // NOTE: tool value-adjust is intentionally NOT wired to a
-            // canvas drag here (#875 item 5). On iPhone the side-nav
-            // edge-swipe lives over the canvas; routing canvas drags into
-            // the armed tool meant an edge-swipe to open the nav also
-            // nudged the tool. Value-adjust now lives solely on `DragBar`
-            // (1:1 scrubbing, unaffected on desktop). This deviates from
-            // ui-spec §3 "canvas drag adjusts the armed tool" per the
-            // user's explicit request.
 
             if !filmstripAssets.isEmpty {
                 // Small centered toggle directly above the strip — hides /
@@ -144,34 +154,70 @@ struct EditorView: View {
         .task(id: state.session.asset.id) {
             state.session.ensureRenderStarted()
         }
+        // Zoom commands (#1099, spec §5.0): ⌘0 fit / ⌘1 100% on desktop.
+        // Bare 0/1 keep their S5 meanings (armed-tool reset / rating) —
+        // fit and 100% take the modifier, matching the legacy Apple
+        // shortcuts. macOS only: the iPhone push hides system chrome, and
+        // the touch surfaces (pinch, double-tap) cover zoom there.
+        #if os(macOS)
+        .toolbar { editorZoomToolbar }
+        #endif
     }
 
-    // MARK: - Canvas geometry → previewSize
+    // MARK: - Zoom toolbar (macOS)
 
-    /// Transparent backing layer that reports the canvas region's size and
-    /// feeds it (in real pixels) to `session.previewSize`. Lives on the
-    /// always-present ZStack so it fires for both the placeholder and the
-    /// image branch — the first non-zero size drives the fast render via
-    /// `previewSize.didSet`, and later changes (desktop window resize,
-    /// iPhone rotation) schedule a refine.
-    private var canvasSizeReader: some View {
-        GeometryReader { geo in
-            Color.clear
-                .onAppear { updatePreviewSize(geo.size) }
-                .onChange(of: geo.size) { _, newSize in
-                    updatePreviewSize(newSize)
+    #if os(macOS)
+    /// Fit / 100% controls in the window toolbar while the editor owns
+    /// the center column. Mirrors the legacy `FullImageView` toolbar
+    /// cluster (same placement rule: header controls group next to the
+    /// menu button) and drives the same shared `CanvasZoomController`.
+    @ToolbarContentBuilder
+    private var editorZoomToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
+            Button("Fit", systemImage: "arrow.down.right.and.arrow.up.left") {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    state.zoom.resetToFit()
                 }
+            }
+            .keyboardShortcut("0", modifiers: .command)
+            .help("Fit (⌘0)")
+            .accessibilityLabel("Zoom to fit")
+            .accessibilityIdentifier("editor-zoom-fit")
+
+            Button("100%", systemImage: "1.circle") {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    state.zoom.zoomToScale(1.0)
+                }
+            }
+            .keyboardShortcut("1", modifiers: .command)
+            .help("Actual size (⌘1)")
+            .accessibilityLabel("Zoom to 100 percent")
+            .accessibilityIdentifier("editor-zoom-100")
         }
     }
+    #endif
 
-    /// Pushes a points size into the session as real screen pixels, reusing
-    /// `FullImageView`'s conversion helper so the math can't drift. Setting
-    /// `previewSize` (its `didSet`) is what drives the (re-)render.
-    private func updatePreviewSize(_ pointsSize: CGSize) {
-        guard pointsSize.width > 0, pointsSize.height > 0 else { return }
-        state.session.previewSize = FullImageViewVM.viewportInPixels(
-            viewport: pointsSize,
-            displayScale: displayScale
+    // MARK: - Wheel → armed-tool nudge (desktop)
+
+    /// Plain scroll wheel over the canvas at fit zoom nudges the armed
+    /// tool — ±1 internal unit per detent, ±10 with shift, ±0.1 with
+    /// option (S5 desktop contract; routed here by `CanvasZoomHost`,
+    /// which owns the fit-vs-zoomed arbitration). Detents within a
+    /// burst share one undo snapshot, mirroring `DragBar`'s
+    /// commit-at-gesture-start boundary.
+    private func handleWheelNudge(steps: Int, unit: Double) {
+        guard steps != 0, state.armedTool.isWired else { return }
+        let now = Date()
+        if now.timeIntervalSince(lastWheelNudgeAt) > 0.5 {
+            state.commit()
+        }
+        lastWheelNudgeAt = now
+        let current = ToolValueMapping.internalValue(
+            for: state.armedTool,
+            displayValue: state.armedDisplayValue
+        )
+        state.setArmedInternalValue(
+            DragBarMath.clamp(current + Double(steps) * unit)
         )
     }
 
@@ -202,46 +248,28 @@ struct EditorView: View {
 
     // MARK: - Canvas
 
-    /// Resolved fit-to-canvas display frame in POINTS for the current
-    /// viewport. Mirrors `FullImageView.canvasMath(viewport:)` — fit mode
-    /// (`pixelScale == 0`) against the session's `nativeImageSize`, the
-    /// only trustworthy image extent. Returns nil until the metadata seed
-    /// publishes a real native size, so the canvas falls through to the
-    /// placeholder branch (never anchoring the frame to a preview-resolution
-    /// extent).
-    private func displayFrameInPoints(viewport: CGSize) -> CGSize? {
-        CanvasMath(
-            viewportPx: FullImageViewVM.viewportInPixels(
-                viewport: viewport, displayScale: displayScale
-            ),
-            nativeImageSize: state.session.nativeImageSize,
-            pixelScale: 0,
-            displayScale: displayScale
-        ).displayFrameInPoints
-    }
-
+    /// The canvas leaf the zoom host frames + pans. The host resolves
+    /// the display frame off the session's `nativeImageSize` — the only
+    /// trustworthy image extent (the preview buffer may be smaller:
+    /// embedded JPEG, half-res fast phase) — and returns nil until the
+    /// metadata seed publishes, falling back to the placeholder rather
+    /// than anchoring zoom math against a preview-resolution extent.
+    /// At the default fit zoom the leaf's on-screen frame equals the
+    /// *image* rect — chrome-free and letterbox-free. This is the same
+    /// contract `FullImageView`'s `CIImageView` provided, which is what
+    /// the visual-golden harness (`MapleUITests`) crops to: it
+    /// screenshots the `canvas-render-ready` element's frame directly.
     @ViewBuilder
-    private func canvasContent(viewport: CGSize) -> some View {
-        if let preview = state.session.renderedPreview,
-           let frameInPoints = displayFrameInPoints(viewport: viewport) {
-            // Frame the rendered preview to the resolved fit rect so the
-            // canvas leaf's on-screen frame equals the *image* rect —
-            // chrome-free and letterbox-free. This is the same contract
-            // FullImageView's `CIImageView` provided, which is what the
-            // visual-golden harness (`MapleUITests`) crops to: it screenshots
-            // the `canvas-render-ready` element's frame directly. Centred in
-            // the canvas region; the surrounding `MapleTokens.bg` is the
-            // letterbox the harness never captures.
+    private var canvasLeaf: some View {
+        if let preview = state.session.renderedPreview {
+            // UITest harness sentinel — the identifier only appears once
+            // the refine pass has published a preview AND `isRendering`
+            // has flipped false. The harness waits + crops on the element
+            // whose id resolves to `canvas-render-ready` (an `otherElement`
+            // — the composite frame + identifier surfaces as `.other`,
+            // matching FullImageView's wrapper). Migrated from FullImageView
+            // in #820. See .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
             CanvasImageView(image: preview)
-                .frame(width: frameInPoints.width, height: frameInPoints.height)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // UITest harness sentinel — the identifier only appears once
-                // the refine pass has published a preview AND `isRendering`
-                // has flipped false. The harness waits + crops on the element
-                // whose id resolves to `canvas-render-ready` (an `otherElement`
-                // — the composite frame + identifier surfaces as `.other`,
-                // matching FullImageView's wrapper). Migrated from FullImageView
-                // in #820. See .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
                 .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier(
                     FullImageViewVM.canvasAccessibilityID(
@@ -249,20 +277,22 @@ struct EditorView: View {
                         hasPreview: state.session.renderedPreview != nil
                     )
                 )
-        } else {
-            // Subtle placeholder so the chrome reads while a render is
-            // pending or absent (e.g. preview EditSession in tests).
-            // For a cloud open, the placeholder hosts the determinate
-            // download bar while the remote bytes arrive (#822) — gated on
-            // the session's `downloadProgress` (nil for local/PhotoKit, so
-            // they show only the neutral tile).
-            RoundedRectangle(cornerRadius: 4)
-                .fill(MapleTokens.surfaceAlt)
-                .aspectRatio(3.0 / 2.0, contentMode: .fit)
-                .overlay { downloadOverlay }
-                .padding(12)
-                .accessibilityIdentifier("editor-canvas-placeholder")
         }
+    }
+
+    /// Subtle placeholder so the chrome reads while a render is
+    /// pending or absent (e.g. preview EditSession in tests).
+    /// For a cloud open, the placeholder hosts the determinate
+    /// download bar while the remote bytes arrive (#822) — gated on
+    /// the session's `downloadProgress` (nil for local/PhotoKit, so
+    /// they show only the neutral tile).
+    private var canvasPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(MapleTokens.surfaceAlt)
+            .aspectRatio(3.0 / 2.0, contentMode: .fit)
+            .overlay { downloadOverlay }
+            .padding(12)
+            .accessibilityIdentifier("editor-canvas-placeholder")
     }
 
     /// Determinate download progress shown over the placeholder while a
