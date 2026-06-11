@@ -1,0 +1,32 @@
+# maple-pano — panorama stitching core (epic #1094).
+#
+# M0a (#1119) ships the geometry foundation (projection / camera model) and
+# the synthetic ground-truth renderer `pano-gt-render` that feeds the §7
+# acceptance gates ("recovered rotations within 0.1°; warp RMSE < 0.5% of
+# full scale"). Later milestones (M1 geometry solve, M2 compositing, …) land
+# in this crate per the eng design spec
+# (docs/superpowers/specs/2026-06-10-maple-pano-eng-design-spec.md §3).
+[package]
+name = "maple-pano"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pano-gt-render"
+path = "src/bin/pano-gt-render.rs"
+
+[dependencies]
+clap.workspace = true
+# `image` reads the optional equirect source PNG (8/16-bit, gray/RGB(A)).
+# Its f32 conversion is a pure normalization — no sRGB transfer decode —
+# which is exactly the "input is treated as linear" contract documented on
+# the renderer.
+image.workspace = true
+# `png` writes the 16-bit RGB output frames (explicit BitDepth::Sixteen).
+png.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

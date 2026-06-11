@@ -1,6 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["raw-core", "raw-gpu", "maple-cli", "raw-ffi", "raw-wasm", "codegen"]
+members = [
+    "raw-core",
+    "raw-gpu",
+    "maple-cli",
+    "maple-pano",
+    "raw-ffi",
+    "raw-wasm",
+    "codegen",
+]
 
 [workspace.package]
 edition = "2021"
