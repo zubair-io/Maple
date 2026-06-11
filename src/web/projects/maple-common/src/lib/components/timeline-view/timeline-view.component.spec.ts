@@ -8,7 +8,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { Subject, of } from 'rxjs';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { TimelineViewComponent } from './timeline-view.component';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -17,6 +17,17 @@ import { SearchService, TimelineBuckets, SearchResponse } from '../../api/search
 import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { API_BASE_URL } from '../../api/api-base-url.token';
+import { STORAGE_KEYS } from '../../util/typed-storage';
+
+// This spec constructs the real BrowsePreferencesService (via
+// LibraryStateService); its persistence effects write `cm.*` keys into the
+// jsdom localStorage that vitest shares across spec files on a worker. Clear
+// them around each test so nothing leaks into sibling spec files (#1142).
+const clearPrefKeys = (): void => {
+  for (const key of Object.values(STORAGE_KEYS)) localStorage.removeItem(key);
+};
+beforeEach(clearPrefKeys);
+afterEach(clearPrefKeys);
 
 class SearchStub {
   bucketsCalls: unknown[] = [];

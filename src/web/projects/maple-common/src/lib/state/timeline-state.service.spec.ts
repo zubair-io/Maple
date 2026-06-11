@@ -3,13 +3,25 @@
 // filter setters.
 
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import { TimelineStateService } from './timeline-state.service';
 import { LibraryStateService } from './library-state.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { STORAGE_KEYS } from '../util/typed-storage';
+
+// This spec constructs the real BrowsePreferencesService (via
+// TimelineStateService → LibraryStateService); its persistence effects write
+// `cm.*` keys into the jsdom localStorage that vitest shares across spec
+// files on a worker. Clear them around each test so nothing leaks into
+// sibling spec files (#1142).
+const clearPrefKeys = (): void => {
+  for (const key of Object.values(STORAGE_KEYS)) localStorage.removeItem(key);
+};
+beforeEach(clearPrefKeys);
+afterEach(clearPrefKeys);
 
 describe('TimelineStateService', () => {
   let timeline: TimelineStateService;
