@@ -7,11 +7,17 @@
   @include chrome.settings-atoms;
 
   display: block;
+  // Embedded as the "Backup" group inside the Workers page (not a standalone
+  // page) — neutralise the full-page host behaviours from settings-vars so the
+  // panel sizes to its content and doesn't paint a second background layer.
+  min-height: 0;
+  background: transparent;
 }
 
-// Always-visible panel: live reconcile up top, per-library config below.
+// Always-visible panel under the "Backup" group label. Horizontal padding aligns
+// the content with the worker stage rows (workers-body 36px + 16px = row inset).
 .mirror-panel {
-  padding: 22px 36px 32px;
+  padding: 8px 16px 16px;
 }
 
 // ── Live status header ───────────────────────────────────────────────────────
@@ -276,7 +282,7 @@
 // ── Responsive ───────────────────────────────────────────────────────────────
 @media (max-width: 767px) {
   .mirror-panel {
-    padding: 18px 16px 24px;
+    padding: 8px 12px 20px;
   }
 
   // Stack the header and make actions full-width so they stay tappable.

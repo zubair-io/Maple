@@ -1,7 +1,8 @@
-// MirrorSettingsComponent — the Mirror/backup panel shown in the Backup settings
-// section. Always-visible (not a collapsible row): per-library backup-location
-// config + the live two-stage reconcile (scanning → copying) with per-stage
-// counts, the current file, a copied-files log, and an error log.
+// MirrorSettingsComponent — the Mirror/backup panel shown as the "Backup" group
+// on the Workers settings page (Ingest / Enrich / Index / Backup). Always-visible
+// (not a collapsible row): per-library backup-location config + the live two-stage
+// reconcile (scanning → copying) with per-stage counts, the current file, a
+// copied-files log, and an error log.
 // Backed by GET/PUT /api/folders/:id/mirror, POST /api/mirror/test,
 // GET /api/mirror/status, POST /api/mirror/retry-dead, POST /api/mirror/reconcile.
 

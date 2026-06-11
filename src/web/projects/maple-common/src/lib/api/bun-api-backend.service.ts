@@ -54,7 +54,7 @@ export interface MirrorReconcileProgress {
   copiedLog: string[];
 }
 
-/** mirror_queue depth + reconcile progress, surfaced on the Backup settings section. */
+/** mirror_queue depth + reconcile progress, surfaced in the Backup group on the Workers settings page. */
 export interface MirrorQueueStatus {
   queue: { pending: number; dead: number };
   /** Optional so older/mocked responses without reconcile progress still type-check. */

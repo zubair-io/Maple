@@ -743,6 +743,12 @@
       }
     }
 
+    <!-- Backup — its own pipeline group (Ingest / Enrich / Index / Backup),
+         rendered after the worker stages. An always-visible panel (not a row):
+         live reconcile status + the copied-files log + per-library config. -->
+    <div class="group-label">Backup</div>
+    <maple-mirror-settings />
+
     <!-- Import — its own pipeline group, rendered last (ticket #755). Rows
          expand in place to show src → library + the per-file list. -->
     <div class="group-label import-group">
