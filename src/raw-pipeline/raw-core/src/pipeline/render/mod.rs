@@ -39,9 +39,7 @@ use crate::{
 mod auto_fit;
 pub use auto_fit::{fit_auto_profile_from_raw, fit_profile_curve_from_raw};
 
-/// Sized display render + `native_render_dims` (#1101) live in a submodule
-/// for the same size-budget reason; re-exported so `pipeline::{…}` and the
-/// WASM entries keep resolving both names.
+// Sized display render + `native_render_dims` (#1101) — size-budget split.
 mod sized;
 pub use sized::{native_render_dims, render_sized_from_raw_with_quality_and_source};
 
