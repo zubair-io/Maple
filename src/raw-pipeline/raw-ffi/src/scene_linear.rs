@@ -17,6 +17,21 @@
 //! Tile dehaze guard stays on the Rust side because it's a safety gate
 //! (full-image dark-channel computation that can't run on a crop tile),
 //! not GPU-chain knowledge.
+//!
+//! Auto Profile / auto-exposure contract (#871 × #927 — see #1174):
+//! under `Profile::Auto` every entry in this module (and the f32
+//! siblings) forces `auto_exposure: Off` when the file's embedded
+//! preview is extractable (`force_ae_off_if_auto_will_fit_*`), because
+//! the fitted Auto Profile tail owns the scene→JPEG brightness
+//! re-anchor. Since #927 made preview extraction work in-process, that
+//! is effectively *every* preview-bearing RAW on *every* platform — not
+//! just shells with exiftool. Consumers of these buffers MUST therefore
+//! apply the fitted tail (curve∘residual cube via
+//! `maple_compute_auto_profile_lut`, as the Apple `EditSession` does)
+//! before treating the render as display-faithful, or pass an XMP whose
+//! profile is `Neutral` to keep auto-exposure in the decode. An Auto
+//! buffer rendered without the tail is darker than the app by the full
+//! AE anchor gain (typically 2–3×).
 
 use crate::buffers::MapleSceneLinearBuffer;
 use crate::error::{set_last_error, with_large_stack};
