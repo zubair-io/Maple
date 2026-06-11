@@ -188,6 +188,31 @@ describe('/api/presets', () => {
     expect(listed.presets).toHaveLength(0);
   });
 
+  it('rejects Mongo-unsafe keys with 400 instead of a 500 at insert', async () => {
+    if (!mongo) return;
+    // Dotted / $-prefixed `fields` keys.
+    expect((await create({ schemaVersion: 1, name: 'x', fields: { 'bad.dot': 1 } })).status).toBe(
+      400,
+    );
+    expect((await create({ schemaVersion: 1, name: 'x', fields: { $bad: 1 } })).status).toBe(400);
+    // Dotted / $-prefixed unknown TOP-LEVEL keys (preserved into `extra`).
+    expect(
+      (await create({ schemaVersion: 1, name: 'x', fields: {}, 'bad.dot': true })).status,
+    ).toBe(400);
+    expect((await create({ schemaVersion: 1, name: 'x', fields: {}, $bad: true })).status).toBe(
+      400,
+    );
+    // Unsafe key NESTED inside a preserved value (extra is a subdocument,
+    // so nested keys are document keys too).
+    expect(
+      (await create({ schemaVersion: 1, name: 'x', fields: {}, future: { deep: [{ $no: 1 }] } }))
+        .status,
+    ).toBe(400);
+    // Nothing got stored.
+    const listed = (await (await list()).json()) as { presets: WirePreset[] };
+    expect(listed.presets).toHaveLength(0);
+  });
+
   it('deletes a preset (and 404s on a second delete)', async () => {
     if (!mongo) return;
     const created = (await (
