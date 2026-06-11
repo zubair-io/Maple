@@ -19,6 +19,11 @@ license.workspace = true
 # sibling crates can reuse the generator; the crate's own gate tests
 # enable it via `required-features` below. Adds no dependencies.
 testkit = []
+# Same contract as raw-core's `fixtures` feature (#1082): fixture-backed
+# tests (tests/ingest_gates.rs) are `ignored` without it, and fail closed
+# (panic on a missing fixture) with it. Enable on fixture-provisioned
+# machines only.
+fixtures = []
 # ALIKED + LightGlue detector/matcher via ONNX Runtime (#1139, spec §5.2).
 # Native-only: `ort` with `load-dynamic` has no wasm story here — the web
 # delivery path (WebGPU/WASM EP, lazy model fetch) is a later milestone per

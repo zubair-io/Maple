@@ -301,10 +301,11 @@ mod tests {
     /// data — neither is desirable).
     #[test]
     fn shipped_bundle_has_no_duplicate_ucms() {
-        let mut r = match Reader::new(PROFILES_BIN) {
-            Some(r) => r,
-            None => return, // empty bundle in CI without profiles.bin
-        };
+        // profiles.bin is COMMITTED and `include_bytes!`-embedded (the crate
+        // would not even compile without it), so an unreadable bundle is a
+        // corrupt artifact — fail loudly rather than skip-pass (#1082).
+        let mut r = Reader::new(PROFILES_BIN)
+            .expect("embedded profiles.bin failed header validation — corrupt bundle");
         let mut seen = std::collections::HashSet::new();
         let mut dupes: Vec<String> = Vec::new();
         for _ in 0..r.count {
