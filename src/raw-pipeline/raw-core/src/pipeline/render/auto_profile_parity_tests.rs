@@ -12,13 +12,14 @@ use super::*;
 /// #867 — `RawInput::Path` (maple-cli / Apple FFI, the parity-gate reference)
 /// and `RawInput::Bytes` (raw-wasm `render_bytes`, the web canvas) must produce
 /// byte-IDENTICAL renders for the same RAW + model under `Profile::Auto`. The
-/// two entries fit the Auto curve through different sourcing helpers
-/// (`fit_curve_from_raw_display` extracts the embedded JPEG from a path with an
-/// exiftool fallback; `fit_curve_from_bytes_display` extracts from the in-memory
-/// bytes via rawler only). On every fixture rawler can decode (test_0017
-/// included — its preview extracts byte-for-byte identically on both helpers),
-/// the developed scene buffer, the extracted preview, and therefore the fitted
-/// `ProfileCurve` and final pixels are identical.
+/// two entries source the embedded JPEG through different extraction helpers
+/// (`extract_for_fit` reads from a path with an exiftool fallback;
+/// `extract_for_fit_from_bytes` reads the in-memory bytes via rawler only —
+/// since #1085 each render extracts ONCE and threads the preview through both
+/// fits). On every fixture rawler can decode (test_0017 included — its preview
+/// extracts byte-for-byte identically on both helpers), the developed scene
+/// buffer, the extracted preview, and therefore the fitted `ProfileCurve` and
+/// final pixels are identical.
 ///
 /// This is the END-TO-END companion to `auto_profile::tests::fit_bytes_matches_
 /// fit_path` (#555), which only proves the fit functions agree given identical
