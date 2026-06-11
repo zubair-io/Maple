@@ -136,6 +136,12 @@ fn set_field(
         }
         "crs:LuminanceSmoothing"   => m.nr_luminance    = v()?,
         "crs:ColorNoiseReduction"  => m.nr_color        = v()?,
+        // Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
+        // Maple-proprietary `papp:` key — there is no ACR equivalent (ACR's
+        // ColorNoiseReduction maps onto the late-chain `nr_color` NLM
+        // above; this one runs inside the decode product). Absent attribute
+        // → default 0 (stage is a bit-identical skip).
+        "papp:ChromaPrefilter" => m.chroma_prefilter = v()?,
         "crs:Dehaze"         => m.dehaze      = v()?,
         // S5 effects fields (ticket #643). Lightroom-compatible `crs:` keys
         // so sidecars interchange with Lightroom for these tools. Pipeline
@@ -286,8 +292,9 @@ fn set_field(
 /// This is intentionally a seed for Auto Profile Phase 1 (#536) — full
 /// XMP sidecar writing lives in the Swift and TypeScript layers per
 /// `docs/architecture.md`. Only the Maple-proprietary `papp:` keys with no
-/// `crs:` home are emitted here (`papp:Profile`, `papp:Brightness`); the
-/// legacy `papp:Look` is deliberately NOT serialized — newly-written
+/// `crs:` home are emitted here (`papp:Profile`, `papp:Brightness`,
+/// `papp:ChromaPrefilter`); the legacy `papp:Look` is deliberately NOT
+/// serialized — newly-written
 /// sidecars carry the new attribute name only, and old sidecars still
 /// round-trip via the `papp:Look` migration in [`set_field`].
 pub fn serialize(model: &AdjustmentModel) -> String {
@@ -303,6 +310,14 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     // Swift/TS writers' omit-on-default convention.
     if model.brightness != 0.0 {
         out.push_str(&format!(r#" papp:Brightness="{}""#, model.brightness));
+    }
+    // Chroma pre-filter (#1104) — emitted only when non-default (0),
+    // matching the Swift/TS writers' omit-on-default convention.
+    if model.chroma_prefilter != 0.0 {
+        out.push_str(&format!(
+            r#" papp:ChromaPrefilter="{}""#,
+            model.chroma_prefilter
+        ));
     }
     out
 }

@@ -410,6 +410,20 @@ pub struct AdjustmentModel {
     pub tone_curve_red: ToneCurve,
     pub tone_curve_green: ToneCurve,
     pub tone_curve_blue: ToneCurve,
+
+    /// Decode-time chroma pre-filter strength (#1104, tone/zoom design
+    /// § 3.1). Luma-guided sparse cross-bilateral on opponent chroma,
+    /// applied inside the decode product (post-DCP, pre auto-exposure) —
+    /// see `stages::chroma_prefilter`. 0 (default) is an exact
+    /// bit-identical skip. Because it is a decode-product parameter,
+    /// changing it invalidates the decoded-image caches (Apple keys the
+    /// decode on the baked/stripped model, web on the stripped prefix
+    /// model — both carry this field). XMP key `papp:ChromaPrefilter`.
+    ///
+    /// Declared at the struct tail (not next to `nr_color`) so schema
+    /// additions stay append-only — keeps parallel schema PRs (#1129 /
+    /// #1133) rebase-mechanical.
+    pub chroma_prefilter: f32, // 0..100, default 0
 }
 
 impl Default for AdjustmentModel {
@@ -481,6 +495,11 @@ impl Default for AdjustmentModel {
             tone_curve_red: ToneCurve::default(),
             tone_curve_green: ToneCurve::default(),
             tone_curve_blue: ToneCurve::default(),
+            // Per-#1104: decode-time chroma pre-filter ships default-off.
+            // The shipped default is re-evaluated by the § 3.1 calibration
+            // sweep ({0, 25, 50} across the fixture matrix) — flipping it
+            // is a separate decision with its own budgets.json ratchet.
+            chroma_prefilter: 0.0,
         }
     }
 }
@@ -567,5 +586,14 @@ mod tests {
         // through the pipeline.
         let m = AdjustmentModel::default();
         assert_eq!(m.tone_curve_mode, ToneCurveMode::PerChannel);
+    }
+
+    #[test]
+    fn chroma_prefilter_defaults_to_zero() {
+        // Per #1104: the decode-time chroma pre-filter ships default-off so
+        // the decode product stays bit-identical to the pre-#1104 pipeline
+        // (and absent-attribute sidecars round-trip unchanged).
+        let m = AdjustmentModel::default();
+        assert_eq!(m.chroma_prefilter, 0.0);
     }
 }

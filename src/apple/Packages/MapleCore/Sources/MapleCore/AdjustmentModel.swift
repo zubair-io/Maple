@@ -186,6 +186,15 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     // field when `papp:Profile` is absent.
     public var profile: Profile
 
+    /// Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
+    /// Luma-guided sparse cross-bilateral on opponent chroma, baked into
+    /// the Rust decode product (post-DCP, pre auto-exposure) — there is
+    /// no per-tick Apple chain equivalent, so `stripAppleGPUStages` keeps
+    /// it and the decoded-image cache key (the baked model, #950) picks
+    /// it up automatically: changing it re-decodes. XMP key
+    /// `papp:ChromaPrefilter`; 0 (default) = bit-identical stage skip.
+    public var chromaPrefilter: Double  // 0..100, default 0
+
     public init(
         temperature: Double = 6500,
         tint: Double = 0,
@@ -225,7 +234,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         splitToneBalance: Double = 0,
         highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
         look: Look = .default,
-        profile: Profile = .auto
+        profile: Profile = .auto,
+        chromaPrefilter: Double = 0
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -266,6 +276,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.highlightRecovery = highlightRecovery
         self.look = look
         self.profile = profile
+        self.chromaPrefilter = chromaPrefilter
     }
 
     public static let `default` = AdjustmentModel()

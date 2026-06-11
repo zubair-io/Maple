@@ -247,6 +247,9 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
             }
         case "crs:LuminanceSmoothing":  model.nrLuminance    = d(value) ?? model.nrLuminance
         case "crs:ColorNoiseReduction": model.nrColor        = d(value) ?? model.nrColor
+        // Decode-time chroma pre-filter (#1104) — Maple-proprietary; baked
+        // into the Rust decode product, not re-applied by the Apple chain.
+        case "papp:ChromaPrefilter":    model.chromaPrefilter = d(value) ?? model.chromaPrefilter
         // S5 effects (#643) — Lightroom-compatible `crs:` keys.
         case "crs:PostCropVignetteAmount":   model.vignetteAmount  = d(value) ?? model.vignetteAmount
         case "crs:PostCropVignetteFeather":  model.vignetteFeather = d(value) ?? model.vignetteFeather
@@ -448,6 +451,12 @@ public struct XMPSerializer {
         // legacy `papp:Look` migrates into Profile on read.
         if model.profile != .auto {
             attrs.append(("papp:Profile", model.profile.rawValue))
+        }
+        // Decode-time chroma pre-filter (#1104) — emit only when
+        // non-default (0) so sidecars produced before the field existed
+        // remain byte-identical for users who never touch it.
+        if model.chromaPrefilter != 0 {
+            attrs.append(("papp:ChromaPrefilter", String(format: "%.0f", model.chromaPrefilter)))
         }
 
         let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")
