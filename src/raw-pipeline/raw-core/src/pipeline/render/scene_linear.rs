@@ -17,7 +17,7 @@ use crate::pipeline::develop_sized::{
 };
 use crate::pipeline::fp16::f32_to_f16_bits;
 use crate::pipeline::orient::apply_orientation_f32_rgba;
-use crate::pipeline::{stage, RenderQuality};
+use crate::pipeline::{finite_or_zero, stage, RenderQuality};
 use crate::xmp::AdjustmentModel;
 
 /// Scene-linear render entry. Runs the same development chain as
@@ -46,9 +46,9 @@ pub fn render_scene_linear_from_raw_with_quality(
     let rgba_f32 = stage("pack_rgba_f32", || {
         let mut v = Vec::with_capacity(scene.pixels.len() * 4);
         for p in &scene.pixels {
-            v.push(p[0]);
-            v.push(p[1]);
-            v.push(p[2]);
+            v.push(finite_or_zero(p[0]));
+            v.push(finite_or_zero(p[1]));
+            v.push(finite_or_zero(p[2]));
             v.push(1.0);
         }
         v
@@ -106,9 +106,9 @@ pub fn render_scene_linear_from_raw_with_quality_f32_cancellable(
     let rgba_f32 = stage("pack_rgba_f32", || {
         let mut v = Vec::with_capacity(scene.pixels.len() * 4);
         for p in &scene.pixels {
-            v.push(p[0]);
-            v.push(p[1]);
-            v.push(p[2]);
+            v.push(finite_or_zero(p[0]));
+            v.push(finite_or_zero(p[1]));
+            v.push(finite_or_zero(p[2]));
             v.push(1.0);
         }
         v
@@ -146,9 +146,9 @@ pub fn render_scene_linear_sized_from_raw_with_quality(
     let rgba_f32 = stage("pack_rgba_f32_sized", || {
         let mut v = Vec::with_capacity(scene.pixels.len() * 4);
         for p in &scene.pixels {
-            v.push(p[0]);
-            v.push(p[1]);
-            v.push(p[2]);
+            v.push(finite_or_zero(p[0]));
+            v.push(finite_or_zero(p[1]));
+            v.push(finite_or_zero(p[2]));
             v.push(1.0);
         }
         v
@@ -202,9 +202,9 @@ pub fn render_scene_linear_sized_from_raw_with_quality_f32_cancellable(
     let rgba_f32 = stage("pack_rgba_f32_sized", || {
         let mut v = Vec::with_capacity(scene.pixels.len() * 4);
         for p in &scene.pixels {
-            v.push(p[0]);
-            v.push(p[1]);
-            v.push(p[2]);
+            v.push(finite_or_zero(p[0]));
+            v.push(finite_or_zero(p[1]));
+            v.push(finite_or_zero(p[2]));
             v.push(1.0);
         }
         v

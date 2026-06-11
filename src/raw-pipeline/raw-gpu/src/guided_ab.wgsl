@@ -9,7 +9,9 @@
 // `mean_i == mean_p` and `mean_ip == mean_ii` bit-identically (same input, same
 // deterministic blur), so:
 //   cov_ip = mean_ii - mean_i * mean_i      (== mean_ip - mean_i * mean_p)
-//   var_i  = mean_ii - mean_i * mean_i      (== cov_ip; identical expression)
+//   var_i  = max(mean_ii - mean_i * mean_i, 0.0)
+//            (#1088 negative-variance clamp — cov_ip stays UNclamped, exactly
+//             like raw-core's general form where cov is a genuine covariance)
 //   a = cov_ip / (var_i + eps)
 //   b = mean_i - a * mean_i                 (== mean_p - a * mean_i)
 // Operation order is kept verbatim so the result bit-matches raw-core.
@@ -36,7 +38,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let mean_i = mean_i_buf[i];
     let mean_ii = mean_ii_buf[i];
     let cov_ip = mean_ii - mean_i * mean_i;
-    let var_i = mean_ii - mean_i * mean_i;
+    // Negative-variance clamp (#1088) — mirrors raw-core's
+    // `(mean_ii - mean_i * mean_i).max(0.0)`; cov_ip stays unclamped.
+    let var_i = max(mean_ii - mean_i * mean_i, 0.0);
     let a = cov_ip / (var_i + params.eps);
     let b = mean_i - a * mean_i;
     a_buf[i] = a;

@@ -77,11 +77,30 @@ where
     let out = from_oklab([l, a * lo, b * lo]);
     // Tighten with the trailing clamp — Oklab round-trips can drift a
     // few ULPs past 0 or 1 even when the bisection landed inside.
+    //
+    // NaN/Inf scrub (#1088): Rust's `f32::clamp` passes NaN through, and
+    // a non-finite triple ALWAYS lands here (every `in_unit_box`
+    // comparison on NaN is false, so it can never take the byte-identity
+    // fast path) — without the scrub, a NaN entering compression would
+    // exit still-NaN and flow into the display encode.
     [
-        out[0].clamp(0.0, 1.0),
-        out[1].clamp(0.0, 1.0),
-        out[2].clamp(0.0, 1.0),
+        clamp_unit_scrub_non_finite(out[0]),
+        clamp_unit_scrub_non_finite(out[1]),
+        clamp_unit_scrub_non_finite(out[2]),
     ]
+}
+
+/// `clamp(0, 1)` that maps non-finite values to 0.0 — Rust's `f32::clamp`
+/// returns NaN for NaN input (#1088). Inf could only arise here from
+/// broken upstream math (not "very bright"), so it scrubs to 0.0 too,
+/// matching the FFI pack-endcap convention in `pipeline::finite_or_zero`.
+#[inline]
+fn clamp_unit_scrub_non_finite(v: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
 }
 
 /// In-gamut predicate with a small fp-edge epsilon so values like
@@ -206,5 +225,34 @@ mod tests {
         let out = compress_to_unit_cube_oklab(p, rec2020_to_oklab, oklab_to_rec2020);
         // In-gamut passes through.
         assert_eq!(out[0].to_bits(), p[0].to_bits());
+    }
+
+    /// #1088 — non-finite input must come out finite in [0, 1]. A NaN
+    /// fails every `in_unit_box` comparison, so it always reaches the
+    /// compression fallthrough — where the pre-fix `clamp(0.0, 1.0)`
+    /// passed it straight through (Rust's `f32::clamp` returns NaN for
+    /// NaN input) and into the display encode.
+    #[test]
+    fn non_finite_input_scrubs_to_finite_unit_range() {
+        let cases: [[f32; 3]; 5] = [
+            [f32::NAN, 0.5, 0.5],
+            [0.5, f32::NAN, 0.5],
+            [f32::NAN, f32::NAN, f32::NAN],
+            [f32::INFINITY, 0.2, 0.2],
+            [0.2, 0.2, f32::NEG_INFINITY],
+        ];
+        for p in cases {
+            let out =
+                compress_to_unit_cube_oklab(p, srgb_linear_to_oklab, oklab_to_srgb_linear);
+            for (i, c) in out.iter().enumerate() {
+                assert!(
+                    c.is_finite() && (0.0..=1.0).contains(c),
+                    "channel {} not finite-in-[0,1] for input {:?}: {}",
+                    i,
+                    p,
+                    c
+                );
+            }
+        }
     }
 }

@@ -28,8 +28,8 @@ mod tests;
 use crate::{error::Result, image::RawImage, linearize, xmp::AdjustmentModel};
 
 use super::{
-    downsample::downsample_image_area, fp16::f32_to_f16_bits, orient::apply_orientation_f32_rgba,
-    stage, RenderQuality,
+    downsample::downsample_image_area, finite_or_zero, fp16::f32_to_f16_bits,
+    orient::apply_orientation_f32_rgba, stage, RenderQuality,
 };
 
 use develop::develop_scene_linear_from_padded_mosaic;
@@ -268,10 +268,15 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     }
 
     let (w0, h0) = (sized.width, sized.height);
+    // NaN/Inf scrub at the pack endcap (#1088) — same contract as the
+    // scene-linear packs in `pipeline::render`.
     let rgba_f32 = stage("tile_pack_rgba_f32", || {
         let mut v = Vec::with_capacity(sized.pixels.len() * 4);
         for p in &sized.pixels {
-            v.push(p[0]); v.push(p[1]); v.push(p[2]); v.push(1.0);
+            v.push(finite_or_zero(p[0]));
+            v.push(finite_or_zero(p[1]));
+            v.push(finite_or_zero(p[2]));
+            v.push(1.0);
         }
         v
     });

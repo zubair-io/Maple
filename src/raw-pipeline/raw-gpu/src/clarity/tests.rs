@@ -238,8 +238,68 @@ fn clarity_composes_as_one_pass_in_a_chain() {
     );
 }
 
+/// #1088 — the luma-floor identity guard, GPU vs raw-core (the WGSL proof).
+/// A sub-floor-luma pixel (mixed-sign channels with NON-tiny magnitudes) and
+/// a negative-luma pixel sit inside a bright 0.8 field at clarity +100 —
+/// exactly the fixture the old pinned-divisor recombine exploded on
+/// (`scale ≈ -boost/1e-6 ≈ -2e5`, GPU output ≈ -2e4 on the sub-floor pixel).
+/// Post-guard, both kernels skip those pixels (identity): the GPU must match
+/// raw-core within the parity tolerance, return the guarded pixels bit-exact,
+/// and keep the whole buffer bounded by the input range.
+#[test]
+fn wgsl_clarity_luma_floor_guard_matches_raw_core_and_is_bounded() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (48usize, 8usize);
+    let mut input: Vec<f32> = (0..w * h).flat_map(|_| [0.8f32, 0.8, 0.8, 1.0]).collect();
+    // Sub-floor positive luma (≈ +5e-7 ≤ 1e-6) with non-tiny channels:
+    // G solved against the Rec.2020 luma weights (same constants as the
+    // kernel / raw-core).
+    let r = 0.1f32;
+    let g = (5e-7 - 0.2627 * r) / 0.6780;
+    let i_sub = (4 * w + 10) * 4;
+    input[i_sub] = r;
+    input[i_sub + 1] = g;
+    input[i_sub + 2] = 0.0;
+    // Negative-luma pixel (mixed-sign scene-linear channels).
+    let i_neg = (4 * w + 30) * 4;
+    input[i_neg] = 0.05;
+    input[i_neg + 1] = -0.05;
+    input[i_neg + 2] = 0.01;
+
+    let clarity = 100.0f32;
+    let reference = raw_core_clarity(&input, w as u32, h as u32, clarity);
+
+    let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
+    let runner = ChainRunner::new(&ctx, &img);
+    let gpu = runner.run_blocking(&[&ClarityPass { clarity }]);
+
+    let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
+    eprintln!("LUMA-FLOOR parity vs raw-core: max abs diff = {max_diff:e} at lane {worst_i}");
+    assert!(
+        max_diff < 1e-4,
+        "GPU vs raw-core diverged ({max_diff}) on the luma-floor fixture — \
+         the WGSL guard does not match raw-core's"
+    );
+    // Guarded pixels are identity on the GPU too — bit-exact pass-through.
+    assert_eq!(
+        &gpu[i_sub..i_sub + 3],
+        &input[i_sub..i_sub + 3],
+        "sub-floor-luma pixel must pass through the GPU identity branch"
+    );
+    assert_eq!(
+        &gpu[i_neg..i_neg + 3],
+        &input[i_neg..i_neg + 3],
+        "negative-luma pixel must pass through the GPU identity branch"
+    );
+    // Bounded everywhere — pre-guard the sub-floor pixel hit ≈ -2e4.
+    assert!(
+        gpu.iter().all(|v| v.is_finite() && v.abs() <= 8.0),
+        "GPU output blew past the input range"
+    );
+}
+
 /// Pure-black pixels (luma 0) must not yield NaN/Inf via the luma-ratio divide —
-/// the GPU's `max(luma, LUMA_FLOOR)` guard mirrors raw-core. Plant one bright
+/// the GPU's luma-floor identity guard mirrors raw-core. Plant one bright
 /// pixel so the field isn't flat.
 #[test]
 fn wgsl_clarity_handles_pure_black() {

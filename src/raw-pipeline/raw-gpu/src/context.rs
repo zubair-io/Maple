@@ -133,10 +133,10 @@ pub struct GpuContext {
     pub(crate) guided_ab_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled guided-filter combine pipeline (`guided_combine.wgsl`). A
     /// P2 wave-3b spatial helper (#990): the clarity/texture base/detail recombine
-    /// (`out = orig * (boost / max(luma, floor))`). A MULTI-INPUT pass — the first
-    /// kernel to read the original image AND derived planes simultaneously, the
-    /// pattern dehaze + P3 reuse. 6-binding layout (params uniform + RGBA-orig +
-    /// three f32-in + RGBA-out storage).
+    /// (`out = orig * (boost / luma)`, identity for `luma <= LUMA_FLOOR` — #1088).
+    /// A MULTI-INPUT pass — the first kernel to read the original image AND
+    /// derived planes simultaneously, the pattern dehaze + P3 reuse. 6-binding
+    /// layout (params uniform + RGBA-orig + three f32-in + RGBA-out storage).
     pub(crate) guided_combine_pipeline: OnceCell<wgpu::ComputePipeline>,
     /// Lazily-compiled dehaze min-filter pipeline (`dehaze_min.wgsl`). The P2
     /// wave-3b dehaze stage (#990): a DIRECT 2D 15×15 window min over the image,
