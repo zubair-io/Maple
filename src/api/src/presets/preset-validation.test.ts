@@ -4,6 +4,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   PRESET_FIELDS_MAX,
   PRESET_NAME_MAX,
+  isMongoSafeKey,
   validatePresetDocument,
   validatePresetFields,
   validatePresetName,
@@ -92,6 +93,25 @@ describe('validatePresetFields', () => {
     const big: Record<string, number> = {};
     for (let i = 0; i <= PRESET_FIELDS_MAX; i++) big[`future_${i}`] = i;
     expect(validatePresetFields(big)).toHaveProperty('error');
+  });
+
+  it('rejects Mongo-unsafe keys (dots, $-prefix, NUL) with a clean error', () => {
+    // These would otherwise pass validation and blow up the insert (500).
+    expect(validatePresetFields({ 'future.dotted': 1 })).toHaveProperty('error');
+    expect(validatePresetFields({ $set: 1 })).toHaveProperty('error');
+    expect(validatePresetFields({ 'future\0nul': 1 })).toHaveProperty('error');
+    // `$` is only forbidden as a PREFIX — elsewhere in the key is fine.
+    expect(validatePresetFields({ future$x: 1 })).toEqual({ fields: { future$x: 1 } });
+  });
+});
+
+describe('isMongoSafeKey', () => {
+  it('classifies key shapes the way MongoDB inserts require', () => {
+    expect(isMongoSafeKey('contrast')).toBe(true);
+    expect(isMongoSafeKey('future$x')).toBe(true);
+    expect(isMongoSafeKey('$set')).toBe(false);
+    expect(isMongoSafeKey('a.b')).toBe(false);
+    expect(isMongoSafeKey('a\0b')).toBe(false);
   });
 });
 

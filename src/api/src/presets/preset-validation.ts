@@ -15,6 +15,9 @@
  *   - UNKNOWN fields (newer schema versions) are accepted and preserved
  *     verbatim — but must still be JSON scalars within size caps, so the
  *     collection can't be used as a blob store.
+ *   - ALL keys must be Mongo-safe (no `.`/NUL, no `$` prefix) — they are
+ *     written as subdocument keys, and an unsafe one would otherwise only
+ *     fail at insert time as a 500 instead of a clean 400.
  *
  * Pure functions, no I/O — unit-tested in `preset-validation.test.ts`.
  */
@@ -46,6 +49,23 @@ export type PresetValidationResult =
   | { ok: true; preset: ValidatedPreset }
   | { ok: false; error: string };
 
+/**
+ * MongoDB forbids document keys that contain `.` or NUL or start with `$`
+ * (exact rules vary by server version). Preset `fields` keys — and the
+ * preserved unknown top-level keys in `doc.extra` — are written as
+ * subdocument keys, so an unsafe key would only surface at insert time as
+ * a 500. Reject it during validation instead, as a deterministic 400.
+ */
+export function isMongoSafeKey(key: string): boolean {
+  return !key.startsWith('$') && !key.includes('.') && !key.includes('\0');
+}
+
+/** Shared 400 message for a Mongo-unsafe key (field, preserved top-level,
+ * or nested inside a preserved value). */
+export function unsafeKeyError(key: string): string {
+  return `key "${key.slice(0, 80)}" must not contain "." or NUL or start with "$"`;
+}
+
 /** Trim + validate a preset name. Returns the trimmed name or an error. */
 export function validatePresetName(raw: unknown): { name: string } | { error: string } {
   if (typeof raw !== 'string') return { error: 'name must be a string' };
@@ -76,6 +96,9 @@ export function validatePresetFields(raw: unknown): { fields: PresetFields } | {
   for (const [key, value] of entries) {
     if (key.length === 0 || key.length > PRESET_FIELD_KEY_MAX) {
       return { error: `field key "${key.slice(0, 80)}" has invalid length` };
+    }
+    if (!isMongoSafeKey(key)) {
+      return { error: unsafeKeyError(key) };
     }
     if (isKnownNumericField(key)) {
       if (typeof value !== 'number' || !Number.isFinite(value)) {
