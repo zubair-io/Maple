@@ -500,3 +500,61 @@ fn papp_profile_wins_over_legacy_papp_look() {
     let model = crate::xmp::parse(xmp).expect("parses");
     assert_eq!(model.profile, crate::types::adjustment::Profile::Auto);
 }
+
+// ---- Hot/dead-pixel suppression (#1106) ----
+
+/// `papp:HotPixelSuppression="On"` parses onto the model; absent
+/// attribute leaves the default `Off` (bit-identical decode), and the
+/// serializer omits the attribute at the default so pre-#1106 sidecars
+/// stay byte-identical. Non-default round-trips serialize → parse.
+#[test]
+fn parse_hot_pixel_suppression_on() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:HotPixelSuppression="On"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.hot_pixel_suppression, HotPixelSuppressionMode::On);
+}
+
+#[test]
+fn parse_hot_pixel_suppression_off_explicit_and_lowercase() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:HotPixelSuppression="off"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.hot_pixel_suppression, HotPixelSuppressionMode::Off);
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:HotPixelSuppression="on"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.hot_pixel_suppression, HotPixelSuppressionMode::On);
+}
+
+#[test]
+fn parse_hot_pixel_suppression_absent_defaults_to_off() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:crs="x"
+        crs:Exposure2012="1.0"/></x>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.hot_pixel_suppression, HotPixelSuppressionMode::Off);
+}
+
+#[test]
+fn parse_hot_pixel_suppression_invalid_is_error() {
+    let xml = r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"
+        papp:HotPixelSuppression="Maybe"/></x>"#;
+    assert!(parse(xml).is_err());
+}
+
+#[test]
+fn hot_pixel_suppression_serialize_roundtrip_and_default_omission() {
+    let mut m = AdjustmentModel::default();
+    assert!(
+        !serialize(&m).contains("papp:HotPixelSuppression"),
+        "default Off must not be serialized"
+    );
+    m.hot_pixel_suppression = HotPixelSuppressionMode::On;
+    let frag = serialize(&m);
+    assert!(frag.contains(r#"papp:HotPixelSuppression="On""#), "got: {frag}");
+    let xml = format!(
+        r#"<?xml version="1.0"?><x><rdf:Description xmlns:rdf="x" xmlns:papp="x"{frag}/></x>"#
+    );
+    let parsed = parse(&xml).unwrap();
+    assert_eq!(parsed.hot_pixel_suppression, HotPixelSuppressionMode::On);
+}

@@ -76,6 +76,13 @@ export class XmpSerializerService {
       parts.push(`papp:Profile="${this._escapeAttr(model.profile)}"`);
     }
 
+    // Hot/dead-pixel suppression (#1106) — decode-product enum field,
+    // default 'Off'. Emit only when non-default, mirroring the Rust and
+    // Swift writers, so pre-#1106 sidecars stay byte-identical.
+    if (model.hotPixelSuppression && model.hotPixelSuppression !== 'Off') {
+      parts.push(`papp:HotPixelSuppression="${this._escapeAttr(model.hotPixelSuppression)}"`);
+    }
+
     // Culling fields.
     if (culling?.rating && culling.rating > 0) {
       parts.push(`xmp:Rating="${culling.rating}"`);

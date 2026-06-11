@@ -11,7 +11,11 @@
 import { Injectable } from '@angular/core';
 import type { XmpCulling, XmpFlag, XmpColorLabel, PassthroughBucket } from './xmp.types';
 import type { AdjustmentModel, WhiteBalancePreset } from '../models/adjustment-model';
-import type { Look, Profile } from '../generated/adjustment-model.generated';
+import type {
+  HotPixelSuppressionMode,
+  Look,
+  Profile,
+} from '../generated/adjustment-model.generated';
 import { ADJUSTMENT_FIELDS, LEGACY_READ_ALIASES, WB_PRESET_FIELD } from './xmp-fields';
 
 /**
@@ -64,6 +68,8 @@ const KNOWN_ATTRIBUTES = new Set<string>([
   'papp:Look',
   // Auto Profile (Phase 1, #536) — canonical successor to `papp:Look`.
   'papp:Profile',
+  // Hot/dead-pixel suppression (#1106) — decode-product enum field.
+  'papp:HotPixelSuppression',
   // structural / bookkeeping
   'rdf:about',
   'crs:Version',
@@ -284,6 +290,19 @@ export class XmpParserService {
         const v = attr.value.toLowerCase();
         const parsed: Profile = v === 'neutral' ? 'Neutral' : 'Auto';
         model.profile = parsed;
+        continue;
+      }
+
+      // Hot/dead-pixel suppression (#1106). Case-insensitive parse,
+      // mirroring the Rust (`xmp/mod.rs`) and Swift parsers; unknown
+      // values are dropped so the field takes its default ('Off').
+      if (name === 'papp:HotPixelSuppression') {
+        const v = attr.value.toLowerCase();
+        const parsed: HotPixelSuppressionMode | undefined =
+          v === 'on' ? 'On' : v === 'off' ? 'Off' : undefined;
+        if (parsed !== undefined) {
+          model.hotPixelSuppression = parsed;
+        }
         continue;
       }
     }
