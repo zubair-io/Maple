@@ -42,16 +42,31 @@ from write_xmp import copy_canonical_xmps
 #
 # Override with --mac-root if the host layout differs.
 DEFAULT_SANDBOX_PREFIX = "/sessions/"
-DEFAULT_MAC_ROOT = "/Users/riabuz/Projects/_Maple"
+
+# Repo root derived from this file's location (src/scripts/acr-reference/run.py
+# → three parents up). Correct whenever the script runs directly on the host —
+# no hardcoded per-machine path (#1082). Inside the Cowork sandbox this
+# resolves to a /sessions/... path that is meaningless to host Photoshop, so
+# default_mac_root() returns None there and main() demands an explicit
+# --mac-root instead of silently writing wrong manifest paths.
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def default_mac_root() -> str | None:
+    """The portable --mac-root default, or None when it can't be derived."""
+    root = str(REPO_ROOT)
+    if root.startswith(DEFAULT_SANDBOX_PREFIX):
+        return None
+    return root
 
 
 def detect_mac_path(sandbox_path: Path, mac_root: str) -> str:
     """Translate a sandbox path to the Mac-host equivalent.
 
     The sandbox mount looks like ``/sessions/<session-id>/mnt/_Maple/...`` and
-    maps to ``/Users/riabuz/Projects/_Maple/...`` on the host. If the input
-    path is already absolute and doesn't start with ``/sessions/``, it's passed
-    through unchanged (assumes the caller already gave a host path).
+    maps to ``<mac_root>/...`` on the host. If the input path is already
+    absolute and doesn't start with ``/sessions/``, it's passed through
+    unchanged (assumes the caller already gave a host path).
     """
     s = str(sandbox_path.resolve())
     if not s.startswith(DEFAULT_SANDBOX_PREFIX):
@@ -120,14 +135,25 @@ def main(argv: list[str] | None = None) -> int:
                     help="References root directory (typically test-fixtures/references/)")
     ap.add_argument("--cases-filter", nargs="*", default=None,
                     help="If set, only emit these case names")
-    ap.add_argument("--mac-root", default=DEFAULT_MAC_ROOT,
-                    help=f"Mac-host root replacing the sandbox mount (default: {DEFAULT_MAC_ROOT})")
+    ap.add_argument("--mac-root", default=None,
+                    help="Mac-host root replacing the sandbox mount "
+                         "(default: this repo's root, derived from run.py's "
+                         "location; REQUIRED when running inside the sandbox)")
     ap.add_argument("--cleanup-only", action="store_true",
                     help="Only remove <raw>.xmp leftovers from --raws; don't regenerate anything")
     ap.add_argument("--canonical-xmp-dir", type=Path, default=None,
                     help="Source directory for canonical XMPs (default: <out>/test_0000/xmp/)")
 
     args = ap.parse_args(argv)
+
+    mac_root: str | None = args.mac_root or default_mac_root()
+    if mac_root is None:
+        print("ERROR: cannot derive --mac-root: run.py resolves under "
+              f"{DEFAULT_SANDBOX_PREFIX} (Cowork sandbox), where the host "
+              "checkout path is unknowable.", file=sys.stderr)
+        print("       Pass --mac-root /path/to/checkout (the host path of "
+              "this repo's root) explicitly.", file=sys.stderr)
+        return 2
 
     out_root: Path = args.out.resolve()
     if not out_root.is_dir():
@@ -164,14 +190,14 @@ def main(argv: list[str] | None = None) -> int:
         cases_in_scope = list(CASES)
 
     # Copy canonical XMPs into each raw's xmp/ dir. Emit manifest entries.
-    out_root_host = detect_mac_path(out_root, args.mac_root)
+    out_root_host = detect_mac_path(out_root, mac_root)
     manifest_cases: list[dict] = []
     total_xmps = 0
     total_outputs = 0
 
     for raw in raws:
         raw_stem = raw.stem  # "test_0004"
-        raw_host = detect_mac_path(raw, args.mac_root)
+        raw_host = detect_mac_path(raw, mac_root)
         raw_ref_dir = out_root / raw_stem
         xmp_dir = raw_ref_dir / "xmp"
 
@@ -202,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         # Emit manifest entries.
         for c in cases_in_scope:
             xmp_path = xmp_dir / f"{c.name}.xmp"
-            xmp_host = detect_mac_path(xmp_path, args.mac_root)
+            xmp_host = detect_mac_path(xmp_path, mac_root)
             entry = build_manifest_entry(
                 raw_host_path=raw_host,
                 raw_stem=raw_stem,
@@ -224,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  XMPs copied:      {total_xmps}")
     print(f"  Output PNGs:      {total_outputs}  (manifest.json entries: {len(manifest_cases)})")
     print(f"  manifest.json →   {manifest_path}")
-    print(f"  mac_root:         {args.mac_root}")
+    print(f"  mac_root:         {mac_root}")
     return 0
 
 
