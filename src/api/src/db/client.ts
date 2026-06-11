@@ -12,6 +12,7 @@ import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
 import {
   backfillFileinfo,
   countAssetsMissingFileinfo,
+  dropLegacyLocationFields,
   mergeDuplicateAssets,
   migrationApplied,
   recordMigration,
@@ -1191,6 +1192,34 @@ export async function ensureIndexes(): Promise<void> {
     } catch (err) {
       // Do NOT record on failure so the next boot retries.
       log.warn({ err: err instanceof Error ? err.message : err }, 'fileinfo backfill skipped');
+    }
+  }
+
+  // One-shot cleanup: $unset the retired location triple (abs_path / folder_id
+  // / filename) and the never-read derived-cache paths (thumb_path /
+  // preview_path) from rows already carrying `fileinfo[]`. The
+  // content-addressing migration retired these in code — writers stopped
+  // writing them, readers derive locations from `fileinfo[]` and recompute
+  // cache paths from `(library root, fileinfo[0].path, maple_id)` — but only
+  // dropped the legacy indexes, leaving the dead field VALUES on every
+  // pre-cutover row. Runs AFTER the fileinfo backfill above so a row
+  // backfilled this boot is cleaned in the same pass; scoped to fileinfo-
+  // bearing rows so an un-backfilled legacy row keeps the only fields its
+  // location could be rebuilt from. Gated by the migrations sentinel.
+  if (!(await migrationApplied(db, 'drop-legacy-location-fields-2026-06-11'))) {
+    try {
+      const res = await dropLegacyLocationFields(db);
+      await recordMigration(db, 'drop-legacy-location-fields-2026-06-11', res.cleared);
+      log.info(
+        { rows: res.cleared },
+        'dropped retired abs_path/folder_id/filename/thumb_path/preview_path from fileinfo rows',
+      );
+    } catch (err) {
+      // Do NOT record on failure so the next boot retries.
+      log.warn(
+        { err: err instanceof Error ? err.message : err },
+        'drop-legacy-location-fields cleanup skipped',
+      );
     }
   }
 

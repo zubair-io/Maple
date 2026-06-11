@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import previewStage from './preview.ts';
 import { PREVIEW_LONG_EDGE_PX, PREVIEW_SIZE_KEY } from '../../indexer/previewer.ts';
+import { cachePathForAsset } from '../../fs/xmp.ts';
 
 const TEST_DB = `maple_test_preview_stage_${process.pid}`;
 process.env.MAPLE_MONGO_DB = TEST_DB;
@@ -87,7 +88,7 @@ describe('preview handler — bitmap path', () => {
     setLibraryRootsForTests(null);
   });
 
-  it('generates a 1280-px preview for a 2000-px JPEG and returns preview_path', async () => {
+  it('generates a 1280-px preview for a 2000-px JPEG and marks the stage wrote', async () => {
     const file = path.join(dir, 'wide.jpg');
     const buf = await sharp({
       create: { width: 2000, height: 1200, channels: 3, background: { r: 100, g: 150, b: 200 } },
@@ -99,15 +100,22 @@ describe('preview handler — bitmap path', () => {
     const doc = makeDoc(file, libraryId, dir);
     const result = await previewStage.handler(doc as never, {} as never);
 
-    expect('patch' in result).toBe(true);
-    const { patch } = result as { patch: Record<string, unknown> };
-    expect(typeof patch.preview_path).toBe('string');
-    expect((patch.preview_path as string).endsWith(`_${PREVIEW_SIZE_KEY}.jpg`)).toBe(true);
+    // The stage no longer persists `preview_path` — it returns { wrote: true }
+    // and the preview lives at the content-addressed location, recomputed on read.
+    expect(result).toEqual({ wrote: true });
+    const previewPath = cachePathForAsset(
+      doc as never,
+      new Map([[libraryId.toHexString(), dir]]),
+      'previews',
+      PREVIEW_SIZE_KEY,
+    );
+    expect(previewPath).not.toBeNull();
+    expect((previewPath as string).endsWith(`_${PREVIEW_SIZE_KEY}.jpg`)).toBe(true);
 
     // The file must exist and be downscaled to 1280-px long edge.
-    const s = await stat(patch.preview_path as string);
+    const s = await stat(previewPath as string);
     expect(s.size).toBeGreaterThan(0);
-    const meta = await sharp(patch.preview_path as string).metadata();
+    const meta = await sharp(previewPath as string).metadata();
     expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBe(PREVIEW_LONG_EDGE_PX);
   });
 
@@ -122,8 +130,14 @@ describe('preview handler — bitmap path', () => {
 
     const doc = makeDoc(file, libraryId, dir);
     const result = await previewStage.handler(doc as never, {} as never);
-    const { patch } = result as { patch: Record<string, unknown> };
-    const meta = await sharp(patch.preview_path as string).metadata();
+    expect(result).toEqual({ wrote: true });
+    const previewPath = cachePathForAsset(
+      doc as never,
+      new Map([[libraryId.toHexString(), dir]]),
+      'previews',
+      PREVIEW_SIZE_KEY,
+    );
+    const meta = await sharp(previewPath as string).metadata();
     expect(meta.width).toBe(600);
     expect(meta.height).toBe(400);
   });
@@ -140,8 +154,14 @@ describe('preview handler — bitmap path', () => {
 
     const doc = makeDoc(file, libraryId, dir);
     const result = await previewStage.handler(doc as never, {} as never);
-    const { patch } = result as { patch: Record<string, unknown> };
-    const meta = await sharp(patch.preview_path as string).metadata();
+    expect(result).toEqual({ wrote: true });
+    const previewPath = cachePathForAsset(
+      doc as never,
+      new Map([[libraryId.toHexString(), dir]]),
+      'previews',
+      PREVIEW_SIZE_KEY,
+    );
+    const meta = await sharp(previewPath as string).metadata();
     expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
   });
 
@@ -156,8 +176,13 @@ describe('preview handler — bitmap path', () => {
 
     const doc = makeDoc(file, libraryId, dir);
     const first = await previewStage.handler(doc as never, {} as never);
-    const { patch: p1 } = first as { patch: Record<string, unknown> };
-    const previewPath = p1.preview_path as string;
+    expect(first).toEqual({ wrote: true });
+    const previewPath = cachePathForAsset(
+      doc as never,
+      new Map([[libraryId.toHexString(), dir]]),
+      'previews',
+      PREVIEW_SIZE_KEY,
+    ) as string;
     const stat1 = await stat(previewPath);
 
     // Touch the source to a time BEFORE the preview, then re-run. The stale-
@@ -187,7 +212,6 @@ describe('preview handler — bitmap path', () => {
     // No preview artefact was produced — assert the stat rejects with ENOENT
     // specifically, so an unexpected error (permissions, transient FS) fails
     // the test loudly instead of masquerading as "file absent".
-    const { cachePathForAsset } = await import('../../fs/xmp.ts');
     const previewPath = cachePathForAsset(
       doc as never,
       new Map([[libraryId.toHexString(), dir]]),
@@ -201,7 +225,7 @@ describe('preview handler — bitmap path', () => {
     expect(err?.code).toBe('ENOENT');
   });
 
-  it('returns { patch: { preview_path } } for a RAW when the FFI is unavailable (soft pass)', async () => {
+  it('marks the stage wrote for a RAW when the FFI is unavailable (soft pass)', async () => {
     // Mirrors the thumb stage test: the handler must never throw when the
     // FFI dylib is absent; downstream stages skip via ENOENT.
     const dng = path.resolve(process.cwd(), '../../test-fixtures/raws/test_0017.dng');
@@ -225,9 +249,7 @@ describe('preview handler — bitmap path', () => {
     );
     const doc = makeDoc(dng, rawLibraryId, path.dirname(dng), 'f'.repeat(32));
     const result = await previewStage.handler(doc as never, {} as never);
-    expect('patch' in result).toBe(true);
-    const { patch } = result as { patch: Record<string, unknown> };
-    expect(typeof patch.preview_path).toBe('string');
+    expect(result).toEqual({ wrote: true });
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
 });
@@ -301,8 +323,9 @@ describe('preview handler — content-addressed cache path', () => {
     };
 
     const result = await previewStage.handler(doc as never, {} as never);
-    expect('patch' in result).toBe(true);
-    const { patch } = result as { patch: Record<string, unknown> };
+    expect(result).toEqual({ wrote: true });
+    // The preview is written to the content-addressed location even though the
+    // path is no longer persisted on the asset.
     const expected = path.join(
       dir,
       'trip',
@@ -310,8 +333,6 @@ describe('preview handler — content-addressed cache path', () => {
       'previews',
       `${mapleId}_${PREVIEW_SIZE_KEY}.jpg`,
     );
-    expect(patch.preview_path).toBe(expected);
-
     const s = await stat(expected);
     expect(s.size).toBeGreaterThan(0);
   });

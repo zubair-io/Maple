@@ -393,4 +393,119 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
       expect(after?.fileinfo).toBeUndefined();
     });
   });
+
+  describe('drop-legacy-location-fields cleanup', () => {
+    it('$unsets the retired location + cache fields on a fileinfo-bearing row', async () => {
+      if (!mongoReachable) return;
+      const { closeDb, ensureIndexes } = await import('./client.ts');
+      const { ObjectId } = await import('mongodb');
+      await closeDb();
+
+      const folderId = new ObjectId();
+      const assetId = new ObjectId();
+      await db!.collection('assets').insertOne({
+        _id: assetId,
+        // Already migrated: carries fileinfo[] AND the dead legacy fields.
+        fileinfo: [{ path: 'vacation', filename: 'IMG.dng', library_id: folderId }],
+        folder_id: folderId,
+        filename: 'IMG.dng',
+        abs_path: '/lib/vacation/IMG.dng',
+        thumb_path: '/lib/vacation/.maple/thumbs/abc.jpg',
+        preview_path: '/lib/vacation/.maple/previews/abc_1280.jpg',
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: '',
+        indexed_at: '2026-06-11T00:00:00Z',
+      });
+
+      await ensureIndexes();
+
+      const after = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+        string,
+        unknown
+      > | null;
+      expect(after).not.toBeNull();
+      // The five retired fields are gone.
+      expect('abs_path' in after!).toBe(false);
+      expect('folder_id' in after!).toBe(false);
+      expect('filename' in after!).toBe(false);
+      expect('thumb_path' in after!).toBe(false);
+      expect('preview_path' in after!).toBe(false);
+      // fileinfo (the source of truth) is untouched.
+      expect((after!.fileinfo as unknown[]).length).toBe(1);
+    });
+
+    it('leaves a row that has no fileinfo untouched (location still rebuildable)', async () => {
+      if (!mongoReachable) return;
+      const { closeDb, ensureIndexes } = await import('./client.ts');
+      const { ObjectId } = await import('mongodb');
+      await closeDb();
+
+      // folder_id points at an UNREGISTERED folder, so the fileinfo backfill
+      // can't resolve a library root and skips the row — it stays fileinfo-less.
+      // The cleanup must then leave its legacy fields intact, because they are
+      // the only source its location could be rebuilt from.
+      const assetId = new ObjectId();
+      await db!.collection('assets').insertOne({
+        _id: assetId,
+        folder_id: new ObjectId(),
+        filename: 'orphan.dng',
+        abs_path: '/gone/orphan.dng',
+        thumb_path: '/gone/.maple/thumbs/x.jpg',
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: '',
+        indexed_at: '2026-06-11T00:00:00Z',
+      });
+
+      await ensureIndexes();
+
+      const after = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+        string,
+        unknown
+      > | null;
+      expect(after?.fileinfo).toBeUndefined();
+      expect(after?.abs_path).toBe('/gone/orphan.dng');
+      expect(after?.thumb_path).toBe('/gone/.maple/thumbs/x.jpg');
+    });
+
+    it('is gated by the migrations sentinel (second boot skips)', async () => {
+      if (!mongoReachable) return;
+      const { closeDb, ensureIndexes } = await import('./client.ts');
+      const { migrationApplied } = await import('./migrations.ts');
+      const { ObjectId } = await import('mongodb');
+      await closeDb();
+
+      await ensureIndexes();
+      expect(await migrationApplied(db!, 'drop-legacy-location-fields-2026-06-11')).toBe(true);
+
+      // Insert a dirty (fileinfo + legacy fields) row AFTER the migration ran.
+      // The sentinel must short-circuit the second boot, leaving it dirty.
+      const folderId = new ObjectId();
+      const assetId = new ObjectId();
+      await db!.collection('assets').insertOne({
+        _id: assetId,
+        fileinfo: [{ path: '', filename: 'late.dng', library_id: folderId }],
+        abs_path: '/lib/late.dng',
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: '',
+        indexed_at: '2026-06-11T00:00:00Z',
+      });
+
+      await ensureIndexes();
+
+      const after = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+        string,
+        unknown
+      > | null;
+      expect(after?.abs_path).toBe('/lib/late.dng');
+    });
+  });
 });
