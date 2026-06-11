@@ -250,6 +250,9 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         // Decode-time chroma pre-filter (#1104) — Maple-proprietary; baked
         // into the Rust decode product, not re-applied by the Apple chain.
         case "papp:ChromaPrefilter":    model.chromaPrefilter = d(value) ?? model.chromaPrefilter
+        // BM3D deep denoise (#1105) — Maple-proprietary; baked into the
+        // Rust decode product, not re-applied by the Apple chain.
+        case "papp:DeepDenoise":        model.deepDenoise = d(value) ?? model.deepDenoise
         // Hot/dead-pixel suppression (#1106) — Maple-proprietary enum,
         // baked into the Rust decode product. Case-insensitive like the
         // other papp: enum parsers; unknown values keep the default.
@@ -471,6 +474,10 @@ public struct XMPSerializer {
         // (`.off`), same convention.
         if model.hotPixelSuppression != .off {
             attrs.append(("papp:HotPixelSuppression", model.hotPixelSuppression.rawValue))
+        }
+        // BM3D deep denoise (#1105) — emit only when non-default (0).
+        if model.deepDenoise != 0 {
+            attrs.append(("papp:DeepDenoise", String(format: "%.0f", model.deepDenoise)))
         }
 
         let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")

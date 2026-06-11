@@ -106,6 +106,11 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   // this stage runs inside the Rust decode product). Mirrors the Rust
   // (`xmp/mod.rs`) and Swift (`XMPSerialization.swift`) writers.
   numericField('papp:ChromaPrefilter', 'chromaPrefilter'),
+  // BM3D deep denoise (#1105, tone/zoom design § 3.2). Maple-proprietary
+  // `papp:` key; input-referred stage inside the Rust decode product.
+  // Mirrors the Rust (`xmp/mod.rs`) and Swift (`XMPSerialization.swift`)
+  // writers.
+  numericField('papp:DeepDenoise', 'deepDenoise'),
   // ---- S5 effects fields (ticket #643) ----
   // Vignette, Grain, Split toning. Identity-stub scalars wired through
   // to the model + XMP so the editor pills aren't "Coming soon" and the

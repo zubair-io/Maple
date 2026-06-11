@@ -431,6 +431,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "HotPixelSuppressionMode",
         doc: "Hot/dead-pixel suppression (#1106, tone/zoom design spec § 10.6). Pre-demosaic same-color-neighbor outlier replacement inside the decode product; 'Off' (default) skips the stage bit-identically. XMP key `papp:HotPixelSuppression`. Part of the decoded-image cache key.",
     },
+    FieldSpec {
+        name: "deep_denoise",
+        kind: FieldKind::F32,
+        range: (0.0, 100.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key.",
+    },
 ];
 
 

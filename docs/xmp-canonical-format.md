@@ -141,6 +141,7 @@ Lightroom does for `crs:` fields.
 | `nrLuminance`     | `crs:LuminanceSmoothing`  | 0       |
 | `nrColor`         | `crs:ColorNoiseReduction` | 25      |
 | `chromaPrefilter` | `papp:ChromaPrefilter`    | 0       |
+| `deepDenoise`     | `papp:DeepDenoise`        | 0       |
 
 **Enum fields** (emit only when non-default, string-valued):
 
