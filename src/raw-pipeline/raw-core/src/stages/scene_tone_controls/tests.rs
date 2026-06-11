@@ -65,23 +65,24 @@ fn highlights_positive_compresses_above_knee() {
 
 #[test]
 fn highlights_leaves_below_engagement_untouched() {
-    // #1103: the engagement floor is Y = 0.4 — below it `w_h` clamps to
-    // exactly 0, the gain is exp2(0) = 1.0, and (below the knee) the shape
-    // term is 1: bit-exact passthrough even at the slider rail.
-    let mut img = fresh_img([0.35, 0.35, 0.35]);
+    // #1103: the engagement floor is Y = 0.25 (calibrated, see H_W0) —
+    // below it `w_h` clamps to exactly 0, the gain is exp2(0) = 1.0, and
+    // (below the knee) the shape term is 1: bit-exact passthrough even at
+    // the slider rail.
+    let mut img = fresh_img([0.20, 0.20, 0.20]);
     let mut m = model_default();
     m.highlights = 100.0;
     apply(&mut img, &m);
-    assert_eq!(img.pixels[0], [0.35, 0.35, 0.35]);
+    assert_eq!(img.pixels[0], [0.20, 0.20, 0.20]);
 }
 
 #[test]
 fn highlights_engages_below_the_knee() {
     // #1103: the headline behaviour change — a bright-but-unclipped tone
-    // (Y = 0.7 < 1.0) now responds. w_h(0.7) = smoothstep(0.4, 1, 0.7) =
-    // 0.5, so +100 darkens by 2^(−0.7·0.5) ≈ 0.7846 and −100 brightens by
-    // the mirror factor.
-    let g = (-0.7_f32 * 0.5).exp2();
+    // (Y = 0.7 < 1.0) now responds. w_h(0.7) = smoothstep(0.25, 1, 0.7) =
+    // 0.648, so +100 darkens by 2^(−0.7·0.648) ≈ 0.7301 and −100 brightens
+    // by the mirror factor.
+    let g = (-0.7_f32 * 0.648).exp2();
     let mut img = fresh_img([0.7, 0.7, 0.7]);
     let mut m = model_default();
     m.highlights = 100.0;

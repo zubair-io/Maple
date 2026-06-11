@@ -32,9 +32,10 @@ pub fn predict_brightness(scene: f32, b_slider: f32) -> f32 {
 /// `scene` and (on a uniform field) the detail mask degenerates to the
 /// per-pixel curve, so the output is `scene · highlights_mult(scene)`:
 ///
-/// - weighted gain `exp2(−0.7 · h/100 · smoothstep(0.4, 1.0, Y))` — engages
+/// - weighted gain `exp2(−0.7 · h/100 · smoothstep(0.25, 1.0, Y))` — engages
 ///   below the clip point (positive h darkens toward the knee, negative h
-///   brightens; sign conventions unchanged);
+///   brightens; sign conventions unchanged; the 0.25 band floor is the
+///   calibrated value — see `H_W0` in the stage);
 /// - above the knee (Y > 1), sign-branched shape: h ≥ 0 keeps the
 ///   `1 + (Y−1)/(1+2h)` compression; h < 0 expands by `1 + (Y−1)·(1+2|h|)` —
 ///   the pole-free mirror (#1081 / PR #1117; the legacy shared denominator
@@ -42,7 +43,7 @@ pub fn predict_brightness(scene: f32, b_slider: f32) -> f32 {
 pub fn predict_highlights(scene: f32, h_slider: f32) -> f32 {
     if h_slider.abs() < 1e-3 { return scene; }
     let h_amount = h_slider / 100.0;
-    let w = smoothstep(0.4, 1.0, scene);
+    let w = smoothstep(0.25, 1.0, scene);
     let g = (-0.7 * h_amount * w).exp2();
     let shape = if scene > 1.0 {
         let y_new = if h_amount >= 0.0 {
@@ -314,10 +315,10 @@ mod tests {
         }
     }
 
-    // #1103: the engagement floor is Y = 0.4 (exact identity below — w_h
+    // #1103: the engagement floor is Y = 0.25 (exact identity below — w_h
     // clamps to 0); the band acts below the clip point; above-knee keeps
     // compression for h ≥ 0 and the #1081 pole-free expansion for h < 0.
-    #[test] fn highlights_below_engagement_is_identity() { round_trip_highlights(0.35, 50.0); }
+    #[test] fn highlights_below_engagement_is_identity() { round_trip_highlights(0.20, 50.0); }
     #[test] fn highlights_below_knee_engages()      { round_trip_highlights(0.70, 50.0); }
     #[test] fn highlights_above_knee_compresses()   { round_trip_highlights(2.0, 50.0); }
     #[test] fn highlights_zero_is_identity()        { round_trip_highlights(2.0, 0.0); }
@@ -327,7 +328,7 @@ mod tests {
     #[test] fn highlights_minus50_expands_no_pole()   { round_trip_highlights(2.0, -50.0); }
     #[test] fn highlights_minus100_expands()          { round_trip_highlights(2.0, -100.0); }
     #[test] fn highlights_negative_below_engagement_is_identity() {
-        round_trip_highlights(0.35, -50.0);
+        round_trip_highlights(0.20, -50.0);
     }
 
     #[test] fn shadows_plus50_lifts_dark()    { round_trip_shadows(0.05, 50.0); }
