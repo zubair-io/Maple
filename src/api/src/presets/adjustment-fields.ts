@@ -65,6 +65,32 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   split_tone_highlight_hue: [0.0, 360.0],
   split_tone_highlight_saturation: [0.0, 100.0],
   split_tone_balance: [-100.0, 100.0],
+  // HSL 8-band per-channel adjustments (#1112) — range -100..+100.
+  // Snake_case matches the raw-core schema (hue_adjustment_* etc.).
+  hue_adjustment_red: [-100.0, 100.0],
+  hue_adjustment_orange: [-100.0, 100.0],
+  hue_adjustment_yellow: [-100.0, 100.0],
+  hue_adjustment_green: [-100.0, 100.0],
+  hue_adjustment_aqua: [-100.0, 100.0],
+  hue_adjustment_blue: [-100.0, 100.0],
+  hue_adjustment_purple: [-100.0, 100.0],
+  hue_adjustment_magenta: [-100.0, 100.0],
+  saturation_adjustment_red: [-100.0, 100.0],
+  saturation_adjustment_orange: [-100.0, 100.0],
+  saturation_adjustment_yellow: [-100.0, 100.0],
+  saturation_adjustment_green: [-100.0, 100.0],
+  saturation_adjustment_aqua: [-100.0, 100.0],
+  saturation_adjustment_blue: [-100.0, 100.0],
+  saturation_adjustment_purple: [-100.0, 100.0],
+  saturation_adjustment_magenta: [-100.0, 100.0],
+  luminance_adjustment_red: [-100.0, 100.0],
+  luminance_adjustment_orange: [-100.0, 100.0],
+  luminance_adjustment_yellow: [-100.0, 100.0],
+  luminance_adjustment_green: [-100.0, 100.0],
+  luminance_adjustment_aqua: [-100.0, 100.0],
+  luminance_adjustment_blue: [-100.0, 100.0],
+  luminance_adjustment_purple: [-100.0, 100.0],
+  luminance_adjustment_magenta: [-100.0, 100.0],
 };
 
 /** String-valued schema fields (enums on the clients), snake_case. */

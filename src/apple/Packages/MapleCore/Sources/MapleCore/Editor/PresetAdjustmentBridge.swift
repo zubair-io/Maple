@@ -62,6 +62,31 @@ extension AdjustmentModel.FieldName {
         case .splitToneHighlightHue:        return \.splitToneHighlightHue
         case .splitToneHighlightSaturation: return \.splitToneHighlightSaturation
         case .splitToneBalance:             return \.splitToneBalance
+        // HSL 8-band per-channel adjustments (#1112).
+        case .hueAdjustmentRed:             return \.hueAdjustmentRed
+        case .hueAdjustmentOrange:          return \.hueAdjustmentOrange
+        case .hueAdjustmentYellow:          return \.hueAdjustmentYellow
+        case .hueAdjustmentGreen:           return \.hueAdjustmentGreen
+        case .hueAdjustmentAqua:            return \.hueAdjustmentAqua
+        case .hueAdjustmentBlue:            return \.hueAdjustmentBlue
+        case .hueAdjustmentPurple:          return \.hueAdjustmentPurple
+        case .hueAdjustmentMagenta:         return \.hueAdjustmentMagenta
+        case .saturationAdjustmentRed:      return \.saturationAdjustmentRed
+        case .saturationAdjustmentOrange:   return \.saturationAdjustmentOrange
+        case .saturationAdjustmentYellow:   return \.saturationAdjustmentYellow
+        case .saturationAdjustmentGreen:    return \.saturationAdjustmentGreen
+        case .saturationAdjustmentAqua:     return \.saturationAdjustmentAqua
+        case .saturationAdjustmentBlue:     return \.saturationAdjustmentBlue
+        case .saturationAdjustmentPurple:   return \.saturationAdjustmentPurple
+        case .saturationAdjustmentMagenta:  return \.saturationAdjustmentMagenta
+        case .luminanceAdjustmentRed:       return \.luminanceAdjustmentRed
+        case .luminanceAdjustmentOrange:    return \.luminanceAdjustmentOrange
+        case .luminanceAdjustmentYellow:    return \.luminanceAdjustmentYellow
+        case .luminanceAdjustmentGreen:     return \.luminanceAdjustmentGreen
+        case .luminanceAdjustmentAqua:      return \.luminanceAdjustmentAqua
+        case .luminanceAdjustmentBlue:      return \.luminanceAdjustmentBlue
+        case .luminanceAdjustmentPurple:    return \.luminanceAdjustmentPurple
+        case .luminanceAdjustmentMagenta:   return \.luminanceAdjustmentMagenta
         // Decode-time chroma pre-filter (#1104) — numeric decode-product
         // field; capture/apply like any slider.
         case .chromaPrefilter:              return \.chromaPrefilter
@@ -116,6 +141,31 @@ extension AdjustmentModel.FieldName {
         case .splitToneHighlightSaturation:
             return AdjustmentModel.splitToneHighlightSaturationRange
         case .splitToneBalance:             return AdjustmentModel.splitToneBalanceRange
+        // HSL 8-band per-channel adjustments (#1112).
+        case .hueAdjustmentRed:             return AdjustmentModel.hueAdjustmentRedRange
+        case .hueAdjustmentOrange:          return AdjustmentModel.hueAdjustmentOrangeRange
+        case .hueAdjustmentYellow:          return AdjustmentModel.hueAdjustmentYellowRange
+        case .hueAdjustmentGreen:           return AdjustmentModel.hueAdjustmentGreenRange
+        case .hueAdjustmentAqua:            return AdjustmentModel.hueAdjustmentAquaRange
+        case .hueAdjustmentBlue:            return AdjustmentModel.hueAdjustmentBlueRange
+        case .hueAdjustmentPurple:          return AdjustmentModel.hueAdjustmentPurpleRange
+        case .hueAdjustmentMagenta:         return AdjustmentModel.hueAdjustmentMagentaRange
+        case .saturationAdjustmentRed:      return AdjustmentModel.saturationAdjustmentRedRange
+        case .saturationAdjustmentOrange:   return AdjustmentModel.saturationAdjustmentOrangeRange
+        case .saturationAdjustmentYellow:   return AdjustmentModel.saturationAdjustmentYellowRange
+        case .saturationAdjustmentGreen:    return AdjustmentModel.saturationAdjustmentGreenRange
+        case .saturationAdjustmentAqua:     return AdjustmentModel.saturationAdjustmentAquaRange
+        case .saturationAdjustmentBlue:     return AdjustmentModel.saturationAdjustmentBlueRange
+        case .saturationAdjustmentPurple:   return AdjustmentModel.saturationAdjustmentPurpleRange
+        case .saturationAdjustmentMagenta:  return AdjustmentModel.saturationAdjustmentMagentaRange
+        case .luminanceAdjustmentRed:       return AdjustmentModel.luminanceAdjustmentRedRange
+        case .luminanceAdjustmentOrange:    return AdjustmentModel.luminanceAdjustmentOrangeRange
+        case .luminanceAdjustmentYellow:    return AdjustmentModel.luminanceAdjustmentYellowRange
+        case .luminanceAdjustmentGreen:     return AdjustmentModel.luminanceAdjustmentGreenRange
+        case .luminanceAdjustmentAqua:      return AdjustmentModel.luminanceAdjustmentAquaRange
+        case .luminanceAdjustmentBlue:      return AdjustmentModel.luminanceAdjustmentBlueRange
+        case .luminanceAdjustmentPurple:    return AdjustmentModel.luminanceAdjustmentPurpleRange
+        case .luminanceAdjustmentMagenta:   return AdjustmentModel.luminanceAdjustmentMagentaRange
         case .chromaPrefilter:              return AdjustmentModel.chromaPrefilterRange
         case .deepDenoise:                  return AdjustmentModel.deepDenoiseRange
         default:                            return nil
