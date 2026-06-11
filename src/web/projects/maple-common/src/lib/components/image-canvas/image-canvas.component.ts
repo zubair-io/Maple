@@ -32,7 +32,7 @@ import {
   drawCanvas2d,
 } from './image-canvas.draw2d';
 import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
-import { CanvasZoomGestures, clampPan } from './image-canvas.zoom-gestures';
+import { CanvasZoomGestures } from './image-canvas.zoom-gestures';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -65,7 +65,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   private ro?: ResizeObserver;
   private wrapW = signal<number>(800);
   private wrapH = signal<number>(600);
-  private dividerDraggingFlag = false;
+  private detachGestures?: () => void;
   private cleanupDecodeEffect?: () => void;
   private cleanupRerenderEffect?: () => void;
   private cleanupDrawEffect?: () => void;
@@ -74,12 +74,8 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   currentAssetId: AssetId | null = null;
 
   // ── Two-phase live render (#846 → #1101) ──────────────────────────────────
-  // Every render goes through the same WASM paths raw-core / maple-cli use, so
-  // every edit (Profile toggle, sliders) is correctness-complete by
-  // construction (web == the Rust reference). The fast/refine scheduling
-  // (per-tick viewport-sized fast phase, 150 ms-debounced refine at
-  // `native × min(zoomScale, 1)`) lives in `image-canvas.two-phase.ts` — see
-  // that file for the full phase contract; this component supplies the host
+  // Fast/refine scheduling lives in `image-canvas.two-phase.ts` (the full
+  // phase contract is documented there); this component supplies the host
   // surface (targets, generation, `runRender`).
   private readonly twoPhase = new TwoPhaseRenderScheduler({
     currentGeneration: () => this.renderGeneration,
@@ -121,9 +117,8 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   // so the GPU cold-open shares the same dedup key as the 2D path.
   lastRenderedXmp: string | null = null;
 
-  // ── Continuous zoom (#1100, docs/zoom.md) ─────────────────────────────────
-  // `canvasSvc.pixelScale` is REAL px per image px (0 = fit, 1 = 100%, cap 8).
-  // The geometry helpers below work in CSS scale, so derive it once here.
+  // ── Continuous zoom (#1100, docs/zoom.md): pixelScale = REAL px per image
+  // px (0 = fit, 1 = 100%, cap 8); the geometry helpers work in CSS scale.
   private readonly dpr = (): number =>
     (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 
@@ -133,12 +128,10 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     return ps === 0 ? 'fit' : ps / this.dpr();
   });
 
-  // Pointer/wheel/keyboard gesture controller (#1100) — pinch with a
-  // start-captured scale, cursor-anchored ctrl/Cmd-wheel zoom, drag-pan when
-  // zoomed, snap-to-fit. Pure math + state machine live in
-  // `image-canvas.zoom-gestures.ts`; this host closure supplies geometry and
-  // commits the clamped view.
-  private readonly gestures = new CanvasZoomGestures({
+  // Pointer/wheel/keyboard gesture controller (#1100) — state machine, math,
+  // and DOM wiring live in `image-canvas.zoom-gestures.ts`; this host closure
+  // supplies geometry. Protected: the template binds the toolbar to it.
+  protected readonly gestures = new CanvasZoomGestures({
     wrapSize: () => ({ w: this.wrapW(), h: this.wrapH() }),
     wrapRect: () => this.wrapRef?.nativeElement?.getBoundingClientRect() ?? null,
     nativeSize: () => {
@@ -151,37 +144,20 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     pixelScale: () => this.canvasSvc.pixelScale(),
     pan: () => this.canvasSvc.pan(),
     commitView: (pixelScale, pan) => this.commitView(pixelScale, pan),
-    dividerDragging: () => this.dividerDraggingFlag,
     moveDivider: (clientX) => {
       const rect = this.wrapRef.nativeElement.getBoundingClientRect();
       this.canvasSvc.setSplit((clientX - rect.left) / rect.width);
     },
-    endDividerDrag: () => {
-      this.dividerDraggingFlag = false;
-    },
   });
 
-  /** Zoom badge: percent of the EFFECTIVE real scale, always visible. */
-  zoomLabel = computed(() => {
-    const ps = this.canvasSvc.pixelScale();
-    if (ps !== 0) return `${Math.round(ps * 100)}%`;
-    // At fit the percent derives from viewport/native — readable once the
-    // cold open has reported native dims.
-    const n = this.nativeDims();
-    const W = this.wrapW();
-    const H = this.wrapH();
-    if (!n) return 'Fit';
-    const fit = Math.min((W * this.dpr()) / n.w, (H * this.dpr()) / n.h);
-    return `${Math.round(fit * 100)}%`;
-  });
+  // Zoom badge (#1100): percent of the EFFECTIVE real scale, always visible.
+  // The controller reads the pixelScale/native/wrap signals inside this
+  // computed's call, so the dependency tracking is unchanged.
+  zoomLabel = computed(() => this.gestures.zoomPercent());
 
-  /**
-   * Download progress view-model for the open-progress bar. Resolves to a
-   * value only while a genuine network download is in flight for the asset
-   * that's currently focused — a stale-asset guard so a fast A→B switch can't
-   * paint A's progress on B. `null` (cached/local/instant opens, or decode
-   * phase) hides the bar entirely.
-   */
+  // Download progress view-model for the open-progress bar: non-null only
+  // while a genuine network download is in flight for the FOCUSED asset
+  // (stale-asset guard); null hides the bar (cached/local/decode phase).
   readonly downloadProgress = computed(() => {
     const p = this.state.openDownloadProgress();
     const a = this.state.focusedAsset();
@@ -206,9 +182,8 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   });
 
   /**
-   * Commit a settled view from the gesture controller (#1100): pixelScale
-   * (0 = fit) + pan, with the pan clamped so the image edges stop at the
-   * viewport (an axis where the image fits stays centered).
+   * Commit a view from the gesture controller (#1100): pixelScale (0 = fit)
+   * + pan. The controller already clamped the pan against the geometry.
    */
   private commitView(pixelScale: number, pan: { x: number; y: number }): void {
     if (pixelScale === 0) {
@@ -216,12 +191,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
       return;
     }
     this.canvasSvc.setPixelScale(pixelScale);
-    const native = this.nativeDims();
-    const a = this.state.focusedAsset();
-    const iw = native?.w ?? a?.width ?? 6240;
-    const ih = native?.h ?? a?.height ?? 4160;
-    const css = pixelScale / this.dpr();
-    this.canvasSvc.pan.set(clampPan(pan, iw * css, ih * css, this.wrapW(), this.wrapH()));
+    this.canvasSvc.pan.set(pan);
   }
 
   ngAfterViewInit(): void {
@@ -234,6 +204,9 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     this.ro.observe(this.wrapRef.nativeElement);
     this.wrapW.set(this.wrapRef.nativeElement.clientWidth || 800);
     this.wrapH.set(this.wrapRef.nativeElement.clientHeight || 600);
+
+    // Zoom/pan gestures (#1100) — attached imperatively (non-passive wheel).
+    this.detachGestures = this.gestures.attach(this.wrapRef.nativeElement);
 
     // Watch focused asset — decode if it has bytes.
     const decodeEff = effect(
@@ -372,6 +345,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
 
   ngOnDestroy(): void {
     this.ro?.disconnect();
+    this.detachGestures?.();
     this.cleanupDecodeEffect?.();
     this.cleanupRerenderEffect?.();
     this.cleanupDrawEffect?.();
@@ -390,11 +364,8 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   // Pure formulas live in `image-canvas.draw2d.ts`; these wrappers wire the
   // component's signals into them.
 
-  /**
-   * Fast-phase target: the viewport long edge in real pixels (CSS × dpr).
-   * Floored at 1 — a degenerate (unmeasured/hidden) wrap must render a tiny
-   * buffer, never fall through to a full-res decode.
-   */
+  // Fast-phase target: viewport long edge in real px (CSS × dpr), floored at
+  // 1 — a degenerate wrap renders a tiny buffer, never a full-res decode.
   private fastTargetPx(): number {
     return computeViewportTargetLongEdge(this.wrapW(), this.wrapH()) ?? 1;
   }
@@ -422,10 +393,8 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     this.currentBytes = bytes;
     this.currentExt = ext;
 
-    // GPU live-render path (#1038): a RAW asset with the flag on renders through a
-    // persistent worker session presenting to an OffscreenCanvas. Falls back to the
-    // 2D decode path below on any failure (incl. a gpu-off WASM bundle). Non-RAW
-    // images + the flag-off default always take the 2D path.
+    // GPU live-render path (#1038): persistent worker session presenting to an
+    // OffscreenCanvas; any failure falls back to the 2D decode path below.
     if (this.gpuPresent.enabled && !isNonRawExtension(ext)) {
       const ok = await this.gpuPresent.open(assetId, bytes, ext);
       if (ok) {
@@ -464,12 +433,9 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
       // overwrite user edits (the state method guards on "still default").
       this.state.seedAsShotWhiteBalance(assetId, decoded.asShotTemperature, decoded.asShotTint);
 
-      // Open the cold-open gate and record what this no-XMP render reflects.
-      // The seed's signal write re-fires the adjustment effect on the next
-      // flush; that run serializes the same model and dedups against
-      // `lastRenderedXmp`, so we don't re-decode an image we just painted. A
-      // genuine subsequent edit changes the XMP and renders. Guard on
-      // still-current asset so a fast A→B switch doesn't stamp A's XMP onto B.
+      // Open the cold-open gate and record what this no-XMP render reflects
+      // (the seed's effect re-fire dedups against it). Guard on still-current
+      // asset so a fast A→B switch doesn't stamp A's XMP onto B.
       if (assetId === this.currentAssetId) {
         this.coldOpenDone = true;
         // Record the XMP this cold-open render reflects. The no-XMP decode is
@@ -480,13 +446,10 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
         if (liveXmp === this.lastRenderedXmp) {
           // Already what the canvas shows (re-entrant cold open) — nothing to do.
         } else if (this.lastRenderedXmp === null) {
-          // Normal cold open: no edit landed during the in-flight decode, so
-          // the live model is just the seeded baseline. Record it; the
-          // gate-driven effect re-fire (and the As-Shot seed re-fire) dedup
-          // against it. If an edit *did* land mid-decode, the model already
-          // diverged from the seeded baseline — but we can't distinguish that
-          // from the baseline here, so the rare mid-cold-open edit is folded
-          // into this baseline and self-corrects on the user's next edit.
+          // Normal cold open: the live model is the seeded baseline; record it
+          // so the gate-driven + As-Shot-seed effect re-fires dedup against it.
+          // (A rare mid-decode edit folds into this baseline and self-corrects
+          // on the user's next edit.)
           this.lastRenderedXmp = liveXmp;
         }
       }
@@ -554,13 +517,10 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
 
   /**
    * Re-render the retained RAW bytes with the given XMP at `sizing`'s target
-   * and publish the result — but only if `generation` is still current when
-   * the render returns. A render runs to completion behind a serialization
-   * gate (the service's decode gate, or the worker's session-render queue), so
-   * a newer edit can't interrupt an in-flight render; the generation guard
-   * instead drops the stale result so it never overwrites a fresher frame. On
-   * the GPU live path (#1038) this delegates to `gpuPresent.render()`
-   * (zero-readback present, no bitmap, full-res — `sizing` is ignored there).
+   * and publish the result — only if `generation` is still current when the
+   * render returns (renders run to completion behind a serialization gate; a
+   * stale result is dropped, never painted). On the GPU live path (#1038)
+   * this delegates to `gpuPresent.render()` (`sizing` is ignored there).
    */
   private async runRender(xmp: string, generation: number, sizing: RenderSizing): Promise<void> {
     const bytes = this.currentBytes;
@@ -627,68 +587,13 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
 
   // ── Gestures (#1100, spec §5.0/§5.2) — routing lives in CanvasZoomGestures ─
 
-  onPointerDown(e: PointerEvent): void {
-    if (this.dividerDraggingFlag) return; // divider owns this pointer
-    // Mouse: left or middle button drags (parity with the old mouse path).
-    if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
-    // Capture on the wrap so drags/pinches survive leaving the element.
-    this.wrapRef.nativeElement.setPointerCapture?.(e.pointerId);
-    this.gestures.onPointerDown(e);
-  }
-
-  onPointerMove(e: PointerEvent): void {
-    this.gestures.onPointerMove(e);
-  }
-
-  onPointerUp(e: PointerEvent): void {
-    this.wrapRef.nativeElement.releasePointerCapture?.(e.pointerId);
-    this.gestures.onPointerUp(e);
-  }
-
-  /**
-   * Wheel routing (§5.0 table): ctrlKey (trackpad pinch) / metaKey
-   * (Cmd+wheel) → zoom at cursor; plain wheel pans when zoomed; at fit the
-   * event is left alone (S5's armed-tool wheel nudge keeps its meaning).
-   */
-  onWheel(e: WheelEvent): void {
-    if (this.gestures.onWheel(e)) e.preventDefault();
-  }
-
-  /** Double-click toggles fit ↔ 100% (§5.0; 100% judges NR/sharpening). */
-  onDoubleClick(e: MouseEvent): void {
-    this.gestures.onDoubleClick(e.clientX, e.clientY);
-  }
-
-  /** Toolbar − / + step zoom (continuous, snap-to-fit at the bottom). */
-  stepZoom(direction: 1 | -1): void {
-    this.gestures.stepZoom(direction);
-  }
-
-  /**
-   * Cmd/Ctrl+0 → fit, Cmd/Ctrl+1 → 100% (legacy Apple convention; bare
-   * `0`/`1` keep their S5 tool/rating meanings — those handlers skip
-   * modifier presses).
-   */
+  /** Cmd/Ctrl+0 → fit, Cmd/Ctrl+1 → 100% (bare 0/1 stay S5 tool/rating keys). */
   @HostListener('document:keydown', ['$event'])
   onKeydown(e: KeyboardEvent): void {
-    if (!(e.metaKey || e.ctrlKey)) return;
-    const target = e.target as HTMLElement | null;
-    if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
-    if (!this.state.focusedAsset()) return;
-    if (e.key === '0') {
-      e.preventDefault();
-      this.canvasSvc.zoomToFit();
-    } else if (e.key === '1') {
-      e.preventDefault();
-      this.canvasSvc.zoomTo100();
-    }
+    this.gestures.onKeydown(e, !!this.state.focusedAsset());
   }
 
   onDividerDrag(e: PointerEvent): void {
-    e.stopPropagation();
-    this.dividerDraggingFlag = true;
-    // Capture on the wrap so the drag keeps tracking (and ends) even when
-    // the pointer leaves the element mid-drag.
-    this.wrapRef.nativeElement.setPointerCapture?.(e.pointerId);
+    this.gestures.onDividerDown(e, this.wrapRef.nativeElement);
   }
 }
