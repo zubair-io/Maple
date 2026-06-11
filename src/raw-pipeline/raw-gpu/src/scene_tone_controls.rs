@@ -1,9 +1,10 @@
 //! Scene tone controls — a P2 scene-linear WGSL port (epic #925 / #990).
 //!
-//! Mirrors the vibrance template. Ports the five luma-coupled tone steps of
-//! `raw_core::stages::scene_tone_controls::apply` (spec § 3.6): exposure,
-//! highlights, shadows, whites, blacks — applied SEQUENTIALLY with luma
-//! recomputed from the running pixel at each step (the parity-critical detail).
+//! Mirrors the vibrance template. Ports the six luma-coupled tone steps of
+//! `raw_core::stages::scene_tone_controls::apply` (spec § 3.6 + § 4.1): exposure,
+//! brightness, highlights, shadows, whites, blacks — applied SEQUENTIALLY with
+//! luma recomputed from the running pixel at each step (the parity-critical
+//! detail).
 //! Contrast and the parametric / tone-curve steps are intentionally excluded:
 //! the Rust stage applies neither here (contrast modulates the AgX slope
 //! downstream).
@@ -11,7 +12,7 @@
 //! Three pieces (the per-stage template):
 //! 1. [`apply_scene_tone_controls`] — the CPU oracle: a line-for-line port of
 //!    the Rust stage's per-pixel loop over a flat RGBA f32 buffer.
-//! 2. [`SceneToneControlsPass`] — the GPU-resident [`Pass`]; carries the five
+//! 2. [`SceneToneControlsPass`] — the GPU-resident [`Pass`]; carries the six
 //!    slider values.
 //! 3. The headless parity test (in `#[cfg(test)] mod tests`) — GPU vs
 //!    `raw_core::stages::scene_tone_controls::apply` (the real stage, via the
@@ -22,19 +23,19 @@ use crate::context::GpuContext;
 use crate::spatial::encode_simple;
 
 /// `repr(C)` params uniform shared by the WGSL kernel
-/// (`scene_tone_controls.wgsl`): the five raw slider values + the RGBA pixel
+/// (`scene_tone_controls.wgsl`): the six raw slider values + the RGBA pixel
 /// `count` + padding to 32 bytes (8 × u32/f32; the kernel's `Params` matches).
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Params {
     exposure: f32,
+    brightness: f32,
     highlights: f32,
     shadows: f32,
     whites: f32,
     blacks: f32,
     count: u32,
     _pad0: u32,
-    _pad1: u32,
 }
 
 /// Rec.2020 luma weights — verbatim from
@@ -56,29 +57,36 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
 
 /// Scene-referred tone controls on an interleaved RGBA f32 buffer (alpha
 /// untouched). This is the CPU oracle — a line-for-line port of the per-pixel
-/// loop in `raw_core::stages::scene_tone_controls::apply` (spec § 3.6). The five
-/// steps run sequentially with luma recomputed from the running pixel at each;
-/// every per-field threshold and nested guard is reproduced.
+/// loop in `raw_core::stages::scene_tone_controls::apply` (spec § 3.6 + § 4.1).
+/// The six steps run sequentially with luma recomputed from the running pixel
+/// at each; every per-field threshold and nested guard is reproduced.
 ///
-/// The whole-image identity short-circuit (all five fields ~0) lives in
+/// The whole-image identity short-circuit (all six fields ~0) lives in
 /// raw-core's `apply`; on the GPU the chain simply doesn't enqueue the pass,
 /// mirroring vibrance. This function applies the per-field flags directly, so it
 /// is a faithful oracle even when called with a partially-neutral model.
+#[allow(clippy::too_many_arguments)]
 pub fn apply_scene_tone_controls(
     buf: &mut [f32],
     exposure: f32,
+    brightness: f32,
     highlights: f32,
     shadows: f32,
     whites: f32,
     blacks: f32,
 ) {
     let apply_exposure = exposure.abs() >= 1e-6;
+    let apply_brightness = brightness.abs() >= 1e-3;
     let apply_highlights = highlights.abs() >= 1e-3;
     let apply_shadows = shadows.abs() >= 1e-3;
     let apply_whites = whites.abs() >= 1e-3;
     let apply_blacks = blacks.abs() >= 1e-3;
 
     let exp_gain = exposure.exp2();
+
+    // Brightness EV-per-unit-weight amount — raw-core B_STRENGTH = 0.7
+    // (#1102, tone-zoom design § 4.1).
+    let br_amount = 0.7 * brightness / 100.0;
 
     let h_amount = highlights / 100.0;
     let h_denom = 1.0 + h_amount * 2.0;
@@ -97,6 +105,19 @@ pub fn apply_scene_tone_controls(
             px[0] *= exp_gain;
             px[1] *= exp_gain;
             px[2] *= exp_gain;
+        }
+
+        // 1b. Brightness — midtone-band gain (#1102): w(Y) =
+        //     smoothstep(0.05, 0.25, Y)·(1 − smoothstep(1.0, 4.0, Y)),
+        //     gain = exp2(br_amount · w). Uniform scalar → hue-preserving;
+        //     exactly 1.0 outside the band (ends pinned).
+        if apply_brightness {
+            let y = luma([px[0], px[1], px[2]]);
+            let w = smoothstep(0.05, 0.25, y) * (1.0 - smoothstep(1.0, 4.0, y));
+            let gain = (br_amount * w).exp2();
+            px[0] *= gain;
+            px[1] *= gain;
+            px[2] *= gain;
         }
 
         // 2. Highlights — luminance-coupled soft compression above knee = 1.0.
@@ -151,11 +172,12 @@ pub fn apply_scene_tone_controls(
     }
 }
 
-/// A GPU-resident scene-tone-controls stage. Carries the five slider values; the
+/// A GPU-resident scene-tone-controls stage. Carries the six slider values; the
 /// device, pipeline, and ping-pong buffers come from the [`GpuContext`] /
 /// [`ChainRunner`]. Builds its own params uniform + bind group in `encode`.
 pub struct SceneToneControlsPass {
     pub exposure: f32,
+    pub brightness: f32,
     pub highlights: f32,
     pub shadows: f32,
     pub whites: f32,
@@ -176,13 +198,13 @@ impl Pass for SceneToneControlsPass {
 
         let params = Params {
             exposure: self.exposure,
+            brightness: self.brightness,
             highlights: self.highlights,
             shadows: self.shadows,
             whites: self.whites,
             blacks: self.blacks,
             count: pixel_count,
             _pad0: 0,
-            _pad1: 0,
         };
         // Pooled per-pixel dispatch (P4b-core C3): params @0, src @1, dst @2.
         encode_simple(
@@ -228,9 +250,11 @@ mod tests {
     /// Run `raw_core::stages::scene_tone_controls::apply` on a flat interleaved
     /// RGBA f32 buffer with the given slider values, returning a new buffer
     /// (alpha carried through). The ticket's actual reference — the Rust stage.
+    #[allow(clippy::too_many_arguments)]
     fn raw_core_tone(
         buf: &[f32],
         exposure: f32,
+        brightness: f32,
         highlights: f32,
         shadows: f32,
         whites: f32,
@@ -242,10 +266,11 @@ mod tests {
         for (i, chunk) in buf.chunks_exact(4).enumerate() {
             img.pixels[i] = [chunk[0], chunk[1], chunk[2]];
         }
-        // Only the five tone fields are set; everything else stays at default.
-        // (The stage reads only exposure/highlights/shadows/whites/blacks.)
+        // Only the six tone fields are set; everything else stays at default.
+        // (The stage reads only exposure/brightness/highlights/shadows/whites/blacks.)
         let model = AdjustmentModel {
             exposure,
+            brightness,
             highlights,
             shadows,
             whites,
@@ -262,16 +287,19 @@ mod tests {
 
     /// The slider combinations under test — each deliberately drives a different
     /// mix of branches (and at least one field non-zero so the stage doesn't
-    /// whole-image short-circuit). `(exposure, highlights, shadows, whites, blacks)`.
-    const CASES: &[(f32, f32, f32, f32, f32)] = &[
-        (1.0, 0.0, 0.0, 0.0, 0.0),       // exposure only
-        (0.0, 60.0, 0.0, 0.0, 0.0),      // highlights compression only
-        (0.0, 0.0, 80.0, 0.0, 0.0),      // shadows lift only
-        (0.0, 0.0, 0.0, 75.0, 0.0),      // whites gain only
-        (0.0, 0.0, 0.0, 0.0, 50.0),      // blacks lift (positive → additive)
-        (0.0, 0.0, 0.0, 0.0, -70.0),     // blacks crush (negative → multiplicative)
-        (0.5, 40.0, 30.0, 20.0, -25.0),  // everything together
-        (-1.0, -50.0, -40.0, -60.0, 90.0), // negative exposure + mixed signs
+    /// whole-image short-circuit).
+    /// `(exposure, brightness, highlights, shadows, whites, blacks)`.
+    const CASES: &[(f32, f32, f32, f32, f32, f32)] = &[
+        (1.0, 0.0, 0.0, 0.0, 0.0, 0.0),       // exposure only
+        (0.0, 70.0, 0.0, 0.0, 0.0, 0.0),      // brightness lift only (#1102)
+        (0.0, -85.0, 0.0, 0.0, 0.0, 0.0),     // brightness darken only (#1102)
+        (0.0, 0.0, 60.0, 0.0, 0.0, 0.0),      // highlights compression only
+        (0.0, 0.0, 0.0, 80.0, 0.0, 0.0),      // shadows lift only
+        (0.0, 0.0, 0.0, 0.0, 75.0, 0.0),      // whites gain only
+        (0.0, 0.0, 0.0, 0.0, 0.0, 50.0),      // blacks lift (positive → additive)
+        (0.0, 0.0, 0.0, 0.0, 0.0, -70.0),     // blacks crush (negative → multiplicative)
+        (0.5, 35.0, 40.0, 30.0, 20.0, -25.0), // everything together
+        (-1.0, -45.0, -50.0, -40.0, -60.0, 90.0), // negative exposure + mixed signs
     ];
 
     /// THE PARITY GATE (the ticket's contract): the WGSL scene-tone-controls
@@ -284,13 +312,14 @@ mod tests {
         let input = tone_buffer();
         let count = (input.len() / 4) as u32;
 
-        for &(e, h, s, w, b) in CASES {
-            let reference = raw_core_tone(&input, e, h, s, w, b);
+        for &(e, br, h, s, w, b) in CASES {
+            let reference = raw_core_tone(&input, e, br, h, s, w, b);
 
             let img = GpuImage::upload(&ctx, &input, count, 1);
             let runner = ChainRunner::new(&ctx, &img);
             let gpu = runner.run_blocking(&[&SceneToneControlsPass {
                 exposure: e,
+                brightness: br,
                 highlights: h,
                 shadows: s,
                 whites: w,
@@ -303,12 +332,12 @@ mod tests {
                 .map(|(a, b)| (a - b).abs())
                 .fold(0.0_f32, f32::max);
             eprintln!(
-                "PARITY vs raw-core scene_tone_controls (e={e} h={h} s={s} w={w} b={b}): \
+                "PARITY vs raw-core scene_tone_controls (e={e} br={br} h={h} s={s} w={w} b={b}): \
                  max abs diff = {max_diff:e}"
             );
             assert!(
                 max_diff < 1e-4,
-                "(e={e} h={h} s={s} w={w} b={b}): GPU vs raw-core stage max abs diff \
+                "(e={e} br={br} h={h} s={s} w={w} b={b}): GPU vs raw-core stage max abs diff \
                  {max_diff} exceeds 1e-4"
             );
         }
@@ -320,10 +349,10 @@ mod tests {
     #[test]
     fn local_oracle_matches_raw_core_stage_within_1e_4() {
         let input = tone_buffer();
-        for &(e, h, s, w, b) in CASES {
-            let reference = raw_core_tone(&input, e, h, s, w, b);
+        for &(e, br, h, s, w, b) in CASES {
+            let reference = raw_core_tone(&input, e, br, h, s, w, b);
             let mut local = input.clone();
-            apply_scene_tone_controls(&mut local, e, h, s, w, b);
+            apply_scene_tone_controls(&mut local, e, br, h, s, w, b);
             let max_diff = reference
                 .iter()
                 .zip(&local)
@@ -331,7 +360,7 @@ mod tests {
                 .fold(0.0_f32, f32::max);
             assert!(
                 max_diff < 1e-4,
-                "(e={e} h={h} s={s} w={w} b={b}): local oracle vs raw-core stage diff \
+                "(e={e} br={br} h={h} s={s} w={w} b={b}): local oracle vs raw-core stage diff \
                  {max_diff} exceeds 1e-4"
             );
         }
@@ -350,6 +379,7 @@ mod tests {
         let runner = ChainRunner::new(&ctx, &img);
         let gpu = runner.run_blocking(&[&SceneToneControlsPass {
             exposure: 1e-7,
+            brightness: 1e-4,
             highlights: 1e-4,
             shadows: -1e-4,
             whites: 1e-4,
@@ -372,12 +402,29 @@ mod tests {
     #[test]
     fn oracle_shadows_lift_deep_not_bright() {
         let mut buf = vec![0.02_f32, 0.02, 0.02, 1.0, 0.9, 0.9, 0.9, 1.0];
-        apply_scene_tone_controls(&mut buf, 0.0, 0.0, 80.0, 0.0, 0.0);
+        apply_scene_tone_controls(&mut buf, 0.0, 0.0, 0.0, 80.0, 0.0, 0.0);
         assert!(buf[0] > 0.02, "deep shadow should lift, got {}", buf[0]);
         assert!(
             (buf[4] - 0.9).abs() < 1e-3,
             "bright pixel should be ~untouched by shadows, got {}",
             buf[4]
         );
+    }
+
+    /// Oracle sanity for brightness (#1102): positive brightness LIFTS a
+    /// midtone pixel while leaving a deep shadow (Y ≤ 0.05) and a
+    /// scene-ref-max pixel (Y ≥ 4.0) BIT-EXACTLY untouched — the band
+    /// weight is exactly 0 at both ends.
+    #[test]
+    fn oracle_brightness_lifts_midtone_pins_ends() {
+        let mut buf = vec![
+            0.03_f32, 0.03, 0.03, 1.0, // deep shadow — pinned
+            0.18, 0.18, 0.18, 1.0,     // midtone — lifted
+            5.0, 5.0, 5.0, 1.0,        // scene-ref-max — pinned
+        ];
+        apply_scene_tone_controls(&mut buf, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0);
+        assert_eq!(buf[0], 0.03, "deep shadow must be bit-exact, got {}", buf[0]);
+        assert!(buf[4] > 0.18, "midtone should lift, got {}", buf[4]);
+        assert_eq!(buf[8], 5.0, "scene-ref-max must be bit-exact, got {}", buf[8]);
     }
 }

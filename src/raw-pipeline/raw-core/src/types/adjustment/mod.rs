@@ -261,6 +261,13 @@ pub struct AdjustmentModel {
     /// `DiagonalRec2020` keeps the pre-#431 von-Kries diagonal gains.
     pub wb_method: WbMethod,
     pub exposure: f32,    // -4..+4 EV, default 0
+    /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design
+    /// spec § 4.1). Applied inside `scene_tone_controls` after exposure,
+    /// before highlights/shadows/whites/blacks. Weight is exactly 0 at
+    /// Y ≤ 0.05 and Y ≥ 4.0, so the histogram ends stay pinned. XMP key is
+    /// `papp:Brightness` — NOT `crs:Brightness`, which is ACR PV2010 with
+    /// different semantics (default +50, removed in PV2012).
+    pub brightness: f32,  // -100..100, default 0
     pub contrast: f32,    // -100..100, default 0 (routed to AgX slope per spec § 3.6a)
     pub highlights: f32,  // -100..100, default 0
     pub shadows: f32,     // -100..100, default 0
@@ -412,6 +419,7 @@ impl Default for AdjustmentModel {
             tint: 0.0,
             wb_method: WbMethod::Cat16,
             exposure: 0.0,
+            brightness: 0.0,
             contrast: 0.0,
             highlights: 0.0,
             shadows: 0.0,
@@ -487,6 +495,7 @@ mod tests {
         assert_eq!(m.temperature, 6500.0);
         assert_eq!(m.tint, 0.0);
         assert_eq!(m.exposure, 0.0);
+        assert_eq!(m.brightness, 0.0);
         assert_eq!(m.contrast, 0.0);
         assert_eq!(m.highlights, 0.0);
         assert_eq!(m.shadows, 0.0);

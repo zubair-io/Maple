@@ -111,9 +111,9 @@ pub struct FullChainInputs {
     /// pushes WB — so they're inert outside the live path.
     pub wb_temperature: f32,
     pub wb_tint: f32,
-    /// Scene-tone-controls sliders (exposure / highlights / shadows / whites /
-    /// blacks), each `[-100, 100]` (exposure in EV).
-    pub tone: [f32; 5],
+    /// Scene-tone-controls sliders (exposure / brightness / highlights /
+    /// shadows / whites / blacks), each `[-100, 100]` (exposure in EV).
+    pub tone: [f32; 6],
     /// User tone-curve inputs (parametric + per-channel point curves + mode).
     pub tone_curves: ToneCurveInputs,
     pub vibrance: f32,
@@ -181,10 +181,11 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     }));
     prefix.push(Box::new(SceneToneControlsPass {
         exposure: inputs.tone[0],
-        highlights: inputs.tone[1],
-        shadows: inputs.tone[2],
-        whites: inputs.tone[3],
-        blacks: inputs.tone[4],
+        brightness: inputs.tone[1],
+        highlights: inputs.tone[2],
+        shadows: inputs.tone[3],
+        whites: inputs.tone[4],
+        blacks: inputs.tone[5],
     }));
     prefix.push(Box::new(ToneCurvesPass {
         inputs: inputs.tone_curves.clone(),

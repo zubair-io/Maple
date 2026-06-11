@@ -101,6 +101,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         doc: "Linear exposure in EV stops applied in scene-linear.",
     },
     FieldSpec {
+        name: "brightness",
+        kind: FieldKind::F32,
+        range: (-100.0, 100.0),
+        default_f32: 0.0,
+        enum_name: "",
+        doc: "Brightness — scene-linear midtone-band gain (#1102, tone/zoom design spec § 4.1). XMP key `papp:Brightness` (NOT `crs:Brightness`, an ACR PV2010 key with different semantics).",
+    },
+    FieldSpec {
         name: "contrast",
         kind: FieldKind::F32,
         range: (-100.0, 100.0),

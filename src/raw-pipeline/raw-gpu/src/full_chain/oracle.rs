@@ -124,6 +124,7 @@ impl Case {
             wb_tint: self.model.tint,
             tone: [
                 self.model.exposure,
+                self.model.brightness,
                 self.model.highlights,
                 self.model.shadows,
                 self.model.whites,
