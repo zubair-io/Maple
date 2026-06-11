@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import sharp from 'sharp';
 import { MongoClient, ObjectId, type Db } from 'mongodb';
 import thumbStage from './thumb.ts';
+import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
 
 // --- shared test-DB harness for the maple_id-keyed path block below ---
 const TEST_DB = `maple_test_thumb_stage_${process.pid}`;
@@ -83,7 +84,7 @@ describe('thumb handler — bitmap path', () => {
     setLibraryRootsForTests(null);
   });
 
-  it('generates a thumb for a JPEG and returns thumb_path in the patch', async () => {
+  it('generates a thumb for a JPEG and marks the stage as wrote', async () => {
     const file = path.join(dir, 'photo.jpg');
     const buf = await sharp({
       create: { width: 800, height: 600, channels: 3, background: { r: 100, g: 150, b: 200 } },
@@ -95,11 +96,15 @@ describe('thumb handler — bitmap path', () => {
     const doc = makeDoc(file, libraryId, dir);
     const result = await thumbStage.handler(doc as never, {} as never);
 
-    expect('patch' in result).toBe(true);
-    const { patch } = result as { patch: Record<string, unknown> };
-    expect(typeof patch.thumb_path).toBe('string');
-    // The thumb must actually exist on disk.
-    const s = await stat(patch.thumb_path as string);
+    // The stage no longer persists `thumb_path` — it returns { wrote: true }
+    // and the thumb lives at the content-addressed location, recomputed on read.
+    expect(result).toEqual({ wrote: true });
+    const thumbPath = resolveThumbPathForAsset(
+      doc as never,
+      new Map([[libraryId.toHexString(), dir]]),
+    );
+    expect(thumbPath).not.toBeNull();
+    const s = await stat(thumbPath as string);
     expect(s.size).toBeGreaterThan(0);
   });
 
@@ -117,17 +122,21 @@ describe('thumb handler — bitmap path', () => {
 
     const doc = makeDoc(file, libraryId, dir, null, 'e'.repeat(32));
     const result = await thumbStage.handler(doc as never, {} as never);
-    const { patch } = result as { patch: Record<string, unknown> };
-    const meta = await sharp(patch.thumb_path as string).metadata();
+    expect(result).toEqual({ wrote: true });
+    const thumbPath = resolveThumbPathForAsset(
+      doc as never,
+      new Map([[libraryId.toHexString(), dir]]),
+    );
+    const meta = await sharp(thumbPath as string).metadata();
     // After orientation bake-in, the stored thumb is upright.
     expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
   });
 
-  it('returns { patch: { thumb_path } } for a RAW when the FFI is unavailable (soft pass)', async () => {
+  it('marks the stage as wrote for a RAW when the FFI is unavailable (soft pass)', async () => {
     // Without libraw_ffi built, generateThumb silently skips the RAW and
-    // returns without writing a file. The handler must still return a patch
-    // (with thumb_path set to the expected path even if the file is absent)
-    // so the runtime can mark the stage done and the image advances to face.
+    // returns without writing a file. The handler must still return
+    // { wrote: true } so the runtime can mark the stage done and the image
+    // advances to face.
     //
     // This test verifies the handler does not throw when the FFI is absent.
     const dng = path.resolve(process.cwd(), '../../test-fixtures/raws/test_0017.dng');
@@ -154,9 +163,7 @@ describe('thumb handler — bitmap path', () => {
     const doc = makeDoc(dng, rawLibraryId, path.dirname(dng), null, 'f'.repeat(32));
     // Must not throw.
     const result = await thumbStage.handler(doc as never, {} as never);
-    expect('patch' in result).toBe(true);
-    const { patch } = result as { patch: Record<string, unknown> };
-    expect(typeof patch.thumb_path).toBe('string');
+    expect(result).toEqual({ wrote: true });
     // Restore the single-library cache for subsequent tests.
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
@@ -237,12 +244,10 @@ describe('thumb handler — content-addressed cache path', () => {
     };
 
     const result = await thumbStage.handler(doc as never, {} as never);
-    expect('patch' in result).toBe(true);
-    const { patch } = result as { patch: Record<string, unknown> };
+    expect(result).toEqual({ wrote: true });
+    // The thumb is written to the content-addressed location even though the
+    // path is no longer persisted on the asset.
     const expected = path.join(dir, 'vacation', '.maple', 'thumbs', `${mapleId}.jpg`);
-    expect(patch.thumb_path).toBe(expected);
-
-    // And the file is actually written there.
     const s = await stat(expected);
     expect(s.size).toBeGreaterThan(0);
   });

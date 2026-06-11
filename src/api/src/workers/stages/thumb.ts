@@ -68,7 +68,12 @@ const thumbStage = defineStage({
     // An ENOENT here (original gone) is tagged `missing_since` by the runner
     // — this stage sets `tagsMissingOnEnoent` — for the missing-reaper.
     await generateThumb(absPath, thumbPath);
-    return { patch: { thumb_path: thumbPath } };
+    // The thumb now lives on disk at the content-addressed path. We do NOT
+    // persist that path on the asset: readers recompute it from (library root,
+    // fileinfo[0].path, maple_id) via `resolveThumbPathForAsset`, so a stored
+    // `thumb_path` would be dead, redundant data. `{ wrote: true }` marks the
+    // stage done without patching any asset field.
+    return { wrote: true };
   },
 });
 

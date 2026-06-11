@@ -33,7 +33,8 @@ export type MigrationId =
   | 'drop-abs-path-2026-05-21'
   | 'swap-maple-id-partial-filter-2026-05-23'
   | 'migrate-missing-since-to-fileinfo-2026-06-05'
-  | 'repair-captured-year-month-2026-06-07';
+  | 'repair-captured-year-month-2026-06-07'
+  | 'drop-legacy-location-fields-2026-06-11';
 
 interface MigrationDoc {
   _id: MigrationId;
@@ -371,4 +372,60 @@ export async function countAssetsMissingFileinfo(db: Db): Promise<number> {
     fileinfo: { $exists: false },
     $or: [{ deleted_at: null }, { deleted_at: { $exists: false } }],
   });
+}
+
+// ---------------------------------------------------------------------------
+// drop-legacy-location-fields-2026-06-11
+//
+// Reclaim the bytes the content-addressing migration left behind. That
+// migration retired the location triple (`abs_path` / `folder_id` / `filename`)
+// and the derived-cache paths (`thumb_path` / `preview_path`) in CODE — no
+// writer sets them and no reader consults them (locations resolve from
+// `fileinfo[]`; cache paths recompute from `(library root, fileinfo[0].path,
+// maple_id)`) — but it only dropped the legacy *indexes*. The field VALUES
+// stayed on every row indexed before the cutover, as dead weight. This one-shot
+// `$unset` removes them.
+//
+// Scoped to rows that ALREADY carry a `fileinfo` array. A legacy row still
+// missing `fileinfo` (e.g. its `folder_id` no longer resolves to a registered
+// library, so the fileinfo backfill skipped it) keeps `abs_path` /
+// `folder_id` / `filename` — the only fields its location could be rebuilt
+// from if the library is re-registered and discover re-runs. `thumb_path` /
+// `preview_path` are never read on any row, but gating the whole cleanup on the
+// fileinfo predicate keeps it a single, obviously-safe `updateMany`.
+//
+// Idempotent — `$unset` on an already-clean row is a no-op. Sentinel-gated in
+// `ensureIndexes` (and ordered AFTER the fileinfo backfill there, so a row
+// backfilled this boot is cleaned in the same pass).
+// ---------------------------------------------------------------------------
+
+export interface DropLegacyLocationFieldsResult {
+  cleared: number;
+}
+
+export async function dropLegacyLocationFields(
+  db: Db,
+): Promise<DropLegacyLocationFieldsResult> {
+  const res = await db.collection('assets').updateMany(
+    {
+      fileinfo: { $type: 'array' },
+      $or: [
+        { abs_path: { $exists: true } },
+        { folder_id: { $exists: true } },
+        { filename: { $exists: true } },
+        { thumb_path: { $exists: true } },
+        { preview_path: { $exists: true } },
+      ],
+    },
+    {
+      $unset: {
+        abs_path: '',
+        folder_id: '',
+        filename: '',
+        thumb_path: '',
+        preview_path: '',
+      },
+    },
+  );
+  return { cleared: res.modifiedCount ?? 0 };
 }
