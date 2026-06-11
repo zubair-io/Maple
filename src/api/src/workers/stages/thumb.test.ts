@@ -127,6 +127,7 @@ describe('thumb handler — bitmap path', () => {
       doc as never,
       new Map([[libraryId.toHexString(), dir]]),
     );
+    expect(thumbPath).not.toBeNull();
     const meta = await sharp(thumbPath as string).metadata();
     // After orientation bake-in, the stored thumb is upright.
     expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
