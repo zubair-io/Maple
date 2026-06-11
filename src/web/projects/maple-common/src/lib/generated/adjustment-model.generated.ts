@@ -115,6 +115,8 @@ export interface GeneratedAdjustmentModel {
   chromaPrefilter: number;
   /** Hot/dead-pixel suppression (#1106, tone/zoom design spec § 10.6). Pre-demosaic same-color-neighbor outlier replacement inside the decode product; 'Off' (default) skips the stage bit-identically. XMP key `papp:HotPixelSuppression`. Part of the decoded-image cache key. */
   hotPixelSuppression: HotPixelSuppressionMode;
+  /** BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key. Range: [0.0, 100.0]. */
+  deepDenoise: number;
 }
 
 /** Canonical `[min, max]` range for each scalar field, generated from raw-core. */
@@ -157,6 +159,7 @@ export const ADJUSTMENT_RANGES = {
   splitToneHighlightSaturation: [0.0, 100.0] as const,
   splitToneBalance: [-100.0, 100.0] as const,
   chromaPrefilter: [0.0, 100.0] as const,
+  deepDenoise: [0.0, 100.0] as const,
 } as const;
 
 /** Canonical raw-core defaults, generated from `ADJUSTMENT_SCHEMA`. */
@@ -207,5 +210,6 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     toneCurveMode: 'PerChannel',
     chromaPrefilter: 0.0,
     hotPixelSuppression: 'Off',
+    deepDenoise: 0.0,
   };
 }

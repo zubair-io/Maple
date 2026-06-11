@@ -65,6 +65,8 @@ extension AdjustmentModel.FieldName {
         // Decode-time chroma pre-filter (#1104) — numeric decode-product
         // field; capture/apply like any slider.
         case .chromaPrefilter:              return \.chromaPrefilter
+        // BM3D deep denoise (#1105) — numeric decode-product field.
+        case .deepDenoise:                  return \.deepDenoise
         // Deprecated alias — no Swift property (see AdjustmentModel docs).
         case .captureSharpeningRadius:      return nil
         // Enum-valued / not in the Swift model.
@@ -115,6 +117,7 @@ extension AdjustmentModel.FieldName {
             return AdjustmentModel.splitToneHighlightSaturationRange
         case .splitToneBalance:             return AdjustmentModel.splitToneBalanceRange
         case .chromaPrefilter:              return AdjustmentModel.chromaPrefilterRange
+        case .deepDenoise:                  return AdjustmentModel.deepDenoiseRange
         default:                            return nil
         }
     }

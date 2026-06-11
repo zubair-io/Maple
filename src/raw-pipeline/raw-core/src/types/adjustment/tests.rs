@@ -95,6 +95,14 @@ fn hot_pixel_suppression_defaults_to_off() {
 }
 
 #[test]
+fn deep_denoise_defaults_to_zero() {
+    // Per #1105: BM3D ships default-off so the decode product stays
+    // bit-identical to the pre-#1105 pipeline.
+    let m = AdjustmentModel::default();
+    assert_eq!(m.deep_denoise, 0.0);
+}
+
+#[test]
 fn chroma_prefilter_defaults_to_zero() {
     // Per #1104: the decode-time chroma pre-filter ships default-off so
     // the decode product stays bit-identical to the pre-#1104 pipeline
