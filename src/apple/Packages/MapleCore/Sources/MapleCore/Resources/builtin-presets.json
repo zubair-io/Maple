@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "presets": [
+    {
+      "id": "builtin-flat",
+      "schemaVersion": 1,
+      "name": "Flat",
+      "fields": { "contrast": -50 }
+    },
+    {
+      "id": "builtin-high-contrast",
+      "schemaVersion": 1,
+      "name": "High Contrast",
+      "fields": { "contrast": 50 }
+    },
+    {
+      "id": "builtin-monochrome",
+      "schemaVersion": 1,
+      "name": "Monochrome",
+      "fields": { "saturation": -100 }
+    },
+    {
+      "id": "builtin-no-sharpening",
+      "schemaVersion": 1,
+      "name": "No Sharpening",
+      "fields": { "sharpen_amount": 0 }
+    },
+    {
+      "id": "builtin-no-color-nr",
+      "schemaVersion": 1,
+      "name": "No Color NR",
+      "fields": { "nr_color": 0 }
+    }
+  ]
+}

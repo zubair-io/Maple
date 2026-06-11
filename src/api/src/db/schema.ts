@@ -1107,3 +1107,40 @@ export interface ServerStateDoc {
 }
 
 export type ServerStateWithId = WithId<ServerStateDoc>;
+
+// ---------------------------------------------------------------------------
+// Presets (#1115, spec §10.7)
+// ---------------------------------------------------------------------------
+
+/**
+ * A user develop preset — a named, schema-versioned SPARSE `AdjustmentModel`
+ * (only non-default fields). `fields` keys are the canonical snake_case
+ * names from `raw_core::types::ADJUSTMENT_SCHEMA` (the same stable keys the
+ * generated Swift `FieldName` enum exposes), so a document written by any
+ * platform parses on every other one.
+ *
+ * Unknown `fields` keys (from newer schema versions) are stored verbatim and
+ * returned verbatim — the XMP passthrough philosophy applied to presets.
+ * Unknown TOP-LEVEL keys the client sent ride in `extra` and are spread back
+ * onto the wire row on read, so a newer client round-trips its own keys.
+ *
+ * Built-in presets are NOT stored here — they ship as bundled JSON in each
+ * client (`src/apple/.../Resources/builtin-presets.json`) and are read-only.
+ */
+export interface PresetDoc {
+  /** Trimmed display name, 1..120 chars. Unique per database under a
+   * case-insensitive collation (index in `ensureIndexes`). */
+  name: string;
+  /** Preset document schema version (current = 1). Documents with a NEWER
+   * version are accepted and preserved so a downlevel server doesn't eat
+   * presets written by an uplevel client. */
+  schema_version: number;
+  /** Sparse adjustment fields, canonical snake_case keys → scalar values. */
+  fields: Record<string, number | string | boolean>;
+  /** Unknown top-level keys from the create payload, preserved verbatim. */
+  extra?: Record<string, unknown>;
+  /** ISO timestamp the preset was created. */
+  created_at: string;
+  /** ISO timestamp of the last write to this row. */
+  updated_at: string;
+}
