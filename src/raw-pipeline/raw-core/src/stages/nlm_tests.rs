@@ -181,7 +181,10 @@ fn search_radius_larger_than_width_does_not_panic() {
     }
 }
 
-/// #1086 — the NLM weight function can never exceed 1.0 for ANY input.
+/// #1086 — the NLM weight function can never exceed 1.0 for any non-NaN
+/// input. (A NaN SSD never reaches it in production: the call site's
+/// `ssd.max(0.0)` neutralizes NaN too — Rust's `f32::max` returns the
+/// non-NaN operand — so the weight becomes exp(0) = 1.0.)
 /// Historically a negative input (f32 cancellation residue from the
 /// integral-image rect query, scaled by `inv_norm`) hit the saturating
 /// `t as usize → 0` cast and EXTRAPOLATED the first table segment to
@@ -275,8 +278,9 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
 /// visible in the eprintln spread) is the signal-loss half of #1086; that
 /// needs the per-shift sliding box-sum and is deferred to #1089.
 ///
-/// Pure-arithmetic fixture (xorshift, no libm) ⇒ bit-deterministic and
-/// platform-independent, including the sign of every cancellation residue.
+/// The fixture DATA is pure integer arithmetic (xorshift) ⇒ bit-deterministic
+/// and platform-independent, including the sign of every cancellation residue.
+/// (The weight LUT itself is seeded from , like production.)
 #[test]
 fn far_offset_cancellation_cannot_inflate_weights_beyond_one() {
     let w = 1536usize;
