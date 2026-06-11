@@ -10,6 +10,7 @@ import type { ToolId } from './tool-model';
 
 const TOOL_TO_ICON: Record<ToolId, MapleIconName> = {
   exposure: 'tool-exposure',
+  brightness: 'tool-brightness',
   contrast: 'tool-contrast',
   highlights: 'tool-highlights',
   shadows: 'tool-shadows',

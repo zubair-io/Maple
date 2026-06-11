@@ -18,6 +18,7 @@ import {
   isWired,
   type ToolId,
 } from './tool-model';
+import { subParamDefaultDisplay, subParamsFor } from './tool-sub-param';
 
 @Component({
   selector: 'app-tool-pill-row',
@@ -49,6 +50,12 @@ export class ToolPillRowComponent {
     if (!isWired(tool)) return false;
     const adj = this.state.currentAdjustment();
     if (!adj) return false;
+    // Multi-param pills (#1108): the dot lights when ANY sub-param is
+    // off its canonical default (e.g. Noise with only Color NR raised).
+    const subs = subParamsFor(tool);
+    if (subs.length > 0) {
+      return subs.some((s) => Math.abs(adj[s.field] - subParamDefaultDisplay(s)) > 1e-6);
+    }
     const field = fieldFor(tool);
     if (!field) return false;
     const v = adj[field] as number;

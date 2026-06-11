@@ -2,5 +2,9 @@
   <span class="eyebrow">{{ groupLabel() }}</span>
   <span class="divider" aria-hidden="true"></span>
   <span class="eyebrow">{{ toolLabel() }}</span>
+  @if (subParamLabel(); as sub) {
+    <span class="divider" aria-hidden="true"></span>
+    <span class="eyebrow" data-testid="editor-value-chip-subparam">{{ sub }}</span>
+  }
   <span class="value">{{ formattedValue() }}</span>
 </div>
