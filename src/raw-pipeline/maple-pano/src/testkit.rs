@@ -55,8 +55,11 @@ pub struct CorrespondenceOptions {
     /// Keep-away distance from every frame edge when sampling supports
     /// and outlier pixels.
     pub margin_px: f64,
-    /// Guaranteed minimum distance (pixels) between an outlier's frame-B
-    /// pixel and the true projection.
+    /// Minimum distance (pixels) between an outlier's frame-B pixel and
+    /// the true projection. Guaranteed whenever the frame can admit a
+    /// pixel that far away; on a degenerate frame too small for the
+    /// floor, the farthest of 1024 uniform draws is used instead (see
+    /// `plant_outlier_pixel`) so generation always terminates.
     pub min_outlier_error_px: f64,
     /// Sampling budget multiplier: at most `count × max_attempt_factor`
     /// support draws.
