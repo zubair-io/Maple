@@ -30,6 +30,13 @@ ml = ["dep:ort", "dep:libloading", "dep:sha2", "dep:toml"]
 name = "pano-gt-render"
 path = "src/bin/pano-gt-render.rs"
 
+# Ingest sanity probe (#1156): decodes real pano frames via
+# `raw_core::decode_for_pano`, prints per-channel stats + the EXIF/gimbal
+# priors table. Fixture-gated at runtime (takes a directory argument).
+[[bin]]
+name = "pano-ingest-probe"
+path = "src/bin/pano-ingest-probe.rs"
+
 # M1a gate tests need the testkit; `cargo test -p maple-pano` (no
 # features) skips them, `--all-features` runs them. Other test targets
 # under tests/ remain auto-discovered.
@@ -52,6 +59,13 @@ clap.workspace = true
 image.workspace = true
 # `png` writes the 16-bit RGB output frames (explicit BitDepth::Sixteen).
 png.workspace = true
+# RAW decode + scene-linear normalization for the ingest stage (#1156):
+# `raw_core::decode_for_pano` is the single pixel source for real frames.
+raw-core = { path = "../raw-core" }
+# Namespace-aware XMP parsing for the DJI gimbal prior (the two known DJI
+# `drone-dji` namespace URI variants force prefix resolution, not string
+# matching). Already a workspace dependency via raw-core's sidecar layer.
+quick-xml.workspace = true
 rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
