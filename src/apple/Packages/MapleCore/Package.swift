@@ -64,6 +64,11 @@ let package = Package(
                 // fail: these use the coreimage:: namespace). `.copy` is
                 // correct here; `.process` triggers the failing compile.
                 .copy("Metal"),
+                // Canonical built-in presets (#1115) — the SAME file the
+                // web mirrors (parity-pinned by the API-side
+                // builtin-presets-parity test). Read via Bundle.module in
+                // PresetStore.
+                .copy("Resources/builtin-presets.json"),
             ]
         ),
         // Binary dependency — RawPipeline.xcframework lives outside the package
