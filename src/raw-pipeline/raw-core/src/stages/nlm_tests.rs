@@ -280,7 +280,7 @@ fn fast_neg_exp_weight_never_exceeds_one_for_any_input() {
 ///
 /// The fixture DATA is pure integer arithmetic (xorshift) ⇒ bit-deterministic
 /// and platform-independent, including the sign of every cancellation residue.
-/// (The weight LUT itself is seeded from , like production.)
+/// (The weight LUT itself is seeded from `f32::exp`, like production.)
 #[test]
 fn far_offset_cancellation_cannot_inflate_weights_beyond_one() {
     let w = 1536usize;
