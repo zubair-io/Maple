@@ -178,7 +178,16 @@ mod tests {
         BaSolution {
             cameras: rotations
                 .iter()
-                .map(|r| Some(Camera::new(matrix_to_axis_angle(r), 800.0, 0.0, 0.0, 640, 480)))
+                .map(|r| {
+                    Some(Camera::new(
+                        matrix_to_axis_angle(r),
+                        800.0,
+                        0.0,
+                        0.0,
+                        640,
+                        480,
+                    ))
+                })
                 .collect(),
             shared_focal_px: 800.0,
             k1: 0.0,
@@ -209,12 +218,10 @@ mod tests {
     /// A ring tilted by a known global rotation levels back to < 1e-6°.
     #[test]
     fn tilted_ring_levels_back() {
-        let tilt = Mat3::rotation_z(7.0_f64.to_radians())
-            .mul_mat(&Mat3::rotation_x(4.0_f64.to_radians()));
+        let tilt =
+            Mat3::rotation_z(7.0_f64.to_radians()).mul_mat(&Mat3::rotation_x(4.0_f64.to_radians()));
         let rots: Vec<Mat3> = (0..8)
-            .map(|i| {
-                tilt.mul_mat(&Mat3::rotation_y(i as f64 * std::f64::consts::TAU / 8.0))
-            })
+            .map(|i| tilt.mul_mat(&Mat3::rotation_y(i as f64 * std::f64::consts::TAU / 8.0)))
             .collect();
         let mut solution = solution_from_rotations(&rots);
         assert!(horizon_tilt_deg(&solution) > 3.0);

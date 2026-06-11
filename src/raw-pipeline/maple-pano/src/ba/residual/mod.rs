@@ -169,21 +169,6 @@ impl ParamLayout {
         layout
     }
 
-    /// Single-parameter layout freeing only `frame`'s focal override —
-    /// the §9.2 fallback probe.
-    pub fn focal_probe(n_frames: usize, frame: usize) -> Self {
-        let mut focal_override_cols = vec![None; n_frames];
-        focal_override_cols[frame] = Some(0);
-        Self {
-            rot_cols: vec![None; n_frames],
-            shared_focal_col: None,
-            focal_override_cols,
-            k1_col: None,
-            k2_col: None,
-            n_params: 1,
-        }
-    }
-
     /// The column `frame`'s focal maps to under this layout (its
     /// override column when freed, else the shared column), if any.
     fn focal_col(&self, frame: usize) -> Option<usize> {
@@ -284,10 +269,7 @@ fn eval_block(
 
     // ∂n/∂v (2×3) and ∂e/∂n (2×2, distortion tangent).
     let inv_vz = 1.0 / v.z;
-    let p_mat = [
-        [inv_vz, 0.0, -n.0 * inv_vz],
-        [0.0, inv_vz, -n.1 * inv_vz],
-    ];
+    let p_mat = [[inv_vz, 0.0, -n.0 * inv_vz], [0.0, inv_vz, -n.1 * inv_vz]];
     let dprime_t = k1 + 2.0 * k2 * rho;
     let e_mat = [
         [d_t + 2.0 * dprime_t * n.0 * n.0, 2.0 * dprime_t * n.0 * n.1],
@@ -369,11 +351,7 @@ fn eval_block(
 }
 
 fn skew(v: Vec3) -> [[f64; 3]; 3] {
-    [
-        [0.0, -v.z, v.y],
-        [v.z, 0.0, -v.x],
-        [-v.y, v.x, 0.0],
-    ]
+    [[0.0, -v.z, v.y], [v.z, 0.0, -v.x], [-v.y, v.x, 0.0]]
 }
 
 fn mul_2x3_3x3(a: &[[f64; 3]; 2], b: &[[f64; 3]; 3]) -> [[f64; 3]; 2] {
@@ -387,17 +365,11 @@ fn mul_2x3_3x3(a: &[[f64; 3]; 2], b: &[[f64; 3]; 3]) -> [[f64; 3]; 2] {
 }
 
 fn mul_2x2_vec(a: &[[f64; 2]; 2], v: (f64, f64)) -> (f64, f64) {
-    (
-        a[0][0] * v.0 + a[0][1] * v.1,
-        a[1][0] * v.0 + a[1][1] * v.1,
-    )
+    (a[0][0] * v.0 + a[0][1] * v.1, a[1][0] * v.0 + a[1][1] * v.1)
 }
 
 fn mul_2x2_vec_arr(a: &[[f64; 2]; 2], v: (f64, f64)) -> [f64; 2] {
-    [
-        a[0][0] * v.0 + a[0][1] * v.1,
-        a[1][0] * v.0 + a[1][1] * v.1,
-    ]
+    [a[0][0] * v.0 + a[0][1] * v.1, a[1][0] * v.0 + a[1][1] * v.1]
 }
 
 /// Assembled normal equations + robust cost at one state.
@@ -538,7 +510,6 @@ fn accumulate_block(
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests;
