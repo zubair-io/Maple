@@ -123,3 +123,9 @@ pub mod leveling;
 
 #[cfg(feature = "ml")]
 pub mod glue;
+
+// --- M2-CPU compositing (#1155, spec §5.4–§5.8): canvas → warp → gain →
+// seam → blend, orchestrated by `composite`. CPU reference path; the
+// later WGSL passes are gated against these modules (eng design D6).
+// Appended after the ingest block — keep lib.rs additions append-only.
+pub mod canvas;
