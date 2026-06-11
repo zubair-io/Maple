@@ -298,7 +298,7 @@ bare `0` resets the armed tool). Zoom must compose without breaking those contra
 | Input | At fit | Zoomed in (pixelScale > fit) |
 | --- | --- | --- |
 | Pinch (touch) / trackpad pinch (web: `wheel` + `ctrlKey`) | Zoom, anchored at gesture centroid/cursor | Same |
-| One-finger / mouse drag on canvas | Armed-tool adjust, 0.5:1 (S5b, unchanged) | **Pan** (tool adjust stays available via drag bar / wheel detents) |
+| One-finger / mouse drag on canvas | Inert — canvas tool-drag was removed from the product per #875 (the original S5b 0.5:1 mapping no longer ships); tool adjust lives on the drag bar / wheel detents | **Pan** |
 | Plain wheel over canvas | Armed-tool nudge ±1/detent (S5, unchanged) | Pan (two-finger scroll = pan when zoomed) |
 | Cmd/Ctrl + wheel | Zoom anchored at cursor | Same |
 | Double-tap / double-click | Toggle fit ↔ 100% | Same (returns to fit) |
