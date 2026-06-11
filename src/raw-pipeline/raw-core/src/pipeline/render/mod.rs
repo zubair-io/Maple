@@ -101,6 +101,74 @@ pub fn render_from_raw_with_quality_and_source(
     quality: RenderQuality,
     raw_source: Option<RawInput<'_>>,
 ) -> Result<(u32, u32, Vec<u8>)> {
+    render_display_from_raw(raw, model, quality, raw_source, None)
+}
+
+/// Sized variant of [`render_from_raw_with_quality_and_source`] — the
+/// display-encoded counterpart of
+/// [`render_scene_linear_sized_from_raw_with_quality`]. Develops through the
+/// early-downsample chain (`develop_scene_linear_sized_…`, downsample lands
+/// immediately after demosaic so every later stage runs on the viewport-sized
+/// buffer), then runs the IDENTICAL view tail (AgX → Rec.2020→sRGB → gamma →
+/// Auto Profile → Look → dither/quantize → EXIF orient) — shared code path
+/// with the unsized entry, so the two can never drift.
+///
+/// `max_long_edge` caps the long edge of the (pre-orientation) render;
+/// never upscales — a cap at or above the native long edge is functionally
+/// identical to the unsized entry. The web fast/refine phases (#1101) call
+/// this through `raw-wasm::render_bytes_sized`.
+pub fn render_sized_from_raw_with_quality_and_source(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: u32,
+) -> Result<(u32, u32, Vec<u8>)> {
+    render_display_from_raw(raw, model, quality, raw_source, Some(max_long_edge))
+}
+
+/// The oriented output dimensions a `RenderQuality::Full` render of `raw`
+/// would produce, WITHOUT developing: DefaultCrop rect (divisor 1 — Full
+/// quality never halves), clamped to the sensor extent exactly like
+/// `crop_to_default`, then the EXIF orientation's width/height swap.
+///
+/// Callers that decode at a reduced size (the sized entries above) use this
+/// to report the native dimensions alongside the sized buffer — e.g. the web
+/// editor needs native dims for fit/100% zoom math while painting a
+/// viewport-sized fast-phase render (#1101).
+pub fn native_render_dims(raw: &RawImage) -> (u32, u32) {
+    let (w, h) = match raw.crop_rect {
+        Some(c) => {
+            // Mirror `crop_to_default`'s clamp + degenerate/no-op handling at
+            // divisor 1: clamp the rect to the buffer extent and fall back to
+            // the full frame when the clamped rect is zero-sized.
+            let cw = c.w.min(raw.width.saturating_sub(c.x));
+            let ch = c.h.min(raw.height.saturating_sub(c.y));
+            if cw == 0 || ch == 0 {
+                (raw.width, raw.height)
+            } else {
+                (cw, ch)
+            }
+        }
+        None => (raw.width, raw.height),
+    };
+    if raw.orientation.swaps_wh() {
+        (h, w)
+    } else {
+        (w, h)
+    }
+}
+
+/// Shared body of the display-encoded entries: develop (full-res or
+/// early-downsample sized, per `max_long_edge`), then the view tail. Private —
+/// the public wrappers above pin the two supported shapes.
+fn render_display_from_raw(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    raw_source: Option<RawInput<'_>>,
+    max_long_edge: Option<u32>,
+) -> Result<(u32, u32, Vec<u8>)> {
     // Section 0 (Auto Profile root-cause fix): when Profile=Auto and we
     // will actually fit a curve, force AutoExposureMode::Off so the fitted
     // curve owns the entire scene→JPEG brightness relationship. Otherwise
@@ -166,7 +234,14 @@ pub fn render_from_raw_with_quality_and_source(
     } else {
         model
     };
-    let mut scene = develop_scene_linear_from_raw_with_quality(raw, active_model, quality)?;
+    let mut scene = match max_long_edge {
+        // Sized: early-downsample develop — post-demosaic stages run on the
+        // viewport-sized buffer. `None` keeps the unsized entry byte-for-byte.
+        Some(mle) => {
+            develop_scene_linear_sized_from_raw_with_quality(raw, active_model, quality, mle)?
+        }
+        None => develop_scene_linear_from_raw_with_quality(raw, active_model, quality)?,
+    };
 
     // View transform (#550 post-fix): AgX + gamut compress + sRGB gamma
     // encode run UNCONDITIONALLY for both Auto and Neutral. Pre-#550 the
@@ -568,3 +643,8 @@ mod tests;
 // file so both it and `tests.rs` stay under the 600-LOC budget (#482).
 #[cfg(test)]
 mod auto_profile_parity_tests;
+
+// Sized display render + native_render_dims tests (#1101) — own sibling file
+// for the same size-budget reason.
+#[cfg(test)]
+mod sized_display_tests;
