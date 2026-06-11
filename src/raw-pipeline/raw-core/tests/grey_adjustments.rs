@@ -559,3 +559,125 @@ fn shadows_engages_at_mid_grey() {
         assert_neutral_display(0.18, |m| m.shadows = s);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Vignette (#1109, tone/zoom design § 10.1) — POSITION-AWARE by design, so
+// the flat-field assertion every predictor above leans on is explicitly
+// WAIVED for this stage (spec § 10.1). It is replaced by: (a) bit-exact
+// centre identity, (b) the corner-attenuation closed form at sampled
+// coordinates via `predict_vignette`, and (c) neutrality preservation
+// through the display pipeline (a uniform per-pixel scalar cannot split
+// R=G=B, flat field or not).
+// ---------------------------------------------------------------------------
+
+/// Develop the synthetic grey card to scene-linear with vignette set and
+/// every stage AFTER vignette that reacts to spatial gradients disabled
+/// (sharpen / NR act on the vignette's radial gradient and would smear the
+/// closed form; their flat-field identity only holds on flat fields).
+fn develop_grey_with_vignette(
+    linear_value: f32,
+    amount: f32,
+    feather: f32,
+) -> raw_core::image::Image {
+    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+    let bytes = dng.write_to_bytes();
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
+        .expect("synthetic DNG must decode");
+    let mut model = AdjustmentModel::default();
+    model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
+    model.sharpen_amount = 0.0;
+    model.nr_color = 0.0;
+    model.vignette_amount = amount;
+    model.vignette_feather = feather;
+    develop_scene_linear_from_raw_with_quality(&raw, &model, RenderQuality::Full)
+        .expect("scene-linear render must succeed")
+}
+
+/// (a) Centre identity: the frame centre sits at r = 0, far inside the
+/// mask's inner edge, so the gain is exp2(0) = 1.0 — a bit-exact multiply.
+/// The centre pixel of the vignette render must EQUAL the centre pixel of
+/// the no-vignette render exactly (not merely within tolerance).
+#[test]
+fn vignette_center_is_bit_exact_identity() {
+    let base = develop_grey_with_vignette(0.18, 0.0, 50.0);
+    for &(amount, feather) in &[(-100.0_f32, 0.0_f32), (-60.0, 50.0), (80.0, 100.0)] {
+        let img = develop_grey_with_vignette(0.18, amount, feather);
+        let (w, h) = (img.width, img.height);
+        let c = ((h / 2) * w + (w / 2)) as usize;
+        assert_eq!(
+            img.pixels[c], base.pixels[c],
+            "centre pixel must be bit-exact identity at amount={amount} feather={feather}"
+        );
+    }
+}
+
+/// (b) Corner attenuation matches the position-aware closed form: each
+/// sampled pixel of the vignette render equals
+/// `predict_vignette(base_pixel, x, y, w, h, amount, feather)` where
+/// `base_pixel` is the same coordinate of the no-vignette render (the
+/// pre-vignette chain is identical, so it cancels exactly).
+#[test]
+fn vignette_corners_match_predictor_formula() {
+    let base = develop_grey_with_vignette(0.18, 0.0, 50.0);
+    for &(amount, feather) in &[(-100.0_f32, 0.0_f32), (-60.0, 50.0), (80.0, 100.0)] {
+        let img = develop_grey_with_vignette(0.18, amount, feather);
+        let (w, h) = (img.width, img.height);
+        // Corners + edge midpoints + an in-band diagonal sample.
+        let samples = [
+            (0u32, 0u32), (w - 1, 0), (0, h - 1), (w - 1, h - 1),
+            (w / 2, 0), (0, h / 2), (w / 8, h / 8),
+        ];
+        for (x, y) in samples {
+            let i = (y * w + x) as usize;
+            for c in 0..3 {
+                let predicted =
+                    predict_vignette(base.pixels[i][c], x, y, w, h, amount, feather);
+                assert!(
+                    (img.pixels[i][c] - predicted).abs() <= EPS_SCENE_LINEAR,
+                    "vignette({amount}, {feather}) at ({x},{y}) chan {c}: got {}, \
+                     predicted {predicted}",
+                    img.pixels[i][c]
+                );
+            }
+        }
+    }
+}
+
+/// (b²) The −100 corner attenuation hits the formula's full depth: the
+/// 64×64 card's corner radius (~1.39) saturates the mask, so the corner
+/// must sit at exactly exp2(−1.5) ≈ 0.354× of the base corner.
+#[test]
+fn vignette_minus100_corner_full_attenuation() {
+    let base = develop_grey_with_vignette(0.18, 0.0, 50.0);
+    let img = develop_grey_with_vignette(0.18, -100.0, 50.0);
+    let ratio = img.pixels[0][1] / base.pixels[0][1];
+    let expected = (-1.5_f32).exp2();
+    assert!(
+        (ratio - expected).abs() < 1e-4,
+        "corner ratio {ratio} != exp2(-1.5) = {expected}"
+    );
+}
+
+/// (c) Neutrality through the FULL display pipeline: vignette is a uniform
+/// per-pixel scalar, so R=G=B survives it even though the field is no
+/// longer flat. (The flatness waiver does not waive neutrality.)
+#[test]
+fn vignette_preserves_neutrality_display() {
+    assert_neutral_display(0.18, |m| {
+        m.vignette_amount = -80.0;
+        m.vignette_feather = 30.0;
+    });
+    assert_neutral_display(0.18, |m| {
+        m.vignette_amount = 60.0;
+        m.vignette_feather = 100.0;
+    });
+}
+
+/// Defaults-identity: vignette amount 0 (any feather) leaves the develop
+/// output bit-for-bit identical — the stage must short-circuit.
+#[test]
+fn vignette_zero_amount_is_bit_identical() {
+    let base = develop_grey_with_vignette(0.18, 0.0, 50.0);
+    let img = develop_grey_with_vignette(0.18, 0.0, 95.0);
+    assert_eq!(base.pixels, img.pixels, "feather without amount must be a no-op");
+}

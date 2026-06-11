@@ -63,6 +63,16 @@ impl GpuContext {
         })
     }
 
+    /// The cached vignette compute pipeline (#1109, tone/zoom design § 10.1).
+    ///
+    /// A windowed point op (radial EV gain from the tile origin + full dims
+    /// in the params uniform) — no Oklab, so the kernel compiles standalone
+    /// like exposure / scene_tone_controls.
+    pub fn vignette_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.vignette_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "vignette", include_str!("vignette.wgsl")))
+    }
+
     /// The cached masked shadows/highlights compute pipeline (#1103, tone/zoom
     /// design § 4.2): one reworked tone step (mode-selected) through the tonal
     /// detail mask, reading the blurred luma plane the host prepares with

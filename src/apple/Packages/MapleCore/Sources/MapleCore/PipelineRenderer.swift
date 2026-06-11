@@ -905,6 +905,10 @@ extension PipelineRenderer {
         // Brightness (#1102) — midtone-band gain, appended at the struct
         // tail per the look_mode ABI convention. 0 = identity.
         params.brightness = Float(model.brightness)
+        // Vignette (#1109) — radial gain, appended at the struct tail per
+        // the same convention. Amount 0 = identity (feather inert).
+        params.vignette_amount = Float(model.vignetteAmount)
+        params.vignette_feather = Float(model.vignetteFeather)
         return params
     }
 

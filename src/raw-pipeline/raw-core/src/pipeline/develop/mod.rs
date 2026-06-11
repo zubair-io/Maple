@@ -15,7 +15,8 @@
 //! 7. ProfileGainTableMap (when present),
 //! 8. damped per-image auto-exposure,
 //! 9. white-balance, scene-tone-controls, vibrance, saturation, clarity,
-//!    texture, dehaze, sharpen, nr_luminance, nr_color.
+//!    texture, dehaze, local-adjustments, vignette, sharpen, nr_luminance,
+//!    nr_color.
 //!
 //! `develop_scene_linear_sized_from_raw_with_quality` is the
 //! early-downsample variant (ticket 06 § Milestone 3): demosaic →
@@ -34,7 +35,7 @@ use crate::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, local_adjustments,
         noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, white_balance,
+        vibrance, vignette, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -423,6 +424,16 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
         local_adjustments::apply(&mut scene, &model.local_adjustments)
     });
     dump_after("12b_local_adjustments", &scene);
+    // Vignette (#1109, tone/zoom design § 10.1) — scene-linear radial gain,
+    // late in the scene chain (after local adjustments, before the output
+    // sharpen) so AgX rolls the shaped corners off filmically. Anchored to
+    // this buffer's extent = the DefaultCrop render rect (user crop is
+    // #1113; see the stage docs). Identity short-circuit at amount 0 keeps
+    // the baseline bit-identical.
+    stage("vignette", || {
+        vignette::apply(&mut scene, model.vignette_amount, model.vignette_feather)
+    });
+    dump_after("12c_vignette", &scene);
     stage("sharpen", || sharpen::apply_cancellable(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking, cancel));
     dump_after("13_sharpen", &scene);
     if cancel.is_cancelled() {

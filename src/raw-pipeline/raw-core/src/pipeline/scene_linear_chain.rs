@@ -9,7 +9,8 @@
 //!
 //! Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 //! → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
-//! `dehaze` → `nr_luminance` → `agx` (when `skip_agx == false`).
+//! `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx`
+//! (when `skip_agx == false`).
 //!
 //! **Deliberately omits** `sharpen` and `nr_color` — those two stay on
 //! the Apple GPU path (Metal compute pipelines). See the per-function
@@ -26,7 +27,7 @@ use crate::{error::Result, xmp::AdjustmentModel};
 ///
 /// Stages, in order: `white_balance::apply_delta` → `scene_tone_controls`
 /// → `tone_curves` → `vibrance` → `saturation` → `clarity` → `texture` →
-/// `dehaze` → `nr_luminance` → `agx`.
+/// `dehaze` → `local_adjustments` → `vignette` → `nr_luminance` → `agx`.
 ///
 /// **Deliberately omits** `sharpen` and `nr_color`. Those two stages are
 /// kept on the Apple GPU path (Metal compute pipelines) because:
@@ -75,7 +76,7 @@ pub fn apply_scene_linear_chain(
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, dehaze, local_adjustments, noise_reduction, saturation, scene_tone_controls,
-        texture, tone_curves, vibrance, white_balance,
+        texture, tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -150,6 +151,13 @@ pub fn apply_scene_linear_chain(
     stage("ffi_chain_local_adjustments", || {
         local_adjustments::apply(&mut img, &model.local_adjustments)
     });
+    // Vignette (#1109) — same chain position as develop (after local
+    // adjustments, before the omitted sharpen). Anchored to this buffer's
+    // extent — the viewport-sized decode of the DefaultCrop render rect,
+    // so the normalized gain field matches the full-res render.
+    stage("ffi_chain_vignette", || {
+        vignette::apply(&mut img, model.vignette_amount, model.vignette_feather)
+    });
     // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
     stage("ffi_chain_nr_luminance", || {
         noise_reduction::apply_luminance(&mut img, model.nr_luminance)
@@ -199,7 +207,7 @@ pub fn apply_scene_linear_chain_f32(
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, dehaze, local_adjustments, noise_reduction, saturation, scene_tone_controls,
-        texture, tone_curves, vibrance, white_balance,
+        texture, tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -260,6 +268,10 @@ pub fn apply_scene_linear_chain_f32(
     stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
     stage("ffi_chain_local_adjustments", || {
         local_adjustments::apply(&mut img, &model.local_adjustments)
+    });
+    // Vignette (#1109) — same chain position as develop / the fp16 sibling.
+    stage("ffi_chain_vignette", || {
+        vignette::apply(&mut img, model.vignette_amount, model.vignette_feather)
     });
     // sharpen omitted — kept on Metal GPU path (~33 ms at viewport on CPU)
     stage("ffi_chain_nr_luminance", || {

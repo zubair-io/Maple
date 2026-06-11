@@ -81,9 +81,9 @@ export interface GeneratedAdjustmentModel {
   nrColor: number;
   /** Dehaze strength. Range: [-100.0, 100.0]. */
   dehaze: number;
-  /** Vignette amount — negative darkens corners, positive lightens them (ticket #643). Range: [-100.0, 100.0]. */
+  /** Vignette amount — scene-linear radial EV gain (#1109, tone/zoom design spec § 10.1); negative darkens corners, positive lightens them. Range: [-100.0, 100.0]. */
   vignetteAmount: number;
-  /** Vignette transition softness from center to edge (ticket #643). Range: [0.0, 100.0]. */
+  /** Vignette transition softness from center to edge (#1109) — maps onto mask width 0.05–0.9 around the fixed 0.7 midpoint. Range: [0.0, 100.0]. */
   vignetteFeather: number;
   /** Grain intensity (ticket #643). Range: [0.0, 100.0]. */
   grainAmount: number;

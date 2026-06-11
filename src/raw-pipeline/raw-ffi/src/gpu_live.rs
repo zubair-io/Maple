@@ -122,6 +122,12 @@ pub struct MapleGpuLiveParams {
     // sees every existing field at its old offset; an un-set tail field
     // reads as 0.0 = identity.
     pub brightness: f32,
+    // --- vignette — scene-linear radial EV gain (#1109, tone/zoom design
+    //     § 10.1; runs between dehaze and sharpen). Appended at the tail
+    //     per the same convention: un-set amount reads 0.0 = identity
+    //     (feather is inert at amount 0). ---
+    pub vignette_amount: f32,
+    pub vignette_feather: f32,
 }
 
 /// Internal handle state: the owned context + session. Behind the opaque pointer.

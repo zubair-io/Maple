@@ -102,15 +102,15 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// `resetArmedTool` short-circuit on `!isWired`) — follow-up tickets
     /// track the missing work.
     ///
-    /// vignette / grain / splitTone have AdjustmentModel *fields* (added
-    /// at #643) but no *apply* code in any pipeline (raw-core, Apple
-    /// Metal, WebGL) — they were live drag-bars that wrote XMP for a
-    /// silent no-op (#952). Gated back to stubs until their pipeline math
-    /// lands; re-wire when #664 (vignette) / #665 (grain) / #666
-    /// (split-tone) deliver the effects. The `vignetteAmount` /
-    /// `grainAmount` / `splitToneBalance` fields still round-trip via
-    /// passthrough; this only stops the UI creating new no-op edits.
-    /// HSL (#636) and Crop (#638) remain stubs pending their own specs.
+    /// vignette left the stub list at #1109: `stages::vignette` is a real
+    /// scene-linear pipeline stage now (CPU + WGSL), so the pill's writes
+    /// render. grain / splitTone have AdjustmentModel *fields* (added at
+    /// #643) but no *apply* code yet — they were live drag-bars that wrote
+    /// XMP for a silent no-op (#952) and stay gated until #1110 (grain) /
+    /// #1111 (split-tone) deliver the effects. Their fields still
+    /// round-trip via passthrough; the gate only stops the UI creating
+    /// new no-op edits. HSL (#636) and Crop (#638) remain stubs pending
+    /// their own specs.
     ///
     /// Presets left the stub list at #1115: the pill opens the presets
     /// sheet/popover (see EditorView) instead of carrying a drag-bar
@@ -118,7 +118,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// it (the scrub/reset guards also check `displayRange`).
     public var isWired: Bool {
         switch self {
-        case .hsl, .vignette, .grain, .splitTone, .crop:
+        case .hsl, .grain, .splitTone, .crop:
             return false
         default:
             return true
@@ -156,11 +156,13 @@ public enum ToolValueMapping {
         // narrow 0.5..2.0 px band centred on its 1.0 default.
         case .captureSharpen: return 0...100
         case .captureSigma:   return 0.5...2.0
-        // vignette / grain / splitTone are gated stubs (#952) — these
-        // ranges are inert (`isWired` is false, so the scrub paths never
-        // reach `apply`) and exist only to be reused verbatim when #664 /
-        // #665 / #666 re-wire them.
+        // Vignette (#1109) — wired; drag bar drives `vignetteAmount`
+        // (the first sub-param; feather rides the sub-param row).
         case .vignette: return -100...100
+        // grain / splitTone are gated stubs (#952) — these ranges are
+        // inert (`isWired` is false, so the scrub paths never reach
+        // `apply`) and exist only to be reused verbatim when #1110 /
+        // #1111 re-wire them.
         case .grain:    return 0...100
         case .splitTone: return -100...100
         default:        return nil
@@ -243,10 +245,10 @@ public enum ToolValueMapping {
         // Capture sharpening (#271) — relocated from the Develop tab (#875).
         case .captureSharpen: return model.captureSharpeningAmount
         case .captureSigma:   return model.captureSharpeningSigma
-        // vignette / grain / splitTone are gated stubs (#952). These reads
-        // are retained (not gutted to 0) so the value chip still surfaces a
-        // value already persisted in a sidecar — passthrough round-trip is
-        // preserved. A fresh asset reads 0, same as the other stubs.
+        // Vignette (#1109) — wired; the drag bar reads the amount (the
+        // first sub-param). grain / splitTone are gated stubs (#952);
+        // their reads are retained (not gutted to 0) so the value chip
+        // still surfaces a value already persisted in a sidecar.
         case .vignette:   return model.vignetteAmount
         case .grain:      return model.grainAmount
         case .splitTone:  return model.splitToneBalance
@@ -261,10 +263,11 @@ public enum ToolValueMapping {
     /// semantics and by the modified-dot check, so a default asset never
     /// reads as "modified".
     ///
-    /// vignette / grain / splitTone are gated stubs (#952) and fall through
-    /// to the 0 default — `resetArmedTool` never reaches here for them (it
-    /// short-circuits on `!isWired`), so this only matters as a harmless
-    /// fallback until #664 / #665 / #666 re-wire them.
+    /// vignette is wired (#1109) and its amount default IS 0, so the
+    /// fall-through is correct for it. grain / splitTone are gated stubs
+    /// (#952) and fall through to the 0 default — `resetArmedTool` never
+    /// reaches here for them (it short-circuits on `!isWired`), so this
+    /// only matters as a harmless fallback until #1110 / #1111.
     public static func defaultDisplayValue(for tool: Tool) -> Double {
         switch tool {
         case .temp:    return 6500
@@ -300,9 +303,9 @@ public enum ToolValueMapping {
         // Capture sharpening (#271) — relocated from the Develop tab (#875).
         case .captureSharpen: model.captureSharpeningAmount = value
         case .captureSigma:   model.captureSharpeningSigma = value
-        // vignette / grain / splitTone are gated stubs (#952) — unreachable
-        // (the scrub paths guard on `isWired`), kept verbatim so #664 / #665
-        // / #666 only need to flip `isWired` to re-enable the write.
+        // Vignette (#1109) — wired write. grain / splitTone remain gated
+        // stubs (#952), unreachable (the scrub paths guard on `isWired`),
+        // kept verbatim so #1110 / #1111 only need to flip `isWired`.
         case .vignette:   model.vignetteAmount = value
         case .grain:      model.grainAmount = value
         case .splitTone:  model.splitToneBalance = value

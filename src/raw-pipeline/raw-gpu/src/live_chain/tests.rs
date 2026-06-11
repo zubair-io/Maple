@@ -270,6 +270,13 @@ fn single_stage_cases() -> Vec<SingleStage> {
             engage: |m| m.dehaze = 40.0,
         },
         SingleStage {
+            name: "vignette",
+            engage: |m| {
+                m.vignette_amount = -60.0;
+                m.vignette_feather = 40.0; // sub-param; amount is the gate
+            },
+        },
+        SingleStage {
             name: "sharpen",
             engage: |m| {
                 m.sharpen_amount = 60.0;
@@ -428,5 +435,22 @@ fn chain_signature_folds_in_residual_lut_size() {
         chain_signature(&small_inputs, dims),
         chain_signature(&same_size.gpu_inputs(), dims),
         "equal residual_lut_size must keep the signature stable"
+    );
+}
+
+/// Vignette sub-param gating (#1109): `vignette_feather` alone must NOT
+/// engage the pass — the gate is on `vignette_amount`, mirroring the
+/// raw-core stage's identity short-circuit (feather shapes the mask; with
+/// amount 0 the gain field is identically 1.0).
+#[test]
+fn vignette_feather_alone_does_not_engage_the_pass() {
+    let mut case = neutral_case();
+    case.model.vignette_feather = 90.0; // amount stays 0
+    let inputs = case.gpu_inputs();
+    let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes.len(),
+        VIEW_TAIL_PASS_COUNT,
+        "feather without amount must not add a vignette pass"
     );
 }
