@@ -296,6 +296,46 @@ final class XMPSerializationTests: XCTestCase {
                        "stripAppleGPUStages must keep the decode-baked chromaPrefilter")
     }
 
+    // MARK: - Hot/dead-pixel suppression (#1106)
+
+    /// `papp:HotPixelSuppression` parses case-insensitively onto the
+    /// model; unknown values keep the default rather than erroring the
+    /// whole sidecar (Apple parser convention).
+    func testParseHotPixelSuppression() throws {
+        let (m, _) = try XMPParser.parse(xmp(attrs: #"papp:HotPixelSuppression="On""#))
+        XCTAssertEqual(m.hotPixelSuppression, .on)
+        let (m2, _) = try XMPParser.parse(xmp(attrs: #"papp:HotPixelSuppression="off""#))
+        XCTAssertEqual(m2.hotPixelSuppression, .off)
+        let (m3, _) = try XMPParser.parse(xmp(attrs: #"papp:HotPixelSuppression="Maybe""#))
+        XCTAssertEqual(m3.hotPixelSuppression, .off, "unknown value keeps the default")
+    }
+
+    /// HotPixelSuppression round-trips through serialize → parse, and the
+    /// default (.off) emits no attribute so pre-#1106 sidecars stay
+    /// byte-identical.
+    func testHotPixelSuppressionRoundTripAndDefaultOmission() throws {
+        var m = AdjustmentModel()
+        m.hotPixelSuppression = .on
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"papp:HotPixelSuppression="On""#))
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.hotPixelSuppression, .on)
+
+        let defaultXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(defaultXml.contains("papp:HotPixelSuppression"),
+                       "default .off must not be serialized")
+    }
+
+    /// The decode-baked field must survive `stripAppleGPUStages` — same
+    /// cache-key contract as `chromaPrefilter` (#950 baked model).
+    func testStripKeepsHotPixelSuppression() {
+        var m = AdjustmentModel()
+        m.hotPixelSuppression = .on
+        let stripped = RawCoreBridge.stripAppleGPUStages(m)
+        XCTAssertEqual(stripped.hotPixelSuppression, .on,
+                       "stripAppleGPUStages must keep the decode-baked hotPixelSuppression")
+    }
+
     // MARK: - S5 effects + keywords interaction (#632 / #643 merge)
 
     /// The reconciliation of the two XMP file-splits introduces one case

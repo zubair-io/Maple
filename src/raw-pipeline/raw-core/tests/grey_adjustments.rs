@@ -331,6 +331,24 @@ fn chroma_prefilter_engaged_is_identity_on_grey() {
     }
 }
 
+/// Hot/dead-pixel suppression (#1106, tone/zoom design spec § 10.6).
+/// On the synthetic grey card every same-color neighborhood is uniform,
+/// so neither outlier predicate (`v > 2·max + 0.02`, `v < 0.25·min`) can
+/// fire and the stage is exactly identity even when engaged — the
+/// closed-form predictor is the identity function.
+#[test]
+fn hot_pixel_suppression_engaged_is_identity_on_grey() {
+    use raw_core::xmp::HotPixelSuppressionMode;
+    for L in [0.05, 0.18, 0.50] {
+        assert_predicted_scene_linear(
+            L,
+            |m| m.hot_pixel_suppression = HotPixelSuppressionMode::On,
+            |s| s,
+        );
+        assert_neutral_display(L, |m| m.hot_pixel_suppression = HotPixelSuppressionMode::On);
+    }
+}
+
 #[test]
 fn contrast_plus_creates_s_curve() {
     // Contrast is AgX-internal — assert direction in display-encoded u8.

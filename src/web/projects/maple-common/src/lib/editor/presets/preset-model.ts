@@ -82,6 +82,8 @@ export const ENUM_FIELD_VALUES: Readonly<Record<string, readonly string[]>> = {
   look: ['Neutral', 'Default'],
   profile: ['Auto', 'Neutral'],
   tone_curve_mode: ['PerChannel', 'RatioPreserving'],
+  // Hot/dead-pixel suppression (#1106) — decode-product enum field.
+  hot_pixel_suppression: ['Off', 'On'],
 };
 
 // ── Capture (save-preset) ─────────────────────────────────────────────────
