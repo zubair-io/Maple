@@ -27,7 +27,7 @@ use crate::{
     cancel::CancelToken,
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
-    stages::{clarity, dehaze, grain, noise_reduction, saturation, sharpen, texture, vibrance, vignette},
+    stages::{clarity, dehaze, grain, noise_reduction, saturation, sharpen, split_tone, texture, vibrance, vignette},
     types::adjustment::{AutoExposureMode, Profile},
     view::{agx, auto_profile, encode, look},
     xmp::AdjustmentModel,
@@ -204,6 +204,20 @@ fn render_display_from_raw(
     // toward the JPEG distribution rather than a wholesale replacement.
     stage("agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
+    // Split toning (#1111, tone/zoom design § 10.3) — display-linear Oklab
+    // a/b tint with a balance-shifted crossover; L untouched. Runs before
+    // grain so the monochromatic noise lands on the graded image untinted.
+    stage("split_tone", || {
+        split_tone::apply(
+            &mut scene,
+            model.split_tone_shadow_hue,
+            model.split_tone_shadow_saturation,
+            model.split_tone_highlight_hue,
+            model.split_tone_highlight_saturation,
+            model.split_tone_balance,
+        )
+    });
+    dump_after("16a_split_tone", &scene);
     // Film grain (#1110, tone/zoom design § 10.2) — display-linear
     // (post-AgX, before the target gamut): grain is a display-domain
     // aesthetic; injected scene-linear its amplitude would swing with
@@ -510,6 +524,18 @@ pub fn render_from_scene_linear(
     dump_after("00_synthetic_input", &scene);
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
+    // Split toning (#1111) — same display-linear position as the RAW path.
+    stage("synth_split_tone", || {
+        split_tone::apply(
+            &mut scene,
+            model.split_tone_shadow_hue,
+            model.split_tone_shadow_saturation,
+            model.split_tone_highlight_hue,
+            model.split_tone_highlight_saturation,
+            model.split_tone_balance,
+        )
+    });
+    dump_after("16a_split_tone", &scene);
     // Film grain (#1110) — same display-linear position as the RAW path.
     stage("synth_grain", || {
         grain::apply(&mut scene, model.grain_amount, model.grain_size, model.grain_roughness)
@@ -589,6 +615,18 @@ pub fn render_from_scene_linear_with_chain(
     dump_after("15_nr_color", &scene);
     stage("synth_agx", || agx::apply(&mut scene, model.contrast));
     dump_after("16_agx", &scene);
+    // Split toning (#1111) — same display-linear position as the RAW path.
+    stage("synth_split_tone", || {
+        split_tone::apply(
+            &mut scene,
+            model.split_tone_shadow_hue,
+            model.split_tone_shadow_saturation,
+            model.split_tone_highlight_hue,
+            model.split_tone_highlight_saturation,
+            model.split_tone_balance,
+        )
+    });
+    dump_after("16a_split_tone", &scene);
     // Film grain (#1110) — same display-linear position as the RAW path.
     stage("synth_grain", || {
         grain::apply(&mut scene, model.grain_amount, model.grain_size, model.grain_roughness)

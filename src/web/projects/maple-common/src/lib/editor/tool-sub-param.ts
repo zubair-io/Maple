@@ -48,9 +48,9 @@ export interface ToolSubParam {
 
 // Sub-param catalogs for the multi-param pills. §10.0: the Noise pill's
 // future tiers — Deep (BM3D, #1105) and Prefilter (§3.1) — join the
-// `noise` list data-only when their pipeline stages land. Split tone
-// gains its satellite sub-params the same way when #1111 un-stubs it;
-// vignette joined at #1109, grain at #1110.
+// `noise` list data-only when their pipeline stages land. Vignette joined
+// at #1109, grain at #1110, split tone at #1111 (Balance leads — the
+// schema-declared primary drag-bar field).
 const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
   vignette: [
     { id: 'amount', label: 'Amount', field: 'vignetteAmount', mapping: 'anchored', decimals: 0 },
@@ -63,6 +63,43 @@ const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
       id: 'roughness',
       label: 'Roughness',
       field: 'grainRoughness',
+      mapping: 'linear',
+      decimals: 0,
+    },
+  ],
+  splitTone: [
+    {
+      id: 'balance',
+      label: 'Balance',
+      field: 'splitToneBalance',
+      mapping: 'anchored',
+      decimals: 0,
+    },
+    {
+      id: 'shadowHue',
+      label: 'Sh Hue',
+      field: 'splitToneShadowHue',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'shadowSat',
+      label: 'Sh Sat',
+      field: 'splitToneShadowSaturation',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'highlightHue',
+      label: 'Hi Hue',
+      field: 'splitToneHighlightHue',
+      mapping: 'linear',
+      decimals: 0,
+    },
+    {
+      id: 'highlightSat',
+      label: 'Hi Sat',
+      field: 'splitToneHighlightSaturation',
       mapping: 'linear',
       decimals: 0,
     },

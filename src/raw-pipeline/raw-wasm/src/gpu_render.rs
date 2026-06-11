@@ -192,6 +192,13 @@ fn stripped_prefix_model(full: &AdjustmentModel, ae_mode: AutoExposureMode) -> A
         grain_amount: 0.0,
         grain_size: 25.0,
         grain_roughness: 50.0,
+        // Split toning (#1111) — display-tail like grain; pin so sub-param
+        // drags can't spuriously re-develop the prefix.
+        split_tone_shadow_hue: 0.0,
+        split_tone_shadow_saturation: 0.0,
+        split_tone_highlight_hue: 0.0,
+        split_tone_highlight_saturation: 0.0,
+        split_tone_balance: 0.0,
         // Sharpen is short-circuited (`amount = 0`), so its sub-params are inert;
         // pin them to defaults so dragging radius/detail/masking (with the GPU's
         // real `sharpen_amount` active) doesn't spuriously re-develop.
@@ -270,6 +277,11 @@ fn build_full_chain_inputs(
         grain_amount: model.grain_amount,
         grain_size: model.grain_size,
         grain_roughness: model.grain_roughness,
+        split_tone_shadow_hue: model.split_tone_shadow_hue,
+        split_tone_shadow_saturation: model.split_tone_shadow_saturation,
+        split_tone_highlight_hue: model.split_tone_highlight_hue,
+        split_tone_highlight_saturation: model.split_tone_highlight_saturation,
+        split_tone_balance: model.split_tone_balance,
         sharpen_amount: model.sharpen_amount,
         sharpen_radius: model.sharpen_radius,
         sharpen_detail: model.sharpen_detail,

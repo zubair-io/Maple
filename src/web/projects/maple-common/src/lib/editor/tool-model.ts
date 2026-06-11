@@ -101,15 +101,13 @@ export function groupOf(tool: ToolId): ToolGroup {
   throw new Error(`unknown tool: ${tool}`);
 }
 
-// vignette (#1109) and grain (#1110) left the stub list — both are real
-// pipeline stages (CPU + WGSL), so the pills' writes render. splitTone has
-// AdjustmentModel *fields* (added at #643) but no *apply* code yet — it was a
-// live drag-bar that wrote XMP for a silent no-op (#952) and stays gated until
-// #1111 delivers the effect. HSL (#636) and Crop (#638) remain stubs pending
-// their own specs. Presets left the stub list at #1115: the pill opens the
-// presets sheet/popover (see EditorComponent) — it has no drag-bar value, so
+// The S5 effects pills are all real pipeline stages now — vignette (#1109),
+// grain (#1110), splitTone (#1111) left the #952 stub list as their stages
+// landed. HSL (#636) and Crop (#638) remain stubs pending their own specs.
+// Presets left the stub list at #1115: the pill opens the presets
+// sheet/popover (see EditorComponent) — it has no drag-bar value, so
 // `fieldFor` stays null and the value pipe is inert.
-const STUB_TOOLS = new Set<ToolId>(['hsl', 'splitTone', 'crop']);
+const STUB_TOOLS = new Set<ToolId>(['hsl', 'crop']);
 
 export function isWired(tool: ToolId): boolean {
   return !STUB_TOOLS.has(tool);
@@ -145,12 +143,12 @@ const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   // Grain (#1110) — wired; the drag bar drives `grainAmount` (one-sided
   // 0..100, the noise/colorNR affine family).
   grain: ADJUSTMENT_RANGES.grainAmount,
-  // splitTone has no entry on purpose: it is a gated stub (#952),
-  // identical to hsl / crop. With no range, both `displayRange` (→ null)
-  // and the value mapping (→ identity, so the chip reads 0) treat it as
-  // inert — no misleading midpoint value surfaces. To re-wire (#1111):
-  // add the `ADJUSTMENT_RANGES.*` entry back here. presets is wired but
-  // value-less (#1115) — also no entry, same inert mapping.
+  // Split tone (#1111) — wired; the drag bar drives `splitToneBalance`
+  // (the schema-declared primary; symmetric [-100, 100], default arm).
+  splitTone: ADJUSTMENT_RANGES.splitToneBalance,
+  // hsl / crop are stubs pending their own specs; presets is wired but
+  // value-less (#1115) — no entries, the identity mapping keeps their
+  // chips at 0.
 };
 
 export function displayRange(tool: ToolId): readonly [number, number] | null {
@@ -226,17 +224,17 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
       return 'nrLuminance';
     case 'colorNR':
       return 'nrColor';
-    // Vignette (#1109) / grain (#1110) — wired; the drag bars drive the
-    // amounts.
+    // S5 effects (#1109 / #1110 / #1111) — wired; the drag bars drive
+    // each tool's primary sub-param.
     case 'vignette':
       return 'vignetteAmount';
     case 'grain':
       return 'grainAmount';
-    // splitTone is a gated stub (#952) — no apply code exists yet
-    // (#1111). Return null so no XMP field is written and no
-    // modified-dot fires, matching hsl / crop. The splitToneBalance
-    // schema fields still round-trip via passthrough; this only stops
-    // new edits. presets is wired but value-less (#1115) — also null.
+    case 'splitTone':
+      return 'splitToneBalance';
+    // hsl / crop are stubs pending their own specs. Return null so no
+    // XMP field is written and no modified-dot fires. presets is wired
+    // but value-less (#1115) — also null.
     default:
       return null;
   }

@@ -37,6 +37,11 @@ fn default_params() -> MapleAdjustmentParams {
         grain_amount: 0.0,
         grain_size: 25.0,
         grain_roughness: 50.0,
+        split_tone_shadow_hue: 0.0,
+        split_tone_shadow_saturation: 0.0,
+        split_tone_highlight_hue: 0.0,
+        split_tone_highlight_saturation: 0.0,
+        split_tone_balance: 0.0,
     }
 }
 

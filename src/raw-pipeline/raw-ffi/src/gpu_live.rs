@@ -134,6 +134,14 @@ pub struct MapleGpuLiveParams {
     pub grain_amount: f32,
     pub grain_size: f32,
     pub grain_roughness: f32,
+    // --- split toning — display-linear Oklab tint (#1111, tone/zoom design
+    //     § 10.3; runs between agx and grain). Appended at the tail; un-set
+    //     saturations read 0.0 = identity. ---
+    pub split_tone_shadow_hue: f32,
+    pub split_tone_shadow_saturation: f32,
+    pub split_tone_highlight_hue: f32,
+    pub split_tone_highlight_saturation: f32,
+    pub split_tone_balance: f32,
 }
 
 /// Internal handle state: the owned context + session. Behind the opaque pointer.
