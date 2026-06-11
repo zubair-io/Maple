@@ -62,6 +62,11 @@
 //     the Rust `develop_scene_linear_*` decode, post-DCP/PGTM, and has
 //     no Apple Metal equivalent. Default amount = 0 short-circuits the
 //     stage in Rust, so kept fields stay no-op until the user opts in.
+//   * `chromaPrefilter` (#1104)    — decode-time chroma pre-filter, runs
+//     inside the Rust decode product (post-DCP, pre auto-exposure); no
+//     per-tick equivalent anywhere. Default 0 short-circuits the stage.
+//     Because it is KEPT, the #950 baked-model decode-cache key carries
+//     it automatically — changing the value correctly re-decodes.
 //
 // **WB contract** (the previously load-bearing source of magenta-cast
 // bugs): the strip forces the FFI decode to a fixed reference state

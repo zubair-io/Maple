@@ -256,6 +256,46 @@ final class XMPSerializationTests: XCTestCase {
                        "default brightness must not be serialized")
     }
 
+    // MARK: - Chroma pre-filter (#1104)
+
+    /// `papp:ChromaPrefilter` parses onto `model.chromaPrefilter`, and it
+    /// is distinct from ACR's `crs:ColorNoiseReduction` (which maps onto
+    /// the late-chain `nrColor` NLM slider).
+    func testParseChromaPrefilter() throws {
+        let (m, _) = try XMPParser.parse(xmp(attrs: #"papp:ChromaPrefilter="35""#))
+        XCTAssertEqual(m.chromaPrefilter, 35)
+        XCTAssertEqual(m.nrColor, 25, "nrColor must stay at its default")
+    }
+
+    /// ChromaPrefilter round-trips through serialize → parse, and the
+    /// default (0) emits no attribute so pre-#1104 sidecars stay
+    /// byte-identical.
+    func testChromaPrefilterRoundTripAndDefaultOmission() throws {
+        var m = AdjustmentModel()
+        m.chromaPrefilter = 35
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"papp:ChromaPrefilter="35""#))
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.chromaPrefilter, 35)
+
+        let defaultXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(defaultXml.contains("papp:ChromaPrefilter"),
+                       "default chromaPrefilter must not be serialized")
+    }
+
+    /// The decode-baked field must survive `stripAppleGPUStages` — the
+    /// strip removes only the stages the per-tick Apple chain re-applies,
+    /// and the chroma pre-filter has no chain equivalent. This is also
+    /// what keys the decoded-image cache (#950 baked model): if the strip
+    /// dropped it, edits to the field would silently never re-decode.
+    func testStripKeepsChromaPrefilter() {
+        var m = AdjustmentModel()
+        m.chromaPrefilter = 60
+        let stripped = RawCoreBridge.stripAppleGPUStages(m)
+        XCTAssertEqual(stripped.chromaPrefilter, 60,
+                       "stripAppleGPUStages must keep the decode-baked chromaPrefilter")
+    }
+
     // MARK: - S5 effects + keywords interaction (#632 / #643 merge)
 
     /// The reconciliation of the two XMP file-splits introduces one case

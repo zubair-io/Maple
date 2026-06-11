@@ -31,9 +31,10 @@ use crate::{
     image::{CropRect, Image, RawImage},
     linearize,
     stages::{
-        auto_exposure, capture_sharpening, clarity, dehaze, highlight_recovery,
-        highlight_recovery_oklab, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, sharpen, texture, tone_curves, vibrance, white_balance,
+        auto_exposure, capture_sharpening, chroma_prefilter, clarity, dehaze,
+        highlight_recovery, highlight_recovery_oklab, local_adjustments, noise_reduction,
+        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -338,6 +339,15 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
         });
     }
     dump_after("04_profile_gain_table_map", &scene);
+    // Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1) — the
+    // last denoising step of the decode product: after DCP colorimetry +
+    // post-DCP highlight recovery, before capture sharpening (denoise
+    // before deconvolution) and before auto-exposure / WB-delta / all user
+    // adjustments. No-op (bit-identical skip) at the default 0.
+    stage("chroma_prefilter", || {
+        chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
+    });
+    dump_after("04a_chroma_prefilter", &scene);
     // Capture sharpening — Richardson-Lucy deconvolution against a Gaussian
     // PSF, run first thing in scene-linear Rec.2020 so it sees the
     // calibrated sensor signal before any user-facing tone/WB transforms.

@@ -19,9 +19,10 @@ use crate::{
     image::RawImage,
     linearize,
     stages::{
-        auto_exposure, capture_sharpening, clarity, dehaze, highlight_recovery,
-        highlight_recovery_oklab, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, sharpen, texture, tone_curves, vibrance, white_balance,
+        auto_exposure, capture_sharpening, chroma_prefilter, clarity, dehaze,
+        highlight_recovery, highlight_recovery_oklab, local_adjustments, noise_reduction,
+        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
+        white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -190,6 +191,13 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         });
     }
     dump_after("04_profile_gain_table_map", &scene);
+    // Decode-time chroma pre-filter (#1104) — runs on the downsampled
+    // buffer here; same position as the unsized variant (post-PGTM, pre
+    // capture-sharpening). No-op at the default 0.
+    stage("sized_chroma_prefilter", || {
+        chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
+    });
+    dump_after("04a_chroma_prefilter", &scene);
     if let Some(params) = capture_sharpening_params_from_model(model) {
         stage("sized_capture_sharpening", || {
             capture_sharpening::apply_capture_sharpening(&mut scene, &params)

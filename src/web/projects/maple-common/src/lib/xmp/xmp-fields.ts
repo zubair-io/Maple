@@ -100,6 +100,12 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('papp:CaptureSharpeningSigma', 'captureSharpeningSigma'),
   numericField('crs:LuminanceSmoothing', 'nrLuminance'),
   numericField('crs:ColorNoiseReduction', 'nrColor'),
+  // Decode-time chroma pre-filter (#1104, tone/zoom design § 3.1).
+  // Maple-proprietary `papp:` key — there is no ACR equivalent (ACR's
+  // ColorNoiseReduction maps onto the late-chain `nrColor` NLM above;
+  // this stage runs inside the Rust decode product). Mirrors the Rust
+  // (`xmp/mod.rs`) and Swift (`XMPSerialization.swift`) writers.
+  numericField('papp:ChromaPrefilter', 'chromaPrefilter'),
   // ---- S5 effects fields (ticket #643) ----
   // Vignette, Grain, Split toning. Identity-stub scalars wired through
   // to the model + XMP so the editor pills aren't "Coming soon" and the

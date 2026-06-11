@@ -70,6 +70,7 @@ fn schema_matches_struct() {
         tone_curve_red,
         tone_curve_green,
         tone_curve_blue,
+        chroma_prefilter,
     } = m;
     let expected_order = [
         "temperature",
@@ -115,6 +116,7 @@ fn schema_matches_struct() {
         "look",
         "profile",
         "tone_curve_mode",
+        "chroma_prefilter",
     ];
     assert_eq!(
         ADJUSTMENT_SCHEMA.len(),
@@ -177,6 +179,7 @@ fn schema_matches_struct() {
         tone_curve_red,
         tone_curve_green,
         tone_curve_blue,
+        chroma_prefilter,
     );
     // `local_adjustments` is allow-listed: it carries structured data
     // (Vec<LocalAdjustment>) and is documented as not part of the schema
@@ -257,6 +260,7 @@ fn schema_f32_defaults_match_struct_default() {
             "split_tone_highlight_hue" => m.split_tone_highlight_hue,
             "split_tone_highlight_saturation" => m.split_tone_highlight_saturation,
             "split_tone_balance" => m.split_tone_balance,
+            "chroma_prefilter" => m.chroma_prefilter,
             other => panic!("unknown f32 field {}", other),
         };
         assert_eq!(

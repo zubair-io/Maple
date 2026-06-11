@@ -15,5 +15,6 @@ pub mod highlight_recovery;
 pub mod highlight_recovery_oklab;
 pub mod sharpen;
 pub mod capture_sharpening;
+pub mod chroma_prefilter;
 pub mod noise_reduction;
 pub mod local_adjustments;
