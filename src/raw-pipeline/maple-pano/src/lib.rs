@@ -81,3 +81,17 @@ pub mod robust;
 #[cfg(feature = "testkit")]
 pub mod testkit;
 pub mod twoview;
+
+// --- `ml` feature (#1139): ALIKED + LightGlue via ONNX Runtime ----------
+//
+// Native-only detector/matcher stack per the eng design spec §2.2/§5.
+// `features` owns detection (keypoints/descriptors/scores), `matching`
+// owns LightGlue and the `MlMatch` contract records the #1138 geometry
+// side consumes, `models` owns the models.toml manifest, SHA-256
+// verification, and the onnxruntime pre-flight.
+#[cfg(feature = "ml")]
+pub mod features;
+#[cfg(feature = "ml")]
+pub mod matching;
+#[cfg(feature = "ml")]
+pub mod models;
