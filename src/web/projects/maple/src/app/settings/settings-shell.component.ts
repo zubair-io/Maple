@@ -12,7 +12,6 @@ import { SettingsIconComponent, type SettingsIconName } from './settings-icon.co
 export type SettingsSection =
   | 'account'
   | 'workers'
-  | 'backup'
   | 'imports'
   | 'people'
   | 'users'
@@ -36,14 +35,6 @@ const ITEMS: readonly NavItem[] = [
     link: '/settings/workers',
     ownerOnly: true,
     sub: 'Pipeline + enrichment',
-  },
-  {
-    id: 'backup',
-    label: 'Backup',
-    icon: 'copy',
-    link: '/settings/backup',
-    ownerOnly: true,
-    sub: 'Mirror to a second location',
   },
   {
     id: 'imports',

@@ -75,15 +75,10 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./settings/workers/workers.component').then((m) => m.WorkersComponent),
   },
-  // Backup: mirror each library's originals + XMP sidecars to a second
-  // location, with a live two-stage reconcile (scan → copy). Moved out of the
-  // Workers page into its own section.
-  {
-    path: 'settings/backup',
-    canActivate: [authGuard],
-    loadComponent: () =>
-      import('./settings/backup/backup.component').then((m) => m.BackupComponent),
-  },
+  // /settings/backup briefly shipped as its own page (#1073); Backup is now a
+  // group on the Workers page, so redirect the old URL instead of 404ing —
+  // same pattern as the settings/enrichment redirect above.
+  { path: 'settings/backup', redirectTo: 'settings/workers', pathMatch: 'full' },
   // #742 — Imports: copy a server-local folder into a registered library.
   {
     path: 'settings/imports',
