@@ -100,7 +100,14 @@ export function computeRefineTargetLongEdge(args: {
 }): number | null {
   const nativeLong = Math.max(args.nativeW, args.nativeH);
   const scale = Math.min(
-    effectiveRealPixelScale(args.zoom, args.nativeW, args.nativeH, args.wrapW, args.wrapH, args.dpr),
+    effectiveRealPixelScale(
+      args.zoom,
+      args.nativeW,
+      args.nativeH,
+      args.wrapW,
+      args.wrapH,
+      args.dpr,
+    ),
     1,
   );
   const target = Math.min(nativeLong, Math.ceil(nativeLong * scale));

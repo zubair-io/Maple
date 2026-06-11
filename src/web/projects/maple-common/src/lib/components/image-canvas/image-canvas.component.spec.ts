@@ -75,11 +75,21 @@ describe('ImageCanvasComponent — two-phase live re-render (#846/#1101)', () =>
     );
     updateDimsSpy = vi.fn();
 
-    // jsdom has neither; the component observes resize + (de)allocates bitmaps.
+    // jsdom has none of these; the component observes resize, builds an
+    // ImageData per decode, and (de)allocates bitmaps. The ImageData stand-in
+    // lets `imageDataToBitmap` succeed so the component records the painted
+    // size (`paintedLongEdge`) — the refine-skip-at-fit assertions depend on it.
     (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
       observe() {}
       unobserve() {}
       disconnect() {}
+    };
+    (globalThis as unknown as { ImageData: unknown }).ImageData = class {
+      constructor(
+        readonly data: Uint8ClampedArray,
+        readonly width: number,
+        readonly height: number,
+      ) {}
     };
     (globalThis as unknown as { createImageBitmap: unknown }).createImageBitmap = vi.fn(() =>
       Promise.resolve({ close: vi.fn() } as unknown as ImageBitmap),
