@@ -12,16 +12,16 @@
 # Fixtures: test-fixtures/raws/ and test-fixtures/references/ are
 # gitignored (6.5 GB). The harness skip-passes at preflight when its
 # manifest or budgets file is missing (src/scripts/test_color_pipeline.sh
-# lines 73–83); a missing raws/ directory is *not* checked by the
-# script directly — it would only fail later when maple-cli batch tries
-# to open the RAW paths in manifest.json. To keep the workflow robust
-# against partial-fixture states, the probe below treats raws/ AND
-# manifest as load-bearing, and the skip-pass branch points the script
-# at a synthetic non-existent manifest so it unconditionally takes its
-# preflight exit. The job is therefore a no-op on stock runners; it
-# becomes meaningful on a self-hosted runner (or any environment) where
-# fixtures have been provisioned. Fixture provisioning is tracked
-# separately.
+# preflight section); a missing raws/ directory is *not* checked by the
+# script directly — with manifest + budgets present but RAWs absent the
+# script now FAILS CLOSED via its compared==0 gate (#1082) rather than
+# green-no-opping. To keep the workflow robust against partial-fixture
+# states, the probe below treats raws/ AND manifest as load-bearing, and
+# the skip-pass branch points the script at a synthetic non-existent
+# manifest so it unconditionally takes its preflight exit. The job is
+# therefore a no-op on stock runners; it becomes meaningful on a
+# self-hosted runner (or any environment) where fixtures have been
+# provisioned. Fixture provisioning is tracked separately.
 
 name: raw-pipeline
 
@@ -36,6 +36,9 @@ on:
       - 'src/scripts/compare_images.py'
       - 'src/scripts/test_pano_pipeline.sh'
       - 'src/scripts/pano_metrics.py'
+      - 'src/scripts/test_synthetic_grey.sh'
+      - 'src/scripts/test_grey_adjustments.sh'
+      - 'src/scripts/test_grey_dcp.sh'
       - '.github/workflows/raw-pipeline.yml'
   pull_request:
     paths:
@@ -46,6 +49,9 @@ on:
       - 'src/scripts/compare_images.py'
       - 'src/scripts/test_pano_pipeline.sh'
       - 'src/scripts/pano_metrics.py'
+      - 'src/scripts/test_synthetic_grey.sh'
+      - 'src/scripts/test_grey_adjustments.sh'
+      - 'src/scripts/test_grey_dcp.sh'
       - '.github/workflows/raw-pipeline.yml'
 
 concurrency:
@@ -82,6 +88,43 @@ jobs:
       - name: cargo build -p raw-ffi
         working-directory: src/raw-pipeline
         run: cargo build -p raw-ffi
+
+  # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
+  # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.
+  # Everything here runs on a stock Linux runner with no fixtures:
+  #   * `cargo test -p raw-core --features test-support` — lib + integration
+  #     targets. Fixture-dependent tests are `#[cfg_attr(not(feature =
+  #     "fixtures"), ignore)]`, so they are *visibly* ignored here (and fail
+  #     closed — panic on a missing fixture — when `--features fixtures` is
+  #     enabled on a fixture-provisioned machine).
+  #   * The three grey gates (synthetic in-memory DNGs, never skip):
+  #     test_synthetic_grey.sh, test_grey_adjustments.sh, test_grey_dcp.sh.
+  #     They re-run their `--test` targets with `--nocapture` so the
+  #     per-predictor tables land in the CI log; the compile cache is shared
+  #     with the cargo-test step, so the duplication costs seconds.
+  rust-tests:
+    name: rust-tests (cargo test -p raw-core + grey gates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache cargo registry + raw-pipeline target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/raw-pipeline/target
+          key: rust-tests-cargo-${{ runner.os }}-${{ hashFiles('src/raw-pipeline/**/Cargo.lock', 'src/raw-pipeline/**/Cargo.toml') }}
+      - name: cargo test -p raw-core (fixture-free)
+        working-directory: src/raw-pipeline
+        run: cargo test -p raw-core --features test-support
+      - name: Synthetic grey gate (test_synthetic_grey.sh)
+        run: bash src/scripts/test_synthetic_grey.sh
+      - name: Grey adjustments gate (test_grey_adjustments.sh)
+        run: bash src/scripts/test_grey_adjustments.sh
+      - name: Grey DCP gate (test_grey_dcp.sh)
+        run: bash src/scripts/test_grey_dcp.sh
 
   color-pipeline:
     name: color-pipeline (test_color_pipeline.sh)
@@ -133,7 +176,7 @@ jobs:
       # message lands in the log (helps a self-hosted-runner debugger
       # confirm the path the gate took). We override MANIFEST to a path
       # that cannot exist so the script unconditionally takes its
-      # manifest-missing preflight exit (line 73) — guarding against the
+      # manifest-missing preflight exit — guarding against the
       # partial-fixture case where references/manifest.json is present
       # but raws/ isn't, which would otherwise let the script proceed
       # into cargo build with no Rust toolchain installed.
