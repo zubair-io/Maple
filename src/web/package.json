@@ -19,6 +19,8 @@
     "build:maple": "ng build maple",
     "build:syrup": "ng build maple-syrup",
     "watch": "ng build maple --watch --configuration development",
+    "format": "bash scripts/format.sh --write",
+    "format:check": "bash scripts/format.sh --check",
     "test": "ng test",
     "e2e": "playwright test",
     "storybook": "ng run maple:storybook",

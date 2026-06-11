@@ -45,13 +45,13 @@ bash tools/check-file-budget.sh --help
 
 ## Tooling
 
-| When        | What runs                                                                                                            |
-| ----------- | -------------------------------------------------------------------------------------------------------------------- |
-| editor-save | Format-on-save via your editor's prettier / rustfmt / swift-format / ruff integration                                |
-| pre-commit  | `lefthook.yml` — file-budget + prettier + rustfmt + swift-format + ruff + shfmt on staged files (graceful skip)      |
-| commit-msg  | `lefthook.yml` — Conventional Commits regex check on the first line                                                  |
-| CI          | `.github/workflows/api.yml` runs API tests. Cross-cutting `cross.yml` (lint + budget + parity gates) tracked in #114 |
-| weekly      | (planned) parity-budget ratchet sweep                                                                                |
+| When        | What runs                                                                                                                                           |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| editor-save | Format-on-save via your editor's prettier / rustfmt / swift-format / ruff integration                                                               |
+| pre-commit  | `lefthook.yml` — file-budget + prettier + rustfmt + swift-format + ruff + shfmt on staged files (graceful skip)                                     |
+| commit-msg  | `lefthook.yml` — Conventional Commits regex check on the first line                                                                                 |
+| CI          | `.github/workflows/api.yml` runs API tests. Cross-cutting `cross.yml`: prettier format-check on changed files, file budget, codegen drift, gitleaks |
+| weekly      | (planned) parity-budget ratchet sweep                                                                                                               |
 
 Install lefthook once per clone:
 
@@ -64,13 +64,13 @@ If a formatter binary isn't installed locally, the corresponding pre-commit step
 
 ## Per-language formatter + lint
 
-| Language          | Format                                             | Lint                 | Config                                                             |
-| ----------------- | -------------------------------------------------- | -------------------- | ------------------------------------------------------------------ |
-| TypeScript / HTML | `prettier --check` (printWidth 100, single quotes) | `ng lint` (web only) | `src/web/.prettierrc`                                              |
-| Rust              | `rustfmt --edition 2021`                           | `cargo clippy`       | repo defaults (no `rustfmt.toml` yet)                              |
-| Swift             | `xcrun swift-format lint --strict`                 | (same)               | repo defaults (no `.swift-format` yet — Xcode bundled config used) |
-| Python            | `ruff format --check`                              | `ruff check`         | repo defaults (no `pyproject.toml` yet)                            |
-| Shell             | `shfmt -d`                                         | `shellcheck` (CI)    | repo defaults                                                      |
+| Language          | Format                                             | Lint                | Config                                                             |
+| ----------------- | -------------------------------------------------- | ------------------- | ------------------------------------------------------------------ |
+| TypeScript / HTML | `prettier --check` (printWidth 100, single quotes) | — (none configured) | `src/web/.prettierrc`                                              |
+| Rust              | `rustfmt --edition 2021`                           | `cargo clippy`      | repo defaults (no `rustfmt.toml` yet)                              |
+| Swift             | `xcrun swift-format lint --strict`                 | (same)              | repo defaults (no `.swift-format` yet — Xcode bundled config used) |
+| Python            | `ruff format --check`                              | `ruff check`        | repo defaults (no `pyproject.toml` yet)                            |
+| Shell             | `shfmt -d`                                         | `shellcheck` (CI)   | repo defaults                                                      |
 
 `rustfmt.toml`, `.swift-format`, and `pyproject.toml` will land alongside the first formatter run that needs non-default settings — kept lean until a real reason appears.
 
