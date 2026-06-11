@@ -69,7 +69,7 @@ extension AdjustmentModel.FieldName {
         case .captureSharpeningRadius:      return nil
         // Enum-valued / not in the Swift model.
         case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
-             .toneCurveMode:
+             .toneCurveMode, .hotPixelSuppression:
             return nil
         }
     }
@@ -145,6 +145,10 @@ public enum PresetAdjustments {
                 fields[field.rawValue] = .string(model.look.rawValue)
             case .profile where model.profile != defaults.profile:
                 fields[field.rawValue] = .string(model.profile.rawValue)
+            // Hot/dead-pixel suppression (#1106) — enum decode-product field.
+            case .hotPixelSuppression
+                where model.hotPixelSuppression != defaults.hotPixelSuppression:
+                fields[field.rawValue] = .string(model.hotPixelSuppression.rawValue)
             default:
                 break
             }
@@ -189,6 +193,10 @@ public enum PresetAdjustments {
             case .profile:
                 guard let profile = Profile(rawValue: rawValue) else { continue }
                 merged.profile = profile
+                applied += 1
+            case .hotPixelSuppression:
+                guard let mode = HotPixelSuppressionMode(rawValue: rawValue) else { continue }
+                merged.hotPixelSuppression = mode
                 applied += 1
             default:
                 continue

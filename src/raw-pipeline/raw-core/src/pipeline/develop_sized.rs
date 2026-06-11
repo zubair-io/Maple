@@ -20,9 +20,9 @@ use crate::{
     linearize,
     stages::{
         auto_exposure, capture_sharpening, chroma_prefilter, clarity, dehaze,
-        highlight_recovery, highlight_recovery_oklab, local_adjustments, noise_reduction,
-        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        white_balance,
+        highlight_recovery, highlight_recovery_oklab, hot_pixel, local_adjustments,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
+        vibrance, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -95,7 +95,11 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         }
         crate::image::CfaPattern::XTrans(_) => {
             // X-Trans dispatch — see `develop.rs` for the rationale.
-            let mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            let mut mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            // Hot/dead-pixel suppression (#1106) — see the unsized variant.
+            stage("sized_hot_pixel", || {
+                hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
+            });
             stage("sized_demosaic_xtrans", || match quality {
                 RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
                 RenderQuality::Full | RenderQuality::Amaze => {
@@ -104,7 +108,11 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
             })
         }
         _ => {
-            let mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            let mut mosaic = stage("sized_linearize", || linearize::sensor_linearize(raw));
+            // Hot/dead-pixel suppression (#1106) — see the unsized variant.
+            stage("sized_hot_pixel", || {
+                hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
+            });
             // Interactive Bayer paths use cancellable kernels; see the
             // unsized variant for the AMaZE / HA rationale.
             stage("sized_demosaic", || match quality {

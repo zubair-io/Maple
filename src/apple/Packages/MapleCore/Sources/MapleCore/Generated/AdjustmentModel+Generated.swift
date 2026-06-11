@@ -58,6 +58,7 @@ extension AdjustmentModel {
         case profile = "profile"
         case toneCurveMode = "tone_curve_mode"
         case chromaPrefilter = "chroma_prefilter"
+        case hotPixelSuppression = "hot_pixel_suppression"
     }
 
     // MARK: - Range constants (canonical, generated)

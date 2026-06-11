@@ -22,6 +22,8 @@ export type WbMethod = 'Cat16' | 'DiagonalRec2020';
 
 export type AutoExposureMode = 'Off' | 'On';
 
+export type HotPixelSuppressionMode = 'Off' | 'On';
+
 export interface GeneratedAdjustmentModel {
   /** White balance correlated color temperature in Kelvin. Range: [2000.0, 12000.0]. */
   temperature: number;
@@ -111,6 +113,8 @@ export interface GeneratedAdjustmentModel {
   toneCurveMode: ToneCurveMode;
   /** Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key. Range: [0.0, 100.0]. */
   chromaPrefilter: number;
+  /** Hot/dead-pixel suppression (#1106, tone/zoom design spec § 10.6). Pre-demosaic same-color-neighbor outlier replacement inside the decode product; 'Off' (default) skips the stage bit-identically. XMP key `papp:HotPixelSuppression`. Part of the decoded-image cache key. */
+  hotPixelSuppression: HotPixelSuppressionMode;
 }
 
 /** Canonical `[min, max]` range for each scalar field, generated from raw-core. */
@@ -202,5 +206,6 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     profile: 'Auto',
     toneCurveMode: 'PerChannel',
     chromaPrefilter: 0.0,
+    hotPixelSuppression: 'Off',
   };
 }
