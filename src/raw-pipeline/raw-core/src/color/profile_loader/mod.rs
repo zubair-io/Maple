@@ -349,19 +349,17 @@ mod tests {
     #[test]
     fn bundled_profiles_load_and_contain_fixture_cameras() {
         let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
-        // `profiles.bin` is committed to the repo (required at compile time
-        // by `include_bytes!`), so this path normally has entries. The
-        // empty-table guard below covers the corrupted-header /
-        // version-mismatch case — `parser::parse_bundle` returns an empty
-        // map in those scenarios — and matches the "fixtures missing → soft
-        // pass" pattern in test_color_pipeline.sh.
-        if table.is_empty() {
-            eprintln!(
-                "profile_loader: bundle empty (profiles.bin missing or stale); \
-                 skipping camera-coverage assertions"
-            );
-            return;
-        }
+        // `profiles.bin` is COMMITTED and `include_bytes!`-embedded (the
+        // crate would not even compile without it), so an empty table —
+        // `parser::parse_bundle` returns an empty map on a corrupted header
+        // or version mismatch — is a corrupt artifact, not a missing
+        // fixture. Fail loudly rather than skip-pass (#1082); mirrors
+        // `shipped_bundle_has_no_duplicate_ucms` in parser.rs.
+        assert!(
+            !table.is_empty(),
+            "embedded profiles.bin parsed to an empty table — corrupt bundle \
+             (header/version mismatch)"
+        );
 
         // These three bodies are the catastrophic-ΔE fixtures from #324.
         let expected = [
@@ -393,9 +391,9 @@ mod tests {
     #[test]
     fn iphone_lens_variants_are_distinct_keys() {
         let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
-        if table.is_empty() {
-            return;
-        }
+        // Embedded bundle — empty means corrupt, not absent. See
+        // `bundled_profiles_load_and_contain_fixture_cameras` (#1082).
+        assert!(!table.is_empty(), "embedded profiles.bin parsed to an empty table");
         let variants = [
             "iPhone13,3 back camera",
             "iPhone13,3 back telephoto camera",
@@ -425,11 +423,9 @@ mod tests {
     #[test]
     fn bundle_ships_at_least_one_body_with_nonzero_be_offset() {
         let table = PROFILE_TABLE.get_or_init(|| parser::parse_bundle(PROFILES_BIN));
-        if table.is_empty() {
-            // Soft-pass when profiles.bin is missing/stale, matching the
-            // "fixtures absent → soft pass" pattern elsewhere.
-            return;
-        }
+        // Embedded bundle — empty means corrupt, not absent. See
+        // `bundled_profiles_load_and_contain_fixture_cameras` (#1082).
+        assert!(!table.is_empty(), "embedded profiles.bin parsed to an empty table");
         let any_with_be = table.values().any(|p| p.baseline_exposure_offset != 0.0);
         assert!(
             any_with_be,

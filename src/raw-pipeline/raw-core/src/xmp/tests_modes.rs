@@ -12,13 +12,13 @@ use super::*;
 
 /// Duplicate of `tests::load_fixture` — the sibling `mod tests`
 /// is a private cousin we can't import without leaking the helper into
-/// production code. Kept verbatim so load semantics (`None` when the
-/// gitignored fixture tree is absent) match `tests.rs`.
-fn load_fixture(rel: &str) -> Option<String> {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/references")
-        .join(rel);
-    std::fs::read_to_string(path).ok()
+/// production code. Kept verbatim so load semantics (panic when the
+/// gitignored fixture tree is incomplete, #1082) match `tests.rs`;
+/// callers are `#[cfg_attr(not(feature = "fixtures"), ignore)]`.
+fn load_fixture(rel: &str) -> String {
+    let path = crate::test_support::fixtures::require_reference(rel);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read fixture {}: {}", path.display(), e))
 }
 
 #[test]
@@ -170,55 +170,49 @@ fn defaults_includes_slice5_detail_fields() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_sharpen_amount_max() {
-    let xml = match load_fixture("test_0002/xmp/sharpen_amount_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/sharpen_amount_max.xmp");
     let m = parse(&xml).unwrap();
     assert!(m.sharpen_amount >= 100.0, "sharpen_amount = {}", m.sharpen_amount);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_sharpen_radius_max() {
-    let xml = match load_fixture("test_0002/xmp/sharpen_radius_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/sharpen_radius_max.xmp");
     let m = parse(&xml).unwrap();
     assert!(m.sharpen_radius >= 2.9, "sharpen_radius = {}", m.sharpen_radius);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_sharpen_detail_min() {
-    let xml = match load_fixture("test_0002/xmp/sharpen_detail_min.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/sharpen_detail_min.xmp");
     let m = parse(&xml).unwrap();
     assert!(m.sharpen_detail <= 0.5);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_sharpen_masking_max() {
-    let xml = match load_fixture("test_0002/xmp/sharpen_masking_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/sharpen_masking_max.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.sharpen_masking, 100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_nr_luminance_max() {
-    let xml = match load_fixture("test_0002/xmp/nr_luminance_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/nr_luminance_max.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.nr_luminance, 100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_nr_color_max() {
-    let xml = match load_fixture("test_0002/xmp/nr_color_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/nr_color_max.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.nr_color, 100.0);
 }

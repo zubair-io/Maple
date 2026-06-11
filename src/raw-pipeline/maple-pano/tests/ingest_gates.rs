@@ -2,13 +2,14 @@
 //!
 //! Run against the gitignored DJI pano fixtures at
 //! `test-fixtures/raws/pano_01/` (repo root; symlink them in on dev
-//! machines). When the fixtures are absent every test skip-passes with a
-//! message — mirroring the `test_color_pipeline.sh` "no fixtures,
-//! skipping" pattern so CI without RAWs stays green.
+//! machines). Both tests are `#[cfg_attr(not(feature = "fixtures"),
+//! ignore)]` (#1082): visibly ignored on machines without RAWs, and
+//! fail-closed — a missing fixture panics — when `--features fixtures`
+//! is enabled on a fixture-provisioned machine.
 //!
 //! The full-decode gate runs a 21 MP demosaic; debug-profile runs take
 //! tens of seconds. Prefer `cargo test --release -p maple-pano --test
-//! ingest_gates` when fixtures are present.
+//! ingest_gates --features fixtures` when fixtures are present.
 
 use std::path::PathBuf;
 
@@ -18,26 +19,26 @@ fn pano01_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../test-fixtures/raws/pano_01")
 }
 
-fn fixtures_present() -> bool {
+/// Panic when the pano fixture set is absent. Callers carry the
+/// `fixtures`-feature `ignore` gate, so this only fires when the run
+/// explicitly asked for fixtures and provisioning is broken.
+fn require_fixtures() {
     let p = pano01_dir().join("PANO0001.DNG");
-    if !p.exists() {
-        eprintln!(
-            "skip: {} not present (pano fixtures are gitignored)",
-            p.display()
-        );
-        return false;
-    }
-    true
+    assert!(
+        p.exists(),
+        "missing fixture: {} — pano fixtures are gitignored; provision \
+         test-fixtures/raws/pano_01/ or run without --features fixtures",
+        p.display()
+    );
 }
 
 /// Spec §5.1 / ticket gate: decode one pano_01 frame → expected
 /// dimensions, finite values, plausible scene-linear range, full
 /// validity, correct priors.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn ingest_pano0001_full_frame() {
-    if !fixtures_present() {
-        return;
-    }
+    require_fixtures();
     let frame = ingest_file(&pano01_dir().join("PANO0001.DNG")).expect("ingest PANO0001");
 
     // Identity + dims: DJI Mavic 3 Cine, DefaultCrop 5272×3948 out of the
@@ -101,10 +102,9 @@ fn ingest_pano0001_full_frame() {
 /// frame must yield the EXIF focal pair, the derived pixel focal, and a
 /// gimbal prior; yaw must traverse the pano's six-column sweep.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn priors_extracted_for_all_21_frames() {
-    if !fixtures_present() {
-        return;
-    }
+    require_fixtures();
     let mut frames: Vec<PathBuf> = std::fs::read_dir(pano01_dir())
         .expect("read pano_01")
         .filter_map(|e| e.ok().map(|e| e.path()))

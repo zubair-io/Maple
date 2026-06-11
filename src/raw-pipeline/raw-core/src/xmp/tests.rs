@@ -8,10 +8,14 @@
 
 use super::*;
 
-fn load_fixture(rel: &str) -> Option<String> {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/references").join(rel);
-    std::fs::read_to_string(path).ok()
+/// Read a sidecar fixture under `test-fixtures/references/` (gitignored).
+/// Panics when absent — callers are `#[cfg_attr(not(feature = "fixtures"),
+/// ignore)]`, so the panic only fires when fixtures were explicitly
+/// requested and the tree turned out to be incomplete (#1082).
+fn load_fixture(rel: &str) -> String {
+    let path = crate::test_support::fixtures::require_reference(rel);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read fixture {}: {}", path.display(), e))
 }
 
 #[test]
@@ -29,10 +33,9 @@ fn defaults() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_baseline_is_reference_defaults() {
-    let xml = match load_fixture("test_0002/xmp/baseline.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/baseline.xmp");
     let m = parse(&xml).unwrap();
     // baseline.xmp is the camera's default reference-renderer sidecar,
     // which records the reference renderer's user-visible defaults
@@ -51,39 +54,35 @@ fn parse_baseline_is_reference_defaults() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_exposure_max() {
-    let xml = match load_fixture("test_0002/xmp/exposure_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/exposure_max.xmp");
     let m = parse(&xml).unwrap();
     assert!(m.exposure > 0.5, "exposure was {}", m.exposure);
     assert_eq!(m.dehaze, 0.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_dehaze_max() {
-    let xml = match load_fixture("test_0002/xmp/dehaze_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/dehaze_max.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.dehaze, 100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_wb_daylight_uses_preset() {
-    let xml = match load_fixture("test_0002/xmp/wb_daylight.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/wb_daylight.xmp");
     let m = parse(&xml).unwrap();
     assert!((m.temperature - 5500.0).abs() < 1.0,
         "expected 5500K from Daylight preset, got {}", m.temperature);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_wb_tungsten_uses_preset() {
-    let xml = match load_fixture("test_0002/xmp/wb_tungsten.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/wb_tungsten.xmp");
     let m = parse(&xml).unwrap();
     assert!((m.temperature - 2850.0).abs() < 1.0,
         "expected 2850K from Tungsten preset, got {}", m.temperature);
@@ -126,46 +125,41 @@ fn defaults_includes_new_slice2_fields() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_contrast_max() {
-    let xml = match load_fixture("test_0002/xmp/contrast_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/contrast_max.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.contrast, 100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_highlights_min() {
-    let xml = match load_fixture("test_0002/xmp/highlights_min.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/highlights_min.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.highlights, -100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_shadows_max() {
-    let xml = match load_fixture("test_0002/xmp/shadows_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/shadows_max.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.shadows, 100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_whites_max() {
-    let xml = match load_fixture("test_0002/xmp/whites_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/whites_max.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.whites, 100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_blacks_min() {
-    let xml = match load_fixture("test_0002/xmp/blacks_min.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/blacks_min.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.blacks, -100.0);
 }
@@ -180,37 +174,33 @@ fn defaults_includes_slice3_presence_fields() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_vibrance_max() {
-    let xml = match load_fixture("test_0002/xmp/vibrance_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/vibrance_max.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.vibrance, 100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_saturation_min() {
-    let xml = match load_fixture("test_0002/xmp/saturation_min.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/saturation_min.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.saturation, -100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_clarity_max() {
-    let xml = match load_fixture("test_0002/xmp/clarity_max.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/clarity_max.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.clarity, 100.0);
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn parse_texture_min() {
-    let xml = match load_fixture("test_0002/xmp/texture_min.xmp") {
-        Some(x) => x, None => return,
-    };
+    let xml = load_fixture("test_0002/xmp/texture_min.xmp");
     let m = parse(&xml).unwrap();
     assert_eq!(m.texture, -100.0);
 }

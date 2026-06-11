@@ -4,10 +4,10 @@
 //! shows up as a test failure rather than a silent change in slider
 //! recommendations.
 //!
-//! Fixture-gated: when `test-fixtures/raws/test_0017.dng` is absent (CI
-//! without the gitignored RAWs), the test soft-passes with a `skipping`
-//! message, mirroring the `test_color_pipeline.sh` "no fixtures, skipping"
-//! pattern.
+//! Fixture-gated (#1082): `#[cfg_attr(not(feature = "fixtures"), ignore)]`
+//! — visibly ignored without the gitignored RAWs; with `--features
+//! fixtures` a missing `test-fixtures/raws/test_0017.dng` panics
+//! (fail-closed) instead of silently passing.
 //!
 //! [`compute_auto_tone_from_rgba`]: raw_core::stages::auto_tone::compute_auto_tone_from_rgba
 
@@ -62,18 +62,13 @@ fn fixture_path() -> Option<PathBuf> {
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn auto_tone_against_test_0017_is_stable() {
-    let fixture = match fixture_path() {
-        Some(p) => p,
-        None => {
-            eprintln!(
-                "test_0017.dng not found in any CARGO_MANIFEST_DIR ancestor \
-                 or under MAPLE_TEST_FIXTURE_ROOT — skipping (matches the \
-                 test_color_pipeline.sh skip-pattern)"
-            );
-            return;
-        }
-    };
+    let fixture = fixture_path().expect(
+        "missing fixture: test_0017.dng not found in any CARGO_MANIFEST_DIR \
+         ancestor or under MAPLE_TEST_FIXTURE_ROOT — provision the gitignored \
+         RAWs or run without --features fixtures (#1082)",
+    );
 
     let out = Command::new(env!("CARGO_BIN_EXE_maple-cli"))
         .args(["auto-tone"])

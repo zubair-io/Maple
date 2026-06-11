@@ -2,7 +2,8 @@
 //!
 //! Split out from `mod.rs` to keep each file under the 600-LOC budget
 //! (#482). Exercises the public render entries — disk-backed fixture
-//! renders (skip-passes when fixtures absent), the synthetic
+//! renders (`ignore`d without `--features fixtures`; fail closed on a
+//! missing fixture with it, #1082), the synthetic
 //! `render_from_scene_linear` invariants, and the f32 / fp16 scene-linear
 //! parity checks (#416, #482). Moved verbatim; the inner `mod tests {}`
 //! wrapper becomes the file itself.
@@ -11,6 +12,7 @@
 
 use super::*;
 use crate::synthetic_input::{halo_disk, hue_patch, neutral_ramp, Primary};
+use crate::test_support::fixtures::require_raw;
 
 /// Shell helper for tests only — reads from disk then runs the pure
 /// pipeline. The core no longer exposes a path-based entrypoint.
@@ -39,10 +41,9 @@ fn render_path_with_auto(
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_test_0002_baseline_produces_plausible_png_bytes() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = require_raw("test_0002.dng");
     let model = AdjustmentModel::default();
     let (w, h, bytes) = render_path(&path, &model).expect("render baseline");
     assert_eq!(bytes.len() as u32, w * h * 3);
@@ -71,10 +72,9 @@ fn render_test_0002_baseline_produces_plausible_png_bytes() {
 ///    of which profile source is in play. The PTC field is dead data
 ///    in the develop chain.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_test_0013_ptc_is_noop_under_colorimetry_only() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0013.DNG");
-    if !path.exists() { return; }
+    let path = require_raw("test_0013.DNG");
     let bytes = std::fs::read(&path).unwrap();
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode iPhone");
     assert!(raw.profile_tone_curve.is_some(),
@@ -104,10 +104,9 @@ fn render_test_0013_ptc_is_noop_under_colorimetry_only() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_test_0002_exposure_max_is_brighter_than_baseline() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = require_raw("test_0002.dng");
     let model_baseline = AdjustmentModel::default();
     let model_bright = AdjustmentModel { exposure: 4.0, ..Default::default() };
     let (_, _, baseline) = render_path(&path, &model_baseline).unwrap();
@@ -122,10 +121,9 @@ fn render_test_0002_exposure_max_is_brighter_than_baseline() {
 /// Preview, full for Full. Verify: the buffer is 8 bytes/pixel (4 ×
 /// fp16), alpha is 1.0 everywhere, and the buffer is non-zero.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_scene_linear_test_0002_preview_returns_rec2020_fp16_rgba() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();
@@ -161,10 +159,9 @@ fn render_scene_linear_test_0002_preview_returns_rec2020_fp16_rgba() {
 /// — fp16 loses ~3 bits of mantissa in highlights/shadows, which
 /// shows up as banding on smooth gradients.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_scene_linear_f32_test_0002_preview_returns_rec2020_f32_rgba() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();
@@ -192,10 +189,9 @@ fn render_scene_linear_f32_test_0002_preview_returns_rec2020_f32_rgba() {
 /// f32 sized variant: caps the long edge and produces packed f32
 /// alpha=1.0 lanes.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_scene_linear_sized_f32_test_0002_caps_long_edge_at_1500() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();
@@ -212,10 +208,9 @@ fn render_scene_linear_sized_f32_test_0002_caps_long_edge_at_1500() {
 }
 
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_scene_linear_sized_test_0002_caps_long_edge_at_1500() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();
@@ -491,11 +486,7 @@ fn t6_synthetic_auto_equals_neutral() {
 #[cfg_attr(not(feature = "fixtures"), ignore)]
 fn t6_auto_profile_differs_from_neutral_on_test_0017() {
     use crate::view::look::Look;
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0017.dng");
-    if !path.exists() {
-        return;
-    }
+    let path = require_raw("test_0017.dng");
     // Force `Look::Neutral` on both renders — Look is the same on either
     // branch, so excluding it isolates the dispatch under test.
     let auto = AdjustmentModel {
@@ -524,13 +515,10 @@ fn t6_auto_profile_differs_from_neutral_on_test_0017() {
 /// Sourceless call with `Profile::Auto` falls back to AgX-Neutral — the
 /// resulting bytes must equal an explicit `Profile::Neutral` render.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn t6_auto_without_path_equals_neutral() {
     use crate::view::look::Look;
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    let path = require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let auto = AdjustmentModel {

@@ -39,10 +39,11 @@ golden = []
 high-quality-demosaic = []
 # Test-only DNG synthesis helpers. NEVER enable in shipping artifacts.
 test-support = []
-# Gates fixture-dependent tests under `test-fixtures/raws/` (repo-root). The
-# RAWs are gitignored, so the gated tests skip-pass in environments without
-# them. Enable with `--features fixtures` when fixtures are present locally.
-# Build-time only; no runtime impact.
+# Gates fixture-dependent tests under `test-fixtures/{raws,references}/`
+# (repo-root, gitignored). WITHOUT the feature those tests are visibly
+# `ignored`; WITH `--features fixtures` they run and a MISSING fixture
+# panics (fail-closed, #1082 — see `test_support::fixtures`). Enable on
+# fixture-provisioned machines only. Build-time only; no runtime impact.
 fixtures = []
 # When enabled, raw-core writes one OpenEXR file per pipeline stage to the
 # directory named by the MAPLE_STAGE_DUMP env var (no-op when the env var is

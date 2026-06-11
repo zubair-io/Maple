@@ -1742,20 +1742,15 @@ mod tests {
     /// guarantee: the synthesised CM must not be `Matrix3::IDENTITY`
     /// (which was the pre-#424 catastrophe — camera RGB treated as XYZ).
     ///
-    /// Skip-passes when `test-fixtures/raws/test_0004.fff` is absent
-    /// (matches the soft-pass pattern used throughout this crate). The
+    /// `ignore`d without `--features fixtures`; with the feature a missing
+    /// `test-fixtures/raws/test_0004.fff` fails closed (#1082). The
     /// numeric `mean` improvement is measured by
     /// `src/scripts/test_color_pipeline.sh`, not asserted here — unit
     /// tests can't reproduce ACR's perceptual reference.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn test_0004_hasselblad_h5d40_never_returns_identity_matrix() {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../test-fixtures/raws/test_0004.fff");
-        if !path.exists() {
-            eprintln!("test_0004.fff not present; skip-passing (matches \
-                       test_color_pipeline.sh soft-pass pattern)");
-            return;
-        }
+        let path = crate::test_support::fixtures::require_raw("test_0004.fff");
         let raw = crate::decode::decode(&path).expect("decode test_0004.fff");
         // Sanity: this body is the uncovered-by-bundle case the ticket
         // names. If it ever gets bundled, this test loses its meaning;

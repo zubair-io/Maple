@@ -3,6 +3,7 @@
 //! the feature is opt-in and only enabled by Cargo when running tests
 //! or the `synth-grey` example.
 
+pub mod fixtures;
 pub mod synth_dng;
 pub mod predictions;
 pub mod predictions_display;
