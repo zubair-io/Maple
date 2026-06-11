@@ -104,11 +104,15 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// (split-tone) deliver the effects. The `vignetteAmount` /
     /// `grainAmount` / `splitToneBalance` fields still round-trip via
     /// passthrough; this only stops the UI creating new no-op edits.
-    /// HSL (#636), Crop (#638), and Presets (#639) remain stubs pending
-    /// their own specs.
+    /// HSL (#636) and Crop (#638) remain stubs pending their own specs.
+    ///
+    /// Presets left the stub list at #1115: the pill opens the presets
+    /// sheet/popover (see EditorView) instead of carrying a drag-bar
+    /// value — `displayRange` stays nil, so the value pipe is inert for
+    /// it (the scrub/reset guards also check `displayRange`).
     public var isWired: Bool {
         switch self {
-        case .hsl, .vignette, .grain, .splitTone, .crop, .presets:
+        case .hsl, .vignette, .grain, .splitTone, .crop:
             return false
         default:
             return true
@@ -407,8 +411,14 @@ public final class EditorState {
     /// `model` setter already routes to `XMPSidecarStore.update`'s 750ms
     /// debounce). Caller is responsible for `commit()`-ing on gesture
     /// release so undo snapshot boundaries land at slider-up.
+    ///
+    /// The `displayRange` guard skips wired-but-value-less tools (presets,
+    /// #1115): without it the inout write-back through
+    /// `ToolValueMapping.apply` would fire `session.model`'s setter (and
+    /// its sidecar debounce) for a no-op.
     public func setArmedDisplayValue(_ value: Double) {
-        guard armedTool.isWired else { return }
+        guard armedTool.isWired,
+              ToolValueMapping.displayRange(for: armedTool) != nil else { return }
         ToolValueMapping.apply(value, to: &session.model, tool: armedTool)
     }
 
@@ -466,7 +476,10 @@ public final class EditorState {
     /// "modified" and reset returns to the same value the model was
     /// born with.
     public func resetArmedTool() {
-        guard armedTool.isWired else { return }
+        // The `displayRange` guard skips wired-but-value-less tools
+        // (presets, #1115) so they can't push junk undo entries.
+        guard armedTool.isWired,
+              ToolValueMapping.displayRange(for: armedTool) != nil else { return }
         commit()
         setArmedDisplayValue(ToolValueMapping.defaultDisplayValue(for: armedTool))
     }
@@ -474,5 +487,31 @@ public final class EditorState {
     /// Reset to the snapshot at session open (clears all sliders).
     public func resetAll() {
         session.resetToOriginal()
+    }
+
+    // MARK: Presets (#1115, spec §10.7)
+
+    /// Apply a preset: sparse merge of its recognized fields into the
+    /// current model as ONE undo-ring entry (`commit()` then a single
+    /// `session.model` write). Persistence rides the existing debounced
+    /// XMP sidecar save inside `EditSession.model`'s setter — presets
+    /// never touch original files. Returns false when the preset carries
+    /// nothing this client can apply (unknown-only fields), in which case
+    /// no undo entry is pushed.
+    @discardableResult
+    public func applyPreset(_ preset: Preset) -> Bool {
+        let (merged, applied) = PresetAdjustments.merged(
+            session.model, applying: preset.fields
+        )
+        guard applied > 0 else { return false }
+        commit()
+        session.model = merged
+        return true
+    }
+
+    /// Sparse capture of the current model's non-default schema fields —
+    /// what "Save preset" stores.
+    public func capturePresetFields() -> [String: PresetFieldValue] {
+        PresetAdjustments.captureFields(from: session.model)
     }
 }
