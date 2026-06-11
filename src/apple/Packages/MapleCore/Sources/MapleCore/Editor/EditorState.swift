@@ -318,6 +318,13 @@ public final class EditorState {
     /// Released on touch-up by the gesture handler.
     public var fineMode: Bool = false
 
+    /// Canvas zoom/pan state for the editor's image canvas (#1099,
+    /// spec §5.0). Owned here so its lifetime matches the (session,
+    /// editor) pairing exactly — both hosts (`EditorSessionHost`,
+    /// `EditorDestination`) rebuild `EditorState` per asset, which
+    /// resets zoom to fit on every open, same as the legacy surface.
+    public let zoom: CanvasZoomController
+
     public init(session: EditSession,
                 armedGroup: ToolGroup = .light,
                 armedTool: Tool = .exposure)
@@ -325,6 +332,7 @@ public final class EditorState {
         self.session = session
         self.armedGroup = armedGroup
         self.armedTool = armedTool
+        self.zoom = CanvasZoomController(session: session)
     }
 
     /// `true` when the session's model has diverged from its original

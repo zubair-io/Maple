@@ -1,23 +1,26 @@
 // FullImageView.swift — Full-resolution canvas with zoom/pan, toolbar, and
 // before/after.
 //
-// Zoom / pan implementation is ported verbatim from the Maple reference's
-// `FullImageMode/FullImageView.swift` so the feel matches: pinch-to-zoom
-// anchors against `pinchStartScale`, drag-to-pan accumulates into `basePan`
-// on release, double-tap resets to fit, and the zoom indicator sits in the
-// bottom-leading corner of the canvas. Keyboard shortcuts ⌘0/⌘1/⌘=/⌘- drive
-// the same state transitions as the toolbar buttons.
+// The zoom/pan/gesture machinery that used to live here verbatim was
+// extracted into the shared `CanvasZoomHost` + `CanvasZoomController` +
+// `CanvasZoomModel` stack (#1099, spec §5.0) so the S5 `EditorView` and
+// this legacy surface run the exact same model:
 //
-// Zoom model (`pixelScale`): real screen pixels per image pixel.
-//   • 0        = fit-to-viewport (resolved against `geo.size` + `displayScale`
-//                at read time)
-//   • 1.0      = pixel-perfect 1:1 (one image px = one real screen px)
-//   • ≤ 8.0    = zoomed-in beyond native (upper bound matches reference)
+//   • `pixelScale`: real screen pixels per image pixel — 0 = fit,
+//     1.0 = pixel-perfect, 8.0 cap (docs/zoom.md).
+//   • Pinch anchored against a start-captured scale, pan clamped,
+//     snap-to-fit below fit × 1.02, double-tap reset, zoom badge.
 //
-// The view pushes `pixelScale` and `previewSize` onto the session so the
-// pipeline's two-phase render can retarget the refined pass at the right
-// size — a 100% zoom on a 100MP RAW renders at full resolution, while fit
-// mode stays at viewport resolution for the 16ms slider budget.
+// This file keeps what is specific to the legacy surface: the GPU-live
+// vs CPU canvas branch, the before/after + error + progress overlays,
+// the GPU frame-time HUD, and the toolbar (⌘0 fit / ⌘1 100% / ⌘= in /
+// ⌘- out) driving the shared controller.
+//
+// The view pushes `pixelScale` and `previewSize` onto the session (via
+// the controller) so the pipeline's two-phase render can retarget the
+// refined pass at the right size — a 100% zoom on a 100MP RAW renders at
+// full resolution, while fit mode stays at viewport resolution for the
+// 16ms slider budget.
 
 import SwiftUI
 import CoreImage
@@ -28,182 +31,83 @@ struct FullImageView: View {
     /// `EditSession` is `@Observable`; SwiftUI tracks property access directly.
     let session: EditSession
 
-    // MARK: - Zoom state (ported verbatim from reference)
+    /// Shared zoom state + session plumbing (#1099). Rebuilt whenever
+    /// the hosted session object changes (SwiftUI reuses this view
+    /// across selection changes) — see the `.task(id:)` below.
+    @State private var zoomController: CanvasZoomController?
 
-    /// Real screen pixels per image pixel.
-    ///   • 0 = fit-to-viewport.
-    ///   • 1.0 = pixel-perfect (1:1).
-    ///   • > 1.0 = zoomed-in beyond native.
-    /// Matches the reference's `FullImageView.pixelScale`.
-    @State private var pixelScale: CGFloat = 0
-    /// Scale captured at gesture start. `MagnifyGesture.value.magnification` is
-    /// cumulative — anchor against this instead of the live pixelScale.
-    @State private var baseScale: CGFloat = 0
-    @State private var pinchStartScale: CGFloat?
-    @State private var panOffset: CGSize = .zero
-    @State private var basePan: CGSize = .zero
-    @State private var viewportSize: CGSize = .zero
-
-    @Environment(\.displayScale) private var displayScale
     @FocusState private var isFocused: Bool
-
-    /// Upper clamp on `pixelScale`. Reference caps at 8× so a 24MP image
-    /// can show pixel-level noise without the refine target blowing past
-    /// sensible memory budgets. Sourced from the VM so unit tests and the
-    /// view share one constant.
-    private var maxPixelScale: CGFloat { FullImageViewVM.maxPixelScale }
-
-    // MARK: - Canvas math (Ticket 10 item I — DRY value type)
-
-    /// Build a `CanvasMath` snapshot from the current view state. The
-    /// session's `nativeImageSize` is the only trustworthy image extent
-    /// (every other source — `renderedPreview`, embedded JPEG, sized-FFI
-    /// buffer — carries a smaller extent that, if fed into the
-    /// canvas/zoom math, anchors "100%" to a preview-resolution
-    /// baseline). When `nativeImageSize` is `.zero` the body's
-    /// `imageExtent` accessor returns nil and we fall through to the
-    /// placeholder branch — see notes on `CanvasMath.imageExtent`.
-    ///
-    /// `viewport` is in POINTS (SwiftUI's `geo.size`); we convert to
-    /// real pixels here once so all `CanvasMath`-derived math operates
-    /// on the same unit.
-    private func canvasMath(viewport: CGSize) -> CanvasMath {
-        let viewportPx = FullImageViewVM.viewportInPixels(viewport: viewport, displayScale: displayScale)
-        return CanvasMath(
-            viewportPx: viewportPx,
-            nativeImageSize: session.nativeImageSize,
-            pixelScale: pixelScale,
-            panOffset: panOffset,
-            displayScale: displayScale
-        )
-    }
-
-    /// Resolves "fit" mode to a concrete scale. Reads `viewport` so the
-    /// toolbar/keyboard paths (which don't have a `GeometryReader` in
-    /// scope) can share the same math as gestures.
-    private func effectivePixelScale(viewport: CGSize) -> CGFloat {
-        canvasMath(viewport: viewport).effectivePixelScale
-    }
-
-    /// Real-screen-pixels-per-image-pixel for fit-to-viewport. Used by
-    /// gestures + zoomOut to anchor "snap back to fit" math against the
-    /// viewport's fit scale (independent of the user's current zoom).
-    private func fitPixelScale(viewport: CGSize) -> CGFloat {
-        canvasMath(viewport: viewport).fitPixelScale
-    }
-
-    /// Push the current visible source rect + zoom to the session. Called
-    /// from every path that mutates `pixelScale` or `panOffset` so the
-    /// tile manager always sees the live viewport.
-    private func notifyVisibleRegion() {
-        let math = canvasMath(viewport: viewportSize)
-        session.updateTileVisibleRegion(
-            viewport: math.visibleSourceRect,
-            zoom: math.effectivePixelScale
-        )
-    }
-
-    /// Push viewport size + resolved pixel scale to the session. Called
-    /// on first mount, on viewport resize, and after the metadata seed
-    /// publishes a real `nativeImageSize` (where the fit-resolved scale
-    /// changes from the pre-decode estimate to the real value). Captures
-    /// the points → real-pixels conversion + `effectivePixelScale` in one
-    /// place so we don't re-derive them at three call sites.
-    private func syncSessionToViewport(_ viewport: CGSize) {
-        let math = canvasMath(viewport: viewport)
-        // `previewSize` is in real screen pixels — the pipeline's target
-        // matches hardware and CoreImage auto-tiles only when it must.
-        session.previewSize = math.viewportPx
-        session.pixelScale = math.effectivePixelScale
-    }
 
     // MARK: - Canvas content (CPU CIImage vs wgpu live present)
 
-    /// The canvas image. The wgpu chain presents directly into a `CAMetalLayer`
-    /// (`GpuLiveCanvasView`, no `renderedPreview` CIImage) only when
-    /// `FullImageViewVM.shouldPresentViaGpuCanvas` holds — the runtime flag is
-    /// on (`GpuLiveFlag.isEnabled`), the asset is RAW, and we're not showing the
-    /// before/after original. Otherwise the CPU `CIImageView` rasters
-    /// `renderedPreview` exactly as before.
-    ///
-    /// The `asset.isRaw` gate mirrors `EditSession.presentViaGpuLive`'s own
-    /// `guard asset.isRaw`: the GPU live chain only handles RAW, so a non-RAW
-    /// asset must fall through to `cpuCanvasContent`. Without it the view would
-    /// show the opaque (and never-presented) `CAMetalLayer` for a JPEG / HEIC /
-    /// PNG — a permanently blank canvas.
-    @ViewBuilder
-    private func canvasContent(geo: GeometryProxy) -> some View {
-        let useGpuCanvas = FullImageViewVM.shouldPresentViaGpuCanvas(
+    /// True when the canvas should present via the wgpu live path. The
+    /// `asset.isRaw` gate mirrors `EditSession.presentViaGpuLive`'s own
+    /// `guard asset.isRaw`: the GPU live chain only handles RAW, so a
+    /// non-RAW asset must fall through to the CPU leaf. Without it the
+    /// view would show the opaque (and never-presented) `CAMetalLayer`
+    /// for a JPEG / HEIC / PNG — a permanently blank canvas.
+    private var useGpuCanvas: Bool {
+        FullImageViewVM.shouldPresentViaGpuCanvas(
             flagEnabled: GpuLiveFlag.isEnabled,
             isRaw: session.asset.isRaw,
             showingOriginal: session.showingOriginal
         )
-        if useGpuCanvas,
-           let frameInPoints = canvasMath(viewport: geo.size).displayFrameInPoints {
+    }
+
+    /// True when the host should render the canvas leaf (vs the
+    /// placeholder). The GPU layer mounts immediately; the CPU leaf
+    /// needs a published preview (and the before/after "original"
+    /// overlay always shows the placeholder, as before).
+    private var canvasIsReady: Bool {
+        useGpuCanvas || (!session.showingOriginal && session.renderedPreview != nil)
+    }
+
+    /// The canvas leaf the zoom host frames + pans. The wgpu chain
+    /// presents directly into a `CAMetalLayer` (`GpuLiveCanvasView`, no
+    /// `renderedPreview` CIImage) when `useGpuCanvas` holds; otherwise
+    /// the CPU `CIImageView` rasters `renderedPreview` exactly as
+    /// before. The frame is driven by the session's `nativeImageSize`
+    /// exclusively (via `CanvasZoomController.displayFrameInPoints`) —
+    /// the CIImage itself may be at a smaller resolution (embedded
+    /// preview, half-res fast phase) and CoreImage upscales to fill.
+    @ViewBuilder
+    private var canvasLeaf: some View {
+        if useGpuCanvas {
             GpuLiveCanvasView(session: session)
-                .frame(width: frameInPoints.width, height: frameInPoints.height)
-                .offset(panOffset)
-                .gesture(magnificationGesture(viewport: geo.size))
-                .simultaneousGesture(dragGesture(viewport: geo.size))
-                .onTapGesture(count: 2) { resetZoom() }
                 .accessibilityIdentifier(
                     FullImageViewVM.canvasAccessibilityID(
                         isRendering: session.isRendering,
                         hasPreview: session.gpuFramePresented // true once the wgpu chain presented a frame (#1069)
                     )
                 )
-        } else {
-            cpuCanvasContent(geo: geo)
-        }
-    }
-
-    /// The CPU canvas: raster `renderedPreview` via `CIImageView`, or the
-    /// placeholder while the first render is in flight. This is the path taken
-    /// whenever the GPU live flag is off (`GpuLiveFlag.isEnabled == false`).
-    @ViewBuilder
-    private func cpuCanvasContent(geo: GeometryProxy) -> some View {
-        if let ci = session.showingOriginal ? nil : session.renderedPreview,
-           let frameInPoints = canvasMath(viewport: geo.size).displayFrameInPoints {
-            // Frame on the *virtual* image size — `nativeImageSize`
-            // exclusively. The CIImage itself may be at a smaller
-            // resolution (embedded preview, cached JPEG, half-res
-            // fast phase) and CoreImage will upscale to fill this
-            // frame. Falling back to `ci.extent.size` here would
-            // collapse the canvas to preview dims while waiting
-            // for native to seed — the user reported exactly this
-            // on iPad. `CanvasMath.displayFrameInPoints` returns
-            // nil when the native size hasn't seeded, so the
-            // placeholder branch fires instead of the wrong-scale
-            // canvas.
+        } else if let ci = session.showingOriginal ? nil : session.renderedPreview {
+            // UITest harness sentinel — the identifier only appears once
+            // the refine pass has published a preview AND `isRendering`
+            // has flipped false. The harness waits via
+            // NSPredicate(exists==1) on
+            // `app.otherElements["canvas-render-ready"]`. See
+            // .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
             CIImageView(image: ci)
-                .frame(width: frameInPoints.width, height: frameInPoints.height)
-                .offset(panOffset)
-                .gesture(magnificationGesture(viewport: geo.size))
-                .simultaneousGesture(dragGesture(viewport: geo.size))
-                .onTapGesture(count: 2) { resetZoom() }
-                // UITest harness sentinel — the identifier only
-                // appears once the refine pass has published a
-                // preview AND `isRendering` has flipped false.
-                // The harness waits via NSPredicate(exists==1) on
-                // `app.otherElements["canvas-render-ready"]`. See
-                // .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
                 .accessibilityIdentifier(
                     FullImageViewVM.canvasAccessibilityID(
                         isRendering: session.isRendering,
                         hasPreview: session.renderedPreview != nil
                     )
                 )
-        } else {
-            // Placeholder while rendering
-            RoundedRectangle(cornerRadius: 8)
-                .fill(MapleTokens.surfaceAlt)
-                .frame(maxWidth: 800, maxHeight: 600)
-                .overlay {
-                    Image(systemName: "photo")
-                        .font(.system(size: 60))
-                        .foregroundStyle(MapleTokens.textMuted)
-                }
         }
+    }
+
+    /// Placeholder while rendering (or while the zoom controller is
+    /// being built on first mount).
+    private var canvasPlaceholder: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(MapleTokens.surfaceAlt)
+            .frame(maxWidth: 800, maxHeight: 600)
+            .overlay {
+                Image(systemName: "photo")
+                    .font(.system(size: 60))
+                    .foregroundStyle(MapleTokens.textMuted)
+            }
     }
 
     // MARK: - GPU frame-time HUD (validation-only overlay)
@@ -224,116 +128,111 @@ struct FullImageView: View {
     // MARK: - Body
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                // Background
-                MapleTokens.imageCanvas.ignoresSafeArea()
+        ZStack {
+            // Background
+            MapleTokens.imageCanvas.ignoresSafeArea()
 
-                // Canvas content — the wgpu live path (when the runtime flag is
-                // on) presents into a CAMetalLayer via `GpuLiveCanvasView`;
-                // otherwise the CPU `CIImageView` rasters `renderedPreview`. The
-                // runtime branch lives inside `canvasContent(geo:)`.
-                canvasContent(geo: geo)
-
-                // Before/After overlay
-                if session.showingOriginal {
-                    VStack {
-                        Spacer()
-                        Text("BEFORE")
-                            .font(.caption.bold())
-                            .foregroundStyle(.white)
-                            .padding(6)
-                            .background(.black.opacity(0.6), in: Capsule())
-                            .padding(.bottom, 12)
-                    }
-                }
-
-                // Render error banner
-                if let err = session.renderError {
-                    VStack {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                            Text(err.localizedDescription)
-                                .font(.caption)
-                                .lineLimit(2)
-                        }
-                        .foregroundStyle(.white)
-                        .padding(8)
-                        .background(Color.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
-                        .padding(.top, 12)
-                        Spacer()
-                    }
-                }
-
-                // Render indicator — only while we have no preview yet, so
-                // slider ticks don't flash a spinner on every frame.
-                if FullImageViewVM.shouldShowRenderIndicator(
-                    isRendering: session.isRendering,
-                    hasPreview: EditSession.canvasHasFrame(
-                        gpuActive: GpuLiveFlag.isEnabled && !session.showingOriginal,
-                        gpuFramePresented: session.gpuFramePresented,
-                        hasRenderedPreview: session.renderedPreview != nil
-                    )
+            // Canvas content — the shared zoom host frames the leaf at
+            // the resolved display frame, owns pinch / pan / double-tap
+            // / wheel routing, clips overflow, and renders the zoom
+            // badge. Double-tap resets to fit (the legacy behavior; the
+            // S5 editor opts into the fit ↔ 100% toggle instead).
+            if let controller = zoomController, controller.session === session {
+                CanvasZoomHost(
+                    controller: controller,
+                    doubleTapBehavior: .resetToFit,
+                    canvasReady: canvasIsReady
                 ) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
+                    canvasLeaf
+                } fallback: {
+                    canvasPlaceholder
+                }
+            } else {
+                // One transient frame on first mount / session swap
+                // while the `.task(id:)` below builds the controller.
+                canvasPlaceholder
+            }
+
+            // Before/After overlay
+            if session.showingOriginal {
+                VStack {
+                    Spacer()
+                    Text("BEFORE")
+                        .font(.caption.bold())
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(.black.opacity(0.6), in: Capsule())
+                        .padding(.bottom, 12)
                 }
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipped()
-            .overlay(alignment: .bottomLeading) {
-                zoomIndicator(viewport: geo.size)
+
+            // Render error banner
+            if let err = session.renderError {
+                VStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(err.localizedDescription)
+                            .font(.caption)
+                            .lineLimit(2)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(8)
+                    .background(Color.red.opacity(0.85), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.top, 12)
+                    Spacer()
+                }
             }
-            .overlay(alignment: .topTrailing) {
-                // GPU frame-time HUD — validation-only (gpu build +
-                // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise.
-                frameTimeHud()
+
+            // Render indicator — only while we have no preview yet, so
+            // slider ticks don't flash a spinner on every frame.
+            if FullImageViewVM.shouldShowRenderIndicator(
+                isRendering: session.isRendering,
+                hasPreview: EditSession.canvasHasFrame(
+                    gpuActive: GpuLiveFlag.isEnabled && !session.showingOriginal,
+                    gpuFramePresented: session.gpuFramePresented,
+                    hasRenderedPreview: session.renderedPreview != nil
+                )
+            ) {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
             }
-            .onAppear {
-                viewportSize = geo.size
-                syncSessionToViewport(geo.size)
-                session.ensureRenderStarted()
-            }
-            .onChange(of: geo.size) { _, newSize in
-                viewportSize = newSize
-                syncSessionToViewport(newSize)
-            }
-            .onChange(of: session.nativeImageSize) { _, _ in
-                // Before the decode publishes real dimensions, fit mode has
-                // to guess. Recompute once the size lands so the idle refine
-                // stays at viewport resolution instead of accidentally
-                // targeting the full preview buffer on first open.
-                syncSessionToViewport(viewportSize)
-            }
-            .onChange(of: session.asset.id) { _, _ in
-                // Asset switched under us (SwiftUI may reuse the view
-                // across navigation). Reset zoom to fit so a stale
-                // pixelScale from the previous image doesn't make the new
-                // image's refine pass target the full native extent.
-                pixelScale = 0
-                panOffset = .zero
-                basePan = .zero
-                syncSessionToViewport(viewportSize)
-                // Drop the GPU frame-time window so the new image's HUD doesn't
-                // carry the prior image's samples (the driver/session persist
-                // across the reused view). No-op when the HUD isn't recording.
-                session.gpuLiveDriver?.frameStats.reset()
-            }
+        }
+        .overlay(alignment: .topTrailing) {
+            // GPU frame-time HUD — validation-only (gpu build +
+            // MAPLE_GPU_HUD=1); compiles out / EmptyView otherwise.
+            frameTimeHud()
         }
         .background(MapleTokens.imageCanvas)
         .contentShape(Rectangle())
         .focusable()
         .focused($isFocused)
         .focusEffectDisabled()
+        // Build / rebuild the zoom controller when the hosted session
+        // object changes (SwiftUI reuses this view across navigation; a
+        // controller pinned to the previous session would sync zoom into
+        // the wrong pipeline). A fresh controller starts at fit.
+        .task(id: ObjectIdentifier(session)) {
+            if zoomController?.session !== session {
+                zoomController = CanvasZoomController(session: session)
+            }
+        }
         .onAppear {
             isFocused = true
-            // Reset to fit on open so every image lands in fit mode
-            // regardless of the last asset's zoom (reference task(id:) reset).
-            pixelScale = 0
-            baseScale = 0
-            panOffset = .zero
-            basePan = .zero
+            // Reset to fit on (re-)open so every image lands in fit mode
+            // regardless of the last visit's zoom (reference task(id:)
+            // reset). No-op on first mount — the fresh controller is
+            // already at fit.
+            zoomController?.resetToFit()
+            session.ensureRenderStarted()
+        }
+        .onChange(of: session.asset.id) { _, _ in
+            // The zoom host resets zoom to fit itself; this view only
+            // drops the GPU frame-time window so the new image's HUD
+            // doesn't carry the prior image's samples (the driver /
+            // session persist across the reused view). No-op when the
+            // HUD isn't recording.
+            session.gpuLiveDriver?.frameStats.reset()
         }
         .toolbar {
             // Zoom controls grouped on the LEADING toolbar edge (right of
@@ -343,19 +242,25 @@ struct FullImageView: View {
             // Keyboard shortcuts match (⌘0 Fit, ⌘1 100%, ⌘= in, ⌘- out).
             ToolbarItemGroup(placement: .navigation) {
                 Button("Fit", systemImage: "arrow.down.right.and.arrow.up.left") {
-                    resetZoom()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        zoomController?.resetToFit()
+                    }
                 }
                 .keyboardShortcut("0", modifiers: .command)
                 .help("Fit (⌘0)")
 
                 Button("100%", systemImage: "1.circle") {
-                    setZoom(to: 1.0)
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        zoomController?.zoomToScale(1.0)
+                    }
                 }
                 .keyboardShortcut("1", modifiers: .command)
                 .help("Actual size (⌘1)")
 
                 Button {
-                    zoomOut()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        zoomController?.stepZoomOut()
+                    }
                 } label: {
                     Image(systemName: "minus.magnifyingglass")
                 }
@@ -364,7 +269,9 @@ struct FullImageView: View {
                 .accessibilityLabel("Zoom out")
 
                 Button {
-                    zoomIn()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        zoomController?.stepZoomIn()
+                    }
                 } label: {
                     Image(systemName: "plus.magnifyingglass")
                 }
@@ -373,141 +280,6 @@ struct FullImageView: View {
                 .accessibilityLabel("Zoom in")
             }
         }
-    }
-
-    // MARK: - Zoom indicator (reference's `zoomIndicator(viewport:)`)
-
-    /// Live zoom-percentage label, pinned to the bottom-leading corner.
-    /// Reference shows a raw percent at all times; we keep that so the user
-    /// sees fit mode as a concrete number (e.g. "18%") rather than the word
-    /// "Fit". Matches the reference 1:1.
-    private func zoomIndicator(viewport: CGSize) -> some View {
-        let scale = effectivePixelScale(viewport: viewport)
-        return Text(FullImageViewVM.zoomPercentLabel(for: scale))
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 4))
-            .padding(8)
-            .accessibilityLabel(FullImageViewVM.zoomAccessibilityLabel(for: scale))
-    }
-
-    // MARK: - Gestures (ported from reference verbatim)
-
-    private func magnificationGesture(viewport: CGSize) -> some Gesture {
-        MagnifyGesture()
-            .onChanged { value in
-                // Anchor against the scale at gesture start — `magnification`
-                // is cumulative, multiplying into live pixelScale compounds.
-                let start = pinchStartScale ?? effectivePixelScale(viewport: viewport)
-                if pinchStartScale == nil { pinchStartScale = start }
-
-                let fit = fitPixelScale(viewport: viewport)
-                pixelScale = FullImageViewVM.pinchScale(start: start, magnification: value.magnification, fit: fit)
-            }
-            .onEnded { value in
-                let start = pinchStartScale ?? effectivePixelScale(viewport: viewport)
-                let fit = fitPixelScale(viewport: viewport)
-                let newScale = FullImageViewVM.pinchScale(start: start, magnification: value.magnification, fit: fit)
-                pixelScale = newScale
-                baseScale = newScale
-                pinchStartScale = nil
-
-                // Snap back to fit if pinched near unity — keeps the
-                // indicator honest and prevents 0.998× oddities.
-                if FullImageViewVM.shouldSnapToFit(newScale, fit: fit) {
-                    pixelScale = 0
-                    baseScale = 0
-                    panOffset = .zero
-                    basePan = .zero
-                }
-                // During the gesture, zoom is just a SwiftUI transform on
-                // the current bitmap. Commit once on release so target-size
-                // refinements don't swap brightness mid-pinch.
-                session.pixelScale = effectivePixelScale(viewport: viewport)
-                // Plan 3 — push the new visible rect to the tile
-                // manager so the deep-zoom branch (>= 1.0) re-targets.
-                notifyVisibleRegion()
-            }
-    }
-
-    private func dragGesture(viewport: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 1)
-            .onChanged { value in
-                if pixelScale > 0 {
-                    // Zoomed in — accumulate pan.
-                    panOffset = FullImageViewVM.accumulatedPan(base: basePan, translation: value.translation)
-                }
-                // Fit-mode horizontal swipes are handled by the library
-                // view model / left-right arrow keys in AppShell; this view
-                // doesn't fire navigation on drag to keep the reference's
-                // pan-only feel.
-            }
-            .onEnded { _ in
-                if pixelScale > 0 {
-                    basePan = panOffset
-                    // Plan 3 — pan committed; push new visible rect.
-                    notifyVisibleRegion()
-                }
-            }
-    }
-
-    // MARK: - Zoom actions
-
-    private func resetZoom() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            pixelScale = 0
-            baseScale = 0
-            panOffset = .zero
-            basePan = .zero
-            session.pixelScale = effectivePixelScale(viewport: viewportSize)
-        }
-        // Plan 3 — fit mode disables the deep-zoom branch (zero rect).
-        notifyVisibleRegion()
-    }
-
-    private func setZoom(to scale: CGFloat) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-            pixelScale = FullImageViewVM.clampedExplicitZoom(scale)
-            baseScale = pixelScale
-            panOffset = .zero
-            basePan = .zero
-            session.pixelScale = pixelScale
-        }
-        notifyVisibleRegion()
-    }
-
-    private func zoomIn() {
-        // Anchor at fit when we're in fit mode so the first ⌘= actually zooms.
-        let current = pixelScale == 0
-            ? effectivePixelScale(viewport: viewportSize)
-            : pixelScale
-        withAnimation(.easeInOut(duration: 0.15)) {
-            pixelScale = FullImageViewVM.zoomInTarget(current: current)
-            baseScale = pixelScale
-            session.pixelScale = pixelScale
-        }
-        notifyVisibleRegion()
-    }
-
-    private func zoomOut() {
-        let fit = fitPixelScale(viewport: viewportSize)
-        let current = pixelScale == 0 ? fit : pixelScale
-        withAnimation(.easeInOut(duration: 0.15)) {
-            switch FullImageViewVM.zoomOutTarget(current: current, fit: fit) {
-            case .snapToFit:
-                pixelScale = 0
-                baseScale = 0
-                panOffset = .zero
-                basePan = .zero
-            case .scale(let next):
-                pixelScale = next
-                baseScale = pixelScale
-            }
-            session.pixelScale = effectivePixelScale(viewport: viewportSize)
-        }
-        notifyVisibleRegion()
     }
 }
 
