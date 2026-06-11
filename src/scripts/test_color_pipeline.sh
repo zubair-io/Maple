@@ -19,9 +19,12 @@
 #   3. Print column-aligned table sorted by fixture/case
 #   4. Aggregate per-fixture and grand mean; non-zero exit on any budget breach
 #
-# CI-style soft skip: missing test-fixtures/raws/, missing manifest, missing
-# budgets.json, or manifest with zero matchable cases all exit 0 with a notice.
-# Lets the script grow with the reference set as the user adds more fixtures.
+# CI-style soft skip: a missing manifest or missing budgets.json exits 0 with
+# a notice (CI without the gitignored references is a soft pass). Once BOTH
+# exist, the gate fails closed (#1082): zero comparisons in a diff pass —
+# filter matching nothing, unresolvable RAW paths, or an empty candidate dir —
+# exits non-zero instead of green-no-opping. maple-cli batch failures are
+# surfaced (exit code + skipped(no-candidate) counts) rather than swallowed.
 #
 # Env overrides:
 #   MAPLE_CLI            override path to a pre-built maple-cli binary
@@ -120,8 +123,16 @@ if [[ -n "$FILTER" ]]; then
   batch_args+=( --cases-filter "$FILTER" )
 fi
 # maple-cli batch returns non-zero if ANY case fails (e.g. unsupported X3F).
-# That's expected with a heterogeneous fixture set — don't abort the script.
-"$MAPLE_CLI" "${batch_args[@]}" 2>&1 | sed 's/^/  /' || true
+# That's expected with a heterogeneous fixture set — don't abort the script,
+# but DO surface the exit code (#1082): failed cases show up below as
+# skipped(no-candidate), and a batch that produced nothing at all is caught
+# by the compared==0 fail-closed gate in the diff pass.
+batch_neutral_exit=0
+"$MAPLE_CLI" "${batch_args[@]}" 2>&1 | sed 's/^/  /' || batch_neutral_exit=$?
+if [[ "$batch_neutral_exit" -ne 0 ]]; then
+  echo "test_color_pipeline: WARNING — maple-cli batch (neutral) exited $batch_neutral_exit;"
+  echo "test_color_pipeline: cases it failed to render are counted as skipped(no-candidate) below"
+fi
 echo ""
 
 # Auto pass — same ACR reference images, Profile::Auto view transform.
@@ -137,7 +148,12 @@ echo "test_color_pipeline: rendering candidates (auto) ..."
 # "test_0007"), honour it; otherwise default to "baseline".
 auto_filter="${FILTER:-baseline}"
 auto_batch_args=( batch --manifest "$MANIFEST" --out-dir "$AUTO_CANDIDATES_DIR" --profile auto --cases-filter "$auto_filter" )
-"$MAPLE_CLI" "${auto_batch_args[@]}" 2>&1 | sed 's/^/  /' || true
+batch_auto_exit=0
+"$MAPLE_CLI" "${auto_batch_args[@]}" 2>&1 | sed 's/^/  /' || batch_auto_exit=$?
+if [[ "$batch_auto_exit" -ne 0 ]]; then
+  echo "test_color_pipeline: WARNING — maple-cli batch (auto) exited $batch_auto_exit;"
+  echo "test_color_pipeline: cases it failed to render are counted as skipped(no-candidate) below"
+fi
 echo ""
 
 # ----- 2. Walk manifest, diff each case vs its reference -------------------
@@ -351,6 +367,22 @@ print(f"# stats: {len(all_rows)} compared, {breach_count} budget breach(es), "
       f"{skipped_no_raw} skipped(no-raw), {skipped_no_cand} skipped(no-candidate), "
       f"{skipped_no_ref} skipped(no-reference), {errors} errors")
 
+# Fail closed on zero comparisons (#1082). The preflight already proved
+# manifest + budgets exist, so comparing nothing means the gate was a
+# no-op — a filter that matches nothing, every RAW path unresolvable
+# (e.g. a manifest written for a different machine), or a maple-cli
+# batch that produced no candidates. All of those used to exit 0.
+fail_no_comparisons = len(all_rows) == 0
+if fail_no_comparisons:
+    if not cases:
+        print("FAIL: 0 manifest cases match the filter — nothing was compared. "
+              "A gate that compares nothing must not pass (#1082).")
+    else:
+        print(f"FAIL: 0 of {len(cases)} matching manifest cases were compared "
+              f"({skipped_no_raw} no-raw, {skipped_no_cand} no-candidate, "
+              f"{skipped_no_ref} no-reference). Manifest + budgets exist, so "
+              "zero comparisons means broken fixture provisioning, not a pass (#1082).")
+
 # One-line JSON summary on the very last line for CI scrapers.
 summary = {
     "compared": len(all_rows),
@@ -366,7 +398,7 @@ summary = {
 }
 print(json.dumps(summary))
 
-sys.exit(1 if (errors > 0 or breach_count > 0) else 0)
+sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
 PY
 
 # ----- 3. Auto pass: diff Profile::Auto candidates vs the same ACR refs ----
@@ -526,6 +558,22 @@ print(f"# stats: {len(all_rows)} compared, {breach_count} budget breach(es), "
       f"{skipped_no_raw} skipped(no-raw), {skipped_no_cand} skipped(no-candidate), "
       f"{skipped_no_ref} skipped(no-reference), {errors} errors")
 
+# Fail closed on zero comparisons (#1082), with one auto-pass nuance: this
+# pass only covers `/baseline` cases, so a case-level FILTER (e.g.
+# "dehaze_max") legitimately leaves zero baseline cases in scope — that is
+# a vacuous pass, not a failure (the neutral pass above still gates the
+# filtered cases). But if baseline cases ARE in scope and none compared,
+# the gate was a silent no-op and must fail.
+fail_no_comparisons = bool(cases) and len(all_rows) == 0
+if fail_no_comparisons:
+    print(f"FAIL: 0 of {len(cases)} matching baseline cases were compared "
+          f"({skipped_no_raw} no-raw, {skipped_no_cand} no-candidate, "
+          f"{skipped_no_ref} no-reference). Manifest + budgets exist, so "
+          "zero comparisons means broken fixture provisioning, not a pass (#1082).")
+elif not cases:
+    print("# note: no /baseline manifest cases match the filter — auto pass is "
+          "vacuous (case-level FILTER); the neutral pass above is the gate.")
+
 summary = {
     "profile": "auto",
     "compared": len(all_rows),
@@ -538,10 +586,16 @@ summary = {
 }
 print(json.dumps(summary))
 
-sys.exit(1 if (errors > 0 or breach_count > 0) else 0)
+sys.exit(1 if (errors > 0 or breach_count > 0 or fail_no_comparisons) else 0)
 PY_AUTO
 
-# Aggregate exit: fail if either pass had breaches or errors.
+# Aggregate exit: fail if either diff pass had breaches, errors, or zero
+# comparisons (fail-closed, #1082). Batch exit codes are surfaced above and
+# echoed here for the log tail; they don't independently fail the gate —
+# partially-renderable fixture sets (e.g. unsupported X3F cases) are expected,
+# and a batch that produced nothing trips the compared==0 gate instead.
+echo ""
+echo "test_color_pipeline: batch exits: neutral=$batch_neutral_exit auto=$batch_auto_exit; diff passes: neutral=$neutral_exit auto=$auto_exit"
 if [[ "$neutral_exit" -ne 0 ]] || [[ "$auto_exit" -ne 0 ]]; then
   exit 1
 fi
