@@ -48,13 +48,24 @@ export interface ToolSubParam {
 
 // Sub-param catalogs for the multi-param pills. §10.0: the Noise pill's
 // future tiers — Deep (BM3D, #1105) and Prefilter (§3.1) — join the
-// `noise` list data-only when their pipeline stages land. Grain / split
-// tone gain their satellite sub-params the same way when #1110 / #1111
-// un-stub them; vignette joined at #1109.
+// `noise` list data-only when their pipeline stages land. Split tone
+// gains its satellite sub-params the same way when #1111 un-stubs it;
+// vignette joined at #1109, grain at #1110.
 const SUB_PARAMS: Partial<Record<ToolId, readonly ToolSubParam[]>> = {
   vignette: [
     { id: 'amount', label: 'Amount', field: 'vignetteAmount', mapping: 'anchored', decimals: 0 },
     { id: 'feather', label: 'Feather', field: 'vignetteFeather', mapping: 'linear', decimals: 0 },
+  ],
+  grain: [
+    { id: 'amount', label: 'Amount', field: 'grainAmount', mapping: 'linear', decimals: 0 },
+    { id: 'size', label: 'Size', field: 'grainSize', mapping: 'linear', decimals: 0 },
+    {
+      id: 'roughness',
+      label: 'Roughness',
+      field: 'grainRoughness',
+      mapping: 'linear',
+      decimals: 0,
+    },
   ],
   noise: [
     { id: 'luminance', label: 'Luminance', field: 'nrLuminance', mapping: 'linear', decimals: 0 },

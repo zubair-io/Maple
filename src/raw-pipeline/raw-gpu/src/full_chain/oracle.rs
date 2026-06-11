@@ -153,6 +153,9 @@ impl Case {
             dehaze: self.model.dehaze,
             vignette_amount: self.model.vignette_amount,
             vignette_feather: self.model.vignette_feather,
+            grain_amount: self.model.grain_amount,
+            grain_size: self.model.grain_size,
+            grain_roughness: self.model.grain_roughness,
             sharpen_amount: self.model.sharpen_amount,
             sharpen_radius: self.model.sharpen_radius,
             sharpen_detail: self.model.sharpen_detail,
@@ -224,6 +227,12 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     //     runs on both sides — even a neutral image must go through the view
     //     transform to become a display image. ---
     raw_core::view::agx::apply(&mut img, case.model.contrast);
+    raw_core::stages::grain::apply(
+        &mut img,
+        case.model.grain_amount,
+        case.model.grain_size,
+        case.model.grain_roughness,
+    );
     raw_core::view::encode::rec2020_to_srgb(&mut img);
     raw_core::view::encode::srgb_gamma_encode(&mut img);
     // Buffer is now DisplayEncodedSrgb in [0,1]. apply_curve / ColorLut operate on

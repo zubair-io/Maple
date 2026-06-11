@@ -73,6 +73,18 @@ impl GpuContext {
             .get_or_init(|| compile_standalone(&self.device, "vignette", include_str!("vignette.wgsl")))
     }
 
+    /// The cached film-grain compute pipeline (#1110, tone/zoom design § 10.2).
+    ///
+    /// A windowed point op (deterministic hash noise from the absolute pixel
+    /// coordinate; tile origin + window in the params uniform) — no Oklab, so
+    /// the kernel compiles standalone. The hash constants are duplicated
+    /// verbatim from `raw_core::stages::grain` (the determinism contract);
+    /// the parity gate pins them.
+    pub fn grain_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.grain_pipeline
+            .get_or_init(|| compile_standalone(&self.device, "grain", include_str!("grain.wgsl")))
+    }
+
     /// The cached masked shadows/highlights compute pipeline (#1103, tone/zoom
     /// design § 4.2): one reworked tone step (mode-selected) through the tonal
     /// detail mask, reading the blurred luma plane the host prepares with

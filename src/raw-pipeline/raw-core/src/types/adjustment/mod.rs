@@ -355,8 +355,8 @@ pub struct AdjustmentModel {
     // S5 effects fields (ticket #643 model/UI). Defaults are chosen so an
     // absent-attribute sidecar (or a freshly-created model) produces
     // bit-identical output to the pre-#643 pipeline. Pipeline stages land
-    // per tool: vignette is real (#1109); grain / split tone remain
-    // identity stubs until #1110 / #1111.
+    // per tool: vignette (#1109) and grain (#1110) are real; split tone
+    // remains an identity stub until #1111.
     //
     // Vignette (#1109, tone/zoom design § 10.1): scene-linear radial EV
     // gain, `stages::vignette`. Drag-bar drives `vignette_amount`;
@@ -364,8 +364,9 @@ pub struct AdjustmentModel {
     pub vignette_amount: f32,        // -100..100, default 0 (negative = darken corners)
     pub vignette_feather: f32,       // 0..100, default 50 (transition softness)
 
-    // Grain (§ 3.13). Drag-bar drives `grain_amount`; size + roughness are
-    // exposed for XMP round-trip and future direct UI control.
+    // Grain (#1110, tone/zoom design § 10.2): display-linear deterministic
+    // film grain, `stages::grain`. Drag-bar drives `grain_amount`; size +
+    // roughness ride the sub-param row.
     pub grain_amount: f32,           // 0..100, default 0
     pub grain_size: f32,             // 0..100, default 25
     pub grain_roughness: f32,        // 0..100, default 50

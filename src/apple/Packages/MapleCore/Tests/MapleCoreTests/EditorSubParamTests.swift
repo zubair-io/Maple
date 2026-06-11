@@ -60,11 +60,25 @@ final class EditorSubParamTests: XCTestCase {
         XCTAssertEqual(subs[1].defaultDisplayValue, AdjustmentModel().vignetteFeather)
     }
 
+    func testGrainDeclaresAmountSizeRoughness() {
+        // #1110 — grain joined the multi-param set: Amount is the
+        // drag-bar default; Size / Roughness ride the sub-param row.
+        let subs = Tool.grain.subParams
+        XCTAssertEqual(subs.map(\.id), ["amount", "size", "roughness"])
+        XCTAssertEqual(subs.map(\.label), ["Amount", "Size", "Roughness"])
+        XCTAssertTrue(Tool.grain.isMultiParam)
+        XCTAssertEqual(Tool.grain.defaultSubParamId, "amount")
+        XCTAssertEqual(subs[1].range, AdjustmentModel.grainSizeRange)
+        XCTAssertEqual(subs[1].defaultDisplayValue, AdjustmentModel().grainSize)
+        XCTAssertEqual(subs[2].defaultDisplayValue, AdjustmentModel().grainRoughness)
+    }
+
     func testEveryOtherToolIsSingleParam() {
-        // Grain / split tone gain their satellite sub-params data-only
-        // when #1110 / #1111 un-stub them; HSL/crop stay stubs. Vignette
-        // joined the multi-param set at #1109.
-        for tool in Tool.allCases where tool != .noise && tool != .sharpen && tool != .vignette {
+        // Split tone gains its satellite sub-params data-only when #1111
+        // un-stubs it; HSL/crop stay stubs. Vignette joined the
+        // multi-param set at #1109, grain at #1110.
+        for tool in Tool.allCases
+        where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
