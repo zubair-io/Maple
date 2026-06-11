@@ -7,6 +7,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  HostListener,
   Injector,
   OnDestroy,
   ViewChild,
@@ -31,6 +32,7 @@ import {
   drawCanvas2d,
 } from './image-canvas.draw2d';
 import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
+import { CanvasZoomGestures, clampPan } from './image-canvas.zoom-gestures';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -63,9 +65,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   private ro?: ResizeObserver;
   private wrapW = signal<number>(800);
   private wrapH = signal<number>(600);
-  private dragging = false;
-  private dragLast = { x: 0, y: 0 };
-  private dividerDragging = false;
+  private dividerDraggingFlag = false;
   private cleanupDecodeEffect?: () => void;
   private cleanupRerenderEffect?: () => void;
   private cleanupDrawEffect?: () => void;
@@ -121,9 +121,58 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   // so the GPU cold-open shares the same dedup key as the 2D path.
   lastRenderedXmp: string | null = null;
 
+  // ── Continuous zoom (#1100, docs/zoom.md) ─────────────────────────────────
+  // `canvasSvc.pixelScale` is REAL px per image px (0 = fit, 1 = 100%, cap 8).
+  // The geometry helpers below work in CSS scale, so derive it once here.
+  private readonly dpr = (): number =>
+    (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+
+  /** CSS-scale view of the zoom for the draw/refine geometry ('fit' | cssScale). */
+  private cssZoom = computed<'fit' | number>(() => {
+    const ps = this.canvasSvc.pixelScale();
+    return ps === 0 ? 'fit' : ps / this.dpr();
+  });
+
+  // Pointer/wheel/keyboard gesture controller (#1100) — pinch with a
+  // start-captured scale, cursor-anchored ctrl/Cmd-wheel zoom, drag-pan when
+  // zoomed, snap-to-fit. Pure math + state machine live in
+  // `image-canvas.zoom-gestures.ts`; this host closure supplies geometry and
+  // commits the clamped view.
+  private readonly gestures = new CanvasZoomGestures({
+    wrapSize: () => ({ w: this.wrapW(), h: this.wrapH() }),
+    wrapRect: () => this.wrapRef?.nativeElement?.getBoundingClientRect() ?? null,
+    nativeSize: () => {
+      const n = this.nativeDims();
+      if (n) return { w: n.w, h: n.h };
+      const a = this.state.focusedAsset();
+      return a?.width && a?.height ? { w: a.width, h: a.height } : null;
+    },
+    devicePixelRatio: () => this.dpr(),
+    pixelScale: () => this.canvasSvc.pixelScale(),
+    pan: () => this.canvasSvc.pan(),
+    commitView: (pixelScale, pan) => this.commitView(pixelScale, pan),
+    dividerDragging: () => this.dividerDraggingFlag,
+    moveDivider: (clientX) => {
+      const rect = this.wrapRef.nativeElement.getBoundingClientRect();
+      this.canvasSvc.setSplit((clientX - rect.left) / rect.width);
+    },
+    endDividerDrag: () => {
+      this.dividerDraggingFlag = false;
+    },
+  });
+
+  /** Zoom badge: percent of the EFFECTIVE real scale, always visible. */
   zoomLabel = computed(() => {
-    const z = this.canvasSvc.zoom();
-    return z === 'fit' ? 'Fit' : `${Math.round((z as number) * 100)}%`;
+    const ps = this.canvasSvc.pixelScale();
+    if (ps !== 0) return `${Math.round(ps * 100)}%`;
+    // At fit the percent derives from viewport/native — readable once the
+    // cold open has reported native dims.
+    const n = this.nativeDims();
+    const W = this.wrapW();
+    const H = this.wrapH();
+    if (!n) return 'Fit';
+    const fit = Math.min((W * this.dpr()) / n.w, (H * this.dpr()) / n.h);
+    return `${Math.round(fit * 100)}%`;
   });
 
   /**
@@ -148,13 +197,32 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   private effectivePx = computed(() => {
     const asset = this.state.focusedAsset();
     return computeEffectivePx(
-      this.canvasSvc.zoom(),
+      this.cssZoom(),
       asset?.width,
       asset?.height,
       this.wrapW(),
       this.wrapH(),
     );
   });
+
+  /**
+   * Commit a settled view from the gesture controller (#1100): pixelScale
+   * (0 = fit) + pan, with the pan clamped so the image edges stop at the
+   * viewport (an axis where the image fits stays centered).
+   */
+  private commitView(pixelScale: number, pan: { x: number; y: number }): void {
+    if (pixelScale === 0) {
+      this.canvasSvc.zoomToFit();
+      return;
+    }
+    this.canvasSvc.setPixelScale(pixelScale);
+    const native = this.nativeDims();
+    const a = this.state.focusedAsset();
+    const iw = native?.w ?? a?.width ?? 6240;
+    const ih = native?.h ?? a?.height ?? 4160;
+    const css = pixelScale / this.dpr();
+    this.canvasSvc.pan.set(clampPan(pan, iw * css, ih * css, this.wrapW(), this.wrapH()));
+  }
 
   ngAfterViewInit(): void {
     this.ro = new ResizeObserver((entries) => {
@@ -259,7 +327,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     const drawEff = effect(
       () => {
         const _ = this.state.focusedAsset();
-        const __ = this.canvasSvc.zoom();
+        const __ = this.canvasSvc.pixelScale();
         const ___ = this.canvasSvc.pan();
         const ____ = this.canvasSvc.beforeAfterSplitX();
         const _____ = this.wrapW();
@@ -286,7 +354,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     // burst coalesces. The GPU path presents full-res and never needs this.
     const refineViewEff = effect(
       () => {
-        const _ = this.canvasSvc.zoom();
+        const _ = this.canvasSvc.pixelScale();
         const __ = this.wrapW();
         const ___ = this.wrapH();
         if (!this.coldOpenDone || !this.currentBytes || this.gpuPresent.active()) return;
@@ -336,12 +404,12 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     const native = this.nativeDims();
     if (!native) return null;
     return computeRefineTargetLongEdge({
-      zoom: this.canvasSvc.zoom(),
+      zoom: this.cssZoom(),
       nativeW: native.w,
       nativeH: native.h,
       wrapW: this.wrapW(),
       wrapH: this.wrapH(),
-      dpr: (typeof window !== 'undefined' && window.devicePixelRatio) || 1,
+      dpr: this.dpr(),
       fastTarget: this.fastTargetPx(),
       paintedLongEdge: this.paintedLongEdge,
     });
@@ -557,41 +625,70 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     });
   }
 
+  // ── Gestures (#1100, spec §5.0/§5.2) — routing lives in CanvasZoomGestures ─
+
+  onPointerDown(e: PointerEvent): void {
+    if (this.dividerDraggingFlag) return; // divider owns this pointer
+    // Mouse: left or middle button drags (parity with the old mouse path).
+    if (e.pointerType === 'mouse' && e.button !== 0 && e.button !== 1) return;
+    // Capture on the wrap so drags/pinches survive leaving the element.
+    this.wrapRef.nativeElement.setPointerCapture?.(e.pointerId);
+    this.gestures.onPointerDown(e);
+  }
+
+  onPointerMove(e: PointerEvent): void {
+    this.gestures.onPointerMove(e);
+  }
+
+  onPointerUp(e: PointerEvent): void {
+    this.wrapRef.nativeElement.releasePointerCapture?.(e.pointerId);
+    this.gestures.onPointerUp(e);
+  }
+
+  /**
+   * Wheel routing (§5.0 table): ctrlKey (trackpad pinch) / metaKey
+   * (Cmd+wheel) → zoom at cursor; plain wheel pans when zoomed; at fit the
+   * event is left alone (S5's armed-tool wheel nudge keeps its meaning).
+   */
   onWheel(e: WheelEvent): void {
-    e.preventDefault();
-    if (e.deltaY < 0) this.canvasSvc.zoomIn();
-    else this.canvasSvc.zoomOut();
+    if (this.gestures.onWheel(e)) e.preventDefault();
   }
 
-  onMouseDown(e: MouseEvent): void {
-    if (e.button === 0 || e.button === 1) {
-      this.dragging = true;
-      this.dragLast = { x: e.clientX, y: e.clientY };
+  /** Double-click toggles fit ↔ 100% (§5.0; 100% judges NR/sharpening). */
+  onDoubleClick(e: MouseEvent): void {
+    this.gestures.onDoubleClick(e.clientX, e.clientY);
+  }
+
+  /** Toolbar − / + step zoom (continuous, snap-to-fit at the bottom). */
+  stepZoom(direction: 1 | -1): void {
+    this.gestures.stepZoom(direction);
+  }
+
+  /**
+   * Cmd/Ctrl+0 → fit, Cmd/Ctrl+1 → 100% (legacy Apple convention; bare
+   * `0`/`1` keep their S5 tool/rating meanings — those handlers skip
+   * modifier presses).
+   */
+  @HostListener('document:keydown', ['$event'])
+  onKeydown(e: KeyboardEvent): void {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    const target = e.target as HTMLElement | null;
+    if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+    if (!this.state.focusedAsset()) return;
+    if (e.key === '0') {
+      e.preventDefault();
+      this.canvasSvc.zoomToFit();
+    } else if (e.key === '1') {
+      e.preventDefault();
+      this.canvasSvc.zoomTo100();
     }
   }
 
-  onMouseMove(e: MouseEvent): void {
-    if (this.dragging) {
-      const dx = e.clientX - this.dragLast.x;
-      const dy = e.clientY - this.dragLast.y;
-      this.dragLast = { x: e.clientX, y: e.clientY };
-      this.canvasSvc.applyPanDelta(dx, dy);
-    }
-    if (this.dividerDragging) {
-      const rect = this.wrapRef.nativeElement.getBoundingClientRect();
-      const frac = (e.clientX - rect.left) / rect.width;
-      this.canvasSvc.setSplit(frac);
-    }
-  }
-
-  onMouseUp(): void {
-    this.dragging = false;
-    this.dividerDragging = false;
-  }
-
-  onDividerDrag(e: MouseEvent): void {
+  onDividerDrag(e: PointerEvent): void {
     e.stopPropagation();
-    this.dividerDragging = true;
-    this.dragLast = { x: e.clientX, y: e.clientY };
+    this.dividerDraggingFlag = true;
+    // Capture on the wrap so the drag keeps tracking (and ends) even when
+    // the pointer leaves the element mid-drag.
+    this.wrapRef.nativeElement.setPointerCapture?.(e.pointerId);
   }
 }
