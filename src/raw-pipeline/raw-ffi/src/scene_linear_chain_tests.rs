@@ -32,6 +32,8 @@ fn default_params() -> MapleAdjustmentParams {
         skip_agx: 1, // skip AgX in tests — keeps math trivial
         look_mode: 1, // matches AdjustmentModel::default() — Look::Default
         brightness: 0.0,
+        vignette_amount: 0.0,
+        vignette_feather: 50.0,
     }
 }
 

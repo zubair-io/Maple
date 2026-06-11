@@ -179,6 +179,13 @@ fn stripped_prefix_model(full: &AdjustmentModel, ae_mode: AutoExposureMode) -> A
         clarity: 0.0,
         texture: 0.0,
         dehaze: 0.0,
+        // Vignette (#1109) is re-run by the GPU chain — zero the amount so the
+        // develop prefix short-circuits the stage (a non-zero value here would
+        // DOUBLE-APPLY: once in the prefix, once on the GPU). Feather is inert
+        // at amount 0; pin it to its default so dragging the feather sub-param
+        // doesn't spuriously re-develop.
+        vignette_amount: 0.0,
+        vignette_feather: 50.0,
         // Sharpen is short-circuited (`amount = 0`), so its sub-params are inert;
         // pin them to defaults so dragging radius/detail/masking (with the GPU's
         // real `sharpen_amount` active) doesn't spuriously re-develop.
@@ -252,6 +259,8 @@ fn build_full_chain_inputs(
         clarity: model.clarity,
         texture: model.texture,
         dehaze: model.dehaze,
+        vignette_amount: model.vignette_amount,
+        vignette_feather: model.vignette_feather,
         sharpen_amount: model.sharpen_amount,
         sharpen_radius: model.sharpen_radius,
         sharpen_detail: model.sharpen_detail,

@@ -245,6 +245,7 @@ mod srgb_gamma;
 mod texture;
 mod tone_curves;
 mod vibrance;
+mod vignette;
 mod white_balance;
 
 pub use agx::{apply_agx, AgxPass};
@@ -280,6 +281,7 @@ pub use srgb_gamma::{apply_srgb_gamma, SrgbGammaPass};
 pub use texture::{apply_texture, TexturePass, TEXTURE_GUIDED_RADIUS};
 pub use tone_curves::{apply_tone_curves, CurveMode, ToneCurveInputs, ToneCurvesPass};
 pub use vibrance::{apply_vibrance, VibrancePass};
+pub use vignette::{apply_vignette, VignettePass};
 pub use white_balance::{apply_white_balance, WhiteBalancePass};
 
 #[cfg(not(target_arch = "wasm32"))]

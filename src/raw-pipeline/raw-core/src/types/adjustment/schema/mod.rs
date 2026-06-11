@@ -292,16 +292,16 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "",
         doc: "Dehaze strength.",
     },
-    // S5 effects fields (ticket #643). Identity-stub scalars — model + UI
-    // wiring only; no pipeline stage consumes these yet. See the
-    // `AdjustmentModel` struct docs for the full layout.
+    // S5 effects fields (ticket #643 model/UI; pipeline stages land per
+    // tool — vignette #1109). Grain / split-tone remain identity stubs
+    // until #1110 / #1111. See the `AdjustmentModel` struct docs.
     FieldSpec {
         name: "vignette_amount",
         kind: FieldKind::F32,
         range: (-100.0, 100.0),
         default_f32: 0.0,
         enum_name: "",
-        doc: "Vignette amount — negative darkens corners, positive lightens them (ticket #643).",
+        doc: "Vignette amount — scene-linear radial EV gain (#1109, tone/zoom design spec § 10.1); negative darkens corners, positive lightens them.",
     },
     FieldSpec {
         name: "vignette_feather",
@@ -309,7 +309,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 100.0),
         default_f32: 50.0,
         enum_name: "",
-        doc: "Vignette transition softness from center to edge (ticket #643).",
+        doc: "Vignette transition softness from center to edge (#1109) — maps onto mask width 0.05–0.9 around the fixed 0.7 midpoint.",
     },
     FieldSpec {
         name: "grain_amount",

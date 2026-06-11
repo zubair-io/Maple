@@ -22,7 +22,7 @@ use crate::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, local_adjustments,
         noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
-        vibrance, white_balance,
+        vibrance, vignette, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -243,6 +243,13 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         local_adjustments::apply(&mut scene, &model.local_adjustments)
     });
     dump_after("12b_local_adjustments", &scene);
+    // Vignette (#1109) — normalized elliptical radius makes the gain field
+    // resolution-invariant, so the sized render agrees with the full-res
+    // one at any viewport scale. Same chain position as the unsized funnel.
+    stage("sized_vignette", || {
+        vignette::apply(&mut scene, model.vignette_amount, model.vignette_feather)
+    });
+    dump_after("12c_vignette", &scene);
     stage("sized_sharpen", || sharpen::apply_cancellable(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking, cancel));
     dump_after("13_sharpen", &scene);
     if cancel.is_cancelled() {

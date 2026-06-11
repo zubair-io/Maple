@@ -101,15 +101,16 @@ export function groupOf(tool: ToolId): ToolGroup {
   throw new Error(`unknown tool: ${tool}`);
 }
 
-// vignette / grain / splitTone have AdjustmentModel *fields* (added at #643)
-// but no *apply* code in any pipeline (raw-core, Apple Metal, WebGL) — they
-// were live drag-bars that wrote XMP for a silent no-op (#952). Gated back to
-// stubs until their pipeline math lands; re-wire when #664 (vignette) / #665
-// (grain) / #666 (split-tone) deliver the effects. HSL (#636) and Crop (#638)
-// remain stubs pending their own specs. Presets left the stub list at #1115:
-// the pill opens the presets sheet/popover (see EditorComponent) — it has no
-// drag-bar value, so `fieldFor` stays null and the value pipe is inert.
-const STUB_TOOLS = new Set<ToolId>(['hsl', 'vignette', 'grain', 'splitTone', 'crop']);
+// vignette left the stub list at #1109 — `stages::vignette` is a real
+// pipeline stage (CPU + WGSL), so the pill's writes render. grain / splitTone
+// have AdjustmentModel *fields* (added at #643) but no *apply* code yet — they
+// were live drag-bars that wrote XMP for a silent no-op (#952) and stay gated
+// until #1110 (grain) / #1111 (split-tone) deliver the effects. HSL (#636) and
+// Crop (#638) remain stubs pending their own specs. Presets left the stub list
+// at #1115: the pill opens the presets sheet/popover (see EditorComponent) —
+// it has no drag-bar value, so `fieldFor` stays null and the value pipe is
+// inert.
+const STUB_TOOLS = new Set<ToolId>(['hsl', 'grain', 'splitTone', 'crop']);
 
 export function isWired(tool: ToolId): boolean {
   return !STUB_TOOLS.has(tool);
@@ -138,12 +139,16 @@ const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   sharpen: ADJUSTMENT_RANGES.sharpenAmount,
   noise: ADJUSTMENT_RANGES.nrLuminance,
   colorNR: ADJUSTMENT_RANGES.nrColor,
-  // vignette / grain / splitTone have no entry on purpose: they are gated
-  // stubs (#952), identical to hsl / crop. With no range, both
-  // `displayRange` (→ null) and the value mapping (→ identity, so the chip
-  // reads 0) treat them as inert — no misleading midpoint value surfaces.
-  // To re-wire (#664 / #665 / #666): add the `ADJUSTMENT_RANGES.*` entry
-  // back here AND restore the one-sided mapping arm (grain is 0..100).
+  // Vignette (#1109) — wired; the drag bar drives `vignetteAmount` (the
+  // first sub-param; feather rides the sub-param row). The symmetric
+  // [-100, 100] range takes the default `(v/100)·hi` mapping arm.
+  vignette: ADJUSTMENT_RANGES.vignetteAmount,
+  // grain / splitTone have no entry on purpose: they are gated stubs
+  // (#952), identical to hsl / crop. With no range, both `displayRange`
+  // (→ null) and the value mapping (→ identity, so the chip reads 0)
+  // treat them as inert — no misleading midpoint value surfaces. To
+  // re-wire (#1110 / #1111): add the `ADJUSTMENT_RANGES.*` entry back
+  // here AND restore the one-sided mapping arm (grain is 0..100).
   // presets is wired but value-less (#1115) — also no entry, same inert
   // mapping.
 };
@@ -221,12 +226,15 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
       return 'nrLuminance';
     case 'colorNR':
       return 'nrColor';
-    // vignette / grain / splitTone are gated stubs (#952) — no apply code
-    // exists yet (#664 / #665 / #666). Return null so no XMP field is
-    // written and no modified-dot fires, matching hsl / crop. The
-    // vignetteAmount / grainAmount / splitToneBalance schema fields
-    // still round-trip via passthrough; this only stops new edits.
-    // presets is wired but value-less (#1115) — also null.
+    // Vignette (#1109) — wired; the drag bar drives the amount.
+    case 'vignette':
+      return 'vignetteAmount';
+    // grain / splitTone are gated stubs (#952) — no apply code exists yet
+    // (#1110 / #1111). Return null so no XMP field is written and no
+    // modified-dot fires, matching hsl / crop. The grainAmount /
+    // splitToneBalance schema fields still round-trip via passthrough;
+    // this only stops new edits. presets is wired but value-less (#1115)
+    // — also null.
     default:
       return null;
   }

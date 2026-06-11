@@ -46,9 +46,17 @@ describe('sub-param catalog', () => {
     expect(defaultSubParamId('sharpen')).toBe('amount');
   });
 
-  it('every other tool is single-param (vignette/grain/splitTone join data-only at #1109–#1111)', () => {
+  it('vignette declares Amount + Feather (#1109)', () => {
+    const subs = subParamsFor('vignette');
+    expect(subs.map((s) => s.id)).toEqual(['amount', 'feather']);
+    expect(subs.map((s) => s.field)).toEqual(['vignetteAmount', 'vignetteFeather']);
+    expect(isMultiParam('vignette')).toBe(true);
+    expect(defaultSubParamId('vignette')).toBe('amount');
+  });
+
+  it('every other tool is single-param (grain/splitTone join data-only at #1110/#1111)', () => {
     for (const tool of ALL_TOOLS) {
-      if (tool === 'noise' || tool === 'sharpen') continue;
+      if (tool === 'noise' || tool === 'sharpen' || tool === 'vignette') continue;
       expect(subParamsFor(tool as ToolId)).toEqual([]);
       expect(isMultiParam(tool as ToolId)).toBe(false);
       expect(defaultSubParamId(tool as ToolId)).toBeNull();
