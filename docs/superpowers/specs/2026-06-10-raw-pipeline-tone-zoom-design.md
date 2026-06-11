@@ -43,20 +43,20 @@ fields the pipeline ignores, #643), plus small pipeline gaps surfaced by the res
 
 ## 2. What Maple already has (gap matrix)
 
-| Requested feature | Maple today | Gap |
-| --- | --- | --- |
-| AgX tone mapping, film-like rolloff | **Shipped.** AgX (Blender/Sobotka lineage — same source RapidRAW copied via darktable) is the view transform: inset/outset matrices, ratio-preserving sigmoid, Oklab gamut compression. Path-to-white on overexposure already behaves as requested. | None for the rolloff ask. Per-image Auto Profile wiring continues under existing #530/#536/#394 — not re-specced here. |
-| True exposure compensation | **Shipped.** `exposure` is `×2^EV` in scene-linear Rec.2020 (stage 13). | None. |
-| Brightness (midtones) slider | Absent — no midtone control between exposure and tone curves. | §4.1. |
-| Detail-masked shadows/highlights | S/H/whites/blacks exist but are purely per-pixel luminance-keyed; shadows only acts below Y≈0.1, highlights only above Y=1.0. | §4.2. |
-| Chroma-noise-suppressing pre-processing | `nrColor` (NLM on Oklab a/b) is a late-chain slider stage, ~2.5 s at default on 25 MP, excluded from the slider-tick path. Nothing runs at decode time. | §3.1. |
-| BM3D | Absent. | §3.2. |
-| Zoom + pinch | **Legacy** `FullImageView` (Apple): full system (fit→800%, pinch, pan, keyboard) — being replaced by the responsive program. **New UI:** Apple `EditorView` is fit-only (`pixelScale: 0` hardcoded); web editor (`ImageCanvasComponent` via `<editor-image-canvas>`) has stepped zoom buttons + unanchored wheel, no pinch; web loupe absent. | §5.0. |
-| Zoom-to-fit renders low-res | The render machinery is zoom-aware on Apple (`CanvasMath.refinedTargetSize = native × min(pixelScale, 1)`, refine skipped at fit) and the new `EditorView` already runs on `EditSession`/`CanvasMath` — but with zoom pinned to fit it can never exercise it. Web: **no** — every slider tick decodes and renders full resolution; the sized FFI entry (`maple_render_bytes_scene_linear_sized`) exists but web never calls it. | §5.0–5.1. |
-| Edit only the visible section (tiles) | Apple deep-zoom tile code exists but is gated off (`EditSession.deepZoomEnabled = false`) by tile-seam color parity, ticket #11. FFI tile entry points exist. | §5.3. |
-| New-UI editor tools: vignette / grain / split tone | Pills shipped, fields persist to XMP, **pipeline ignores them** (identity stubs, #643). | §10.1–10.3. |
-| New-UI editor tools: HSL / crop / presets | Declared stubs (`STUB_TOOLS` in tool-model.ts); no schema fields exist for HSL or crop. | §10.4, §10.5, §10.7. |
-| Hot/dead-pixel suppression | Absent (RT ships it pre-demosaic; flagged Phase-4+ in spec docs). | §10.6. |
+| Requested feature                                  | Maple today                                                                                                                                                                                                                                                                                                                                                                                                                     | Gap                                                                                                                    |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| AgX tone mapping, film-like rolloff                | **Shipped.** AgX (Blender/Sobotka lineage — same source RapidRAW copied via darktable) is the view transform: inset/outset matrices, ratio-preserving sigmoid, Oklab gamut compression. Path-to-white on overexposure already behaves as requested.                                                                                                                                                                             | None for the rolloff ask. Per-image Auto Profile wiring continues under existing #530/#536/#394 — not re-specced here. |
+| True exposure compensation                         | **Shipped.** `exposure` is `×2^EV` in scene-linear Rec.2020 (stage 13).                                                                                                                                                                                                                                                                                                                                                         | None.                                                                                                                  |
+| Brightness (midtones) slider                       | Absent — no midtone control between exposure and tone curves.                                                                                                                                                                                                                                                                                                                                                                   | §4.1.                                                                                                                  |
+| Detail-masked shadows/highlights                   | S/H/whites/blacks exist but are purely per-pixel luminance-keyed; shadows only acts below Y≈0.1, highlights only above Y=1.0.                                                                                                                                                                                                                                                                                                   | §4.2.                                                                                                                  |
+| Chroma-noise-suppressing pre-processing            | `nrColor` (NLM on Oklab a/b) is a late-chain slider stage, ~2.5 s at default on 25 MP, excluded from the slider-tick path. Nothing runs at decode time.                                                                                                                                                                                                                                                                         | §3.1.                                                                                                                  |
+| BM3D                                               | Absent.                                                                                                                                                                                                                                                                                                                                                                                                                         | §3.2.                                                                                                                  |
+| Zoom + pinch                                       | **Legacy** `FullImageView` (Apple): full system (fit→800%, pinch, pan, keyboard) — being replaced by the responsive program. **New UI:** Apple `EditorView` is fit-only (`pixelScale: 0` hardcoded); web editor (`ImageCanvasComponent` via `<editor-image-canvas>`) has stepped zoom buttons + unanchored wheel, no pinch; web loupe absent.                                                                                   | §5.0.                                                                                                                  |
+| Zoom-to-fit renders low-res                        | The render machinery is zoom-aware on Apple (`CanvasMath.refinedTargetSize = native × min(pixelScale, 1)`, refine skipped at fit) and the new `EditorView` already runs on `EditSession`/`CanvasMath` — but with zoom pinned to fit it can never exercise it. Web: **no** — every slider tick decodes and renders full resolution; the sized FFI entry (`maple_render_bytes_scene_linear_sized`) exists but web never calls it. | §5.0–5.1.                                                                                                              |
+| Edit only the visible section (tiles)              | Apple deep-zoom tile code exists but is gated off (`EditSession.deepZoomEnabled = false`) by tile-seam color parity, ticket #11. FFI tile entry points exist.                                                                                                                                                                                                                                                                   | §5.3.                                                                                                                  |
+| New-UI editor tools: vignette / grain / split tone | Pills shipped, fields persist to XMP, **pipeline ignores them** (identity stubs, #643).                                                                                                                                                                                                                                                                                                                                         | §10.1–10.3.                                                                                                            |
+| New-UI editor tools: HSL / crop / presets          | Declared stubs (`STUB_TOOLS` in tool-model.ts); no schema fields exist for HSL or crop.                                                                                                                                                                                                                                                                                                                                         | §10.4, §10.5, §10.7.                                                                                                   |
+| Hot/dead-pixel suppression                         | Absent (RT ships it pre-demosaic; flagged Phase-4+ in spec docs).                                                                                                                                                                                                                                                                                                                                                               | §10.6.                                                                                                                 |
 
 ## 3. Noise: a three-tier architecture
 
@@ -81,6 +81,7 @@ runs its chroma filter once at decode and caches it. Placing it post-DCP means i
 in a stable colorimetric space (scene-linear Rec.2020) for every camera.
 
 **Algorithm (clean-room):**
+
 - Compute `Y = dot(rec2020_luma, RGB)` per pixel. Form opponent chroma `C1 = R − Y`,
   `C2 = B − Y` (linear 3×3 algebra; no Oklab round-trip — ticket #05 flagged that cost).
 - Filter C1/C2 with a sparse cross-bilateral kernel: ~9 taps on an off-center sparse grid
@@ -235,7 +236,7 @@ texture, on CPU and in WGSL. Resolution-invariance follows the existing conventi
 scales with image long edge (clarity does the same), so fast-phase, refine, and export
 agree.
 
-*Alternative considered:* RawTherapee's guided-filter mask (radius 40, 4th-power tonal
+_Alternative considered:_ RawTherapee's guided-filter mask (radius 40, 4th-power tonal
 width, subsample 4). Better edge fidelity in extreme cases, but a guided filter is a new
 multi-pass primitive in WGSL (box means of I, p, I·p, I²) with more intermediate textures
 against the 4-buffer budget, and RapidRAW's field results show the cheap mask achieves the
@@ -295,14 +296,14 @@ how that render happens). The docs/zoom.md `pixelScale` model is adopted wholesa
 canvas drag adjusts the armed tool at 0.5:1; desktop scroll wheel nudges the armed tool;
 bare `0` resets the armed tool). Zoom must compose without breaking those contracts:
 
-| Input | At fit | Zoomed in (pixelScale > fit) |
-| --- | --- | --- |
-| Pinch (touch) / trackpad pinch (web: `wheel` + `ctrlKey`) | Zoom, anchored at gesture centroid/cursor | Same |
-| One-finger / mouse drag on canvas | Inert — canvas tool-drag was removed from the product per #875 (the original S5b 0.5:1 mapping no longer ships); tool adjust lives on the drag bar / wheel detents | **Pan** |
-| Plain wheel over canvas | Armed-tool nudge ±1/detent (S5, unchanged) | Pan (two-finger scroll = pan when zoomed) |
-| Cmd/Ctrl + wheel | Zoom anchored at cursor | Same |
-| Double-tap / double-click | Toggle fit ↔ 100% | Same (returns to fit) |
-| Keyboard | `Cmd/Ctrl+0` fit, `Cmd/Ctrl+1` 100% (legacy Apple convention; bare `0`/`1` stay S5 tool-reset/rating) | Same |
+| Input                                                     | At fit (`pixelScale == 0`)                                                                                                                                         | Zoomed in (resolved scale above the computed fit scale) |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Pinch (touch) / trackpad pinch (web: `wheel` + `ctrlKey`) | Zoom, anchored at gesture centroid/cursor                                                                                                                          | Same                                                    |
+| One-finger / mouse drag on canvas                         | Inert — canvas tool-drag was removed from the product per #875 (the original S5b 0.5:1 mapping no longer ships); tool adjust lives on the drag bar / wheel detents | **Pan**                                                 |
+| Plain wheel over canvas                                   | Armed-tool nudge ±1/detent (S5, unchanged)                                                                                                                         | Pan (two-finger scroll = pan when zoomed)               |
+| Cmd/Ctrl + wheel                                          | Zoom anchored at cursor                                                                                                                                            | Same                                                    |
+| Double-tap / double-click                                 | Toggle fit ↔ 100%                                                                                                                                                  | Same (returns to fit)                                   |
+| Keyboard                                                  | `Cmd/Ctrl+0` fit, `Cmd/Ctrl+1` 100% (legacy Apple convention; bare `0`/`1` stay S5 tool-reset/rating)                                                              | Same                                                    |
 
 Two intentional divergences, called out for review: the editor's double-tap toggles
 fit ↔ 100% (pixel-perfect is what you need to judge NR/sharpening) while the S4 loupe
@@ -321,9 +322,11 @@ Apple's contract (docs/zoom.md) is the design; web implements it:
    raw-wasm and `raw-pipeline.service.ts` (`decodeSceneLinearSized(maxLongEdge)`), called
    with `viewportPx × devicePixelRatio`. The FFI exists and is tested; this is wiring.
 2. **Two-phase render:** fast phase at viewport resolution per tick (16 ms budget), the
-   existing 150 ms-debounced refine at `native × min(pixelScale, 1)` — same formula and
-   floor as `CanvasMath.refinedTargetSize`. At fit zoom the refine target equals the fast
-   target, so refine is skipped — "zoom to fit renders only a lower-res image", exactly.
+   existing 150 ms-debounced refine at `max(native × min(resolvedScale, 1), fastTarget)`,
+   where `resolvedScale` is the computed fit scale when `pixelScale == 0` — i.e. the
+   shipped `CanvasMath.refinedTargetSize` semantics (clamped to native, floored by the
+   fast target). At fit the refine target equals the fast target, so refine is skipped —
+   "zoom to fit renders only a lower-res image", exactly.
 3. **Canvas rework:** viewport-sized backing store (`viewport × dpr`), pan/zoom as a draw
    transform, never an image-sized canvas. Keep the `display-p3`/srgb tagging exactly as
    is (load-bearing, see CLAUDE.md note).
@@ -358,11 +361,11 @@ valid context. RT and RapidRAW point at the same two-part answer (32×skip borde
 
 **Classify every pipeline stage:**
 
-| Class | Stages | Tile policy |
-| --- | --- | --- |
-| Point ops | WB, exposure, brightness, S/H curves (given mask input), vibrance, saturation, AgX, curves | No overlap needed |
-| Small-kernel | texture (≈3 px·scale), capture sharpening (σ ≤ 3), NLM NR (≤ 7×7+5×5), §4.2 mask blur if σ·scale small | Exact: overlap = Σ effective radii of enabled stages at render scale, computed per render (each stage registers `effective_radius(scale)`) |
-| Large-kernel / global | clarity (40 px·scale), dehaze (dark-channel, global stats), §4.2 mask blur at native scale | **Proxy escape hatch:** compute the stage's low-frequency product (blur plane, transmission map) full-frame at proxy resolution, upsample into each tile. Dehaze already works exactly this way interactively (¼-res + bilinear); this generalizes the pattern. |
+| Class                 | Stages                                                                                                 | Tile policy                                                                                                                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Point ops             | WB, exposure, brightness, S/H curves (given mask input), vibrance, saturation, AgX, curves             | No overlap needed                                                                                                                                                                                                                                               |
+| Small-kernel          | texture (≈3 px·scale), capture sharpening (σ ≤ 3), NLM NR (≤ 7×7+5×5), §4.2 mask blur if σ·scale small | Exact: overlap = Σ effective radii of enabled stages at render scale, computed per render (each stage registers `effective_radius(scale)`)                                                                                                                      |
+| Large-kernel / global | clarity (40 px·scale), dehaze (dark-channel, global stats), §4.2 mask blur at native scale             | **Proxy escape hatch:** compute the stage's low-frequency product (blur plane, transmission map) full-frame at proxy resolution, upsample into each tile. Dehaze already works exactly this way interactively (¼-res + bilinear); this generalizes the pattern. |
 
 A tile render = exact-overlap small kernels on `(tile + overlap)` + sampled proxy planes
 for large kernels + point ops. Overlap is computed, not guessed — switching clarity off
@@ -388,8 +391,9 @@ Every new slider/stage in this design carries the same checklist:
    gate). Ranges/defaults live only in Rust.
 2. XMP: `papp:` namespace keys (`ChromaPrefilter`, `DeepDenoise`, `Brightness`), emitted
    only when non-default; writers in Swift + TS + Rust; byte-identical cross round-trip
-   tests; docs/xmp-canonical-format.md table updated. Schema version bumped per
-   docs/sidecar-schema.md rules; unknown-field passthrough untouched.
+   tests; docs/xmp-canonical-format.md table updated (this is the sidecar contract doc —
+   the docs/sidecar-schema.md file CLAUDE.md references does not exist, tracked as
+   #1134); unknown-field passthrough untouched.
 3. CPU reference in raw-core + WGSL in the unified wgpu pipeline (where the stage runs per
    tick); ≤4 storage buffers/stage; `test_color_pipeline.sh` + budgets ratchet in the same
    commit as any number movement.
@@ -406,16 +410,16 @@ Every new slider/stage in this design carries the same checklist:
 Ordered by user-visible value over effort; each phase is independently shippable and gets
 its own GitHub issue(s) on the Files board (every PR closes a ticket):
 
-| Phase | Scope | New tickets |
-| --- | --- | --- |
+| Phase                                                | Scope                                                                                                                                                                                                                     | New tickets                                                                                                                                                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **1. Zoom in the new editor UI + web render parity** | §5.0 Apple: extract the FullImageView zoom host, wire EditorView off `pixelScale: 0`; §5.0/§5.2 web: pixelScale + pinch + gesture arbitration in `ImageCanvasComponent`; §5.1 sized decode + fast phase + viewport canvas | 3 (Apple editor zoom; web editor zoom; web render parity) — link the "fast phase deferred" follow-up noted in image-canvas.component.ts (#846 thread) and coordinate with the S4 loupe item under #577 |
-| **2. Tone** | §4.1 brightness (full stack incl. predictor); §4.2 S/H rework + detail mask | 2 |
-| **3. Noise** | §3.1 chroma pre-filter + default calibration; §3.2 BM3D (CPU, cached, progress UI) + patent review subtask | 2 |
-| **4. Deep zoom** | §5.3 stage-class overlap + proxy planes; flip `deepZoomEnabled`; then web tiles | continues existing #11 (+1 for web adoption) |
-| **5. Effects tools become real** | §10.0 multi-param pill model; §10.1 vignette; §10.2 grain; §10.3 split toning (closes the #643 placeholders) | 4 (pill model; one per tool) |
-| **6. HSL** | §10.4 stage + 24 `crs:` fields + new slider-matrix cases; pill leaves `STUB_TOOLS` | 1 |
-| **7. Crop & straighten** | §10.5 geometry stage + overlay UI + zoom/tile/vignette integration | 1–2 (pipeline; UI) |
-| **8. Presets** | §10.7 storage + apply/save UI (no pipeline; can run in parallel with any phase) | 1 |
+| **2. Tone**                                          | §4.1 brightness (full stack incl. predictor); §4.2 S/H rework + detail mask                                                                                                                                               | 2                                                                                                                                                                                                      |
+| **3. Noise**                                         | §3.1 chroma pre-filter + default calibration; §3.2 BM3D (CPU, cached, progress UI) + patent review subtask                                                                                                                | 2                                                                                                                                                                                                      |
+| **4. Deep zoom**                                     | §5.3 stage-class overlap + proxy planes; flip `deepZoomEnabled`; then web tiles                                                                                                                                           | continues existing #11 (+1 for web adoption)                                                                                                                                                           |
+| **5. Effects tools become real**                     | §10.0 multi-param pill model; §10.1 vignette; §10.2 grain; §10.3 split toning (closes the #643 placeholders)                                                                                                              | 4 (pill model; one per tool)                                                                                                                                                                           |
+| **6. HSL**                                           | §10.4 stage + 24 `crs:` fields + new slider-matrix cases; pill leaves `STUB_TOOLS`                                                                                                                                        | 1                                                                                                                                                                                                      |
+| **7. Crop & straighten**                             | §10.5 geometry stage + overlay UI + zoom/tile/vignette integration                                                                                                                                                        | 1–2 (pipeline; UI)                                                                                                                                                                                     |
+| **8. Presets**                                       | §10.7 storage + apply/save UI (no pipeline; can run in parallel with any phase)                                                                                                                                           | 1                                                                                                                                                                                                      |
 
 §10.6 hot/dead-pixel suppression rides with Phase 3 (it is tier 0 of the same noise
 story and shares the calibration-sweep machinery).
@@ -613,7 +617,8 @@ Listed so "missing" is complete; each needs its own spec/program:
   separate research track.
 - **Lens corrections** (distortion/CA/vignetting from a lens database) — needs a lensfun-
   class data source decision + a geometry stage; interacts with crop (§10.5) and tiles.
-- **Panorama** — spec exists (`docs/tickets/04`); P3/P4 currently blocked upstream.
+- **Panorama** — spec exists (`docs/tickets/04-maple-panorama-spec.md`); P3/P4 currently
+  blocked upstream.
 - **X-Trans premium demosaic** — Markesteijn shipped; an AMaZE-class upgrade is a
   raw-core-only project gated by the parity harness.
 - **ICC output profiles** — four compiled matrices today; arbitrary ICC needs an LCMS2
