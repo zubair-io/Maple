@@ -244,12 +244,12 @@ fn render_scene_linear_tile_rejects_upscale() {
 /// largest available DNG fixture. Verifies (a) returned size matches
 /// `out_w` × `out_h`, (b) alpha lane is `0x3c00` (1.0) everywhere,
 /// (c) at least 10% of the buffer is non-alpha, non-zero (real
-/// pixels not borders). Fixture-gated — `test_0002.dng` is gitignored.
+/// pixels not borders). Fixture-gated — `test_0002.dng` is gitignored:
+/// `ignore`d without `--features fixtures`, fail-closed with it (#1082).
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_scene_linear_tile_returns_oriented_fp16_rgba_at_target_size() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();
@@ -275,10 +275,9 @@ fn render_scene_linear_tile_returns_oriented_fp16_rgba_at_target_size() {
 /// out_w/out_h. Pixel-equality not asserted — the coord rounding is
 /// a defensive snap that does not perturb `out_w`/`out_h`.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_scene_linear_tile_rounds_source_coords_to_even() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();
@@ -317,19 +316,19 @@ fn render_scene_linear_tile_rounds_source_coords_to_even() {
 ///   bit-equality is the expected result, not an aspiration.
 ///
 /// Fixture-gated like the other tile tests (`test_0002.dng` is
-/// gitignored). The fixture facts the coordinate mapping relies on are
+/// gitignored; `ignore`d without `--features fixtures`, fail-closed
+/// with it — #1082). The fixture facts the coordinate mapping relies on are
 /// asserted, not assumed: no DefaultCrop (the full chain crops before
 /// the color stages, which would shift coordinates), no
 /// ProfileGainTableMap (spatially-varying gain is evaluated in
 /// buffer-normalized coordinates), and Normal orientation (the tile
 /// entry orients its output; the develop helper does not).
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn tile_matches_full_chain_with_non_default_tone_curve() {
     use crate::types::adjustment::ToneCurve;
 
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     assert!(raw.crop_rect.is_none(),

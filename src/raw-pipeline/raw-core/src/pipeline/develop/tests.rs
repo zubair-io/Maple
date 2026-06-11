@@ -54,13 +54,15 @@ fn effective_quality_divisor_full_res_paths_return_one() {
 /// for Fuji X-Trans (test_0005 / test_0012) was 2× the declared image
 /// area and for Canon DNG (test_0007) included a visible ~80-px black
 /// border. After the fix, the full-image render path returns the
-/// camera-recommended dims (oriented). Skips when fixtures are
-/// absent (gitignored).
+/// camera-recommended dims (oriented). `ignore`d without
+/// `--features fixtures`; with the feature every listed fixture must be
+/// present (fail-closed, #1082).
 ///
 /// Expected dims = `raw.crop_rect` (or width × height when None),
 /// with the orientation tag applied: portrait-shot Canon CR2
 /// (test_0003, orientation 8) produces a portrait output.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn render_dims_match_crop_rect_per_fixture() {
     let fixtures: &[(&str, u32, u32, &str)] = &[
         // (filename, expected w, expected h, note)
@@ -84,10 +86,7 @@ fn render_dims_match_crop_rect_per_fixture() {
     ];
     let model = AdjustmentModel::default();
     for (name, ew, eh, note) in fixtures {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../test-fixtures/raws")
-            .join(name);
-        if !path.exists() { continue; }
+        let path = crate::test_support::fixtures::require_raw(name);
         let bytes = std::fs::read(&path).expect("read raw");
         // Lowercase: decode_bytes uses `ext` to build a rawler hint
         // path; rawler format detection matches lowercase suffixes
@@ -131,12 +130,11 @@ fn render_dims_match_crop_rect_per_fixture() {
 /// fundamentally non-commutative with downsampling and is not
 /// what this commutativity gate is measuring.
 ///
-/// Skips if test_0017.dng is absent (gitignored fixtures).
+/// `ignore`d without `--features fixtures` (#1082).
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn early_vs_late_downsample_within_fp16_tolerance() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0017.dng");
-    if !path.exists() { return; }
+    let path = crate::test_support::fixtures::require_raw("test_0017.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     // Disable sharpening for this commutativity gate: USM sharpening's
@@ -211,12 +209,11 @@ fn early_vs_late_downsample_within_fp16_tolerance() {
 ///   * Confirms the global mean barely moves — AMaZE is a detail
 ///     refinement, not a tone change. The test budget allows at most
 ///     5% drift in mean luminance.
-/// Skips when test_0002.dng is absent (gitignored fixtures).
+/// `ignore`d without `--features fixtures` (#1082).
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn amaze_resolves_finer_detail_than_hamilton_adams() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    let path = crate::test_support::fixtures::require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();

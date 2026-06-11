@@ -28,11 +28,9 @@ use super::*;
 #[test]
 #[cfg_attr(not(feature = "fixtures"), ignore)]
 fn auto_profile_path_and_bytes_render_byte_identical_867() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0017.dng");
-    if !path.exists() {
-        return;
-    }
+    // Under `--features fixtures` a missing fixture panics (no silent
+    // return — that combination used to skip even WITH the feature, #1082).
+    let path = crate::test_support::fixtures::require_raw("test_0017.dng");
     let bytes = std::fs::read(&path).expect("read raw bytes");
     let ext = "dng";
     let raw = crate::decode::decode_bytes(&bytes, ext).expect("decode");

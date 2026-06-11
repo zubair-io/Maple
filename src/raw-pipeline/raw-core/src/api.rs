@@ -896,11 +896,7 @@ fn xml_escape_text(v: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn fixture_root() -> std::path::PathBuf {
-        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../test-fixtures/raws")
-    }
+    use crate::test_support::fixtures::require_raw;
 
     fn small_rendered() -> Rendered {
         // 4×2 solid-grey sRGB.
@@ -911,9 +907,9 @@ mod tests {
     // ─── decode_raw ────────────────────────────────────────────────────
 
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_raw_happy_path_for_test_0002() {
-        let path = fixture_root().join("test_0002.dng");
-        if !path.exists() { return; }
+        let path = require_raw("test_0002.dng");
         let bytes = std::fs::read(&path).unwrap();
         let raw = decode_raw(&bytes, "dng").expect("decode_raw");
         assert!(raw.width > 0 && raw.height > 0);
@@ -928,9 +924,9 @@ mod tests {
     // ─── read_exif ─────────────────────────────────────────────────────
 
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn read_exif_returns_camera_for_test_0002() {
-        let path = fixture_root().join("test_0002.dng");
-        if !path.exists() { return; }
+        let path = require_raw("test_0002.dng");
         let bytes = std::fs::read(&path).unwrap();
         let exif = read_exif(&bytes, "dng").expect("read_exif");
         assert!(exif.camera_make.is_some() || exif.camera_model.is_some(),
@@ -946,9 +942,9 @@ mod tests {
     // ─── apply ─────────────────────────────────────────────────────────
 
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn apply_happy_path_for_test_0002() {
-        let path = fixture_root().join("test_0002.dng");
-        if !path.exists() { return; }
+        let path = require_raw("test_0002.dng");
         let bytes = std::fs::read(&path).unwrap();
         let raw = decode_raw(&bytes, "dng").unwrap();
         let r = apply(&raw, &AdjustmentModel::default()).expect("apply");
@@ -1018,9 +1014,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn thumbnail_bounds_long_edge_for_test_0002() {
-        let path = fixture_root().join("test_0002.dng");
-        if !path.exists() { return; }
+        let path = require_raw("test_0002.dng");
         let bytes = std::fs::read(&path).unwrap();
         let raw = decode_raw(&bytes, "dng").unwrap();
         let t = thumbnail(&raw, 256).expect("thumbnail");
@@ -1031,9 +1027,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn preview_honours_adj_larger_than_thumb() {
-        let path = fixture_root().join("test_0002.dng");
-        if !path.exists() { return; }
+        let path = require_raw("test_0002.dng");
         let bytes = std::fs::read(&path).unwrap();
         let raw = decode_raw(&bytes, "dng").unwrap();
         let adj = AdjustmentModel { exposure: 2.0, ..Default::default() };

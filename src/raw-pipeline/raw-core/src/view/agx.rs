@@ -530,16 +530,16 @@ mod tests {
     #[test]
     fn lut_hash_matches_apple_bundle() {
         // Resolve the Apple-bundled LUT relative to CARGO_MANIFEST_DIR.
-        // Skips if the Apple bundle isn't checked out (e.g. partial checkout).
+        // The file is COMMITTED (not a gitignored fixture), so absence is a
+        // broken checkout — fail loudly rather than skip-pass (#1082).
         let apple_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../apple/Packages/MapleCore/Sources/MapleCore/Metal/agx_lut.bin");
-        if !apple_path.exists() {
-            eprintln!(
-                "[skip] Apple-bundled agx_lut.bin not found at {} — partial checkout",
-                apple_path.display()
-            );
-            return;
-        }
+        assert!(
+            apple_path.exists(),
+            "Apple-bundled agx_lut.bin not found at {} — it is committed to the \
+             repo, so this is a broken/partial checkout, not a missing fixture",
+            apple_path.display()
+        );
         let apple_bytes = std::fs::read(&apple_path)
             .unwrap_or_else(|e| panic!("read {} failed: {}", apple_path.display(), e));
         assert_eq!(
