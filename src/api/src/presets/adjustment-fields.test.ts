@@ -36,7 +36,7 @@ describe('adjustment-fields golden gate (vs generated web module)', () => {
   });
 
   it('string fields are exactly the non-numeric generated fields', () => {
-    const defaults = defaultGeneratedAdjustmentModel() as Record<string, unknown>;
+    const defaults = defaultGeneratedAdjustmentModel() as unknown as Record<string, unknown>;
     const expected = Object.keys(defaults)
       .filter((k) => typeof defaults[k] === 'string')
       .map(camelToSnake)
@@ -45,7 +45,7 @@ describe('adjustment-fields golden gate (vs generated web module)', () => {
   });
 
   it('every generated field is known to the validator (numeric or string)', () => {
-    const defaults = defaultGeneratedAdjustmentModel() as Record<string, unknown>;
+    const defaults = defaultGeneratedAdjustmentModel() as unknown as Record<string, unknown>;
     for (const key of Object.keys(defaults)) {
       const snake = camelToSnake(key);
       const known =
