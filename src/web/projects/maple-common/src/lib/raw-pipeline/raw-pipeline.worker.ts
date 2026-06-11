@@ -150,7 +150,11 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     // service brackets. The mark name distinguishes the GPU/sized paths for
     // profiling (the sized tag carries the cap so a viewport-sized fast phase
     // is visible as evidence in the timeline).
-    const markTag = gpuFn ? 'maple:wasm-gpu' : sized ? `maple:wasm-sized:${req.maxLongEdge}` : 'maple:wasm';
+    const markTag = gpuFn
+      ? 'maple:wasm-gpu'
+      : sized
+        ? `maple:wasm-sized:${req.maxLongEdge}`
+        : 'maple:wasm';
     performance.mark(`maple:wasm:${req.id}:start`);
     let result;
     if (gpuFn) {

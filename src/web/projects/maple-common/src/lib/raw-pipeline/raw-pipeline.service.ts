@@ -351,8 +351,7 @@ export class RawPipelineService implements OnDestroy {
     if (isNonRawExtension(ext)) {
       return decodeNonRawToSceneLinear(bytes);
     }
-    const run = () =>
-      this.decodeSceneLinearOnce(bytes, ext, xmp, qualityPreview, maxLongEdge);
+    const run = () => this.decodeSceneLinearOnce(bytes, ext, xmp, qualityPreview, maxLongEdge);
     const next = this.decodeChain.then(run, run);
     this.decodeChain = next.catch(() => undefined);
     return next;
