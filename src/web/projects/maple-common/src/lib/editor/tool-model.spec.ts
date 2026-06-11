@@ -34,8 +34,9 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
     sharpen: [0, 150],
     noise: [0, 100],
     colorNR: [0, 100],
-    // vignette / grain / splitTone are intentionally absent — re-gated to
-    // stubs at #952, so they have no display range (asserted null below).
+    vignette: [-100, 100], // wired at #1109 (drag bar = vignetteAmount)
+    // grain / splitTone are intentionally absent — re-gated to stubs at
+    // #952, so they have no display range (asserted null below).
   };
 
   for (const [tool, range] of Object.entries(expected) as [ToolId, readonly [number, number]][]) {
@@ -45,10 +46,10 @@ describe('displayRange (sourced from generated ADJUSTMENT_RANGES)', () => {
   }
 
   it('returns null for stub tools', () => {
-    // The three #952-gated effects join hsl / crop / presets: no range, so
-    // the drag-bar and value chip treat them identically (no phantom track,
-    // no misleading midpoint value).
-    for (const tool of ['hsl', 'crop', 'presets', 'vignette', 'grain', 'splitTone'] as const) {
+    // The #952-gated effects join hsl / crop / presets: no range, so the
+    // drag-bar and value chip treat them identically (no phantom track,
+    // no misleading midpoint value). vignette left the list at #1109.
+    for (const tool of ['hsl', 'crop', 'presets', 'grain', 'splitTone'] as const) {
       expect(displayRange(tool)).toBeNull();
     }
   });
@@ -97,11 +98,18 @@ describe('value mapping (internal -100..100 ↔ display)', () => {
     // Regression for the Grain "50" chip: a 0..100 tool would otherwise map
     // internal 0 → display 50 (see colorNR above). With no DISPLAY_RANGE
     // entry the mapping is identity, so an unset stub reads 0 — matching
-    // hsl / crop / presets. Asserted for all three #952-gated effects.
-    for (const tool of ['vignette', 'grain', 'splitTone'] as const) {
+    // hsl / crop / presets. (vignette left the gated set at #1109.)
+    for (const tool of ['grain', 'splitTone'] as const) {
       expect(displayValueFromInternal(tool, 0)).toBe(0);
       expect(internalValueFromDisplay(tool, 0)).toBe(0);
     }
+  });
+
+  it('vignette maps its symmetric amount range linearly (#1109)', () => {
+    expect(displayValueFromInternal('vignette', 0)).toBe(0);
+    expect(displayValueFromInternal('vignette', 100)).toBe(100);
+    expect(displayValueFromInternal('vignette', -100)).toBe(-100);
+    expect(internalValueFromDisplay('vignette', -50)).toBe(-50);
   });
 
   it('exposure maps linearly across ±4 EV', () => {

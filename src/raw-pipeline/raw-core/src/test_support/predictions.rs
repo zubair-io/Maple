@@ -104,6 +104,32 @@ pub fn predict_blacks(scene: f32, b_slider: f32) -> f32 {
 pub fn predict_saturation(scene: f32, _s_slider: f32) -> f32 { scene }
 pub fn predict_vibrance(scene: f32, _v_slider: f32) -> f32 { scene }
 
+/// stages::vignette::apply (#1109, tone/zoom design § 10.1) — POSITION-AWARE
+/// closed form: the gain at absolute pixel `(x, y)` of a `w × h` frame.
+///
+/// This stage deliberately breaks the flat-field assumption every other
+/// predictor leans on, so the synthetic-grey FLATNESS invariant is waived
+/// for it (spec § 10.1) and replaced by center-identity + corner-formula
+/// assertions built on this predictor (see `tests/grey_adjustments.rs`).
+///
+/// Mirrors `vignette_mask_params` + `vignette_gain` exactly:
+///   nx = (x + 0.5)·2/w − 1, ny = (y + 0.5)·2/h − 1, r = √(nx² + ny²)
+///   m  = smoothstep(0.7 − fw/2, 0.7 + fw/2, r), fw = 0.05 + f/100·0.85
+///   out = scene · exp2(1.5 · amount/100 · m)
+pub fn predict_vignette(
+    scene: f32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    amount: f32,
+    feather: f32,
+) -> f32 {
+    if amount.abs() < 1e-3 { return scene; }
+    let (e0, e1, ev) = crate::stages::vignette::vignette_mask_params(amount, feather);
+    scene * crate::stages::vignette::vignette_gain(x, y, (w, h), e0, e1, ev)
+}
+
 /// Predict the post-radial-gain value at a given normalised radius.
 /// `gain_values` is a flat 1-D LUT sampled along radius [0, 1].
 /// Output = `input * gain(radius_norm)` with linear interp between
@@ -466,6 +492,47 @@ mod tests {
     #[test] fn ptc_at_unity()         { round_trip_ptc(1.0,  SIMPLE_S_CURVE); }
     #[test] fn ptc_below_first_knot() { round_trip_ptc(0.10, SIMPLE_S_CURVE); }
     #[test] fn ptc_above_last_knot()  { round_trip_ptc(0.90, SIMPLE_S_CURVE); }
+
+    /// `predict_vignette` round-trips against the real stage at sampled
+    /// coordinates: a uniform grey image through `vignette::apply` must
+    /// land every sampled pixel on the position-aware closed form. (The
+    /// flat-field round-trip the other predictors use is waived — vignette
+    /// is position-dependent by design, spec § 10.1.)
+    #[test]
+    fn vignette_predictor_matches_stage_at_sampled_coords() {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::vignette;
+
+        let (w, h) = (48u32, 36u32);
+        for &(amount, feather) in &[(-100.0_f32, 0.0_f32), (-50.0, 50.0), (75.0, 100.0)] {
+            let mut img = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+            for p in &mut img.pixels {
+                *p = [0.18, 0.18, 0.18];
+            }
+            vignette::apply(&mut img, amount, feather);
+            // Centre, corner, edge midpoints, and an in-band sample.
+            for &(x, y) in &[(24u32, 18u32), (0, 0), (47, 35), (24, 0), (0, 18), (40, 30)] {
+                let predicted = predict_vignette(0.18, x, y, w, h, amount, feather);
+                let got = img.pixels[(y * w + x) as usize];
+                for c in 0..3 {
+                    assert!(
+                        (got[c] - predicted).abs() < 1e-6,
+                        "predict_vignette(0.18, {x}, {y}, {w}, {h}, {amount}, {feather}) = \
+                         {predicted}, stage produced {} (chan {c})",
+                        got[c]
+                    );
+                }
+            }
+        }
+    }
+
+    /// Centre identity is exact (m = 0 ⇒ gain = exp2(0) = 1.0): the
+    /// predictor must return the input bit-for-bit at the frame centre.
+    #[test]
+    fn vignette_predictor_center_identity() {
+        let v = predict_vignette(0.42, 50, 50, 101, 101, -100.0, 100.0);
+        assert_eq!(v, 0.42, "centre pixel must be exact identity");
+    }
 
     #[test]
     fn radial_gain_at_center_uses_first_value() {

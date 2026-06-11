@@ -15,14 +15,14 @@
 //!   highlight_recovery · DCP · oklab_highlight_recovery · PGTM ·
 //!   **capture_sharpening** · auto_exposure · **white_balance** ·
 //!   **scene_tone_controls** · **tone_curves** · **vibrance** · **saturation** ·
-//!   **clarity** · **texture** · **dehaze** · local_adjustments · **sharpen** ·
-//!   **nr_luminance** · **nr_color**
+//!   **clarity** · **texture** · **dehaze** · local_adjustments · **vignette** ·
+//!   **sharpen** · **nr_luminance** · **nr_color**
 //! then `render` appends the view tail:
 //!   **agx** · **rec2020_to_srgb** (= [`DisplayEncodePass`]) ·
 //!   **srgb_gamma_encode** (= [`SrgbGammaPass`]) · auto_profile-curve ·
 //!   auto_profile-residual-LUT · look · dither/quantize.
 //!
-//! The **bold** stages are the 17 GPU-ported [`Pass`]es this module composes (in
+//! The **bold** stages are the 18 GPU-ported [`Pass`]es this module composes (in
 //! exactly that order). The rest are gaps:
 //!
 //! - **Upstream / out of scope** (run before the post-DCP scene-linear buffer this
@@ -77,6 +77,7 @@ use crate::srgb_gamma::SrgbGammaPass;
 use crate::texture::TexturePass;
 use crate::tone_curves::{ToneCurveInputs, ToneCurvesPass};
 use crate::vibrance::VibrancePass;
+use crate::vignette::VignettePass;
 use crate::white_balance::WhiteBalancePass;
 
 /// An ordered, owned list of chain stages. Boxed because the stages are
@@ -121,6 +122,11 @@ pub struct FullChainInputs {
     pub clarity: f32,
     pub texture: f32,
     pub dehaze: f32,
+    /// Vignette (#1109): amount [-100, 100] (negative darkens corners) and
+    /// feather [0, 100] (mask transition width). Runs between dehaze and
+    /// sharpen — develop's 12c position.
+    pub vignette_amount: f32,
+    pub vignette_feather: f32,
     pub sharpen_amount: f32,
     pub sharpen_radius: f32,
     pub sharpen_detail: f32,
@@ -213,6 +219,12 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     suffix.push(Box::new(DehazePass {
         dehaze: inputs.dehaze,
         airlight: AirlightSource::Cpu(airlight),
+    }));
+    // Vignette (#1109) — develop's 12c position: after dehaze (and the
+    // not-GPU-ported local_adjustments no-op), before sharpen.
+    suffix.push(Box::new(VignettePass {
+        amount: inputs.vignette_amount,
+        feather: inputs.vignette_feather,
     }));
     suffix.push(Box::new(SharpenPass {
         amount: inputs.sharpen_amount,

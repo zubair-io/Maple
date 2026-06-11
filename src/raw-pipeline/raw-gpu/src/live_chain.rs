@@ -30,8 +30,9 @@
 //!
 //! ## The gate predicates (single-sourced from `raw-core/src/stages/*`)
 //!
-//! - `vibrance` / `saturation` / `clarity` / `texture` / `dehaze`:
-//!   `slider.abs() < 1e-3` → omit (each stage's `apply` returns early there).
+//! - `vibrance` / `saturation` / `clarity` / `texture` / `dehaze` /
+//!   `vignette` (on its amount): `slider.abs() < 1e-3` → omit (each stage's
+//!   `apply` returns early there).
 //! - `white_balance`: `(temp - 6500).abs() < 0.5 && tint.abs() < 0.5` → omit.
 //!   The live builder gates on the temp/tint [`FullChainInputs`] carries (NOT a
 //!   matrix near-identity test — at 6500K the CAT16 round-trip matrix is ~6.9e-3
@@ -65,6 +66,7 @@ use crate::srgb_gamma::SrgbGammaPass;
 use crate::texture::TexturePass;
 use crate::tone_curves::ToneCurvesPass;
 use crate::vibrance::VibrancePass;
+use crate::vignette::VignettePass;
 use crate::white_balance::WhiteBalancePass;
 
 /// The per-pixel slider no-op threshold raw-core uses across vibrance,
@@ -231,6 +233,16 @@ pub fn build_live_split(
             airlight: airlight.clone(),
         }));
     }
+    // Vignette (#1109) — develop's 12c position (after dehaze / the no-op
+    // local_adjustments, before sharpen). Same `apply` predicate as the
+    // raw-core stage's identity short-circuit (`|amount| < 1e-3`); feather
+    // alone never engages the stage.
+    if inputs.vignette_amount.abs() >= SLIDER_EPS {
+        suffix.push(Box::new(VignettePass {
+            amount: inputs.vignette_amount,
+            feather: inputs.vignette_feather,
+        }));
+    }
     if inputs.sharpen_amount.abs() >= SLIDER_EPS {
         suffix.push(Box::new(SharpenPass {
             amount: inputs.sharpen_amount,
@@ -323,14 +335,17 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     if inputs.dehaze.abs() >= SLIDER_EPS {
         m |= 1 << 8;
     }
-    if inputs.sharpen_amount.abs() >= SLIDER_EPS {
+    if inputs.vignette_amount.abs() >= SLIDER_EPS {
         m |= 1 << 9;
     }
-    if inputs.nr_luminance.abs() >= SLIDER_EPS {
+    if inputs.sharpen_amount.abs() >= SLIDER_EPS {
         m |= 1 << 10;
     }
-    if inputs.nr_color.abs() >= SLIDER_EPS {
+    if inputs.nr_luminance.abs() >= SLIDER_EPS {
         m |= 1 << 11;
+    }
+    if inputs.nr_color.abs() >= SLIDER_EPS {
+        m |= 1 << 12;
     }
     m
 }

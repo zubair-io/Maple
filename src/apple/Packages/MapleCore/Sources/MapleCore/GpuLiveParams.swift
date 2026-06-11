@@ -95,6 +95,13 @@ extension PipelineRenderer {
         p.texture = Float(model.texture)
         p.dehaze = Float(model.dehaze)
 
+        // Vignette (#1109) — scene-linear radial gain; lives at the struct
+        // TAIL in the C ABI (append-only convention, like brightness) but
+        // belongs to the effects group semantically; the chain runs it
+        // between dehaze and sharpen.
+        p.vignette_amount = Float(model.vignetteAmount)
+        p.vignette_feather = Float(model.vignetteFeather)
+
         // REAL sharpen + NR — run IN the scene-linear chain (replacing the post-AgX
         // Metal kernels), the sanctioned convergence divergence.
         p.sharpen_amount = Float(model.sharpenAmount)

@@ -108,6 +108,18 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
                 .into()
         ));
     }
+    if model.vignette_amount.abs() > 1e-3 {
+        // Vignette (#1109) is a pure point op GIVEN the full-frame window
+        // (`stages::vignette::apply_windowed`), but this entry does not
+        // thread the tile's origin / full dims through its develop chain
+        // yet — wiring that belongs to the stage-class overlap work that
+        // un-gates deep zoom (#11, tone/zoom design § 5.3, crop dep #1113).
+        // Refuse loudly rather than render a wrong (tile-local) ellipse.
+        return Err(crate::error::Error::Pipeline(
+            "tile path is not supported when vignette != 0 (full-frame anchor not threaded; #11)"
+                .into()
+        ));
+    }
     if out_w > src_w || out_h > src_h {
         return Err(crate::error::Error::Pipeline(
             format!("tile path is downscale-only (no upscale): out {}×{} > src {}×{}",

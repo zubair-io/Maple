@@ -72,6 +72,17 @@ pub struct MapleAdjustmentParams {
     /// per the same offset-stable ABI convention; a pre-#1102 caller that
     /// re-binds to the new header leaves it 0 = identity.
     pub brightness: f32,
+    /// Vignette amount — scene-linear radial EV gain, `[-100, 100]`
+    /// (#1109, tone/zoom design § 10.1); negative darkens corners. Runs
+    /// after `local_adjustments`, before the (omitted) sharpen. Appended
+    /// at the struct tail per the offset-stable ABI convention; an un-set
+    /// tail field reads 0 = identity.
+    pub vignette_amount: f32,
+    /// Vignette feather — mask transition softness, `[0, 100]` (#1109).
+    /// Inert while `vignette_amount` is 0 (the stage short-circuits), so
+    /// the 0 a stale caller leaves here is harmless; live hosts pass the
+    /// model's value (default 50).
+    pub vignette_feather: f32,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -153,6 +164,8 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.texture = p.texture;
     model.nr_luminance = p.nr_luminance;
     model.dehaze = p.dehaze;
+    model.vignette_amount = p.vignette_amount;
+    model.vignette_feather = p.vignette_feather;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
@@ -259,6 +272,8 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.texture = p.texture;
     model.nr_luminance = p.nr_luminance;
     model.dehaze = p.dehaze;
+    model.vignette_amount = p.vignette_amount;
+    model.vignette_feather = p.vignette_feather;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);

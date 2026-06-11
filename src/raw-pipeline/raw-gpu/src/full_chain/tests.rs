@@ -6,12 +6,12 @@
 //!
 //! ## What this gates
 //!
-//! The composed GPU chain (all 17 GPU-ported [`Pass`]es, in develop order) vs
+//! The composed GPU chain (all 18 GPU-ported [`Pass`]es, in develop order) vs
 //! the SAME stages composed on the CPU in the same order by calling the REAL
 //! `raw-core` stage functions sequentially (the test-only `raw-core` dev-dep) —
 //! not a hand-copied oracle. This is the capstone validation that the per-stage
 //! parity (each ≤ 3e-6 vs its Rust stage) survives composition: float error can
-//! only accumulate across the 17 stages, and this bounds the accumulated total.
+//! only accumulate across the 18 stages, and this bounds the accumulated total.
 //!
 //! Two representative adjustment sets, both with every per-pixel stage engaged
 //! PAST its raw-core no-op threshold so the CPU `apply` fns do NOT short-circuit
@@ -113,9 +113,9 @@ fn run_gpu_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Vec
     out
 }
 
-/// Accumulated-error budget for the full 17-stage composed chain.
+/// Accumulated-error budget for the full 18-stage composed chain.
 ///
-/// Per-stage parity is ≤ 3e-6 vs each Rust stage; 17 stages of f32 arithmetic
+/// Per-stage parity is ≤ 3e-6 vs each Rust stage; 18 stages of f32 arithmetic
 /// (including the iterative capture-sharpening RL loop FIRST, whose error then
 /// feeds every downstream stage, plus three spatial DAGs and two NLM passes)
 /// accumulate well under the per-stage `1e-4` ceiling the whole epic gates at.
@@ -141,7 +141,7 @@ const FULL_CHAIN_BUDGET: f32 = 1e-4;
 /// covered by the structural prefix+suffix / pass-count tests below.)
 ///
 /// `capture_sharpening` stays `None` here — that is the ONE legitimate builder
-/// gate (symmetric: the CPU oracle also `if let Some`), validated by the 15-pass
+/// gate (symmetric: the CPU oracle also `if let Some`), validated by the pass-
 /// count test. Mild magnitudes keep the per-image curve + LUT non-identity so the
 /// view-tail matrix/Oklab/trilinear paths also run for real on both sides.
 fn mild_case() -> Case {
@@ -161,6 +161,8 @@ fn mild_case() -> Case {
         clarity: 8.0,    // self-copy-through at 0, but engaged so it's tested
         texture: 6.0,
         dehaze: 10.0, // non-zero so dehaze runs (airlight engaged)
+        vignette_amount: -10.0, // past the |amount| < 1e-3 short-circuit (#1109)
+        vignette_feather: 50.0,
         sharpen_amount: 50.0,
         sharpen_radius: 1.0,
         sharpen_detail: 25.0,
@@ -174,7 +176,7 @@ fn mild_case() -> Case {
     };
     Case {
         model,
-        capture: None, // the one legitimate builder gate (15-pass count test)
+        capture: None, // the one legitimate builder gate (pass-count test)
         curve: nonidentity_curve(),
         lut: nonidentity_lut(9),
         wb_method: WbMethod::Cat16,
@@ -205,6 +207,8 @@ fn aggressive_case() -> Case {
         clarity: 40.0,
         texture: 30.0,
         dehaze: 45.0, // non-zero so the dehaze path actually runs (airlight matters)
+        vignette_amount: -65.0, // engaged radial gain (#1109)
+        vignette_feather: 30.0,
         sharpen_amount: 80.0,
         sharpen_radius: 1.5,
         sharpen_detail: 30.0,
@@ -292,12 +296,12 @@ fn single_vec_equals_prefix_plus_suffix() {
         prefix.len() + suffix.len(),
         "single-Vec assembly must equal prefix + suffix length"
     );
-    // The aggressive case engages every stage incl. capture_sharpening → all 17
-    // GPU-ported passes are present (16 scene/view stages + srgb_gamma).
+    // The aggressive case engages every stage incl. capture_sharpening → all 18
+    // GPU-ported passes are present (17 scene/view stages + srgb_gamma).
     assert_eq!(
         full.len(),
-        17,
-        "aggressive full chain must have all 17 passes"
+        18,
+        "aggressive full chain must have all 18 passes"
     );
 }
 
@@ -312,8 +316,8 @@ fn neutral_chain_omits_capture_sharpening() {
     let full = build_full_chain_passes(&inputs, [0.0; 3]);
     assert_eq!(
         full.len(),
-        16,
-        "neutral chain (no capture-sharpening) must have 16 passes"
+        17,
+        "neutral chain (no capture-sharpening) must have 17 passes"
     );
     // Sanity: PROFILE_CURVE_FLAT_LEN is the curve flat length the Pass asserts —
     // the neutral identity curve must match it (else the Pass panics at encode).

@@ -151,6 +151,8 @@ impl Case {
             clarity: self.model.clarity,
             texture: self.model.texture,
             dehaze: self.model.dehaze,
+            vignette_amount: self.model.vignette_amount,
+            vignette_feather: self.model.vignette_feather,
             sharpen_amount: self.model.sharpen_amount,
             sharpen_radius: self.model.sharpen_radius,
             sharpen_detail: self.model.sharpen_detail,
@@ -202,6 +204,11 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     raw_core::stages::clarity::apply(&mut img, case.model.clarity);
     raw_core::stages::texture::apply(&mut img, case.model.texture);
     raw_core::stages::dehaze::apply(&mut img, case.model.dehaze);
+    raw_core::stages::vignette::apply(
+        &mut img,
+        case.model.vignette_amount,
+        case.model.vignette_feather,
+    );
     raw_core::stages::sharpen::apply(
         &mut img,
         case.model.sharpen_amount,

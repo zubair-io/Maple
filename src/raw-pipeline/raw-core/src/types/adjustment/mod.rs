@@ -352,14 +352,15 @@ pub struct AdjustmentModel {
     pub nr_color: f32,       // 0..100, default 25 (default = the reference renderer's default)
     pub dehaze: f32,         // -100..100, default 0
 
-    // S5 effects fields (ticket #643). Identity-stub scalars: model + UI
-    // wiring only — no pipeline stage consumes these yet, so defaults are
-    // chosen so that an absent-attribute sidecar (or a freshly-created
-    // model) produces bit-identical output to the pre-#643 pipeline.
-    // Follow-up tickets track the actual pipeline math.
+    // S5 effects fields (ticket #643 model/UI). Defaults are chosen so an
+    // absent-attribute sidecar (or a freshly-created model) produces
+    // bit-identical output to the pre-#643 pipeline. Pipeline stages land
+    // per tool: vignette is real (#1109); grain / split tone remain
+    // identity stubs until #1110 / #1111.
     //
-    // Vignette (§ 3.12). Drag-bar drives `vignette_amount`; `vignette_feather`
-    // is exposed for XMP round-trip and future direct UI control.
+    // Vignette (#1109, tone/zoom design § 10.1): scene-linear radial EV
+    // gain, `stages::vignette`. Drag-bar drives `vignette_amount`;
+    // `vignette_feather` maps onto the mask transition width.
     pub vignette_amount: f32,        // -100..100, default 0 (negative = darken corners)
     pub vignette_feather: f32,       // 0..100, default 50 (transition softness)
 

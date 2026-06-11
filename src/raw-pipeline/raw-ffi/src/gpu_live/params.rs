@@ -101,6 +101,8 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         clarity: p.clarity,
         texture: p.texture,
         dehaze: p.dehaze,
+        vignette_amount: p.vignette_amount,
+        vignette_feather: p.vignette_feather,
         sharpen_amount: p.sharpen_amount,
         sharpen_radius: p.sharpen_radius,
         sharpen_detail: p.sharpen_detail,

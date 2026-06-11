@@ -27,7 +27,7 @@ use crate::{
     cancel::CancelToken,
     error::Result,
     image::{apply_orientation, ColorSpace, Image, RawImage},
-    stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance},
+    stages::{clarity, dehaze, noise_reduction, saturation, sharpen, texture, vibrance, vignette},
     types::adjustment::{AutoExposureMode, Profile},
     view::{agx, auto_profile, encode, look},
     xmp::AdjustmentModel,
@@ -553,6 +553,12 @@ pub fn render_from_scene_linear_with_chain(
     dump_after("11_texture", &scene);
     stage("synth_dehaze", || dehaze::apply(&mut scene, model.dehaze));
     dump_after("12_dehaze", &scene);
+    // Vignette (#1109) — same chain position as develop (local_adjustments
+    // is absent on this synthetic path; vignette still precedes sharpen).
+    stage("synth_vignette", || {
+        vignette::apply(&mut scene, model.vignette_amount, model.vignette_feather)
+    });
+    dump_after("12c_vignette", &scene);
     stage("synth_sharpen", || {
         sharpen::apply(
             &mut scene,

@@ -118,9 +118,9 @@ extension AdjustmentModel {
     public static let nrColorRange: ClosedRange<Double> = 0.0...100.0
     /// Dehaze strength.
     public static let dehazeRange: ClosedRange<Double> = -100.0...100.0
-    /// Vignette amount — negative darkens corners, positive lightens them (ticket #643).
+    /// Vignette amount — scene-linear radial EV gain (#1109, tone/zoom design spec § 10.1); negative darkens corners, positive lightens them.
     public static let vignetteAmountRange: ClosedRange<Double> = -100.0...100.0
-    /// Vignette transition softness from center to edge (ticket #643).
+    /// Vignette transition softness from center to edge (#1109) — maps onto mask width 0.05–0.9 around the fixed 0.7 midpoint.
     public static let vignetteFeatherRange: ClosedRange<Double> = 0.0...100.0
     /// Grain intensity (ticket #643).
     public static let grainAmountRange: ClosedRange<Double> = 0.0...100.0
