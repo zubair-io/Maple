@@ -10,3 +10,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/../raw-pipeline"
 cargo test -p raw-core --features test-support --test grey_adjustments -- --nocapture
+# Display-domain gates (contrast direction + vignette/grain/split-tone) —
+# split into their own target under the 600-LOC file budget (#1170).
+cargo test -p raw-core --features test-support --test grey_adjustments_display -- --nocapture

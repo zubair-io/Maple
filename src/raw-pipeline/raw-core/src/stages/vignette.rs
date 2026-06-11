@@ -41,7 +41,7 @@
 //! Vignette is deliberately position-dependent, so the synthetic-grey
 //! FLATNESS invariant is waived for this stage and replaced by
 //! center-identity + corner-attenuation-formula assertions (see
-//! `tests/grey_adjustments.rs` and `test_support::predictions::
+//! `tests/grey_adjustments_display.rs` and `test_support::predictions::
 //! predict_vignette`). At the frame center `m(r) = 0` exactly (smoothstep
 //! clamps), so `gain = exp2(0) = 1.0` and the multiply is bit-exact
 //! identity.
