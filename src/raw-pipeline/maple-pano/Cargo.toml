@@ -19,6 +19,12 @@ license.workspace = true
 # sibling crates can reuse the generator; the crate's own gate tests
 # enable it via `required-features` below. Adds no dependencies.
 testkit = []
+# ALIKED + LightGlue detector/matcher via ONNX Runtime (#1139, spec §5.2).
+# Native-only: `ort` with `load-dynamic` has no wasm story here — the web
+# delivery path (WebGPU/WASM EP, lazy model fetch) is a later milestone per
+# the eng design spec §7. Off by default so the geometry/test surface builds
+# without the ONNX dependency tree.
+ml = ["dep:ort", "dep:libloading", "dep:sha2", "dep:toml"]
 
 [[bin]]
 name = "pano-gt-render"
@@ -50,3 +56,13 @@ rayon.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+# --- `ml` feature only (see [features] above) ---------------------------
+# ONNX Runtime FFI — see the workspace manifest for the rc.10 pin rationale.
+ort = { workspace = true, optional = true }
+# dlopen pre-flight for the onnxruntime dylib (ort panics on load failure).
+libloading = { workspace = true, optional = true }
+# SHA-256 verification of model files against models.toml.
+sha2 = { workspace = true, optional = true }
+# models.toml manifest parsing.
+toml = { workspace = true, optional = true }
