@@ -36,6 +36,17 @@ pub enum PanoError {
          (the polynomial folds back inside the frame) — reduce |k1|/|k2| or the field of view"
     )]
     DistortionNotInvertible { k1: f64, k2: f64, px: f64, py: f64 },
+
+    // --- Ingest (#1156). Appended — keep this enum append-only so the
+    // concurrently landing module additions stay merge-friendly. ---
+    #[error("raw decode for pano ingest failed on {context}: {source}")]
+    RawDecode {
+        /// What was being decoded — a path for file entries, the extension
+        /// hint for byte entries.
+        context: String,
+        #[source]
+        source: raw_core::Error,
+    },
 }
 
 impl PanoError {

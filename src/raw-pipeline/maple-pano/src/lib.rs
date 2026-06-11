@@ -95,3 +95,12 @@ pub mod features;
 pub mod matching;
 #[cfg(feature = "ml")]
 pub mod models;
+
+// --- Ingest (#1156, spec §5.1): real-frame decode via raw-core ----------
+//
+// `ingest` wraps `raw_core::decode_for_pano` into the planar f32 +
+// validity buffer shape the compositing stages consume, derives the
+// EXIF-focal / DJI-gimbal priors, and provides the long-edge-capped
+// proxy downscale features run on. Appended after the ml block — keep
+// lib.rs additions append-only (concurrent module ownership).
+pub mod ingest;
