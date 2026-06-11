@@ -104,3 +104,12 @@ pub mod models;
 // proxy downscale features run on. Appended after the ml block — keep
 // lib.rs additions append-only (concurrent module ownership).
 pub mod ingest;
+
+// --- M1b (#1154, spec §5.3): global bundle adjustment -------------------
+//
+// `ba` owns the LM solve over all camera rotations + shared focal +
+// k1/k2 (in-tree dense normal equations per decision §9.1's no-Ceres
+// intent), spanning-tree / gimbal-prior initialization, the per-image
+// focal fallback (decision §9.2), up-vector leveling, and the
+// acceptance-gate frame dropping. Appended after the ingest block.
+pub mod ba;
