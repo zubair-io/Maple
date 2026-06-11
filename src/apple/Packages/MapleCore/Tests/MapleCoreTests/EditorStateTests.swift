@@ -210,6 +210,107 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(ToolValueMapping.defaultDisplayValue(for: .captureSigma), 1.0, accuracy: 1e-9)
     }
 
+    // MARK: - Wheel nudge (#1099)
+
+    func testWheelNudgeAppliesStepsTimesUnit() {
+        let session = makeSession()
+        let state = EditorState(session: session)
+        state.arm(tool: .contrast)
+        // Contrast is symmetric ±100 → internal == display, so 3 detents
+        // × unit 1 lands at +3.
+        state.wheelNudge(steps: 3, unit: 1, at: Date())
+        XCTAssertEqual(session.model.contrast, 3, accuracy: 1e-9)
+    }
+
+    func testWheelNudgeBurstSharesOneUndoSnapshot() {
+        let session = makeSession()
+        let state = EditorState(session: session)
+        state.arm(tool: .contrast)
+        let t0 = Date()
+        state.wheelNudge(steps: 1, unit: 1, at: t0)
+        state.wheelNudge(steps: 1, unit: 1, at: t0.addingTimeInterval(0.1))
+        state.wheelNudge(steps: 1, unit: 1, at: t0.addingTimeInterval(0.2))
+        XCTAssertEqual(session.model.contrast, 3, accuracy: 1e-9)
+        // One burst = one snapshot: a single undo returns to the start.
+        state.undo()
+        XCTAssertEqual(session.model.contrast, 0, accuracy: 1e-9)
+        XCTAssertFalse(state.canUndo)
+    }
+
+    func testWheelNudgePauseStartsNewBurst() {
+        let session = makeSession()
+        let state = EditorState(session: session)
+        state.arm(tool: .contrast)
+        let t0 = Date()
+        state.wheelNudge(steps: 1, unit: 1, at: t0)
+        // > 0.5 s pause — a fresh burst, so a second snapshot.
+        state.wheelNudge(steps: 1, unit: 1, at: t0.addingTimeInterval(0.8))
+        XCTAssertEqual(session.model.contrast, 2, accuracy: 1e-9)
+        state.undo()
+        XCTAssertEqual(session.model.contrast, 1, accuracy: 1e-9)
+        state.undo()
+        XCTAssertEqual(session.model.contrast, 0, accuracy: 1e-9)
+    }
+
+    func testWheelNudgeToolSwitchWithinWindowStartsNewBurst() {
+        // #1125 review: scroll Tool A, switch to Tool B, scroll again
+        // within the 0.5 s window — the burst must break on the tool
+        // change so the two tools' edits land in SEPARATE undo
+        // snapshots.
+        let session = makeSession()
+        let state = EditorState(session: session)
+        let t0 = Date()
+        state.arm(tool: .contrast)
+        state.wheelNudge(steps: 5, unit: 1, at: t0)
+        state.arm(tool: .tint)
+        state.wheelNudge(steps: 3, unit: 1, at: t0.addingTimeInterval(0.1))
+        XCTAssertEqual(session.model.contrast, 5, accuracy: 1e-9)
+        XCTAssertEqual(session.model.tint, 3, accuracy: 1e-9)
+        // First undo unwinds ONLY the tint nudge…
+        state.undo()
+        XCTAssertEqual(session.model.tint, 0, accuracy: 1e-9)
+        XCTAssertEqual(session.model.contrast, 5, accuracy: 1e-9)
+        // …second undo unwinds the contrast burst.
+        state.undo()
+        XCTAssertEqual(session.model.contrast, 0, accuracy: 1e-9)
+        XCTAssertFalse(state.canUndo)
+    }
+
+    func testWheelNudgeReturnToFirstToolStartsAnotherBurst() {
+        // A→B→A inside the window: the return to A is still a tool
+        // change relative to the LAST nudge, so it opens a third
+        // snapshot rather than gluing onto A's first burst.
+        let session = makeSession()
+        let state = EditorState(session: session)
+        let t0 = Date()
+        state.arm(tool: .contrast)
+        state.wheelNudge(steps: 1, unit: 1, at: t0)
+        state.arm(tool: .tint)
+        state.wheelNudge(steps: 1, unit: 1, at: t0.addingTimeInterval(0.1))
+        state.arm(tool: .contrast)
+        state.wheelNudge(steps: 1, unit: 1, at: t0.addingTimeInterval(0.2))
+        state.undo()
+        XCTAssertEqual(session.model.contrast, 1, accuracy: 1e-9)
+        XCTAssertEqual(session.model.tint, 1, accuracy: 1e-9)
+        state.undo()
+        XCTAssertEqual(session.model.tint, 0, accuracy: 1e-9)
+        state.undo()
+        XCTAssertEqual(session.model.contrast, 0, accuracy: 1e-9)
+    }
+
+    func testWheelNudgeIgnoresZeroStepsAndUnwiredTools() {
+        let session = makeSession()
+        let state = EditorState(session: session)
+        let before = session.model
+        state.arm(tool: .contrast)
+        state.wheelNudge(steps: 0, unit: 1, at: Date())
+        XCTAssertFalse(state.canUndo, "zero steps must not open a snapshot")
+        state.arm(tool: .hsl) // stub — not wired
+        state.wheelNudge(steps: 2, unit: 1, at: Date())
+        XCTAssertFalse(state.canUndo)
+        XCTAssertEqual(session.model, before)
+    }
+
     // MARK: - Undo cap
 
     func testUndoStackCapsAtThirtyTwo() {
