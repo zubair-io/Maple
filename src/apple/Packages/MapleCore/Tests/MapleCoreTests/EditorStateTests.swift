@@ -237,6 +237,17 @@ final class EditorStateTests: XCTestCase {
         XCTAssertFalse(state.canUndo)
     }
 
+    func testWheelNudgeOnValuelessToolPushesNoUndoSnapshot() {
+        let session = makeSession()
+        let state = EditorState(session: session)
+        // Presets is wired but value-less (`displayRange == nil`) — the
+        // burst commit must not fire for it, same contract as DragBar's
+        // `armedToolAcceptsValueEdits` hit-testing gate.
+        state.arm(tool: .presets)
+        state.wheelNudge(steps: 3, unit: 1, at: Date())
+        XCTAssertFalse(state.canUndo)
+    }
+
     func testWheelNudgePauseStartsNewBurst() {
         let session = makeSession()
         let state = EditorState(session: session)

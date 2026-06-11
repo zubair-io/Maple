@@ -30,6 +30,7 @@ extension AdjustmentModel.FieldName {
         case .tint:                         return \.tint
         case .exposure:                     return \.exposure
         case .contrast:                     return \.contrast
+        case .brightness:                   return \.brightness
         case .highlights:                   return \.highlights
         case .shadows:                      return \.shadows
         case .whites:                       return \.whites
@@ -77,6 +78,7 @@ extension AdjustmentModel.FieldName {
         case .tint:                         return AdjustmentModel.tintRange
         case .exposure:                     return AdjustmentModel.exposureRange
         case .contrast:                     return AdjustmentModel.contrastRange
+        case .brightness:                   return AdjustmentModel.brightnessRange
         case .highlights:                   return AdjustmentModel.highlightsRange
         case .shadows:                      return AdjustmentModel.shadowsRange
         case .whites:                       return AdjustmentModel.whitesRange
