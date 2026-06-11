@@ -101,16 +101,15 @@ export function groupOf(tool: ToolId): ToolGroup {
   throw new Error(`unknown tool: ${tool}`);
 }
 
-// vignette left the stub list at #1109 — `stages::vignette` is a real
-// pipeline stage (CPU + WGSL), so the pill's writes render. grain / splitTone
-// have AdjustmentModel *fields* (added at #643) but no *apply* code yet — they
-// were live drag-bars that wrote XMP for a silent no-op (#952) and stay gated
-// until #1110 (grain) / #1111 (split-tone) deliver the effects. HSL (#636) and
-// Crop (#638) remain stubs pending their own specs. Presets left the stub list
-// at #1115: the pill opens the presets sheet/popover (see EditorComponent) —
-// it has no drag-bar value, so `fieldFor` stays null and the value pipe is
-// inert.
-const STUB_TOOLS = new Set<ToolId>(['hsl', 'grain', 'splitTone', 'crop']);
+// vignette (#1109) and grain (#1110) left the stub list — both are real
+// pipeline stages (CPU + WGSL), so the pills' writes render. splitTone has
+// AdjustmentModel *fields* (added at #643) but no *apply* code yet — it was a
+// live drag-bar that wrote XMP for a silent no-op (#952) and stays gated until
+// #1111 delivers the effect. HSL (#636) and Crop (#638) remain stubs pending
+// their own specs. Presets left the stub list at #1115: the pill opens the
+// presets sheet/popover (see EditorComponent) — it has no drag-bar value, so
+// `fieldFor` stays null and the value pipe is inert.
+const STUB_TOOLS = new Set<ToolId>(['hsl', 'splitTone', 'crop']);
 
 export function isWired(tool: ToolId): boolean {
   return !STUB_TOOLS.has(tool);
@@ -143,14 +142,15 @@ const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   // first sub-param; feather rides the sub-param row). The symmetric
   // [-100, 100] range takes the default `(v/100)·hi` mapping arm.
   vignette: ADJUSTMENT_RANGES.vignetteAmount,
-  // grain / splitTone have no entry on purpose: they are gated stubs
-  // (#952), identical to hsl / crop. With no range, both `displayRange`
-  // (→ null) and the value mapping (→ identity, so the chip reads 0)
-  // treat them as inert — no misleading midpoint value surfaces. To
-  // re-wire (#1110 / #1111): add the `ADJUSTMENT_RANGES.*` entry back
-  // here AND restore the one-sided mapping arm (grain is 0..100).
-  // presets is wired but value-less (#1115) — also no entry, same inert
-  // mapping.
+  // Grain (#1110) — wired; the drag bar drives `grainAmount` (one-sided
+  // 0..100, the noise/colorNR affine family).
+  grain: ADJUSTMENT_RANGES.grainAmount,
+  // splitTone has no entry on purpose: it is a gated stub (#952),
+  // identical to hsl / crop. With no range, both `displayRange` (→ null)
+  // and the value mapping (→ identity, so the chip reads 0) treat it as
+  // inert — no misleading midpoint value surfaces. To re-wire (#1111):
+  // add the `ADJUSTMENT_RANGES.*` entry back here. presets is wired but
+  // value-less (#1115) — also no entry, same inert mapping.
 };
 
 export function displayRange(tool: ToolId): readonly [number, number] | null {
@@ -166,7 +166,7 @@ export function displayValueFromInternal(tool: ToolId, v: number): number {
   if (tool === 'sharpen') {
     return v >= 0 ? 40 + (v / 100) * (150 - 40) : 40 + (v / 100) * 40;
   }
-  if (tool === 'noise' || tool === 'colorNR') {
+  if (tool === 'noise' || tool === 'colorNR' || tool === 'grain') {
     const [lo, hi] = r;
     return lo + ((v + 100) / 200) * (hi - lo);
   }
@@ -182,7 +182,7 @@ export function internalValueFromDisplay(tool: ToolId, d: number): number {
   if (tool === 'sharpen') {
     return d >= 40 ? ((d - 40) / (150 - 40)) * 100 : ((d - 40) / 40) * 100;
   }
-  if (tool === 'noise' || tool === 'colorNR') {
+  if (tool === 'noise' || tool === 'colorNR' || tool === 'grain') {
     const [lo, hi] = r;
     return ((d - lo) / (hi - lo)) * 200 - 100;
   }
@@ -226,15 +226,17 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
       return 'nrLuminance';
     case 'colorNR':
       return 'nrColor';
-    // Vignette (#1109) — wired; the drag bar drives the amount.
+    // Vignette (#1109) / grain (#1110) — wired; the drag bars drive the
+    // amounts.
     case 'vignette':
       return 'vignetteAmount';
-    // grain / splitTone are gated stubs (#952) — no apply code exists yet
-    // (#1110 / #1111). Return null so no XMP field is written and no
-    // modified-dot fires, matching hsl / crop. The grainAmount /
-    // splitToneBalance schema fields still round-trip via passthrough;
-    // this only stops new edits. presets is wired but value-less (#1115)
-    // — also null.
+    case 'grain':
+      return 'grainAmount';
+    // splitTone is a gated stub (#952) — no apply code exists yet
+    // (#1111). Return null so no XMP field is written and no
+    // modified-dot fires, matching hsl / crop. The splitToneBalance
+    // schema fields still round-trip via passthrough; this only stops
+    // new edits. presets is wired but value-less (#1115) — also null.
     default:
       return null;
   }

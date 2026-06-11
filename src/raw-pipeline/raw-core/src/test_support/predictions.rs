@@ -130,6 +130,36 @@ pub fn predict_vignette(
     scene * crate::stages::vignette::vignette_gain(x, y, (w, h), e0, e1, ev)
 }
 
+/// stages::grain::apply (#1110, tone/zoom design § 10.2) — POSITION-AWARE
+/// closed form on a neutral display-linear pixel `Yd = display_value`:
+///
+///   out = Yd + K·amount/100 · clamp(4·Yd·(1−Yd), 0, 1) · n(x, y)
+///
+/// `n` is the DETERMINISTIC hash-noise field (`stages::grain::grain_noise`
+/// — fixed seed, no RNG), so this predictor is exact per pixel, not
+/// statistical. Like vignette, the synthetic-grey FLATNESS invariant is
+/// waived (spec § 10.2); the gates are mean preservation + the predicted
+/// (deterministic) deviation — see `stages::grain::tests` and
+/// `tests/grey_adjustments.rs`. The cross-RESOLUTION contract stays
+/// statistical: the field re-samples per render size.
+pub fn predict_grain(
+    display_value: f32,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+    amount: f32,
+    size: f32,
+    roughness: f32,
+) -> f32 {
+    if amount.abs() < 1e-3 { return display_value; }
+    let (k, inv_pitch, rho) =
+        crate::stages::grain::grain_params(amount, size, roughness, w.max(h));
+    let n = crate::stages::grain::grain_noise(x, y, inv_pitch, rho);
+    let wl = (4.0 * display_value * (1.0 - display_value)).clamp(0.0, 1.0);
+    display_value + k * wl * n
+}
+
 /// Predict the post-radial-gain value at a given normalised radius.
 /// `gain_values` is a flat 1-D LUT sampled along radius [0, 1].
 /// Output = `input * gain(radius_norm)` with linear interp between
@@ -532,6 +562,34 @@ mod tests {
     fn vignette_predictor_center_identity() {
         let v = predict_vignette(0.42, 50, 50, 101, 101, -100.0, 100.0);
         assert_eq!(v, 0.42, "centre pixel must be exact identity");
+    }
+
+    /// `predict_grain` round-trips against the real stage at sampled
+    /// coordinates on a uniform display-linear card (exact — the field is
+    /// deterministic).
+    #[test]
+    fn grain_predictor_matches_stage_at_sampled_coords() {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::grain;
+
+        let (w, h) = (48u32, 36u32);
+        let v = 0.4f32;
+        let mut img = Image::new(w, h, ColorSpace::DisplayLinearRec2020);
+        for p in &mut img.pixels {
+            *p = [v, v, v];
+        }
+        grain::apply(&mut img, 80.0, 40.0, 60.0);
+        for &(x, y) in &[(0u32, 0u32), (24, 18), (47, 35), (13, 7)] {
+            let predicted = predict_grain(v, x, y, w, h, 80.0, 40.0, 60.0);
+            let got = img.pixels[(y * w + x) as usize];
+            for c in 0..3 {
+                assert!(
+                    (got[c] - predicted).abs() < 1e-6,
+                    "predict_grain at ({x},{y}) chan {c}: got {}, predicted {predicted}",
+                    got[c]
+                );
+            }
+        }
     }
 
     #[test]

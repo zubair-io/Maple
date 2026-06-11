@@ -186,6 +186,12 @@ fn stripped_prefix_model(full: &AdjustmentModel, ae_mode: AutoExposureMode) -> A
         // doesn't spuriously re-develop.
         vignette_amount: 0.0,
         vignette_feather: 50.0,
+        // Grain (#1110) lives in the GPU chain's display tail and never
+        // runs in develop at all — pin its fields so dragging them can't
+        // spuriously re-develop the prefix.
+        grain_amount: 0.0,
+        grain_size: 25.0,
+        grain_roughness: 50.0,
         // Sharpen is short-circuited (`amount = 0`), so its sub-params are inert;
         // pin them to defaults so dragging radius/detail/masking (with the GPU's
         // real `sharpen_amount` active) doesn't spuriously re-develop.
@@ -261,6 +267,9 @@ fn build_full_chain_inputs(
         dehaze: model.dehaze,
         vignette_amount: model.vignette_amount,
         vignette_feather: model.vignette_feather,
+        grain_amount: model.grain_amount,
+        grain_size: model.grain_size,
+        grain_roughness: model.grain_roughness,
         sharpen_amount: model.sharpen_amount,
         sharpen_radius: model.sharpen_radius,
         sharpen_detail: model.sharpen_detail,

@@ -102,6 +102,13 @@ extension PipelineRenderer {
         p.vignette_amount = Float(model.vignetteAmount)
         p.vignette_feather = Float(model.vignetteFeather)
 
+        // Film grain (#1110) — display-linear deterministic noise; struct
+        // tail per the same convention; the chain runs it between agx and
+        // display_encode.
+        p.grain_amount = Float(model.grainAmount)
+        p.grain_size = Float(model.grainSize)
+        p.grain_roughness = Float(model.grainRoughness)
+
         // REAL sharpen + NR — run IN the scene-linear chain (replacing the post-AgX
         // Metal kernels), the sanctioned convergence divergence.
         p.sharpen_amount = Float(model.sharpenAmount)

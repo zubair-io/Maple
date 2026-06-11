@@ -18,11 +18,12 @@
 //!   **clarity** · **texture** · **dehaze** · local_adjustments · **vignette** ·
 //!   **sharpen** · **nr_luminance** · **nr_color**
 //! then `render` appends the view tail:
-//!   **agx** · **rec2020_to_srgb** (= [`DisplayEncodePass`]) ·
+//!   **agx** · **grain** (#1110, display-linear) ·
+//!   **rec2020_to_srgb** (= [`DisplayEncodePass`]) ·
 //!   **srgb_gamma_encode** (= [`SrgbGammaPass`]) · auto_profile-curve ·
 //!   auto_profile-residual-LUT · look · dither/quantize.
 //!
-//! The **bold** stages are the 18 GPU-ported [`Pass`]es this module composes (in
+//! The **bold** stages are the 19 GPU-ported [`Pass`]es this module composes (in
 //! exactly that order). The rest are gaps:
 //!
 //! - **Upstream / out of scope** (run before the post-DCP scene-linear buffer this
@@ -68,6 +69,7 @@ use crate::chain::Pass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
+use crate::grain::GrainPass;
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
@@ -127,6 +129,11 @@ pub struct FullChainInputs {
     /// sharpen — develop's 12c position.
     pub vignette_amount: f32,
     pub vignette_feather: f32,
+    /// Film grain (#1110): amount/size/roughness [0, 100]. Display-linear —
+    /// runs in the view tail between agx and display_encode.
+    pub grain_amount: f32,
+    pub grain_size: f32,
+    pub grain_roughness: f32,
     pub sharpen_amount: f32,
     pub sharpen_radius: f32,
     pub sharpen_detail: f32,
@@ -241,6 +248,13 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     // View tail.
     suffix.push(Box::new(AgxPass {
         contrast: inputs.contrast,
+    }));
+    // Film grain (#1110) — display-linear, post-AgX, before the target
+    // gamut (the render tail's 16b position).
+    suffix.push(Box::new(GrainPass {
+        amount: inputs.grain_amount,
+        size: inputs.grain_size,
+        roughness: inputs.grain_roughness,
     }));
     suffix.push(Box::new(DisplayEncodePass));
     // srgb_gamma_encode: the per-channel IEC OETF. MUST sit between display_encode

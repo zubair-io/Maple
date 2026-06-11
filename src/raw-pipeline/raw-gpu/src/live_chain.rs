@@ -56,6 +56,7 @@ use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
+use crate::grain::GrainPass;
 use crate::full_chain::{BoxedPasses, FullChainInputs};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
@@ -269,6 +270,17 @@ pub fn build_live_split(
     suffix.push(Box::new(AgxPass {
         contrast: inputs.contrast,
     }));
+    // Film grain (#1110) — display-linear, post-AgX; GATED unlike the rest
+    // of the tail (grain at amount 0 is a true no-op, so the pass is
+    // omitted exactly as raw-core's `apply` short-circuits). Size /
+    // roughness alone never engage the stage.
+    if inputs.grain_amount.abs() >= SLIDER_EPS {
+        suffix.push(Box::new(GrainPass {
+            amount: inputs.grain_amount,
+            size: inputs.grain_size,
+            roughness: inputs.grain_roughness,
+        }));
+    }
     suffix.push(Box::new(DisplayEncodePass));
     suffix.push(Box::new(SrgbGammaPass));
     suffix.push(Box::new(AutoProfileCurvePass {
@@ -346,6 +358,9 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     }
     if inputs.nr_color.abs() >= SLIDER_EPS {
         m |= 1 << 12;
+    }
+    if inputs.grain_amount.abs() >= SLIDER_EPS {
+        m |= 1 << 13;
     }
     m
 }

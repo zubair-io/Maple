@@ -34,6 +34,9 @@ fn default_params() -> MapleAdjustmentParams {
         brightness: 0.0,
         vignette_amount: 0.0,
         vignette_feather: 50.0,
+        grain_amount: 0.0,
+        grain_size: 25.0,
+        grain_roughness: 50.0,
     }
 }
 

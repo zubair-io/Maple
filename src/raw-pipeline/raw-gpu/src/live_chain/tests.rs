@@ -277,6 +277,14 @@ fn single_stage_cases() -> Vec<SingleStage> {
             },
         },
         SingleStage {
+            name: "grain",
+            engage: |m| {
+                m.grain_amount = 60.0;
+                m.grain_size = 30.0; // sub-params; amount is the gate
+                m.grain_roughness = 50.0;
+            },
+        },
+        SingleStage {
             name: "sharpen",
             engage: |m| {
                 m.sharpen_amount = 60.0;
@@ -435,6 +443,23 @@ fn chain_signature_folds_in_residual_lut_size() {
         chain_signature(&small_inputs, dims),
         chain_signature(&same_size.gpu_inputs(), dims),
         "equal residual_lut_size must keep the signature stable"
+    );
+}
+
+/// Grain sub-param gating (#1110): size / roughness alone must NOT engage
+/// the pass — the gate is on `grain_amount`, mirroring the raw-core
+/// stage's identity short-circuit.
+#[test]
+fn grain_size_roughness_alone_do_not_engage_the_pass() {
+    let mut case = neutral_case();
+    case.model.grain_size = 90.0; // amount stays 0
+    case.model.grain_roughness = 90.0;
+    let inputs = case.gpu_inputs();
+    let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes.len(),
+        VIEW_TAIL_PASS_COUNT,
+        "size/roughness without amount must not add a grain pass"
     );
 }
 

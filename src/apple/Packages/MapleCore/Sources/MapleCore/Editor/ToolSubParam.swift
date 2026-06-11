@@ -97,11 +97,29 @@ extension Tool {
     /// Ordered sub-params; empty for single-param tools. §10.0: the
     /// Noise pill's future tiers — Deep (BM3D, #1105) and Prefilter
     /// (§3.1) — join the `noise` list data-only when their pipeline
-    /// stages land. Grain / split tone gain their satellite sub-params
-    /// the same way when #1110 / #1111 un-stub them; vignette joined at
-    /// #1109.
+    /// stages land. Split tone gains its satellite sub-params the same
+    /// way when #1111 un-stubs it; vignette joined at #1109, grain at
+    /// #1110.
     public var subParams: [ToolSubParam] {
         switch self {
+        case .grain:
+            return [
+                ToolSubParam(id: "amount", label: "Amount",
+                             keyPath: \.grainAmount, mapping: .linear,
+                             range: AdjustmentModel.grainAmountRange,
+                             defaultDisplayValue: Self.defaults.grainAmount,
+                             decimals: 0),
+                ToolSubParam(id: "size", label: "Size",
+                             keyPath: \.grainSize, mapping: .linear,
+                             range: AdjustmentModel.grainSizeRange,
+                             defaultDisplayValue: Self.defaults.grainSize,
+                             decimals: 0),
+                ToolSubParam(id: "roughness", label: "Roughness",
+                             keyPath: \.grainRoughness, mapping: .linear,
+                             range: AdjustmentModel.grainRoughnessRange,
+                             defaultDisplayValue: Self.defaults.grainRoughness,
+                             decimals: 0),
+            ]
         case .vignette:
             return [
                 ToolSubParam(id: "amount", label: "Amount",

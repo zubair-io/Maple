@@ -681,3 +681,75 @@ fn vignette_zero_amount_is_bit_identical() {
     let img = develop_grey_with_vignette(0.18, 0.0, 95.0);
     assert_eq!(base.pixels, img.pixels, "feather without amount must be a no-op");
 }
+
+// ---------------------------------------------------------------------------
+// Film grain (#1110, tone/zoom design § 10.2) — runs in the DISPLAY tail
+// (post-AgX), deliberately position-dependent. Like vignette, the flat-
+// field invariant is WAIVED (spec § 10.2); the develop-level gates are
+// mean preservation and neutrality through the full display pipeline,
+// plus bit-identity at amount 0. The exact per-pixel + predicted-std
+// gates live at the stage level (`stages::grain::tests`) where the
+// display-linear domain is directly accessible.
+// ---------------------------------------------------------------------------
+
+/// Render the synthetic grey card through the FULL display pipeline with
+/// grain set; returns (w, h, u8 RGB).
+fn render_grey_with_grain(linear_value: f32, amount: f32, size: f32) -> (u32, u32, Vec<u8>) {
+    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+    let bytes = dng.write_to_bytes();
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
+        .expect("synthetic DNG must decode");
+    let mut model = AdjustmentModel::default();
+    model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
+    model.grain_amount = amount;
+    model.grain_size = size;
+    render_from_raw(&raw, &model).expect("full pipeline render must succeed")
+}
+
+/// (a) Mean preservation through the display pipeline: zero-mean noise
+/// must not shift the card's average by more than ~half an 8-bit LSB.
+/// (The sRGB OETF between the grain injection and the u8 output is
+/// locally near-linear, so the zero-mean property survives to first
+/// order; 0.5 LSB absorbs the second-order curvature + dither.)
+#[test]
+fn grain_preserves_mean_display() {
+    let (w, h, base) = render_grey_with_grain(0.18, 0.0, 25.0);
+    let (_, _, grained) = render_grey_with_grain(0.18, 70.0, 25.0);
+    let n = (w * h * 3) as f64;
+    let mean_base: f64 = base.iter().map(|&v| v as f64).sum::<f64>() / n;
+    let mean_grained: f64 = grained.iter().map(|&v| v as f64).sum::<f64>() / n;
+    assert!(
+        (mean_base - mean_grained).abs() < 0.5,
+        "grain must preserve the mean: base {mean_base}, grained {mean_grained}"
+    );
+    // Non-vacuous: the grain actually moved pixels.
+    let moved = base
+        .iter()
+        .zip(&grained)
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(
+        moved > (w * h) as usize / 4,
+        "grain at amount 70 must visibly perturb the card ({moved} bytes moved)"
+    );
+}
+
+/// (b) Neutrality: monochromatic noise (same n on all channels) keeps
+/// R=G=B through the whole display pipeline.
+#[test]
+fn grain_preserves_neutrality_display() {
+    assert_neutral_display(0.18, |m| {
+        m.grain_amount = 70.0;
+        m.grain_size = 30.0;
+        m.grain_roughness = 60.0;
+    });
+}
+
+/// (c) Defaults-identity: amount 0 with non-default size/roughness is a
+/// bit-identical no-op (the stage must short-circuit on amount alone).
+#[test]
+fn grain_zero_amount_is_bit_identical() {
+    let (_, _, base) = render_grey_with_grain(0.18, 0.0, 25.0);
+    let (_, _, sized) = render_grey_with_grain(0.18, 0.0, 90.0);
+    assert_eq!(base, sized, "size without amount must be a no-op");
+}

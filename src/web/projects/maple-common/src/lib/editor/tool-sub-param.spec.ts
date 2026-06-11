@@ -54,9 +54,18 @@ describe('sub-param catalog', () => {
     expect(defaultSubParamId('vignette')).toBe('amount');
   });
 
-  it('every other tool is single-param (grain/splitTone join data-only at #1110/#1111)', () => {
+  it('grain declares Amount + Size + Roughness (#1110)', () => {
+    const subs = subParamsFor('grain');
+    expect(subs.map((s) => s.id)).toEqual(['amount', 'size', 'roughness']);
+    expect(subs.map((s) => s.field)).toEqual(['grainAmount', 'grainSize', 'grainRoughness']);
+    expect(isMultiParam('grain')).toBe(true);
+    expect(defaultSubParamId('grain')).toBe('amount');
+  });
+
+  it('every other tool is single-param (splitTone joins data-only at #1111)', () => {
     for (const tool of ALL_TOOLS) {
-      if (tool === 'noise' || tool === 'sharpen' || tool === 'vignette') continue;
+      if (tool === 'noise' || tool === 'sharpen' || tool === 'vignette' || tool === 'grain')
+        continue;
       expect(subParamsFor(tool as ToolId)).toEqual([]);
       expect(isMultiParam(tool as ToolId)).toBe(false);
       expect(defaultSubParamId(tool as ToolId)).toBeNull();

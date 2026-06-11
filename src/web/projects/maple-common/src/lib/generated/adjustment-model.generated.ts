@@ -85,11 +85,11 @@ export interface GeneratedAdjustmentModel {
   vignetteAmount: number;
   /** Vignette transition softness from center to edge (#1109) — maps onto mask width 0.05–0.9 around the fixed 0.7 midpoint. Range: [0.0, 100.0]. */
   vignetteFeather: number;
-  /** Grain intensity (ticket #643). Range: [0.0, 100.0]. */
+  /** Grain intensity — display-linear deterministic film grain (#1110, tone/zoom design spec § 10.2); 0 disables the stage. Range: [0.0, 100.0]. */
   grainAmount: number;
-  /** Grain particle size (ticket #643). Range: [0.0, 100.0]. */
+  /** Grain particle size (#1110) — maps onto the noise pitch 1–6 px at a 2000-px long edge (resolution-stable). Range: [0.0, 100.0]. */
   grainSize: number;
-  /** Grain particle roughness / variance (ticket #643). Range: [0.0, 100.0]. */
+  /** Grain roughness (#1110) — mixes a second noise octave at 2x frequency. Range: [0.0, 100.0]. */
   grainRoughness: number;
   /** Split-tone shadow hue in degrees (ticket #643). Range: [0.0, 360.0]. */
   splitToneShadowHue: number;

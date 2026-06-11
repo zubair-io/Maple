@@ -243,6 +243,7 @@ mod sharpen;
 mod spatial;
 mod srgb_gamma;
 mod texture;
+mod grain;
 mod tone_curves;
 mod vibrance;
 mod vignette;
@@ -262,6 +263,7 @@ pub use dither::{alloc_packed_rgb, dither_and_quantize, encode_dither, unpack_rg
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
 pub use full_chain::{build_full_chain_passes, build_split, BoxedPasses, FullChainInputs};
+pub use grain::{apply_grain, GrainPass};
 pub use image::GpuImage;
 pub use live_chain::{
     build_live_chain, build_live_split, chain_signature, dehaze_is_active, VIEW_TAIL_PASS_COUNT,
