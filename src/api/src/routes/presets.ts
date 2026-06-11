@@ -22,7 +22,11 @@ import { Elysia, t } from 'elysia';
 import { ObjectId, type WithId } from 'mongodb';
 import { presetsCollection } from '../db/client.ts';
 import type { PresetDoc } from '../db/schema.ts';
-import { validatePresetDocument } from '../presets/preset-validation.ts';
+import {
+  isMongoSafeKey,
+  unsafeKeyError,
+  validatePresetDocument,
+} from '../presets/preset-validation.ts';
 import { child as childLogger } from '../log.ts';
 
 const log = childLogger('presets:routes');
@@ -43,6 +47,28 @@ const CreateBody = t.Object(
  * the create body is preserved verbatim in `doc.extra` and spread back
  * onto the wire row on read. */
 const OWNED_KEYS = new Set(['schemaVersion', 'name', 'fields']);
+
+/** Depth-first scan of a preserved value for a Mongo-unsafe key. `extra`
+ * is stored as a subdocument, so every nested object key is a document
+ * key too — an unsafe one would turn the insert into a 500. Returns the
+ * first offending key, or null when the whole value is safe. */
+function findMongoUnsafeKey(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const bad = findMongoUnsafeKey(item);
+      if (bad !== null) return bad;
+    }
+    return null;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const [key, nested] of Object.entries(value)) {
+      if (!isMongoSafeKey(key)) return key;
+      const bad = findMongoUnsafeKey(nested);
+      if (bad !== null) return bad;
+    }
+  }
+  return null;
+}
 
 /** Wire shape: unknown preserved keys first so the owned keys win. */
 function toWireRow(row: WithId<PresetDoc>) {
@@ -89,10 +115,20 @@ export const presetsRoutes = new Elysia({ prefix: '/api/presets' })
       }
       const { name, schemaVersion, fields } = validated.preset;
 
-      // Preserve unknown top-level keys (newer-version documents).
+      // Preserve unknown top-level keys (newer-version documents) — but
+      // only Mongo-safe ones. The preserved keys (and any keys nested in
+      // their values) become `doc.extra` subdocument keys; an unsafe key
+      // would blow up the insert as a 500, so reject it as a 400 here,
+      // matching the `fields` validation.
       const extra: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
-        if (!OWNED_KEYS.has(key)) extra[key] = value;
+        if (OWNED_KEYS.has(key)) continue;
+        const bad = isMongoSafeKey(key) ? findMongoUnsafeKey(value) : key;
+        if (bad !== null) {
+          set.status = 400;
+          return { error: unsafeKeyError(bad) };
+        }
+        extra[key] = value;
       }
 
       const now = new Date().toISOString();
