@@ -23,3 +23,4 @@ pub mod local_adjustments;
 pub mod vignette;
 pub mod grain;
 pub mod split_tone;
+pub mod hsl;

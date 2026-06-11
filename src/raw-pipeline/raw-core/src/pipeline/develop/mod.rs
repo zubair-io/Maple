@@ -33,7 +33,7 @@ use crate::{
     linearize,
     stages::{
         auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
-        highlight_recovery, highlight_recovery_oklab, hot_pixel, local_adjustments,
+        highlight_recovery, highlight_recovery_oklab, hot_pixel, hsl, local_adjustments,
         noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
         vibrance, vignette, white_balance,
     },
@@ -412,6 +412,30 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     dump_after("08_vibrance", &scene);
     stage("saturation", || saturation::apply(&mut scene, model.saturation));
     dump_after("09_saturation", &scene);
+    // HSL 8-band (#1112, tone/zoom design § 10.4) — scene-linear Oklab,
+    // after saturation, before clarity. Identity short-circuit on all-default.
+    stage("hsl", || hsl::apply(
+        &mut scene,
+        &[
+            model.hue_adjustment_red, model.hue_adjustment_orange,
+            model.hue_adjustment_yellow, model.hue_adjustment_green,
+            model.hue_adjustment_aqua, model.hue_adjustment_blue,
+            model.hue_adjustment_purple, model.hue_adjustment_magenta,
+        ],
+        &[
+            model.saturation_adjustment_red, model.saturation_adjustment_orange,
+            model.saturation_adjustment_yellow, model.saturation_adjustment_green,
+            model.saturation_adjustment_aqua, model.saturation_adjustment_blue,
+            model.saturation_adjustment_purple, model.saturation_adjustment_magenta,
+        ],
+        &[
+            model.luminance_adjustment_red, model.luminance_adjustment_orange,
+            model.luminance_adjustment_yellow, model.luminance_adjustment_green,
+            model.luminance_adjustment_aqua, model.luminance_adjustment_blue,
+            model.luminance_adjustment_purple, model.luminance_adjustment_magenta,
+        ],
+    ));
+    dump_after("09b_hsl", &scene);
     stage("clarity", || clarity::apply(&mut scene, model.clarity));
     dump_after("10_clarity", &scene);
     stage("texture", || texture::apply(&mut scene, model.texture));

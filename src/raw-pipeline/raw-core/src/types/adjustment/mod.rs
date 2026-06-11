@@ -381,6 +381,41 @@ pub struct AdjustmentModel {
     pub split_tone_highlight_saturation: f32, // 0..100, default 0
     pub split_tone_balance: f32,            // -100..100, default 0
 
+    // HSL 8-band hue/saturation/luminance (#1112, tone/zoom design § 10.4).
+    // 24 ACR `crs:` fields: 8 hue adjustments, 8 saturation adjustments,
+    // 8 luminance adjustments. All default to 0 (identity). Range −100..+100.
+    // Scene-linear Oklab stage positioned after saturation, before clarity.
+    // Chroma-gated so the neutral axis is exactly stable.
+    // XMP keys: `crs:HueAdjustmentRed` … `crs:HueAdjustmentMagenta`,
+    //           `crs:SaturationAdjustmentRed` … `crs:SaturationAdjustmentMagenta`,
+    //           `crs:LuminanceAdjustmentRed` … `crs:LuminanceAdjustmentMagenta`.
+    // Band order: Red(0), Orange(1), Yellow(2), Green(3),
+    //             Aqua(4), Blue(5), Purple(6), Magenta(7).
+    pub hue_adjustment_red: f32,        // -100..100, default 0
+    pub hue_adjustment_orange: f32,     // -100..100, default 0
+    pub hue_adjustment_yellow: f32,     // -100..100, default 0
+    pub hue_adjustment_green: f32,      // -100..100, default 0
+    pub hue_adjustment_aqua: f32,       // -100..100, default 0
+    pub hue_adjustment_blue: f32,       // -100..100, default 0
+    pub hue_adjustment_purple: f32,     // -100..100, default 0
+    pub hue_adjustment_magenta: f32,    // -100..100, default 0
+    pub saturation_adjustment_red: f32,     // -100..100, default 0
+    pub saturation_adjustment_orange: f32,  // -100..100, default 0
+    pub saturation_adjustment_yellow: f32,  // -100..100, default 0
+    pub saturation_adjustment_green: f32,   // -100..100, default 0
+    pub saturation_adjustment_aqua: f32,    // -100..100, default 0
+    pub saturation_adjustment_blue: f32,    // -100..100, default 0
+    pub saturation_adjustment_purple: f32,  // -100..100, default 0
+    pub saturation_adjustment_magenta: f32, // -100..100, default 0
+    pub luminance_adjustment_red: f32,      // -100..100, default 0
+    pub luminance_adjustment_orange: f32,   // -100..100, default 0
+    pub luminance_adjustment_yellow: f32,   // -100..100, default 0
+    pub luminance_adjustment_green: f32,    // -100..100, default 0
+    pub luminance_adjustment_aqua: f32,     // -100..100, default 0
+    pub luminance_adjustment_blue: f32,     // -100..100, default 0
+    pub luminance_adjustment_purple: f32,   // -100..100, default 0
+    pub luminance_adjustment_magenta: f32,  // -100..100, default 0
+
     pub highlight_recovery: HighlightRecoveryMode,
 
     /// Per-image auto-exposure mode (ticket #429). Default `On` — places
@@ -523,6 +558,31 @@ impl Default for AdjustmentModel {
             split_tone_highlight_hue: 0.0,
             split_tone_highlight_saturation: 0.0,
             split_tone_balance: 0.0,
+            // HSL 8-band defaults: all 0 (identity; stage short-circuits).
+            hue_adjustment_red: 0.0,
+            hue_adjustment_orange: 0.0,
+            hue_adjustment_yellow: 0.0,
+            hue_adjustment_green: 0.0,
+            hue_adjustment_aqua: 0.0,
+            hue_adjustment_blue: 0.0,
+            hue_adjustment_purple: 0.0,
+            hue_adjustment_magenta: 0.0,
+            saturation_adjustment_red: 0.0,
+            saturation_adjustment_orange: 0.0,
+            saturation_adjustment_yellow: 0.0,
+            saturation_adjustment_green: 0.0,
+            saturation_adjustment_aqua: 0.0,
+            saturation_adjustment_blue: 0.0,
+            saturation_adjustment_purple: 0.0,
+            saturation_adjustment_magenta: 0.0,
+            luminance_adjustment_red: 0.0,
+            luminance_adjustment_orange: 0.0,
+            luminance_adjustment_yellow: 0.0,
+            luminance_adjustment_green: 0.0,
+            luminance_adjustment_aqua: 0.0,
+            luminance_adjustment_blue: 0.0,
+            luminance_adjustment_purple: 0.0,
+            luminance_adjustment_magenta: 0.0,
             highlight_recovery: HighlightRecoveryMode::ChromaticAdaptation,
             // Per-#429: scene-anchor on by default — places mid-gray at
             // 0.18 before AgX. Users can opt out per-image for strict

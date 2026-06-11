@@ -162,6 +162,33 @@ fn set_field(
         "crs:SplitToningHighlightHue"       => m.split_tone_highlight_hue         = v()?,
         "crs:SplitToningHighlightSaturation" => m.split_tone_highlight_saturation = v()?,
         "crs:SplitToningBalance"            => m.split_tone_balance               = v()?,
+        // HSL 8-band (#1112, tone/zoom design § 10.4). ACR/Lightroom-compatible
+        // `crs:` keys for direct sidecar interchange. Band order: Red, Orange,
+        // Yellow, Green, Aqua, Blue, Purple, Magenta.
+        "crs:HueAdjustmentRed"          => m.hue_adjustment_red      = v()?,
+        "crs:HueAdjustmentOrange"       => m.hue_adjustment_orange   = v()?,
+        "crs:HueAdjustmentYellow"       => m.hue_adjustment_yellow   = v()?,
+        "crs:HueAdjustmentGreen"        => m.hue_adjustment_green    = v()?,
+        "crs:HueAdjustmentAqua"         => m.hue_adjustment_aqua     = v()?,
+        "crs:HueAdjustmentBlue"         => m.hue_adjustment_blue     = v()?,
+        "crs:HueAdjustmentPurple"       => m.hue_adjustment_purple   = v()?,
+        "crs:HueAdjustmentMagenta"      => m.hue_adjustment_magenta  = v()?,
+        "crs:SaturationAdjustmentRed"       => m.saturation_adjustment_red     = v()?,
+        "crs:SaturationAdjustmentOrange"    => m.saturation_adjustment_orange  = v()?,
+        "crs:SaturationAdjustmentYellow"    => m.saturation_adjustment_yellow  = v()?,
+        "crs:SaturationAdjustmentGreen"     => m.saturation_adjustment_green   = v()?,
+        "crs:SaturationAdjustmentAqua"      => m.saturation_adjustment_aqua    = v()?,
+        "crs:SaturationAdjustmentBlue"      => m.saturation_adjustment_blue    = v()?,
+        "crs:SaturationAdjustmentPurple"    => m.saturation_adjustment_purple  = v()?,
+        "crs:SaturationAdjustmentMagenta"   => m.saturation_adjustment_magenta = v()?,
+        "crs:LuminanceAdjustmentRed"        => m.luminance_adjustment_red      = v()?,
+        "crs:LuminanceAdjustmentOrange"     => m.luminance_adjustment_orange   = v()?,
+        "crs:LuminanceAdjustmentYellow"     => m.luminance_adjustment_yellow   = v()?,
+        "crs:LuminanceAdjustmentGreen"      => m.luminance_adjustment_green    = v()?,
+        "crs:LuminanceAdjustmentAqua"       => m.luminance_adjustment_aqua     = v()?,
+        "crs:LuminanceAdjustmentBlue"       => m.luminance_adjustment_blue     = v()?,
+        "crs:LuminanceAdjustmentPurple"     => m.luminance_adjustment_purple   = v()?,
+        "crs:LuminanceAdjustmentMagenta"    => m.luminance_adjustment_magenta  = v()?,
         "crs:WhiteBalance"   => {
             if let Some((temp, tint)) = wb_preset(value) {
                 m.temperature = temp;
