@@ -120,6 +120,7 @@ Fields emit **only when non-default** — reduces sidecar size and matches what
 | Field            | XMP key                   | Default |
 | ---------------- | ------------------------- | ------- |
 | `exposure`       | `crs:Exposure2012`        | 0       |
+| `brightness`     | `papp:Brightness`         | 0       |
 | `contrast`       | `crs:Contrast2012`        | 0       |
 | `highlights`     | `crs:Highlights2012`      | 0       |
 | `shadows`        | `crs:Shadows2012`         | 0       |
