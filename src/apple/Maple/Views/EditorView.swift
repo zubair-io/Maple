@@ -135,6 +135,11 @@ struct EditorView: View {
             // the As-Shot white-balance reset. They don't fit a drag-value
             // pill, so they surface as a contextual accessory strip shown
             // only while Color is armed, directly under the tool row.
+            //
+            // Multi-param pills (#1108, spec §10.0): a compact sub-param
+            // chip row sits directly above the drag bar; it renders
+            // nothing while a single-param tool is armed.
+            SubParamRow(state: state)
             DragBar(state: state)
             ToolPillRow(state: state, onPresetsTap: { presetsOpen = true })
             #if os(macOS)

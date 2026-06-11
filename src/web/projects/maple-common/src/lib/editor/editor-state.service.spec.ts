@@ -146,6 +146,103 @@ describe('EditorStateService', () => {
     });
   });
 
+  describe('sub-params (#1108, spec §10.0)', () => {
+    it('arming a multi-param tool defaults to its first sub-param', () => {
+      svc.armTool('noise');
+      expect(svc.armedSubParamId()).toBe('luminance');
+      svc.armTool('sharpen');
+      expect(svc.armedSubParamId()).toBe('amount');
+    });
+
+    it('single-param tools carry no armed sub-param', () => {
+      svc.armTool('exposure');
+      expect(svc.armedSubParamId()).toBeNull();
+      expect(svc.armedSubParam()).toBeNull();
+      expect(svc.armedSubParams()).toEqual([]);
+    });
+
+    it('armSubParam routes the value pipe to the sub-param field', () => {
+      svc.armTool('noise');
+      svc.armSubParam('color');
+      expect(svc.armedSubParamId()).toBe('color');
+
+      svc.setArmedDisplayValue(60);
+      const adj = lib.adjustmentFor(ID)();
+      expect(adj.nrColor).toBe(60);
+      // The sibling sub-param is untouched.
+      expect(adj.nrLuminance).toBe(0);
+      expect(svc.armedDisplayValue()).toBe(60);
+    });
+
+    it('internal values map through the armed sub-param (radius pivots on 1.0)', () => {
+      svc.armTool('sharpen');
+      svc.armSubParam('radius');
+      svc.setArmedInternalValue(100);
+      expect(lib.adjustmentFor(ID)().sharpenRadius).toBeCloseTo(3.0, 9);
+      svc.setArmedInternalValue(-100);
+      expect(lib.adjustmentFor(ID)().sharpenRadius).toBeCloseTo(0.5, 9);
+      svc.setArmedInternalValue(0);
+      expect(lib.adjustmentFor(ID)().sharpenRadius).toBeCloseTo(1.0, 9);
+      expect(svc.armedInternalValue()).toBeCloseTo(0, 9);
+    });
+
+    it('reset acts on the ARMED sub-param only, restoring its canonical default', () => {
+      svc.armTool('noise');
+      svc.setArmedDisplayValue(80); // luminance = 80
+      svc.armSubParam('color');
+      svc.setArmedDisplayValue(90); // color = 90
+      svc.resetArmedTool();
+      const adj = lib.adjustmentFor(ID)();
+      expect(adj.nrColor).toBe(25); // canonical nrColor default
+      expect(adj.nrLuminance).toBe(80); // sibling untouched
+    });
+
+    it('remembers the armed sub-param per tool for the session (across tool switches and binds)', () => {
+      svc.armTool('noise');
+      svc.armSubParam('color');
+      svc.armTool('exposure');
+      svc.armTool('noise');
+      expect(svc.armedSubParamId()).toBe('color');
+
+      // bind() (image switch) keeps the session selection too.
+      svc.bind('asset-2');
+      expect(svc.armedSubParamId()).toBe('color');
+    });
+
+    it('ignores undeclared sub-param ids (and any id on single-param tools)', () => {
+      svc.armTool('noise');
+      svc.armSubParam('bogus');
+      expect(svc.armedSubParamId()).toBe('luminance');
+      svc.armTool('exposure');
+      svc.armSubParam('luminance');
+      expect(svc.armedSubParamId()).toBeNull();
+    });
+
+    it('armedToolAcceptsValueEdits is sub-param-aware and still gates value-less tools', () => {
+      svc.armTool('noise');
+      expect(svc.armedToolAcceptsValueEdits()).toBe(true);
+      svc.armTool('sharpen');
+      expect(svc.armedToolAcceptsValueEdits()).toBe(true);
+      svc.armTool('exposure');
+      expect(svc.armedToolAcceptsValueEdits()).toBe(true);
+      for (const tool of ['presets', 'hsl', 'vignette', 'grain', 'splitTone', 'crop'] as const) {
+        svc.armTool(tool);
+        expect(svc.armedToolAcceptsValueEdits()).toBe(false);
+      }
+    });
+  });
+
+  describe('brightness pill (#1108 / #1102)', () => {
+    it('joins the Light group and writes the brightness field', () => {
+      svc.armTool('brightness');
+      expect(svc.armedGroup()).toBe('light');
+      svc.setArmedDisplayValue(30);
+      expect(lib.adjustmentFor(ID)().brightness).toBe(30);
+      svc.resetArmedTool();
+      expect(lib.adjustmentFor(ID)().brightness).toBe(0);
+    });
+  });
+
   describe('undo / redo ring', () => {
     it('snapshots the model on commit and rewinds on undo', () => {
       svc.armTool('contrast');
@@ -266,17 +363,17 @@ describe('EditorStateService', () => {
   });
 
   describe('tool catalog', () => {
-    it('has 22 tools across 4 groups', () => {
-      expect(ALL_TOOLS.length).toBe(22);
-      expect(TOOLS_IN_GROUP.light.length).toBe(6);
+    it('has 23 tools across 4 groups (Light gained Brightness, #1108)', () => {
+      expect(ALL_TOOLS.length).toBe(23);
+      expect(TOOLS_IN_GROUP.light.length).toBe(7);
       expect(TOOLS_IN_GROUP.color.length).toBe(5);
       expect(TOOLS_IN_GROUP.effects.length).toBe(6);
       expect(TOOLS_IN_GROUP.detail.length).toBe(5);
     });
 
-    it('wires 17 of 22 tools (#952 re-gated vignette / grain / splitTone)', () => {
+    it('wires 18 of 23 tools (#952 re-gated vignette / grain / splitTone)', () => {
       const wired = ALL_TOOLS.filter(isWired);
-      expect(wired.length).toBe(17);
+      expect(wired.length).toBe(18);
       // vignette / grain / splitTone have AdjustmentModel fields but no
       // pipeline apply code, so they are stubs until #664 / #665 / #666.
       for (const t of ['hsl', 'vignette', 'grain', 'splitTone', 'crop'] as const) {

@@ -57,6 +57,7 @@ export type MapleIconName =
   // --- Tool glyphs (S5 Editor, #625). Placeholders — shapes are
   // recognizable but designer-quality artwork is a follow-up. ---
   | 'tool-exposure'
+  | 'tool-brightness'
   | 'tool-contrast'
   | 'tool-highlights'
   | 'tool-shadows'
@@ -275,6 +276,9 @@ export const ICON_SHAPES: Record<MapleIconName, readonly IconShape[]> = {
         'M3.34 12.66l1.41-1.41M11.25 4.75l1.41-1.41',
     ),
   ],
+  // Smaller sun, four short rays — brightness (#1108; midtone-band gain,
+  // the gentler sibling of the exposure sun).
+  'tool-brightness': [circle(8, 8, 2.5), path('M8 2.5v2M8 11.5v2M2.5 8h2M11.5 8h2')],
   // Half-filled circle — contrast.
   'tool-contrast': [
     circle(8, 8, 5.5),

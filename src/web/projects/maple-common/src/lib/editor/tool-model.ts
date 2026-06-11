@@ -1,8 +1,12 @@
 // tool-model.ts — responsive-program S5c (#625).
 //
-// 22 tools grouped per S5 spec §2 + value mapping per spec §3. Mirrors
-// the Apple `Tool` enum + `ToolValueMapping` in
+// 23 tools grouped per S5 spec §2 (+ Brightness, #1108 / tone-zoom spec
+// §10.0) + value mapping per spec §3. Mirrors the Apple `Tool` enum +
+// `ToolValueMapping` in
 // `src/apple/Packages/MapleCore/Sources/MapleCore/Editor/EditorState.swift`.
+// Multi-param pills (noise, sharpen) declare sub-params in
+// `tool-sub-param.ts`; the mappings here remain their FIRST sub-param's
+// (the drag-bar default), so single-param call sites are unchanged.
 //
 // Stub tools (HSL/Vignette/Grain/SplitTone/Crop) render in the pill row
 // but reject writes (see STUB_TOOLS). HSL/Crop have no AdjustmentModel
@@ -19,6 +23,7 @@ export type ToolGroup = 'light' | 'color' | 'effects' | 'detail';
 export type ToolId =
   // Light
   | 'exposure'
+  | 'brightness'
   | 'contrast'
   | 'highlights'
   | 'shadows'
@@ -53,6 +58,7 @@ export const TOOL_GROUP_DISPLAY: Record<ToolGroup, string> = {
 
 export const TOOL_DISPLAY: Record<ToolId, string> = {
   exposure: 'Exposure',
+  brightness: 'Brightness',
   contrast: 'Contrast',
   highlights: 'Highlights',
   shadows: 'Shadows',
@@ -77,7 +83,10 @@ export const TOOL_DISPLAY: Record<ToolId, string> = {
 };
 
 export const TOOLS_IN_GROUP: Record<ToolGroup, readonly ToolId[]> = {
-  light: ['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'],
+  // Brightness (#1102 midtone-band gain) joins Light per spec §10.0
+  // ("between Exposure and Highlights" — placed directly after Exposure,
+  // matching the scene_tone_controls pipeline order exposure → brightness).
+  light: ['exposure', 'brightness', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'],
   color: ['temp', 'tint', 'vibrance', 'saturation', 'hsl'],
   effects: ['clarity', 'texture', 'dehaze', 'vignette', 'grain', 'splitTone'],
   detail: ['sharpen', 'noise', 'colorNR', 'crop', 'presets'],
@@ -113,6 +122,7 @@ export function isWired(tool: ToolId): boolean {
  *  drag-bar bounds can't drift from the canonical schema. */
 const DISPLAY_RANGE: Partial<Record<ToolId, readonly [number, number]>> = {
   exposure: ADJUSTMENT_RANGES.exposure,
+  brightness: ADJUSTMENT_RANGES.brightness,
   temp: ADJUSTMENT_RANGES.temperature,
   tint: ADJUSTMENT_RANGES.tint,
   contrast: ADJUSTMENT_RANGES.contrast,
@@ -179,6 +189,8 @@ export function fieldFor(tool: ToolId): keyof AdjustmentModel | null {
   switch (tool) {
     case 'exposure':
       return 'exposure';
+    case 'brightness':
+      return 'brightness';
     case 'contrast':
       return 'contrast';
     case 'highlights':

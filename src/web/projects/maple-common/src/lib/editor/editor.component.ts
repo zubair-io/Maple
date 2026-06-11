@@ -28,6 +28,7 @@ import { EditorHeaderComponent } from './editor-header.component';
 import { EditorStateService } from './editor-state.service';
 import { GroupTabsComponent } from './group-tabs.component';
 import { PresetsPanelComponent } from './presets/presets-panel.component';
+import { SubParamRowComponent } from './sub-param-row.component';
 import { ToolPillRowComponent } from './tool-pill-row.component';
 import { ValueChipComponent } from './value-chip.component';
 import { TOOLS_IN_GROUP, type ToolGroup, type ToolId, groupOf } from './tool-model';
@@ -42,6 +43,7 @@ import { TOOLS_IN_GROUP, type ToolGroup, type ToolId, groupOf } from './tool-mod
     GroupTabsComponent,
     ImageCanvasComponent,
     PresetsPanelComponent,
+    SubParamRowComponent,
     ToolPillRowComponent,
     ValueChipComponent,
   ],

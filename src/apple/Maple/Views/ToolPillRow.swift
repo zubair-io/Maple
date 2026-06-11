@@ -47,6 +47,14 @@ private struct ToolPillButton: View {
     private var isSelected: Bool { state.armedTool == tool }
     private var isModified: Bool {
         guard tool.isWired else { return false }
+        // Multi-param pills (#1108): the dot lights when ANY sub-param is
+        // off its canonical default (e.g. Noise with only Color raised).
+        let subs = tool.subParams
+        if !subs.isEmpty {
+            return subs.contains { sub in
+                abs(state.session.model[keyPath: sub.keyPath] - sub.defaultDisplayValue) > 1e-6
+            }
+        }
         let v = ToolValueMapping.currentDisplayValue(state.session.model, tool: tool)
         // Neutral display value isn't always zero (temp default = 6500,
         // Color NR default = 25). Pull from the canonical defaults table

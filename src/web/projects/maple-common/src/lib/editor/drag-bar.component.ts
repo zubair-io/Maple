@@ -34,7 +34,6 @@ import {
   tickX,
   valueDelta,
 } from './drag-bar-math';
-import { internalValueFromDisplay } from './tool-model';
 
 const LONG_PRESS_MS = 500;
 
@@ -59,11 +58,10 @@ export class DragBarComponent {
   /** Width of the track in CSS pixels, polled on resize and after view init. */
   private readonly _width = signal<number>(0);
 
-  /** Internal value the marker reflects — derived from the armed tool's
-   *  current display value. */
-  readonly internalValue = computed(() =>
-    internalValueFromDisplay(this.state.armedTool(), this.state.armedDisplayValue()),
-  );
+  /** Internal value the marker reflects — the service derives it from
+   *  the armed (tool, subParam) pair (#1108), so the marker tracks the
+   *  armed sub-param's mapping on multi-param tools. */
+  readonly internalValue = computed(() => this.state.armedInternalValue());
 
   readonly markerCx = computed(() => markerX(this.internalValue(), this._width()));
 
@@ -106,6 +104,11 @@ export class DragBarComponent {
 
   onPointerDown(ev: PointerEvent): void {
     ev.preventDefault();
+    // Mirror of Apple DragBar's `allowsHitTesting(armedToolAcceptsValueEdits)`
+    // gate: value-less tools (presets, #952 stubs) must not start a
+    // gesture — the touch-down `commit()` would push a junk undo
+    // snapshot for value writes the service then ignores.
+    if (!this.state.armedToolAcceptsValueEdits()) return;
     this.pointerId = ev.pointerId;
     (ev.target as Element).setPointerCapture(ev.pointerId);
     this.dragStartValue = this.internalValue();
