@@ -312,12 +312,12 @@ fn single_vec_equals_prefix_plus_suffix() {
         prefix.len() + suffix.len(),
         "single-Vec assembly must equal prefix + suffix length"
     );
-    // The aggressive case engages every stage incl. capture_sharpening → all 20
-    // GPU-ported passes are present (19 scene/view stages + srgb_gamma).
+    // The aggressive case engages every stage incl. capture_sharpening → all 21
+    // GPU-ported passes are present (20 scene/view stages incl. HSL + srgb_gamma).
     assert_eq!(
         full.len(),
-        20,
-        "aggressive full chain must have all 20 passes"
+        21,
+        "aggressive full chain must have all 21 passes"
     );
 }
 
@@ -332,8 +332,8 @@ fn neutral_chain_omits_capture_sharpening() {
     let full = build_full_chain_passes(&inputs, [0.0; 3]);
     assert_eq!(
         full.len(),
-        19,
-        "neutral chain (no capture-sharpening) must have 19 passes"
+        20,
+        "neutral chain (no capture-sharpening) must have 20 passes"
     );
     // Sanity: PROFILE_CURVE_FLAT_LEN is the curve flat length the Pass asserts —
     // the neutral identity curve must match it (else the Pass panics at encode).

@@ -95,6 +95,18 @@ impl GpuContext {
             .get_or_init(|| compile_with_matrices(&self.device, "split-tone", include_str!("split_tone.wgsl")))
     }
 
+    /// The cached 8-band HSL compute pipeline (#1112, tone/zoom design § 10.4).
+    ///
+    /// The kernel rounds pixels through Oklab, so the generated color-matrix
+    /// module is prepended (`compile_with_matrices`) — same concat pattern as
+    /// vibrance / saturation / split_tone. A pure point op; 2 storage buffers.
+    /// The 24 slider-derived values (hue_rad / sat_delta / lum_shift) fit in
+    /// the Params uniform — no extra storage buffer needed.
+    pub fn hsl_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.hsl_pipeline
+            .get_or_init(|| compile_with_matrices(&self.device, "hsl", include_str!("hsl.wgsl")))
+    }
+
     /// The cached masked shadows/highlights compute pipeline (#1103, tone/zoom
     /// design § 4.2): one reworked tone step (mode-selected) through the tonal
     /// detail mask, reading the blurred luma plane the host prepares with
