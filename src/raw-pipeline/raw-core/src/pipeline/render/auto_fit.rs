@@ -1,111 +1,158 @@
-//! Auto Profile fit entry points — develop a RAW through the view-transform
+//! Auto Profile fit entry points — develop a RAW through the PINNED fit
 //! prefix, then fit the #550 curve (and, for #924, the per-image residual LUT)
-//! for GPU hosts that bake them into a 3D LUT. Split out of `render/mod.rs` to
-//! keep it under the file-size budget; behavior is unchanged (pure code move).
+//! for GPU hosts that bake them into a 3D LUT, plus the CPU render path's
+//! Auto stage orchestration (#1085).
+//!
+//! ## The #1085 invariant — the fit develop is pinned to the default model
+//!
+//! Every fit (curve + residual, CPU render path + GPU host entries) samples a
+//! buffer developed under [`fit_develop_model`] — `AdjustmentModel::default()`
+//! with only `auto_exposure: Off` pinned (#550/#871) and the caller's
+//! `profile` carried — NEVER the caller's live edit model. The fit is
+//! therefore a pure function of the RAW (at a given develop quality/size):
+//! the RAW-identity `auto_profile::cache` key is correct by construction,
+//! renders can't depend on cache state or fit order, and a cold fit under an
+//! edited model can no longer learn (and partially cancel) the user's edits.
 
 use crate::error::Result;
 use crate::image::{ColorSpace, Image, RawImage};
 use crate::pipeline::develop::develop_scene_linear_from_raw_with_quality;
+use crate::pipeline::develop_sized::develop_scene_linear_sized_from_raw_with_quality;
 use crate::pipeline::{stage, RenderQuality};
+use crate::stages::{grain, split_tone};
 use crate::types::adjustment::{AutoExposureMode, Profile};
+use crate::view::auto_profile::cache::CacheKey;
+use crate::view::auto_profile::curve::ProfileCurve;
+use crate::view::auto_profile::lut::ColorLut;
+use crate::view::auto_profile::preview::ExtractedPreview;
 use crate::view::{agx, auto_profile, encode};
 use crate::xmp::AdjustmentModel;
 
 use super::RawInput;
 
-/// Build the [`AdjustmentModel`] the fit develop runs with — a clone of the
-/// caller's model that (a) pins `auto_exposure: Off` and (b) zeroes the
-/// high-frequency stages that don't move the fit target (#972).
+/// Build the [`AdjustmentModel`] the fit develop runs with: the DEFAULT model
+/// with `auto_exposure: Off` pinned and the caller's `profile` carried —
+/// nothing else from the caller survives (#1085).
 ///
-/// `auto_exposure: Off` is the existing #871 split: the fitted tail owns the
-/// whole scene→JPEG brightness mapping, so AE is disabled for the develop and
-/// the AE split governs exposure only (`agx` still runs the caller's ORIGINAL
-/// `model.contrast` — see [`develop_display_for_auto_fit`]).
+/// `auto_exposure: Off` is the existing #871/#550 split: the fitted tail owns
+/// the whole scene→JPEG brightness mapping, so AE is disabled for the fit
+/// develop. `profile` is the one field the fit genuinely needs from the
+/// caller — it is what makes this a `Profile::Auto` fit at all (the entry
+/// guards check it; the develop chain itself never reads it). Every other
+/// field is pinned to [`AdjustmentModel::default()`] so the fit input — and
+/// therefore the fitted curve/LUT under the RAW-identity cache key — cannot
+/// depend on the caller's live edits.
 ///
-/// The four zeroed fields are noise reduction (`nr_color`, `nr_luminance`) and
-/// sharpening (`sharpen_amount`, `capture_sharpening_amount`). The fit samples a
-/// GLOBAL per-channel tone curve (#550) and a LOW-FREQUENCY color residual LUT
-/// (#924) — both averaged over the downscaled ~2048px embedded JPEG and a
-/// matching downscale of this develop. NR and sharpening are HIGH-frequency,
-/// detail-scale ops; they don't meaningfully move a global curve or a low-freq
-/// residual, but the default model runs `nr_color`@25 (~8.5 s) and
-/// `sharpen`@40 (~0.8 s) on the full-res buffer purely to be averaged away.
-/// Zeroing them removes that redundant cold-open cost. Each stage early-exits at
-/// `amount.abs() < 1e-3` (NR / sharpen) or `amount <= 0.0`
-/// (`capture_sharpening_params_from_model`), so `0.0` is BIT-EXACT equivalent to
-/// the stage being absent — no partial-blend approximation.
-///
-/// ⚠️ This is a DELIBERATE, near-zero divergence from the CPU/WASM render path.
-/// `render_from_raw_with_quality_and_source` develops with the FULL model and
-/// fits via [`auto_profile::apply_auto_profile`] against that NR/sharpened
-/// buffer; the GPU-host fit entries here now fit against an NR/sharpen-free
-/// buffer. Before #972 the two fit inputs were byte-identical (both AE-off, both
-/// full NR/sharpen), so the fitted curve/residual matched exactly. After #972 a
-/// GPU (Apple Metal) Auto render's baked tail can differ marginally from the
-/// CPU/CLI render's tail. Expected magnitude is near zero (high-freq ops vs a
-/// global + low-freq fit target), but it is a real new divergence and is NOT
-/// covered by `test_color_pipeline.sh`: maple-cli renders via
-/// `apply_auto_profile` and never calls this function, so that harness can't see
-/// this change even with fixtures. The owner must validate the GPU path via the
-/// Apple visual harness (`SliderMatrixUITests`) with real fixtures before merge.
+/// This REPLACES the #972 variant, which cloned the caller's model and zeroed
+/// the four high-frequency fields (`nr_color`, `nr_luminance`,
+/// `sharpen_amount`, `capture_sharpening_amount`). Two reasons:
+/// * Pinning to the default model is what makes the fit model-independent;
+///   a caller clone (even a partially-zeroed one) keeps every other slider
+///   leaking into the fit (#1085's bug).
+/// * The CPU render path fits from a default-model develop — which runs the
+///   DEFAULT `nr_color`@25 / `sharpen`@40 — and that path is what the
+///   bit-exact color-pipeline harness gates. Keeping the GPU fit zeroed would
+///   preserve #972's admitted (and harness-invisible) CPU↔GPU fit divergence;
+///   pinning both to the same default model removes it. The cost is that the
+///   GPU hosts' cold fit develop pays the default NR/sharpen again
+///   (~9 s on the 100 MP reference frame — the #972 saving), traded for one
+///   unified, deterministic fit definition across every path.
 fn fit_develop_model(model: &AdjustmentModel) -> AdjustmentModel {
     AdjustmentModel {
         auto_exposure: AutoExposureMode::Off,
-        // High-frequency stages the fit averages away (#972) — zeroed so they
-        // early-exit (bit-exact no-op) instead of running on the full-res buffer.
-        nr_color: 0.0,
-        nr_luminance: 0.0,
-        sharpen_amount: 0.0,
-        capture_sharpening_amount: 0.0,
-        ..model.clone()
+        profile: model.profile,
+        ..AdjustmentModel::default()
     }
 }
 
-/// Develop a RAW through the EXACT Auto Profile fit prefix and return the
-/// `DisplayEncodedSrgb` buffer the curve / residual LUT fits sample against.
+/// Develop a RAW through the EXACT (pinned) Auto Profile fit prefix and return
+/// the `DisplayEncodedSrgb` buffer the curve / residual LUT fits sample
+/// against:
+///   * the pinned fit model from [`fit_develop_model`] — default model,
+///     `auto_exposure: Off`, caller's `profile` carried (#1085; see that fn);
+///   * the shared scene-linear develop chain (early-downsampled when
+///     `max_long_edge` is `Some`, mirroring the sized render entry — the GPU
+///     fit entries pass `None` for the full-size develop);
+///   * the render's display tail up to the Auto Profile stage, every stage
+///     fed the PINNED model's fields: `agx` with the pinned `contrast` (= the
+///     default `0.0`, NOT the caller's — pre-#1085 the caller's contrast
+///     leaked into the fit here), `split_tone` (#1111) and `grain` (#1110) at
+///     their defaults (both identity short-circuits — present so the prefix
+///     stays stage-for-stage the render chain even if defaults ever change),
+///     then `rec2020→srgb` primaries, then `srgb` gamma encode. The fit lives
+///     in `DisplayEncodedSrgb` — the buffer state on return.
 ///
-/// Shared by [`fit_profile_curve_from_raw`] (curve-only, the shipped #812 FFI)
-/// and [`fit_auto_profile_from_raw`] (curve + residual, #924) so the two GPU
-/// fit entries can never drift FROM EACH OTHER. Prefix:
-///   * the fit develop model from [`fit_develop_model`] — `auto_exposure: Off`
-///     (#871) plus the four high-frequency stages zeroed (#972); see that fn for
-///     the rationale and the deliberate CPU↔GPU fit divergence it introduces;
-///   * the shared scene-linear develop chain;
-///   * `agx` (with the caller's ORIGINAL `model.contrast`, NOT the fit clone —
-///     the AE split governs exposure only), then `rec2020→srgb` primaries, then
-///     `srgb` gamma encode. The fit lives in `DisplayEncodedSrgb` — the buffer
-///     state on return.
+/// Shared by every fit entry in this module so the fit inputs can never drift
+/// from each other — one pinned prefix, CPU and GPU alike. It is the chain
+/// `render_display_from_raw` runs for a default-model caller, stage for stage
+/// — which is what lets `run_auto_profile_stage` treat that caller's render
+/// buffer AS the fit buffer without a second develop.
 fn develop_display_for_auto_fit(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
+    max_long_edge: Option<u32>,
 ) -> Result<Image> {
     let auto_model = fit_develop_model(model);
-    let mut scene = develop_scene_linear_from_raw_with_quality(raw, &auto_model, quality)?;
-    stage("agx", || agx::apply(&mut scene, model.contrast));
+    let mut scene = match max_long_edge {
+        Some(mle) => {
+            develop_scene_linear_sized_from_raw_with_quality(raw, &auto_model, quality, mle)?
+        }
+        None => develop_scene_linear_from_raw_with_quality(raw, &auto_model, quality)?,
+    };
+    stage("agx", || agx::apply(&mut scene, auto_model.contrast));
+    stage("split_tone", || {
+        split_tone::apply(
+            &mut scene,
+            auto_model.split_tone_shadow_hue,
+            auto_model.split_tone_shadow_saturation,
+            auto_model.split_tone_highlight_hue,
+            auto_model.split_tone_highlight_saturation,
+            auto_model.split_tone_balance,
+        )
+    });
+    stage("grain", || {
+        grain::apply(
+            &mut scene,
+            auto_model.grain_amount,
+            auto_model.grain_size,
+            auto_model.grain_roughness,
+        )
+    });
     stage("rec2020_to_srgb", || encode::rec2020_to_srgb(&mut scene));
-    stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
+    stage("srgb_gamma_encode", || {
+        encode::srgb_gamma_encode(&mut scene)
+    });
     scene.assert_space(ColorSpace::DisplayEncodedSrgb);
     Ok(scene)
 }
 
-/// Fit the per-image Auto Profile [`auto_profile::curve::ProfileCurve`]
-/// for a RAW + model WITHOUT rendering an output buffer (#812).
+/// Extract the embedded preview (+ color space) for `raw_source` — ONE
+/// extraction shared by the curve fit, the residual fit, and the render
+/// path's will-it-fit probe (#1085 perf companion: pre-fix the cold Auto
+/// render extracted + JPEG-decoded the preview three times).
+fn extract_preview_for_fit(raw_source: &RawInput<'_>) -> Option<ExtractedPreview> {
+    match raw_source {
+        RawInput::Path(p) => auto_profile::preview::extract_for_fit(p),
+        RawInput::Bytes { bytes, ext } => {
+            auto_profile::preview::extract_for_fit_from_bytes(bytes, ext)
+        }
+    }
+}
+
+/// Fit the per-image Auto Profile [`ProfileCurve`] for a RAW WITHOUT rendering
+/// an output buffer (#812).
 ///
-/// This reproduces EXACTLY the prefix of `render_from_raw_with_quality_and_source`
-/// up to and including the `auto_profile` fit point — same `AutoExposureMode::Off`
-/// guard, same develop chain, same `agx` → `rec2020_to_srgb` → `srgb_gamma_encode`
-/// view-transform stages — then fits the curve from the resulting f32
-/// sRGB-encoded display buffer against the embedded JPEG and returns it
-/// instead of applying it and continuing to quantise.
+/// Develops the PINNED fit prefix ([`develop_display_for_auto_fit`] — the same
+/// buffer the CPU render path fits from, #1085) and fits the curve from the
+/// resulting f32 sRGB-encoded display buffer against the embedded JPEG.
 ///
 /// It exists so a GPU host (Apple Metal #812, Web WebGL2 #394) can obtain
 /// the fitted curve, bake it into a 3D LUT via [`auto_profile::bake_profile_lut`],
 /// and apply it on the GPU in the SAME f32 sRGB-encoded display space the
 /// CPU path fits in — keeping the GPU and CPU Auto Profile renders from
 /// drifting. The host runs AgX + the rec2020→sRGB encode itself (on Apple
-/// CoreImage's encode boundary); this entry's only job is the fit, which
-/// requires the developed display buffer as the fit's source.
+/// CoreImage's encode boundary); this entry's only job is the fit.
 ///
 /// `quality` MUST match the quality the host's render uses, or the fitted
 /// curve — and thus the per-band bias against the reference — will differ.
@@ -115,36 +162,39 @@ fn develop_display_for_auto_fit(
 /// [`auto_profile::fit_curve_from_raw_display`]). The host falls back to
 /// plain AgX (= `Profile::Neutral`) on `None`. The fit result is inserted
 /// into the shared `auto_profile::cache` LRU so a subsequent CPU render of
-/// the same RAW reuses it (and vice-versa).
+/// the same RAW reuses it (and vice-versa) — sound since #1085 because every
+/// path fits the same pinned develop.
 pub fn fit_profile_curve_from_raw(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     raw_source: RawInput<'_>,
-) -> Option<auto_profile::curve::ProfileCurve> {
+) -> Option<ProfileCurve> {
     if model.profile != Profile::Auto {
         return None;
     }
-    // Mirror the cache lookup in `render_from_raw_with_quality_and_source`
-    // so a hit on either path serves the other without re-fitting.
+    // Mirror the cache lookup in the render path so a hit on either path
+    // serves the other without re-fitting.
     let auto_cache_key = match &raw_source {
-        RawInput::Path(p) => auto_profile::cache::CacheKey::from_path(p),
-        RawInput::Bytes { bytes, .. } => Some(auto_profile::cache::CacheKey::from_bytes(bytes)),
+        RawInput::Path(p) => CacheKey::from_path(p),
+        RawInput::Bytes { bytes, .. } => Some(CacheKey::from_bytes(bytes)),
     };
     if let Some(c) = auto_cache_key.as_ref().and_then(auto_profile::cache::get) {
         return Some(c);
     }
-    let scene = develop_display_for_auto_fit(raw, model, quality).ok()?;
+    // Extract BEFORE the multi-second develop — no preview ⇒ no fit possible.
+    let preview = extract_preview_for_fit(&raw_source)?;
+    let scene = develop_display_for_auto_fit(raw, model, quality, None).ok()?;
     let (w, h) = (scene.width as usize, scene.height as usize);
     let pixels: &[f32] = bytemuck::cast_slice(&scene.pixels);
-    let fitted = match raw_source {
-        RawInput::Path(path) => {
-            auto_profile::fit_curve_from_raw_display(path, pixels, w, h, raw.orientation)
-        }
-        RawInput::Bytes { bytes, ext } => {
-            auto_profile::fit_curve_from_bytes_display(bytes, ext, pixels, w, h, raw.orientation)
-        }
-    };
+    let fitted = auto_profile::fit_display::fit_curve_from_preview_display(
+        preview.image,
+        preview.color_space,
+        pixels,
+        w,
+        h,
+        raw.orientation,
+    );
     if let (Some(key), Some(c)) = (auto_cache_key, fitted.as_ref()) {
         auto_profile::cache::insert(key, c.clone());
     }
@@ -152,194 +202,335 @@ pub fn fit_profile_curve_from_raw(
 }
 
 /// Fit BOTH the #550 per-channel curve and the per-image residual 3D LUT for a
-/// GPU host that bakes them into ONE composed CIColorCube / texture (#924).
+/// GPU host that bakes them into ONE composed CIColorCube / texture (#924), or
+/// consumes them as two GPU passes (#925 P4b).
 ///
-/// Develops the RAW through the same prefix as [`fit_profile_curve_from_raw`]
-/// (via [`develop_display_for_auto_fit`]), fits the curve, applies it in place,
-/// then fits the residual on the now-curved buffer — so the residual's pairs are
-/// `(curve(maple), jpeg)`, EXACTLY as [`auto_profile::apply_auto_profile`] does
-/// on the CPU render path. Both stages share the same `auto_profile::cache`
-/// LRUs as the CPU/curve paths, so a hit on any path serves the others (and the
-/// fast path below skips the multi-second develop when both are already cached).
+/// Develops the PINNED fit prefix ([`develop_display_for_auto_fit`], #1085),
+/// then delegates to [`auto_profile::apply_pipeline::fit_auto_profile_artifacts`]
+/// — fit curve, apply it to the fit buffer, fit the residual on the curved
+/// buffer, so the residual's pairs are `(curve(maple), jpeg)` EXACTLY as the
+/// CPU render path fits them. Both stages share the `auto_profile::cache` LRUs
+/// with the CPU path (the fast path below skips the multi-second develop when
+/// everything needed is already cached).
+///
+/// Env knobs (#1085 semantics): `MAPLE_DISABLE_AUTO_LUT` skips the residual
+/// FIT (not just its use) — the host gets `(curve, None)` and bakes the curve
+/// only. `MAPLE_AUTO_LUT_STRENGTH` scales the RETURNED residual toward
+/// identity ([`ColorLut::with_strength`]); the cache always holds the
+/// full-strength fit, so the env value can never be baked into a cached LUT.
 ///
 /// Returns:
 /// - `None` when NEITHER stage applies — not `Profile::Auto`, or no embedded
 ///   JPEG so both fits fail. The host renders plain AgX (= `Profile::Neutral`).
 /// - `Some((curve, residual))` otherwise, where EITHER element may be `None`:
 ///   * `(Some, Some)` — the full tail; the host bakes `curve ∘ residual`.
-///   * `(Some, None)` — curve only (too few residual pairs); curve-only bake,
-///     byte-identical to the #812 cube.
+///   * `(Some, None)` — curve only (too few residual pairs, or the residual
+///     disabled); curve-only bake, byte-identical to the #812 cube.
 ///   * `(None, Some)` — residual only (degenerate curve but a usable JPEG). The
 ///     residual was fit on the UN-curved AE-off buffer, so it still
 ///     brightness-anchors maple→jpeg. This case MUST NOT collapse to plain AgX:
 ///     an AE-off buffer with no tail renders DARKER than Neutral (#871), so
 ///     dropping the residual here would make selecting "Auto" *darken* the
-///     image. This mirrors `apply_auto_profile`'s "fit the residual regardless
-///     of whether the curve succeeded" invariant — see its inline comment.
+///     image.
 pub fn fit_auto_profile_from_raw(
     raw: &RawImage,
     model: &AdjustmentModel,
     quality: RenderQuality,
     raw_source: RawInput<'_>,
-) -> Option<(
-    Option<auto_profile::curve::ProfileCurve>,
-    Option<auto_profile::lut::ColorLut>,
-)> {
+) -> Option<(Option<ProfileCurve>, Option<ColorLut>)> {
     if model.profile != Profile::Auto {
         return None;
     }
     let auto_cache_key = match &raw_source {
-        RawInput::Path(p) => auto_profile::cache::CacheKey::from_path(p),
-        RawInput::Bytes { bytes, .. } => Some(auto_profile::cache::CacheKey::from_bytes(bytes)),
+        RawInput::Path(p) => CacheKey::from_path(p),
+        RawInput::Bytes { bytes, .. } => Some(CacheKey::from_bytes(bytes)),
+    };
+    let lut_disabled = auto_profile::lut::lut_disabled_by_env();
+    let cached_curve = auto_cache_key.as_ref().and_then(auto_profile::cache::get);
+    let cached_lut = if lut_disabled {
+        None
+    } else {
+        auto_cache_key
+            .as_ref()
+            .and_then(auto_profile::cache::get_lut)
     };
 
-    // Fast path: both stages already cached (e.g. a CPU render of the same RAW
-    // ran first) — return without the multi-second develop. Only short-circuit
-    // when BOTH are present; a cached curve with no cached LUT still needs the
-    // develop to fit the residual (a legitimately-`None` residual can't be
-    // distinguished from "never fit" via the cache, but the host caches the
-    // baked cube, so this re-fits at most once per image).
-    if let Some(key) = auto_cache_key.as_ref() {
-        if let (Some(curve), Some(lut)) =
-            (auto_profile::cache::get(key), auto_profile::cache::get_lut(key))
-        {
-            return Some((Some(curve), Some(lut)));
-        }
-    }
-
-    let mut scene = develop_display_for_auto_fit(raw, model, quality).ok()?;
-    let (w, h) = (scene.width as usize, scene.height as usize);
-
-    // 1. #550 curve — reuse cache or fit on the pre-curve buffer.
-    let curve = match auto_cache_key.as_ref().and_then(auto_profile::cache::get) {
-        Some(c) => Some(c),
-        None => {
-            let pixels: &[f32] = bytemuck::cast_slice(&scene.pixels);
-            let fitted = match &raw_source {
-                RawInput::Path(path) => {
-                    auto_profile::fit_curve_from_raw_display(path, pixels, w, h, raw.orientation)
-                }
-                RawInput::Bytes { bytes, ext } => auto_profile::fit_curve_from_bytes_display(
-                    bytes,
-                    ext,
+    // Fast path: everything obtainable is already cached (e.g. a CPU render of
+    // the same RAW ran first) — return without the multi-second develop. A
+    // cached curve with no cached LUT still needs the develop to fit the
+    // residual (a legitimately-`None` residual can't be distinguished from
+    // "never fit" via the cache, but the host caches the baked artifacts, so
+    // this re-fits at most once per image).
+    let (curve, residual) = if cached_curve.is_some() && (lut_disabled || cached_lut.is_some()) {
+        (cached_curve, cached_lut)
+    } else {
+        match extract_preview_for_fit(&raw_source) {
+            // No embedded preview: nothing beyond the cache can be fit.
+            None => (cached_curve, cached_lut),
+            Some(preview) => {
+                let mut scene = develop_display_for_auto_fit(raw, model, quality, None).ok()?;
+                let (w, h) = (scene.width as usize, scene.height as usize);
+                let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+                auto_profile::apply_pipeline::fit_auto_profile_artifacts(
                     pixels,
                     w,
                     h,
                     raw.orientation,
-                ),
-            };
-            if let (Some(key), Some(c)) = (auto_cache_key.as_ref(), fitted.as_ref()) {
-                auto_profile::cache::insert(key.clone(), c.clone());
+                    Some(&preview),
+                    auto_cache_key.as_ref(),
+                    cached_curve,
+                    cached_lut,
+                )
             }
-            fitted
-        }
-    };
-
-    // 2. Apply the curve in place so the residual is fit on `(curve(maple), jpeg)`
-    //    — the same buffer state `apply_auto_profile` fits the residual against.
-    //    When the curve failed, the buffer stays the un-curved AE-off AgX maple
-    //    and the residual degrades to a full value-keyed maple→jpeg map (still
-    //    smooth + brightness-anchoring), matching the CPU path.
-    if let Some(c) = &curve {
-        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-        auto_profile::apply_curve(pixels, c);
-    }
-
-    // 3. Residual LUT — reuse cache or fit on the buffer as step 2 left it.
-    let residual = match auto_cache_key.as_ref().and_then(auto_profile::cache::get_lut) {
-        Some(l) => Some(l),
-        None => {
-            let pixels: &[f32] = bytemuck::cast_slice(&scene.pixels);
-            let fitted = match &raw_source {
-                RawInput::Path(path) => {
-                    auto_profile::lut::fit_lut_from_raw_display(path, pixels, w, h, raw.orientation)
-                }
-                RawInput::Bytes { bytes, ext } => auto_profile::lut::fit_lut_from_bytes_display(
-                    bytes,
-                    ext,
-                    pixels,
-                    w,
-                    h,
-                    raw.orientation,
-                ),
-            };
-            if let (Some(key), Some(l)) = (auto_cache_key.as_ref(), fitted.as_ref()) {
-                auto_profile::cache::insert_lut(key.clone(), l.clone());
-            }
-            fitted
         }
     };
 
     if curve.is_none() && residual.is_none() {
         return None;
     }
+    let k = auto_profile::lut::lut_strength_from_env();
+    let residual = if k == 1.0 {
+        residual
+    } else {
+        residual.map(|l| l.with_strength(k))
+    };
     Some((curve, residual))
+}
+
+/// The CPU render path's Auto Profile stage (#1085): obtain the (pinned-fit)
+/// artifacts and apply them to the render buffer `scene`.
+///
+/// Two routes to the artifacts:
+/// * **Render buffer IS the pinned fit buffer** — when the AE-pinned render
+///   model equals [`fit_develop_model`] (i.e. the caller's model differs from
+///   the default in nothing but possibly `auto_exposure`), the buffer this
+///   render just developed is bit-identical to the pinned fit develop, so the
+///   fit samples it directly — no second develop. This is the cold-open
+///   default-model case, and byte-for-byte the pre-#1085 behaviour for it.
+/// * **Caller's model is edited** — fit from a SEPARATE pinned develop
+///   ([`fit_artifacts_from_pinned_develop`]); only the APPLY touches the
+///   caller's render. Pre-#1085 this case fit from the edited buffer,
+///   mapping the user's edits back onto the unchanged JPEG targets —
+///   partially cancelling them and poisoning the RAW-keyed cache.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn run_auto_profile_stage(
+    scene: &mut Image,
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    active_model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: Option<u32>,
+    preview: Option<ExtractedPreview>,
+    cache_key: Option<&CacheKey>,
+    cached_curve: Option<ProfileCurve>,
+    cached_lut: Option<ColorLut>,
+) {
+    scene.assert_space(ColorSpace::DisplayEncodedSrgb);
+    let (w, h) = (scene.width as usize, scene.height as usize);
+    if *active_model == fit_develop_model(model) {
+        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+        auto_profile::apply_auto_profile(
+            pixels,
+            w,
+            h,
+            raw.orientation,
+            preview.as_ref(),
+            cache_key,
+            cached_curve,
+            cached_lut,
+        );
+        return;
+    }
+    let (curve, residual) = fit_artifacts_from_pinned_develop(
+        raw,
+        model,
+        quality,
+        max_long_edge,
+        preview,
+        cache_key,
+        cached_curve,
+        cached_lut,
+    );
+    let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
+    if let Some(c) = &curve {
+        auto_profile::apply_curve(pixels, c);
+    }
+    if let Some(l) = &residual {
+        l.apply_with_strength(pixels, auto_profile::lut::lut_strength_from_env());
+    }
+}
+
+/// Obtain the Auto Profile artifacts for an EDITED caller model: reuse the
+/// cache where possible, otherwise develop the pinned fit buffer (sized like
+/// the render that asked, so the fit cost tracks the render cost) and fit
+/// there. Returns `(curve, residual)` with the residual already honouring
+/// `MAPLE_DISABLE_AUTO_LUT` (strength stays with the caller's apply).
+#[allow(clippy::too_many_arguments)]
+fn fit_artifacts_from_pinned_develop(
+    raw: &RawImage,
+    model: &AdjustmentModel,
+    quality: RenderQuality,
+    max_long_edge: Option<u32>,
+    preview: Option<ExtractedPreview>,
+    cache_key: Option<&CacheKey>,
+    cached_curve: Option<ProfileCurve>,
+    cached_lut: Option<ColorLut>,
+) -> (Option<ProfileCurve>, Option<ColorLut>) {
+    let lut_disabled = auto_profile::lut::lut_disabled_by_env();
+    let cached_lut = if lut_disabled { None } else { cached_lut };
+    // Everything needed is cached → no develop.
+    if cached_curve.is_some() && (lut_disabled || cached_lut.is_some()) {
+        return (cached_curve, cached_lut);
+    }
+    // No embedded preview → nothing beyond the cache can be fit.
+    let Some(preview) = preview else {
+        return (cached_curve, cached_lut);
+    };
+    let Ok(mut side) = develop_display_for_auto_fit(raw, model, quality, max_long_edge) else {
+        return (cached_curve, cached_lut);
+    };
+    let (w, h) = (side.width as usize, side.height as usize);
+    let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut side.pixels);
+    auto_profile::apply_pipeline::fit_auto_profile_artifacts(
+        pixels,
+        w,
+        h,
+        raw.orientation,
+        Some(&preview),
+        cache_key,
+        cached_curve,
+        cached_lut,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// `fit_develop_model` (#972) MUST zero exactly the four high-frequency
-    /// stages the fit averages away, pin `auto_exposure: Off` (#871), and leave
-    /// every other field — including the OTHER sharpen params — untouched. This
-    /// is the only automated coverage for the change: maple-cli renders via
-    /// `apply_auto_profile` (full NR/sharpen) and never calls the fit develop,
-    /// so `test_color_pipeline.sh` cannot see it. We assert on the pure helper
-    /// rather than fitting a RAW two ways — the GPU and CPU fits share
-    /// `auto_profile::cache`, so a both-ways curve-equality test would have the
-    /// second caller reuse the first's cached fit and silently pass.
-    #[test]
-    fn fit_develop_model_zeroes_high_freq_and_preserves_rest() {
-        // Start from a model whose every relevant field is deliberately
-        // NON-default and non-zero, so a missing copy can't masquerade as a
-        // correct zero/passthrough.
-        let model = AdjustmentModel {
+    /// A caller model with every fit-relevant field deliberately non-default,
+    /// so anything leaking through `fit_develop_model` is unmissable.
+    fn heavily_edited_model() -> AdjustmentModel {
+        AdjustmentModel {
             auto_exposure: AutoExposureMode::On,
-            // The four fields that must be forced to 0.0.
-            nr_color: 25.0,
-            nr_luminance: 17.0,
-            sharpen_amount: 40.0,
-            capture_sharpening_amount: 65.0,
-            // Fields that must survive verbatim, incl. the OTHER sharpen knobs
-            // (only `sharpen_amount` / `capture_sharpening_amount` are zeroed).
-            sharpen_radius: 1.3,
-            sharpen_detail: 30.0,
-            sharpen_masking: 12.0,
-            capture_sharpening_sigma: 1.2,
-            contrast: 22.0,
             exposure: 1.5,
-            temperature: 5200.0,
+            brightness: 30.0,
+            contrast: 40.0,
+            temperature: 4200.0,
             tint: -8.0,
+            highlights: -60.0,
+            shadows: 55.0,
+            whites: 20.0,
+            blacks: -20.0,
+            vibrance: 25.0,
+            saturation: -10.0,
+            clarity: 35.0,
+            texture: 15.0,
+            dehaze: 12.0,
+            nr_color: 80.0,
+            nr_luminance: 17.0,
+            sharpen_amount: 120.0,
+            sharpen_radius: 2.5,
+            capture_sharpening_amount: 65.0,
             profile: Profile::Auto,
             ..AdjustmentModel::default()
-        };
+        }
+    }
 
+    /// #1085 contract (INVERTS the pre-#1085 pin, which asserted the caller's
+    /// exposure/WB/contrast SURVIVED into the fit model — that test encoded
+    /// the bug this ticket fixes): the fit model is the DEFAULT model with
+    /// only `auto_exposure: Off` pinned and the caller's `profile` carried.
+    /// No caller edit may leak into the fit develop, and the #972 high-freq
+    /// zeroing is gone — the fit runs the DEFAULT NR/sharpen, exactly like
+    /// the harness-gated CPU fit.
+    #[test]
+    fn fit_develop_model_pins_defaults_ignoring_caller_edits() {
+        let model = heavily_edited_model();
         let fit = fit_develop_model(&model);
 
-        // (a) The four high-frequency stages are zeroed → each early-exits as a
-        //     bit-exact no-op (see `fit_develop_model` doc + stage guards).
-        assert_eq!(fit.nr_color, 0.0, "nr_color must be zeroed for the fit");
-        assert_eq!(fit.nr_luminance, 0.0, "nr_luminance must be zeroed for the fit");
-        assert_eq!(fit.sharpen_amount, 0.0, "sharpen_amount must be zeroed for the fit");
+        // The whole-struct pin: default model + AE Off + profile carried.
+        // Catches any future field addition leaking through too.
+        let expected = AdjustmentModel {
+            auto_exposure: AutoExposureMode::Off,
+            profile: model.profile,
+            ..AdjustmentModel::default()
+        };
+        assert_eq!(fit, expected, "fit model must be the AE-off default model");
+
+        // Spot-assert the inversion explicitly so a regression reads clearly:
+        // (a) caller edits do NOT survive (the #1085 bug had them surviving) …
+        assert_eq!(fit.exposure, 0.0, "caller exposure must not reach the fit");
+        assert_eq!(fit.contrast, 0.0, "caller contrast must not reach the fit");
+        assert_eq!(fit.temperature, 6500.0, "caller WB must not reach the fit");
+        // (b) … the #972 zeroing is REMOVED — defaults, not zeroes, so the fit
+        //     input matches the harness-gated default-model CPU develop …
+        assert_eq!(fit.nr_color, 25.0, "fit runs the DEFAULT nr_color");
+        assert_eq!(fit.sharpen_amount, 40.0, "fit runs the DEFAULT sharpen");
+        // (c) … AE stays pinned Off (#550/#871) and profile is carried.
+        assert_eq!(fit.auto_exposure, AutoExposureMode::Off);
+        assert_eq!(fit.profile, Profile::Auto);
+    }
+
+    /// #1085 determinism: the fit develop — and therefore the fitted curve —
+    /// is IDENTICAL under different caller models. Compares the developed fit
+    /// buffers bit-for-bit, then the fitted curve coefficients exactly.
+    /// Bypasses the `auto_profile::cache` entirely (fits straight from the
+    /// buffers) so a cross-test cache hit can't mask a real divergence — the
+    /// pre-#1085 pitfall that kept this assertion untestable.
+    #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
+    fn fit_is_identical_under_different_caller_models() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../test-fixtures/raws/test_0017.dng");
+        if !path.exists() {
+            return;
+        }
+        let bytes = std::fs::read(&path).expect("read raw");
+        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
+
+        let default_model = AdjustmentModel::default();
+        let edited_model = heavily_edited_model();
+        // Preview quality + sized develop keep the fixture test fast; the
+        // pinned-model contract is quality/size-agnostic.
+        let q = RenderQuality::Preview;
+        let mle = Some(1024);
+        let scene_a = develop_display_for_auto_fit(&raw, &default_model, q, mle)
+            .expect("fit develop (default caller)");
+        let scene_b = develop_display_for_auto_fit(&raw, &edited_model, q, mle)
+            .expect("fit develop (edited caller)");
         assert_eq!(
-            fit.capture_sharpening_amount, 0.0,
-            "capture_sharpening_amount must be zeroed for the fit"
+            (scene_a.width, scene_a.height),
+            (scene_b.width, scene_b.height)
+        );
+        assert_eq!(
+            scene_a.pixels, scene_b.pixels,
+            "the pinned fit develop must be BIT-identical regardless of the \
+             caller's model — a difference means a caller field leaked into \
+             the fit prefix (#1085)"
         );
 
-        // (b) Auto-exposure is pinned Off (the #871 split, unchanged by #972).
-        assert_eq!(fit.auto_exposure, AutoExposureMode::Off);
-
-        // (c) Everything else is passed through verbatim — especially the OTHER
-        //     sharpen params, which #972 must NOT touch.
-        assert_eq!(fit.sharpen_radius, 1.3);
-        assert_eq!(fit.sharpen_detail, 30.0);
-        assert_eq!(fit.sharpen_masking, 12.0);
-        assert_eq!(fit.capture_sharpening_sigma, 1.2);
-        assert_eq!(fit.contrast, 22.0);
-        assert_eq!(fit.exposure, 1.5);
-        assert_eq!(fit.temperature, 5200.0);
-        assert_eq!(fit.tint, -8.0);
-        assert_eq!(fit.profile, Profile::Auto);
+        // And the fitted curve coefficients agree exactly (one shared
+        // extraction so the preview can't be the variable).
+        let preview =
+            auto_profile::preview::extract_for_fit(&path).expect("test_0017 embedded JPEG");
+        let (w, h) = (scene_a.width as usize, scene_a.height as usize);
+        let fit = |scene: &Image| {
+            auto_profile::fit_display::fit_curve_from_preview_display(
+                preview.image.clone(),
+                preview.color_space,
+                bytemuck::cast_slice(&scene.pixels),
+                w,
+                h,
+                raw.orientation,
+            )
+            .expect("curve fit")
+        };
+        let curve_a = fit(&scene_a);
+        let curve_b = fit(&scene_b);
+        assert_eq!(
+            curve_a, curve_b,
+            "fitted curves must be coefficient-identical under different \
+             caller models (#1085)"
+        );
     }
 }

@@ -132,10 +132,9 @@ fn render_display_from_raw(
     // Build the cache key first — a hit on the LRU implies the fit
     // already succeeded for this RAW, so we know `auto_will_fit = true`
     // without paying the JPEG extraction cost. Miss falls through to the
-    // existing probe (`extract_preview` does a full JPEG decode; on a
-    // cold path we still need it to gate `auto_will_fit`, otherwise the
-    // fit-fail fallback runs AgX on un-AE-normalized scene-linear and
-    // regressed test_0013 from 8.82 → 16.98 dE before the guard).
+    // extraction probe — whose decoded preview is now RETAINED and threaded
+    // through both fits (#1085 perf companion: pre-fix the probe's full JPEG
+    // decode was discarded and each fit re-extracted, 3× total).
     let auto_cache_key = if model.profile == Profile::Auto {
         match &raw_source {
             Some(RawInput::Path(p)) => auto_profile::cache::CacheKey::from_path(p),
@@ -151,16 +150,19 @@ fn render_display_from_raw(
         .as_ref()
         .and_then(auto_profile::cache::get_lut);
     let cached_curve = auto_cache_key.as_ref().and_then(auto_profile::cache::get);
-    let auto_will_fit = cached_curve.is_some()
-        || cached_lut.is_some()
-        || (model.profile == Profile::Auto
-            && match &raw_source {
-                Some(RawInput::Path(p)) => auto_profile::preview::extract_preview(p).is_some(),
+    let preview =
+        if model.profile == Profile::Auto && (cached_curve.is_none() || cached_lut.is_none()) {
+            match &raw_source {
+                Some(RawInput::Path(p)) => auto_profile::preview::extract_for_fit(p),
                 Some(RawInput::Bytes { bytes, ext }) => {
-                    auto_profile::preview::extract_preview_from_bytes(bytes, ext).is_some()
+                    auto_profile::preview::extract_for_fit_from_bytes(bytes, ext)
                 }
-                None => false,
-            });
+                None => None,
+            }
+        } else {
+            None
+        };
+    let auto_will_fit = cached_curve.is_some() || cached_lut.is_some() || preview.is_some();
     // Profile::Auto pins auto-exposure OFF because the Auto Profile tail owns the
     // scene→JPEG brightness mapping: the #550 curve is fit against the AE-Off
     // display buffer (#871) and the residual LUT layers on it. `auto_will_fit` is a
@@ -237,41 +239,28 @@ fn render_display_from_raw(
     stage("srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
     // Auto Profile (#537/#913) — the per-image color tail toward the embedded
     // JPEG, in f32 sRGB-encoded display space: the #550 per-channel curve, then a
-    // residual 3D LUT fit on the curved buffer. See
-    // `auto_profile::apply_auto_profile` for the ordering/cache contract. No-op for
-    // Neutral, no RAW source (legacy `maple_render_bytes` FFI), or a failed fit.
-    match (model.profile, &raw_source) {
-        (Profile::Auto, Some(RawInput::Path(path))) => stage("auto_profile", || {
-            scene.assert_space(ColorSpace::DisplayEncodedSrgb);
-            let (w, h) = (scene.width as usize, scene.height as usize);
-            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            auto_profile::apply_auto_profile(
-                pixels,
-                w,
-                h,
-                raw.orientation,
-                auto_profile::AutoSource::Path(path),
+    // residual 3D LUT fit on the curved buffer. The fit samples the PINNED
+    // default-model develop (#1085) — when the caller's model IS effectively
+    // default that's this very buffer; otherwise a separate pinned develop —
+    // see `auto_fit::run_auto_profile_stage` for the routing and
+    // `apply_pipeline::fit_auto_profile_artifacts` for the ordering/cache
+    // contract. No-op for Neutral, no RAW source (legacy `maple_render_bytes`
+    // FFI), or a failed fit.
+    if model.profile == Profile::Auto && raw_source.is_some() {
+        stage("auto_profile", || {
+            auto_fit::run_auto_profile_stage(
+                &mut scene,
+                raw,
+                model,
+                active_model,
+                quality,
+                max_long_edge,
+                preview,
                 auto_cache_key.as_ref(),
-                cached_curve.clone(),
-                cached_lut.clone(),
+                cached_curve,
+                cached_lut,
             );
-        }),
-        (Profile::Auto, Some(RawInput::Bytes { bytes, ext })) => stage("auto_profile", || {
-            scene.assert_space(ColorSpace::DisplayEncodedSrgb);
-            let (w, h) = (scene.width as usize, scene.height as usize);
-            let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-            auto_profile::apply_auto_profile(
-                pixels,
-                w,
-                h,
-                raw.orientation,
-                auto_profile::AutoSource::Bytes { bytes, ext },
-                auto_cache_key.as_ref(),
-                cached_curve.clone(),
-                cached_lut.clone(),
-            );
-        }),
-        _ => {}
+        });
     }
     // DisplayLookCurve (#371) — empirical per-channel LUT that closes
     // ~65% of the bias-to-ACR gap. Pre-#519 it ran as a `u8 → u8`
