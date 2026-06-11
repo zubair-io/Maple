@@ -5,9 +5,18 @@ import { TypedStorage, STORAGE_KEYS, type StorageKey } from './typed-storage';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function clearKey(key: string): void {
-  localStorage.removeItem(key);
+function clearAllKeys(): void {
+  for (const key of Object.values(STORAGE_KEYS)) localStorage.removeItem(key);
 }
+
+// Vitest workers reuse one jsdom — and therefore one `localStorage` — across
+// spec files. Files that construct the real BrowsePreferencesService persist
+// `cm.*` keys (its activeTab effect writes `cm.tab` even when only seeding the
+// default), so the "absent key" assertions below are order-dependent unless
+// every key is cleared up front. The afterEach keeps this file from leaking
+// state at sibling files in turn (#1142).
+beforeEach(clearAllKeys);
+afterEach(clearAllKeys);
 
 // ---------------------------------------------------------------------------
 // STORAGE_KEYS
@@ -42,8 +51,6 @@ describe('STORAGE_KEYS', () => {
 describe('TypedStorage.get', () => {
   const KEY: StorageKey = STORAGE_KEYS.TAB;
 
-  afterEach(() => clearKey(KEY));
-
   it('returns null for an absent key', () => {
     expect(TypedStorage.get(KEY)).toBeNull();
   });
@@ -56,27 +63,23 @@ describe('TypedStorage.get', () => {
   it('round-trips a boolean value', () => {
     TypedStorage.set(STORAGE_KEYS.LEFT_HIDDEN, false);
     expect(TypedStorage.get<boolean>(STORAGE_KEYS.LEFT_HIDDEN)).toBe(false);
-    clearKey(STORAGE_KEYS.LEFT_HIDDEN);
   });
 
   it('round-trips a number value', () => {
     TypedStorage.set(STORAGE_KEYS.THUMB_SIZE, 140);
     expect(TypedStorage.get<number>(STORAGE_KEYS.THUMB_SIZE)).toBe(140);
-    clearKey(STORAGE_KEYS.THUMB_SIZE);
   });
 
   it('round-trips a plain object', () => {
     const sections = { folders: true, photos: false };
     TypedStorage.set(STORAGE_KEYS.SECTIONS, sections);
     expect(TypedStorage.get<Record<string, boolean>>(STORAGE_KEYS.SECTIONS)).toEqual(sections);
-    clearKey(STORAGE_KEYS.SECTIONS);
   });
 
   it('round-trips an array of strings', () => {
     const queries = ['sunset', 'mountains'];
     TypedStorage.set(STORAGE_KEYS.RECENT_QUERIES, queries);
     expect(TypedStorage.get<string[]>(STORAGE_KEYS.RECENT_QUERIES)).toEqual(queries);
-    clearKey(STORAGE_KEYS.RECENT_QUERIES);
   });
 
   it('returns null when the stored value is not valid JSON', () => {
@@ -91,8 +94,6 @@ describe('TypedStorage.get', () => {
 
 describe('TypedStorage.getRaw', () => {
   const KEY = STORAGE_KEYS.THUMB_SIZE;
-
-  afterEach(() => clearKey(KEY));
 
   it('returns null for an absent key', () => {
     expect(TypedStorage.getRaw(KEY)).toBeNull();
@@ -118,8 +119,6 @@ describe('TypedStorage.getRaw', () => {
 
 describe('TypedStorage.remove', () => {
   const KEY = STORAGE_KEYS.SORT;
-
-  afterEach(() => clearKey(KEY));
 
   it('removes a key that was set', () => {
     TypedStorage.set(KEY, 'date');
