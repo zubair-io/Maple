@@ -197,6 +197,74 @@ describe('EditorStateService', () => {
     });
   });
 
+  describe('applyPreset (#1115)', () => {
+    const preset = (fields: Record<string, number | string | boolean>) => ({
+      id: 'p1',
+      schemaVersion: 1,
+      name: 'Test',
+      fields,
+      builtIn: false,
+    });
+
+    it('sparse-merges known fields and pushes exactly ONE undo entry', () => {
+      svc.armTool('exposure');
+      svc.commit();
+      svc.setArmedDisplayValue(1.5);
+
+      const ok = svc.applyPreset(preset({ contrast: -50, saturation: -100 }));
+      expect(ok).toBe(true);
+
+      const after = lib.adjustmentFor(ID)();
+      expect(after.contrast).toBe(-50);
+      expect(after.saturation).toBe(-100);
+      // Sparse merge: untouched fields keep their current values.
+      expect(after.exposure).toBeCloseTo(1.5, 9);
+
+      // ONE undo entry: a single undo restores the full pre-apply state.
+      svc.undo();
+      const undone = lib.adjustmentFor(ID)();
+      expect(undone.contrast).toBe(0);
+      expect(undone.saturation).toBe(0);
+      expect(undone.exposure).toBeCloseTo(1.5, 9);
+
+      // Redo replays the whole preset in one step.
+      svc.redo();
+      expect(lib.adjustmentFor(ID)().contrast).toBe(-50);
+      expect(lib.adjustmentFor(ID)().saturation).toBe(-100);
+    });
+
+    it('clamps out-of-range numeric values to the generated range', () => {
+      expect(svc.applyPreset(preset({ exposure: 9.5, contrast: -400 }))).toBe(true);
+      expect(lib.adjustmentFor(ID)().exposure).toBe(4);
+      expect(lib.adjustmentFor(ID)().contrast).toBe(-100);
+    });
+
+    it('skips unknown fields (newer schema) but applies the known ones', () => {
+      const before = { ...lib.adjustmentFor(ID)() };
+      expect(svc.applyPreset(preset({ future_curve_strength: 0.5, contrast: 10 }))).toBe(true);
+      expect(lib.adjustmentFor(ID)()).toEqual({ ...before, contrast: 10 });
+    });
+
+    it('applies known enum variants and skips unknown ones', () => {
+      expect(svc.applyPreset(preset({ profile: 'Neutral', tone_curve_mode: 'FutureMode' }))).toBe(
+        true,
+      );
+      const after = lib.adjustmentFor(ID)();
+      expect(after.profile).toBe('Neutral');
+      expect(after.toneCurveMode).toBe('PerChannel'); // unchanged default
+    });
+
+    it('returns false and pushes no undo entry when nothing applies', () => {
+      // Unknown-only preset → empty patch.
+      expect(svc.applyPreset(preset({ future_only: 1 }))).toBe(false);
+      expect(svc.canUndo()).toBe(false);
+
+      // No bound image.
+      svc.imageId.set(null);
+      expect(svc.applyPreset(preset({ contrast: 10 }))).toBe(false);
+    });
+  });
+
   describe('tool catalog', () => {
     it('has 22 tools across 4 groups', () => {
       expect(ALL_TOOLS.length).toBe(22);
@@ -206,14 +274,16 @@ describe('EditorStateService', () => {
       expect(TOOLS_IN_GROUP.detail.length).toBe(5);
     });
 
-    it('wires 16 of 22 tools (#952 re-gated vignette / grain / splitTone)', () => {
+    it('wires 17 of 22 tools (#952 re-gated vignette / grain / splitTone)', () => {
       const wired = ALL_TOOLS.filter(isWired);
-      expect(wired.length).toBe(16);
+      expect(wired.length).toBe(17);
       // vignette / grain / splitTone have AdjustmentModel fields but no
       // pipeline apply code, so they are stubs until #664 / #665 / #666.
-      for (const t of ['hsl', 'vignette', 'grain', 'splitTone', 'crop', 'presets'] as const) {
+      for (const t of ['hsl', 'vignette', 'grain', 'splitTone', 'crop'] as const) {
         expect(isWired(t)).toBe(false);
       }
+      // presets left STUB_TOOLS at #1115 — wired, but value-less.
+      expect(isWired('presets')).toBe(true);
     });
 
     it('groupOf round-trips through TOOLS_IN_GROUP', () => {

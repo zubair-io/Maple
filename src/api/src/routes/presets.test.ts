@@ -77,7 +77,10 @@ describe('/api/presets', () => {
     mongo = null;
   });
 
-  function app(): Elysia {
+  // No explicit `: Elysia` return type — the routed sub-app's generic
+  // doesn't satisfy the bare `Elysia` default (same Elysia-generics quirk
+  // as `buildApp` in index.ts); inference keeps tsc clean here.
+  function app() {
     return new Elysia().use(presetsRoutes);
   }
 
@@ -96,9 +99,7 @@ describe('/api/presets', () => {
   }
 
   function del(id: string): Promise<Response> {
-    return app().handle(
-      new Request(`http://localhost/api/presets/${id}`, { method: 'DELETE' }),
-    );
+    return app().handle(new Request(`http://localhost/api/presets/${id}`, { method: 'DELETE' }));
   }
 
   it('creates a preset and lists it back', async () => {
