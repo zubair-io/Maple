@@ -70,6 +70,13 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:Temperature', 'temperature'),
   numericField('crs:Tint', 'tint'),
   numericField('crs:Exposure2012', 'exposure'),
+  // Brightness — scene-linear midtone-band gain (#1102, tone/zoom design
+  // § 4.1). Maple-proprietary `papp:` key: the ACR `crs:Brightness` key is
+  // process-version-2010 with different semantics (default +50, removed in
+  // PV2012) and is deliberately NOT parsed — reusing it would corrupt
+  // Lightroom interop. Mirrors the Rust (`xmp/mod.rs`) and Swift
+  // (`XMPSerialization.swift`) writers.
+  numericField('papp:Brightness', 'brightness'),
   numericField('crs:Contrast2012', 'contrast'),
   numericField('crs:Highlights2012', 'highlights'),
   numericField('crs:Shadows2012', 'shadows'),
