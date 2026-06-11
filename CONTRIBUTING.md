@@ -50,7 +50,7 @@ bash tools/check-file-budget.sh --help
 | editor-save | Format-on-save via your editor's prettier / rustfmt / swift-format / ruff integration                                                               |
 | pre-commit  | `lefthook.yml` — file-budget + prettier + rustfmt + swift-format + ruff + shfmt on staged files (graceful skip)                                     |
 | commit-msg  | `lefthook.yml` — Conventional Commits regex check on the first line                                                                                 |
-| CI          | `.github/workflows/api.yml` runs API tests. Cross-cutting `cross.yml`: prettier format-check on changed files, file budget, codegen drift, gitleaks |
+| CI          | `.github/workflows/api.yml` runs API tests. Cross-cutting `cross.yml`: prettier format-check on changed files, file budget, codegen drift, gitleaks, allowlist-shrinks-only |
 | weekly      | (planned) parity-budget ratchet sweep                                                                                                               |
 
 Install lefthook once per clone:
