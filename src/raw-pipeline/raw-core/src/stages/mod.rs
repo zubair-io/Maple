@@ -21,3 +21,4 @@ pub mod chroma_prefilter;
 pub mod noise_reduction;
 pub mod local_adjustments;
 pub mod vignette;
+pub mod grain;

@@ -6,12 +6,12 @@
 //!
 //! ## What this gates
 //!
-//! The composed GPU chain (all 18 GPU-ported [`Pass`]es, in develop order) vs
+//! The composed GPU chain (all 19 GPU-ported [`Pass`]es, in develop order) vs
 //! the SAME stages composed on the CPU in the same order by calling the REAL
 //! `raw-core` stage functions sequentially (the test-only `raw-core` dev-dep) —
 //! not a hand-copied oracle. This is the capstone validation that the per-stage
 //! parity (each ≤ 3e-6 vs its Rust stage) survives composition: float error can
-//! only accumulate across the 18 stages, and this bounds the accumulated total.
+//! only accumulate across the 19 stages, and this bounds the accumulated total.
 //!
 //! Two representative adjustment sets, both with every per-pixel stage engaged
 //! PAST its raw-core no-op threshold so the CPU `apply` fns do NOT short-circuit
@@ -113,9 +113,9 @@ fn run_gpu_chain(input: &[f32], w: u32, h: u32, inputs: &FullChainInputs) -> Vec
     out
 }
 
-/// Accumulated-error budget for the full 18-stage composed chain.
+/// Accumulated-error budget for the full 19-stage composed chain.
 ///
-/// Per-stage parity is ≤ 3e-6 vs each Rust stage; 18 stages of f32 arithmetic
+/// Per-stage parity is ≤ 3e-6 vs each Rust stage; 19 stages of f32 arithmetic
 /// (including the iterative capture-sharpening RL loop FIRST, whose error then
 /// feeds every downstream stage, plus three spatial DAGs and two NLM passes)
 /// accumulate well under the per-stage `1e-4` ceiling the whole epic gates at.
@@ -163,6 +163,9 @@ fn mild_case() -> Case {
         dehaze: 10.0, // non-zero so dehaze runs (airlight engaged)
         vignette_amount: -10.0, // past the |amount| < 1e-3 short-circuit (#1109)
         vignette_feather: 50.0,
+        grain_amount: 15.0, // engaged display-tail grain (#1110)
+        grain_size: 25.0,
+        grain_roughness: 50.0,
         sharpen_amount: 50.0,
         sharpen_radius: 1.0,
         sharpen_detail: 25.0,
@@ -209,6 +212,9 @@ fn aggressive_case() -> Case {
         dehaze: 45.0, // non-zero so the dehaze path actually runs (airlight matters)
         vignette_amount: -65.0, // engaged radial gain (#1109)
         vignette_feather: 30.0,
+        grain_amount: 60.0, // engaged display-tail grain (#1110)
+        grain_size: 70.0,
+        grain_roughness: 80.0,
         sharpen_amount: 80.0,
         sharpen_radius: 1.5,
         sharpen_detail: 30.0,
@@ -296,12 +302,12 @@ fn single_vec_equals_prefix_plus_suffix() {
         prefix.len() + suffix.len(),
         "single-Vec assembly must equal prefix + suffix length"
     );
-    // The aggressive case engages every stage incl. capture_sharpening → all 18
-    // GPU-ported passes are present (17 scene/view stages + srgb_gamma).
+    // The aggressive case engages every stage incl. capture_sharpening → all 19
+    // GPU-ported passes are present (18 scene/view stages + srgb_gamma).
     assert_eq!(
         full.len(),
-        18,
-        "aggressive full chain must have all 18 passes"
+        19,
+        "aggressive full chain must have all 19 passes"
     );
 }
 
@@ -316,8 +322,8 @@ fn neutral_chain_omits_capture_sharpening() {
     let full = build_full_chain_passes(&inputs, [0.0; 3]);
     assert_eq!(
         full.len(),
-        17,
-        "neutral chain (no capture-sharpening) must have 17 passes"
+        18,
+        "neutral chain (no capture-sharpening) must have 18 passes"
     );
     // Sanity: PROFILE_CURVE_FLAT_LEN is the curve flat length the Pass asserts —
     // the neutral identity curve must match it (else the Pass panics at encode).

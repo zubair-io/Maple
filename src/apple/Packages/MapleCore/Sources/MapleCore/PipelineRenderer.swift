@@ -909,6 +909,11 @@ extension PipelineRenderer {
         // the same convention. Amount 0 = identity (feather inert).
         params.vignette_amount = Float(model.vignetteAmount)
         params.vignette_feather = Float(model.vignetteFeather)
+        // Film grain (#1110) — display-linear noise, appended at the
+        // struct tail. Amount 0 = identity (size / roughness inert).
+        params.grain_amount = Float(model.grainAmount)
+        params.grain_size = Float(model.grainSize)
+        params.grain_roughness = Float(model.grainRoughness)
         return params
     }
 

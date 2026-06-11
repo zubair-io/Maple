@@ -293,8 +293,8 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         doc: "Dehaze strength.",
     },
     // S5 effects fields (ticket #643 model/UI; pipeline stages land per
-    // tool — vignette #1109). Grain / split-tone remain identity stubs
-    // until #1110 / #1111. See the `AdjustmentModel` struct docs.
+    // tool — vignette #1109, grain #1110). Split-tone remains an identity
+    // stub until #1111. See the `AdjustmentModel` struct docs.
     FieldSpec {
         name: "vignette_amount",
         kind: FieldKind::F32,
@@ -317,7 +317,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 100.0),
         default_f32: 0.0,
         enum_name: "",
-        doc: "Grain intensity (ticket #643).",
+        doc: "Grain intensity — display-linear deterministic film grain (#1110, tone/zoom design spec § 10.2); 0 disables the stage.",
     },
     FieldSpec {
         name: "grain_size",
@@ -325,7 +325,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 100.0),
         default_f32: 25.0,
         enum_name: "",
-        doc: "Grain particle size (ticket #643).",
+        doc: "Grain particle size (#1110) — maps onto the noise pitch 1–6 px at a 2000-px long edge (resolution-stable).",
     },
     FieldSpec {
         name: "grain_roughness",
@@ -333,7 +333,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 100.0),
         default_f32: 50.0,
         enum_name: "",
-        doc: "Grain particle roughness / variance (ticket #643).",
+        doc: "Grain roughness (#1110) — mixes a second noise octave at 2x frequency.",
     },
     FieldSpec {
         name: "split_tone_shadow_hue",

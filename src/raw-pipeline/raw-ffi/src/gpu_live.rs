@@ -128,6 +128,12 @@ pub struct MapleGpuLiveParams {
     //     (feather is inert at amount 0). ---
     pub vignette_amount: f32,
     pub vignette_feather: f32,
+    // --- film grain — display-linear deterministic noise (#1110, tone/zoom
+    //     design § 10.2; runs between agx and display_encode). Appended at
+    //     the tail; un-set amount reads 0.0 = identity. ---
+    pub grain_amount: f32,
+    pub grain_size: f32,
+    pub grain_roughness: f32,
 }
 
 /// Internal handle state: the owned context + session. Behind the opaque pointer.
