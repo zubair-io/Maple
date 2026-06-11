@@ -9,9 +9,9 @@
 //     phase renders at viewport resolution,
 //   • the resolved `pixelScale` whenever it changes, so the refine pass
 //     retargets (`nativeImageSize × min(pixelScale, 1)`),
-//   • `updateTileVisibleRegion(viewport:zoom:)` on every zoom/pan
-//     commit, so the deep-zoom tile manager always sees the live
-//     viewport.
+//   • `updateTileVisibleRegion(viewport:zoom:)` on every commit —
+//     zoom/pan gestures AND viewport resizes / native-size seeds — so
+//     the deep-zoom tile manager always sees the live viewport.
 //
 // Gesture-live updates (pinch frames, drag frames) mutate only the
 // model — the session is committed on gesture END, matching the legacy
@@ -85,27 +85,31 @@ public final class CanvasZoomController {
 
     // MARK: - View plumbing
 
-    /// Host viewport mount / resize. Pushes the real-pixel viewport into
-    /// `previewSize` (fast-phase target) and the resolved scale into the
-    /// session, then re-clamps the pan against the new geometry.
+    /// Host viewport mount / resize. Re-clamps the pan against the new
+    /// geometry, pushes the real-pixel viewport into `previewSize`
+    /// (fast-phase target), then commits the resolved scale AND the
+    /// recomputed visible source rect — the visible rect depends on the
+    /// viewport, so a resize that skipped the commit would leave
+    /// deep-zoom consumers acting on a stale region (#1125 review).
     public func viewportChanged(points: CGSize, displayScale: CGFloat) {
         guard points.width > 0, points.height > 0 else { return }
         self.viewportPoints = points
         self.displayScale = displayScale
         model.reclampPan(context: context)
         session.previewSize = context.viewportPx
-        session.pixelScale = effectivePixelScale
+        commitToSession()
     }
 
     /// The metadata seed published a real `nativeImageSize` — re-resolve
     /// fit so the idle refine targets viewport resolution instead of the
     /// pre-decode estimate (legacy `syncSessionToViewport` on the same
-    /// change).
+    /// change), and re-push the visible rect, which depends on the image
+    /// extent (#1125 review).
     public func nativeImageSizeChanged() {
         guard viewportPoints != .zero else { return }
         model.reclampPan(context: context)
         session.previewSize = context.viewportPx
-        session.pixelScale = effectivePixelScale
+        commitToSession()
     }
 
     /// The host's asset switched under a reused view — reset to fit so a
@@ -198,7 +202,17 @@ public final class CanvasZoomController {
     /// `didSet` reschedules the refine) and the pure-pan refine kick, so
     /// one call covers every commit path — same contract the legacy
     /// `FullImageView.notifyVisibleRegion()` had.
+    ///
+    /// No-ops until the host has reported a real viewport: against a
+    /// degenerate viewport `CanvasMath` resolves fit to 1, so an early
+    /// commit (toolbar shortcut firing before the first
+    /// `viewportChanged`) would write a wrong `session.pixelScale` and
+    /// schedule refines against the wrong target (#1125 review). The
+    /// model already holds the user's intent, so the skipped commit
+    /// flushes naturally on the next `viewportChanged` — which always
+    /// commits.
     private func commitToSession() {
+        guard viewportPoints.width > 0, viewportPoints.height > 0 else { return }
         let math = context.canvasMath(
             pixelScale: model.pixelScale,
             panOffset: model.panOffset
