@@ -292,9 +292,9 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "",
         doc: "Dehaze strength.",
     },
-    // S5 effects fields (ticket #643 model/UI; pipeline stages land per
-    // tool — vignette #1109, grain #1110). Split-tone remains an identity
-    // stub until #1111. See the `AdjustmentModel` struct docs.
+    // S5 effects fields (ticket #643 model/UI; pipeline stages landed per
+    // tool — vignette #1109, grain #1110, split tone #1111). See the
+    // `AdjustmentModel` struct docs.
     FieldSpec {
         name: "vignette_amount",
         kind: FieldKind::F32,
@@ -341,7 +341,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 360.0),
         default_f32: 0.0,
         enum_name: "",
-        doc: "Split-tone shadow hue in degrees (ticket #643).",
+        doc: "Split-tone shadow hue in degrees (#1111, tone/zoom design spec § 10.3) — display-linear Oklab tint.",
     },
     FieldSpec {
         name: "split_tone_shadow_saturation",
@@ -349,7 +349,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 100.0),
         default_f32: 0.0,
         enum_name: "",
-        doc: "Split-tone shadow saturation (ticket #643).",
+        doc: "Split-tone shadow saturation (#1111); 0 disables the shadow tint.",
     },
     FieldSpec {
         name: "split_tone_highlight_hue",
@@ -357,7 +357,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 360.0),
         default_f32: 0.0,
         enum_name: "",
-        doc: "Split-tone highlight hue in degrees (ticket #643).",
+        doc: "Split-tone highlight hue in degrees (#1111).",
     },
     FieldSpec {
         name: "split_tone_highlight_saturation",
@@ -365,7 +365,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (0.0, 100.0),
         default_f32: 0.0,
         enum_name: "",
-        doc: "Split-tone highlight saturation (ticket #643).",
+        doc: "Split-tone highlight saturation (#1111); 0 disables the highlight tint.",
     },
     FieldSpec {
         name: "split_tone_balance",
@@ -373,7 +373,7 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         range: (-100.0, 100.0),
         default_f32: 0.0,
         enum_name: "",
-        doc: "Split-tone balance — shifts the shadow/highlight split point (ticket #643). Primary drag-bar field for the Split Tone tool.",
+        doc: "Split-tone balance — shifts the shadow/highlight crossover via exp2(bal/100) weight exponents (#1111). Primary drag-bar field for the Split Tone tool.",
     },
     FieldSpec {
         name: "highlight_recovery",

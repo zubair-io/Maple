@@ -85,6 +85,16 @@ impl GpuContext {
             .get_or_init(|| compile_standalone(&self.device, "grain", include_str!("grain.wgsl")))
     }
 
+    /// The cached split-tone compute pipeline (#1111, tone/zoom design § 10.3).
+    ///
+    /// The kernel rounds pixels through Oklab, so the generated color-matrix
+    /// module is prepended (`compile_with_matrices`) — same concat pattern as
+    /// vibrance / saturation. A pure point op; 2 storage buffers.
+    pub fn split_tone_pipeline(&self) -> &wgpu::ComputePipeline {
+        self.split_tone_pipeline
+            .get_or_init(|| compile_with_matrices(&self.device, "split-tone", include_str!("split_tone.wgsl")))
+    }
+
     /// The cached masked shadows/highlights compute pipeline (#1103, tone/zoom
     /// design § 4.2): one reworked tone step (mode-selected) through the tonal
     /// detail mask, reading the blurred luma plane the host prepares with

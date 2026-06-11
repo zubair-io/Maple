@@ -753,3 +753,108 @@ fn grain_zero_amount_is_bit_identical() {
     let (_, _, sized) = render_grey_with_grain(0.18, 0.0, 90.0);
     assert_eq!(base, sized, "size without amount must be a no-op");
 }
+
+// ---------------------------------------------------------------------------
+// Split toning (#1111, tone/zoom design § 10.3) — runs in the DISPLAY tail
+// (post-AgX, before grain), deliberately tints neutrals (its job is to
+// move grey toward the chosen hues), so the R=G=B NEUTRALITY invariant is
+// the thing being intentionally broken at non-zero saturations. The grey
+// gates are: (a) exact neutrality preservation at ZERO saturations, (b)
+// the engaged tint moves the card in the predicted hue direction with L
+// (tone) untouched — via the exact Oklab predictor at the stage level
+// (predictions.rs), and a direction check through the full pipeline here.
+// ---------------------------------------------------------------------------
+
+/// Render the grey card with split toning set.
+fn render_grey_with_split_tone(
+    linear_value: f32,
+    configure: impl FnOnce(&mut AdjustmentModel),
+) -> (u32, u32, Vec<u8>) {
+    let dng = SyntheticGreyDng { linear_value, ..Default::default() };
+    let bytes = dng.write_to_bytes();
+    let raw = raw_core::decode::decode_bytes(&bytes, "dng")
+        .expect("synthetic DNG must decode");
+    let mut model = AdjustmentModel::default();
+    model.auto_exposure = raw_core::xmp::AutoExposureMode::Off;
+    configure(&mut model);
+    render_from_raw(&raw, &model).expect("full pipeline render must succeed")
+}
+
+/// (a) Zero saturations leave the pipeline bit-identical, whatever the
+/// hues and balance say (neutral-preserving gate).
+#[test]
+fn split_tone_zero_saturation_is_bit_identical() {
+    let (_, _, base) = render_grey_with_split_tone(0.18, |_| {});
+    let (_, _, hued) = render_grey_with_split_tone(0.18, |m| {
+        m.split_tone_shadow_hue = 220.0;
+        m.split_tone_highlight_hue = 40.0;
+        m.split_tone_balance = 60.0;
+    });
+    assert_eq!(base, hued, "hues/balance without saturation must be a no-op");
+}
+
+/// (b) An engaged warm-shadow tint moves a DARK grey card toward red
+/// (R > G > B) through the full pipeline, and a cool-highlight tint moves
+/// a BRIGHT card toward blue — the luminance split works end-to-end.
+#[test]
+fn split_tone_tints_in_the_predicted_direction() {
+    let warm_shadows = |m: &mut AdjustmentModel| {
+        m.split_tone_shadow_hue = 30.0; // Oklab ~red-orange direction
+        m.split_tone_shadow_saturation = 80.0;
+    };
+    let (w, h, dark) = render_grey_with_split_tone(0.05, warm_shadows);
+    let n = (w * h) as usize;
+    let (mut r, mut g, mut b) = (0f64, 0f64, 0f64);
+    for i in 0..n {
+        r += dark[i * 3] as f64;
+        g += dark[i * 3 + 1] as f64;
+        b += dark[i * 3 + 2] as f64;
+    }
+    assert!(
+        r / n as f64 > g / n as f64 && g / n as f64 > b / n as f64,
+        "warm shadows on a dark card must order R > G > B (got {r:.1}/{g:.1}/{b:.1})"
+    );
+
+    let cool_highlights = |m: &mut AdjustmentModel| {
+        m.split_tone_highlight_hue = 250.0; // Oklab ~blue direction
+        m.split_tone_highlight_saturation = 80.0;
+    };
+    let (w2, h2, bright) = render_grey_with_split_tone(0.75, cool_highlights);
+    let n2 = (w2 * h2) as usize;
+    let (mut r2, mut b2) = (0f64, 0f64);
+    for i in 0..n2 {
+        r2 += bright[i * 3] as f64;
+        b2 += bright[i * 3 + 2] as f64;
+    }
+    assert!(
+        b2 / n2 as f64 > r2 / n2 as f64,
+        "cool highlights on a bright card must lift B over R (got R {r2:.1} vs B {b2:.1})"
+    );
+}
+
+/// (c) The crossover splits: shadow saturation alone must move a DARK
+/// card far more than a BRIGHT one (and vice versa is covered by the
+/// direction test above).
+#[test]
+fn split_tone_shadow_tint_fades_with_luminance() {
+    let chroma_spread = |lv: f32| {
+        let (w, h, px) = render_grey_with_split_tone(lv, |m| {
+            m.split_tone_shadow_hue = 30.0;
+            m.split_tone_shadow_saturation = 100.0;
+        });
+        let n = (w * h) as usize;
+        let mut spread = 0f64;
+        for i in 0..n {
+            let r = px[i * 3] as f64;
+            let b = px[i * 3 + 2] as f64;
+            spread += r - b;
+        }
+        spread / n as f64
+    };
+    let dark = chroma_spread(0.04);
+    let bright = chroma_spread(0.80);
+    assert!(
+        dark > bright + 2.0,
+        "the shadow tint must concentrate in dark tones: dark spread {dark:.2} vs bright {bright:.2}"
+    );
+}

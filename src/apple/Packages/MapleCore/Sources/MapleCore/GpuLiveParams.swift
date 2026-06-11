@@ -109,6 +109,14 @@ extension PipelineRenderer {
         p.grain_size = Float(model.grainSize)
         p.grain_roughness = Float(model.grainRoughness)
 
+        // Split toning (#1111) — display-linear Oklab tint; struct tail
+        // per the same convention; the chain runs it between agx and grain.
+        p.split_tone_shadow_hue = Float(model.splitToneShadowHue)
+        p.split_tone_shadow_saturation = Float(model.splitToneShadowSaturation)
+        p.split_tone_highlight_hue = Float(model.splitToneHighlightHue)
+        p.split_tone_highlight_saturation = Float(model.splitToneHighlightSaturation)
+        p.split_tone_balance = Float(model.splitToneBalance)
+
         // REAL sharpen + NR — run IN the scene-linear chain (replacing the post-AgX
         // Metal kernels), the sanctioned convergence divergence.
         p.sharpen_amount = Float(model.sharpenAmount)

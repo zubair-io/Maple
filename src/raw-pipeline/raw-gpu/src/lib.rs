@@ -244,6 +244,7 @@ mod spatial;
 mod srgb_gamma;
 mod texture;
 mod grain;
+mod split_tone;
 mod tone_curves;
 mod vibrance;
 mod vignette;
@@ -274,6 +275,7 @@ pub use residual_lut::{apply_residual_lut, residual_lut_flat_len, ResidualLutPas
 pub use saturation::{apply_saturation, SaturationPass};
 pub use scene_tone_controls::{apply_scene_tone_controls, SceneToneControlsPass};
 pub use sharpen::SharpenPass;
+pub use split_tone::{apply_split_tone, SplitTonePass};
 pub use spatial::{
     alloc_plane, alloc_plane_vec2, alloc_rgba, box_blur_encode, box_blur_vec2_encode,
     clarity_texture_encode, encode_simple, guided_filter_self_encode, luma_extract_encode,

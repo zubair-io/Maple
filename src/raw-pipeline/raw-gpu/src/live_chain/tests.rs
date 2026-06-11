@@ -285,6 +285,16 @@ fn single_stage_cases() -> Vec<SingleStage> {
             },
         },
         SingleStage {
+            name: "split_tone",
+            engage: |m| {
+                m.split_tone_shadow_hue = 30.0;
+                m.split_tone_shadow_saturation = 70.0; // a saturation is the gate
+                m.split_tone_highlight_hue = 250.0;
+                m.split_tone_highlight_saturation = 50.0;
+                m.split_tone_balance = 20.0;
+            },
+        },
+        SingleStage {
             name: "sharpen",
             engage: |m| {
                 m.sharpen_amount = 60.0;
@@ -443,6 +453,24 @@ fn chain_signature_folds_in_residual_lut_size() {
         chain_signature(&small_inputs, dims),
         chain_signature(&same_size.gpu_inputs(), dims),
         "equal residual_lut_size must keep the signature stable"
+    );
+}
+
+/// Split-tone sub-param gating (#1111): hues / balance alone must NOT
+/// engage the pass — the gate is on the two saturations, mirroring the
+/// raw-core stage's zero-saturation short-circuit.
+#[test]
+fn split_tone_hues_balance_alone_do_not_engage_the_pass() {
+    let mut case = neutral_case();
+    case.model.split_tone_shadow_hue = 220.0; // saturations stay 0
+    case.model.split_tone_highlight_hue = 40.0;
+    case.model.split_tone_balance = 80.0;
+    let inputs = case.gpu_inputs();
+    let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes.len(),
+        VIEW_TAIL_PASS_COUNT,
+        "hues/balance without saturation must not add a split-tone pass"
     );
 }
 

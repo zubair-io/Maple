@@ -94,9 +94,8 @@ describe('EditorStateService', () => {
     });
 
     it('rejects writes to stub tools', () => {
-      // The stub tools are HSL / Crop plus splitTone — re-gated at #952
-      // because they had AdjustmentModel fields but no pipeline apply
-      // code. (vignette left the list at #1109, grain at #1110.)
+      // The stub tools are HSL / Crop (pending their own specs). The S5
+      // effects all left the #952 stub list (#1109 / #1110 / #1111).
       const before = { ...lib.adjustmentFor(ID)() };
       svc.armTool('crop');
       svc.setArmedDisplayValue(50);
@@ -114,25 +113,23 @@ describe('EditorStateService', () => {
       expect(svc.canUndo()).toBe(false);
     });
 
-    it('rejects writes to the gated S5 effects tools (#952)', () => {
-      // splitTone present in the pill row but must not write XMP — no
-      // apply code exists yet (#1111). A drag must leave the model (incl.
-      // the satellite fields) untouched.
-      const before = { ...lib.adjustmentFor(ID)() };
-
+    it('splitTone is wired (#1111): drags write balance, sub-params write hue/sat', () => {
       svc.armTool('splitTone');
       svc.setArmedDisplayValue(25);
-
-      const after = lib.adjustmentFor(ID)();
-      expect(after).toEqual(before);
-      expect(after.splitToneBalance).toBe(0);
-    });
-
-    it('surfaces no misleading chip value for the gated S5 effects (#952)', () => {
-      // The value chip reads `armedDisplayValue`. Gated tools must read 0
-      // like hsl / crop / presets — confirm the remaining stub.
-      svc.armTool('splitTone');
-      expect(svc.armedDisplayValue()).toBe(0);
+      expect(lib.adjustmentFor(ID)().splitToneBalance).toBe(25);
+      svc.armSubParam('shadowHue');
+      svc.setArmedDisplayValue(30);
+      expect(lib.adjustmentFor(ID)().splitToneShadowHue).toBe(30);
+      svc.armSubParam('shadowSat');
+      svc.setArmedDisplayValue(60);
+      expect(lib.adjustmentFor(ID)().splitToneShadowSaturation).toBe(60);
+      svc.armSubParam('highlightHue');
+      svc.setArmedDisplayValue(210);
+      expect(lib.adjustmentFor(ID)().splitToneHighlightHue).toBe(210);
+      svc.armSubParam('highlightSat');
+      svc.setArmedDisplayValue(40);
+      expect(lib.adjustmentFor(ID)().splitToneHighlightSaturation).toBe(40);
+      expect(lib.adjustmentFor(ID)().splitToneBalance).toBe(25);
     });
 
     it('grain is wired (#1110): drags write grainAmount, sub-params write size/roughness', () => {
@@ -243,7 +240,9 @@ describe('EditorStateService', () => {
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
       svc.armTool('grain'); // wired at #1110
       expect(svc.armedToolAcceptsValueEdits()).toBe(true);
-      for (const tool of ['presets', 'hsl', 'splitTone', 'crop'] as const) {
+      svc.armTool('splitTone'); // wired at #1111
+      expect(svc.armedToolAcceptsValueEdits()).toBe(true);
+      for (const tool of ['presets', 'hsl', 'crop'] as const) {
         svc.armTool(tool);
         expect(svc.armedToolAcceptsValueEdits()).toBe(false);
       }
@@ -389,14 +388,13 @@ describe('EditorStateService', () => {
       expect(TOOLS_IN_GROUP.detail.length).toBe(5);
     });
 
-    it('wires 20 of 23 tools (vignette #1109, grain #1110 un-stubbed)', () => {
+    it('wires 21 of 23 tools (S5 effects un-stubbed at #1109/#1110/#1111)', () => {
       const wired = ALL_TOOLS.filter(isWired);
-      expect(wired.length).toBe(20);
+      expect(wired.length).toBe(21);
       expect(isWired('vignette')).toBe(true);
       expect(isWired('grain')).toBe(true);
-      // splitTone has AdjustmentModel fields but no pipeline apply code,
-      // so it is a stub until #1111.
-      for (const t of ['hsl', 'splitTone', 'crop'] as const) {
+      expect(isWired('splitTone')).toBe(true);
+      for (const t of ['hsl', 'crop'] as const) {
         expect(isWired(t)).toBe(false);
       }
       // presets left STUB_TOOLS at #1115 — wired, but value-less.
