@@ -2,11 +2,14 @@
 //
 // Always-rendered value chip overlay (floats top-center, 14pt above the
 // canvas region). Per spec §2: group + tool labels (SF Mono uppercase
-// muted) + signed value in `primary`, tabular-nums.
+// muted) + signed value in `primary`, tabular-nums. While a multi-param
+// tool is armed (#1108, spec §10.0) a third eyebrow names the armed
+// sub-param: "DETAIL · SHARPEN · RADIUS · 1.0".
 
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { EditorStateService } from './editor-state.service';
 import { TOOL_DISPLAY, TOOL_GROUP_DISPLAY } from './tool-model';
+import { formatSubParamValue } from './tool-sub-param';
 
 @Component({
   selector: 'app-value-chip',
@@ -23,8 +26,19 @@ export class ValueChipComponent {
   );
   protected readonly toolLabel = computed(() => TOOL_DISPLAY[this.state.armedTool()].toUpperCase());
 
+  /** Armed sub-param label (uppercased) — null for single-param tools,
+   * which keep the two-eyebrow chip exactly. */
+  protected readonly subParamLabel = computed<string | null>(() => {
+    const sub = this.state.armedSubParam();
+    return sub ? sub.label.toUpperCase() : null;
+  });
+
   protected readonly formattedValue = computed(() => {
     const v = this.state.armedDisplayValue();
+    const sub = this.state.armedSubParam();
+    // Sub-params carry their own format (decimals; unsigned for
+    // one-sided ranges — spec §10.0 "FEATHER · 35", "RADIUS · 1.0").
+    if (sub) return formatSubParamValue(sub, v);
     const tool = this.state.armedTool();
     if (tool === 'exposure') return `${v >= 0 ? '+' : ''}${v.toFixed(2)} EV`;
     if (tool === 'temp') return `${Math.round(v)} K`;
