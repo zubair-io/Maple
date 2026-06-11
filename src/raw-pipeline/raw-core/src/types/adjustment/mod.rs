@@ -459,6 +459,17 @@ pub struct AdjustmentModel {
     /// parameter: carried by the same decoded-image cache keys as
     /// `chroma_prefilter`. XMP key `papp:HotPixelSuppression`.
     pub hot_pixel_suppression: HotPixelSuppressionMode,
+
+    /// BM3D deep denoise strength (#1105, tone/zoom design § 3.2).
+    /// Two-stage collaborative filtering on opponent channels, applied
+    /// input-referred immediately after `chroma_prefilter` inside the
+    /// decode product — see `stages::bm3d`. 0 (default) is an exact
+    /// bit-identical skip. A decode-product parameter: the decoded-image
+    /// caches key on it like `chroma_prefilter` (Apple #950 baked model,
+    /// web stripped prefix model); NOT keyed on sidecar mtime. Never runs
+    /// on the tile path (the tile FFI rejects it like dehaze). XMP key
+    /// `papp:DeepDenoise`.
+    pub deep_denoise: f32, // 0..100, default 0
 }
 
 impl Default for AdjustmentModel {
@@ -538,6 +549,8 @@ impl Default for AdjustmentModel {
             // Per-#1106: off until a harness sweep shows enabling is free
             // on clean fixtures (spec § 10.6).
             hot_pixel_suppression: HotPixelSuppressionMode::Off,
+            // Per-#1105: heavy opt-in stage, always default-off.
+            deep_denoise: 0.0,
         }
     }
 }

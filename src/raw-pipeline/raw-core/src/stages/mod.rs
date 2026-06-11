@@ -8,6 +8,7 @@ pub mod saturation;
 pub mod clarity;
 pub mod texture;
 pub mod blur;
+pub mod bm3d;
 pub mod guided;
 pub mod nlm;
 pub mod dehaze;

@@ -336,6 +336,22 @@ fn chroma_prefilter_engaged_is_identity_on_grey() {
 /// so neither outlier predicate (`v > 2·max + 0.02`, `v < 0.25·min`) can
 /// fire and the stage is exactly identity even when engaged — the
 /// closed-form predictor is the identity function.
+/// BM3D deep denoise (#1105, tone/zoom design spec § 3.2). On the
+/// noiseless synthetic grey card every mean-relative spectrum is exactly
+/// zero, hard-thresholding removes nothing, the Wiener gains multiply
+/// exact zeros, and the HF re-injection term is an exact zero — the
+/// stage is bit-exact identity at any strength (the spec's "on noiseless
+/// synthetic grey, hard-thresholding removes nothing → identity" gate).
+#[test]
+fn deep_denoise_engaged_is_identity_on_grey() {
+    for strength in [30.0_f32, 70.0] {
+        for L in [0.05, 0.18, 0.50] {
+            assert_predicted_scene_linear(L, |m| m.deep_denoise = strength, |s| s);
+            assert_neutral_display(L, |m| m.deep_denoise = strength);
+        }
+    }
+}
+
 #[test]
 fn hot_pixel_suppression_engaged_is_identity_on_grey() {
     use raw_core::xmp::HotPixelSuppressionMode;

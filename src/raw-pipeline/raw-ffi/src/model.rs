@@ -51,6 +51,17 @@ pub(crate) fn dehaze_active(model: &xmp::AdjustmentModel) -> bool {
     model.dehaze.abs() > 1e-3
 }
 
+/// Returns `true` when `model.deep_denoise` is meaningfully non-zero
+/// (matches `bm3d::apply`'s early-exit threshold of `1e-3`). Tile-path
+/// safety gate (#1105): the BM3D reference-patch grid is anchored at the
+/// buffer origin, so a tile-relative grid would aggregate different
+/// groups than the full-frame render and seam at tile borders — the tile
+/// entries reject it exactly like dehaze, and the caller falls back to
+/// the full-image render.
+pub(crate) fn deep_denoise_active(model: &xmp::AdjustmentModel) -> bool {
+    model.deep_denoise.abs() > 1e-3
+}
+
 /// Force `auto_exposure: Off` when this model will fit an Auto Profile
 /// curve — the scene-linear-decode mirror of the full render path's
 /// `auto_will_fit` guard (`render/mod.rs` § Section 0).

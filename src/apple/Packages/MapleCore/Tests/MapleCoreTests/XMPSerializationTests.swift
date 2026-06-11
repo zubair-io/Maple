@@ -336,6 +336,33 @@ final class XMPSerializationTests: XCTestCase {
                        "stripAppleGPUStages must keep the decode-baked hotPixelSuppression")
     }
 
+    // MARK: - BM3D deep denoise (#1105)
+
+    /// `papp:DeepDenoise` parses, round-trips, and is omitted at the
+    /// default (0) so pre-#1105 sidecars stay byte-identical; the
+    /// decode-baked field survives `stripAppleGPUStages` (the #950
+    /// baked-model cache-key contract — this is what makes the BM3D run
+    /// a one-time cost per setting).
+    func testDeepDenoiseRoundTripDefaultOmissionAndStrip() throws {
+        let (m, _) = try XMPParser.parse(xmp(attrs: #"papp:DeepDenoise="70""#))
+        XCTAssertEqual(m.deepDenoise, 70)
+
+        var m2 = AdjustmentModel()
+        m2.deepDenoise = 70
+        let xml = XMPSerializer.serialize(model: m2, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"papp:DeepDenoise="70""#))
+        let (m3, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m3.deepDenoise, 70)
+
+        let defaultXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(defaultXml.contains("papp:DeepDenoise"),
+                       "default deepDenoise must not be serialized")
+
+        let stripped = RawCoreBridge.stripAppleGPUStages(m2)
+        XCTAssertEqual(stripped.deepDenoise, 70,
+                       "stripAppleGPUStages must keep the decode-baked deepDenoise")
+    }
+
     // MARK: - S5 effects + keywords interaction (#632 / #643 merge)
 
     /// The reconciliation of the two XMP file-splits introduces one case

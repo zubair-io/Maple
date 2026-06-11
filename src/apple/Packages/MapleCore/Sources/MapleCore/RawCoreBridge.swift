@@ -70,6 +70,11 @@
 //   * `hotPixelSuppression` (#1106) — pre-demosaic defect replacement
 //     inside the Rust decode product; same KEPT/cache-key story as
 //     `chromaPrefilter`. Default `.off` short-circuits the stage.
+//   * `deepDenoise` (#1105)        — BM3D, input-referred inside the Rust
+//     decode product; same KEPT/cache-key story. The #950 baked-model key
+//     carrying it is what makes the seconds-scale run a ONE-TIME cost per
+//     setting: downstream slider ticks reuse the denoised decode. Default
+//     0 short-circuits the stage.
 //
 // **WB contract** (the previously load-bearing source of magenta-cast
 // bugs): the strip forces the FFI decode to a fixed reference state

@@ -19,7 +19,7 @@ use crate::{
     image::RawImage,
     linearize,
     stages::{
-        auto_exposure, capture_sharpening, chroma_prefilter, clarity, dehaze,
+        auto_exposure, bm3d, capture_sharpening, chroma_prefilter, clarity, dehaze,
         highlight_recovery, highlight_recovery_oklab, hot_pixel, local_adjustments,
         noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
         vibrance, white_balance,
@@ -206,6 +206,15 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
         chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
     });
     dump_after("04a_chroma_prefilter", &scene);
+    // BM3D deep denoise (#1105) — runs on the downsampled buffer here;
+    // same position as the unsized variant. See that variant's comment.
+    stage("sized_deep_denoise", || {
+        bm3d::apply_cancellable(&mut scene, model.deep_denoise, cancel, bm3d::env_progress())
+    });
+    if cancel.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    dump_after("04ab_deep_denoise", &scene);
     if let Some(params) = capture_sharpening_params_from_model(model) {
         stage("sized_capture_sharpening", || {
             capture_sharpening::apply_capture_sharpening(&mut scene, &params)

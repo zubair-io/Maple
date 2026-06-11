@@ -59,6 +59,7 @@ extension AdjustmentModel {
         case toneCurveMode = "tone_curve_mode"
         case chromaPrefilter = "chroma_prefilter"
         case hotPixelSuppression = "hot_pixel_suppression"
+        case deepDenoise = "deep_denoise"
     }
 
     // MARK: - Range constants (canonical, generated)
@@ -139,4 +140,6 @@ extension AdjustmentModel {
     public static let splitToneBalanceRange: ClosedRange<Double> = -100.0...100.0
     /// Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.
     public static let chromaPrefilterRange: ClosedRange<Double> = 0.0...100.0
+    /// BM3D deep denoise strength (#1105, tone/zoom design spec § 3.2). Two-stage collaborative filtering, input-referred inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:DeepDenoise`. Part of the decoded-image cache key.
+    public static let deepDenoiseRange: ClosedRange<Double> = 0.0...100.0
 }
