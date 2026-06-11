@@ -15,6 +15,10 @@
 //! - [`WebLiveSession::open`] decodes the RAW ONCE, develops the stripped prefix to
 //!   the post-`auto_exposure` scene-linear buffer, fits the Auto Profile artifacts,
 //!   uploads the buffer to a [`LiveSession`], and configures the canvas surface.
+//!   The develop is VIEWPORT-SIZED (#1080): the caller passes its canvas/viewport
+//!   `max_long_edge` (real pixels) and the buffer + canvas are fit to it — never
+//!   full sensor res, which on a 100 MP frame exceeds the downlevel 2048 texture
+//!   baseline (black canvas) and burns ~2.8 GB of transient f32 in the wasm heap.
 //! - [`WebLiveSession::render`] re-applies the user's WB / tone / … on the GPU and
 //!   presents. It re-develops + re-uploads ONLY when a prefix-affecting field
 //!   changes (see below); the hot-path sliders just rebuild [`FullChainInputs`] and
@@ -50,7 +54,9 @@
 //! carried through by construction. The real-WebGPU-browser 16 ms measurement is
 //! the #1029-W3 maintainer checkpoint.
 
-use crate::gpu_render::{chain_inputs_for_model, develop_prefix_rgba, prefix_model_for};
+use crate::gpu_render::{
+    chain_inputs_for_model, develop_prefix_rgba, effective_target_long_edge, prefix_model_for,
+};
 use raw_core::xmp::AdjustmentModel;
 use raw_gpu::{GpuContext, LiveSession, WebPresentSurface};
 use wasm_bindgen::prelude::*;
@@ -85,11 +91,23 @@ pub struct WebLiveSession {
     /// The EXACT stripped-prefix model `session`'s uploaded buffer was developed
     /// from. A render re-develops iff its newly-derived prefix model differs.
     prefix_model: AdjustmentModel,
-    /// Oriented image dims (also the canvas + surface dims). The present asserts
-    /// canvas dims == session dims; dims never change across ticks (same image,
-    /// full-res), so the canvas is sized once on open.
+    /// The EFFECTIVE develop long-edge cap (#1080): the caller's viewport target
+    /// normalized + clamped to the device texture cap in `open`. Fixed for the
+    /// session's lifetime, so a prefix re-develop reproduces the same dims and
+    /// the canvas surface never needs resizing.
+    target_long_edge: u32,
+    /// Developed (viewport-sized, sensor-framing) image dims — also the canvas +
+    /// surface dims. ≤ `target_long_edge` on the long edge (#1080). The present
+    /// asserts canvas dims == session dims; dims never change across ticks (same
+    /// image, same target), so the canvas is sized once on open.
     width: u32,
     height: u32,
+    /// NATIVE oriented dims (`native_render_dims`) — what a full-res render of
+    /// this RAW would produce. Surfaced to JS (#1080) so the editor records the
+    /// native dims for its fit/100% zoom math (the `render_bytes_sized`
+    /// contract, #1101) while the session itself stays viewport-sized.
+    full_width: u32,
+    full_height: u32,
     /// Camera As-Shot WB, surfaced to JS so the UI can seed the sliders exactly
     /// like the one-shot `render_bytes` / `render_bytes_gpu` paths do.
     as_shot_temperature: f32,
@@ -120,11 +138,20 @@ fn parse_model_with_as_shot_wb(
 #[wasm_bindgen]
 impl WebLiveSession {
     /// Open a persistent live session for `raw` and present its first frame to
-    /// `canvas`. Decodes ONCE, develops the stripped prefix, fits the Auto Profile
-    /// artifacts, uploads to a [`LiveSession`], sizes the canvas to the oriented
-    /// image dims, and presents. `xmp` is optional sidecar content (the model);
-    /// `None` ⇒ a fresh import at the camera As-Shot WB. `ext` is a lowercase
-    /// extension (`"dng"`, `"cr2"`, …).
+    /// `canvas`. Decodes ONCE, develops the stripped prefix FIT TO the caller's
+    /// viewport target (#1080), fits the Auto Profile artifacts, uploads to a
+    /// [`LiveSession`], sizes the canvas to the developed dims, and presents.
+    /// `xmp` is optional sidecar content (the model); `None` ⇒ a fresh import at
+    /// the camera As-Shot WB. `ext` is a lowercase extension (`"dng"`, `"cr2"`, …).
+    ///
+    /// `max_long_edge` is the viewport target in REAL (backing-store) pixels: the
+    /// develop fits the image to it (long-edge fit, aspect preserved, never
+    /// upscaled), so the GPU session + canvas are viewport-sized instead of full
+    /// sensor res. ADDITIVE: omitting it (`undefined`/`null` — the pre-#1080 call
+    /// shape) or passing `0` caps the long edge at
+    /// [`crate::gpu_render::DEFAULT_TARGET_LONG_EDGE`] (2048, the downlevel WebGPU
+    /// texture baseline) so the no-target path can't configure an over-limit
+    /// surface; explicit values are clamped to the device's actual texture cap.
     ///
     /// Async (WebGPU adapter/device request + present are async). Returns the
     /// opened handle; subsequent edits drive [`WebLiveSession::render`].
@@ -134,6 +161,7 @@ impl WebLiveSession {
         ext: String,
         xmp: Option<String>,
         canvas: OffscreenCanvas,
+        max_long_edge: Option<u32>,
     ) -> Result<WebLiveSession, JsError> {
         let raw_img =
             raw_core::decode::decode_bytes(&raw, &ext).map_err(|e| JsError::new(&e.to_string()))?;
@@ -147,24 +175,35 @@ impl WebLiveSession {
         let model = parse_model_with_as_shot_wb(&xmp, as_shot_temperature, as_shot_tint)
             .map_err(|e| JsError::new(&e))?;
 
-        // Develop the stripped prefix ONCE and upload it. `prefix_model` is the
-        // exact model this buffer reflects — cached for the re-develop check.
-        let (rgba, width, height, prefix_model) =
-            develop_prefix_rgba(&raw_img, &raw, &ext, &model).map_err(|e| JsError::new(&e))?;
-
-        // Fallible (#1079): no WebGPU adapter/device, or an image past the
-        // device's buffer/binding limits, surfaces as a JsError — the worker
-        // falls back to the CPU render path instead of trapping.
+        // Context BEFORE develop: the effective develop target clamps to this
+        // device's texture cap (#1080, composing with #1079's adapter-clamped
+        // limits + validation). Fallible (#1079): no WebGPU adapter/device
+        // surfaces as a JsError — the worker falls back to the CPU render path
+        // instead of trapping.
         let ctx = GpuContext::new_async()
             .await
             .map_err(|e| JsError::new(&e))?;
+        let target_long_edge = effective_target_long_edge(max_long_edge, &ctx);
+
+        // Develop the stripped prefix ONCE — fit to the viewport target — and
+        // upload it. `prefix_model` is the exact model this buffer reflects,
+        // cached for the re-develop check. Native dims ride the handle so the
+        // editor's zoom math stays full-res-aware (#1101 contract).
+        let (full_width, full_height) = raw_core::pipeline::native_render_dims(&raw_img);
+        let (rgba, width, height, prefix_model) =
+            develop_prefix_rgba(&raw_img, &raw, &ext, &model, target_long_edge)
+                .map_err(|e| JsError::new(&e))?;
+
+        // Fallible (#1079): an image past the device's buffer/binding limits
+        // surfaces as a JsError for the same CPU fallback.
         let session = LiveSession::new(&ctx, &rgba, width, height).map_err(|e| JsError::new(&e))?;
 
-        // Size the canvas to the oriented image dims so the present's
+        // Size the canvas to the developed (viewport-sized) dims so the present's
         // surface-dims == image-dims invariant holds (the FS recovers each pixel
-        // from the fragment position; a mismatch desyncs the dither cell). Then
-        // build the persistent present surface ONCE (surface + configure +
-        // display-p3 retag + present-pipeline compile) — every tick reuses it.
+        // from the fragment position; a mismatch desyncs the dither cell). CSS
+        // scales the element to the layout box on the main thread. Then build the
+        // persistent present surface ONCE (surface + configure + display-p3 retag
+        // + present-pipeline compile) — every tick reuses it.
         canvas.set_width(width);
         canvas.set_height(height);
         let present = WebPresentSurface::create(&ctx, &canvas, width, height)
@@ -178,8 +217,11 @@ impl WebLiveSession {
             present,
             session,
             prefix_model,
+            target_long_edge,
             width,
             height,
+            full_width,
+            full_height,
             as_shot_temperature,
             as_shot_tint,
         };
@@ -208,11 +250,17 @@ impl WebLiveSession {
         // branch: same buffer, same LiveSession, zero new GPU buffers.
         let new_prefix = prefix_model_for(&self.raw_img, &self.raw, &self.ext, &model);
         if new_prefix != self.prefix_model {
-            let (rgba, w, h, prefix_model) =
-                develop_prefix_rgba(&self.raw_img, &self.raw, &self.ext, &model)
-                    .map_err(|e| JsError::new(&e))?;
-            // Dims are stable across ticks (same image, full-res), but assert so a
-            // future quality-switch can't silently desync the canvas surface.
+            let (rgba, w, h, prefix_model) = develop_prefix_rgba(
+                &self.raw_img,
+                &self.raw,
+                &self.ext,
+                &model,
+                self.target_long_edge,
+            )
+            .map_err(|e| JsError::new(&e))?;
+            // Dims are stable across ticks (same image, same session-pinned
+            // target), but assert so a future quality/target switch can't
+            // silently desync the canvas surface.
             if (w, h) != (self.width, self.height) {
                 return Err(JsError::new(&format!(
                     "WebLiveSession::render: re-develop dims {w}x{h} != {}x{} (canvas not resized)",
@@ -242,16 +290,32 @@ impl WebLiveSession {
         self.as_shot_tint
     }
 
-    /// The oriented image width (== canvas width).
+    /// The developed (viewport-sized) image width (== canvas width). ≤ the
+    /// session's effective `max_long_edge` target on the long edge (#1080).
     #[wasm_bindgen(getter)]
     pub fn width(&self) -> u32 {
         self.width
     }
 
-    /// The oriented image height (== canvas height).
+    /// The developed (viewport-sized) image height (== canvas height). ≤ the
+    /// session's effective `max_long_edge` target on the long edge (#1080).
     #[wasm_bindgen(getter)]
     pub fn height(&self) -> u32 {
         self.height
+    }
+
+    /// NATIVE oriented width — what a full-res render of this RAW would produce
+    /// (`native_render_dims`). The session is viewport-sized (#1080), so the
+    /// editor records THESE dims for its fit/100% zoom math (#1101 contract).
+    #[wasm_bindgen(getter, js_name = fullWidth)]
+    pub fn full_width(&self) -> u32 {
+        self.full_width
+    }
+
+    /// NATIVE oriented height — see [`WebLiveSession::full_width`].
+    #[wasm_bindgen(getter, js_name = fullHeight)]
+    pub fn full_height(&self) -> u32 {
+        self.full_height
     }
 
     /// The achieved canvas colour-space tag from the one-time display-p3 retag

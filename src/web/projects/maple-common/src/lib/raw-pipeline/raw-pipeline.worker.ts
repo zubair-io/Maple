@@ -110,6 +110,9 @@ type RenderBytesGpuFn = (
   raw: Uint8Array,
   ext: string,
   xmp: string | null,
+  // Viewport target in real pixels (#1080): the GPU develop fits the image to
+  // this long edge. undefined => the WASM-side 2048 default cap.
+  maxLongEdge?: number,
 ) => Promise<ReturnType<typeof render_bytes>>;
 
 function gpuEntry(): RenderBytesGpuFn | null {
@@ -127,10 +130,13 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
     // Sized decode (#1101, spec §5.1): a `maxLongEdge` request routes to the
-    // threaded-CPU sized entry — the editor's 2D fast/refine phases. It never
-    // routes GPU: the GPU live path renders through the persistent session
-    // (`WebLiveSession`), and the one-shot `render_bytes_gpu` has no sized
-    // variant (it exists as the W1 parity gate / session fallback).
+    // threaded-CPU sized entry — the editor's 2D fast/refine phases, whose
+    // `qualityPreview` demosaic profile and per-tick cost the one-shot GPU
+    // entry can't honour (it rebuilds the whole GPU context per call). The GPU
+    // live path renders through the persistent session (`WebLiveSession`)
+    // instead; the one-shot `render_bytes_gpu` stays the W1 parity gate /
+    // session fallback for UNSIZED requests, where it self-caps its develop at
+    // the WASM-side 2048 default (#1080) — no route develops full sensor res.
     const sized = req.maxLongEdge !== undefined && req.maxLongEdge > 0;
     // Route through the GPU live chain (#1029) only when ALL hold:
     //   1. the request opts in (`req.gpu`, set from `GPU_LIVE_RENDER_ENABLED` —
@@ -159,7 +165,10 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     let result;
     if (gpuFn) {
       try {
-        result = await gpuFn(bytes, req.ext, req.xmp ?? null);
+        // Pass the caller's viewport target (#1080) so the GPU develop is
+        // viewport-sized, not full sensor res. Unsized requests (the only ones
+        // routed here today) carry undefined => WASM's 2048 default cap.
+        result = await gpuFn(bytes, req.ext, req.xmp ?? null, req.maxLongEdge);
       } catch (gpuErr) {
         // Runtime-adapter-failure fallback (#1059): WebGPU was advertised
         // (`'gpu' in navigator`) but the adapter is broken/unavailable —
@@ -191,18 +200,30 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     }
     performance.mark(`maple:wasm:${req.id}:end`);
     performance.measure(markTag, `maple:wasm:${req.id}:start`, `maple:wasm:${req.id}:end`);
-    const rgb = result.rgb;
+    // Read the scalars BEFORE taking the buffer, then consume the RGB via
+    // `take_rgb()` (#1080): unlike the `rgb` getter (which CLONES the full frame
+    // and leaves the wasm copy alive until free/GC), the take MOVES the bytes
+    // out, so peak memory is one frame, not two. The explicit `free()` releases
+    // the wasm-side struct immediately instead of waiting on GC finalization.
+    const width = result.width;
+    const height = result.height;
+    const nativeWidth = result.full_width;
+    const nativeHeight = result.full_height;
+    const asShotTemperature = result.as_shot_temperature;
+    const asShotTint = result.as_shot_tint;
+    const rgb = result.take_rgb();
+    result.free();
     const buffer = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength);
     const response: WorkerResponse = {
       id: req.id,
       type: 'decode-success',
-      width: result.width,
-      height: result.height,
-      nativeWidth: result.full_width,
-      nativeHeight: result.full_height,
+      width,
+      height,
+      nativeWidth,
+      nativeHeight,
       rgb: buffer,
-      asShotTemperature: result.as_shot_temperature,
-      asShotTint: result.as_shot_tint,
+      asShotTemperature,
+      asShotTint,
     };
     (self as unknown as Worker).postMessage(response, [buffer]);
   } catch (e) {
@@ -248,9 +269,20 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
       `maple:wasm-scene-linear:${req.id}:start`,
       `maple:wasm-scene-linear:${req.id}:end`,
     );
-    // wasm-bindgen returns a Uint16Array; slice its underlying buffer so
-    // we can transfer it (avoid the main thread holding a copy).
-    const lanes = result.fp16_rgba;
+    // Read the scalars BEFORE taking the buffer, then consume the lanes via
+    // `take_fp16_rgba()` (#1080): unlike the `fp16_rgba` getter (which CLONES
+    // the full frame and leaves the wasm copy alive until free/GC), the take
+    // MOVES them out, so peak memory is one frame, not two. wasm-bindgen
+    // returns a Uint16Array; slice its underlying buffer so we can transfer it
+    // (avoid the main thread holding a copy).
+    const width = result.width;
+    const height = result.height;
+    const nativeWidth = result.full_width;
+    const nativeHeight = result.full_height;
+    const asShotTemperature = result.as_shot_temperature;
+    const asShotTint = result.as_shot_tint;
+    const lanes = result.take_fp16_rgba();
+    result.free();
     const buffer = lanes.buffer.slice(
       lanes.byteOffset,
       lanes.byteOffset + lanes.byteLength,
@@ -258,13 +290,13 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
     const response: WorkerResponse = {
       id: req.id,
       type: 'decode-scene-linear-success',
-      width: result.width,
-      height: result.height,
-      nativeWidth: result.full_width,
-      nativeHeight: result.full_height,
+      width,
+      height,
+      nativeWidth,
+      nativeHeight,
       fp16Rgba: buffer,
-      asShotTemperature: result.as_shot_temperature,
-      asShotTint: result.as_shot_tint,
+      asShotTemperature,
+      asShotTint,
     };
     (self as unknown as Worker).postMessage(response, [buffer]);
   } catch (e) {
@@ -297,8 +329,12 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
  */
 interface WebLiveSessionInstance {
   render(xmp: string | null): Promise<string>;
+  /** Developed (viewport-sized per #1080) dims == the canvas dims. */
   readonly width: number;
   readonly height: number;
+  /** Native oriented dims — what a full-res render would produce (#1080). */
+  readonly fullWidth: number;
+  readonly fullHeight: number;
   readonly asShotTemperature: number;
   readonly asShotTint: number;
   readonly colorSpace: string;
@@ -310,6 +346,10 @@ interface WebLiveSessionCtor {
     ext: string,
     xmp: string | null,
     canvas: OffscreenCanvas,
+    // Viewport target in real pixels (#1080): the session develop fits the
+    // image to this long edge and sizes the canvas to the developed dims.
+    // undefined => the WASM-side 2048 default cap.
+    maxLongEdge?: number,
   ): Promise<WebLiveSessionInstance>;
 }
 
@@ -445,7 +485,15 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
 
       const bytes = new Uint8Array(req.bytes);
       performance.mark(`maple:session-open:${req.id}:start`);
-      const session = await ctor.open(bytes, req.ext, req.xmp ?? null, req.canvas);
+      const session = await ctor.open(
+        bytes,
+        req.ext,
+        req.xmp ?? null,
+        req.canvas,
+        // Viewport target (#1080): the develop + canvas are fit to it, so the
+        // session never configures an over-texture-cap (full-sensor-res) surface.
+        req.maxLongEdge,
+      );
       performance.mark(`maple:session-open:${req.id}:end`);
       performance.measure(
         'maple:session-open',
@@ -462,6 +510,10 @@ async function handleOpenSession(req: OpenSessionRequest): Promise<void> {
         type: 'open-session-success',
         width: session.width,
         height: session.height,
+        // Native oriented dims (#1080): the session is viewport-sized, so the
+        // editor records THESE on the asset for its fit/100% zoom math (#1101).
+        nativeWidth: session.fullWidth,
+        nativeHeight: session.fullHeight,
         asShotTemperature: session.asShotTemperature,
         asShotTint: session.asShotTint,
         // The TRUTH the browser configured after the one-time display-p3 retag

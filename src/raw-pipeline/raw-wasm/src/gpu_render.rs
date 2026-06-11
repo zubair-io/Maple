@@ -8,13 +8,20 @@
 //! (off by default; the CPU `render_bytes` + WebGL2 paths remain the fallback —
 //! deletion is P5).
 //!
+//! Unlike the CPU path, the GPU develop is VIEWPORT-SIZED (#1080): the caller
+//! passes a `max_long_edge` target (real pixels) and the prefix develop fits the
+//! image to it via raw-core's sized chain — full sensor res would exceed the
+//! device texture cap on 100 MP frames AND materialize ~2.8 GB of transient f32
+//! inside wasm32's permanently-grown heap. No target ⇒ the
+//! [`DEFAULT_TARGET_LONG_EDGE`] (2048) cap.
+//!
 //! ## The decode boundary (why two develops, and where the split lands)
 //!
 //! The GPU chain re-applies `white_balance` → … → `nr_color` + the view tail, so
 //! its INPUT must be the post-`auto_exposure` (develop stage 05), pre-`white_balance`
 //! (stage 06) scene-linear Rec.2020 buffer. raw-core exposes no such split point,
 //! so we obtain it by developing through the EXISTING
-//! [`develop_scene_linear_from_raw_with_quality`] with a STRIPPED model: the
+//! [`develop_scene_linear_sized_from_raw_with_quality`] with a STRIPPED model: the
 //! stages the GPU chain re-runs (WB / tone / vibrance / … / sharpen / nr) are set
 //! to their no-op defaults so each `apply` short-circuits BIT-EXACTLY, while the
 //! upstream stages the GPU chain does NOT do (`highlight_recovery`,
@@ -41,7 +48,8 @@
 // `wasm_bindgen_futures`, a wasm-only dep.
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::pipeline::{
-    develop_scene_linear_from_raw_with_quality, fit_auto_profile_from_raw, RawInput, RenderQuality,
+    develop_scene_linear_sized_from_raw_with_quality, fit_auto_profile_from_raw, RawInput,
+    RenderQuality,
 };
 #[cfg(any(target_arch = "wasm32", test))]
 use raw_core::types::adjustment::{AutoExposureMode, Profile};
@@ -56,6 +64,44 @@ use raw_gpu::{CurveMode, FullChainInputs, GpuContext, LiveSession, ToneCurveInpu
 use crate::MapleRender;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+
+/// Default long-edge cap for the GPU live develop when the JS caller passes no
+/// viewport target (#1080). Equal to `wgpu::Limits::downlevel_defaults()`'s
+/// `max_texture_dimension_2d` — the baseline every adapter meets, and the floor
+/// of the adapter-clamped limits [`GpuContext::new_async`] requests (#1079) —
+/// so the no-target path can never configure an over-limit canvas surface, and
+/// its storage upload (`2048² × 16 B/px ≈ 67 MB`) stays well inside the
+/// downlevel 128 MiB storage-binding cap. Before #1080 this path developed at
+/// FULL sensor resolution: a 100 MP frame is ~5.7× this cap (browser validation
+/// error → black canvas) and ~2.8 GB of transient f32 inside wasm32's 4 GiB
+/// heap (wasm memory growth is permanent).
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) const DEFAULT_TARGET_LONG_EDGE: u32 = 2048;
+
+/// Normalize the JS-side `max_long_edge` request: `None` (the legacy no-arg
+/// call shape) and `0` (a degenerate viewport measurement) both fall back to
+/// [`DEFAULT_TARGET_LONG_EDGE`]. Pure — the device clamp lives in
+/// [`effective_target_long_edge`].
+#[cfg(any(target_arch = "wasm32", test))]
+fn normalize_target_long_edge(requested: Option<u32>) -> u32 {
+    match requested {
+        Some(0) | None => DEFAULT_TARGET_LONG_EDGE,
+        Some(v) => v,
+    }
+}
+
+/// The long-edge cap the sized develop actually uses: the normalized request,
+/// clamped to the device's `max_texture_dimension_2d` so the canvas surface a
+/// [`crate::web_live_session::WebLiveSession`] configures at the developed dims
+/// can never exceed what THIS device accepts. The context requests
+/// adapter-clamped limits (#1079 — the downlevel 2048 baseline raised to
+/// whatever the adapter supports), so the clamp follows the REAL device cap;
+/// the two compose: #1079 makes a genuinely-oversize request FAIL CLEANLY, this
+/// keeps the web path from producing one at all.
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) fn effective_target_long_edge(requested: Option<u32>, ctx: &GpuContext) -> u32 {
+    normalize_target_long_edge(requested).min(ctx.device.limits().max_texture_dimension_2d.max(1))
+}
 
 /// Mirror [`crate::render_bytes`]'s `auto_will_fit` probe: Auto Profile will fit
 /// for this RAW iff `Profile::Auto` AND (the shared `auto_profile::cache` already
@@ -266,21 +312,41 @@ pub(crate) fn prefix_model_for(
 /// the returned `prefix_model` is the EXACT model this buffer was developed from
 /// (equal to [`prefix_model_for`]), so a caller can cache it and re-develop ONLY
 /// when it changes (the persistent session's zero-re-upload boundary — an identical
-/// prefix model ⇒ an identical buffer, by construction). The hot-path GPU-rerun
-/// sliders are zeroed in the prefix, so they never change it.
+/// prefix model + an identical `max_long_edge` ⇒ an identical buffer, by
+/// construction). The hot-path GPU-rerun sliders are zeroed in the prefix, so they
+/// never change it.
+///
+/// `max_long_edge` (#1080): the develop runs raw-core's SIZED chain — the buffer is
+/// fit to the target long edge (aspect preserved, never upscaled) right after
+/// demosaic+crop, so every later stage runs on the viewport-sized buffer and the
+/// returned `(w, h)` are the SIZED dims the GPU session + canvas adopt. A cap at
+/// or above the source long edge is bit-identical to the old full-res develop
+/// (raw-core's `downsample_image_area` early-returns), pinned by the
+/// `develop_prefix_rgba_uncapped_matches_unsized_develop` test.
 #[cfg(any(target_arch = "wasm32", test))]
 pub(crate) fn develop_prefix_rgba(
     raw_img: &raw_core::image::RawImage,
     raw: &[u8],
     ext: &str,
     model: &AdjustmentModel,
+    max_long_edge: u32,
 ) -> Result<(Vec<f32>, u32, u32, AdjustmentModel), String> {
     let ae_mode = effective_ae_mode(model, raw, ext);
     let prefix_model = stripped_prefix_model(model, ae_mode);
-    let scene =
-        develop_scene_linear_from_raw_with_quality(raw_img, &prefix_model, RenderQuality::Full)
-            .map_err(|e| e.to_string())?;
+    let scene = develop_scene_linear_sized_from_raw_with_quality(
+        raw_img,
+        &prefix_model,
+        RenderQuality::Full,
+        max_long_edge,
+    )
+    .map_err(|e| e.to_string())?;
     let (w, h) = (scene.width, scene.height);
+    // Pack scene RGB (12 B/px) → upload RGBA (16 B/px). Both are briefly alive
+    // here; a chunk-wise `drain` would NOT lower that peak (a `Vec` never releases
+    // partial capacity, so the source allocation stays resident until the final
+    // drop regardless of how it is consumed). The sized develop above is what
+    // bounds the transient: ≤ ~80 MB at the 2048 default vs ~2.8 GB at full
+    // sensor res on a 100 MP frame (#1080).
     let mut rgba: Vec<f32> = Vec::with_capacity(scene.pixels.len() * 4);
     for p in &scene.pixels {
         rgba.extend_from_slice(&[p[0], p[1], p[2], 1.0]);
@@ -363,24 +429,36 @@ pub(crate) fn chain_inputs_for_model(
 /// ([`crate::web_live_session::WebLiveSession`]) reuses the SAME
 /// [`develop_prefix_rgba`] / [`chain_inputs_for_model`] helpers but uploads once
 /// and presents to a surface instead of reading back.
+///
+/// `max_long_edge` (#1080): optional viewport target from the JS caller, in real
+/// (backing-store) pixels. The develop is fit to it (aspect preserved, never
+/// upscaled), so the returned surface is viewport-sized, not full sensor res.
+/// `None`/`0` → [`DEFAULT_TARGET_LONG_EDGE`]; either way the target is clamped to
+/// the device's texture cap via [`effective_target_long_edge`].
 #[cfg(any(target_arch = "wasm32", test))]
 async fn render_gpu_core(
     raw_img: &raw_core::image::RawImage,
     raw: &[u8],
     ext: &str,
     model: &AdjustmentModel,
+    max_long_edge: Option<u32>,
 ) -> Result<(u32, u32, Vec<u8>), String> {
-    let (rgba, w, h, _prefix_model) = develop_prefix_rgba(raw_img, raw, ext, model)?;
+    // Context FIRST: the effective develop target clamps to this device's
+    // texture cap, so the device must exist before the sized develop runs.
+    // Fallible (#1079): no adapter / device surfaces as an Err so the worker
+    // falls back to the CPU `render_bytes` path instead of trapping.
+    let ctx = GpuContext::new_async()
+        .await
+        .map_err(|e| format!("render_bytes_gpu: {e}"))?;
+    let target = effective_target_long_edge(max_long_edge, &ctx);
+
+    let (rgba, w, h, _prefix_model) = develop_prefix_rgba(raw_img, raw, ext, model, target)?;
     let inputs = chain_inputs_for_model(raw_img, raw, ext, model);
 
     // Upload ONCE, run the gated live chain + the WGSL terminal dither, read the
     // u8 RGB surface back. wasm has no blocking poll, so we await the async core.
-    // Every GPU step is fallible (#1079): no adapter / device, dims past the
-    // device's limits, a failed readback — each surfaces as a JsError so the
-    // worker falls back to the CPU `render_bytes` path instead of trapping.
-    let ctx = GpuContext::new_async()
-        .await
-        .map_err(|e| format!("render_bytes_gpu: {e}"))?;
+    // Every GPU step is fallible (#1079): dims past the device's limits, a failed
+    // readback — each surfaces as an Err for the same CPU fallback.
     let session =
         LiveSession::new(&ctx, &rgba, w, h).map_err(|e| format!("render_bytes_gpu: {e}"))?;
     let rgb = session
@@ -416,6 +494,19 @@ async fn render_gpu_core(
 /// `xmp` is optional XMP sidecar content (a UTF-8 string, not a path). `ext` is a
 /// lowercase extension (`"dng"`, `"cr2"`, …) for format disambiguation.
 ///
+/// `max_long_edge` (#1080): the caller's viewport target in REAL (backing-store)
+/// pixels — the develop fits the image to it (long-edge fit, aspect preserved,
+/// never upscaled) so a 100 MP frame no longer materializes ~2.8 GB of transient
+/// f32 in the wasm heap or exceeds the texture cap. ADDITIVE: omitting it
+/// (`undefined`/`null` from JS — the pre-#1080 call shape) or passing `0` caps
+/// the long edge at [`DEFAULT_TARGET_LONG_EDGE`] (2048, the downlevel WebGPU
+/// texture baseline) instead of restoring the old full-res behavior; explicit
+/// values are clamped to the device's actual texture cap. The returned
+/// [`MapleRender`] carries the sized buffer in `width`/`height` and the NATIVE
+/// oriented dims in `full_width`/`full_height` (`native_render_dims` — the same
+/// contract as `render_bytes_sized`, #1101), so the editor keeps its fit/100%
+/// zoom math.
+///
 /// wasm-only: the `async` `#[wasm_bindgen]` export references `wasm_bindgen_futures`
 /// (a wasm-only dep) and presents to WebGPU. The native host parity test
 /// (`gpu_render/tests.rs`) drives [`render_gpu_core`] directly instead.
@@ -425,6 +516,7 @@ pub async fn render_bytes_gpu(
     raw: Vec<u8>,
     ext: String,
     xmp: Option<String>,
+    max_long_edge: Option<u32>,
 ) -> Result<MapleRender, JsError> {
     let raw_img =
         raw_core::decode::decode_bytes(&raw, &ext).map_err(|e| JsError::new(&e.to_string()))?;
@@ -447,13 +539,20 @@ pub async fn render_bytes_gpu(
         model.tint = as_shot_tint;
     }
 
-    let (ow, oh, oriented) = render_gpu_core(&raw_img, &raw, &ext, &model)
+    let (ow, oh, oriented) = render_gpu_core(&raw_img, &raw, &ext, &model, max_long_edge)
         .await
         .map_err(|e| JsError::new(&e))?;
+
+    // Native oriented dims for `full_width`/`full_height` — the develop above is
+    // viewport-sized (#1080), so the editor's fit/100% zoom math needs the dims a
+    // full-res render would produce (the `render_bytes_sized` contract, #1101).
+    let (full_w, full_h) = raw_core::pipeline::native_render_dims(&raw_img);
 
     Ok(MapleRender::new(
         ow,
         oh,
+        full_w,
+        full_h,
         oriented,
         as_shot_temperature,
         as_shot_tint,
@@ -469,3 +568,9 @@ pub async fn render_bytes_gpu(
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "gpu_render/tests.rs"]
 mod tests;
+// The #1080 viewport-sized develop gates live in their own file (600-LOC file
+// budget); they reuse `tests::{synthetic_dng_path, gpu_available, cpu_reference}`
+// (pub(super) there).
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "gpu_render/tests_sizing.rs"]
+mod tests_sizing;

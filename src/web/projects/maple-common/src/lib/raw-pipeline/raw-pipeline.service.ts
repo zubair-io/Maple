@@ -26,13 +26,23 @@ import { decodeNonRawToRgb, decodeNonRawToSceneLinear } from './image-utils';
 
 /**
  * Result of opening a persistent GPU live session (epic #925, P4b-web / #1038):
- * the oriented image dims (== the transferred canvas dims), the camera As-Shot WB
- * (for seeding the sliders, like the `decode()` path), and the achieved canvas
- * colour-space tag the browser configured.
+ * the developed image dims (== the transferred canvas dims — viewport-sized per
+ * #1080, ≤ the requested `maxLongEdge` on the long edge, aspect preserved), the
+ * NATIVE oriented dims (for the asset record + zoom math, #1101 contract), the
+ * camera As-Shot WB (for seeding the sliders, like the `decode()` path), and the
+ * achieved canvas colour-space tag the browser configured.
  */
 export interface OpenedLiveSession {
   width: number;
   height: number;
+  /**
+   * Native oriented dims — see `OpenSessionSuccess.nativeWidth` (#1080).
+   * Optional for back-compat with stubs/producers that never size down
+   * (mirrors `DecodedImage.nativeWidth`) — absent means `width`/`height` ARE
+   * native.
+   */
+  nativeWidth?: number;
+  nativeHeight?: number;
   asShotTemperature: number;
   asShotTint: number;
   colorSpace: string;
@@ -163,6 +173,8 @@ export class RawPipelineService implements OnDestroy {
           handler.resolve({
             width: msg.width,
             height: msg.height,
+            nativeWidth: msg.nativeWidth,
+            nativeHeight: msg.nativeHeight,
             asShotTemperature: msg.asShotTemperature,
             asShotTint: msg.asShotTint,
             colorSpace: msg.colorSpace,
@@ -427,12 +439,19 @@ export class RawPipelineService implements OnDestroy {
    *
    * The transferred `canvas` is owned by the worker after this call; the caller
    * must not draw to it on the main thread.
+   *
+   * @param maxLongEdge Viewport target in REAL (backing-store) pixels (#1080):
+   *   the session's develop fits the image to this long edge (aspect preserved,
+   *   never upscaled) and sizes the canvas to the developed dims. Absent ⇒ the
+   *   WASM-side 2048 default cap (the downlevel WebGPU texture baseline). The
+   *   reply carries the NATIVE oriented dims in `nativeWidth`/`nativeHeight`.
    */
   openLiveSession(
     canvas: OffscreenCanvas,
     bytes: Uint8Array,
     ext: string,
     xmp?: string,
+    maxLongEdge?: number,
   ): Promise<OpenedLiveSession> {
     let worker: Worker;
     try {
@@ -454,6 +473,7 @@ export class RawPipelineService implements OnDestroy {
       ext,
       xmp,
       canvas,
+      maxLongEdge,
     };
     return new Promise<OpenedLiveSession>((resolve, reject) => {
       this.pending.set(id, { kind: 'open-session', resolve, reject });
