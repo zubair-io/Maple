@@ -142,6 +142,44 @@ Lightroom does for `crs:` fields.
 | `nrColor`         | `crs:ColorNoiseReduction` | 25      |
 | `chromaPrefilter` | `papp:ChromaPrefilter`    | 0       |
 | `deepDenoise`     | `papp:DeepDenoise`        | 0       |
+| `vignetteAmount`  | `crs:PostCropVignetteAmount`  | 0   |
+| `vignetteFeather` | `crs:PostCropVignetteFeather` | 0   |
+| `grainAmount`     | `crs:GrainAmount`         | 0       |
+| `grainSize`       | `crs:GrainSize`           | 0       |
+| `grainRoughness`  | `crs:GrainFrequency`      | 0       |
+| `splitToneShadowHue`         | `crs:SplitToningShadowHue`          | 0 |
+| `splitToneShadowSaturation`  | `crs:SplitToningShadowSaturation`   | 0 |
+| `splitToneHighlightHue`      | `crs:SplitToningHighlightHue`       | 0 |
+| `splitToneHighlightSaturation` | `crs:SplitToningHighlightSaturation` | 0 |
+| `splitToneBalance`           | `crs:SplitToningBalance`            | 0 |
+| `hueAdjustmentRed`           | `crs:HueAdjustmentRed`    | 0   |
+| `hueAdjustmentOrange`        | `crs:HueAdjustmentOrange` | 0   |
+| `hueAdjustmentYellow`        | `crs:HueAdjustmentYellow` | 0   |
+| `hueAdjustmentGreen`         | `crs:HueAdjustmentGreen`  | 0   |
+| `hueAdjustmentAqua`          | `crs:HueAdjustmentAqua`   | 0   |
+| `hueAdjustmentBlue`          | `crs:HueAdjustmentBlue`   | 0   |
+| `hueAdjustmentPurple`        | `crs:HueAdjustmentPurple` | 0   |
+| `hueAdjustmentMagenta`       | `crs:HueAdjustmentMagenta` | 0  |
+| `saturationAdjustmentRed`    | `crs:SaturationAdjustmentRed`    | 0 |
+| `saturationAdjustmentOrange` | `crs:SaturationAdjustmentOrange` | 0 |
+| `saturationAdjustmentYellow` | `crs:SaturationAdjustmentYellow` | 0 |
+| `saturationAdjustmentGreen`  | `crs:SaturationAdjustmentGreen`  | 0 |
+| `saturationAdjustmentAqua`   | `crs:SaturationAdjustmentAqua`   | 0 |
+| `saturationAdjustmentBlue`   | `crs:SaturationAdjustmentBlue`   | 0 |
+| `saturationAdjustmentPurple` | `crs:SaturationAdjustmentPurple` | 0 |
+| `saturationAdjustmentMagenta` | `crs:SaturationAdjustmentMagenta` | 0 |
+| `luminanceAdjustmentRed`     | `crs:LuminanceAdjustmentRed`    | 0 |
+| `luminanceAdjustmentOrange`  | `crs:LuminanceAdjustmentOrange` | 0 |
+| `luminanceAdjustmentYellow`  | `crs:LuminanceAdjustmentYellow` | 0 |
+| `luminanceAdjustmentGreen`   | `crs:LuminanceAdjustmentGreen`  | 0 |
+| `luminanceAdjustmentAqua`    | `crs:LuminanceAdjustmentAqua`   | 0 |
+| `luminanceAdjustmentBlue`    | `crs:LuminanceAdjustmentBlue`   | 0 |
+| `luminanceAdjustmentPurple`  | `crs:LuminanceAdjustmentPurple` | 0 |
+| `luminanceAdjustmentMagenta` | `crs:LuminanceAdjustmentMagenta` | 0 |
+
+**HSL band mapping** (#1112): All 24 `crs:Hue/Saturation/LuminanceAdjustment*` keys are
+ACR-compatible. All default to 0; any field equal to 0 is omitted on write.
+Range −100…+100. The stage runs in scene-linear Oklab after the saturation pass.
 
 **Enum fields** (emit only when non-default, string-valued):
 
