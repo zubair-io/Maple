@@ -89,6 +89,7 @@ fn gate_ring_full_eight_is_connected_with_all_edges_verified() {
         "exactly the 8 ring-adjacent pairs must verify (90°-separated pairs have no overlap)"
     );
 
+    let corr = realistic_matches();
     let mut min_inliers = usize::MAX;
     let mut worst_err = 0.0_f64;
     for e in &graph.edges {
@@ -98,6 +99,19 @@ fn gate_ring_full_eight_is_connected_with_all_edges_verified() {
             e.a,
             e.b,
             e.inlier_count
+        );
+        // The edge must carry the verified inlier correspondences (the BA
+        // hand-off payload): exactly inlier_count of them, every one a
+        // member of the matches the pair was verified against.
+        assert_eq!(e.inlier_matches.len(), e.inlier_count);
+        let mut rng = SplitMix64::new(0x00C0_FFEE ^ ((e.a as u64) << 32) ^ e.b as u64);
+        let source = generate_pair_correspondences(&cams[e.a], &cams[e.b], &corr, &mut rng)
+            .pixel_pairs();
+        assert!(
+            e.inlier_matches.iter().all(|m| source.contains(m)),
+            "edge ({},{}) inlier payload contains a correspondence that was never an input",
+            e.a,
+            e.b
         );
         let err = rotation_angle_between(
             &e.rotation,

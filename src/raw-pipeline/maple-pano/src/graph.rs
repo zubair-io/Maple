@@ -135,7 +135,8 @@ impl CandidateProvider for GimbalPriorProvider {
 }
 
 /// A robustly verified pair: the spec's per-edge payload
-/// `{R_rel, inlier count, mean angular residual}`.
+/// `{R_rel, inlier count, mean angular residual}` plus the inlier
+/// correspondences themselves.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VerifiedEdge {
     pub a: usize,
@@ -146,6 +147,14 @@ pub struct VerifiedEdge {
     pub rotation: Mat3,
     pub inlier_count: usize,
     pub mean_residual_rad: f64,
+    /// The verified inlier correspondences (the input matches with the
+    /// estimator's inlier mask applied; `len() == inlier_count`). Kept on
+    /// the edge because the graph is the hand-off to global bundle
+    /// adjustment, which minimizes reprojection error over exactly "all
+    /// inlier matches in the graph" (spec §5.3) — without the payload
+    /// every consumer would have to re-run verification to recover the
+    /// masks.
+    pub inlier_matches: Vec<PixelCorrespondence>,
 }
 
 /// A candidate pair that failed verification — kept for diagnostics
@@ -216,13 +225,23 @@ pub fn build_match_graph(
             ..opts.clone()
         };
         match verify_pair(&images[a].camera, &images[b].camera, &matches, &pair_opts) {
-            Ok(est) => edges.push(VerifiedEdge {
-                a,
-                b,
-                rotation: est.rotation,
-                inlier_count: est.inlier_count,
-                mean_residual_rad: est.mean_residual_rad,
-            }),
+            Ok(est) => {
+                let inlier_matches: Vec<PixelCorrespondence> = matches
+                    .iter()
+                    .zip(&est.inlier_mask)
+                    .filter(|(_, &keep)| keep)
+                    .map(|(&m, _)| m)
+                    .collect();
+                debug_assert_eq!(inlier_matches.len(), est.inlier_count);
+                edges.push(VerifiedEdge {
+                    a,
+                    b,
+                    rotation: est.rotation,
+                    inlier_count: est.inlier_count,
+                    mean_residual_rad: est.mean_residual_rad,
+                    inlier_matches,
+                });
+            }
             Err(reason) => rejected.push(RejectedPair { a, b, reason }),
         }
     }
@@ -313,6 +332,7 @@ mod tests {
             rotation: Mat3::identity(),
             inlier_count: 30,
             mean_residual_rad: 0.0,
+            inlier_matches: Vec::new(),
         }
     }
 
