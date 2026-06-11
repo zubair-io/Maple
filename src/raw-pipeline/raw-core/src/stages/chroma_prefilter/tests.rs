@@ -203,7 +203,7 @@ fn luma_edge_stops_chroma_diffusion() {
             let i = y * w as usize + x;
             if x < w as usize / 2 {
                 edge.pixels[i] = [0.06, 0.05, 0.04]; // dark, warm
-                flat.pixels[i] = [0.60, 0.50, 0.40]; // same chroma ratio, bright
+                flat.pixels[i] = [0.60, 0.44, 0.40]; // warm, Rec.2020 luma matched to the right half
             } else {
                 edge.pixels[i] = [0.40, 0.50, 0.60]; // bright, cool
                 flat.pixels[i] = [0.40, 0.50, 0.60];

@@ -49,6 +49,9 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   capture_sharpening_radius: [0.5, 2.0],
   nr_luminance: [0.0, 100.0],
   nr_color: [0.0, 100.0],
+  // Decode-time chroma pre-filter (#1104) — decode-product field; tail
+  // position mirrors the generated module.
+  chroma_prefilter: [0.0, 100.0],
   dehaze: [-100.0, 100.0],
   vignette_amount: [-100.0, 100.0],
   vignette_feather: [0.0, 100.0],

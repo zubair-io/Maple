@@ -116,6 +116,7 @@ Identical on Swift and TypeScript:
 ## Number fields and defaults
 
 Fields emit **only when non-default** — reduces sidecar size and matches what
+Lightroom does for `crs:` fields.
 
 | Field             | XMP key                   | Default |
 | ----------------- | ------------------------- | ------- |
