@@ -43,20 +43,69 @@ pub fn run(
     print!("{}", stdout);
 
     if let Some(b) = budget {
-        // Parse mean_deltaE from the JSON without a dedicated serde target.
-        let key = "\"mean_deltaE\":";
-        if let Some(i) = stdout.find(key) {
-            let rest = &stdout[i + key.len()..];
-            let end = rest.find([',', '}']).unwrap_or(rest.len());
-            let num_str = rest[..end].trim();
-            if let Ok(mean) = num_str.parse::<f32>() {
-                if mean > b {
-                    eprintln!("diff: mean \u{0394}E {} exceeds budget {}", mean, b);
-                    return Ok(1);
-                }
-            }
+        let mean = parse_mean_delta_e(&stdout)?;
+        if mean > b {
+            eprintln!("diff: mean \u{0394}E {} exceeds budget {}", mean, b);
+            return Ok(1);
         }
     }
 
     Ok(0)
+}
+
+/// Parse `mean_deltaE` out of compare_images.py's JSON without a dedicated
+/// serde target. Unparseable compare output is an ERROR, not a pass — a
+/// `--budget` caller asked for a verdict, and silently returning 0 when the
+/// metric can't be read fails open (#1082).
+fn parse_mean_delta_e(stdout: &str) -> Result<f32, String> {
+    let key = "\"mean_deltaE\":";
+    let i = stdout.find(key).ok_or_else(|| {
+        format!(
+            "diff: --budget set but compare output has no {} field; \
+             cannot enforce the budget. Output was:\n{}",
+            key, stdout
+        )
+    })?;
+    let rest = &stdout[i + key.len()..];
+    let end = rest.find([',', '}']).unwrap_or(rest.len());
+    let num_str = rest[..end].trim();
+    num_str.parse::<f32>().map_err(|e| {
+        format!(
+            "diff: --budget set but mean_deltaE value {:?} is unparseable ({}); \
+             cannot enforce the budget",
+            num_str, e
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_mean_delta_e;
+
+    #[test]
+    fn parses_mean_from_compare_json() {
+        let out = r#"{"mean_deltaE": 1.25, "p95_deltaE": 3.0, "max_deltaE": 9.5}"#;
+        assert_eq!(parse_mean_delta_e(out).unwrap(), 1.25);
+    }
+
+    #[test]
+    fn parses_mean_when_field_is_last() {
+        let out = r#"{"p95_deltaE": 3.0, "mean_deltaE":0.5}"#;
+        assert_eq!(parse_mean_delta_e(out).unwrap(), 0.5);
+    }
+
+    /// Fail-closed (#1082): output without the field used to slip through
+    /// as `Ok(0)` — a budget verdict on nothing.
+    #[test]
+    fn missing_field_is_an_error_not_a_pass() {
+        let err = parse_mean_delta_e("Traceback (most recent call last): ...").unwrap_err();
+        assert!(err.contains("no \"mean_deltaE\":"), "got: {err}");
+    }
+
+    /// Fail-closed (#1082): an unparseable value used to slip through too.
+    #[test]
+    fn unparseable_value_is_an_error_not_a_pass() {
+        let err = parse_mean_delta_e(r#"{"mean_deltaE": NaN-ish garbage}"#).unwrap_err();
+        assert!(err.contains("unparseable"), "got: {err}");
+    }
 }
