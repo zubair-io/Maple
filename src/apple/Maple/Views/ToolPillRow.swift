@@ -18,12 +18,15 @@ import MapleCore
 
 struct ToolPillRow: View {
     @Bindable var state: EditorState
+    /// Fires when the presets pill is tapped — the host (EditorView) opens
+    /// the presets sheet (iOS) / popover (macOS). #1115.
+    var onPresetsTap: () -> Void = {}
 
     var body: some View {
         let tools = Tool.tools(in: state.armedGroup)
         HStack(spacing: 4) {
             ForEach(tools, id: \.self) { tool in
-                ToolPillButton(state: state, tool: tool)
+                ToolPillButton(state: state, tool: tool, onPresetsTap: onPresetsTap)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -39,6 +42,7 @@ struct ToolPillRow: View {
 private struct ToolPillButton: View {
     @Bindable var state: EditorState
     let tool: Tool
+    var onPresetsTap: () -> Void = {}
 
     private var isSelected: Bool { state.armedTool == tool }
     private var isModified: Bool {
@@ -54,6 +58,9 @@ private struct ToolPillButton: View {
     var body: some View {
         Button {
             state.arm(tool: tool)
+            if tool == .presets {
+                onPresetsTap()
+            }
         } label: {
             VStack(spacing: 6) {
                 ZStack {

@@ -44,6 +44,13 @@ struct EditorView: View {
     /// open (#875 item 4b). Defaults to shown.
     @State private var filmstripVisible = true
 
+    /// Presets pill UI (#1115): S1c bottom sheet on iPhone/iPad, popover
+    /// anchored to the pill row on macOS. One flag drives both.
+    @State private var presetsOpen = false
+    /// User-preset storage (Application Support/Maple/Presets). Created
+    /// once per editor instance; cheap (no I/O until first list/save).
+    @State private var presetStore = PresetStore()
+
     var body: some View {
         VStack(spacing: 0) {
             EditorHeader(
@@ -129,7 +136,21 @@ struct EditorView: View {
             // pill, so they surface as a contextual accessory strip shown
             // only while Color is armed, directly under the tool row.
             DragBar(state: state)
-            ToolPillRow(state: state)
+            ToolPillRow(state: state, onPresetsTap: { presetsOpen = true })
+            #if os(macOS)
+                // Desktop presentation of the presets pill (#1115): a
+                // popover anchored to the pill row. iPhone/iPad use the
+                // S1c bottom sheet attached below.
+                .popover(isPresented: $presetsOpen, arrowEdge: .top) {
+                    PresetsPanel(
+                        state: state,
+                        store: presetStore,
+                        onApplied: { presetsOpen = false }
+                    )
+                    .frame(width: 340, height: 460)
+                    .background(MapleTokens.surface)
+                }
+            #endif
             if state.armedGroup == .color {
                 ColorAccessoryRow(state: state)
                     .transition(.opacity)
@@ -139,6 +160,17 @@ struct EditorView: View {
         }
         .background(MapleTokens.bg.ignoresSafeArea())
         .accessibilityIdentifier("editor-view")
+        #if os(iOS)
+            // Phone/tablet presentation of the presets pill (#1115): the
+            // S1c bottom sheet (BottomSheet.swift).
+            .mapleBottomSheet(isPresented: $presetsOpen) {
+                PresetsPanel(
+                    state: state,
+                    store: presetStore,
+                    onApplied: { presetsOpen = false }
+                )
+            }
+        #endif
         // Kick the render once this view is the active editor for the
         // current asset. `FullImageView` does this on `.onAppear`; the S5
         // editor never did, which is why it opened to a grey placeholder

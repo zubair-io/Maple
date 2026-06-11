@@ -358,22 +358,124 @@ final class EditorStateTests: XCTestCase {
         XCTAssertEqual(Tool.tools(in: .detail).count, 7)
     }
 
-    func testWiredToolsCoverEighteenFields() {
+    func testWiredToolsCoverNineteenTools() {
         // #952: vignette / grain / splitTone gained AdjustmentModel fields
         // at #643 but never gained pipeline apply code, so they are re-gated
         // as stubs (re-wire at #664 / #665 / #666). HSL (#636) / Crop (#638)
-        // / Presets (#639) remain stubs pending their own specs. Per #875:
-        // captureSharpen / captureSigma stay wired to the captureSharpening*
-        // fields.
+        // remain stubs pending their own specs. Per #875: captureSharpen /
+        // captureSigma stay wired to the captureSharpening* fields.
+        // Presets left the stub list at #1115 — wired, but value-less
+        // (nil displayRange keeps its value pipe inert).
         let wired = Tool.allCases.filter { $0.isWired }
-        XCTAssertEqual(wired.count, 18)
+        XCTAssertEqual(wired.count, 19)
         XCTAssertFalse(Tool.hsl.isWired)
         XCTAssertFalse(Tool.vignette.isWired)
         XCTAssertFalse(Tool.grain.isWired)
         XCTAssertFalse(Tool.splitTone.isWired)
         XCTAssertFalse(Tool.crop.isWired)
-        XCTAssertFalse(Tool.presets.isWired)
+        XCTAssertTrue(Tool.presets.isWired)
+        XCTAssertNil(ToolValueMapping.displayRange(for: .presets))
         XCTAssertTrue(Tool.captureSharpen.isWired)
         XCTAssertTrue(Tool.captureSigma.isWired)
+    }
+
+    // MARK: - Presets (#1115)
+
+    private func preset(
+        _ fields: [String: PresetFieldValue],
+        name: String = "Test"
+    ) -> Preset {
+        Preset(id: "p1", name: name, fields: fields)
+    }
+
+    func testApplyPresetSparseMergesWithOneUndoEntry() {
+        let session = makeSession()
+        let state = EditorState(session: session)
+
+        // Pre-existing edit the preset must not clobber.
+        state.arm(tool: .exposure)
+        state.commit()
+        state.setArmedDisplayValue(1.5)
+
+        let ok = state.applyPreset(preset([
+            "contrast": .number(-50),
+            "saturation": .number(-100),
+        ]))
+        XCTAssertTrue(ok)
+        XCTAssertEqual(session.model.contrast, -50, accuracy: 1e-9)
+        XCTAssertEqual(session.model.saturation, -100, accuracy: 1e-9)
+        // Sparse merge: untouched fields keep their current values.
+        XCTAssertEqual(session.model.exposure, 1.5, accuracy: 1e-9)
+
+        // ONE undo entry: a single undo restores the full pre-apply state.
+        state.undo()
+        XCTAssertEqual(session.model.contrast, 0, accuracy: 1e-9)
+        XCTAssertEqual(session.model.saturation, 0, accuracy: 1e-9)
+        XCTAssertEqual(session.model.exposure, 1.5, accuracy: 1e-9)
+
+        // Redo replays the whole preset in one step.
+        state.redo()
+        XCTAssertEqual(session.model.contrast, -50, accuracy: 1e-9)
+        XCTAssertEqual(session.model.saturation, -100, accuracy: 1e-9)
+    }
+
+    func testApplyPresetClampsSkipsAndGuardsEnums() {
+        let session = makeSession()
+        let state = EditorState(session: session)
+
+        XCTAssertTrue(state.applyPreset(preset([
+            "exposure": .number(9.5),              // clamped to +4
+            "future_curve_strength": .number(0.5), // unknown → skipped
+            "profile": .string("Neutral"),         // known variant → applied
+            "look": .string("WarpDrive"),          // unknown variant → skipped
+        ])))
+        XCTAssertEqual(session.model.exposure, 4.0, accuracy: 1e-9)
+        XCTAssertEqual(session.model.profile, .neutral)
+        XCTAssertEqual(session.model.look, .default) // unchanged default
+    }
+
+    func testApplyPresetUnknownOnlyReturnsFalseAndPushesNoUndo() {
+        let session = makeSession()
+        let state = EditorState(session: session)
+        let before = session.model
+
+        XCTAssertFalse(state.applyPreset(preset(["future_only": .number(1)])))
+        XCTAssertEqual(session.model, before)
+        XCTAssertFalse(state.canUndo)
+    }
+
+    func testPresetsPillValuePipeIsInert() {
+        // Presets is wired (#1115) but value-less: drags and resets must
+        // not mutate the model NOR push junk undo entries.
+        let session = makeSession()
+        let state = EditorState(session: session)
+        let before = session.model
+
+        state.arm(tool: .presets)
+        state.setArmedDisplayValue(50)
+        state.resetArmedTool()
+
+        XCTAssertEqual(session.model, before)
+        XCTAssertEqual(state.armedDisplayValue, 0, accuracy: 1e-9)
+        XCTAssertFalse(state.canUndo)
+    }
+
+    func testCapturePresetFieldsIsSparse() {
+        let session = makeSession()
+        let state = EditorState(session: session)
+
+        XCTAssertTrue(state.capturePresetFields().isEmpty)
+
+        state.arm(tool: .exposure)
+        state.setArmedDisplayValue(1.25)
+        state.arm(tool: .noise)
+        state.setArmedDisplayValue(40)
+        session.model.profile = .neutral
+
+        XCTAssertEqual(state.capturePresetFields(), [
+            "exposure": .number(1.25),
+            "nr_luminance": .number(40),
+            "profile": .string("Neutral"),
+        ])
     }
 }
