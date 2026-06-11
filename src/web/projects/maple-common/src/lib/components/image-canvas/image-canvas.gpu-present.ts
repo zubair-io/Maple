@@ -67,6 +67,19 @@ export interface GpuPresentHost {
    * or the zoom/pan/resize effect fires.
    */
   currentLayout(): { canvasW: number; canvasH: number; pan: { x: number; y: number } };
+  /**
+   * The viewport's long edge in REAL (backing-store) pixels — the develop target
+   * for the GPU paths (#1080): wrap dims × devicePixelRatio. `undefined` when the
+   * wrap hasn't been measured yet (the WASM side then applies its 2048 default
+   * cap). Read once per session-open / one-shot decode, not per tick.
+   */
+  viewportTargetLongEdge(): number | undefined;
+  /**
+   * Record the NATIVE oriented dims from the session reply (#1080) for the
+   * component's refine/zoom math — the session itself is viewport-sized, so
+   * `width`/`height` are no longer the native dims.
+   */
+  recordNativeDims(w: number, h: number): void;
 }
 
 /**
@@ -104,7 +117,17 @@ export class ImageCanvasGpuPresent {
     try {
       const canvasEl = this.createCanvas();
       const offscreen = canvasEl.transferControlToOffscreen();
-      const info = await this.host.pipeline.openLiveSession(offscreen, bytes, ext);
+      // Develop fit to the viewport (#1080): pass the wrap's long edge in real
+      // pixels so the session never develops (or sizes a surface at) full sensor
+      // res. The session pins this target for its lifetime; CSS scales the
+      // image-res canvas to the layout box on zoom/pan (`applyView`).
+      const info = await this.host.pipeline.openLiveSession(
+        offscreen,
+        bytes,
+        ext,
+        undefined,
+        this.host.viewportTargetLongEdge(),
+      );
 
       // Stale guard: a fast asset switch may have moved on (or torn this down)
       // while the open was in flight.
@@ -122,7 +145,13 @@ export class ImageCanvasGpuPresent {
       this.host.canvasSvc.currentPixels.set(info.scopePixels ?? null);
 
       // Same cold-open bookkeeping as the 2D path so #846 dedups identically.
-      this.host.state.updateAssetDimensions(assetId, info.width, info.height);
+      // The session dims are viewport-sized (#1080); record the NATIVE dims the
+      // reply carries so the asset record + zoom math keep the fit/100% contract
+      // (#1101). `?? info` covers producers that never size down.
+      const nativeW = info.nativeWidth ?? info.width;
+      const nativeH = info.nativeHeight ?? info.height;
+      this.host.state.updateAssetDimensions(assetId, nativeW, nativeH);
+      this.host.recordNativeDims(nativeW, nativeH);
       this.host.state.seedAsShotWhiteBalance(assetId, info.asShotTemperature, info.asShotTint);
       this.host.markColdOpenDone();
       const liveXmp = this.host.xmpSerializer.serialize(this.host.state.adjustmentFor(assetId)());

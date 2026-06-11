@@ -34,7 +34,7 @@ use raw_core::xmp::AdjustmentModel;
 /// the same fixture the Apple grey-pipeline harness uses). Returns `None` when
 /// absent so the test soft-passes. Resolved from `CARGO_MANIFEST_DIR`
 /// (`src/raw-pipeline/raw-wasm`) up to the repo root.
-fn synthetic_dng_path() -> Option<std::path::PathBuf> {
+pub(super) fn synthetic_dng_path() -> Option<std::path::PathBuf> {
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     // raw-wasm → raw-pipeline → src → repo-root
     let root = manifest.parent()?.parent()?.parent()?;
@@ -45,7 +45,7 @@ fn synthetic_dng_path() -> Option<std::path::PathBuf> {
 /// Whether a Metal (or any) GPU adapter is available — guards the test so a
 /// headless box with no GPU soft-passes instead of failing on
 /// `GpuContext::new_async`'s "no suitable GPU adapter" error.
-fn gpu_available() -> bool {
+pub(super) fn gpu_available() -> bool {
     let instance = wgpu::Instance::default();
     pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).is_some()
 }
@@ -54,7 +54,7 @@ fn gpu_available() -> bool {
 /// `render_from_raw_with_quality_and_source` with the bytes source (so Auto
 /// Profile, when active, fits against the embedded JPEG the same way). Returns
 /// the oriented u8 RGB surface.
-fn cpu_reference(
+pub(super) fn cpu_reference(
     raw_img: &raw_core::image::RawImage,
     bytes: &[u8],
     ext: &str,
@@ -85,8 +85,12 @@ fn assert_gpu_matches_cpu(
     model: &AdjustmentModel,
 ) {
     let (cw, ch, cpu) = cpu_reference(raw_img, bytes, ext, model);
-    let (gw, gh, gpu) = pollster::block_on(super::render_gpu_core(raw_img, bytes, ext, model))
-        .expect("GPU core render failed");
+    // `None` target → the DEFAULT_TARGET_LONG_EDGE (2048) cap (#1080). The
+    // synthetic fixture is 64×64, far under the cap, so the sized develop
+    // no-ops and full-parity-vs-CPU continues to hold byte-for-byte.
+    let (gw, gh, gpu) =
+        pollster::block_on(super::render_gpu_core(raw_img, bytes, ext, model, None))
+            .expect("GPU core render failed");
 
     assert_eq!(
         (cw, ch),
