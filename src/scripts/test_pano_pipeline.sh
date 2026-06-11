@@ -102,6 +102,19 @@ NORM_LONG_EDGE="${NORM_LONG_EDGE:-2048}"
 # ----- preflight -----------------------------------------------------------
 err() { printf "test_pano_pipeline: %s\n" "$*" >&2; }
 
+# NORM_LONG_EDGE feeds int(...) in the python gate — validate up front so a
+# bad override fails with a clear message instead of a traceback mid-run.
+case "$NORM_LONG_EDGE" in
+  '' | *[!0-9]*)
+    err "NORM_LONG_EDGE must be a positive integer (got '$NORM_LONG_EDGE')"
+    exit 2
+    ;;
+esac
+if [[ "$NORM_LONG_EDGE" -le 0 ]]; then
+  err "NORM_LONG_EDGE must be a positive integer (got '$NORM_LONG_EDGE')"
+  exit 2
+fi
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     err "required command not found: $1"
@@ -279,6 +292,13 @@ fi
 # ----- 5. Candidate generator probe (activation gate — see header) ----------
 MAPLE_CLI="${MAPLE_CLI:-$MAPLE_CLI_RELEASE}"
 if [[ ! -x "$MAPLE_CLI" ]]; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo ""
+    echo "test_pano_pipeline: no prebuilt maple-cli at $MAPLE_CLI and cargo is not"
+    echo "test_pano_pipeline: installed — skipping candidate gates (install Rust or"
+    echo "test_pano_pipeline: point MAPLE_CLI at a prebuilt binary)"
+    exit 0
+  fi
   echo ""
   echo "test_pano_pipeline: building maple-cli (release) ..."
   ( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null )
