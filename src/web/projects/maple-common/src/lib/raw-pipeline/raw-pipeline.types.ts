@@ -17,12 +17,15 @@ export interface DecodeRequest {
    */
   gpu?: boolean;
   /**
-   * Cap the render's long edge (#1101, spec §5.1): the worker routes to the
-   * sized entry (`render_bytes_sized`), which downsamples right after demosaic
-   * so every later stage runs at the capped size. Never upscales. When set,
-   * the render runs on the threaded-CPU sized path (the editor's 2D
-   * fast/refine phases — the GPU live path uses the persistent session
-   * instead, see `OpenSessionRequest`).
+   * Cap the render's long edge in REAL (backing-store) pixels (#1101, spec
+   * §5.1): the worker routes to the sized entry (`render_bytes_sized`), which
+   * downsamples right after demosaic so every later stage runs at the capped
+   * size. Never upscales. When set, the render runs on the threaded-CPU sized
+   * path (the editor's 2D fast/refine phases — the GPU live path uses the
+   * persistent session instead, see `OpenSessionRequest`). PR #1096 adds the
+   * same field for the GPU one-shot route (`render_bytes_gpu`) — same name,
+   * same units, same never-upscale contract; once both land, the field means
+   * "cap the render long edge" on every route.
    */
   maxLongEdge?: number;
   /**

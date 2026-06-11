@@ -24,6 +24,13 @@ import { AssetId } from '../../models/asset';
 import { XmpSerializerService } from '../../xmp/xmp-serializer.service';
 import { isNonRawExtension } from '../../state/raw-extensions';
 import { ImageCanvasGpuPresent, type GpuPresentHost } from './image-canvas.gpu-present';
+import {
+  computeEffectivePx,
+  computeRefineTargetLongEdge,
+  computeViewportTargetLongEdge,
+  drawCanvas2d,
+} from './image-canvas.draw2d';
+import { TwoPhaseRenderScheduler, type RenderSizing } from './image-canvas.two-phase';
 
 @Component({
   selector: 'editor-image-canvas',
@@ -69,27 +76,18 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   // ── Two-phase live render (#846 → #1101) ──────────────────────────────────
   // Every render goes through the same WASM paths raw-core / maple-cli use, so
   // every edit (Profile toggle, sliders) is correctness-complete by
-  // construction (web == the Rust reference). Two phases per spec §5.1:
-  //
-  //  - FAST phase: on every adjustment tick, immediately render at viewport
-  //    resolution (element size × devicePixelRatio) through the sized decode
-  //    (`decodeSized` → `render_bytes_sized`, Preview demosaic). Fast renders
-  //    are coalesced latest-wins: at most one decode sits in the worker and at
-  //    most one tick waits behind it; superseded results are dropped via the
-  //    generation counter (a WASM render can't be interrupted mid-flight, so
-  //    "cancel" = drop the stale result).
-  //  - REFINE phase: the existing 150 ms trailing debounce, now at
-  //    `nativeLongEdge × min(realZoomScale, 1)` floored at the fast target
-  //    (CanvasMath's formula, docs/zoom.md). At fit the refine target equals
-  //    the fast target by construction, so refine is skipped — fit renders
-  //    only the viewport-sized image. Zoomed in, refine sharpens up to native.
-  //
-  // On the GPU live path (#1038) the persistent session renders full-res with
-  // resident buffers (upload-once; per-tick = uniforms + dispatch), so ticks
-  // route straight to the session (immediate, coalesced) and there is nothing
-  // to refine. This closes the "fast phase intentionally deferred" follow-up
-  // recorded here under #846.
-  private static readonly REFINE_DEBOUNCE_MS = 150;
+  // construction (web == the Rust reference). The fast/refine scheduling
+  // (per-tick viewport-sized fast phase, 150 ms-debounced refine at
+  // `native × min(zoomScale, 1)`) lives in `image-canvas.two-phase.ts` — see
+  // that file for the full phase contract; this component supplies the host
+  // surface (targets, generation, `runRender`).
+  private readonly twoPhase = new TwoPhaseRenderScheduler({
+    currentGeneration: () => this.renderGeneration,
+    fastTargetPx: () => this.fastTargetPx(),
+    refineTargetPx: () => this.refineTargetPx(),
+    gpuActive: () => this.gpuPresent.active(),
+    runRender: (xmp, generation, sizing) => this.runRender(xmp, generation, sizing),
+  });
   // Bytes + extension for the focused asset, retained so adjustment-driven
   // re-renders don't re-read from the byte cache. `decode()` slices a copy of
   // the buffer before transferring it into the worker, so the original view
@@ -98,11 +96,6 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   private currentExt = '';
   // Public for `GpuPresentHost` (the helper drops stale session renders on it); component-bumped.
   renderGeneration = 0;
-  private refineTimer: ReturnType<typeof setTimeout> | null = null;
-  // Fast-phase coalescing (latest-wins): the newest tick waiting to render,
-  // and whether a fast render is currently in flight draining it.
-  private pendingFast: { xmp: string; generation: number } | null = null;
-  private fastInFlight = false;
   // Native (full-resolution, oriented) image dims, from the sized decode's
   // `nativeWidth`/`nativeHeight` (2D path) or the session dims (GPU path).
   // Drives the refine-target math; null until the cold open lands.
@@ -149,20 +142,18 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     return { loaded: p.loaded, total: p.total, pct };
   });
 
-  /** Displayed image size + scale in CSS px (the draw transform's geometry). */
+  // Displayed image size + scale in CSS px (the draw transform's geometry).
+  // Pure geometry lives in `image-canvas.draw2d.ts`; this computed only wires
+  // the signals (zoom / asset dims / wrap dims) into it.
   private effectivePx = computed(() => {
-    const z = this.canvasSvc.zoom();
     const asset = this.state.focusedAsset();
-    const W = this.wrapW();
-    const H = this.wrapH();
-    const aw = asset?.width ?? 6240;
-    const ah = asset?.height ?? 4160;
-    if (z === 'fit') {
-      const scale = Math.min(W / aw, H / ah, 1);
-      return { scale, canvasW: Math.round(aw * scale), canvasH: Math.round(ah * scale) };
-    }
-    const scale = z as number;
-    return { scale, canvasW: Math.round(aw * scale), canvasH: Math.round(ah * scale) };
+    return computeEffectivePx(
+      this.canvasSvc.zoom(),
+      asset?.width,
+      asset?.height,
+      this.wrapW(),
+      this.wrapH(),
+    );
   });
 
   ngAfterViewInit(): void {
@@ -304,7 +295,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
         // Untracked: the rerender effect owns model-driven renders; this
         // effect only reacts to view geometry.
         const xmp = untracked(() => this.xmpSerializer.serialize(this.state.adjustmentFor(a.id)()));
-        this.scheduleRefine(xmp, this.renderGeneration);
+        this.twoPhase.scheduleRefine(xmp, this.renderGeneration);
       },
       { injector: this.injector },
     );
@@ -328,43 +319,32 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   }
 
   // ── Render-target math (#1101, docs/zoom.md) ──────────────────────────────
+  // Pure formulas live in `image-canvas.draw2d.ts`; these wrappers wire the
+  // component's signals into them.
 
-  /** Fast-phase target: the viewport long edge in real pixels (CSS × dpr). */
+  /**
+   * Fast-phase target: the viewport long edge in real pixels (CSS × dpr).
+   * Floored at 1 — a degenerate (unmeasured/hidden) wrap must render a tiny
+   * buffer, never fall through to a full-res decode.
+   */
   private fastTargetPx(): number {
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-    return Math.max(1, Math.ceil(Math.max(this.wrapW(), this.wrapH()) * dpr));
+    return computeViewportTargetLongEdge(this.wrapW(), this.wrapH()) ?? 1;
   }
 
-  /**
-   * Real screen pixels per image pixel at the current zoom (docs/zoom.md's
-   * `pixelScale` semantics). The stepped zoom levels are CSS scales, so the
-   * real scale is `z × dpr`; fit derives from the viewport/native ratio.
-   */
-  private effectiveRealScale(): number {
-    const native = this.nativeDims();
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-    const z = this.canvasSvc.zoom();
-    if (z !== 'fit') return (z as number) * dpr;
-    if (!native) return 1;
-    return Math.min((this.wrapW() * dpr) / native.w, (this.wrapH() * dpr) / native.h);
-  }
-
-  /**
-   * Refine-phase target long edge: `native × min(realScale, 1)`, floored at
-   * the fast target and capped at native (`CanvasMath.refinedTargetSize`'s
-   * formula). Returns `null` when the refine pass cannot beat the bitmap
-   * already painted — at fit the fitted long edge never exceeds the viewport
-   * long edge, so refine is skipped there by construction.
-   */
+  /** Refine-phase target — see `computeRefineTargetLongEdge`. */
   private refineTargetPx(): number | null {
     const native = this.nativeDims();
     if (!native) return null;
-    const nativeLong = Math.max(native.w, native.h);
-    const scale = Math.min(this.effectiveRealScale(), 1);
-    const target = Math.min(nativeLong, Math.ceil(nativeLong * scale));
-    const fast = Math.min(this.fastTargetPx(), nativeLong);
-    const t = Math.max(target, fast);
-    return t > this.paintedLongEdge ? t : null;
+    return computeRefineTargetLongEdge({
+      zoom: this.canvasSvc.zoom(),
+      nativeW: native.w,
+      nativeH: native.h,
+      wrapW: this.wrapW(),
+      wrapH: this.wrapH(),
+      dpr: (typeof window !== 'undefined' && window.devicePixelRatio) || 1,
+      fastTarget: this.fastTargetPx(),
+      paintedLongEdge: this.paintedLongEdge,
+    });
   }
 
   private async loadReal(assetId: AssetId, filename: string, bytes: Uint8Array): Promise<void> {
@@ -400,7 +380,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
       // Viewport-sized cold open (#1101): decode at the fast-phase target so
       // first pixels land at viewport resolution (Preview demosaic). The
       // refine pass below sharpens when the view is zoomed past fit.
-      const decoded = await this.pipeline.decodeSized(bytes, ext, this.fastTargetPx());
+      const decoded = await this.pipeline.decode(bytes, ext, undefined, this.fastTargetPx(), true);
 
       // Update dimensions on the asset — the NATIVE dims (the sized reply
       // carries them), not the viewport-sized buffer's.
@@ -461,7 +441,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
       // A cold open while zoomed past fit needs the refine pass right away
       // (no edit will come to trigger it).
       if (assetId === this.currentAssetId && this.lastRenderedXmp !== null) {
-        this.scheduleRefine(this.lastRenderedXmp, this.renderGeneration);
+        this.twoPhase.scheduleRefine(this.lastRenderedXmp, this.renderGeneration);
       }
     } catch (e) {
       console.error('Decode failed for', filename, e);
@@ -488,73 +468,20 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   }
 
   /**
-   * Schedule the two-phase render for the current adjustment model: the fast
-   * phase immediately (coalesced latest-wins) and the refine phase behind the
-   * trailing debounce. Called from the adjustment effect on every model tick.
+   * Schedule the two-phase render for the current adjustment model. Called
+   * from the adjustment effect on every model tick; the scheduler fires the
+   * fast phase immediately (coalesced latest-wins) and the refine phase
+   * behind the trailing debounce.
    */
   private scheduleRerender(xmp: string): void {
     // Bump the generation so any render already in flight (from an earlier
     // edit) drops its result instead of painting stale pixels.
     this.renderGeneration++;
-    const generation = this.renderGeneration;
-    this.enqueueFastRender(xmp, generation);
-    this.scheduleRefine(xmp, generation);
-  }
-
-  /**
-   * Fast phase: latest-wins coalescing. The newest tick replaces any waiting
-   * one; a single drain loop keeps exactly one render in the worker at a time
-   * (the service's decode gate serializes further down too).
-   */
-  private enqueueFastRender(xmp: string, generation: number): void {
-    this.pendingFast = { xmp, generation };
-    if (!this.fastInFlight) void this.drainFastRenders();
-  }
-
-  private async drainFastRenders(): Promise<void> {
-    this.fastInFlight = true;
-    try {
-      while (this.pendingFast) {
-        const { xmp, generation } = this.pendingFast;
-        this.pendingFast = null;
-        if (generation !== this.renderGeneration) continue; // superseded tick
-        await this.runRender(xmp, generation, {
-          maxLongEdge: this.fastTargetPx(),
-          qualityPreview: true,
-        });
-      }
-    } finally {
-      this.fastInFlight = false;
-    }
-  }
-
-  /**
-   * Refine phase (2D path only — the GPU session presents full-res already):
-   * trailing-edge debounce, target recomputed at fire time so a zoom that
-   * settled meanwhile is honoured; a `null` target (fit, or nothing to gain
-   * over the painted bitmap) skips the pass entirely.
-   */
-  private scheduleRefine(xmp: string, generation: number): void {
-    if (this.refineTimer) clearTimeout(this.refineTimer);
-    if (this.gpuPresent.active()) {
-      this.refineTimer = null;
-      return;
-    }
-    this.refineTimer = setTimeout(() => {
-      this.refineTimer = null;
-      if (generation !== this.renderGeneration) return;
-      const target = this.refineTargetPx();
-      if (target === null) return;
-      void this.runRender(xmp, generation, { maxLongEdge: target, qualityPreview: false });
-    }, ImageCanvasComponent.REFINE_DEBOUNCE_MS);
+    this.twoPhase.schedule(xmp, this.renderGeneration);
   }
 
   private clearRerenderTimers(): void {
-    if (this.refineTimer) {
-      clearTimeout(this.refineTimer);
-      this.refineTimer = null;
-    }
-    this.pendingFast = null;
+    this.twoPhase.clear();
   }
 
   /**
@@ -567,11 +494,7 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
    * the GPU live path (#1038) this delegates to `gpuPresent.render()`
    * (zero-readback present, no bitmap, full-res — `sizing` is ignored there).
    */
-  private async runRender(
-    xmp: string,
-    generation: number,
-    sizing: { maxLongEdge: number; qualityPreview: boolean },
-  ): Promise<void> {
+  private async runRender(xmp: string, generation: number, sizing: RenderSizing): Promise<void> {
     const bytes = this.currentBytes;
     const ext = this.currentExt;
     if (!bytes) return;
@@ -585,11 +508,11 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     }
 
     try {
-      const decoded = await this.pipeline.decodeSized(
+      const decoded = await this.pipeline.decode(
         bytes,
         ext,
-        sizing.maxLongEdge,
         xmp,
+        sizing.maxLongEdge,
         sizing.qualityPreview,
       );
       // Stale guard: a newer edit (or asset switch) bumped the generation
@@ -613,135 +536,25 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   }
 
   /**
-   * Draw into the viewport-sized backing store (#1101): the canvas element
-   * fills the wrap and its backing store is `viewport × dpr`; zoom/pan are a
-   * draw transform (the destination rect), never the canvas size. The bitmap
-   * may be ANY resolution (fast = viewport-sized, refine = up to native) —
-   * `drawImage` maps it onto the same destination rect either way.
+   * Draw into the viewport-sized backing store (#1101) — the paint path lives
+   * in `image-canvas.draw2d.ts` (`drawCanvas2d`); this gathers the signal
+   * inputs. The signal reads stay inside the draw effect's synchronous call,
+   * so its dependency set is unchanged by the extraction.
    */
   private draw(): void {
     const canvas = this.canvasRef?.nativeElement;
     if (!canvas) return;
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-    const bw = Math.max(1, Math.round(this.wrapW() * dpr));
-    const bh = Math.max(1, Math.round(this.wrapH() * dpr));
-    // Only touch the backing store when the viewport actually changed —
-    // assigning width/height clears + reallocates.
-    if (canvas.width !== bw) canvas.width = bw;
-    if (canvas.height !== bh) canvas.height = bh;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.clearRect(0, 0, bw, bh);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-
-    // Destination rect in real (backing-store) pixels: the displayed image
-    // size centered in the viewport, offset by the pan.
     const { canvasW, canvasH } = this.effectivePx();
-    const pan = this.canvasSvc.pan();
-    const dw = canvasW * dpr;
-    const dh = canvasH * dpr;
-    const dx = (this.wrapW() / 2 + pan.x) * dpr - dw / 2;
-    const dy = (this.wrapH() / 2 + pan.y) * dpr - dh / 2;
-
-    const asset = this.state.focusedAsset();
-    const bitmap = this.imageBitmap();
-    const split = this.canvasSvc.beforeAfterSplitX();
-
-    if (bitmap) {
-      // Real decoded pixels.
-      if (split !== null) {
-        // Split at a fraction of the VIEWPORT (matches the divider overlay,
-        // which is positioned at % of the wrap).
-        const splitPx = Math.round(bw * split);
-        // "Before" half.
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, splitPx, bh);
-        ctx.clip();
-        ctx.drawImage(bitmap, dx, dy, dw, dh);
-        ctx.restore();
-        // "After" half — same image for now (adjustments wired in P6).
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(splitPx, 0, bw - splitPx, bh);
-        ctx.clip();
-        ctx.drawImage(bitmap, dx, dy, dw, dh);
-        // Slight brightness bump to indicate "after processed".
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fillRect(splitPx, 0, bw - splitPx, bh);
-        ctx.restore();
-      } else {
-        ctx.drawImage(bitmap, dx, dy, dw, dh);
-      }
-    } else {
-      // Gradient placeholder for mock assets — fills the would-be image rect.
-      if (split !== null) {
-        const splitPx = Math.round(bw * split);
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(0, 0, splitPx, bh);
-        ctx.clip();
-        this.drawGradient(ctx, asset?.thumbnailGradient, dx, dy, dw, dh, 0);
-        ctx.restore();
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(splitPx, 0, bw - splitPx, bh);
-        ctx.clip();
-        this.drawGradient(ctx, asset?.thumbnailGradient, dx, dy, dw, dh, 15);
-        ctx.restore();
-      } else {
-        this.drawGradient(ctx, asset?.thumbnailGradient, dx, dy, dw, dh, 0);
-      }
-    }
-  }
-
-  private drawGradient(
-    ctx: CanvasRenderingContext2D,
-    gradientUrl: string | undefined,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    lightenBy: number,
-  ): void {
-    if (w <= 0 || h <= 0) return;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(x, y, w, h);
-    ctx.clip();
-
-    if (gradientUrl) {
-      const img = new Image();
-      img.onload = () => {
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(x, y, w, h);
-        ctx.clip();
-        ctx.drawImage(img, x, y, w, h);
-        if (lightenBy > 0) {
-          ctx.fillStyle = `rgba(255,255,255,${lightenBy / 100})`;
-          ctx.fillRect(x, y, w, h);
-        }
-        ctx.restore();
-      };
-      img.src = gradientUrl;
-    } else {
-      const grd = ctx.createLinearGradient(x, y, x + w, y + h);
-      grd.addColorStop(0, '#3a4050');
-      grd.addColorStop(1, '#181c22');
-      ctx.fillStyle = grd;
-      ctx.fillRect(x, y, w, h);
-    }
-
-    if (lightenBy > 0) {
-      ctx.fillStyle = `rgba(255,255,255,${lightenBy / 100})`;
-      ctx.fillRect(x, y, w, h);
-    }
-
-    ctx.restore();
+    drawCanvas2d(canvas, {
+      wrapW: this.wrapW(),
+      wrapH: this.wrapH(),
+      canvasW,
+      canvasH,
+      pan: this.canvasSvc.pan(),
+      bitmap: this.imageBitmap(),
+      split: this.canvasSvc.beforeAfterSplitX(),
+      gradientUrl: this.state.focusedAsset()?.thumbnailGradient,
+    });
   }
 
   onWheel(e: WheelEvent): void {
