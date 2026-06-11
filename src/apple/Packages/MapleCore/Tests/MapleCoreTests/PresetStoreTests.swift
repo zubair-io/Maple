@@ -163,4 +163,53 @@ final class PresetStoreTests: XCTestCase {
             FileManager.default.fileExists(atPath: dir.appendingPathComponent("corrupt.json").path)
         )
     }
+
+    func testListSkipsIDFilenameMismatchAndUnsafeIDs() async throws {
+        _ = try await store.save(name: "Good", fields: ["contrast": .number(1)])
+        let encoder = JSONEncoder()
+
+        // id ≠ filename stem (hand-edited / copied file): the document
+        // would list, but `delete(id:)` would resolve a different file.
+        let mismatched = Preset(
+            id: "bbbbbbbb-0000-0000-0000-000000000000",
+            name: "Mismatch", fields: ["contrast": .number(2)]
+        )
+        try encoder.encode(mismatched).write(
+            to: dir.appendingPathComponent("aaaaaaaa-0000-0000-0000-000000000000.json")
+        )
+
+        // Unsafe id (non-hex characters) with a MATCHING stem — listing it
+        // would surface an id `delete(id:)` rejects as `invalidID`.
+        let unsafe = Preset(id: "not hex!", name: "Unsafe", fields: ["contrast": .number(3)])
+        try encoder.encode(unsafe).write(to: dir.appendingPathComponent("not hex!.json"))
+
+        let listed = try await store.list()
+        XCTAssertEqual(listed.map(\.name), ["Good"])
+        // Skipped files stay on disk untouched for manual recovery.
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: dir.path).count, 3
+        )
+    }
+
+    func testListNeverYieldsDuplicateIDs() async throws {
+        // Two documents claiming the SAME id (a copied file): only the one
+        // whose filename stem matches survives, so `ForEach` ids stay
+        // unique and `delete(id:)` removes exactly the listed file.
+        let id = "cccccccc-0000-0000-0000-000000000000"
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        try encoder.encode(Preset(id: id, name: "Original", fields: ["contrast": .number(1)]))
+            .write(to: dir.appendingPathComponent("\(id).json"))
+        try encoder.encode(Preset(id: id, name: "Copy", fields: ["contrast": .number(2)]))
+            .write(to: dir.appendingPathComponent("\(id) copy.json"))
+
+        let listed = try await store.list()
+        XCTAssertEqual(listed.map(\.id), [id])
+        XCTAssertEqual(listed.map(\.name), ["Original"])
+
+        // And deleting the listed id removes exactly its file.
+        try await store.delete(id: id)
+        let remaining = try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted()
+        XCTAssertEqual(remaining, ["\(id) copy.json"])
+    }
 }

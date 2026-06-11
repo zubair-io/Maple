@@ -407,18 +407,27 @@ public final class EditorState {
         ToolValueMapping.currentDisplayValue(session.model, tool: armedTool)
     }
 
+    /// `true` when the armed tool can accept drag-bar value edits — wired
+    /// AND carrying a display range. Presets (#1115, wired but value-less)
+    /// and the gated stubs (#952) fail this. The scrub paths below guard
+    /// on it, and `DragBar` disables hit-testing on it so a gesture's
+    /// touch-down `commit()` can't push a junk undo snapshot for a value
+    /// write that would be ignored anyway.
+    public var armedToolAcceptsValueEdits: Bool {
+        armedTool.isWired && ToolValueMapping.displayRange(for: armedTool) != nil
+    }
+
     /// Live write — applied immediately (no debounce here; EditSession's
     /// `model` setter already routes to `XMPSidecarStore.update`'s 750ms
     /// debounce). Caller is responsible for `commit()`-ing on gesture
     /// release so undo snapshot boundaries land at slider-up.
     ///
-    /// The `displayRange` guard skips wired-but-value-less tools (presets,
-    /// #1115): without it the inout write-back through
-    /// `ToolValueMapping.apply` would fire `session.model`'s setter (and
-    /// its sidecar debounce) for a no-op.
+    /// The guard skips wired-but-value-less tools (presets, #1115):
+    /// without it the inout write-back through `ToolValueMapping.apply`
+    /// would fire `session.model`'s setter (and its sidecar debounce) for
+    /// a no-op.
     public func setArmedDisplayValue(_ value: Double) {
-        guard armedTool.isWired,
-              ToolValueMapping.displayRange(for: armedTool) != nil else { return }
+        guard armedToolAcceptsValueEdits else { return }
         ToolValueMapping.apply(value, to: &session.model, tool: armedTool)
     }
 
@@ -476,10 +485,9 @@ public final class EditorState {
     /// "modified" and reset returns to the same value the model was
     /// born with.
     public func resetArmedTool() {
-        // The `displayRange` guard skips wired-but-value-less tools
-        // (presets, #1115) so they can't push junk undo entries.
-        guard armedTool.isWired,
-              ToolValueMapping.displayRange(for: armedTool) != nil else { return }
+        // The guard skips wired-but-value-less tools (presets, #1115) so
+        // they can't push junk undo entries.
+        guard armedToolAcceptsValueEdits else { return }
         commit()
         setArmedDisplayValue(ToolValueMapping.defaultDisplayValue(for: armedTool))
     }
