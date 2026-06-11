@@ -53,14 +53,25 @@ const S_GAIN_EV: f32 = 1.5;
 /// Highlights engagement band: `w_h(Y) = smoothstep(H_W0, H_W1, Y)` — the
 /// slider acts on bright-but-unclipped tones (below the Y=1 knee), strongest
 /// at and above the knee. Pre-#1103 the slider only acted above Y = 1.0.
-const H_W0: f32 = 0.4;
+///
+/// H_W0 calibration (0.25, not the spec's 0.4 initial value): post-DCP
+/// scene-linear normalizes diffuse white to ≈ 1.0, so real scenes put almost
+/// all "bright" content below Y ≈ 0.5 — on the test_0004 reference frame the
+/// luma histogram tops out at 0.99 with only 1.7 % of pixels above 0.4, and
+/// with H_W0 = 0.4 the slider rail moved the display-referred top-1 % by
+/// < 1/255 (ACR's Highlights2012 rail moves the same scene's top-5 % by
+/// ≈ ±20/255). 0.25 starts the band just above mid-grey (w_h ≡ 0 exactly at
+/// Y ≤ 0.25 ⊇ the 0.18 anchor — midtones stay brightness's domain) and
+/// engages over the tones the histogram actually contains.
+const H_W0: f32 = 0.25;
 const H_W1: f32 = 1.0;
 /// Weighted-gain strength in EV at slider ±100 (`exp2(∓H_GAIN_EV · w_h)`).
 /// MONOTONICITY BOUND: the below-knee output `Y · exp2(−a·w_h(Y))` (a =
 /// H_GAIN_EV · h/100) is strictly increasing in Y only while
-/// `a · ln2 · max(w_h'(Y)·Y) < 1`; for the (0.4, 1.0) band the max of
-/// `w_h'(Y)·Y` is ≈ 1.824, so `a` must stay < 0.79. Keep H_GAIN_EV ≤ 0.7 —
-/// a tone curve that reverses direction mid-gradient posterizes skies.
+/// `a · ln2 · max(w_h'(Y)·Y) < 1`; for the (0.25, 1.0) band the max of
+/// `w_h'(Y)·Y` is ≈ 1.345, so `a` must stay < 1.07. Keep H_GAIN_EV well
+/// under it — a tone curve that reverses direction mid-gradient posterizes
+/// skies.
 const H_GAIN_EV: f32 = 0.7;
 
 /// Detail-mask blur scale: σ = SH_MASK_SIGMA_REF_PX · longEdge /
@@ -117,11 +128,11 @@ fn shadows_mult(y: f32, s_amount: f32) -> f32 {
 /// Two composed factors, both uniform scalars (hue-preserving):
 ///
 /// 1. **Weighted gain** `g = exp2(−H_GAIN_EV · h · w_h(Y))` with
-///    `w_h(Y) = smoothstep(0.4, 1.0, Y)` — this is what makes the slider act
-///    below clip: positive h darkens bright-but-unclipped tones toward the
-///    knee, negative h brightens them. Sign convention UNCHANGED: positive =
-///    recover/compress, negative = gain (matches the pre-#1103 above-knee
-///    directions, so existing sidecars do not invert).
+///    `w_h(Y) = smoothstep(H_W0, H_W1, Y)` — this is what makes the slider
+///    act below clip: positive h darkens bright-but-unclipped tones toward
+///    the knee, negative h brightens them. Sign convention UNCHANGED:
+///    positive = recover/compress, negative = gain (matches the pre-#1103
+///    above-knee directions, so existing sidecars do not invert).
 /// 2. **Above-knee shape** (Y > 1), sign-branched:
 ///    - h ≥ 0: the existing `Y' = 1 + (Y−1)/(1 + 2h)` compression is KEPT
 ///      (spec: scene range is shaped, never clipped — AgX still owns final
