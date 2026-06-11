@@ -27,6 +27,7 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   tint: [-100.0, 100.0],
   exposure: [-4.0, 4.0],
   contrast: [-100.0, 100.0],
+  brightness: [-100.0, 100.0],
   highlights: [-100.0, 100.0],
   shadows: [-100.0, 100.0],
   whites: [-100.0, 100.0],
