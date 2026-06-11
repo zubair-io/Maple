@@ -57,6 +57,7 @@ use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::grain::GrainPass;
+use crate::hsl::HslPass;
 use crate::full_chain::{BoxedPasses, FullChainInputs};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
@@ -215,6 +216,14 @@ pub fn build_live_split(
             saturation: inputs.saturation,
         }));
     }
+    // HSL (#1112) — gated when any of the 24 sliders is engaged (same
+    // predicate as raw-core's `hsl_params` is_identity flag: `abs() >= 1e-3`).
+    {
+        let hsl_pass = HslPass { hue: inputs.hsl_hue, sat: inputs.hsl_sat, lum: inputs.hsl_lum };
+        if !hsl_pass.is_noop() {
+            prefix.push(Box::new(hsl_pass));
+        }
+    }
     if inputs.clarity.abs() >= SLIDER_EPS {
         prefix.push(Box::new(ClarityPass {
             clarity: inputs.clarity,
@@ -352,6 +361,9 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     }
     if inputs.saturation.abs() >= SLIDER_EPS {
         m |= 1 << 5;
+    }
+    if !(HslPass { hue: inputs.hsl_hue, sat: inputs.hsl_sat, lum: inputs.hsl_lum }.is_noop()) {
+        m |= 1 << 15;
     }
     if inputs.clarity.abs() >= SLIDER_EPS {
         m |= 1 << 6;

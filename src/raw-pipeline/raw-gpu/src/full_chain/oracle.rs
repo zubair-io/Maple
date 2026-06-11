@@ -148,6 +148,36 @@ impl Case {
             },
             vibrance: self.model.vibrance,
             saturation: self.model.saturation,
+            hsl_hue: [
+                self.model.hue_adjustment_red,
+                self.model.hue_adjustment_orange,
+                self.model.hue_adjustment_yellow,
+                self.model.hue_adjustment_green,
+                self.model.hue_adjustment_aqua,
+                self.model.hue_adjustment_blue,
+                self.model.hue_adjustment_purple,
+                self.model.hue_adjustment_magenta,
+            ],
+            hsl_sat: [
+                self.model.saturation_adjustment_red,
+                self.model.saturation_adjustment_orange,
+                self.model.saturation_adjustment_yellow,
+                self.model.saturation_adjustment_green,
+                self.model.saturation_adjustment_aqua,
+                self.model.saturation_adjustment_blue,
+                self.model.saturation_adjustment_purple,
+                self.model.saturation_adjustment_magenta,
+            ],
+            hsl_lum: [
+                self.model.luminance_adjustment_red,
+                self.model.luminance_adjustment_orange,
+                self.model.luminance_adjustment_yellow,
+                self.model.luminance_adjustment_green,
+                self.model.luminance_adjustment_aqua,
+                self.model.luminance_adjustment_blue,
+                self.model.luminance_adjustment_purple,
+                self.model.luminance_adjustment_magenta,
+            ],
             clarity: self.model.clarity,
             texture: self.model.texture,
             dehaze: self.model.dehaze,
@@ -209,6 +239,40 @@ pub fn cpu_oracle(input: &[f32], w: u32, h: u32, case: &Case) -> Vec<f32> {
     raw_core::stages::tone_curves::apply(&mut img, &case.model);
     raw_core::stages::vibrance::apply(&mut img, case.model.vibrance);
     raw_core::stages::saturation::apply(&mut img, case.model.saturation);
+    // HSL (#1112) — after saturation, before clarity (develop order, scene-linear).
+    raw_core::stages::hsl::apply(
+        &mut img,
+        &[
+            case.model.hue_adjustment_red,
+            case.model.hue_adjustment_orange,
+            case.model.hue_adjustment_yellow,
+            case.model.hue_adjustment_green,
+            case.model.hue_adjustment_aqua,
+            case.model.hue_adjustment_blue,
+            case.model.hue_adjustment_purple,
+            case.model.hue_adjustment_magenta,
+        ],
+        &[
+            case.model.saturation_adjustment_red,
+            case.model.saturation_adjustment_orange,
+            case.model.saturation_adjustment_yellow,
+            case.model.saturation_adjustment_green,
+            case.model.saturation_adjustment_aqua,
+            case.model.saturation_adjustment_blue,
+            case.model.saturation_adjustment_purple,
+            case.model.saturation_adjustment_magenta,
+        ],
+        &[
+            case.model.luminance_adjustment_red,
+            case.model.luminance_adjustment_orange,
+            case.model.luminance_adjustment_yellow,
+            case.model.luminance_adjustment_green,
+            case.model.luminance_adjustment_aqua,
+            case.model.luminance_adjustment_blue,
+            case.model.luminance_adjustment_purple,
+            case.model.luminance_adjustment_magenta,
+        ],
+    );
     raw_core::stages::clarity::apply(&mut img, case.model.clarity);
     raw_core::stages::texture::apply(&mut img, case.model.texture);
     raw_core::stages::dehaze::apply(&mut img, case.model.dehaze);
