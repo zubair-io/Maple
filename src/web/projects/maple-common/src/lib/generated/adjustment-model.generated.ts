@@ -101,6 +101,54 @@ export interface GeneratedAdjustmentModel {
   splitToneHighlightSaturation: number;
   /** Split-tone balance — shifts the shadow/highlight crossover via exp2(bal/100) weight exponents (#1111). Primary drag-bar field for the Split Tone tool. Range: [-100.0, 100.0]. */
   splitToneBalance: number;
+  /** HSL Red hue adjustment (#1112, tone/zoom design spec § 10.4). Oklab hue rotation on the Red band; ±100 ↔ ±30° (pending ACR calibration). XMP: crs:HueAdjustmentRed. Range: [-100.0, 100.0]. */
+  hueAdjustmentRed: number;
+  /** HSL Orange hue adjustment (#1112). XMP: crs:HueAdjustmentOrange. Range: [-100.0, 100.0]. */
+  hueAdjustmentOrange: number;
+  /** HSL Yellow hue adjustment (#1112). XMP: crs:HueAdjustmentYellow. Range: [-100.0, 100.0]. */
+  hueAdjustmentYellow: number;
+  /** HSL Green hue adjustment (#1112). XMP: crs:HueAdjustmentGreen. Range: [-100.0, 100.0]. */
+  hueAdjustmentGreen: number;
+  /** HSL Aqua hue adjustment (#1112). XMP: crs:HueAdjustmentAqua. Range: [-100.0, 100.0]. */
+  hueAdjustmentAqua: number;
+  /** HSL Blue hue adjustment (#1112). XMP: crs:HueAdjustmentBlue. Range: [-100.0, 100.0]. */
+  hueAdjustmentBlue: number;
+  /** HSL Purple hue adjustment (#1112). XMP: crs:HueAdjustmentPurple. Range: [-100.0, 100.0]. */
+  hueAdjustmentPurple: number;
+  /** HSL Magenta hue adjustment (#1112). XMP: crs:HueAdjustmentMagenta. Range: [-100.0, 100.0]. */
+  hueAdjustmentMagenta: number;
+  /** HSL Red saturation adjustment (#1112). Scales Oklab chroma on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:SaturationAdjustmentRed. Range: [-100.0, 100.0]. */
+  saturationAdjustmentRed: number;
+  /** HSL Orange saturation adjustment (#1112). XMP: crs:SaturationAdjustmentOrange. Range: [-100.0, 100.0]. */
+  saturationAdjustmentOrange: number;
+  /** HSL Yellow saturation adjustment (#1112). XMP: crs:SaturationAdjustmentYellow. Range: [-100.0, 100.0]. */
+  saturationAdjustmentYellow: number;
+  /** HSL Green saturation adjustment (#1112). XMP: crs:SaturationAdjustmentGreen. Range: [-100.0, 100.0]. */
+  saturationAdjustmentGreen: number;
+  /** HSL Aqua saturation adjustment (#1112). XMP: crs:SaturationAdjustmentAqua. Range: [-100.0, 100.0]. */
+  saturationAdjustmentAqua: number;
+  /** HSL Blue saturation adjustment (#1112). XMP: crs:SaturationAdjustmentBlue. Range: [-100.0, 100.0]. */
+  saturationAdjustmentBlue: number;
+  /** HSL Purple saturation adjustment (#1112). XMP: crs:SaturationAdjustmentPurple. Range: [-100.0, 100.0]. */
+  saturationAdjustmentPurple: number;
+  /** HSL Magenta saturation adjustment (#1112). XMP: crs:SaturationAdjustmentMagenta. Range: [-100.0, 100.0]. */
+  saturationAdjustmentMagenta: number;
+  /** HSL Red luminance adjustment (#1112). Scales Oklab L on the Red band; ±100 ↔ scale ×2 / ×0. XMP: crs:LuminanceAdjustmentRed. Range: [-100.0, 100.0]. */
+  luminanceAdjustmentRed: number;
+  /** HSL Orange luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentOrange. Range: [-100.0, 100.0]. */
+  luminanceAdjustmentOrange: number;
+  /** HSL Yellow luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentYellow. Range: [-100.0, 100.0]. */
+  luminanceAdjustmentYellow: number;
+  /** HSL Green luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentGreen. Range: [-100.0, 100.0]. */
+  luminanceAdjustmentGreen: number;
+  /** HSL Aqua luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentAqua. Range: [-100.0, 100.0]. */
+  luminanceAdjustmentAqua: number;
+  /** HSL Blue luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentBlue. Range: [-100.0, 100.0]. */
+  luminanceAdjustmentBlue: number;
+  /** HSL Purple luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentPurple. Range: [-100.0, 100.0]. */
+  luminanceAdjustmentPurple: number;
+  /** HSL Magenta luminance adjustment (#1112). XMP: crs:LuminanceAdjustmentMagenta. Range: [-100.0, 100.0]. */
+  luminanceAdjustmentMagenta: number;
   /** Highlight reconstruction mode per spec § 3.3a. */
   highlightRecovery: HighlightRecoveryMode;
   /** Per-image auto-exposure mode (ticket #429). 'On' (default) anchors scene mid-gray to 0.18 before AgX; 'Off' is strict scene-referred. The `exposure` slider stacks additively in EV on top. */
@@ -158,6 +206,30 @@ export const ADJUSTMENT_RANGES = {
   splitToneHighlightHue: [0.0, 360.0] as const,
   splitToneHighlightSaturation: [0.0, 100.0] as const,
   splitToneBalance: [-100.0, 100.0] as const,
+  hueAdjustmentRed: [-100.0, 100.0] as const,
+  hueAdjustmentOrange: [-100.0, 100.0] as const,
+  hueAdjustmentYellow: [-100.0, 100.0] as const,
+  hueAdjustmentGreen: [-100.0, 100.0] as const,
+  hueAdjustmentAqua: [-100.0, 100.0] as const,
+  hueAdjustmentBlue: [-100.0, 100.0] as const,
+  hueAdjustmentPurple: [-100.0, 100.0] as const,
+  hueAdjustmentMagenta: [-100.0, 100.0] as const,
+  saturationAdjustmentRed: [-100.0, 100.0] as const,
+  saturationAdjustmentOrange: [-100.0, 100.0] as const,
+  saturationAdjustmentYellow: [-100.0, 100.0] as const,
+  saturationAdjustmentGreen: [-100.0, 100.0] as const,
+  saturationAdjustmentAqua: [-100.0, 100.0] as const,
+  saturationAdjustmentBlue: [-100.0, 100.0] as const,
+  saturationAdjustmentPurple: [-100.0, 100.0] as const,
+  saturationAdjustmentMagenta: [-100.0, 100.0] as const,
+  luminanceAdjustmentRed: [-100.0, 100.0] as const,
+  luminanceAdjustmentOrange: [-100.0, 100.0] as const,
+  luminanceAdjustmentYellow: [-100.0, 100.0] as const,
+  luminanceAdjustmentGreen: [-100.0, 100.0] as const,
+  luminanceAdjustmentAqua: [-100.0, 100.0] as const,
+  luminanceAdjustmentBlue: [-100.0, 100.0] as const,
+  luminanceAdjustmentPurple: [-100.0, 100.0] as const,
+  luminanceAdjustmentMagenta: [-100.0, 100.0] as const,
   chromaPrefilter: [0.0, 100.0] as const,
   deepDenoise: [0.0, 100.0] as const,
 } as const;
@@ -203,6 +275,30 @@ export function defaultGeneratedAdjustmentModel(): GeneratedAdjustmentModel {
     splitToneHighlightHue: 0.0,
     splitToneHighlightSaturation: 0.0,
     splitToneBalance: 0.0,
+    hueAdjustmentRed: 0.0,
+    hueAdjustmentOrange: 0.0,
+    hueAdjustmentYellow: 0.0,
+    hueAdjustmentGreen: 0.0,
+    hueAdjustmentAqua: 0.0,
+    hueAdjustmentBlue: 0.0,
+    hueAdjustmentPurple: 0.0,
+    hueAdjustmentMagenta: 0.0,
+    saturationAdjustmentRed: 0.0,
+    saturationAdjustmentOrange: 0.0,
+    saturationAdjustmentYellow: 0.0,
+    saturationAdjustmentGreen: 0.0,
+    saturationAdjustmentAqua: 0.0,
+    saturationAdjustmentBlue: 0.0,
+    saturationAdjustmentPurple: 0.0,
+    saturationAdjustmentMagenta: 0.0,
+    luminanceAdjustmentRed: 0.0,
+    luminanceAdjustmentOrange: 0.0,
+    luminanceAdjustmentYellow: 0.0,
+    luminanceAdjustmentGreen: 0.0,
+    luminanceAdjustmentAqua: 0.0,
+    luminanceAdjustmentBlue: 0.0,
+    luminanceAdjustmentPurple: 0.0,
+    luminanceAdjustmentMagenta: 0.0,
     highlightRecovery: 'ChromaticAdaptation',
     autoExposure: 'On',
     look: 'Default',
