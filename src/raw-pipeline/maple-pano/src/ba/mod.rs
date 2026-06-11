@@ -1,0 +1,309 @@
+//! Global bundle adjustment (M1b, #1154 — spec §5.3).
+//!
+//! Refines all camera rotations plus shared intrinsics (focal, k1, k2)
+//! by minimizing the symmetric reprojection error over **all verified
+//! inlier correspondences in the match graph**, with a Huber loss
+//! (δ = 2 px). State per spec/eng-design §5: per-image axis-angle
+//! (3·N) + shared focal + k1 + k2, extended with per-image focals where
+//! the decision-§9.2 fallback triggers ([`fallback`]).
+//!
+//! # Solver choice (decision §9.1 — documented here as required)
+//!
+//! Levenberg–Marquardt with **analytic Jacobians**
+//! ([`residual`]), residual/Jacobian evaluation **rayon-parallel**, and
+//! the normal equations solved by an **in-tree dense Cholesky**
+//! ([`linalg`]). Spec §9.1 names `argmin` as the no-Ceres solver; this
+//! implementation honors the same intent one step further: the state is
+//! ≤ ~500 parameters even at 150 cameras (3·N + 3), the cost is entirely
+//! residual evaluation, and an external LM framework would contribute
+//! nothing but a dependency tree to vendor. The crate already hand-rolls
+//! its linear algebra ([`crate::math`], [`crate::eigen`]) under a
+//! zero-dep policy; the LM loop ([`lm`]) is ~100 lines next to them. The
+//! §9.1 convergence-basin benchmark gates this choice in CI (perturbed
+//! inits 5–15° must reach the same minimum — `tests/basin_bench.rs`).
+//!
+//! # Gauge
+//!
+//! A pure-rotation BA cost is invariant under one global rotation of all
+//! cameras. The gauge is fixed by **freezing the first frame of the
+//! active component** (smallest image index — also the spanning-tree
+//! root) at its initialization value; its 3 rotation parameters never
+//! enter the state. The absolute orientation of the result is therefore
+//! the init's (prior-aligned when gimbal priors exist —
+//! [`init::align_gauge_to_priors`]); [`crate::leveling`] corrects the
+//! up-vector afterwards.
+//!
+//! # Two-stage schedule
+//!
+//! Each fresh solve runs **stage A** (rotations only, intrinsics frozen
+//! at their seed) and then **stage B** (joint). Far-from-init rotations
+//! (the basin bench's 5–15° perturbations) otherwise let the early,
+//! wildly wrong residuals push focal/distortion off before the
+//! rotations settle; freezing intrinsics first costs a handful of cheap
+//! iterations and makes the basin boundary a rotation-only question.
+//!
+//! # Acceptance gates (spec §5.3)
+//!
+//! After convergence every frame's residuals (measured in its own pixel
+//! plane) are summarized as [`FrameStats`]; frames violating
+//! `mean ≤ mean_budget_px` / `max ≤ max_budget_px` (defaults 1.5 / 6)
+//! are **dropped and reported** ([`DropReason::HighResidual`]), worst
+//! mean first, and the remaining set is re-solved (warm start) until
+//! every surviving frame passes. Images outside the graph's largest
+//! component were never solvable and are reported as
+//! [`DropReason::Disconnected`] (consuming [`MatchGraph::orphans`] —
+//! "stitch the largest component and report the orphans").
+
+pub mod init;
+pub mod linalg;
+
+mod lm;
+mod residual;
+
+use crate::graph::{GraphImage, MatchGraph};
+use crate::math::Mat3;
+use lm::{minimize, LmOptions};
+use residual::{FrameMeta, ParamLayout, State};
+
+mod support;
+mod types;
+
+use support::{
+    build_blocks, finalize, finalize_trivial, focal_fallback_frames, frame_stats,
+    largest_subcomponent, median,
+};
+pub use types::{BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats};
+
+/// Global bundle adjustment over a verified match graph.
+///
+/// `images` is the same list the graph was built from: the cameras'
+/// intrinsics are the seed (focal from EXIF via
+/// [`init::focal_seed_px`]-shaped priors or an assumed FOV; k1/k2
+/// usually 0), poses are ignored, and `prior_rotation` — when present —
+/// gauge-aligns the initialization ([`init`]). See the module docs for
+/// the solver, gauge, staging, and gate semantics.
+pub fn solve(
+    images: &[GraphImage],
+    graph: &MatchGraph,
+    opts: &BaOptions,
+) -> Result<BaSolution, BaError> {
+    if images.len() != graph.image_count {
+        return Err(BaError::ImageCountMismatch {
+            images: images.len(),
+            graph: graph.image_count,
+        });
+    }
+    if let Some(init) = &opts.initial_rotations {
+        if init.len() != images.len() {
+            return Err(BaError::InitialRotationsLength {
+                given: init.len(),
+                expected: images.len(),
+            });
+        }
+    }
+
+    let mut dropped: Vec<DroppedFrame> = graph
+        .orphans
+        .iter()
+        .map(|&index| DroppedFrame {
+            index,
+            reason: DropReason::Disconnected,
+        })
+        .collect();
+    let mut active: Vec<usize> = graph.components.first().cloned().unwrap_or_default();
+
+    // Seeds: median over the active frames' camera intrinsics.
+    let focal_seed = median(active.iter().map(|&i| images[i].camera.focal_px)).unwrap_or(1.0);
+    let k1_seed = median(active.iter().map(|&i| images[i].camera.k1)).unwrap_or(0.0);
+    let k2_seed = median(active.iter().map(|&i| images[i].camera.k2)).unwrap_or(0.0);
+
+    // Initialization: spanning tree, prior gauge alignment, warm-start
+    // overrides (in that order — later wins).
+    let mut rotations: Vec<Option<Mat3>> = init::spanning_tree_rotations(graph);
+    let priors: Vec<Option<Mat3>> = images.iter().map(|img| img.prior_rotation).collect();
+    init::align_gauge_to_priors(&mut rotations, &priors);
+    if let Some(overrides) = &opts.initial_rotations {
+        for (slot, over) in rotations.iter_mut().zip(overrides) {
+            if let Some(r) = over {
+                *slot = Some(*r);
+            }
+        }
+    }
+
+    let lm_opts = LmOptions {
+        max_iterations: opts.max_lm_iterations,
+        cost_rel_tol: opts.cost_rel_tol,
+        ..LmOptions::default()
+    };
+
+    let mut solution = BaSolution {
+        cameras: vec![None; images.len()],
+        shared_focal_px: focal_seed,
+        k1: k1_seed,
+        k2: k2_seed,
+        frame_stats: vec![None; images.len()],
+        dropped: Vec::new(),
+        mean_reproj_px: 0.0,
+        max_reproj_px: 0.0,
+        lm_iterations: 0,
+        final_cost: 0.0,
+        converged: true,
+        solve_rounds: 0,
+    };
+
+    let mut state = State {
+        rotations: Vec::new(),
+        shared_focal: focal_seed,
+        focal_overrides: Vec::new(),
+        k1: k1_seed,
+        k2: k2_seed,
+    };
+    let mut first_round = true;
+    let mut fallback_probed = false;
+
+    loop {
+        solution.solve_rounds += 1;
+
+        // Local subproblem over the active frames.
+        let mut local_of = vec![usize::MAX; images.len()];
+        for (local, &global) in active.iter().enumerate() {
+            local_of[global] = local;
+        }
+        let frames: Vec<FrameMeta> = active
+            .iter()
+            .map(|&g| {
+                let (cx, cy) = images[g].camera.principal_point();
+                FrameMeta { cx, cy }
+            })
+            .collect();
+        let blocks = build_blocks(graph, &local_of);
+        state.rotations = active
+            .iter()
+            .map(|&g| rotations[g].expect("active frames are initialized"))
+            .collect();
+        state.focal_overrides = vec![None; active.len()];
+
+        let gauge = 0; // Local index of the smallest active image index.
+        if first_round {
+            // Stage A: rotations only, intrinsics frozen at the seed.
+            let layout_a = ParamLayout::rotations_only(active.len(), gauge);
+            let a = minimize(
+                &blocks,
+                &frames,
+                &mut state,
+                &layout_a,
+                opts.huber_delta_px,
+                &lm_opts,
+            );
+            solution.lm_iterations += a.iterations;
+            solution.converged &= a.converged;
+        }
+        // Stage B: joint rotations + shared focal + k1 + k2.
+        let layout_b = ParamLayout::full(active.len(), gauge, &[]);
+        let b = minimize(
+            &blocks,
+            &frames,
+            &mut state,
+            &layout_b,
+            opts.huber_delta_px,
+            &lm_opts,
+        );
+        solution.lm_iterations += b.iterations;
+        solution.converged &= b.converged;
+        solution.final_cost = b.final_cost;
+        first_round = false;
+
+        // Stage C (decision §9.2, once per solve): frames whose residuals
+        // carry a systematic radial signature — the fingerprint of a wrong
+        // per-frame focal — and whose median residual drops materially
+        // under a one-parameter focal probe get their focal freed, and the
+        // joint stage re-runs with those overrides in the parameter set.
+        // Shared focal stays the regularizer for everything else.
+        if !fallback_probed {
+            fallback_probed = true;
+            let freed =
+                focal_fallback_frames(&blocks, &frames, &mut state, active.len(), opts, &lm_opts);
+            if !freed.is_empty() {
+                let layout_c = ParamLayout::full(active.len(), gauge, &freed);
+                let c = minimize(
+                    &blocks,
+                    &frames,
+                    &mut state,
+                    &layout_c,
+                    opts.huber_delta_px,
+                    &lm_opts,
+                );
+                solution.lm_iterations += c.iterations;
+                solution.converged &= c.converged;
+                solution.final_cost = c.final_cost;
+            }
+        }
+
+        // Persist the round's rotations (the warm start for re-solves).
+        for (local, &global) in active.iter().enumerate() {
+            rotations[global] = Some(state.rotations[local]);
+        }
+
+        // Per-frame stats + spec §5.3 acceptance gate.
+        let stats = frame_stats(&blocks, &frames, &state, active.len());
+        let mut worst: Option<(usize, f64, f64)> = None; // (local, mean, max)
+        for (local, stat) in stats.iter().enumerate() {
+            if stat.blocks == 0 {
+                continue;
+            }
+            if stat.mean_px > opts.mean_budget_px || stat.max_px > opts.max_budget_px {
+                let is_worse = worst.is_none_or(|(_, m, _)| stat.mean_px > m);
+                if is_worse {
+                    worst = Some((local, stat.mean_px, stat.max_px));
+                }
+            }
+        }
+
+        let Some((bad_local, mean_px, max_px)) = worst else {
+            // Every surviving frame passes: finalize.
+            finalize(&mut solution, images, &active, &state, &stats, &blocks, &frames);
+            solution.dropped.append(&mut dropped);
+            solution.dropped.sort_by_key(|d| d.index);
+            return Ok(solution);
+        };
+
+        if active.len() <= 2 {
+            // Dropping below two frames leaves nothing to adjust: report
+            // the violator and finalize with what passes.
+            let bad_global = active[bad_local];
+            dropped.push(DroppedFrame {
+                index: bad_global,
+                reason: DropReason::HighResidual { mean_px, max_px },
+            });
+            active.retain(|&g| g != bad_global);
+            finalize_trivial(&mut solution, images, &active, &rotations, &state);
+            solution.dropped.append(&mut dropped);
+            solution.dropped.sort_by_key(|d| d.index);
+            return Ok(solution);
+        }
+
+        // Drop the worst offender, then re-derive connectivity among the
+        // survivors — a drop can split the component, and split-off
+        // frames are Disconnected.
+        let bad_global = active[bad_local];
+        dropped.push(DroppedFrame {
+            index: bad_global,
+            reason: DropReason::HighResidual { mean_px, max_px },
+        });
+        active.retain(|&g| g != bad_global);
+        let (largest, disconnected) = largest_subcomponent(graph, &active);
+        for index in disconnected {
+            dropped.push(DroppedFrame {
+                index,
+                reason: DropReason::Disconnected,
+            });
+        }
+        active = largest;
+        if active.len() < 2 {
+            finalize_trivial(&mut solution, images, &active, &rotations, &state);
+            solution.dropped.append(&mut dropped);
+            solution.dropped.sort_by_key(|d| d.index);
+            return Ok(solution);
+        }
+    }
+}
