@@ -215,6 +215,65 @@ fn parse_texture_min() {
     assert_eq!(m.texture, -100.0);
 }
 
+/// Brightness (#1102): parses from the Maple-proprietary `papp:Brightness`
+/// key. The legacy ACR PV2010 `crs:Brightness` key is deliberately NOT
+/// mapped — different semantics (default +50, removed in PV2012); a
+/// sidecar carrying it must leave the model at the default.
+#[test]
+fn parse_brightness() {
+    let xml = r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+              xmlns:papp="http://ns.justmaple.app/1.0/"
+              papp:Brightness="-35"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.brightness, -35.0);
+}
+
+/// PV2010 `crs:Brightness` must NOT be read into the Maple brightness
+/// field (semantics mismatch — see `papp:Brightness` docs).
+#[test]
+fn crs_brightness_pv2010_is_ignored() {
+    let xml = r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+              crs:Brightness="50"/>
+          </rdf:RDF>
+        </x:xmpmeta>"#;
+    let m = parse(xml).unwrap();
+    assert_eq!(m.brightness, 0.0, "crs:Brightness (PV2010) must not map onto papp brightness");
+}
+
+/// Absent `papp:Brightness` leaves the default (0 — stage no-op), and the
+/// serializer omits the attribute at the default so a default model writes
+/// no `papp:Brightness` at all. Non-default values round-trip through
+/// serialize → parse.
+#[test]
+fn brightness_serialize_roundtrip_and_default_omission() {
+    let mut m = AdjustmentModel::default();
+    assert!(!serialize(&m).contains("papp:Brightness"),
+        "default brightness must not be serialized");
+
+    m.brightness = 42.0;
+    let frag = serialize(&m);
+    assert!(frag.contains(r#"papp:Brightness="42""#), "got fragment: {}", frag);
+
+    let xml = format!(
+        r#"<?xml version="1.0"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:papp="http://ns.justmaple.app/1.0/"{frag}/>
+          </rdf:RDF>
+        </x:xmpmeta>"#
+    );
+    let parsed = parse(&xml).unwrap();
+    assert_eq!(parsed.brightness, 42.0);
+}
+
 /// S5 effects fields (ticket #643): vignette / grain / split-tone scalars
 /// parse from Lightroom-compatible `crs:` keys (PostCropVignette*, Grain*,
 /// SplitToning*). `crs:GrainFrequency` lands on `grain_roughness` — Maple's

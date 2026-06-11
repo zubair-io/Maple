@@ -227,6 +227,35 @@ final class XMPSerializationTests: XCTestCase {
         XCTAssertFalse(xml.contains("crs:SplitToningBalance"))
     }
 
+    // MARK: - Brightness (#1102)
+
+    /// `papp:Brightness` parses onto `model.brightness`; the legacy ACR
+    /// PV2010 `crs:Brightness` key is deliberately NOT parsed (different
+    /// semantics — default +50, removed in PV2012).
+    func testParseBrightness() throws {
+        let (m, _) = try XMPParser.parse(xmp(attrs: #"papp:Brightness="-35""#))
+        XCTAssertEqual(m.brightness, -35)
+
+        let (m2, _) = try XMPParser.parse(xmp(attrs: #"crs:Brightness="50""#))
+        XCTAssertEqual(m2.brightness, 0, "crs:Brightness (PV2010) must not map onto brightness")
+    }
+
+    /// Brightness round-trips through serialize → parse on a real sidecar
+    /// string, and the default (0) emits no attribute so pre-#1102
+    /// sidecars stay byte-identical.
+    func testBrightnessRoundTripAndDefaultOmission() throws {
+        var m = AdjustmentModel()
+        m.brightness = 42
+        let xml = XMPSerializer.serialize(model: m, culling: CullingState())
+        XCTAssertTrue(xml.contains(#"papp:Brightness="42""#))
+        let (m2, _) = try XMPParser.parse(xml)
+        XCTAssertEqual(m2.brightness, 42)
+
+        let defaultXml = XMPSerializer.serialize(model: AdjustmentModel(), culling: CullingState())
+        XCTAssertFalse(defaultXml.contains("papp:Brightness"),
+                       "default brightness must not be serialized")
+    }
+
     // MARK: - S5 effects + keywords interaction (#632 / #643 merge)
 
     /// The reconciliation of the two XMP file-splits introduces one case

@@ -66,6 +66,12 @@ pub struct MapleAdjustmentParams {
     /// stays binary-compatible with pre-#515 callers that re-bind to the
     /// new header.
     pub look_mode: u8,
+    /// Brightness — scene-linear midtone-band gain, `[-100, 100]` (#1102,
+    /// tone/zoom design § 4.1). Runs inside `scene_tone_controls` between
+    /// exposure and highlights. Appended at the end (after `look_mode`)
+    /// per the same offset-stable ABI convention; a pre-#1102 caller that
+    /// re-binds to the new header leaves it 0 = identity.
+    pub brightness: f32,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -135,6 +141,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.temperature = p.temperature;
     model.tint = p.tint;
     model.exposure = p.exposure;
+    model.brightness = p.brightness;
     model.contrast = p.contrast;
     model.highlights = p.highlights;
     model.shadows = p.shadows;
@@ -240,6 +247,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.temperature = p.temperature;
     model.tint = p.tint;
     model.exposure = p.exposure;
+    model.brightness = p.brightness;
     model.contrast = p.contrast;
     model.highlights = p.highlights;
     model.shadows = p.shadows;

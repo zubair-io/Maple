@@ -112,6 +112,16 @@ pub struct MapleGpuLiveParams {
     pub residual_lut_size: u32,
     pub residual_lut_ptr: *const f32,
     pub residual_lut_len: usize,
+    // --- brightness — scene-linear midtone-band gain, [-100, 100] (#1102,
+    //     tone/zoom design § 4.1; runs between exposure and highlights) ---
+    //
+    // Placed at the END of the struct (after the array pointers) so adding
+    // the field does not shift the offset of any earlier field — same
+    // append-only ABI convention as `MapleAdjustmentParams::look_mode`. A
+    // host built against the pre-#1102 header that re-binds to the new one
+    // sees every existing field at its old offset; an un-set tail field
+    // reads as 0.0 = identity.
+    pub brightness: f32,
 }
 
 /// Read a flat `(ptr, len)` f32 array into an owned `Vec` of `(x, y)` point pairs
@@ -179,7 +189,14 @@ unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInputs {
         wb_matrix,
         wb_temperature: p.temperature,
         wb_tint: p.tint,
-        tone: [p.exposure, p.highlights, p.shadows, p.whites, p.blacks],
+        tone: [
+            p.exposure,
+            p.brightness,
+            p.highlights,
+            p.shadows,
+            p.whites,
+            p.blacks,
+        ],
         tone_curves: ToneCurveInputs {
             parametric: [
                 p.parametric_shadows,
