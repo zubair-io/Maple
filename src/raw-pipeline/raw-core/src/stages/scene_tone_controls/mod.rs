@@ -216,3 +216,5 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_brightness;
