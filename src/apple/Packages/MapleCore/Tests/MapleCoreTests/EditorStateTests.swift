@@ -444,6 +444,25 @@ final class EditorStateTests: XCTestCase {
         XCTAssertFalse(state.canUndo)
     }
 
+    func testArmedToolAcceptsValueEditsGatesPresetsAndStubs() {
+        // `DragBar` disables hit-testing on this flag so its touch-down
+        // `commit()` can't push junk undo snapshots for tools without a
+        // value pipe (#1115 review).
+        let state = EditorState(session: makeSession())
+
+        // Value-carrying wired tools accept edits…
+        for tool in [Tool.exposure, .temp, .sharpen, .captureSigma] {
+            state.arm(tool: tool)
+            XCTAssertTrue(state.armedToolAcceptsValueEdits, "\(tool) should accept value edits")
+        }
+
+        // …presets (wired but value-less) and the gated stubs don't.
+        for tool in [Tool.presets, .hsl, .vignette, .grain, .splitTone, .crop] {
+            state.arm(tool: tool)
+            XCTAssertFalse(state.armedToolAcceptsValueEdits, "\(tool) must not accept value edits")
+        }
+    }
+
     func testPresetsPillValuePipeIsInert() {
         // Presets is wired (#1115) but value-less: drags and resets must
         // not mutate the model NOR push junk undo entries.
