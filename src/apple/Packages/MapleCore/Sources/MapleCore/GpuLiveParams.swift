@@ -117,6 +117,33 @@ extension PipelineRenderer {
         p.split_tone_highlight_saturation = Float(model.splitToneHighlightSaturation)
         p.split_tone_balance = Float(model.splitToneBalance)
 
+        // HSL 8-band adjustments (#1112) — scene-linear Oklab; the chain
+        // runs after saturation / before clarity.
+        p.hsl_hue_red      = Float(model.hueAdjustmentRed)
+        p.hsl_hue_orange   = Float(model.hueAdjustmentOrange)
+        p.hsl_hue_yellow   = Float(model.hueAdjustmentYellow)
+        p.hsl_hue_green    = Float(model.hueAdjustmentGreen)
+        p.hsl_hue_aqua     = Float(model.hueAdjustmentAqua)
+        p.hsl_hue_blue     = Float(model.hueAdjustmentBlue)
+        p.hsl_hue_purple   = Float(model.hueAdjustmentPurple)
+        p.hsl_hue_magenta  = Float(model.hueAdjustmentMagenta)
+        p.hsl_sat_red      = Float(model.saturationAdjustmentRed)
+        p.hsl_sat_orange   = Float(model.saturationAdjustmentOrange)
+        p.hsl_sat_yellow   = Float(model.saturationAdjustmentYellow)
+        p.hsl_sat_green    = Float(model.saturationAdjustmentGreen)
+        p.hsl_sat_aqua     = Float(model.saturationAdjustmentAqua)
+        p.hsl_sat_blue     = Float(model.saturationAdjustmentBlue)
+        p.hsl_sat_purple   = Float(model.saturationAdjustmentPurple)
+        p.hsl_sat_magenta  = Float(model.saturationAdjustmentMagenta)
+        p.hsl_lum_red      = Float(model.luminanceAdjustmentRed)
+        p.hsl_lum_orange   = Float(model.luminanceAdjustmentOrange)
+        p.hsl_lum_yellow   = Float(model.luminanceAdjustmentYellow)
+        p.hsl_lum_green    = Float(model.luminanceAdjustmentGreen)
+        p.hsl_lum_aqua     = Float(model.luminanceAdjustmentAqua)
+        p.hsl_lum_blue     = Float(model.luminanceAdjustmentBlue)
+        p.hsl_lum_purple   = Float(model.luminanceAdjustmentPurple)
+        p.hsl_lum_magenta  = Float(model.luminanceAdjustmentMagenta)
+
         // REAL sharpen + NR — run IN the scene-linear chain (replacing the post-AgX
         // Metal kernels), the sanctioned convergence divergence.
         p.sharpen_amount = Float(model.sharpenAmount)
