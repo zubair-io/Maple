@@ -15,5 +15,26 @@
 
   <app-drag-bar></app-drag-bar>
   <app-group-tabs></app-group-tabs>
-  <app-tool-pill-row></app-tool-pill-row>
+  <app-tool-pill-row (presetsTap)="presetsOpen.set(true)"></app-tool-pill-row>
+
+  <!-- Presets pill UI (#1115): popover card on desktop, S1c sheet otherwise. -->
+  @if (presetsAsPopover()) {
+    @if (presetsOpen()) {
+      <div
+        class="presets-popover-scrim"
+        (click)="presetsOpen.set(false)"
+        role="presentation"
+        data-testid="presets-popover-scrim"
+      ></div>
+      <div class="presets-popover" role="dialog" aria-label="Presets" data-testid="presets-popover">
+        <app-presets-panel (applied)="presetsOpen.set(false)"></app-presets-panel>
+      </div>
+    }
+  } @else {
+    <app-bottom-sheet [(isOpen)]="presetsOpen">
+      @if (presetsOpen()) {
+        <app-presets-panel (applied)="presetsOpen.set(false)"></app-presets-panel>
+      }
+    </app-bottom-sheet>
+  }
 </div>

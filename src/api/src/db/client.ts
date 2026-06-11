@@ -37,6 +37,7 @@ import type {
   AssetChangeDoc,
   ServerStateDoc,
   MirrorQueueDoc,
+  PresetDoc,
 } from './schema.ts';
 import type { WorkerConfigDoc } from '../workers/worker-config.repo.ts';
 
@@ -157,6 +158,10 @@ export async function peopleCollection(): Promise<Collection<PersonDoc>> {
 
 export async function workerConfigCollection(): Promise<Collection<WorkerConfigDoc>> {
   return (await getDb()).collection<WorkerConfigDoc>('worker_config');
+}
+
+export async function presetsCollection(): Promise<Collection<PresetDoc>> {
+  return (await getDb()).collection<PresetDoc>('presets');
 }
 
 export async function backupSessionsCollection(): Promise<Collection<BackupSessionDoc>> {
@@ -1257,6 +1262,17 @@ export async function ensureIndexes(): Promise<void> {
   await db
     .collection('worker_config')
     .createIndex({ name: 1 }, { unique: true, name: 'worker_config_name' });
+
+  // presets (#1115): case-insensitive unique on `name` so two user presets
+  // can't collide. Same collation pattern as `people_name_unique`; the
+  // route's duplicate check is the friendly 409, this index is the safety
+  // net for direct inserts.
+  await db
+    .collection('presets')
+    .createIndex(
+      { name: 1 },
+      { unique: true, collation: { locale: 'en', strength: 2 }, name: 'presets_name_unique' },
+    );
 
   // backup_sessions: natural key — enforces upsert race-safety.
   await db

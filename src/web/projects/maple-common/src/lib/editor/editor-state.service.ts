@@ -21,6 +21,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { LibraryStateService } from '../state/library-state.service';
 import type { AssetId } from '../models/asset';
 import type { AdjustmentModel } from '../models/adjustment-model';
+import { buildApplyPatch, type Preset } from './presets/preset-model';
 import {
   type ToolGroup,
   type ToolId,
@@ -182,13 +183,35 @@ export class EditorStateService {
 
   /** Reset the armed tool to its canonical default and fire the reset
    *  haptic. The haptic lives here so every reset entry point (drag-bar
-   *  double-tap, keyboard `0`) gets consistent feedback. */
+   *  double-tap, keyboard `0`) gets consistent feedback. The `fieldFor`
+   *  guard skips field-less tools (presets) so they can't push junk
+   *  undo entries. */
   resetArmedTool(): void {
     const tool = this.armedTool();
-    if (!isWired(tool)) return;
+    if (!isWired(tool) || !fieldFor(tool)) return;
     this.commit();
     this.setArmedDisplayValue(defaultDisplayValue(tool));
     this.haptic('reset');
+  }
+
+  // ── Presets (#1115, spec §10.7) ──────────────────────────────────────────
+
+  /**
+   * Apply a preset: sparse merge of its known fields into the current
+   * model as ONE undo-ring entry. Persistence rides the existing
+   * debounced sidecar save inside `LibraryStateService.updateAdjustment`
+   * — presets never touch original files. Returns false when nothing
+   * could be applied (no bound image, or no applicable fields).
+   */
+  applyPreset(preset: Preset): boolean {
+    const id = this.imageId();
+    if (id == null || this.currentAdjustment() == null) return false;
+    const patch = buildApplyPatch(preset.fields);
+    if (Object.keys(patch).length === 0) return false;
+    this.commit();
+    this.library.updateAdjustment(id, patch);
+    this.haptic('switch');
+    return true;
   }
 
   // ── Haptics (web — Vibration API w/ feature detection) ───────────────────
