@@ -71,9 +71,15 @@ pub fn fit_curve_from_raw_display<P: AsRef<Path>>(
     source_h: usize,
     orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
-    let preview = preview::extract_preview(raw_path.as_ref())?;
-    let cs = preview::detect_jpeg_color_space(raw_path.as_ref());
-    fit_curve_from_preview_display(preview, cs, source_rgb, source_w, source_h, orientation)
+    let p = preview::extract_for_fit(raw_path.as_ref())?;
+    fit_curve_from_preview_display(
+        p.image,
+        p.color_space,
+        source_rgb,
+        source_w,
+        source_h,
+        orientation,
+    )
 }
 
 /// Bytes-based mirror of [`fit_curve_from_raw_display`] for the WASM render
@@ -88,12 +94,23 @@ pub fn fit_curve_from_bytes_display(
     source_h: usize,
     orientation: ExifOrientation,
 ) -> Option<ProfileCurve> {
-    let preview = preview::extract_preview_from_bytes(raw_bytes, ext)?;
-    let cs = preview::detect_jpeg_color_space_from_bytes(raw_bytes, ext);
-    fit_curve_from_preview_display(preview, cs, source_rgb, source_w, source_h, orientation)
+    let p = preview::extract_for_fit_from_bytes(raw_bytes, ext)?;
+    fit_curve_from_preview_display(
+        p.image,
+        p.color_space,
+        source_rgb,
+        source_w,
+        source_h,
+        orientation,
+    )
 }
 
-fn fit_curve_from_preview_display(
+/// Fit from an ALREADY-extracted preview (#1085 — extract once, thread the
+/// decoded preview + detected color space through every fit; the path/bytes
+/// wrappers above stay as the extract-and-fit conveniences for tests).
+/// `preview` is the SENSOR-oriented embedded JPEG; this fn rotates it (and
+/// the source buffer) into the display frame itself.
+pub fn fit_curve_from_preview_display(
     preview: DynamicImage,
     cs: preview::JpegColorSpace,
     sensor_rgb: &[f32],
