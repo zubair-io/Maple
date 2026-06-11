@@ -79,7 +79,7 @@ pub fn apply_scene_linear_chain(
 ) -> Result<Vec<u16>> {
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
-        clarity, dehaze, grain, local_adjustments, noise_reduction, saturation,
+        clarity, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
         scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette,
         white_balance,
     };
@@ -148,6 +148,32 @@ pub fn apply_scene_linear_chain(
     stage("ffi_chain_vibrance", || vibrance::apply(&mut img, model.vibrance));
     stage("ffi_chain_saturation", || {
         saturation::apply(&mut img, model.saturation)
+    });
+    // HSL 8-band (#1112, tone/zoom design § 10.4) — scene-linear Oklab,
+    // after saturation, before clarity. All-defaults is a bit-identical no-op
+    // (the whole-stage short-circuit in hsl::apply guards this).
+    stage("ffi_chain_hsl", || {
+        hsl::apply(
+            &mut img,
+            &[
+                model.hue_adjustment_red, model.hue_adjustment_orange,
+                model.hue_adjustment_yellow, model.hue_adjustment_green,
+                model.hue_adjustment_aqua, model.hue_adjustment_blue,
+                model.hue_adjustment_purple, model.hue_adjustment_magenta,
+            ],
+            &[
+                model.saturation_adjustment_red, model.saturation_adjustment_orange,
+                model.saturation_adjustment_yellow, model.saturation_adjustment_green,
+                model.saturation_adjustment_aqua, model.saturation_adjustment_blue,
+                model.saturation_adjustment_purple, model.saturation_adjustment_magenta,
+            ],
+            &[
+                model.luminance_adjustment_red, model.luminance_adjustment_orange,
+                model.luminance_adjustment_yellow, model.luminance_adjustment_green,
+                model.luminance_adjustment_aqua, model.luminance_adjustment_blue,
+                model.luminance_adjustment_purple, model.luminance_adjustment_magenta,
+            ],
+        )
     });
     stage("ffi_chain_clarity", || clarity::apply(&mut img, model.clarity));
     stage("ffi_chain_texture", || texture::apply(&mut img, model.texture));
@@ -234,7 +260,7 @@ pub fn apply_scene_linear_chain_f32(
 ) -> Result<Vec<f32>> {
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
-        clarity, dehaze, grain, local_adjustments, noise_reduction, saturation,
+        clarity, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
         scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette,
         white_balance,
     };
@@ -291,6 +317,30 @@ pub fn apply_scene_linear_chain_f32(
     stage("ffi_chain_vibrance", || vibrance::apply(&mut img, model.vibrance));
     stage("ffi_chain_saturation", || {
         saturation::apply(&mut img, model.saturation)
+    });
+    // HSL 8-band (#1112) — same position as the fp16 sibling.
+    stage("ffi_chain_hsl", || {
+        hsl::apply(
+            &mut img,
+            &[
+                model.hue_adjustment_red, model.hue_adjustment_orange,
+                model.hue_adjustment_yellow, model.hue_adjustment_green,
+                model.hue_adjustment_aqua, model.hue_adjustment_blue,
+                model.hue_adjustment_purple, model.hue_adjustment_magenta,
+            ],
+            &[
+                model.saturation_adjustment_red, model.saturation_adjustment_orange,
+                model.saturation_adjustment_yellow, model.saturation_adjustment_green,
+                model.saturation_adjustment_aqua, model.saturation_adjustment_blue,
+                model.saturation_adjustment_purple, model.saturation_adjustment_magenta,
+            ],
+            &[
+                model.luminance_adjustment_red, model.luminance_adjustment_orange,
+                model.luminance_adjustment_yellow, model.luminance_adjustment_green,
+                model.luminance_adjustment_aqua, model.luminance_adjustment_blue,
+                model.luminance_adjustment_purple, model.luminance_adjustment_magenta,
+            ],
+        )
     });
     stage("ffi_chain_clarity", || clarity::apply(&mut img, model.clarity));
     stage("ffi_chain_texture", || texture::apply(&mut img, model.texture));
