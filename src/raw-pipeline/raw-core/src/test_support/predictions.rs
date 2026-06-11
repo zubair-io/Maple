@@ -14,6 +14,19 @@ pub fn predict_exposure(scene: f32, ev: f32) -> f32 {
     scene * ev.exp2()
 }
 
+/// scene_tone_controls::apply, step 1b (#1102, tone/zoom design spec
+/// § 4.1). Brightness midtone-band gain — for a neutral input
+/// R=G=B=scene, Y collapses to scalar `scene`:
+///   w(Y)  = smoothstep(0.05, 0.25, Y) · (1 − smoothstep(1.0, 4.0, Y))
+///   gain  = exp2(0.7 · b/100 · w(Y))
+/// Output = scene · gain. Exactly identity at Y ≤ 0.05 and Y ≥ 4.0.
+pub fn predict_brightness(scene: f32, b_slider: f32) -> f32 {
+    if b_slider.abs() < 1e-3 { return scene; }
+    let w = smoothstep(0.05, 0.25, scene) * (1.0 - smoothstep(1.0, 4.0, scene));
+    let gain = (0.7 * b_slider / 100.0 * w).exp2();
+    scene * gain
+}
+
 /// scene_tone_controls::apply, step 2. Luma-coupled highlights — for a
 /// neutral input R=G=B=scene, Y collapses to scalar `scene`, so the
 /// per-channel scale `Y_new/Y_old` collapses to the same closed form
@@ -225,6 +238,58 @@ mod tests {
             assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
                 "predict_blacks({},{}) = {}, got {} (chan {})",
                 scene, b, predicted, img.pixels[0][c], c);
+        }
+    }
+
+    fn round_trip_brightness(scene: f32, b: f32) {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::scene_tone_controls;
+        use crate::xmp::AdjustmentModel;
+        let predicted = predict_brightness(scene, b);
+        let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+        img.pixels[0] = [scene, scene, scene];
+        let mut model = AdjustmentModel::default();
+        model.brightness = b;
+        scene_tone_controls::apply(&mut img, &model);
+        for c in 0..3 {
+            assert!((img.pixels[0][c] - predicted).abs() < 1e-6,
+                "predict_brightness({},{}) = {}, got {} (chan {})",
+                scene, b, predicted, img.pixels[0][c], c);
+        }
+    }
+
+    #[test] fn brightness_plus50_lifts_midtone()  { round_trip_brightness(0.18, 50.0); }
+    #[test] fn brightness_minus50_darkens_midtone() { round_trip_brightness(0.18, -50.0); }
+    #[test] fn brightness_pins_deep_shadow()      { round_trip_brightness(0.03, 100.0); }
+    #[test] fn brightness_pins_highlight_end()    { round_trip_brightness(5.0, 100.0); }
+    #[test] fn brightness_zero_is_identity()      { round_trip_brightness(0.18, 0.0); }
+
+    /// Brightness at the band ends is EXACT identity (w = 0 → gain = 1.0
+    /// → bit-identical multiply), not merely within tolerance.
+    #[test]
+    fn brightness_band_ends_bit_exact() {
+        use crate::image::{ColorSpace, Image};
+        use crate::stages::scene_tone_controls;
+        use crate::xmp::AdjustmentModel;
+        for &scene in &[0.01_f32, 0.05, 4.0, 8.0] {
+            let mut img = Image::new(1, 1, ColorSpace::SceneLinearRec2020);
+            img.pixels[0] = [scene, scene, scene];
+            let mut model = AdjustmentModel::default();
+            model.brightness = 100.0;
+            scene_tone_controls::apply(&mut img, &model);
+            assert_eq!(img.pixels[0], [scene, scene, scene],
+                "brightness must be bit-exact identity at Y={}", scene);
+        }
+    }
+
+    /// Monotone in the slider: at a midtone, larger b ⇒ larger output.
+    #[test]
+    fn brightness_monotone_in_slider() {
+        let mut prev = f32::NEG_INFINITY;
+        for b in [-100.0_f32, -50.0, -10.0, 0.0, 10.0, 50.0, 100.0] {
+            let out = predict_brightness(0.18, b);
+            assert!(out > prev, "brightness not monotone at b={}: {} <= {}", b, out, prev);
+            prev = out;
         }
     }
 

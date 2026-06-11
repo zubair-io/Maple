@@ -68,6 +68,11 @@ extension PipelineRenderer {
 
         // --- scene tone controls ---
         p.exposure = Float(model.exposure)
+        // Brightness (#1102): midtone-band gain — lives at the struct TAIL
+        // in the C ABI (append-only convention) but belongs to the scene
+        // tone group semantically; the FFI re-orders it into the chain's
+        // tone array between exposure and highlights.
+        p.brightness = Float(model.brightness)
         p.highlights = Float(model.highlights)
         p.shadows = Float(model.shadows)
         p.whites = Float(model.whites)

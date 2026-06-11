@@ -86,6 +86,11 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
 
     // Basic tone
     public var exposure: Double         // -4..+4 EV, default 0
+    /// Brightness — scene-linear midtone-band gain (#1102, tone/zoom design
+    /// § 4.1). Runs inside `scene_tone_controls` after exposure, before
+    /// highlights/shadows/whites/blacks. XMP key `papp:Brightness` (NOT the
+    /// ACR PV2010 `crs:Brightness`, which has different semantics).
+    public var brightness: Double       // -100..100, default 0
     public var contrast: Double         // -100..100, default 0
     public var highlights: Double       // -100..100, default 0
     public var shadows: Double          // -100..100, default 0
@@ -185,6 +190,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         temperature: Double = 6500,
         tint: Double = 0,
         exposure: Double = 0,
+        brightness: Double = 0,
         contrast: Double = 0,
         highlights: Double = 0,
         shadows: Double = 0,
@@ -224,6 +230,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.temperature = temperature
         self.tint = tint
         self.exposure = exposure
+        self.brightness = brightness
         self.contrast = contrast
         self.highlights = highlights
         self.shadows = shadows

@@ -81,15 +81,17 @@ const WB_NEUTRAL_KELVIN: f32 = 6500.0;
 const WB_SKIP_BAND: f32 = 0.5;
 
 /// Whether the scene-tone-controls stage is a no-op for these sliders — the EXACT
-/// predicate from `raw_core::stages::scene_tone_controls::apply` (`mod.rs:22-28`):
-/// exposure within `1e-6` AND highlights/shadows/whites/blacks each within `1e-3`.
-/// `tone = [exposure, highlights, shadows, whites, blacks]`.
-fn scene_tone_is_noop(tone: &[f32; 5]) -> bool {
+/// predicate from `raw_core::stages::scene_tone_controls::apply` identity
+/// short-circuit: exposure within `1e-6` AND brightness/highlights/shadows/
+/// whites/blacks each within `1e-3`.
+/// `tone = [exposure, brightness, highlights, shadows, whites, blacks]`.
+fn scene_tone_is_noop(tone: &[f32; 6]) -> bool {
     tone[0].abs() < EXPOSURE_EPS
         && tone[1].abs() < SLIDER_EPS
         && tone[2].abs() < SLIDER_EPS
         && tone[3].abs() < SLIDER_EPS
         && tone[4].abs() < SLIDER_EPS
+        && tone[5].abs() < SLIDER_EPS
 }
 
 /// Whether the tone-curves stage is a no-op — mirrors
@@ -187,10 +189,11 @@ pub fn build_live_split(
     if !scene_tone_is_noop(&inputs.tone) {
         prefix.push(Box::new(SceneToneControlsPass {
             exposure: inputs.tone[0],
-            highlights: inputs.tone[1],
-            shadows: inputs.tone[2],
-            whites: inputs.tone[3],
-            blacks: inputs.tone[4],
+            brightness: inputs.tone[1],
+            highlights: inputs.tone[2],
+            shadows: inputs.tone[3],
+            whites: inputs.tone[4],
+            blacks: inputs.tone[5],
         }));
     }
     if !tone_curves_is_noop(&inputs.tone_curves) {

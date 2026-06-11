@@ -155,6 +155,25 @@ fn exposure_minus1_predicts() {
     }
 }
 
+/// Brightness midtone-band gain (#1102, tone/zoom design spec § 4.1).
+/// L sweep covers the pinned low end (0.05 → weight 0 → identity), the
+/// mid-band (0.18, 0.50 → non-trivial gain), and both signs.
+#[test]
+fn brightness_plus50_predicts() {
+    for L in [0.05, 0.18, 0.50] {
+        assert_predicted_scene_linear(L, |m| m.brightness = 50.0, |s| predict_brightness(s, 50.0));
+        assert_neutral_display(L, |m| m.brightness = 50.0);
+    }
+}
+
+#[test]
+fn brightness_minus50_predicts() {
+    for L in [0.05, 0.18, 0.50] {
+        assert_predicted_scene_linear(L, |m| m.brightness = -50.0, |s| predict_brightness(s, -50.0));
+        assert_neutral_display(L, |m| m.brightness = -50.0);
+    }
+}
+
 #[test]
 fn shadows_plus50_predicts() {
     for L in [0.05, 0.18, 0.50] {
@@ -373,6 +392,9 @@ fn dump_scene_linear_deltas() {
         dump(&format!("{}/exposure -1",   pl),
              worst_delta(L, |m| m.exposure = -1.0, |s| predict_exposure(s, -1.0)),
              predict_exposure(L, -1.0));
+        dump(&format!("{}/brightness +50", pl),
+             worst_delta(L, |m| m.brightness = 50.0, |s| predict_brightness(s, 50.0)),
+             predict_brightness(L, 50.0));
         dump(&format!("{}/shadows +50",   pl),
              worst_delta(L, |m| m.shadows = 50.0, |s| predict_shadows(s, 50.0)),
              predict_shadows(L, 50.0));
