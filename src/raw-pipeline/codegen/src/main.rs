@@ -294,6 +294,12 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
     // additively in EV on top (see raw-core::stages::auto_exposure).
     s.push_str("export type AutoExposureMode = 'Off' | 'On';\n\n");
 
+    // Hot/dead-pixel suppression (#1106). `Off` (default) skips the
+    // pre-demosaic defect-replacement stage bit-identically; `On` replaces
+    // same-color-neighbor outliers with the neighborhood median inside the
+    // decode product (see raw-core::stages::hot_pixel).
+    s.push_str("export type HotPixelSuppressionMode = 'Off' | 'On';\n\n");
+
     // Generated interface.
     s.push_str("export interface GeneratedAdjustmentModel {\n");
     for spec in schema {
@@ -369,6 +375,9 @@ fn emit_ts(schema: &[FieldSpec]) -> String {
                     // Auto Profile (#536). Default fits a per-image curve
                     // from the embedded preview; `Neutral` runs AgX.
                     "Profile" => "Auto",
+                    // Hot/dead-pixel suppression (#1106). Off until a
+                    // harness sweep shows enabling is free on clean fixtures.
+                    "HotPixelSuppressionMode" => "Off",
                     other => panic!(
                         "codegen: no default mapping for enum `{}` — add one \
                          alongside the matching Rust `Default` impl",

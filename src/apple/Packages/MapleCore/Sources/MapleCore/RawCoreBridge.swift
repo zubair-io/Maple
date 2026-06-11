@@ -67,6 +67,9 @@
 //     per-tick equivalent anywhere. Default 0 short-circuits the stage.
 //     Because it is KEPT, the #950 baked-model decode-cache key carries
 //     it automatically — changing the value correctly re-decodes.
+//   * `hotPixelSuppression` (#1106) — pre-demosaic defect replacement
+//     inside the Rust decode product; same KEPT/cache-key story as
+//     `chromaPrefilter`. Default `.off` short-circuits the stage.
 //
 // **WB contract** (the previously load-bearing source of magenta-cast
 // bugs): the strip forces the FFI decode to a fixed reference state

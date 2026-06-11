@@ -423,6 +423,14 @@ pub const ADJUSTMENT_SCHEMA: &[FieldSpec] = &[
         enum_name: "",
         doc: "Decode-time chroma pre-filter strength (#1104, tone/zoom design spec § 3.1). Luma-guided sparse cross-bilateral on opponent chroma inside the decode product; 0 (default) skips the stage bit-identically. XMP key `papp:ChromaPrefilter`. Part of the decoded-image cache key.",
     },
+    FieldSpec {
+        name: "hot_pixel_suppression",
+        kind: FieldKind::Enum,
+        range: (0.0, 0.0),
+        default_f32: 0.0,
+        enum_name: "HotPixelSuppressionMode",
+        doc: "Hot/dead-pixel suppression (#1106, tone/zoom design spec § 10.6). Pre-demosaic same-color-neighbor outlier replacement inside the decode product; 'Off' (default) skips the stage bit-identically. XMP key `papp:HotPixelSuppression`. Part of the decoded-image cache key.",
+    },
 ];
 
 

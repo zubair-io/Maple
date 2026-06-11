@@ -250,6 +250,15 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         // Decode-time chroma pre-filter (#1104) — Maple-proprietary; baked
         // into the Rust decode product, not re-applied by the Apple chain.
         case "papp:ChromaPrefilter":    model.chromaPrefilter = d(value) ?? model.chromaPrefilter
+        // Hot/dead-pixel suppression (#1106) — Maple-proprietary enum,
+        // baked into the Rust decode product. Case-insensitive like the
+        // other papp: enum parsers; unknown values keep the default.
+        case "papp:HotPixelSuppression":
+            switch value.lowercased() {
+            case "on":  model.hotPixelSuppression = .on
+            case "off": model.hotPixelSuppression = .off
+            default: break
+            }
         // S5 effects (#643) — Lightroom-compatible `crs:` keys.
         case "crs:PostCropVignetteAmount":   model.vignetteAmount  = d(value) ?? model.vignetteAmount
         case "crs:PostCropVignetteFeather":  model.vignetteFeather = d(value) ?? model.vignetteFeather
@@ -457,6 +466,11 @@ public struct XMPSerializer {
         // remain byte-identical for users who never touch it.
         if model.chromaPrefilter != 0 {
             attrs.append(("papp:ChromaPrefilter", String(format: "%.0f", model.chromaPrefilter)))
+        }
+        // Hot/dead-pixel suppression (#1106) — emit only when non-default
+        // (`.off`), same convention.
+        if model.hotPixelSuppression != .off {
+            attrs.append(("papp:HotPixelSuppression", model.hotPixelSuppression.rawValue))
         }
 
         let attrsStr = attrs.map { "\($0.0)=\"\($0.1)\"" }.joined(separator: "\n        ")

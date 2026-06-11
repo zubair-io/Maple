@@ -32,9 +32,9 @@ use crate::{
     linearize,
     stages::{
         auto_exposure, capture_sharpening, chroma_prefilter, clarity, dehaze,
-        highlight_recovery, highlight_recovery_oklab, local_adjustments, noise_reduction,
-        saturation, scene_tone_controls, sharpen, texture, tone_curves, vibrance,
-        white_balance,
+        highlight_recovery, highlight_recovery_oklab, hot_pixel, local_adjustments,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
+        vibrance, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -208,7 +208,12 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
             // resolution and the surrounding pipeline downsamples
             // later via `develop_sized`. A true half-res X-Trans
             // preview is a follow-up.
-            let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
+            // No-op (bit-identical) at the default Off.
+            stage("hot_pixel", || {
+                hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
+            });
             stage("demosaic_xtrans", || match quality {
                 RenderQuality::Preview => demosaic::xtrans_bilinear(&mosaic, raw.cfa),
                 RenderQuality::Full | RenderQuality::Amaze => {
@@ -217,7 +222,12 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
             })
         }
         _ => {
-            let mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            let mut mosaic = stage("linearize", || linearize::sensor_linearize(raw));
+            // Hot/dead-pixel suppression (#1106) — pre-demosaic, raw-domain.
+            // No-op (bit-identical) at the default Off.
+            stage("hot_pixel", || {
+                hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
+            });
             // The interactive Bayer paths (Preview `half_res`, Full
             // `bilinear`) take cancellable kernels so a cancel mid-demosaic
             // unwinds per-row. The export-only AMaZE / Hamilton-Adams kernels

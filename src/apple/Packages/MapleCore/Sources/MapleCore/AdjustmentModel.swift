@@ -73,6 +73,17 @@ public enum Profile: String, Codable, Sendable, Hashable, CaseIterable {
     case neutral = "Neutral"
 }
 
+// MARK: - HotPixelSuppressionMode
+
+/// Hot/dead-pixel suppression (#1106, tone/zoom design § 10.6). Mirrors
+/// `raw_core::types::adjustment::HotPixelSuppressionMode`: pre-demosaic
+/// same-color-neighbor outlier replacement inside the Rust decode product.
+/// `off` (default) is a bit-identical decode skip.
+public enum HotPixelSuppressionMode: String, Codable, Sendable, Hashable, CaseIterable {
+    case off = "Off"
+    case on  = "On"
+}
+
 // MARK: - AdjustmentModel
 
 /// Per-image editing knobs. Mirrors `raw_core::xmp::AdjustmentModel`.
@@ -195,6 +206,13 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
     /// `papp:ChromaPrefilter`; 0 (default) = bit-identical stage skip.
     public var chromaPrefilter: Double  // 0..100, default 0
 
+    /// Hot/dead-pixel suppression (#1106, tone/zoom design § 10.6).
+    /// Pre-demosaic, baked into the Rust decode product like
+    /// `chromaPrefilter` — kept by `stripAppleGPUStages`, so the #950
+    /// baked-model decode-cache key carries it automatically. XMP key
+    /// `papp:HotPixelSuppression`; `.off` (default) = bit-identical skip.
+    public var hotPixelSuppression: HotPixelSuppressionMode
+
     public init(
         temperature: Double = 6500,
         tint: Double = 0,
@@ -235,7 +253,8 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         highlightRecovery: HighlightRecoveryMode = .chromaticAdaptation,
         look: Look = .default,
         profile: Profile = .auto,
-        chromaPrefilter: Double = 0
+        chromaPrefilter: Double = 0,
+        hotPixelSuppression: HotPixelSuppressionMode = .off
     ) {
         self.temperature = temperature
         self.tint = tint
@@ -277,6 +296,7 @@ public struct AdjustmentModel: Codable, Sendable, Equatable, Hashable {
         self.look = look
         self.profile = profile
         self.chromaPrefilter = chromaPrefilter
+        self.hotPixelSuppression = hotPixelSuppression
     }
 
     public static let `default` = AdjustmentModel()

@@ -10,8 +10,8 @@ use quick_xml::reader::Reader;
 // `use raw_core::xmp::{AdjustmentModel, HighlightRecoveryMode}` paths keep
 // compiling. The single source of truth is `crate::types::adjustment`.
 pub use crate::types::adjustment::{
-    AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, Look, Profile, ToneCurveMode,
-    WbMethod,
+    AdjustmentModel, AutoExposureMode, HighlightRecoveryMode, HotPixelSuppressionMode, Look,
+    Profile, ToneCurveMode, WbMethod,
 };
 
 /// Parse a `crs:`-style XMP sidecar. Unknown fields are ignored; known fields that
@@ -266,6 +266,18 @@ fn set_field(
                 ))),
             };
         }
+        // Hot/dead-pixel suppression (#1106). Absent attribute -> default
+        // (`Off` — bit-identical decode). Pre-demosaic defect replacement;
+        // users opt in per-image.
+        "papp:HotPixelSuppression" => {
+            m.hot_pixel_suppression = match value {
+                "on" | "On" => HotPixelSuppressionMode::On,
+                "off" | "Off" => HotPixelSuppressionMode::Off,
+                other => return Err(Error::Xmp(format!(
+                    "unknown HotPixelSuppression: {}", other
+                ))),
+            };
+        }
         // Tone-curve application mode (ticket #436). Absent attribute ->
         // default (`PerChannel`) — pre-#436 behavior. Existing sidecars
         // round-trip unchanged. Users opt into ratio/hue-preservation via
@@ -293,8 +305,8 @@ fn set_field(
 /// XMP sidecar writing lives in the Swift and TypeScript layers per
 /// `docs/architecture.md`. Only the Maple-proprietary `papp:` keys with no
 /// `crs:` home are emitted here (`papp:Profile`, `papp:Brightness`,
-/// `papp:ChromaPrefilter`); the legacy `papp:Look` is deliberately NOT
-/// serialized — newly-written
+/// `papp:ChromaPrefilter`, `papp:HotPixelSuppression`); the legacy
+/// `papp:Look` is deliberately NOT serialized — newly-written
 /// sidecars carry the new attribute name only, and old sidecars still
 /// round-trip via the `papp:Look` migration in [`set_field`].
 pub fn serialize(model: &AdjustmentModel) -> String {
@@ -318,6 +330,11 @@ pub fn serialize(model: &AdjustmentModel) -> String {
             r#" papp:ChromaPrefilter="{}""#,
             model.chroma_prefilter
         ));
+    }
+    // Hot/dead-pixel suppression (#1106) — emitted only when non-default
+    // (`Off`), same convention.
+    if model.hot_pixel_suppression != HotPixelSuppressionMode::default() {
+        out.push_str(r#" papp:HotPixelSuppression="On""#);
     }
     out
 }

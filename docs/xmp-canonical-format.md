@@ -142,6 +142,11 @@ Lightroom does for `crs:` fields.
 | `nrColor`         | `crs:ColorNoiseReduction` | 25      |
 | `chromaPrefilter` | `papp:ChromaPrefilter`    | 0       |
 
+**Enum fields** (emit only when non-default, string-valued):
+
+- `papp:HotPixelSuppression` — `Off` (default) / `On`. Pre-demosaic
+  hot/dead-pixel suppression inside the decode product (#1106).
+
 **Always-emitted attributes** (process-version signaling):
 
 - `crs:Version`

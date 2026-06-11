@@ -152,9 +152,19 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
     // 23 visible tiles → ~10 s total. Bayer phase is preserved because
     // `pad_and_clamp_mosaic_rect` aligns start corners to even.
     let (rx, ry, rw, rh) = rect;
-    let mosaic = stage("tile_linearize", || {
+    let mut mosaic = stage("tile_linearize", || {
         linearize::sensor_linearize_region(raw, rx, ry, rw, rh)
     });
+    // Hot/dead-pixel suppression (#1106) — pre-demosaic, ≤3 px stencil
+    // (≪ TILE_OVERLAP_PX), translation-invariant. Bayer-only here: the
+    // even-aligned padded origin preserves the 2×2 phase, so the local
+    // `color_at` indexing matches the full-frame path; X-Trans tiles are
+    // rejected by the develop below before any pixel work (#420).
+    if raw.cfa.is_bayer_2x2() {
+        stage("tile_hot_pixel", || {
+            crate::stages::hot_pixel::apply(&mut mosaic, raw.cfa, model.hot_pixel_suppression)
+        });
+    }
     let scene = develop_scene_linear_from_padded_mosaic(&mosaic, raw, model, quality)?;
 
     // Trim the overlap, leaving the inner s_w × s_h block in SENSOR coords

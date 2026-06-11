@@ -71,6 +71,7 @@ fn schema_matches_struct() {
         tone_curve_green,
         tone_curve_blue,
         chroma_prefilter,
+        hot_pixel_suppression,
     } = m;
     let expected_order = [
         "temperature",
@@ -117,6 +118,7 @@ fn schema_matches_struct() {
         "profile",
         "tone_curve_mode",
         "chroma_prefilter",
+        "hot_pixel_suppression",
     ];
     assert_eq!(
         ADJUSTMENT_SCHEMA.len(),
@@ -180,6 +182,7 @@ fn schema_matches_struct() {
         tone_curve_green,
         tone_curve_blue,
         chroma_prefilter,
+        hot_pixel_suppression,
     );
     // `local_adjustments` is allow-listed: it carries structured data
     // (Vec<LocalAdjustment>) and is documented as not part of the schema
