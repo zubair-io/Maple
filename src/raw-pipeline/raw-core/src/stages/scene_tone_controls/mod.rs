@@ -1,5 +1,6 @@
 use crate::{
     image::{ColorSpace, Image},
+    stages::blur::gaussian_blur_plane,
     xmp::AdjustmentModel,
 };
 
@@ -24,10 +25,192 @@ const B_HI0: f32 = 1.0;
 const B_HI1: f32 = 4.0;
 const B_STRENGTH: f32 = 0.7;
 
-/// Apply scene-referred tone controls per spec § 3.6.
-/// Steps 1-5b (exposure, brightness, highlights, shadows, whites, blacks);
-/// tone curves (steps 6-7) deferred. Contrast is NOT applied here; it
-/// modulates the AgX sigmoid slope downstream (spec § 3.6a).
+// ----------------------------------------------------------------------
+// Shadows / highlights rework constants (#1103, tone/zoom design § 4.2).
+// All marked "calibrated" in the spec — initial values tuned against the
+// slider-matrix harness; ratchet as the pipeline tightens.
+// ----------------------------------------------------------------------
+
+/// Shadows engagement ceiling: the weight is `(1 − smoothstep(0, S_T1, Y))²`,
+/// exactly 0 at `Y ≥ S_T1`. Was 0.1 pre-#1103 — widened so the slider reaches
+/// real shadow tones instead of only near-black.
+const S_T1: f32 = 0.25;
+/// Shadows gain cap in EV at slider ±100: `exp2(±S_GAIN_EV)` → 2.83× lift /
+/// 0.35× crush at the deepest tones, fading to exactly 1 at `Y ≥ S_T1`.
+///
+/// MONOTONICITY BOUND (why this is 1.5, not the spec's "≈4×" initial value):
+/// with the mix-form multiplier the per-pixel response is
+/// `out(Y) = Y · (1 + (exp2(K) − 1) · w_s(Y))`; its derivative goes negative
+/// once `(exp2(K) − 1) · max|w_s + Y·w_s'| > 1`. For the squared (0, T_s)
+/// smoothstep falloff `max|w_s + Y·w_s'| ≈ 0.514` (at Y ≈ 0.55·T_s,
+/// independent of T_s), so any cap above ~2.95× INVERTS tone ordering around
+/// Y ≈ T_s/2 — at 4× a Y=0.10 pixel lands ~10 % brighter than a Y=0.15 pixel,
+/// a solarization band on smooth shadow gradients that survives AgX
+/// (monotone view transform). 1.5 EV (2.83×) keeps a ~6 % margin. Constants
+/// are spec-"calibrated" values; the mix formula itself is unchanged.
+const S_GAIN_EV: f32 = 1.5;
+
+/// Highlights engagement band: `w_h(Y) = smoothstep(H_W0, H_W1, Y)` — the
+/// slider acts on bright-but-unclipped tones (below the Y=1 knee), strongest
+/// at and above the knee. Pre-#1103 the slider only acted above Y = 1.0.
+const H_W0: f32 = 0.4;
+const H_W1: f32 = 1.0;
+/// Weighted-gain strength in EV at slider ±100 (`exp2(∓H_GAIN_EV · w_h)`).
+/// MONOTONICITY BOUND: the below-knee output `Y · exp2(−a·w_h(Y))` (a =
+/// H_GAIN_EV · h/100) is strictly increasing in Y only while
+/// `a · ln2 · max(w_h'(Y)·Y) < 1`; for the (0.4, 1.0) band the max of
+/// `w_h'(Y)·Y` is ≈ 1.824, so `a` must stay < 0.79. Keep H_GAIN_EV ≤ 0.7 —
+/// a tone curve that reverses direction mid-gradient posterizes skies.
+const H_GAIN_EV: f32 = 0.7;
+
+/// Detail-mask blur scale: σ = SH_MASK_SIGMA_REF_PX · longEdge /
+/// SH_MASK_REF_LONG_EDGE — the same long-edge convention the spec assigns to
+/// resolution-dependent radii, so fast-phase, refine, and export agree.
+const SH_MASK_SIGMA_REF_PX: f32 = 15.0;
+const SH_MASK_REF_LONG_EDGE: f32 = 2000.0;
+/// Halo-protection edge thresholds: `edge = |√Y − √Yb|`,
+/// `halo = smoothstep(SH_MASK_EDGE0, SH_MASK_EDGE1, edge)`.
+const SH_MASK_EDGE0: f32 = 0.05;
+const SH_MASK_EDGE1: f32 = 0.25;
+
+/// Blur radius (in `gaussian_blur_plane` terms) for the S/H detail mask at a
+/// given image long edge. `gaussian_blur_plane(radius)` runs 3 box passes of
+/// `radius/3`, approximating a Gaussian with σ ≈ radius/3 (Wells 1986) — so
+/// `radius = 3σ` yields the spec's σ = 15 px · longEdge/2000.
+pub fn sh_mask_blur_radius(long_edge: usize) -> usize {
+    let sigma = SH_MASK_SIGMA_REF_PX * (long_edge as f32) / SH_MASK_REF_LONG_EDGE;
+    ((3.0 * sigma).round() as usize).max(1)
+}
+
+/// Effective spatial reach of this stage, in pixels per side at the rendered
+/// resolution — FOR THE FUTURE TILE-OVERLAP CALCULATOR (#11 / tone-zoom
+/// design § 5.3): every spatial stage registers `effective_radius(scale)`.
+///
+/// Two cascaded masked steps run when both sliders are active: highlights
+/// blurs the live luma plane (reach ≈ `sh_mask_blur_radius` per side — three
+/// box passes of radius/3 each reach radius/3, summing to ≈ radius), and the
+/// shadows blur then reads the *highlights output*, so the reaches compound
+/// rather than overlap: total = 2 × blur radius.
+pub fn sh_mask_reach_px(long_edge: usize) -> usize {
+    2 * sh_mask_blur_radius(long_edge)
+}
+
+/// Shadows multiplier at luma `y` (#1103, spec § 4.2). `s_amount` = slider/100.
+///
+/// `w_s(Y) = (1 − smoothstep(0, S_T1, Y))²`, `mult = mix(1, exp2(S_GAIN_EV·s),
+/// w_s)` — the squared falloff concentrates the action in the deepest tones
+/// while the wider S_T1 lets it reach real shadows. Sign convention is
+/// UNCHANGED from the pre-#1103 stage: positive lifts (mult > 1), negative
+/// crushes (mult < 1, never ≤ 0 since `exp2 > 0` and `w_s ≤ 1`). Exactly 1.0
+/// at `Y ≥ S_T1` (w_s = 0 ⇒ the mix term vanishes bit-exactly). Monotone in
+/// Y by the S_GAIN_EV bound documented at the constant.
+#[inline]
+fn shadows_mult(y: f32, s_amount: f32) -> f32 {
+    let t = 1.0 - smoothstep(0.0, S_T1, y);
+    let w = t * t;
+    1.0 + ((S_GAIN_EV * s_amount).exp2() - 1.0) * w
+}
+
+/// Highlights multiplier at luma `y` (#1103, spec § 4.2). `h_amount` =
+/// slider/100; `h_denom`/`h_expand` are hoisted by the caller.
+///
+/// Two composed factors, both uniform scalars (hue-preserving):
+///
+/// 1. **Weighted gain** `g = exp2(−H_GAIN_EV · h · w_h(Y))` with
+///    `w_h(Y) = smoothstep(0.4, 1.0, Y)` — this is what makes the slider act
+///    below clip: positive h darkens bright-but-unclipped tones toward the
+///    knee, negative h brightens them. Sign convention UNCHANGED: positive =
+///    recover/compress, negative = gain (matches the pre-#1103 above-knee
+///    directions, so existing sidecars do not invert).
+/// 2. **Above-knee shape** (Y > 1), sign-branched:
+///    - h ≥ 0: the existing `Y' = 1 + (Y−1)/(1 + 2h)` compression is KEPT
+///      (spec: scene range is shaped, never clipped — AgX still owns final
+///      path-to-white).
+///    - h < 0: `Y' = 1 + (Y−1)·(1 + 2|h|)` — the pole-free mirror from
+///      #1081 / PR #1117. The legacy shared denominator crossed zero at
+///      h = −50 (silent identity at exactly −50, ~167× blowups just above,
+///      negative RGB below). Both branch factors are ≥ 1: NO POLE anywhere
+///      in the slider range. Do not collapse the branches back into one
+///      denominator.
+///
+/// Monotone in Y on both signs (see the H_GAIN_EV bound above; above the
+/// knee `w_h ≡ 1` so `g` is constant and the shape term is increasing), and
+/// continuous through the knee (shape → 1 as Y → 1⁺).
+#[inline]
+fn highlights_mult(y: f32, h_amount: f32, h_denom: f32, h_expand: f32) -> f32 {
+    let w = smoothstep(H_W0, H_W1, y);
+    let g = (-H_GAIN_EV * h_amount * w).exp2();
+    let shape = if y > 1.0 {
+        let y_new = if h_amount >= 0.0 {
+            1.0 + (y - 1.0) / h_denom
+        } else {
+            1.0 + (y - 1.0) * h_expand
+        };
+        y_new / y
+    } else {
+        1.0
+    };
+    shape * g
+}
+
+/// Apply a luminance-keyed multiplier through the tonal detail mask
+/// (#1103, spec § 4.2 — RapidRAW-style halo-protected regional response):
+///
+/// ```text
+/// Yb   = gaussian(Y, σ = 15px · longEdge/2000)   // regional luma
+/// edge = |√Y − √Yb|                              // perceptual-ish edge measure
+/// halo = smoothstep(0.05, 0.25, edge)
+/// mult = mix(mult(Yb), mult(Y), halo)            // regional vs per-pixel
+/// ```
+///
+/// In smooth or finely-textured regions the blurred (regional) luma drives
+/// the multiplier — every pixel of a texture patch receives the same gain,
+/// preserving local contrast ratios (pushed shadows stop going muddy). At
+/// strong edges the mask falls back to the per-pixel response, which is what
+/// prevents halos. On a uniform field `Yb == Y` (modulo box-blur float
+/// round-off), the mix degenerates to the per-pixel curve, and the
+/// closed-form grey predictors hold.
+///
+/// `√` operands are clamped at 0: scene-linear buffers legitimately carry
+/// small negatives (this stage must pass them through, see the
+/// `scene_referred_does_not_clip_negatives_introduced_upstream` test) and
+/// `sqrt(-x)` would poison the mask with NaN.
+fn masked_multiplier_pass(img: &mut Image, mult_of_y: impl Fn(f32) -> f32) {
+    let w = img.width as usize;
+    let h = img.height as usize;
+    let luma_plane: Vec<f32> = img
+        .pixels
+        .iter()
+        .map(|p| LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2])
+        .collect();
+    let radius = sh_mask_blur_radius(w.max(h));
+    let yb = gaussian_blur_plane(&luma_plane, w, h, radius);
+
+    for (i, p) in img.pixels.iter_mut().enumerate() {
+        let y = luma_plane[i];
+        let ybi = yb[i];
+        let edge = (y.max(0.0).sqrt() - ybi.max(0.0).sqrt()).abs();
+        let halo = smoothstep(SH_MASK_EDGE0, SH_MASK_EDGE1, edge);
+        let m_regional = mult_of_y(ybi);
+        let m_local = mult_of_y(y);
+        let mult = m_regional + (m_local - m_regional) * halo;
+        p[0] *= mult;
+        p[1] *= mult;
+        p[2] *= mult;
+    }
+}
+
+/// Apply scene-referred tone controls per spec § 3.6 + tone/zoom design
+/// § 4.1–4.2. Steps 1–5b (exposure, brightness, highlights, shadows, whites,
+/// blacks); tone curves (steps 6–7) deferred. Contrast is NOT applied here;
+/// it modulates the AgX sigmoid slope downstream (spec § 3.6a).
+///
+/// Structure (#1103): the point-op steps run in per-pixel loops exactly as
+/// before; highlights and shadows each run as a full-image masked pass (the
+/// detail mask needs a blurred luma plane of the image state ENTERING that
+/// step — blurring per step is what keeps the grey-card predictors a simple
+/// left-to-right composition). Step order and per-step sequential-luma
+/// semantics are unchanged: each step sees the previous step's output.
 pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
 
@@ -55,14 +238,13 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     // gain is `exp2(br_amount · w(Y))` with w the midtone band weight.
     let br_amount = B_STRENGTH * model.brightness / 100.0;
 
-    // Highlights: same h_denom shape as the legacy per-channel version,
-    // applied uniformly to RGB via the luma scale factor (see step 2).
+    // Highlights (#1103): weighted-gain amount + the sign-branched
+    // above-knee factors (see `highlights_mult`).
     let h_amount = model.highlights / 100.0;
-    let h_denom = 1.0 + h_amount * 2.0;
-    // Shadows: unchanged from the original spec — luma-masked
-    // multiplicative lift gated on deep values.
+    let h_denom = 1.0 + h_amount * 2.0; // ≥ 1 whenever the h ≥ 0 branch uses it
+    let h_expand = 1.0 + 2.0 * h_amount.abs(); // ≥ 1, used by the h < 0 branch
+    // Shadows (#1103): see `shadows_mult`.
     let s_amount = model.shadows / 100.0;
-    let s_factor = s_amount * 0.5;
     // Whites: smoothstep-weighted upper-end gain (see step 4).
     let w_amount = model.whites / 200.0;
     // Blacks: smoothstep-weighted toe (see step 5). The amount has two
@@ -70,145 +252,124 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     let b_amount = model.blacks / 100.0; // -1..+1
     let b_add_pos = model.blacks / 400.0; // additive lift amount, positive branch only.
 
-    for p in &mut img.pixels {
-        // 1. Exposure.
-        if apply_exposure {
-            p[0] *= exp_gain;
-            p[1] *= exp_gain;
-            p[2] *= exp_gain;
-        }
+    // 1 + 1b. Exposure, then brightness — point ops.
+    if apply_exposure || apply_brightness {
+        for p in &mut img.pixels {
+            // 1. Exposure.
+            if apply_exposure {
+                p[0] *= exp_gain;
+                p[1] *= exp_gain;
+                p[2] *= exp_gain;
+            }
 
-        // 1b. Brightness — midtone-band gain (#1102, spec § 4.1).
-        //
-        // Moves midtones only, pinning deep shadows and the highlight end:
-        //   Y    = dot(LUMA_REC2020, p)
-        //   w(Y) = smoothstep(0.05, 0.25, Y) · (1 − smoothstep(1.0, 4.0, Y))
-        //   gain = exp2(0.7 · b/100 · w(Y))
-        // Y ≤ 0.05 and Y ≥ 4.0 see gain exactly 1.0 (w = 0), so the
-        // histogram ends stay the blacks/shadows and exposure/highlights
-        // sliders' domain. Hue is preserved by construction: the only
-        // operation on RGB is a uniform scalar multiply.
-        if apply_brightness {
-            let y = LUMA_REC2020[0] * p[0]
-                + LUMA_REC2020[1] * p[1]
-                + LUMA_REC2020[2] * p[2];
-            let w = smoothstep(B_LO0, B_LO1, y) * (1.0 - smoothstep(B_HI0, B_HI1, y));
-            let gain = (br_amount * w).exp2();
-            p[0] *= gain;
-            p[1] *= gain;
-            p[2] *= gain;
-        }
-
-        // 2. Highlights — luminance-coupled soft compression above knee=1.0.
-        //
-        // Pre-fix (#266): compressed each channel independently above the
-        // knee. When a saturated colour had one channel above knee and
-        // others below (e.g. specular red post-WB at [2.0, 0.5, 0.5]),
-        // only R got pulled down while G and B stayed put — the R:G:B
-        // ratio (4:1:1 → 2.67:1:1) shifted, producing a visible hue
-        // rotation on bright saturated regions.
-        //
-        // Post-fix: compute scene-luminance Y = dot(LUMA_REC2020, p), apply
-        // the same denom-rolloff to Y, scale all three channels by
-        // Y_new / Y_old. Below the knee (Y ≤ 1.0) the pixel passes
-        // through unchanged — same behaviour as the legacy code below
-        // the knee. Hue is preserved by construction: the only
-        // operation on RGB is a uniform scalar multiply.
-        if apply_highlights && h_denom.abs() > 1e-6 {
-            let y_old = LUMA_REC2020[0] * p[0]
-                + LUMA_REC2020[1] * p[1]
-                + LUMA_REC2020[2] * p[2];
-            // Skip the case where the pixel has no headroom to compress
-            // (Y ≤ knee) — below the knee the pixel passes through
-            // unchanged. (h_denom ≈ 0 is already guarded above.)
-            if y_old > 1.0 {
-                let y_new = 1.0 + (y_old - 1.0) / h_denom;
-                let scale = y_new / y_old;
-                p[0] *= scale;
-                p[1] *= scale;
-                p[2] *= scale;
+            // 1b. Brightness — midtone-band gain (#1102, spec § 4.1).
+            //
+            // Moves midtones only, pinning deep shadows and the highlight end:
+            //   Y    = dot(LUMA_REC2020, p)
+            //   w(Y) = smoothstep(0.05, 0.25, Y) · (1 − smoothstep(1.0, 4.0, Y))
+            //   gain = exp2(0.7 · b/100 · w(Y))
+            // Y ≤ 0.05 and Y ≥ 4.0 see gain exactly 1.0 (w = 0), so the
+            // histogram ends stay the blacks/shadows and exposure/highlights
+            // sliders' domain. Hue is preserved by construction: the only
+            // operation on RGB is a uniform scalar multiply.
+            if apply_brightness {
+                let y = LUMA_REC2020[0] * p[0]
+                    + LUMA_REC2020[1] * p[1]
+                    + LUMA_REC2020[2] * p[2];
+                let w = smoothstep(B_LO0, B_LO1, y) * (1.0 - smoothstep(B_HI0, B_HI1, y));
+                let gain = (br_amount * w).exp2();
+                p[0] *= gain;
+                p[1] *= gain;
+                p[2] *= gain;
             }
         }
+    }
 
-        // 3. Shadows — luminance-masked lift of deep values.
-        if apply_shadows {
-            let luma = LUMA_REC2020[0] * p[0] + LUMA_REC2020[1] * p[1] + LUMA_REC2020[2] * p[2];
-            let mask = 1.0 - smoothstep(0.0, 0.1, luma);
-            let lift = mask * s_factor;
-            p[0] += p[0] * lift;
-            p[1] += p[1] * lift;
-            p[2] += p[2] * lift;
-        }
+    // 2. Highlights — masked pass (#1103). The luma the multiplier (and its
+    //    regional blur) sees is the post-exposure/brightness state.
+    if apply_highlights {
+        masked_multiplier_pass(img, |y| highlights_mult(y, h_amount, h_denom, h_expand));
+    }
 
-        // 4. Whites — smoothstep-weighted gain near the diffuse-white endpoint.
-        //
-        // Pre-fix (#267): uniform scalar gain `1 + whites/200` brightened
-        // every pixel including mid-gray. The reference renderer's whites slider weights its
-        // action near the upper end of the diffuse-white range and leaves
-        // midtones untouched.
-        //
-        // Post-fix: weight the gain by smoothstep(0.5, 1.0, Y). At Y=0.5
-        // the weight is 0 → gain=1.0 → no change. At Y=1.0+ the weight
-        // saturates to 1 → full whites/200 gain. RGB is scaled uniformly
-        // by the same factor so hue is preserved.
-        if apply_whites {
-            let y_old = LUMA_REC2020[0] * p[0]
-                + LUMA_REC2020[1] * p[1]
-                + LUMA_REC2020[2] * p[2];
-            let w = smoothstep(0.5, 1.0, y_old);
-            let w_gain = 1.0 + w_amount * w;
-            p[0] *= w_gain;
-            p[1] *= w_gain;
-            p[2] *= w_gain;
-        }
+    // 3. Shadows — masked pass (#1103), reading the post-highlights state.
+    if apply_shadows {
+        masked_multiplier_pass(img, |y| shadows_mult(y, s_amount));
+    }
 
-        // 5. Blacks — smoothstep-weighted toe curve.
-        //
-        // Pre-fix (#268): additive shift `p += blacks/400` clamped at
-        // zero. The clamp prevented the magenta-shadow Bug A (negative
-        // scene values funnelling per-channel through AgX), but turned
-        // negative blacks into a hard floor — every pixel below the
-        // threshold collapsed to absolute zero, destroying tonal
-        // contrast.
-        //
-        // Post-fix: parametric toe weighted by w = 1 - smoothstep(0, 0.2, Y).
-        // The weight is 1 near zero, falls to 0 above Y=0.2, so midtones
-        // are untouched in either direction.
-        //
-        // - blacks < 0 (crush): multiplicative compression scaled by w.
-        //   factor = 1 + (blacks/100) * w → in [0, 1] as blacks ranges
-        //   [-100, 0]. p_new = p * factor. Zero stays zero (no negative
-        //   scene values possible), but deep shadows retain a smooth toe
-        //   instead of clipping flat to zero.
-        //
-        // - blacks > 0 (lift): additive shift scaled by w.
-        //   delta = (blacks/400) * w. Preserves the existing positive
-        //   semantics: at Y=0 with blacks=+100, w=1 → delta=0.25 (same
-        //   as the legacy code). Above Y=0.2 the lift dies off so
-        //   midtones aren't pushed up. The asymmetry between the two
-        //   branches (multiplicative crush, additive lift) is
-        //   intentional: a multiplicative lift would no-op p=0, but the
-        //   user expectation for the legacy positive-blacks behaviour is
-        //   that zero pixels lift to a positive value.
-        //
-        // No pixel can go negative scene-linear under either branch.
-        // See investigation spec
-        // .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.
-        if apply_blacks {
-            let y_old = LUMA_REC2020[0] * p[0]
-                + LUMA_REC2020[1] * p[1]
-                + LUMA_REC2020[2] * p[2];
-            let w = 1.0 - smoothstep(0.0, 0.2, y_old);
-            if b_amount < 0.0 {
-                let factor = 1.0 + b_amount * w;
-                p[0] *= factor;
-                p[1] *= factor;
-                p[2] *= factor;
-            } else {
-                let delta = b_add_pos * w;
-                p[0] += delta;
-                p[1] += delta;
-                p[2] += delta;
+    // 4 + 5. Whites, then blacks — point ops (unchanged from pre-#1103).
+    if apply_whites || apply_blacks {
+        for p in &mut img.pixels {
+            // 4. Whites — smoothstep-weighted gain near the diffuse-white
+            // endpoint.
+            //
+            // Pre-fix (#267): uniform scalar gain `1 + whites/200` brightened
+            // every pixel including mid-gray. The reference renderer's whites
+            // slider weights its action near the upper end of the
+            // diffuse-white range and leaves midtones untouched.
+            //
+            // Post-fix: weight the gain by smoothstep(0.5, 1.0, Y). At Y=0.5
+            // the weight is 0 → gain=1.0 → no change. At Y=1.0+ the weight
+            // saturates to 1 → full whites/200 gain. RGB is scaled uniformly
+            // by the same factor so hue is preserved.
+            if apply_whites {
+                let y_old = LUMA_REC2020[0] * p[0]
+                    + LUMA_REC2020[1] * p[1]
+                    + LUMA_REC2020[2] * p[2];
+                let w = smoothstep(0.5, 1.0, y_old);
+                let w_gain = 1.0 + w_amount * w;
+                p[0] *= w_gain;
+                p[1] *= w_gain;
+                p[2] *= w_gain;
+            }
+
+            // 5. Blacks — smoothstep-weighted toe curve.
+            //
+            // Pre-fix (#268): additive shift `p += blacks/400` clamped at
+            // zero. The clamp prevented the magenta-shadow Bug A (negative
+            // scene values funnelling per-channel through AgX), but turned
+            // negative blacks into a hard floor — every pixel below the
+            // threshold collapsed to absolute zero, destroying tonal
+            // contrast.
+            //
+            // Post-fix: parametric toe weighted by w = 1 - smoothstep(0, 0.2, Y).
+            // The weight is 1 near zero, falls to 0 above Y=0.2, so midtones
+            // are untouched in either direction.
+            //
+            // - blacks < 0 (crush): multiplicative compression scaled by w.
+            //   factor = 1 + (blacks/100) * w → in [0, 1] as blacks ranges
+            //   [-100, 0]. p_new = p * factor. Zero stays zero (no negative
+            //   scene values possible), but deep shadows retain a smooth toe
+            //   instead of clipping flat to zero.
+            //
+            // - blacks > 0 (lift): additive shift scaled by w.
+            //   delta = (blacks/400) * w. Preserves the existing positive
+            //   semantics: at Y=0 with blacks=+100, w=1 → delta=0.25 (same
+            //   as the legacy code). Above Y=0.2 the lift dies off so
+            //   midtones aren't pushed up. The asymmetry between the two
+            //   branches (multiplicative crush, additive lift) is
+            //   intentional: a multiplicative lift would no-op p=0, but the
+            //   user expectation for the legacy positive-blacks behaviour is
+            //   that zero pixels lift to a positive value.
+            //
+            // No pixel can go negative scene-linear under either branch.
+            // See investigation spec
+            // .archived-plans/specs/2026-04-26-blacks-clarity-bug-investigation.md.
+            if apply_blacks {
+                let y_old = LUMA_REC2020[0] * p[0]
+                    + LUMA_REC2020[1] * p[1]
+                    + LUMA_REC2020[2] * p[2];
+                let w = 1.0 - smoothstep(0.0, 0.2, y_old);
+                if b_amount < 0.0 {
+                    let factor = 1.0 + b_amount * w;
+                    p[0] *= factor;
+                    p[1] *= factor;
+                    p[2] *= factor;
+                } else {
+                    let delta = b_add_pos * w;
+                    p[0] += delta;
+                    p[1] += delta;
+                    p[2] += delta;
+                }
             }
         }
     }
@@ -218,3 +379,5 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
 mod tests;
 #[cfg(test)]
 mod tests_brightness;
+#[cfg(test)]
+mod tests_sh_mask;
