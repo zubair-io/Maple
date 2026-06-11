@@ -16,6 +16,21 @@ export interface DecodeRequest {
    * The `decode-success` response shape is identical either way (u8 RGB).
    */
   gpu?: boolean;
+  /**
+   * Cap the render's long edge (#1101, spec §5.1): the worker routes to the
+   * sized entry (`render_bytes_sized`), which downsamples right after demosaic
+   * so every later stage runs at the capped size. Never upscales. When set,
+   * the render runs on the threaded-CPU sized path (the editor's 2D
+   * fast/refine phases — the GPU live path uses the persistent session
+   * instead, see `OpenSessionRequest`).
+   */
+  maxLongEdge?: number;
+  /**
+   * Only honoured with `maxLongEdge`: `true` runs the half-res Preview
+   * demosaic (the fast-phase cost profile), `false`/absent runs Full (the
+   * refine phase). The unsized path stays Full-quality, as today.
+   */
+  qualityPreview?: boolean;
 }
 
 export interface DecodeSuccess {
@@ -24,6 +39,14 @@ export interface DecodeSuccess {
   width: number;
   height: number;
   rgb: ArrayBuffer; // transferable RGB bytes (3 * w * h)
+  /**
+   * Oriented dims a full-resolution render of the same RAW would produce.
+   * Equal to `width`/`height` for unsized decodes; a `maxLongEdge` decode
+   * carries the native dims here so the editor keeps its fit/100% zoom math
+   * while holding only a viewport-sized buffer (#1101).
+   */
+  nativeWidth: number;
+  nativeHeight: number;
   /** Camera "As Shot" CCT in Kelvin (rawler-derived). */
   asShotTemperature: number;
   /** Camera "As Shot" tint in slider units (-100..100). */
@@ -161,6 +184,13 @@ export interface DecodedImage {
   rgb: Uint8Array; // view over the transferred buffer
   asShotTemperature: number;
   asShotTint: number;
+  /**
+   * Native oriented dims (see `DecodeSuccess.nativeWidth`). Optional for
+   * back-compat with producers that never size down (non-RAW browser decode,
+   * GPU scope readbacks) — absent means `width`/`height` ARE native.
+   */
+  nativeWidth?: number;
+  nativeHeight?: number;
 }
 
 export interface DecodeSceneLinearRequest {
@@ -174,6 +204,12 @@ export interface DecodeSceneLinearRequest {
    * editor first-paint). `false` runs full-res Full — used for export.
    */
   qualityPreview: boolean;
+  /**
+   * Cap the render's long edge (#1101, spec §5.1): routes to
+   * `render_bytes_scene_linear_sized`, the WASM mirror of the Apple FFI's
+   * `maple_render_bytes_scene_linear_sized`. Never upscales.
+   */
+  maxLongEdge?: number;
 }
 
 export interface DecodeSceneLinearSuccess {
@@ -181,6 +217,9 @@ export interface DecodeSceneLinearSuccess {
   type: 'decode-scene-linear-success';
   width: number;
   height: number;
+  /** Native oriented dims — see `DecodeSuccess.nativeWidth` (#1101). */
+  nativeWidth: number;
+  nativeHeight: number;
   /**
    * Transferable fp16 RGBA buffer. Length is `8 * width * height` bytes
    * (4 channels * 2 bytes per fp16 lane). Alpha lane is fp16 1.0 (0x3c00).
@@ -211,4 +250,7 @@ export interface DecodedSceneLinearImage {
   fp16Rgba: Uint16Array;
   asShotTemperature: number;
   asShotTint: number;
+  /** Native oriented dims (see `DecodedImage.nativeWidth`); optional for back-compat. */
+  nativeWidth?: number;
+  nativeHeight?: number;
 }

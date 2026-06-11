@@ -139,6 +139,8 @@ export class RawPipelineService implements OnDestroy {
           handler.resolve({
             width: msg.width,
             height: msg.height,
+            nativeWidth: msg.nativeWidth,
+            nativeHeight: msg.nativeHeight,
             rgb: new Uint8Array(msg.rgb),
             asShotTemperature: msg.asShotTemperature,
             asShotTint: msg.asShotTint,
@@ -149,6 +151,8 @@ export class RawPipelineService implements OnDestroy {
           handler.resolve({
             width: msg.width,
             height: msg.height,
+            nativeWidth: msg.nativeWidth,
+            nativeHeight: msg.nativeHeight,
             fp16Rgba: new Uint16Array(msg.fp16Rgba),
             asShotTemperature: msg.asShotTemperature,
             asShotTint: msg.asShotTint,
@@ -219,7 +223,45 @@ export class RawPipelineService implements OnDestroy {
     return next;
   }
 
-  private decodeOnce(bytes: Uint8Array, ext: string, xmp?: string): Promise<DecodedImage> {
+  /**
+   * Sized display decode (#1101, spec §5.1): renders capped at `maxLongEdge`
+   * (long edge, real pixels — the caller passes viewport × devicePixelRatio
+   * for the fast phase). Routes the threaded-CPU sized entry
+   * (`render_bytes_sized`); the develop downsamples right after demosaic so
+   * every later stage runs viewport-sized. Never upscales. The reply carries
+   * the NATIVE oriented dims in `nativeWidth`/`nativeHeight` so the caller
+   * keeps its fit/100% zoom math.
+   *
+   * `qualityPreview = true` (the fast phase) runs the half-res Preview
+   * demosaic; `false` (the refine phase) runs Full.
+   *
+   * Non-RAW images decode browser-natively at their full size — they're
+   * already display-encoded and cheap to draw; sizing them is the canvas's
+   * draw transform's job.
+   */
+  decodeSized(
+    bytes: Uint8Array,
+    ext: string,
+    maxLongEdge: number,
+    xmp?: string,
+    qualityPreview: boolean = true,
+  ): Promise<DecodedImage> {
+    if (isNonRawExtension(ext)) {
+      return decodeNonRawToRgb(bytes);
+    }
+    const run = () => this.decodeOnce(bytes, ext, xmp, maxLongEdge, qualityPreview);
+    const next = this.decodeChain.then(run, run);
+    this.decodeChain = next.catch(() => undefined);
+    return next;
+  }
+
+  private decodeOnce(
+    bytes: Uint8Array,
+    ext: string,
+    xmp?: string,
+    maxLongEdge?: number,
+    qualityPreview?: boolean,
+  ): Promise<DecodedImage> {
     let worker: Worker;
     try {
       worker = this.ensureWorker();
@@ -240,7 +282,11 @@ export class RawPipelineService implements OnDestroy {
       xmp,
       // GPU live-render routing (#1029). Only the legacy display-encoded path
       // (this method) participates; the scene-linear WebGL2 path is unchanged.
+      // The worker ignores it for sized requests (they are the editor's 2D
+      // CPU fast/refine phases — the GPU path uses the persistent session).
       gpu: this.gpuLiveRender,
+      maxLongEdge,
+      qualityPreview,
     };
     // Bracket the full decode (post + worker round-trip) with a performance
     // mark so the browser's Performance panel shows a distinct entry per
@@ -292,11 +338,40 @@ export class RawPipelineService implements OnDestroy {
     return next;
   }
 
+  /**
+   * Sized scene-linear decode (#1101, spec §5.1) — the WASM mirror of the
+   * Apple FFI's `maple_render_bytes_scene_linear_sized`: same raw-core path,
+   * downsampled to fit within `maxLongEdge` immediately after demosaic.
+   * Never upscales; the reply carries the native oriented dims. Callers pass
+   * `viewportPx × devicePixelRatio` for a viewport-sized working buffer.
+   *
+   * Same single-in-flight serialization gate as every other decode.
+   */
+  decodeSceneLinearSized(
+    bytes: Uint8Array,
+    ext: string,
+    maxLongEdge: number,
+    xmp?: string,
+    qualityPreview: boolean = true,
+  ): Promise<DecodedSceneLinearImage> {
+    // Non-RAW: browser-native decode at full size (already display-derived
+    // pixels; no RAW develop to cap) — mirrors `decodeSized`.
+    if (isNonRawExtension(ext)) {
+      return decodeNonRawToSceneLinear(bytes);
+    }
+    const run = () =>
+      this.decodeSceneLinearOnce(bytes, ext, xmp, qualityPreview, maxLongEdge);
+    const next = this.decodeChain.then(run, run);
+    this.decodeChain = next.catch(() => undefined);
+    return next;
+  }
+
   private decodeSceneLinearOnce(
     bytes: Uint8Array,
     ext: string,
     xmp: string | undefined,
     qualityPreview: boolean,
+    maxLongEdge?: number,
   ): Promise<DecodedSceneLinearImage> {
     let worker: Worker;
     try {
@@ -316,6 +391,7 @@ export class RawPipelineService implements OnDestroy {
       ext,
       xmp,
       qualityPreview,
+      maxLongEdge,
     };
     performance.mark(`maple:decode-scene-linear:${id}:start`);
     return new Promise<DecodedSceneLinearImage>((resolve, reject) => {

@@ -1,6 +1,11 @@
 /// <reference lib="webworker" />
 
-import { render_bytes, render_bytes_scene_linear } from './pkg/raw_wasm';
+import {
+  render_bytes,
+  render_bytes_scene_linear,
+  render_bytes_scene_linear_sized,
+  render_bytes_sized,
+} from './pkg/raw_wasm';
 // Namespace import so the gpu-gated `render_bytes_gpu` + `WebLiveSession` (epic
 // #925, P4b-web / #1029, #1038) can be accessed DYNAMICALLY: they exist only in
 // the `gpu`-feature WASM build, so a named import would break the default (gpu-off)
@@ -121,6 +126,12 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
   try {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
+    // Sized decode (#1101, spec §5.1): a `maxLongEdge` request routes to the
+    // threaded-CPU sized entry — the editor's 2D fast/refine phases. It never
+    // routes GPU: the GPU live path renders through the persistent session
+    // (`WebLiveSession`), and the one-shot `render_bytes_gpu` has no sized
+    // variant (it exists as the W1 parity gate / session fallback).
+    const sized = req.maxLongEdge !== undefined && req.maxLongEdge > 0;
     // Route through the GPU live chain (#1029) only when ALL hold:
     //   1. the request opts in (`req.gpu`, set from `GPU_LIVE_RENDER_ENABLED` —
     //      the operator on/off switch);
@@ -133,11 +144,13 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
     //   3. the loaded bundle actually exports `render_bytes_gpu` (the `gpu`
     //      feature). Belt-and-braces — false against a hypothetical gpu-off
     //      bundle, true here.
-    const gpuFn = req.gpu && 'gpu' in navigator ? gpuEntry() : null;
+    const gpuFn = !sized && req.gpu && 'gpu' in navigator ? gpuEntry() : null;
     // Worker-local mark so DevTools' Performance panel shows the WASM render
     // call as a distinct entry independent of the main-thread round-trip the
-    // service brackets. The mark name distinguishes the GPU path for profiling.
-    const markTag = gpuFn ? 'maple:wasm-gpu' : 'maple:wasm';
+    // service brackets. The mark name distinguishes the GPU/sized paths for
+    // profiling (the sized tag carries the cap so a viewport-sized fast phase
+    // is visible as evidence in the timeline).
+    const markTag = gpuFn ? 'maple:wasm-gpu' : sized ? `maple:wasm-sized:${req.maxLongEdge}` : 'maple:wasm';
     performance.mark(`maple:wasm:${req.id}:start`);
     let result;
     if (gpuFn) {
@@ -158,6 +171,16 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
         );
         result = render_bytes(bytes, req.ext, req.xmp ?? null);
       }
+    } else if (sized) {
+      // Viewport-sized CPU render (#1101): post-demosaic stages run at the
+      // capped size; `full_width`/`full_height` carry the native dims.
+      result = render_bytes_sized(
+        bytes,
+        req.ext,
+        req.xmp ?? null,
+        req.qualityPreview ?? false,
+        req.maxLongEdge as number,
+      );
     } else {
       // Unchanged threaded-CPU path — byte-for-byte today's no-GPU behaviour.
       result = render_bytes(bytes, req.ext, req.xmp ?? null);
@@ -171,6 +194,8 @@ async function handleLegacyDecode(req: DecodeRequest): Promise<void> {
       type: 'decode-success',
       width: result.width,
       height: result.height,
+      nativeWidth: result.full_width,
+      nativeHeight: result.full_height,
       rgb: buffer,
       asShotTemperature: result.as_shot_temperature,
       asShotTint: result.as_shot_tint,
@@ -198,12 +223,24 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
   try {
     await ensureReady();
     const bytes = new Uint8Array(req.bytes);
+    const sized = req.maxLongEdge !== undefined && req.maxLongEdge > 0;
     // Worker-local mark mirrors the legacy `maple:wasm` perf entry.
     performance.mark(`maple:wasm-scene-linear:${req.id}:start`);
-    const result = render_bytes_scene_linear(bytes, req.ext, req.xmp ?? null, req.qualityPreview);
+    // Sized routing (#1101, spec §5.1): `render_bytes_scene_linear_sized` is
+    // the WASM mirror of the Apple FFI's `maple_render_bytes_scene_linear_sized`
+    // (same raw-core path — downsample lands right after demosaic).
+    const result = sized
+      ? render_bytes_scene_linear_sized(
+          bytes,
+          req.ext,
+          req.xmp ?? null,
+          req.qualityPreview,
+          req.maxLongEdge as number,
+        )
+      : render_bytes_scene_linear(bytes, req.ext, req.xmp ?? null, req.qualityPreview);
     performance.mark(`maple:wasm-scene-linear:${req.id}:end`);
     performance.measure(
-      `maple:wasm-scene-linear`,
+      sized ? `maple:wasm-scene-linear-sized:${req.maxLongEdge}` : `maple:wasm-scene-linear`,
       `maple:wasm-scene-linear:${req.id}:start`,
       `maple:wasm-scene-linear:${req.id}:end`,
     );
@@ -219,6 +256,8 @@ async function handleSceneLinearDecode(req: DecodeSceneLinearRequest): Promise<v
       type: 'decode-scene-linear-success',
       width: result.width,
       height: result.height,
+      nativeWidth: result.full_width,
+      nativeHeight: result.full_height,
       fp16Rgba: buffer,
       asShotTemperature: result.as_shot_temperature,
       asShotTint: result.as_shot_tint,
