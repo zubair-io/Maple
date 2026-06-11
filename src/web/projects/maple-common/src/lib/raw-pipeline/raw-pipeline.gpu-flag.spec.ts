@@ -46,6 +46,8 @@ function replyOnePixel(stub: WorkerStub, id: number): void {
     type: 'decode-success',
     width: 1,
     height: 1,
+    nativeWidth: 1,
+    nativeHeight: 1,
     rgb: rgb.buffer,
     asShotTemperature: 5500,
     asShotTint: 0,
