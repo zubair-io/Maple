@@ -21,6 +21,12 @@ const MIN_FOCAL_PX: f64 = 8.0;
 /// improvable at working precision and the loop reports `converged:
 /// false` honestly.
 const LAMBDA_MAX: f64 = 1e16;
+/// Absolute robust-cost floor (px² units). At or below this the
+/// residuals are numerical noise — mean block residuals well under
+/// 1e-8 px — and the relative-improvement criterion can never fire
+/// (it scales with the near-zero cost), so the loop would grind out
+/// noise-level "improvements". Stop immediately instead.
+const COST_ABS_FLOOR: f64 = 1e-16;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LmOptions {
@@ -70,7 +76,7 @@ pub(crate) fn minimize(
         final_cost: initial_cost,
         converged: false,
     };
-    if layout.n_params == 0 || blocks.is_empty() {
+    if layout.n_params == 0 || blocks.is_empty() || initial_cost <= COST_ABS_FLOOR {
         summary.converged = true;
         return summary;
     }
@@ -119,7 +125,8 @@ pub(crate) fn minimize(
         *state = next;
         cost = next_cost;
         summary.final_cost = cost;
-        if improvement <= opts.cost_rel_tol * cost.max(f64::MIN_POSITIVE)
+        if cost <= COST_ABS_FLOOR
+            || improvement <= opts.cost_rel_tol * cost.max(f64::MIN_POSITIVE)
             || step_norm <= opts.step_tol
         {
             summary.converged = true;
