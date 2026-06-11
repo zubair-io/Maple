@@ -53,6 +53,9 @@ impl Default for LmOptions {
 #[derive(Debug, Clone)]
 pub(crate) struct LmSummary {
     pub iterations: usize,
+    /// Diagnostic; read by the lm unit tests and kept for debugging —
+    /// the lib build alone has no reader.
+    #[allow(dead_code)]
     pub initial_cost: f64,
     pub final_cost: f64,
     pub converged: bool,
@@ -189,10 +192,7 @@ mod tests {
 
     /// Two-camera fixture with exact correspondences: LM must pull a
     /// perturbed second camera back onto the ground truth.
-    fn two_camera_problem(
-        k1: f64,
-        k2: f64,
-    ) -> (Vec<Block>, Vec<FrameMeta>, State, Mat3) {
+    fn two_camera_problem(k1: f64, k2: f64) -> (Vec<Block>, Vec<FrameMeta>, State, Mat3) {
         let gt_rot1 = axis_angle_to_matrix([0.04, 0.5, -0.03]);
         let cam0 = Camera::new([0.0; 3], 700.0, k1, k2, 1024, 768);
         let cam1 = Camera::new(matrix_to_axis_angle(&gt_rot1), 700.0, k1, k2, 1024, 768);
@@ -225,8 +225,14 @@ mod tests {
         }
         assert!(blocks.len() > 100, "fixture overlap too small");
         let frames = vec![
-            FrameMeta { cx: 512.0, cy: 384.0 },
-            FrameMeta { cx: 512.0, cy: 384.0 },
+            FrameMeta {
+                cx: 512.0,
+                cy: 384.0,
+            },
+            FrameMeta {
+                cx: 512.0,
+                cy: 384.0,
+            },
         ];
         let state = State {
             rotations: vec![Mat3::identity(), gt_rot1],
@@ -243,9 +249,7 @@ mod tests {
         let (blocks, frames, gt_state, gt_rot1) = two_camera_problem(-0.05, 0.01);
         let mut state = gt_state.clone();
         // 8° perturbation on camera 1.
-        state.rotations[1] = state.rotations[1].mul_mat(&axis_angle_to_matrix([
-            0.1, -0.05, 0.06,
-        ]));
+        state.rotations[1] = state.rotations[1].mul_mat(&axis_angle_to_matrix([0.1, -0.05, 0.06]));
         let layout = ParamLayout::rotations_only(2, 0);
         let summary = minimize(
             &blocks,
@@ -267,8 +271,7 @@ mod tests {
     fn recovers_focal_and_distortion_jointly() {
         let (blocks, frames, gt_state, _) = two_camera_problem(-0.06, 0.02);
         let mut state = gt_state.clone();
-        state.rotations[1] =
-            state.rotations[1].mul_mat(&axis_angle_to_matrix([0.02, -0.03, 0.01]));
+        state.rotations[1] = state.rotations[1].mul_mat(&axis_angle_to_matrix([0.02, -0.03, 0.01]));
         state.shared_focal = 660.0; // ~6% off
         state.k1 = 0.0;
         state.k2 = 0.0;
@@ -303,7 +306,14 @@ mod tests {
             n_params: 0,
         };
         let before = state.clone();
-        let summary = minimize(&blocks, &frames, &mut state, &layout, 2.0, &LmOptions::default());
+        let summary = minimize(
+            &blocks,
+            &frames,
+            &mut state,
+            &layout,
+            2.0,
+            &LmOptions::default(),
+        );
         assert!(summary.converged);
         assert_eq!(summary.iterations, 0);
         assert!(state.rotations[1].max_abs_diff(&before.rotations[1]) == 0.0);
@@ -313,9 +323,20 @@ mod tests {
     fn already_optimal_state_converges_immediately() {
         let (blocks, frames, mut state, _) = two_camera_problem(-0.05, 0.01);
         let layout = ParamLayout::full(2, 0, &[]);
-        let summary = minimize(&blocks, &frames, &mut state, &layout, 2.0, &LmOptions::default());
+        let summary = minimize(
+            &blocks,
+            &frames,
+            &mut state,
+            &layout,
+            2.0,
+            &LmOptions::default(),
+        );
         assert!(summary.converged);
         assert!(summary.final_cost <= summary.initial_cost);
-        assert!(summary.iterations <= 3, "took {} iterations", summary.iterations);
+        assert!(
+            summary.iterations <= 3,
+            "took {} iterations",
+            summary.iterations
+        );
     }
 }

@@ -246,11 +246,7 @@ mod tests {
     fn gt_rotations(n: usize) -> Vec<Mat3> {
         (0..n)
             .map(|i| {
-                axis_angle_to_matrix([
-                    0.02 * i as f64,
-                    0.4 * i as f64,
-                    -0.03 * (i % 3) as f64,
-                ])
+                axis_angle_to_matrix([0.02 * i as f64, 0.4 * i as f64, -0.03 * (i % 3) as f64])
             })
             .collect()
     }
@@ -333,8 +329,7 @@ mod tests {
         // (exact inputs), even with priors missing on some frames.
         let gt = gt_rotations(4);
         let gauge = gt[0].transpose();
-        let mut rotations: Vec<Option<Mat3>> =
-            gt.iter().map(|r| Some(gauge.mul_mat(r))).collect();
+        let mut rotations: Vec<Option<Mat3>> = gt.iter().map(|r| Some(gauge.mul_mat(r))).collect();
         let priors = vec![Some(gt[0]), None, Some(gt[2]), None];
         let g = align_gauge_to_priors(&mut rotations, &priors).expect("well-posed");
         // G must invert the gauge.
