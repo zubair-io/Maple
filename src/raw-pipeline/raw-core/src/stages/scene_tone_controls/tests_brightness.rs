@@ -34,7 +34,7 @@ fn fresh_img(value: [f32; 3]) -> Image {
 #[test]
 fn brightness_zero_is_exact_noop() {
     // The b=0 case must be bit-identical (whole-stage short-circuit) so
-    // zero harness numbers move when the field ships.
+    // no harness numbers move when the field ships.
     let mut img = fresh_img([0.3, 0.4, 0.5]);
     let mut m = model_default();
     m.brightness = 0.0;
