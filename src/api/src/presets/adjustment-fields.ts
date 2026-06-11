@@ -52,6 +52,8 @@ export const NUMERIC_FIELD_RANGES: Readonly<Record<string, readonly [number, num
   // Decode-time chroma pre-filter (#1104) — decode-product field; tail
   // position mirrors the generated module.
   chroma_prefilter: [0.0, 100.0],
+  // BM3D deep denoise (#1105) — decode-product field.
+  deep_denoise: [0.0, 100.0],
   dehaze: [-100.0, 100.0],
   vignette_amount: [-100.0, 100.0],
   vignette_feather: [0.0, 100.0],
