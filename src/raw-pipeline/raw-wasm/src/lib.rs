@@ -79,11 +79,15 @@ impl MapleRender {
     /// without naming the private fields across the submodule boundary. wasm-only
     /// with `render_bytes_gpu` itself (the native host parity test drives
     /// `render_gpu_core`, which returns a raw `(w, h, Vec<u8>)`). The GPU
-    /// one-shot renders full resolution, so `full_*` == the buffer dims.
+    /// one-shot develops fit to a viewport target (#1080), so the caller passes
+    /// the NATIVE oriented dims (`native_render_dims`) for `full_*` explicitly —
+    /// the same contract `render_bytes_sized` fills (#1101).
     #[cfg(all(feature = "gpu", target_arch = "wasm32"))]
     pub(crate) fn new(
         width: u32,
         height: u32,
+        full_width: u32,
+        full_height: u32,
         rgb: Vec<u8>,
         as_shot_temperature: f32,
         as_shot_tint: f32,
@@ -91,8 +95,8 @@ impl MapleRender {
         Self {
             width,
             height,
-            full_width: width,
-            full_height: height,
+            full_width,
+            full_height,
             rgb,
             as_shot_temperature,
             as_shot_tint,
@@ -115,8 +119,17 @@ impl MapleRender {
     pub fn full_width(&self) -> u32 { self.full_width }
     #[wasm_bindgen(getter)]
     pub fn full_height(&self) -> u32 { self.full_height }
+    /// RGB bytes (3 per pixel). **Clones the full frame on every JS access**
+    /// (the wasm-side buffer stays alive alongside the JS copy until `free()` /
+    /// GC) — prefer the consuming [`MapleRender::take_rgb`] when the render is
+    /// only read once (#1080).
     #[wasm_bindgen(getter)]
     pub fn rgb(&self) -> Vec<u8> { self.rgb.clone() }
+    /// Consume the RGB buffer WITHOUT cloning: moves the bytes out to JS and
+    /// leaves an empty buffer behind, so peak memory is one frame, not two
+    /// (#1080). The scalar getters (`width`/`height`/As-Shot WB) stay valid
+    /// after the take; a subsequent `rgb`/`take_rgb` returns an empty array.
+    pub fn take_rgb(&mut self) -> Vec<u8> { std::mem::take(&mut self.rgb) }
     /// Camera-side "As Shot" correlated colour temperature in Kelvin, as
     /// determined by rawler from the RAW metadata. When the RAW lacks an
     /// explicit CCT we fall back to 6500K (D65) so callers always get a
@@ -307,8 +320,17 @@ impl MapleSceneLinearRender {
     /// fp16 RGBA lanes (4 channels, 2 bytes per lane). Length is always
     /// `4 * width * height`. Alpha lane is fp16 1.0 (`0x3c00`).
     /// Returned as `Uint16Array` over the WASM heap on the JS side.
+    /// **Clones the full frame on every JS access** (the wasm-side buffer stays
+    /// alive alongside the JS copy until `free()` / GC) — prefer the consuming
+    /// [`MapleSceneLinearRender::take_fp16_rgba`] when the render is only read
+    /// once (#1080).
     #[wasm_bindgen(getter)]
     pub fn fp16_rgba(&self) -> Vec<u16> { self.fp16_rgba.clone() }
+    /// Consume the fp16 RGBA buffer WITHOUT cloning: moves the lanes out to JS
+    /// and leaves an empty buffer behind, so peak memory is one frame, not two
+    /// (#1080). The scalar getters stay valid after the take; a subsequent
+    /// `fp16_rgba`/`take_fp16_rgba` returns an empty array.
+    pub fn take_fp16_rgba(&mut self) -> Vec<u16> { std::mem::take(&mut self.fp16_rgba) }
     /// Bytes per pixel — always 8. Exposed for symmetry with Apple's
     /// `MapleSceneLinearBuffer.bytes_per_pixel` so future bit-depth
     /// changes (HDR / fp32) don't break the JS consumer.

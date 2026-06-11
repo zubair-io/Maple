@@ -306,10 +306,9 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
         const _____ = this.wrapW();
         const ______ = this.wrapH();
         const _______ = this.imageBitmap();
-        const ________ = this.gpuPresent.active();
-        // On the GPU live path the OffscreenCanvas holds the pixels (worker-owned);
-        // we only CSS-position/scale it here (the surface is image-res). The 2D
-        // `draw()` is for the flag-off / mock / before-after path.
+        // `gpuPresent.active()` is tracked via the branch read below. On the GPU
+        // live path the OffscreenCanvas holds the pixels (worker-owned); we only
+        // CSS-position/scale it (viewport-res, #1080). `draw()` = flag-off path.
         if (this.gpuPresent.active()) {
           this.gpuPresent.applyView();
         } else {
@@ -323,8 +322,8 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     // Zooming in (or growing the viewport) raises the refine target above what
     // the canvas currently shows — schedule a refine pass for the CURRENT
     // model so the zoomed view sharpens up to `native × min(scale, 1)` without
-    // requiring an edit (#1101). Debounced like the edit refine so a zoom
-    // burst coalesces. The GPU path presents full-res and never needs this.
+    // requiring an edit (#1101). Debounced like the edit refine so a zoom burst
+    // coalesces. GPU live path: no refine (viewport-sized #1080; CSS-upscales).
     const refineViewEff = effect(
       () => {
         const _ = this.canvasSvc.pixelScale();
@@ -360,14 +359,12 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     this.imageBitmap()?.close();
   }
 
-  // ── Render-target math (#1101, docs/zoom.md) ──────────────────────────────
-  // Pure formulas live in `image-canvas.draw2d.ts`; these wrappers wire the
-  // component's signals into them.
+  // ── Render-target math (#1101, docs/zoom.md): pure formulas live in
+  // `image-canvas.draw2d.ts`; these wrappers wire the signals into them.
 
-  // Fast-phase target: viewport long edge in real px (CSS × dpr), floored at
-  // 1 — a degenerate wrap renders a tiny buffer, never a full-res decode.
+  // Fast-phase target: the viewport long edge, floored at 1 (degenerate wrap).
   private fastTargetPx(): number {
-    return computeViewportTargetLongEdge(this.wrapW(), this.wrapH()) ?? 1;
+    return this.viewportTargetLongEdge() ?? 1;
   }
 
   /** Refine-phase target — see `computeRefineTargetLongEdge`. */
@@ -396,15 +393,9 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
     // GPU live-render path (#1038): persistent worker session presenting to an
     // OffscreenCanvas; any failure falls back to the 2D decode path below.
     if (this.gpuPresent.enabled && !isNonRawExtension(ext)) {
-      const ok = await this.gpuPresent.open(assetId, bytes, ext);
-      if (ok) {
-        // The session is full-res; record native dims for the zoom math.
-        const a = this.state.focusedAsset();
-        if (a && a.id === assetId && a.width && a.height) {
-          this.nativeDims.set({ w: a.width, h: a.height });
-        }
-        return;
-      }
+      // A successful open recorded the reply's NATIVE dims (asset + `nativeDims`
+      // via `recordNativeDims`) — the session itself is viewport-sized (#1080).
+      if (await this.gpuPresent.open(assetId, bytes, ext)) return;
       // GPU open failed (e.g. non-gpu bundle / no WebGPU) — fall through to 2D.
     }
 
@@ -483,9 +474,8 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   }
 
   // ── GpuPresentHost ───────────────────────────────────────────────────────
-  // The GPU present helper reaches `state`/`canvasSvc`/`loading`/`imageBitmap`/
-  // `xmpSerializer` directly (all public above); only the cold-open gate and the
-  // CSS layout (composed from the private `effectivePx`) need a method here.
+  // The helper reaches the public signals/services above directly; the gate,
+  // CSS layout, develop target (#1080) + native-dims record need methods here.
 
   /** Open the adjustment-effect gate once the GPU cold-open has presented. */
   markColdOpenDone(): void {
@@ -496,6 +486,16 @@ export class ImageCanvasComponent implements AfterViewInit, OnDestroy, GpuPresen
   currentLayout(): { canvasW: number; canvasH: number; pan: { x: number; y: number } } {
     const { canvasW, canvasH } = this.effectivePx();
     return { canvasW, canvasH, pan: this.canvasSvc.pan() };
+  }
+
+  /** GPU develop target (#1080): viewport long edge in real px; `undefined` → WASM's 2048 cap. */
+  viewportTargetLongEdge(): number | undefined {
+    return computeViewportTargetLongEdge(this.wrapW(), this.wrapH());
+  }
+
+  /** Record the session reply's native dims (#1080) for the refine/zoom math. */
+  recordNativeDims(w: number, h: number): void {
+    if (w && h) this.nativeDims.set({ w, h });
   }
 
   /**
