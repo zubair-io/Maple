@@ -41,8 +41,8 @@ if ! merge_base="$(git merge-base "$base_ref" HEAD 2>/dev/null)"; then
   exit 1
 fi
 
-raw="$(mktemp)"
-list="$(mktemp)"
+raw="$(mktemp "${TMPDIR:-/tmp}/maple-format-raw.XXXXXX")"
+list="$(mktemp "${TMPDIR:-/tmp}/maple-format-list.XXXXXX")"
 trap 'rm -f "$raw" "$list"' EXIT
 
 # Changed tracked files (merge base -> working tree) + untracked files.
