@@ -70,6 +70,7 @@ use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::grain::GrainPass;
+use crate::hsl::HslPass;
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
@@ -122,6 +123,12 @@ pub struct FullChainInputs {
     pub tone_curves: ToneCurveInputs,
     pub vibrance: f32,
     pub saturation: f32,
+    /// HSL 8-band sliders (#1112): per-band hue/sat/lum in [-100, 100].
+    /// Scene-linear Oklab — positioned after saturation, before clarity.
+    /// Order: Red, Orange, Yellow, Green, Aqua, Blue, Purple, Magenta.
+    pub hsl_hue: [f32; 8],
+    pub hsl_sat: [f32; 8],
+    pub hsl_lum: [f32; 8],
     pub clarity: f32,
     pub texture: f32,
     pub dehaze: f32,
@@ -217,6 +224,12 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
     }));
     prefix.push(Box::new(SaturationPass {
         saturation: inputs.saturation,
+    }));
+    // HSL (#1112) — scene-linear, after saturation, before clarity.
+    prefix.push(Box::new(HslPass {
+        hue: inputs.hsl_hue,
+        sat: inputs.hsl_sat,
+        lum: inputs.hsl_lum,
     }));
     prefix.push(Box::new(ClarityPass {
         clarity: inputs.clarity,
