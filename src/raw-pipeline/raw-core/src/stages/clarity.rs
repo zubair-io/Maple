@@ -39,9 +39,15 @@ const CLARITY_EPS: f32 = 1e-3;
 /// SceneToneControls Metal shader and the WebGL port.
 const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 
-/// Numerical floor for the luma-ratio rescale (avoids div-by-zero on
-/// pure-black pixels). Matches the constant in the Apple SceneClarity.metal
-/// (`LUMA_FLOOR_C = 1e-6`).
+/// Identity threshold for the luma-ratio rescale (#1088). Pixels with
+/// `luma <= LUMA_FLOOR` (including negative luma from mixed-sign
+/// scene-linear channels) pass through unchanged — below the floor the
+/// `boost / luma` quotient stops being a ratio (the old
+/// `boost / luma.max(LUMA_FLOOR)` form pinned the divisor at 1e-6 while
+/// `boost` tracked the neighbourhood base, so a near-black pixel beside
+/// bright content at clarity +100 got `scale ≈ -0.3 / 1e-6 ≈ -3e5` —
+/// mixed-sign speckle near hard edges). Matches the `LUMA_FLOOR` constant
+/// in the raw-gpu WGSL recombine (`guided_combine.wgsl`).
 const LUMA_FLOOR: f32 = 1e-6;
 
 /// Luminance-preserving local-contrast enhancement at the structure
@@ -53,7 +59,7 @@ const LUMA_FLOOR: f32 = 1e-6;
 ///   base   = guided_filter(guide=luma, p=luma, r=20, eps=1e-3)
 ///   detail = luma - base
 ///   boost  = luma + detail * amount       (amount = clarity / 100)
-///   scale  = boost / max(luma, LUMA_FLOOR)
+///   scale  = boost / luma                 (identity when luma <= LUMA_FLOOR)
 ///   out    = rgb * scale
 ///
 /// Why guided filter (#264): the previous implementation built `base`
@@ -101,9 +107,19 @@ pub fn apply(img: &mut Image, clarity: f32) {
 
     for (i, p) in img.pixels.iter_mut().enumerate() {
         let luma = luma_plane[i];
+        // Identity at/below the luma floor (#1088) — the tone_curves
+        // convention. The quotient below is only a luma RATIO when the
+        // divisor is the pixel's own luma; pinning the divisor at the
+        // floor (the old `.max(LUMA_FLOOR)` form) made near-black pixels
+        // beside bright content explode to `scale ≈ -base / 1e-6`.
+        // Pixels above the floor divide by `luma` directly, which is
+        // bit-identical to the old `luma.max(LUMA_FLOOR)` there.
+        if luma <= LUMA_FLOOR {
+            continue;
+        }
         let detail = luma - base[i];
         let boost = luma + detail * amount;
-        let scale = boost / luma.max(LUMA_FLOOR);
+        let scale = boost / luma;
         p[0] *= scale;
         p[1] *= scale;
         p[2] *= scale;
@@ -330,6 +346,78 @@ mod tests {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// #1088 regression — the luma-floor blowup. Two pixels sit inside a
+    /// bright 0.8 field at clarity +100:
+    ///
+    /// * a sub-floor pixel whose luma is +5e-7 (≤ LUMA_FLOOR) but whose
+    ///   channels are NOT tiny (mixed-sign scene-linear speckle — R=0.1,
+    ///   G≈-0.039). Pre-fix, the pinned divisor gave
+    ///   `scale = boost / 1e-6 ≈ -1.8e5` and R exploded to ≈ -1.8e4 —
+    ///   four orders of magnitude outside the input range.
+    /// * a negative-luma pixel (legitimate scene-linear data — demosaic
+    ///   ringing / WB deltas produce mixed-sign channels).
+    ///
+    /// Post-fix both pass through bit-identically (identity below the
+    /// floor, the tone_curves convention), and every output channel in
+    /// the image stays bounded by a small multiple of the input range.
+    #[test]
+    fn near_black_beside_bright_is_identity_not_speckle() {
+        let w = 48usize;
+        let h = 8usize;
+        let mut img = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels {
+            *p = [0.8, 0.8, 0.8];
+        }
+        // Solve G so luma lands at +5e-7 — strictly positive, below the
+        // 1e-6 floor, with non-tiny channel magnitudes.
+        let r = 0.1f32;
+        let b = 0.0f32;
+        let g = (5e-7 - LUMA_REC2020[0] * r - LUMA_REC2020[2] * b) / LUMA_REC2020[1];
+        let sub_floor = [r, g, b];
+        let sub_floor_luma =
+            LUMA_REC2020[0] * r + LUMA_REC2020[1] * g + LUMA_REC2020[2] * b;
+        assert!(
+            sub_floor_luma > 0.0 && sub_floor_luma <= LUMA_FLOOR,
+            "fixture bug: luma {} not in (0, LUMA_FLOOR]",
+            sub_floor_luma
+        );
+        let neg_luma = [0.05f32, -0.05, 0.01];
+        let neg_luma_y = LUMA_REC2020[0] * neg_luma[0]
+            + LUMA_REC2020[1] * neg_luma[1]
+            + LUMA_REC2020[2] * neg_luma[2];
+        assert!(neg_luma_y < 0.0, "fixture bug: luma {} not negative", neg_luma_y);
+
+        let i_sub = 4 * w + 10;
+        let i_neg = 4 * w + 30;
+        img.pixels[i_sub] = sub_floor;
+        img.pixels[i_neg] = neg_luma;
+
+        apply(&mut img, 100.0);
+
+        // Guarded pixels are identity — bit-identical pass-through.
+        assert_eq!(
+            img.pixels[i_sub], sub_floor,
+            "sub-floor-luma pixel must pass through identity"
+        );
+        assert_eq!(
+            img.pixels[i_neg], neg_luma,
+            "negative-luma pixel must pass through identity"
+        );
+        // Bounded everywhere: no |value| anywhere near the pre-fix -1.8e4
+        // speckle. 8.0 is a generous ceiling for a [≈-0.05, 0.8] input
+        // under clarity +100.
+        for (i, p) in img.pixels.iter().enumerate() {
+            for &c in p {
+                assert!(
+                    c.is_finite() && c.abs() <= 8.0,
+                    "pixel {} blew past the input range: {:?}",
+                    i,
+                    p
+                );
             }
         }
     }

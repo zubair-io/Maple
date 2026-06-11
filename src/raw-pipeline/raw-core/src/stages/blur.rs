@@ -275,7 +275,14 @@ pub(crate) fn guided_filter(
         .into_par_iter()
         .map(|i| {
             let cov_ip = mean_ip[i] - mean_i[i] * mean_p[i];
-            let var_i = mean_ii[i] - mean_i[i] * mean_i[i];
+            // Variance can never be physically negative — clamp the
+            // box-mean roundoff at zero (#1088), mirroring the sibling
+            // at `stages::guided`. Without the clamp, scene-linear luma
+            // ≫ 1 makes the `mean_ii - mean_i²` cancellation error
+            // comparable to `eps`, which can flip the `var_i + eps`
+            // denominator sign and blow `a_i` up unboundedly in flat
+            // bright regions.
+            let var_i = (mean_ii[i] - mean_i[i] * mean_i[i]).max(0.0);
             let a_i = cov_ip / (var_i + eps);
             let b_i = mean_p[i] - a_i * mean_i[i];
             (a_i, b_i)
@@ -440,6 +447,34 @@ mod tests {
         let edge_right = out[3 * w + (w / 2)];
         assert!(edge_right - edge_left > 0.3,
             "edge contrast collapsed: {} -> {}", edge_left, edge_right);
+    }
+
+    /// #1088 — the negative-variance clamp's regime: scene-linear luma
+    /// ≫ 1, where the `mean_ii - mean_i²` cancellation runs at the same
+    /// magnitude as `eps` and box-mean roundoff can drive the computed
+    /// variance negative. On a flat bright plane the guided filter must
+    /// stay (a) finite and (b) within a tight relative band of the input
+    /// — a sign-flipped `var_i + eps` denominator violates both. This
+    /// pins the invariant; the clamp itself is structurally provable
+    /// (variance is a square, physically ≥ 0).
+    #[test]
+    fn self_guided_flat_bright_plane_stays_flat_and_finite() {
+        let w = 64usize;
+        let h = 64usize;
+        // Non-round value so the box-blur accumulators actually round.
+        let level = 3000.7f32;
+        let p = vec![level; w * h];
+        let out = guided_filter(&p, &p, w, h, 5, 1e-3);
+        for (i, &v) in out.iter().enumerate() {
+            assert!(v.is_finite(), "index {} non-finite: {}", i, v);
+            assert!(
+                (v - level).abs() / level < 1e-2,
+                "index {} drifted off the flat {}: {}",
+                i,
+                level,
+                v
+            );
+        }
     }
 
     #[test]

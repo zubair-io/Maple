@@ -18,6 +18,7 @@
 //! doc-comment for the rationale.
 
 use super::{
+    finite_or_zero,
     fp16::{f16_bits_to_f32, f32_to_f16_bits},
     stage,
 };
@@ -192,13 +193,16 @@ pub fn apply_scene_linear_chain(
     }
 
     // Pack post-AgX (DisplayLinearRec2020, [0,1]) back to fp16 RGBA.
+    // `finite_or_zero` scrubs NaN/Inf at the pack endcap (#1088) —
+    // `f32_to_f16_bits` preserves NaN by design, and the caller hands
+    // these lanes straight to a GPU texture.
     let fp16 = stage("ffi_chain_pack_fp16", || {
         let mut v: Vec<u16> = Vec::with_capacity(pixel_count * 4);
         let alpha_one = f32_to_f16_bits(1.0);
         for p in &img.pixels {
-            v.push(f32_to_f16_bits(p[0]));
-            v.push(f32_to_f16_bits(p[1]));
-            v.push(f32_to_f16_bits(p[2]));
+            v.push(f32_to_f16_bits(finite_or_zero(p[0])));
+            v.push(f32_to_f16_bits(finite_or_zero(p[1])));
+            v.push(f32_to_f16_bits(finite_or_zero(p[2])));
             v.push(alpha_one);
         }
         v
@@ -322,13 +326,14 @@ pub fn apply_scene_linear_chain_f32(
     }
 
     // Pack post-AgX (DisplayLinearRec2020, [0,1]) back to f32 RGBA.
-    // Alpha is always 1.0 — see fp16 sibling's contract.
+    // Alpha is always 1.0 — see fp16 sibling's contract. `finite_or_zero`
+    // scrubs NaN/Inf at the pack endcap (#1088).
     let out = stage("ffi_chain_pack_f32", || {
         let mut v: Vec<f32> = Vec::with_capacity(pixel_count * 4);
         for p in &img.pixels {
-            v.push(p[0]);
-            v.push(p[1]);
-            v.push(p[2]);
+            v.push(finite_or_zero(p[0]));
+            v.push(finite_or_zero(p[1]));
+            v.push(finite_or_zero(p[2]));
             v.push(1.0);
         }
         v
@@ -499,6 +504,81 @@ mod tests {
         let bogus_input = vec![0.0f32; 10];
         let r = apply_scene_linear_chain_f32(&bogus_input, 4, 4, &model, 6500.0, 0.0, false);
         assert!(r.is_err(), "size mismatch must error");
+    }
+
+    /// #1088 — NaN/Inf injected upstream must NOT reach the packed fp16
+    /// buffer. `skip_agx = true` + a default model makes every stage an
+    /// identity/short-circuit, so the injected lanes survive the chain
+    /// untouched and hit the pack endcap directly — which must scrub them
+    /// to 0.0 (`f32_to_f16_bits` preserves NaN by design, so without the
+    /// scrub the NaN bit pattern lands in the GPU-bound buffer verbatim).
+    #[test]
+    fn apply_scene_linear_chain_scrubs_non_finite_at_pack_endcap() {
+        let w = 2u32;
+        let h = 2u32;
+        let vals: [[f32; 4]; 4] = [
+            [f32::NAN, 0.25, 0.5, 1.0],
+            [0.25, f32::INFINITY, 0.5, 1.0],
+            [0.25, 0.5, f32::NEG_INFINITY, 1.0],
+            [0.25, 0.25, 0.25, 1.0], // finite control pixel
+        ];
+        let input: Vec<u16> = vals
+            .iter()
+            .flat_map(|p| p.iter().map(|&v| f32_to_f16_bits(v)))
+            .collect();
+        // Sanity: the fp16 encode really does preserve non-finiteness on
+        // the way IN (otherwise this test would be vacuous).
+        assert!(f16_bits_to_f32(input[0]).is_nan(), "fp16 must carry NaN in");
+        assert!(f16_bits_to_f32(input[5]).is_infinite(), "fp16 must carry Inf in");
+
+        let model = AdjustmentModel::default();
+        let out = apply_scene_linear_chain(&input, w, h, &model, 6500.0, 0.0, true)
+            .expect("apply_scene_linear_chain NaN injection");
+        for (i, &bits) in out.iter().enumerate() {
+            let v = f16_bits_to_f32(bits);
+            assert!(
+                v.is_finite(),
+                "fp16 lane {} non-finite after pack scrub: bits=0x{:04x}",
+                i,
+                bits
+            );
+        }
+        // Non-finite lanes scrub to exactly 0.0…
+        assert_eq!(f16_bits_to_f32(out[0]), 0.0, "NaN R lane must scrub to 0");
+        assert_eq!(f16_bits_to_f32(out[5]), 0.0, "+Inf G lane must scrub to 0");
+        assert_eq!(f16_bits_to_f32(out[10]), 0.0, "-Inf B lane must scrub to 0");
+        // …while finite lanes pass through (default model + skip_agx is
+        // identity; 0.25 is exactly representable in fp16).
+        assert_eq!(f16_bits_to_f32(out[12]), 0.25, "finite lane must survive");
+        assert_eq!(f16_bits_to_f32(out[1]), 0.25, "finite lane beside NaN must survive");
+    }
+
+    /// #1088 — f32 sibling of the NaN-injection test: same chain, packed
+    /// f32 endcap. Non-finite lanes scrub to 0.0, finite lanes are
+    /// bit-exact (no fp16 round-trip on this path).
+    #[test]
+    fn apply_scene_linear_chain_f32_scrubs_non_finite_at_pack_endcap() {
+        let w = 2u32;
+        let h = 2u32;
+        let input: Vec<f32> = vec![
+            f32::NAN, 0.25, 0.5, 1.0, //
+            0.25, f32::INFINITY, 0.5, 1.0, //
+            0.25, 0.5, f32::NEG_INFINITY, 1.0, //
+            0.25, 0.25, 0.25, 1.0,
+        ];
+        let model = AdjustmentModel::default();
+        let out = apply_scene_linear_chain_f32(&input, w, h, &model, 6500.0, 0.0, true)
+            .expect("apply_scene_linear_chain_f32 NaN injection");
+        assert!(
+            out.iter().all(|v| v.is_finite()),
+            "packed f32 buffer must be NaN/Inf-free: {:?}",
+            out
+        );
+        assert_eq!(out[0], 0.0, "NaN R lane must scrub to 0");
+        assert_eq!(out[5], 0.0, "+Inf G lane must scrub to 0");
+        assert_eq!(out[10], 0.0, "-Inf B lane must scrub to 0");
+        assert_eq!(out[12].to_bits(), 0.25f32.to_bits(), "finite lane must be bit-exact");
+        assert_eq!(out[1].to_bits(), 0.25f32.to_bits(), "finite lane beside NaN must be bit-exact");
     }
 
     /// Overflow guard: same shape as the fp16 sibling's overflow test.

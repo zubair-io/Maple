@@ -23,10 +23,14 @@
 // PARITY-CRITICAL — mirrors the per-pixel tail of
 // `raw_core::stages::{clarity,texture}::apply`:
 //   luma   = LUMA_REC2020 . orig.rgb       (recomputed; == the guided_luma plane)
+//   if luma <= LUMA_FLOOR: identity        (#1088 — below the floor the
+//                                           quotient stops being a ratio;
+//                                           near-black beside bright content
+//                                           exploded to scale ≈ -3e5)
 //   base   = mean_a * luma + mean_b        (guided_filter's final reconstruction)
 //   detail = luma - base
 //   boost  = luma + detail * amount        (amount = clarity / 100)
-//   scale  = boost / max(luma, LUMA_FLOOR) (LUMA_FLOOR = 1e-6, div-by-zero guard)
+//   scale  = boost / luma
 //   out    = orig.rgb * scale
 // Operation order kept verbatim so the result bit-matches raw-core.
 
@@ -59,9 +63,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let p = orig_buf[i];
     // Recompute luma from orig.rgb (same order as guided_luma.wgsl → bit-identical).
     let luma = LUMA_R * p.r + LUMA_G * p.g + LUMA_B * p.b;
+    // Identity at/below the luma floor (#1088) — mirrors raw-core's guard.
+    if (luma <= LUMA_FLOOR) {
+        output_buf[i] = p;
+        return;
+    }
     let base = mean_a_buf[i] * luma + mean_b_buf[i];
     let detail = luma - base;
     let boost = luma + detail * params.amount;
-    let scale = boost / max(luma, LUMA_FLOOR);
+    let scale = boost / luma;
     output_buf[i] = vec4<f32>(p.rgb * scale, p.a);
 }
