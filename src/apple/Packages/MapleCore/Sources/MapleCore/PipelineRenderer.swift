@@ -902,6 +902,9 @@ extension PipelineRenderer {
         // canvas applies via a post-encode CIColorCube (see
         // `ImageEditPipeline.processSceneLinear` + `AutoProfileLUT`).
         params.look_mode = model.look.lookMode
+        // Brightness (#1102) — midtone-band gain, appended at the struct
+        // tail per the look_mode ABI convention. 0 = identity.
+        params.brightness = Float(model.brightness)
         return params
     }
 

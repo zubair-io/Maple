@@ -212,6 +212,11 @@ private final class _XMPParserDelegate: NSObject, XMLParserDelegate {
         case "crs:Temperature":         model.temperature = d(value) ?? model.temperature
         case "crs:Tint":                model.tint        = d(value) ?? model.tint
         case "crs:Exposure2012":        model.exposure    = d(value) ?? model.exposure
+        // Brightness (#1102) — Maple-proprietary midtone-band gain. Lives
+        // under `papp:` because the ACR `crs:Brightness` key is PV2010 with
+        // different semantics (default +50, removed in PV2012); that legacy
+        // key is deliberately NOT parsed.
+        case "papp:Brightness":         model.brightness  = d(value) ?? model.brightness
         case "crs:Contrast2012":        model.contrast    = d(value) ?? model.contrast
         case "crs:Highlights2012":      model.highlights  = d(value) ?? model.highlights
         case "crs:Shadows2012":         model.shadows     = d(value) ?? model.shadows
@@ -380,6 +385,13 @@ public struct XMPSerializer {
         ]
         if culling.flag != .none {
             attrs.append(("xmp:Label", culling.flag == .pick ? "Red" : "Rejected"))
+        }
+        // Brightness (#1102) — emit only when non-default (0) so sidecars
+        // produced before the slider existed remain byte-identical for
+        // users who never touch it. Key is `papp:Brightness`, NOT the ACR
+        // PV2010 `crs:Brightness` (different semantics — see the parser).
+        if model.brightness != 0 {
+            attrs.append(("papp:Brightness", String(format: "%.0f", model.brightness)))
         }
         // S5 effects fields (#643) — emit only when non-default so sidecars
         // produced before this PR remain byte-identical for users who never

@@ -79,6 +79,12 @@ fn set_field(
         "crs:Temperature"    => m.temperature = v()?,
         "crs:Tint"           => m.tint        = v()?,
         "crs:Exposure2012"   => m.exposure    = v()?,
+        // Brightness midtone-band gain (#1102, tone/zoom design § 4.1).
+        // Maple-proprietary `papp:` key — deliberately NOT `crs:Brightness`,
+        // which is ACR process-version-2010 (default +50, removed in PV2012)
+        // with different semantics; reusing it would corrupt Lightroom
+        // interop. Absent attribute → default 0 (stage no-op).
+        "papp:Brightness"    => m.brightness  = v()?,
         "crs:Contrast2012"   => m.contrast    = v()?,
         "crs:Highlights2012" => m.highlights  = v()?,
         "crs:Shadows2012"    => m.shadows     = v()?,
@@ -279,8 +285,9 @@ fn set_field(
 ///
 /// This is intentionally a seed for Auto Profile Phase 1 (#536) — full
 /// XMP sidecar writing lives in the Swift and TypeScript layers per
-/// `docs/architecture.md`. Only `papp:Profile` is emitted here for now;
-/// the legacy `papp:Look` is deliberately NOT serialized — newly-written
+/// `docs/architecture.md`. Only the Maple-proprietary `papp:` keys with no
+/// `crs:` home are emitted here (`papp:Profile`, `papp:Brightness`); the
+/// legacy `papp:Look` is deliberately NOT serialized — newly-written
 /// sidecars carry the new attribute name only, and old sidecars still
 /// round-trip via the `papp:Look` migration in [`set_field`].
 pub fn serialize(model: &AdjustmentModel) -> String {
@@ -291,6 +298,11 @@ pub fn serialize(model: &AdjustmentModel) -> String {
             Profile::Neutral => "Neutral",
         };
         out.push_str(&format!(r#" papp:Profile="{v}""#));
+    }
+    // Brightness (#1102) — emitted only when non-default (0), matching the
+    // Swift/TS writers' omit-on-default convention.
+    if model.brightness != 0.0 {
+        out.push_str(&format!(r#" papp:Brightness="{}""#, model.brightness));
     }
     out
 }

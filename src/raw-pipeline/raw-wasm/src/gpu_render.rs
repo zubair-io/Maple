@@ -111,6 +111,7 @@ fn stripped_prefix_model(full: &AdjustmentModel, ae_mode: AutoExposureMode) -> A
         auto_exposure: ae_mode,
         // Every stage the GPU chain re-runs → no-op default so develop skips it.
         exposure: 0.0,
+        brightness: 0.0,
         contrast: 0.0,
         highlights: 0.0,
         shadows: 0.0,
@@ -178,6 +179,7 @@ fn build_full_chain_inputs(
         wb_tint: model.tint,
         tone: [
             model.exposure,
+            model.brightness,
             model.highlights,
             model.shadows,
             model.whites,

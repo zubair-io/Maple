@@ -10,16 +10,31 @@ fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Brightness midtone-band constants (#1102, tone/zoom design spec § 4.1).
+/// The band weight is `smoothstep(B_LO0, B_LO1, Y) · (1 − smoothstep(B_HI0,
+/// B_HI1, Y))`: exactly 0 at `Y ≤ 0.05` (blacks/shadows territory) and at
+/// `Y ≥ 4.0` (scene ref-max — exposure/highlights territory), C¹-smooth in
+/// between. `B_STRENGTH` maps slider ±100 to ±0.7 EV of peak midtone gain.
+/// Initial values calibrated against the slider-matrix harness; the gate is
+/// "monotone, midtone-pivoted, ends pinned" (no ACR counterpart exists for
+/// this `papp:` slider).
+const B_LO0: f32 = 0.05;
+const B_LO1: f32 = 0.25;
+const B_HI0: f32 = 1.0;
+const B_HI1: f32 = 4.0;
+const B_STRENGTH: f32 = 0.7;
+
 /// Apply scene-referred tone controls per spec § 3.6.
-/// Steps 1-5 (exposure, highlights, shadows, whites, blacks); tone curves
-/// (steps 6-7) deferred. Contrast is NOT applied here; it modulates the
-/// AgX sigmoid slope downstream (spec § 3.6a).
+/// Steps 1-5b (exposure, brightness, highlights, shadows, whites, blacks);
+/// tone curves (steps 6-7) deferred. Contrast is NOT applied here; it
+/// modulates the AgX sigmoid slope downstream (spec § 3.6a).
 pub fn apply(img: &mut Image, model: &AdjustmentModel) {
     img.assert_space(ColorSpace::SceneLinearRec2020);
 
     // Identity short-circuit: if every field this stage touches is zero,
     // the pipeline's bit-for-bit baseline guarantee must hold.
     if model.exposure.abs() < 1e-6
+        && model.brightness.abs() < 1e-3
         && model.highlights.abs() < 1e-3
         && model.shadows.abs() < 1e-3
         && model.whites.abs() < 1e-3
@@ -30,10 +45,15 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
 
     let exp_gain = model.exposure.exp2();
     let apply_exposure = model.exposure.abs() >= 1e-6;
+    let apply_brightness = model.brightness.abs() >= 1e-3;
     let apply_highlights = model.highlights.abs() >= 1e-3;
     let apply_shadows = model.shadows.abs() >= 1e-3;
     let apply_whites = model.whites.abs() >= 1e-3;
     let apply_blacks = model.blacks.abs() >= 1e-3;
+
+    // Brightness: EV-per-unit-weight amount (spec § 4.1). The per-pixel
+    // gain is `exp2(br_amount · w(Y))` with w the midtone band weight.
+    let br_amount = B_STRENGTH * model.brightness / 100.0;
 
     // Highlights: same h_denom shape as the legacy per-channel version,
     // applied uniformly to RGB via the luma scale factor (see step 2).
@@ -56,6 +76,27 @@ pub fn apply(img: &mut Image, model: &AdjustmentModel) {
             p[0] *= exp_gain;
             p[1] *= exp_gain;
             p[2] *= exp_gain;
+        }
+
+        // 1b. Brightness — midtone-band gain (#1102, spec § 4.1).
+        //
+        // Moves midtones only, pinning deep shadows and the highlight end:
+        //   Y    = dot(LUMA_REC2020, p)
+        //   w(Y) = smoothstep(0.05, 0.25, Y) · (1 − smoothstep(1.0, 4.0, Y))
+        //   gain = exp2(0.7 · b/100 · w(Y))
+        // Y ≤ 0.05 and Y ≥ 4.0 see gain exactly 1.0 (w = 0), so the
+        // histogram ends stay the blacks/shadows and exposure/highlights
+        // sliders' domain. Hue is preserved by construction: the only
+        // operation on RGB is a uniform scalar multiply.
+        if apply_brightness {
+            let y = LUMA_REC2020[0] * p[0]
+                + LUMA_REC2020[1] * p[1]
+                + LUMA_REC2020[2] * p[2];
+            let w = smoothstep(B_LO0, B_LO1, y) * (1.0 - smoothstep(B_HI0, B_HI1, y));
+            let gain = (br_amount * w).exp2();
+            p[0] *= gain;
+            p[1] *= gain;
+            p[2] *= gain;
         }
 
         // 2. Highlights — luminance-coupled soft compression above knee=1.0.
