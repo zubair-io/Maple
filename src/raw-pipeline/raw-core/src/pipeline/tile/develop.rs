@@ -1,8 +1,15 @@
 //! Develop chain used by the tile path — mirrors
 //! `super::super::develop::develop_scene_linear_from_raw_with_quality`
 //! without the leading `linearize` call (the tile entry linearises only
-//! the padded crop region) and **without** dehaze / auto-exposure (both
-//! exclude themselves architecturally; see per-stage notes).
+//! the padded crop region) and **without** the stages that exclude
+//! themselves architecturally (see the per-stage notes at each chain
+//! position):
+//!
+//! * dehaze, vignette, deep_denoise, local_adjustments,
+//!   capture_sharpening — rejected loudly at the tile entry
+//!   (`super::render_scene_linear_tile_from_raw_with_quality`) so the
+//!   host falls back to the full-image render (#1084, #1105, #1109),
+//! * auto_exposure — omitted; parity follow-up tracked in #1167.
 //!
 //! Split out of `super::mod` so the tile entry stays under the file-size
 //! budget (#114).
@@ -14,8 +21,8 @@ use crate::{
     image::RawImage,
     stages::{
         chroma_prefilter, clarity, highlight_recovery, highlight_recovery_oklab,
-        noise_reduction, saturation, scene_tone_controls, sharpen, texture, vibrance,
-        white_balance,
+        noise_reduction, saturation, scene_tone_controls, sharpen, texture, tone_curves,
+        vibrance, white_balance,
     },
     xmp::AdjustmentModel,
 };
@@ -27,8 +34,11 @@ use crate::pipeline::{stage, RenderQuality};
 /// the tile path so the linearize + crop pair runs once on the padded
 /// crop and the develop chain runs on a small image. Mirrors
 /// `develop_scene_linear_from_raw_with_quality` but without the leading
-/// `linearize` call and **without** dehaze (the tile entry errors before
-/// this fn runs when `model.dehaze != 0`).
+/// `linearize` call and **without** dehaze / vignette / deep_denoise /
+/// local_adjustments / capture_sharpening (the tile entry errors before
+/// this fn runs when any of them is active — see the rejection block in
+/// `render_scene_linear_tile_from_raw_with_quality`, #1084 / #1105 /
+/// #1109).
 pub(super) fn develop_scene_linear_from_padded_mosaic(
     mosaic: &crate::image::Image,
     raw: &RawImage,
@@ -110,6 +120,18 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     stage("tile_chroma_prefilter", || {
         chroma_prefilter::apply(&mut scene, model.chroma_prefilter)
     });
+    // deep_denoise (BM3D, #1105) intentionally omitted — its reference-patch
+    // grid is frame-anchored, so a tile-relative grid would seam at tile
+    // borders. The tile entry rejects `deep_denoise != 0` before this fn
+    // runs (and the FFI file/bytes tile entries pre-check it as well — see
+    // `raw-ffi/src/model.rs::deep_denoise_active`).
+    //
+    // capture_sharpening intentionally omitted — the iterated Richardson–
+    // Lucy stencil reaches up to ~2·iterations·3σ ≈ 96 px at the σ = 8
+    // helper clamp, past TILE_OVERLAP_PX (48). The tile entry errors before
+    // this fn runs when the model carries an active capture-sharpening
+    // amount — same loud-rejection contract as dehaze (#1084).
+    //
     // NOTE: auto_exposure intentionally omitted on the tile path. A tile is
     // a sub-region of the image, so its histogram is not representative of
     // the whole scene — running AE here would give a different gain per
@@ -117,16 +139,34 @@ pub(super) fn develop_scene_linear_from_padded_mosaic(
     // into the tile path correctly requires precomputing the EV from the
     // full image once and threading it through. Today the tile path will
     // render slightly darker than the full-image path (by whatever EV the
-    // full path's AE picked); this is a known follow-up. The same
+    // full path's AE picked); follow-up tracked in #1167. The same
     // architectural reason already excludes dehaze from this path.
     stage("tile_white_balance", || white_balance::apply(&mut scene, model.temperature, model.tint, model.wb_method));
     stage("tile_scene_tone_controls", || scene_tone_controls::apply(&mut scene, model));
+    // User-authored tone curves (parametric + per-channel) — same chain
+    // position as the full path (post-scene_tone_controls, pre-vibrance).
+    // Pointwise per-pixel, so trivially tile-safe; identity short-circuits
+    // on the default model. Was silently omitted before #1084 — deep-zoom
+    // tiles diverged from the preview for any image with a curve.
+    stage("tile_tone_curves", || tone_curves::apply(&mut scene, model));
     stage("tile_vibrance", || vibrance::apply(&mut scene, model.vibrance));
     stage("tile_saturation", || saturation::apply(&mut scene, model.saturation));
     stage("tile_clarity", || clarity::apply(&mut scene, model.clarity));
     stage("tile_texture", || texture::apply(&mut scene, model.texture));
     // dehaze intentionally omitted — the tile entry asserts dehaze == 0
     // before this function runs (radius 67 px > TILE_OVERLAP_PX overlap pad).
+    //
+    // local_adjustments intentionally omitted — mask weights evaluate in
+    // coordinates normalized to the FULL image (`mask::evaluate(nx, ny)`
+    // with `nx = x / (w-1)`), so running the stage on a padded crop would
+    // place every mask relative to the tile instead of the image. Wiring it
+    // needs mask-coordinate offset plumbing; until then the tile entry
+    // rejects any model with a non-identity local adjustment — same loud
+    // contract as dehaze (#1084).
+    //
+    // vignette intentionally omitted — full-frame-anchored radial gain
+    // (#1109); the tile entry rejects `vignette_amount != 0` until the
+    // tile window is threaded through (`apply_windowed`, #11).
     stage("tile_sharpen", || sharpen::apply(&mut scene, model.sharpen_amount, model.sharpen_radius, model.sharpen_detail, model.sharpen_masking));
     stage("tile_nr_luminance", || noise_reduction::apply_luminance(&mut scene, model.nr_luminance));
     stage("tile_nr_color", || noise_reduction::apply_color(&mut scene, model.nr_color));
