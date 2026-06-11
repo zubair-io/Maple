@@ -91,15 +91,15 @@ export interface GeneratedAdjustmentModel {
   grainSize: number;
   /** Grain roughness (#1110) — mixes a second noise octave at 2x frequency. Range: [0.0, 100.0]. */
   grainRoughness: number;
-  /** Split-tone shadow hue in degrees (ticket #643). Range: [0.0, 360.0]. */
+  /** Split-tone shadow hue in degrees (#1111, tone/zoom design spec § 10.3) — display-linear Oklab tint. Range: [0.0, 360.0]. */
   splitToneShadowHue: number;
-  /** Split-tone shadow saturation (ticket #643). Range: [0.0, 100.0]. */
+  /** Split-tone shadow saturation (#1111); 0 disables the shadow tint. Range: [0.0, 100.0]. */
   splitToneShadowSaturation: number;
-  /** Split-tone highlight hue in degrees (ticket #643). Range: [0.0, 360.0]. */
+  /** Split-tone highlight hue in degrees (#1111). Range: [0.0, 360.0]. */
   splitToneHighlightHue: number;
-  /** Split-tone highlight saturation (ticket #643). Range: [0.0, 100.0]. */
+  /** Split-tone highlight saturation (#1111); 0 disables the highlight tint. Range: [0.0, 100.0]. */
   splitToneHighlightSaturation: number;
-  /** Split-tone balance — shifts the shadow/highlight split point (ticket #643). Primary drag-bar field for the Split Tone tool. Range: [-100.0, 100.0]. */
+  /** Split-tone balance — shifts the shadow/highlight crossover via exp2(bal/100) weight exponents (#1111). Primary drag-bar field for the Split Tone tool. Range: [-100.0, 100.0]. */
   splitToneBalance: number;
   /** Highlight reconstruction mode per spec § 3.3a. */
   highlightRecovery: HighlightRecoveryMode;

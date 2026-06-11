@@ -914,6 +914,14 @@ extension PipelineRenderer {
         params.grain_amount = Float(model.grainAmount)
         params.grain_size = Float(model.grainSize)
         params.grain_roughness = Float(model.grainRoughness)
+        // Split toning (#1111) — display-linear Oklab tint, appended at
+        // the struct tail. Zero saturations = identity (hues / balance
+        // inert).
+        params.split_tone_shadow_hue = Float(model.splitToneShadowHue)
+        params.split_tone_shadow_saturation = Float(model.splitToneShadowSaturation)
+        params.split_tone_highlight_hue = Float(model.splitToneHighlightHue)
+        params.split_tone_highlight_saturation = Float(model.splitToneHighlightSaturation)
+        params.split_tone_balance = Float(model.splitToneBalance)
         return params
     }
 

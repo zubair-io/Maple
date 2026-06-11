@@ -354,9 +354,9 @@ pub struct AdjustmentModel {
 
     // S5 effects fields (ticket #643 model/UI). Defaults are chosen so an
     // absent-attribute sidecar (or a freshly-created model) produces
-    // bit-identical output to the pre-#643 pipeline. Pipeline stages land
-    // per tool: vignette (#1109) and grain (#1110) are real; split tone
-    // remains an identity stub until #1111.
+    // bit-identical output to the pre-#643 pipeline. All three tools are
+    // real pipeline stages now: vignette (#1109), grain (#1110), split
+    // tone (#1111).
     //
     // Vignette (#1109, tone/zoom design § 10.1): scene-linear radial EV
     // gain, `stages::vignette`. Drag-bar drives `vignette_amount`;
@@ -371,10 +371,10 @@ pub struct AdjustmentModel {
     pub grain_size: f32,             // 0..100, default 25
     pub grain_roughness: f32,        // 0..100, default 50
 
-    // Split toning (§ 3.14). Drag-bar drives `split_tone_balance` (the
-    // shadow/highlight blend point); the four hue/sat scalars are exposed
-    // for XMP round-trip and future direct UI control. Hue is in degrees
-    // (Lightroom convention); saturation is `[0, 100]`.
+    // Split toning (#1111, tone/zoom design § 10.3): display-linear Oklab
+    // a/b tint, `stages::split_tone`. Drag-bar drives `split_tone_balance`
+    // (the crossover); the four hue/sat scalars ride the sub-param row.
+    // Hue is in degrees (Lightroom convention); saturation is `[0, 100]`.
     pub split_tone_shadow_hue: f32,         // 0..360, default 0
     pub split_tone_shadow_saturation: f32,  // 0..100, default 0
     pub split_tone_highlight_hue: f32,      // 0..360, default 0

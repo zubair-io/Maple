@@ -97,11 +97,39 @@ extension Tool {
     /// Ordered sub-params; empty for single-param tools. §10.0: the
     /// Noise pill's future tiers — Deep (BM3D, #1105) and Prefilter
     /// (§3.1) — join the `noise` list data-only when their pipeline
-    /// stages land. Split tone gains its satellite sub-params the same
-    /// way when #1111 un-stubs it; vignette joined at #1109, grain at
-    /// #1110.
+    /// stages land. Vignette joined at #1109, grain at #1110, split tone
+    /// at #1111 (Balance leads — it is the schema-declared primary
+    /// drag-bar field, and the legacy splitTone drag bar drove it).
     public var subParams: [ToolSubParam] {
         switch self {
+        case .splitTone:
+            return [
+                ToolSubParam(id: "balance", label: "Balance",
+                             keyPath: \.splitToneBalance, mapping: .anchored,
+                             range: AdjustmentModel.splitToneBalanceRange,
+                             defaultDisplayValue: Self.defaults.splitToneBalance,
+                             decimals: 0),
+                ToolSubParam(id: "shadowHue", label: "Sh Hue",
+                             keyPath: \.splitToneShadowHue, mapping: .linear,
+                             range: AdjustmentModel.splitToneShadowHueRange,
+                             defaultDisplayValue: Self.defaults.splitToneShadowHue,
+                             decimals: 0),
+                ToolSubParam(id: "shadowSat", label: "Sh Sat",
+                             keyPath: \.splitToneShadowSaturation, mapping: .linear,
+                             range: AdjustmentModel.splitToneShadowSaturationRange,
+                             defaultDisplayValue: Self.defaults.splitToneShadowSaturation,
+                             decimals: 0),
+                ToolSubParam(id: "highlightHue", label: "Hi Hue",
+                             keyPath: \.splitToneHighlightHue, mapping: .linear,
+                             range: AdjustmentModel.splitToneHighlightHueRange,
+                             defaultDisplayValue: Self.defaults.splitToneHighlightHue,
+                             decimals: 0),
+                ToolSubParam(id: "highlightSat", label: "Hi Sat",
+                             keyPath: \.splitToneHighlightSaturation, mapping: .linear,
+                             range: AdjustmentModel.splitToneHighlightSaturationRange,
+                             defaultDisplayValue: Self.defaults.splitToneHighlightSaturation,
+                             decimals: 0),
+            ]
         case .grain:
             return [
                 ToolSubParam(id: "amount", label: "Amount",

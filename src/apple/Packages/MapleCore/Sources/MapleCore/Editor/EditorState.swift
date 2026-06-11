@@ -102,14 +102,10 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// `resetArmedTool` short-circuit on `!isWired`) — follow-up tickets
     /// track the missing work.
     ///
-    /// vignette (#1109) and grain (#1110) left the stub list: both are
-    /// real pipeline stages now (CPU + WGSL), so the pills' writes render.
-    /// splitTone has AdjustmentModel *fields* (added at #643) but no
-    /// *apply* code yet — it was a live drag-bar that wrote XMP for a
-    /// silent no-op (#952) and stays gated until #1111 delivers the
-    /// effect. Its fields still round-trip via passthrough; the gate only
-    /// stops the UI creating new no-op edits. HSL (#636) and Crop (#638)
-    /// remain stubs pending their own specs.
+    /// The S5 effects pills are all real pipeline stages now — vignette
+    /// (#1109), grain (#1110), splitTone (#1111) left the #952 stub list
+    /// as their stages landed. HSL (#636) and Crop (#638) remain stubs
+    /// pending their own specs.
     ///
     /// Presets left the stub list at #1115: the pill opens the presets
     /// sheet/popover (see EditorView) instead of carrying a drag-bar
@@ -117,7 +113,7 @@ public enum Tool: String, CaseIterable, Sendable, Hashable {
     /// it (the scrub/reset guards also check `displayRange`).
     public var isWired: Bool {
         switch self {
-        case .hsl, .splitTone, .crop:
+        case .hsl, .crop:
             return false
         default:
             return true
@@ -155,13 +151,11 @@ public enum ToolValueMapping {
         // narrow 0.5..2.0 px band centred on its 1.0 default.
         case .captureSharpen: return 0...100
         case .captureSigma:   return 0.5...2.0
-        // Vignette (#1109) / grain (#1110) — wired; drag bars drive
-        // `vignetteAmount` / `grainAmount` (the first sub-params).
+        // S5 effects (#1109 / #1110 / #1111) — wired; drag bars drive
+        // each tool's primary sub-param (vignetteAmount / grainAmount /
+        // splitToneBalance).
         case .vignette: return -100...100
         case .grain:    return 0...100
-        // splitTone is a gated stub (#952) — this range is inert
-        // (`isWired` is false, so the scrub paths never reach `apply`)
-        // and exists only to be reused verbatim when #1111 re-wires it.
         case .splitTone: return -100...100
         default:        return nil
         }
@@ -243,10 +237,8 @@ public enum ToolValueMapping {
         // Capture sharpening (#271) — relocated from the Develop tab (#875).
         case .captureSharpen: return model.captureSharpeningAmount
         case .captureSigma:   return model.captureSharpeningSigma
-        // Vignette (#1109) / grain (#1110) — wired; the drag bars read
-        // the amounts (the first sub-params). splitTone is a gated stub
-        // (#952); its read is retained (not gutted to 0) so the value
-        // chip still surfaces a value already persisted in a sidecar.
+        // S5 effects (#1109 / #1110 / #1111) — wired; the drag bars read
+        // each tool's primary sub-param.
         case .vignette:   return model.vignetteAmount
         case .grain:      return model.grainAmount
         case .splitTone:  return model.splitToneBalance
@@ -261,12 +253,9 @@ public enum ToolValueMapping {
     /// semantics and by the modified-dot check, so a default asset never
     /// reads as "modified".
     ///
-    /// vignette (#1109) and grain (#1110) are wired and their amount
-    /// defaults ARE 0, so the fall-through is correct for them. splitTone
-    /// is a gated stub (#952) and falls through to the 0 default —
-    /// `resetArmedTool` never reaches here for it (it short-circuits on
-    /// `!isWired`), so this only matters as a harmless fallback until
-    /// #1111.
+    /// The S5 effects tools (#1109 / #1110 / #1111) are wired and their
+    /// primary-field defaults ARE 0 (vignetteAmount / grainAmount /
+    /// splitToneBalance), so the fall-through is correct for all three.
     public static func defaultDisplayValue(for tool: Tool) -> Double {
         switch tool {
         case .temp:    return 6500
@@ -302,10 +291,8 @@ public enum ToolValueMapping {
         // Capture sharpening (#271) — relocated from the Develop tab (#875).
         case .captureSharpen: model.captureSharpeningAmount = value
         case .captureSigma:   model.captureSharpeningSigma = value
-        // Vignette (#1109) / grain (#1110) — wired writes. splitTone
-        // remains a gated stub (#952), unreachable (the scrub paths guard
-        // on `isWired`), kept verbatim so #1111 only needs to flip
-        // `isWired`.
+        // S5 effects (#1109 / #1110 / #1111) — wired writes to each
+        // tool's primary sub-param.
         case .vignette:   model.vignetteAmount = value
         case .grain:      model.grainAmount = value
         case .splitTone:  model.splitToneBalance = value

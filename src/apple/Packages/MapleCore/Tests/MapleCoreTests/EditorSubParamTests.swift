@@ -73,12 +73,24 @@ final class EditorSubParamTests: XCTestCase {
         XCTAssertEqual(subs[2].defaultDisplayValue, AdjustmentModel().grainRoughness)
     }
 
+    func testSplitToneDeclaresBalanceAndHueSatPairs() {
+        // #1111 — split tone joined the multi-param set. Balance leads:
+        // it is the schema-declared primary drag-bar field.
+        let subs = Tool.splitTone.subParams
+        XCTAssertEqual(subs.map(\.id),
+                       ["balance", "shadowHue", "shadowSat", "highlightHue", "highlightSat"])
+        XCTAssertTrue(Tool.splitTone.isMultiParam)
+        XCTAssertEqual(Tool.splitTone.defaultSubParamId, "balance")
+        XCTAssertEqual(subs[1].range, AdjustmentModel.splitToneShadowHueRange)
+        XCTAssertEqual(subs[0].range, AdjustmentModel.splitToneBalanceRange)
+    }
+
     func testEveryOtherToolIsSingleParam() {
-        // Split tone gains its satellite sub-params data-only when #1111
-        // un-stubs it; HSL/crop stay stubs. Vignette joined the
-        // multi-param set at #1109, grain at #1110.
+        // HSL/crop stay stubs. Vignette joined the multi-param set at
+        // #1109, grain at #1110, split tone at #1111.
         for tool in Tool.allCases
-        where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain {
+        where tool != .noise && tool != .sharpen && tool != .vignette && tool != .grain
+            && tool != .splitTone {
             XCTAssertTrue(tool.subParams.isEmpty, "\(tool) should be single-param")
             XCTAssertFalse(tool.isMultiParam)
             XCTAssertNil(tool.defaultSubParamId)
