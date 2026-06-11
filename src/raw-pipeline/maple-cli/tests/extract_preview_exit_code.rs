@@ -61,25 +61,21 @@ fn missing_raw_exits_nonzero_and_not_the_no_preview_sentinel() {
 /// Success path: if a fixture with an embedded preview is available, an
 /// extract should exit 0 and write the output file.
 ///
-/// Gated on `test_0017.dng` being present (the same fixture the auto-tone
-/// golden uses). When absent — CI without the gitignored RAWs — we skip,
-/// mirroring the `test_color_pipeline.sh` skip-pattern. We don't assert the
-/// `Ok(3)` no-preview path here because we have no committed fixture that is
-/// guaranteed preview-less; the contract for that branch is covered by the
-/// unit-level `eprintln`/return in `commands/extract_preview.rs` plus the
-/// harness's exit-code handling.
+/// Gated on `test_0017.dng` (the same fixture the auto-tone golden uses):
+/// `ignore`d without `--features fixtures`, fail-closed (panic on a missing
+/// fixture) with it (#1082). We don't assert the `Ok(3)` no-preview path
+/// here because we have no committed fixture that is guaranteed
+/// preview-less; the contract for that branch is covered by the unit-level
+/// `eprintln`/return in `commands/extract_preview.rs` plus the harness's
+/// exit-code handling.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn embedded_preview_fixture_exits_zero() {
-    let fixture = match fixture_path("test_0017.dng") {
-        Some(p) => p,
-        None => {
-            eprintln!(
-                "test_0017.dng not found — skipping success-path assertion \
-                 (matches the test_color_pipeline.sh skip-pattern)"
-            );
-            return;
-        }
-    };
+    let fixture = fixture_path("test_0017.dng").expect(
+        "missing fixture: test_0017.dng not found in any CARGO_MANIFEST_DIR \
+         ancestor or under MAPLE_TEST_FIXTURE_ROOT — provision the gitignored \
+         RAWs or run without --features fixtures (#1082)",
+    );
 
     let tmp = std::env::temp_dir().join("maple-extract-preview-ok");
     let _ = std::fs::remove_dir_all(&tmp);

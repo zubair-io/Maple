@@ -3,13 +3,14 @@
 //! under the 600-LOC budget (#482).
 //!
 //! `native_render_dims` tests are pure math (no fixtures). The display
-//! parity tests are fixture-gated and skip-pass when the gitignored RAWs
-//! are absent, mirroring the repo-wide pattern.
+//! parity tests are fixture-gated: `ignore`d without `--features fixtures`,
+//! fail-closed on a missing fixture with it (#1082).
 
 #![cfg(test)]
 
 use super::*;
 use crate::image::{CfaPattern, CropRect, ExifOrientation};
+use crate::test_support::fixtures::require_raw;
 
 fn raw_with(
     w: u32,
@@ -88,13 +89,9 @@ fn native_dims_degenerate_crop_falls_back_to_full_frame() {
 /// the two entries share the develop chain + view tail), and its dims match
 /// `native_render_dims`.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn sized_display_at_native_cap_matches_unsized_render() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        eprintln!("fixture missing at {:?} — skipping", path);
-        return;
-    }
+    let path = require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read fixture");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();
@@ -121,13 +118,9 @@ fn sized_display_at_native_cap_matches_unsized_render() {
 /// Fixture-gated: a sized display render below native respects the long-edge
 /// cap, preserves aspect, and produces plausible display bytes.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn sized_display_below_native_caps_long_edge() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        eprintln!("fixture missing at {:?} — skipping", path);
-        return;
-    }
+    let path = require_raw("test_0002.dng");
     let bytes = std::fs::read(&path).expect("read fixture");
     let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
     let model = AdjustmentModel::default();

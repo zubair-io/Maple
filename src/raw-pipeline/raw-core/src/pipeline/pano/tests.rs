@@ -191,13 +191,9 @@ fn metadata_degrades_gracefully_without_exif_or_xmp() {
 /// develop) so this stays fast in debug test runs; full-pixel coverage
 /// lives in maple-pano's fixture gates and the `pano-ingest-probe` binary.
 #[test]
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 fn read_pano_metadata_pano01_fixture() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/pano_01/PANO0001.DNG");
-    if !path.exists() {
-        eprintln!("skip: {} (pano fixtures not present)", path.display());
-        return;
-    }
+    let path = crate::test_support::fixtures::require_raw("pano_01/PANO0001.DNG");
     let bytes = std::fs::read(&path).expect("read PANO0001.DNG");
     let md = read_pano_metadata(&bytes, "dng").expect("read_pano_metadata");
 

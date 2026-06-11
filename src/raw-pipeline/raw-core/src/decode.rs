@@ -777,11 +777,11 @@ fn map_cfa_pattern_with_pattern(cfa: &rawler::CFA) -> Result<CfaPattern> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::test_support::fixtures::require_raw;
 
-    fn fixture_root() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../test-fixtures/raws")
-    }
+    /// Fixture-backed tests are `#[cfg_attr(not(feature = "fixtures"), ignore)]`:
+    /// visibly ignored without the feature, fail-closed (panic on a missing
+    /// fixture via [`require_raw`]) with it (#1082).
 
     /// Shell helper for tests only: read from disk, then delegate to
     /// [`decode_bytes`]. The core no longer exposes a path-based entrypoint —
@@ -839,12 +839,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0002_reports_plausible_dimensions() {
-        let path = fixture_root().join("test_0002.dng");
-        if !path.exists() {
-            eprintln!("skip: {}", path.display());
-            return;
-        }
+        let path = require_raw("test_0002.dng");
         let raw = decode_path(&path).expect("decode DNG");
         assert!(raw.width >= 1024, "suspiciously narrow: {}", raw.width);
         assert!(raw.height >= 1024, "suspiciously short: {}", raw.height);
@@ -857,32 +854,26 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0003_canon_cr2() {
-        let path = fixture_root().join("test_0003.CR2");
-        if !path.exists() {
-            return;
-        }
+        let path = require_raw("test_0003.CR2");
         let raw = decode_path(&path).expect("decode CR2");
         assert!(raw.width > 0 && raw.height > 0);
         assert_eq!(raw.camera_make.to_lowercase(), "canon");
     }
 
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0001_hasselblad_3fr() {
-        let path = fixture_root().join("test_0001.RAW");
-        if !path.exists() {
-            return;
-        }
+        let path = require_raw("test_0001.RAW");
         let raw = decode_path(&path).expect("decode 3FR");
         assert!(raw.width > 0 && raw.height > 0);
     }
 
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0000_hasselblad_100mp() {
-        let path = fixture_root().join("test_0000.DNG");
-        if !path.exists() {
-            return;
-        }
+        let path = require_raw("test_0000.DNG");
         let raw = decode_path(&path).expect("decode 100MP DNG");
         assert!(raw.width > 8000, "100MP expected, got {} wide", raw.width);
     }
@@ -890,9 +881,9 @@ mod tests {
     /// Regression test for BaselineExposure reading (DNG § C.1.2, tag 50730).
     /// test_0000.DNG carries BaselineExposure = 1.01 EV in metadata.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0000_reads_baseline_exposure() {
-        let path = fixture_root().join("test_0000.DNG");
-        if !path.exists() { return; }
+        let path = require_raw("test_0000.DNG");
         let raw = decode_path(&path).expect("decode Hasselblad DNG");
         assert!((raw.baseline_exposure - 1.01).abs() < 0.01,
             "expected BaselineExposure ≈ 1.01 EV, got {:.4}", raw.baseline_exposure);
@@ -930,9 +921,9 @@ mod tests {
     /// Regression test for fix #4 (EXIF orientation): test_0003.CR2 was shot
     /// in portrait, so its EXIF orientation tag must be a non-Normal value.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0003_reports_exif_orientation() {
-        let path = fixture_root().join("test_0003.CR2");
-        if !path.exists() { return; }
+        let path = require_raw("test_0003.CR2");
         let raw = decode_path(&path).expect("decode CR2");
         assert_ne!(raw.orientation, ExifOrientation::Normal,
             "expected a non-Normal EXIF orientation for portrait CR2; got {:?}",
@@ -941,9 +932,9 @@ mod tests {
 
     /// Verify decode_bytes works on Canon CR2 format via extension hint.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_bytes_works_on_cr2() {
-        let path = fixture_root().join("test_0003.CR2");
-        if !path.exists() { return; }
+        let path = require_raw("test_0003.CR2");
         let bytes = std::fs::read(&path).unwrap();
         let raw = decode_bytes(&bytes, "cr2").expect("decode cr2 from bytes");
         assert!(raw.width > 0 && raw.height > 0);
@@ -968,9 +959,9 @@ mod tests {
     /// illuminant), the dims must match, and the data length must be
     /// 36 × 10 × 1 × 3 = 1080 floats per illuminant.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0000_reads_dual_illuminant_hsm() {
-        let path = fixture_root().join("test_0000.DNG");
-        if !path.exists() { return; }
+        let path = require_raw("test_0000.DNG");
         let raw = decode_path(&path).expect("decode Hasselblad DNG");
         assert_eq!(raw.hsm_data.len(), 2, "test_0000 ships both HSM tables");
         for (illum, table) in &raw.hsm_data {
@@ -990,9 +981,9 @@ mod tests {
     /// tiny 3 × 2 × 1 PLT with all-zero hueDeltas and unit sat/val scales —
     /// effectively a no-op identity table.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0017_reads_plt() {
-        let path = fixture_root().join("test_0017.dng");
-        if !path.exists() { return; }
+        let path = require_raw("test_0017.dng");
         let raw = decode_path(&path).expect("decode Leica DNG");
         let plt = raw.plt.as_ref().expect("test_0017 ships a PLT");
         assert_eq!(plt.dims, [3, 2, 1], "expected Leica's [3,2,1] no-op shape");
@@ -1003,9 +994,9 @@ mod tests {
     /// the decoder cleanly reports `None` for all HSM/PLT tables. test_0010
     /// is a Canon CR2.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_vendor_raw_yields_no_hsm_or_plt() {
-        let path = fixture_root().join("test_0010.CR2");
-        if !path.exists() { return; }
+        let path = require_raw("test_0010.CR2");
         let raw = decode_path(&path).expect("decode CR2");
         assert!(raw.hsm_data.is_empty(), "CR2 should not carry HSM");
         assert!(raw.plt.is_none(), "CR2 should not carry PLT");
@@ -1018,9 +1009,9 @@ mod tests {
     /// must surface it on `RawImage.profile_tone_curve` so the apply stage
     /// can run.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0013_reads_profile_tone_curve() {
-        let path = fixture_root().join("test_0013.DNG");
-        if !path.exists() { return; }
+        let path = require_raw("test_0013.DNG");
         let raw = decode_path(&path).expect("decode iPhone DNG");
         let curve = raw.profile_tone_curve.as_ref()
             .expect("test_0013 ships a ProfileToneCurve");
@@ -1042,9 +1033,9 @@ mod tests {
     /// the tag, recognised the non-canonical layout, and bailed safely
     /// rather than corrupting downstream pixels.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0013_pgtm_recognises_apple_extended_layout() {
-        let path = fixture_root().join("test_0013.DNG");
-        if !path.exists() { return; }
+        let path = require_raw("test_0013.DNG");
         let raw = decode_path(&path).expect("decode iPhone DNG");
         // Apple's PGTM has MapPlanes=257 (a DNG 1.7 extension); strict
         // parser yields None to avoid mis-applying it.
@@ -1059,9 +1050,9 @@ mod tests {
     /// must have the canonical R/G/B count for a 6×6 X-Trans tile:
     /// 8 R, 20 G, 8 B per 36 cells.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0008_xtrans_pattern_has_canonical_channel_counts() {
-        let path = fixture_root().join("test_0008.RAF");
-        if !path.exists() { return; }
+        let path = require_raw("test_0008.RAF");
         let raw = decode_path(&path).expect("decode Fuji RAF");
         let pattern = match raw.cfa {
             CfaPattern::XTrans(p) => p,
@@ -1086,9 +1077,9 @@ mod tests {
     /// `UnsupportedFormat` error variant (not a generic `Decode` error).
     /// rawler 0.7's X3F decoder is a stub.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0016_foveon_x3f_returns_unsupported_format() {
-        let path = fixture_root().join("test_0016.X3F");
-        if !path.exists() { return; }
+        let path = require_raw("test_0016.X3F");
         let err = decode_path(&path).expect_err("X3F decoding must error");
         match err {
             Error::UnsupportedFormat(msg) => {
@@ -1105,9 +1096,9 @@ mod tests {
     /// promotion path inside `decode_bytes` catches rawler's
     /// "X3F decoding not implemented" diagnostic.
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_foveon_promotes_decoder_error_to_unsupported_format() {
-        let path = fixture_root().join("test_0016.X3F");
-        if !path.exists() { return; }
+        let path = require_raw("test_0016.X3F");
         let bytes = std::fs::read(&path).expect("read X3F bytes");
         // Pass `raw` (a generic vendor extension) — the `x3f` short-circuit
         // is skipped and we exercise the message-promotion arm.
@@ -1126,9 +1117,9 @@ mod tests {
     /// = 34892) decode with `CfaPattern::LinearRgb` and a `raw_data` buffer
     /// of length 3 × w × h (interleaved RGB, not mosaic).
     #[test]
+    #[cfg_attr(not(feature = "fixtures"), ignore)]
     fn decode_test_0006_linearraw_uses_linearrgb_cfa() {
-        let path = fixture_root().join("test_0006.DNG");
-        if !path.exists() { return; }
+        let path = require_raw("test_0006.DNG");
         let raw = decode_path(&path).expect("decode LinearRaw DNG");
         assert_eq!(raw.cfa, CfaPattern::LinearRgb,
             "test_0006 is a LinearRaw DNG; cfa must be LinearRgb");
