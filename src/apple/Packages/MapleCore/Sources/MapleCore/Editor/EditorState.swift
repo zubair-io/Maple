@@ -453,7 +453,7 @@ public final class EditorState {
     /// an armed-tool change starts a new burst (#1125 review — see
     /// `WheelNudgeBurst`). `now` is injectable for tests.
     public func wheelNudge(steps: Int, unit: Double, at now: Date = Date()) {
-        guard steps != 0, armedTool.isWired else { return }
+        guard steps != 0, armedToolAcceptsValueEdits else { return }
         if wheelNudgeBurst.beginsNewBurst(tool: armedTool, at: now) {
             commit()
         }
