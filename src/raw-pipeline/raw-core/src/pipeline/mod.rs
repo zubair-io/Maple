@@ -95,6 +95,27 @@ pub fn stage<T>(_name: &'static str, f: impl FnOnce() -> T) -> T {
     f()
 }
 
+/// NaN/Inf scrub for the scene-linear FFI pack endcaps (#1088).
+///
+/// The scene-linear chain deliberately never clips (nothing before the
+/// view transform may clamp), and Rust's `f32::clamp` passes NaN through
+/// anyway — so a non-finite value produced anywhere upstream (0/0 in a
+/// ratio, an overflowed multiply) would otherwise be packed verbatim
+/// into the fp16/f32 RGBA buffers handed to Metal / wgpu / WebGPU
+/// (`fp16::f32_to_f16_bits` preserves NaN by design). Sampling NaN in a
+/// GPU texture is implementation-defined; scrub to 0.0 at the pack
+/// boundary instead. One exponent-mask compare per lane — branch-cheap
+/// for the warm pack loops (the value is finite in the overwhelming
+/// common case, so the branch predicts perfectly).
+#[inline(always)]
+pub(crate) fn finite_or_zero(v: f32) -> f32 {
+    if v.is_finite() {
+        v
+    } else {
+        0.0
+    }
+}
+
 /// Per-stage diagnostic dump. No-op when the `stage-dump` feature is
 /// disabled or the `MAPLE_STAGE_DUMP` env var is unset. Called after each
 /// stage that produces or modifies the in-flight `Image`.

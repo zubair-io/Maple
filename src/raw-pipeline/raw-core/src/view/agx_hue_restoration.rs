@@ -121,11 +121,29 @@ pub fn oklab_gamut_compress(rgb: [f32; 3]) -> [f32; 3] {
     let out = oklab_to_rec2020([l, a * lo, b * lo]);
     // Tighten with the trailing clamp — Oklab round-trips can drift a
     // few ULPs past 0 or 1 even when the bisection landed inside.
+    //
+    // NaN/Inf scrub (#1088): Rust's `f32::clamp` passes NaN through, and
+    // a non-finite triple always lands in this fallthrough (NaN fails
+    // every `in_unit_box` comparison) — scrub to 0.0 so the AgX tail
+    // never emits a non-finite pixel. Mirrors the shared helper at
+    // `color::oklab_gamut::compress_to_unit_cube_oklab`.
     [
-        out[0].clamp(0.0, 1.0),
-        out[1].clamp(0.0, 1.0),
-        out[2].clamp(0.0, 1.0),
+        clamp_unit_scrub_non_finite(out[0]),
+        clamp_unit_scrub_non_finite(out[1]),
+        clamp_unit_scrub_non_finite(out[2]),
     ]
+}
+
+/// `clamp(0, 1)` that maps non-finite values to 0.0 — Rust's `f32::clamp`
+/// returns NaN for NaN input (#1088). Same scrub as the shared
+/// `color::oklab_gamut` copy of the bisection.
+#[inline]
+fn clamp_unit_scrub_non_finite(v: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
 }
 
 #[inline]
@@ -211,6 +229,32 @@ mod tests {
                 out[i] >= 0.0 && out[i] <= 1.0,
                 "channel {} out of gamut: {}", i, out[i]
             );
+        }
+    }
+
+    /// #1088 — non-finite input must come out finite in [0, 1]. NaN fails
+    /// every `in_unit_box` comparison, so it always lands in the
+    /// compression fallthrough, whose pre-fix `clamp(0.0, 1.0)` passed
+    /// NaN straight through to the AgX outset output.
+    #[test]
+    fn gamut_compress_scrubs_non_finite_to_finite_unit_range() {
+        let cases: [[f32; 3]; 4] = [
+            [f32::NAN, 0.5, 0.5],
+            [f32::NAN, f32::NAN, f32::NAN],
+            [f32::INFINITY, 0.2, 0.2],
+            [0.2, f32::NEG_INFINITY, 0.2],
+        ];
+        for p in cases {
+            let out = oklab_gamut_compress(p);
+            for (i, c) in out.iter().enumerate() {
+                assert!(
+                    c.is_finite() && (0.0..=1.0).contains(c),
+                    "channel {} not finite-in-[0,1] for input {:?}: {}",
+                    i,
+                    p,
+                    c
+                );
+            }
         }
     }
 

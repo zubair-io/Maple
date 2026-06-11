@@ -19,9 +19,13 @@ const TEXTURE_EPS: f32 = 1e-3;
 /// SceneToneControls / SceneClarity Metal shaders and the WebGL ports.
 const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 
-/// Numerical floor for the luma-ratio rescale (avoids div-by-zero on
-/// pure-black pixels). Matches the `LUMA_FLOOR_C = 1e-6` constant in the
-/// Apple Metal kernel.
+/// Identity threshold for the luma-ratio rescale (#1088). Pixels with
+/// `luma <= LUMA_FLOOR` (including negative luma) pass through unchanged
+/// — see the sibling constant in `stages::clarity` for the full
+/// rationale (below the floor the quotient stops being a ratio and a
+/// near-black pixel beside bright content exploded to `scale ≈ -3e5` at
+/// texture +100). Matches the `LUMA_FLOOR` constant in the raw-gpu WGSL
+/// recombine (`guided_combine.wgsl`).
 const LUMA_FLOOR: f32 = 1e-6;
 
 /// Luminance-preserving local-contrast enhancement at the fine-detail
@@ -63,9 +67,16 @@ pub fn apply(img: &mut Image, texture: f32) {
 
     for (i, p) in img.pixels.iter_mut().enumerate() {
         let luma = luma_plane[i];
+        // Identity at/below the luma floor (#1088) — identical guard to
+        // `stages::clarity::apply` (texture IS clarity at radius 2).
+        // Above the floor, dividing by `luma` is bit-identical to the
+        // old `luma.max(LUMA_FLOOR)` divisor.
+        if luma <= LUMA_FLOOR {
+            continue;
+        }
         let detail = luma - base[i];
         let boost = luma + detail * amount;
-        let scale = boost / luma.max(LUMA_FLOOR);
+        let scale = boost / luma;
         p[0] *= scale;
         p[1] *= scale;
         p[2] *= scale;
@@ -328,6 +339,62 @@ mod tests {
         for (i, p) in img.pixels.iter().enumerate() {
             for &c in p {
                 assert!(c.is_finite(), "pixel {} channel not finite: {:?}", i, p);
+            }
+        }
+    }
+
+    /// #1088 regression — the luma-floor blowup, texture flavour (texture
+    /// IS clarity at radius 2; same guard, same fixture shape — see the
+    /// clarity sibling test for the full numbers). A sub-floor-luma pixel
+    /// with non-tiny mixed-sign channels and a negative-luma pixel sit in
+    /// a bright field at texture +100: both must pass through identity,
+    /// and nothing in the image may blow past the input range (pre-fix
+    /// the sub-floor pixel hit `scale ≈ -1e5` against the pinned 1e-6
+    /// divisor).
+    #[test]
+    fn near_black_beside_bright_is_identity_not_speckle() {
+        let w = 48usize;
+        let h = 8usize;
+        let mut img = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
+        for p in &mut img.pixels {
+            *p = [0.8, 0.8, 0.8];
+        }
+        let r = 0.1f32;
+        let b = 0.0f32;
+        let g = (5e-7 - LUMA_REC2020[0] * r - LUMA_REC2020[2] * b) / LUMA_REC2020[1];
+        let sub_floor = [r, g, b];
+        let sub_floor_luma =
+            LUMA_REC2020[0] * r + LUMA_REC2020[1] * g + LUMA_REC2020[2] * b;
+        assert!(
+            sub_floor_luma > 0.0 && sub_floor_luma <= LUMA_FLOOR,
+            "fixture bug: luma {} not in (0, LUMA_FLOOR]",
+            sub_floor_luma
+        );
+        let neg_luma = [0.05f32, -0.05, 0.01];
+
+        let i_sub = 4 * w + 10;
+        let i_neg = 4 * w + 30;
+        img.pixels[i_sub] = sub_floor;
+        img.pixels[i_neg] = neg_luma;
+
+        apply(&mut img, 100.0);
+
+        assert_eq!(
+            img.pixels[i_sub], sub_floor,
+            "sub-floor-luma pixel must pass through identity"
+        );
+        assert_eq!(
+            img.pixels[i_neg], neg_luma,
+            "negative-luma pixel must pass through identity"
+        );
+        for (i, p) in img.pixels.iter().enumerate() {
+            for &c in p {
+                assert!(
+                    c.is_finite() && c.abs() <= 8.0,
+                    "pixel {} blew past the input range: {:?}",
+                    i,
+                    p
+                );
             }
         }
     }
