@@ -101,6 +101,32 @@ pub struct MapleAdjustmentParams {
     pub split_tone_highlight_hue: f32,
     pub split_tone_highlight_saturation: f32,
     pub split_tone_balance: f32,
+    // --- HSL 8-band adjustments (#1112) — scene-linear Oklab; appended at
+    //     the tail, un-set reads 0 = identity. ---
+    pub hsl_hue_red: f32,
+    pub hsl_hue_orange: f32,
+    pub hsl_hue_yellow: f32,
+    pub hsl_hue_green: f32,
+    pub hsl_hue_aqua: f32,
+    pub hsl_hue_blue: f32,
+    pub hsl_hue_purple: f32,
+    pub hsl_hue_magenta: f32,
+    pub hsl_sat_red: f32,
+    pub hsl_sat_orange: f32,
+    pub hsl_sat_yellow: f32,
+    pub hsl_sat_green: f32,
+    pub hsl_sat_aqua: f32,
+    pub hsl_sat_blue: f32,
+    pub hsl_sat_purple: f32,
+    pub hsl_sat_magenta: f32,
+    pub hsl_lum_red: f32,
+    pub hsl_lum_orange: f32,
+    pub hsl_lum_yellow: f32,
+    pub hsl_lum_green: f32,
+    pub hsl_lum_aqua: f32,
+    pub hsl_lum_blue: f32,
+    pub hsl_lum_purple: f32,
+    pub hsl_lum_magenta: f32,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -192,6 +218,31 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.split_tone_highlight_hue = p.split_tone_highlight_hue;
     model.split_tone_highlight_saturation = p.split_tone_highlight_saturation;
     model.split_tone_balance = p.split_tone_balance;
+    // HSL 8-band adjustments (#1112)
+    model.hue_adjustment_red      = p.hsl_hue_red;
+    model.hue_adjustment_orange   = p.hsl_hue_orange;
+    model.hue_adjustment_yellow   = p.hsl_hue_yellow;
+    model.hue_adjustment_green    = p.hsl_hue_green;
+    model.hue_adjustment_aqua     = p.hsl_hue_aqua;
+    model.hue_adjustment_blue     = p.hsl_hue_blue;
+    model.hue_adjustment_purple   = p.hsl_hue_purple;
+    model.hue_adjustment_magenta  = p.hsl_hue_magenta;
+    model.saturation_adjustment_red      = p.hsl_sat_red;
+    model.saturation_adjustment_orange   = p.hsl_sat_orange;
+    model.saturation_adjustment_yellow   = p.hsl_sat_yellow;
+    model.saturation_adjustment_green    = p.hsl_sat_green;
+    model.saturation_adjustment_aqua     = p.hsl_sat_aqua;
+    model.saturation_adjustment_blue     = p.hsl_sat_blue;
+    model.saturation_adjustment_purple   = p.hsl_sat_purple;
+    model.saturation_adjustment_magenta  = p.hsl_sat_magenta;
+    model.luminance_adjustment_red      = p.hsl_lum_red;
+    model.luminance_adjustment_orange   = p.hsl_lum_orange;
+    model.luminance_adjustment_yellow   = p.hsl_lum_yellow;
+    model.luminance_adjustment_green    = p.hsl_lum_green;
+    model.luminance_adjustment_aqua     = p.hsl_lum_aqua;
+    model.luminance_adjustment_blue     = p.hsl_lum_blue;
+    model.luminance_adjustment_purple   = p.hsl_lum_purple;
+    model.luminance_adjustment_magenta  = p.hsl_lum_magenta;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
@@ -308,6 +359,31 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.split_tone_highlight_hue = p.split_tone_highlight_hue;
     model.split_tone_highlight_saturation = p.split_tone_highlight_saturation;
     model.split_tone_balance = p.split_tone_balance;
+    // HSL 8-band adjustments (#1112) — FFI names hsl_*; raw-core names *_adjustment_*
+    model.hue_adjustment_red      = p.hsl_hue_red;
+    model.hue_adjustment_orange   = p.hsl_hue_orange;
+    model.hue_adjustment_yellow   = p.hsl_hue_yellow;
+    model.hue_adjustment_green    = p.hsl_hue_green;
+    model.hue_adjustment_aqua     = p.hsl_hue_aqua;
+    model.hue_adjustment_blue     = p.hsl_hue_blue;
+    model.hue_adjustment_purple   = p.hsl_hue_purple;
+    model.hue_adjustment_magenta  = p.hsl_hue_magenta;
+    model.saturation_adjustment_red      = p.hsl_sat_red;
+    model.saturation_adjustment_orange   = p.hsl_sat_orange;
+    model.saturation_adjustment_yellow   = p.hsl_sat_yellow;
+    model.saturation_adjustment_green    = p.hsl_sat_green;
+    model.saturation_adjustment_aqua     = p.hsl_sat_aqua;
+    model.saturation_adjustment_blue     = p.hsl_sat_blue;
+    model.saturation_adjustment_purple   = p.hsl_sat_purple;
+    model.saturation_adjustment_magenta  = p.hsl_sat_magenta;
+    model.luminance_adjustment_red      = p.hsl_lum_red;
+    model.luminance_adjustment_orange   = p.hsl_lum_orange;
+    model.luminance_adjustment_yellow   = p.hsl_lum_yellow;
+    model.luminance_adjustment_green    = p.hsl_lum_green;
+    model.luminance_adjustment_aqua     = p.hsl_lum_aqua;
+    model.luminance_adjustment_blue     = p.hsl_lum_blue;
+    model.luminance_adjustment_purple   = p.hsl_lum_purple;
+    model.luminance_adjustment_magenta  = p.hsl_lum_magenta;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);

@@ -129,6 +129,33 @@ export const ADJUSTMENT_FIELDS: XmpFieldMapping<NumericAdjustmentKey>[] = [
   numericField('crs:SplitToningHighlightHue', 'splitToneHighlightHue'),
   numericField('crs:SplitToningHighlightSaturation', 'splitToneHighlightSaturation'),
   numericField('crs:SplitToningBalance', 'splitToneBalance'),
+  // ---- HSL 8-band per-channel fields (ticket #1112) ----
+  // Scene-linear Oklab, normalized raised-cosine partition; range -100..+100.
+  // ACR-compatible crs: keys for sidecar interchange.
+  numericField('crs:HueAdjustmentRed', 'hueAdjustmentRed'),
+  numericField('crs:HueAdjustmentOrange', 'hueAdjustmentOrange'),
+  numericField('crs:HueAdjustmentYellow', 'hueAdjustmentYellow'),
+  numericField('crs:HueAdjustmentGreen', 'hueAdjustmentGreen'),
+  numericField('crs:HueAdjustmentAqua', 'hueAdjustmentAqua'),
+  numericField('crs:HueAdjustmentBlue', 'hueAdjustmentBlue'),
+  numericField('crs:HueAdjustmentPurple', 'hueAdjustmentPurple'),
+  numericField('crs:HueAdjustmentMagenta', 'hueAdjustmentMagenta'),
+  numericField('crs:SaturationAdjustmentRed', 'saturationAdjustmentRed'),
+  numericField('crs:SaturationAdjustmentOrange', 'saturationAdjustmentOrange'),
+  numericField('crs:SaturationAdjustmentYellow', 'saturationAdjustmentYellow'),
+  numericField('crs:SaturationAdjustmentGreen', 'saturationAdjustmentGreen'),
+  numericField('crs:SaturationAdjustmentAqua', 'saturationAdjustmentAqua'),
+  numericField('crs:SaturationAdjustmentBlue', 'saturationAdjustmentBlue'),
+  numericField('crs:SaturationAdjustmentPurple', 'saturationAdjustmentPurple'),
+  numericField('crs:SaturationAdjustmentMagenta', 'saturationAdjustmentMagenta'),
+  numericField('crs:LuminanceAdjustmentRed', 'luminanceAdjustmentRed'),
+  numericField('crs:LuminanceAdjustmentOrange', 'luminanceAdjustmentOrange'),
+  numericField('crs:LuminanceAdjustmentYellow', 'luminanceAdjustmentYellow'),
+  numericField('crs:LuminanceAdjustmentGreen', 'luminanceAdjustmentGreen'),
+  numericField('crs:LuminanceAdjustmentAqua', 'luminanceAdjustmentAqua'),
+  numericField('crs:LuminanceAdjustmentBlue', 'luminanceAdjustmentBlue'),
+  numericField('crs:LuminanceAdjustmentPurple', 'luminanceAdjustmentPurple'),
+  numericField('crs:LuminanceAdjustmentMagenta', 'luminanceAdjustmentMagenta'),
 ];
 
 /** WhiteBalance preset — serialized as a string attribute, not a number. */
