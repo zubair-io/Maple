@@ -386,13 +386,17 @@ export async function countAssetsMissingFileinfo(db: Db): Promise<number> {
 // stayed on every row indexed before the cutover, as dead weight. This one-shot
 // `$unset` removes them.
 //
-// Scoped to rows that ALREADY carry a `fileinfo` array. A legacy row still
-// missing `fileinfo` (e.g. its `folder_id` no longer resolves to a registered
-// library, so the fileinfo backfill skipped it) keeps `abs_path` /
-// `folder_id` / `filename` — the only fields its location could be rebuilt
-// from if the library is re-registered and discover re-runs. `thumb_path` /
-// `preview_path` are never read on any row, but gating the whole cleanup on the
-// fileinfo predicate keeps it a single, obviously-safe `updateMany`.
+// Scoped to rows that carry a PRIMARY `fileinfo` entry (`fileinfo.0` exists,
+// i.e. a non-empty array). A legacy row still missing `fileinfo` — OR carrying
+// a degenerate empty `fileinfo: []` — keeps `abs_path` / `folder_id` /
+// `filename`: with no primary entry there is nothing to resolve a location
+// from, so those fields are the only thing its path could be rebuilt from once
+// the library is re-registered and discover re-runs. (`fileinfo.0` is the same
+// "has at least one entry" predicate the missing_since→fileinfo migration uses;
+// a bare `$type: 'array'` would also match `[]` and strip a row we must keep.)
+// `thumb_path` / `preview_path` are never read on any row, but gating the whole
+// cleanup on the primary-entry predicate keeps it a single, obviously-safe
+// `updateMany`.
 //
 // Idempotent — `$unset` on an already-clean row is a no-op. Sentinel-gated in
 // `ensureIndexes` (and ordered AFTER the fileinfo backfill there, so a row
@@ -408,7 +412,11 @@ export async function dropLegacyLocationFields(
 ): Promise<DropLegacyLocationFieldsResult> {
   const res = await db.collection('assets').updateMany(
     {
-      fileinfo: { $type: 'array' },
+      // Require a primary fileinfo entry (non-empty array). `fileinfo.0`
+      // existing implies `fileinfo` is an array AND has ≥1 element, so a
+      // degenerate `fileinfo: []` row is left untouched (its legacy fields are
+      // the only source its location could be rebuilt from).
+      'fileinfo.0': { $exists: true },
       $or: [
         { abs_path: { $exists: true } },
         { folder_id: { $exists: true } },

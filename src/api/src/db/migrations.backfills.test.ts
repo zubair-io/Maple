@@ -473,6 +473,39 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
       expect(after?.thumb_path).toBe('/gone/.maple/thumbs/x.jpg');
     });
 
+    it('leaves a row with a degenerate empty fileinfo[] untouched', async () => {
+      if (!mongoReachable) return;
+      const { closeDb, ensureIndexes } = await import('./client.ts');
+      const { ObjectId } = await import('mongodb');
+      await closeDb();
+
+      // An empty `fileinfo: []` has no primary entry to resolve a location
+      // from, so the cleanup must NOT strip the legacy fields (matching the
+      // no-fileinfo case) — `fileinfo.0` does not exist, so the row is skipped.
+      const assetId = new ObjectId();
+      await db!.collection('assets').insertOne({
+        _id: assetId,
+        fileinfo: [],
+        abs_path: '/lib/empty.dng',
+        thumb_path: '/lib/.maple/thumbs/e.jpg',
+        size: 1,
+        mtime: 1,
+        rating: 0,
+        flag: 0,
+        color_label: '',
+        indexed_at: '2026-06-11T00:00:00Z',
+      });
+
+      await ensureIndexes();
+
+      const after = (await db!.collection('assets').findOne({ _id: assetId })) as Record<
+        string,
+        unknown
+      > | null;
+      expect(after?.abs_path).toBe('/lib/empty.dng');
+      expect(after?.thumb_path).toBe('/lib/.maple/thumbs/e.jpg');
+    });
+
     it('is gated by the migrations sentinel (second boot skips)', async () => {
       if (!mongoReachable) return;
       const { closeDb, ensureIndexes } = await import('./client.ts');

@@ -137,6 +137,7 @@ describe('preview handler — bitmap path', () => {
       'previews',
       PREVIEW_SIZE_KEY,
     );
+    expect(previewPath).not.toBeNull();
     const meta = await sharp(previewPath as string).metadata();
     expect(meta.width).toBe(600);
     expect(meta.height).toBe(400);
@@ -161,6 +162,7 @@ describe('preview handler — bitmap path', () => {
       'previews',
       PREVIEW_SIZE_KEY,
     );
+    expect(previewPath).not.toBeNull();
     const meta = await sharp(previewPath as string).metadata();
     expect(meta.orientation === undefined || meta.orientation === 1).toBe(true);
   });
@@ -182,8 +184,9 @@ describe('preview handler — bitmap path', () => {
       new Map([[libraryId.toHexString(), dir]]),
       'previews',
       PREVIEW_SIZE_KEY,
-    ) as string;
-    const stat1 = await stat(previewPath);
+    );
+    expect(previewPath).not.toBeNull();
+    const stat1 = await stat(previewPath as string);
 
     // Touch the source to a time BEFORE the preview, then re-run. The stale-
     // check should reuse the existing preview file unchanged.
@@ -191,7 +194,7 @@ describe('preview handler — bitmap path', () => {
     await utimes(file, past, past);
 
     await previewStage.handler(doc as never, {} as never);
-    const stat2 = await stat(previewPath);
+    const stat2 = await stat(previewPath as string);
     expect(stat2.mtimeMs).toBe(stat1.mtimeMs);
   });
 
@@ -218,6 +221,7 @@ describe('preview handler — bitmap path', () => {
       'previews',
       PREVIEW_SIZE_KEY,
     );
+    expect(previewPath).not.toBeNull();
     const err = await stat(previewPath as string).then(
       () => null,
       (e: NodeJS.ErrnoException) => e,
