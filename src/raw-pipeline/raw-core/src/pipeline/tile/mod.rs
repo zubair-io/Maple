@@ -2,10 +2,13 @@
 //!
 //! The tile path runs `linearize` ONLY on a padded crop region (rather
 //! than the whole sensor), then runs a stripped-down develop chain
-//! against it (no auto-exposure, no dehaze — see the per-function notes),
-//! then trims the overlap, downsamples to the requested output size, and
-//! packs the result as oriented fp16 RGBA. This makes a 23-tile view of
-//! a 100 MP RAW land in ~10 s rather than ~10 minutes.
+//! against it (no auto-exposure — #1167; dehaze / vignette / deep
+//! denoise / local adjustments / capture sharpening are rejected loudly
+//! at the entry — see the per-function notes), then trims the overlap,
+//! downsamples to the requested output size, and packs the result as
+//! oriented fp16 RGBA.
+//! This makes a 23-tile view of a 100 MP RAW land in ~10 s rather than
+//! ~10 minutes.
 //!
 //! Stencil-sensitive stages constrain the overlap pad: clarity at
 //! radius 40 (3-pass box = exactly 39 px effective tail) is the binding
@@ -18,6 +21,9 @@
 
 mod develop;
 mod region;
+
+#[cfg(test)]
+mod tests;
 
 use crate::{error::Result, image::RawImage, linearize, xmp::AdjustmentModel};
 
@@ -68,6 +74,20 @@ const _: () = assert!(
 /// Errors:
 /// - `model.dehaze != 0` → returns `Err` with a "dehaze" message; tiles
 ///   are not safe with dehaze active (radius 67 px > overlap pad).
+/// - `model.vignette_amount != 0` → returns `Err` ("vignette"); the
+///   stage is full-frame-anchored and this entry does not thread the
+///   tile window yet (#11). Same fallback contract as dehaze.
+/// - `model.deep_denoise != 0` → returns `Err` ("deep denoise"); the
+///   BM3D reference-patch grid is frame-anchored, so per-tile grids
+///   would seam (#1105). Same fallback contract as dehaze.
+/// - a non-identity local adjustment → returns `Err` ("local
+///   adjustments"); mask weights evaluate in full-image-normalized
+///   coordinates, which a padded crop cannot reproduce without offset
+///   plumbing (#1084). Same fallback contract as dehaze.
+/// - an active capture-sharpening amount → returns `Err` ("capture
+///   sharpening"); the iterated Richardson–Lucy stencil reaches past the
+///   overlap pad at the σ = 8 helper clamp (#1084). Same fallback
+///   contract as dehaze.
 /// - `out_w > src_w || out_h > src_h` → returns `Err` ("upscale"); the
 ///   tile path caps at native resolution.
 /// - `(out_w, out_h)` aspect does not match `(src_w, src_h)` aspect →
@@ -117,6 +137,54 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
         // Refuse loudly rather than render a wrong (tile-local) ellipse.
         return Err(crate::error::Error::Pipeline(
             "tile path is not supported when vignette != 0 (full-frame anchor not threaded; #11)"
+                .into()
+        ));
+    }
+    // Active BM3D deep denoise → reject loudly, same contract as dehaze
+    // (#1105). The reference-patch grid is anchored at the buffer origin,
+    // so a tile-relative grid would aggregate different groups than the
+    // full-frame render and seam at tile borders. The FFI file/bytes tile
+    // entries pre-check this themselves; gating here as well covers every
+    // core caller (the handle-based FFI entry, maple-cli `tile`). The
+    // threshold matches `bm3d::apply`'s own early-exit (1e-3).
+    if model.deep_denoise.abs() > 1e-3 {
+        return Err(crate::error::Error::Pipeline(
+            "tile path is not supported when deep denoise != 0 \
+             (the BM3D reference-patch grid is frame-anchored; use the \
+             full-image render entry instead). See #1105."
+                .into()
+        ));
+    }
+    // Non-identity local adjustment → reject loudly, same contract as
+    // dehaze (#1084). Mask weights evaluate in coordinates normalized to
+    // the FULL image; a padded crop would place every mask tile-relative.
+    // The predicate mirrors the stage's own work-skip logic
+    // (`local_adjustments::apply` ignores layers whose `adjustments` carry
+    // no `Some` field), so a model the full chain would no-op on stays
+    // tile-renderable.
+    if model
+        .local_adjustments
+        .iter()
+        .any(|layer| !layer.adjustments.is_empty())
+    {
+        return Err(crate::error::Error::Pipeline(
+            "tile path is not supported when local adjustments are active \
+             (mask coordinates are normalized to the full image; use the \
+             full-image render entry instead). See #1084."
+                .into()
+        ));
+    }
+    // Active capture sharpening → reject loudly, same contract as dehaze
+    // (#1084). The iterated Richardson–Lucy stencil reaches up to
+    // ~2·iterations·3σ ≈ 96 px at the σ = 8 helper clamp — past
+    // TILE_OVERLAP_PX (48). The predicate reuses the full chain's own
+    // engage condition (`capture_sharpening_params_from_model`), so a
+    // model the full chain would skip the stage for stays tile-renderable.
+    if super::capture_sharpening_helper::capture_sharpening_params_from_model(model).is_some() {
+        return Err(crate::error::Error::Pipeline(
+            "tile path is not supported when capture sharpening is active \
+             (Richardson–Lucy stencil exceeds the overlap pad; use the \
+             full-image render entry instead). See #1084."
                 .into()
         ));
     }
@@ -220,180 +288,4 @@ pub fn render_scene_linear_tile_from_raw_with_quality(
         oriented_f32.iter().map(|&v| f32_to_f16_bits(v)).collect()
     });
     Ok((w, h, fp16))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Build a fake `RawImage` for the dehaze / out>src error-path tests.
-    /// Decode + DCP + every chained stage need a real RAW + DCP profile,
-    /// so these helpers only feed paths that error before any of that
-    /// runs.
-    fn fake_raw(w: u32, h: u32) -> RawImage {
-        RawImage {
-            width: w,
-            height: h,
-            cfa: crate::image::CfaPattern::Rggb,
-            black_level: [0, 0, 0, 0],
-            white_level: 1023,
-            raw_data: vec![0u16; (w as usize) * (h as usize)],
-            as_shot_neutral: [1.0, 1.0, 1.0],
-            as_shot_cct: None,
-            camera_make: "Test".into(),
-            camera_model: "Test".into(),
-            unique_camera_model: None,
-            color_matrices: std::collections::HashMap::new(),
-            forward_matrices: std::collections::HashMap::new(),
-            orientation: crate::image::ExifOrientation::Normal,
-            baseline_exposure: 0.0,
-            hsm_data: std::collections::HashMap::new(),
-            plt: None,
-            profile_tone_curve: None,
-            profile_gain_table_map: None,
-            crop_rect: None,
-        }
-    }
-
-    /// Tile entry rejects `model.dehaze != 0` with a "dehaze" error. The
-    /// rejection happens before any decode / DCP work, so a synthetic
-    /// `RawImage` (no DCP profile) is sufficient to exercise the path.
-    #[test]
-    fn render_scene_linear_tile_rejects_active_dehaze() {
-        let raw = fake_raw(2048, 2048);
-        let model = AdjustmentModel { dehaze: 50.0, ..Default::default() };
-        let r = render_scene_linear_tile_from_raw_with_quality(
-            &raw, &model, 1024, 1024, 512, 512, 512, 512,
-            RenderQuality::Full,
-        );
-        assert!(r.is_err(), "tile path must error when dehaze != 0");
-        let msg = format!("{}", r.unwrap_err());
-        assert!(msg.contains("dehaze"),
-            "error must mention dehaze, got: {}", msg);
-    }
-
-    /// Tile entry rejects mismatched-aspect requests. The trim →
-    /// downsample chain drives a single long-edge scale, so honouring
-    /// `(out_w, out_h)` with a non-matching aspect would silently
-    /// produce a fit-within square instead of the requested rect. We
-    /// reject loudly with a "matching aspect" message; the FFI surface
-    /// maps that to rc=12. Same fake-RawImage rationale as the dehaze
-    /// test (rejection fires before any decode work).
-    #[test]
-    fn render_scene_linear_tile_rejects_mismatched_aspect() {
-        let raw = fake_raw(2048, 2048);
-        let model = AdjustmentModel::default();
-        // src 512×512 (1:1), out 512×256 (2:1) — strict mismatch.
-        let r = render_scene_linear_tile_from_raw_with_quality(
-            &raw, &model, 0, 0, 512, 512, 512, 256,
-            RenderQuality::Full,
-        );
-        assert!(r.is_err(), "tile path must error on mismatched aspect");
-        let msg = format!("{}", r.unwrap_err());
-        assert!(msg.contains("matching aspect"),
-            "error must mention matching aspect, got: {}", msg);
-
-        // src 1024×512 (2:1), out 256×128 (2:1) — matches; should NOT
-        // error on the aspect check. (May still error elsewhere because
-        // `fake_raw` has no DCP profile, so just confirm the message is
-        // not the aspect one.)
-        let r_ok_aspect = render_scene_linear_tile_from_raw_with_quality(
-            &raw, &model, 0, 0, 1024, 512, 256, 128,
-            RenderQuality::Full,
-        );
-        if let Err(e) = r_ok_aspect {
-            let msg = format!("{}", e);
-            assert!(!msg.contains("matching aspect"),
-                "matching-aspect request must not trip the aspect guard: {}", msg);
-        }
-
-        // Equal cross-product within the integer-rounding tolerance
-        // (one row/column of `src_w.max(src_h)`) — should pass.
-        // src 513×512, out 257×256: cross diff = |513*256 - 512*257| = 256 <= 513.
-        let r_tol = render_scene_linear_tile_from_raw_with_quality(
-            &raw, &model, 0, 0, 513, 512, 257, 256,
-            RenderQuality::Full,
-        );
-        if let Err(e) = r_tol {
-            let msg = format!("{}", e);
-            assert!(!msg.contains("matching aspect"),
-                "near-aspect within tolerance must not trip guard: {}", msg);
-        }
-    }
-
-    /// Tile entry rejects upscale requests (`out_w > src_w` or
-    /// `out_h > src_h`). Same fake-RawImage rationale as the dehaze test.
-    #[test]
-    fn render_scene_linear_tile_rejects_upscale() {
-        let raw = fake_raw(2048, 2048);
-        let model = AdjustmentModel::default();
-        let r_w = render_scene_linear_tile_from_raw_with_quality(
-            &raw, &model, 0, 0, 512, 512, 1024, 512,
-            RenderQuality::Full,
-        );
-        assert!(r_w.is_err(), "out_w > src_w must error");
-        let msg = format!("{}", r_w.unwrap_err());
-        assert!(msg.contains("upscale") || msg.contains("downscale"),
-            "error must mention up/downscale, got: {}", msg);
-
-        let r_h = render_scene_linear_tile_from_raw_with_quality(
-            &raw, &model, 0, 0, 512, 512, 512, 1024,
-            RenderQuality::Full,
-        );
-        assert!(r_h.is_err(), "out_h > src_h must error");
-    }
-
-    /// Tile entry: renders a 512×512 source-pixel rectangle out of the
-    /// largest available DNG fixture. Verifies (a) returned size matches
-    /// `out_w` × `out_h`, (b) alpha lane is `0x3c00` (1.0) everywhere,
-    /// (c) at least 10% of the buffer is non-alpha, non-zero (real
-    /// pixels not borders). Fixture-gated — `test_0002.dng` is gitignored.
-    #[test]
-    fn render_scene_linear_tile_returns_oriented_fp16_rgba_at_target_size() {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../test-fixtures/raws/test_0002.dng");
-        if !path.exists() { return; }
-        let bytes = std::fs::read(&path).expect("read raw");
-        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
-        let model = AdjustmentModel::default();
-        let (src_x, src_y, src_w, src_h) = (1024u32, 1024u32, 512u32, 512u32);
-        let (out_w, out_h) = (512u32, 512u32);
-        let (w, h, fp16) = render_scene_linear_tile_from_raw_with_quality(
-            &raw, &model, src_x, src_y, src_w, src_h, out_w, out_h,
-            RenderQuality::Full,
-        ).expect("tile render");
-        assert_eq!(w, out_w, "tile width");
-        assert_eq!(h, out_h, "tile height");
-        assert_eq!(fp16.len() as u32, 4 * w * h);
-        let alpha_ok = fp16.chunks_exact(4).filter(|c| c[3] == 0x3c00).count();
-        assert_eq!(alpha_ok, (w * h) as usize, "all alpha lanes = 1.0");
-        let nonzero = fp16.iter().filter(|&&v| v != 0 && v != 0x3c00).count();
-        assert!(nonzero > (fp16.len() / 10),
-            "tile mostly zero: {} non-zero non-alpha lanes", nonzero);
-    }
-
-    /// Tile entry rounds source coordinates down to even multiples of 2
-    /// for Bayer-phase correctness on `demosaic::half_res`. Pass odd
-    /// coords; verify the rendered tile matches the requested
-    /// out_w/out_h. Pixel-equality not asserted — the coord rounding is
-    /// a defensive snap that does not perturb `out_w`/`out_h`.
-    #[test]
-    fn render_scene_linear_tile_rounds_source_coords_to_even() {
-        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../test-fixtures/raws/test_0002.dng");
-        if !path.exists() { return; }
-        let bytes = std::fs::read(&path).expect("read raw");
-        let raw = crate::decode::decode_bytes(&bytes, "dng").expect("decode");
-        let model = AdjustmentModel::default();
-        let (w_odd, h_odd, _) = render_scene_linear_tile_from_raw_with_quality(
-            &raw, &model, 1025, 1025, 512, 512, 256, 256,
-            RenderQuality::Full,
-        ).expect("odd coords tile");
-        let (w_even, h_even, _) = render_scene_linear_tile_from_raw_with_quality(
-            &raw, &model, 1024, 1024, 512, 512, 256, 256,
-            RenderQuality::Full,
-        ).expect("even coords tile");
-        assert_eq!((w_odd, h_odd), (256, 256));
-        assert_eq!((w_even, h_even), (256, 256));
-    }
 }
