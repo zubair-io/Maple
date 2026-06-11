@@ -15,6 +15,11 @@
 // → `EditSession.model` → the debounced XMP sidecar write.
 
 import Foundation
+import os
+
+private let presetStoreLog = Logger(
+    subsystem: "app.justmaple.aperture", category: "PresetStore"
+)
 
 // MARK: - Errors
 
@@ -75,8 +80,9 @@ public actor PresetStore {
     // MARK: List
 
     /// All user presets, name-sorted case-insensitively. Files that fail
-    /// to decode are skipped (a corrupt document must not take down the
-    /// whole list); they stay on disk untouched for manual recovery.
+    /// to decode — or whose `id` is unsafe or doesn't match the filename
+    /// stem — are skipped (a corrupt document must not take down the whole
+    /// list); they stay on disk untouched for manual recovery.
     public func list() throws -> [Preset] {
         let fm = FileManager.default
         guard fm.fileExists(atPath: directory.path) else { return [] }
@@ -86,11 +92,33 @@ public actor PresetStore {
 
         let decoder = JSONDecoder()
         var presets: [Preset] = []
+        var skipped = 0
         for url in urls {
             guard let data = try? Data(contentsOf: url),
                   let preset = try? decoder.decode(Preset.self, from: data)
-            else { continue }
+            else {
+                skipped += 1
+                continue
+            }
+            // The id is the load-bearing link back to the file: `delete(id:)`
+            // resolves `<id>.json` from it, and SwiftUI `ForEach` requires
+            // unique `Identifiable` ids. An unsafe id, or one that doesn't
+            // match its filename stem (hand-edited or copied file), would
+            // list fine but leave the real file undeletable — and a stem
+            // mismatch can duplicate another document's id. Same treatment
+            // as an undecodable file: skip it.
+            guard Self.isSafeID(preset.id),
+                  preset.id == url.deletingPathExtension().lastPathComponent
+            else {
+                skipped += 1
+                continue
+            }
             presets.append(preset)
+        }
+        if skipped > 0 {
+            presetStoreLog.warning(
+                "list: skipped \(skipped) corrupt preset file(s) (undecodable, unsafe id, or id ≠ filename stem) in \(self.directory.path, privacy: .public)"
+            )
         }
         return presets.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending

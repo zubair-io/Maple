@@ -75,6 +75,12 @@ struct DragBar: View {
             .gesture(makeDragGesture(barWidth: barWidth))
             .onTapGesture(count: 2) { resetTapped() }
             .onLongPressGesture(minimumDuration: 0.5) { engageFineMode() }
+            // Presets (#1115) and the gated stubs have no value pipe —
+            // without this, the drag gesture's touch-down `state.commit()`
+            // would push a junk undo snapshot for a value write the
+            // EditorState guards then ignore. Visual is unchanged; only
+            // interactivity is gated.
+            .allowsHitTesting(state.armedToolAcceptsValueEdits)
         }
         .frame(height: 30)
         .padding(.horizontal, 24)
