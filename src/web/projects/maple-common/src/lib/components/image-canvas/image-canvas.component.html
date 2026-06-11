@@ -2,24 +2,32 @@
 <div
   class="flex items-center gap-2 px-3 h-[34px] bg-surface border-b-[0.5px] border-border flex-shrink-0"
 >
+  <!-- Zoom badge (#1100): percent of the effective real pixelScale, always visible. -->
   <span class="font-mono text-[10px] text-text-muted">{{ zoomLabel() }}</span>
   <div
     class="tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
-    (click)="canvasSvc.zoomOut()"
+    (click)="stepZoom(-1)"
     title="Zoom out"
   >
     −
   </div>
   <div
     class="tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
-    (click)="canvasSvc.resetView()"
-    title="Fit"
+    (click)="canvasSvc.zoomToFit()"
+    title="Fit (⌘0)"
   >
     ⊡
   </div>
   <div
+    class="tool-btn flex h-6 min-w-6 cursor-pointer items-center justify-center rounded px-1 font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
+    (click)="canvasSvc.zoomTo100()"
+    title="100% (⌘1)"
+  >
+    1:1
+  </div>
+  <div
     class="tool-btn flex h-6 w-6 cursor-pointer items-center justify-center rounded font-sans text-[11px] text-text-muted bg-surface-alt border-[0.5px] border-border transition-colors duration-100 hover:bg-surface-hover hover:text-text-main"
-    (click)="canvasSvc.zoomIn()"
+    (click)="stepZoom(1)"
     title="Zoom in"
   >
     +
@@ -35,15 +43,19 @@
   </div>
 </div>
 
-<!-- Canvas area -->
+<!-- Canvas area. Pointer Events (#1100): two-pointer pinch zooms (centroid-
+     anchored), one-pointer drag pans when zoomed; `touch-none` stops the
+     browser from claiming the gestures for scrolling. Wheel routes per the
+     §5.0 table (ctrl/Cmd = zoom at cursor, plain = pan when zoomed). -->
 <div
-  class="canvas-wrap relative flex-1 min-h-0 overflow-hidden cursor-grab select-none active:cursor-grabbing"
+  class="canvas-wrap relative flex-1 min-h-0 touch-none overflow-hidden cursor-grab select-none active:cursor-grabbing"
   #wrap
   (wheel)="onWheel($event)"
-  (mousedown)="onMouseDown($event)"
-  (mousemove)="onMouseMove($event)"
-  (mouseup)="onMouseUp()"
-  (mouseleave)="onMouseUp()"
+  (pointerdown)="onPointerDown($event)"
+  (pointermove)="onPointerMove($event)"
+  (pointerup)="onPointerUp($event)"
+  (pointercancel)="onPointerUp($event)"
+  (dblclick)="onDoubleClick($event)"
 >
   <!-- Viewport-sized backing store (#1101): the canvas fills the wrap; the
        backing store is viewport × devicePixelRatio and zoom/pan are a draw
@@ -55,7 +67,7 @@
     <div
       class="absolute top-0 bottom-0 w-0.5 bg-white/80 -translate-x-1/2 cursor-ew-resize z-10"
       [style.left.%]="(canvasSvc.beforeAfterSplitX() ?? 0.5) * 100"
-      (mousedown)="onDividerDrag($event)"
+      (pointerdown)="onDividerDrag($event)"
     >
       <div
         class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-10 bg-white/90 rounded-[10px] flex items-center justify-center text-[10px] text-[#333] pointer-events-none"

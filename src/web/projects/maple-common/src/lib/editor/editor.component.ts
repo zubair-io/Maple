@@ -102,7 +102,8 @@ export class EditorComponent implements OnInit, OnDestroy {
       else this.state.undo();
       return;
     }
-    if (ev.key === '0') {
+    // Bare 0 only — Cmd/Ctrl+0 is the canvas's zoom-to-fit (#1100).
+    if (ev.key === '0' && !meta) {
       this.state.resetArmedTool();
       return;
     }

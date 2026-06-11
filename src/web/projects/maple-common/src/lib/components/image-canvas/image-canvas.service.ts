@@ -2,12 +2,17 @@
 
 import { Injectable, signal, computed } from '@angular/core';
 import type { DecodedImage } from '../../raw-pipeline/raw-pipeline.types';
-
-export type ZoomLevel = 0.25 | 0.5 | 1 | 2 | 4 | 'fit';
+import { MAX_PIXEL_SCALE } from './image-canvas.zoom-gestures';
 
 @Injectable({ providedIn: 'root' })
 export class ImageCanvasService {
-  readonly zoom = signal<ZoomLevel>('fit');
+  /**
+   * Continuous zoom as REAL screen pixels per image pixel (#1100,
+   * docs/zoom.md): `0` = fit (auto-computed from viewport/native),
+   * `1.0` = true 100% (1 image px = 1 device px — dpr-aware, pixel-perfect
+   * on retina), capped at 8.0. Replaces the stepped `ZoomLevel`.
+   */
+  readonly pixelScale = signal<number>(0);
   readonly pan = signal<{ x: number; y: number }>({ x: 0, y: 0 });
   readonly beforeAfterSplitX = signal<number | null>(null);
 
@@ -28,29 +33,25 @@ export class ImageCanvasService {
     this.beforeAfterSplitX.set(Math.max(0.02, Math.min(0.98, x)));
   }
 
-  resetView(): void {
-    this.zoom.set('fit');
+  /** Fit: pixelScale 0 + recentered pan (docs/zoom.md Fit button). */
+  zoomToFit(): void {
+    this.pixelScale.set(0);
     this.pan.set({ x: 0, y: 0 });
   }
 
-  zoomIn(): void {
-    const order: ZoomLevel[] = [0.25, 0.5, 1, 2, 4];
-    const cur = this.zoom();
-    if (cur === 'fit') {
-      this.zoom.set(1);
-      return;
-    }
-    const idx = order.indexOf(cur as ZoomLevel);
-    if (idx < order.length - 1) this.zoom.set(order[idx + 1]);
+  /** True 100% (pixel-perfect) + recentered pan (docs/zoom.md 100% button). */
+  zoomTo100(): void {
+    this.pixelScale.set(1);
+    this.pan.set({ x: 0, y: 0 });
   }
 
-  zoomOut(): void {
-    const order: ZoomLevel[] = [0.25, 0.5, 1, 2, 4];
-    const cur = this.zoom();
-    if (cur === 'fit') return;
-    const idx = order.indexOf(cur as ZoomLevel);
-    if (idx > 0) this.zoom.set(order[idx - 1]);
-    else this.zoom.set('fit');
+  /**
+   * Set a settled pixelScale, clamped to `[0, 8]`. `0` = fit. Snap-to-fit
+   * and anchoring live in `CanvasZoomGestures` (they need viewport/native
+   * geometry this service deliberately doesn't hold).
+   */
+  setPixelScale(v: number): void {
+    this.pixelScale.set(Math.min(Math.max(v, 0), MAX_PIXEL_SCALE));
   }
 
   applyPanDelta(dx: number, dy: number): void {

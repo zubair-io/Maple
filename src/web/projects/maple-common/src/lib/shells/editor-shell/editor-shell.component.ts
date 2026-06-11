@@ -166,15 +166,18 @@ export class EditorShellComponent implements OnInit {
       return;
     }
 
+    // Bare digits only — Cmd/Ctrl+0/1 are the canvas's fit/100% zoom (#1100).
+    const meta = e.metaKey || e.ctrlKey;
+
     // 1–5: star rating
-    if (['1', '2', '3', '4', '5'].includes(e.key) && fid) {
+    if (!meta && ['1', '2', '3', '4', '5'].includes(e.key) && fid) {
       this.state.setRating(fid, Number(e.key));
       e.preventDefault();
       return;
     }
 
     // 0: clear rating
-    if (e.key === '0' && fid) {
+    if (!meta && e.key === '0' && fid) {
       this.state.setRating(fid, 0);
       e.preventDefault();
       return;
