@@ -191,6 +191,57 @@ fn local_oracle_matches_raw_core_stage_within_1e_4() {
     }
 }
 
+/// #1088 — the luma-floor identity guard at the texture radius, GPU vs
+/// raw-core. Same fixture shape as the clarity sibling (the recombine kernel
+/// is shared, but `raw_core::stages::texture::apply` carries its own copy of
+/// the guard — this pins the two against each other). A sub-floor-luma pixel
+/// and a negative-luma pixel inside a bright field must pass through identity
+/// on both sides, with the whole buffer bounded.
+#[test]
+fn wgsl_texture_luma_floor_guard_matches_raw_core_and_is_bounded() {
+    let ctx = GpuContext::new_blocking().expect("gpu context");
+    let (w, h) = (48usize, 8usize);
+    let mut input: Vec<f32> = (0..w * h).flat_map(|_| [0.8f32, 0.8, 0.8, 1.0]).collect();
+    let r = 0.1f32;
+    let g = (5e-7 - 0.2627 * r) / 0.6780;
+    let i_sub = (4 * w + 10) * 4;
+    input[i_sub] = r;
+    input[i_sub + 1] = g;
+    input[i_sub + 2] = 0.0;
+    let i_neg = (4 * w + 30) * 4;
+    input[i_neg] = 0.05;
+    input[i_neg + 1] = -0.05;
+    input[i_neg + 2] = 0.01;
+
+    let texture = 100.0f32;
+    let reference = raw_core_texture(&input, w as u32, h as u32, texture);
+
+    let img = GpuImage::upload(&ctx, &input, w as u32, h as u32);
+    let runner = ChainRunner::new(&ctx, &img);
+    let gpu = runner.run_blocking(&[&TexturePass { texture }]);
+
+    let (max_diff, worst_i) = max_diff_at(&reference, &gpu);
+    eprintln!("LUMA-FLOOR parity vs raw-core: max abs diff = {max_diff:e} at lane {worst_i}");
+    assert!(
+        max_diff < 1e-4,
+        "GPU vs raw-core diverged ({max_diff}) on the luma-floor fixture"
+    );
+    assert_eq!(
+        &gpu[i_sub..i_sub + 3],
+        &input[i_sub..i_sub + 3],
+        "sub-floor-luma pixel must pass through the GPU identity branch"
+    );
+    assert_eq!(
+        &gpu[i_neg..i_neg + 3],
+        &input[i_neg..i_neg + 3],
+        "negative-luma pixel must pass through the GPU identity branch"
+    );
+    assert!(
+        gpu.iter().all(|v| v.is_finite() && v.abs() <= 8.0),
+        "GPU output blew past the input range"
+    );
+}
+
 /// texture and clarity must differ on a fine-detail-bearing image (radius 2 vs
 /// 20 picks out a different frequency band). Guards against a wiring slip that
 /// would make TexturePass secretly run at clarity's radius.

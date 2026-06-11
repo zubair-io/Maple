@@ -46,7 +46,11 @@ const CLARITY_EPS: f32 = 1e-3;
 /// Rec.2020 luminance coefficients — `raw_core`'s `LUMA_REC2020`.
 const LUMA_REC2020: [f32; 3] = [0.2627, 0.6780, 0.0593];
 
-/// Luma-ratio floor (div-by-zero guard) — `raw_core`'s `LUMA_FLOOR`.
+/// Luma identity threshold — `raw_core`'s `LUMA_FLOOR`. Pixels with
+/// `luma <= LUMA_FLOOR` (including negative luma) pass through unchanged
+/// (#1088): below the floor the boost/luma quotient stops being a ratio,
+/// and the old pinned-divisor form exploded near-black pixels beside
+/// bright content to `scale ≈ -3e5` at clarity +100.
 const LUMA_FLOOR: f32 = 1e-6;
 
 // ── Local copies of raw-core's `pub(crate)` blur primitives ───────────────────
@@ -126,7 +130,11 @@ fn guided_filter(guide: &[f32], p: &[f32], w: usize, h: usize, r: usize, eps: f3
     let mut b = vec![0.0f32; n];
     for i in 0..n {
         let cov_ip = mean_ip[i] - mean_i[i] * mean_p[i];
-        let var_i = mean_ii[i] - mean_i[i] * mean_i[i];
+        // Negative-variance clamp (#1088) — line-faithful to
+        // `raw_core::stages::blur::guided_filter` (variance can never be
+        // physically negative; the clamp keeps the `var_i + eps`
+        // denominator positive when box-mean roundoff goes negative).
+        let var_i = (mean_ii[i] - mean_i[i] * mean_i[i]).max(0.0);
         let a_i = cov_ip / (var_i + eps);
         a[i] = a_i;
         b[i] = mean_p[i] - a_i * mean_i[i];
@@ -172,9 +180,16 @@ pub(crate) fn apply_guided_clarity(
 
     for i in 0..n {
         let luma = luma_plane[i];
+        // Identity at/below the luma floor (#1088) — mirrors
+        // `raw_core::stages::{clarity,texture}::apply`. Above the floor,
+        // dividing by `luma` is bit-identical to the old
+        // `luma.max(LUMA_FLOOR)` divisor.
+        if luma <= LUMA_FLOOR {
+            continue;
+        }
         let detail = luma - base[i];
         let boost = luma + detail * amount;
-        let scale = boost / luma.max(LUMA_FLOOR);
+        let scale = boost / luma;
         buf[i * 4] *= scale;
         buf[i * 4 + 1] *= scale;
         buf[i * 4 + 2] *= scale;
