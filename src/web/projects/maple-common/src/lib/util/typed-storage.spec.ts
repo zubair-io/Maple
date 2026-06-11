@@ -14,7 +14,7 @@ function clearAllKeys(): void {
 // `cm.*` keys (its activeTab effect writes `cm.tab` even when only seeding the
 // default), so the "absent key" assertions below are order-dependent unless
 // every key is cleared up front. The afterEach keeps this file from leaking
-// state at sibling files in turn (#1142).
+// state into sibling files in turn (#1142).
 beforeEach(clearAllKeys);
 afterEach(clearAllKeys);
 
