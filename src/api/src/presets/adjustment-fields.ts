@@ -73,6 +73,8 @@ export const STRING_FIELDS: ReadonlySet<string> = new Set([
   'look',
   'profile',
   'tone_curve_mode',
+  // Hot/dead-pixel suppression (#1106) — Off|On enum, decode-product field.
+  'hot_pixel_suppression',
 ]);
 
 export function isKnownNumericField(name: string): boolean {
