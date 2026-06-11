@@ -1,13 +1,24 @@
-// scene_tone_controls.wgsl — scene-referred tone controls (raw-core spec § 3.6).
+// scene_tone_controls.wgsl — scene-referred POINT tone steps (raw-core
+// spec § 3.6 + tone-zoom design § 4.1).
 //
-// A P2 scene-linear stage (epic #925 / #990). Ports the six luma-coupled
-// tone steps of `raw_core::stages::scene_tone_controls::apply`, in order:
+// A P2 scene-linear stage (epic #925 / #990). Ports the point-op tone steps
+// of `raw_core::stages::scene_tone_controls::apply`, in order:
 //   1.  exposure   (linear gain 2^exposure)
 //   1b. brightness (midtone-band gain, #1102 / tone-zoom design § 4.1)
-//   2.  highlights (luma-coupled soft compression above knee = 1.0)
-//   3.  shadows    (luma-masked multiplicative lift of deep values)
 //   4.  whites     (smoothstep-weighted gain near the diffuse-white endpoint)
 //   5.  blacks     (smoothstep-weighted toe — sign-branched crush/lift)
+//
+// Highlights and shadows (steps 2–3) moved OUT of this kernel at #1103: they
+// are spatial now (tonal detail mask over a blurred luma plane) and run as
+// `scene_tone_sh.wgsl` dispatches between the two halves of this kernel. The
+// `SceneToneControlsPass` host encodes:
+//   this kernel (exposure + brightness, whites/blacks zeroed)
+//   → [luma extract → 3× box blur → scene_tone_sh (highlights)]
+//   → [luma extract → 3× box blur → scene_tone_sh (shadows)]
+//   → this kernel (whites + blacks, exposure/brightness zeroed)
+// and collapses to a SINGLE all-four-fields dispatch when neither highlights
+// nor shadows is active (then 1 → 1b → 4 → 5 here ≡ the Rust loops, which
+// run the same point steps in the same order).
 //
 // PARITY-CRITICAL invariants (mirrored verbatim from the Rust stage):
 //
@@ -15,17 +26,16 @@
 //   step recomputes luma `Y = dot(LUMA_REC2020, p)` from the UPDATED pixel — NOT
 //   from a single luma snapshot taken up front. Recomputing per step is what
 //   makes the GPU output match the Rust loop bit-for-near-bit.
-// * Per-field activation thresholds: exposure |·| ≥ 1e-6; brightness/highlights/
-//   shadows/whites/blacks |·| ≥ 1e-3. A field below threshold is skipped (its
-//   branch does not run), exactly as the Rust `apply_*` flags gate each block.
-// * Nested guards preserved: highlights only acts when `h_denom.abs() > 1e-6`
-//   AND `y_old > 1.0`; blacks branches on sign (crush = multiplicative when
-//   `b_amount < 0`, lift = additive otherwise).
+// * Per-field activation thresholds: exposure |·| ≥ 1e-6; brightness/whites/
+//   blacks |·| ≥ 1e-3. A field below threshold is skipped (its branch does
+//   not run), exactly as the Rust `apply_*` flags gate each block.
+// * Blacks branches on sign (crush = multiplicative when `b_amount < 0`,
+//   lift = additive otherwise).
 //
 // Contrast and the parametric/tone-curve steps are intentionally NOT here — the
 // Rust stage applies neither (contrast modulates the AgX slope downstream). The
 // whole-stage identity short-circuit lives in the chain (it simply doesn't
-// enqueue the pass when all five fields are ~0), mirroring vibrance.
+// enqueue the pass when all six fields are ~0), mirroring vibrance.
 //
 // This kernel uses no generated color matrices — LUMA_REC2020 is a stage-local
 // const pinned to the raw-core source — so it compiles standalone (like
@@ -38,12 +48,12 @@ const LUMA_REC2020: vec3<f32> = vec3<f32>(0.2627, 0.6780, 0.0593);
 struct Params {
     exposure: f32,    // EV; gain = 2^exposure
     brightness: f32,  // -100..100 (midtone-band gain, #1102)
-    highlights: f32,  // -100..100
-    shadows: f32,     // -100..100
     whites: f32,      // -100..100
     blacks: f32,      // -100..100
     count: u32,       // number of RGBA pixels
     _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 };
 
 @group(0) @binding(0) var<uniform> params: Params;
@@ -67,8 +77,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // `apply_*` gates and the amount preconditioning above the pixel loop.
     let apply_exposure = abs(params.exposure) >= 1e-6;
     let apply_brightness = abs(params.brightness) >= 1e-3;
-    let apply_highlights = abs(params.highlights) >= 1e-3;
-    let apply_shadows = abs(params.shadows) >= 1e-3;
     let apply_whites = abs(params.whites) >= 1e-3;
     let apply_blacks = abs(params.blacks) >= 1e-3;
 
@@ -76,12 +84,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // Brightness EV-per-unit-weight amount (raw-core B_STRENGTH = 0.7).
     let br_amount = 0.7 * params.brightness / 100.0;
-
-    let h_amount = params.highlights / 100.0;
-    let h_denom = 1.0 + h_amount * 2.0;
-
-    let s_amount = params.shadows / 100.0;
-    let s_factor = s_amount * 0.5;
 
     let w_amount = params.whites / 200.0;
 
@@ -103,26 +105,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let w = smoothstep(0.05, 0.25, y) * (1.0 - smoothstep(1.0, 4.0, y));
         let gain = exp2(br_amount * w);
         p = p * gain;
-    }
-
-    // 2. Highlights — luminance-coupled soft compression above knee = 1.0.
-    //    Below the knee (Y ≤ 1.0) the pixel passes through unchanged. Hue is
-    //    preserved: the only operation on RGB is a uniform scalar multiply.
-    if (apply_highlights && abs(h_denom) > 1e-6) {
-        let y_old = luma(p);
-        if (y_old > 1.0) {
-            let y_new = 1.0 + (y_old - 1.0) / h_denom;
-            let scale = y_new / y_old;
-            p = p * scale;
-        }
-    }
-
-    // 3. Shadows — luminance-masked lift of deep values.
-    if (apply_shadows) {
-        let l = luma(p);
-        let mask = 1.0 - smoothstep(0.0, 0.1, l);
-        let lift = mask * s_factor;
-        p = p + p * lift;
     }
 
     // 4. Whites — smoothstep-weighted gain near the diffuse-white endpoint.
