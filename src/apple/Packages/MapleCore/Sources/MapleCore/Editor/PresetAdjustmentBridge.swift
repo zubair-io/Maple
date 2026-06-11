@@ -1,0 +1,193 @@
+// PresetAdjustmentBridge.swift — preset ↔ AdjustmentModel mapping (#1115).
+//
+// Capture (save-preset) walks every canonical `FieldName` and records the
+// NON-DEFAULT values as a sparse map; apply merges a sparse map back into
+// a model. Both directions are defensive by design — storage is validated
+// at save time, but presets written by NEWER schema versions (or by the
+// web, whose generated model carries fields the Swift struct doesn't have
+// yet) flow through here too:
+//
+//   - unknown keys → skipped on apply (they stay preserved in the document)
+//   - numeric fields → must be finite; clamped to the canonical generated
+//     range
+//   - enum fields → applied only when the value is a known variant
+//
+// Fields in `FieldName` that the Swift `AdjustmentModel` does NOT carry
+// (`wb_method`, `auto_exposure`, `tone_curve_mode`, and the deprecated
+// `capture_sharpening_radius` alias) map to nil below: never captured,
+// skipped on apply, preserved in storage — the passthrough rule keeps a
+// web-written preset intact even though Apple can't apply those fields
+// until the Swift model gains them.
+
+import Foundation
+
+extension AdjustmentModel.FieldName {
+    /// Key path into the Swift model for numeric schema fields; nil for
+    /// enum-valued fields and for fields the Swift model doesn't carry.
+    var numericKeyPath: WritableKeyPath<AdjustmentModel, Double>? {
+        switch self {
+        case .temperature:                  return \.temperature
+        case .tint:                         return \.tint
+        case .exposure:                     return \.exposure
+        case .contrast:                     return \.contrast
+        case .highlights:                   return \.highlights
+        case .shadows:                      return \.shadows
+        case .whites:                       return \.whites
+        case .blacks:                       return \.blacks
+        case .parametricHighlights:         return \.parametricHighlights
+        case .parametricLights:             return \.parametricLights
+        case .parametricDarks:              return \.parametricDarks
+        case .parametricShadows:            return \.parametricShadows
+        case .vibrance:                     return \.vibrance
+        case .saturation:                   return \.saturation
+        case .clarity:                      return \.clarity
+        case .texture:                      return \.texture
+        case .sharpenAmount:                return \.sharpenAmount
+        case .sharpenRadius:                return \.sharpenRadius
+        case .sharpenDetail:                return \.sharpenDetail
+        case .sharpenMasking:               return \.sharpenMasking
+        case .captureSharpeningAmount:      return \.captureSharpeningAmount
+        case .captureSharpeningSigma:       return \.captureSharpeningSigma
+        case .nrLuminance:                  return \.nrLuminance
+        case .nrColor:                      return \.nrColor
+        case .dehaze:                       return \.dehaze
+        case .vignetteAmount:               return \.vignetteAmount
+        case .vignetteFeather:              return \.vignetteFeather
+        case .grainAmount:                  return \.grainAmount
+        case .grainSize:                    return \.grainSize
+        case .grainRoughness:               return \.grainRoughness
+        case .splitToneShadowHue:           return \.splitToneShadowHue
+        case .splitToneShadowSaturation:    return \.splitToneShadowSaturation
+        case .splitToneHighlightHue:        return \.splitToneHighlightHue
+        case .splitToneHighlightSaturation: return \.splitToneHighlightSaturation
+        case .splitToneBalance:             return \.splitToneBalance
+        // Deprecated alias — no Swift property (see AdjustmentModel docs).
+        case .captureSharpeningRadius:      return nil
+        // Enum-valued / not in the Swift model.
+        case .wbMethod, .highlightRecovery, .autoExposure, .look, .profile,
+             .toneCurveMode:
+            return nil
+        }
+    }
+
+    /// Canonical generated range for numeric schema fields.
+    var numericRange: ClosedRange<Double>? {
+        switch self {
+        case .temperature:                  return AdjustmentModel.temperatureRange
+        case .tint:                         return AdjustmentModel.tintRange
+        case .exposure:                     return AdjustmentModel.exposureRange
+        case .contrast:                     return AdjustmentModel.contrastRange
+        case .highlights:                   return AdjustmentModel.highlightsRange
+        case .shadows:                      return AdjustmentModel.shadowsRange
+        case .whites:                       return AdjustmentModel.whitesRange
+        case .blacks:                       return AdjustmentModel.blacksRange
+        case .parametricHighlights:         return AdjustmentModel.parametricHighlightsRange
+        case .parametricLights:             return AdjustmentModel.parametricLightsRange
+        case .parametricDarks:              return AdjustmentModel.parametricDarksRange
+        case .parametricShadows:            return AdjustmentModel.parametricShadowsRange
+        case .vibrance:                     return AdjustmentModel.vibranceRange
+        case .saturation:                   return AdjustmentModel.saturationRange
+        case .clarity:                      return AdjustmentModel.clarityRange
+        case .texture:                      return AdjustmentModel.textureRange
+        case .sharpenAmount:                return AdjustmentModel.sharpenAmountRange
+        case .sharpenRadius:                return AdjustmentModel.sharpenRadiusRange
+        case .sharpenDetail:                return AdjustmentModel.sharpenDetailRange
+        case .sharpenMasking:               return AdjustmentModel.sharpenMaskingRange
+        case .captureSharpeningAmount:      return AdjustmentModel.captureSharpeningAmountRange
+        case .captureSharpeningSigma:       return AdjustmentModel.captureSharpeningSigmaRange
+        case .nrLuminance:                  return AdjustmentModel.nrLuminanceRange
+        case .nrColor:                      return AdjustmentModel.nrColorRange
+        case .dehaze:                       return AdjustmentModel.dehazeRange
+        case .vignetteAmount:               return AdjustmentModel.vignetteAmountRange
+        case .vignetteFeather:              return AdjustmentModel.vignetteFeatherRange
+        case .grainAmount:                  return AdjustmentModel.grainAmountRange
+        case .grainSize:                    return AdjustmentModel.grainSizeRange
+        case .grainRoughness:               return AdjustmentModel.grainRoughnessRange
+        case .splitToneShadowHue:           return AdjustmentModel.splitToneShadowHueRange
+        case .splitToneShadowSaturation:    return AdjustmentModel.splitToneShadowSaturationRange
+        case .splitToneHighlightHue:        return AdjustmentModel.splitToneHighlightHueRange
+        case .splitToneHighlightSaturation:
+            return AdjustmentModel.splitToneHighlightSaturationRange
+        case .splitToneBalance:             return AdjustmentModel.splitToneBalanceRange
+        default:                            return nil
+        }
+    }
+}
+
+// MARK: - PresetAdjustments
+
+public enum PresetAdjustments {
+    /// Capture the model's NON-DEFAULT schema fields as a sparse preset
+    /// `fields` map (canonical snake_case keys). Enum fields record their
+    /// raw string value; only fields the Swift model carries can ever be
+    /// captured (matching the S5 sliders, which write the same fields).
+    public static func captureFields(from model: AdjustmentModel) -> [String: PresetFieldValue] {
+        let defaults = AdjustmentModel.default
+        var fields: [String: PresetFieldValue] = [:]
+        for field in AdjustmentModel.FieldName.allCases {
+            if let keyPath = field.numericKeyPath {
+                let value = model[keyPath: keyPath]
+                if value != defaults[keyPath: keyPath] {
+                    fields[field.rawValue] = .number(value)
+                }
+                continue
+            }
+            switch field {
+            case .highlightRecovery where model.highlightRecovery != defaults.highlightRecovery:
+                fields[field.rawValue] = .string(model.highlightRecovery.rawValue)
+            case .look where model.look != defaults.look:
+                fields[field.rawValue] = .string(model.look.rawValue)
+            case .profile where model.profile != defaults.profile:
+                fields[field.rawValue] = .string(model.profile.rawValue)
+            default:
+                break
+            }
+        }
+        return fields
+    }
+
+    /// Merge a sparse `fields` map into `model`. Returns the merged model
+    /// plus how many fields were recognized and applied — zero means the
+    /// preset had nothing this client understands (apply should no-op
+    /// rather than push an empty undo entry).
+    public static func merged(
+        _ model: AdjustmentModel,
+        applying fields: [String: PresetFieldValue]
+    ) -> (model: AdjustmentModel, appliedFieldCount: Int) {
+        var merged = model
+        var applied = 0
+        for (key, value) in fields {
+            guard let field = AdjustmentModel.FieldName(rawValue: key) else {
+                continue // Unknown field (newer schema) — preserved, never applied.
+            }
+            if let keyPath = field.numericKeyPath {
+                guard case .number(let raw) = value, raw.isFinite else { continue }
+                let clamped = field.numericRange.map { min($0.upperBound, max($0.lowerBound, raw)) }
+                merged[keyPath: keyPath] = clamped ?? raw
+                applied += 1
+                continue
+            }
+            // Enum-valued fields: apply only known variants. Fields the
+            // Swift model doesn't carry (wb_method, auto_exposure,
+            // tone_curve_mode, capture_sharpening_radius) fall through.
+            guard case .string(let rawValue) = value else { continue }
+            switch field {
+            case .highlightRecovery:
+                guard let mode = HighlightRecoveryMode(rawValue: rawValue) else { continue }
+                merged.highlightRecovery = mode
+                applied += 1
+            case .look:
+                guard let look = Look(rawValue: rawValue) else { continue }
+                merged.look = look
+                applied += 1
+            case .profile:
+                guard let profile = Profile(rawValue: rawValue) else { continue }
+                merged.profile = profile
+                applied += 1
+            default:
+                continue
+            }
+        }
+        return (merged, applied)
+    }
+}
