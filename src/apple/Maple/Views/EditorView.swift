@@ -44,11 +44,6 @@ struct EditorView: View {
     /// open (#875 item 4b). Defaults to shown.
     @State private var filmstripVisible = true
 
-    /// Timestamp of the last wheel armed-tool nudge — nudges within a
-    /// burst share one undo snapshot (committing per detent would flood
-    /// the 32-entry ring); a pause starts a new burst (#1099).
-    @State private var lastWheelNudgeAt: Date = .distantPast
-
     var body: some View {
         VStack(spacing: 0) {
             EditorHeader(
@@ -88,8 +83,12 @@ struct EditorView: View {
                 CanvasZoomHost(
                     controller: state.zoom,
                     doubleTapBehavior: .toggleFitAnd100,
+                    // Wheel detents at fit nudge the armed tool. The nudge
+                    // + undo-burst logic lives on `EditorState.wheelNudge`
+                    // (MapleCore) so it's unit-testable — a burst breaks
+                    // on a pause OR an armed-tool change (#1125 review).
                     onWheelEditing: { steps, unit in
-                        handleWheelNudge(steps: steps, unit: unit)
+                        state.wheelNudge(steps: steps, unit: unit)
                     },
                     canvasReady: state.session.renderedPreview != nil
                 ) {
@@ -196,30 +195,6 @@ struct EditorView: View {
         }
     }
     #endif
-
-    // MARK: - Wheel → armed-tool nudge (desktop)
-
-    /// Plain scroll wheel over the canvas at fit zoom nudges the armed
-    /// tool — ±1 internal unit per detent, ±10 with shift, ±0.1 with
-    /// option (S5 desktop contract; routed here by `CanvasZoomHost`,
-    /// which owns the fit-vs-zoomed arbitration). Detents within a
-    /// burst share one undo snapshot, mirroring `DragBar`'s
-    /// commit-at-gesture-start boundary.
-    private func handleWheelNudge(steps: Int, unit: Double) {
-        guard steps != 0, state.armedTool.isWired else { return }
-        let now = Date()
-        if now.timeIntervalSince(lastWheelNudgeAt) > 0.5 {
-            state.commit()
-        }
-        lastWheelNudgeAt = now
-        let current = ToolValueMapping.internalValue(
-            for: state.armedTool,
-            displayValue: state.armedDisplayValue
-        )
-        state.setArmedInternalValue(
-            DragBarMath.clamp(current + Double(steps) * unit)
-        )
-    }
 
     // MARK: - Filmstrip toggle
 
