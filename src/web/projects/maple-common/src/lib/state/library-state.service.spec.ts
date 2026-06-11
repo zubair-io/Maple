@@ -18,6 +18,18 @@ import { LibraryStateService } from './library-state.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import type { ApiFolder } from '../api/bun-api-backend.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
+import { STORAGE_KEYS } from '../util/typed-storage';
+
+// This suite constructs the real BrowsePreferencesService (transitively, via
+// the injected state services), which seeds its signals from the worker-shared
+// jsdom localStorage and mirrors `activeTab` back into `cm.tab` from an
+// `effect()`. Sweep the cm.* namespace around each test so this file neither
+// inherits state from nor leaks state into sibling spec files (#1142).
+function clearCmKeys(): void {
+  for (const key of Object.values(STORAGE_KEYS)) {
+    localStorage.removeItem(key);
+  }
+}
 
 class ApiStub {
   putXmp = vi.fn((_path: string, _xml: string) => of(undefined as void));
@@ -43,6 +55,9 @@ class ApiStub {
 describe('LibraryStateService — Self-Hosted picker + addLibraryFolder', () => {
   let api: ApiStub;
   let svc: LibraryStateService;
+
+  beforeEach(clearCmKeys);
+  afterEach(clearCmKeys);
 
   beforeEach(() => {
     vi.useFakeTimers();

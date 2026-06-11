@@ -8,7 +8,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideRouter } from '@angular/router';
 import { Subject, of } from 'rxjs';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { TimelineViewComponent } from './timeline-view.component';
 import { LibraryStateService } from '../../state/library-state.service';
@@ -17,6 +17,18 @@ import { SearchService, TimelineBuckets, SearchResponse } from '../../api/search
 import { FilesystemBrowseService } from '../../api/filesystem-browse.service';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { API_BASE_URL } from '../../api/api-base-url.token';
+import { STORAGE_KEYS } from '../../util/typed-storage';
+
+// This suite constructs the real BrowsePreferencesService (transitively, via
+// the injected state services), which seeds its signals from the worker-shared
+// jsdom localStorage and mirrors `activeTab` back into `cm.tab` from an
+// `effect()`. Sweep the cm.* namespace around each test so this file neither
+// inherits state from nor leaks state into sibling spec files (#1142).
+function clearCmKeys(): void {
+  for (const key of Object.values(STORAGE_KEYS)) {
+    localStorage.removeItem(key);
+  }
+}
 
 class SearchStub {
   bucketsCalls: unknown[] = [];
@@ -52,6 +64,9 @@ describe('TimelineViewComponent', () => {
   // invisible to no-op stubs.
   let ioCalls: Array<{ root: Element | null; callbacks: IntersectionObserverCallback }> = [];
   let ioObservedTargets: HTMLElement[] = [];
+
+  beforeEach(clearCmKeys);
+  afterEach(clearCmKeys);
 
   beforeEach(() => {
     ioCalls = [];

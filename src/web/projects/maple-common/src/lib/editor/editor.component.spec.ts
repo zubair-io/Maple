@@ -14,9 +14,24 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EditorComponent } from './editor.component';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { API_BASE_URL } from '../api/api-base-url.token';
+import { STORAGE_KEYS } from '../util/typed-storage';
+
+// This suite constructs the real BrowsePreferencesService (transitively, via
+// the injected state services), which seeds its signals from the worker-shared
+// jsdom localStorage and mirrors `activeTab` back into `cm.tab` from an
+// `effect()`. Sweep the cm.* namespace around each test so this file neither
+// inherits state from nor leaks state into sibling spec files (#1142).
+function clearCmKeys(): void {
+  for (const key of Object.values(STORAGE_KEYS)) {
+    localStorage.removeItem(key);
+  }
+}
 
 describe('EditorComponent — canvas wiring (#650)', () => {
   let http: HttpTestingController;
+
+  beforeEach(clearCmKeys);
+  afterEach(clearCmKeys);
 
   beforeEach(() => {
     // jsdom lacks ResizeObserver — ImageCanvasComponent constructs one in

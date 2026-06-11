@@ -5,8 +5,17 @@ import { TypedStorage, STORAGE_KEYS, type StorageKey } from './typed-storage';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function clearKey(key: string): void {
-  localStorage.removeItem(key);
+// All spec files in a vitest worker share one jsdom localStorage, and other
+// files write `cm.*` keys as a side effect — e.g. anything that constructs
+// the real `BrowsePreferencesService` mirrors `activeTab` into `cm.tab` via
+// an `effect()`. Every storage-touching describe below sweeps the whole
+// namespace in BOTH `beforeEach` (so absent-key assertions can't observe
+// another file's leftovers, regardless of file order) and `afterEach` (so
+// this file leaves nothing behind either). See #1142.
+function clearCmKeys(): void {
+  for (const key of Object.values(STORAGE_KEYS)) {
+    localStorage.removeItem(key);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -42,7 +51,8 @@ describe('STORAGE_KEYS', () => {
 describe('TypedStorage.get', () => {
   const KEY: StorageKey = STORAGE_KEYS.TAB;
 
-  afterEach(() => clearKey(KEY));
+  beforeEach(clearCmKeys);
+  afterEach(clearCmKeys);
 
   it('returns null for an absent key', () => {
     expect(TypedStorage.get(KEY)).toBeNull();
@@ -56,27 +66,23 @@ describe('TypedStorage.get', () => {
   it('round-trips a boolean value', () => {
     TypedStorage.set(STORAGE_KEYS.LEFT_HIDDEN, false);
     expect(TypedStorage.get<boolean>(STORAGE_KEYS.LEFT_HIDDEN)).toBe(false);
-    clearKey(STORAGE_KEYS.LEFT_HIDDEN);
   });
 
   it('round-trips a number value', () => {
     TypedStorage.set(STORAGE_KEYS.THUMB_SIZE, 140);
     expect(TypedStorage.get<number>(STORAGE_KEYS.THUMB_SIZE)).toBe(140);
-    clearKey(STORAGE_KEYS.THUMB_SIZE);
   });
 
   it('round-trips a plain object', () => {
     const sections = { folders: true, photos: false };
     TypedStorage.set(STORAGE_KEYS.SECTIONS, sections);
     expect(TypedStorage.get<Record<string, boolean>>(STORAGE_KEYS.SECTIONS)).toEqual(sections);
-    clearKey(STORAGE_KEYS.SECTIONS);
   });
 
   it('round-trips an array of strings', () => {
     const queries = ['sunset', 'mountains'];
     TypedStorage.set(STORAGE_KEYS.RECENT_QUERIES, queries);
     expect(TypedStorage.get<string[]>(STORAGE_KEYS.RECENT_QUERIES)).toEqual(queries);
-    clearKey(STORAGE_KEYS.RECENT_QUERIES);
   });
 
   it('returns null when the stored value is not valid JSON', () => {
@@ -92,7 +98,8 @@ describe('TypedStorage.get', () => {
 describe('TypedStorage.getRaw', () => {
   const KEY = STORAGE_KEYS.THUMB_SIZE;
 
-  afterEach(() => clearKey(KEY));
+  beforeEach(clearCmKeys);
+  afterEach(clearCmKeys);
 
   it('returns null for an absent key', () => {
     expect(TypedStorage.getRaw(KEY)).toBeNull();
@@ -119,7 +126,8 @@ describe('TypedStorage.getRaw', () => {
 describe('TypedStorage.remove', () => {
   const KEY = STORAGE_KEYS.SORT;
 
-  afterEach(() => clearKey(KEY));
+  beforeEach(clearCmKeys);
+  afterEach(clearCmKeys);
 
   it('removes a key that was set', () => {
     TypedStorage.set(KEY, 'date');
@@ -140,6 +148,9 @@ describe('TypedStorage SSR guard', () => {
   let originalWindow: typeof globalThis.window;
 
   beforeEach(() => {
+    // Sweep before hiding `window` so the null assertions below stay
+    // independent of keys leaked by earlier spec files.
+    clearCmKeys();
     originalWindow = globalThis.window;
     // Simulate SSR by hiding `window`.
     Object.defineProperty(globalThis, 'window', {
@@ -155,6 +166,7 @@ describe('TypedStorage SSR guard', () => {
       writable: true,
       configurable: true,
     });
+    clearCmKeys();
   });
 
   it('get returns null when window is undefined', () => {
