@@ -45,16 +45,16 @@ A third consumer, the Self-Hosted API (`src/api`), loads the same core as a `bun
 
 ## Tech stack
 
-| Layer         | Apple                                 | Web                                | Shared                           |
-| ------------- | ------------------------------------- | ---------------------------------- | -------------------------------- |
-| UI            | SwiftUI                               | Angular 21 + standalone components | —                                |
-| State         | `@Observable` (Observation framework) | Signals + RxJS observables         | —                                |
-| Image decode  | Rust core via C-FFI (xcframework)     | Rust core via WASM                 | `raw-core` crate                 |
-| GPU pipeline  | wgpu + WGSL (epic #925, default)      | wgpu/WebGPU + WGSL; WASM-CPU live  | `raw-gpu` WGSL from Rust consts  |
-| Sidecar I/O   | Custom XMP writer in Swift            | Custom XMP writer in TypeScript    | Schema validated on both sides   |
-| Thumbnails    | `CGImageSource` + disk cache          | WASM thumb extraction + IndexedDB  | —                                |
-| API (web)     | —                                     | Angular `HttpClient` → Bun/Elysia  | Shared DTO types via codegen     |
-| Offline (web) | —                                     | Angular service worker + IndexedDB | —                                |
+| Layer         | Apple                                 | Web                                | Shared                          |
+| ------------- | ------------------------------------- | ---------------------------------- | ------------------------------- |
+| UI            | SwiftUI                               | Angular 21 + standalone components | —                               |
+| State         | `@Observable` (Observation framework) | Signals + RxJS observables         | —                               |
+| Image decode  | Rust core via C-FFI (xcframework)     | Rust core via WASM                 | `raw-core` crate                |
+| GPU pipeline  | wgpu + WGSL (epic #925, default)      | wgpu/WebGPU + WGSL; WASM-CPU live  | `raw-gpu` WGSL from Rust consts |
+| Sidecar I/O   | Custom XMP writer in Swift            | Custom XMP writer in TypeScript    | Schema validated on both sides  |
+| Thumbnails    | `CGImageSource` + disk cache          | WASM thumb extraction + IndexedDB  | —                               |
+| API (web)     | —                                     | Angular `HttpClient` → Bun/Elysia  | Shared DTO types via codegen    |
+| Offline (web) | —                                     | Angular service worker + IndexedDB | —                               |
 
 **GPU path (epic #925).** The render math is unified on **wgpu + WGSL**, collapsing the previously separate Metal-Shading-Language and WebGL2-GLSL implementations against the Rust reference. The GPU path is the shipping default on Apple (`MAPLE_GPU_LIVE=0` is the runtime kill-switch) and is used on the Web where `navigator.gpu` is available. The WGSL kernels (`src/raw-pipeline/raw-gpu`) bake the Oklab/Rec.2020 matrices and AgX coefficients as consts generated from the same `raw-core` sources the CPU pipeline uses, so the GPU copy cannot silently diverge.
 
@@ -112,12 +112,12 @@ A `codegen-drift` CI job (in `.github/workflows/cross.yml`) confirms the committ
 
 ## Concurrency model — Apple
 
-| Component                 | Isolation             | Pattern                                                                       |
-| ------------------------- | --------------------- | ----------------------------------------------------------------------------- |
-| `EditSession`             | `@MainActor`          | State mutations on main; RAW decode/develop offloaded off-actor.              |
-| Library view model        | `@MainActor`          | `loadGeneration` counter rejects stale async loads after a folder switch.     |
-| Thumbnail loader          | `actor`               | Concurrency-limited with continuation waiters.                                |
-| XMP sidecar store         | `actor`               | Serialized read/write access to sidecar files.                                |
+| Component          | Isolation    | Pattern                                                                   |
+| ------------------ | ------------ | ------------------------------------------------------------------------- |
+| `EditSession`      | `@MainActor` | State mutations on main; RAW decode/develop offloaded off-actor.          |
+| Library view model | `@MainActor` | `loadGeneration` counter rejects stale async loads after a folder switch. |
+| Thumbnail loader   | `actor`      | Concurrency-limited with continuation waiters.                            |
+| XMP sidecar store  | `actor`      | Serialized read/write access to sidecar files.                            |
 
 Folder switching uses a generation counter: every `await` boundary re-checks the generation before writing state, so rapid folder clicks land only the last selection's data. RAW decode is cancellable — a slider tick during a cold open unwinds the in-flight develop mid-stage via a cancel token (#951).
 
@@ -127,10 +127,10 @@ Folder switching uses a generation counter: every `await` boundary re-checks the
 
 All edits are non-destructive; the original file is never modified. The adjustment model serializes to an XMP sidecar using the `crs:` (Camera Raw Settings) namespace for Adobe-compatible fields, plus `papp:` for Maple-specific data (`papp:Profile`, `papp:Brightness`, `papp:AutoExposure`, ratings, flags, labels). The schema is versioned and passthrough XML preserves unknown fields byte-for-byte. The Swift and TypeScript writers are validated against the same schema.
 
-| Asset source                | Sidecar location                                              |
-| --------------------------- | ------------------------------------------------------------ |
-| Local filesystem            | Sibling `.xmp` file next to the original                      |
-| SMB network share           | Sibling `.xmp` file on the share                              |
-| Apple Photos (PhotoKit)     | App Support directory, keyed by asset UUID                    |
+| Asset source            | Sidecar location                           |
+| ----------------------- | ------------------------------------------ |
+| Local filesystem        | Sibling `.xmp` file next to the original   |
+| SMB network share       | Sibling `.xmp` file on the share           |
+| Apple Photos (PhotoKit) | App Support directory, keyed by asset UUID |
 
 The sidecar is the contract; the pixels are derived. See [`sidecar-schema.md`](./sidecar-schema.md).
