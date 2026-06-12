@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, mock } from 'bun:test';
+import { describe, it, expect, afterEach, spyOn } from 'bun:test';
 import { ObjectId } from 'mongodb';
 import type { ImageDoc } from '../run-stage.ts';
 import type { AssetFaceDoc } from '../../db/schema.ts';
@@ -263,32 +263,36 @@ describe('resolveAssetPeopleNames + people in the doc/blob', () => {
 
   it('folds named people into the doc + blob, excluding Person N and merged', async () => {
     const realDbClient = await import('../../db/client.ts');
-    try {
-      mock.module('../../db/client.ts', () => ({
-        ...realDbClient,
-        peopleCollection: async () => ({
-          find: (filter: { _id: { $in: ObjectId[] }; merged_into: null }) => {
-            const idSet = new Set(filter._id.$in.map((o) => o.toHexString()));
-            const matched = personRows.filter(
-              (r) => idSet.has(r._id.toHexString()) && r.merged_into === null,
-            );
-            return {
-              project: () => ({
-                toArray: async () => matched.map((r) => ({ name: r.name })),
-              }),
+    const originalPeopleCollection = realDbClient.peopleCollection;
+    const dbSpy = spyOn(realDbClient, 'peopleCollection').mockImplementation(async () => {
+      const realColl = await originalPeopleCollection();
+      return new Proxy(realColl, {
+        get(target, prop, receiver) {
+          if (prop === 'find') {
+            return (filter: { _id: { $in: ObjectId[] }; merged_into: null }) => {
+              const idSet = new Set(filter._id.$in.map((o) => o.toHexString()));
+              const matched = personRows.filter(
+                (r) => idSet.has(r._id.toHexString()) && r.merged_into === null,
+              );
+              return {
+                project: () => ({
+                  toArray: async () => matched.map((r) => ({ name: r.name })),
+                }),
+              };
             };
-          },
-        }),
-      }));
-      const { meiliHandler: freshHandler, setMeilisearchClientForTests: setFresh } =
-        await import('./meili.ts');
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+    });
+    try {
       const { client, upserts } = capturingClient();
-      setFresh(client);
+      setMeilisearchClientForTests(client);
       const doc = {
         ...fakeDoc(),
         faces: facesFor(PERSON_A, PERSON_AUTO, PERSON_MERGED),
       } as ImageDoc;
-      const result = await freshHandler(doc, fakeCtx);
+      const result = await meiliHandler(doc, fakeCtx);
       expect(upserts.length).toBe(1);
       const u = upserts[0]!;
       // Only the real, live, non-auto name lands in the doc.
@@ -298,9 +302,9 @@ describe('resolveAssetPeopleNames + people in the doc/blob', () => {
       // The patch blob (Mongo fallback) carries it too.
       const patch = (result as { patch: { search_blob: string } }).patch;
       expect(patch.search_blob.split(' ')).toContain('greyson');
-      setFresh(null);
+      setMeilisearchClientForTests(null);
     } finally {
-      mock.module('../../db/client.ts', () => realDbClient);
+      dbSpy.mockRestore();
     }
   });
 });
