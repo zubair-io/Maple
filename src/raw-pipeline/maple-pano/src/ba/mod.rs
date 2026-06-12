@@ -87,6 +87,12 @@ pub use types::{
     BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats, RetentionPolicy,
 };
 
+/// Bounded convergence polish: how many times a single logical solve
+/// (stage B, gate re-solves) may repeat its LM iteration budget while
+/// unconverged. Sized so the worst case stays well under a second of
+/// LM work at pano scale.
+pub(crate) const SOLVE_POLISH_MAX: usize = 5;
+
 /// Global bundle adjustment over a verified match graph.
 ///
 /// `images` is the same list the graph was built from: the cameras'
@@ -227,19 +233,30 @@ pub fn solve(
                 solution.converged &= a.converged;
             }
         }
-        // Stage B: joint rotations + shared focal + k1 + k2.
+        // Stage B: joint rotations + shared focal + k1 + k2, iterated
+        // to convergence (bounded). One per-call iteration budget was
+        // sized for the drop-loop era where every drop re-entered the
+        // solve; under keep retention there is exactly one gate round,
+        // so B must converge on its own.
         let layout_b = ParamLayout::full(active.len(), gauge, &[]);
-        let b = minimize(
-            &blocks,
-            &frames,
-            &mut state,
-            &layout_b,
-            opts.huber_delta_px,
-            &lm_opts,
-        );
-        solution.lm_iterations += b.iterations;
-        solution.converged &= b.converged;
-        solution.final_cost = b.final_cost;
+        let mut b_converged = false;
+        for _ in 0..SOLVE_POLISH_MAX {
+            let b = minimize(
+                &blocks,
+                &frames,
+                &mut state,
+                &layout_b,
+                opts.huber_delta_px,
+                &lm_opts,
+            );
+            solution.lm_iterations += b.iterations;
+            solution.final_cost = b.final_cost;
+            if b.converged {
+                b_converged = true;
+                break;
+            }
+        }
+        solution.converged &= b_converged;
         first_round = false;
 
         // Stage C (decision §9.2, once per solve): cohort-outlier frames
