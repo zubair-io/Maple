@@ -1,63 +1,21 @@
 //! Codegen-facing description of every scalar / enum field on
-//! [`super::AdjustmentModel`].
+//! [`super::AdjustmentModel`]. Flat const table (no proc-macro) for lean WASM
+//! builds. [`FieldKind`] and [`FieldSpec`] types live in `schema/types.rs`.
 //!
-//! The schema is a flat const table rather than a proc-macro so the WASM
-//! build stays lean (no `syn` / `quote` pull-in). Generators load
-//! [`ADJUSTMENT_SCHEMA`] via the regular crate-level API.
+//! `local_adjustments` (ticket #280) is intentionally absent — it is a
+//! `Vec<LocalAdjustment>` with its own schema; the drift test allow-lists it.
 //!
-//! The `local_adjustments` array (per ticket #280) is a `Vec<LocalAdjustment>`
-//! that defaults to empty. It is intentionally **not** part of
-//! `ADJUSTMENT_SCHEMA` because the schema table only describes scalar / enum
-//! fields for codegen; the local-adjustment layer carries its own structured
-//! schema in `crate::types::local_adjustment`. The `schema_matches_struct`
-//! drift test below allow-lists `local_adjustments` as a known exception.
+//! Single source of truth for the develop-settings schema; Swift + TypeScript
+//! mirrors are hand-kept today, pending codegen (#118 / #119).
 //!
-//! This module is the **single source of truth** for the develop-settings
-//! schema. Swift (`MapleCore.AdjustmentModel`) and TypeScript
-//! (`maple-common/AdjustmentModel`) mirror this shape today by hand; future
-//! codegen (#118 / #119) will consume the [`ADJUSTMENT_SCHEMA`] table below
-//! to keep all three platforms in lockstep.
-//!
-//! Note: the schema captures only `F32` and `Enum` fields. The tone-curve
-//! point lists (`tone_curve_*`) and the parametric region scalars
-//! intentionally route through the schema too — the parametric scalars are
-//! `F32` (same as `highlights` etc.), and the tone-curve point lists are
-//! omitted entirely. Cross-language mirroring of the curve type is a
-//! follow-up ticket to #273; codegen for tone curves needs a new
-//! `FieldKind::ToneCurve` variant and matching emit logic on Swift / TS.
+//! Only `F32` and `Enum` fields are captured. Tone-curve point lists are
+//! omitted (follow-up to #273; codegen needs a `FieldKind::ToneCurve`
+//! variant). `FieldKind` and `FieldSpec` are re-exported from `types.rs`.
 
-
-/// Kind of value carried by an `AdjustmentModel` field, for codegen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FieldKind {
-    /// 32-bit float scalar with a `[min, max]` range and an f32 default.
-    F32,
-    /// Tagged enum. The `enum_name` slot on [`FieldSpec`] is populated for
-    /// this variant; the `range` / `default_f32` slots are meaningless.
-    Enum,
-}
-
-/// Codegen-facing description of a single `AdjustmentModel` field.
-///
-/// For `F32` fields: `range` is `(min, max)`, `default_f32` is the
-/// raw-core default. For `Enum` fields: `enum_name` is the Rust enum's
-/// short type name (e.g. `"HighlightRecoveryMode"`) and the numeric slots
-/// are unused (set to `(0.0, 0.0)` / `0.0`).
-#[derive(Clone, Copy, Debug)]
-pub struct FieldSpec {
-    /// Rust identifier on `AdjustmentModel` (snake_case).
-    pub name: &'static str,
-    /// Field kind: scalar or tagged enum.
-    pub kind: FieldKind,
-    /// `(min, max)` for `F32`; unused for `Enum`.
-    pub range: (f32, f32),
-    /// Raw-core default for `F32`; unused for `Enum`.
-    pub default_f32: f32,
-    /// Short Rust type name for `Enum`; empty for `F32`.
-    pub enum_name: &'static str,
-    /// Human-readable doc comment, single line.
-    pub doc: &'static str,
-}
+// FieldKind and FieldSpec split into a sibling submodule to stay under the
+// 600-LOC hard budget (#1181).
+mod types;
+pub use types::{FieldKind, FieldSpec};
 
 /// Canonical, ordered description of every codegen-eligible field on
 /// [`AdjustmentModel`].

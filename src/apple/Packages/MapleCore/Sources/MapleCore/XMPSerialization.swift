@@ -593,16 +593,6 @@ public struct XMPSerializer {
         }
     }
 
-    private static func fmtF(_ v: Double) -> String {
-        // Exposure uses two decimal places to match the reference renderer's wire format
-        String(format: "%.2f", v)
-    }
-
-    /// Minimal XML 1.0 text-content escaping — only `&`, `<`, `>` are
-    /// strictly required between tags. `"` and `'` are attribute-only.
-    private static func escapeXMLText(_ s: String) -> String {
-        s.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
-    }
+    // fmtF and escapeXMLText are defined in XMPSerialization+Helpers.swift
+    // (split out to stay under the 600-LOC hard budget, #1181).
 }
