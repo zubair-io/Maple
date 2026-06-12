@@ -150,13 +150,13 @@
       @if (phase() === 'error') {
         <div class="pano-body">
           <p class="pano-error-msg">{{ errorMessage() }}</p>
-          @if (phase() === 'error' && !errorMessage().includes('provisioned')) {
-            <p class="pano-hint pano-muted">Check the server logs for details.</p>
-          } @else {
+          @if (errorCode() === 'pano_not_provisioned') {
             <p class="pano-hint pano-muted">
               Go to <strong>Settings › Pano</strong> to configure the maple-cli path, models
               directory, and enable panorama stitching.
             </p>
+          } @else {
+            <p class="pano-hint pano-muted">Check the server logs for details.</p>
           }
         </div>
         <div class="pano-footer">

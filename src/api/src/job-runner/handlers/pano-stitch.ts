@@ -29,7 +29,7 @@
  * pano_stitch job is already running); the handler itself is stateless.
  */
 
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
@@ -118,193 +118,218 @@ export const panoStitchHandler: JobHandler = {
   ): Promise<JobHandlerResult> {
     const payload = parsePayload(rawPayload);
     await mkdir(payload.outputDir, { recursive: true });
+    // The outputDir is a temp dir created by the route for this job. It must
+    // be cleaned up in a finally block regardless of success or failure.
+    // The rename path leaves the dir empty after success; the copyFile fallback
+    // leaves the source temp PNG behind — that is handled below.
 
-    // ── 1. Resolve asset paths ──────────────────────────────────────────────
-    const coll = await assetsCollection();
-    const libs = await loadLibraryRoots();
-    const inputPaths: string[] = [];
+    try {
+      // ── 1. Resolve asset paths ────────────────────────────────────────────
+      const coll = await assetsCollection();
+      const libs = await loadLibraryRoots();
+      const inputPaths: string[] = [];
 
-    for (const idHex of payload.assetIds) {
-      if (!ObjectId.isValid(idHex)) {
-        throw new Error(`pano_stitch: invalid asset id: ${idHex}`);
+      for (const idHex of payload.assetIds) {
+        if (!ObjectId.isValid(idHex)) {
+          throw new Error(`pano_stitch: invalid asset id: ${idHex}`);
+        }
+        const doc = await coll.findOne({ _id: new ObjectId(idHex) });
+        if (!doc) throw new Error(`pano_stitch: asset not found: ${idHex}`);
+        const p = assetAbsPath(doc, libs);
+        if (!p) throw new Error(`pano_stitch: asset has no resolvable path: ${idHex}`);
+        inputPaths.push(p);
       }
-      const doc = await coll.findOne({ _id: new ObjectId(idHex) });
-      if (!doc) throw new Error(`pano_stitch: asset not found: ${idHex}`);
-      const p = assetAbsPath(doc, libs);
-      if (!p) throw new Error(`pano_stitch: asset has no resolvable path: ${idHex}`);
-      inputPaths.push(p);
-    }
 
-    // Sort by filename (capture order) as the CLI expects.
-    inputPaths.sort();
+      // Sort by filename (capture order) as the CLI expects.
+      inputPaths.sort();
 
-    await ctx.reportProgress(0, TOTAL_STAGES);
+      await ctx.reportProgress(0, TOTAL_STAGES);
 
-    const outputPng = path.join(payload.outputDir, 'pano.png');
+      const outputPng = path.join(payload.outputDir, 'pano.png');
 
-    // ── 2. Build CLI args ───────────────────────────────────────────────────
-    const args: string[] = [
-      'pano',
-      'stitch',
-      ...inputPaths,
-      '--out',
-      outputPng,
-      '--retention',
-      payload.retention,
-      '--local-align',
-      payload.localAlign,
-    ];
-    if (payload.strategySupported && payload.strategy) {
-      args.push('--strategy', payload.strategy);
-    }
-    if (payload.modelsDir) {
-      args.push('--models-dir', payload.modelsDir);
-    }
+      // ── 2. Build CLI args ─────────────────────────────────────────────────
+      const args: string[] = [
+        'pano',
+        'stitch',
+        ...inputPaths,
+        '--out',
+        outputPng,
+        '--retention',
+        payload.retention,
+        '--local-align',
+        payload.localAlign,
+      ];
+      if (payload.strategySupported && payload.strategy) {
+        args.push('--strategy', payload.strategy);
+      }
+      if (payload.modelsDir) {
+        args.push('--models-dir', payload.modelsDir);
+      }
 
-    // ── 3. Spawn maple-cli ──────────────────────────────────────────────────
-    const env: Record<string, string> = { ...(process.env as Record<string, string>) };
-    if (payload.modelsDir) env.MAPLE_PANO_MODELS = payload.modelsDir;
-    if (payload.ortDylibPath) env.ORT_DYLIB_PATH = payload.ortDylibPath;
+      // ── 3. Spawn maple-cli ────────────────────────────────────────────────
+      const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+      if (payload.modelsDir) env.MAPLE_PANO_MODELS = payload.modelsDir;
+      if (payload.ortDylibPath) env.ORT_DYLIB_PATH = payload.ortDylibPath;
 
-    log.info({ cmd: payload.mapleCli, args }, 'spawning maple-cli pano stitch');
+      log.info({ cmd: payload.mapleCli, args }, 'spawning maple-cli pano stitch');
 
-    const proc = Bun.spawn([payload.mapleCli, ...args], {
-      env,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    });
+      const proc = Bun.spawn([payload.mapleCli, ...args], {
+        env,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
 
-    let stagesCompleted = 0;
-    const stderrLines: string[] = [];
+      let stagesCompleted = 0;
+      const stderrLines: string[] = [];
 
-    // Drain stderr line-by-line; parse stage progress.
-    const stderrDrain = (async () => {
-      const reader = proc.stderr!.getReader();
-      const decoder = new TextDecoder();
-      let buf = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const lines = buf.split('\n');
-        buf = lines.pop() ?? '';
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (trimmed.length > 0) stderrLines.push(trimmed);
-          const stage = parseStage(trimmed);
-          if (stage > stagesCompleted) {
-            stagesCompleted = stage;
-            await ctx.reportProgress(stagesCompleted, TOTAL_STAGES).catch(() => {});
+      // Drain stderr line-by-line; parse stage progress.
+      const stderrDrain = (async () => {
+        const reader = proc.stderr!.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() ?? '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.length > 0) stderrLines.push(trimmed);
+            const stage = parseStage(trimmed);
+            if (stage > stagesCompleted) {
+              stagesCompleted = stage;
+              await ctx.reportProgress(stagesCompleted, TOTAL_STAGES).catch(() => {});
+            }
           }
         }
-      }
-      if (buf.trim().length > 0) stderrLines.push(buf.trim());
-    })();
+        if (buf.trim().length > 0) stderrLines.push(buf.trim());
+      })();
 
-    // Drain stdout to prevent backpressure; we don't use it.
-    const stdoutDrain = (async () => {
-      const reader = proc.stdout!.getReader();
-      while (true) {
-        const { done } = await reader.read();
-        if (done) break;
-      }
-    })();
-
-    // Poll for cancellation while the process runs.
-    const cancelPoll = (async () => {
-      while (true) {
-        await Bun.sleep(3_000);
-        if (await ctx.shouldCancel()) {
-          proc.kill('SIGTERM');
-          return;
+      // Drain stdout to prevent backpressure; we don't use it.
+      const stdoutDrain = (async () => {
+        const reader = proc.stdout!.getReader();
+        while (true) {
+          const { done } = await reader.read();
+          if (done) break;
         }
-        // Check process completion via race — exit code will be resolved below.
-        try {
-          await proc.exited;
-          return;
-        } catch {
-          return;
+      })();
+
+      // Poll for cancellation while the process runs.
+      // Race the 3s sleep against proc.exited so the poll loop wakes promptly
+      // when the process exits — instead of always sleeping a full 3s after exit.
+      const cancelPoll = (async () => {
+        while (true) {
+          // Race: either the 3s poll interval expires OR the process exits,
+          // whichever comes first. This eliminates the fixed 3s tail latency
+          // that the old `await Bun.sleep(3_000)` unconditionally added after
+          // process exit.
+          const raceResult = await Promise.race([
+            Bun.sleep(3_000).then(() => 'tick' as const),
+            proc.exited.then(() => 'exited' as const).catch(() => 'exited' as const),
+          ]);
+          if (raceResult === 'exited') return;
+          if (await ctx.shouldCancel()) {
+            proc.kill('SIGTERM');
+            return;
+          }
         }
+      })();
+
+      // Wait for process + drains.
+      const exitCode = await proc.exited;
+      await Promise.all([stderrDrain, stdoutDrain, cancelPoll]);
+
+      if (await ctx.shouldCancel()) {
+        const result: PanoStitchResult = {
+          outputAssetId: null,
+          outputPath: outputPng,
+          stagesCompleted,
+          error: 'cancelled',
+        };
+        return { kind: 'cancelled', result: result as unknown as Record<string, unknown> };
       }
-    })();
 
-    // Wait for process + drains.
-    const exitCode = await proc.exited;
-    await Promise.all([stderrDrain, stdoutDrain, cancelPoll]);
+      if (exitCode !== 0) {
+        const lastLines = stderrLines.slice(-10).join('\n');
+        const errMsg = `maple-cli exited ${exitCode}${lastLines ? `:\n${lastLines}` : ''}`;
+        log.error({ exitCode, stderrLines: stderrLines.slice(-5) }, 'pano stitch failed');
+        throw new Error(errMsg);
+      }
 
-    if (await ctx.shouldCancel()) {
+      // ── 4. Import result PNG into the library ─────────────────────────────
+      await ctx.reportProgress(TOTAL_STAGES, TOTAL_STAGES);
+
+      const libId = new ObjectId(payload.libraryId);
+      const libPath = libs.get(payload.libraryId);
+      if (!libPath) throw new Error(`pano_stitch: library ${payload.libraryId} not found`);
+
+      // Place the result in .maple/panos/<jobId hex>.png under the library root.
+      const destDir = path.join(libPath, '.maple', 'panos');
+      const destFilename = `${ctx.jobId.toHexString()}.png`;
+      const destAbs = path.join(destDir, destFilename);
+      await mkdir(destDir, { recursive: true });
+
+      // Move the output PNG into the library. On a cross-device rename (tmpdir
+      // on a different mount), fall back to copy + unlink of the source temp so
+      // the temp dir is empty before the finally block removes it.
+      try {
+        await rename(outputPng, destAbs);
+      } catch {
+        // Cross-device rename (e.g. tmpdir on different mount) — fallback to copy.
+        const { copyFile } = await import('node:fs/promises');
+        await copyFile(outputPng, destAbs);
+        // Unlink the source temp PNG so the temp dir is empty before the
+        // finally block removes it.
+        await unlink(outputPng).catch(() => {});
+      }
+
+      // Derive the real content identity the same way the discover watcher does:
+      // hashFileForId reads the first 64 KB, computes sha1_head, and derives a
+      // fallback-form MapleId (tag 0x02 || BLAKE3(sha1Full || filesize)).
+      // A stitched PNG has no camera serial or shutter count, so the fallback
+      // form is the correct choice — no exif stage upgrade will follow.
+      //
+      // Using the real maple_id means the discover scanner's upsert will
+      // coalesce onto this same document if it ever visits .maple/panos/
+      // (the sweeper's isInsideMapleCache guard already refuses such events,
+      // but if that guard ever fails the real id prevents a duplicate row).
+      const fileIdentity = await hashFileForId(destAbs);
+
+      await upsertByMapleId({
+        libraryId: libId,
+        relDir: '.maple/panos',
+        filename: destFilename,
+        size: fileIdentity.size,
+        mtime: fileIdentity.mtime,
+        mapleId: fileIdentity.maple_id,
+        sha1Head: fileIdentity.sha1_head,
+      });
+
+      // Re-query to get the inserted _id for the result payload.
+      const inserted = await coll.findOne({ maple_id: fileIdentity.maple_id });
+      const outputAssetId = inserted?._id?.toHexString() ?? null;
+
+      log.info({ outputAssetId, destAbs }, 'pano stitch complete');
+
       const result: PanoStitchResult = {
-        outputAssetId: null,
-        outputPath: outputPng,
+        outputAssetId,
+        outputPath: destAbs,
         stagesCompleted,
-        error: 'cancelled',
+        error: null,
       };
-      return { kind: 'cancelled', result: result as unknown as Record<string, unknown> };
+      return { kind: 'done', result: result as unknown as Record<string, unknown> };
+    } finally {
+      // Remove the temp dir created by the route for this job. On success the
+      // rename path has already emptied it; on the copy-fallback path we
+      // unlinked the temp PNG above; on error any partial files are cleaned up.
+      // Never remove anything outside the job's own outputDir.
+      await rm(payload.outputDir, { recursive: true, force: true }).catch((e) => {
+        log.warn(
+          { err: e, outputDir: payload.outputDir },
+          'pano_stitch: failed to remove temp dir',
+        );
+      });
     }
-
-    if (exitCode !== 0) {
-      const lastLines = stderrLines.slice(-10).join('\n');
-      const errMsg = `maple-cli exited ${exitCode}${lastLines ? `:\n${lastLines}` : ''}`;
-      log.error({ exitCode, stderrLines: stderrLines.slice(-5) }, 'pano stitch failed');
-      throw new Error(errMsg);
-    }
-
-    // ── 4. Import result PNG into the library ───────────────────────────────
-    await ctx.reportProgress(TOTAL_STAGES, TOTAL_STAGES);
-
-    const libId = new ObjectId(payload.libraryId);
-    const libPath = libs.get(payload.libraryId);
-    if (!libPath) throw new Error(`pano_stitch: library ${payload.libraryId} not found`);
-
-    // Place the result in .maple/panos/<jobId hex>.png under the library root.
-    const destDir = path.join(libPath, '.maple', 'panos');
-    const destFilename = `${ctx.jobId.toHexString()}.png`;
-    const destAbs = path.join(destDir, destFilename);
-    await mkdir(destDir, { recursive: true });
-
-    // Move the output PNG into the library.
-    const { copyFile, rename } = await import('node:fs/promises');
-    try {
-      await rename(outputPng, destAbs);
-    } catch {
-      // Cross-device rename (e.g. tmpdir on different mount) — fallback to copy.
-      await copyFile(outputPng, destAbs);
-    }
-
-    // Derive the real content identity the same way the discover watcher does:
-    // hashFileForId reads the first 64 KB, computes sha1_head, and derives a
-    // fallback-form MapleId (tag 0x02 || BLAKE3(sha1Full || filesize)).
-    // A stitched PNG has no camera serial or shutter count, so the fallback
-    // form is the correct choice — no exif stage upgrade will follow.
-    //
-    // Using the real maple_id means the discover scanner's upsert will
-    // coalesce onto this same document if it ever visits .maple/panos/
-    // (the sweeper's isInsideMapleCache guard already refuses such events,
-    // but if that guard ever fails the real id prevents a duplicate row).
-    const fileIdentity = await hashFileForId(destAbs);
-
-    await upsertByMapleId({
-      libraryId: libId,
-      relDir: '.maple/panos',
-      filename: destFilename,
-      size: fileIdentity.size,
-      mtime: fileIdentity.mtime,
-      mapleId: fileIdentity.maple_id,
-      sha1Head: fileIdentity.sha1_head,
-    });
-
-    // Re-query to get the inserted _id for the result payload.
-    const inserted = await coll.findOne({ maple_id: fileIdentity.maple_id });
-    const outputAssetId = inserted?._id?.toHexString() ?? null;
-
-    log.info({ outputAssetId, destAbs }, 'pano stitch complete');
-
-    const result: PanoStitchResult = {
-      outputAssetId,
-      outputPath: destAbs,
-      stagesCompleted,
-      error: null,
-    };
-    return { kind: 'done', result: result as unknown as Record<string, unknown> };
   },
 };

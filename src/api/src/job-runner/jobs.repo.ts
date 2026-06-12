@@ -8,9 +8,9 @@
  * operations and can't drift on field names.
  */
 
-import { ObjectId, type WithId } from "mongodb";
-import { jobsCollection } from "../db/client.ts";
-import type { JobDoc, JobKind, JobStatus, JobWithId } from "../db/schema.ts";
+import { ObjectId, type WithId } from 'mongodb';
+import { jobsCollection } from '../db/client.ts';
+import type { JobDoc, JobKind, JobStatus, JobWithId } from '../db/schema.ts';
 
 export interface CreateJobInput {
   kind: JobKind;
@@ -26,7 +26,12 @@ export interface ClaimedJob {
 }
 
 export interface ListJobsFilter {
+  /** Match a single status (exact). Use `statuses` to match multiple. */
   status?: JobStatus;
+  /** Match any of the given statuses (IN query). Takes precedence over `status`
+   * when both are provided. Used by the pano concurrency guard to block both
+   * 'queued' and 'running' jobs with a single query. */
+  statuses?: JobStatus[];
   kind?: JobKind;
   limit?: number;
 }
@@ -40,7 +45,7 @@ export async function createJob(
   const nowIso = now().toISOString();
   const doc: JobDoc = {
     kind: input.kind,
-    status: "queued",
+    status: 'queued',
     payload: input.payload,
     progress: { current: 0, total: 0 },
     result: null,
@@ -62,12 +67,14 @@ export async function getJob(id: ObjectId): Promise<JobWithId | null> {
 }
 
 /** List jobs filtered by status and/or kind, newest first. Hard-capped at 200. */
-export async function listJobs(
-  filter: ListJobsFilter,
-): Promise<JobWithId[]> {
+export async function listJobs(filter: ListJobsFilter): Promise<JobWithId[]> {
   const c = await jobsCollection();
   const q: Record<string, unknown> = {};
-  if (filter.status) q.status = filter.status;
+  if (filter.statuses && filter.statuses.length > 0) {
+    q.status = { $in: filter.statuses };
+  } else if (filter.status) {
+    q.status = filter.status;
+  }
   if (filter.kind) q.kind = filter.kind;
   const limit = Math.max(1, Math.min(200, filter.limit ?? 50));
   const docs = (await c
@@ -99,16 +106,16 @@ export async function claimJob(
   const leaseExpiresAt = new Date(nowDate.getTime() + leaseMs).toISOString();
   const filter = {
     $or: [
-      { status: "queued" as JobStatus, locked_by: null },
+      { status: 'queued' as JobStatus, locked_by: null },
       {
-        status: "running" as JobStatus,
+        status: 'running' as JobStatus,
         lease_expires_at: { $lt: nowIso },
       },
     ],
   };
   const update = {
     $set: {
-      status: "running" as JobStatus,
+      status: 'running' as JobStatus,
       locked_by: workerId,
       lease_expires_at: leaseExpiresAt,
       updated_at: nowIso,
@@ -116,7 +123,7 @@ export async function claimJob(
   };
   const result = await c.findOneAndUpdate(filter, update, {
     sort: { created_at: 1, _id: 1 },
-    returnDocument: "after",
+    returnDocument: 'after',
   });
   if (!result) return null;
   return {
@@ -161,7 +168,7 @@ export async function completeJob(
     { _id: id },
     {
       $set: {
-        status: "done" as JobStatus,
+        status: 'done' as JobStatus,
         result,
         error: null,
         locked_by: null,
@@ -184,7 +191,7 @@ export async function failJob(
     { _id: id },
     {
       $set: {
-        status: "failed" as JobStatus,
+        status: 'failed' as JobStatus,
         error,
         locked_by: null,
         lease_expires_at: null,
@@ -210,7 +217,7 @@ export async function markCancelled(
     { _id: id },
     {
       $set: {
-        status: "cancelled" as JobStatus,
+        status: 'cancelled' as JobStatus,
         result,
         locked_by: null,
         lease_expires_at: null,
@@ -242,9 +249,6 @@ export async function requestCancel(
 /** Read just the cancel flag. Used by handlers between progress steps. */
 export async function isCancelRequested(id: ObjectId): Promise<boolean> {
   const c = await jobsCollection();
-  const doc = await c.findOne(
-    { _id: id },
-    { projection: { cancel_requested: 1 } },
-  );
+  const doc = await c.findOne({ _id: id }, { projection: { cancel_requested: 1 } });
   return doc?.cancel_requested === true;
 }
