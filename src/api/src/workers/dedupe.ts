@@ -390,12 +390,13 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
       );
     }
   };
-  const persistPaused = (value: boolean): void => {
-    void getRepo()
-      .then((r) => r.patch(DEDUPLICATE_NAME, { paused: value }))
-      .catch(() => {
-        /* best-effort — in-memory state already applied; next boot re-reads */
-      });
+  const persistPaused = async (value: boolean): Promise<void> => {
+    try {
+      const r = await getRepo();
+      await r.patch(DEDUPLICATE_NAME, { paused: value });
+    } catch {
+      /* best-effort — in-memory state already applied; next boot re-reads */
+    }
   };
 
   stageRegistry.register(DEDUPLICATE_NAME, {
@@ -407,12 +408,12 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
     reloadConfig: loadPaused,
     pause: async () => {
       paused = true;
-      persistPaused(true);
+      await persistPaused(true);
       log.info('deduplicate paused');
     },
     resume: async () => {
       paused = false;
-      persistPaused(false);
+      await persistPaused(false);
       log.warn('deduplicate RESUMED — duplicate originals will be moved into _duplicates/');
     },
   });

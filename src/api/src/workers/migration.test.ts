@@ -32,6 +32,7 @@ describe('startMigration — registration & control', () => {
 
   it('pause / resume flip the reported status and stop() unregisters', async () => {
     const handle = startMigration({ intervalMs: 60_000 });
+    await handle.ready;
     await stageRegistry.pause(MIGRATION_WORKER_NAME);
     expect(stageRegistry.statuses()[MIGRATION_WORKER_NAME]?.status).toBe('paused');
     await stageRegistry.resume(MIGRATION_WORKER_NAME);
