@@ -65,11 +65,7 @@ pub use pipeline::render_from_raw;
 pub use pipeline::{decode_for_pano, read_pano_metadata, PanoIngest, PanoSourceMetadata};
 
 pub mod api;
-pub use api::{
-    apply, decode_raw, encode as encode_out, histogram, preview, read_exif, thumbnail, waveform,
-    xmp_read, xmp_write, EncodeOpts, Exif, ExifGps, Flag, Histogram, OutFmt, Rendered, Rgba,
-    Sidecar, Waveform,
-};
+pub use api::{decode_raw, read_exif, Exif, ExifGps};
 
 pub mod id;
 pub use id::{blake3_hex, maple_id, IdKind, MapleId};
