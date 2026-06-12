@@ -64,18 +64,15 @@ pub fn srgb_gamma(x: f32) -> f32 {
 /// In-place sRGB gamma encode in f32 space.
 ///
 /// Pre-#519 this lived inside `quantize_u8` — gamma + dither + u8 cast
-/// all in one pass. Splitting it out lets the empirical Look LUT
-/// (`view::look::apply`) run in f32 sRGB-encoded space BETWEEN the
-/// gamma encode and the dither+quantize step. The pre-#519 ordering
-/// applied the LUT after quantize as a `u8 → u8` nearest lookup, which
-/// reintroduced histogram gaps wherever LUT slope ≠ 1 — visible
-/// banding in shadows and warm gradients that the upstream Bayer
-/// dither could no longer mask.
+/// all in one pass. It was split out so the (then-live) empirical Look
+/// LUT could run in f32 sRGB-encoded space between the gamma encode and
+/// the dither+quantize step. #443 retired the static Look LUT (Auto
+/// Profile owns view-shaping now), so nothing runs between the two
+/// halves any more — but keeping them split is harmless and lets a
+/// caller dither separately.
 ///
 /// After this call the buffer is sRGB-gamma-encoded f32 in `[0, 1]`,
-/// ready for either `view::look::apply` (then `dither_and_quantize`)
-/// or `dither_and_quantize` directly when `Look::Neutral` short-
-/// circuits.
+/// ready for `dither_and_quantize`.
 pub fn srgb_gamma_encode(img: &mut Image) {
     img.assert_space(ColorSpace::DisplayLinearSrgb);
     img.pixels.par_iter_mut().for_each(|p| {
@@ -127,11 +124,11 @@ pub fn dither_and_quantize(img: &mut Image) -> Vec<u8> {
 /// length 3 * w * h.
 ///
 /// Thin wrapper over [`srgb_gamma_encode`] + [`dither_and_quantize`].
-/// Pre-#519 this was the single combined pass; today the render path
-/// inserts `view::look::apply` between the two halves so the empirical
-/// Look LUT samples in f32 sRGB-encoded space (preserving the gradient
-/// smoothness the Bayer dither establishes). Tests and any caller that
-/// doesn't need the Look hook can keep calling `quantize_u8` directly.
+/// Pre-#519 this was the single combined pass, then it was split so the
+/// (then-live) Look LUT could run between the halves; #443 retired the
+/// static Look LUT, so the wrapper now just chains gamma + dither with
+/// nothing in between. Callers that need the steps separately (e.g. the
+/// render path) call the two halves directly.
 pub fn quantize_u8(img: &mut Image) -> Vec<u8> {
     srgb_gamma_encode(img);
     dither_and_quantize(img)
