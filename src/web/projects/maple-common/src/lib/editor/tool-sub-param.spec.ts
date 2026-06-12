@@ -83,6 +83,27 @@ describe('sub-param catalog', () => {
     expect(defaultSubParamId('splitTone')).toBe('balance');
   });
 
+  it('hsl declares Hue/Sat/Lum × 8 bands in order (#1112)', () => {
+    const subs = subParamsFor('hsl');
+    expect(subs).toHaveLength(24);
+    // IDs: hue row first, then sat, then lum; within each row Red → Magenta.
+    expect(subs.map((s) => s.id)).toEqual([
+      'hueRed', 'hueOrange', 'hueYellow', 'hueGreen', 'hueAqua', 'hueBlue', 'huePurple', 'hueMagenta',
+      'satRed', 'satOrange', 'satYellow', 'satGreen', 'satAqua', 'satBlue', 'satPurple', 'satMagenta',
+      'lumRed', 'lumOrange', 'lumYellow', 'lumGreen', 'lumAqua', 'lumBlue', 'lumPurple', 'lumMagenta',
+    ]);
+    expect(subs.map((s) => s.field)).toEqual([
+      'hueAdjustmentRed', 'hueAdjustmentOrange', 'hueAdjustmentYellow', 'hueAdjustmentGreen',
+      'hueAdjustmentAqua', 'hueAdjustmentBlue', 'hueAdjustmentPurple', 'hueAdjustmentMagenta',
+      'saturationAdjustmentRed', 'saturationAdjustmentOrange', 'saturationAdjustmentYellow', 'saturationAdjustmentGreen',
+      'saturationAdjustmentAqua', 'saturationAdjustmentBlue', 'saturationAdjustmentPurple', 'saturationAdjustmentMagenta',
+      'luminanceAdjustmentRed', 'luminanceAdjustmentOrange', 'luminanceAdjustmentYellow', 'luminanceAdjustmentGreen',
+      'luminanceAdjustmentAqua', 'luminanceAdjustmentBlue', 'luminanceAdjustmentPurple', 'luminanceAdjustmentMagenta',
+    ]);
+    expect(isMultiParam('hsl')).toBe(true);
+    expect(defaultSubParamId('hsl')).toBe('hueRed');
+  });
+
   it('every other tool is single-param (crop pending its own spec)', () => {
     for (const tool of ALL_TOOLS) {
       if (
