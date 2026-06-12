@@ -200,6 +200,7 @@ mod tests {
             final_cost: 0.0,
             converged: true,
             solve_rounds: 1,
+            pruned_matches: 0,
         }
     }
 

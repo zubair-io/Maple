@@ -97,6 +97,11 @@ pub struct BaSolution {
     pub converged: bool,
     /// Solve rounds executed (1 + one per high-residual drop).
     pub solve_rounds: usize,
+    /// Correspondences removed by stage-D outlier rejection (both
+    /// directed blocks of a match count once). Bad matches that survive
+    /// the pairwise verifier, not misalignment — see the stage-D note
+    /// in [`solve`]'s implementation.
+    pub pruned_matches: usize,
 }
 
 impl BaSolution {

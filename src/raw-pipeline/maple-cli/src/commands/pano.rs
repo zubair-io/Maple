@@ -276,6 +276,9 @@ fn stitch_set(
         frames.push(ingest_file(path).map_err(|e| format!("{}: {e}", path.display()))?);
     }
     let decode_s = t_decode.elapsed().as_secs_f64();
+    // Captured before `frames` is consumed by the composite lift below.
+    let applied_opcodes: Vec<Vec<String>> =
+        frames.iter().map(|f| f.applied_opcodes.clone()).collect();
 
     // ---- Features on proxies ---------------------------------------------
     // The whole geometry stage (verification, BA, its px-denominated
@@ -448,6 +451,7 @@ fn stitch_set(
 
     let report = serde_json::json!({
         "inputs": inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+        "applied_opcodes": applied_opcodes,
         "cameras": solution.cameras.iter().map(|c| c.as_ref().map(|c| serde_json::json!({
             "axis_angle": c.axis_angle,
             "focal_px": c.focal_px,
@@ -460,6 +464,7 @@ fn stitch_set(
         "k1": solution.k1,
         "k2": solution.k2,
         "dropped_images": solution.dropped.iter().map(|d| format!("{d:?}")).collect::<Vec<_>>(),
+        "pruned_matches": solution.pruned_matches,
         "leveled": leveled,
         "horizon_tilt_deg": horizon_tilt_deg,
         "gate_mean_budget_px": mean_budget_px,
