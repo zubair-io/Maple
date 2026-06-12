@@ -164,11 +164,21 @@ extension EditSession {
     /// Rust). Each seed triggers a `_scheduleRender(.fast)` so the view
     /// upgrades as better sources land.
     func openAssetPipelineAsync() async {
-        let openedAsset = self.asset
-
+        // Re-entrancy guard: `ensureRenderStarted()` fires from several sites
+        // (FullImageView.onAppear / EditorView / GpuLiveCanvasView layout). A
+        // second concurrent cold-open run would double-decode AND could clear
+        // the indicator flag while the first decode is still in flight. The
+        // MainActor serializes this synchronous prefix, so check-then-set is
+        // atomic. #1201 review.
+        guard !isFullQualityDecoding else { return }
         // The full-quality decode is now in flight; the loading indicator stays
-        // up until it lands (not just until the sub-second preview presents). #1201
+        // up until it lands (not just until the sub-second preview presents).
+        // `defer` so the flag never sticks if this later grows early-returns or
+        // becomes cancellation-aware. #1201
         isFullQualityDecoding = true
+        defer { isFullQualityDecoding = false }
+
+        let openedAsset = self.asset
 
         // Kick the background Rust decode early — it's the slowest,
         // latency-hiding it behind the preview paths matters most. The
@@ -219,10 +229,9 @@ extension EditSession {
 
         // Wait for the Rust task so this driver routine doesn't leave a
         // dangling reference. We already triggered the re-render above.
+        // Full-quality decode landed — the `defer` above drops the loading
+        // indicator on return (success or a nil/failed decode), so it never sticks.
         await rustTask.value
-        // Full-quality decode landed — drop the loading indicator. (Task<Void,Never>:
-        // this is reached on success or a nil/failed decode, so the flag never sticks.)
-        isFullQualityDecoding = false
     }
 
     // MARK: - Native image size discovery
