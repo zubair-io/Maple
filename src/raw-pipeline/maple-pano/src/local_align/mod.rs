@@ -15,25 +15,32 @@
 //! own pixel coordinates:
 //!
 //! ```text
-//! p_corrected = p_obs + δA · (p_obs − c_i) + δt
+//! p_corrected = p_obs + δA · (p_obs − c_i)
 //! ```
 //!
-//! where `c_i = (width/2, height/2)` is the image centre, `δA` is a 2×2
-//! matrix (the **delta** from identity — `δA = 0` gives identity), and `δt`
-//! is a 2D translation.  The full parameter vector per frame is 6-DOF:
-//! `(δa00, δa01, δa10, δa11, δtx, δty)`.
+//! where `c_i = (cx, cy)` is the image centre (principal point), `δA` is a
+//! 2×2 matrix (the **delta** from identity — `δA = 0` gives identity).
+//! The parameter vector per frame is 4-DOF: `(δa00, δa01, δa10, δa11)`.
 //!
-//! The fit minimises, over residuals `r_i = q_i − p_obs_i` (the BA
-//! reprojection residual measured in frame `i`'s own pixel plane):
+//! **Why no global translation (`δt`):**  In pano sweeps, each frame has
+//! neighbours on both sides (ring and strip panos).  Parallax from the
+//! left neighbour creates residuals with the opposite sign of those from
+//! the right neighbour.  A global translation would be fit to their
+//! *mean* — near zero for symmetric scenes — and then SUBTRACT from the
+//! magnitude on both sides, *worsening* the effective correction.  The
+//! affine-only model is zero at the principal point (physically correct: no
+//! parallax at the optical axis) and grows linearly with distance — which
+//! is exactly the first-order parallax model for a lateral camera shift.
+//!
+//! The fit minimises, over residuals `r_i = q_i − p_obs_i`:
 //!
 //! ```text
-//! Σ ‖δA · (p_obs − c_i) + δt − r‖² + λ · (‖δA‖_F² + ‖δt‖²)
+//! Σ ‖δA · (p_obs − c_i) − r‖² + λ · ‖δA‖_F²
 //! ```
 //!
-//! with regularisation `λ = LAMBDA_PX_SQ = 4.0` (equivalent to a 2 px
-//! Gaussian prior on the translation, keeping the fit anchored near
-//! identity on sparse evidence).  The system is a straight Ridge-regression
-//! closed form — no iterative solver.
+//! with regularisation `λ = LAMBDA_PX_SQ = 4.0`.  The system is a straight
+//! Ridge-regression closed form on the 4×4 affine normal matrix — no
+//! iterative solver.
 //!
 //! # Symmetry
 //!
@@ -70,21 +77,24 @@
 use crate::ba::residual::{eval_residual, Block, FrameMeta, State};
 use crate::ba::FrameStats;
 
-/// Ridge regularisation coefficient.  Equivalent to a ~2 px Gaussian prior
-/// on the translation component (`λ = σ⁻² = 2² = 4`).
+/// Ridge regularisation coefficient on the affine DOFs.
+/// Equivalent to a ~2 px / half-image-width Gaussian prior on each
+/// affine coefficient (`λ = 4`).
 pub const LAMBDA_PX_SQ: f64 = 4.0;
 
 /// Maximum pixel displacement this stage may introduce at any match point.
 /// Corrections exceeding this ceiling are uniformly scaled down.
 pub const MAX_CORRECTION_PX: f64 = 8.0;
 
-/// Per-frame corrective affine map.
+/// Per-frame corrective affine map (4-DOF, no global translation).
 ///
 /// Applied as:
 /// `p_corrected = p_obs + δA · (p_obs − center) + δt`
 ///
-/// where `center = (cx, cy)` is the image principal point.  `δA = 0`,
-/// `δt = 0` is the identity (no correction).
+/// where `center = (cx, cy)` is the image principal point.  `δA = 0`
+/// and `δt = 0` is the identity (no correction).  The fit sets `δt = [0,0]`
+/// always — the field is retained for forward-compat with the `apply`
+/// API used in `warp.rs`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LocalCorrection {
     /// Image centre (principal point), pixels — the affine origin.
@@ -92,7 +102,7 @@ pub struct LocalCorrection {
     pub cy: f64,
     /// Affine delta rows: `[[δa00, δa01], [δa10, δa11]]`.
     pub da: [[f64; 2]; 2],
-    /// Translation delta: `[δtx, δty]`.
+    /// Translation delta (always `[0, 0]` from the fit; kept for API compat).
     pub dt: [f64; 2],
     /// RMS correction magnitude at the fitted match points (px) — logged
     /// in the stitch report.
@@ -156,34 +166,36 @@ pub(crate) fn fit_local_corrections(
     state: &State,
     n_local: usize,
 ) -> Vec<LocalCorrection> {
-    // Per-frame accumulator for the Ridge normal equations.
+    // Per-frame accumulator for the 4-DOF Ridge normal equations.
     //
     // Design matrix for one destination-side block at `p_obs = (px, py)`
     // with centre offset `(dx, dy) = (px−cx, py−cy)`:
     //
-    //   x-component row: [dx, dy,  0,  0, 1, 0]
-    //   y-component row: [ 0,  0, dx, dy, 0, 1]
+    //   x-component row: [dx, dy,  0,  0]
+    //   y-component row: [ 0,  0, dx, dy]
     //
     // Target for each row is the corresponding residual component r[·].
-    // We accumulate H = JᵀJ and rhs = Jᵀr (both 6-dimensional), then
+    // We accumulate H = JᵀJ (4×4) and rhs = Jᵀr (4-dimensional), then
     // solve (H + λI)·δ = rhs.
+    //
+    // No global translation DOF: see module-level docs for why the
+    // translation term degrades ring-pano corrections.
 
     struct FrameAccum {
-        h: [f64; 21], // upper-triangle of 6×6, packed row-major
-        rhs: [f64; 6],
+        h: [f64; 10], // upper-triangle of 4×4, packed row-major (i*(7-i)/2 + j)
+        rhs: [f64; 4],
         n: usize,
         cx: f64,
         cy: f64,
         // Candidate match points for post-fit magnitude measurement.
-        // Store only p_dst for the blocks assigned to this frame.
         pts: Vec<(f64, f64)>,
     }
 
     impl FrameAccum {
         fn new(cx: f64, cy: f64) -> Self {
             Self {
-                h: [0.0; 21],
-                rhs: [0.0; 6],
+                h: [0.0; 10],
+                rhs: [0.0; 4],
                 n: 0,
                 cx,
                 cy,
@@ -206,14 +218,14 @@ pub(crate) fn fit_local_corrections(
         let dx = px - a.cx;
         let dy = py - a.cy;
 
-        // Row vectors for the two residual components.
-        let fx = [dx, dy, 0.0, 0.0, 1.0, 0.0];
-        let fy = [0.0, 0.0, dx, dy, 0.0, 1.0];
+        // Row vectors for the two residual components (4-DOF, no translation).
+        let fx = [dx, dy, 0.0_f64, 0.0_f64];
+        let fy = [0.0_f64, 0.0_f64, dx, dy];
 
-        // H += fxᵀfx + fyᵀfy  (both contribute to the 6×6 normal matrix).
-        for i in 0..6 {
-            for j in i..6 {
-                a.h[packed_idx(i, j)] += fx[i] * fx[j] + fy[i] * fy[j];
+        // H += fxᵀfx + fyᵀfy  (both contribute to the 4×4 normal matrix).
+        for i in 0..4 {
+            for j in i..4 {
+                a.h[packed4_idx(i, j)] += fx[i] * fx[j] + fy[i] * fy[j];
             }
             a.rhs[i] += fx[i] * r[0] + fy[i] * r[1];
         }
@@ -230,20 +242,20 @@ pub(crate) fn fit_local_corrections(
 
             // Ridge: add λ to the diagonal.
             let mut h = a.h;
-            for i in 0..6 {
-                h[packed_idx(i, i)] += LAMBDA_PX_SQ;
+            for i in 0..4 {
+                h[packed4_idx(i, i)] += LAMBDA_PX_SQ;
             }
 
-            let Some(params) = solve_6x6_sym(&h, &a.rhs) else {
+            let Some(params) = solve_4x4_sym(&h, &a.rhs) else {
                 return LocalCorrection::identity(a.cx, a.cy);
             };
 
-            // params = [δa00, δa01, δa10, δa11, δtx, δty]
+            // params = [δa00, δa01, δa10, δa11]  (δt = [0, 0])
             let mut corr = LocalCorrection {
                 cx: a.cx,
                 cy: a.cy,
                 da: [[params[0], params[1]], [params[2], params[3]]],
-                dt: [params[4], params[5]],
+                dt: [0.0, 0.0],
                 rms_px: 0.0,
                 max_correction_px: 0.0,
                 fit_blocks: a.n,
@@ -387,37 +399,38 @@ pub(crate) fn global_stats_after_local(
     }
 }
 
-/// Packed upper-triangle index for a 6×6 symmetric matrix.
-/// Row `i`, column `j` (`j >= i`): index = `i*(11 - i)/2 + j`.
+/// Packed upper-triangle index for a 4×4 symmetric matrix.
+/// Row `i`, column `j` (`j >= i`): index = `i*(7 - i)/2 + j`.
+/// Slots: 10 elements total (0..10).
 #[inline]
-const fn packed_idx(i: usize, j: usize) -> usize {
-    i * (11 - i) / 2 + j
+const fn packed4_idx(i: usize, j: usize) -> usize {
+    i * (7 - i) / 2 + j
 }
 
-/// Solve a 6×6 symmetric positive-definite system `H_sym · x = rhs` via
+/// Solve a 4×4 symmetric positive-definite system `H_sym · x = rhs` via
 /// Gaussian elimination with partial pivoting (the matrix is symmetric so
 /// it is SPD after Ridge regularisation, but pivoting handles any edge
 /// cases from degenerate geometry gracefully).
 ///
-/// `h_sym` is the packed upper-triangle (21 elements, see [`packed_idx`]).
+/// `h_sym` is the packed upper-triangle (10 elements, see [`packed4_idx`]).
 /// Returns `None` on numerical singularity.
-fn solve_6x6_sym(h_packed: &[f64; 21], rhs: &[f64; 6]) -> Option<[f64; 6]> {
-    // Expand to a full augmented 6×7 matrix.
-    let mut a = [[0.0_f64; 7]; 6];
-    for i in 0..6 {
-        for j in 0..6 {
+fn solve_4x4_sym(h_packed: &[f64; 10], rhs: &[f64; 4]) -> Option<[f64; 4]> {
+    // Expand to a full augmented 4×5 matrix.
+    let mut a = [[0.0_f64; 5]; 4];
+    for i in 0..4 {
+        for j in 0..4 {
             a[i][j] = if j >= i {
-                h_packed[packed_idx(i, j)]
+                h_packed[packed4_idx(i, j)]
             } else {
-                h_packed[packed_idx(j, i)]
+                h_packed[packed4_idx(j, i)]
             };
         }
-        a[i][6] = rhs[i];
+        a[i][4] = rhs[i];
     }
 
     // Forward elimination with partial pivoting.
-    for col in 0..6 {
-        let pivot = (col..6)
+    for col in 0..4 {
+        let pivot = (col..4)
             .max_by(|&r1, &r2| a[r1][col].abs().total_cmp(&a[r2][col].abs()))
             .expect("non-empty range");
         if a[pivot][col].abs() < 1e-14 {
@@ -425,9 +438,9 @@ fn solve_6x6_sym(h_packed: &[f64; 21], rhs: &[f64; 6]) -> Option<[f64; 6]> {
         }
         a.swap(col, pivot);
         let inv = 1.0 / a[col][col];
-        for row in (col + 1)..6 {
+        for row in (col + 1)..4 {
             let factor = a[row][col] * inv;
-            for k in col..=6 {
+            for k in col..=4 {
                 let v = a[col][k] * factor;
                 a[row][k] -= v;
             }
@@ -435,10 +448,10 @@ fn solve_6x6_sym(h_packed: &[f64; 21], rhs: &[f64; 6]) -> Option<[f64; 6]> {
     }
 
     // Back substitution.
-    let mut x = [0.0_f64; 6];
-    for i in (0..6).rev() {
-        let mut s = a[i][6];
-        for j in (i + 1)..6 {
+    let mut x = [0.0_f64; 4];
+    for i in (0..4).rev() {
+        let mut s = a[i][4];
+        for j in (i + 1)..4 {
             s -= a[i][j] * x[j];
         }
         x[i] = s / a[i][i];
