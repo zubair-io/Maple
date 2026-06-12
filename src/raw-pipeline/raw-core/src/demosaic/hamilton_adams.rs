@@ -78,8 +78,8 @@ pub fn hamilton_adams(mosaic: &Image, cfa: CfaPattern) -> Image {
             let color_here = cfa.color_at(x as u32, y as u32) as usize;
             if color_here == 1 {
                 // G position: R neighbors on one axis, B on the other.
-                let horiz_c = cfa.color_at((x as u32 + 1) & u32::MAX, y as u32) as usize;
-                let vert_c  = cfa.color_at(x as u32, (y as u32 + 1) & u32::MAX) as usize;
+                let horiz_c = cfa.color_at(x as u32 + 1, y as u32) as usize;
+                let vert_c  = cfa.color_at(x as u32, y as u32 + 1) as usize;
 
                 let c_left  = sample(x - 1, y, horiz_c);
                 let c_right = sample(x + 1, y, horiz_c);
