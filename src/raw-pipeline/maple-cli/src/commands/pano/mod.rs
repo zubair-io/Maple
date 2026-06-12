@@ -501,15 +501,15 @@ fn stitch_set(
     // Build kept frames + cameras + matching local corrections in one pass so
     // indices stay aligned. solution.local_corrections is parallel to the full
     // input list; None for dropped frames (same as solution.cameras).
-    let (kept, kept_local): (Vec<(PlanarImage, Camera)>, Vec<Option<maple_pano::local_align::LocalCorrection>>) =
-        frames
-            .into_iter()
-            .zip(&solution.cameras)
-            .zip(&solution.local_corrections)
-            .filter_map(|((f, cam), lc)| {
-                cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone()))
-            })
-            .unzip();
+    let (kept, kept_local): (
+        Vec<(PlanarImage, Camera)>,
+        Vec<Option<maple_pano::local_align::LocalCorrection>>,
+    ) = frames
+        .into_iter()
+        .zip(&solution.cameras)
+        .zip(&solution.local_corrections)
+        .filter_map(|((f, cam), lc)| cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone())))
+        .unzip();
     if kept.len() < 2 {
         return Err(format!(
             "only {} frame(s) survived the solve — nothing to composite \
