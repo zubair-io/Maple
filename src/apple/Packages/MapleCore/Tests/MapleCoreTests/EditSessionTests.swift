@@ -48,25 +48,35 @@ final class EditSessionTests: XCTestCase {
             gpuActive: false, gpuFramePresented: true, hasRenderedPreview: false))
     }
 
-    func testLoadingIndicator_visibleWhileFullQualityDecoding() {
+    func testLoadingIndicator_visibleWhileResolvingFirstFrame() {
         // Stays visible even once a (preview) frame is on screen — the whole
         // point of #1201: don't hide just because the sub-second preview landed.
+        // `isResolvingFirstFrame` stays true through the decode AND the first
+        // full render, so this covers the entire cold-open wait.
         XCTAssertTrue(EditSession.shouldShowLoadingIndicator(
-            isFullQualityDecoding: true, isRendering: false, hasOnscreenFrame: true))
+            isResolvingFirstFrame: true, isRendering: false, hasOnscreenFrame: true))
     }
-    func testLoadingIndicator_hiddenOnceDecodedAndFramePresent() {
+    func testLoadingIndicator_hiddenOnceFirstFrameResolvedAndPresent() {
         XCTAssertFalse(EditSession.shouldShowLoadingIndicator(
-            isFullQualityDecoding: false, isRendering: false, hasOnscreenFrame: true))
+            isResolvingFirstFrame: false, isRendering: false, hasOnscreenFrame: true))
     }
     func testLoadingIndicator_visibleInNoPreviewRenderWindow() {
         XCTAssertTrue(EditSession.shouldShowLoadingIndicator(
-            isFullQualityDecoding: false, isRendering: true, hasOnscreenFrame: false))
+            isResolvingFirstFrame: false, isRendering: true, hasOnscreenFrame: false))
     }
     func testLoadingIndicator_noFlashOnTickAfterFrame() {
-        // A slider tick re-renders (isRendering true) but a frame is up and
-        // decode is done → no spinner flash.
+        // A slider tick re-renders (isRendering true) but a frame is up and the
+        // cold-open already resolved → no spinner flash.
         XCTAssertFalse(EditSession.shouldShowLoadingIndicator(
-            isFullQualityDecoding: false, isRendering: true, hasOnscreenFrame: true))
+            isResolvingFirstFrame: false, isRendering: true, hasOnscreenFrame: true))
+    }
+    func testLoadingIndicator_stillVisibleDuringPostDecodeRenderTail() {
+        // The exact bug from the field logs: the decode call returned (so the
+        // OLD flag would have dropped), but the first full-quality frame hasn't
+        // published yet — `isResolvingFirstFrame` keeps the indicator up across
+        // that render tail even though a (preview) frame is already on screen.
+        XCTAssertTrue(EditSession.shouldShowLoadingIndicator(
+            isResolvingFirstFrame: true, isRendering: true, hasOnscreenFrame: true))
     }
 
     /// Fit-to-window opens are the common case; if `RenderedPreviewCache`

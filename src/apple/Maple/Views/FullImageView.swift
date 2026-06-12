@@ -183,16 +183,17 @@ struct FullImageView: View {
                 }
             }
 
-            // Loading indicator. Shown while the full-quality decode is still
-            // in flight (`isFullQualityDecoding`) — it INTENTIONALLY stays up
-            // even after the sub-second preview frame presents, until the real
-            // decode lands (#1201). The frame-based term covers the no-preview
-            // blank-canvas window; once a frame is up and the decode is done a
-            // slider tick won't flash it. `gpuActive` mirrors `useGpuCanvas` so
-            // non-RAW (CPU-canvas) assets key off `renderedPreview` rather than
-            // the always-false `gpuFramePresented` (review).
+            // Loading indicator. Shown while the cold-open is still resolving
+            // its first full-quality frame (`isResolvingFirstFrame`) — it stays
+            // up from open, through the sub-second preview AND the seconds-long
+            // background decode, until the real image actually publishes one
+            // render step later (#1201). The frame-based term covers the
+            // no-preview blank-canvas window; once a frame is up and the open has
+            // resolved, a slider tick won't flash it. `gpuActive` mirrors
+            // `useGpuCanvas` so non-RAW (CPU-canvas) assets key off
+            // `renderedPreview` rather than the always-false `gpuFramePresented`.
             if EditSession.shouldShowLoadingIndicator(
-                isFullQualityDecoding: session.isFullQualityDecoding,
+                isResolvingFirstFrame: session.isResolvingFirstFrame,
                 isRendering: session.isRendering,
                 hasOnscreenFrame: EditSession.canvasHasFrame(
                     gpuActive: useGpuCanvas,

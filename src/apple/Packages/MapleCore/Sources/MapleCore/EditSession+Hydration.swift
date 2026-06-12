@@ -177,6 +177,15 @@ extension EditSession {
         // becomes cancellation-aware. #1201
         isFullQualityDecoding = true
         defer { isFullQualityDecoding = false }
+        // Held one render step LONGER than `isFullQualityDecoding`: the indicator
+        // stays up until the first render AFTER the decode actually publishes a
+        // full-quality frame (cleared in `decodeAndRender`), not merely until the
+        // decode call returns. No `defer` — clearing is the render's job, and a
+        // new image is a new session, so it can't leak across opens. #1201
+        isResolvingFirstFrame = true
+        editSessionLogger.notice(
+            "loading indicator SHOWN — cold-open decode+render in flight for \(self.asset.id, privacy: .public)"
+        )
 
         let openedAsset = self.asset
 

@@ -421,6 +421,19 @@ extension EditSession {
             editSessionLogger.debug(
                 "decodeAndRender published preview gen=\(gen ?? 0) extent=\(image.extent.width)x\(image.extent.height)"
             )
+            // First full-quality frame on screen — the cold-open's fast render
+            // lands here. Drop the loading indicator, but only once the
+            // background decode has finished (`!isFullQualityDecoding`): the
+            // embedded-preview renders that publish WHILE the decode is still in
+            // flight must not clear it early, or the indicator would vanish the
+            // moment the ~50 ms preview paints. (Terminal failures clear it in
+            // the `catch` below so a dead decode can't leave it stuck.) #1201
+            if isResolvingFirstFrame && !isFullQualityDecoding {
+                isResolvingFirstFrame = false
+                editSessionLogger.notice(
+                    "loading indicator HIDDEN — first full-quality frame published (gen=\(gen ?? 0))"
+                )
+            }
 
             if phase == .refine, let url = asset.primaryURL {
                 Task.detached(priority: .utility) {
@@ -440,6 +453,18 @@ extension EditSession {
                 "decodeAndRender failed gen=\(gen ?? 0) phase=\(String(describing: phase), privacy: .public) error=\(String(describing: error), privacy: .public)"
             )
             renderError = error
+            // Terminal failure once the decode is done (e.g. an unreadable file):
+            // no full-quality frame is coming, so settle the cold-open indicator
+            // here too — otherwise `isResolvingFirstFrame` (cleared only on a
+            // successful publish) would spin forever. Transient bails above
+            // (gen-mismatch / re-decode) intentionally leave it set so the
+            // indicator stays up while the open is still resolving. #1201
+            if isResolvingFirstFrame && !isFullQualityDecoding {
+                isResolvingFirstFrame = false
+                editSessionLogger.notice(
+                    "loading indicator HIDDEN — decode failed, no full-quality frame coming (gen=\(gen ?? 0))"
+                )
+            }
         }
         isRendering = false
     }
