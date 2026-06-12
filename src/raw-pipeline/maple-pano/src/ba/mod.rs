@@ -42,15 +42,21 @@
 //! rotations settle; freezing intrinsics first costs a handful of cheap
 //! iterations and makes the basin boundary a rotation-only question.
 //!
-//! # Acceptance gates (spec §5.3)
+//! # Acceptance gates (spec §5.3) + motion tolerance (spec §8)
 //!
 //! After convergence every frame's residuals (measured in its own pixel
 //! plane) are summarized as [`FrameStats`]; frames violating
 //! `mean ≤ mean_budget_px` / `max ≤ max_budget_px` (defaults 1.5 / 6)
 //! are **dropped and reported** ([`DropReason::HighResidual`]), worst
 //! mean first, and the remaining set is re-solved (warm start) until
-//! every surviving frame passes. Images outside the graph's largest
-//! component were never solvable and are reported as
+//! every surviving frame passes. The §5.3 gate exists for
+//! MISALIGNMENT; per spec §8's moving-subjects row, a failing frame
+//! whose **static core** still registers tightly is instead
+//! reclassified motion-affected — its motion matches are pruned, the
+//! frame is KEPT, and the product warns about possible ghosting
+//! ([`motion`] has the discriminator, the keep/drop conditions, and
+//! why it cannot mask misalignment). Images outside the graph's
+//! largest component were never solvable and are reported as
 //! [`DropReason::Disconnected`] (consuming [`MatchGraph::orphans`] —
 //! "stitch the largest component and report the orphans").
 
@@ -65,12 +71,13 @@ use crate::math::Mat3;
 use lm::{minimize, LmOptions};
 use residual::{FrameMeta, ParamLayout, State};
 
+mod motion;
 mod support;
 mod types;
 
+use motion::{gate_frames, GateContext, GateOutcome, MotionBook};
 use support::{
-    build_blocks, finalize, finalize_trivial, focal_fallback, frame_stats, largest_subcomponent,
-    median, pairs_per_frame, prune_outlier_blocks, PRUNE_ROUNDS_MAX,
+    build_blocks, finalize, finalize_trivial, focal_fallback, largest_subcomponent, median,
 };
 pub use types::{BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats};
 
@@ -150,6 +157,8 @@ pub fn solve(
         converged: true,
         solve_rounds: 0,
         pruned_matches: 0,
+        motion_affected: Vec::new(),
+        motion_pruned_matches: Vec::new(),
     };
 
     let mut state = State {
@@ -246,113 +255,74 @@ pub fn solve(
             }
         }
 
-        // Stage D: bounded hard outlier rejection AFTER convergence,
-        // BEFORE any frame-level gating. The robust verifier admits the
-        // occasional confidently-wrong match (repetitive texture), and
-        // Huber bounds its influence on the *solve* — but the §5.3 gate's
-        // per-frame max would count it raw, turning one bad
-        // correspondence into a dropped frame and feeding the drop
-        // cascade (measured on pano_01: frames with 0.9–3 px means dying
-        // on 9–18 px single-match maxes). Prune correspondences whose
-        // residual exceeds the max budget in either direction, iterated
-        // to a bounded fixed point (each re-solve can push a few
-        // residuals across the threshold), with a CUMULATIVE per-frame
-        // fraction guard so a genuinely misaligned frame (all residuals
-        // big) cannot prune itself respectable across rounds — it falls
-        // through to the gate with its blocks intact.
-        let original_pairs = pairs_per_frame(&blocks, active.len());
-        let mut pruned_pairs = vec![0usize; active.len()];
-        for _ in 0..PRUNE_ROUNDS_MAX {
-            let Some((retained, pruned)) = prune_outlier_blocks(
-                &blocks,
-                &frames,
-                &state,
-                active.len(),
-                opts.max_budget_px,
-                &original_pairs,
-                &mut pruned_pairs,
-            ) else {
-                break;
-            };
-            solution.pruned_matches += pruned;
-            blocks = retained;
-            let freed: Vec<usize> = (0..active.len())
-                .filter(|&f| state.focal_overrides[f].is_some())
-                .collect();
-            let layout_d = ParamLayout::full(active.len(), gauge, &freed);
-            let d = minimize(
-                &blocks,
-                &frames,
-                &mut state,
-                &layout_d,
-                opts.huber_delta_px,
-                &lm_opts,
-            );
-            solution.lm_iterations += d.iterations;
-            solution.converged &= d.converged;
-            solution.final_cost = d.final_cost;
-        }
+        // Stages D + E: bounded hard outlier rejection, then the §5.3
+        // acceptance gate with the spec §8 static-core discriminator —
+        // [`motion`] documents the prune guard, the keep/drop
+        // conditions, and the ordering. The motion bookkeeping is
+        // per-round (blocks are rebuilt from the graph each round);
+        // only the finalizing round's classification is published.
+        let mut book = MotionBook::new(active.len());
+        let outcome = gate_frames(
+            &mut blocks,
+            &mut state,
+            &GateContext {
+                frames: &frames,
+                n_local: active.len(),
+                gauge,
+                opts,
+                lm_opts: &lm_opts,
+            },
+            &mut solution,
+            &mut book,
+        );
 
         // Persist the round's rotations (the warm start for re-solves).
         for (local, &global) in active.iter().enumerate() {
             rotations[global] = Some(state.rotations[local]);
         }
 
-        // Per-frame stats + spec §5.3 acceptance gate.
-        let stats = frame_stats(&blocks, &frames, &state, active.len());
-        let mut worst: Option<(usize, f64, f64)> = None; // (local, mean, max)
-        for (local, stat) in stats.iter().enumerate() {
-            if stat.blocks == 0 {
-                continue;
+        let (bad_local, reason) = match outcome {
+            GateOutcome::Pass { stats } => {
+                // Every surviving frame passes: finalize.
+                finalize(
+                    &mut solution,
+                    images,
+                    &active,
+                    &state,
+                    &stats,
+                    &blocks,
+                    &frames,
+                );
+                book.write_into(&mut solution, &active);
+                solution.dropped.append(&mut dropped);
+                solution.dropped.sort_by_key(|d| d.index);
+                return Ok(solution);
             }
-            if stat.mean_px > opts.mean_budget_px || stat.max_px > opts.max_budget_px {
-                let is_worse = worst.is_none_or(|(_, m, _)| stat.mean_px > m);
-                if is_worse {
-                    worst = Some((local, stat.mean_px, stat.max_px));
-                }
-            }
-        }
-
-        let Some((bad_local, mean_px, max_px)) = worst else {
-            // Every surviving frame passes: finalize.
-            finalize(
-                &mut solution,
-                images,
-                &active,
-                &state,
-                &stats,
-                &blocks,
-                &frames,
-            );
-            solution.dropped.append(&mut dropped);
-            solution.dropped.sort_by_key(|d| d.index);
-            return Ok(solution);
+            GateOutcome::Drop { local, reason } => (local, reason),
         };
 
-        if active.len() <= 2 {
-            // Dropping below two frames leaves nothing to adjust: report
-            // the violator and finalize with what passes.
-            let bad_global = active[bad_local];
-            dropped.push(DroppedFrame {
-                index: bad_global,
-                reason: DropReason::HighResidual { mean_px, max_px },
-            });
-            active.retain(|&g| g != bad_global);
-            finalize_trivial(&mut solution, images, &active, &rotations, &state);
-            solution.dropped.append(&mut dropped);
-            solution.dropped.sort_by_key(|d| d.index);
-            return Ok(solution);
-        }
-
-        // Drop the worst offender, then re-derive connectivity among the
-        // survivors — a drop can split the component, and split-off
-        // frames are Disconnected.
         let bad_global = active[bad_local];
         dropped.push(DroppedFrame {
             index: bad_global,
-            reason: DropReason::HighResidual { mean_px, max_px },
+            reason,
         });
+        // This round's local → global map, for the trivial finalizers'
+        // motion bookkeeping (write_into skips non-survivors itself).
+        let round_active = active.clone();
         active.retain(|&g| g != bad_global);
+
+        if round_active.len() <= 2 {
+            // Dropping below two frames leaves nothing to adjust: report
+            // the violator and finalize with what passes.
+            finalize_trivial(&mut solution, images, &active, &rotations, &state);
+            book.write_into(&mut solution, &round_active);
+            solution.dropped.append(&mut dropped);
+            solution.dropped.sort_by_key(|d| d.index);
+            return Ok(solution);
+        }
+
+        // Re-derive connectivity among the survivors — a drop can split
+        // the component, and split-off frames are Disconnected.
         let (largest, disconnected) = largest_subcomponent(graph, &active);
         for index in disconnected {
             dropped.push(DroppedFrame {
@@ -363,6 +333,7 @@ pub fn solve(
         active = largest;
         if active.len() < 2 {
             finalize_trivial(&mut solution, images, &active, &rotations, &state);
+            book.write_into(&mut solution, &round_active);
             solution.dropped.append(&mut dropped);
             solution.dropped.sort_by_key(|d| d.index);
             return Ok(solution);
