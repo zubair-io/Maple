@@ -283,12 +283,15 @@ pub fn solve(
             }
         }
 
-        // Stages D + E: bounded hard outlier rejection, then the §5.3
-        // acceptance gate with the spec §8 static-core discriminator.
-        // Runs on the ORIGINAL blocks — passing corrected blocks would
-        // have gate's internal re-solves absorb the correction into the
-        // rotations, undoing it. Stage F (below) is applied AFTER the
-        // gate converges, as a final post-processing measurement step.
+        // Stages D + E + F: bounded hard outlier rejection, then the
+        // §5.3 acceptance gate with the spec §8 static-core
+        // discriminator, with stage-F corrections re-fit every gate
+        // round and the CORRECTED stats deciding pass/fail (end-of-chain
+        // measurement). The optimiser itself still runs on the original
+        // blocks — feeding it corrected blocks would absorb the
+        // correction into the rotations, undoing it. The fit below is a
+        // re-fit on the final block set purely to STORE the fields for
+        // composite time.
         let n_local = active.len();
         let mut book = MotionBook::new(active.len());
         let outcome = gate_frames(
@@ -371,7 +374,11 @@ pub fn solve(
                 // Store per-frame local corrections (global indices).
                 for (local, &global) in active.iter().enumerate() {
                     let c = &corrections_local[local];
-                    if c.fit_blocks > 0 {
+                    // Store only corrections that actually move pixels:
+                    // identity fits (no signal, or refused by the
+                    // envelope) stay `None` so the doc'd invariant
+                    // "`Some` always warps" holds.
+                    if c.fit_blocks > 0 && c.rms_px > 0.0 {
                         solution.local_corrections[global] = Some(c.clone());
                         solution.local_correction_rms[global] = c.rms_px;
                     }

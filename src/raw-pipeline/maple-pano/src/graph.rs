@@ -216,8 +216,18 @@ impl MatchGraph {
     /// longer verify move to `rejected`, and components/orphans are
     /// recomputed. Per-pair seeds use the same derivation as the
     /// builder, so the pass is deterministic.
-    pub fn reverify(&mut self, images: &[GraphImage], opts: &RobustOptions) -> ReverifySummary {
-        assert_eq!(images.len(), self.image_count, "image list mismatch");
+    pub fn reverify(
+        &mut self,
+        images: &[GraphImage],
+        opts: &RobustOptions,
+    ) -> Result<ReverifySummary, crate::error::PanoError> {
+        if images.len() != self.image_count {
+            return Err(crate::error::PanoError::InvalidOptions(format!(
+                "reverify: {} images vs a graph built over {}",
+                images.len(),
+                self.image_count
+            )));
+        }
         let mut summary = ReverifySummary {
             edges_dropped: 0,
             matches_dropped: 0,
@@ -264,7 +274,7 @@ impl MatchGraph {
         self.edges = kept;
         self.components = connected_components(self.image_count, &self.edges);
         self.orphans = orphans_of(&self.components);
-        summary
+        Ok(summary)
     }
 }
 

@@ -90,11 +90,11 @@ Self-test (--self-test)
                                          coverage exactly 1.0
     (b) reference vs perturbed copy   -> clearly non-zero rmse + seam_energy
         (perturbation = np.roll shift + brightness step on the right half)
-    (d) reference vs hole-punched copy (right half zeroed) -> coverage drops
+    (c) reference vs hole-punched copy (right half zeroed) -> coverage drops
         toward ~0.5 while rmse_valid stays ~0 and all-pixel rmse goes large
         — the property that makes masked metrics ungateable and coverage
         the completeness gate.
-    (c) wrap-closure shift recovery on a procedural wrap-consistent image:
+    (d) wrap-closure shift recovery on a procedural wrap-consistent image:
         rolling the right half vertically by 5 px must be detected within
         1.5 px; the unperturbed image must close within 1.5 px. Always runs
         on the procedural image (real fixture edges may be low-texture).
@@ -368,7 +368,7 @@ def self_test(fixture_root=None) -> int:
     check("perturbed-seam-energy", m_pert["seam_energy"] > 1e-7,
           f"seam_energy={m_pert['seam_energy']:.3e} (> 1e-7)")
 
-    # (d) hole-punched copy: coverage must see the missing half; the masked
+    # (c) hole-punched copy: coverage must see the missing half; the masked
     # rmse_valid must NOT (its blindness is why it is never gated). Punch
     # at post-normalization resolution so neither side is resampled again
     # and the cut stays exact (a Lanczos pass would smear the boundary
@@ -393,7 +393,7 @@ def self_test(fixture_root=None) -> int:
           f"rmse={m_holes['rmse']:.4f} (>10x rmse_valid: all-pixel rmse "
           f"prices the holes)")
 
-    # (c) wrap-closure shift recovery — always on the procedural image,
+    # (d) wrap-closure shift recovery — always on the procedural image,
     # whose edges are wrap-consistent by construction.
     proc = _procedural_image()
     ph, pw = proc.shape[0], proc.shape[1]

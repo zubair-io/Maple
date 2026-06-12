@@ -55,7 +55,9 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         "mean_reproj_error_px": solution.mean_reproj_px,
         "max_reproj_error_px": solution.max_reproj_px,
         // Pre-local-alignment residuals for auditability (spec §8 + #1218).
-        // Zero when local alignment did not run or fewer than two frames survive.
+        // Always populated by the solve; with --local-align off the
+        // corrections are identity so these equal the post values. Zero
+        // only when fewer than two frames survive.
         "mean_reproj_before_local_px": solution.mean_reproj_before_local_px,
         "max_reproj_before_local_px": solution.max_reproj_before_local_px,
         // Per-frame stage-F correction RMS (px), 0.0 for frames with no
