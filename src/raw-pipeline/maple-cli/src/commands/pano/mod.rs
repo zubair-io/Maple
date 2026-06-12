@@ -57,7 +57,7 @@ use maple_pano::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use maple_pano::robust::RobustOptions;
 use maple_pano::twoview::PixelCorrespondence;
 
-use io::{interleave, write_png16};
+use io::{interleave, stitch_report, write_png16, ReportContext};
 
 /// Spec §5.3 acceptance-gate defaults (single source for both modes).
 const SPEC_MEAN_BUDGET_PX: f64 = 1.5;
@@ -536,67 +536,27 @@ fn stitch_set(
     }
     let write_s = t_out.elapsed().as_secs_f64();
 
-    let report = serde_json::json!({
-        "inputs": inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
-        "applied_opcodes": applied_opcodes,
-        "cameras": solution.cameras.iter().map(|c| c.as_ref().map(|c| serde_json::json!({
-            "axis_angle": c.axis_angle,
-            "focal_px": c.focal_px,
-            "k1": c.k1,
-            "k2": c.k2,
-        }))).collect::<Vec<_>>(),
-        "mean_reproj_error_px": solution.mean_reproj_px,
-        "max_reproj_error_px": solution.max_reproj_px,
-        "shared_focal_px": solution.shared_focal_px,
-        "k1": solution.k1,
-        "k2": solution.k2,
-        "dropped_images": solution.dropped.iter().map(|d| format!("{d:?}")).collect::<Vec<_>>(),
-        "pruned_matches": solution.pruned_matches,
-        // Spec §8 moving-subjects handling (#1216): frames kept on their
-        // static cores after motion pruning, with per-frame pruned
-        // counts (parallel arrays). Non-empty ⇒ the §8 product warning
-        // below.
-        "motion_affected": solution.motion_affected,
-        "motion_pruned_matches": solution.motion_pruned_matches,
-        // Plain-language actionable notices (spec §6/§9.4 StitchReport
-        // contract); today the §8 movement warning is the only source.
-        "warnings": if solution.motion_affected.is_empty() {
-            Vec::<String>::new()
-        } else {
-            vec!["Movement detected, some areas may show ghosting".to_string()]
-        },
-        "refined_matches": refined_matches,
-        "fallback_matches": fallback_matches,
-        "reverify_edges_dropped": reverify.edges_dropped,
-        "reverify_matches_dropped": reverify.matches_dropped,
-        // Per-frame residual summaries for surviving frames (px in that
-        // frame's plane) — null for dropped frames. Triage data: which
-        // frame sits where against the §5.3 budgets.
-        "frame_stats": solution.frame_stats.iter().map(|s| s.as_ref().map(|s| serde_json::json!({
-            "mean_px": s.mean_px,
-            "max_px": s.max_px,
-            "median_px": s.median_px,
-            "blocks": s.blocks,
-        }))).collect::<Vec<_>>(),
-        "leveled": leveled,
-        "horizon_tilt_deg": horizon_tilt_deg,
-        "gate_mean_budget_px": mean_budget_px,
-        "gate_max_budget_px": max_budget_px,
-        "projection": format!("{:?}", comp_report.projection),
-        "canvas": { "width": comp_report.canvas.width, "height": comp_report.canvas.height },
-        "gains": comp_report.gains,
-        "blend_levels": comp_report.blend_levels,
-        "min_overlap_width_px": comp_report.min_overlap_width_px,
-        "timings_s": {
-            "decode": decode_s,
-            "features": features_s,
-            "match_graph": graph_s,
-            "refine": refine_s,
-            "solve": solve_s,
-            "composite": composite_s,
-            "write": write_s,
-            "total": t0.elapsed().as_secs_f64(),
-        },
+    let report = stitch_report(&ReportContext {
+        inputs,
+        applied_opcodes: &applied_opcodes,
+        solution: &solution,
+        refined_matches,
+        fallback_matches,
+        reverify: &reverify,
+        leveled,
+        horizon_tilt_deg,
+        gate_budgets: (mean_budget_px, max_budget_px),
+        comp_report: &comp_report,
+        timings_s: [
+            ("decode", decode_s),
+            ("features", features_s),
+            ("match_graph", graph_s),
+            ("refine", refine_s),
+            ("solve", solve_s),
+            ("composite", composite_s),
+            ("write", write_s),
+            ("total", t0.elapsed().as_secs_f64()),
+        ],
     });
     if let Some(path) = &outs.report {
         let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
