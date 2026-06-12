@@ -15,9 +15,14 @@ stage-dump = ["raw-core/stage-dump"]
 # integration tests are `ignored` without it, and fail closed (panic on a
 # missing fixture) with it. Enable on fixture-provisioned machines only.
 fixtures = []
+# Panorama stitching (#1182): pulls the maple-pano library with its ML
+# detector/matcher stack. Off by default — the pano subcommand is the
+# operator surface for `test_pano_pipeline.sh`'s candidate gates.
+pano = ["dep:maple-pano", "maple-pano/ml"]
 
 [dependencies]
 raw-core = { path = "../raw-core" }
+maple-pano = { path = "../maple-pano", optional = true }
 bytemuck.workspace = true
 clap.workspace = true
 thiserror.workspace = true
