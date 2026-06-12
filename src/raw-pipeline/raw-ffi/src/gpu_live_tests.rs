@@ -13,6 +13,14 @@
 //! The reference is the same-subset CPU composition (NOT a fresh develop from
 //! RAW): the FFI takes an already-decoded scene-linear f32 buffer, so apples-to-
 //! apples is that buffer through the matching CPU stages + dither.
+//!
+//! DEHAZE stays OFF in this file's models (#1098): the FFI's default session
+//! measures the dehaze airlight ON-GPU (#1033), and on this file's
+//! `scene_linear_rgba` fixture the dark channel is degenerate (a saturated
+//! primary every 11 px), so the GPU-vs-CPU airlight comparison is meaningless
+//! there. Dehaze host parity rides the sibling `gpu_live_airlight_tests.rs`,
+//! on the hazy 128×128 fixture; the re-render gate below keeps dehaze engaged
+//! (FFI-vs-FFI, airlight-comparison-free).
 
 use super::*;
 use raw_core::image::{ColorSpace, Image};
@@ -49,7 +57,9 @@ fn scene_linear_rgba(w: usize, h: usize) -> Vec<f32> {
 }
 
 /// A non-identity Auto Profile curve (per-channel gammas + a small cross matrix).
-fn nonidentity_curve() -> ProfileCurve {
+/// `pub(super)`: shared with the sibling `gpu_live_airlight_tests.rs` (as are the
+/// LUT / CPU-reference / params / direct-render helpers below).
+pub(super) fn nonidentity_curve() -> ProfileCurve {
     let gamma = |g: f32| {
         let mut c = ChannelCurve::identity();
         for a in c.anchors.iter_mut() {
@@ -66,7 +76,7 @@ fn nonidentity_curve() -> ProfileCurve {
 }
 
 /// A non-identity residual LUT (identity grid warped by a mild per-node gamma).
-fn nonidentity_lut(size: usize) -> ColorLut {
+pub(super) fn nonidentity_lut(size: usize) -> ColorLut {
     let mut lut = ColorLut::identity(size);
     for v in lut.data.iter_mut() {
         *v = v.clamp(0.0, 1.0).powf(0.92);
@@ -79,7 +89,7 @@ fn nonidentity_lut(size: usize) -> ColorLut {
 /// + the view tail + `dither_and_quantize`. Returns the flat `3·w·h` u8 RGB
 /// surface. `model` drives the per-value stages; `curve`/`lut` the Auto Profile
 /// tail.
-fn cpu_reference(
+pub(super) fn cpu_reference(
     input: &[f32],
     w: u32,
     h: u32,
@@ -136,7 +146,7 @@ fn cpu_reference(
 /// Build a `MapleGpuLiveParams` from a model + curve/LUT, with the array pointers
 /// aimed at the supplied owned buffers (which the CALLER must keep alive for the
 /// render — returned alongside so they outlive the params).
-struct OwnedArrays {
+pub(super) struct OwnedArrays {
     luma: Vec<f32>,
     red: Vec<f32>,
     green: Vec<f32>,
@@ -154,7 +164,11 @@ fn flat_points(c: &ToneCurve) -> Vec<f32> {
     v
 }
 
-fn owned_arrays(model: &AdjustmentModel, curve: &ProfileCurve, lut: &ColorLut) -> OwnedArrays {
+pub(super) fn owned_arrays(
+    model: &AdjustmentModel,
+    curve: &ProfileCurve,
+    lut: &ColorLut,
+) -> OwnedArrays {
     OwnedArrays {
         luma: flat_points(&model.tone_curve_luma),
         red: flat_points(&model.tone_curve_red),
@@ -165,7 +179,7 @@ fn owned_arrays(model: &AdjustmentModel, curve: &ProfileCurve, lut: &ColorLut) -
     }
 }
 
-fn make_params(
+pub(super) fn make_params(
     model: &AdjustmentModel,
     wb_method: WbMethod,
     lut_size: usize,
@@ -237,7 +251,9 @@ fn make_params(
     }
 }
 
-/// A mild model (several stages just past threshold).
+/// A mild model (several stages just past threshold). Dehaze stays OFF — the
+/// 8×8 fixture's flat dark channel makes the GPU-vs-CPU airlight comparison
+/// degenerate (module doc); dehaze parity rides `gpu_live_airlight_tests.rs`.
 fn mild_model() -> AdjustmentModel {
     AdjustmentModel {
         temperature: 6000.0,
@@ -249,7 +265,6 @@ fn mild_model() -> AdjustmentModel {
         shadows: 5.0,
         vibrance: 6.0,
         saturation: 5.0,
-        dehaze: 10.0,
         sharpen_amount: 50.0,
         sharpen_radius: 1.0,
         sharpen_detail: 25.0,
@@ -259,7 +274,10 @@ fn mild_model() -> AdjustmentModel {
     }
 }
 
-/// An aggressive model (every gated stage engaged + a luma point curve).
+/// An aggressive model (every gated stage except dehaze engaged + a luma point
+/// curve). Dehaze stays OFF here too (module doc) — it rides
+/// `gpu_live_airlight_tests.rs` for host parity, and the re-render gate below
+/// for the pooled-path coverage.
 fn aggressive_model() -> AdjustmentModel {
     AdjustmentModel {
         temperature: 4800.0,
@@ -279,7 +297,6 @@ fn aggressive_model() -> AdjustmentModel {
         saturation: 25.0,
         clarity: 40.0,
         texture: 30.0,
-        dehaze: 45.0,
         sharpen_amount: 80.0,
         sharpen_radius: 1.5,
         sharpen_detail: 30.0,
@@ -293,10 +310,12 @@ fn aggressive_model() -> AdjustmentModel {
 
 /// THE HOST-PARITY GATE: the FFI live-render entry's u8 output matches the CPU
 /// pipeline (same stage subset + view tail + dither) for both a mild and an
-/// aggressive model. The underlying f32 chain is `< 1e-4` vs the CPU (C1) and the
-/// dither quantize is identical GPU-vs-CPU (C2), so the byte surfaces agree within
-/// ≤ 1 LSB per channel — asserted as a tight max-byte-delta + a near-zero mismatch
-/// fraction. Mirrors `gpu.rs`'s exposure parity, for the whole live chain.
+/// aggressive model — dehaze off (module doc); its host parity is gated in
+/// `gpu_live_airlight_tests.rs`. The underlying f32 chain is `< 1e-4` vs the
+/// CPU (C1) and the dither quantize is identical GPU-vs-CPU (C2), so the byte
+/// surfaces agree within ≤ 1 LSB per channel — asserted as a tight
+/// max-byte-delta + a near-zero mismatch fraction. Mirrors `gpu.rs`'s exposure
+/// parity, for the whole live chain.
 #[test]
 fn gpu_live_render_matches_cpu_within_tolerance() {
     let (w, h) = (8u32, 8u32);
@@ -336,14 +355,13 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
              {marshal_mismatches} bytes — the C-ABI marshaling diverges"
         );
 
-        // (2) HOST-PARITY gate (vs the CPU pipeline): with the airlight measured
-        //     post-prefix on BOTH sides (C5a — raw-core's `dehaze::apply` measures
-        //     A at dehaze's position), the underlying f32 chain is < 1e-4 vs CPU
-        //     (C1) and the dither is identical (C2), so the u8 surface agrees to ≤ 1
-        //     LSB on at most a handful of pixels that straddle a quantize boundary
-        //     the Bayer dither (±0.5 LSB) tips across. Bit-exactness isn't the gate
-        //     post-dither, but the boundary noise is now ≤ 1 LSB (was ≤ 2 before
-        //     C5a fixed the airlight position).
+        // (2) HOST-PARITY gate (vs the CPU pipeline): the underlying f32 chain
+        //     is < 1e-4 vs CPU (C1) and the dither is identical (C2), so the u8
+        //     surface agrees to ≤ 1 LSB on at most a handful of pixels that
+        //     straddle a quantize boundary the Bayer dither (±0.5 LSB) tips
+        //     across. Bit-exactness isn't the gate post-dither — but with dehaze
+        //     (the one stage whose airlight measurement legitimately differs
+        //     GPU-vs-CPU, #1098) excluded here, boundary noise is all that's left.
         let want = cpu_reference(&input, w, h, &model, wb_method, &curve, &lut);
         assert_eq!(out.len(), want.len(), "[{name}] length mismatch");
         let max_delta = out
@@ -376,7 +394,7 @@ fn gpu_live_render_matches_cpu_within_tolerance() {
 /// the marshaling-gate reference. Builds `FullChainInputs` exactly as the FFI
 /// does, so the only difference from the FFI path is the C-ABI pointer round-trip.
 #[allow(clippy::too_many_arguments)]
-fn direct_raw_gpu(
+pub(super) fn direct_raw_gpu(
     input: &[f32],
     w: u32,
     h: u32,
@@ -490,7 +508,14 @@ fn gpu_live_open_rejects_bad_args() {
 fn gpu_live_rerender_is_byte_identical() {
     let (w, h) = (8u32, 8u32);
     let input = scene_linear_rgba(w as usize, h as usize);
-    let model = aggressive_model();
+    // Dehaze rides along here even though the HOST gate can't compare it on this
+    // 8×8 fixture (degenerate dark channel — module doc): this gate is FFI-vs-FFI
+    // on ONE session, GPU-deterministic regardless, so re-adding it keeps the
+    // dehaze sub-DAG covered on the pooled re-render path.
+    let model = AdjustmentModel {
+        dehaze: 45.0,
+        ..aggressive_model()
+    };
     let curve = nonidentity_curve();
     let lut = nonidentity_lut(9);
     let arr = owned_arrays(&model, &curve, &lut);
