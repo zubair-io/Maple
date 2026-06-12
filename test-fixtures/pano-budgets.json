@@ -1,5 +1,23 @@
 {
-  "_comment": "Maple Pano per-set metric ceilings, gated by src/scripts/test_pano_pipeline.sh (#1120). ONE-WAY RATCHET: ceilings only go down, in the same commit that delivers the improvement. New sets: run the harness once, it FAILs with no-budget-entry and prints the observed numbers; add ceilings 5-10% above observed under fixtures.<set>.stitch and commit them together with the change. Gateable keys (any subset): rmse, seam_energy, wrap_closure_px (360-degree sets only), mean_reproj_px, max_reproj_px, horizon_tilt_deg (gated on absolute value). Empty until `maple-cli pano stitch` lands (Maple Pano M1+) - candidates cannot be generated before then.",
+  "_comment": "Per-set \u00d7 per-case ceilings over pano_metrics.py outputs (test_pano_pipeline.sh). One-way ratchet: ceilings only go DOWN. UNLIKE the color harness's observed+10% seeding, the entries below are the spec/product TARGETS (stitching spec \u00a75.3/\u00a77; product P0-2/P0-3: zero dropped frames on well-shot sets, mean \u2264 1.5 px, max \u2264 6 px, horizon \u2264 0.3\u00b0) \u2014 committed RED by design (2026-06-11): real DJI frames carry WarpRectilinear + GainMap opcodes that ingest does not yet apply (#1159), which inflates residuals and forces drops. The gates stay red until the pipeline earns them; do not relax them to pass.",
   "version": 1,
-  "fixtures": {}
+  "fixtures": {
+    "pano_01": {
+      "stitch": {
+        "_comment": "Well-shot 21-frame DJI gimbal sweep with reference. The acceptance set.",
+        "dropped_frames": 0,
+        "mean_reproj_px": 1.5,
+        "max_reproj_px": 6.0,
+        "horizon_tilt_deg": 0.3
+      }
+    },
+    "pano_00": {
+      "stitch": {
+        "_comment": "3-frame nadir set (frame 0001 missing from capture) \u2014 no reference, not horizon-gated (nadir), but spec residual gates and no-drops still apply.",
+        "dropped_frames": 0,
+        "mean_reproj_px": 1.5,
+        "max_reproj_px": 6.0
+      }
+    }
+  }
 }
