@@ -456,3 +456,40 @@ fn gate_thirty_frame_timing() {
         );
     }
 }
+
+/// Stage-D gate: gross outlier correspondences that slip past pairwise
+/// verification are pruned — they must not convert aligned frames into
+/// drops (measured failure mode on real DJI sets: frames with sub-px
+/// means dying on single-match maxes).
+#[test]
+fn gate_outlier_matches_are_pruned_not_frames() {
+    let gt = build_camera_set(&ring_options(8), &mut SplitMix64::new(23)).expect("valid options");
+    let cams: Vec<Camera> = gt.iter().map(|g| g.to_camera()).collect();
+    let images = seed_images(&cams, true);
+    let mut graph = build_graph(&images, &cams, &realistic_matches());
+    assert!(graph.orphans.is_empty());
+    // Corrupt three verified inliers on one edge with gross errors, as a
+    // confidently-wrong matcher would.
+    let edge = &mut graph.edges[0];
+    assert!(edge.inlier_matches.len() > 30);
+    for m in edge.inlier_matches.iter_mut().take(3) {
+        m.b.0 += 40.0;
+        m.b.1 -= 25.0;
+    }
+    let solution = solve(&images, &graph, &BaOptions::default()).expect("solve");
+    assert!(
+        solution.dropped.is_empty(),
+        "outliers must be pruned, not frames dropped: {:?}",
+        solution.dropped
+    );
+    assert!(
+        solution.pruned_matches >= 3,
+        "expected the 3 planted outliers pruned, got {}",
+        solution.pruned_matches
+    );
+    println!(
+        "outlier-prune gate: pruned {} correspondences, mean {:.3}px max {:.3}px",
+        solution.pruned_matches, solution.mean_reproj_px, solution.max_reproj_px
+    );
+    assert!(solution.mean_reproj_px <= 1.5 && solution.max_reproj_px <= 6.0);
+}

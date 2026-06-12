@@ -450,3 +450,81 @@ mod tests {
         assert_eq!(blocks[1].p_src, (2.0, 2.0));
     }
 }
+
+/// Stage-D cap on prune-and-resolve iterations per gate round. Two
+/// passes catch outliers unmasked by the first re-solve; beyond that
+/// the working set is as clean as pruning can honestly make it.
+pub(super) const PRUNE_ROUNDS_MAX: usize = 2;
+/// Per-frame guard: when more than this fraction of a frame's blocks
+/// are over the prune threshold, the frame is misaligned rather than
+/// polluted — NONE of its correspondences are pruned, so the §5.3 gate
+/// judges it on its real residuals instead of a self-cleaned set.
+const PRUNE_MAX_FRACTION: f64 = 0.3;
+
+/// Stage-D outlier rejection: identify correspondences whose residual
+/// exceeds `threshold_px` in **either** direction and drop both of
+/// their directed blocks, honoring the per-frame
+/// [`PRUNE_MAX_FRACTION`] guard on both endpoint frames.
+///
+/// Relies on [`build_blocks`]'s layout: the two directed blocks of one
+/// correspondence are adjacent (forward at even index, reverse at odd).
+/// Returns `None` when nothing qualifies (the common case after the
+/// first pass); otherwise the retained blocks and the number of pruned
+/// correspondences.
+pub(super) fn prune_outlier_blocks(
+    blocks: &[Block],
+    frames: &[FrameMeta],
+    state: &State,
+    n_local: usize,
+    threshold_px: f64,
+) -> Option<(Vec<Block>, usize)> {
+    debug_assert_eq!(blocks.len() % 2, 0, "blocks come in directed pairs");
+    let n_pairs = blocks.len() / 2;
+    let mut over = vec![false; n_pairs];
+    let mut blocks_of = vec![0usize; n_local];
+    let mut candidates_of = vec![0usize; n_local];
+    for pair in 0..n_pairs {
+        let fwd = &blocks[pair * 2];
+        let rev = &blocks[pair * 2 + 1];
+        debug_assert_eq!((fwd.src, fwd.dst), (rev.dst, rev.src));
+        blocks_of[fwd.src] += 1;
+        blocks_of[fwd.dst] += 1;
+        let res = |b: &Block| -> f64 {
+            match eval_residual(state, frames, b) {
+                Some(r) => (r[0] * r[0] + r[1] * r[1]).sqrt(),
+                None => INVALID_BLOCK_RESIDUAL_PX,
+            }
+        };
+        if res(fwd) > threshold_px || res(rev) > threshold_px {
+            over[pair] = true;
+            candidates_of[fwd.src] += 1;
+            candidates_of[fwd.dst] += 1;
+        }
+    }
+    if !over.iter().any(|&o| o) {
+        return None;
+    }
+    // Frames over the fraction guard keep everything.
+    let guarded: Vec<bool> = (0..n_local)
+        .map(|f| {
+            blocks_of[f] > 0
+                && (candidates_of[f] as f64) > PRUNE_MAX_FRACTION * (blocks_of[f] as f64)
+        })
+        .collect();
+    let mut retained = Vec::with_capacity(blocks.len());
+    let mut pruned = 0usize;
+    for pair in 0..n_pairs {
+        let fwd = &blocks[pair * 2];
+        let keep = !over[pair] || guarded[fwd.src] || guarded[fwd.dst];
+        if keep {
+            retained.push(blocks[pair * 2]);
+            retained.push(blocks[pair * 2 + 1]);
+        } else {
+            pruned += 1;
+        }
+    }
+    if pruned == 0 {
+        return None;
+    }
+    Some((retained, pruned))
+}
