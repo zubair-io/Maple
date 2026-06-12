@@ -2,7 +2,7 @@
 
 Seventh sub-project of the responsive program (epic [#577](https://github.com/zubair-io/Maple/issues/577)). Fills the Search tab's content area on phone (rather than the original spec's "push from Library header"). Tablet and desktop render Search as an overlay anchored to the sidebar's search pill.
 
-Visual reference: `/Users/riabuz/Projects/_Maple/mobile/Maple Mobile Editor.html` frame **02 · Search (active query)** plus prompt §5.3.
+Visual reference: `/Users/riabuz/Projects/_Maple/mobile/maple-mobile-editor.html` frame **02 · Search (active query)** plus prompt §5.3.
 
 One ticket — **S7** — shipped as one PR.
 

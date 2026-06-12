@@ -4,7 +4,7 @@ Second sub-project of the responsive program (epic [#577](https://github.com/zub
 
 This doc is the contract for three sub-tickets — **S1a Tab shell**, **S1b Source-picker drawer**, **S1c Bottom-sheet primitive** — each one PR.
 
-The phone-tier UX is grounded in `/Users/riabuz/Projects/_Maple/mobile/Maple Mobile Editor.html` mockup frames (Library / Folder menu / Search / Full image), with deliberate deviations documented in §6.
+The phone-tier UX is grounded in `/Users/riabuz/Projects/_Maple/mobile/maple-mobile-editor.html` mockup frames (Library / Folder menu / Search / Full image), with deliberate deviations documented in §6.
 
 ---
 

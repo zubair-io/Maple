@@ -2,7 +2,7 @@
 
 Fifth sub-project of the responsive program (epic [#577](https://github.com/zubair-io/Maple/issues/577)). The centerpiece: full-screen photo editor with **drag bar** (the unique UX primitive), value chip overlay, group tabs, tool pill row, undo ring, debounced XMP save, and keyboard shortcuts on desktop. Pushed from Loupe's "Edit" pill on phone/tablet/desktop. Depends on S0a/S0b/S0c primitives, S1a (tab-bar hide pattern), S1c (bottom-sheet for Info), S4 (Loupe push origin).
 
-Visual reference: `/Users/riabuz/Projects/_Maple/mobile/Maple Mobile Editor.html` frame **Editor — Pick (B Revised)**, plus prompt §5.5 / §5.6 / §5.7.
+Visual reference: `/Users/riabuz/Projects/_Maple/mobile/maple-mobile-editor.html` frame **Editor — Pick (B Revised)**, plus prompt §5.5 / §5.6 / §5.7.
 
 Three tickets — **S5a Editor shell + chrome**, **S5b Drag bar primitive**, **S5c Tool model + 22 glyphs (follow-up [#587](https://github.com/zubair-io/Maple/issues/587))** — each one PR.
 
