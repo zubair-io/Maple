@@ -127,6 +127,50 @@ describe('visitDirectory', () => {
 
     rmSync(root, { recursive: true, force: true });
   });
+
+  it('does not descend into `.maple/` cache or fire events for cache contents', async () => {
+    // Regression for #1186: walking into `.maple/` makes the sweeper index
+    // its own thumb/preview cache as if it were source content. Each
+    // resulting phantom asset's thumb/preview output then lands one
+    // `.maple/` deeper than the file (per `fs/xmp.ts` path math), and the
+    // next sweep re-discovers that — a self-feeding `.maple/.maple/.../…jpg`
+    // recursion. The sweeper must skip dotdirs entirely.
+    if (!reachable) return;
+    const { visitDirectory } = await import('./sweeper.ts');
+    const frontier = await import('./frontier.repo.ts');
+
+    const root = mkdtempSync(join(tmpdir(), 'maple-sweep-cache-'));
+    // Legitimate source photo — should still be discovered.
+    writeFileSync(join(root, 'real.dng'), 'x');
+    // The full mess the bug produced: nested `.maple/` cache dirs with
+    // thumbs/previews matching the production layout, plus an AppleDouble
+    // resource-fork file (extension matches but content doesn't).
+    mkdirSync(join(root, '.maple', 'thumbs'), { recursive: true });
+    mkdirSync(join(root, '.maple', 'previews'), { recursive: true });
+    writeFileSync(join(root, '.maple', 'thumbs', 'deadbeef.jpg'), 'x');
+    writeFileSync(join(root, '.maple', 'previews', 'deadbeef_1024.jpg'), 'x');
+    writeFileSync(join(root, '._sneaky.jpg'), 'x');
+
+    const folderId = new ObjectId();
+    const events: WatchEvent[] = [];
+    await frontier.seedRoot(folderId, root, 1);
+    const dir = await frontier.claimNextDir(folderId, 1, 60_000);
+    await visitDirectory(dir!, root, {
+      handleEvent: async (e) => {
+        events.push(e);
+      },
+      folderId,
+    });
+
+    // Only the real photo fires; nothing under `.maple/` and no AppleDouble.
+    const kinds = events.map((e) => `${e.kind}:${e.absPath.split('/').pop()}`);
+    expect(kinds).toEqual(['created:real.dng']);
+    // The `.maple/` directory is NOT enqueued for a follow-up visit.
+    // visitDirectory consumed the root entry — frontier should be empty.
+    expect(await frontier.remainingForGen(folderId, 1)).toBe(0);
+
+    rmSync(root, { recursive: true, force: true });
+  });
 });
 
 describe('advanceSweep', () => {
