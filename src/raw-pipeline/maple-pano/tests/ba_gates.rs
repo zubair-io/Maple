@@ -15,9 +15,7 @@ use common::{
 
 use maple_pano::ba::{solve, BaOptions, DropReason};
 use maple_pano::camera::Camera;
-use maple_pano::graph::{
-    build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage,
-};
+use maple_pano::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
 use maple_pano::leveling;
 use maple_pano::math::{axis_angle_to_matrix, matrix_to_axis_angle, Mat3};
 use maple_pano::prng::SplitMix64;

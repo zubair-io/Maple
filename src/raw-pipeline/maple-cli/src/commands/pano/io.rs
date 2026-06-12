@@ -1,10 +1,96 @@
-//! Pixel-buffer I/O helpers for [`super`] (`pano stitch`). Split from
-//! `pano/mod.rs` for the file-size budget.
+//! Output helpers for [`super`] (`pano stitch`): pixel-buffer encode +
+//! the `StitchReport` JSON assembly. Split from `pano/mod.rs` for the
+//! file-size budget.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use maple_pano::ba::BaSolution;
+use maple_pano::composite::CompositeReport;
+use maple_pano::graph::ReverifySummary;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::write_frame_png;
+
+/// Everything the stitch report serializes, borrowed from the
+/// pipeline's locals — one struct so the builder stays a single call.
+pub(super) struct ReportContext<'a> {
+    pub inputs: &'a [PathBuf],
+    pub applied_opcodes: &'a [Vec<String>],
+    pub solution: &'a BaSolution,
+    pub refined_matches: usize,
+    pub fallback_matches: usize,
+    pub reverify: &'a ReverifySummary,
+    pub leveled: bool,
+    pub horizon_tilt_deg: Option<f64>,
+    /// `(mean_budget_px, max_budget_px)` the §5.3 gate ran at.
+    pub gate_budgets: (f64, f64),
+    pub comp_report: &'a CompositeReport,
+    /// Stage timings, serialized in array order.
+    pub timings_s: [(&'static str, f64); 8],
+}
+
+/// The `StitchReport`-shaped JSON (stitching spec §6).
+pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
+    let solution = ctx.solution;
+    let comp_report = ctx.comp_report;
+    let timings: serde_json::Map<String, serde_json::Value> = ctx
+        .timings_s
+        .iter()
+        .map(|&(k, v)| (k.to_string(), serde_json::json!(v)))
+        .collect();
+    serde_json::json!({
+        "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+        "applied_opcodes": ctx.applied_opcodes,
+        "cameras": solution.cameras.iter().map(|c| c.as_ref().map(|c| serde_json::json!({
+            "axis_angle": c.axis_angle,
+            "focal_px": c.focal_px,
+            "k1": c.k1,
+            "k2": c.k2,
+        }))).collect::<Vec<_>>(),
+        "mean_reproj_error_px": solution.mean_reproj_px,
+        "max_reproj_error_px": solution.max_reproj_px,
+        "shared_focal_px": solution.shared_focal_px,
+        "k1": solution.k1,
+        "k2": solution.k2,
+        "dropped_images": solution.dropped.iter().map(|d| format!("{d:?}")).collect::<Vec<_>>(),
+        "pruned_matches": solution.pruned_matches,
+        // Spec §8 moving-subjects handling (#1216): frames kept on their
+        // static cores after motion pruning, with per-frame pruned
+        // counts (parallel arrays). Non-empty ⇒ the §8 product warning
+        // below.
+        "motion_affected": solution.motion_affected,
+        "motion_pruned_matches": solution.motion_pruned_matches,
+        // Plain-language actionable notices (spec §6/§9.4 StitchReport
+        // contract); today the §8 movement warning is the only source.
+        "warnings": if solution.motion_affected.is_empty() {
+            Vec::<String>::new()
+        } else {
+            vec!["Movement detected, some areas may show ghosting".to_string()]
+        },
+        "refined_matches": ctx.refined_matches,
+        "fallback_matches": ctx.fallback_matches,
+        "reverify_edges_dropped": ctx.reverify.edges_dropped,
+        "reverify_matches_dropped": ctx.reverify.matches_dropped,
+        // Per-frame residual summaries for surviving frames (px in that
+        // frame's plane) — null for dropped frames. Triage data: which
+        // frame sits where against the §5.3 budgets.
+        "frame_stats": solution.frame_stats.iter().map(|s| s.as_ref().map(|s| serde_json::json!({
+            "mean_px": s.mean_px,
+            "max_px": s.max_px,
+            "median_px": s.median_px,
+            "blocks": s.blocks,
+        }))).collect::<Vec<_>>(),
+        "leveled": ctx.leveled,
+        "horizon_tilt_deg": ctx.horizon_tilt_deg,
+        "gate_mean_budget_px": ctx.gate_budgets.0,
+        "gate_max_budget_px": ctx.gate_budgets.1,
+        "projection": format!("{:?}", comp_report.projection),
+        "canvas": { "width": comp_report.canvas.width, "height": comp_report.canvas.height },
+        "gains": comp_report.gains,
+        "blend_levels": comp_report.blend_levels,
+        "min_overlap_width_px": comp_report.min_overlap_width_px,
+        "timings_s": timings,
+    })
+}
 
 /// Interleave a planar image into the detector's RGB f32 layout.
 pub(super) fn interleave(img: &PlanarImage) -> Vec<f32> {
