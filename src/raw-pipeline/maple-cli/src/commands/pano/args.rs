@@ -68,6 +68,14 @@ pub struct StitchArgs {
     /// (pure #1213 geometry).
     #[arg(long, value_enum, default_value_t = LocalAlignArg::Mesh)]
     pub(super) local_align: LocalAlignArg,
+    /// Alignment strategy (spec §8, #1226).
+    /// `auto` (default): content-based model selection — compares
+    /// rotation vs similarity residuals per verified edge; selects tile
+    /// for translation-dominant sets (nadir strips, film scans).
+    /// `rotation`: force rotation BA for all sets.
+    /// `tile`: force planar similarity for all sets.
+    #[arg(long, value_enum, default_value_t = StrategyArg::Auto)]
+    pub(super) strategy: StrategyArg,
 }
 
 /// CLI surface for [`maple_pano::ba::RetentionPolicy`].
@@ -88,6 +96,25 @@ impl RetentionArg {
         match self {
             RetentionArg::Keep => "keep",
             RetentionArg::Strict => "strict",
+        }
+    }
+}
+
+/// CLI surface for [`maple_pano::strategy::StrategyRequest`].
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(super) enum StrategyArg {
+    Auto,
+    Rotation,
+    Tile,
+}
+
+impl StrategyArg {
+    pub(super) fn to_request(self) -> maple_pano::strategy::StrategyRequest {
+        use maple_pano::strategy::StrategyRequest;
+        match self {
+            StrategyArg::Auto => StrategyRequest::Auto,
+            StrategyArg::Rotation => StrategyRequest::Rotation,
+            StrategyArg::Tile => StrategyRequest::Tile,
         }
     }
 }
