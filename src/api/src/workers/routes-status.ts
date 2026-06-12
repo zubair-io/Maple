@@ -212,12 +212,11 @@ export async function fetchStatusDbState(
   // using the `fileinfo_missing_since_1` partial index instead of a COLLSCAN.
   if (assets && stageNames.includes('missing-reaper')) {
     try {
-      pendingByStage.set(
-        'missing-reaper',
-        await assets.countDocuments({
-          'fileinfo.missing_since': { $type: 'string' },
-        }),
-      );
+      const pending = await assets.countDocuments({
+        'fileinfo.missing_since': { $type: 'string' },
+      });
+      pendingByStage.set('missing-reaper', pending);
+      readyByStage.set('missing-reaper', pending);
     } catch (err) {
       log.warn({ err }, 'countDocuments failed for missing-reaper tagged count — leaving 0');
     }
@@ -229,7 +228,9 @@ export async function fetchStatusDbState(
   if (stageNames.includes('migration')) {
     try {
       const { migrationPendingCount } = await import('./migration.ts');
-      pendingByStage.set('migration', await migrationPendingCount());
+      const pending = await migrationPendingCount();
+      pendingByStage.set('migration', pending);
+      readyByStage.set('migration', pending);
     } catch (err) {
       log.warn({ err }, 'could not compute migration pending count — leaving 0');
     }
@@ -244,10 +245,9 @@ export async function fetchStatusDbState(
   // sibling too); the worker pass refines to live-only.
   if (assets && stageNames.includes(DEDUPLICATE_NAME)) {
     try {
-      pendingByStage.set(
-        DEDUPLICATE_NAME,
-        await assets.countDocuments({ 'fileinfo.1': { $exists: true } }),
-      );
+      const pending = await assets.countDocuments({ 'fileinfo.1': { $exists: true } });
+      pendingByStage.set(DEDUPLICATE_NAME, pending);
+      readyByStage.set(DEDUPLICATE_NAME, pending);
     } catch (err) {
       log.warn({ err }, 'countDocuments failed for deduplicate pending count — leaving 0');
     }
