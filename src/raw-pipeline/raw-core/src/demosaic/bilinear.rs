@@ -72,8 +72,8 @@ pub fn bilinear_cancellable(mosaic: &Image, cfa: CfaPattern, cancel: CancelToken
                     1 => {
                         // G known; determine horizontal vs vertical neighbors for R and B.
                         // In any Bayer pattern, at a G position one axis is R and the other is B.
-                        let horiz = cfa.color_at((x as u32 + 1) & !0, y as u32) as usize;
-                        let vert  = cfa.color_at(x as u32, (y as u32 + 1) & !0) as usize;
+                        let horiz = cfa.color_at(x as u32 + 1, y as u32) as usize;
+                        let vert  = cfa.color_at(x as u32, y as u32 + 1) as usize;
                         // horiz channel is average of horizontal neighbors; vert channel
                         // is average of vertical neighbors.
                         rgb[horiz] = (sample(x-1, y, horiz) + sample(x+1, y, horiz)) * 0.5;
