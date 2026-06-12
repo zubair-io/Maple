@@ -36,6 +36,9 @@ export * from './lib/api/search.service';
 export * from './lib/api/workers-api.service';
 export * from './lib/api/worker-events.service';
 export * from './lib/api/imports-api.service';
+// #1231 — Panorama stitching
+export * from './lib/api/pano.service';
+export * from './lib/pano/pano-dialog.component';
 
 // #713 — Observability (SigNoz / OpenTelemetry). Config model + IndexedDB
 // cache + the SDK-wiring service + the global Angular error handler.

@@ -60,6 +60,7 @@ import { observabilityRoutes } from './routes/observability.ts';
 import { meilisearchBackfillRoutes } from './routes/admin-backfill-meilisearch.ts';
 import { peopleRoutes } from './routes/people.ts';
 import { presetsRoutes } from './routes/presets.ts';
+import { panoRoutes } from './routes/pano.ts';
 import { geocodeReverseRoutes } from './routes/geocode-reverse.ts';
 import { backupIngestRoutes } from './routes/backup-ingest.ts';
 import { BACKUP_CHUNK_DIR, clearBackupChunkDir } from './backup/config.ts';
@@ -201,6 +202,7 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(meilisearchBackfillRoutes)
         .use(peopleRoutes)
         .use(presetsRoutes)
+        .use(panoRoutes)
         .use(changesRoutes)
         .use(mirrorRoutes)
         .use(workerRoutes()),

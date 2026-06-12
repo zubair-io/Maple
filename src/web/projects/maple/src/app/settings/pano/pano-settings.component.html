@@ -1,0 +1,166 @@
+<maple-settings-shell section="pano">
+  <div class="page">
+    <header class="page-header">
+      <div class="titles">
+        <h1>Panorama</h1>
+        <p>
+          Configure the maple-cli binary and model files required for server-side panorama
+          stitching. When enabled, a "Merge to panorama…" action appears in the library toolbar when
+          two or more images are selected.
+        </p>
+      </div>
+    </header>
+
+    @if (loading()) {
+      <div class="banner-loading">Loading…</div>
+    } @else if (loadError()) {
+      <div class="banner-error">{{ loadError() }}</div>
+    } @else {
+      <form class="settings-form" (ngSubmit)="save()">
+        <!-- Enable toggle -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="pano-enabled">Panorama stitching</label>
+            <span class="field-hint">
+              When off, the "Merge to panorama…" action is hidden and POST /api/pano/stitch returns
+              409.
+            </span>
+          </div>
+          <div class="field-control">
+            <label class="toggle">
+              <input
+                id="pano-enabled"
+                type="checkbox"
+                [ngModel]="fEnabled()"
+                (ngModelChange)="fEnabled.set($event)"
+                name="enabled"
+              />
+              <span class="toggle-track"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- maple-cli path -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="pano-cli-path">maple-cli binary path</label>
+            <span class="field-hint">
+              Absolute path to the compiled <code>maple-cli</code> binary on this server. Build
+              with: <code>cargo build --release --bin maple-cli</code> (in
+              <code>src/raw-pipeline/</code>).
+            </span>
+            @if (config()?.source?.maple_cli_path) {
+              <span class="field-source">{{ sourceLabel(config()?.source?.maple_cli_path) }}</span>
+            }
+          </div>
+          <div class="field-control">
+            <input
+              id="pano-cli-path"
+              type="text"
+              class="text-input"
+              placeholder="/usr/local/bin/maple-cli"
+              [ngModel]="fCliPath()"
+              (ngModelChange)="fCliPath.set($event)"
+              name="cliPath"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <!-- Models dir -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="pano-models-dir"
+              >Models directory (MAPLE_PANO_MODELS)</label
+            >
+            <span class="field-hint">
+              Directory containing the ALIKED + LightGlue ONNX model files. SHA-pinned versions are
+              listed in <code>src/raw-pipeline/maple-pano/models.toml</code>. Leave blank to use the
+              <code>MAPLE_PANO_MODELS</code> environment variable.
+            </span>
+            @if (config()?.source?.models_dir) {
+              <span class="field-source">{{ sourceLabel(config()?.source?.models_dir) }}</span>
+            }
+          </div>
+          <div class="field-control">
+            <input
+              id="pano-models-dir"
+              type="text"
+              class="text-input"
+              placeholder="~/.cache/maple-pano/models"
+              [ngModel]="fModelsDir()"
+              (ngModelChange)="fModelsDir.set($event)"
+              name="modelsDir"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <!-- ORT dylib path -->
+        <div class="field-row">
+          <div class="field-label-group">
+            <label class="field-label" for="pano-ort-dylib"
+              >ONNX Runtime dylib (ORT_DYLIB_PATH)</label
+            >
+            <span class="field-hint">
+              Path to <code>libonnxruntime.dylib</code> / <code>libonnxruntime.so</code> version ≥
+              1.23. Required by the ALIKED and LightGlue models. The default location on macOS after
+              <code>brew install onnxruntime</code> is
+              <code>/opt/homebrew/lib/libonnxruntime.dylib</code>. Leave blank to use the
+              <code>ORT_DYLIB_PATH</code> environment variable.
+            </span>
+            @if (config()?.source?.ort_dylib_path) {
+              <span class="field-source">{{ sourceLabel(config()?.source?.ort_dylib_path) }}</span>
+            }
+          </div>
+          <div class="field-control">
+            <input
+              id="pano-ort-dylib"
+              type="text"
+              class="text-input"
+              placeholder="/opt/homebrew/lib/libonnxruntime.dylib"
+              [ngModel]="fOrtDylibPath()"
+              (ngModelChange)="fOrtDylibPath.set($event)"
+              name="ortDylibPath"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+        </div>
+
+        <!-- Strategy support indicator -->
+        @if (config()) {
+          <div class="info-row">
+            <span class="info-label">--strategy flag</span>
+            <span
+              class="info-value"
+              [class.ok]="config()?.strategy_supported"
+              [class.muted]="!config()?.strategy_supported"
+            >
+              {{
+                config()?.strategy_supported
+                  ? 'Supported (ticket #1226 is merged)'
+                  : 'Not supported by this binary'
+              }}
+            </span>
+          </div>
+        }
+
+        <!-- Save / status -->
+        <div class="form-actions">
+          @if (saveState().kind === 'error') {
+            <span class="save-error">{{ $any(saveState()).message }}</span>
+          }
+          @if (saveState().kind === 'saved') {
+            <span class="save-ok">Saved.</span>
+          }
+          <button type="submit" class="save-btn" [disabled]="saveState().kind === 'saving'">
+            {{ saveState().kind === 'saving' ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </form>
+    }
+  </div>
+</maple-settings-shell>

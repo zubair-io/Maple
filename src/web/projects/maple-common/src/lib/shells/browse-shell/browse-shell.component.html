@@ -101,6 +101,24 @@
 
     <div class="flex-1"></div>
 
+    <!-- Merge to panorama (self-hosted only; requires ≥2 selected) -->
+    @if (state.backend === 'self-hosted') {
+      <button
+        type="button"
+        class="export-btn flex items-center gap-1.5 h-8 px-3.5 rounded-md text-[11px] font-medium cursor-pointer transition-colors duration-[120ms] border-[0.5px]"
+        [class.has-selection]="canMergePano()"
+        [class.no-selection]="!canMergePano()"
+        [disabled]="!canMergePano()"
+        title="Stitch selected images into a panorama"
+        aria-label="Merge to panorama"
+        (click)="onMergePano()"
+      >
+        <span
+          >Merge to panorama…{{ canMergePano() ? ' (' + state.selectedCount() + ')' : '' }}</span
+        >
+      </button>
+    }
+
     <!-- Export -->
     <button
       type="button"
@@ -153,3 +171,10 @@
 </div>
 
 <app-library-picker-modal />
+
+<!-- Pano stitch dialog (#1231) -->
+<app-pano-dialog
+  [visible]="panoDialogVisible()"
+  [assetIds]="panoAssetIds()"
+  (dismiss)="onPanoDismiss()"
+/>

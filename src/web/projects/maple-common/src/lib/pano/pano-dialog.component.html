@@ -1,0 +1,168 @@
+@if (visible()) {
+  <div
+    class="pano-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-label="Merge to panorama"
+    (click)="onBackdropClick()"
+  >
+    <div class="pano-card" (click)="$event.stopPropagation()">
+      <!-- Header -->
+      <div class="pano-header">
+        <span class="pano-title">Merge to panorama</span>
+        @if (phase() !== 'submitting' && phase() !== 'polling') {
+          <button type="button" class="pano-close" aria-label="Close" (click)="onClose()">✕</button>
+        }
+      </div>
+
+      <!-- Loading config -->
+      @if (phase() === 'loading-config') {
+        <div class="pano-body pano-center">
+          <span class="pano-muted">Loading configuration…</span>
+        </div>
+      }
+
+      <!-- Options form -->
+      @if (phase() === 'options') {
+        <div class="pano-body">
+          <p class="pano-summary">Stitch {{ assetCount() }} frames into one panorama.</p>
+
+          <!-- Retention -->
+          <div class="pano-field">
+            <label class="pano-label" for="pano-retention">Frame retention</label>
+            <p class="pano-hint">
+              <strong>Keep</strong> — frames with a solid geometric core stay in the stitch even if
+              parts are in motion. Best for most shots. <strong>Strict</strong> — any frame failing
+              the residual budget is dropped outright. Use when motion-smear matters more than
+              coverage.
+            </p>
+            <select
+              id="pano-retention"
+              class="pano-select"
+              [value]="retention()"
+              (change)="retention.set($any($event.target).value)"
+            >
+              <option value="keep">Keep (default)</option>
+              <option value="strict">Strict</option>
+            </select>
+          </div>
+
+          <!-- Local alignment -->
+          <div class="pano-field">
+            <label class="pano-label" for="pano-local-align">Local alignment</label>
+            <p class="pano-hint">
+              <strong>Mesh</strong> — a bilinear warp grid absorbs parallax and lens-distortion
+              residuals at seams. Recommended for hand-held and wide-angle shots.
+              <strong>Off</strong> — pure rotational geometry only; faster but more visible seams
+              when subjects are at varying distances.
+            </p>
+            <select
+              id="pano-local-align"
+              class="pano-select"
+              [value]="localAlign()"
+              (change)="localAlign.set($any($event.target).value)"
+            >
+              <option value="mesh">Mesh (default)</option>
+              <option value="off">Off</option>
+            </select>
+          </div>
+
+          <!-- Strategy — only when strategySupported -->
+          @if (strategySupported()) {
+            <div class="pano-field">
+              <label class="pano-label" for="pano-strategy">Projection strategy</label>
+              <p class="pano-hint">
+                <strong>Auto</strong> — the pipeline picks the best projection for the field of
+                view. <strong>Rotation</strong> — spherical / equirectangular, ideal for tripod 360°
+                pans. <strong>Tile</strong> — flat-plane mosaic for aerial grids and macro stacks.
+              </p>
+              <select
+                id="pano-strategy"
+                class="pano-select"
+                [value]="strategy()"
+                (change)="strategy.set($any($event.target).value)"
+              >
+                <option value="auto">Auto (default)</option>
+                <option value="rotation">Rotation</option>
+                <option value="tile">Tile</option>
+              </select>
+            </div>
+          }
+        </div>
+
+        <div class="pano-footer">
+          <button type="button" class="pano-btn pano-btn-ghost" (click)="onCancel()">Cancel</button>
+          <button type="button" class="pano-btn pano-btn-primary" (click)="onSubmit()">
+            Stitch
+          </button>
+        </div>
+      }
+
+      <!-- Submitting -->
+      @if (phase() === 'submitting') {
+        <div class="pano-body pano-center">
+          <span class="pano-muted">Queuing job…</span>
+        </div>
+      }
+
+      <!-- Polling / in progress -->
+      @if (phase() === 'polling') {
+        <div class="pano-body">
+          <p class="pano-summary">{{ progressLabel() }}</p>
+          <div class="pano-progress-track" role="progressbar" [attr.aria-label]="progressLabel()">
+            @let j = job();
+            @if (j && j.progress.total > 0) {
+              <div
+                class="pano-progress-fill"
+                [style.width.%]="(j.progress.current / j.progress.total) * 100"
+              ></div>
+            } @else {
+              <div class="pano-progress-fill pano-progress-indeterminate"></div>
+            }
+          </div>
+          <p class="pano-hint pano-muted">
+            Panorama stitching takes several minutes for full-resolution frames.
+          </p>
+        </div>
+        <div class="pano-footer">
+          <button type="button" class="pano-btn pano-btn-ghost" (click)="onCancel()">
+            Cancel job
+          </button>
+        </div>
+      }
+
+      <!-- Done -->
+      @if (phase() === 'done') {
+        <div class="pano-body pano-center">
+          <p class="pano-summary">Panorama ready.</p>
+        </div>
+        <div class="pano-footer">
+          <button type="button" class="pano-btn pano-btn-ghost" (click)="onClose()">Close</button>
+          @if (job()?.result?.outputAssetId) {
+            <button type="button" class="pano-btn pano-btn-primary" (click)="onViewResult()">
+              Open in editor
+            </button>
+          }
+        </div>
+      }
+
+      <!-- Error -->
+      @if (phase() === 'error') {
+        <div class="pano-body">
+          <p class="pano-error-msg">{{ errorMessage() }}</p>
+          @if (phase() === 'error' && !errorMessage().includes('provisioned')) {
+            <p class="pano-hint pano-muted">Check the server logs for details.</p>
+          } @else {
+            <p class="pano-hint pano-muted">
+              Go to <strong>Settings › Pano</strong> to configure the maple-cli path, models
+              directory, and enable panorama stitching.
+            </p>
+          }
+        </div>
+        <div class="pano-footer">
+          <button type="button" class="pano-btn pano-btn-primary" (click)="onClose()">Close</button>
+        </div>
+      }
+    </div>
+  </div>
+}
