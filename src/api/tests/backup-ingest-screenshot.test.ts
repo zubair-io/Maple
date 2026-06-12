@@ -8,7 +8,7 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { ObjectId } from 'mongodb';
-import { app } from '../src/index.ts';
+import { authedHandle } from './helpers/authed-handle.ts';
 import { foldersCollection, assetsCollection, uploadSessionsCollection } from '../src/db/client.ts';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -67,7 +67,7 @@ function ingest(body: Buffer, headers: Record<string, string>): Request {
 describe('backup-ingest screenshot routing', () => {
   test('a Screenshot-named upload lands in <year>/Screenshot and flags is_screenshot', async () => {
     const bytes = Buffer.alloc(64, 9);
-    const res = await app.handle(
+    const res = await authedHandle(
       ingest(bytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': 'SS/L0/001',
@@ -99,7 +99,7 @@ describe('backup-ingest screenshot routing', () => {
 
   test('a normal photo is unaffected (date fallback, is_screenshot false)', async () => {
     const bytes = Buffer.alloc(64, 3);
-    const res = await app.handle(
+    const res = await authedHandle(
       ingest(bytes, {
         'X-Maple-Device-Id': deviceId,
         'X-Maple-Phasset-Id': 'SS/L0/002',
