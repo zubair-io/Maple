@@ -2,6 +2,7 @@
 //! from `motion/mod.rs` for the file-size budget.
 
 use super::*;
+use crate::local_align::identity_corrections;
 use crate::math::Mat3;
 
 /// Identity-rotation two-frame state: with k1 = k2 = 0, equal
@@ -84,7 +85,16 @@ fn classify_qualifies_on_multi_edge_tight_core() {
     let original = pairs_per_frame(&blocks, 3);
     let stats = frame_stats(&blocks, &frames, &state, 3);
     assert!(stats[0].mean_px > o.mean_budget_px, "frame 0 must fail");
-    let verdicts = classify_cores(&blocks, &state, &ctx, &[0], &stats, &original, &[0; 3]);
+    let verdicts = classify_cores(
+        &blocks,
+        &state,
+        &ctx,
+        &identity_corrections(&frames, 3),
+        &[0],
+        &stats,
+        &original,
+        &[0; 3],
+    );
     let v = &verdicts[0];
     assert!(v.qualifies, "verdict: {v:?}");
     assert!(!v.dominated);
@@ -108,7 +118,16 @@ fn classify_rejects_single_edge_core_when_frame_has_two_edges() {
     }
     let original = pairs_per_frame(&blocks, 3);
     let stats = frame_stats(&blocks, &frames, &state, 3);
-    let verdicts = classify_cores(&blocks, &state, &ctx, &[0], &stats, &original, &[0; 3]);
+    let verdicts = classify_cores(
+        &blocks,
+        &state,
+        &ctx,
+        &identity_corrections(&frames, 3),
+        &[0],
+        &stats,
+        &original,
+        &[0; 3],
+    );
     let v = &verdicts[0];
     assert!(
         !v.qualifies && !v.dominated,
@@ -134,7 +153,16 @@ fn classify_dominates_past_the_fraction_ceiling() {
     }
     let original = pairs_per_frame(&blocks, 3);
     let stats = frame_stats(&blocks, &frames, &state, 3);
-    let verdicts = classify_cores(&blocks, &state, &ctx, &[0], &stats, &original, &[0; 3]);
+    let verdicts = classify_cores(
+        &blocks,
+        &state,
+        &ctx,
+        &identity_corrections(&frames, 3),
+        &[0],
+        &stats,
+        &original,
+        &[0; 3],
+    );
     let v = &verdicts[0];
     assert!(v.dominated, "verdict: {v:?}");
     assert!(!v.qualifies);
@@ -164,6 +192,7 @@ fn prune_never_hollows_a_nonqualifying_partner() {
         &blocks,
         &state,
         &ctx,
+        &identity_corrections(&frames, 3),
         &qualifying,
         &mut pruned_pairs,
         &mut book,

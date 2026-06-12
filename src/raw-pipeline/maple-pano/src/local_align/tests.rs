@@ -152,7 +152,7 @@ fn pure_rotation_correction_near_identity() {
         },
     ];
 
-    let corrections = fit_local_corrections(&blocks, &frames, &state, 2);
+    let corrections = fit_local_corrections(&blocks, &frames, &state, 2, 6.0);
     for (i, c) in corrections.iter().enumerate() {
         assert!(
             c.max_correction_px < 0.05,
@@ -222,7 +222,7 @@ fn ring_pano_bilateral_parallax_absorbed_by_mesh() {
         });
     }
 
-    let corrections = fit_local_corrections(&blocks, &frames, &state, 3);
+    let corrections = fit_local_corrections(&blocks, &frames, &state, 3, 6.0);
     let after = stats_after_local(&blocks, &frames, &state, &corrections, 3);
 
     // Frame 0's corrected mean must be well under the ±2.5 px input.
@@ -287,7 +287,7 @@ fn depth_band_absorbed_by_mesh() {
         push(px, 360.0, 4.0);
     }
 
-    let corrections = fit_local_corrections(&blocks, &frames, &state, 2);
+    let corrections = fit_local_corrections(&blocks, &frames, &state, 2, 6.0);
     let after = stats_after_local(&blocks, &frames, &state, &corrections, 2);
 
     // Frame 1 (destination of the band blocks) must end well under the
@@ -335,7 +335,7 @@ fn correction_capped_at_max() {
         })
         .collect();
 
-    let corrections = fit_local_corrections(&blocks, &frames, &state, 2);
+    let corrections = fit_local_corrections(&blocks, &frames, &state, 2, 6.0);
     for (i, c) in corrections.iter().enumerate() {
         assert!(
             c.max_correction_px <= MAX_CORRECTION_PX + 1e-9,
@@ -386,7 +386,7 @@ fn stats_after_better_than_before_on_strong_signal() {
         })
         .collect();
 
-    let corrections = fit_local_corrections(&blocks, &frames, &state, 2);
+    let corrections = fit_local_corrections(&blocks, &frames, &state, 2, 6.0);
     let after = stats_after_local(&blocks, &frames, &state, &corrections, 2);
     // The before-correction mean for frame 1 is sqrt(2² + 1.5²) ≈ 2.5 px.
     let before_mean_f1 = (2.0_f64.powi(2) + 1.5_f64.powi(2)).sqrt();
@@ -430,7 +430,7 @@ fn oversized_correction_refused_by_envelope() {
         })
         .collect();
 
-    let corrections = fit_local_corrections(&blocks, &frames, &state, 2);
+    let corrections = fit_local_corrections(&blocks, &frames, &state, 2, 6.0);
     let c1 = &corrections[1];
     assert!(
         c1.nodes.iter().all(|n| n[0] == 0.0 && n[1] == 0.0),
@@ -448,5 +448,49 @@ fn oversized_correction_refused_by_envelope() {
         (after[1].mean_px - 5.0).abs() < 1e-9,
         "refused frame must gate on raw residuals, got mean {:.3} px",
         after[1].mean_px
+    );
+}
+
+/// The rigid-subset rule: over-budget matches (motion / blunder
+/// candidates) must not steer the fit. A water-dominated frame — 60% of
+/// matches wildly shifted, 40% carrying a coherent 2 px parallax field —
+/// gets a correction fit to the parallax only, inside the rescue
+/// envelope, leaving the static core certifiable.
+#[test]
+fn over_budget_matches_excluded_from_fit() {
+    let state = identity_state(2, 500.0);
+    let frames = frames_centered(2, 480.0, 360.0);
+
+    let mut blocks = Vec::new();
+    // 120 wild matches (12 px — moving water).
+    for i in 0..120 {
+        let px = 80.0 + (i % 60) as f64 * 14.0;
+        let py = 120.0 + (i / 60) as f64 * 200.0;
+        let p_dst = (px - 12.0, py);
+        blocks.push(Block { src: 0, dst: 1, p_src: (px, py), p_dst });
+        blocks.push(Block { src: 1, dst: 0, p_src: p_dst, p_dst: (px, py) });
+    }
+    // 80 static matches with a coherent 2 px parallax field.
+    for i in 0..80 {
+        let px = 80.0 + (i % 40) as f64 * 21.0;
+        let py = 480.0 + (i / 40) as f64 * 180.0;
+        let p_dst = (px - 2.0, py);
+        blocks.push(Block { src: 0, dst: 1, p_src: (px, py), p_dst });
+        blocks.push(Block { src: 1, dst: 0, p_src: p_dst, p_dst: (px, py) });
+    }
+
+    let corrections = fit_local_corrections(&blocks, &frames, &state, 2, 6.0);
+    let c1 = &corrections[1];
+    assert!(
+        c1.rms_px > 0.0 && c1.rms_px <= GATE_RESCUE_MAX_RMS_PX,
+        "fit must follow the 2 px static field, not the 12 px water: rms {:.3}",
+        c1.rms_px
+    );
+    // The static rows must be corrected to near zero.
+    let (qx, _) = c1.apply(500.0, 560.0);
+    assert!(
+        (qx - 500.0 - 2.0).abs() < 1.0,
+        "static-region correction should approach +2 px, got {:+.3}",
+        qx - 500.0
     );
 }
