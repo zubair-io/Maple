@@ -57,7 +57,7 @@ const ITEMS: readonly NavItem[] = [
   {
     id: 'pano',
     label: 'Pano',
-    icon: 'grid-sm',
+    icon: 'image',
     link: '/settings/pano',
     ownerOnly: true,
     sub: 'Panorama stitching',

@@ -29,10 +29,11 @@
  * pano_stitch job is already running); the handler itself is stateless.
  */
 
-import { mkdir, stat } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
+import { hashFileForId } from '../../indexer/id.ts';
 import { assetAbsPath, upsertByMapleId } from '../../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { child as childLogger } from '../../log.ts';
@@ -270,22 +271,30 @@ export const panoStitchHandler: JobHandler = {
       await copyFile(outputPng, destAbs);
     }
 
-    // Derive a stable content id from the job id (simple, stable, unique).
-    const mapleId = `pano-${ctx.jobId.toHexString()}`;
-    const fileStat = await stat(destAbs);
+    // Derive the real content identity the same way the discover watcher does:
+    // hashFileForId reads the first 64 KB, computes sha1_head, and derives a
+    // fallback-form MapleId (tag 0x02 || BLAKE3(sha1Full || filesize)).
+    // A stitched PNG has no camera serial or shutter count, so the fallback
+    // form is the correct choice — no exif stage upgrade will follow.
+    //
+    // Using the real maple_id means the discover scanner's upsert will
+    // coalesce onto this same document if it ever visits .maple/panos/
+    // (the sweeper's isInsideMapleCache guard already refuses such events,
+    // but if that guard ever fails the real id prevents a duplicate row).
+    const fileIdentity = await hashFileForId(destAbs);
 
     await upsertByMapleId({
       libraryId: libId,
       relDir: '.maple/panos',
       filename: destFilename,
-      size: fileStat.size,
-      mtime: fileStat.mtimeMs,
-      mapleId,
-      sha1Head: mapleId, // deterministic placeholder; the real sha1 stage will overwrite
+      size: fileIdentity.size,
+      mtime: fileIdentity.mtime,
+      mapleId: fileIdentity.maple_id,
+      sha1Head: fileIdentity.sha1_head,
     });
 
     // Re-query to get the inserted _id for the result payload.
-    const inserted = await coll.findOne({ maple_id: mapleId });
+    const inserted = await coll.findOne({ maple_id: fileIdentity.maple_id });
     const outputAssetId = inserted?._id?.toHexString() ?? null;
 
     log.info({ outputAssetId, destAbs }, 'pano stitch complete');
