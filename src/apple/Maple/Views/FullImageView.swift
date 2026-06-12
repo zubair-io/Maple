@@ -185,9 +185,10 @@ struct FullImageView: View {
 
             // Render indicator — only while we have no preview yet, so
             // slider ticks don't flash a spinner on every frame.
-            if FullImageViewVM.shouldShowRenderIndicator(
+            if EditSession.shouldShowLoadingIndicator(
+                isFullQualityDecoding: session.isFullQualityDecoding,
                 isRendering: session.isRendering,
-                hasPreview: EditSession.canvasHasFrame(
+                hasOnscreenFrame: EditSession.canvasHasFrame(
                     gpuActive: GpuLiveFlag.isEnabled && !session.showingOriginal,
                     gpuFramePresented: session.gpuFramePresented,
                     hasRenderedPreview: session.renderedPreview != nil

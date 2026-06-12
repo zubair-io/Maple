@@ -120,6 +120,15 @@ public final class EditSession {
     /// this resets to `false` naturally. Set in `presentViaGpuLive`. See #1069.
     public var gpuFramePresented: Bool = false
 
+    /// True from the start of a cold-open until the full-quality (background
+    /// Rust) decode lands. The sub-second-open seeds a fast preview (cache /
+    /// embedded JPEG) and presents it within ~50 ms, so `gpuFramePresented` /
+    /// `renderedPreview` flip almost immediately — but the full decode runs for
+    /// seconds behind that preview. The loading indicator keys off THIS so it
+    /// stays visible the whole time the image is still being brought to full
+    /// quality (#1201 / #1069 follow-up). Set in `openAssetPipelineAsync`.
+    public var isFullQualityDecoding: Bool = false
+
     /// Native image size in sensor pixels. Populated on the first decode and
     /// kept stable across phases/renders. Fit-to-viewport and zoom math must
     /// read this rather than `renderedPreview.extent` — the preview buffer
