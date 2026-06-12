@@ -70,7 +70,7 @@ mod types;
 
 use support::{
     build_blocks, finalize, finalize_trivial, focal_fallback, frame_stats, largest_subcomponent,
-    median,
+    median, prune_outlier_blocks, PRUNE_ROUNDS_MAX,
 };
 pub use types::{BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats};
 
@@ -149,6 +149,7 @@ pub fn solve(
         final_cost: 0.0,
         converged: true,
         solve_rounds: 0,
+        pruned_matches: 0,
     };
 
     let mut state = State {
@@ -176,7 +177,7 @@ pub fn solve(
                 FrameMeta { cx, cy }
             })
             .collect();
-        let blocks = build_blocks(graph, &local_of);
+        let mut blocks = build_blocks(graph, &local_of);
         state.rotations = active
             .iter()
             .map(|&g| rotations[g].expect("active frames are initialized"))
@@ -243,6 +244,43 @@ pub fn solve(
                 solution.converged &= stage_c.converged;
                 solution.final_cost = stage_c.final_cost;
             }
+        }
+
+        // Stage D: bounded hard outlier rejection AFTER convergence,
+        // BEFORE any frame-level gating. The robust verifier admits the
+        // occasional confidently-wrong match (repetitive texture), and
+        // Huber bounds its influence on the *solve* — but the §5.3 gate's
+        // per-frame max would count it raw, turning one bad
+        // correspondence into a dropped frame and feeding the drop
+        // cascade (measured on pano_01: frames with 0.9–3 px means dying
+        // on 9–18 px single-match maxes). Prune correspondences whose
+        // residual exceeds the max budget in either direction, with a
+        // per-frame fraction guard so a genuinely misaligned frame (all
+        // residuals big) cannot prune itself respectable — it falls
+        // through to the gate with its blocks intact.
+        for _ in 0..PRUNE_ROUNDS_MAX {
+            let Some((retained, pruned)) =
+                prune_outlier_blocks(&blocks, &frames, &state, active.len(), opts.max_budget_px)
+            else {
+                break;
+            };
+            solution.pruned_matches += pruned;
+            blocks = retained;
+            let freed: Vec<usize> = (0..active.len())
+                .filter(|&f| state.focal_overrides[f].is_some())
+                .collect();
+            let layout_d = ParamLayout::full(active.len(), gauge, &freed);
+            let d = minimize(
+                &blocks,
+                &frames,
+                &mut state,
+                &layout_d,
+                opts.huber_delta_px,
+                &lm_opts,
+            );
+            solution.lm_iterations += d.iterations;
+            solution.converged &= d.converged;
+            solution.final_cost = d.final_cost;
         }
 
         // Persist the round's rotations (the warm start for re-solves).

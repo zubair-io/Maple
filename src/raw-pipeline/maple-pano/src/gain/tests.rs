@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::ingest::ValidityMask;
 use crate::math::Vec3;
