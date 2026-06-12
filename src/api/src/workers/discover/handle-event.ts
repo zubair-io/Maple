@@ -239,7 +239,7 @@ export async function handleEvent(
       {
         $set: {
           'fileinfo.$[entry].deleted_at': now,
-          'fileinfo.$[entry].missing_since': now,
+          'fileinfo.$[missingEntry].missing_since': now,
         },
       },
       {
@@ -248,6 +248,15 @@ export async function handleEvent(
             'entry.library_id': fileinfoEntry.library_id,
             'entry.path': fileinfoEntry.path,
             'entry.filename': fileinfoEntry.filename,
+          },
+          {
+            'missingEntry.library_id': fileinfoEntry.library_id,
+            'missingEntry.path': fileinfoEntry.path,
+            'missingEntry.filename': fileinfoEntry.filename,
+            $or: [
+              { 'missingEntry.missing_since': { $exists: false } },
+              { 'missingEntry.missing_since': null },
+            ],
           },
         ],
       },
