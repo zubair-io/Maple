@@ -4,18 +4,22 @@
 //! existing vibrance/saturation block. Uses a **raised-cosine partition of
 //! unity** over 8 ACR-aligned hue centers (Red, Orange, Yellow, Green,
 //! Aqua, Blue, Purple, Magenta) — circular in hue, so bands wrap across
-//! the ±180° boundary. Band half-width equals the 45° band spacing giving
-//! exact partition of unity. Each band weight is chroma-gated: hard
-//! early-return for C < C0, then `smoothstep(C0, 2·C0, C)` for a smooth
-//! onset. The neutral axis is **exactly stable** — near-neutrals pass through
-//! bit-for-bit. The three channels (Hue, Saturation, Luminance) act
-//! independently on the armed band's contribution:
+//! the ±180° boundary. The 8 Oklab hue centers are non-uniformly spaced,
+//! so a fixed 67.5° half-width (see `BAND_HALF_WIDTH_DEG`) is used and
+//! partition-of-unity is achieved via per-pixel weight normalization
+//! (each band weight divided by the sum across all 8 bands). Each band
+//! weight is chroma-gated: hard early-return for C < C0, then
+//! `smoothstep(C0, 2·C0, C)` for a smooth onset. The neutral axis is
+//! **exactly stable** — near-neutrals pass through bit-for-bit. The three
+//! channels (Hue, Saturation, Luminance) act independently on the armed
+//! band's contribution:
 //!
 //! - **Hue:** rotates the Oklab hue angle by `slider/100 · HSL_HUE_MAX_RAD`
 //!   radians.
 //! - **Saturation:** scales the Oklab chroma `C` by `1 + slider/100`.
-//! - **Luminance:** scales the Oklab `L` component by `1 + slider/100 · w`;
-//!   applied as a uniform RGB factor so hue is preserved.
+//! - **Luminance:** scales the Oklab `L` component by `1 + slider/100 · w`
+//!   (an Oklab-L scale, not a uniform RGB multiply — hue and chroma are
+//!   preserved in Oklab space).
 //!
 //! All-defaults = bit-identical no-op (the whole-stage short-circuit at the
 //! top of `apply` guards this). A pure point op — tile-safe with register
