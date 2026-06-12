@@ -85,10 +85,11 @@ pub fn apply(
 }
 
 /// Cancellable variant of [`apply`]. Identical math; additionally observes
-/// `cancel` once per output row in the fused per-pixel sweep and returns early
-/// when cancellation is requested. A row-granular relaxed load is free and does
-/// not perturb the result; with a never-cancel token this is bit-identical to
-/// [`apply`].
+/// `cancel` once per output row in the fused per-pixel sweep. Rows that have
+/// not yet started skip their work when the token is set; rows already running
+/// complete normally (rayon's `for_each` cannot short-circuit mid-dispatch).
+/// A row-granular relaxed load is free and does not perturb the result; with a
+/// never-cancel token this is bit-identical to [`apply`].
 ///
 /// The USM-scale build and the edge-aware mix were two serial full-image sweeps
 /// (#1089): the first wrote a full `sharpened_pixels` buffer that the second

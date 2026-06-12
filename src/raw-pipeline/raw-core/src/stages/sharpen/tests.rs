@@ -166,7 +166,7 @@ fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: 
 /// patterns, so a single-ULP reordering would fail here.
 #[test]
 fn fused_is_bit_identical_to_two_sweep_reference() {
-    let (w, h) = (37u32, 23u32); // odd dims → the last par_chunks row is a partial tail
+    let (w, h) = (37u32, 23u32); // odd dims exercise edge clamping in the gradient idx closure
     let mut base = Image::new(w, h, ColorSpace::SceneLinearRec2020);
     for y in 0..h as usize {
         for x in 0..w as usize {
