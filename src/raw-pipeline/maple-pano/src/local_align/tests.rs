@@ -245,10 +245,12 @@ fn ring_pano_bilateral_parallax_absorbed_by_mesh() {
 }
 
 /// Depth-band parallax — the measured v1 failure mode as a unit test.
-/// A horizontal foreground band through the frame carries +4 px residuals
-/// while the rest of the frame carries −1 px: piecewise depth structure
-/// that no global linear (affine) field can represent. The mesh must
-/// absorb the band without disturbing the background.
+/// A horizontal foreground band through the frame carries +2.5 px
+/// residuals (inside the per-node trust ceiling — beyond it the band
+/// would be deliberately seam-routed instead) while the rest of the
+/// frame carries −1 px: piecewise depth structure that no global linear
+/// (affine) field can represent. The mesh must absorb the band without
+/// disturbing the background.
 #[test]
 fn depth_band_absorbed_by_mesh() {
     let (cx, cy) = (480.0, 360.0);
@@ -281,10 +283,10 @@ fn depth_band_absorbed_by_mesh() {
         let py = if i < 100 { 100.0 } else { 620.0 };
         push(px, py, -1.0);
     }
-    // Foreground band through the middle: r_x = +4 px, 100 matches.
+    // Foreground band through the middle: r_x = +2.5 px, 100 matches.
     for i in 0..100 {
         let px = 40.0 + i as f64 * 8.8;
-        push(px, 360.0, 4.0);
+        push(px, 360.0, 2.5);
     }
 
     let corrections = fit_local_corrections(&blocks, &frames, &state, 2, 6.0);
@@ -292,20 +294,20 @@ fn depth_band_absorbed_by_mesh() {
 
     // Frame 1 (destination of the band blocks) must end well under the
     // band magnitude. For contrast: the best GLOBAL fit of this field
-    // (+4 on 1/3 of the matches, −1 on 2/3) is a near-uniform ≈ +0.67,
-    // leaving a ~2.2 px mean — a linear model cannot do meaningfully
+    // (+2.5 on 1/3 of the matches, −1 on 2/3) is a near-uniform ≈ +0.17,
+    // leaving a ~1.5 px mean — a linear model cannot do meaningfully
     // better because the structure is piecewise, not a gradient. The
     // mesh must beat that floor decisively.
     assert!(
-        after[1].mean_px < 1.0,
-        "frame 1: depth-band mean after correction {:.3} px should be < 1.0 px",
+        after[1].mean_px < 0.75,
+        "frame 1: depth-band mean after correction {:.3} px should be < 0.75 px",
         after[1].mean_px
     );
 }
 
-/// The cap is enforced: a wildly large residual input never produces a
-/// correction exceeding `MAX_CORRECTION_PX` — at any node, and therefore
-/// (bilinear convexity) at any pixel.
+/// A wildly large residual input never produces a correction at all:
+/// every node lands beyond the trust ceiling and is zeroed (and the
+/// field is therefore bounded at every pixel by bilinear convexity).
 #[test]
 fn correction_capped_at_max() {
     // Build blocks with a very large residual (50 px).
@@ -398,10 +400,10 @@ fn stats_after_better_than_before_on_strong_signal() {
     );
 }
 
-/// The parallax envelope refuses oversized fits: a coherent residual
-/// field well beyond `GATE_RESCUE_MAX_RMS_PX` (here: a uniform 5 px
-/// shift, the signature of misregistration rather than drift) must come
-/// back as the identity — zero nodes, no gating rescue, no warp.
+/// The per-node trust ceiling refuses oversized fields: a coherent
+/// residual field well beyond `NODE_TRUST_MAX_PX` everywhere (here: a
+/// uniform 5 px shift, the signature of misregistration rather than
+/// drift) loses every node — identity, no gating rescue, no warp.
 #[test]
 fn oversized_correction_refused_by_envelope() {
     let state = identity_state(2, 500.0);
@@ -467,30 +469,58 @@ fn over_budget_matches_excluded_from_fit() {
         let px = 80.0 + (i % 60) as f64 * 14.0;
         let py = 120.0 + (i / 60) as f64 * 200.0;
         let p_dst = (px - 12.0, py);
-        blocks.push(Block { src: 0, dst: 1, p_src: (px, py), p_dst });
-        blocks.push(Block { src: 1, dst: 0, p_src: p_dst, p_dst: (px, py) });
+        blocks.push(Block {
+            src: 0,
+            dst: 1,
+            p_src: (px, py),
+            p_dst,
+        });
+        blocks.push(Block {
+            src: 1,
+            dst: 0,
+            p_src: p_dst,
+            p_dst: (px, py),
+        });
     }
     // 80 static matches with a coherent 2 px parallax field.
     for i in 0..80 {
         let px = 80.0 + (i % 40) as f64 * 21.0;
         let py = 480.0 + (i / 40) as f64 * 180.0;
         let p_dst = (px - 2.0, py);
-        blocks.push(Block { src: 0, dst: 1, p_src: (px, py), p_dst });
-        blocks.push(Block { src: 1, dst: 0, p_src: p_dst, p_dst: (px, py) });
+        blocks.push(Block {
+            src: 0,
+            dst: 1,
+            p_src: (px, py),
+            p_dst,
+        });
+        blocks.push(Block {
+            src: 1,
+            dst: 0,
+            p_src: p_dst,
+            p_dst: (px, py),
+        });
     }
 
     let corrections = fit_local_corrections(&blocks, &frames, &state, 2, 6.0);
     let c1 = &corrections[1];
     assert!(
-        c1.rms_px > 0.0 && c1.rms_px <= GATE_RESCUE_MAX_RMS_PX,
+        c1.rms_px > 0.0 && c1.rms_px <= NODE_TRUST_MAX_PX,
         "fit must follow the 2 px static field, not the 12 px water: rms {:.3}",
         c1.rms_px
     );
-    // The static rows must be corrected to near zero.
+    // The static rows must be corrected to near +2 px.
     let (qx, _) = c1.apply(500.0, 560.0);
     assert!(
         (qx - 500.0 - 2.0).abs() < 1.0,
         "static-region correction should approach +2 px, got {:+.3}",
         qx - 500.0
+    );
+    // The water rows' cells must be UNTRUSTED — zero correction there
+    // (the warp never chases motion): per-node ceiling, not frame-level
+    // refusal, so the static field above survives simultaneously.
+    let water_mag = c1.displacement_at(500.0, 160.0);
+    assert!(
+        water_mag < 1.0,
+        "water-region correction must be zeroed/small, got {water_mag:.3} px"
     );
 }
