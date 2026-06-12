@@ -110,7 +110,8 @@ fn gate_warp_rmse_under_half_percent() {
     let source = scene(42);
     let cams = camera_set(&ring(6, 70.0, true), 1);
     let frames = gt_frames(&source, &cams);
-    let (out, report) = composite(&frames, &cams, &CompositeOptions::default(), &[]).expect("composite");
+    let (out, report) =
+        composite(&frames, &cams, &CompositeOptions::default(), &[]).expect("composite");
     let (rmse, covered) = rmse_vs_source(&out, &report.canvas, &source);
     println!(
         "warp gate: rmse {:.5} ({:.2}% of full scale), {:.1}% of canvas compared, canvas {}x{}, {} blend levels (min overlap {} px)",
@@ -133,7 +134,8 @@ fn gate_full_ring_wrap_closure() {
     let source = scene(7);
     let cams = camera_set(&ring(8, 60.0, true), 2);
     let frames = gt_frames(&source, &cams);
-    let (out, report) = composite(&frames, &cams, &CompositeOptions::default(), &[]).expect("composite");
+    let (out, report) =
+        composite(&frames, &cams, &CompositeOptions::default(), &[]).expect("composite");
     assert!(
         report.canvas.is_full_wrap(),
         "ring must yield a wrap canvas"
@@ -210,7 +212,8 @@ fn gate_uncovered_canvas_is_invalid() {
     let source = scene(5);
     let cams = camera_set(&ring(2, 50.0, false), 4);
     let frames = gt_frames(&source, &cams);
-    let (out, report) = composite(&frames, &cams, &CompositeOptions::default(), &[]).expect("composite");
+    let (out, report) =
+        composite(&frames, &cams, &CompositeOptions::default(), &[]).expect("composite");
     let (w, h) = (out.width(), out.height());
     let valid = out.validity.count_valid();
     let total = (w as usize) * (h as usize);

@@ -3,128 +3,218 @@
 //!
 //! Absorbs the cm-level camera position drift that a pure rotation model
 //! cannot represent. After global BA + stage-D/E gating, residuals on
-//! well-shot sets with far-field subjects are dominated by a nearly-uniform
+//! well-shot sets with finite-depth subjects are dominated by a structural
 //! parallax floor (DJI Mavic 3 Pro 100 MP, ~10 cm baseline). A strongly
-//! regularized per-frame **2D affine correction** fit over the stage-D/E
-//! survivors reduces those residuals without changing the BA rotations or
-//! the compositing pipeline's resample count.
+//! regularized per-frame **bilinear mesh correction** fit over the
+//! stage-D/E survivors reduces those residuals without changing the BA
+//! rotations or the compositing pipeline's resample count.
+//!
+//! # Model history — why a mesh and not an affine
+//!
+//! v1 of this stage fit a 4-DOF per-frame affine delta anchored at the
+//! principal point. Measured on `pano_01` (21-frame DJI sweep) it reduced
+//! the dropped frames' mean residuals by only ~12% (e.g. 2.15 → 1.92 px,
+//! 1.62 → 1.37 px) and did not move their max residuals below the §5.3
+//! budget at all; the fitted corrections stayed at 0.14–0.88 px RMS,
+//! nowhere near [`MAX_CORRECTION_PX`] — i.e. the failure was *structural*,
+//! not regularization strength. Parallax displacement depends on scene
+//! depth, which varies across the frame (sea plane vs. foreground cliff);
+//! no global linear field can represent that. The bilinear mesh is the
+//! coarsest model that can: it subsumes the affine (a linear field is
+//! reproduced exactly by bilinear interpolation of its node samples) and
+//! adds the spatial locality that depth structure requires.
 //!
 //! # Correction model
 //!
-//! For each active frame `i`, define a corrective affine map in the frame's
-//! own pixel coordinates:
+//! Each frame carries a [`GRID_COLS`] × [`GRID_ROWS`] grid of node
+//! displacements spanning the frame rectangle. The correction at a pixel
+//! is the bilinear blend of its cell's four node displacements:
 //!
 //! ```text
-//! p_corrected = p_obs + δA · (p_obs − c_i)
+//! p_corrected = p_obs + D(p_obs),   D(p) = Σₖ wₖ(p) · dₖ
 //! ```
 //!
-//! where `c_i = (cx, cy)` is the image centre (principal point), `δA` is a
-//! 2×2 matrix (the **delta** from identity — `δA = 0` gives identity).
-//! The parameter vector per frame is 4-DOF: `(δa00, δa01, δa10, δa11)`.
-//!
-//! **Why no global translation (`δt`):**  In pano sweeps, each frame has
-//! neighbours on both sides (ring and strip panos).  Parallax from the
-//! left neighbour creates residuals with the opposite sign of those from
-//! the right neighbour.  A global translation would be fit to their
-//! *mean* — near zero for symmetric scenes — and then SUBTRACT from the
-//! magnitude on both sides, *worsening* the effective correction.  The
-//! affine-only model is zero at the principal point (physically correct: no
-//! parallax at the optical axis) and grows linearly with distance — which
-//! is exactly the first-order parallax model for a lateral camera shift.
-//!
-//! The fit minimises, over residuals `r_i = q_i − p_obs_i`:
+//! The fit minimises, over the node displacements `d` and the
+//! destination-side residuals `r = q − p_obs` of the frame's blocks:
 //!
 //! ```text
-//! Σ ‖δA · (p_obs − c_i) − r‖² + λ · ‖δA‖_F²
+//! Σ_blocks ‖D(p_obs) − r‖²
+//!   + NODE_RIDGE_PX_SQ · Σₖ ‖dₖ‖²
+//!   + SMOOTH_LAMBDA    · Σ_(a,b) adjacent ‖d_a − d_b‖²
 //! ```
 //!
-//! with regularisation `λ = LAMBDA_PX_SQ = 4.0`.  The system is a straight
-//! Ridge-regression closed form on the 4×4 affine normal matrix — no
-//! iterative solver.
+//! The x and y displacement components decouple and share one normal
+//! matrix (the bilinear weights are identical), so the solve is a single
+//! 48×48 Cholesky factor applied to two right-hand sides — microseconds
+//! per frame via [`crate::ba::linalg::PackedSymmetric`].
 //!
-//! # Symmetry
-//!
-//! Each block is a directed edge `j → i` (source `j`, destination `i`).
-//! Frame `i` fits the residuals measured **in its own plane** (destination
-//! blocks only).  Partner frames independently fit their own residuals.
-//! On average each frame absorbs roughly half the parallax discrepancy
-//! between the pair, without any explicit coupling.
+//! **Ring-pano symmetry.** v1 deliberately omitted a global translation
+//! DOF: a frame with overlap on both sides sees opposite-signed parallax
+//! from its two neighbours, and a global translation would fit their
+//! near-zero mean. The mesh resolves the same tension through locality
+//! instead — nodes under the left overlap correct toward the left
+//! neighbour while nodes under the right overlap correct toward the right
+//! one, which is exactly the depth-dependent behaviour the translation
+//! argument was protecting against. The smoothness term spreads those
+//! corrections across the unobserved mid-frame; the ridge keeps the
+//! globally-uniform component (the only mode smoothness cannot see)
+//! anchored at zero.
 //!
 //! # Bounding
 //!
-//! After fitting, if the maximum pixel displacement at any of the frame's
-//! match points exceeds `MAX_CORRECTION_PX` the whole correction is
-//! uniformly scaled down so the maximum equals `MAX_CORRECTION_PX`.  This
-//! keeps the warp well inside the bicubic support radius and prevents
-//! runaway fits on sparse evidence.
+//! After fitting, if any **node** displacement magnitude exceeds
+//! [`MAX_CORRECTION_PX`] the whole field is uniformly scaled down so the
+//! maximum node equals the cap. Because the bilinear blend is a convex
+//! combination of the four cell nodes, the node maximum bounds the
+//! displacement everywhere in the frame — the cap therefore holds at
+//! every pixel, fitted or extrapolated.
 //!
 //! # Integration at composite time
 //!
-//! The correction is applied in `warp.rs`
-//! ([`crate::warp::warp_to_canvas`] now accepts an optional
-//! `LocalCorrection`): after the canvas → rotation → source-pixel chain,
-//! the correction shifts the source sample point.  This is a **single
-//! resample** — no extra pass.  The canvas bounding-box margin is widened
-//! by `MAX_CORRECTION_PX` so coverage stays correct.
+//! The correction is applied in `warp.rs` ([`crate::warp::warp_to_canvas`]
+//! accepts an optional `LocalCorrection`): after the canvas → rotation →
+//! source-pixel chain, the correction shifts the source sample point.
+//! This is a **single resample** — no extra pass. The canvas bounding-box
+//! margin is widened by [`MAX_CORRECTION_PX`] so coverage stays correct.
 //!
 //! # Identity guarantee (pure-rotation sets)
 //!
 //! On noiseless correspondences from a pure rotation-model set the fitted
-//! correction is driven purely by regularisation toward zero.  The test
+//! correction is driven purely by regularisation toward zero. The test
 //! `pure_rotation_correction_near_identity` confirms max correction
 //! < 0.05 px.
 
 use crate::ba::residual::{eval_residual, Block, FrameMeta, State};
 use crate::ba::FrameStats;
 
-/// Ridge regularisation coefficient on the affine DOFs.
-/// Equivalent to a ~2 px / half-image-width Gaussian prior on each
-/// affine coefficient (`λ = 4`).
-pub const LAMBDA_PX_SQ: f64 = 4.0;
+mod fit;
 
-/// Maximum pixel displacement this stage may introduce at any match point.
-/// Corrections exceeding this ceiling are uniformly scaled down.
+pub(crate) use fit::fit_local_corrections;
+
+/// Mesh resolution across the frame width. 8 × 6 puts one cell roughly
+/// every 1.5–1.7 kpx on the 100 MP reference frames — coarse enough that
+/// hundreds of matches support each occupied cell, fine enough to track
+/// the sky / horizon / sea / foreground depth bands that defeat a global
+/// linear model.
+pub const GRID_COLS: usize = 8;
+/// Mesh resolution across the frame height. See [`GRID_COLS`].
+pub const GRID_ROWS: usize = 6;
+
+/// Ridge regularisation on each node displacement (px²). Anchors the
+/// globally-uniform field component (invisible to the smoothness term)
+/// and pins nodes in cells with no match support. Sized well below one
+/// match's data weight: the identity guarantee does not come from the
+/// ridge (zero residuals give a zero fit at any λ) — it only has to
+/// break the uniform-mode tie, so a single coherent match already
+/// outvotes it.
+pub const NODE_RIDGE_PX_SQ: f64 = 0.25;
+
+/// First-difference smoothness weight between grid-adjacent nodes.
+/// Dominates the ridge (4×) so unobserved nodes follow their neighbours
+/// rather than snapping to zero, while staying below the per-node data
+/// weight of even sparsely-supported cells (a handful of matches), so
+/// coherent parallax evidence bends the field where it has support and
+/// the smoothness prior only carries the unobserved cells between.
+/// Production frames put tens-to-hundreds of matches in each overlap
+/// cell, so data outvotes this prior decisively wherever it speaks.
+pub const SMOOTH_LAMBDA: f64 = 1.0;
+
+/// Maximum pixel displacement this stage may introduce at any node (and
+/// therefore, by bilinear convexity, at any pixel). Corrections exceeding
+/// this ceiling are uniformly scaled down.
 pub const MAX_CORRECTION_PX: f64 = 8.0;
 
-/// Per-frame corrective affine map (4-DOF, no global translation).
+/// Parallax envelope: the largest correction (RMS over the fitted match
+/// points) this stage will accept. A fit larger than this is refused
+/// outright — the frame keeps its raw residuals for gating and is never
+/// warped by the rejected field.
 ///
-/// Applied as:
-/// `p_corrected = p_obs + δA · (p_obs − center) + δt`
+/// Why: stage F exists to absorb *cm-level camera drift*, and that has a
+/// size — `f·B/Z` puts the reference captures' parallax floor at ~1–3 px
+/// (measured needs on `pano_01`: ~1.5–2.8 px RMS). A genuinely
+/// misregistered frame needs far more: the `ba_gates` 4° pitch-impostor
+/// scenario demands 3.2–4.0 px RMS fields to look "fixed", and absorbing
+/// them would mask a wrong pose as a clean solve. The mesh is expressive
+/// enough to do exactly that, so the envelope — not the model's
+/// flexibility — is what keeps misregistration un-maskable. Sized between
+/// the two measured populations; ratchet with evidence, never above the
+/// smallest field that ever rescued a wrong pose.
+pub const GATE_RESCUE_MAX_RMS_PX: f64 = 3.0;
+
+/// Per-frame corrective displacement mesh.
 ///
-/// where `center = (cx, cy)` is the image principal point.  `δA = 0`
-/// and `δt = 0` is the identity (no correction).  The fit sets `δt = [0,0]`
-/// always — the field is retained for forward-compat with the `apply`
-/// API used in `warp.rs`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// `nodes` is row-major: node `(col, row)` lives at `row * cols + col`,
+/// node `(0, 0)` sits at pixel `(0, 0)` and node `(cols−1, rows−1)` at
+/// pixel `(w, h)`. All-zero nodes are the identity (no correction).
+#[derive(Debug, Clone, PartialEq)]
 pub struct LocalCorrection {
-    /// Image centre (principal point), pixels — the affine origin.
-    pub cx: f64,
-    pub cy: f64,
-    /// Affine delta rows: `[[δa00, δa01], [δa10, δa11]]`.
-    pub da: [[f64; 2]; 2],
-    /// Translation delta (always `[0, 0]` from the fit; kept for API compat).
-    pub dt: [f64; 2],
+    /// Frame extent in pixels (the grid spans `[0, w] × [0, h]`).
+    pub w: f64,
+    pub h: f64,
+    /// Grid dimensions (≥ 2 each).
+    pub cols: usize,
+    pub rows: usize,
+    /// Node displacements `[dx, dy]`, row-major.
+    pub nodes: Vec<[f64; 2]>,
     /// RMS correction magnitude at the fitted match points (px) — logged
     /// in the stitch report.
     pub rms_px: f64,
-    /// Maximum correction magnitude at any fitted match point (px).
+    /// Maximum node displacement magnitude (px) — bounds the field
+    /// everywhere (bilinear convexity).
     pub max_correction_px: f64,
     /// Number of destination-side blocks the correction was fit on.
     pub fit_blocks: usize,
 }
 
 impl LocalCorrection {
-    /// The identity correction (no shift).
-    pub fn identity(cx: f64, cy: f64) -> Self {
+    /// The identity correction (zero mesh) for a `w × h` frame.
+    pub fn identity(w: f64, h: f64) -> Self {
         Self {
-            cx,
-            cy,
-            da: [[0.0; 2]; 2],
-            dt: [0.0; 2],
+            w,
+            h,
+            cols: GRID_COLS,
+            rows: GRID_ROWS,
+            nodes: vec![[0.0; 2]; GRID_COLS * GRID_ROWS],
             rms_px: 0.0,
             max_correction_px: 0.0,
             fit_blocks: 0,
         }
+    }
+
+    /// Locate `(px, py)`: cell base node index and the four bilinear
+    /// weights, ordered `[n00, n10, n01, n11]` (col-then-row offsets).
+    /// Coordinates outside the frame clamp to the border cells.
+    #[inline]
+    pub(crate) fn cell(&self, px: f64, py: f64) -> ([usize; 4], [f64; 4]) {
+        let gx = (px / self.w).clamp(0.0, 1.0) * (self.cols - 1) as f64;
+        let gy = (py / self.h).clamp(0.0, 1.0) * (self.rows - 1) as f64;
+        let cx = (gx as usize).min(self.cols - 2);
+        let cy = (gy as usize).min(self.rows - 2);
+        let fx = gx - cx as f64;
+        let fy = gy - cy as f64;
+        let i00 = cy * self.cols + cx;
+        let idx = [i00, i00 + 1, i00 + self.cols, i00 + self.cols + 1];
+        let wts = [
+            (1.0 - fx) * (1.0 - fy),
+            fx * (1.0 - fy),
+            (1.0 - fx) * fy,
+            fx * fy,
+        ];
+        (idx, wts)
+    }
+
+    /// Displacement vector at `(px, py)`.
+    #[inline]
+    fn displacement(&self, px: f64, py: f64) -> (f64, f64) {
+        let (idx, wts) = self.cell(px, py);
+        let mut dx = 0.0;
+        let mut dy = 0.0;
+        for k in 0..4 {
+            let n = &self.nodes[idx[k]];
+            dx += wts[k] * n[0];
+            dy += wts[k] * n[1];
+        }
+        (dx, dy)
     }
 
     /// Apply the correction to a source image coordinate `(px, py)`:
@@ -133,163 +223,16 @@ impl LocalCorrection {
     /// Called from the warp inner loop — kept tight.
     #[inline]
     pub fn apply(&self, px: f64, py: f64) -> (f64, f64) {
-        let dx = px - self.cx;
-        let dy = py - self.cy;
-        let corr_x = self.da[0][0] * dx + self.da[0][1] * dy + self.dt[0];
-        let corr_y = self.da[1][0] * dx + self.da[1][1] * dy + self.dt[1];
-        (px + corr_x, py + corr_y)
+        let (dx, dy) = self.displacement(px, py);
+        (px + dx, py + dy)
     }
 
     /// Displacement magnitude at `(px, py)`.
     #[inline]
-    fn displacement_at(&self, px: f64, py: f64) -> f64 {
-        let dx = px - self.cx;
-        let dy = py - self.cy;
-        let corr_x = self.da[0][0] * dx + self.da[0][1] * dy + self.dt[0];
-        let corr_y = self.da[1][0] * dx + self.da[1][1] * dy + self.dt[1];
-        (corr_x * corr_x + corr_y * corr_y).sqrt()
+    pub(crate) fn displacement_at(&self, px: f64, py: f64) -> f64 {
+        let (dx, dy) = self.displacement(px, py);
+        (dx * dx + dy * dy).sqrt()
     }
-}
-
-/// Fit per-frame local corrections from the post-BA, post-gate residuals.
-///
-/// `blocks` must be the final block set (after stage-D/E): motion outliers
-/// and blunders are already pruned so the fit sees only the structural
-/// parallax signal.
-///
-/// Returns a `Vec<LocalCorrection>` indexed by **local frame index**
-/// (same indexing as `state.rotations`), length `n_local`.  Frames with no
-/// contributing blocks get `LocalCorrection::identity`.
-pub(crate) fn fit_local_corrections(
-    blocks: &[Block],
-    frames: &[FrameMeta],
-    state: &State,
-    n_local: usize,
-) -> Vec<LocalCorrection> {
-    // Per-frame accumulator for the 4-DOF Ridge normal equations.
-    //
-    // Design matrix for one destination-side block at `p_obs = (px, py)`
-    // with centre offset `(dx, dy) = (px−cx, py−cy)`:
-    //
-    //   x-component row: [dx, dy,  0,  0]
-    //   y-component row: [ 0,  0, dx, dy]
-    //
-    // Target for each row is the corresponding residual component r[·].
-    // We accumulate H = JᵀJ (4×4) and rhs = Jᵀr (4-dimensional), then
-    // solve (H + λI)·δ = rhs.
-    //
-    // No global translation DOF: see module-level docs for why the
-    // translation term degrades ring-pano corrections.
-
-    struct FrameAccum {
-        h: [f64; 10], // upper-triangle of 4×4, packed row-major (i*(7-i)/2 + j)
-        rhs: [f64; 4],
-        n: usize,
-        cx: f64,
-        cy: f64,
-        // Candidate match points for post-fit magnitude measurement.
-        pts: Vec<(f64, f64)>,
-    }
-
-    impl FrameAccum {
-        fn new(cx: f64, cy: f64) -> Self {
-            Self {
-                h: [0.0; 10],
-                rhs: [0.0; 4],
-                n: 0,
-                cx,
-                cy,
-                pts: Vec::new(),
-            }
-        }
-    }
-
-    let mut acc: Vec<FrameAccum> = (0..n_local)
-        .map(|f| FrameAccum::new(frames[f].cx, frames[f].cy))
-        .collect();
-
-    for block in blocks {
-        let Some(r) = eval_residual(state, frames, block) else {
-            continue;
-        };
-        let d = block.dst;
-        let a = &mut acc[d];
-        let (px, py) = block.p_dst;
-        let dx = px - a.cx;
-        let dy = py - a.cy;
-
-        // Row vectors for the two residual components (4-DOF, no translation).
-        let fx = [dx, dy, 0.0_f64, 0.0_f64];
-        let fy = [0.0_f64, 0.0_f64, dx, dy];
-
-        // H += fxᵀfx + fyᵀfy  (both contribute to the 4×4 normal matrix).
-        for i in 0..4 {
-            for j in i..4 {
-                a.h[packed4_idx(i, j)] += fx[i] * fx[j] + fy[i] * fy[j];
-            }
-            a.rhs[i] += fx[i] * r[0] + fy[i] * r[1];
-        }
-        a.n += 1;
-        a.pts.push((px, py));
-    }
-
-    // Solve per frame and construct LocalCorrections.
-    acc.into_iter()
-        .map(|a| {
-            if a.n == 0 {
-                return LocalCorrection::identity(a.cx, a.cy);
-            }
-
-            // Ridge: add λ to the diagonal.
-            let mut h = a.h;
-            for i in 0..4 {
-                h[packed4_idx(i, i)] += LAMBDA_PX_SQ;
-            }
-
-            let Some(params) = solve_4x4_sym(&h, &a.rhs) else {
-                return LocalCorrection::identity(a.cx, a.cy);
-            };
-
-            // params = [δa00, δa01, δa10, δa11]  (δt = [0, 0])
-            let mut corr = LocalCorrection {
-                cx: a.cx,
-                cy: a.cy,
-                da: [[params[0], params[1]], [params[2], params[3]]],
-                dt: [0.0, 0.0],
-                rms_px: 0.0,
-                max_correction_px: 0.0,
-                fit_blocks: a.n,
-            };
-
-            // Measure correction magnitudes at the fitted match points.
-            let (mut sum_sq, mut max_sq) = (0.0_f64, 0.0_f64);
-            for &(px, py) in &a.pts {
-                let d = corr.displacement_at(px, py);
-                let d2 = d * d;
-                sum_sq += d2;
-                if d2 > max_sq {
-                    max_sq = d2;
-                }
-            }
-            corr.rms_px = (sum_sq / a.n as f64).sqrt();
-            corr.max_correction_px = max_sq.sqrt();
-
-            // Cap: scale down uniformly if max displacement exceeds the bound.
-            if corr.max_correction_px > MAX_CORRECTION_PX {
-                let scale = MAX_CORRECTION_PX / corr.max_correction_px;
-                for row in corr.da.iter_mut() {
-                    row[0] *= scale;
-                    row[1] *= scale;
-                }
-                corr.dt[0] *= scale;
-                corr.dt[1] *= scale;
-                corr.rms_px *= scale;
-                corr.max_correction_px = MAX_CORRECTION_PX;
-            }
-
-            corr
-        })
-        .collect()
 }
 
 /// Measure per-frame reprojection stats **after** applying the local
@@ -302,9 +245,6 @@ pub(crate) fn fit_local_corrections(
 ///
 /// `corrections` is indexed by local frame (output of
 /// [`fit_local_corrections`]).
-// Used in unit tests (`local_align/tests.rs`); the production path
-// computes stats via `gate_frames` on the corrected gate_blocks.
-#[allow(dead_code)]
 pub(crate) fn stats_after_local(
     blocks: &[Block],
     frames: &[FrameMeta],
@@ -397,66 +337,6 @@ pub(crate) fn global_stats_after_local(
     } else {
         (0.0, 0.0)
     }
-}
-
-/// Packed upper-triangle index for a 4×4 symmetric matrix.
-/// Row `i`, column `j` (`j >= i`): index = `i*(7 - i)/2 + j`.
-/// Slots: 10 elements total (0..10).
-#[inline]
-const fn packed4_idx(i: usize, j: usize) -> usize {
-    i * (7 - i) / 2 + j
-}
-
-/// Solve a 4×4 symmetric positive-definite system `H_sym · x = rhs` via
-/// Gaussian elimination with partial pivoting (the matrix is symmetric so
-/// it is SPD after Ridge regularisation, but pivoting handles any edge
-/// cases from degenerate geometry gracefully).
-///
-/// `h_sym` is the packed upper-triangle (10 elements, see [`packed4_idx`]).
-/// Returns `None` on numerical singularity.
-fn solve_4x4_sym(h_packed: &[f64; 10], rhs: &[f64; 4]) -> Option<[f64; 4]> {
-    // Expand to a full augmented 4×5 matrix.
-    let mut a = [[0.0_f64; 5]; 4];
-    for i in 0..4 {
-        for j in 0..4 {
-            a[i][j] = if j >= i {
-                h_packed[packed4_idx(i, j)]
-            } else {
-                h_packed[packed4_idx(j, i)]
-            };
-        }
-        a[i][4] = rhs[i];
-    }
-
-    // Forward elimination with partial pivoting.
-    for col in 0..4 {
-        let pivot = (col..4)
-            .max_by(|&r1, &r2| a[r1][col].abs().total_cmp(&a[r2][col].abs()))
-            .expect("non-empty range");
-        if a[pivot][col].abs() < 1e-14 {
-            return None; // Singular even after regularisation — defensive.
-        }
-        a.swap(col, pivot);
-        let inv = 1.0 / a[col][col];
-        for row in (col + 1)..4 {
-            let factor = a[row][col] * inv;
-            for k in col..=4 {
-                let v = a[col][k] * factor;
-                a[row][k] -= v;
-            }
-        }
-    }
-
-    // Back substitution.
-    let mut x = [0.0_f64; 4];
-    for i in (0..4).rev() {
-        let mut s = a[i][4];
-        for j in (i + 1)..4 {
-            s -= a[i][j] * x[j];
-        }
-        x[i] = s / a[i][i];
-    }
-    Some(x)
 }
 
 #[cfg(test)]
