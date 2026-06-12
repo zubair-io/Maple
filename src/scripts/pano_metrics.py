@@ -181,6 +181,14 @@ def report_block(report_path) -> dict:
         else:
             out[out_key] = None
             missing.append(src_key)
+    # Dropped-frame count: the harness gates this to 0 on well-shot sets
+    # (the product bar — "zero dropped frames across the well-shot
+    # corpus"). A list passthrough, never fabricated.
+    if isinstance(data.get("dropped_images"), list):
+        out["dropped_frames"] = len(data["dropped_images"])
+    else:
+        out["dropped_frames"] = None
+        missing.append("dropped_images")
     if missing:
         out["missing_keys"] = missing
     return out
