@@ -69,7 +69,9 @@
 
 use super::lm::{minimize, LmOptions};
 use super::residual::{eval_residual, Block, FrameMeta, ParamLayout, State};
-use super::support::{frame_stats, pairs_per_frame, prune_outlier_blocks, PRUNE_ROUNDS_MAX};
+#[cfg(test)]
+use super::support::frame_stats;
+use super::support::{pairs_per_frame, prune_outlier_blocks, PRUNE_ROUNDS_MAX};
 use super::types::{BaOptions, BaSolution, DropReason, FrameStats};
 use crate::local_align::{fit_local_corrections, stats_after_local};
 

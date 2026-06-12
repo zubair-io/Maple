@@ -292,7 +292,9 @@ pub fn solve(
         }
 
         let (bad_local, reason) = match outcome {
-            GateOutcome::Pass { stats: corrected_stats } => {
+            GateOutcome::Pass {
+                stats: corrected_stats,
+            } => {
                 // gate_frames returned corrected stats (stage F was applied
                 // inside the gate's pass check — spec §8 / #1218).
                 // corrected_stats is the end-of-chain measurement.
@@ -307,7 +309,9 @@ pub fn solve(
                             None => INVALID_BLOCK_RESIDUAL_PX,
                         };
                         sum += s;
-                        if s > max { max = s; }
+                        if s > max {
+                            max = s;
+                        }
                         count += 1;
                     }
                     solution.mean_reproj_before_local_px =
@@ -320,8 +324,7 @@ pub fn solve(
                 // (gate_frames computed them internally for pass/fail but
                 // doesn't expose them — this second fit is cheap and
                 // deterministic from the same blocks+state.)
-                let corrections_local =
-                    fit_local_corrections(&blocks, &frames, &state, n_local);
+                let corrections_local = fit_local_corrections(&blocks, &frames, &state, n_local);
 
                 // Global corrected mean/max for the solution summary.
                 use crate::local_align::global_stats_after_local;
@@ -346,7 +349,7 @@ pub fn solve(
                 for (local, &global) in active.iter().enumerate() {
                     let c = &corrections_local[local];
                     if c.fit_blocks > 0 {
-                        solution.local_corrections[global] = Some(*c);
+                        solution.local_corrections[global] = Some(c.clone());
                         solution.local_correction_rms[global] = c.rms_px;
                     }
                 }
@@ -397,5 +400,3 @@ pub fn solve(
         }
     }
 }
-
-
