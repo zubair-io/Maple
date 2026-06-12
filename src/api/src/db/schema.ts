@@ -756,7 +756,7 @@ export type IndexerTaskWithId = WithId<IndexerTaskDoc>;
 
 /** Job kinds the runner knows how to dispatch. Add new kinds by extending
  * this union and registering a handler in `job-runner/handlers/index.ts`. */
-export type JobKind = 'batch_jpeg_export';
+export type JobKind = 'batch_jpeg_export' | 'pano_stitch';
 
 /** Lifecycle: queued → running → (done | failed | cancelled).
  * `cancelled` is set when a running job observes `cancel_requested` between

@@ -79,6 +79,13 @@ export const routes: Routes = [
   // group on the Workers page, so redirect the old URL instead of 404ing —
   // same pattern as the settings/enrichment redirect above.
   { path: 'settings/backup', redirectTo: 'settings/workers', pathMatch: 'full' },
+  // #1231 — Panorama stitching operator config (binary path + models dir + toggle).
+  {
+    path: 'settings/pano',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./settings/pano/pano-settings.component').then((m) => m.PanoSettingsComponent),
+  },
   // #742 — Imports: copy a server-local folder into a registered library.
   {
     path: 'settings/imports',
