@@ -399,21 +399,17 @@ fn stitch_set(
     // Lift the proxy-space solve to full resolution: rotation and the
     // normalized-coordinate k1/k2 are scale-invariant; focal scales by
     // each frame's proxy factor.
+    // Move images out of `frames` (which is not used afterwards) instead of
+    // cloning to avoid doubling peak memory for large panorama sets.
     let kept: Vec<(PlanarImage, Camera)> = frames
-        .iter()
+        .into_iter()
         .zip(&solution.cameras)
         .zip(&proxy_scale)
         .filter_map(|((f, cam), &scale)| {
             cam.as_ref().map(|c| {
-                let full = Camera::new(
-                    c.axis_angle,
-                    c.focal_px * scale,
-                    c.k1,
-                    c.k2,
-                    f.image.width(),
-                    f.image.height(),
-                );
-                (f.image.clone(), full)
+                let (w, h) = (f.image.width(), f.image.height());
+                let full = Camera::new(c.axis_angle, c.focal_px * scale, c.k1, c.k2, w, h);
+                (f.image, full)
             })
         })
         .collect();
