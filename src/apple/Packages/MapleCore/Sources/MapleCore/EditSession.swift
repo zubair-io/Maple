@@ -129,6 +129,26 @@ public final class EditSession {
     /// quality (#1201 / #1069 follow-up). Set in `openAssetPipelineAsync`.
     public var isFullQualityDecoding: Bool = false
 
+    /// True from the start of a cold-open until the first full-quality frame is
+    /// actually ON SCREEN — i.e. one render step LONGER than `isFullQualityDecoding`.
+    ///
+    /// `isFullQualityDecoding` drops the instant the background Rust decode call
+    /// returns, but the decoded buffer still has to run through the filter chain
+    /// and publish before the user sees the real image. On a fast machine that
+    /// tail is sub-300 ms (the indicator flashed and vanished mid-pipeline); on a
+    /// 50 MP+ RAW it is the seconds the user is actually waiting through. The
+    /// loading indicator keys off THIS flag so it stays up across the whole
+    /// decode→first-frame window. Set in `openAssetPipelineAsync`; cleared once
+    /// the first full-quality frame is on screen AFTER the decode has finished —
+    /// on the CPU path in `decodeAndRender` (the `renderedPreview` publish) and on
+    /// the default GPU live path in `presentViaGpuLive` (which presents directly
+    /// to the `CAMetalLayer` and never publishes `renderedPreview`). The
+    /// `!isFullQualityDecoding` gate on both means embedded-preview frames, which
+    /// land while the decode is still in flight, don't clear it early. A decode
+    /// that fails terminally clears it in `decodeAndRender`'s `catch` so it can't
+    /// stick. A new image is a new `EditSession`, so it resets naturally. See #1201.
+    public var isResolvingFirstFrame: Bool = false
+
     /// Native image size in sensor pixels. Populated on the first decode and
     /// kept stable across phases/renders. Fit-to-viewport and zoom math must
     /// read this rather than `renderedPreview.extent` — the preview buffer
