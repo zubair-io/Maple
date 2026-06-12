@@ -45,16 +45,16 @@ A third consumer, the Self-Hosted API (`src/api`), loads the same core as a `bun
 
 ## Tech stack
 
-| Layer         | Apple                                 | Web                                | Shared                          |
-| ------------- | ------------------------------------- | ---------------------------------- | ------------------------------- |
-| UI            | SwiftUI                               | Angular 21 + standalone components | —                               |
-| State         | `@Observable` (Observation framework) | Signals + RxJS observables         | —                               |
-| Image decode  | Rust core via C-FFI (xcframework)     | Rust core via WASM                 | `raw-core` crate                |
-| GPU pipeline  | wgpu + WGSL (epic #925, default)      | wgpu/WebGPU + WGSL; WASM-CPU live  | `raw-gpu` WGSL from Rust consts |
-| Sidecar I/O   | Custom XMP writer in Swift            | Custom XMP writer in TypeScript    | Schema validated on both sides  |
-| Thumbnails    | `CGImageSource` + disk cache          | WASM thumb extraction + IndexedDB  | —                               |
-| API (web)     | —                                     | Angular `HttpClient` → Bun/Elysia  | Shared DTO types via codegen    |
-| Offline (web) | —                                     | Angular service worker + IndexedDB | —                               |
+| Layer         | Apple                                 | Web                                                                       | Shared                          |
+| ------------- | ------------------------------------- | ------------------------------------------------------------------------- | ------------------------------- |
+| UI            | SwiftUI                               | Angular 21 + standalone components                                        | —                               |
+| State         | `@Observable` (Observation framework) | Signals + RxJS observables                                                | —                               |
+| Image decode  | Rust core via C-FFI (xcframework)     | Rust core via WASM                                                        | `raw-core` crate                |
+| GPU pipeline  | wgpu + WGSL (epic #925, default)      | wgpu/WebGPU + WGSL; GPU-live default (`navigator.gpu`); WASM-CPU fallback | `raw-gpu` WGSL from Rust consts |
+| Sidecar I/O   | Custom XMP writer in Swift            | Custom XMP writer in TypeScript                                           | Schema validated on both sides  |
+| Thumbnails    | `CGImageSource` + disk cache          | WASM thumb extraction + IndexedDB                                         | —                               |
+| API (web)     | —                                     | Angular `HttpClient` → Bun/Elysia                                         | Shared DTO types via codegen    |
+| Offline (web) | —                                     | Angular service worker + IndexedDB                                        | —                               |
 
 **GPU path (epic #925).** The render math is unified on **wgpu + WGSL**, collapsing the previously separate Metal-Shading-Language and WebGL2-GLSL implementations against the Rust reference. The GPU path is the shipping default on Apple (`MAPLE_GPU_LIVE=0` is the runtime kill-switch) and is used on the Web where `navigator.gpu` is available. The WGSL kernels (`src/raw-pipeline/raw-gpu`) bake the Oklab/Rec.2020 matrices and AgX coefficients as consts generated from the same `raw-core` sources the CPU pipeline uses, so the GPU copy cannot silently diverge.
 
@@ -89,11 +89,11 @@ MapleApp (app target)            MapleCore (SPM package)
 └── DesignSystem/ (tokens)            └── Model/           (AdjustmentModel, ImageAsset)
 ```
 
-`MapleCore.Pipeline` wraps the Rust FFI: it calls into the xcframework to decode + develop a scene-linear buffer, then runs the AgX view transform and the GPU-resident sharpen / color-NR via wgpu/WGSL (default since #1066) or the legacy Metal path. There is no Core Image filter chain — the color math is the Rust core.
+`MapleCore.Pipeline` wraps the Rust FFI: it calls into the xcframework to decode + develop a scene-linear buffer, then presents via the platform GPU path. On the default wgpu path (#1066), the f32 scene-linear buffer is uploaded and the full view transform (AgX, split-tone, grain, display encode) plus sharpen/NR run as WGSL compute shaders, presenting via wgpu → CAMetalLayer — this is a separate CAMetalLayer present branch, not a CIImage chain. The CPU/Metal fallback runs the full Rust FFI scene-linear chain (AgX, split-tone, grain, display encode) plus Metal kernels for sharpen/NR. There is no Core Image filter chain — the color math is the Rust core.
 
 ## Module boundary — Web
 
-The Angular workspace has two projects: `maple` (the editor/browse app) and `maple-common` (shared components, services, models, and the `raw-wasm` consumer). The live canvas renders via the WASM `render_bytes` path (the full develop + view transform, including Auto Profile, runs in-core); the canvas surface is tagged **display-P3**. A headless WebGPU path uses the `raw-gpu` WGSL kernels, routed by `navigator.gpu`. Cross-language model and token shapes (`AdjustmentModel`, UI tokens) are generated from `raw-core` by `tools/codegen.sh`.
+The Angular workspace has three projects: `maple` (the editor/browse app), `maple-common` (shared components, services, models, and the `raw-wasm` consumer), and `maple-syrup`. On WebGPU-capable browsers the live canvas defaults to the GPU live path (`render_bytes_gpu`); `render_bytes` (WASM-CPU) is the fallback when WebGPU is unavailable. The canvas surface is tagged **display-P3**. Cross-language model and token shapes (`AdjustmentModel`, UI tokens) are generated from `raw-core` by `tools/codegen.sh`.
 
 ---
 

@@ -51,10 +51,11 @@ cargo test -p raw-core --features test-support   # lib + integration, fixture-fr
 added in #1082), a **`build-raw-ffi`** host-compile gate, and the
 **`color-pipeline`** job. `.github/workflows/cross.yml` runs the
 **`codegen-drift`** gate (confirming `tools/codegen.sh` outputs match the
-committed Swift/TS/SCSS/WGSL) and the web format check. When fixtures are
-absent (CI without the gitignored RAWs), every fixture-gated harness
-skip-passes with a "skipping" message and exit 0, so CI doesn't fail
-spuriously.
+committed Swift/TS/SCSS/WGSL) and the **`format-check`** job (runs Prettier
+`--check` on changed files including `.ts`, `.html`, `.scss`, `.md`,
+`.yaml`). When fixtures are absent (CI without the gitignored RAWs), every
+fixture-gated harness skip-passes with a "skipping" message and exit 0, so
+CI doesn't fail spuriously.
 
 The Apple `MapleUITests` visual harness (live SwiftUI canvas vs. committed
 PNG golden, CIEDE2000) and the slider-matrix harness run locally — see the
