@@ -184,11 +184,87 @@ pub struct MatchGraph {
     pub orphans: Vec<usize>,
 }
 
+/// What [`MatchGraph::reverify`] changed — surfaced in the stitch report
+/// ("report, never silently drop").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReverifySummary {
+    /// Edges that no longer verified (estimator failure or fewer than
+    /// `min_inliers` surviving matches) and were removed.
+    pub edges_dropped: usize,
+    /// Matches shed from surviving edges by the re-estimated inlier
+    /// masks.
+    pub matches_dropped: usize,
+}
+
 impl MatchGraph {
     /// `true` when every image is reachable from every other (vacuously
     /// true for 0 or 1 images).
     pub fn is_connected(&self) -> bool {
         self.components.len() <= 1
+    }
+
+    /// Re-verify every edge against `images` — the coarse-to-fine second
+    /// pass (#1210). The first verification runs at proxy scale, where
+    /// its noise model (`sigma_max_px`) tolerates ~`proxy_factor ×`
+    /// more *full-resolution* error than the spec budgets allow; after
+    /// full-res refinement lifts the matches, this pass re-estimates
+    /// each edge at the resolution BA will solve at, shedding matches
+    /// that only passed at proxy tolerance (moving content, refinement
+    /// fallbacks) before they pollute the joint solve. Edge payloads
+    /// (`rotation`, `inlier_count`, `mean_residual_rad`,
+    /// `inlier_matches`) are replaced by the re-estimates; edges that no
+    /// longer verify move to `rejected`, and components/orphans are
+    /// recomputed. Per-pair seeds use the same derivation as the
+    /// builder, so the pass is deterministic.
+    pub fn reverify(&mut self, images: &[GraphImage], opts: &RobustOptions) -> ReverifySummary {
+        assert_eq!(images.len(), self.image_count, "image list mismatch");
+        let mut summary = ReverifySummary {
+            edges_dropped: 0,
+            matches_dropped: 0,
+        };
+        let mut kept = Vec::with_capacity(self.edges.len());
+        for mut edge in std::mem::take(&mut self.edges) {
+            let pair_opts = RobustOptions {
+                seed: pair_seed(opts.seed, edge.a, edge.b),
+                ..opts.clone()
+            };
+            match verify_pair(
+                &images[edge.a].camera,
+                &images[edge.b].camera,
+                &edge.inlier_matches,
+                &pair_opts,
+            ) {
+                Ok(est) => {
+                    summary.matches_dropped += edge.inlier_matches.len() - est.inlier_count;
+                    edge.inlier_matches = edge
+                        .inlier_matches
+                        .iter()
+                        .zip(&est.inlier_mask)
+                        .filter(|(_, &keep)| keep)
+                        .map(|(&m, _)| m)
+                        .collect();
+                    debug_assert_eq!(edge.inlier_matches.len(), est.inlier_count);
+                    edge.rotation = est.rotation;
+                    edge.inlier_count = est.inlier_count;
+                    edge.mean_residual_rad = est.mean_residual_rad;
+                    kept.push(edge);
+                }
+                Err(reason) => {
+                    summary.edges_dropped += 1;
+                    summary.matches_dropped += edge.inlier_matches.len();
+                    self.rejected.push(RejectedPair {
+                        a: edge.a,
+                        b: edge.b,
+                        reason,
+                    });
+                }
+            }
+        }
+        self.rejected.sort_by_key(|r| (r.a, r.b));
+        self.edges = kept;
+        self.components = connected_components(self.image_count, &self.edges);
+        self.orphans = orphans_of(&self.components);
+        summary
     }
 }
 
@@ -247,13 +323,7 @@ pub fn build_match_graph(
     }
 
     let components = connected_components(n, &edges);
-    let orphans = if components.len() > 1 {
-        let mut o: Vec<usize> = components[1..].iter().flatten().copied().collect();
-        o.sort_unstable();
-        o
-    } else {
-        Vec::new()
-    };
+    let orphans = orphans_of(&components);
 
     MatchGraph {
         image_count: n,
@@ -261,6 +331,18 @@ pub fn build_match_graph(
         rejected,
         components,
         orphans,
+    }
+}
+
+/// Images outside the largest component, ascending (see
+/// [`MatchGraph::orphans`]).
+fn orphans_of(components: &[Vec<usize>]) -> Vec<usize> {
+    if components.len() > 1 {
+        let mut o: Vec<usize> = components[1..].iter().flatten().copied().collect();
+        o.sort_unstable();
+        o
+    } else {
+        Vec::new()
     }
 }
 
@@ -462,5 +544,105 @@ mod tests {
         assert_eq!(pair_seed(7, 2, 5), pair_seed(7, 2, 5));
         assert_ne!(pair_seed(7, 2, 5), pair_seed(7, 2, 6));
         assert_ne!(pair_seed(7, 2, 5), pair_seed(8, 2, 5));
+    }
+
+    #[test]
+    fn reverify_reestimates_good_edges_and_drops_garbage_ones() {
+        use crate::prng::SplitMix64;
+
+        let images: Vec<GraphImage> = [0.0, 30.0, 60.0]
+            .iter()
+            .map(|&y| image_at(y, 60.0, false))
+            .collect();
+
+        // Edge (0,1): geometrically consistent matches — every grid pixel
+        // of image 0 reprojected into image 1 through the true poses.
+        let (cam0, cam1) = (&images[0].camera, &images[1].camera);
+        let mut consistent = Vec::new();
+        for iy in (32..480).step_by(32) {
+            for ix in (32..640).step_by(32) {
+                let a = (ix as f64 + 0.5, iy as f64 + 0.5);
+                let Some(dir) = cam0.pixel_to_world_dir(a.0, a.1) else {
+                    continue;
+                };
+                let Some(b) = cam1.world_dir_to_pixel(dir) else {
+                    continue;
+                };
+                if cam1.pixel_in_bounds(b.0, b.1, 8.0) {
+                    consistent.push(PixelCorrespondence { a, b });
+                }
+            }
+        }
+        assert!(
+            consistent.len() >= 40,
+            "need support, got {}",
+            consistent.len()
+        );
+
+        // Edge (1,2): garbage — random uncorrelated coordinates (the kind
+        // of edge a looser first verification could have admitted).
+        let mut rng = SplitMix64::new(42);
+        let garbage: Vec<PixelCorrespondence> = (0..40)
+            .map(|_| PixelCorrespondence {
+                a: (rng.next_range(8.0, 632.0), rng.next_range(8.0, 472.0)),
+                b: (rng.next_range(8.0, 632.0), rng.next_range(8.0, 472.0)),
+            })
+            .collect();
+
+        let n_consistent = consistent.len();
+        let mut graph = MatchGraph {
+            image_count: 3,
+            edges: vec![
+                VerifiedEdge {
+                    a: 0,
+                    b: 1,
+                    rotation: Mat3::identity(), // stale on purpose
+                    inlier_count: n_consistent,
+                    mean_residual_rad: 1.0,
+                    inlier_matches: consistent,
+                },
+                VerifiedEdge {
+                    a: 1,
+                    b: 2,
+                    rotation: Mat3::identity(),
+                    inlier_count: garbage.len(),
+                    mean_residual_rad: 1.0,
+                    inlier_matches: garbage,
+                },
+            ],
+            rejected: Vec::new(),
+            components: vec![vec![0, 1, 2]],
+            orphans: Vec::new(),
+        };
+
+        let summary = graph.reverify(&images, &RobustOptions::default());
+
+        // The garbage edge is gone (reported, not silently dropped) and
+        // connectivity reflects it.
+        assert_eq!(summary.edges_dropped, 1);
+        assert!(summary.matches_dropped >= 40);
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!((graph.edges[0].a, graph.edges[0].b), (0, 1));
+        assert_eq!(graph.rejected.len(), 1);
+        assert_eq!((graph.rejected[0].a, graph.rejected[0].b), (1, 2));
+        assert_eq!(graph.components, vec![vec![0, 1], vec![2]]);
+        assert_eq!(graph.orphans, vec![2]);
+
+        // The surviving edge's payload was re-estimated: rotation moved
+        // off the stale identity onto the true relative rotation
+        // R_ab = R_bᵀ·R_a (a −30° yaw), with near-zero residual and the
+        // consistent matches retained.
+        let expected = images[1]
+            .camera
+            .rotation
+            .transpose()
+            .mul_mat(&images[0].camera.rotation);
+        assert!(
+            graph.edges[0].rotation.max_abs_diff(&expected) < 1e-6,
+            "rotation must be re-estimated"
+        );
+        assert!(graph.edges[0].mean_residual_rad < 1e-9);
+        assert_eq!(graph.edges[0].inlier_count, n_consistent);
+        assert_eq!(graph.edges[0].inlier_matches.len(), n_consistent);
     }
 }
