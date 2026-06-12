@@ -87,7 +87,10 @@ describe('stageMeta', () => {
 
   it('STAGE_META exposes Ingest/Enrich/Index buckets', () => {
     expect(STAGE_META['hash'].group).toBe('Ingest');
-    expect(STAGE_META['face'].group).toBe('Enrich');
+    expect(STAGE_META['face-detect'].group).toBe('Enrich');
+    expect(STAGE_META['face-detect'].enrichment).toBe('face-detect');
+    expect(STAGE_META['face-embed'].group).toBe('Enrich');
+    expect(STAGE_META['face-embed'].enrichment).toBe('face-embed');
     expect(STAGE_META['meili'].group).toBe('Index');
   });
 });
@@ -172,10 +175,10 @@ describe('blankEnrichment', () => {
       describe_daily_cap_usd: 0,
       face_worker_enabled: false,
       face_model_dir: '/tmp/models',
-      face_retinaface_url: null,
-      face_retinaface_sha256: null,
-      face_mobilefacenet_url: null,
-      face_mobilefacenet_sha256: null,
+      face_detector_url: null,
+      face_detector_sha256: null,
+      face_recognizer_url: null,
+      face_recognizer_sha256: null,
       meilisearch_url: 'http://meili.local:7700',
       meilisearch_api_key_set: true,
       source: {} as EnrichmentConfigResponse['source'],
@@ -209,13 +212,14 @@ describe('groupStagesByPipeline', () => {
     const grouped = groupStagesByPipeline([
       stage({ name: 'meili' }),
       stage({ name: 'hash' }),
-      stage({ name: 'face' }),
+      stage({ name: 'face-detect' }),
+      stage({ name: 'face-embed' }),
       stage({ name: 'exif' }),
     ]);
     expect(grouped.map((g) => g.group)).toEqual(['Ingest', 'Enrich', 'Index']);
     const [ingest, enrich, index] = grouped;
     expect(ingest.rows.map((r) => r.name)).toEqual(['hash', 'exif']);
-    expect(enrich.rows.map((r) => r.name)).toEqual(['face']);
+    expect(enrich.rows.map((r) => r.name)).toEqual(['face-detect', 'face-embed']);
     expect(index.rows.map((r) => r.name)).toEqual(['meili']);
   });
 
