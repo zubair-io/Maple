@@ -58,7 +58,7 @@ const MOCK_STATUS: WorkersStatusResponse = {
       batchSize: 10,
     },
     {
-      name: 'face',
+      name: 'face-detect',
       status: 'running',
       inFlight: 1,
       configured: 2,
@@ -110,10 +110,10 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
   describe_daily_cap_usd: 0,
   face_worker_enabled: false,
   face_model_dir: '/tmp/.maple/models',
-  face_retinaface_url: null,
-  face_retinaface_sha256: null,
-  face_mobilefacenet_url: null,
-  face_mobilefacenet_sha256: null,
+  face_detector_url: null,
+  face_detector_sha256: null,
+  face_recognizer_url: null,
+  face_recognizer_sha256: null,
   meilisearch_url: null,
   meilisearch_api_key_set: false,
   source: {
@@ -128,10 +128,10 @@ const MOCK_ENRICHMENT: EnrichmentConfigResponse = {
     describe_daily_cap_usd: 'default',
     face_worker_enabled: 'default',
     face_model_dir: 'default',
-    face_retinaface_url: 'unset',
-    face_retinaface_sha256: 'unset',
-    face_mobilefacenet_url: 'unset',
-    face_mobilefacenet_sha256: 'unset',
+    face_detector_url: 'unset',
+    face_detector_sha256: 'unset',
+    face_recognizer_url: 'unset',
+    face_recognizer_sha256: 'unset',
     meilisearch_url: 'unset',
     meilisearch_api_key: 'unset',
   },
@@ -264,7 +264,7 @@ describe('WorkersComponent', () => {
     const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
       '[data-testid="worker-row"]',
     );
-    const faceRow = Array.from(rows).find((r) => r.textContent?.includes('face'))!;
+    const faceRow = Array.from(rows).find((r) => r.textContent?.includes('face-detect'))!;
     expect(faceRow.querySelector('[data-testid="pending-ready"]')?.textContent?.trim()).toBe('800');
     expect(
       faceRow
@@ -279,7 +279,7 @@ describe('WorkersComponent', () => {
     const rows: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll(
       '[data-testid="worker-row"]',
     );
-    const faceRow = Array.from(rows).find((r) => r.textContent?.includes('face'))!;
+    const faceRow = Array.from(rows).find((r) => r.textContent?.includes('face-detect'))!;
     expect(faceRow.querySelector('[data-testid="dead-count"]')?.textContent?.trim()).toBe('3');
 
     const hashRow = Array.from(rows).find((r) => r.textContent?.includes('hash'))!;
@@ -362,7 +362,7 @@ describe('WorkersComponent', () => {
     fixture.detectChanges();
 
     const rows = fixture.nativeElement.querySelectorAll('[data-testid="worker-row"]');
-    // MOCK_STATUS has 4 stages (hash/preview/face/describe); the uncounted
+    // MOCK_STATUS has 4 stages (hash/preview/face-detect/describe); the uncounted
     // cheap snapshot is replaced by the fallback, so all 4 render. (The `3`
     // here predated the `preview` stage being added to MOCK_STATUS.)
     expect(rows.length).toBe(4);
@@ -387,9 +387,9 @@ describe('WorkersComponent', () => {
 
   it('clicking "Open logs" GETs /api/workers/{name}/dead and renders the drawer', () => {
     initWithMock();
-    openLogsFor('face');
+    openLogsFor('face-detect');
 
-    const req = http.expectOne('/api/workers/face/dead?limit=50');
+    const req = http.expectOne('/api/workers/face-detect/dead?limit=50');
     expect(req.request.method).toBe('GET');
     req.flush({
       items: [
@@ -453,8 +453,8 @@ describe('WorkersComponent', () => {
 
   it('Retry-all in the drawer POSTs retry-dead and closes', () => {
     initWithMock();
-    openLogsFor('face');
-    http.expectOne('/api/workers/face/dead?limit=50').flush({
+    openLogsFor('face-detect');
+    http.expectOne('/api/workers/face-detect/dead?limit=50').flush({
       items: [{ id: 'a', abs_path: '/a.dng', last_error: 'x', attempts: 1, processed_at: null }],
     });
     fixture.detectChanges();
@@ -462,7 +462,7 @@ describe('WorkersComponent', () => {
     const drawer = fixture.nativeElement.querySelector('[data-testid="log-drawer"]') as HTMLElement;
     (drawer.querySelector('.btn-ghost.danger') as HTMLButtonElement | null)?.click();
     http
-      .expectOne({ method: 'POST', url: '/api/workers/face/retry-dead' })
+      .expectOne({ method: 'POST', url: '/api/workers/face-detect/retry-dead' })
       .flush({ ok: true, reset: 1 });
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('[data-testid="log-drawer"]')).toBeNull();

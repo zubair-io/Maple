@@ -20,7 +20,7 @@ export const ERROR_POLL_MS = 5_000;
 // ── Stage metadata ────────────────────────────────────────────────────────
 
 export type StageGroup = 'Ingest' | 'Enrich' | 'Index';
-export type EnrichmentKind = 'describe' | 'geocode' | 'face' | 'meili';
+export type EnrichmentKind = 'describe' | 'geocode' | 'face-detect' | 'face-embed' | 'meili';
 
 export interface StageMeta {
   readonly id: string;
@@ -78,12 +78,21 @@ export const STAGE_META: Record<string, StageMeta> = {
     enrichment: 'geocode',
     description: 'Reverse-geocodes EXIF GPS coordinates against a self-hosted Nominatim instance.',
   },
-  face: {
-    id: 'face',
+  'face-detect': {
+    id: 'face-detect',
     group: 'Enrich',
     icon: 'face',
-    enrichment: 'face',
-    description: 'Detects faces in cached thumbnails using RetinaFace + MobileFaceNet (ONNX).',
+    enrichment: 'face-detect',
+    description:
+      'Detects faces in cached thumbnails with the SCRFD-10G ONNX detector, emitting bounding boxes and 5-point landmarks.',
+  },
+  'face-embed': {
+    id: 'face-embed',
+    group: 'Enrich',
+    icon: 'face',
+    enrichment: 'face-embed',
+    description:
+      'Produces a 512-D identity embedding per detected face with the ArcFace R100 ONNX recognizer, feeding the people-clustering pass.',
   },
   meili: {
     id: 'meili',
@@ -143,12 +152,13 @@ export interface EnrichmentForm {
   // Geocode
   nominatim_url: string;
   nominatim_rate_limit_per_sec: string;
-  // Face
+  // Face — detector config lives on the face-detect row, recognizer config
+  // on the face-embed row; the model dir is shared (face-detect owns it).
   face_model_dir: string;
-  face_retinaface_url: string;
-  face_retinaface_sha256: string;
-  face_mobilefacenet_url: string;
-  face_mobilefacenet_sha256: string;
+  face_detector_url: string;
+  face_detector_sha256: string;
+  face_recognizer_url: string;
+  face_recognizer_sha256: string;
   // Meili (search index)
   meilisearch_url: string;
   // Write-only: always starts blank (the saved key is never echoed). A
@@ -199,10 +209,10 @@ export function blankEnrichment(ec: EnrichmentConfigResponse | null): Enrichment
     nominatim_url: ec?.nominatim_url ?? '',
     nominatim_rate_limit_per_sec: String(ec?.nominatim_rate_limit_per_sec ?? 10),
     face_model_dir: ec?.face_model_dir ?? '',
-    face_retinaface_url: ec?.face_retinaface_url ?? '',
-    face_retinaface_sha256: ec?.face_retinaface_sha256 ?? '',
-    face_mobilefacenet_url: ec?.face_mobilefacenet_url ?? '',
-    face_mobilefacenet_sha256: ec?.face_mobilefacenet_sha256 ?? '',
+    face_detector_url: ec?.face_detector_url ?? '',
+    face_detector_sha256: ec?.face_detector_sha256 ?? '',
+    face_recognizer_url: ec?.face_recognizer_url ?? '',
+    face_recognizer_sha256: ec?.face_recognizer_sha256 ?? '',
     meilisearch_url: ec?.meilisearch_url ?? '',
     // Never seeded from the response — the key is write-only.
     meilisearch_api_key: '',

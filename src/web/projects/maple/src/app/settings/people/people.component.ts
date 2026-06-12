@@ -151,8 +151,8 @@ export class PeopleComponent implements OnDestroy {
 
   /** Minimum detector confidence (0-100) for the visible-faces filter.
    * Labelled "Min detector confidence" in the UI — the API's
-   * `face.confidence` is RetinaFace's face-likelihood score, NOT cluster-
-   * match similarity. The design called this "Min match" / "Similarity";
+   * `face.confidence` is the SCRFD detector's face-likelihood score, NOT
+   * cluster-match similarity. The design called this "Min match" / "Similarity";
    * we relabel honestly rather than overload the data. */
   readonly threshold = signal<number>(60);
 
