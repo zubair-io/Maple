@@ -153,16 +153,19 @@ struct AppShellToolbar: ToolbarContent {
                 .accessibilityLabel("Library")
                 .accessibilityIdentifier("library-toggle")
 
-                Button {
-                    onOpenSearch()
-                } label: {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(isSearchActive
-                                         ? MapleTokens.primary : MapleTokens.textMuted)
+                // Omit the search button entirely off-cloud — disabled is
+                // confusing on a source that has no /api/search endpoint.
+                if searchAvailable {
+                    Button {
+                        onOpenSearch()
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(isSearchActive
+                                             ? MapleTokens.primary : MapleTokens.textMuted)
+                    }
+                    .accessibilityLabel("Search")
+                    .accessibilityIdentifier("search-toggle")
                 }
-                .disabled(!searchAvailable)
-                .accessibilityLabel("Search")
-                .accessibilityIdentifier("search-toggle")
 
                 Button("Settings", systemImage: "gear") {
                     onSettings()
