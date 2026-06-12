@@ -151,6 +151,19 @@ extension EditSession {
         gpuActive ? gpuFramePresented : hasRenderedPreview
     }
 
+    /// Whether the cold-open loading indicator should be visible: while the
+    /// full-quality decode is still in flight (so it stays up through the
+    /// sub-second preview until the real decode lands), or in the no-preview
+    /// blank-canvas window (`isRendering && !hasOnscreenFrame`). Pure → unit-
+    /// testable; `nonisolated` like `canvasHasFrame`. #1201 / #1069 follow-up.
+    public nonisolated static func shouldShowLoadingIndicator(
+        isFullQualityDecoding: Bool,
+        isRendering: Bool,
+        hasOnscreenFrame: Bool
+    ) -> Bool {
+        isFullQualityDecoding || (isRendering && !hasOnscreenFrame)
+    }
+
     /// The post-prescale pixel dims the GPU session/layer use for `decoded` at
     /// `targetSize` — the exact extent `sceneLinearFloats` produces, computed
     /// WITHOUT a readback so the open/no-op decision is cheap. Runs the same
