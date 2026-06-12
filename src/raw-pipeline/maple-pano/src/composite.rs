@@ -69,6 +69,13 @@ pub fn composite(
             cameras.len()
         )));
     }
+    if !local_corrections.is_empty() && local_corrections.len() != frames.len() {
+        return Err(PanoError::InvalidOptions(format!(
+            "composite: {} local corrections vs {} frames (pass an empty              slice to skip alignment)",
+            local_corrections.len(),
+            frames.len()
+        )));
+    }
     if frames.is_empty() {
         return Err(PanoError::InvalidOptions(
             "composite: no frames to composite".into(),

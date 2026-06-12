@@ -59,6 +59,9 @@ use maple_pano::twoview::PixelCorrespondence;
 
 use io::{interleave, stitch_report, write_png16, ReportContext};
 
+mod args;
+pub use args::StitchArgs;
+
 /// Spec §5.3 acceptance-gate defaults (single source for both modes).
 const SPEC_MEAN_BUDGET_PX: f64 = 1.5;
 const SPEC_MAX_BUDGET_PX: f64 = 6.0;
@@ -67,108 +70,6 @@ const SPEC_MAX_BUDGET_PX: f64 = 6.0;
 pub enum PanoCmd {
     /// Stitch a panorama from RAW frames.
     Stitch(StitchArgs),
-}
-
-#[derive(Args)]
-pub struct StitchArgs {
-    /// Input RAW frames (2+; single-set mode). Sorted by file name =
-    /// capture order. Mutually exclusive with --manifest.
-    #[arg(num_args = 0..)]
-    inputs: Vec<PathBuf>,
-    /// Output PNG path (16-bit, scene-linear; single-set mode).
-    #[arg(long)]
-    out: Option<PathBuf>,
-    /// Also write an sRGB-encoded 16-bit preview PNG here (single-set).
-    #[arg(long)]
-    display: Option<PathBuf>,
-    /// Write the stitch report JSON here (always printed to stderr).
-    #[arg(long)]
-    report: Option<PathBuf>,
-    /// Batch mode: pano manifest JSON (the harness contract — see the
-    /// module docs). Requires --out-dir.
-    #[arg(long, conflicts_with_all = ["out", "display", "report"])]
-    manifest: Option<PathBuf>,
-    /// Batch mode: candidate output directory.
-    #[arg(long, requires = "manifest")]
-    out_dir: Option<PathBuf>,
-    /// Long-edge cap for the feature-extraction proxy. The ALIKED
-    /// export letterboxes to 1280² internally; larger proxies only
-    /// cost decode time.
-    #[arg(long, default_value_t = 1600)]
-    proxy_long_edge: u32,
-    /// Total canvas pixel cap (uniform downscale to fit).
-    #[arg(long, default_value_t = 256_000_000)]
-    max_canvas_px: usize,
-    /// Per-frame mean reprojection-error budget (px; single-set mode
-    /// only). The spec §5.3 gate is 1.5; relax it for input with
-    /// uncorrected lens distortion (DJI `WarpRectilinear` opcodes
-    /// raw-core does not yet apply, #1159), which inflates residuals
-    /// the k1/k2 model only partly absorbs.
-    #[arg(long, default_value_t = SPEC_MEAN_BUDGET_PX)]
-    max_mean_px: f64,
-    /// Per-frame max reprojection-error budget (px; single-set mode
-    /// only). Spec §5.3 gate is 6.
-    #[arg(long, default_value_t = SPEC_MAX_BUDGET_PX)]
-    max_residual_px: f64,
-    /// Models directory (defaults to $MAPLE_PANO_MODELS).
-    #[arg(long)]
-    models_dir: Option<PathBuf>,
-    /// Frame-retention policy. `keep` (default; spec §8 product
-    /// behavior): a frame with a certified rigid core is kept — its
-    /// non-rigid matches are pruned and seam-routed, and drops are
-    /// pose-evidence-only. `strict`: the §5.3 residual budgets drop
-    /// frames, including motion-dominated ones. A mode choice, not a
-    /// gate relaxer — allowed in batch mode; the harness gates the
-    /// outcome either way.
-    #[arg(long, value_enum, default_value_t = RetentionArg::Keep)]
-    retention: RetentionArg,
-    /// Stage-F local alignment (#1218). `mesh` (default): a bounded
-    /// bilinear mesh absorbs the parallax floor before gating and
-    /// compositing. `off`: the geometric chain ends at the BA rotations
-    /// (pure #1213 geometry).
-    #[arg(long, value_enum, default_value_t = LocalAlignArg::Mesh)]
-    local_align: LocalAlignArg,
-}
-
-/// CLI surface for [`maple_pano::ba::RetentionPolicy`].
-#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum RetentionArg {
-    Keep,
-    Strict,
-}
-
-impl RetentionArg {
-    fn policy(self) -> RetentionPolicy {
-        match self {
-            RetentionArg::Keep => RetentionPolicy::KeepAlignable,
-            RetentionArg::Strict => RetentionPolicy::Strict,
-        }
-    }
-    fn label(self) -> &'static str {
-        match self {
-            RetentionArg::Keep => "keep",
-            RetentionArg::Strict => "strict",
-        }
-    }
-}
-
-/// CLI surface for [`maple_pano::ba::BaOptions::local_align`].
-#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum LocalAlignArg {
-    Mesh,
-    Off,
-}
-
-impl LocalAlignArg {
-    fn enabled(self) -> bool {
-        matches!(self, LocalAlignArg::Mesh)
-    }
-    fn label(self) -> &'static str {
-        match self {
-            LocalAlignArg::Mesh => "mesh",
-            LocalAlignArg::Off => "off",
-        }
-    }
 }
 
 pub fn run(cmd: PanoCmd) -> Result<(), String> {
@@ -501,7 +402,9 @@ fn stitch_set(
     // re-estimate every edge at the resolution BA solves at, so matches
     // that only passed at proxy tolerance (moving water, refinement
     // fallbacks) are shed before they pollute the shared intrinsics.
-    let reverify = graph.reverify(&full_images, &RobustOptions::default());
+    let reverify = graph
+        .reverify(&full_images, &RobustOptions::default())
+        .map_err(|e| e.to_string())?;
     let refine_s = t_refine.elapsed().as_secs_f64();
     eprintln!(
         "pano: refine — {refined_matches} matches NCC-refined at full res, \

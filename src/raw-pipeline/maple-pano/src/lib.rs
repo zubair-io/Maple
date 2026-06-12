@@ -142,7 +142,8 @@ pub mod warp;
 pub mod refine;
 
 // --- Stage F local alignment (#1218, spec §8): per-frame regularized
-// affine correction that absorbs cm-level camera position drift (the
-// parallax floor) after global BA + stage-D/E gating and before
-// compositing. Appended after the refine block — keep lib.rs append-only.
+// bilinear mesh correction that absorbs cm-level camera position drift
+// (the parallax floor); fit during gating (corrected stats are the
+// end-of-chain gate measurement) and applied at composite time.
+// Appended after the refine block — keep lib.rs append-only.
 pub mod local_align;
