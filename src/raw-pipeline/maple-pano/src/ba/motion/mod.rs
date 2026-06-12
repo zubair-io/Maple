@@ -199,13 +199,7 @@ pub(super) fn gate_frames(
         // The corrections do NOT feed back into the optimiser — only the
         // corrected residual stats are used for pass/fail decisions.
         let corrections = if ctx.opts.local_align {
-            fit_local_corrections(
-                blocks,
-                ctx.frames,
-                state,
-                ctx.n_local,
-                ctx.opts.max_budget_px,
-            )
+            fit_local_corrections(blocks, ctx.frames, state, ctx.n_local)
         } else {
             identity_corrections(ctx.frames, ctx.n_local)
         };

@@ -327,7 +327,7 @@ pub fn solve(
                 // doesn't expose them — this second fit is cheap and
                 // deterministic from the same blocks+state.)
                 let corrections_local = if opts.local_align {
-                    fit_local_corrections(&blocks, &frames, &state, n_local, opts.max_budget_px)
+                    fit_local_corrections(&blocks, &frames, &state, n_local)
                 } else {
                     crate::local_align::identity_corrections(&frames, n_local)
                 };
