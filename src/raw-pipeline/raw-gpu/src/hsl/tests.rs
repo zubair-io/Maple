@@ -159,8 +159,10 @@ fn gpu_hsl_neutral_is_bit_exact() {
     }]);
     for (i, (before, after)) in input.chunks_exact(4).zip(gpu.chunks_exact(4)).enumerate() {
         for c in 0..3 {
-            assert!(
-                (before[c] - after[c]).abs() < 1e-4,
+            // Neutral pixels take the `c < c0` branch in the WGSL and return the
+            // input rgba unchanged — the output must be bit-identical, not merely close.
+            assert_eq!(
+                before[c], after[c],
                 "neutral pixel {i} channel {c}: {:.6} → {:.6}",
                 before[c], after[c],
             );
