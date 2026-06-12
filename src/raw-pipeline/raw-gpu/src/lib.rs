@@ -121,10 +121,11 @@
 //!   the search window contributes a patch-similarity-weighted sample to a running
 //!   accumulator — so it stays ONE [`Pass`] and orchestrates a per-shift dispatch
 //!   loop over scratch planes. The (2P+1)² patch-SSD is recomputed DIRECTLY in the
-//!   accumulate kernel (NOT via raw-core's per-shift integral image), because an
-//!   integral-image accumulate would need a 5th storage buffer — over the
-//!   `downlevel_defaults()` 4-storage cap; the direct sum is the same set of terms
-//!   (~1e-6 order delta). The `fast_neg_exp` LUT weight is reproduced as
+//!   accumulate kernel (NOT via a materialised box-sum/integral plane — raw-core
+//!   uses a per-shift separable sliding box-sum since #1195), because binding such
+//!   a plane would need a 5th storage buffer — over the `downlevel_defaults()`
+//!   4-storage cap; the direct sum is the same set of local terms (~5e-8 delta vs
+//!   raw-core's box-sum). The `fast_neg_exp` LUT weight is reproduced as
 //!   `lerp(exp(-x_i), exp(-x_{i+1}), frac)` on the grid it snaps to, so the GPU
 //!   matches raw-core's table-interpolated weight (not raw `exp`). Parity-gated
 //!   directly vs `raw_core::stages::noise_reduction::{apply_luminance,apply_color}`,

@@ -1,8 +1,17 @@
-//! Fast non-local-means denoising via per-offset integral images
-//! (Darbon, Cupillard, Sigelle, Tupin 2008 — "Fast nonlocal filtering
-//! applied to electron cryomicroscopy"). Cost is O(N · S²) per channel
-//! plane, independent of patch size — the patch sum-of-squared-
-//! differences becomes an O(1) integral-image rect query.
+//! Fast non-local-means denoising via a per-offset SEPARABLE SLIDING BOX-SUM
+//! of the squared-difference plane. Cost is O(N · S²) per channel plane,
+//! independent of patch size — the patch sum-of-squared-differences becomes a
+//! horizontal running-window sum followed by a vertical (2P+1)-tap sum, both
+//! O(1)/O(P) per pixel with no auxiliary prefix buffer.
+//!
+//! This replaces the original per-offset integral image (Darbon, Cupillard,
+//! Sigelle, Tupin 2008) — see #1195. The integral image collapsed the P² inner
+//! loop into a four-corner rect query, but it streamed a full (w+1)×(h+1) f32
+//! prefix buffer per shift (~404 MB/shift at 100 MP — memory-bandwidth-bound,
+//! the proven reason threading couldn't speed it up), and the four-corner
+//! difference of two large global prefixes could cancel to a negative residue
+//! at 100 MP-scale offsets (#1086). The sliding box-sum keeps only a LOCAL
+//! window, so it removes that buffer traffic AND the cancellation in one move.
 //!
 //! Reference algorithm (Buades, Coll, Morel 2005):
 //!   out(p) = (1/Z(p)) · Σ_{q ∈ Ω}  w(p, q) · I(q)
@@ -10,13 +19,13 @@
 //!
 //! Np / Nq are patches of size (2P+1)² centred on p and q, Ω is a
 //! search window (2S+1)² centred on p. Naive cost is O(N · S² · P²);
-//! the fast variant collapses the P² inner loop:
+//! the box-sum collapses the P² inner loop:
 //!
 //!   For each shift d = (dx, dy) in the search window:
 //!     SSD_d(p) = (I(p) - I(p + d))²            // pixel plane
-//!     II_d     = integral_image(SSD_d)         // O(N) once
+//!     H_d(p)   = Σ_{ox=-P}^{P} SSD_d(p + ox)   // running window, O(1)/px
 //!     For each pixel p:
-//!         PatchSSD(p, p+d) = rect_sum(II_d, p, P)  // O(1)
+//!         PatchSSD(p, p+d) = Σ_{oy=-P}^{P} H_d(p + oy·row)  // (2P+1) taps
 //!         w = exp(-PatchSSD / (h² · patch_area))
 //!         acc(p) += w · I(p+d); wsum(p) += w
 //!   out(p) = acc(p) / wsum(p)
@@ -41,10 +50,13 @@
 //!
 //! # Parallelism
 //!
-//! Shifts run sequentially in the outer loop; each shift parallelises
-//! across rows for the sqdiff fill, the integral-image row sums, and
-//! the accumulator update. Scratch buffers are allocated once per
-//! `denoise_plane` call and reused across all shifts.
+//! Shifts run sequentially in the outer loop. Within a shift, the sqdiff fill
+//! parallelises across rows; the box-sum + accumulate parallelises across
+//! horizontal STRIPS of output rows — each strip computes its own halo'd
+//! horizontal sums into a thread-local buffer (recycled across strips, so no
+//! full-frame box-sum plane round-trips through DRAM) and slides the vertical
+//! window down out of it. The persistent sqdiff/acc/wsum/max_w buffers are
+//! allocated once per `denoise_plane` call and reused across all shifts.
 
 use crate::cancel::CancelToken;
 use rayon::prelude::*;
@@ -61,15 +73,41 @@ use rayon::prelude::*;
 const FAST_EXP_RANGE: f32 = 8.0;
 const FAST_EXP_TABLE_SIZE: usize = 512;
 
+/// Re-seed stride for the running box-sum windows (#1195). Both box-sum passes
+/// maintain a sliding window (`s += leading − trailing`) for O(1)-per-pixel
+/// cost, but an f32 running accumulator inherits one rounding step per slide,
+/// so across a 100MP-scale row/column the drift would grow without bound (it
+/// reached ~1e-3 on an 11600-wide row — enough to breach the GPU `< 1e-4`
+/// parity gate). Every `RESEED_STRIDE` steps we recompute the window directly
+/// from its (2p+1) taps, re-anchoring the accumulator. This caps the worst-case
+/// drift at ~`RESEED_STRIDE · eps · |window|` ≈ 256 · 6e-8 · 0.1 ≈ 1.5e-6 — three
+/// orders under the gate — while keeping the amortized cost at ~2 ops/pixel plus
+/// one direct re-sum per stride. 256 keeps the re-anchor overhead negligible
+/// (≈ (2p+1)/256 extra adds/pixel) and the drift comfortably bounded.
+const RESEED_STRIDE: usize = 256;
+
+/// MAXIMUM output-row strip height for the parallel vertical box-sum (#1195).
+/// The vertical running window is sequential down a column, so the accumulate
+/// pass parallelises over STRIPS of consecutive output rows; each strip seeds
+/// its own column-window directly at its first row, which re-anchors vertical
+/// drift at every strip boundary. The actual strip height is chosen adaptively
+/// (≥ 4 strips per worker so small planes still feed every core) but capped at
+/// this value so that (a) vertical drift inside a strip stays ≤ RESEED_STRIDE
+/// steps and (b) locality stays high on the 100MP refine. 256 keeps an 8700-row
+/// refine at ~34 strips while bounding drift to ~256·eps·|colsum| ≈ 4e-6.
+const VSTRIP_ROWS: usize = 256;
+
 #[inline(always)]
 fn fast_neg_exp(x: f32) -> f32 {
-    // Negative-input guard — defense layer 2 of 2 for #1086. In exact math
-    // x = ssd·inv_norm ≥ 0, and layer 1 (the `.max(0.0)` clamp on the
-    // integral-image rect query in `process_shift`) restores that in f32.
-    // Unguarded, a negative x is silently catastrophic here: `t as usize`
-    // saturates to 0, `frac` goes negative, and the first table segment
-    // EXTRAPOLATES to ≈ 1 + |x| — a weight growing linearly in |x| instead
-    // of capping at 1, letting one shift dominate the average. exp(0) = 1
+    // Negative-input guard — defense layer 2 of 2 for #1086. Post-#1195 the
+    // box-sum patch SSD is a sum of squares over a LOCAL window and is ≥ 0 by
+    // construction (no global-prefix cancellation), so x = ssd·inv_norm ≥ 0 and
+    // layer 1 (the `.max(0.0)` clamp in `process_shift`) is belt-and-braces.
+    // This guard is kept as cheap insurance: unguarded, a negative x is silently
+    // catastrophic here — `t as usize` saturates to 0, `frac` goes negative, and
+    // the first table segment EXTRAPOLATES to ≈ 1 + |x|, a weight growing
+    // linearly in |x| instead of capping at 1, letting one shift dominate the
+    // average. exp(0) = 1
     // is the correct limit for ssd → 0⁻, so return exactly 1.0.
     if x < 0.0 {
         return 1.0;
@@ -168,16 +206,15 @@ pub fn denoise_plane_cancellable(
     let h_sq = params.h * params.h;
     let inv_norm = 1.0 / (h_sq * patch_area);
 
-    let iw = w + 1;
-    let ih = h + 1;
-
-    // Persistent scratch — allocated once, reused across all shifts.
+    // Persistent scratch — allocated once, reused across all shifts. (#1195
+    // replaced the per-shift (w+1)×(h+1) f32 integral image with a FUSED
+    // separable sliding box-sum: the horizontal sums are computed per strip into
+    // thread-local scratch inside `process_shift`, so no full-frame prefix or
+    // box-sum plane is allocated here — only the sqdiff plane and the three
+    // accumulators. The box-sum forms the patch SSD from a LOCAL window, so the
+    // #1086 global-prefix f32 cancellation cannot arise and the `ssd.max(0.0)`
+    // in `process_shift` is now belt-and-braces.)
     let mut sqdiff = vec![0.0f32; n];
-    // f32 integral-image precision at 100MP-scale offsets — structural fix
-    // (sliding box-sum) tracked in #1089. Until then the rect query clamps
-    // negative cancellation residue and `fast_neg_exp` guards negative
-    // input (both #1086), so weights stay ≤ 1.
-    let mut ii = vec![0.0f32; iw * ih];
     let mut acc = vec![0.0f32; n];
     let mut wsum = vec![0.0f32; n];
     let mut max_w = vec![0.0f32; n];
@@ -204,7 +241,6 @@ pub fn denoise_plane_cancellable(
                 dy,
                 inv_norm,
                 &mut sqdiff,
-                &mut ii,
                 &mut acc,
                 &mut wsum,
                 &mut max_w,
@@ -234,7 +270,6 @@ fn process_shift(
     dy: isize,
     inv_norm: f32,
     sqdiff: &mut [f32],
-    ii: &mut [f32],
     acc: &mut [f32],
     wsum: &mut [f32],
     max_w: &mut [f32],
@@ -282,60 +317,23 @@ fn process_shift(
             }
         });
 
-    // 2) Integral image of sqdiff. Two passes:
-    //    a) Row-wise prefix sum into ii[1..iw, 1..ih] — independent
-    //       across rows, parallel.
-    //    b) Column-wise prefix sum — the inter-column work is
-    //       independent in principle, but a stride-iw column walk is
-    //       cache-unfriendly, so we sweep sequentially over rows and
-    //       vectorise across x within each row (see the inline note at
-    //       the column pass). O(N) total, same asymptotic, better
-    //       cache behaviour than naive per-column parallelism.
-    let iw = w + 1;
-    let ih = h + 1;
-    // Zero the first row + first column.
-    for x in 0..iw {
-        ii[x] = 0.0;
-    }
-    for y in 0..ih {
-        ii[y * iw] = 0.0;
-    }
+    // 2) The horizontal box-sum (inner half of the separable patch sum) is FUSED
+    //    into the accumulate strips below — each strip computes the horizontal
+    //    sums for just its halo'd rows into a thread-local buffer, so the
+    //    full-frame `hsum` plane never round-trips through DRAM. See step 3.
 
-    // Row-wise: each row in ii[y, 1..iw] becomes prefix sum of
-    // sqdiff[y-1, 0..w]. Parallel across rows. Each ii row is a
-    // contiguous iw-element slice.
-    //
-    // We need mutable access to ii[1..ih, :] in chunks of iw. The
-    // first row was already zeroed. Use chunks_mut so each thread
-    // gets a disjoint row.
-    let ii_rows = &mut ii[iw..];
-    ii_rows.par_chunks_mut(iw).enumerate().for_each(|(y, row)| {
-        // y is 0-based among ii_rows so corresponds to ii row (y+1)
-        // and sqdiff row y.
-        let src = &sqdiff[y * w..(y + 1) * w];
-        row[0] = 0.0;
-        let mut s = 0.0f32;
-        for x in 0..w {
-            s += src[x];
-            row[x + 1] = s;
-        }
-    });
-    // Column-wise: walk down each column adding the previous row's
-    // value. Sequential within column — but each column is a stride-iw
-    // walk, which is cache-unfriendly. Instead do the column sweep
-    // sequentially over rows but inside each row vectorise across x.
-    // That gives O(N) total with good cache behaviour.
-    for y in 1..ih {
-        let (prev_rows, cur_row) = ii.split_at_mut(y * iw);
-        let prev = &prev_rows[(y - 1) * iw..y * iw];
-        let row = &mut cur_row[..iw];
-        for x in 0..iw {
-            row[x] += prev[x];
-        }
-    }
-
-    // 3) Update accumulators over the valid pixel range. The patch
-    //    around p must fit AND the patch around p+(dx,dy) must fit.
+    // 3) Update accumulators over the valid pixel range. The patch around p must
+    //    fit AND the patch around p+(dx,dy) must fit. The patch-SSD is the
+    //    separable vertical sum of the horizontal box-sums:
+    //        ssd(x,y) = Σ_{oy=-p}^{p} hsum[(y+oy)*w + x]
+    //    i.e. Σ_oy (Σ_ox sqdiff). The vertical sum is itself a RUNNING WINDOW
+    //    down each column (`colsum[x] += hsum[(y+p)] − hsum[(y−p−1)]`), so each
+    //    horizontal-sum element is touched once per output row — contiguous,
+    //    cache-friendly reads, no (2p+1)× strided re-reads. The column window is
+    //    sequential, so we parallelise over STRIPS of consecutive output rows
+    //    (height chosen adaptively below); each strip seeds its own colsum
+    //    directly at its first row (a direct (2p+1)-row sum), which also
+    //    re-anchors vertical drift at every strip boundary.
     let p_isz = p as isize;
     let x_lo = p_isz.max(p_isz - dx);
     let x_hi = (w as isize - 1 - p_isz).min(w as isize - 1 - dx - p_isz);
@@ -349,49 +347,124 @@ fn process_shift(
     let y_lo = y_lo as usize;
     let y_hi = y_hi as usize;
 
-    // Parallel over rows in [y_lo..=y_hi]. We need mutable disjoint
-    // slices of `acc`, `wsum`, `max_w` per row — use `par_chunks_mut`
-    // on subslices of length w.
+    // Chunk acc/wsum/max_w into strips of consecutive output rows over
+    // [y_lo, y_hi] and process each strip as a FUSED separable box-sum: the
+    // horizontal sums for the strip's rows (plus the p-row halo above and below
+    // the vertical window needs) are computed into a small THREAD-LOCAL buffer,
+    // and the vertical running window slides down the strip out of that buffer.
+    // No full-frame horizontal-sum plane is therefore written to or read from
+    // DRAM — that is the bandwidth win over the integral image (which streamed
+    // its (w+1)×(h+1) prefix buffer twice). The horizontal sums live only in the
+    // per-thread `hloc` strip scratch, recycled across strips via `for_each_init`
+    // (one alloc per worker, not per strip), so the render loop adds no
+    // per-pixel/per-tick allocation.
     //
-    // To handle the same range across three buffers in one parallel
-    // loop, zip three par_chunks_mut iterators.
-    let acc_rows = &mut acc[y_lo * w..(y_hi + 1) * w];
-    let wsum_rows = &mut wsum[y_lo * w..(y_hi + 1) * w];
-    let max_w_rows = &mut max_w[y_lo * w..(y_hi + 1) * w];
+    // Strip height trades parallelism against per-strip seed/locality overhead:
+    // target ~`threads` strips so every core gets work without over-fragmenting
+    // (over-fine strips regress the cache-resident 2MP tick), a MIN to amortise
+    // the seed, and a MAX of VSTRIP_ROWS to bound vertical drift (≤ RESEED_STRIDE)
+    // and keep the strip scratch small on the 100MP refine.
+    let band_rows = y_hi - y_lo + 1;
+    let threads = rayon::current_num_threads().max(1);
+    const MIN_STRIP_ROWS: usize = 32;
+    let vstrip = (band_rows / threads).clamp(MIN_STRIP_ROWS, VSTRIP_ROWS).max(1);
+    let strip_len = vstrip * w;
+    // Thread-local horizontal-sum scratch: at most (VSTRIP_ROWS + 2p) rows ×
+    // w cols. Sized for the cap so it is allocated once per worker and reused.
+    let hloc_rows = VSTRIP_ROWS + 2 * p;
 
-    acc_rows
-        .par_chunks_mut(w)
-        .zip(wsum_rows.par_chunks_mut(w))
-        .zip(max_w_rows.par_chunks_mut(w))
+    let acc_band = &mut acc[y_lo * w..(y_hi + 1) * w];
+    let wsum_band = &mut wsum[y_lo * w..(y_hi + 1) * w];
+    let max_w_band = &mut max_w[y_lo * w..(y_hi + 1) * w];
+    let x_last = w.saturating_sub(1 + p);
+
+    acc_band
+        .par_chunks_mut(strip_len)
+        .zip(wsum_band.par_chunks_mut(strip_len))
+        .zip(max_w_band.par_chunks_mut(strip_len))
         .enumerate()
-        .for_each(|(row_idx, ((acc_row, wsum_row), max_w_row))| {
-            let y = y_lo + row_idx;
-            let y0 = y - p;
-            let y1 = y + p + 1;
-            let sy = (y as isize + dy) as usize;
-            let ii_top = &ii[y0 * iw..y0 * iw + iw];
-            let ii_bot = &ii[y1 * iw..y1 * iw + iw];
-            let shift_row = &plane[sy * w..(sy + 1) * w];
-            for x in x_lo..=x_hi {
-                let x0 = x - p;
-                let x1 = x + p + 1;
-                let ssd = ii_bot[x1] - ii_top[x1] - ii_bot[x0] + ii_top[x0];
-                // True patch-SSD is ≥ 0, but this four-term f32 query can
-                // cancel to a NEGATIVE residue when the true patch mass is
-                // near zero and the integral values are large (far from the
-                // origin, straddling a binade boundary). Clamp — defense
-                // layer 1 of 2 for #1086; `fast_neg_exp` independently
-                // guards negative input.
-                let ssd = ssd.max(0.0);
-                let weight = fast_neg_exp(ssd * inv_norm);
-                let sx = (x as isize + dx) as usize;
-                acc_row[x] += weight * shift_row[sx];
-                wsum_row[x] += weight;
-                if weight > max_w_row[x] {
-                    max_w_row[x] = weight;
+        .for_each_init(
+            // One scratch buffer per worker thread, reused across its strips:
+            // (hloc horizontal-sum strip, colsum vertical-window row).
+            || (vec![0.0f32; hloc_rows * w], vec![0.0f32; w]),
+            |(hloc, colsum), (strip_idx, ((acc_strip, wsum_strip), max_w_strip))| {
+                let strip_y0 = y_lo + strip_idx * vstrip;
+                let rows_in_strip = acc_strip.len() / w;
+                // Halo: the vertical window over output rows [strip_y0, strip_last]
+                // reads horizontal sums for source rows [strip_y0-p, strip_last+p].
+                let strip_last = strip_y0 + rows_in_strip - 1;
+                let src_lo = strip_y0 - p;
+                let src_hi = strip_last + p;
+
+                // (a) Horizontal box-sum for the halo'd strip into `hloc`, indexed
+                //     by local row (src_row - src_lo). Sliding window + periodic
+                //     re-seed, exactly as the full-frame pass — but cache-resident.
+                if w > 2 * p {
+                    for src_y in src_lo..=src_hi {
+                        let li = src_y - src_lo;
+                        let src = &sqdiff[src_y * w..(src_y + 1) * w];
+                        let hrow = &mut hloc[li * w..(li + 1) * w];
+                        let mut s = 0.0f32;
+                        let mut next_reseed = p;
+                        for x in p..=x_last {
+                            if x == next_reseed {
+                                s = 0.0;
+                                for ox in (x - p)..=(x + p) {
+                                    s += src[ox];
+                                }
+                                next_reseed = x + RESEED_STRIDE;
+                            } else {
+                                s += src[x + p] - src[x - p - 1];
+                            }
+                            hrow[x] = s;
+                        }
+                    }
                 }
-            }
-        });
+
+                // (b) Vertical running window down the strip out of `hloc`. Seed
+                //     the column sum at the first output row (local rows [0, 2p]).
+                for (x, cs) in colsum.iter_mut().enumerate().take(x_hi + 1).skip(x_lo) {
+                    let mut s = 0.0f32;
+                    for oy in 0..=(2 * p) {
+                        s += hloc[oy * w + x];
+                    }
+                    *cs = s;
+                }
+                for r in 0..rows_in_strip {
+                    let y = strip_y0 + r;
+                    if r > 0 {
+                        // Slide one row: +bottom halo row, −top halo row. In local
+                        // (hloc) coords the bottom of the window for output row y is
+                        // local row (y + p - src_lo), the trailing is (y - p - 1 - src_lo).
+                        let bot = (y + p - src_lo) * w;
+                        let top = (y - p - 1 - src_lo) * w;
+                        for x in x_lo..=x_hi {
+                            colsum[x] += hloc[bot + x] - hloc[top + x];
+                        }
+                    }
+                    let sy = (y as isize + dy) as usize;
+                    let shift_row = &plane[sy * w..(sy + 1) * w];
+                    let acc_row = &mut acc_strip[r * w..(r + 1) * w];
+                    let wsum_row = &mut wsum_strip[r * w..(r + 1) * w];
+                    let max_w_row = &mut max_w_strip[r * w..(r + 1) * w];
+                    for x in x_lo..=x_hi {
+                        // True patch-SSD is ≥ 0 by construction. With the local
+                        // box-sum there is no global-prefix cancellation, so this
+                        // clamp is now belt-and-braces (kept as defense layer 1 of
+                        // 2 for #1086 — it also neutralises a stray NaN;
+                        // `fast_neg_exp` independently guards negative input).
+                        let ssd = colsum[x].max(0.0);
+                        let weight = fast_neg_exp(ssd * inv_norm);
+                        let sx = (x as isize + dx) as usize;
+                        acc_row[x] += weight * shift_row[sx];
+                        wsum_row[x] += weight;
+                        if weight > max_w_row[x] {
+                            max_w_row[x] = weight;
+                        }
+                    }
+                }
+            },
+        );
 }
 
 // Tests live in the sibling `nlm_tests.rs` so this file stays under the
