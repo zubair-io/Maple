@@ -40,9 +40,9 @@ mod io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
-use maple_pano::ba::{self, BaOptions};
+use maple_pano::ba::{self, BaOptions, RetentionPolicy};
 use maple_pano::camera::Camera;
 use maple_pano::canvas::{CanvasOptions, ProjectionMode};
 use maple_pano::composite::{composite, CompositeOptions};
@@ -113,6 +113,62 @@ pub struct StitchArgs {
     /// Models directory (defaults to $MAPLE_PANO_MODELS).
     #[arg(long)]
     models_dir: Option<PathBuf>,
+    /// Frame-retention policy. `keep` (default; spec §8 product
+    /// behavior): a frame with a certified rigid core is kept — its
+    /// non-rigid matches are pruned and seam-routed, and drops are
+    /// pose-evidence-only. `strict`: the §5.3 residual budgets drop
+    /// frames, including motion-dominated ones. A mode choice, not a
+    /// gate relaxer — allowed in batch mode; the harness gates the
+    /// outcome either way.
+    #[arg(long, value_enum, default_value_t = RetentionArg::Keep)]
+    retention: RetentionArg,
+    /// Stage-F local alignment (#1218). `mesh` (default): a bounded
+    /// bilinear mesh absorbs the parallax floor before gating and
+    /// compositing. `off`: the geometric chain ends at the BA rotations
+    /// (pure #1213 geometry).
+    #[arg(long, value_enum, default_value_t = LocalAlignArg::Mesh)]
+    local_align: LocalAlignArg,
+}
+
+/// CLI surface for [`maple_pano::ba::RetentionPolicy`].
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum RetentionArg {
+    Keep,
+    Strict,
+}
+
+impl RetentionArg {
+    fn policy(self) -> RetentionPolicy {
+        match self {
+            RetentionArg::Keep => RetentionPolicy::KeepAlignable,
+            RetentionArg::Strict => RetentionPolicy::Strict,
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            RetentionArg::Keep => "keep",
+            RetentionArg::Strict => "strict",
+        }
+    }
+}
+
+/// CLI surface for [`maple_pano::ba::BaOptions::local_align`].
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum LocalAlignArg {
+    Mesh,
+    Off,
+}
+
+impl LocalAlignArg {
+    fn enabled(self) -> bool {
+        matches!(self, LocalAlignArg::Mesh)
+    }
+    fn label(self) -> &'static str {
+        match self {
+            LocalAlignArg::Mesh => "mesh",
+            LocalAlignArg::Off => "off",
+        }
+    }
 }
 
 pub fn run(cmd: PanoCmd) -> Result<(), String> {
@@ -469,6 +525,8 @@ fn stitch_set(
         &BaOptions {
             mean_budget_px,
             max_budget_px,
+            retention: args.retention.policy(),
+            local_align: args.local_align.enabled(),
             ..Default::default()
         },
     )
@@ -554,6 +612,8 @@ fn stitch_set(
         leveled,
         horizon_tilt_deg,
         gate_budgets: (mean_budget_px, max_budget_px),
+        retention: args.retention.label(),
+        local_align: args.local_align.label(),
         comp_report: &comp_report,
         timings_s: [
             ("decode", decode_s),

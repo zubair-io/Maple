@@ -5,6 +5,26 @@ use crate::camera::Camera;
 use crate::local_align::LocalCorrection;
 use crate::math::{matrix_to_axis_angle, Mat3};
 
+/// Frame-retention policy: what the §5.3 residual budgets mean for a
+/// frame's survival (spec §8 vs strict acceptance).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RetentionPolicy {
+    /// Product default. A frame with a certified rigid core (stage E
+    /// conditions (a)+(b)) is KEPT regardless of how much of its
+    /// support is non-rigid: over-budget matches are pruned, seams
+    /// route around the rest, and the report carries the spec §8
+    /// warning. Drops are pose-evidence-only — disconnected frames and
+    /// frames with no certifiable core. This is the §8 failure-mode
+    /// table's prescribed behavior (warn + seam-route, never silently
+    /// discard a posable photo).
+    #[default]
+    KeepAlignable,
+    /// The §5.3 budgets act as frame drop criteria, including the
+    /// motion-dominated ceiling (stage E condition (c)). The harness's
+    /// adversarial scenarios and residual-perfect outputs use this.
+    Strict,
+}
+
 /// Tuning for [`solve`]. The defaults are the spec values; tests and
 /// benches override selectively.
 #[derive(Debug, Clone)]
@@ -26,6 +46,12 @@ pub struct BaOptions {
     /// override the spanning-tree initialization where `Some`. Used by
     /// the convergence-basin bench (perturbed inits) and re-solves.
     pub initial_rotations: Option<Vec<Option<Mat3>>>,
+    /// Frame-retention policy (see [`RetentionPolicy`]).
+    pub retention: RetentionPolicy,
+    /// Stage-F local alignment (#1218): when false the geometric chain
+    /// ends at the BA rotations (pure #1213 geometry) — no mesh fit, no
+    /// corrected gating, no correction at warp time.
+    pub local_align: bool,
 }
 
 impl Default for BaOptions {
@@ -37,6 +63,8 @@ impl Default for BaOptions {
             max_lm_iterations: 200,
             cost_rel_tol: 1e-12,
             initial_rotations: None,
+            retention: RetentionPolicy::default(),
+            local_align: true,
         }
     }
 }

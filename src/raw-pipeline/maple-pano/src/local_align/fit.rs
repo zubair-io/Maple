@@ -12,9 +12,17 @@ use super::{
 
 /// Fit per-frame local corrections from the post-BA, post-gate residuals.
 ///
-/// `blocks` must be the final block set (after stage-D/E pruning): motion
-/// outliers and blunders are already pruned so the fit sees only the
-/// structural parallax signal.
+/// The fit input is the **rigid-candidate subset**: blocks whose raw
+/// residual magnitude is within `fit_max_residual_px` (callers pass the
+/// §5.3 max budget — the same exclusion rule stage D and the stage-E
+/// core test use). Matches beyond it are motion/blunder candidates and
+/// must not steer the structural-parallax fit: on water-dominated frames
+/// a fit over everything chases the water, blows the rescue envelope,
+/// and gets refused — leaving the static core uncorrected and therefore
+/// uncertifiable (a chicken-and-egg the subset rule breaks). A wrong
+/// POSE is unaffected by the rule: its residuals sit inside the subset,
+/// so its oversized field is still fit, still over the envelope, and
+/// still refused.
 ///
 /// Returns a `Vec<LocalCorrection>` indexed by **local frame index**
 /// (same indexing as `state.rotations`), length `n_local`. Frames with no
@@ -24,6 +32,7 @@ pub(crate) fn fit_local_corrections(
     frames: &[FrameMeta],
     state: &State,
     n_local: usize,
+    fit_max_residual_px: f64,
 ) -> Vec<LocalCorrection> {
     // Gather destination-side residuals per frame. The principal point is
     // the image centre (crate convention), so the frame extent is (2cx, 2cy).
@@ -33,6 +42,9 @@ pub(crate) fn fit_local_corrections(
         let Some(r) = eval_residual(state, frames, block) else {
             continue;
         };
+        if (r[0] * r[0] + r[1] * r[1]).sqrt() > fit_max_residual_px {
+            continue;
+        }
         pts[block.dst].push(block.p_dst);
         res[block.dst].push(r);
     }

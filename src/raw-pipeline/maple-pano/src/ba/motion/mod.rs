@@ -68,12 +68,15 @@
 //! zero-constraint pose.
 
 use super::lm::{minimize, LmOptions};
-use super::residual::{eval_residual, Block, FrameMeta, ParamLayout, State};
+use super::residual::{Block, FrameMeta, ParamLayout, State};
 #[cfg(test)]
 use super::support::frame_stats;
 use super::support::{pairs_per_frame, prune_outlier_blocks, PRUNE_ROUNDS_MAX};
-use super::types::{BaOptions, BaSolution, DropReason, FrameStats};
-use crate::local_align::{fit_local_corrections, stats_after_local};
+use super::types::{BaOptions, BaSolution, DropReason, FrameStats, RetentionPolicy};
+use crate::local_align::{
+    corrected_block_residual, fit_local_corrections, identity_corrections, stats_after_local,
+    LocalCorrection,
+};
 
 /// Minimum static-core size — the spec §5.2 pair-acceptance floor (a
 /// pairwise edge needs ≥ 30 verified inliers to exist at all; a pose
@@ -195,7 +198,11 @@ pub(super) fn gate_frames(
         // the parallax-floor frames remain correctly classified as passing.
         // The corrections do NOT feed back into the optimiser — only the
         // corrected residual stats are used for pass/fail decisions.
-        let corrections = fit_local_corrections(blocks, ctx.frames, state, ctx.n_local);
+        let corrections = if ctx.opts.local_align {
+            fit_local_corrections(blocks, ctx.frames, state, ctx.n_local, ctx.opts.max_budget_px)
+        } else {
+            identity_corrections(ctx.frames, ctx.n_local)
+        };
         let corrected = stats_after_local(blocks, ctx.frames, state, &corrections, ctx.n_local);
 
         let failing: Vec<usize> = (0..ctx.n_local)
@@ -222,26 +229,39 @@ pub(super) fn gate_frames(
             blocks,
             state,
             ctx,
+            &corrections,
             &failing,
             &effective_stats,
             &original_pairs,
             &pruned_pairs,
         );
 
-        if let Some(v) = worst_mean(&verdicts, |v| v.dominated) {
-            return GateOutcome::Drop {
-                local: v.local,
-                reason: DropReason::MotionDominated {
-                    core_mean_px: v.core_mean_px,
-                    core_matches: v.core_matches,
-                    motion_fraction: v.motion_fraction,
-                },
-            };
+        // Condition (c) is a drop criterion only under Strict retention:
+        // a dominated frame's pose is still certified by (a)+(b), and the
+        // product policy (spec §8) keeps every posable photo — the wild
+        // majority of its support is pruned and seam-routed like any
+        // other non-rigid content, with the warning carrying the
+        // evidence. Strict mode preserves the conservative drop.
+        if ctx.opts.retention == RetentionPolicy::Strict {
+            if let Some(v) = worst_mean(&verdicts, |v| v.dominated) {
+                return GateOutcome::Drop {
+                    local: v.local,
+                    reason: DropReason::MotionDominated {
+                        core_mean_px: v.core_mean_px,
+                        core_matches: v.core_matches,
+                        motion_fraction: v.motion_fraction,
+                    },
+                };
+            }
         }
 
+        let keep_dominated = ctx.opts.retention == RetentionPolicy::KeepAlignable;
         let qualifying = {
             let mut q = vec![false; ctx.n_local];
-            for v in verdicts.iter().filter(|v| v.qualifies) {
+            for v in verdicts
+                .iter()
+                .filter(|v| v.qualifies || (keep_dominated && v.dominated))
+            {
                 q[v.local] = true;
             }
             q
@@ -260,7 +280,15 @@ pub(super) fn gate_frames(
             };
         }
 
-        match prune_motion_blocks(blocks, state, ctx, &qualifying, &mut pruned_pairs, book) {
+        match prune_motion_blocks(
+            blocks,
+            state,
+            ctx,
+            &corrections,
+            &qualifying,
+            &mut pruned_pairs,
+            book,
+        ) {
             Some(retained) => {
                 *blocks = retained;
                 for (local, &q) in qualifying.iter().enumerate() {
@@ -333,6 +361,7 @@ fn classify_cores(
     blocks: &[Block],
     state: &State,
     ctx: &GateContext,
+    corrections: &[LocalCorrection],
     failing: &[usize],
     stats: &[FrameStats],
     original_pairs: &[usize],
@@ -361,8 +390,8 @@ fn classify_cores(
         if !is_failing[fwd.src] && !is_failing[fwd.dst] {
             continue;
         }
-        let s_fwd = pair_plane_residual(state, ctx.frames, fwd);
-        let s_rev = pair_plane_residual(state, ctx.frames, rev);
+        let s_fwd = corrected_block_residual(state, ctx.frames, corrections, fwd);
+        let s_rev = corrected_block_residual(state, ctx.frames, corrections, rev);
         let over = s_fwd > ctx.opts.max_budget_px || s_rev > ctx.opts.max_budget_px;
         // (frame, its-plane residual, partner) views of this pair.
         for (frame, s_own, partner) in [(fwd.dst, s_fwd, fwd.src), (rev.dst, s_rev, rev.src)] {
@@ -416,15 +445,6 @@ fn classify_cores(
         .collect()
 }
 
-/// A directed block's residual magnitude in its destination plane
-/// (invalid chains count as gross, same as everywhere else in stage D).
-fn pair_plane_residual(state: &State, frames: &[FrameMeta], block: &Block) -> f64 {
-    match eval_residual(state, frames, block) {
-        Some(r) => (r[0] * r[0] + r[1] * r[1]).sqrt(),
-        None => super::residual::INVALID_BLOCK_RESIDUAL_PX,
-    }
-}
-
 /// Prune the motion matches of the qualifying frames: every pair over
 /// the max budget in either direction that touches a qualifying frame,
 /// with the stage-D fraction guard WAIVED (condition (b) is the
@@ -441,6 +461,7 @@ fn prune_motion_blocks(
     blocks: &[Block],
     state: &State,
     ctx: &GateContext,
+    corrections: &[LocalCorrection],
     qualifying: &[bool],
     pruned_pairs: &mut [usize],
     book: &mut MotionBook,
@@ -451,8 +472,10 @@ fn prune_motion_blocks(
     let mut pruned = 0usize;
     for pair in blocks.chunks_exact(2) {
         let (fwd, rev) = (&pair[0], &pair[1]);
-        let over = pair_plane_residual(state, ctx.frames, fwd) > ctx.opts.max_budget_px
-            || pair_plane_residual(state, ctx.frames, rev) > ctx.opts.max_budget_px;
+        let over = corrected_block_residual(state, ctx.frames, corrections, fwd)
+            > ctx.opts.max_budget_px
+            || corrected_block_residual(state, ctx.frames, corrections, rev)
+                > ctx.opts.max_budget_px;
         let touches_qualifying = qualifying[fwd.src] || qualifying[fwd.dst];
         let hollows = [fwd.src, fwd.dst]
             .iter()
