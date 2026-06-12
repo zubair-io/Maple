@@ -13,7 +13,7 @@ use common::{
     REALISTIC_OUTLIERS,
 };
 
-use maple_pano::ba::{solve, BaOptions, DropReason};
+use maple_pano::ba::{solve, BaOptions, DropReason, RetentionPolicy};
 use maple_pano::camera::Camera;
 use maple_pano::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
 use maple_pano::leveling;
@@ -326,7 +326,15 @@ fn gate_inconsistent_frame_is_dropped() {
         },
         &RobustOptions::default(),
     );
-    let solution = solve(&images, &graph, &BaOptions::default()).expect("solve");
+    let solution = solve(
+        &images,
+        &graph,
+        &BaOptions {
+            retention: RetentionPolicy::Strict,
+            ..Default::default()
+        },
+    )
+    .expect("solve");
     for (i, s) in solution.frame_stats.iter().enumerate() {
         if let Some(s) = s {
             println!(
@@ -442,4 +450,85 @@ fn gate_outlier_matches_are_pruned_not_frames() {
         solution.pruned_matches, solution.mean_reproj_px, solution.max_reproj_px
     );
     assert!(solution.mean_reproj_px <= 1.5 && solution.max_reproj_px <= 6.0);
+}
+
+/// The same wrong-pose edge under the product default
+/// (`RetentionPolicy::KeepAlignable`): every connected frame is PLACED
+/// — a suspected-bad pose is included and warned about (the §8
+/// classification flags it), never silently deleted. The render-level
+/// reference metrics are the backstop that surfaces a genuinely bad
+/// placement to the harness.
+#[test]
+fn gate_inconsistent_frame_kept_and_flagged_under_keep() {
+    let gt = build_camera_set(&ring_options(8), &mut SplitMix64::new(47)).expect("valid options");
+    let cams: Vec<Camera> = gt.iter().map(|g| g.to_camera()).collect();
+    let images = seed_images(&cams, true);
+    let impostor = {
+        let c = &cams[3];
+        let twist = axis_angle_to_matrix([4.0_f64.to_radians(), 0.0, 0.0]);
+        let r = c.rotation.mul_mat(&twist);
+        Camera::new(
+            matrix_to_axis_angle(&r),
+            c.focal_px,
+            c.k1,
+            c.k2,
+            c.width,
+            c.height,
+        )
+    };
+    let corr = realistic_matches();
+    let clean_graph = build_match_graph(
+        &images,
+        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
+        |a, b| {
+            let mut rng = SplitMix64::new(0x00C0_FFEE ^ ((a as u64) << 32) ^ b as u64);
+            generate_pair_correspondences(&cams[a], &cams[b], &corr, &mut rng).pixel_pairs()
+        },
+        &RobustOptions::default(),
+    );
+    let clean = solve(&images, &clean_graph, &BaOptions::default()).expect("clean solve");
+    let graph = build_match_graph(
+        &images,
+        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
+        |a, b| {
+            let mut rng = SplitMix64::new(0x00C0_FFEE ^ ((a as u64) << 32) ^ b as u64);
+            let cam_a = if (a, b) == (3, 4) {
+                &impostor
+            } else {
+                &cams[a]
+            };
+            generate_pair_correspondences(cam_a, &cams[b], &corr, &mut rng).pixel_pairs()
+        },
+        &RobustOptions::default(),
+    );
+    let solution = solve(&images, &graph, &BaOptions::default()).expect("solve");
+    println!(
+        "keep-mode impostor: dropped {:?}, motion_affected {:?}",
+        solution.dropped, solution.motion_affected
+    );
+    assert!(
+        solution.dropped.is_empty(),
+        "keep mode places every connected frame: {:?}",
+        solution.dropped
+    );
+    // Including a wrong-pose edge by policy has a real, data-dependent
+    // geometry cost: stage-D prunes most of the poisoned matches but the
+    // guard-capped remainder dragged frame 2 by ~2.3° at this seed (vs
+    // the clean run). Keep-mode's guarantee is placement-without-
+    // deletion; placement QUALITY under poisoned input is the render-
+    // level reference metrics' job to surface (and strict mode's job to
+    // refuse — `gate_inconsistent_frame_is_dropped` above). Wrong-pose
+    // edge handling under keep (full prune or loud flag) is tracked
+    // follow-up work; this test pins today's honest contract and
+    // documents the measured drag so any silent change is visible.
+    let max_gap = relative_set(&solution)
+        .iter()
+        .zip(relative_set(&clean))
+        .map(|(a, b)| rotation_angle_between(a, &b).to_degrees())
+        .fold(0.0_f64, f64::max);
+    println!("keep-mode impostor: max relative-rotation drag {max_gap:.4}° vs clean");
+    assert!(
+        max_gap < 5.0,
+        "drag {max_gap:.4}° exceeds even the impostor's own 4° magnitude —          the solve diverged rather than degraded"
+    );
 }
