@@ -255,13 +255,16 @@ pub(super) fn gate_frames(
             }
         }
 
-        let keep_dominated = ctx.opts.retention == RetentionPolicy::KeepAlignable;
+        let keep_all = ctx.opts.retention == RetentionPolicy::KeepAlignable;
         let qualifying = {
             let mut q = vec![false; ctx.n_local];
-            for v in verdicts
-                .iter()
-                .filter(|v| v.qualifies || (keep_dominated && v.dominated))
-            {
+            // Under keep, EVERY failing frame is prunable: qualification
+            // was drop-protection (a frame had to prove a rigid core
+            // before its wild matches could be shed without it falling
+            // to the drop) and keep-mode never drops — the best-evidence
+            // floor in the prune is the protection instead. Strict keeps
+            // the certified-core requirement.
+            for v in verdicts.iter().filter(|v| keep_all || v.qualifies) {
                 q[v.local] = true;
             }
             q
@@ -346,17 +349,24 @@ fn resolve(blocks: &[Block], state: &mut State, ctx: &GateContext, solution: &mu
         .filter(|&f| state.focal_overrides[f].is_some())
         .collect();
     let layout = ParamLayout::full(ctx.n_local, ctx.gauge, &freed);
-    let run = minimize(
-        blocks,
-        ctx.frames,
-        state,
-        &layout,
-        ctx.opts.huber_delta_px,
-        ctx.lm_opts,
-    );
-    solution.lm_iterations += run.iterations;
-    solution.converged &= run.converged;
-    solution.final_cost = run.final_cost;
+    let mut converged = false;
+    for _ in 0..super::SOLVE_POLISH_MAX {
+        let run = minimize(
+            blocks,
+            ctx.frames,
+            state,
+            &layout,
+            ctx.opts.huber_delta_px,
+            ctx.lm_opts,
+        );
+        solution.lm_iterations += run.iterations;
+        solution.final_cost = run.final_cost;
+        if run.converged {
+            converged = true;
+            break;
+        }
+    }
+    solution.converged &= converged;
 }
 
 /// The worst-mean verdict among those matching `pred`, by raw frame
@@ -470,11 +480,14 @@ fn classify_cores(
 
 /// Prune the motion matches of the qualifying frames: every pair over
 /// the max budget in either direction that touches a qualifying frame,
-/// with the stage-D fraction guard WAIVED (condition (b) is the
-/// stronger protection) — except that a non-qualifying endpoint always
-/// keeps its last pair (never hollow a frame the gate still has to
-/// judge; the kept pair is over budget, so the frame fails the max
-/// gate and is handled honestly next iteration).
+/// with the stage-D fraction guard WAIVED — protected instead by a
+/// best-evidence floor: pairs are pruned WORST-FIRST and no frame is
+/// ever taken below [`MOTION_CORE_MIN_MATCHES`] pairs, so every frame
+/// keeps its strongest available evidence (for a water-dominated frame
+/// that is exactly its static remnant). Worst-first matters: a
+/// streaming prune would fill the floor with whatever pairs came last
+/// in file order, leaving 30 px water matches in the retained stats
+/// while 2 px static matches were discarded.
 ///
 /// Updates the round-cumulative `pruned_pairs` for both endpoints (it
 /// feeds the stage-D guard and condition (c)) and the qualifying
@@ -490,34 +503,60 @@ fn prune_motion_blocks(
     book: &mut MotionBook,
 ) -> Option<Vec<Block>> {
     debug_assert_eq!(blocks.len() % 2, 0, "blocks come in directed pairs");
+    let n_pairs = blocks.len() / 2;
     let mut remaining = pairs_per_frame(blocks, ctx.n_local);
-    let mut retained = Vec::with_capacity(blocks.len());
-    let mut pruned = 0usize;
-    for pair in blocks.chunks_exact(2) {
+
+    // Score every pair once; candidates are over-budget pairs touching
+    // a qualifying frame, pruned in descending residual order.
+    let mut score = vec![0.0_f64; n_pairs];
+    let mut candidates: Vec<usize> = Vec::new();
+    for (k, pair) in blocks.chunks_exact(2).enumerate() {
         let (fwd, rev) = (&pair[0], &pair[1]);
-        let over = corrected_block_residual(state, ctx.frames, corrections, fwd)
-            > ctx.opts.max_budget_px
-            || corrected_block_residual(state, ctx.frames, corrections, rev)
-                > ctx.opts.max_budget_px;
-        let touches_qualifying = qualifying[fwd.src] || qualifying[fwd.dst];
-        let hollows = [fwd.src, fwd.dst]
-            .iter()
-            .any(|&e| !qualifying[e] && remaining[e] <= 1);
-        if over && touches_qualifying && !hollows {
-            pruned += 1;
-            for e in [fwd.src, fwd.dst] {
-                remaining[e] -= 1;
-                pruned_pairs[e] += 1;
-                if qualifying[e] {
-                    book.pruned[e] += 1;
-                }
-            }
-        } else {
-            retained.push(*fwd);
-            retained.push(*rev);
+        let s = corrected_block_residual(state, ctx.frames, corrections, fwd).max(
+            corrected_block_residual(state, ctx.frames, corrections, rev),
+        );
+        score[k] = s;
+        if s > ctx.opts.max_budget_px && (qualifying[fwd.src] || qualifying[fwd.dst]) {
+            candidates.push(k);
         }
     }
-    (pruned > 0).then_some(retained)
+    candidates.sort_by(|&a, &b| score[b].total_cmp(&score[a]));
+
+    let mut prune_pair = vec![false; n_pairs];
+    let mut pruned = 0usize;
+    for k in candidates {
+        let fwd = &blocks[2 * k];
+        // The best-evidence floor: both endpoints must retain at least
+        // the spec §5.2 evidence minimum. Worst-first ordering fills
+        // the floor with each frame's lowest-residual pairs.
+        if [fwd.src, fwd.dst]
+            .iter()
+            .any(|&e| remaining[e] <= MOTION_CORE_MIN_MATCHES)
+        {
+            continue;
+        }
+        prune_pair[k] = true;
+        pruned += 1;
+        for e in [fwd.src, fwd.dst] {
+            remaining[e] -= 1;
+            pruned_pairs[e] += 1;
+            if qualifying[e] {
+                book.pruned[e] += 1;
+            }
+        }
+    }
+
+    if pruned == 0 {
+        return None;
+    }
+    let mut retained = Vec::with_capacity(blocks.len() - 2 * pruned);
+    for (k, pair) in blocks.chunks_exact(2).enumerate() {
+        if !prune_pair[k] {
+            retained.push(pair[0]);
+            retained.push(pair[1]);
+        }
+    }
+    Some(retained)
 }
 
 #[cfg(test)]

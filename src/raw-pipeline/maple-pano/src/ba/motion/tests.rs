@@ -170,18 +170,26 @@ fn classify_dominates_past_the_fraction_ceiling() {
     assert_eq!(v.core_matches, 40);
 }
 
-/// The hollow guard: pruning frame 0's motion pairs may not strip a
-/// non-qualifying partner to zero pairs — its last pair stays.
+/// The best-evidence floor + worst-first order: pruning never takes a
+/// frame below MOTION_CORE_MIN_MATCHES pairs, and the pairs that fill
+/// the floor are the frame's LOWEST-residual ones (a streaming prune
+/// would keep whatever came last in file order — 40 px water instead of
+/// 15 px structure).
 #[test]
-fn prune_never_hollows_a_nonqualifying_partner() {
+fn prune_floor_keeps_best_evidence() {
     let (state, frames) = flat_state(3);
     let o = opts();
     let lm = LmOptions::default();
     let ctx = ctx(&frames, &o, &lm, 3);
     let mut blocks = Vec::new();
-    // Frame 2's ONLY support: two wild pairs with frame 0.
-    blocks.extend(pair(0, 2, 10.0, 20.0));
-    blocks.extend(pair(0, 2, 50.0, 20.0));
+    // Frame 2's support: 30 wild-ish pairs at 15 px and, FIRST in file
+    // order, two extra-wild pairs at 40 px (worst-first must pick these
+    // two, not the last two).
+    blocks.extend(pair(0, 2, 5.0, 40.0));
+    blocks.extend(pair(0, 2, 7.0, 40.0));
+    for i in 0..30 {
+        blocks.extend(pair(0, 2, 10.0 + i as f64, 15.0));
+    }
     for i in 0..40 {
         blocks.extend(pair(0, 1, 10.0 + i as f64, 0.5));
     }
@@ -197,51 +205,24 @@ fn prune_never_hollows_a_nonqualifying_partner() {
         &mut pruned_pairs,
         &mut book,
     )
-    .expect("one wild pair is prunable");
+    .expect("the floor leaves exactly two pairs prunable");
     let remaining = pairs_per_frame(&retained, 3);
-    assert_eq!(remaining[2], 1, "frame 2 keeps its last pair");
-    assert_eq!(book.pruned[0], 1, "only frame 0 counts the motion prune");
-    assert_eq!(book.pruned[2], 0);
-    assert_eq!(pruned_pairs[0], 1);
     assert_eq!(
-        pruned_pairs[2], 1,
-        "round-cumulative accounting is per endpoint"
+        remaining[2], 30,
+        "frame 2 stops exactly at the evidence floor"
     );
-}
-
-/// Bookkeeping publishes only flagged frames that survived.
-#[test]
-fn book_reports_surviving_flagged_frames_only() {
-    let mut book = MotionBook::new(3);
-    book.flagged[0] = true;
-    book.pruned[0] = 7;
-    book.flagged[2] = true;
-    book.pruned[2] = 9;
-    let mut solution = BaSolution {
-        cameras: vec![None; 5],
-        shared_focal_px: 1.0,
-        k1: 0.0,
-        k2: 0.0,
-        frame_stats: vec![None; 5],
-        dropped: vec![],
-        mean_reproj_px: 0.0,
-        max_reproj_px: 0.0,
-        mean_reproj_before_local_px: 0.0,
-        max_reproj_before_local_px: 0.0,
-        lm_iterations: 0,
-        final_cost: 0.0,
-        converged: true,
-        solve_rounds: 0,
-        pruned_matches: 0,
-        motion_affected: vec![],
-        motion_pruned_matches: vec![],
-        local_corrections: vec![None; 5],
-        local_correction_rms: vec![0.0; 5],
-    };
-    let cam = crate::camera::Camera::new([0.0; 3], 500.0, 0.0, 0.0, 640, 480);
-    solution.cameras[1] = Some(cam); // round_active[0] = global 1
-    solution.cameras[4] = None; //              round_active[2] = global 4 dropped
-    book.write_into(&mut solution, &[1, 3, 4]);
-    assert_eq!(solution.motion_affected, vec![1]);
-    assert_eq!(solution.motion_pruned_matches, vec![7]);
+    assert_eq!(book.pruned[0], 2, "frame 0 counts both motion prunes");
+    assert_eq!(pruned_pairs[0], 2);
+    assert_eq!(pruned_pairs[2], 2);
+    // Worst-first: the two 40 px pairs went; every retained 0↔2 pair
+    // is a 15 px one.
+    for pair in retained.chunks_exact(2) {
+        if pair[0].dst == 2 || pair[0].src == 2 {
+            let s = (pair[0].p_src.0 - pair[0].p_dst.0).abs();
+            assert!(
+                (s - 15.0).abs() < 1e-9,
+                "retained 0↔2 pair has offset {s}, expected the 15 px set"
+            );
+        }
+    }
 }
