@@ -171,7 +171,7 @@ fn refinement_cuts_proxy_quantization_error_three_fold_and_under_half_px() {
                     // the refined B is the reprojection of that exact seed.
                     let a_seed_full = (a_p.0 * scale.0, a_p.1 * scale.1);
                     let b_gt = reproject(&cams[0], &cams[1], a_seed_full)
-                        .expect("seed within frame reprojets");
+                        .expect("seed within frame reprojects");
                     let b_seed_full = (b_p.0 * scale.0, b_p.1 * scale.1);
                     unrefined_err.push((b_seed_full.0 - b_gt.0).hypot(b_seed_full.1 - b_gt.1));
                     gt_b.push(b_gt);

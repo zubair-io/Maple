@@ -501,6 +501,16 @@ pub(super) fn prune_outlier_blocks(
     original_pairs: &[usize],
     pruned_pairs: &mut [usize],
 ) -> Option<(Vec<Block>, usize)> {
+    debug_assert_eq!(
+        original_pairs.len(),
+        n_local,
+        "original_pairs must be sized to the active frame count"
+    );
+    debug_assert_eq!(
+        pruned_pairs.len(),
+        n_local,
+        "pruned_pairs must be sized to the active frame count"
+    );
     debug_assert_eq!(blocks.len() % 2, 0, "blocks come in directed pairs");
     let n_pairs = blocks.len() / 2;
     let mut over = vec![false; n_pairs];

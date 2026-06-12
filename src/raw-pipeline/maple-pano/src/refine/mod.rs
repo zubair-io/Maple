@@ -67,7 +67,7 @@ use rayon::prelude::*;
 use crate::ingest::PlanarImage;
 use crate::twoview::PixelCorrespondence;
 
-use sample::{mean_ssd, parabolic_delta, sample_luma_grid, IDENTITY_WARP};
+use sample::{mean_ssd, parabolic_delta, sample_luma_grid_into, IDENTITY_WARP};
 
 pub use warp::RefineGeometry;
 
@@ -145,7 +145,7 @@ pub fn refine_correspondences(
 
     let per_match: Vec<(PixelCorrespondence, bool)> = matches
         .par_iter()
-        .map(|m| {
+        .map_init(Scratch::default, |scratch, m| {
             let a_full = (m.a.0 * scale_a.0, m.a.1 * scale_a.1);
             let b_seed = (m.b.0 * scale_b.0, m.b.1 * scale_b.1);
             match refine_one(
@@ -157,6 +157,7 @@ pub fn refine_correspondences(
                 patch_radius,
                 search_radius,
                 opts,
+                scratch,
             ) {
                 Some(b) => (PixelCorrespondence { a: a_full, b }, true),
                 None => (
@@ -195,6 +196,16 @@ fn derived_search_radius(scale_b: (f64, f64)) -> u32 {
     (2.0 * s + 2.0).ceil() as u32
 }
 
+/// Per-worker reusable buffers for the refine hot loop — one set per
+/// rayon worker via `map_init`, so tens of thousands of matches share a
+/// handful of allocations (PR #1213 review).
+#[derive(Default)]
+struct Scratch {
+    template: Vec<f64>,
+    window: Vec<f64>,
+    ncc: Vec<f64>,
+}
+
 /// One correspondence: `Some(refined_b)` or `None` for fallback (see the
 /// module docs for the gate list).
 #[allow(clippy::too_many_arguments)] // private kernel of one public entry point
@@ -207,6 +218,7 @@ fn refine_one(
     patch_radius: i64,
     search_radius: i64,
     opts: &RefineOptions,
+    scratch: &mut Scratch,
 ) -> Option<(f64, f64)> {
     if !(a_full.0.is_finite()
         && a_full.1.is_finite()
@@ -226,8 +238,11 @@ fn refine_one(
     let jinv = geometry
         .and_then(|g| warp::local_warp_inverse(g, a_full))
         .unwrap_or(IDENTITY_WARP);
-    let template = sample_luma_grid(full_a, a_full, patch_radius, &jinv)?;
-    let (t_mean, t_ssd) = mean_ssd(&template);
+    if !sample_luma_grid_into(full_a, a_full, patch_radius, &jinv, &mut scratch.template) {
+        return None;
+    }
+    let template = &scratch.template;
+    let (t_mean, t_ssd) = mean_ssd(template);
     let t_var = t_ssd / n_patch;
     if t_var.is_nan() || t_var < opts.min_variance {
         return None; // flat (or NaN) template — ZNCC undefined.
@@ -238,12 +253,23 @@ fn refine_one(
     // candidate is an integer-indexed sub-grid. The window is always
     // axis-aligned — the warp lives entirely on the template side.
     let window_half = patch_radius + search_radius;
-    let window = sample_luma_grid(full_b, b_seed, window_half, &IDENTITY_WARP)?;
+    if !sample_luma_grid_into(
+        full_b,
+        b_seed,
+        window_half,
+        &IDENTITY_WARP,
+        &mut scratch.window,
+    ) {
+        return None;
+    }
+    let window = &scratch.window;
     let window_side = (2 * window_half + 1) as usize;
 
     // ZNCC over all integer offsets; first-wins argmax in scan order.
     let scan_side = (2 * search_radius + 1) as usize;
-    let mut ncc = vec![f64::NEG_INFINITY; scan_side * scan_side];
+    scratch.ncc.clear();
+    scratch.ncc.resize(scan_side * scan_side, f64::NEG_INFINITY);
+    let ncc = &mut scratch.ncc;
     let (mut best_idx, mut best_ncc) = (0usize, f64::NEG_INFINITY);
     for sy in 0..scan_side {
         for sx in 0..scan_side {
