@@ -70,6 +70,10 @@ export class PanoDialogComponent implements OnDestroy {
   readonly phase = signal<DialogPhase>('idle');
   readonly config = signal<PanoConfig | null>(null);
   readonly errorMessage = signal<string>('');
+  /** Structured error code from the server (e.g. 'pano_not_provisioned' or
+   * 'pano_job_running'). Used by the template to switch on a code rather than
+   * matching substrings of the localised error message. */
+  readonly errorCode = signal<string>('');
   readonly job = signal<PanoJobView | null>(null);
 
   // ── option model (two-way signals) ────────────────────────────────────────
@@ -108,6 +112,7 @@ export class PanoDialogComponent implements OnDestroy {
         this.phase.set('idle');
         this.config.set(null);
         this.errorMessage.set('');
+        this.errorCode.set('');
         this.job.set(null);
         this._stopPolling();
       }
@@ -135,14 +140,49 @@ export class PanoDialogComponent implements OnDestroy {
   }
 
   onSubmit(): void {
-    const ids = this.assetIds();
-    if (ids.length < 2) return;
+    const localIds = this.assetIds();
+    if (localIds.length < 2) return;
 
-    const libraryId = this.state.selectedSourceId().replace(/^fs:/, '');
-    if (!libraryId) {
-      this.errorMessage.set('No library selected. Select a folder in the sidebar first.');
+    // ── Resolve the library ObjectId ──────────────────────────────────────
+    // `selectedSourceId` is `fs:<absPath>` in self-hosted browse mode —
+    // NOT a MongoDB ObjectId. `currentRegisteredFolder()` does a
+    // longest-prefix match against the registered library roots and returns
+    // the ApiFolder whose `id` IS the hex ObjectId the handler validates.
+    const folder = this.state.currentRegisteredFolder();
+    if (!folder) {
+      this.errorCode.set('');
+      this.errorMessage.set(
+        'No registered library is selected. Pick a library folder in the sidebar first.',
+      );
       this.phase.set('error');
       return;
+    }
+    const libraryId = folder.id;
+
+    // ── Resolve asset ObjectIds ───────────────────────────────────────────
+    // In self-hosted browse mode the grid gives assets local ids like
+    // `fs:<absPath>`. The server's assets collection uses MongoDB ObjectIds.
+    // `apiIdFor` maps local IDs → persisted `_id` hex (populated by the
+    // discover watcher after indexing). If an asset has no mapping yet it is
+    // not in the assets collection and the job handler would reject it.
+    //
+    // Gate: require all selected assets to have a resolved API id. When some
+    // are not yet indexed we surface a clear error rather than sending ids
+    // the server will reject. This is the honest design constraint — the
+    // "Merge to panorama" action requires persisted assets.
+    const resolvedIds: string[] = [];
+    for (const localId of localIds) {
+      const apiId = this.state.apiIdFor(localId);
+      if (!apiId) {
+        this.errorCode.set('assets_not_indexed');
+        this.errorMessage.set(
+          'One or more selected images have not been indexed yet. ' +
+            'Wait for the indexer to finish scanning, then try again.',
+        );
+        this.phase.set('error');
+        return;
+      }
+      resolvedIds.push(apiId);
     }
 
     this.phase.set('submitting');
@@ -152,17 +192,19 @@ export class PanoDialogComponent implements OnDestroy {
       ...(this.strategySupported() ? { strategy: this.strategy() } : {}),
     };
 
-    this.pano.stitch({ assetIds: ids, libraryId, options }).subscribe({
+    this.pano.stitch({ assetIds: resolvedIds, libraryId, options }).subscribe({
       next: ({ id }) => {
         this.phase.set('polling');
         this._startPolling(id);
       },
       error: (err: HttpErrorResponse) => {
-        if (err.status === 409 && err.error?.error === 'pano_not_provisioned') {
+        const code: string = err.error?.error ?? '';
+        this.errorCode.set(code);
+        if (err.status === 409 && code === 'pano_not_provisioned') {
           this.errorMessage.set(err.error.message);
-        } else if (err.status === 409 && err.error?.error === 'pano_job_running') {
+        } else if (err.status === 409 && code === 'pano_job_running') {
           this.errorMessage.set(
-            `A panorama job is already running (job ${err.error.jobId ?? ''}). Wait for it to finish.`,
+            `A panorama job is already running or queued (job ${err.error.jobId ?? ''}). Wait for it to finish.`,
           );
         } else {
           this.errorMessage.set(err.error?.message ?? 'Failed to start panorama job.');

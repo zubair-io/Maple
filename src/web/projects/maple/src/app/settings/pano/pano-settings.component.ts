@@ -6,8 +6,20 @@
 //   - MAPLE_PANO_MODELS directory
 //   - ORT_DYLIB_PATH (libonnxruntime ≥ 1.23)
 //
-// All fields follow the DB-only settings pattern (no env-var fallback for
-// pano — the binary path and models dir are always operator-supplied).
+// Settings precedence (DB-first with env fallback):
+//   - maple_cli_path:  DB value only — there is no env fallback for the binary path.
+//   - models_dir:      DB value wins; when unset the handler inherits MAPLE_PANO_MODELS
+//                      from the server process environment (the CLI still finds models).
+//   - ort_dylib_path:  DB value wins; when unset the handler inherits ORT_DYLIB_PATH
+//                      from the server process environment.
+//   - enabled:         DB value only (defaults to false).
+//
+// The UI reflects this: the models_dir and ort_dylib_path fields say "Leave blank to
+// use the MAPLE_PANO_MODELS / ORT_DYLIB_PATH environment variable." The env fallback is
+// intentional and documented — it lets operators bootstrap from a .env file or Docker
+// Compose before they have access to the settings page. The DB value always takes
+// precedence when set.
+//
 // Config is saved via PUT /api/pano/config and re-resolved from the server
 // response, same as the Observability settings page.
 
