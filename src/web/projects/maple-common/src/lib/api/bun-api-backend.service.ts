@@ -799,10 +799,11 @@ export interface EnrichmentConfigResponse {
   face_worker_enabled: boolean;
   /** Resolved model dir (DB → env → ~/.maple/models/). Always populated. */
   face_model_dir: string;
-  /** `null` when neither DB nor env supplied a download URL — the worker
-   * then requires the file to be already on disk under face_model_dir.
-   * Detector = SCRFD-10G (scrfd_10g.onnx); recognizer = ArcFace R100
-   * (arcface_r100_glint360k.onnx), both from InsightFace's antelopev2 bundle. */
+  /** `null` when neither DB nor env supplied a download URL. The worker then
+   * uses the file already on disk under face_model_dir, or — if it's missing —
+   * zero-config auto-downloads the InsightFace antelopev2 bundle (unless
+   * `MAPLE_FACE_NO_AUTO_DOWNLOAD=true`). Detector = SCRFD-10G (scrfd_10g.onnx);
+   * recognizer = ArcFace R100 (arcface_r100_glint360k.onnx), same bundle. */
   face_detector_url: string | null;
   face_detector_sha256: string | null;
   face_recognizer_url: string | null;

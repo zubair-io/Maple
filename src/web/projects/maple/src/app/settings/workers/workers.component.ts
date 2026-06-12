@@ -478,14 +478,17 @@ export class WorkersComponent implements OnInit, OnDestroy {
       body.nominatim_url = form.nominatim_url.trim() || null;
       const rate = Number(form.nominatim_rate_limit_per_sec.trim());
       body.nominatim_rate_limit_per_sec = Number.isFinite(rate) && rate > 0 ? rate : null;
-    } else if (kind === 'face-detect' || kind === 'face-embed') {
-      // The detector and recognizer rows edit disjoint slices of the same
-      // enrichment config doc; each row's form carries the full face field
-      // set (seeded by blankEnrichment), so saving from either row persists a
-      // consistent snapshot. The PUT merges onto the existing config server-side.
+    } else if (kind === 'face-detect') {
+      // The PUT is patch/merge, so send ONLY the slice this row owns — the
+      // detector config + the shared model dir. Sending recognizer fields too
+      // would clobber the face-embed row's saved values with this form's stale
+      // (seeded-at-expand) copy.
       body.face_model_dir = form.face_model_dir.trim() || null;
       body.face_detector_url = form.face_detector_url.trim() || null;
       body.face_detector_sha256 = form.face_detector_sha256.trim() || null;
+    } else if (kind === 'face-embed') {
+      // Recognizer-only slice — see the face-detect note above. The model dir
+      // is owned by the face-detect row, so it is deliberately not sent here.
       body.face_recognizer_url = form.face_recognizer_url.trim() || null;
       body.face_recognizer_sha256 = form.face_recognizer_sha256.trim() || null;
     } else if (kind === 'meili') {
