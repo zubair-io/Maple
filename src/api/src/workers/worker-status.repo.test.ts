@@ -107,4 +107,27 @@ describe('worker-status.repo', () => {
     expect(result!.updated_at).toBe(2000);
     expect(result!.statuses['exif'].status).toBe('paused');
   });
+
+  it('round-trips the face-models status when supplied', async () => {
+    if (!reachable) return;
+    const { writeWorkerStatus, readWorkerStatus } = await import('./worker-status.repo.ts');
+
+    await writeWorkerStatus({}, 1000, { kind: 'loaded', errorDetail: null });
+    expect((await readWorkerStatus())!.face_models).toEqual({ kind: 'loaded', errorDetail: null });
+
+    // Subsequent error state overwrites it.
+    await writeWorkerStatus({}, 2000, { kind: 'error', errorDetail: 'onnx load failed' });
+    expect((await readWorkerStatus())!.face_models).toEqual({
+      kind: 'error',
+      errorDetail: 'onnx load failed',
+    });
+  });
+
+  it('omits face_models when not supplied (back-compat)', async () => {
+    if (!reachable) return;
+    const { writeWorkerStatus, readWorkerStatus } = await import('./worker-status.repo.ts');
+
+    await writeWorkerStatus({}, 1000);
+    expect((await readWorkerStatus())!.face_models).toBeUndefined();
+  });
 });

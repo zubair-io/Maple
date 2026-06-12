@@ -33,6 +33,7 @@ import { ffiPool } from '../ffi/ffi-pool.ts';
 import { imgdecodePool } from '../thumbs/imgdecode-pool.ts';
 import { startGeocodeWorker, stopGeocodeWorker } from '../enrichment/bootstrap.ts';
 import { startFaceWorker, stopFaceWorker } from '../enrichment/face-bootstrap.ts';
+import { getFaceModelsStatus } from '../enrichment/face-models.ts';
 import { startDescribeWorker, stopDescribeWorker } from '../enrichment/describe-bootstrap.ts';
 import { meilisearchClient, reconfigureMeilisearch } from '../enrichment/meilisearch-client.ts';
 import {
@@ -175,10 +176,18 @@ export async function startWorkers(): Promise<void> {
 
   // Publish stageRegistry.statuses() to the worker_status Mongo doc every 2 s
   // so the API process (which has an empty in-process registry) can serve
-  // GET /api/workers/status.  The timer is unref'd so it doesn't prevent a
-  // clean exit when stopWorkers() clears it.
+  // GET /api/workers/status.  The face-models loader status rides along in the
+  // same write — the ONNX sessions load in THIS worker process, so the API
+  // process can't read the loader's in-process `liveStatus`; mirroring it here
+  // is what lets the /settings/enrichment badge reflect the real load state.
+  // The timer is unref'd so it doesn't prevent a clean exit when stopWorkers()
+  // clears it.
   _statusInterval = setInterval(() => {
-    writeWorkerStatus(stageRegistry.statuses(), Date.now()).catch(() => {});
+    const face = getFaceModelsStatus();
+    writeWorkerStatus(stageRegistry.statuses(), Date.now(), {
+      kind: face.kind,
+      errorDetail: face.errorDetail,
+    }).catch(() => {});
   }, 2000);
   _statusInterval.unref();
 }
