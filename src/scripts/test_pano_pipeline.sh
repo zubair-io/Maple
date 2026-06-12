@@ -301,8 +301,20 @@ if [[ ! -x "$MAPLE_CLI" ]]; then
   fi
   echo ""
   echo "test_pano_pipeline: building maple-cli (release) ..."
-  ( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli >/dev/null )
+  ( cd "$REPO_ROOT/src/raw-pipeline" && cargo build --release --bin maple-cli --features pano >/dev/null )
   MAPLE_CLI="$MAPLE_CLI_RELEASE"
+fi
+
+# The ML environment gates candidate generation the way fixtures gate
+# discovery: absent on CI runners (skip-pass), present on dev machines
+# (gates bite). The CLI itself hard-errors without it by design.
+if [[ -z "${MAPLE_PANO_MODELS:-}" ]]; then
+  echo ""
+  echo "test_pano_pipeline: MAPLE_PANO_MODELS not set — skipping candidate gates"
+  echo "test_pano_pipeline: (the ML detector/matcher needs the SHA-pinned models;"
+  echo "test_pano_pipeline:  see maple-pano/models.toml. CI without models is a"
+  echo "test_pano_pipeline:  soft pass, mirroring the fixtures skip.)"
+  exit 0
 fi
 
 if ! "$MAPLE_CLI" pano --help >/dev/null 2>&1; then
@@ -346,7 +358,8 @@ with open(budgets_path) as f:
 CASE_LABEL = "stitch"
 # Keys a budget entry may gate on. horizon_tilt_deg gates on |value|.
 GATE_KEYS = ("rmse", "seam_energy", "wrap_closure_px",
-             "mean_reproj_px", "max_reproj_px", "horizon_tilt_deg")
+             "mean_reproj_px", "max_reproj_px", "horizon_tilt_deg",
+             "dropped_frames")
 ABS_KEYS = {"horizon_tilt_deg"}
 
 
@@ -398,6 +411,7 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
         "mean_reproj_px": rep.get("mean_reproj_px") if rep.get("available") else None,
         "max_reproj_px": rep.get("max_reproj_px") if rep.get("available") else None,
         "horizon_tilt_deg": rep.get("horizon_tilt_deg") if rep.get("available") else None,
+        "dropped_frames": rep.get("dropped_frames") if rep.get("available") else None,
     }
 
     bud = budgets.get(name, {}).get(CASE_LABEL)
