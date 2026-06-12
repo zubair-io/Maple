@@ -78,15 +78,6 @@ impl WhiteLevels {
     }
 }
 
-/// Sensor active-area trim: a rectangle in raw-pixel coordinates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Crop {
-    pub x: u32,
-    pub y: u32,
-    pub w: u32,
-    pub h: u32,
-}
-
 /// A value bucketed by an inclusive ISO range. If multiple buckets match a
 /// given ISO at lookup time, the first one wins (RT's camconst.json is
 /// written so that the first match is the intended one).
@@ -96,8 +87,8 @@ pub struct IsoBucket<T: Copy> {
     pub value: T,
 }
 
-/// Full linearization data for one body: black-level buckets, white-level
-/// buckets, active-area crop, and optional masked-area rectangles.
+/// Full linearization data for one body: black-level buckets and
+/// white-level buckets, each bucketed by ISO range.
 ///
 /// Slices (`&'static`) are used throughout because the table is a
 /// compile-time constant; no heap allocation is involved.
@@ -105,8 +96,6 @@ pub struct IsoBucket<T: Copy> {
 pub struct Linearization {
     pub black: &'static [IsoBucket<BlackLevels>],
     pub white: &'static [IsoBucket<WhiteLevels>],
-    pub raw_crop: Option<Crop>,
-    pub masked_areas: &'static [Crop],
 }
 
 impl Linearization {
@@ -195,8 +184,6 @@ mod tests {
                 IsoBucket { iso_range: (100, 200), value: WhiteLevels::Single(15000) },
                 IsoBucket { iso_range: (100, 400), value: WhiteLevels::Single(14000) },
             ],
-            raw_crop: None,
-            masked_areas: &[],
         };
         // First-match wins for overlapping ranges.
         assert_eq!(lin.white_for_iso(150), Some(WhiteLevels::Single(15000)));

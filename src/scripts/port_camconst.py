@@ -110,7 +110,7 @@ def strip_json_comments(text: str) -> str:
     return "".join(out)
 
 
-# ─── Extraction: ranges / raw_crop / masked_areas ───────────────────────
+# ─── Extraction: ranges ─────────────────────────────────────────────────
 
 @dataclass
 class Bucket:
@@ -121,20 +121,11 @@ class Bucket:
     source_iso_field: object = None  # For attribution.
 
 @dataclass
-class Crop:
-    x: int
-    y: int
-    w: int
-    h: int
-
-@dataclass
 class Body:
     make: str
     model: str
     black: list[Bucket] = field(default_factory=list)
     white: list[Bucket] = field(default_factory=list)
-    raw_crop: Crop | None = None
-    masked_areas: list[Crop] = field(default_factory=list)
     source_snippet: str = ""     # Truncated pretty-printed JSON for citation.
     skipped_notes: list[str] = field(default_factory=list)
 
@@ -204,65 +195,6 @@ def _parse_ranges_field(ranges: dict, key: str) -> list[Bucket]:
     return []
 
 
-def _parse_crop_field(v: object) -> tuple[Crop | None, list[str]]:
-    """Parse the raw_crop field. Returns (crop, notes). We only handle the
-    simple [x, y, w, h] form; the multi-aspect variant is recorded in notes
-    and skipped.
-    """
-    notes: list[str] = []
-    if v is None:
-        return (None, notes)
-    if isinstance(v, list) and len(v) == 4 and all(isinstance(x, (int, float)) for x in v):
-        x, y, w, h = [int(k) for k in v]
-        # RT's convention allows negative w/h to mean "cut from right/bottom".
-        # We skip these rather than guess sensor dimensions.
-        if w <= 0 or h <= 0:
-            notes.append(f"skipped raw_crop with non-positive w/h: {v!r}")
-            return (None, notes)
-        return (Crop(x=x, y=y, w=w, h=h), notes)
-    # Multi-aspect { "frame": [...], "crop": [...] }
-    if isinstance(v, list) and v and isinstance(v[0], dict):
-        notes.append("skipped raw_crop multi-aspect variant (not supported)")
-        return (None, notes)
-    notes.append(f"skipped raw_crop of unrecognized shape: {type(v).__name__}")
-    return (None, notes)
-
-
-def _parse_masked_areas_field(v: object) -> tuple[list[Crop], list[str]]:
-    """Parse the masked_areas field. Returns (crops, notes). We accept the
-    flat tetrads form (4 or 8 ints); skip the multi-aspect variant.
-
-    Note RT's semantics for masked_areas are ABSOLUTE edge coordinates:
-      [top, left, bottom, right] — we preserve them as (x=left, y=top,
-       w=right-left, h=bottom-top) for uniformity with Crop.
-    """
-    notes: list[str] = []
-    if v is None:
-        return ([], notes)
-    if isinstance(v, list) and v and isinstance(v[0], dict):
-        notes.append("skipped masked_areas multi-aspect variant")
-        return ([], notes)
-    if isinstance(v, list) and all(isinstance(x, (int, float)) for x in v):
-        if len(v) % 4 != 0:
-            notes.append(f"skipped masked_areas with wrong arity {len(v)}")
-            return ([], notes)
-        out: list[Crop] = []
-        for i in range(0, len(v), 4):
-            top, left, bottom, right = [int(v[i + j]) for j in range(4)]
-            w = right - left
-            h = bottom - top
-            if w <= 0 or h <= 0:
-                notes.append(
-                    f"skipped degenerate masked_area (top={top}, left={left}, "
-                    f"bottom={bottom}, right={right})"
-                )
-                continue
-            out.append(Crop(x=left, y=top, w=w, h=h))
-        return (out, notes)
-    notes.append(f"skipped masked_areas of unrecognized shape: {type(v).__name__}")
-    return ([], notes)
-
-
 def _entry_matches(entry: dict, target_model: str) -> bool:
     mm = entry.get("make_model")
     tlo = target_model.lower()
@@ -283,18 +215,6 @@ def extract(doc: dict, target_make: str, target_model: str) -> Body | None:
         ranges = entry.get("ranges", {}) or {}
         body.black = _parse_ranges_field(ranges, "black")
         body.white = _parse_ranges_field(ranges, "white")
-
-        raw_crop = entry.get("raw_crop")
-        if raw_crop is not None:
-            crop, notes = _parse_crop_field(raw_crop)
-            body.raw_crop = crop
-            body.skipped_notes.extend(notes)
-
-        masked = entry.get("masked_areas")
-        if masked is not None:
-            crops, notes = _parse_masked_areas_field(masked)
-            body.masked_areas = crops
-            body.skipped_notes.extend(notes)
 
         return body
     return None
@@ -320,7 +240,7 @@ RUST_HEADER = """// SPDX-License-Identifier: GPL-3.0-or-later
 // ****************************************************************************
 
 #[allow(unused_imports)]
-use super::{{BlackLevels, Crop, IsoBucket, Linearization, WhiteLevels}};
+use super::{{BlackLevels, IsoBucket, Linearization, WhiteLevels}};
 
 #[allow(clippy::type_complexity)]
 pub(super) struct CamconstEntry {{
@@ -372,10 +292,6 @@ def _render_iso_bucket(prefix: str, b: Bucket, render_levels) -> str:
     )
 
 
-def _render_crop(c: Crop) -> str:
-    return f"Crop {{ x: {c.x}, y: {c.y}, w: {c.w}, h: {c.h} }}"
-
-
 def render_rust(bodies: list[Body], rt_version: str, src_path: Path) -> str:
     out: list[str] = [RUST_HEADER.format(rt_version=rt_version, src_path=src_path)]
     out.append(
@@ -418,21 +334,6 @@ def render_rust(bodies: list[Body], rt_version: str, src_path: Path) -> str:
             out.append("            ],\n")
         else:
             out.append("            white: &[],\n")
-        # raw_crop
-        if body.raw_crop is not None:
-            out.append(
-                f"            raw_crop: Some({_render_crop(body.raw_crop)}),\n"
-            )
-        else:
-            out.append("            raw_crop: None,\n")
-        # masked_areas
-        if body.masked_areas:
-            out.append("            masked_areas: &[\n")
-            for c in body.masked_areas:
-                out.append(f"                {_render_crop(c)},\n")
-            out.append("            ],\n")
-        else:
-            out.append("            masked_areas: &[],\n")
         out.append("        },\n")
         out.append("    },\n\n")
     out.append("];\n")
@@ -538,9 +439,7 @@ def main() -> int:
         blackLen = len(body.black)
         print(
             f"  ✓ {body.make} · {body.model} "
-            f"(black={blackLen} bucket(s), white={whiteLen} bucket(s), "
-            f"raw_crop={'yes' if body.raw_crop else 'no'}, "
-            f"masked_areas={len(body.masked_areas)})"
+            f"(black={blackLen} bucket(s), white={whiteLen} bucket(s))"
         )
         for note in body.skipped_notes:
             print(f"      note: {note}")
