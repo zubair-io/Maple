@@ -132,6 +132,10 @@ public final class SearchViewModel {
       }
     } catch {
       _ = try? await facetResp
+      // A debounced keystroke cancels the prior in-flight request — swallow
+      // silently and leave the current results in place; the newer search is
+      // already on its way. Showing a "cancelled" banner would be wrong.
+      if Self.isCancellation(error) { return }
       guard g == generation else { return }
       loadError = error
       results = []
@@ -182,9 +186,19 @@ public final class SearchViewModel {
       results.append(contentsOf: resp.results)
       total = resp.total
     } catch {
+      if Self.isCancellation(error) { return }
       guard g == generation else { return }
       loadError = error
     }
+  }
+
+  /// True when `error` is a request/task cancellation (debounce superseded
+  /// this search) rather than a genuine network/decode failure.
+  static func isCancellation(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+    let ns = error as NSError
+    return ns.domain == NSURLErrorDomain && ns.code == NSURLErrorCancelled
   }
 
   /// Reset every structured filter (keeping the free-text query + sort)
