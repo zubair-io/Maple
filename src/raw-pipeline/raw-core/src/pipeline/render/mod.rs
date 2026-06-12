@@ -19,7 +19,7 @@ use crate::{
     image::{apply_orientation, ColorSpace, Image, RawImage},
     stages::{clarity, dehaze, grain, noise_reduction, saturation, sharpen, split_tone, texture, vibrance, vignette},
     types::adjustment::{AutoExposureMode, Profile},
-    view::{agx, auto_profile, encode, look},
+    view::{agx, auto_profile, encode},
     xmp::AdjustmentModel,
 };
 
@@ -270,18 +270,12 @@ fn render_display_from_raw(
             );
         });
     }
-    // DisplayLookCurve (#371) — empirical per-channel LUT that closes
-    // ~65% of the bias-to-ACR gap. Pre-#519 it ran as a `u8 → u8`
-    // nearest lookup AFTER dither + quantize, which collapsed multiple
-    // input codes onto one output code wherever LUT slope ≠ 1 and
-    // reintroduced histogram gaps (visible banding). #519 moves the
-    // sampling into f32 sRGB-encoded space with linear interpolation
-    // between adjacent table entries — the dither below now controls
-    // the only quantisation step in the chain.
-    stage("look", || {
-        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-        look::apply(pixels, model.look);
-    });
+    // The DisplayLookCurve (#371) used to shape pixels here; #443 retired
+    // the static Look LUT and the Auto Profile stage (`view::auto_profile`,
+    // applied above) now owns per-image view-shaping. The `Look` enum
+    // survives only for XMP back-compat (legacy `papp:Look` migrates to
+    // `papp:Profile`), so there is no per-pixel Look pass — dither +
+    // quantize is the only remaining step in the chain.
     let bytes = stage("dither_and_quantize", || {
         encode::dither_and_quantize(&mut scene)
     });
@@ -348,11 +342,8 @@ pub fn render_from_scene_linear(
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
     stage("synth_srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    // See `render_from_raw_with_quality` for the #519 ordering rationale.
-    stage("synth_look", || {
-        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-        look::apply(pixels, model.look);
-    });
+    // No per-pixel Look pass — #443 retired the static Look LUT (see
+    // `render_from_raw_with_quality`); Auto Profile owns view-shaping.
     let bytes = stage("synth_dither_and_quantize", || {
         encode::dither_and_quantize(&mut scene)
     });
@@ -439,11 +430,8 @@ pub fn render_from_scene_linear_with_chain(
     dump_after("17_srgb_linear", &scene);
     let (w, h) = (scene.width, scene.height);
     stage("synth_srgb_gamma_encode", || encode::srgb_gamma_encode(&mut scene));
-    // See `render_from_raw_with_quality` for the #519 ordering rationale.
-    stage("synth_look", || {
-        let pixels: &mut [f32] = bytemuck::cast_slice_mut(&mut scene.pixels);
-        look::apply(pixels, model.look);
-    });
+    // No per-pixel Look pass — #443 retired the static Look LUT (see
+    // `render_from_raw_with_quality`); Auto Profile owns view-shaping.
     let bytes = stage("synth_dither_and_quantize", || {
         encode::dither_and_quantize(&mut scene)
     });
