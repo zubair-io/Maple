@@ -32,6 +32,7 @@ import { applyEnrichmentConfig } from '../enrichment/bootstrap.ts';
 import { applyDescribeConfig } from '../enrichment/describe-bootstrap.ts';
 import { NominatimClient, NominatimError } from '../enrichment/nominatim-client.ts';
 import { getFaceModelsStatus, probeFaceModelFiles } from '../enrichment/face-models.ts';
+import { readWorkerStatus } from '../workers/worker-status.repo.ts';
 import { RemoteError, getDescribeProvider } from '../enrichment/describe-providers/index.ts';
 import {
   createMeilisearchClient,
@@ -147,8 +148,14 @@ export const enrichmentRoutes = new Elysia({ prefix: '/api/enrichment' })
     // (idle / downloading / loaded / error) with a disk probe so the
     // operator can see "files ready, will load on enable" vs. "missing,
     // will auto-download". Powers the status pill on the face card.
+    //
+    // The ONNX sessions load in the WORKER process, not here, so this
+    // process's in-process `getFaceModelsStatus()` is permanently `idle`.
+    // Prefer the status the worker mirrors into the `worker_status` doc; fall
+    // back to the in-process loader for the collocated/test path where the
+    // load runs in this same process.
     const probe = probeFaceModelFiles(resolved.face_model_dir);
-    const status = getFaceModelsStatus();
+    const status = (await readWorkerStatus())?.face_models ?? getFaceModelsStatus();
     return {
       ...toPublicConfig(resolved),
       face_models: {
