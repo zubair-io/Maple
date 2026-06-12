@@ -794,12 +794,23 @@ fn profile_from_embedded(
     let (illum, cm) = entries[0];
     let fm = raw.forward_matrices.get(&illum).copied();
     // Prefer the HSM keyed to this CM's illuminant; fall back to any HSM
-    // present (some DNGs ship only one HSM alongside a single CM).
-    let hsm = raw
-        .hsm_data
-        .get(&illum)
-        .cloned()
-        .or_else(|| raw.hsm_data.values().next().cloned());
+    // present (some DNGs ship only one HSM alongside a single CM). The
+    // fallback picks the lowest-CCT ("coldest") HSM rather than
+    // `values().next()` — HashMap iteration order is randomised per run, so
+    // taking the first arbitrary value would make the chosen profile (and
+    // thus the rendered pixels) non-deterministic when several HSM tables
+    // are present but none matches the CM's illuminant. Sorting by CCT
+    // mirrors the cold/warm convention used for the CM pair above.
+    let hsm = raw.hsm_data.get(&illum).cloned().or_else(|| {
+        raw.hsm_data
+            .iter()
+            .min_by(|a, b| {
+                a.0.cct()
+                    .partial_cmp(&b.0.cct())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(_, table)| table.clone())
+    });
     let profile = single_illuminant_profile(cm, illum, fm, hsm, raw.as_shot_neutral, wb_already_baked);
     Some((profile, illum))
 }
