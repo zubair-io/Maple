@@ -498,11 +498,18 @@ fn stitch_set(
     // dims, EXIF-native focal) — solved cameras feed compositing as-is.
     // Move images out of `frames` (which is not used afterwards) instead of
     // cloning to avoid doubling peak memory for large panorama sets.
-    let kept: Vec<(PlanarImage, Camera)> = frames
-        .into_iter()
-        .zip(&solution.cameras)
-        .filter_map(|(f, cam)| cam.as_ref().map(|c| (f.image, c.clone())))
-        .collect();
+    // Build kept frames + cameras + matching local corrections in one pass so
+    // indices stay aligned. solution.local_corrections is parallel to the full
+    // input list; None for dropped frames (same as solution.cameras).
+    let (kept, kept_local): (Vec<(PlanarImage, Camera)>, Vec<Option<maple_pano::local_align::LocalCorrection>>) =
+        frames
+            .into_iter()
+            .zip(&solution.cameras)
+            .zip(&solution.local_corrections)
+            .filter_map(|((f, cam), lc)| {
+                cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone()))
+            })
+            .unzip();
     if kept.len() < 2 {
         return Err(format!(
             "only {} frame(s) survived the solve — nothing to composite \
@@ -524,6 +531,7 @@ fn stitch_set(
             },
             ..Default::default()
         },
+        &kept_local,
     )
     .map_err(|e| e.to_string())?;
     let composite_s = t_comp.elapsed().as_secs_f64();
