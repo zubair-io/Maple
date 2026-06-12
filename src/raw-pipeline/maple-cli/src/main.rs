@@ -56,6 +56,12 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = ProfileChoice::Xmp)]
         profile: ProfileChoice,
     },
+    /// Panorama stitching (requires the `pano` build feature).
+    #[cfg(feature = "pano")]
+    Pano {
+        #[command(subcommand)]
+        cmd: commands::pano::PanoCmd,
+    },
     /// Render every case in a JSON manifest.
     Batch {
         #[arg(long)]
@@ -245,9 +251,7 @@ fn main() -> ExitCode {
             &out,
             &quality,
         )),
-        Cmd::ExtractPreview { raw, out } => {
-            run_or_exit(commands::extract_preview::run(&raw, &out))
-        }
+        Cmd::ExtractPreview { raw, out } => run_or_exit(commands::extract_preview::run(&raw, &out)),
         Cmd::AutoTone { raw } => run_or_exit(commands::auto_tone::run(&raw)),
         Cmd::Synthetic {
             kind,
@@ -266,8 +270,16 @@ fn main() -> ExitCode {
             height,
             params.as_deref(),
         )),
-        Cmd::TranscodeDcp { src, out, out_pool } => run_or_exit(
-            commands::transcode_dcp::run(&src, &out, out_pool.as_deref()),
+        Cmd::TranscodeDcp { src, out, out_pool } => run_or_exit(commands::transcode_dcp::run(
+            &src,
+            &out,
+            out_pool.as_deref(),
+        )),
+        #[cfg(feature = "pano")]
+        Cmd::Pano { cmd } => run_or_exit(
+            commands::pano::run(cmd)
+                .map(|()| 0)
+                .map_err(|e| -> Box<dyn std::error::Error> { e.into() }),
         ),
     }
 }

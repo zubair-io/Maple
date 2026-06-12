@@ -17,3 +17,6 @@ pub mod synthetic;
 pub mod tile;
 pub mod transcode_dcp;
 pub mod types;
+
+#[cfg(feature = "pano")]
+pub mod pano;

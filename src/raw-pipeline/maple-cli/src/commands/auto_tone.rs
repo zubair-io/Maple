@@ -28,12 +28,7 @@ pub fn run(raw_path: &Path) -> Result<i32, Box<dyn std::error::Error>> {
     let model = xmp::AdjustmentModel::default();
     let (w, h, rgba) =
         render_scene_linear_from_raw_with_quality_f32(&raw, &model, RenderQuality::Full)?;
-    let t = auto_tone_stage::compute_auto_tone_from_rgba(
-        &rgba,
-        w as usize,
-        h as usize,
-        0.005,
-    );
+    let t = auto_tone_stage::compute_auto_tone_from_rgba(&rgba, w as usize, h as usize, 0.005);
     // Use {:?} on f32 so `0.0` round-trips through `serde_json::from_str`
     // as a plain number (it's the same Display path the default formatter
     // takes, but `{:?}` guarantees a decimal point so the JSON parser
