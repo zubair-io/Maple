@@ -197,6 +197,8 @@ fn book_reports_surviving_flagged_frames_only() {
         dropped: vec![],
         mean_reproj_px: 0.0,
         max_reproj_px: 0.0,
+        mean_reproj_before_local_px: 0.0,
+        max_reproj_before_local_px: 0.0,
         lm_iterations: 0,
         final_cost: 0.0,
         converged: true,
@@ -204,6 +206,8 @@ fn book_reports_surviving_flagged_frames_only() {
         pruned_matches: 0,
         motion_affected: vec![],
         motion_pruned_matches: vec![],
+        local_corrections: vec![None; 5],
+        local_correction_rms: vec![0.0; 5],
     };
     let cam = crate::camera::Camera::new([0.0; 3], 500.0, 0.0, 0.0, 640, 480);
     solution.cameras[1] = Some(cam); // round_active[0] = global 1

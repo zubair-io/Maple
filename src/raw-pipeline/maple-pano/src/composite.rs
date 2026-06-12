@@ -20,6 +20,7 @@ use crate::canvas::{auto_canvas, CanvasOptions, CanvasSpec};
 use crate::error::PanoError;
 use crate::gain::{solve_gains, GainOptions};
 use crate::ingest::PlanarImage;
+use crate::local_align::LocalCorrection;
 use crate::project::Projection;
 use crate::warp::warp_to_canvas;
 
@@ -50,10 +51,16 @@ pub struct CompositeReport {
 /// `frames[i]` corresponds to `cameras[i]` (the BA output poses with
 /// per-frame focals where freed). Frames whose camera is `None` in the
 /// caller's bookkeeping should simply not be passed in.
+///
+/// `local_corrections`: optional per-frame stage-F alignment corrections
+/// (#1218, spec §8).  When present, `local_corrections[i]` is applied to
+/// `frames[i]` in a single resample — no extra pass.  Pass an empty slice
+/// or a slice of `None`s to skip alignment.
 pub fn composite(
     frames: &[PlanarImage],
     cameras: &[Camera],
     opts: &CompositeOptions,
+    local_corrections: &[Option<LocalCorrection>],
 ) -> Result<(PlanarImage, CompositeReport), PanoError> {
     if frames.len() != cameras.len() {
         return Err(PanoError::InvalidOptions(format!(
@@ -75,7 +82,11 @@ pub fn composite(
         .iter()
         .zip(cameras)
         .zip(&gains)
-        .map(|((f, c), &g)| warp_to_canvas(f, c, &canvas, g))
+        .enumerate()
+        .map(|(i, ((f, c), &g))| {
+            let la = local_corrections.get(i).and_then(|opt| opt.as_ref());
+            warp_to_canvas(f, c, &canvas, g, la)
+        })
         .collect();
 
     let (masks, min_overlap) = voronoi_masks(&layers, cameras, &canvas);
