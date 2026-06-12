@@ -407,9 +407,7 @@ export interface DropLegacyLocationFieldsResult {
   cleared: number;
 }
 
-export async function dropLegacyLocationFields(
-  db: Db,
-): Promise<DropLegacyLocationFieldsResult> {
+export async function dropLegacyLocationFields(db: Db): Promise<DropLegacyLocationFieldsResult> {
   const res = await db.collection('assets').updateMany(
     {
       // Require a primary fileinfo entry (non-empty array). `fileinfo.0`
