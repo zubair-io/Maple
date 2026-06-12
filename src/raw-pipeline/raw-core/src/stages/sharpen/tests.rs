@@ -99,6 +99,110 @@ fn apply_broken_per_channel(
     }
 }
 
+/// Reference for the PRE-#1089 two-sweep form: a full `observed` clone + a
+/// full `sharpened` buffer, USM scale built in one serial sweep, the edge mix
+/// applied in a second sweep reading both. This is the EXACT arithmetic the
+/// fused single-pass `apply` replaced. Not called by production code.
+fn apply_two_sweep_reference(img: &mut Image, amount: f32, radius: f32, detail: f32, masking: f32) {
+    img.assert_space(ColorSpace::SceneLinearRec2020);
+    if amount.abs() < 1e-3 { return; }
+    let sigma = radius.clamp(0.5, 3.0);
+    let (w, h) = (img.width as i32, img.height as i32);
+    let (wu, hu) = (img.width as usize, img.height as usize);
+
+    let luma: Vec<f32> = img.pixels.iter()
+        .map(|p| LUMA_R * p[0] + LUMA_G * p[1] + LUMA_B * p[2])
+        .collect();
+    let luma_blur = gaussian_blur_plane_sigma(&luma, wu, hu, sigma);
+
+    // Sweep 1: USM scale into a dedicated buffer, off an observed clone.
+    let observed = img.pixels.clone();
+    let mut sharpened: Vec<[f32; 3]> = vec![[0.0; 3]; img.pixels.len()];
+    for i in 0..img.pixels.len() {
+        let (o, li, lb) = (observed[i], luma[i], luma_blur[i]);
+        let lo = li + (li - lb);
+        let weight = smoothstep(SHADOW_EPSILON, SHADOW_BAND * SHADOW_EPSILON, li);
+        let bounded = (lo / li.max(SHADOW_EPSILON)).clamp(MIN_SCALE, MAX_SCALE);
+        let scale = 1.0 + weight * (bounded - 1.0);
+        sharpened[i] = [o[0] * scale, o[1] * scale, o[2] * scale];
+    }
+
+    // Sweep 2: edge-aware mix.
+    let overall_mix = (amount / 100.0).clamp(0.0, 1.5);
+    let detail_atten = (detail / 100.0).clamp(0.0, 1.0);
+    let masking_threshold = (masking / 100.0).clamp(0.0, 1.0);
+    let gradient = |x: i32, y: i32| -> f32 {
+        let idx = |xi: i32, yi: i32| (yi.clamp(0, h - 1) as usize) * wu + xi.clamp(0, w - 1) as usize;
+        let gx = luma[idx(x + 1, y)] - luma[idx(x - 1, y)];
+        let gy = luma[idx(x, y + 1)] - luma[idx(x, y - 1)];
+        (gx * gx + gy * gy).sqrt()
+    };
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) as usize;
+            let edge = if masking_threshold > 1e-3 {
+                let g_norm = (gradient(x, y) / 0.2).clamp(0.0, 1.0);
+                if g_norm >= masking_threshold { 1.0 } else { detail_atten }
+            } else {
+                1.0
+            };
+            let mix = overall_mix * edge;
+            let (o, s) = (observed[i], sharpened[i]);
+            img.pixels[i] = [
+                o[0] + (s[0] - o[0]) * mix,
+                o[1] + (s[1] - o[1]) * mix,
+                o[2] + (s[2] - o[2]) * mix,
+            ];
+        }
+    }
+}
+
+/// #1089 bit-identity gate: the fused single-pass `apply` must reproduce the
+/// pre-#1089 two-sweep reference to the LAST BIT, across slider corners that
+/// exercise every branch — masking on/off (the `gradient` path), amount
+/// below/at/above 100, several radii, detail=0. A textured field (ramp +
+/// impulse + coloured patch + deep-shadow pixel) keeps the USM scale, the
+/// shadow guard and the edge mix all live. Equality is on the raw `f32` bit
+/// patterns, so a single-ULP reordering would fail here.
+#[test]
+fn fused_is_bit_identical_to_two_sweep_reference() {
+    let (w, h) = (37u32, 23u32); // odd dims → the last par_chunks row is a partial tail
+    let mut base = Image::new(w, h, ColorSpace::SceneLinearRec2020);
+    for y in 0..h as usize {
+        for x in 0..w as usize {
+            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+            base.pixels[y * w as usize + x] = [0.05 + 0.9 * fx, 0.05 + 0.9 * fy, 0.05 + 0.9 * fx * fy];
+        }
+    }
+    base.pixels[(h / 2 * w + w / 2) as usize] = [3.0, 3.0, 3.0]; // impulse → scale clamp
+    base.pixels[(2 * w + 2) as usize] = [0.02, 0.6, 0.4]; // coloured patch
+    base.pixels[(5 * w + 5) as usize] = [5e-5, 5e-5, 5e-5]; // deep shadow → guard ramp
+
+    let cases: &[(f32, f32, f32, f32)] = &[
+        (100.0, 1.0, 25.0, 0.0),  // canonical, masking off
+        (100.0, 1.0, 25.0, 60.0), // masking on → gradient path live
+        (60.0, 0.5, 40.0, 30.0),  // amount<100, narrow radius, masking on
+        (130.0, 3.0, 10.0, 80.0), // amount>100, wide radius, masking on
+        (40.0, 2.0, 0.0, 0.0),    // amount<100, masking off, detail=0
+    ];
+    for &(amount, radius, detail, masking) in cases {
+        let mut fused = base.clone();
+        apply(&mut fused, amount, radius, detail, masking);
+        let mut reference = base.clone();
+        apply_two_sweep_reference(&mut reference, amount, radius, detail, masking);
+        for (i, (a, b)) in fused.pixels.iter().zip(reference.pixels.iter()).enumerate() {
+            for c in 0..3 {
+                assert_eq!(
+                    a[c].to_bits(), b[c].to_bits(),
+                    "pixel {i} ch {c} differs (a={} b={}) @ amount={amount} radius={radius} \
+                     detail={detail} masking={masking}",
+                    a[c], b[c],
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn amount_zero_is_identity() {
     let mut img = Image::new(10, 10, ColorSpace::SceneLinearRec2020);
