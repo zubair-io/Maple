@@ -93,7 +93,7 @@ const MAX_SIGMA_PX_STAGE: f32 = MAX_GAUSSIAN_SIGMA_PX;
 /// Non-cancellable wrapper — forwards to [`apply_capture_sharpening_cancellable`]
 /// with a never-cancel token. A never-cancel token never touches the atomic and
 /// never reorders the pixel math, so this is **bit-identical** to the pre-#1089
-/// serial stage (verified in `tests::never_cancel_matches_serial_reference` and
+/// serial stage (verified in `cancel_tests::never_cancel_is_bit_identical` and
 /// the `RAYON_NUM_THREADS=1` byte-identity test).
 pub fn apply_capture_sharpening(image: &mut Image, params: &CaptureSharpeningParams) {
     // The never-cancel variant can only return `Ok(())` — the early-bail
@@ -143,6 +143,7 @@ pub fn apply_capture_sharpening_cancellable(
 
     let w = image.width as usize;
     let h = image.height as usize;
+    if w == 0 || h == 0 { return Ok(()); }
     let n = w * h;
 
     // Extract luminance. Per-pixel independent → parallel over rows. The dot
