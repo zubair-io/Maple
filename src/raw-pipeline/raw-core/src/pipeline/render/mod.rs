@@ -135,7 +135,12 @@ fn render_display_from_raw(
     // extraction probe — whose decoded preview is now RETAINED and threaded
     // through both fits (#1085 perf companion: pre-fix the probe's full JPEG
     // decode was discarded and each fit re-extracted, 3× total).
-    let auto_cache_key = if model.profile == Profile::Auto {
+    // `MAPLE_DISABLE_AUTO_PROFILE` — when set, the entire Auto Profile system
+    // (cache lookup, preview extraction, will-fit probe) is bypassed. Any stale
+    // cached value is intentionally ignored so disabled mode cannot leak through.
+    let auto_profile_disabled =
+        std::env::var_os("MAPLE_DISABLE_AUTO_PROFILE").is_some();
+    let auto_cache_key = if !auto_profile_disabled && model.profile == Profile::Auto {
         match &raw_source {
             Some(RawInput::Path(p)) => auto_profile::cache::CacheKey::from_path(p),
             Some(RawInput::Bytes { bytes, .. }) => {
@@ -151,7 +156,10 @@ fn render_display_from_raw(
         .and_then(auto_profile::cache::get_lut);
     let cached_curve = auto_cache_key.as_ref().and_then(auto_profile::cache::get);
     let preview =
-        if model.profile == Profile::Auto && (cached_curve.is_none() || cached_lut.is_none()) {
+        if !auto_profile_disabled
+            && model.profile == Profile::Auto
+            && (cached_curve.is_none() || cached_lut.is_none())
+        {
             match &raw_source {
                 Some(RawInput::Path(p)) => auto_profile::preview::extract_for_fit(p),
                 Some(RawInput::Bytes { bytes, ext }) => {
