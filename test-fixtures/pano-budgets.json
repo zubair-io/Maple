@@ -1,11 +1,14 @@
 {
-  "_comment": "Per-set \u00d7 per-case ceilings over pano_metrics.py outputs (test_pano_pipeline.sh). One-way ratchet: ceilings only go DOWN. UNLIKE the color harness's observed+10% seeding, the entries below are the spec/product TARGETS (stitching spec \u00a75.3/\u00a77; product P0-2/P0-3: zero dropped frames on well-shot sets, mean \u2264 1.5 px, max \u2264 6 px, horizon \u2264 0.3\u00b0) \u2014 committed RED by design (2026-06-11): real DJI frames carry WarpRectilinear + GainMap opcodes that ingest does not yet apply (#1159), which inflates residuals and forces drops. The gates stay red until the pipeline earns them; do not relax them to pass.",
+  "_comment": "Per-set × per-case budgets over pano_metrics.py outputs (test_pano_pipeline.sh). One-way ratchet: ceilings only go DOWN; the coverage FLOOR only goes UP (it gates BELOW-budget — more coverage is better). UNLIKE the color harness's observed+10% seeding, the entries below are the spec/product TARGETS (stitching spec §5.3/§7; product P0-2/P0-3: zero dropped frames on well-shot sets, mean ≤ 1.5 px, max ≤ 6 px, horizon ≤ 0.3°) — committed RED by design: frames the rotation model cannot yet hold (parallax floor, see #1212 and the local-alignment work) are still dropped, which empties canvas sectors. The render-completeness keys (coverage/rmse/seam_energy, added 2026-06-12) encode the demonstrated all-21 render of pano_01 (#1213 geometry, gate-relaxed operator run: coverage 0.929, rmse 0.2027, seam 8.86e-4) so a half-empty canvas can never again score as 'green except a frame count'. The gates stay red until the pipeline earns them; do not relax them to pass.",
   "version": 1,
   "fixtures": {
     "pano_01": {
       "stitch": {
-        "_comment": "Well-shot 21-frame DJI gimbal sweep with reference. The acceptance set.",
+        "_comment": "Well-shot 21-frame DJI gimbal sweep with reference. The acceptance set. coverage/rmse/seam_energy bar = the demonstrated all-21 render (2026-06-12), floors/ceilings with ~3-10% slack.",
         "dropped_frames": 0,
+        "coverage": 0.9,
+        "rmse": 0.22,
+        "seam_energy": 0.00097,
         "mean_reproj_px": 1.5,
         "max_reproj_px": 6.0,
         "horizon_tilt_deg": 0.3
@@ -13,7 +16,7 @@
     },
     "pano_00": {
       "stitch": {
-        "_comment": "3-frame nadir set (frame 0001 missing from capture) \u2014 no reference, not horizon-gated (nadir), but spec residual gates and no-drops still apply.",
+        "_comment": "3-frame nadir set (frame 0001 missing from capture) — no reference (so no coverage/rmse keys), not horizon-gated (nadir), but spec residual gates and no-drops still apply.",
         "dropped_frames": 0,
         "mean_reproj_px": 1.5,
         "max_reproj_px": 6.0
