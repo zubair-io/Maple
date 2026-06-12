@@ -193,8 +193,8 @@ export function hiddenFaceCount(faces: readonly ApiPersonFace[], thresholdPercen
 
 /** Average detector confidence as percent (0-100, rounded). Returns 0
  * for an empty face list rather than NaN. Labelled honestly in the UI
- * ("avg detector confidence") — the API's `face.confidence` is
- * RetinaFace's face-likelihood score, NOT cluster-match similarity. */
+ * ("avg detector confidence") — the API's `face.confidence` is the
+ * SCRFD detector's face-likelihood score, NOT cluster-match similarity. */
 export function averageConfidence(faces: readonly ApiPersonFace[]): number {
   if (faces.length === 0) return 0;
   const sum = faces.reduce((acc, f) => acc + f.confidence, 0);

@@ -317,8 +317,11 @@
                     @case ('geocode') {
                       Geocode worker
                     }
-                    @case ('face') {
+                    @case ('face-detect') {
                       Face detection
+                    }
+                    @case ('face-embed') {
+                      Face recognition
                     }
                     @case ('meili') {
                       Search index
@@ -450,7 +453,7 @@
                     </div>
                   }
 
-                  @case ('face') {
+                  @case ('face-detect') {
                     @if (enrichmentConfig()?.face_models) {
                       <div
                         class="face-banner"
@@ -475,14 +478,12 @@
                           }}
                         </span>
                         <span class="banner-detail mono">
-                          retinaface.onnx ·
-                          {{ formatBytes(enrichmentConfig()!.face_models!.retinaface.bytes) }} ·
-                          mobilefacenet.onnx ·
-                          {{ formatBytes(enrichmentConfig()!.face_models!.mobilefacenet.bytes) }}
+                          scrfd_10g.onnx ·
+                          {{ formatBytes(enrichmentConfig()!.face_models!.detector.bytes) }}
                         </span>
                         <span class="banner-spacer"></span>
                         <span class="banner-path mono">{{
-                          enrichmentConfig()!.face_models!.retinaface.path
+                          enrichmentConfig()!.face_models!.detector.path
                         }}</span>
                       </div>
                     }
@@ -501,79 +502,113 @@
                           </div>
                         </div>
                         <div class="field-hint">
-                          Where the worker stages retinaface.onnx and mobilefacenet.onnx. Empty
-                          falls back to <span class="mono">~/.maple/models/</span>.
+                          Where the worker stages scrfd_10g.onnx and arcface_r100_glint360k.onnx.
+                          Empty falls back to <span class="mono">~/.maple/models/</span>.
                         </div>
                       </div>
                       <div class="field">
-                        <div class="field-label">RetinaFace download URL</div>
+                        <div class="field-label">Detector download URL</div>
                         <div class="text-input mono">
                           <div class="text-input-wrap">
                             <input
                               type="text"
-                              placeholder="https://example.com/retinaface.onnx"
-                              [value]="enrichmentValue(s, 'face_retinaface_url')"
+                              placeholder="https://example.com/scrfd_10g.onnx"
+                              [value]="enrichmentValue(s, 'face_detector_url')"
                               (input)="
-                                setEnrichment(s, 'face_retinaface_url', $any($event.target).value)
+                                setEnrichment(s, 'face_detector_url', $any($event.target).value)
                               "
                             />
                           </div>
                         </div>
                         <div class="field-hint">
-                          Used only when <span class="mono">retinaface.onnx</span> isn't already in
-                          the model dir.
+                          Used only when <span class="mono">scrfd_10g.onnx</span> isn't already in
+                          the model dir. Empty auto-downloads the InsightFace antelopev2 bundle.
                         </div>
                       </div>
                       <div class="field">
-                        <div class="field-label">RetinaFace sha256</div>
+                        <div class="field-label">Detector sha256</div>
                         <div class="text-input mono">
                           <div class="text-input-wrap">
                             <input
                               type="text"
                               placeholder="optional sha256 (hex)"
-                              [value]="enrichmentValue(s, 'face_retinaface_sha256')"
+                              [value]="enrichmentValue(s, 'face_detector_sha256')"
                               (input)="
-                                setEnrichment(
-                                  s,
-                                  'face_retinaface_sha256',
-                                  $any($event.target).value
-                                )
+                                setEnrichment(s, 'face_detector_sha256', $any($event.target).value)
                               "
                             />
                           </div>
                         </div>
                       </div>
+                    </div>
+                  }
+
+                  @case ('face-embed') {
+                    @if (enrichmentConfig()?.face_models) {
+                      <div
+                        class="face-banner"
+                        [class.warn]="enrichmentConfig()!.face_models!.status === 'error'"
+                      >
+                        <maple-settings-icon
+                          [name]="
+                            enrichmentConfig()!.face_models!.status === 'loaded' ? 'check' : 'x'
+                          "
+                          [size]="13"
+                          [color]="
+                            enrichmentConfig()!.face_models!.status === 'loaded'
+                              ? '#4ade80'
+                              : '#fbbf24'
+                          "
+                        />
+                        <span class="banner-status">
+                          {{
+                            enrichmentConfig()!.face_models!.status === 'loaded'
+                              ? 'Models loaded.'
+                              : 'Models not yet loaded.'
+                          }}
+                        </span>
+                        <span class="banner-detail mono">
+                          arcface_r100_glint360k.onnx ·
+                          {{ formatBytes(enrichmentConfig()!.face_models!.recognizer.bytes) }}
+                        </span>
+                        <span class="banner-spacer"></span>
+                        <span class="banner-path mono">{{
+                          enrichmentConfig()!.face_models!.recognizer.path
+                        }}</span>
+                      </div>
+                    }
+                    <div class="grid-2col">
                       <div class="field">
-                        <div class="field-label">MobileFaceNet download URL</div>
+                        <div class="field-label">Recognizer download URL</div>
                         <div class="text-input mono">
                           <div class="text-input-wrap">
                             <input
                               type="text"
-                              placeholder="https://example.com/mobilefacenet.onnx"
-                              [value]="enrichmentValue(s, 'face_mobilefacenet_url')"
+                              placeholder="https://example.com/arcface_r100_glint360k.onnx"
+                              [value]="enrichmentValue(s, 'face_recognizer_url')"
                               (input)="
-                                setEnrichment(
-                                  s,
-                                  'face_mobilefacenet_url',
-                                  $any($event.target).value
-                                )
+                                setEnrichment(s, 'face_recognizer_url', $any($event.target).value)
                               "
                             />
                           </div>
                         </div>
+                        <div class="field-hint">
+                          Used only when <span class="mono">arcface_r100_glint360k.onnx</span> isn't
+                          already in the model dir. Empty auto-downloads the antelopev2 bundle.
+                        </div>
                       </div>
                       <div class="field">
-                        <div class="field-label">MobileFaceNet sha256</div>
+                        <div class="field-label">Recognizer sha256</div>
                         <div class="text-input mono">
                           <div class="text-input-wrap">
                             <input
                               type="text"
                               placeholder="optional sha256 (hex)"
-                              [value]="enrichmentValue(s, 'face_mobilefacenet_sha256')"
+                              [value]="enrichmentValue(s, 'face_recognizer_sha256')"
                               (input)="
                                 setEnrichment(
                                   s,
-                                  'face_mobilefacenet_sha256',
+                                  'face_recognizer_sha256',
                                   $any($event.target).value
                                 )
                               "
