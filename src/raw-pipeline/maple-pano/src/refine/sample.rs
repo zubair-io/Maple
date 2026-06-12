@@ -49,25 +49,45 @@ pub(super) fn mean_ssd(values: &[f64]) -> (f64, f64) {
 /// leaves the exact-support domain or touches an invalid pixel — the
 /// caller falls back rather than matching against clamped/undefined
 /// content.
+/// `sample_luma_grid` writing into a caller-owned buffer (cleared
+/// first) — the refine hot loop runs per match, so per-call `Vec`
+/// allocation is measurable churn at tens of thousands of matches
+/// (PR #1213 review). `false` leaves `out` in an unspecified state.
+pub(super) fn sample_luma_grid_into(
+    img: &PlanarImage,
+    center: (f64, f64),
+    half: i64,
+    m: &[f64; 4],
+    out: &mut Vec<f64>,
+) -> bool {
+    let side = (2 * half + 1) as usize;
+    out.clear();
+    out.reserve(side * side);
+    for j in -half..=half {
+        let (fi0, fj) = (-half as f64, j as f64);
+        let mut x = center.0 + m[0] * fi0 + m[1] * fj;
+        let mut y = center.1 + m[2] * fi0 + m[3] * fj;
+        for _ in -half..=half {
+            let Some(v) = luma_bilinear(img, x, y) else {
+                return false;
+            };
+            out.push(v);
+            x += m[0];
+            y += m[2];
+        }
+    }
+    true
+}
+
+#[cfg(test)]
 pub(super) fn sample_luma_grid(
     img: &PlanarImage,
     center: (f64, f64),
     half: i64,
     m: &[f64; 4],
 ) -> Option<Vec<f64>> {
-    let side = (2 * half + 1) as usize;
-    let mut out = Vec::with_capacity(side * side);
-    for j in -half..=half {
-        let (fi0, fj) = (-half as f64, j as f64);
-        let mut x = center.0 + m[0] * fi0 + m[1] * fj;
-        let mut y = center.1 + m[2] * fi0 + m[3] * fj;
-        for _ in -half..=half {
-            out.push(luma_bilinear(img, x, y)?);
-            x += m[0];
-            y += m[2];
-        }
-    }
-    Some(out)
+    let mut out = Vec::new();
+    sample_luma_grid_into(img, center, half, m, &mut out).then_some(out)
 }
 
 /// Bilinear luma at a continuous pixel coordinate (texel centers at

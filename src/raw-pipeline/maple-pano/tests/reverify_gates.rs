@@ -92,7 +92,9 @@ fn reverify_reestimates_good_edges_and_drops_garbage_ones() {
         orphans: Vec::new(),
     };
 
-    let summary = graph.reverify(&images, &RobustOptions::default());
+    let summary = graph
+        .reverify(&images, &RobustOptions::default())
+        .expect("image list matches the graph");
 
     // The garbage edge is gone (reported, not silently dropped) and
     // connectivity reflects it.

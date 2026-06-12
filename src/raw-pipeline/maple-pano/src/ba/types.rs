@@ -163,10 +163,12 @@ pub struct BaSolution {
     /// motion-affected frames counts toward both).
     pub motion_pruned_matches: Vec<usize>,
     /// Per-frame local alignment corrections (#1218, spec §8): the
-    /// stage-F affine warps applied at composite time to absorb the
-    /// parallax floor. Indexed by global frame index; `None` for dropped
-    /// frames and for retained frames with zero contributing blocks.
-    /// `Some(identity)` is never stored — `None` means no correction.
+    /// stage-F bilinear mesh fields applied at composite time to absorb
+    /// the parallax floor. Indexed by global frame index; `None` for
+    /// dropped frames, for retained frames with zero contributing
+    /// blocks, and for frames whose fit came back identity (no signal,
+    /// or refused by the parallax envelope) — a stored correction
+    /// always moves at least one node.
     pub local_corrections: Vec<Option<LocalCorrection>>,
     /// Per-frame correction RMS magnitudes (px), parallel to
     /// `local_corrections` — logged in the stitch report for auditability.
