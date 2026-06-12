@@ -402,5 +402,115 @@ fn solve_dense(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     Some(x)
 }
 
+/// Solve per-frame gains from already-warped canvas-space layers.
+///
+/// For the tile strategy: frames are already on the canvas (warped),
+/// so overlap means are measured directly by comparing corresponding
+/// canvas pixels across frames. This avoids the camera → source
+/// reprojection that [`solve_gains`] performs in source space.
+///
+/// Returns a `Vec<[f32; 3]>` of per-channel gains parallel to `layers`.
+pub fn solve_gains_tile(
+    layers: &[PlanarImage],
+    opts: &GainOptions,
+) -> Result<Vec<[f32; 3]>, PanoError> {
+    let n = layers.len();
+    if n == 0 {
+        return Ok(vec![]);
+    }
+    if n == 1 {
+        return Ok(vec![[1.0, 1.0, 1.0]]);
+    }
+    if !(opts.sigma_n > 0.0 && opts.sigma_g > 0.0) || opts.sample_stride == 0 {
+        return Err(PanoError::InvalidOptions(
+            "solve_gains_tile: sigma_n, sigma_g and sample_stride must be positive".into(),
+        ));
+    }
+
+    let cw = layers[0].width() as usize;
+    let ch = layers[0].height() as usize;
+    let stride = opts.sample_stride as usize;
+
+    // Gather pairwise overlap stats in canvas space.
+    let stats: Vec<PairStats> = {
+        let mut v = Vec::new();
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let mut count = 0usize;
+                let mut sum_i = [0.0_f64; 3];
+                let mut sum_j = [0.0_f64; 3];
+                for ry in (0..ch).step_by(stride) {
+                    for rx in (0..cw).step_by(stride) {
+                        let idx = ry * cw + rx;
+                        if layers[i].validity.get(rx as u32, ry as u32)
+                            && layers[j].validity.get(rx as u32, ry as u32)
+                        {
+                            sum_i[0] += layers[i].r[idx] as f64;
+                            sum_i[1] += layers[i].g[idx] as f64;
+                            sum_i[2] += layers[i].b[idx] as f64;
+                            sum_j[0] += layers[j].r[idx] as f64;
+                            sum_j[1] += layers[j].g[idx] as f64;
+                            sum_j[2] += layers[j].b[idx] as f64;
+                            count += 1;
+                        }
+                    }
+                }
+                if count >= opts.min_overlap_samples.max(1) {
+                    v.push(PairStats {
+                        i,
+                        j,
+                        count,
+                        sum_i,
+                        sum_j,
+                    });
+                }
+            }
+        }
+        v
+    };
+
+    // Reuse the same linear-system build + solver as solve_gains.
+    let solves: &[&[usize]] = match opts.mode {
+        GainMode::Scalar => &[&[0, 1, 2]],
+        GainMode::PerChannel => &[&[0], &[1], &[2]],
+    };
+    let mut gains = vec![[1.0_f32; 3]; n];
+    for channels in solves {
+        let mut a = vec![vec![0.0_f64; n]; n];
+        let mut b = vec![0.0_f64; n];
+        let w_anchor = 1.0 / (opts.sigma_g * opts.sigma_g);
+        for i in 0..n {
+            a[i][i] += w_anchor;
+            b[i] += w_anchor;
+        }
+        for s in &stats {
+            let inv = 1.0 / (s.count as f64 * channels.len() as f64);
+            let mi: f64 = channels.iter().map(|&c| s.sum_i[c]).sum::<f64>() * inv;
+            let mj: f64 = channels.iter().map(|&c| s.sum_j[c]).sum::<f64>() * inv;
+            if !(mi.is_finite() && mj.is_finite()) || mi.abs() < 1e-9 || mj.abs() < 1e-9 {
+                continue;
+            }
+            let nf = s.count as f64;
+            let wd = nf / (opts.sigma_n * opts.sigma_n);
+            let wp = nf / (opts.sigma_g * opts.sigma_g);
+            a[s.i][s.i] += wd * mi * mi + wp;
+            a[s.j][s.j] += wd * mj * mj + wp;
+            a[s.i][s.j] -= wd * mi * mj;
+            a[s.j][s.i] -= wd * mi * mj;
+            b[s.i] += wp;
+            b[s.j] += wp;
+        }
+        let x = solve_dense(a, b).unwrap_or_else(|| vec![1.0; n]);
+        let log_mean = x.iter().filter(|g| **g > 0.0).map(|g| g.ln()).sum::<f64>() / x.len() as f64;
+        let norm = (-log_mean).exp();
+        for (i, gi) in x.iter().enumerate() {
+            for &c in *channels {
+                gains[i][c] = (*gi * norm) as f32;
+            }
+        }
+    }
+    Ok(gains)
+}
+
 #[cfg(test)]
 mod tests;
