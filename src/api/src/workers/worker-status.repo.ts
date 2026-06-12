@@ -12,10 +12,24 @@
  */
 import { getDb } from '../db/client.ts';
 import type { StageStatusSnapshot } from './registry.ts';
+import type { FaceModelsLoadStatus } from '../enrichment/face-models.ts';
+
+/** Cross-process snapshot of the face-models loader. The ONNX sessions load in
+ * the worker process (see `enrichment/face-bootstrap.ts`), so the loader's
+ * `liveStatus` lives there — the API process never loads them and its own
+ * `getFaceModelsStatus()` is permanently `idle`. The worker mirrors its status
+ * into this doc so `GET /api/enrichment/config` can surface the real state. */
+export interface FaceModelsStatusSnapshot {
+  kind: FaceModelsLoadStatus;
+  errorDetail: string | null;
+}
 
 export interface WorkerStatusDoc {
   _id: string;
   statuses: Record<string, StageStatusSnapshot>;
+  /** Optional — absent on docs written before the face-status bridge, or when
+   * the worker hasn't reported a face status yet. */
+  face_models?: FaceModelsStatusSnapshot;
   updated_at: number;
 }
 
@@ -23,17 +37,28 @@ export interface WorkerStatusDoc {
  * Write the current stage-registry snapshot to the `worker_status` collection.
  * Upserts the singleton document so the first write creates it.
  *
+ * `faceModels` mirrors the worker-process face-loader status across the process
+ * boundary (same rationale as the stage statuses). Omitted/undefined leaves any
+ * previously-written value untouched.
+ *
  * NOTE: do NOT include `_id` in `$set` — Mongo rejects mutations of the
  * immutable `_id` field on update.
  */
 export async function writeWorkerStatus(
   snapshot: Record<string, unknown>,
   updatedAt: number,
+  faceModels?: FaceModelsStatusSnapshot,
 ): Promise<void> {
   const coll = (await getDb()).collection<WorkerStatusDoc>('worker_status');
   await coll.updateOne(
     { _id: 'singleton' },
-    { $set: { statuses: snapshot as Record<string, StageStatusSnapshot>, updated_at: updatedAt } },
+    {
+      $set: {
+        statuses: snapshot as Record<string, StageStatusSnapshot>,
+        updated_at: updatedAt,
+        ...(faceModels !== undefined ? { face_models: faceModels } : {}),
+      },
+    },
     { upsert: true },
   );
 }
@@ -46,13 +71,14 @@ export async function writeWorkerStatus(
  */
 export async function readWorkerStatus(): Promise<{
   statuses: Record<string, StageStatusSnapshot>;
+  face_models?: FaceModelsStatusSnapshot;
   updated_at: number;
 } | null> {
   try {
     const coll = (await getDb()).collection<WorkerStatusDoc>('worker_status');
     const doc = await coll.findOne({ _id: 'singleton' });
     if (!doc) return null;
-    return { statuses: doc.statuses, updated_at: doc.updated_at };
+    return { statuses: doc.statuses, face_models: doc.face_models, updated_at: doc.updated_at };
   } catch {
     return null;
   }
