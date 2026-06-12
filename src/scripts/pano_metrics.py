@@ -14,10 +14,11 @@ Usage:
 
 Output (stdout, single-line JSON):
     { "rmse": float, "rmse_r"/"rmse_g"/"rmse_b": float,
+      "coverage": float | null, "rmse_valid": float | null,
       "seam_energy": float, "seam_excess_percentile": float,
       "wrap_closure_px": float | null, "wrap_closure_ncc": float,
       "candidate_size"/"reference_size"/"normalized_size": [w, h],
-      "size_mismatch": bool, "n_pixels": int,
+      "size_mismatch": bool, "n_pixels": int, "n_ref_valid": int,
       "report": {"available": bool, ...} }
 
 Metric definitions (v1)
@@ -33,6 +34,21 @@ Size-normalized RMSE
     values in [0, 1]. Images are compared in their on-disk encoding; both
     sides share it, so the encoding cancels. rmse_r/g/b are the per-channel
     variants on the same grids.
+Coverage + valid-region RMSE (v2)
+    The compositor writes uncovered canvas as exact black, so holes left by
+    dropped frames are a validity property of the pixels. On the normalized
+    grids a pixel is "content" when any channel clears _VALID_EPS (one 8-bit
+    step). With C = candidate content mask and R = reference content mask:
+        coverage   = |C AND R| / |R|        (None when |R| = 0)
+        rmse_valid = RMSE over the C AND R region (None when empty)
+    Coverage is measured inside the reference's own content region so the
+    projection margins both renders share don't count against the candidate.
+    Coverage is the gated completeness signal (a FLOOR — see the harness);
+    rmse_valid is deliberately NOT gateable: a masked error metric can
+    improve as frames drop (fewer, better-aligned pixels get compared), so
+    gating it would reward exactly the half-empty renders this metric set
+    exists to catch. Gate coverage (holes) and all-pixel rmse (everything);
+    read rmse_valid only to localize WHERE quality moved.
 Seam-line gradient energy (v1)
     Detects gradient structure present in the candidate but absent at the
     same location in the reference — visible stitch seams, exposure steps and
@@ -70,9 +86,14 @@ StitchReport passthrough
     {"available": false, "reason": "unavailable: no report"} — never
     fabricated.
 Self-test (--self-test)
-    (a) reference vs itself           -> rmse ~ 0 and seam_energy ~ 0
+    (a) reference vs itself           -> rmse ~ 0, seam_energy ~ 0,
+                                         coverage exactly 1.0
     (b) reference vs perturbed copy   -> clearly non-zero rmse + seam_energy
         (perturbation = np.roll shift + brightness step on the right half)
+    (d) reference vs hole-punched copy (right half zeroed) -> coverage drops
+        toward ~0.5 while rmse_valid stays ~0 and all-pixel rmse goes large
+        — the property that makes masked metrics ungateable and coverage
+        the completeness gate.
     (c) wrap-closure shift recovery on a procedural wrap-consistent image:
         rolling the right half vertically by 5 px must be detected within
         1.5 px; the unperturbed image must close within 1.5 px. Always runs
@@ -100,6 +121,11 @@ DEFAULT_SEAM_PERCENTILE = 99.5
 EDGE_STRIP_PX = 8
 SELF_TEST_LONG_EDGE = 1024
 _LUMA = (0.2126, 0.7152, 0.0722)  # Rec.709
+# Content threshold for the coverage masks: one 8-bit quantization step.
+# Compositor holes are exact 0; Lanczos ringing at hole borders stays below
+# a single step, while real scene content (tone-mapped display renders)
+# clears it everywhere that matters.
+_VALID_EPS = 1.0 / 255.0
 
 
 def _luma(rgb: np.ndarray) -> np.ndarray:
@@ -218,11 +244,23 @@ def _metrics_from_images(cand_im: Image.Image, ref_im: Image.Image, *,
     sq = (cand - ref) ** 2
     per_channel = np.sqrt(sq.mean(axis=(0, 1)))
 
+    # Coverage + valid-region RMSE — definitions in the module doc.
+    cand_valid = cand.max(axis=-1) > _VALID_EPS
+    ref_valid = ref.max(axis=-1) > _VALID_EPS
+    both_valid = cand_valid & ref_valid
+    n_ref_valid = int(ref_valid.sum())
+    coverage = float(both_valid.sum() / n_ref_valid) if n_ref_valid else None
+    rmse_valid = (float(np.sqrt(sq[both_valid].mean()))
+                  if both_valid.any() else None)
+
     return {
         "rmse": float(np.sqrt(sq.mean())),
         "rmse_r": float(per_channel[0]),
         "rmse_g": float(per_channel[1]),
         "rmse_b": float(per_channel[2]),
+        "coverage": coverage,
+        "rmse_valid": rmse_valid,
+        "n_ref_valid": n_ref_valid,
         "seam_energy": seam_energy(cand, ref, seam_percentile),
         "seam_excess_percentile": float(seam_percentile),
         "wrap_closure_px": wrap["px"],
@@ -310,13 +348,15 @@ def self_test(fixture_root=None) -> int:
     print(f"pano_metrics self-test — source: {source} ({w}x{h})",
           file=sys.stderr)
 
-    # (a) reference vs itself: ~zero RMSE / seam energy.
+    # (a) reference vs itself: ~zero RMSE / seam energy, full coverage.
     m_same = _metrics_from_images(base_im, base_im,
                                   long_edge=SELF_TEST_LONG_EDGE)
     check("identical-rmse", m_same["rmse"] < 1e-9,
           f"rmse={m_same['rmse']:.3e} (< 1e-9)")
     check("identical-seam-energy", m_same["seam_energy"] < 1e-12,
           f"seam_energy={m_same['seam_energy']:.3e} (< 1e-12)")
+    check("identical-coverage", m_same["coverage"] == 1.0,
+          f"coverage={m_same['coverage']} (== 1.0)")
 
     # (b) reference vs perturbed copy: clearly non-zero values.
     pert = np.roll(base, shift=(4, 7), axis=(0, 1))
@@ -327,6 +367,31 @@ def self_test(fixture_root=None) -> int:
           f"rmse={m_pert['rmse']:.4f} (> 0.01)")
     check("perturbed-seam-energy", m_pert["seam_energy"] > 1e-7,
           f"seam_energy={m_pert['seam_energy']:.3e} (> 1e-7)")
+
+    # (d) hole-punched copy: coverage must see the missing half; the masked
+    # rmse_valid must NOT (its blindness is why it is never gated). Punch
+    # at post-normalization resolution so neither side is resampled again
+    # and the cut stays exact (a Lanczos pass would smear the boundary
+    # into rmse_valid).
+    norm_im = _normalize(base_im, SELF_TEST_LONG_EDGE)
+    norm = np.asarray(norm_im, dtype=np.float32) / 255.0
+    holes = norm.copy()
+    holes[:, norm.shape[1] // 2:, :] = 0.0
+    m_holes = _metrics_from_images(_to_image(holes), norm_im,
+                                   long_edge=SELF_TEST_LONG_EDGE)
+    cov = m_holes["coverage"]
+    check("holes-coverage",
+          cov is not None and 0.30 <= cov <= 0.70,
+          f"coverage={cov:.4f} (right half zeroed -> expected in "
+          f"[0.30, 0.70])")
+    rv = m_holes["rmse_valid"]
+    check("holes-rmse-valid-blind",
+          rv is not None and rv < 1e-3,
+          f"rmse_valid={rv} (< 1e-3: masked metric cannot see the holes)")
+    check("holes-rmse-sees",
+          rv is not None and m_holes["rmse"] > 10 * max(rv, 1e-9),
+          f"rmse={m_holes['rmse']:.4f} (>10x rmse_valid: all-pixel rmse "
+          f"prices the holes)")
 
     # (c) wrap-closure shift recovery — always on the procedural image,
     # whose edges are wrap-consistent by construction.
