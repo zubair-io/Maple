@@ -108,10 +108,9 @@ fn sample_rgba(rgba: &[f32], w: u32, h: u32, sx: f32, sy: f32) -> [f32; 4] {
     let fx = sx - (x0 as f32);
     let fy = sy - (y0 as f32);
     let sample = |xi: i32, yi: i32| -> [f32; 4] {
-        if xi < 0 || yi < 0 || xi >= wi || yi >= hi {
-            return [0.0, 0.0, 0.0, 1.0];
-        }
-        let idx = ((yi as usize) * (w as usize) + (xi as usize)) * 4;
+        let xi = xi.clamp(0, wi - 1) as usize;
+        let yi = yi.clamp(0, hi - 1) as usize;
+        let idx = (yi * (w as usize) + xi) * 4;
         [rgba[idx], rgba[idx + 1], rgba[idx + 2], rgba[idx + 3]]
     };
     let p00 = sample(x0, y0);
@@ -143,10 +142,9 @@ fn sample_rgb_u8(rgb: &[u8], w: u32, h: u32, sx: f32, sy: f32) -> [u8; 3] {
     let fx = sx - (x0 as f32);
     let fy = sy - (y0 as f32);
     let sample = |xi: i32, yi: i32| -> [f32; 3] {
-        if xi < 0 || yi < 0 || xi >= wi || yi >= hi {
-            return [0.0, 0.0, 0.0];
-        }
-        let idx = ((yi as usize) * (w as usize) + (xi as usize)) * 3;
+        let xi = xi.clamp(0, wi - 1) as usize;
+        let yi = yi.clamp(0, hi - 1) as usize;
+        let idx = (yi * (w as usize) + xi) * 3;
         [rgb[idx] as f32, rgb[idx + 1] as f32, rgb[idx + 2] as f32]
     };
     let p00 = sample(x0, y0);
