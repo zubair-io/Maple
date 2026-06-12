@@ -124,37 +124,22 @@ pub const SMOOTH_LAMBDA: f64 = 1.0;
 /// this ceiling are uniformly scaled down.
 pub const MAX_CORRECTION_PX: f64 = 8.0;
 
-/// IRLS reweighting rounds over all matches after the subset-initialized
-/// fit (see `fit.rs`): each match is Huber-weighted by its agreement
-/// with the current field, re-admitting over-budget parallax tails and
-/// keeping incoherent motion downweighted. Two rounds converge in
-/// practice; the loop is fixed, not adaptive.
-pub const IRLS_ROUNDS: usize = 2;
-
-/// Huber scale for the IRLS reweighting (px) — matches the solve's
-/// Huber delta (spec §5.3): agreement within ~2 px keeps full weight,
-/// beyond it weight decays as δ/e.
-pub const IRLS_DELTA_PX: f64 = 2.0;
-
-/// Per-node trust ceiling — the parallax envelope, enforced node by
-/// node: any node displacement beyond this is individually zeroed
-/// (untrusted), leaving the rest of the field intact.
+/// Parallax envelope: the largest correction (RMS over the fitted match
+/// points) this stage will accept. A fit larger than this is refused
+/// outright — the frame keeps its raw residuals for gating and is never
+/// warped by the rejected field.
 ///
 /// Why: stage F exists to absorb *cm-level camera drift*, and that has a
 /// size — `f·B/Z` puts the reference captures' parallax floor at ~1–3 px
-/// (measured needs on `pano_01`: ~1.5–2.8 px). A genuinely misregistered
-/// frame needs far more EVERYWHERE: the `ba_gates` 4° pitch-impostor
-/// scenario demands 3.2–4.0 px fields to look "fixed", so the ceiling
-/// zeroes its every node — identity, refused, the frame gates raw and
-/// drops. Coherent local motion (water moving together in one cell)
-/// pulls only ITS cells over the ceiling: those nodes zero (the warp
-/// never chases motion) while the static cells keep their parallax
-/// correction — the cell-granular form of the same physical guard, and
-/// what breaks the water-frame chicken-and-egg a frame-level refusal
-/// reintroduced. Sized between the measured populations; ratchet with
-/// evidence, never above the smallest field that ever rescued a wrong
-/// pose.
-pub const NODE_TRUST_MAX_PX: f64 = 3.0;
+/// (measured needs on `pano_01`: ~1.5–2.8 px RMS). A genuinely
+/// misregistered frame needs far more: the `ba_gates` 4° pitch-impostor
+/// scenario demands 3.2–4.0 px RMS fields to look "fixed", and absorbing
+/// them would mask a wrong pose as a clean solve. The mesh is expressive
+/// enough to do exactly that, so the envelope — not the model's
+/// flexibility — is what keeps misregistration un-maskable. Sized between
+/// the two measured populations; ratchet with evidence, never above the
+/// smallest field that ever rescued a wrong pose.
+pub const GATE_RESCUE_MAX_RMS_PX: f64 = 3.0;
 
 /// Per-frame corrective displacement mesh.
 ///
