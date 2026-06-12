@@ -1,17 +1,29 @@
 //! `maple-cli pano stitch` (#1182) — the end-to-end panorama pipeline:
 //! decode → priors → proxy → ALIKED+LightGlue → match graph → global BA
-//! → leveling → composite → 16-bit linear PNG (+ optional sRGB preview)
+//! → leveling → composite → 16-bit PNG (+ optional sRGB preview)
 //! + a `StitchReport`-shaped JSON.
 //!
-//! This subcommand is the **operator surface** the regression harness
-//! probes for (`src/scripts/test_pano_pipeline.sh`'s activation
-//! contract): unlike the harness it never skip-passes — a missing ML
-//! environment is a hard, actionable error.
+//! Two modes:
 //!
-//! The PNG output is the *linear* composite (scene-linear Rec.2020 —
-//! the values the linear-DNG writer of spec step 9 will carry);
-//! `--display` additionally writes an sRGB-encoded preview for
-//! eyeballing.
+//! - **Single set** (positional frames + `--out`): the operator flow.
+//!   `--max-mean-px` / `--max-residual-px` can relax the spec §5.3
+//!   acceptance gate for input with uncorrected lens distortion (#1159).
+//! - **Batch** (`--manifest` + `--out-dir`): the regression-harness
+//!   contract (`src/scripts/test_pano_pipeline.sh`). Each case stitches
+//!   at the **spec-default gates** — the harness encodes the product
+//!   bar (zero dropped frames, ≤ 1.5 px mean) and must measure the
+//!   pipeline, not an operator override; relax flags are rejected here.
+//!   Per case the candidate `<name>.png` is **sRGB-display-encoded**
+//!   (references are display renders), with `<name>.linear.png` and
+//!   `<name>.report.json` alongside.
+//!
+//! The ML environment is a hard, actionable error in both modes (the
+//! CLI is the operator surface; only the harness skip-passes, and it
+//! does so before invoking this command).
+//!
+//! The linear PNG carries the scene-linear Rec.2020 composite (the
+//! values the linear-DNG writer of spec step 9 will carry), clamped to
+//! the display-range slice.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -33,6 +45,10 @@ use maple_pano::render::write_frame_png;
 use maple_pano::robust::RobustOptions;
 use maple_pano::twoview::PixelCorrespondence;
 
+/// Spec §5.3 acceptance-gate defaults (single source for both modes).
+const SPEC_MEAN_BUDGET_PX: f64 = 1.5;
+const SPEC_MAX_BUDGET_PX: f64 = 6.0;
+
 #[derive(Subcommand)]
 pub enum PanoCmd {
     /// Stitch a panorama from RAW frames.
@@ -41,18 +57,26 @@ pub enum PanoCmd {
 
 #[derive(Args)]
 pub struct StitchArgs {
-    /// Input RAW frames (2+). Sorted by file name = capture order.
-    #[arg(required = true, num_args = 2..)]
+    /// Input RAW frames (2+; single-set mode). Sorted by file name =
+    /// capture order. Mutually exclusive with --manifest.
+    #[arg(num_args = 0..)]
     inputs: Vec<PathBuf>,
-    /// Output PNG path (16-bit, scene-linear).
+    /// Output PNG path (16-bit, scene-linear; single-set mode).
     #[arg(long)]
-    out: PathBuf,
-    /// Also write an sRGB-encoded 16-bit preview PNG here.
+    out: Option<PathBuf>,
+    /// Also write an sRGB-encoded 16-bit preview PNG here (single-set).
     #[arg(long)]
     display: Option<PathBuf>,
     /// Write the stitch report JSON here (always printed to stderr).
     #[arg(long)]
     report: Option<PathBuf>,
+    /// Batch mode: pano manifest JSON (the harness contract — see the
+    /// module docs). Requires --out-dir.
+    #[arg(long, conflicts_with_all = ["out", "display", "report"])]
+    manifest: Option<PathBuf>,
+    /// Batch mode: candidate output directory.
+    #[arg(long, requires = "manifest")]
+    out_dir: Option<PathBuf>,
     /// Long-edge cap for the feature-extraction proxy. The ALIKED
     /// export letterboxes to 1280² internally; larger proxies only
     /// cost decode time.
@@ -61,14 +85,16 @@ pub struct StitchArgs {
     /// Total canvas pixel cap (uniform downscale to fit).
     #[arg(long, default_value_t = 256_000_000)]
     max_canvas_px: usize,
-    /// Per-frame mean reprojection-error budget (px). The spec §5.3 gate
-    /// is 1.5; relax it for input with uncorrected lens distortion (DJI
-    /// `WarpRectilinear` opcodes raw-core does not yet apply, #1159),
-    /// which inflates residuals the k1/k2 model only partly absorbs.
-    #[arg(long, default_value_t = 1.5)]
+    /// Per-frame mean reprojection-error budget (px; single-set mode
+    /// only). The spec §5.3 gate is 1.5; relax it for input with
+    /// uncorrected lens distortion (DJI `WarpRectilinear` opcodes
+    /// raw-core does not yet apply, #1159), which inflates residuals
+    /// the k1/k2 model only partly absorbs.
+    #[arg(long, default_value_t = SPEC_MEAN_BUDGET_PX)]
     max_mean_px: f64,
-    /// Per-frame max reprojection-error budget (px). Spec §5.3 gate is 6.
-    #[arg(long, default_value_t = 6.0)]
+    /// Per-frame max reprojection-error budget (px; single-set mode
+    /// only). Spec §5.3 gate is 6.
+    #[arg(long, default_value_t = SPEC_MAX_BUDGET_PX)]
     max_residual_px: f64,
     /// Models directory (defaults to $MAPLE_PANO_MODELS).
     #[arg(long)]
@@ -81,11 +107,14 @@ pub fn run(cmd: PanoCmd) -> Result<(), String> {
     }
 }
 
-fn stitch(args: StitchArgs) -> Result<(), String> {
-    let t0 = Instant::now();
+/// The loaded ML stack (one load per invocation, shared across cases).
+struct Ml {
+    detector: AlikedDetector,
+    matcher: LightGlueMatcher,
+}
 
-    // ---- ML environment (hard requirement — see module docs) -----------
-    let models = ModelDir::resolve(args.models_dir.as_deref()).map_err(|e| {
+fn load_ml(models_dir: Option<&Path>) -> Result<Ml, String> {
+    let models = ModelDir::resolve(models_dir).map_err(|e| {
         format!(
             "ML environment unavailable: {e}\n\
              The pano pipeline needs the ALIKED + LightGlue models and an \
@@ -95,17 +124,154 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
              and ORT_DYLIB_PATH to libonnxruntime (>= 1.23)."
         )
     })?;
-    let mut detector = AlikedDetector::load(&models, DetectorOptions::default())
+    let detector = AlikedDetector::load(&models, DetectorOptions::default())
         .map_err(|e| format!("ALIKED load failed: {e}"))?;
-    let mut matcher = LightGlueMatcher::load(&models, Default::default())
+    let matcher = LightGlueMatcher::load(&models, Default::default())
         .map_err(|e| format!("LightGlue load failed: {e}"))?;
+    Ok(Ml { detector, matcher })
+}
 
-    // ---- Decode + priors ------------------------------------------------
+/// Where one stitched set's artifacts go.
+struct SetOutputs {
+    /// Scene-linear 16-bit PNG.
+    linear: PathBuf,
+    /// sRGB-encoded 16-bit PNG.
+    display: Option<PathBuf>,
+    /// Report JSON.
+    report: Option<PathBuf>,
+}
+
+fn stitch(args: StitchArgs) -> Result<(), String> {
+    let mut ml = load_ml(args.models_dir.as_deref())?;
+
+    if let Some(manifest_path) = &args.manifest {
+        // Batch mode = the harness bar: spec gates only.
+        if args.max_mean_px != SPEC_MEAN_BUDGET_PX || args.max_residual_px != SPEC_MAX_BUDGET_PX {
+            return Err("--max-mean-px / --max-residual-px are single-set operator \
+                 overrides; batch mode gates at the spec defaults so the \
+                 harness measures the pipeline, not an override"
+                .into());
+        }
+        let out_dir = args
+            .out_dir
+            .as_ref()
+            .expect("clap: --out-dir required with --manifest");
+        return stitch_manifest(&mut ml, manifest_path, out_dir, &args);
+    }
+
+    if args.inputs.len() < 2 {
+        return Err("single-set mode needs 2+ input frames (or use --manifest)".into());
+    }
+    let out = args
+        .out
+        .as_ref()
+        .ok_or("single-set mode requires --out")?
+        .clone();
     let mut inputs = args.inputs.clone();
     inputs.sort();
+    let report = stitch_set(
+        &mut ml,
+        &inputs,
+        &SetOutputs {
+            linear: out,
+            display: args.display.clone(),
+            report: args.report.clone(),
+        },
+        (args.max_mean_px, args.max_residual_px),
+        &args,
+    )?;
+    eprintln!(
+        "{}",
+        serde_json::to_string_pretty(&report).expect("report serializes")
+    );
+    Ok(())
+}
+
+/// Batch over a harness manifest:
+/// `{ "cases": [ { "name", "frames": [...], "reference"?, "options"? } ] }`.
+/// Candidate `<name>.png` is the display encode (see module docs).
+fn stitch_manifest(
+    ml: &mut Ml,
+    manifest_path: &Path,
+    out_dir: &Path,
+    args: &StitchArgs,
+) -> Result<(), String> {
+    let bytes =
+        std::fs::read(manifest_path).map_err(|e| format!("{}: {e}", manifest_path.display()))?;
+    let manifest: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("{}: invalid JSON: {e}", manifest_path.display()))?;
+    let cases = manifest["cases"]
+        .as_array()
+        .ok_or_else(|| format!("{}: no \"cases\" array", manifest_path.display()))?;
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
+
+    let mut failures = Vec::new();
+    for case in cases {
+        let name = case["name"].as_str().unwrap_or("<unnamed>").to_string();
+        let frames: Vec<PathBuf> = case["frames"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(PathBuf::from)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if frames.len() < 2 {
+            eprintln!(
+                "pano[{name}]: skipped — {} frame(s) in manifest",
+                frames.len()
+            );
+            failures.push(name);
+            continue;
+        }
+        eprintln!("pano[{name}]: stitching {} frames ...", frames.len());
+        let outs = SetOutputs {
+            linear: out_dir.join(format!("{name}.linear.png")),
+            display: Some(out_dir.join(format!("{name}.png"))),
+            report: Some(out_dir.join(format!("{name}.report.json"))),
+        };
+        match stitch_set(
+            ml,
+            &frames,
+            &outs,
+            (SPEC_MEAN_BUDGET_PX, SPEC_MAX_BUDGET_PX),
+            args,
+        ) {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("pano[{name}]: FAILED — {e}");
+                failures.push(name);
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} of {} case(s) failed: {}",
+            failures.len(),
+            cases.len(),
+            failures.join(", ")
+        ))
+    }
+}
+
+/// The full per-set pipeline. Returns the report JSON (also written to
+/// `outs.report` when set).
+fn stitch_set(
+    ml: &mut Ml,
+    inputs: &[PathBuf],
+    outs: &SetOutputs,
+    (mean_budget_px, max_budget_px): (f64, f64),
+    args: &StitchArgs,
+) -> Result<serde_json::Value, String> {
+    let t0 = Instant::now();
+
+    // ---- Decode + priors ------------------------------------------------
     let t_decode = Instant::now();
     let mut frames: Vec<IngestedFrame> = Vec::with_capacity(inputs.len());
-    for path in &inputs {
+    for path in inputs {
         eprintln!("pano: decoding {}", path.display());
         frames.push(ingest_file(path).map_err(|e| format!("{}: {e}", path.display()))?);
     }
@@ -123,14 +289,15 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
     let mut feature_sets: Vec<FeatureSet> = Vec::with_capacity(frames.len());
     let mut proxy_scale: Vec<f64> = Vec::with_capacity(frames.len());
     let mut proxy_dims: Vec<(u32, u32)> = Vec::with_capacity(frames.len());
-    for (frame, path) in frames.iter().zip(&inputs) {
+    for (frame, path) in frames.iter().zip(inputs) {
         let proxy = proxy_to_long_edge(&frame.image, args.proxy_long_edge);
         proxy_scale.push(frame.image.width() as f64 / proxy.width() as f64);
         proxy_dims.push((proxy.width(), proxy.height()));
         let rgb = interleave(&proxy);
         let lin = LinearRgbFrame::new(proxy.width(), proxy.height(), rgb)
             .map_err(|e| format!("{}: {e}", path.display()))?;
-        let fs = detector
+        let fs = ml
+            .detector
             .detect(&lin)
             .map_err(|e| format!("{}: detect: {e}", path.display()))?;
         eprintln!(
@@ -146,7 +313,7 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
 
     let images: Vec<GraphImage> = frames
         .iter()
-        .zip(&inputs)
+        .zip(inputs)
         .enumerate()
         .map(|(i, (f, path))| {
             let focal_px = f.priors.focal_px.ok_or_else(|| {
@@ -173,12 +340,13 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
     // ---- Match graph (capture order + gimbal prior candidates) ----------
     let t_graph = Instant::now();
     let mut match_failures: Vec<String> = Vec::new();
+    let matcher = &mut ml.matcher;
     let graph = build_match_graph(
         &images,
         &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
         |a, b| -> Vec<PixelCorrespondence> {
             match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
-                Ok(ml) => ml_matches_to_correspondences(&ml, DEFAULT_MIN_SCORE),
+                Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
                 Err(e) => {
                     match_failures.push(format!("pair ({a},{b}): {e}"));
                     Vec::new()
@@ -208,13 +376,14 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
         &images,
         &graph,
         &BaOptions {
-            mean_budget_px: args.max_mean_px,
-            max_budget_px: args.max_residual_px,
+            mean_budget_px,
+            max_budget_px,
             ..Default::default()
         },
     )
     .map_err(|e| e.to_string())?;
     let leveled = leveling::apply(&mut solution);
+    let horizon_tilt_deg = leveled.then(|| leveling::horizon_tilt_deg(&solution));
     let solve_s = t_solve.elapsed().as_secs_f64();
     eprintln!(
         "pano: solve — mean {:.3}px max {:.3}px over {} rounds ({} LM iters), focal {:.1}px, dropped {:?}, leveled={leveled}",
@@ -275,8 +444,8 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
 
     // ---- Outputs ----------------------------------------------------------
     let t_out = Instant::now();
-    write_png16(&args.out, &out_img, false)?;
-    if let Some(display) = &args.display {
+    write_png16(&outs.linear, &out_img, false)?;
+    if let Some(display) = &outs.display {
         write_png16(display, &out_img, true)?;
     }
     let write_s = t_out.elapsed().as_secs_f64();
@@ -296,6 +465,9 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
         "k2": solution.k2,
         "dropped_images": solution.dropped.iter().map(|d| format!("{d:?}")).collect::<Vec<_>>(),
         "leveled": leveled,
+        "horizon_tilt_deg": horizon_tilt_deg,
+        "gate_mean_budget_px": mean_budget_px,
+        "gate_max_budget_px": max_budget_px,
         "projection": format!("{:?}", comp_report.projection),
         "canvas": { "width": comp_report.canvas.width, "height": comp_report.canvas.height },
         "gains": comp_report.gains,
@@ -311,19 +483,18 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
             "total": t0.elapsed().as_secs_f64(),
         },
     });
-    let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
-    eprintln!("{pretty}");
-    if let Some(path) = &args.report {
+    if let Some(path) = &outs.report {
+        let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
         std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
     }
     eprintln!(
         "pano: wrote {} ({}x{}) in {:.1}s",
-        args.out.display(),
+        outs.linear.display(),
         out_img.width(),
         out_img.height(),
         t0.elapsed().as_secs_f64()
     );
-    Ok(())
+    Ok(report)
 }
 
 /// Interleave a planar image into the detector's RGB f32 layout.
