@@ -330,8 +330,8 @@ fn gate_inconsistent_frame_is_dropped() {
     for (i, s) in solution.frame_stats.iter().enumerate() {
         if let Some(s) = s {
             println!(
-                "frame {i}: mean {:.3}px max {:.3}px median {:.3}px ({} blocks)",
-                s.mean_px, s.max_px, s.median_px, s.blocks
+                "frame {i}: mean {:.3}px max {:.3}px median {:.3}px ({} blocks) corr_rms {:.3}px",
+                s.mean_px, s.max_px, s.median_px, s.blocks, solution.local_correction_rms[i]
             );
         }
     }

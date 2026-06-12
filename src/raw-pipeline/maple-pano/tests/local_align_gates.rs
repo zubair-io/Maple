@@ -15,9 +15,7 @@ mod common;
 use common::{ring_options, seed_images, REALISTIC_NOISE_PX};
 use maple_pano::ba::{solve, BaOptions};
 use maple_pano::camera::Camera;
-use maple_pano::graph::{
-    build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage,
-};
+use maple_pano::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
 use maple_pano::local_align::MAX_CORRECTION_PX;
 use maple_pano::prng::SplitMix64;
 use maple_pano::render::build_camera_set;
@@ -83,8 +81,7 @@ fn gate_pure_rotation_correction_near_identity() {
     }
 
     // Before/after fields must be equal (or both near zero).
-    let diff_mean =
-        (solution.mean_reproj_px - solution.mean_reproj_before_local_px).abs();
+    let diff_mean = (solution.mean_reproj_px - solution.mean_reproj_before_local_px).abs();
     assert!(
         diff_mean < 0.02,
         "pure-rotation: before/after mean reproj delta {diff_mean:.4} px >= 0.02 px"
