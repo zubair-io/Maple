@@ -90,23 +90,12 @@ describe('exif handler', () => {
     // probe sees "no winner" and the handler proceeds with patch.maple_id.
     // Snapshot + restore so the stub doesn't leak into later tests.
     const realDbClient = await import('../../db/client.ts');
-    const originalAssetsCollection = realDbClient.assetsCollection;
     const dbSpy = spyOn(realDbClient, 'assetsCollection').mockImplementation(async () => {
-      const realColl = await originalAssetsCollection();
-      return new Proxy(realColl, {
-        get(target, prop, receiver) {
-          if (prop === 'findOne') {
-            return async () => null;
-          }
-          if (prop === 'updateOne') {
-            return async () => ({ acknowledged: true, modifiedCount: 0 });
-          }
-          if (prop === 'deleteOne') {
-            return async () => ({ acknowledged: true, deletedCount: 0 });
-          }
-          return Reflect.get(target, prop, receiver);
-        },
-      });
+      return {
+        findOne: async () => null,
+        updateOne: async () => ({ acknowledged: true, modifiedCount: 0 }),
+        deleteOne: async () => ({ acknowledged: true, deletedCount: 0 }),
+      } as any;
     });
     try {
       const doc = makeDoc(dng, rawLibraryId, path.dirname(dng));

@@ -194,16 +194,21 @@ async function processAsset(
         {
           arrayFilters: [
             {
-              // Match only the absent entries that have no timestamp yet.
-              // Entries already tagged keep their original timestamp so the
-              // reaper's prune window is measured from the first absence, not
-              // the most recent dedupe pass.
-              'e.missing_since': { $in: [null, undefined] },
-              $or: absentEntries.map((e) => ({
-                'e.library_id': e.library_id,
-                'e.path': e.path,
-                'e.filename': e.filename,
-              })),
+              $and: [
+                {
+                  $or: [
+                    { 'e.missing_since': { $exists: false } },
+                    { 'e.missing_since': null },
+                  ],
+                },
+                {
+                  $or: absentEntries.map((e) => ({
+                    'e.library_id': e.library_id,
+                    'e.path': e.path,
+                    'e.filename': e.filename,
+                  })),
+                },
+              ],
             },
           ],
         },
