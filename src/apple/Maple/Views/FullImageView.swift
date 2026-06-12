@@ -183,13 +183,19 @@ struct FullImageView: View {
                 }
             }
 
-            // Render indicator — only while we have no preview yet, so
-            // slider ticks don't flash a spinner on every frame.
+            // Loading indicator. Shown while the full-quality decode is still
+            // in flight (`isFullQualityDecoding`) — it INTENTIONALLY stays up
+            // even after the sub-second preview frame presents, until the real
+            // decode lands (#1201). The frame-based term covers the no-preview
+            // blank-canvas window; once a frame is up and the decode is done a
+            // slider tick won't flash it. `gpuActive` mirrors `useGpuCanvas` so
+            // non-RAW (CPU-canvas) assets key off `renderedPreview` rather than
+            // the always-false `gpuFramePresented` (review).
             if EditSession.shouldShowLoadingIndicator(
                 isFullQualityDecoding: session.isFullQualityDecoding,
                 isRendering: session.isRendering,
                 hasOnscreenFrame: EditSession.canvasHasFrame(
-                    gpuActive: GpuLiveFlag.isEnabled && !session.showingOriginal,
+                    gpuActive: useGpuCanvas,
                     gpuFramePresented: session.gpuFramePresented,
                     hasRenderedPreview: session.renderedPreview != nil
                 )
