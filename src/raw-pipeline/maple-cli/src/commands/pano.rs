@@ -51,7 +51,7 @@ use maple_pano::ingest::{ingest_file, proxy_to_long_edge, IngestedFrame, PlanarI
 use maple_pano::leveling;
 use maple_pano::matching::LightGlueMatcher;
 use maple_pano::models::ModelDir;
-use maple_pano::refine::{refine_correspondences, RefineOptions};
+use maple_pano::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use maple_pano::render::write_frame_png;
 use maple_pano::robust::RobustOptions;
 use maple_pano::twoview::PixelCorrespondence;
@@ -403,7 +403,10 @@ fn stitch_set(
     // ---- Full-resolution match refinement (#1210) -------------------------
     // Re-localize every verified inlier on the full-res frames (borrowed
     // from `frames` — no clones) and REPLACE the edge payloads with the
-    // full-res coordinates, so BA below solves at full resolution.
+    // full-res coordinates, so BA below solves at full resolution. The
+    // pair geometry (full-res intrinsics + the edge's verified rotation)
+    // drives perspective compensation of the template — without it the
+    // overlap strip's ~30% A→B compression caps accuracy at ~2 px.
     // Matches the refiner cannot honestly improve keep their proxy
     // accuracy (scaled up, counted as fallbacks in the report).
     let t_refine = Instant::now();
@@ -416,11 +419,17 @@ fn stitch_set(
                 img.height() as f64 / proxy_dims[i].1 as f64,
             )
         };
+        let geometry = RefineGeometry {
+            cam_a: &full_images[edge.a].camera,
+            cam_b: &full_images[edge.b].camera,
+            rotation: &edge.rotation,
+        };
         let outcome = refine_correspondences(
             img_a,
             img_b,
             scale_of(img_a, edge.a),
             scale_of(img_b, edge.b),
+            Some(&geometry),
             &edge.inlier_matches,
             &RefineOptions::default(),
         );
@@ -520,6 +529,15 @@ fn stitch_set(
         "pruned_matches": solution.pruned_matches,
         "refined_matches": refined_matches,
         "fallback_matches": fallback_matches,
+        // Per-frame residual summaries for surviving frames (px in that
+        // frame's plane) — null for dropped frames. Triage data: which
+        // frame sits where against the §5.3 budgets.
+        "frame_stats": solution.frame_stats.iter().map(|s| s.as_ref().map(|s| serde_json::json!({
+            "mean_px": s.mean_px,
+            "max_px": s.max_px,
+            "median_px": s.median_px,
+            "blocks": s.blocks,
+        }))).collect::<Vec<_>>(),
         "leveled": leveled,
         "horizon_tilt_deg": horizon_tilt_deg,
         "gate_mean_budget_px": mean_budget_px,

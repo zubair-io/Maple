@@ -19,7 +19,7 @@
 
 use maple_pano::ingest::{proxy_to_long_edge, PlanarImage, ValidityMask};
 use maple_pano::prng::SplitMix64;
-use maple_pano::refine::{refine_correspondences, RefineOptions};
+use maple_pano::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use maple_pano::render::{build_camera_set, render_frame, CameraSetOptions, Pattern};
 use maple_pano::source::EquirectSource;
 use maple_pano::twoview::PixelCorrespondence;
@@ -189,11 +189,21 @@ fn refinement_cuts_proxy_quantization_error_three_fold_and_under_half_px() {
     );
 
     // ---- Refine ----------------------------------------------------------
+    // Pair geometry as production supplies it: full-res intrinsics +
+    // the relative rotation (here ground truth, `d_b = R_bᵀ·R_a·d_a`) —
+    // exercising the perspective-compensated template path end to end.
+    let rotation = cams[1].rotation.transpose().mul_mat(&cams[0].rotation);
+    let geometry = RefineGeometry {
+        cam_a: &cams[0],
+        cam_b: &cams[1],
+        rotation: &rotation,
+    };
     let out = refine_correspondences(
         &full[0],
         &full[1],
         scale,
         scale,
+        Some(&geometry),
         &matches,
         &RefineOptions::default(),
     );

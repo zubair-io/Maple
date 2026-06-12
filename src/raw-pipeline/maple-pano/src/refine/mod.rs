@@ -59,10 +59,17 @@
 //!
 //! [`proxy_to_long_edge`]: crate::ingest::proxy_to_long_edge
 
+mod sample;
+mod warp;
+
 use rayon::prelude::*;
 
 use crate::ingest::PlanarImage;
 use crate::twoview::PixelCorrespondence;
+
+use sample::{mean_ssd, parabolic_delta, sample_luma_grid, IDENTITY_WARP};
+
+pub use warp::RefineGeometry;
 
 /// Tuning for [`refine_correspondences`]. Defaults are the #1210 design
 /// values.
@@ -114,14 +121,18 @@ pub struct RefineOutcome {
 ///
 /// `matches` are in PROXY pixels of each frame (`.a` in frame A's proxy,
 /// `.b` in frame B's proxy); `scale_a` / `scale_b` are the per-axis
-/// `(full_width / proxy_width, full_height / proxy_height)` factors. See
-/// the module docs for the algorithm, the B-side-only contract, and the
-/// fallback semantics.
+/// `(full_width / proxy_width, full_height / proxy_height)` factors.
+/// `geometry`, when given, enables per-match perspective compensation of
+/// the template from the pair's verified relative rotation
+/// ([`warp`] module docs — without it, accuracy in the overlap strip is
+/// capped by the A→B perspective compression). See the module docs for
+/// the algorithm, the B-side-only contract, and the fallback semantics.
 pub fn refine_correspondences(
     full_a: &PlanarImage,
     full_b: &PlanarImage,
     scale_a: (f64, f64),
     scale_b: (f64, f64),
+    geometry: Option<&RefineGeometry<'_>>,
     matches: &[PixelCorrespondence],
     opts: &RefineOptions,
 ) -> RefineOutcome {
@@ -142,6 +153,7 @@ pub fn refine_correspondences(
                 full_b,
                 a_full,
                 b_seed,
+                geometry,
                 patch_radius,
                 search_radius,
                 opts,
@@ -185,11 +197,13 @@ fn derived_search_radius(scale_b: (f64, f64)) -> u32 {
 
 /// One correspondence: `Some(refined_b)` or `None` for fallback (see the
 /// module docs for the gate list).
+#[allow(clippy::too_many_arguments)] // private kernel of one public entry point
 fn refine_one(
     full_a: &PlanarImage,
     full_b: &PlanarImage,
     a_full: (f64, f64),
     b_seed: (f64, f64),
+    geometry: Option<&RefineGeometry<'_>>,
     patch_radius: i64,
     search_radius: i64,
     opts: &RefineOptions,
@@ -206,8 +220,13 @@ fn refine_one(
         (side * side) as f64
     };
 
-    // Template in A, centered on the exact (sub-pixel) seed.
-    let template = sample_luma_grid(full_a, a_full, patch_radius)?;
+    // Template in A, centered on the exact (sub-pixel) seed, sampled in
+    // frame B's local geometry when the pair geometry permits (identity
+    // when absent or locally degenerate — uncompensated, still gated).
+    let jinv = geometry
+        .and_then(|g| warp::local_warp_inverse(g, a_full))
+        .unwrap_or(IDENTITY_WARP);
+    let template = sample_luma_grid(full_a, a_full, patch_radius, &jinv)?;
     let (t_mean, t_ssd) = mean_ssd(&template);
     let t_var = t_ssd / n_patch;
     if t_var.is_nan() || t_var < opts.min_variance {
@@ -216,9 +235,10 @@ fn refine_one(
 
     // One luma window in B covers every candidate patch: offsets are
     // integers, so the fractional phase of `b_seed` is shared and each
-    // candidate is an integer-indexed sub-grid.
+    // candidate is an integer-indexed sub-grid. The window is always
+    // axis-aligned — the warp lives entirely on the template side.
     let window_half = patch_radius + search_radius;
-    let window = sample_luma_grid(full_b, b_seed, window_half)?;
+    let window = sample_luma_grid(full_b, b_seed, window_half, &IDENTITY_WARP)?;
     let window_side = (2 * window_half + 1) as usize;
 
     // ZNCC over all integer offsets; first-wins argmax in scan order.
@@ -278,86 +298,9 @@ fn refine_one(
     Some((b_seed.0 + dx, b_seed.1 + dy))
 }
 
-/// 3-point parabolic sub-pixel offset from samples at −1/0/+1 (the
-/// `pano_metrics.py wrap_closure` pattern), clamped to ±0.5 — a true
-/// interior peak cannot refine past the midpoint to a neighbor.
-/// Neighbors at −∞ (flat-skipped candidates) or a degenerate curvature
-/// yield 0 — integer-peak honesty over fabricated precision.
-fn parabolic_delta(y0: f64, y1: f64, y2: f64) -> f64 {
-    if !(y0.is_finite() && y2.is_finite()) {
-        return 0.0;
-    }
-    let denom = y0 - 2.0 * y1 + y2;
-    if denom.abs() <= 1e-12 {
-        return 0.0;
-    }
-    (0.5 * (y0 - y2) / denom).clamp(-0.5, 0.5)
-}
-
-/// Mean and sum of squared deviations of a sample vector.
-fn mean_ssd(values: &[f64]) -> (f64, f64) {
-    let n = values.len() as f64;
-    let mean = values.iter().sum::<f64>() / n;
-    let ssd = values.iter().map(|v| (v - mean) * (v - mean)).sum();
-    (mean, ssd)
-}
-
-/// Luma grid of side `2·half + 1` at integer offsets around `center`
-/// (continuous pixel coordinates). `None` when any sample's bilinear
-/// stencil leaves the exact-support domain or touches an invalid pixel —
-/// the caller falls back rather than matching against clamped/undefined
-/// content.
-fn sample_luma_grid(img: &PlanarImage, center: (f64, f64), half: i64) -> Option<Vec<f64>> {
-    let side = (2 * half + 1) as usize;
-    let mut out = Vec::with_capacity(side * side);
-    for j in -half..=half {
-        for i in -half..=half {
-            out.push(luma_bilinear(
-                img,
-                center.0 + i as f64,
-                center.1 + j as f64,
-            )?);
-        }
-    }
-    Some(out)
-}
-
-/// Rec.709 luma weights — a fixed scalar projection of the scene-linear
-/// planes for matching (see module docs).
-const LUMA_R: f64 = 0.2126;
-const LUMA_G: f64 = 0.7152;
-const LUMA_B: f64 = 0.0722;
-
-/// Bilinear luma at a continuous pixel coordinate (texel centers at
-/// half-integers, crate convention). `None` outside `[0.5, dim − 0.5]`
-/// per axis (where the 2×2 stencil is fully in-frame) or when any
-/// stencil texel is invalid.
-fn luma_bilinear(img: &PlanarImage, x: f64, y: f64) -> Option<f64> {
-    let (w, h) = (i64::from(img.width()), i64::from(img.height()));
-    let (u, v) = (x - 0.5, y - 0.5);
-    let (x0f, y0f) = (u.floor(), v.floor());
-    let (x0, y0) = (x0f as i64, y0f as i64);
-    if x0 < 0 || y0 < 0 || x0 + 1 >= w || y0 + 1 >= h {
-        return None;
-    }
-    for (tx, ty) in [(x0, y0), (x0 + 1, y0), (x0, y0 + 1), (x0 + 1, y0 + 1)] {
-        if !img.validity.get(tx as u32, ty as u32) {
-            return None;
-        }
-    }
-    let (fx, fy) = (u - x0f, v - y0f);
-    let stride = img.width() as usize;
-    let idx = (y0 as usize) * stride + x0 as usize;
-    let luma = |i: usize| {
-        LUMA_R * f64::from(img.r[i]) + LUMA_G * f64::from(img.g[i]) + LUMA_B * f64::from(img.b[i])
-    };
-    let top = luma(idx) * (1.0 - fx) + luma(idx + 1) * fx;
-    let bot = luma(idx + stride) * (1.0 - fx) + luma(idx + stride + 1) * fx;
-    Some(top * (1.0 - fy) + bot * fy)
-}
-
 #[cfg(test)]
 mod tests {
+    use super::sample::luma_bilinear;
     use super::*;
     use crate::ingest::ValidityMask;
     use crate::prng::SplitMix64;
@@ -432,7 +375,7 @@ mod tests {
             search_radius: Some(4),
             ..RefineOptions::default()
         };
-        let out = refine_correspondences(&a, &b, (1.0, 1.0), (1.0, 1.0), &matches, &opts);
+        let out = refine_correspondences(&a, &b, (1.0, 1.0), (1.0, 1.0), None, &matches, &opts);
         assert_eq!(out.refined_count, 1, "textured shift must refine");
         assert_eq!(out.refined[0].a, p, "A side is the untouched reference");
         let (ex, ey) = (
@@ -461,6 +404,7 @@ mod tests {
             &b,
             (2.0, 2.5),
             (3.0, 2.0),
+            None,
             &matches,
             &RefineOptions::default(),
         );
@@ -483,7 +427,7 @@ mod tests {
             search_radius: Some(4),
             ..RefineOptions::default()
         };
-        let out = refine_correspondences(&a, &b, (1.0, 1.0), (1.0, 1.0), &matches, &opts);
+        let out = refine_correspondences(&a, &b, (1.0, 1.0), (1.0, 1.0), None, &matches, &opts);
         assert_eq!(out.refined_count, 0, "unrelated noise must not refine");
         assert_eq!(out.refined[0].b, (48.0, 40.0), "fallback keeps the seed");
     }
@@ -502,6 +446,7 @@ mod tests {
             &b,
             (1.0, 1.0),
             (1.0, 1.0),
+            None,
             &one_match((12.0, 40.0), (9.0, 40.0)),
             &opts,
         );
@@ -514,6 +459,7 @@ mod tests {
             &b,
             (1.0, 1.0),
             (1.0, 1.0),
+            None,
             &one_match((48.0, 40.0), (50.0, 40.0)),
             &opts,
         );
@@ -544,7 +490,7 @@ mod tests {
             search_radius: Some(4),
             ..RefineOptions::default()
         };
-        let out = refine_correspondences(&a, &b, (1.0, 1.0), (1.0, 1.0), &matches, &opts);
+        let out = refine_correspondences(&a, &b, (1.0, 1.0), (1.0, 1.0), None, &matches, &opts);
         assert_eq!(out.refined.len(), matches.len());
         assert_eq!(out.refined_mask.len(), matches.len());
         assert_eq!(out.refined_count + out.fallback_count, matches.len());
@@ -556,7 +502,7 @@ mod tests {
         for (m, r) in matches.iter().zip(&out.refined) {
             assert_eq!(r.a, m.a, "A side untouched at scale 1");
         }
-        let again = refine_correspondences(&a, &b, (1.0, 1.0), (1.0, 1.0), &matches, &opts);
+        let again = refine_correspondences(&a, &b, (1.0, 1.0), (1.0, 1.0), None, &matches, &opts);
         for (x, y) in out.refined.iter().zip(&again.refined) {
             assert_eq!(x, y, "bit-identical across runs");
         }
@@ -568,16 +514,5 @@ mod tests {
         assert_eq!(derived_search_radius((3.295, 3.2955)), 9); // pano_01 scale
         assert_eq!(derived_search_radius((1.0, 1.0)), 4);
         assert_eq!(derived_search_radius((0.5, 0.5)), 4); // never below scale-1
-    }
-
-    #[test]
-    fn parabolic_delta_is_clamped_and_degenerate_safe() {
-        assert_eq!(parabolic_delta(f64::NEG_INFINITY, 1.0, 0.5), 0.0);
-        assert_eq!(parabolic_delta(0.5, 0.5, 0.5), 0.0); // flat curvature
-        let d = parabolic_delta(0.2, 1.0, 0.9);
-        assert!(d > 0.0 && d <= 0.5, "peak leans right: {d}");
-        // Non-peak (malformed) samples would extrapolate past a neighbor —
-        // the clamp keeps the offset inside the integer peak's half-cell.
-        assert_eq!(parabolic_delta(0.0, 0.5, 2.0), -0.5);
     }
 }
