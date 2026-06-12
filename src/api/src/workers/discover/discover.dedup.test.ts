@@ -320,4 +320,81 @@ describe('discover producer — dedup', () => {
     await foldersColl.deleteOne({ _id: folderId });
     await rm(root, { recursive: true, force: true });
   });
+
+  it("modified file on a multi-location asset flags entry missing_since and deleted_at unconditionally", async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+    const { runMissingReaperOnce } = await import('../missing-reaper.ts');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-modmulti-'));
+    const fileA = path.join(root, 'photoA.jpg');
+    const fileB = path.join(root, 'photoB.jpg');
+
+    // Both files have identical original bytes.
+    const originalBytes = Buffer.alloc(64 * 1024, 0xaa);
+    const newBytes = Buffer.alloc(64 * 1024, 0x55);
+
+    await writeFile(fileA, originalBytes);
+    await writeFile(fileB, originalBytes);
+
+    const foldersColl = await foldersCollection();
+    const folderId = (
+      await foldersColl.insertOne({
+        path: root,
+        label: 'mod-multi-content',
+        last_scan: null,
+        file_count: 0,
+        created_at: new Date().toISOString(),
+      } as never)
+    ).insertedId;
+
+    const coll = await assetsCollection();
+    const { hashFileForId } = await import('../../indexer/id.ts');
+    const originalHashed = await hashFileForId(fileA);
+    await coll.deleteMany({ maple_id: originalHashed.maple_id });
+
+    // 1. Discover both files -> deduped onto a single row with 2 entries in fileinfo
+    await handleEvent({ kind: 'created', absPath: fileA }, folderId, root);
+    await handleEvent({ kind: 'created', absPath: fileB }, folderId, root);
+
+    // Verify deduped row has 2 entries.
+    const row = await coll.findOne({ maple_id: originalHashed.maple_id });
+    expect(row).not.toBeNull();
+    expect(row!.fileinfo).toHaveLength(2);
+
+    // 2. Overwrite fileA with new content (modified-content guard trigger)
+    await writeFile(fileA, newBytes);
+    await handleEvent({ kind: 'modified', absPath: fileA }, folderId, root);
+
+    // Old row (with originalHashed.maple_id) must still carry the fileA entry,
+    // but now it has BOTH deleted_at AND missing_since set to a string.
+    const updatedRow = await coll.findOne({ maple_id: originalHashed.maple_id });
+    expect(updatedRow).not.toBeNull();
+    const fileAEntry = updatedRow!.fileinfo!.find((e: any) => e.filename === 'photoA.jpg');
+    expect(fileAEntry).toBeDefined();
+    expect(typeof fileAEntry!.deleted_at).toBe('string');
+    expect(typeof fileAEntry!.missing_since).toBe('string');
+
+    // 3. Run missing-reaper with an immediate deleteBeforeIso to bypass the cooldown.
+    const deleteBeforeIso = new Date(Date.now() + 60_000).toISOString(); // future timestamp so cooldown is satisfied
+    await runMissingReaperOnce({
+      batchSize: 10,
+      deleteBeforeIso,
+      allowDelete: true,
+    });
+
+    // Old row should still exist (photoB keeps it live), but photoA entry must be pruned/pulled.
+    const reapedRow = await coll.findOne({ maple_id: originalHashed.maple_id });
+    expect(reapedRow).not.toBeNull();
+    expect(reapedRow!.fileinfo).toHaveLength(1);
+    expect(reapedRow!.fileinfo![0].filename).toBe('photoB.jpg');
+
+    // Clean up.
+    const newHashed = await hashFileForId(fileA);
+    await coll.deleteMany({ maple_id: { $in: [originalHashed.maple_id, newHashed.maple_id] } });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
 });

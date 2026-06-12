@@ -233,6 +233,9 @@ describe('runDeDuplicateOnce', () => {
     expect(existsSync(join(root, DUP, 'keep', 'IMG.dng'))).toBe(false);
     const asset = await getAsset(id);
     expect(asset!.fileinfo).toHaveLength(2); // nothing pulled
+    // Verify that the absent entry was tagged missing_since so reaper can prune it.
+    const ghost = asset!.fileinfo.find((e: any) => e.path === 'ghost');
+    expect(ghost.missing_since).toBeTypeOf('string');
   });
 
   it('does not move anything when only one copy is actually on disk (stale entry last)', async () => {
@@ -253,6 +256,9 @@ describe('runDeDuplicateOnce', () => {
     expect(existsSync(join(root, DUP, 'a', 'IMG.dng'))).toBe(false);
     const asset = await getAsset(id);
     expect(asset!.fileinfo).toHaveLength(2);
+    // Verify that the absent entry was tagged missing_since so reaper can prune it.
+    const b = asset!.fileinfo.find((e: any) => e.path === 'b');
+    expect(b.missing_since).toBeTypeOf('string');
   });
 
   it('dry-run reports the work but mutates nothing', async () => {
