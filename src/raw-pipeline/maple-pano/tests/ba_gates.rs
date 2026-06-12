@@ -6,10 +6,17 @@
 
 use std::time::Instant;
 
+mod common;
+
+use common::{
+    build_graph, realistic_matches, relative_set, ring_options, seed_images, REALISTIC_NOISE_PX,
+    REALISTIC_OUTLIERS,
+};
+
 use maple_pano::ba::{solve, BaOptions, DropReason};
 use maple_pano::camera::Camera;
 use maple_pano::graph::{
-    build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage, MatchGraph,
+    build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage,
 };
 use maple_pano::leveling;
 use maple_pano::math::{axis_angle_to_matrix, matrix_to_axis_angle, Mat3};
@@ -18,64 +25,6 @@ use maple_pano::render::{build_camera_set, CameraSetOptions, Pattern};
 use maple_pano::robust::RobustOptions;
 use maple_pano::testkit::{generate_pair_correspondences, CorrespondenceOptions};
 use maple_pano::twoview::rotation_angle_between;
-
-/// Matcher-realistic pixel noise: the real ALIKED+LightGlue stack
-/// measured a 0.44 px median reprojection error on the synthetic smoke
-/// pair (tests/ml_smoke.rs), so σ = 0.5 px is the honest synthetic
-/// stand-in. (At σ = 1.0 the *noise floor* of the residual norm —
-/// E|N₂(0, √2σ·I)| ≈ 1.77 px — already exceeds the spec's 1.5 px
-/// per-frame mean budget, so that regime is gated by the robust
-/// verifier upstream, not by BA.)
-const REALISTIC_NOISE_PX: f64 = 0.5;
-const REALISTIC_OUTLIERS: f64 = 0.3;
-
-fn realistic_matches() -> CorrespondenceOptions {
-    CorrespondenceOptions {
-        count: 200,
-        noise_sigma_px: REALISTIC_NOISE_PX,
-        outlier_fraction: REALISTIC_OUTLIERS,
-        ..Default::default()
-    }
-}
-
-fn ring_options(count: u32) -> CameraSetOptions {
-    CameraSetOptions {
-        count,
-        pattern: Pattern::Ring { full: true },
-        fov_deg: 60.0,
-        overlap: 0.3,
-        pitch_deg: 0.0,
-        jitter_deg: 3.0,
-        k1: 0.0,
-        k2: 0.0,
-        width: 960,
-        height: 720,
-    }
-}
-
-/// Graph from the true cameras with the M1a providers and per-pair
-/// deterministic synthetic matches (same recipe as the graph gates).
-fn build_graph(images: &[GraphImage], cams: &[Camera], corr: &CorrespondenceOptions) -> MatchGraph {
-    build_match_graph(
-        images,
-        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
-        |a, b| {
-            let mut rng = SplitMix64::new(0x00C0_FFEE ^ ((a as u64) << 32) ^ b as u64);
-            generate_pair_correspondences(&cams[a], &cams[b], corr, &mut rng).pixel_pairs()
-        },
-        &RobustOptions::default(),
-    )
-}
-
-/// Seed images: true intrinsics as the focal seed, priors as requested.
-fn seed_images(cams: &[Camera], with_priors: bool) -> Vec<GraphImage> {
-    cams.iter()
-        .map(|c| GraphImage {
-            camera: c.clone(),
-            prior_rotation: with_priors.then_some(c.rotation),
-        })
-        .collect()
-}
 
 /// Worst absolute rotation error (degrees) against ground truth. Valid
 /// when the solve was gauge-aligned to ground-truth priors.
@@ -336,19 +285,6 @@ fn gate_convergence_basin() {
     }
 }
 
-/// Gauge-invariant relative set (`R_iᵀ·R_0` — see
-/// [`worst_rel_rotation_err_deg`] for why not the world-frame form).
-fn relative_set(solution: &maple_pano::ba::BaSolution) -> Vec<Mat3> {
-    let cams: Vec<&Camera> = solution
-        .cameras
-        .iter()
-        .map(|c| c.as_ref().expect("frame solved"))
-        .collect();
-    cams.iter()
-        .map(|c| c.rotation.transpose().mul_mat(&cams[0].rotation))
-        .collect()
-}
-
 /// Acceptance-gate behavior: one frame's matches on a single edge are
 /// generated from a 1.5°-rotated impostor camera — pairwise-consistent
 /// (the verifier accepts it) but globally irreconcilable. The solve
@@ -414,6 +350,22 @@ fn gate_inconsistent_frame_is_dropped() {
             .iter()
             .any(|d| matches!(d.reason, DropReason::HighResidual { .. })),
         "expected a HighResidual drop, got {:?}",
+        solution.dropped
+    );
+    // Spec §8 (#1216): a misaligned frame's error is systematic — it has
+    // no qualifying multi-edge static core, so the motion discriminator
+    // must NOT reclassify it (or anything else here) as motion-affected.
+    assert!(
+        solution.motion_affected.is_empty(),
+        "misalignment must not be classified as motion: {:?}",
+        solution.motion_affected
+    );
+    assert!(
+        !solution
+            .dropped
+            .iter()
+            .any(|d| matches!(d.reason, DropReason::MotionDominated { .. })),
+        "misalignment must not drop as MotionDominated: {:?}",
         solution.dropped
     );
     assert!(

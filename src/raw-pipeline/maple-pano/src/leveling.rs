@@ -201,6 +201,8 @@ mod tests {
             converged: true,
             solve_rounds: 1,
             pruned_matches: 0,
+            motion_affected: Vec::new(),
+            motion_pruned_matches: Vec::new(),
         }
     }
 
