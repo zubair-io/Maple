@@ -6,11 +6,13 @@
 #![cfg(test)]
 
 use super::*;
+use crate::test_support::fixtures::require_raw;
 
 // -----------------------------------------------------------------------
 // Crop / straighten integration (ticket #277)
 // -----------------------------------------------------------------------
 
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 #[test]
 fn render_with_default_crop_matches_no_crop_path() {
     // Sanity gate: a default-`Crop::IDENTITY` render must be byte-equal
@@ -18,11 +20,7 @@ fn render_with_default_crop_matches_no_crop_path() {
     // pre-#277 pipeline behaved. We assert identity of the bytes
     // produced by `render_from_raw` against itself with the explicit
     // identity crop spelled out — that's the parity-baseline contract.
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    let path = require_raw("test_0002.dng");
     let bytes_in = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes_in, "dng").expect("decode");
     let model_default = AdjustmentModel::default();
@@ -38,13 +36,10 @@ fn render_with_default_crop_matches_no_crop_path() {
     );
 }
 
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 #[test]
 fn render_with_axis_aligned_crop_clips_dimensions() {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    let path = require_raw("test_0002.dng");
     let bytes_in = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes_in, "dng").expect("decode");
     let mut model = AdjustmentModel::default();
@@ -75,14 +70,11 @@ fn render_with_axis_aligned_crop_clips_dimensions() {
     );
 }
 
+#[cfg_attr(not(feature = "fixtures"), ignore)]
 #[test]
 fn render_with_axis_aligned_crop_scene_linear_path_matches_dims() {
     // Same assertion via the FFI scene-linear path that Apple + Web actually consume.
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    let path = require_raw("test_0002.dng");
     let bytes_in = std::fs::read(&path).expect("read raw");
     let raw = crate::decode::decode_bytes(&bytes_in, "dng").expect("decode");
     let mut model = AdjustmentModel::default();
