@@ -61,7 +61,7 @@ The WGSL/GPU live path is currently **flag-OFF / dormant**. The **shipping** App
 ### Task 4 — Verify (Apple is NOT cloud-CI-gated)
 
 - [ ] `cd src/apple/Packages/MapleCore && swift build && swift test` — green (SourceKit "No such module" is indexer noise; the real build is authoritative).
-- [ ] `xcodebuild -scheme "Maple Exposure" -destination 'platform=macOS' build` (flag-OFF default) — **BUILD SUCCEEDED** with the GPU path now the default (so the removed Metal path is genuinely unreferenced).
+- [ ] `xcodebuild -scheme "Maple Exposure" -destination 'platform=macOS' build` (GPU default — `#if MAPLE_GPU` compile-time guard removed in #1064) — **BUILD SUCCEEDED** with the GPU path now always compiled in (so the removed Metal path is genuinely unreferenced).
 - [ ] The parity/fallback safety net stays GREEN (below).
 - [ ] `git restore` any `RawPipeline.xcframework/Info.plist` build churn.
 
