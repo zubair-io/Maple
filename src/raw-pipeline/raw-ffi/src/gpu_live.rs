@@ -454,6 +454,12 @@ pub unsafe extern "C" fn maple_gpu_present_chain(
 // (600-LOC file budget; same split pattern as raw_gpu's live_session/limits).
 mod params;
 
+// Tests live in sibling files (600-LOC budget). The dehaze / on-GPU-airlight
+// host gate is split out (#1098), mirroring raw-gpu's `live_session` /
+// `airlight_tests` split; it reuses `gpu_live_tests`' `pub(super)` helpers.
+#[cfg(test)]
+#[path = "gpu_live_airlight_tests.rs"]
+mod gpu_live_airlight_tests;
 #[cfg(test)]
 #[path = "gpu_live_tests.rs"]
 mod gpu_live_tests;
