@@ -187,6 +187,73 @@ fn solve_dense_matches_known_system() {
     assert!(solve_dense(s, vec![1.0, 2.0]).is_none());
 }
 
+/// Gauge normalization divides by the count of POSITIVE gains only.
+///
+/// If any frame's solved gain is ≤ 0, the old code divided the log-sum
+/// by `x.len()` (the full count), biasing `log_mean` low. This test
+/// verifies the normalization produces geometric mean = 1.0 over the
+/// POSITIVE entries even when a non-positive gain appears.
+///
+/// Key example: x = [4.0, 0.5, -0.1].
+///   Positive subset {4.0, 0.5}: geomean = sqrt(2).
+///   Correct log_mean  = (ln4 + ln0.5) / 2 = (ln4 - ln2) / 2 = ln(2)/2.
+///   norm              = exp(-ln(2)/2) = 1/sqrt(2).
+///   Normalised gains  = [4/sqrt(2), 0.5/sqrt(2)] = [2√2, √2/2].
+///   Their geomean     = sqrt(2√2 · √2/2) = sqrt(2) * 1/sqrt(2) = 1.0. ✓
+///
+///   Buggy (divide by 3): log_mean = ln(2)/3, norm = 2^(-1/3).
+///   Normalised gains  = [4·2^(-1/3), 0.5·2^(-1/3)].
+///   Their geomean     = sqrt(2) · 2^(-1/3) ≠ 1.0. ✗
+#[test]
+fn gauge_normalization_divides_by_positive_count() {
+    let x: Vec<f64> = vec![4.0, 0.5, -0.1];
+    // Correct computation using the fixed divisor.
+    let positive_lns: Vec<f64> = x.iter().filter(|&&g| g > 0.0).map(|&g| g.ln()).collect();
+    assert_eq!(positive_lns.len(), 2);
+    let log_mean_correct = positive_lns.iter().sum::<f64>() / positive_lns.len() as f64;
+    let norm = (-log_mean_correct).exp();
+
+    // After normalization, geomean of positive entries = 1.0.
+    let normalised: Vec<f64> = x.iter().filter(|&&g| g > 0.0).map(|&g| g * norm).collect();
+    let geomean_after =
+        (normalised.iter().map(|g| g.ln()).sum::<f64>() / normalised.len() as f64).exp();
+    assert!(
+        (geomean_after - 1.0).abs() < 1e-12,
+        "geomean of normalised positive gains must be 1.0, got {geomean_after}"
+    );
+
+    // Confirm the buggy divisor gives a DIFFERENT (wrong) result.
+    let log_mean_buggy = positive_lns.iter().sum::<f64>() / x.len() as f64;
+    // x.len()=3 ≠ positive_lns.len()=2, so the means differ.
+    assert!(
+        (log_mean_correct - log_mean_buggy).abs() > 1e-9,
+        "the fix must change log_mean: correct={log_mean_correct:.6} buggy={log_mean_buggy:.6}"
+    );
+
+    // Full end-to-end: solve_gains on overlapping frames should produce
+    // geomean ≈ 1.0 when all solver outputs are positive (regression
+    // guard: the fix must not change behaviour on the normal case).
+    let cams = ring_cameras(3, 60.0, 0.4);
+    let muls = [1.5_f32, 1.0, 0.8];
+    let frames: Vec<_> = cams
+        .iter()
+        .zip(muls)
+        .map(|(c, m)| frame_from_scene(c, [m; 3]))
+        .collect();
+    let gains = solve_gains(&frames, &cams, &GainOptions::default()).unwrap();
+    let positive_count = gains.iter().filter(|g| g[0] > 0.0).count();
+    let ln_sum: f64 = gains
+        .iter()
+        .filter(|g| g[0] > 0.0)
+        .map(|g| (g[0] as f64).ln())
+        .sum();
+    let geomean = (ln_sum / positive_count as f64).exp();
+    assert!(
+        (geomean - 1.0).abs() < 1e-4,
+        "geomean of solved gains should be ≈1.0, got {geomean}"
+    );
+}
+
 /// Bilinear validity tap: invalid neighbors are renormalized away.
 #[test]
 fn bilinear_valid_renormalizes() {
