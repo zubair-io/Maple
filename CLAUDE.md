@@ -51,6 +51,7 @@ src/
     raw-ffi/                  # cbindgen C headers for Apple xcframework
     raw-wasm/                 # wasm-bindgen bindings for Web
     maple-cli/                # Deterministic headless CLI harness
+    codegen/                  # Rust → Swift/TS/SCSS/WGSL generator (run via tools/codegen.sh)
   web/                        # Angular workspace (Maple Hosted UI; also consumed by Self Hosted)
     projects/
       maple/                  # The editor/browse application
@@ -63,8 +64,6 @@ src/
     test_color_pipeline.sh    # Color parity harness
     compare_images.py         # ΔE₀₀ + per-channel bias metric
     derive_agx_lut.py         # AgX coeffs/LUT → agx_coeffs.rs + agx_lut.bin + WGSL
-
-raw-pipeline/codegen/         # Rust → Swift/TS/SCSS/WGSL generator (run via tools/codegen.sh)
 
 docs/
   feature-spec.md             # What the product does
@@ -190,7 +189,7 @@ bun run test
 
 To load a RAW file in dev automation without the native picker, drop it into `projects/maple/public/test.dng` and feed it into the hidden `<input type="file">` via `DataTransfer`. Setting `input.files` programmatically does not fire `change` — the synthetic event is required.
 
-**Canvas color-space (Web):** the live canvas renders via the WASM `render_bytes` path (Auto Profile is applied in-core), and the render worker (`src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker.ts`) tags the canvas surface as **display-P3** once at session open, reading back the browser-configured value via `getConfiguration()`. This matches the wide-gamut output of the core; do not assume an sRGB canvas. (The old dev-only `webgl-pipeline.ts` GLSL path was removed in the #925 wgpu/WGSL unification.)
+**Canvas color-space (Web):** on WebGPU-capable browsers the live canvas routes through `render_bytes_gpu` (the GPU live path); `render_bytes` (WASM-CPU) is the fallback when WebGPU is unavailable. The render worker (`src/web/projects/maple-common/src/lib/raw-pipeline/raw-pipeline.worker.ts`) tags the canvas surface as **display-P3** once at session open, reading back the browser-configured value via `getConfiguration()`. This matches the wide-gamut output of the core; do not assume an sRGB canvas. (The old dev-only `webgl-pipeline.ts` GLSL path was removed in the #925 wgpu/WGSL unification.)
 
 ## Build & test — API (Bun / Self Hosted)
 
