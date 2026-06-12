@@ -268,8 +268,23 @@ pub(super) fn gate_frames(
         };
         let any_qualifying = qualifying.iter().any(|&x| x);
         if !any_qualifying || motion_round == MOTION_ROUNDS_MAX {
-            // No motion path left (or the safety bound hit): worst-mean
-            // failing frame drops on its raw stats, as before stage E.
+            if ctx.opts.retention == RetentionPolicy::KeepAlignable {
+                // Product goal (the owner's bar): place EVERY connected
+                // frame. Residuals above budget are blending/seam
+                // information and a report warning — never grounds for
+                // excluding a photo the user shot. The failing frames
+                // are flagged so the report carries the §8 warning and
+                // their per-frame stats say exactly what they are.
+                for v in &verdicts {
+                    book.flagged[v.local] = true;
+                }
+                return GateOutcome::Pass {
+                    stats: effective_stats,
+                };
+            }
+            // Strict: no motion path left (or the safety bound hit) —
+            // worst-mean failing frame drops on its stats, as before
+            // stage E existed.
             let v = worst_mean(&verdicts, |_| true).expect("failing is non-empty");
             return GateOutcome::Drop {
                 local: v.local,
@@ -302,6 +317,14 @@ pub(super) fn gate_frames(
             // over-budget pair — see the module docs), kept as an
             // honest fallback: no progress possible ⇒ gate as before.
             None => {
+                if ctx.opts.retention == RetentionPolicy::KeepAlignable {
+                    for v in &verdicts {
+                        book.flagged[v.local] = true;
+                    }
+                    return GateOutcome::Pass {
+                        stats: effective_stats,
+                    };
+                }
                 let v = worst_mean(&verdicts, |_| true).expect("failing is non-empty");
                 return GateOutcome::Drop {
                     local: v.local,
