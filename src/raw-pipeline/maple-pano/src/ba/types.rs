@@ -2,6 +2,7 @@
 //! ([`super::solve`]). Split from `ba/mod.rs` for the file-size budget.
 
 use crate::camera::Camera;
+use crate::local_align::LocalCorrection;
 use crate::math::{matrix_to_axis_angle, Mat3};
 
 /// Tuning for [`solve`]. The defaults are the spec values; tests and
@@ -95,12 +96,19 @@ pub struct BaSolution {
     pub shared_focal_px: f64,
     pub k1: f64,
     pub k2: f64,
+    /// Per-frame residual summaries AFTER local alignment (#1218).
+    /// Null for dropped frames. These are the stats the acceptance gate
+    /// is measured against (spec §5.3 — end-of-chain measurement).
     pub frame_stats: Vec<Option<FrameStats>>,
     pub dropped: Vec<DroppedFrame>,
-    /// Mean/max reprojection error over all solved blocks (px). 0 when
-    /// fewer than two frames survive (no blocks to measure).
+    /// Mean/max reprojection error over all solved blocks AFTER local
+    /// alignment (px). 0 when fewer than two frames survive.
+    /// End-of-chain measurement per spec §5.3 + #1218 requirement.
     pub mean_reproj_px: f64,
     pub max_reproj_px: f64,
+    /// Pre-local-alignment mean/max for auditability (StitchReport §6).
+    pub mean_reproj_before_local_px: f64,
+    pub max_reproj_before_local_px: f64,
     /// Total LM iterations across stages and re-solve rounds.
     pub lm_iterations: usize,
     pub final_cost: f64,
@@ -126,6 +134,16 @@ pub struct BaSolution {
     /// [`Self::motion_affected`] (parallel vector; a pair touching two
     /// motion-affected frames counts toward both).
     pub motion_pruned_matches: Vec<usize>,
+    /// Per-frame local alignment corrections (#1218, spec §8): the
+    /// stage-F affine warps applied at composite time to absorb the
+    /// parallax floor. Indexed by global frame index; `None` for dropped
+    /// frames and for retained frames with zero contributing blocks.
+    /// `Some(identity)` is never stored — `None` means no correction.
+    pub local_corrections: Vec<Option<LocalCorrection>>,
+    /// Per-frame correction RMS magnitudes (px), parallel to
+    /// `local_corrections` — logged in the stitch report for auditability.
+    /// 0.0 for frames with no correction.
+    pub local_correction_rms: Vec<f64>,
 }
 
 impl BaSolution {

@@ -28,6 +28,7 @@ use rayon::prelude::*;
 use crate::camera::Camera;
 use crate::canvas::CanvasSpec;
 use crate::ingest::{PlanarImage, ValidityMask};
+use crate::local_align::{LocalCorrection, MAX_CORRECTION_PX};
 use crate::math::Vec3;
 use crate::project::Projection;
 
@@ -259,11 +260,17 @@ fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
 ///
 /// The output is a canvas-sized [`PlanarImage`] whose validity marks
 /// exactly the pixels that received a covered sample.
+///
+/// `local_align`: optional per-frame local-alignment correction (#1218,
+/// spec §8).  When present it is applied to the rotation-warp's output
+/// sample coordinate in a **single resample** — no extra pass.  The bbox
+/// margin is widened by [`MAX_CORRECTION_PX`] to keep coverage correct.
 pub fn warp_to_canvas(
     src: &PlanarImage,
     cam: &Camera,
     canvas: &CanvasSpec,
     gain: [f32; 3],
+    local_align: Option<&LocalCorrection>,
 ) -> PlanarImage {
     assert_eq!(
         (src.width(), src.height()),
@@ -279,8 +286,14 @@ pub fn warp_to_canvas(
     let mut valid = vec![false; n];
 
     // Bicubic support is 2 px; bbox margin covers it plus border
-    // sampling slack.
-    let bbox = frame_canvas_bbox(cam, canvas, 4.0);
+    // sampling slack.  Widen by MAX_CORRECTION_PX when local alignment
+    // is active so the corrected sample always lands in the bbox.
+    let bbox_margin = if local_align.is_some() {
+        4.0 + MAX_CORRECTION_PX
+    } else {
+        4.0
+    };
+    let bbox = frame_canvas_bbox(cam, canvas, bbox_margin);
 
     if let Some(bbox) = bbox {
         let src_w = src.width() as f64;
@@ -302,9 +315,14 @@ pub fn warp_to_canvas(
                         let Some(dir) = canvas.pixel_to_dir(px, py) else {
                             continue;
                         };
-                        let Some((fx, fy)) = cam.world_dir_to_pixel(dir) else {
+                        let Some((mut fx, mut fy)) = cam.world_dir_to_pixel(dir) else {
                             continue;
                         };
+                        // Stage F: apply per-frame local alignment correction
+                        // in a SINGLE resample — no extra pass.
+                        if let Some(la) = local_align {
+                            (fx, fy) = la.apply(fx, fy);
+                        }
                         // Footprint test: the sample point must land on
                         // the source frame.
                         if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
@@ -393,7 +411,7 @@ mod tests {
                 ((x + y) as f32 * 0.007).fract(),
             ]
         });
-        let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), [1.0; 3]);
+        let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), [1.0; 3], None);
         for i in 0..src.pixel_count() {
             assert!((out.r[i] - src.r[i]).abs() < 1e-9, "R at {i}");
             assert!((out.g[i] - src.g[i]).abs() < 1e-9, "G at {i}");
@@ -406,7 +424,7 @@ mod tests {
     fn gain_is_folded_into_the_warp() {
         let cam = Camera::new([0.0; 3], 100.0, 0.0, 0.0, 32, 24);
         let src = planar_from_fn(32, 24, |_, _| [0.25, 0.5, 0.125]);
-        let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), [2.0, 0.5, 4.0]);
+        let out = warp_to_canvas(&src, &cam, &aligned_canvas(&cam), [2.0, 0.5, 4.0], None);
         for i in 0..out.pixel_count() {
             assert_eq!(out.r[i], 0.5);
             assert_eq!(out.g[i], 0.25);
@@ -463,7 +481,7 @@ mod tests {
             false,
         )
         .unwrap();
-        let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3]);
+        let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
         let mut checked_valid = 0;
         let mut hole_interior_invalid = 0;
         for y in 0..h {
@@ -492,7 +510,7 @@ mod tests {
         let cam = Camera::new([0.1, 0.9, 0.0], 80.0, -0.03, 0.01, 64, 48);
         let src = planar_from_fn(64, 48, |_, _| [0.5; 3]);
         let canvas = CanvasSpec::full_sphere(96).unwrap();
-        let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3]);
+        let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
         let mut mismatches = 0;
         for y in 0..canvas.height {
             for x in 0..canvas.width {
@@ -521,7 +539,7 @@ mod tests {
         let canvas = CanvasSpec::full_sphere(64).unwrap();
         let bbox = frame_canvas_bbox(&cam, &canvas, 4.0).expect("on canvas");
         assert_eq!(bbox.x_spans.len(), 2, "bbox must split across the wrap");
-        let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3]);
+        let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
         let h2 = canvas.height / 2;
         assert!(out.validity.get(0, h2), "left edge covered");
         assert!(out.validity.get(canvas.width - 1, h2), "right edge covered");
@@ -540,7 +558,7 @@ mod tests {
         let canvas = aligned_canvas(&forward);
         assert_eq!(frame_canvas_bbox(&cam, &canvas, 4.0), None);
         let src = planar_from_fn(32, 24, |_, _| [1.0; 3]);
-        let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3]);
+        let out = warp_to_canvas(&src, &cam, &canvas, [1.0; 3], None);
         assert_eq!(out.validity.count_valid(), 0);
     }
 
@@ -556,8 +574,8 @@ mod tests {
             ]
         });
         let canvas = CanvasSpec::full_sphere(80).unwrap();
-        let a = warp_to_canvas(&src, &cam, &canvas, [1.1, 0.9, 1.0]);
-        let b = warp_to_canvas(&src, &cam, &canvas, [1.1, 0.9, 1.0]);
+        let a = warp_to_canvas(&src, &cam, &canvas, [1.1, 0.9, 1.0], None);
+        let b = warp_to_canvas(&src, &cam, &canvas, [1.1, 0.9, 1.0], None);
         assert_eq!(a.r, b.r);
         assert_eq!(a.g, b.g);
         assert_eq!(a.b, b.b);
