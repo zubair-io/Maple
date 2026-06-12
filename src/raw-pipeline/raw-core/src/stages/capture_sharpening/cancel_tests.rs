@@ -242,17 +242,12 @@ fn cancellation_gates_every_iteration() {
     assert!(matches!(r, Err(Error::Cancelled)), "expected Err(Cancelled), got {r:?}");
 }
 
-/// End-to-end cancellation under a *concurrently* flipped flag: spawn a
-/// watcher that sets the flag almost immediately while the main thread
-/// runs a multi-iteration pass on a reasonably large buffer. The call must
-/// return `Err(Cancelled)` (it observes the store at an iteration or row
-/// boundary) rather than running to completion. Because the store races
-/// the compute, on a fast machine the pass *might* finish first and return
-/// `Ok`; to keep the test deterministic we set the flag before the call
-/// AND from the thread, and only assert the strong invariant (Err) — the
-/// race only affects how early it bails, not whether it does.
+/// Cancellation with a pre-set flag: the flag is set to `true` before the
+/// call so the very first row-boundary check trips and `Err(Cancelled)` is
+/// returned. This is deterministic — there is no watcher thread; the flag
+/// is already hot when `apply_capture_sharpening_cancellable` is entered.
 #[test]
-fn cancellation_from_concurrent_flag_returns_err() {
+fn cancellation_from_preset_flag_returns_err() {
     let flag = AtomicBool::new(false);
     let token = CancelToken::new(&flag);
     // Set immediately so the very first row-boundary check trips. (A true
