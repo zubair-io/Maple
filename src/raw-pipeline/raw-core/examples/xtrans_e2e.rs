@@ -2,7 +2,8 @@
 //! Runs the full develop chain on test_0008.RAF and reports basic
 //! sanity stats on the rendered RGB.
 
-use raw_core::api::{decode_raw, apply};
+use raw_core::api::decode_raw;
+use raw_core::pipeline::render_from_raw;
 use raw_core::types::adjustment::AdjustmentModel;
 
 fn main() {
@@ -26,17 +27,17 @@ fn main() {
 
     let model = AdjustmentModel::default();
     let t0 = std::time::Instant::now();
-    let rendered = apply(&raw, &model).expect("apply");
+    let (out_w, out_h, rgb) = render_from_raw(&raw, &model).expect("render");
     let elapsed = t0.elapsed();
     println!("render OK in {:.2}s: {}x{} bytes={}",
              elapsed.as_secs_f64(),
-             rendered.width, rendered.height, rendered.rgb.len());
+             out_w, out_h, rgb.len());
 
     // Compute very basic per-channel mean to confirm the buffer isn't all
     // zeros or all clipped.
-    let n = (rendered.width as usize) * (rendered.height as usize);
+    let n = (out_w as usize) * (out_h as usize);
     let mut sum = [0.0_f64; 3];
-    for px in rendered.rgb.chunks_exact(3) {
+    for px in rgb.chunks_exact(3) {
         sum[0] += px[0] as f64;
         sum[1] += px[1] as f64;
         sum[2] += px[2] as f64;
