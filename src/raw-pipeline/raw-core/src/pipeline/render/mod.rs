@@ -456,3 +456,8 @@ mod auto_profile_parity_tests;
 // for the same size-budget reason.
 #[cfg(test)]
 mod sized_display_tests;
+
+// Crop / straighten integration tests (#277) — own sibling file so tests.rs
+// stays under the 600-LOC hard budget (#772).
+#[cfg(test)]
+mod crop_tests;
