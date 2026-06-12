@@ -216,9 +216,15 @@ pub fn develop_scene_linear_sized_from_raw_with_quality_cancellable(
     }
     dump_after("04ab_deep_denoise", &scene);
     if let Some(params) = capture_sharpening_params_from_model(model) {
+        // Cancellable RL deconvolution (#1089) — same rationale as the
+        // unsized develop chain. Observes `cancel` between iterations / per
+        // row; the post-stage check is defense-in-depth around the `?`.
         stage("sized_capture_sharpening", || {
-            capture_sharpening::apply_capture_sharpening(&mut scene, &params)
-        });
+            capture_sharpening::apply_capture_sharpening_cancellable(&mut scene, &params, cancel)
+        })?;
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
     }
     dump_after("04b_capture_sharpening", &scene);
     stage("sized_auto_exposure", || auto_exposure::apply(&mut scene, model));
