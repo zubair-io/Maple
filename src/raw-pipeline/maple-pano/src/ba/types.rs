@@ -51,6 +51,18 @@ pub enum DropReason {
     Disconnected,
     /// Failed the spec §5.3 acceptance gate after the global solve.
     HighResidual { mean_px: f64, max_px: f64 },
+    /// Spec §8 motion path ([`super::motion`]): the frame HAS a
+    /// qualifying static core (`core_matches` tight correspondences at
+    /// `core_mean_px`) but more than the motion ceiling of its support
+    /// is over the max budget (`motion_fraction`, of the frame's
+    /// gate-round-start support) — too little static truth remains to
+    /// pose the frame reliably, so it drops with its core evidence
+    /// attached instead of a bare residual summary.
+    MotionDominated {
+        core_mean_px: f64,
+        core_matches: usize,
+        motion_fraction: f64,
+    },
 }
 
 /// One dropped frame with its reason; `index` is the position in the
@@ -100,8 +112,20 @@ pub struct BaSolution {
     /// Correspondences removed by stage-D outlier rejection (both
     /// directed blocks of a match count once). Bad matches that survive
     /// the pairwise verifier, not misalignment — see the stage-D note
-    /// in [`solve`]'s implementation.
+    /// in [`solve`]'s implementation. Motion prunes are counted
+    /// separately in [`Self::motion_pruned_matches`].
     pub pruned_matches: usize,
+    /// Frames the spec §8 gate ([`super::motion`]) reclassified as
+    /// motion-affected: they failed the §5.3 budgets on their raw
+    /// residuals but carry a qualifying static core, so their motion
+    /// matches were pruned and the frame was KEPT. Sorted global frame
+    /// indices; always a subset of the solved (non-dropped) frames.
+    /// Non-empty ⇒ the product surfaces the §8 movement warning.
+    pub motion_affected: Vec<usize>,
+    /// Correspondences pruned as motion per entry of
+    /// [`Self::motion_affected`] (parallel vector; a pair touching two
+    /// motion-affected frames counts toward both).
+    pub motion_pruned_matches: Vec<usize>,
 }
 
 impl BaSolution {
