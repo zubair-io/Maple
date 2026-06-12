@@ -481,10 +481,11 @@ fn border_strip_passes_through_unchanged() {
 }
 
 /// f64 ground-truth NLM — the naive O(N·S²·P²) reference both f32 paths are
-/// graded against. Full-f64 patch SSD, weights, and per-pixel average. Mirrors
-/// `denoise_plane`'s algorithm exactly (same self-similarity centre, same
-/// `fast_neg_exp` range/sign clamps so the comparison isolates summation
-/// accuracy, not the LUT's documented truncations).
+/// graded against. Full-f64 patch SSD, weights, and per-pixel average. Uses
+/// exact `(-x).exp()` (not the `fast_neg_exp` LUT) with the same range/sign
+/// clamps as the production function. Because of this, the max-abs difference
+/// it reports captures BOTH accumulation-order error AND LUT-interpolation
+/// error vs the exact result — it is NOT a pure summation-accuracy probe.
 #[cfg(test)]
 fn denoise_plane_f64_truth(plane: &[f32], w: usize, h: usize, params: NlmParams) -> Vec<f32> {
     let p = params.patch_radius as isize;
