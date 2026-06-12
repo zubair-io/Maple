@@ -565,10 +565,12 @@ export class BunApiBackendService {
     // ── Face model paths (Phase 5) ────────────────────────────────
     /** `null` clears the override back to env / built-in default. */
     face_model_dir?: string | null;
-    face_retinaface_url?: string | null;
-    face_retinaface_sha256?: string | null;
-    face_mobilefacenet_url?: string | null;
-    face_mobilefacenet_sha256?: string | null;
+    /** SCRFD-10G detector + ArcFace R100 recognizer (InsightFace antelopev2).
+     * Used only when the file isn't already on disk under face_model_dir. */
+    face_detector_url?: string | null;
+    face_detector_sha256?: string | null;
+    face_recognizer_url?: string | null;
+    face_recognizer_sha256?: string | null;
     // ── Search index (Phase 7) ────────────────────────────────────
     /** Meilisearch sidecar URL. `null`/empty clears back to env / disabled. */
     meilisearch_url?: string | null;
@@ -798,11 +800,13 @@ export interface EnrichmentConfigResponse {
   /** Resolved model dir (DB → env → ~/.maple/models/). Always populated. */
   face_model_dir: string;
   /** `null` when neither DB nor env supplied a download URL — the worker
-   * then requires the file to be already on disk under face_model_dir. */
-  face_retinaface_url: string | null;
-  face_retinaface_sha256: string | null;
-  face_mobilefacenet_url: string | null;
-  face_mobilefacenet_sha256: string | null;
+   * then requires the file to be already on disk under face_model_dir.
+   * Detector = SCRFD-10G (scrfd_10g.onnx); recognizer = ArcFace R100
+   * (arcface_r100_glint360k.onnx), both from InsightFace's antelopev2 bundle. */
+  face_detector_url: string | null;
+  face_detector_sha256: string | null;
+  face_recognizer_url: string | null;
+  face_recognizer_sha256: string | null;
   /** Meilisearch sidecar URL (DB → env → null). `null` disables the sidecar;
    * search then falls back to the Mongo `$text` path. */
   meilisearch_url: string | null;
@@ -819,8 +823,8 @@ export interface EnrichmentConfigResponse {
   face_models?: {
     status: 'idle' | 'downloading' | 'loaded' | 'error';
     error_detail: string | null;
-    retinaface: { path: string; present: boolean; bytes: number };
-    mobilefacenet: { path: string; present: boolean; bytes: number };
+    detector: { path: string; present: boolean; bytes: number };
+    recognizer: { path: string; present: boolean; bytes: number };
   };
   source: {
     nominatim_url: 'db' | 'env' | 'unset';
@@ -834,10 +838,10 @@ export interface EnrichmentConfigResponse {
     describe_daily_cap_usd: 'db' | 'env' | 'default';
     face_worker_enabled: 'db' | 'env' | 'default';
     face_model_dir: 'db' | 'env' | 'default';
-    face_retinaface_url: 'db' | 'env' | 'unset';
-    face_retinaface_sha256: 'db' | 'env' | 'unset';
-    face_mobilefacenet_url: 'db' | 'env' | 'unset';
-    face_mobilefacenet_sha256: 'db' | 'env' | 'unset';
+    face_detector_url: 'db' | 'env' | 'unset';
+    face_detector_sha256: 'db' | 'env' | 'unset';
+    face_recognizer_url: 'db' | 'env' | 'unset';
+    face_recognizer_sha256: 'db' | 'env' | 'unset';
     meilisearch_url: 'db' | 'env' | 'unset';
     meilisearch_api_key: 'db' | 'env' | 'unset';
   };
