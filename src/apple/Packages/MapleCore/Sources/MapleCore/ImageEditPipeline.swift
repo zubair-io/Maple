@@ -172,8 +172,8 @@ public actor ImageEditPipeline {
     /// the caller also passes `AutoProfileLUT.shared.filter(...)` into
     /// `processSceneLinear(profileLUT:)` (as `EditSession` does), or pins
     /// `profileOverride: .neutral` here to keep auto-exposure in the
-    /// decode. Rendering the Auto buffer without the cube lands ~the AE
-    /// anchor gain (2–3×) too dark.
+    /// decode. Rendering the Auto buffer without the cube comes out too
+    /// dark by roughly the AE anchor gain (typically 2–3×).
     nonisolated public func decodeSceneLinear(
         asset: AssetRef,
         quality: PipelineRenderer.Quality = .preview,
