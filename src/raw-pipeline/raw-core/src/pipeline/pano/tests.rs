@@ -219,3 +219,47 @@ fn read_pano_metadata_pano01_fixture() {
         "XMP packet must carry the DJI gimbal attributes"
     );
 }
+
+/// #1159: the stage-2a opcode application actually runs on the real DJI
+/// fixtures — both corrections on the L2D-20c (pano_01), warp-only on
+/// the L3D-100c (pano_00). Guards the wiring (the parser/appliers have
+/// their own unit tests; this one fails if `decode_for_pano` ever stops
+/// invoking them).
+#[test]
+#[cfg_attr(
+    not(feature = "fixtures"),
+    ignore = "needs test-fixtures/raws (fixtures feature)"
+)]
+fn applies_opcode_list3_on_dji_fixtures() {
+    let p01 = std::fs::read(crate::test_support::fixtures::require_raw(
+        "pano_01/PANO0001.DNG",
+    ))
+    .expect("read PANO0001.DNG");
+    let ingest = decode_for_pano(&p01, "dng").expect("decode pano_01 frame");
+    assert!(
+        ingest
+            .applied_opcodes
+            .iter()
+            .any(|l| l.starts_with("GainMap"))
+            && ingest
+                .applied_opcodes
+                .iter()
+                .any(|l| l.starts_with("WarpRectilinear")),
+        "L2D-20c must apply GainMap + WarpRectilinear, got {:?}",
+        ingest.applied_opcodes
+    );
+
+    let p00 = std::fs::read(crate::test_support::fixtures::require_raw(
+        "pano_00/0000.DNG",
+    ))
+    .expect("read 0000.DNG");
+    let ingest = decode_for_pano(&p00, "dng").expect("decode pano_00 frame");
+    assert!(
+        ingest
+            .applied_opcodes
+            .iter()
+            .any(|l| l.starts_with("WarpRectilinear")),
+        "L3D-100c must apply WarpRectilinear, got {:?}",
+        ingest.applied_opcodes
+    );
+}

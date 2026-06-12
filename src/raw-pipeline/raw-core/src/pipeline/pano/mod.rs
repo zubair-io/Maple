@@ -64,8 +64,8 @@
 //! *improves* parity on opcode-carrying bodies) — tracked in #1190.
 //! Until that lands, the bit-pin test compares the two paths on
 //! opcode-free sources (where stage 2a is structurally a no-op), and
-//! `tests::applies_opcode_list3_gain_map` proves the divergence is real
-//! on opcode-carrying sources.
+//! `tests::applies_opcode_list3_on_dji_fixtures` proves the divergence is
+//! real on opcode-carrying sources.
 
 pub mod opcode_apply;
 pub mod opcodes;
@@ -137,6 +137,11 @@ pub struct PanoIngest {
     /// `ColorSpace::SceneLinearRec2020`, unbounded, display-oriented.
     pub image: Image,
     pub metadata: PanoSourceMetadata,
+    /// Labels of the `OpcodeList3` corrections that ran (stage 2a, #1159)
+    /// — e.g. `["GainMap(…)", "WarpRectilinear(…)"]`; empty when the
+    /// source carries none. Decode-time fact, surfaced so the stitch
+    /// report can show which frames were lens-corrected.
+    pub applied_opcodes: Vec<String>,
 }
 
 /// Decode a RAW byte slice into a [`PanoIngest`] (see module docs for the
@@ -144,12 +149,19 @@ pub struct PanoIngest {
 /// as in [`crate::decode_raw`].
 pub fn decode_for_pano(bytes: &[u8], ext: &str) -> Result<PanoIngest> {
     let raw = crate::decode::decode_bytes(bytes, ext)?;
-    let scene = develop_scene_linear_for_pano(&raw)?;
+    // Stage 2a inputs (#1159): best-effort — a source without (parseable)
+    // opcodes develops exactly as before.
+    let list3 = opcodes::read_opcode_list3(bytes, ext, raw.width, raw.height);
+    let (scene, applied_opcodes) = develop_scene_linear_for_pano(&raw, list3.as_ref())?;
     let image = stage("pano_orient", || {
         orient_scene_linear(scene, raw.orientation)
     });
     let metadata = read_pano_metadata_from_parts(bytes, ext, &raw);
-    Ok(PanoIngest { image, metadata })
+    Ok(PanoIngest {
+        image,
+        metadata,
+        applied_opcodes,
+    })
 }
 
 /// Metadata-only variant of [`decode_for_pano`]: same
@@ -170,7 +182,10 @@ pub fn read_pano_metadata(bytes: &[u8], ext: &str) -> Result<PanoSourceMetadata>
 /// `ChromaticAdaptation`); every stage call below names the same function
 /// the canonical chain calls. Locked together by
 /// `tests::matches_develop_with_display_stages_zeroed`.
-fn develop_scene_linear_for_pano(raw: &RawImage) -> Result<Image> {
+fn develop_scene_linear_for_pano(
+    raw: &RawImage,
+    list3: Option<&(opcodes::OpcodeList3, opcodes::ActiveAreaRect)>,
+) -> Result<(Image, Vec<String>)> {
     let never = CancelToken::never();
     let quality = RenderQuality::Full;
     let mut camera_rgb = match raw.cfa {
@@ -199,6 +214,17 @@ fn develop_scene_linear_for_pano(raw: &RawImage) -> Result<Image> {
             })
         }
     };
+
+    // Stage 2a (#1159): DNG OpcodeList3 on the demosaiced linear data, in
+    // ActiveArea coordinates — i.e. BEFORE DefaultCrop moves the origin.
+    // The pano-only divergence from the canonical chain (module docs).
+    let mut applied_opcodes = Vec::new();
+    if let Some((list, aa)) = list3 {
+        stage("pano_opcode_list3", || {
+            applied_opcodes = opcode_apply::apply_opcode_list3(&mut camera_rgb, list, *aa);
+        });
+        dump_after("pano_00a_opcode_list3", &camera_rgb);
+    }
 
     // DNG § 6.3 DefaultCrop — same call as develop; divisor is 1 at Full
     // for every CFA but we mirror the canonical call shape exactly.
@@ -267,8 +293,8 @@ fn develop_scene_linear_for_pano(raw: &RawImage) -> Result<Image> {
     // ProfileGainTableMap (DNG 1.6 § 6.8) — in-file spatially-varying
     // calibration gain (lens shading / vignette), scene-linear Rec.2020.
     // No-op when the source doesn't ship the tag (the DJI pano fixtures
-    // don't — their vignette lives in an unparsed OpcodeList3 GainMap; see
-    // module docs).
+    // don't — their vignette arrives via the stage-2a OpcodeList3 GainMap
+    // instead; see module docs).
     if let Some(pgtm) = raw.profile_gain_table_map.as_ref() {
         stage("pano_profile_gain_table_map", || {
             crate::color::profile_gain_table_map::apply(&mut scene, pgtm)
@@ -278,7 +304,7 @@ fn develop_scene_linear_for_pano(raw: &RawImage) -> Result<Image> {
 
     // STOP — everything downstream of PGTM in the canonical chain is
     // display prep or user adjustment (see module docs).
-    Ok(scene)
+    Ok((scene, applied_opcodes))
 }
 
 /// Apply EXIF orientation to a `[f32; 3]` RGB `Image`.
