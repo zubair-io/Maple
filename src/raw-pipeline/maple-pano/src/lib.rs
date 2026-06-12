@@ -147,3 +147,13 @@ pub mod refine;
 // end-of-chain gate measurement) and applied at composite time.
 // Appended after the refine block — keep lib.rs append-only.
 pub mod local_align;
+
+// --- Multi-strategy alignment (#1226, spec §8): auto / rotation / tile.
+// `similarity` provides the 2D similarity solver (RANSAC-style, for tile
+// edge verification and auto-selection evidence). `tile` provides the
+// planar-canvas placement, warp, and tile composite orchestrator.
+// `strategy` provides the auto-selection logic and StrategyReport.
+// Appended after local_align — keep lib.rs append-only.
+pub mod similarity;
+pub mod strategy;
+pub mod tile;
