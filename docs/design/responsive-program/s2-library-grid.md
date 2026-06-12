@@ -2,7 +2,7 @@
 
 Third sub-project of the responsive program (epic [#577](https://github.com/zubair-io/Maple/issues/577)). Fills the Library tab's content area with a responsive photo grid across all three breakpoints. Depends on S1a (PhoneTabShell), S1b (source-picker drawer), and S0a (`MapleLayout` env / `LayoutService` signal).
 
-Visual reference: `/Users/riabuz/Projects/_Maple/mobile/Maple Mobile Editor.html` frame **00 · Library grid** (phone), plus the existing pane-shell desktop grid.
+Visual reference: `/Users/riabuz/Projects/_Maple/mobile/maple-mobile-editor.html` frame **00 · Library grid** (phone), plus the existing pane-shell desktop grid.
 
 This doc is the contract for one ticket — **S2** — shipped as one PR.
 

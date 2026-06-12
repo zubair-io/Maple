@@ -2,7 +2,7 @@
 
 Eighth and final sub-project of the responsive program (epic [#577](https://github.com/zubair-io/Maple/issues/577)). Replaces the S1a interim Settings tab content (`SettingsView()` as-is — a TabView-in-TabView) with a phone-native iOS Settings.app-style List + push pattern.
 
-No mockup exists in `/Users/riabuz/Projects/_Maple/mobile/Maple Mobile Editor.html` for Settings — this spec proposes an iOS-Settings-style starting point. Reviewer can push back during PR design review.
+No mockup exists in `/Users/riabuz/Projects/_Maple/mobile/maple-mobile-editor.html` for Settings — this spec proposes an iOS-Settings-style starting point. Reviewer can push back during PR design review.
 
 One ticket — **S8** — shipped as one PR.
 
