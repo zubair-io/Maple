@@ -71,6 +71,7 @@ use super::lm::{minimize, LmOptions};
 use super::residual::{eval_residual, Block, FrameMeta, ParamLayout, State};
 use super::support::{frame_stats, pairs_per_frame, prune_outlier_blocks, PRUNE_ROUNDS_MAX};
 use super::types::{BaOptions, BaSolution, DropReason, FrameStats};
+use crate::local_align::{fit_local_corrections, stats_after_local};
 
 /// Minimum static-core size — the spec §5.2 pair-acceptance floor (a
 /// pairwise edge needs ≥ 30 verified inliers to exist at all; a pose
@@ -186,25 +187,41 @@ pub(super) fn gate_frames(
             resolve(blocks, state, ctx, solution);
         }
 
-        let stats = frame_stats(blocks, ctx.frames, state, ctx.n_local);
+        // Stage F (#1218, spec §8): fit per-frame local corrections and use
+        // corrected stats to decide which frames are truly failing.  The fit
+        // runs on every motion_round so that after motion pruning + re-solve
+        // the parallax-floor frames remain correctly classified as passing.
+        // The corrections do NOT feed back into the optimiser — only the
+        // corrected residual stats are used for pass/fail decisions.
+        let corrections = fit_local_corrections(blocks, ctx.frames, state, ctx.n_local);
+        let corrected = stats_after_local(blocks, ctx.frames, state, &corrections, ctx.n_local);
+
         let failing: Vec<usize> = (0..ctx.n_local)
             .filter(|&f| {
-                stats[f].blocks > 0
-                    && (stats[f].mean_px > ctx.opts.mean_budget_px
-                        || stats[f].max_px > ctx.opts.max_budget_px)
+                corrected[f].blocks > 0
+                    && (corrected[f].mean_px > ctx.opts.mean_budget_px
+                        || corrected[f].max_px > ctx.opts.max_budget_px)
             })
             .collect();
+
         if failing.is_empty() {
-            return GateOutcome::Pass { stats };
+            // All frames pass on corrected stats — stage F absorbed
+            // the parallax floor.  Return corrected stats as the
+            // end-of-chain measurement (spec §5.3 / #1218).
+            return GateOutcome::Pass { stats: corrected };
         }
 
-        // Stage E: the static-core discriminator.
+        let effective_stats = corrected;
+
+        // Stage E: the static-core discriminator.  Use corrected stats so
+        // frames whose parallax was absorbed by stage F are not visible to
+        // the motion discriminator (they are not in `failing`).
         let verdicts = classify_cores(
             blocks,
             state,
             ctx,
             &failing,
-            &stats,
+            &effective_stats,
             &original_pairs,
             &pruned_pairs,
         );
