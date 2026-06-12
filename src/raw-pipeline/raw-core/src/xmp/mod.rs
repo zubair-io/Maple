@@ -406,19 +406,26 @@ pub fn serialize(model: &AdjustmentModel) -> String {
     if model.deep_denoise != 0.0 {
         out.push_str(&format!(r#" papp:DeepDenoise="{}""#, model.deep_denoise));
     }
-    // Crop / straighten (#277) — emitted only when non-identity. Serializes
-    // `crs:HasCrop="True"` plus the four rect edges; `crs:CropAngle` is
-    // included even when the rect is full-frame (pure straighten). Identity
-    // crop (all defaults) writes nothing, matching the spec § 01 invariant 3
-    // "omit the whole group" rule.
+    // Crop / straighten (#277) — emitted only when non-identity. The rect
+    // attributes (`crs:HasCrop` + four edges) are emitted only when the rect
+    // itself differs from full-frame. `crs:CropAngle` is independent — it is
+    // emitted iff `|angle| >= 0.01°` (pure straighten without a rect crop is
+    // valid). Identity crop (all defaults) writes nothing, matching the spec §
+    // 01 invariant 3 "omit the whole group" rule. Float values use 6-decimal
+    // format to match Swift/TS output.
     if !model.crop.is_identity() {
         let c = &model.crop;
-        out.push_str(r#" crs:HasCrop="True""#);
-        out.push_str(&format!(r#" crs:CropTop="{}""#, c.top));
-        out.push_str(&format!(r#" crs:CropLeft="{}""#, c.left));
-        out.push_str(&format!(r#" crs:CropBottom="{}""#, c.bottom));
-        out.push_str(&format!(r#" crs:CropRight="{}""#, c.right));
-        out.push_str(&format!(r#" crs:CropAngle="{}""#, c.angle));
+        let rect_non_identity = c.top != 0.0 || c.left != 0.0 || c.bottom != 1.0 || c.right != 1.0;
+        if rect_non_identity {
+            out.push_str(r#" crs:HasCrop="True""#);
+            out.push_str(&format!(r#" crs:CropTop="{:.6}""#, c.top));
+            out.push_str(&format!(r#" crs:CropLeft="{:.6}""#, c.left));
+            out.push_str(&format!(r#" crs:CropBottom="{:.6}""#, c.bottom));
+            out.push_str(&format!(r#" crs:CropRight="{:.6}""#, c.right));
+        }
+        if c.angle.abs() >= 0.01 {
+            out.push_str(&format!(r#" crs:CropAngle="{:.6}""#, c.angle));
+        }
     }
     out
 }

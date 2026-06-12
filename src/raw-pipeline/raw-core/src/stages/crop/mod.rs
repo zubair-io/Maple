@@ -194,11 +194,11 @@ pub(super) fn rect_in_pixels(crop: &Crop, w: u32, h: u32) -> (u32, u32, u32, u32
     // round() gives the user-perceived snap-to-nearest-pixel behaviour the
     // overlay UI implies; the same rounding rule must run on Apple + Web
     // mirrors when they pre-round before sending crop coords through XMP.
-    let x = (left * fw).round().clamp(0.0, fw) as u32;
-    let y = (top * fh).round().clamp(0.0, fh) as u32;
-    let r = (right * fw).round().clamp(0.0, fw) as u32;
-    let b = (bottom * fh).round().clamp(0.0, fh) as u32;
-    let rw = r.saturating_sub(x).max(1);
-    let rh = b.saturating_sub(y).max(1);
+    let x = (left * fw).round().clamp(0.0, fw - 1.0) as u32;
+    let y = (top * fh).round().clamp(0.0, fh - 1.0) as u32;
+    let r = (right * fw).round().clamp((x as f32) + 1.0, fw) as u32;
+    let b = (bottom * fh).round().clamp((y as f32) + 1.0, fh) as u32;
+    let rw = r.saturating_sub(x);
+    let rh = b.saturating_sub(y);
     (x, y, rw, rh)
 }
