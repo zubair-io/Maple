@@ -89,7 +89,7 @@ MapleApp (app target)            MapleCore (SPM package)
 └── DesignSystem/ (tokens)            └── Model/           (AdjustmentModel, ImageAsset)
 ```
 
-`MapleCore.Pipeline` wraps the Rust FFI: it calls into the xcframework to decode + develop a scene-linear buffer, then presents via the platform GPU path. On the default wgpu path (#1066), the f32 scene-linear buffer is uploaded and the full view transform (AgX, split-tone, grain, display encode) plus sharpen/NR run as WGSL compute shaders, presenting via wgpu → CAMetalLayer — this is a separate CAMetalLayer present branch, not a CIImage chain. The CPU/Metal fallback runs the full Rust FFI scene-linear chain (AgX, split-tone, grain, display encode) plus Metal kernels for sharpen/NR. There is no Core Image filter chain — the color math is the Rust core.
+`MapleCore.Pipeline` wraps the Rust FFI: it calls into the xcframework to decode + develop a scene-linear buffer, then presents via the platform GPU path. On the default wgpu path (#1066), the f32 scene-linear buffer is uploaded and the full view transform (AgX, split-tone, grain, display encode) plus sharpen/NR run as WGSL compute shaders, presenting via wgpu → CAMetalLayer — this present path has no Core Image filter chain. The CPU/Metal fallback (`MAPLE_GPU_LIVE=0`) runs the same Rust FFI view-transform chain to produce a 3-D LUT and applies it via a `CIColorCubeWithColorSpace` filter (CoreImage) plus Metal kernels for sharpen/NR; the Rust core computes the color math, CoreImage applies it.
 
 ## Module boundary — Web
 
