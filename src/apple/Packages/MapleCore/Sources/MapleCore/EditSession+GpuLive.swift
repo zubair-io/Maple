@@ -131,6 +131,18 @@ extension EditSession {
         // every assignment (no same-value dedup), so an unguarded per-present
         // write would invalidate observing views each frame.
         if !gpuFramePresented { gpuFramePresented = true }
+        // GPU analog of the CPU publish clear (#1221): `decodeAndRender` returns
+        // early on a successful GPU present and never reaches its `renderedPreview`
+        // block, so the cold-open indicator must be settled HERE too — otherwise
+        // it stays stuck on RAWs using the (default) GPU live canvas. Gated on
+        // `!isFullQualityDecoding` so the embedded-preview presents during the
+        // decode don't clear it early, exactly as the CPU path. (Copilot #1222)
+        if isResolvingFirstFrame && !isFullQualityDecoding {
+            isResolvingFirstFrame = false
+            editSessionLogger.notice(
+                "loading indicator HIDDEN — first full-quality frame presented (GPU live, gen=\(gen ?? 0))"
+            )
+        }
         editSessionLogger.debug(
             "GPU live presented gen=\(gen ?? 0) \(dims.width)x\(dims.height)")
         return true
@@ -152,16 +164,17 @@ extension EditSession {
     }
 
     /// Whether the cold-open loading indicator should be visible: while the
-    /// full-quality decode is still in flight (so it stays up through the
-    /// sub-second preview until the real decode lands), or in the no-preview
-    /// blank-canvas window (`isRendering && !hasOnscreenFrame`). Pure → unit-
-    /// testable; `nonisolated` like `canvasHasFrame`. #1201 / #1069 follow-up.
+    /// cold-open is still resolving its first full-quality frame (so it stays up
+    /// from open, through the sub-second preview AND the decode, until the real
+    /// image actually publishes), or in the no-preview blank-canvas window
+    /// (`isRendering && !hasOnscreenFrame`). Pure → unit-testable; `nonisolated`
+    /// like `canvasHasFrame`. #1201 / #1069 follow-up.
     public nonisolated static func shouldShowLoadingIndicator(
-        isFullQualityDecoding: Bool,
+        isResolvingFirstFrame: Bool,
         isRendering: Bool,
         hasOnscreenFrame: Bool
     ) -> Bool {
-        isFullQualityDecoding || (isRendering && !hasOnscreenFrame)
+        isResolvingFirstFrame || (isRendering && !hasOnscreenFrame)
     }
 
     /// The post-prescale pixel dims the GPU session/layer use for `decoded` at
