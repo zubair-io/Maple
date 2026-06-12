@@ -47,7 +47,8 @@
     <p>
       Runs the full <code>render_bytes_gpu</code> (the wgpu+WGSL chain on real WebGPU, read back to
       u8 RGB) and the CPU <code>render_bytes</code> on the committed synthetic-grey DNG, then diffs
-      the RGB output. On the flat grey the W1 native gate is byte-exact; a real divergence = FAIL.
+      the RGB output. On the flat grey the W1 native gate is byte-exact; the implemented tolerance
+      allows ≤2 LSB for real-WebGPU-vs-Metal backend rounding — max byte delta &gt; 2 = FAIL.
     </p>
     <div class="row">
       <figure>
@@ -132,7 +133,7 @@
               `  bytes differing:  ${nDiff} / ${total} (${((100 * nDiff) / total).toFixed(3)}%)`,
               `  GPU render time:  ${gpuMs.toFixed(1)} ms (coarse; full 16ms is the live-app User-Timing)`,
               '',
-              `WebGPU backend: real adapter (navigator.gpu present).`,
+              `WebGPU available (navigator.gpu present).`,
               '',
               ok
                 ? `OVERALL: PASS — GPU chain matches CPU within ≤2 LSB on real WebGPU.`
