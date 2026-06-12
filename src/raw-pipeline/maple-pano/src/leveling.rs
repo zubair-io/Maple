@@ -55,18 +55,7 @@ pub fn leveling_rotation(solution: &BaSolution) -> Option<Mat3> {
         z: 0.0,
     };
     let mut count = 0_usize;
-    for (idx, cam) in solution.cameras.iter().enumerate() {
-        let Some(cam) = cam else { continue };
-        // Quality weight: frames whose retained matches register tightly
-        // pin the horizontal plane; frames posed against motion-degraded
-        // support (water) contribute proportionally less. w = 1/(1+mean²)
-        // keeps clean frames near 1 and a 7 px water frame near 0.02
-        // without a hard cutoff. Frames with no stats weigh 1 (solved
-        // clean by definition of having survived with no residual data).
-        let w = match solution.frame_stats.get(idx).and_then(|s| s.as_ref()) {
-            Some(st) => 1.0 / (1.0 + st.mean_px * st.mean_px),
-            None => 1.0,
-        };
+    for cam in solution.cameras.iter().flatten() {
         let x = cam.rotation.mul_vec(Vec3 {
             x: 1.0,
             y: 0.0,
@@ -76,7 +65,7 @@ pub fn leveling_rotation(solution: &BaSolution) -> Option<Mat3> {
         let arr = [x.x, x.y, x.z];
         for (i, row) in scatter.iter_mut().enumerate() {
             for (j, cell) in row.iter_mut().enumerate() {
-                *cell += w * arr[i] * arr[j];
+                *cell += arr[i] * arr[j];
             }
         }
         // Camera up in world coordinates (camera +Y is down).
@@ -86,9 +75,9 @@ pub fn leveling_rotation(solution: &BaSolution) -> Option<Mat3> {
             z: 0.0,
         });
         up_sum = Vec3 {
-            x: up_sum.x + w * up.x,
-            y: up_sum.y + w * up.y,
-            z: up_sum.z + w * up.z,
+            x: up_sum.x + up.x,
+            y: up_sum.y + up.y,
+            z: up_sum.z + up.z,
         };
         count += 1;
     }
