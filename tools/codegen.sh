@@ -71,11 +71,8 @@ GPU_WGSL_OUT="src/raw-pipeline/raw-gpu/src/generated/color_matrices.wgsl"
 #
 # NOTE: agx_coeffs.rs / agx_lut.bin / the Apple-bundled LUT are deliberately
 # NOT regenerated here. They live with the existing AgX-derivation workflow
-# (the `--bin --rs --apple-bin` invocation in the script's usage docstring),
-# and the committed agx_coeffs.rs currently carries AGX_VERSION 8 while the
-# generator constant is 7 — a pre-existing version skew that is out of scope
-# for this codegen wiring (regenerating .rs here would revert that bump). The
-# WGSL emitter uses only the matrices + scalars, which are independent of
+# (the `--bin --rs --apple-bin` invocation in the script's usage docstring).
+# The WGSL emitter uses only the matrices + scalars, which are independent of
 # AGX_VERSION, so it is fully idempotent.
 AGX_WGSL_OUT="src/raw-pipeline/raw-gpu/src/generated/agx_coeffs.wgsl"
 
