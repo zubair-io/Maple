@@ -149,6 +149,19 @@ pub struct TileCompositeReport {
 /// 4. Warp each frame to canvas.
 /// 5. Solve gains (tile-space overlap sampling).
 /// 6. Voronoi seam + multi-band blend.
+///
+/// # Frame / pose alignment contract
+///
+/// `frames` must be the **filtered** frame list: only frames whose global
+/// index appears in `poses` (i.e. the reachable component from `anchor`),
+/// in the same order as `poses`. Each `TilePose::frame_idx` names the
+/// global index that `frames[local_i]` corresponds to.
+///
+/// `tile_edges` must also be filtered to the reachable component — edges
+/// referencing orphan frames are silently ignored (they have no pose
+/// entry and are skipped in the residual loop). The caller (the CLI) is
+/// responsible for this filtering, mirroring the rotation path's
+/// `solution.cameras` filter.
 pub fn composite_tile(
     frames: &[PlanarImage],
     _frame_count: usize,
@@ -171,13 +184,28 @@ pub fn composite_tile(
         ));
     }
 
-    // Planar residuals across all edges.
+    // Build a global-frame-index → local-pose-index map so edge residual
+    // computation never misaligns when orphans have been filtered out.
+    // Edges referencing frames not in the map (orphans) are skipped.
+    let max_frame_idx = poses.iter().map(|p| p.frame_idx).max().unwrap_or(0);
+    let mut frame_to_local = vec![usize::MAX; max_frame_idx + 1];
+    for (li, pose) in poses.iter().enumerate() {
+        frame_to_local[pose.frame_idx] = li;
+    }
+
+    // Planar residuals across all edges (only edges within the component).
     let mut residual_sum = 0.0_f64;
     let mut residual_max = 0.0_f64;
     let mut residual_count = 0usize;
     for edge in tile_edges {
-        let pa = &poses[edge.a];
-        let pb = &poses[edge.b];
+        let la = frame_to_local.get(edge.a).copied().unwrap_or(usize::MAX);
+        let lb = frame_to_local.get(edge.b).copied().unwrap_or(usize::MAX);
+        if la == usize::MAX || lb == usize::MAX {
+            // Edge spans an orphan; skip — no pose exists for it.
+            continue;
+        }
+        let pa = &poses[la];
+        let pb = &poses[lb];
         for m in &edge.inlier_matches {
             // Transform: canvas(a) = pa(a_px), canvas(b) = pb(b_px).
             // Consistency: pa(a_px) ≈ pb(b_px) at overlap.
