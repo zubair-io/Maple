@@ -47,6 +47,7 @@ use crate::{
     image::{ColorSpace, Image},
     stages::blur::gaussian_blur_plane_sigma,
 };
+use rayon::prelude::*;
 
 const LUMA_R: f32 = 0.2627;
 const LUMA_G: f32 = 0.6780;
@@ -84,10 +85,24 @@ pub fn apply(
 }
 
 /// Cancellable variant of [`apply`]. Identical math; additionally observes
-/// `cancel` once per output row in each of the two per-pixel sweeps (the USM
-/// scale build and the edge-aware mix) and returns early when cancellation
-/// is requested. A row-granular relaxed load is free and does not perturb
-/// the result; with a never-cancel token this is bit-identical to [`apply`].
+/// `cancel` once per output row in the fused per-pixel sweep and returns early
+/// when cancellation is requested. A row-granular relaxed load is free and does
+/// not perturb the result; with a never-cancel token this is bit-identical to
+/// [`apply`].
+///
+/// The USM-scale build and the edge-aware mix were two serial full-image sweeps
+/// (#1089): the first wrote a full `sharpened_pixels` buffer that the second
+/// immediately consumed, and both read a full-image `observed_pixels` clone.
+/// They are fused here into ONE `par_chunks_mut(w)` pass over `img.pixels`. The
+/// edge gradient reads only the immutable `luma` plane (never the sharpened
+/// pixels), and every output pixel reads its own input at the same index before
+/// overwriting it — so each row's sharpened value is computed inline and the
+/// mix written in place. That drops the two avoidable image-sized allocations
+/// (`observed_pixels`, `sharpened_pixels`) and one full sweep over memory
+/// (~2.4 GB of avoidable traffic per 100MP refine) while leaving the result
+/// bit-identical: the per-pixel arithmetic is unchanged and order-independent,
+/// so serial-fused, parallel-fused and the old two-sweep form all agree to the
+/// last bit.
 ///
 /// On early return `img.pixels` is left partially written — that's fine: the
 /// develop chain checks the same token immediately after this stage and
@@ -122,29 +137,7 @@ pub fn apply_cancellable(
         .collect();
     let luma_blur = gaussian_blur_plane_sigma(&luma, w_usize, h_usize, sigma);
 
-    // --- Per-pixel luma USM with shadow guard (mirrors the Metal kernel) ---
-    let observed_pixels = img.pixels.clone();
-    let mut sharpened_pixels: Vec<[f32; 3]> = vec![[0.0; 3]; img.pixels.len()];
-    for i in 0..img.pixels.len() {
-        // Cancellation check once per output row (top of each row). One
-        // relaxed load per `w_usize` pixels — free, no-op on a never token.
-        if i % w_usize == 0 && cancel.is_cancelled() {
-            return;
-        }
-        let o = observed_pixels[i];
-        let li = luma[i];
-        let lb = luma_blur[i];
-        let lo = li + (li - lb);
-
-        let weight = smoothstep(SHADOW_EPSILON, SHADOW_BAND * SHADOW_EPSILON, li);
-        let safe_luma = li.max(SHADOW_EPSILON);
-        let raw_scale = lo / safe_luma;
-        let bounded = raw_scale.clamp(MIN_SCALE, MAX_SCALE);
-        let scale = 1.0 + weight * (bounded - 1.0);
-        sharpened_pixels[i] = [o[0] * scale, o[1] * scale, o[2] * scale];
-    }
-
-    // --- Edge-aware amount + masking blend ---
+    // --- Edge-aware amount + masking blend params ---
     // amount=100 + masking=0 → full sharpened buffer (mix=1).
     // amount<100 → linear interpolation toward observed.
     // masking>0 → flat regions mix at `detail_atten`, edges at 1.0.
@@ -155,7 +148,9 @@ pub fn apply_cancellable(
     let w = img.width as i32;
     let h = img.height as i32;
 
-    // Central-difference luma gradient — fast Sobel approximation.
+    // Central-difference luma gradient — fast Sobel approximation. Reads ONLY
+    // the immutable `luma` plane (never the in-place sharpened pixels), so it
+    // is unaffected by writing `img.pixels` underneath it.
     let gradient = |x: i32, y: i32| -> f32 {
         let idx = |xi: i32, yi: i32| -> usize {
             let xc = xi.clamp(0, w - 1) as usize;
@@ -167,32 +162,63 @@ pub fn apply_cancellable(
         (gx * gx + gy * gy).sqrt()
     };
 
-    for y in 0..h {
-        // Cancellation check once per output row in the edge-mix sweep.
-        if cancel.is_cancelled() {
-            return;
-        }
-        for x in 0..w {
-            let i = (y * w + x) as usize;
-            let edge = if masking_threshold > 1e-3 {
-                let g = gradient(x, y);
-                // Normalise by a rough estimate: gradient around 0.2 on
-                // typical edges → g_norm ∈ [0, 1].
-                let g_norm = (g / 0.2).clamp(0.0, 1.0);
-                if g_norm >= masking_threshold { 1.0 } else { detail_atten }
-            } else {
-                1.0 // masking=0 → mix everywhere equally
-            };
-            let mix = overall_mix * edge;
-            let o = observed_pixels[i];
-            let s = sharpened_pixels[i];
-            img.pixels[i] = [
-                o[0] + (s[0] - o[0]) * mix,
-                o[1] + (s[1] - o[1]) * mix,
-                o[2] + (s[2] - o[2]) * mix,
-            ];
-        }
-    }
+    // --- Fused per-pixel USM + edge mix, one row-parallel pass (#1089) ---
+    //
+    // The USM-scale build and the edge mix were two serial full-image sweeps
+    // bridged by a full `sharpened_pixels` buffer and a full `observed_pixels`
+    // clone. Both buffers are gone: each output pixel reads its own input at
+    // index `i` (same index only — no neighbour reads of `img.pixels`), so the
+    // sharpened value is computed inline from `o`/`luma`/`luma_blur` and the
+    // mix written straight back into `img.pixels[i]`. The arithmetic is
+    // unchanged and per-pixel-independent, so this is bit-identical to the old
+    // two-sweep form regardless of row order or parallelism.
+    //
+    // Cancellation is observed once per output row (top of each row's closure),
+    // matching the previous per-row granularity. With a never-cancel token the
+    // relaxed load is a no-op and does not perturb the result.
+    img.pixels
+        .par_chunks_mut(w_usize)
+        .enumerate()
+        .for_each(|(y, row)| {
+            if cancel.is_cancelled() {
+                return;
+            }
+            let row_base = y * w_usize;
+            for (x, px) in row.iter_mut().enumerate() {
+                let i = row_base + x;
+
+                // USM scale with shadow guard (mirrors the Metal kernel). `o`
+                // is the original pixel — read before we overwrite `*px`.
+                let o = *px;
+                let li = luma[i];
+                let lb = luma_blur[i];
+                let lo = li + (li - lb);
+
+                let weight = smoothstep(SHADOW_EPSILON, SHADOW_BAND * SHADOW_EPSILON, li);
+                let safe_luma = li.max(SHADOW_EPSILON);
+                let raw_scale = lo / safe_luma;
+                let bounded = raw_scale.clamp(MIN_SCALE, MAX_SCALE);
+                let scale = 1.0 + weight * (bounded - 1.0);
+                let s = [o[0] * scale, o[1] * scale, o[2] * scale];
+
+                // Edge-aware amount + masking blend.
+                let edge = if masking_threshold > 1e-3 {
+                    let g = gradient(x as i32, y as i32);
+                    // Normalise by a rough estimate: gradient around 0.2 on
+                    // typical edges → g_norm ∈ [0, 1].
+                    let g_norm = (g / 0.2).clamp(0.0, 1.0);
+                    if g_norm >= masking_threshold { 1.0 } else { detail_atten }
+                } else {
+                    1.0 // masking=0 → mix everywhere equally
+                };
+                let mix = overall_mix * edge;
+                *px = [
+                    o[0] + (s[0] - o[0]) * mix,
+                    o[1] + (s[1] - o[1]) * mix,
+                    o[2] + (s[2] - o[2]) * mix,
+                ];
+            }
+        });
 }
 
 /// GLSL-style smoothstep (matches Metal's built-in).
