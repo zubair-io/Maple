@@ -1,3 +1,67 @@
+# Testing
+
+Maple's color correctness is verified objectively against ACR-rendered
+references — never by eyeballing screenshots. The gates below run in CI; the
+diagnostic tools further down help attribute a residual once a gate moves.
+
+## Parity gates
+
+These are the merge gates. Pixel parity between the Apple, Web, and CLI
+pipelines — and color parity against the ACR references — blocks merge.
+
+### Color-pipeline harness (end-to-end)
+
+The canonical color-correctness signal. `src/scripts/test_color_pipeline.sh`
+runs `maple-cli batch` against every case in
+`test-fixtures/references/manifest.json`, diffs each candidate against its
+ACR-rendered reference with `compare_images.py` (CIEDE2000 + per-channel
+bias), and gates per-fixture × per-case `mean / p95 / max / bias` against
+`test-fixtures/budgets.json`. **Budgets are a one-way ratchet — they only go
+down**, in the same commit that delivers the improvement.
+
+```bash
+src/scripts/test_color_pipeline.sh
+FILTER=test_0000 src/scripts/test_color_pipeline.sh   # spot-check one fixture
+FILTER=baseline  src/scripts/test_color_pipeline.sh   # fast baseline subset
+```
+
+### Per-domain grey gates
+
+Fast unit/integration gates for the neutral pipeline and the scene-linear
+sliders, each on a hand-rolled or fixture DNG:
+
+```bash
+src/scripts/test_synthetic_grey.sh    # neutral pipeline + flatness invariants
+src/scripts/test_grey_adjustments.sh  # closed-form predictors per slider + ACR parity
+src/scripts/test_grey_dcp.sh          # DCP code-path coverage (CM1/2, FM1/2, PGTM)
+```
+
+### Rust core tests
+
+```bash
+cd src/raw-pipeline
+cargo test -p raw-core --lib            # ~840 lib tests (70 ignored, fixture-gated)
+cargo test -p raw-core --features test-support   # lib + integration, fixture-free
+```
+
+### CI
+
+`.github/workflows/raw-pipeline.yml` runs the **`rust-tests`** job
+(`cargo test -p raw-core --features test-support` plus the three grey gates,
+added in #1082), a **`build-raw-ffi`** host-compile gate, and the
+**`color-pipeline`** job. `.github/workflows/cross.yml` runs the
+**`codegen-drift`** gate (confirming `tools/codegen.sh` outputs match the
+committed Swift/TS/SCSS/WGSL) and the web format check. When fixtures are
+absent (CI without the gitignored RAWs), every fixture-gated harness
+skip-passes with a "skipping" message and exit 0, so CI doesn't fail
+spuriously.
+
+The Apple `MapleUITests` visual harness (live SwiftUI canvas vs. committed
+PNG golden, CIEDE2000) and the slider-matrix harness run locally — see the
+root `CLAUDE.md` § "UITest visual harness."
+
+---
+
 ## Diagnostic tools
 
 These are manual diagnostics. They don't gate CI — the gates live in
