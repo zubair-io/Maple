@@ -91,8 +91,10 @@ const RESEED_STRIDE: usize = 256;
 /// pass parallelises over STRIPS of consecutive output rows; each strip seeds
 /// its own column-window directly at its first row, which re-anchors vertical
 /// drift at every strip boundary. The actual strip height is chosen adaptively
-/// (≥ 4 strips per worker so small planes still feed every core) but capped at
-/// this value so that (a) vertical drift inside a strip stays ≤ RESEED_STRIDE
+/// (~1 strip per worker, i.e. `band_rows / threads`, clamped to
+/// `[MIN_STRIP_ROWS, VSTRIP_ROWS]`) so that every core gets roughly one strip
+/// without over-fragmenting the cache-resident 2MP tick. This value caps strip
+/// height so that (a) vertical drift inside a strip stays ≤ RESEED_STRIDE
 /// steps and (b) locality stays high on the 100MP refine. 256 keeps an 8700-row
 /// refine at ~34 strips while bounding drift to ~256·eps·|colsum| ≈ 4e-6.
 const VSTRIP_ROWS: usize = 256;

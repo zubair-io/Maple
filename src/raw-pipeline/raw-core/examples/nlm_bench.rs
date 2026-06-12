@@ -6,7 +6,7 @@
 //! noise so the SAME plane is fed on origin/main and the branch.
 //!
 //! It also dumps the raw f32 output of representative planes to a binary file
-//! (`--dump <path>`) so the branch's box-sum output can be loaded and diffed
+//! (`dump <path-prefix>`) so the branch's box-sum output can be loaded and diffed
 //! against the committed integral-image output (the tolerance-vs-old proof).
 //!
 //! Usage:
@@ -44,8 +44,14 @@ fn make_plane(w: usize, h: usize, seed: u32) -> Vec<f32> {
 }
 
 fn median(mut xs: Vec<f64>) -> f64 {
-    xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    xs[xs.len() / 2]
+    assert!(!xs.is_empty(), "median: empty sample set");
+    xs.sort_by(f64::total_cmp);
+    let mid = xs.len() / 2;
+    if xs.len() % 2 == 0 {
+        (xs[mid - 1] + xs[mid]) / 2.0
+    } else {
+        xs[mid]
+    }
 }
 
 fn time_case(label: &str, w: usize, h: usize, params: NlmParams, runs: usize) {
