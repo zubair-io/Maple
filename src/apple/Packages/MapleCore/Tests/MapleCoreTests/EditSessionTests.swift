@@ -48,6 +48,27 @@ final class EditSessionTests: XCTestCase {
             gpuActive: false, gpuFramePresented: true, hasRenderedPreview: false))
     }
 
+    func testLoadingIndicator_visibleWhileFullQualityDecoding() {
+        // Stays visible even once a (preview) frame is on screen — the whole
+        // point of #1201: don't hide just because the sub-second preview landed.
+        XCTAssertTrue(EditSession.shouldShowLoadingIndicator(
+            isFullQualityDecoding: true, isRendering: false, hasOnscreenFrame: true))
+    }
+    func testLoadingIndicator_hiddenOnceDecodedAndFramePresent() {
+        XCTAssertFalse(EditSession.shouldShowLoadingIndicator(
+            isFullQualityDecoding: false, isRendering: false, hasOnscreenFrame: true))
+    }
+    func testLoadingIndicator_visibleInNoPreviewRenderWindow() {
+        XCTAssertTrue(EditSession.shouldShowLoadingIndicator(
+            isFullQualityDecoding: false, isRendering: true, hasOnscreenFrame: false))
+    }
+    func testLoadingIndicator_noFlashOnTickAfterFrame() {
+        // A slider tick re-renders (isRendering true) but a frame is up and
+        // decode is done → no spinner flash.
+        XCTAssertFalse(EditSession.shouldShowLoadingIndicator(
+            isFullQualityDecoding: false, isRendering: true, hasOnscreenFrame: true))
+    }
+
     /// Fit-to-window opens are the common case; if `RenderedPreviewCache`
     /// only writes on `phase == .refine` then those opens never populate
     /// the cache and every re-open redoes the Rust pipeline. Verify that

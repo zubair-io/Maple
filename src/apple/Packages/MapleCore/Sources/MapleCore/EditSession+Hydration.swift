@@ -166,6 +166,10 @@ extension EditSession {
     func openAssetPipelineAsync() async {
         let openedAsset = self.asset
 
+        // The full-quality decode is now in flight; the loading indicator stays
+        // up until it lands (not just until the sub-second preview presents). #1201
+        isFullQualityDecoding = true
+
         // Kick the background Rust decode early — it's the slowest,
         // latency-hiding it behind the preview paths matters most. The
         // actor writes its cache fields on completion via the
@@ -216,6 +220,9 @@ extension EditSession {
         // Wait for the Rust task so this driver routine doesn't leave a
         // dangling reference. We already triggered the re-render above.
         await rustTask.value
+        // Full-quality decode landed — drop the loading indicator. (Task<Void,Never>:
+        // this is reached on success or a nil/failed decode, so the flag never sticks.)
+        isFullQualityDecoding = false
     }
 
     // MARK: - Native image size discovery
