@@ -51,12 +51,15 @@ async function probeStrategySupported(cliPath: string): Promise<boolean> {
       stdout: 'pipe',
       stderr: 'pipe',
     });
-    const [out] = await Promise.all([
+    // Collect both stdout AND stderr: clap may print help to either depending
+    // on the version. Match the exact flag token `--strategy` to avoid a
+    // false positive from help text that merely contains the word "strategy".
+    const [out, err] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
-    const supported = out.includes('--strategy') || out.includes('strategy');
+    const supported = out.includes('--strategy') || err.includes('--strategy');
     _strategyProbeResult = supported;
     _strategyProbedPath = cliPath;
     return supported;
@@ -135,14 +138,21 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
         };
       }
 
-      // 2. Reject if a pano_stitch job is already running.
-      const running = await listJobs({ kind: 'pano_stitch', status: 'running', limit: 1 });
-      if (running.length > 0) {
+      // 2. Reject if a pano_stitch job is already running OR queued.
+      // Checking only 'running' lets close-together requests enqueue multiple
+      // 'queued' jobs that workers later execute concurrently — pano is
+      // ~tens of GB RSS, so concurrent runs OOM the box.
+      const active = await listJobs({
+        kind: 'pano_stitch',
+        statuses: ['queued', 'running'],
+        limit: 1,
+      });
+      if (active.length > 0) {
         set.status = 409;
         return {
           error: 'pano_job_running',
-          message: 'A panorama job is already running. Wait for it to finish.',
-          jobId: running[0]._id.toHexString(),
+          message: 'A panorama job is already running or queued. Wait for it to finish.',
+          jobId: active[0]._id.toHexString(),
         };
       }
 

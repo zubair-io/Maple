@@ -187,6 +187,61 @@ const STITCH_BODY = () => ({
   options: { retention: 'keep', localAlign: 'mesh' },
 });
 
+// ── probeStrategySupported (comment #4) ───────────────────────────────────────
+// These are unit tests against the private probe logic exercised via
+// PUT /api/pano/config, which invalidates the cache and re-probes.
+
+describe('probeStrategySupported via PUT /api/pano/config', () => {
+  it('returns strategy_supported:true when help output contains --strategy flag', async () => {
+    if (!mongoReachable) return;
+    // Write a fake CLI that prints --strategy in its help output (to stdout).
+    const strategyFakeCli = path.join(tmpDir, 'fake-cli-with-strategy');
+    await fs.writeFile(
+      strategyFakeCli,
+      `#!/bin/sh\necho "Usage: maple-cli pano stitch [OPTIONS] [FILES]"\necho "    --strategy <STRATEGY>  Projection strategy [auto|rotation|tile]"\nexit 0\n`,
+    );
+    await fs.chmod(strategyFakeCli, 0o755);
+
+    const res = await putJson('/api/pano/config', {
+      maple_cli_path: strategyFakeCli,
+      enabled: true,
+    });
+    const body = (await res.json()) as { strategy_supported: boolean };
+    expect(body.strategy_supported).toBe(true);
+  });
+
+  it('returns strategy_supported:false when help output only mentions word "strategy" without the --flag', async () => {
+    if (!mongoReachable) return;
+    // A help text that mentions "strategy" as a noun but NOT "--strategy".
+    // The old code matched `.includes('strategy')` which would be a false positive.
+    const noFlagFakeCli = path.join(tmpDir, 'fake-cli-no-strategy-flag');
+    await fs.writeFile(
+      noFlagFakeCli,
+      `#!/bin/sh\necho "Uses a rotation strategy for panoramas."\nexit 0\n`,
+    );
+    await fs.chmod(noFlagFakeCli, 0o755);
+
+    const res = await putJson('/api/pano/config', { maple_cli_path: noFlagFakeCli, enabled: true });
+    const body = (await res.json()) as { strategy_supported: boolean };
+    expect(body.strategy_supported).toBe(false);
+  });
+
+  it('returns strategy_supported:true when --strategy flag appears on stderr (some clap versions)', async () => {
+    if (!mongoReachable) return;
+    // Some clap versions print help to stderr; the probe must capture both.
+    const stderrFakeCli = path.join(tmpDir, 'fake-cli-strategy-stderr');
+    await fs.writeFile(
+      stderrFakeCli,
+      `#!/bin/sh\necho "    --strategy <STRATEGY>  Projection strategy" >&2\nexit 0\n`,
+    );
+    await fs.chmod(stderrFakeCli, 0o755);
+
+    const res = await putJson('/api/pano/config', { maple_cli_path: stderrFakeCli, enabled: true });
+    const body = (await res.json()) as { strategy_supported: boolean };
+    expect(body.strategy_supported).toBe(true);
+  });
+});
+
 // ── config round-trip ─────────────────────────────────────────────────────────
 
 describe('GET /api/pano/config', () => {
@@ -273,6 +328,22 @@ describe('POST /api/pano/stitch (provisioned)', () => {
     const res = await postJson('/api/pano/stitch', STITCH_BODY());
     expect(res.status).toBe(409);
     const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('pano_job_running');
+  });
+
+  it('returns 409 pano_job_running when a queued job already exists (back-to-back requests)', async () => {
+    // Two close-together stitch POSTs must not enqueue multiple concurrent jobs.
+    // The first creates a queued job; the second must see the queued job and
+    // return 409 — not enqueue a second job that a worker would later execute
+    // concurrently (pano is ~tens of GB RSS, concurrent runs OOM the box).
+    if (!mongoReachable) return;
+    // First request — should succeed.
+    const first = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(first.status).toBe(201);
+    // Second request — the queued job from the first is already in DB.
+    const second = await postJson('/api/pano/stitch', STITCH_BODY());
+    expect(second.status).toBe(409);
+    const body = (await second.json()) as { error: string };
     expect(body.error).toBe('pano_job_running');
   });
 
