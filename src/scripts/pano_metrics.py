@@ -21,8 +21,8 @@ Output (stdout, single-line JSON):
       "size_mismatch": bool, "n_pixels": int, "n_ref_valid": int,
       "report": {"available": bool, ...} }
 
-Metric definitions (v1)
------------------------
+Metric definitions
+------------------
 Size-normalized RMSE
     Both images are downscaled (Lanczos) so their long edge equals
     --long-edge (default 2048) BEFORE differencing; images already at or
