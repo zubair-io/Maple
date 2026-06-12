@@ -230,11 +230,16 @@ export async function handleEvent(
     { projection: { _id: 1, sha1_head: 1 } },
   );
   if (staleAtPath && staleAtPath.sha1_head !== hashed.sha1_head) {
+    // Flag the entry both deleted_at (content changed) and missing_since (for
+    // the missing-reaper to prune/reap it after the cooldown). Doing it in one
+    // update is atomic, fast, and ensures even live assets have their stale
+    // locations pulled after the cooldown instead of lingering forever.
     await coll.updateOne(
       { _id: staleAtPath._id },
       {
         $set: {
           'fileinfo.$[entry].deleted_at': now,
+          'fileinfo.$[entry].missing_since': now,
         },
       },
       {
@@ -247,34 +252,6 @@ export async function handleEvent(
         ],
       },
     );
-    // If tombstoning that entry left the stale row with NO live location, it
-    // is an orphan — its only content was replaced in place and now lives on a
-    // different (the new-content) row. Flag the same entry `missing_since` so
-    // the missing-reaper reaps the orphaned record after the cooldown. The
-    // reaper treats a `deleted_at` entry as dead (it does NOT re-stat the path
-    // — a different file sits there now) and just `$pull`s it, deleting the
-    // record once it was the last entry. Without this, the new claim query
-    // (which requires a live entry) would park the orphan forever, unreaped.
-    const staleStillLive = await coll.findOne(
-      { _id: staleAtPath._id, ...liveFileInfoElemMatch() },
-      { projection: { _id: 1 } },
-    );
-    if (!staleStillLive) {
-      await coll.updateOne(
-        { _id: staleAtPath._id },
-        { $set: { 'fileinfo.$[entry].missing_since': now } },
-        {
-          arrayFilters: [
-            {
-              'entry.library_id': fileinfoEntry.library_id,
-              'entry.path': fileinfoEntry.path,
-              'entry.filename': fileinfoEntry.filename,
-              $or: [{ 'entry.missing_since': { $exists: false } }, { 'entry.missing_since': null }],
-            },
-          ],
-        },
-      );
-    }
     log.info(
       { absPath, old_sha1_head: staleAtPath.sha1_head, new_sha1_head: hashed.sha1_head },
       'file content changed — marked old fileinfo entry deleted',

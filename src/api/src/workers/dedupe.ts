@@ -66,8 +66,11 @@ const log = childLogger('deduplicate');
 /** Registry / route key. Matches `/api/workers/deduplicate/...`. */
 export const DEDUPLICATE_NAME = 'deduplicate';
 
-/** Low-urgency library sweep — a duplicate set is not time-critical. */
+/** How long to sleep between completed work passes when not paused. */
 const DEFAULT_INTERVAL_MS = 300_000;
+/** How often to re-check the pause state when the worker is paused or idle.
+ * Keeps the resume-to-first-pass latency under this value (≤5 s). */
+const PAUSED_POLL_MS = 5_000;
 
 /** Minimal projected shape the pass needs from each candidate row. */
 interface DedupeCandidate {
@@ -122,7 +125,18 @@ export async function runDeDuplicateOnce(
     }
   }
 
-  if (summary.scanned > 0) log.info(summary, 'deduplicate pass complete');
+  if (summary.scanned === 0) {
+    log.debug('deduplicate pass: no candidates — nothing to do');
+  } else {
+    if (summary.skippedOffline > 0) {
+      log.warn(
+        { skippedOffline: summary.skippedOffline },
+        'deduplicate: assets skipped because library root could not be resolved — ' +
+          'check that all libraries are mounted and their paths in the folders collection match the filesystem',
+      );
+    }
+    log.info(summary, 'deduplicate pass complete');
+  }
   return summary;
 }
 
@@ -145,7 +159,7 @@ async function processAsset(
   // as the keeper nor move the last real file — so we drive everything off the
   // on-disk set and require ≥2 real copies before moving anything.
   const onDisk: FileInfo[] = [];
-  let sawAbsent = false;
+  const absentEntries: FileInfo[] = [];
   for (const entry of liveEntries) {
     const root = libs.get(entry.library_id.toHexString());
     if (!root) {
@@ -155,9 +169,11 @@ async function processAsset(
     }
     const segments = entry.path === '' ? [] : entry.path.split('/');
     const kind = await statKind(path.join(root, ...segments, entry.filename));
-    if (kind === 'present') onDisk.push(entry);
-    else if (kind === 'absent') sawAbsent = true;
-    else {
+    if (kind === 'present') {
+      onDisk.push(entry);
+    } else if (kind === 'absent') {
+      absentEntries.push(entry);
+    } else {
       // 'error' (EACCES/EIO/offline mount) — a sibling we can't verify. Don't
       // act on a partial picture; skip the whole asset this pass.
       summary.skippedOffline++;
@@ -165,12 +181,38 @@ async function processAsset(
     }
   }
 
+  // Tag any absent entries immediately so the missing-reaper can prune them.
+  // The reaper pulls these stale database entries after the cooldown period.
+  if (absentEntries.length > 0 && !dryRun) {
+    const now = new Date().toISOString();
+    await coll.updateOne(
+      { _id: doc._id },
+      { $set: { 'fileinfo.$[e].missing_since': now } },
+      {
+        arrayFilters: [
+          {
+            $or: absentEntries.map((e) => ({
+              'e.library_id': e.library_id,
+              'e.path': e.path,
+              'e.filename': e.filename,
+            })),
+          },
+        ],
+      },
+    ).catch((err) => {
+      log.warn(
+        { _id: String(doc._id), err: err instanceof Error ? err.message : err },
+        'deduplicate: failed to tag absent entries',
+      );
+    });
+  }
+
   // Fewer than two copies on disk → not a real duplicate set right now (the
   // extra entries are stale and will be reconciled away by discover / the
   // missing-reaper). This return is THE guard against "no file left on disk":
   // we never move when only one physical copy exists.
   if (onDisk.length < 2) {
-    if (sawAbsent) summary.skippedMissingFile++;
+    if (absentEntries.length > 0) summary.skippedMissingFile++;
     return;
   }
 
@@ -180,6 +222,9 @@ async function processAsset(
   // one loses no content. Stale (absent) entries are left for the reconciler.
   const keeper = selectKeeper(onDisk);
   const keeperKey = folderKey(keeper);
+  const keeperRoot = libs.get(keeper.library_id.toHexString())!;
+  const keeperSegments = keeper.path === '' ? [] : keeper.path.split('/');
+  const keeperAbs = path.join(keeperRoot, ...keeperSegments, keeper.filename);
   const removeEntries = onDisk.filter((e) => !sameEntry(e, keeper));
 
   // The current cache anchor = first live entry (which may be a stale/absent
@@ -209,6 +254,10 @@ async function processAsset(
       continue;
     }
     summary.movedFiles++;
+    log.info(
+      { _id: String(doc._id), from: abs, to: res.newAbsPath },
+      'deduplicate: moved duplicate to _duplicates/',
+    );
 
     // Clean the moved copy's folder cache only when the kept copy is NOT in that
     // folder (else it is the kept copy's live cache and must stay).
@@ -225,17 +274,26 @@ async function processAsset(
     return; // no Mongo mutation in dry-run
   }
 
-  // Pull the moved entries from `fileinfo`; re-arm cache stages if the anchor
-  // moved. `$pull fileinfo` and `$set stages.*` touch distinct paths → one update.
-  const update: Record<string, unknown> = {
-    $pull: {
-      fileinfo: {
-        $or: moved.map((m) => ({ library_id: m.library_id, path: m.path, filename: m.filename })),
+  // Pull the moved entries from `fileinfo` one at a time.
+  //
+  // MongoDB does NOT support `$or` inside a `$pull` filter expression — it is
+  // silently ignored and the update modifies 0 documents (the file gets moved
+  // but the DB entry stays, so the asset keeps showing as a duplicate).
+  // The correct approach for compound-key matches is one `$pull` per entry.
+  //
+  // The cache-stage re-arm (`$set`) is fused into the first pull so it lands
+  // atomically with the first fileinfo removal. Subsequent pulls are pure
+  // `$pull` calls (one round-trip each; typically only one or two entries).
+  for (let i = 0; i < moved.length; i++) {
+    const m = moved[i];
+    const pullUpdate: Record<string, unknown> = {
+      $pull: {
+        fileinfo: { library_id: m.library_id, path: m.path, filename: m.filename },
       },
-    },
-  };
-  if (anchorMoves) update['$set'] = reArmCacheStages();
-  await coll.updateOne({ _id: doc._id }, update as never);
+    };
+    if (i === 0 && anchorMoves) pullUpdate['$set'] = reArmCacheStages();
+    await coll.updateOne({ _id: doc._id }, pullUpdate as never);
+  }
   summary.deduped++;
 
   // Publish an update keyed by the surviving primary so clients + search refresh.
@@ -356,27 +414,44 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
   // process takes effect on the next tick with no IPC. Same as missing-reaper.
   const pollPaused = makePausedPoller(DEDUPLICATE_NAME, paused);
 
-  const tick = async (): Promise<void> => {
-    if (stopped || running) return;
+  /** One unit of work: re-check pause state, then run a pass if not paused.
+   * Returns how long the loop should sleep before the next call — PAUSED_POLL_MS
+   * while paused (so a resume is seen within ~5 s), intervalMs after a pass. */
+  const tick = async (): Promise<number> => {
+    if (stopped || running) return PAUSED_POLL_MS;
     running = true;
     try {
       paused = await pollPaused();
-      if (paused) return; // `finally` still clears `running`
+      if (paused) return PAUSED_POLL_MS; // `finally` still clears `running`
       const cfg = await loadDeDuplicateConfig();
       const summary = await runDeDuplicateOnce({ batchSize: cfg.batch_size, dryRun: cfg.dry_run });
       for (let i = 0; i < summary.deduped; i++) throughput.record(new Date());
       stageRegistry.clearError(DEDUPLICATE_NAME);
+      return intervalMs;
     } catch (err) {
       stageRegistry.recordError(DEDUPLICATE_NAME, err instanceof Error ? err.message : String(err));
       log.error({ err }, 'deduplicate tick crashed');
+      return intervalMs; // back off after an error just like after a normal pass
     } finally {
       running = false;
     }
   };
 
-  const timer = setInterval(() => {
-    void tick();
-  }, intervalMs);
+  // Adaptive loop: poll at PAUSED_POLL_MS while paused (≤5 s resume latency),
+  // sleep intervalMs between actual work passes. Fires immediately on startup
+  // (after loadPaused resolves) so a resumed worker doesn't wait the full
+  // interval before its first pass.
+  let loopTimer: ReturnType<typeof setTimeout> | null = null;
+  const loop = async (): Promise<void> => {
+    if (stopped) return;
+    const delay = await tick();
+    if (!stopped) loopTimer = setTimeout(() => void loop(), delay);
+  };
+  // Delay the first tick until the persisted pause state has been adopted,
+  // so the very first pass already knows whether the worker is paused.
+  void ready.then(() => {
+    if (!stopped) loopTimer = setTimeout(() => void loop(), 0);
+  });
 
   log.info(
     { intervalMs },
@@ -386,7 +461,7 @@ export function startDeDuplicate(opts: StartDeDuplicateOptions = {}): DeDuplicat
   return {
     stop: () => {
       stopped = true;
-      clearInterval(timer);
+      if (loopTimer !== null) clearTimeout(loopTimer);
       stageRegistry.unregister(DEDUPLICATE_NAME);
     },
     ready,
