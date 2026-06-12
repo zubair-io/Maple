@@ -95,7 +95,7 @@ where
 /// broken upstream math (not "very bright"), so it scrubs to 0.0 too,
 /// matching the FFI pack-endcap convention in `pipeline::finite_or_zero`.
 #[inline]
-fn clamp_unit_scrub_non_finite(v: f32) -> f32 {
+pub(crate) fn clamp_unit_scrub_non_finite(v: f32) -> f32 {
     if v.is_finite() {
         v.clamp(0.0, 1.0)
     } else {

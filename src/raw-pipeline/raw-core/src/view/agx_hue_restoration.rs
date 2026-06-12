@@ -32,6 +32,7 @@
 //! preserving form and lands the #435 acceptance criterion (no magenta).
 
 use crate::color::oklab::{oklab_to_rec2020, rec2020_to_oklab};
+use crate::color::oklab_gamut::clamp_unit_scrub_non_finite;
 
 /// Cube root used to safely take a 0-or-positive value's logarithm — the
 /// sigmoid path needs a strictly positive scaling input. Below this floor
@@ -134,17 +135,6 @@ pub fn oklab_gamut_compress(rgb: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-/// `clamp(0, 1)` that maps non-finite values to 0.0 — Rust's `f32::clamp`
-/// returns NaN for NaN input (#1088). Same scrub as the shared
-/// `color::oklab_gamut` copy of the bisection.
-#[inline]
-fn clamp_unit_scrub_non_finite(v: f32) -> f32 {
-    if v.is_finite() {
-        v.clamp(0.0, 1.0)
-    } else {
-        0.0
-    }
-}
 
 #[inline]
 fn in_unit_box(rgb: [f32; 3]) -> bool {
