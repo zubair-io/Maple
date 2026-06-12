@@ -47,7 +47,7 @@ export function computeDuplicatesPath(absPath: string, folderRoot: string): stri
 export async function moveToDuplicates(absPath: string, folderRoot: string): Promise<MoveResult> {
   const target = computeDuplicatesPath(absPath, folderRoot);
   await fs.mkdir(path.dirname(target), { recursive: true });
-  const freeTarget = await pickFreePath(target);
+  const freeTarget = await pickFreePath(target, 'moveToDuplicates');
   try {
     await fs.rename(absPath, freeTarget);
   } catch (err) {
