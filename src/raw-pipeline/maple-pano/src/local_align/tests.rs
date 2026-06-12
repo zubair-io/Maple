@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::ba::residual::{Block, FrameMeta, State};
-use crate::math::{axis_angle_to_matrix, Mat3};
+use crate::math::Mat3;
 
 fn identity_state(n: usize, focal: f64) -> State {
     State {
@@ -18,15 +18,15 @@ fn frames_centered(n: usize, cx: f64, cy: f64) -> Vec<FrameMeta> {
     vec![FrameMeta { cx, cy }; n]
 }
 
-/// The packed-index function is consistent with the 6×6 upper-triangle
-/// layout (21 elements, row-major).
+/// The packed4_idx function is consistent with the 4×4 upper-triangle
+/// layout (10 elements, row-major).
 #[test]
-fn packed_idx_covers_all_21_slots_uniquely() {
-    let mut seen = vec![false; 21];
-    for i in 0..6 {
-        for j in i..6 {
-            let idx = packed_idx(i, j);
-            assert!(idx < 21, "index {idx} out of range for ({i},{j})");
+fn packed4_idx_covers_all_10_slots_uniquely() {
+    let mut seen = vec![false; 10];
+    for i in 0..4 {
+        for j in i..4 {
+            let idx = packed4_idx(i, j);
+            assert!(idx < 10, "index {idx} out of range for ({i},{j})");
             assert!(!seen[idx], "duplicate index {idx} for ({i},{j})");
             seen[idx] = true;
         }
@@ -34,16 +34,16 @@ fn packed_idx_covers_all_21_slots_uniquely() {
     assert!(seen.iter().all(|&s| s), "some indices unused");
 }
 
-/// Solving a known 6×6 identity system returns the rhs unchanged.
+/// Solving a known 4×4 identity system returns the rhs unchanged.
 #[test]
-fn solve_6x6_identity_system() {
-    let mut h = [0.0_f64; 21];
-    for i in 0..6 {
-        h[packed_idx(i, i)] = 1.0;
+fn solve_4x4_identity_system() {
+    let mut h = [0.0_f64; 10];
+    for i in 0..4 {
+        h[packed4_idx(i, i)] = 1.0;
     }
-    let rhs = [1.0, 2.0, -3.0, 0.5, -1.5, 7.0];
-    let x = solve_6x6_sym(&h, &rhs).expect("identity system solves");
-    for i in 0..6 {
+    let rhs = [1.0, 2.0, -3.0, 0.5];
+    let x = solve_4x4_sym(&h, &rhs).expect("identity system solves");
+    for i in 0..4 {
         assert!(
             (x[i] - rhs[i]).abs() < 1e-12,
             "x[{i}] = {} ≠ {}",
@@ -53,22 +53,23 @@ fn solve_6x6_identity_system() {
     }
 }
 
-/// `LocalCorrection::apply` at the image centre is a pure translation.
+/// `LocalCorrection::apply` at the image centre returns the centre unchanged
+/// (since δt=0 and δA*(0,0)=0).
 #[test]
-fn apply_at_centre_is_pure_translation() {
+fn apply_at_centre_is_no_op() {
     let corr = LocalCorrection {
         cx: 100.0,
         cy: 80.0,
         da: [[0.01, 0.0], [0.0, 0.01]],
-        dt: [3.0, -2.0],
+        dt: [0.0, 0.0],
         rms_px: 0.0,
         max_correction_px: 0.0,
         fit_blocks: 0,
     };
-    // At the centre (dx=0, dy=0) only dt contributes.
+    // At the centre (dx=0, dy=0): correction = δA*(0,0) + δt = 0.
     let (cx, cy) = corr.apply(100.0, 80.0);
-    assert!((cx - 103.0).abs() < 1e-12);
-    assert!((cy - 78.0).abs() < 1e-12);
+    assert!((cx - 100.0).abs() < 1e-12);
+    assert!((cy - 80.0).abs() < 1e-12);
 }
 
 /// Identity correction does not shift any point.
@@ -146,121 +147,63 @@ fn pure_rotation_correction_near_identity() {
     }
 }
 
-/// Known uniform parallax offset: a 3 px translation across the whole image.
-/// After fitting the correction should absorb most of that shift.
+/// Ring-pano parallax: frame 0 has blocks from TWO opposite-direction
+/// edges placed at EXACTLY symmetric positions (±dx from centre).
+/// Left-edge blocks have r_x = −3 px; right-edge blocks have r_x = +3 px.
+///
+/// The affine-only model absorbs both via the spatial gradient:
+/// δa00 = 3 / dx_half, giving correction = ±3 at the block positions.
+/// A translation-only model would see zero net r_x and do nothing.
 #[test]
-fn uniform_parallax_absorbed_by_translation() {
-    // Build a set of blocks with a known 3 px x-offset residual.
-    // Frame 0 (destination): all blocks land with r = (+3, 0).
-    // Two frames, simple identity rotations, focal = 500.
+fn ring_pano_bilateral_parallax_absorbed_by_affine() {
     let focal = 500.0;
     let (cx, cy) = (480.0, 360.0);
+    let state = identity_state(3, focal); // frames 0, 1, 2
+    let frames = frames_centered(3, cx, cy);
 
-    // Construct blocks where the "predicted" lands 3 px right of observed.
-    // We simulate this by using camera positions that produce a known
-    // residual — simplest: build blocks where p_src projects exactly to
-    // p_dst + (3, 0) under the state, so r = (3, 0).
-    //
-    // Direct approach: build the state with identity rotations, and choose
-    // p_src such that the chain produces residual (3, 0) in frame 1.
-    // With identity rotations: v = Rd^T * Rs * h = h, projection gives
-    // (mx, my) = h / h.z normalised, then q = f*e + c.
-    // For a block with src=0, dst=1:
-    //   h = undistort((p_src − c) / f) ≈ (p_src − c) / f   (no distortion)
-    //   q = f * (h.x, h.y) + c = p_src   (identity rotation)
-    //   r = q − p_dst = p_src − p_dst
-    // So we want r = (3, 0): set p_dst = p_src − (3, 0).
-    let state = identity_state(2, focal);
-    let frames = frames_centered(2, cx, cy);
-
-    // Many blocks spread across the image, all with residual (+3, 0).
     let mut blocks = Vec::new();
-    let offsets = [
-        (100.0, 100.0),
-        (200.0, 150.0),
-        (300.0, 200.0),
-        (400.0, 300.0),
-        (500.0, 400.0),
-        (600.0, 450.0),
-        (700.0, 500.0),
-        (800.0, 550.0),
-        (150.0, 600.0),
-        (350.0, 650.0),
-        (550.0, 680.0),
-    ];
-    for &(px_src, py_src) in &offsets {
-        // src=0, dst=1: residual in frame 1 = p_src - p_dst = (3, 0)
-        // so p_dst = p_src - (3, 0).
-        let p_dst = (px_src - 3.0, py_src);
-        blocks.push(Block {
-            src: 0,
-            dst: 1,
-            p_src: (px_src, py_src),
-            p_dst,
-        });
-        // Reverse block: residual in frame 0 = p_dst - p_src = (-3, 0)
-        blocks.push(Block {
-            src: 1,
-            dst: 0,
-            p_src: p_dst,
-            p_dst: (px_src, py_src),
-        });
+
+    // Place blocks at SYMMETRIC positions ±dx_half so the affine solution
+    // is exact: δa00 = 3 / dx_half, correction = ±3 at each block.
+    let dx_half = 200.0; // well within the image
+    let n_pairs = 20usize;
+    for i in 0..n_pairs {
+        let dy = -100.0 + i as f64 * 10.0;
+
+        // Right-side block (src=1→dst=0): p_dst has dx=+dx_half, r_x=+3.
+        let p_dst_r = (cx + dx_half, cy + dy);
+        let p_src_r = (p_dst_r.0 + 3.0, p_dst_r.1);
+        blocks.push(Block { src: 1, dst: 0, p_src: p_src_r, p_dst: p_dst_r });
+        blocks.push(Block { src: 0, dst: 1, p_src: p_dst_r, p_dst: p_src_r });
+
+        // Left-side block (src=2→dst=0): p_dst has dx=-dx_half, r_x=-3.
+        let p_dst_l = (cx - dx_half, cy + dy);
+        let p_src_l = (p_dst_l.0 - 3.0, p_dst_l.1);
+        blocks.push(Block { src: 2, dst: 0, p_src: p_src_l, p_dst: p_dst_l });
+        blocks.push(Block { src: 0, dst: 2, p_src: p_dst_l, p_dst: p_src_l });
     }
 
-    let corrections = fit_local_corrections(&blocks, &frames, &state, 2);
+    let corrections = fit_local_corrections(&blocks, &frames, &state, 3);
+    let after = stats_after_local(&blocks, &frames, &state, &corrections, 3);
 
-    // Frame 1 should absorb ~3 px x-translation (modulo regularisation).
-    // With 11 blocks and λ=4, the translation estimate is:
-    // t_x ≈ 3 * n / (n + λ) ≈ 3 * 11 / 15 ≈ 2.2 px.
-    let c1 = &corrections[1];
-    let (cx_out, cy_out) = c1.apply(cx, cy); // at centre: pure translation
-    let tx = cx_out - cx;
+    // Frame 0's corrected mean should be near zero — the affine gradient
+    // corrects both sides simultaneously.  With n=40 and λ=4 the
+    // absorption is n/(n+λ) ≈ 90.9 %; corrected mean ≈ 0.27 px.
     assert!(
-        tx > 1.5,
-        "frame 1 x-translation should absorb the residual: tx={tx:.3}"
-    );
-    assert!(
-        (cy_out - cy).abs() < 0.5,
-        "y-translation should remain small: ty={:.3}",
-        cy_out - cy
+        after[0].mean_px < 0.5,
+        "frame 0: bilateral parallax mean after correction {:.3} px should be < 0.5 px",
+        after[0].mean_px
     );
 
-    // Frame 0 absorbs the reverse shift.
+    // The correction at the centre must be (near) zero — the affine-only
+    // model is exactly zero at the principal point.
     let c0 = &corrections[0];
-    let (cx_out0, _) = c0.apply(cx, cy);
-    let tx0 = cx_out0 - cx;
+    let (cx_out, cy_out) = c0.apply(cx, cy);
     assert!(
-        tx0 < -1.0,
-        "frame 0 should absorb negative shift: tx0={tx0:.3}"
-    );
-
-    // After correction, stats should show reduced residuals for frame 1.
-    let after = stats_after_local(&blocks, &frames, &state, &corrections, 2);
-    let before = {
-        use crate::ba::residual::INVALID_BLOCK_RESIDUAL_PX;
-        let mut per: Vec<Vec<f64>> = vec![Vec::new(); 2];
-        for b in &blocks {
-            if let Some(r) = eval_residual(&state, &frames, b) {
-                let s = (r[0] * r[0] + r[1] * r[1]).sqrt();
-                per[b.dst].push(s);
-            } else {
-                per[b.dst].push(INVALID_BLOCK_RESIDUAL_PX);
-            }
-        }
-        per.into_iter()
-            .map(|v| {
-                if v.is_empty() {
-                    return 0.0;
-                }
-                v.iter().sum::<f64>() / v.len() as f64
-            })
-            .collect::<Vec<_>>()
-    };
-    assert!(
-        after[1].mean_px < before[1],
-        "frame 1: mean after ({:.3}) must be less than before ({:.3})",
-        after[1].mean_px,
-        before[1]
+        (cx_out - cx).abs() < 0.1,
+        "correction at centre should be near zero: got ({:.3},{:.3})",
+        cx_out - cx,
+        cy_out - cy
     );
 }
 
@@ -295,18 +238,21 @@ fn correction_capped_at_max() {
     }
 }
 
-/// `stats_after_local` on a perfect fit (large uniform residual, many
-/// blocks) shows smaller mean than before.
+/// `stats_after_local` on a one-sided parallax floor (frame has blocks
+/// only from one edge — spatially offset from center) shows improved
+/// mean vs. before.
 #[test]
 fn stats_after_better_than_before_on_strong_signal() {
     let state = identity_state(2, 500.0);
     let frames = frames_centered(2, 480.0, 360.0);
 
-    // 40 blocks all with residual (2.0, 1.5) in frame 1.
+    // 40 blocks in frame 1 (destination), offset from the centre so the
+    // affine component has leverage.  Residual is (+2.0, +1.5) uniformly.
     let blocks: Vec<Block> = (0..40)
         .flat_map(|i| {
-            let px = 150.0 + i as f64 * 8.0;
-            let py = 150.0 + i as f64 * 5.0;
+            // Place blocks in the right-center region so dx > 0 for most.
+            let px = 550.0 + i as f64 * 5.0;
+            let py = 200.0 + i as f64 * 4.0;
             let p_dst = (px - 2.0, py - 1.5);
             [
                 Block { src: 0, dst: 1, p_src: (px, py), p_dst },
@@ -318,11 +264,11 @@ fn stats_after_better_than_before_on_strong_signal() {
     let corrections = fit_local_corrections(&blocks, &frames, &state, 2);
     let after = stats_after_local(&blocks, &frames, &state, &corrections, 2);
     // The before-correction mean for frame 1 is sqrt(2² + 1.5²) ≈ 2.5 px.
-    // The fit should drive it well below that.
+    // The affine fit should reduce it substantially.
     let before_mean_f1 = (2.0_f64.powi(2) + 1.5_f64.powi(2)).sqrt();
     assert!(
-        after[1].mean_px < before_mean_f1 * 0.5,
-        "mean after correction ({:.3}) should be much less than before ({:.3})",
+        after[1].mean_px < before_mean_f1 * 0.9,
+        "mean after correction ({:.3}) should be less than before ({:.3} * 0.9)",
         after[1].mean_px,
         before_mean_f1
     );

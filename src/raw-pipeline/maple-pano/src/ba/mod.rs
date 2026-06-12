@@ -264,35 +264,16 @@ pub fn solve(
             }
         }
 
-        // Stage F: local alignment fit over the post-B/C block set
-        // (#1218, spec §8). Fits a per-frame regularised 2D-affine
-        // correction from the BA residuals, then the gate (stages D+E)
-        // evaluates on the corrected block coordinates.
-        //
-        // Using corrected blocks for the gate also means gate's internal
-        // re-solves (motion pruning path, stage E) optimise w.r.t. the
-        // improved observations — this is correct, since the corrections
-        // represent our best estimate of where the correspondences should
-        // be absent the parallax floor.
-        //
-        // Key invariant: `blocks` (original, used for stage A/B/C above)
-        // is NOT mutated here. Each loop iteration rebuilds blocks fresh
-        // from the graph via `build_blocks`, so corrected_blocks is
-        // discarded at the next iteration.
-        let n_local = active.len();
-        let corrections_local =
-            fit_local_corrections(&blocks, &frames, &state, n_local);
-        let mut gate_blocks = apply_local_corrections_to_blocks(&blocks, &corrections_local);
-
         // Stages D + E: bounded hard outlier rejection, then the §5.3
-        // acceptance gate with the spec §8 static-core discriminator —
-        // [`motion`] documents the prune guard, the keep/drop
-        // conditions, and the ordering. The motion bookkeeping is
-        // per-round (blocks are rebuilt from the graph each round);
-        // only the finalizing round's classification is published.
+        // acceptance gate with the spec §8 static-core discriminator.
+        // Runs on the ORIGINAL blocks — passing corrected blocks would
+        // have gate's internal re-solves absorb the correction into the
+        // rotations, undoing it. Stage F (below) is applied AFTER the
+        // gate converges, as a final post-processing measurement step.
+        let n_local = active.len();
         let mut book = MotionBook::new(active.len());
         let outcome = gate_frames(
-            &mut gate_blocks,
+            &mut blocks,
             &mut state,
             &GateContext {
                 frames: &frames,
@@ -311,14 +292,12 @@ pub fn solve(
         }
 
         let (bad_local, reason) = match outcome {
-            GateOutcome::Pass { stats } => {
-                // Every surviving frame passes the post-local-alignment
-                // gate. `stats` are already measured on corrected blocks
-                // (end-of-chain measurement, spec §5.3 / #1218).
-                //
-                // Record the pre-local stats for auditability, then
-                // finalize. Compute directly from original blocks
-                // (no correction applied).
+            GateOutcome::Pass { stats: corrected_stats } => {
+                // gate_frames returned corrected stats (stage F was applied
+                // inside the gate's pass check — spec §8 / #1218).
+                // corrected_stats is the end-of-chain measurement.
+
+                // Pre-local: raw global mean/max for auditability.
                 {
                     use residual::{eval_residual, INVALID_BLOCK_RESIDUAL_PX};
                     let (mut sum, mut max, mut count) = (0.0_f64, 0.0_f64, 0usize);
@@ -328,9 +307,7 @@ pub fn solve(
                             None => INVALID_BLOCK_RESIDUAL_PX,
                         };
                         sum += s;
-                        if s > max {
-                            max = s;
-                        }
+                        if s > max { max = s; }
                         count += 1;
                     }
                     solution.mean_reproj_before_local_px =
@@ -338,15 +315,33 @@ pub fn solve(
                     solution.max_reproj_before_local_px = max;
                 }
 
+                // Re-fit corrections on the final post-gate block set to
+                // store the `LocalCorrection` objects for composite time.
+                // (gate_frames computed them internally for pass/fail but
+                // doesn't expose them — this second fit is cheap and
+                // deterministic from the same blocks+state.)
+                let corrections_local =
+                    fit_local_corrections(&blocks, &frames, &state, n_local);
+
+                // Global corrected mean/max for the solution summary.
+                use crate::local_align::global_stats_after_local;
+                let (mean_after, max_after) =
+                    global_stats_after_local(&blocks, &frames, &state, &corrections_local);
+
+                // Finalize with corrected per-frame stats (end-of-chain,
+                // spec §5.3 / #1218).
                 finalize(
                     &mut solution,
                     images,
                     &active,
                     &state,
-                    &stats,
-                    &gate_blocks,
+                    &corrected_stats,
+                    &blocks,
                     &frames,
                 );
+                solution.mean_reproj_px = mean_after;
+                solution.max_reproj_px = max_after;
+
                 // Store per-frame local corrections (global indices).
                 for (local, &global) in active.iter().enumerate() {
                     let c = &corrections_local[local];
@@ -403,32 +398,4 @@ pub fn solve(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Stage F helpers
-// ---------------------------------------------------------------------------
-
-/// Apply local corrections to a block set: shift each block's `p_dst` by
-/// the correction for its destination frame. The optimisation state is
-/// unchanged — this transform is applied to the OBSERVED coordinates, not
-/// the BA parameters.
-///
-/// Used to create the "gate blocks" that stage D+E evaluate against. The
-/// corrections bring the observed coordinates closer to the true image
-/// positions (absorbing the parallax floor), so the gate measures the
-/// residual that COMPOSITING will see rather than the raw BA residual.
-fn apply_local_corrections_to_blocks(
-    blocks: &[residual::Block],
-    corrections: &[crate::local_align::LocalCorrection],
-) -> Vec<residual::Block> {
-    blocks
-        .iter()
-        .map(|b| {
-            let (cx, cy) = corrections[b.dst].apply(b.p_dst.0, b.p_dst.1);
-            residual::Block {
-                p_dst: (cx, cy),
-                ..*b
-            }
-        })
-        .collect()
-}
 
