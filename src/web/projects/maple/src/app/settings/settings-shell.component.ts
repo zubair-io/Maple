@@ -15,7 +15,8 @@ export type SettingsSection =
   | 'imports'
   | 'people'
   | 'users'
-  | 'observability';
+  | 'observability'
+  | 'pano';
 
 interface NavItem {
   readonly id: SettingsSection;
@@ -52,6 +53,14 @@ const ITEMS: readonly NavItem[] = [
     link: '/settings/observability',
     ownerOnly: true,
     sub: 'SigNoz telemetry',
+  },
+  {
+    id: 'pano',
+    label: 'Pano',
+    icon: 'grid-sm',
+    link: '/settings/pano',
+    ownerOnly: true,
+    sub: 'Panorama stitching',
   },
   { id: 'users', label: 'Users', icon: 'key', link: '/settings/users', ownerOnly: true },
 ];
