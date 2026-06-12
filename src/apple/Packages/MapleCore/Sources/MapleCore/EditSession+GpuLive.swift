@@ -65,14 +65,27 @@ extension EditSession {
         targetSize: CGSize?,
         gen: UInt64?
     ) async -> Bool {
-        guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else { return false }
+        if !GpuLiveFlag.isEnabled {
+            logGpuLiveReject("flag-off", "MAPLE_GPU_LIVE=0 (or build w/o flag)")
+            return false
+        }
+        guard let driver = gpuLiveDriver else {
+            logGpuLiveReject("driver-nil", "gpuLiveDriver lazy init returned nil")
+            return false
+        }
         // The live chain is the RAW scene-linear chain (the decode-boundary
         // contract is written for the RAW decode buffer). Non-RAW keeps its CPU
         // path this cut — its decode/contract differ (no AE/capture-sharpen bake).
-        guard asset.isRaw else { return false }
+        guard asset.isRaw else {
+            logGpuLiveReject("non-raw", "primaryURL=\(asset.primaryURL?.lastPathComponent ?? "nil") hintExt=\(asset.hintExtension ?? "nil")")
+            return false
+        }
         // No canvas to present into yet — let the CPU path publish a CIImage so
         // SOMETHING is on screen until the layer lays out and registers.
-        guard driver.hasLayer else { return false }
+        guard driver.hasLayer else {
+            logGpuLiveReject("no-layer", "GpuLiveCanvasView has not laid out — `useGpuCanvas` likely false in FullImageView")
+            return false
+        }
 
         let m = model
         let pipeline = self.pipeline
@@ -81,9 +94,13 @@ extension EditSession {
         // Open (upload-once) the session for these dims if needed. The readback
         // is the per-DECODE cost; `open` re-uploads only on a dims change.
         let dims = Self.gpuTargetDims(for: decoded, targetSize: targetSize, pipeline: pipeline)
-        guard let dims else { return false }
+        guard let dims else {
+            logGpuLiveReject("nil-dims", "prescaledExtent rounded to 0 — targetSize=\(targetSize.map { "\($0.width)x\($0.height)" } ?? "nil")")
+            return false
+        }
         if !driver.isOpen(width: dims.width, height: dims.height) {
             guard let buf = pipeline.sceneLinearFloats(from: decoded, targetSize: targetSize) else {
+                logGpuLiveReject("readback-fail", "sceneLinearFloats returned nil at \(dims.width)x\(dims.height)")
                 return false
             }
             do {
@@ -175,6 +192,30 @@ extension EditSession {
         hasOnscreenFrame: Bool
     ) -> Bool {
         isResolvingFirstFrame || (isRendering && !hasOnscreenFrame)
+    }
+
+    /// Log a `notice` line the FIRST time the GPU live path rejects for a given
+    /// reason in this session — and stay silent for every subsequent rejection
+    /// for that same reason. A slider drag generating hundreds of ticks against
+    /// a permanent reject (e.g. the canvas view never laid out) prints exactly
+    /// one diagnostic line, loud enough to grep for, instead of flooding the log.
+    /// The latch resets per asset (a new `EditSession` is created per open), so
+    /// re-opening the same asset re-arms the diagnostic.
+    func logGpuLiveReject(_ reason: String, _ detail: @autoclosure () -> String = "") {
+        guard !gpuLiveRejectReasonsLogged.contains(reason) else { return }
+        gpuLiveRejectReasonsLogged.insert(reason)
+        let d = detail()
+        let driver = gpuLiveDriver
+        let driverState = "driver=\(driver == nil ? "nil" : "set") hasLayer=\(driver?.hasLayer ?? false) hasSession=\(driver?.hasSession ?? false)"
+        if d.isEmpty {
+            editSessionLogger.notice(
+                "GPU live REJECTED — \(reason, privacy: .public) [\(driverState, privacy: .public)] → CPU fallback this session"
+            )
+        } else {
+            editSessionLogger.notice(
+                "GPU live REJECTED — \(reason, privacy: .public): \(d, privacy: .public) [\(driverState, privacy: .public)] → CPU fallback this session"
+            )
+        }
     }
 
     /// The post-prescale pixel dims the GPU session/layer use for `decoded` at

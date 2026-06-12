@@ -227,6 +227,15 @@ public final class EditSession {
     @ObservationIgnored public lazy var gpuLiveDriver: GpuLiveDriver? =
         GpuLiveFlag.isEnabled ? GpuLiveDriver() : nil
 
+    /// Reasons `presentViaGpuLive` has already logged a one-shot rejection notice
+    /// for in this session. Each guard inside `presentViaGpuLive` fires a single
+    /// `notice` line the first time it rejects — and silently the rest of the
+    /// session — so a slider drag generating hundreds of ticks does not flood the
+    /// log, but the first occurrence is loud enough to grep for. Reset implicitly
+    /// per-asset (a new `EditSession` is created per open). Used only by
+    /// `logGpuLiveReject` in EditSession+GpuLive.swift.
+    @ObservationIgnored var gpuLiveRejectReasonsLogged: Set<String> = []
+
     /// True while `loadSidecar()` is applying persisted state. Hydration must
     /// not behave like a user edit: it should not schedule preview renders
     /// for every session pre-created by the browse grid, and it should not
