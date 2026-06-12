@@ -212,13 +212,26 @@ pub fn solve_gains(
         // mean = 1: locked-AE sets stay at ~1.0, bracketed sets keep
         // exact relative scaling, and the set's mean scene level is
         // preserved.
-        let log_mean = x.iter().filter(|g| **g > 0.0).map(|g| g.ln()).sum::<f64>() / x.len() as f64;
-        let norm = (-log_mean).exp();
-        for (i, gi) in x.iter().enumerate() {
-            for &c in *channels {
-                gains[i][c] = (*gi * norm) as f32;
+        //
+        // Divide only by the COUNT OF POSITIVE entries: dividing by
+        // x.len() biases log_mean low whenever any solver output is ≤ 0
+        // (which moves the log sum but not the count). When ALL outputs
+        // are non-positive the log sum is 0 and no normalization is
+        // meaningful — leave gains at the solver's output (already
+        // ~1 from the prior) rather than forcing a misleading norm.
+        let positive_gains: Vec<f64> = x.iter().filter(|g| **g > 0.0).map(|g| g.ln()).collect();
+        if !positive_gains.is_empty() {
+            let log_mean = positive_gains.iter().sum::<f64>() / positive_gains.len() as f64;
+            let norm = (-log_mean).exp();
+            for (i, gi) in x.iter().enumerate() {
+                for &c in *channels {
+                    gains[i][c] = (*gi * norm) as f32;
+                }
             }
         }
+        // If all solver outputs are non-positive the gains array stays at
+        // the default 1.0 initialised above — correct fallback (the prior
+        // already pins degenerate frames near 1.0).
     }
     Ok(gains)
 }
@@ -501,11 +514,15 @@ pub fn solve_gains_tile(
             b[s.j] += wp;
         }
         let x = solve_dense(a, b).unwrap_or_else(|| vec![1.0; n]);
-        let log_mean = x.iter().filter(|g| **g > 0.0).map(|g| g.ln()).sum::<f64>() / x.len() as f64;
-        let norm = (-log_mean).exp();
-        for (i, gi) in x.iter().enumerate() {
-            for &c in *channels {
-                gains[i][c] = (*gi * norm) as f32;
+        // Same divisor fix as solve_gains: divide by positive-count only.
+        let positive_gains: Vec<f64> = x.iter().filter(|g| **g > 0.0).map(|g| g.ln()).collect();
+        if !positive_gains.is_empty() {
+            let log_mean = positive_gains.iter().sum::<f64>() / positive_gains.len() as f64;
+            let norm = (-log_mean).exp();
+            for (i, gi) in x.iter().enumerate() {
+                for &c in *channels {
+                    gains[i][c] = (*gi * norm) as f32;
+                }
             }
         }
     }
