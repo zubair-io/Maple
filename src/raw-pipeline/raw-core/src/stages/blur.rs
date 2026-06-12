@@ -18,28 +18,63 @@ use rayon::prelude::*;
 /// `buf` is row-major w×h. Returns a new blurred buffer.
 ///
 /// Both sweeps run in parallel via rayon:
-/// * **Horizontal sweep** writes `tmp` row by row; each row's output is a
+/// * **Horizontal sweep** writes `tmp_row` row by row; each row's output is a
 ///   disjoint `w`-element slice, so `par_chunks_mut(w)` is safe and trivial.
-/// * **Vertical sweep** reads `tmp` column-by-column (stride `w`) and
+/// * **Vertical sweep** reads `tmp_row` column-by-column (stride `w`) and
 ///   historically wrote back into a row-major `out` via the same stride.
 ///   That stride-`w` scatter prevents a clean parallel-mut over rows. The
 ///   fix: write the vertical pass into a column-major `tmp_col` buffer
 ///   (each column is a contiguous `h`-element slice, so `par_chunks_mut(h)`
 ///   is safe), then transpose column-major → row-major in a final parallel
-///   pass. Memory cost: one extra w×h f32 buffer (same size as `tmp`).
+///   pass. Memory cost: one extra w×h f32 buffer (same size as `tmp_row`).
 ///   CPU cost: one extra pass, amortized against doing the full sweep in
 ///   parallel on 8+ cores.
-pub(crate) fn box_blur_plane(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
-    box_blur_channel(buf, w, h, r)
-}
-
+///
+/// This owning entry point allocates the result plus the two scratch planes
+/// and delegates to [`box_blur_into`]; stand-alone callers (`stages::guided`,
+/// `scene_tone_controls`, `gaussian_blur_*`) keep the simple
+/// `&[f32] -> Vec<f32>` form. Callers that run *many* blurs in one tick
+/// (the `guided_filter` base/detail decomposition) call `box_blur_into`
+/// directly with a reused scratch arena so they don't re-allocate per pass
+/// — see #1089 item 7.
 pub(crate) fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec<f32> {
     if r == 0 { return buf.to_vec(); }
+    let mut out = vec![0.0f32; buf.len()];
+    let mut tmp_row = vec![0.0f32; buf.len()];
+    let mut tmp_col = vec![0.0f32; buf.len()];
+    box_blur_into(buf, &mut out, &mut tmp_row, &mut tmp_col, w, h, r);
+    out
+}
 
-    // --- Horizontal sweep: row-parallel, row-major output ---
-    let mut tmp = vec![0.0f32; buf.len()];
-    tmp.par_chunks_mut(w).enumerate().for_each(|(y, out_row)| {
-        let row = &buf[y * w..(y + 1) * w];
+/// Box-blur `src` into `dst`, using two caller-provided scratch planes
+/// (`tmp_row`, `tmp_col`) instead of allocating any buffers. All four
+/// slices must be exactly `w*h` long; `src` may alias none of the others
+/// (the caller guarantees distinct buffers). `r > 0` is required — the
+/// `r == 0` identity is the owning wrapper's job.
+///
+/// Output is **bit-identical** to the previous `box_blur_channel` body:
+/// the horizontal running-sum sweep, the column-major vertical sweep, and
+/// the transpose are byte-for-byte the same operations in the same order;
+/// only the buffer *ownership* changed (provided-and-reused vs freshly
+/// `vec!`-allocated per call). This is the allocation cut in #1089 item 7.
+fn box_blur_into(
+    src: &[f32],
+    dst: &mut [f32],
+    tmp_row: &mut [f32],
+    tmp_col: &mut [f32],
+    w: usize,
+    h: usize,
+    r: usize,
+) {
+    debug_assert_eq!(src.len(), w * h);
+    debug_assert_eq!(dst.len(), w * h);
+    debug_assert_eq!(tmp_row.len(), w * h);
+    debug_assert_eq!(tmp_col.len(), w * h);
+    debug_assert!(r > 0, "box_blur_into requires r > 0");
+
+    // --- Horizontal sweep: row-parallel, row-major into `tmp_row` ---
+    tmp_row.par_chunks_mut(w).enumerate().for_each(|(y, out_row)| {
+        let row = &src[y * w..(y + 1) * w];
         let right0 = r.min(w - 1);
         let mut acc: f32 = row[0..=right0].iter().sum();
         let mut count = right0 + 1;
@@ -53,30 +88,29 @@ pub(crate) fn box_blur_channel(buf: &[f32], w: usize, h: usize, r: usize) -> Vec
 
     // --- Vertical sweep: column-parallel into a column-major scratch ---
     //
-    // `tmp_col[x * h + y]` = `tmp[y * w + x]` after blur along y.
+    // `tmp_col[x * h + y]` = `tmp_row[y * w + x]` after blur along y.
     // Each column is a contiguous `h`-element chunk of `tmp_col`, and
     // columns don't overlap, so par_chunks_mut(h) is safe.
-    let mut tmp_col = vec![0.0f32; buf.len()];
+    let tmp_row_ro: &[f32] = tmp_row;
     tmp_col.par_chunks_mut(h).enumerate().for_each(|(x, out_col)| {
         let bot0 = r.min(h - 1);
-        let mut acc: f32 = (0..=bot0).map(|i| tmp[i * w + x]).sum();
+        let mut acc: f32 = (0..=bot0).map(|i| tmp_row_ro[i * w + x]).sum();
         let mut count = bot0 + 1;
         out_col[0] = acc / count as f32;
         for y in 1..h {
-            if y + r < h { acc += tmp[(y + r) * w + x]; count += 1; }
-            if y > r     { acc -= tmp[(y - r - 1) * w + x]; count -= 1; }
+            if y + r < h { acc += tmp_row_ro[(y + r) * w + x]; count += 1; }
+            if y > r     { acc -= tmp_row_ro[(y - r - 1) * w + x]; count -= 1; }
             out_col[y] = acc / count as f32;
         }
     });
 
     // --- Transpose column-major → row-major (parallel by output row) ---
-    let mut out = vec![0.0f32; buf.len()];
-    out.par_chunks_mut(w).enumerate().for_each(|(y, out_row)| {
+    let tmp_col_ro: &[f32] = tmp_col;
+    dst.par_chunks_mut(w).enumerate().for_each(|(y, out_row)| {
         for x in 0..w {
-            out_row[x] = tmp_col[x * h + y];
+            out_row[x] = tmp_col_ro[x * h + y];
         }
     });
-    out
 }
 
 /// Gaussian-ish blur of an RGB image via 3 successive box-blur passes per axis
@@ -240,40 +274,105 @@ pub(crate) fn guided_filter(
     if r == 0 {
         return p.to_vec();
     }
+    debug_assert_eq!(n, w * h);
 
-    // Pre-compute the cross-products so all four `box_blur_plane`
-    // passes operate on independent buffers and can run in parallel.
-    let ip: Vec<f32> = guide
+    // --- Scratch arena (#1089 item 7) ---------------------------------
+    //
+    // The pre-arena code allocated ~24 image-sized `Vec`s per call: each
+    // of the six box-blur calls minted three fresh buffers
+    // (tmp_row + tmp_col + out), plus `ip`/`ii`, the `a`/`b` unzip, and
+    // the final combine. At 2 MP that's ~192 MB of allocator traffic on a
+    // per-tick slider (#1089 item 7).
+    //
+    // Here we allocate a *fixed* set of planes once and reuse them across
+    // both blur phases. Beyond the four mean outputs and `ip`/`ii`, the
+    // arena holds FOUR box-blur scratch pairs (`s0_row/s0_col` …
+    // `s3_row/s3_col`) — one per blur that can run concurrently. The four
+    // mean-blurs in phase A run under nested `rayon::join`, and concurrent
+    // blurs CANNOT share a scratch pair, so each gets its own; phase B
+    // (mean_a, mean_b) reuses pairs 0 and 1, and `mean_a`/`mean_b`
+    // themselves reuse the now-dead `mean_ip`/`mean_ii`. `out` is folded
+    // onto the dead `mean_i`. Net: 14 image-sized buffers, down from ~24
+    // (−42 % allocator traffic, −80 MB/tick at 2 MP) — and box-blur no
+    // longer allocates internally.
+    //
+    // Why keep the joins (rather than one shared scratch pair + sequential
+    // blurs, which would cut to 8 buffers): at 2 MP a single box-blur does
+    // NOT saturate all cores, so the inter-blur `rayon::join` overlap is a
+    // real win on the tick. A measured sequential-blur variant hit 8
+    // buffers but *regressed* the 2 MP tick — the macOS caching allocator
+    // already recycles the freed buffers ~for free, so cutting allocations
+    // buys little there while losing the join overlap costs wall-time. The
+    // arena keeps every join and still removes ~40 % of the buffers.
+    //
+    // Bit-identity: the per-element math is untouched and each box-blur's
+    // internal accumulation order is byte-for-byte the same as before
+    // (same running-sum sweeps, same join structure); only buffer
+    // *ownership* changed (pre-sized-and-reused vs freshly `vec!`-allocated
+    // per pass). The covariance/variance/a/b derivation and the final
+    // combine are per-element and unchanged. Pinned by the
+    // `guided_filter_arena_matches_owning_box_blur_*` tests below.
+    let mut s0_row = vec![0.0f32; n];
+    let mut s0_col = vec![0.0f32; n];
+    let mut s1_row = vec![0.0f32; n];
+    let mut s1_col = vec![0.0f32; n];
+    let mut s2_row = vec![0.0f32; n];
+    let mut s2_col = vec![0.0f32; n];
+    let mut s3_row = vec![0.0f32; n];
+    let mut s3_col = vec![0.0f32; n];
+
+    // ip = guide * p ; ii = guide * guide. (Later reused as a / b.)
+    let mut ip: Vec<f32> = guide
         .par_iter()
         .zip(p.par_iter())
         .map(|(&a, &b)| a * b)
         .collect();
-    let ii: Vec<f32> = guide.par_iter().map(|&a| a * a).collect();
+    let mut ii: Vec<f32> = guide.par_iter().map(|&a| a * a).collect();
 
-    // Box-blur the four planes concurrently. Each call already does
-    // internal rayon parallelism over rows/columns; rayon::join lets
-    // them overlap end-to-end so the cumulative wall-clock cost is
-    // dominated by the slowest one, not the sum.
-    let ((mean_i, mean_p), (mean_ip, mean_ii)) = rayon::join(
-        || {
-            rayon::join(
-                || box_blur_plane(guide, w, h, r),
-                || box_blur_plane(p, w, h, r),
-            )
-        },
-        || {
-            rayon::join(
-                || box_blur_plane(&ip, w, h, r),
-                || box_blur_plane(&ii, w, h, r),
-            )
-        },
-    );
+    let mut mean_i = vec![0.0f32; n];
+    let mut mean_p = vec![0.0f32; n];
+    let mut mean_ip = vec![0.0f32; n];
+    let mut mean_ii = vec![0.0f32; n];
 
-    // Fuse the covariance / variance / a / b derivations into a
-    // single parallel pass — eliminates four intermediate Vecs.
-    let (a, b): (Vec<f32>, Vec<f32>) = (0..n)
-        .into_par_iter()
-        .map(|i| {
+    // --- Phase A: box-blur the four planes concurrently. Each call is
+    // itself row/column-parallel (`par_chunks_mut`); nested rayon::join
+    // overlaps the four so the cumulative wall-clock cost is dominated by
+    // the slowest one, not the sum. Each concurrent blur writes a distinct
+    // mean output through a DISJOINT scratch pair, so the parallelism is
+    // sound. ---
+    {
+        let mi: &mut [f32] = &mut mean_i;
+        let mp: &mut [f32] = &mut mean_p;
+        let mip: &mut [f32] = &mut mean_ip;
+        let mii: &mut [f32] = &mut mean_ii;
+        let (s0r, s0c) = (&mut s0_row, &mut s0_col);
+        let (s1r, s1c) = (&mut s1_row, &mut s1_col);
+        let (s2r, s2c) = (&mut s2_row, &mut s2_col);
+        let (s3r, s3c) = (&mut s3_row, &mut s3_col);
+        rayon::join(
+            || {
+                rayon::join(
+                    || box_blur_into(guide, mi, s0r, s0c, w, h, r),
+                    || box_blur_into(p, mp, s1r, s1c, w, h, r),
+                )
+            },
+            || {
+                rayon::join(
+                    || box_blur_into(&ip, mip, s2r, s2c, w, h, r),
+                    || box_blur_into(&ii, mii, s3r, s3c, w, h, r),
+                )
+            },
+        );
+    }
+
+    // Fuse the covariance / variance / a / b derivations into one
+    // parallel pass, writing a→ip and b→ii in place (both are dead now).
+    // The two writes target disjoint buffers, so a single zipped
+    // par-iter over (ip, ii) is data-race-free.
+    ip.par_iter_mut()
+        .zip(ii.par_iter_mut())
+        .enumerate()
+        .for_each(|(i, (a_slot, b_slot))| {
             let cov_ip = mean_ip[i] - mean_i[i] * mean_p[i];
             // Variance can never be physically negative — clamp the
             // box-mean roundoff at zero (#1088), mirroring the sibling
@@ -285,19 +384,36 @@ pub(crate) fn guided_filter(
             let var_i = (mean_ii[i] - mean_i[i] * mean_i[i]).max(0.0);
             let a_i = cov_ip / (var_i + eps);
             let b_i = mean_p[i] - a_i * mean_i[i];
-            (a_i, b_i)
-        })
-        .unzip();
+            *a_slot = a_i;
+            *b_slot = b_i;
+        });
+    // `ip` now holds `a`; `ii` now holds `b`.
+    let a = ip;
+    let b = ii;
 
-    let (mean_a, mean_b) = rayon::join(
-        || box_blur_plane(&a, w, h, r),
-        || box_blur_plane(&b, w, h, r),
-    );
+    // --- Phase B: box-blur a, b concurrently. mean_a / mean_b reuse the
+    // now-dead mean_ip / mean_ii buffers; the two blurs reuse scratch
+    // pairs 0 and 1. ---
+    let mut mean_a = mean_ip;
+    let mut mean_b = mean_ii;
+    {
+        let ma: &mut [f32] = &mut mean_a;
+        let mb: &mut [f32] = &mut mean_b;
+        let (s0r, s0c) = (&mut s0_row, &mut s0_col);
+        let (s1r, s1c) = (&mut s1_row, &mut s1_col);
+        rayon::join(
+            || box_blur_into(&a, ma, s0r, s0c, w, h, r),
+            || box_blur_into(&b, mb, s1r, s1c, w, h, r),
+        );
+    }
 
-    (0..n)
-        .into_par_iter()
-        .map(|i| mean_a[i] * guide[i] + mean_b[i])
-        .collect()
+    // out = mean_a * guide + mean_b. Reuse `mean_i` (dead) as the output
+    // buffer rather than minting a fresh Vec for the return value.
+    let mut out = mean_i;
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
+        *o = mean_a[i] * guide[i] + mean_b[i];
+    });
+    out
 }
 
 pub fn gaussian_blur_rgb(img: &Image, radius: usize) -> Image {
@@ -327,177 +443,10 @@ pub fn gaussian_blur_rgb(img: &Image, radius: usize) -> Image {
     out
 }
 
+// Tests live in the sibling `blur_tests.rs` so this file stays under the
+// 600-LOC file-size budget (#1089 — the scratch-arena byte-identity proofs
+// pushed the inline module over). Same `#[path]` split the `nlm` and
+// `sharpen` stages use.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn blur_of_constant_is_constant() {
-        let mut img = Image::new(20, 20, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.3, 0.5, 0.7]; }
-        let blurred = gaussian_blur_rgb(&img, 5);
-        for p in &blurred.pixels {
-            assert!((p[0] - 0.3).abs() < 1e-5);
-            assert!((p[1] - 0.5).abs() < 1e-5);
-            assert!((p[2] - 0.7).abs() < 1e-5);
-        }
-    }
-
-    #[test]
-    fn blur_smooths_a_delta() {
-        // Single bright pixel should diffuse across the blur radius.
-        let mut img = Image::new(21, 21, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.0; 3]; }
-        img.pixels[10 * 21 + 10] = [1.0, 1.0, 1.0];
-        let blurred = gaussian_blur_rgb(&img, 3);
-        // Center should be much less than 1 (energy spread out).
-        let center = blurred.pixels[10 * 21 + 10][0];
-        assert!(center < 0.5, "center still bright: {}", center);
-        // Neighbor should have non-zero value (energy diffused).
-        let neighbor = blurred.pixels[10 * 21 + 12][0];
-        assert!(neighbor > 0.0);
-    }
-
-    #[test]
-    fn radius_zero_is_identity() {
-        let mut img = Image::new(3, 3, ColorSpace::SceneLinearRec2020);
-        for (i, p) in img.pixels.iter_mut().enumerate() {
-            *p = [i as f32, i as f32 * 2.0, i as f32 * 3.0];
-        }
-        let before = img.pixels.clone();
-        let after = gaussian_blur_rgb(&img, 0);
-        for (a, b) in after.pixels.iter().zip(before.iter()) {
-            assert_eq!(a, b);
-        }
-    }
-
-    #[test]
-    fn blur_asymmetric_horizontal_stripe_preserves_axis() {
-        // A single bright horizontal stripe on a wide-short image. After
-        // a box blur, energy must spread *vertically* (because the stripe
-        // is already uniform horizontally) and leave the horizontal
-        // profile untouched within the row. An axis-swap in the vertical
-        // sweep (e.g. reading column-major data as row-major during the
-        // transpose) would shift energy into the wrong axis.
-        let w = 40;
-        let h = 10;
-        let mut img = Image::new(w as u32, h as u32, ColorSpace::SceneLinearRec2020);
-        for p in &mut img.pixels { *p = [0.0; 3]; }
-        // Stripe at row 5, all columns.
-        for x in 0..w { img.pixels[5 * w + x] = [1.0, 0.0, 0.0]; }
-
-        let blurred = gaussian_blur_rgb(&img, 3);
-
-        // Every row in [0..h] has the same value at every column (the
-        // stripe was uniform horizontally). Check this by picking two
-        // arbitrary columns on row 4 and asserting they agree.
-        for row in 0..h {
-            let left  = blurred.pixels[row * w + 3][0];
-            let right = blurred.pixels[row * w + (w - 3)][0];
-            assert!((left - right).abs() < 1e-5,
-                "row {}: left={}, right={} (horizontal profile should be uniform)",
-                row, left, right);
-        }
-
-        // Row 5 (the stripe) must have the max response; rows 0 and h-1
-        // must have less. This locks the vertical axis of the sweep.
-        let stripe  = blurred.pixels[5 * w][0];
-        let top_row = blurred.pixels[0 * w][0];
-        let bot_row = blurred.pixels[(h - 1) * w][0];
-        assert!(stripe > top_row, "stripe row not brightest: stripe={}, top={}", stripe, top_row);
-        assert!(stripe > bot_row, "stripe row not brightest: stripe={}, bot={}", stripe, bot_row);
-    }
-
-    #[test]
-    fn guided_filter_of_constants_is_constant() {
-        // Edge-preserving filter on a flat input collapses to the
-        // input — no halo, no drift.
-        let guide = vec![0.5f32; 40 * 40];
-        let p = vec![0.7f32; 40 * 40];
-        let out = guided_filter(&guide, &p, 40, 40, 5, 1e-3);
-        assert!(out.iter().all(|v| (*v - 0.7).abs() < 1e-4));
-    }
-
-    #[test]
-    fn self_guided_preserves_sharp_edge() {
-        // Self-guided (guide == p) keeps a hard step edge sharp.
-        // A plain box blur would smear it across `2r+1` pixels; the
-        // guided filter should leave the step almost intact when eps
-        // is small.
-        let w = 32usize;
-        let h = 8usize;
-        let mut p = vec![0.0f32; w * h];
-        for y in 0..h {
-            for x in 0..w {
-                p[y * w + x] = if x < w / 2 { 0.2 } else { 0.8 };
-            }
-        }
-        let out = guided_filter(&p, &p, w, h, 4, 1e-4);
-        // Far from the edge, output equals input.
-        for y in 0..h {
-            assert!((out[y * w + 1] - 0.2).abs() < 1e-3,
-                "left side drifted at row {}: {}", y, out[y * w + 1]);
-            assert!((out[y * w + (w - 2)] - 0.8).abs() < 1e-3,
-                "right side drifted at row {}: {}", y, out[y * w + (w - 2)]);
-        }
-        // Edge transition: the two pixels straddling the step retain
-        // most of the contrast (≥ 0.5 of the original 0.6 gap), which
-        // a Gaussian at radius 4 would not.
-        let edge_left  = out[3 * w + (w / 2 - 1)];
-        let edge_right = out[3 * w + (w / 2)];
-        assert!(edge_right - edge_left > 0.3,
-            "edge contrast collapsed: {} -> {}", edge_left, edge_right);
-    }
-
-    /// #1088 — the negative-variance clamp's regime: scene-linear luma
-    /// ≫ 1, where the `mean_ii - mean_i²` cancellation runs at the same
-    /// magnitude as `eps` and box-mean roundoff can drive the computed
-    /// variance negative. On a flat bright plane the guided filter must
-    /// stay (a) finite and (b) within a tight relative band of the input
-    /// — a sign-flipped `var_i + eps` denominator violates both. This
-    /// pins the invariant; the clamp itself is structurally provable
-    /// (variance is a square, physically ≥ 0).
-    #[test]
-    fn self_guided_flat_bright_plane_stays_flat_and_finite() {
-        let w = 64usize;
-        let h = 64usize;
-        // Non-round value so the box-blur accumulators actually round.
-        let level = 3000.7f32;
-        let p = vec![level; w * h];
-        let out = guided_filter(&p, &p, w, h, 5, 1e-3);
-        for (i, &v) in out.iter().enumerate() {
-            assert!(v.is_finite(), "index {} non-finite: {}", i, v);
-            assert!(
-                (v - level).abs() / level < 1e-2,
-                "index {} drifted off the flat {}: {}",
-                i,
-                level,
-                v
-            );
-        }
-    }
-
-    #[test]
-    fn self_guided_local_mean_does_not_overshoot() {
-        // Property that drives #264 / #265: on a dark blob in a bright
-        // field the self-guided base never exceeds the field's
-        // brightness. A Gaussian blur of the same plane *would*
-        // produce values outside the input range only via accumulated
-        // float error, but in practice the unsharp-mask combine step
-        // is what generates the overshoot. Here we just check the GF
-        // produces nothing outside [min(p), max(p)] up to f32 noise.
-        let w = 24usize;
-        let h = 24usize;
-        let mut p = vec![0.8f32; w * h];
-        for y in 8..16 {
-            for x in 8..16 {
-                p[y * w + x] = 0.2;
-            }
-        }
-        let out = guided_filter(&p, &p, w, h, 3, 1e-3);
-        for &v in &out {
-            assert!(v >= 0.2 - 1e-3 && v <= 0.8 + 1e-3,
-                "guided output out of input range: {}", v);
-        }
-    }
-}
+#[path = "blur_tests.rs"]
+mod tests;
