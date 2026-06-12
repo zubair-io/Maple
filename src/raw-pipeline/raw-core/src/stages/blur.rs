@@ -274,7 +274,13 @@ pub(crate) fn guided_filter(
     if r == 0 {
         return p.to_vec();
     }
-    debug_assert_eq!(n, w * h);
+    // Hard assert (not debug-only): `guided_filter` is a coarse-grained entry
+    // point — called a handful of times per render, not per pixel — so the cost
+    // of one integer compare is negligible, and failing fast here yields a clear
+    // message in release builds instead of a downstream out-of-bounds panic when
+    // a caller's `(w, h)` disagrees with the buffer length. The per-tile box-blur
+    // hot loop keeps `debug_assert_eq!` for the same invariant (see `box_blur_into`).
+    assert_eq!(n, w * h, "guided_filter: dims {w}×{h} disagree with buffer len {n}");
 
     // --- Scratch arena (#1089 item 7) ---------------------------------
     //
