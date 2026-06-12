@@ -52,16 +52,21 @@
 # ceilings over the pano_metrics.py outputs. Case label is "stitch" (one
 # case per set today). Gateable keys — any subset of:
 #   rmse              size-normalized RMSE vs reference        (see metrics doc)
+#   coverage          FLOOR — fraction of reference content the candidate
+#                     covers; prices holes left by dropped frames / partial
+#                     validity. Breaches when BELOW the budget value.
 #   seam_energy       seam-line gradient-energy metric
 #   wrap_closure_px   360° wrap-edge closure error, native px  (360 sets only)
 #   mean_reproj_px    StitchReport passthrough
 #   max_reproj_px     StitchReport passthrough
 #   horizon_tilt_deg  StitchReport passthrough, gated on |deg|
+#   dropped_frames    StitchReport passthrough (len(dropped_images))
 # Only keys present in an entry gate. A set with NO entry FAILS with
 # "no-budget-entry" and the observed numbers printed, so ceilings can be
 # added: run once → fail → set ceilings 5–10% above observed → commit the
 # entry together with the change. BUDGETS ARE A ONE-WAY RATCHET — ceilings
-# only go down, in the same commit that delivers the improvement.
+# only go down (and the coverage floor only goes UP), in the same commit
+# that delivers the improvement.
 # (The eng spec names test-fixtures/pano/budgets.json; that directory is
 # wholesale-gitignored corpus, so the tracked ratchet lives at the flat
 # test-fixtures/pano-budgets.json, mirroring test-fixtures/budgets.json.)
@@ -357,19 +362,24 @@ with open(budgets_path) as f:
 
 CASE_LABEL = "stitch"
 # Keys a budget entry may gate on. horizon_tilt_deg gates on |value|.
-GATE_KEYS = ("rmse", "seam_energy", "wrap_closure_px",
+# FLOOR_KEYS breach when the observed value is BELOW the budget (coverage
+# is a completeness fraction — more is better); everything else is a
+# ceiling.
+GATE_KEYS = ("rmse", "coverage", "seam_energy", "wrap_closure_px",
              "mean_reproj_px", "max_reproj_px", "horizon_tilt_deg",
              "dropped_frames")
 ABS_KEYS = {"horizon_tilt_deg"}
+FLOOR_KEYS = {"coverage"}
 
 
 def fmt(v, spec):
     return "-" if v is None else format(v, spec)
 
 
-print(f"{'verd':<4} {'set':<12} {'frames':>6}  {'rmse':>8} {'seam':>10} "
-      f"{'wrap_px':>8}  {'reproj_m':>8} {'reproj_M':>8} {'tilt_deg':>8}")
-print("-" * 96)
+print(f"{'verd':<4} {'set':<12} {'frames':>6}  {'rmse':>8} {'cover':>6} "
+      f"{'seam':>10} {'wrap_px':>8}  {'reproj_m':>8} {'reproj_M':>8} "
+      f"{'tilt_deg':>8}")
+print("-" * 103)
 
 rows = []
 errors = 0
@@ -395,7 +405,7 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
             # StitchReport passthrough still gate.
             with Image.open(cand) as im:
                 wc = pano_metrics.wrap_closure(im.convert("RGB"))
-            m = {"rmse": None, "seam_energy": None,
+            m = {"rmse": None, "coverage": None, "seam_energy": None,
                  "wrap_closure_px": wc["px"], "wrap_closure_ncc": wc["ncc"],
                  "report": pano_metrics.report_block(report)}
     except Exception as e:
@@ -406,6 +416,7 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
     rep = m["report"]
     observed = {
         "rmse": m.get("rmse"),
+        "coverage": m.get("coverage"),
         "seam_energy": m.get("seam_energy"),
         "wrap_closure_px": m.get("wrap_closure_px"),
         "mean_reproj_px": rep.get("mean_reproj_px") if rep.get("available") else None,
@@ -423,7 +434,7 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
         else:
             breach.append("no-budget-entry")
     else:
-        for key, ceiling in bud.items():
+        for key, budget in bud.items():
             if key.startswith("_"):
                 continue
             if key not in GATE_KEYS:
@@ -431,24 +442,28 @@ for case in sorted(manifest["cases"], key=lambda c: c["name"]):
                 continue
             v = observed[key]
             if v is None:
-                breach.append(f"{key} unavailable (budgeted {ceiling:g})")
+                breach.append(f"{key} unavailable (budgeted {budget:g})")
                 continue
             gated = abs(v) if key in ABS_KEYS else v
-            if gated > ceiling:
-                breach.append(f"{key} {gated:.4g}>{ceiling:.4g}")
+            if key in FLOOR_KEYS:
+                if gated < budget:
+                    breach.append(f"{key} {gated:.4g}<{budget:.4g}")
+            elif gated > budget:
+                breach.append(f"{key} {gated:.4g}>{budget:.4g}")
 
     rows.append({"name": name, "observed": observed, "breach": breach})
     verdict = "FAIL" if breach else "PASS"
     extra = ("  " + ", ".join(breach)) if breach else warn
     print(f"{verdict} {name:<12} {len(case['frames']):>6}  "
           f"{fmt(observed['rmse'], '8.4f'):>8} "
+          f"{fmt(observed['coverage'], '6.3f'):>6} "
           f"{fmt(observed['seam_energy'], '10.3e'):>10} "
           f"{fmt(observed['wrap_closure_px'], '8.2f'):>8}  "
           f"{fmt(observed['mean_reproj_px'], '8.2f'):>8} "
           f"{fmt(observed['max_reproj_px'], '8.2f'):>8} "
           f"{fmt(observed['horizon_tilt_deg'], '8.2f'):>8}{extra}")
 
-print("-" * 96)
+print("-" * 103)
 breach_count = sum(1 for r in rows if r["breach"])
 if any("no-budget-entry" in r["breach"] for r in rows):
     print("# no-budget-entry: add ceilings 5-10% above the observed numbers")
