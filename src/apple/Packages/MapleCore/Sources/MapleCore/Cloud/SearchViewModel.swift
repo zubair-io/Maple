@@ -215,6 +215,23 @@ public final class SearchViewModel {
     Task { await submit() }
   }
 
+  // MARK: - Test seeding
+
+  /// Seed results + total directly, bypassing the network, so tests can
+  /// verify that a subsequent cancellation leaves the state intact.
+  /// Not for production use — call sites live in test targets only.
+  @MainActor func setResultsForTesting(_ assets: [SearchAsset]) {
+    results = assets
+    total = assets.count
+  }
+
+  /// Seed the state that loadMore() requires to proceed (canLoadMore == true).
+  /// Not for production use — call sites live in test targets only.
+  @MainActor func seedForLoadMore(results: [SearchAsset], total: Int) {
+    self.results = results
+    self.total = total
+  }
+
   // MARK: - Preview
 
   public enum PreviewState: Sendable {

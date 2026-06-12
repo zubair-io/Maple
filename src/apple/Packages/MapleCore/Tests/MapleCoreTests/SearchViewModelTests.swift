@@ -102,23 +102,6 @@ final class SearchViewModelTests: XCTestCase {
   }
 }
 
-// MARK: - Test-only SearchViewModel extensions
-
-extension SearchViewModel {
-  /// Seed results + total directly, bypassing the network, so tests can
-  /// verify that a subsequent cancellation leaves the state intact.
-  @MainActor func setResultsForTesting(_ assets: [SearchAsset]) {
-    results = assets
-    total = assets.count
-  }
-
-  /// Seed the state that loadMore() requires to proceed (canLoadMore == true).
-  @MainActor func seedForLoadMore(results: [SearchAsset], total: Int) {
-    self.results = results
-    self.total = total
-  }
-}
-
 // MARK: - URLSession stub that always fails with a given error
 
 extension URLSession {
