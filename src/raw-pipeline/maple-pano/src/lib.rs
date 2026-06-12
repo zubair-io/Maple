@@ -133,3 +133,10 @@ pub mod canvas;
 pub mod composite;
 pub mod gain;
 pub mod warp;
+
+// --- Coarse-to-fine refinement (#1210): full-resolution ZNCC
+// re-localization of verified proxy matches, between graph verification
+// and bundle adjustment. Closes the proxy accuracy floor so the §5.3
+// budgets gate at the resolution the spec wrote them for. Appended after
+// the compositing block — keep lib.rs additions append-only.
+pub mod refine;
