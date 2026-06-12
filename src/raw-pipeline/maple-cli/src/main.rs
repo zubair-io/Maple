@@ -279,7 +279,7 @@ fn main() -> ExitCode {
         Cmd::Pano { cmd } => run_or_exit(
             commands::pano::run(cmd)
                 .map(|()| 0)
-                .map_err(|e| -> Box<dyn std::error::Error> { e.into() }),
+                .map_err(|e| Box::<dyn std::error::Error>::from(e)),
         ),
     }
 }
