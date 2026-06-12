@@ -137,11 +137,22 @@ impl ColorLut {
 /// `MAPLE_AUTO_LUT_STRENGTH` (default `1.0`) — the verify-harness knob that
 /// blends the residual toward identity (`0` ⇒ exactly the #550 curve, the
 /// accuracy floor). Read at APPLY/RETURN time, never at fit time (#1085).
+///
+/// Invalid values (non-finite, or outside `[0.0, 2.0]`) are rejected with a
+/// warning and replaced by the default `1.0`.
 pub fn lut_strength_from_env() -> f32 {
-    std::env::var("MAPLE_AUTO_LUT_STRENGTH")
-        .ok()
-        .and_then(|s| s.parse::<f32>().ok())
-        .unwrap_or(1.0)
+    let Some(env_val) = std::env::var("MAPLE_AUTO_LUT_STRENGTH").ok() else {
+        return 1.0;
+    };
+    let strength = env_val.parse::<f32>().unwrap_or(1.0);
+    if strength.is_finite() && (0.0..=2.0).contains(&strength) {
+        strength
+    } else {
+        eprintln!(
+            "MAPLE_AUTO_LUT_STRENGTH={env_val} out of range [0,2] or non-finite — using 1.0"
+        );
+        1.0
+    }
 }
 
 /// `MAPLE_DISABLE_AUTO_LUT` — when set, the residual-LUT stage is skipped
