@@ -91,6 +91,12 @@ name = "ba_gates"
 path = "tests/ba_gates.rs"
 required-features = ["testkit"]
 
+# Stage F local alignment integration tests (#1218).
+[[test]]
+name = "local_align_gates"
+path = "tests/local_align_gates.rs"
+required-features = ["testkit"]
+
 [[test]]
 name = "ml_glue"
 path = "tests/ml_glue.rs"

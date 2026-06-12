@@ -196,6 +196,8 @@ mod tests {
             dropped: Vec::new(),
             mean_reproj_px: 0.0,
             max_reproj_px: 0.0,
+            mean_reproj_before_local_px: 0.0,
+            max_reproj_before_local_px: 0.0,
             lm_iterations: 0,
             final_cost: 0.0,
             converged: true,
@@ -203,6 +205,8 @@ mod tests {
             pruned_matches: 0,
             motion_affected: Vec::new(),
             motion_pruned_matches: Vec::new(),
+            local_corrections: vec![None; rotations.len()],
+            local_correction_rms: vec![0.0; rotations.len()],
         }
     }
 
