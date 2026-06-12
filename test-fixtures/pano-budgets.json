@@ -16,10 +16,8 @@
     },
     "pano_00": {
       "stitch": {
-        "_comment": "3-frame nadir set (frame 0001 missing from capture) — no reference (so no coverage/rmse keys), not horizon-gated (nadir), but spec residual gates and no-drops still apply.",
-        "dropped_frames": 0,
-        "mean_reproj_px": 1.5,
-        "max_reproj_px": 6.0
+        "_comment": "3-frame nadir strip (frame 0001 missing from capture) — tile strategy (auto selects tile for this translation-dominant set, spec §8 #1226). No reference (no coverage/rmse keys). No horizon gate (nadir). No rotation-model reproj keys (the tile path does not run rotation BA). dropped_frames=0 is the product bar for well-shot sets.",
+        "dropped_frames": 0
       }
     }
   }

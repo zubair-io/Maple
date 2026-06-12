@@ -40,9 +40,9 @@ mod io;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use clap::{Args, Subcommand, ValueEnum};
+use clap::Subcommand;
 
-use maple_pano::ba::{self, BaOptions, RetentionPolicy};
+use maple_pano::ba::{self, BaOptions};
 use maple_pano::camera::Camera;
 use maple_pano::canvas::{CanvasOptions, ProjectionMode};
 use maple_pano::composite::{composite, CompositeOptions};
@@ -55,9 +55,14 @@ use maple_pano::matching::LightGlueMatcher;
 use maple_pano::models::ModelDir;
 use maple_pano::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use maple_pano::robust::RobustOptions;
+use maple_pano::strategy::{select_strategy, Strategy};
+use maple_pano::tile::placement::{solve_tile_poses, TileConstraint};
+use maple_pano::tile::{composite_tile, verify_tile_edges};
 use maple_pano::twoview::PixelCorrespondence;
 
-use io::{interleave, stitch_report, write_png16, ReportContext};
+use io::{
+    interleave, stitch_report, tile_stitch_report, write_png16, ReportContext, TileReportContext,
+};
 
 mod args;
 pub use args::StitchArgs;
@@ -360,185 +365,346 @@ fn stitch_set(
         graph.orphans
     );
 
-    // ---- Full-resolution match refinement (#1210) -------------------------
-    // Re-localize every verified inlier on the full-res frames (borrowed
-    // from `frames` — no clones) and REPLACE the edge payloads with the
-    // full-res coordinates, so BA below solves at full resolution. The
-    // pair geometry (full-res intrinsics + the edge's verified rotation)
-    // drives perspective compensation of the template — without it the
-    // overlap strip's ~30% A→B compression caps accuracy at ~2 px.
-    // Matches the refiner cannot honestly improve keep their proxy
-    // accuracy (scaled up, counted as fallbacks in the report).
-    let t_refine = Instant::now();
-    let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
-    for edge in &mut graph.edges {
-        let (img_a, img_b) = (&frames[edge.a].image, &frames[edge.b].image);
-        let scale_of = |img: &PlanarImage, i: usize| {
-            (
-                img.width() as f64 / proxy_dims[i].0 as f64,
-                img.height() as f64 / proxy_dims[i].1 as f64,
-            )
-        };
-        let geometry = RefineGeometry {
-            cam_a: &full_images[edge.a].camera,
-            cam_b: &full_images[edge.b].camera,
-            rotation: &edge.rotation,
-        };
-        let outcome = refine_correspondences(
-            img_a,
-            img_b,
-            scale_of(img_a, edge.a),
-            scale_of(img_b, edge.b),
-            Some(&geometry),
-            &edge.inlier_matches,
-            &RefineOptions::default(),
-        );
-        refined_matches += outcome.refined_count;
-        fallback_matches += outcome.fallback_count;
-        edge.inlier_matches = outcome.refined;
-    }
-    // Coarse-to-fine second verification: the proxy-scale pass admits up
-    // to ~sigma_max × proxy_factor of FULL-RES error (≈ 10 px here) —
-    // re-estimate every edge at the resolution BA solves at, so matches
-    // that only passed at proxy tolerance (moving water, refinement
-    // fallbacks) are shed before they pollute the shared intrinsics.
-    let reverify = graph
-        .reverify(&full_images, &RobustOptions::default())
-        .map_err(|e| e.to_string())?;
-    let refine_s = t_refine.elapsed().as_secs_f64();
-    eprintln!(
-        "pano: refine — {refined_matches} matches NCC-refined at full res, \
-         {fallback_matches} kept proxy accuracy; full-res re-verification \
-         dropped {} edge(s) / {} match(es) ({refine_s:.1}s)",
-        reverify.edges_dropped, reverify.matches_dropped
-    );
-    if !graph.orphans.is_empty() {
-        eprintln!(
-            "pano: re-verification orphaned image(s) {:?} — reported as \
-             Disconnected by the solve",
-            graph.orphans
-        );
-    }
-
-    // ---- Global solve + leveling ----------------------------------------
-    let t_solve = Instant::now();
-    let mut solution = ba::solve(
-        &full_images,
+    // ---- Strategy selection (#1226) --------------------------------------
+    // Auto / rotation / tile: content-based per-pair comparison of the
+    // rotation-model RMS vs similarity-model RMS; gimbal metadata
+    // corroborates but never decides.
+    //
+    // IMPORTANT: selection runs on the PROXY-verified graph (before full-res
+    // reverification) so that nadir/translation-dominant sets still have
+    // their edges present for evidence. The rotation-model full-res
+    // reverification would drop all edges on a pure-translation set — using
+    // a post-reverify graph would give zero evidence and silently misclassify
+    // every nadir capture as rotation (which then fails with no frames).
+    let mean_focal_px = {
+        let vals: Vec<f64> = full_images.iter().map(|img| img.camera.focal_px).collect();
+        if vals.is_empty() {
+            1.0
+        } else {
+            vals.iter().sum::<f64>() / vals.len() as f64
+        }
+    };
+    let priors: Vec<maple_pano::ingest::FramePriors> =
+        frames.iter().map(|f| f.priors.clone()).collect();
+    let strategy_report = select_strategy(
+        args.strategy.to_request(),
         &graph,
-        &BaOptions {
-            mean_budget_px,
-            max_budget_px,
-            retention: args.retention.policy(),
-            local_align: args.local_align.enabled(),
-            ..Default::default()
-        },
-    )
-    .map_err(|e| e.to_string())?;
-    let leveled = leveling::apply(&mut solution);
-    let horizon_tilt_deg = leveled.then(|| leveling::horizon_tilt_deg(&solution));
-    let solve_s = t_solve.elapsed().as_secs_f64();
-    eprintln!(
-        "pano: solve — mean {:.3}px max {:.3}px over {} rounds ({} LM iters), focal {:.1}px, dropped {:?}, leveled={leveled}",
-        solution.mean_reproj_px,
-        solution.max_reproj_px,
-        solution.solve_rounds,
-        solution.lm_iterations,
-        solution.shared_focal_px,
-        solution.dropped
+        &priors,
+        mean_focal_px,
+        0x1226_cafe_dead_beef,
     );
-    if !solution.motion_affected.is_empty() {
-        eprintln!(
-            "pano: motion — frame(s) {:?} kept on their static cores (spec §8), \
-             {:?} motion match(es) pruned",
-            solution.motion_affected, solution.motion_pruned_matches
-        );
-    }
-
-    // ---- Composite --------------------------------------------------------
-    // The solve already ran at full resolution (full-res matches, full
-    // dims, EXIF-native focal) — solved cameras feed compositing as-is.
-    // Move images out of `frames` (which is not used afterwards) instead of
-    // cloning to avoid doubling peak memory for large panorama sets.
-    // Build kept frames + cameras + matching local corrections in one pass so
-    // indices stay aligned. solution.local_corrections is parallel to the full
-    // input list; None for dropped frames (same as solution.cameras).
-    let (kept, kept_local): (
-        Vec<(PlanarImage, Camera)>,
-        Vec<Option<maple_pano::local_align::LocalCorrection>>,
-    ) = frames
-        .into_iter()
-        .zip(&solution.cameras)
-        .zip(&solution.local_corrections)
-        .filter_map(|((f, cam), lc)| cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone())))
-        .unzip();
-    if kept.len() < 2 {
-        return Err(format!(
-            "only {} frame(s) survived the solve — nothing to composite \
-             (drops: {:?})",
-            kept.len(),
-            solution.dropped
-        ));
-    }
-    let t_comp = Instant::now();
-    let (kept_frames, kept_cams): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
-    let (out_img, comp_report) = composite(
-        &kept_frames,
-        &kept_cams,
-        &CompositeOptions {
-            canvas: CanvasOptions {
-                projection: ProjectionMode::Auto,
-                max_pixels: args.max_canvas_px,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
-        &kept_local,
-    )
-    .map_err(|e| e.to_string())?;
-    let composite_s = t_comp.elapsed().as_secs_f64();
-
-    // ---- Outputs ----------------------------------------------------------
-    let t_out = Instant::now();
-    write_png16(&outs.linear, &out_img, false)?;
-    if let Some(display) = &outs.display {
-        write_png16(display, &out_img, true)?;
-    }
-    let write_s = t_out.elapsed().as_secs_f64();
-
-    let report = stitch_report(&ReportContext {
-        inputs,
-        applied_opcodes: &applied_opcodes,
-        solution: &solution,
-        refined_matches,
-        fallback_matches,
-        reverify: &reverify,
-        leveled,
-        horizon_tilt_deg,
-        gate_budgets: (mean_budget_px, max_budget_px),
-        retention: args.retention.label(),
-        local_align: args.local_align.label(),
-        comp_report: &comp_report,
-        timings_s: [
-            ("decode", decode_s),
-            ("features", features_s),
-            ("match_graph", graph_s),
-            ("refine", refine_s),
-            ("solve", solve_s),
-            ("composite", composite_s),
-            ("write", write_s),
-            ("total", t0.elapsed().as_secs_f64()),
-        ],
-    });
-    if let Some(path) = &outs.report {
-        let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
-        std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
-    }
     eprintln!(
-        "pano: wrote {} ({}x{}) in {:.1}s",
-        outs.linear.display(),
-        out_img.width(),
-        out_img.height(),
-        t0.elapsed().as_secs_f64()
+        "pano: strategy — requested={} selected={} tile_votes={} rotation_votes={}{}",
+        strategy_report.requested.as_str(),
+        strategy_report.selected.as_str(),
+        strategy_report.evidence.tile_votes,
+        strategy_report.evidence.rotation_votes,
+        strategy_report
+            .warning
+            .map(|w| format!(" [WARN: {w}]"))
+            .unwrap_or_default(),
     );
-    Ok(report)
+
+    match strategy_report.selected {
+        // ---- Tile strategy -----------------------------------------------
+        // Skip full-res rotation reverification — the tile path uses
+        // similarity estimation on the proxy-lifted matches directly.
+        // Full-res NCC refinement still runs (below) for sub-pixel accuracy.
+        Strategy::Tile => {
+            let t_refine = Instant::now();
+            let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
+            for edge in &mut graph.edges {
+                let (img_a, img_b) = (&frames[edge.a].image, &frames[edge.b].image);
+                let scale_of = |img: &PlanarImage, i: usize| {
+                    (
+                        img.width() as f64 / proxy_dims[i].0 as f64,
+                        img.height() as f64 / proxy_dims[i].1 as f64,
+                    )
+                };
+                // For tile path, refine without rotation-model geometry
+                // compensation (the geometry is a translation, not a rotation).
+                let outcome = refine_correspondences(
+                    img_a,
+                    img_b,
+                    scale_of(img_a, edge.a),
+                    scale_of(img_b, edge.b),
+                    None,
+                    &edge.inlier_matches,
+                    &RefineOptions::default(),
+                );
+                refined_matches += outcome.refined_count;
+                fallback_matches += outcome.fallback_count;
+                edge.inlier_matches = outcome.refined;
+            }
+            // No full-res rotation reverification for tile: the rotation model
+            // would drop all edges on translation-dominant sets.
+            let reverify = maple_pano::graph::ReverifySummary {
+                edges_dropped: 0,
+                matches_dropped: 0,
+            };
+            let refine_s = t_refine.elapsed().as_secs_f64();
+            eprintln!(
+                "pano: tile refine — {refined_matches} matches NCC-refined at full res, \
+                 {fallback_matches} kept proxy accuracy ({refine_s:.1}s)"
+            );
+
+            let t_solve = Instant::now();
+
+            // Verify tile edges (similarity model on full-res matches).
+            let tile_edges = verify_tile_edges(&graph, 0x1226_cafe_dead_bee1, &Default::default());
+            if tile_edges.is_empty() {
+                return Err(
+                    "tile strategy selected but no edges passed the similarity verifier — \
+                     try --strategy rotation or capture with more overlap"
+                        .into(),
+                );
+            }
+            let frame_dims: Vec<(u32, u32)> = frames
+                .iter()
+                .map(|f| (f.image.width(), f.image.height()))
+                .collect();
+            let constraints: Vec<TileConstraint> = tile_edges
+                .iter()
+                .map(|e| TileConstraint {
+                    a: e.a,
+                    b: e.b,
+                    sim_ab: e.estimate.transform,
+                    weight: e.inlier_matches.len() as f64,
+                })
+                .collect();
+            let (poses, canvas_spec) = solve_tile_poses(frames.len(), &constraints, 0, &frame_dims)
+                .map_err(|e| format!("tile placement failed: {e}"))?;
+            let solve_s = t_solve.elapsed().as_secs_f64();
+            eprintln!(
+                "pano: tile solve — {} poses, canvas {}×{} ({solve_s:.1}s)",
+                poses.len(),
+                canvas_spec.width,
+                canvas_spec.height,
+            );
+
+            let frame_images: Vec<PlanarImage> = frames.into_iter().map(|f| f.image).collect();
+            let t_comp = Instant::now();
+            let (out_img, tile_report) = composite_tile(
+                &frame_images,
+                frame_images.len(),
+                &tile_edges,
+                &poses,
+                &canvas_spec,
+                &Default::default(),
+                None,
+            )
+            .map_err(|e| e.to_string())?;
+            let composite_s = t_comp.elapsed().as_secs_f64();
+            eprintln!(
+                "pano: tile composite — {}×{}, mean planar {:.3}px, max {:.3}px ({composite_s:.1}s)",
+                out_img.width(),
+                out_img.height(),
+                tile_report.mean_planar_residual_px,
+                tile_report.max_planar_residual_px,
+            );
+
+            let t_out = Instant::now();
+            write_png16(&outs.linear, &out_img, false)?;
+            if let Some(display) = &outs.display {
+                write_png16(display, &out_img, true)?;
+            }
+            let write_s = t_out.elapsed().as_secs_f64();
+
+            let report = tile_stitch_report(&TileReportContext {
+                inputs,
+                applied_opcodes: &applied_opcodes,
+                strategy: &strategy_report,
+                refined_matches,
+                fallback_matches,
+                reverify: &reverify,
+                tile_report: &tile_report,
+                timings_s: [
+                    ("decode", decode_s),
+                    ("features", features_s),
+                    ("match_graph", graph_s),
+                    ("refine", refine_s),
+                    ("solve", solve_s),
+                    ("composite", composite_s),
+                    ("write", write_s),
+                    ("total", t0.elapsed().as_secs_f64()),
+                ],
+            });
+            if let Some(path) = &outs.report {
+                let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
+                std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
+            }
+            eprintln!(
+                "pano: wrote {} ({}x{}) in {:.1}s",
+                outs.linear.display(),
+                out_img.width(),
+                out_img.height(),
+                t0.elapsed().as_secs_f64()
+            );
+            Ok(report)
+        }
+
+        // ---- Rotation strategy (existing path) ---------------------------
+        // Full-res NCC refinement + rotation reverification before BA.
+        Strategy::Rotation => {
+            let t_refine = Instant::now();
+            let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
+            for edge in &mut graph.edges {
+                let (img_a, img_b) = (&frames[edge.a].image, &frames[edge.b].image);
+                let scale_of = |img: &PlanarImage, i: usize| {
+                    (
+                        img.width() as f64 / proxy_dims[i].0 as f64,
+                        img.height() as f64 / proxy_dims[i].1 as f64,
+                    )
+                };
+                let geometry = RefineGeometry {
+                    cam_a: &full_images[edge.a].camera,
+                    cam_b: &full_images[edge.b].camera,
+                    rotation: &edge.rotation,
+                };
+                let outcome = refine_correspondences(
+                    img_a,
+                    img_b,
+                    scale_of(img_a, edge.a),
+                    scale_of(img_b, edge.b),
+                    Some(&geometry),
+                    &edge.inlier_matches,
+                    &RefineOptions::default(),
+                );
+                refined_matches += outcome.refined_count;
+                fallback_matches += outcome.fallback_count;
+                edge.inlier_matches = outcome.refined;
+            }
+            let reverify = graph
+                .reverify(&full_images, &RobustOptions::default())
+                .map_err(|e| e.to_string())?;
+            let refine_s = t_refine.elapsed().as_secs_f64();
+            eprintln!(
+                "pano: refine — {refined_matches} matches NCC-refined at full res, \
+                 {fallback_matches} kept proxy accuracy; full-res re-verification \
+                 dropped {} edge(s) / {} match(es) ({refine_s:.1}s)",
+                reverify.edges_dropped, reverify.matches_dropped
+            );
+            if !graph.orphans.is_empty() {
+                eprintln!(
+                    "pano: re-verification orphaned image(s) {:?} — reported as \
+                     Disconnected by the solve",
+                    graph.orphans
+                );
+            }
+
+            let t_solve = Instant::now();
+            let mut solution = ba::solve(
+                &full_images,
+                &graph,
+                &BaOptions {
+                    mean_budget_px,
+                    max_budget_px,
+                    retention: args.retention.policy(),
+                    local_align: args.local_align.enabled(),
+                    ..Default::default()
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            let leveled = leveling::apply(&mut solution);
+            let horizon_tilt_deg = leveled.then(|| leveling::horizon_tilt_deg(&solution));
+            let solve_s = t_solve.elapsed().as_secs_f64();
+            eprintln!(
+                "pano: solve — mean {:.3}px max {:.3}px over {} rounds ({} LM iters), focal {:.1}px, dropped {:?}, leveled={leveled}",
+                solution.mean_reproj_px,
+                solution.max_reproj_px,
+                solution.solve_rounds,
+                solution.lm_iterations,
+                solution.shared_focal_px,
+                solution.dropped
+            );
+            if !solution.motion_affected.is_empty() {
+                eprintln!(
+                    "pano: motion — frame(s) {:?} kept on their static cores (spec §8), \
+                     {:?} motion match(es) pruned",
+                    solution.motion_affected, solution.motion_pruned_matches
+                );
+            }
+
+            let (kept, kept_local): (
+                Vec<(PlanarImage, Camera)>,
+                Vec<Option<maple_pano::local_align::LocalCorrection>>,
+            ) = frames
+                .into_iter()
+                .zip(&solution.cameras)
+                .zip(&solution.local_corrections)
+                .filter_map(|((f, cam), lc)| {
+                    cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone()))
+                })
+                .unzip();
+            if kept.len() < 2 {
+                return Err(format!(
+                    "only {} frame(s) survived the solve — nothing to composite \
+                     (drops: {:?})",
+                    kept.len(),
+                    solution.dropped
+                ));
+            }
+            let t_comp = Instant::now();
+            let (kept_frames, kept_cams): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
+            let (out_img, comp_report) = composite(
+                &kept_frames,
+                &kept_cams,
+                &CompositeOptions {
+                    canvas: CanvasOptions {
+                        projection: ProjectionMode::Auto,
+                        max_pixels: args.max_canvas_px,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                &kept_local,
+            )
+            .map_err(|e| e.to_string())?;
+            let composite_s = t_comp.elapsed().as_secs_f64();
+
+            let t_out = Instant::now();
+            write_png16(&outs.linear, &out_img, false)?;
+            if let Some(display) = &outs.display {
+                write_png16(display, &out_img, true)?;
+            }
+            let write_s = t_out.elapsed().as_secs_f64();
+
+            let report = stitch_report(&ReportContext {
+                inputs,
+                applied_opcodes: &applied_opcodes,
+                solution: &solution,
+                refined_matches,
+                fallback_matches,
+                reverify: &reverify,
+                leveled,
+                horizon_tilt_deg,
+                gate_budgets: (mean_budget_px, max_budget_px),
+                retention: args.retention.label(),
+                local_align: args.local_align.label(),
+                comp_report: &comp_report,
+                timings_s: [
+                    ("decode", decode_s),
+                    ("features", features_s),
+                    ("match_graph", graph_s),
+                    ("refine", refine_s),
+                    ("solve", solve_s),
+                    ("composite", composite_s),
+                    ("write", write_s),
+                    ("total", t0.elapsed().as_secs_f64()),
+                ],
+            });
+            if let Some(path) = &outs.report {
+                let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
+                std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
+            }
+            eprintln!(
+                "pano: wrote {} ({}x{}) in {:.1}s",
+                outs.linear.display(),
+                out_img.width(),
+                out_img.height(),
+                t0.elapsed().as_secs_f64()
+            );
+            Ok(report)
+        }
+    }
 }
