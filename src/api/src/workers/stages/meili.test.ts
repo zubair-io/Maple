@@ -263,27 +263,20 @@ describe('resolveAssetPeopleNames + people in the doc/blob', () => {
 
   it('folds named people into the doc + blob, excluding Person N and merged', async () => {
     const realDbClient = await import('../../db/client.ts');
-    const originalPeopleCollection = realDbClient.peopleCollection;
     const dbSpy = spyOn(realDbClient, 'peopleCollection').mockImplementation(async () => {
-      const realColl = await originalPeopleCollection();
-      return new Proxy(realColl, {
-        get(target, prop, receiver) {
-          if (prop === 'find') {
-            return (filter: { _id: { $in: ObjectId[] }; merged_into: null }) => {
-              const idSet = new Set(filter._id.$in.map((o) => o.toHexString()));
-              const matched = personRows.filter(
-                (r) => idSet.has(r._id.toHexString()) && r.merged_into === null,
-              );
-              return {
-                project: () => ({
-                  toArray: async () => matched.map((r) => ({ name: r.name })),
-                }),
-              };
-            };
-          }
-          return Reflect.get(target, prop, receiver);
+      return {
+        find: (filter: { _id: { $in: ObjectId[] }; merged_into: null }) => {
+          const idSet = new Set(filter._id.$in.map((o) => o.toHexString()));
+          const matched = personRows.filter(
+            (r) => idSet.has(r._id.toHexString()) && r.merged_into === null,
+          );
+          return {
+            project: () => ({
+              toArray: async () => matched.map((r) => ({ name: r.name })),
+            }),
+          };
         },
-      });
+      } as any;
     });
     try {
       const { client, upserts } = capturingClient();
