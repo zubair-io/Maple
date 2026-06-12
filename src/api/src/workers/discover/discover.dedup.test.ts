@@ -321,7 +321,7 @@ describe('discover producer — dedup', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("modified file on a multi-location asset flags entry missing_since and deleted_at unconditionally", async () => {
+  it('modified file on a multi-location asset flags entry missing_since and deleted_at unconditionally', async () => {
     if (!mongoReachable) return;
 
     const { handleEvent } = await import('./index.ts');
