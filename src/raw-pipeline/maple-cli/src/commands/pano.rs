@@ -437,11 +437,26 @@ fn stitch_set(
         fallback_matches += outcome.fallback_count;
         edge.inlier_matches = outcome.refined;
     }
+    // Coarse-to-fine second verification: the proxy-scale pass admits up
+    // to ~sigma_max × proxy_factor of FULL-RES error (≈ 10 px here) —
+    // re-estimate every edge at the resolution BA solves at, so matches
+    // that only passed at proxy tolerance (moving water, refinement
+    // fallbacks) are shed before they pollute the shared intrinsics.
+    let reverify = graph.reverify(&full_images, &RobustOptions::default());
     let refine_s = t_refine.elapsed().as_secs_f64();
     eprintln!(
         "pano: refine — {refined_matches} matches NCC-refined at full res, \
-         {fallback_matches} kept proxy accuracy ({refine_s:.1}s)"
+         {fallback_matches} kept proxy accuracy; full-res re-verification \
+         dropped {} edge(s) / {} match(es) ({refine_s:.1}s)",
+        reverify.edges_dropped, reverify.matches_dropped
     );
+    if !graph.orphans.is_empty() {
+        eprintln!(
+            "pano: re-verification orphaned image(s) {:?} — reported as \
+             Disconnected by the solve",
+            graph.orphans
+        );
+    }
 
     // ---- Global solve + leveling ----------------------------------------
     let t_solve = Instant::now();
@@ -529,6 +544,8 @@ fn stitch_set(
         "pruned_matches": solution.pruned_matches,
         "refined_matches": refined_matches,
         "fallback_matches": fallback_matches,
+        "reverify_edges_dropped": reverify.edges_dropped,
+        "reverify_matches_dropped": reverify.matches_dropped,
         // Per-frame residual summaries for surviving frames (px in that
         // frame's plane) — null for dropped frames. Triage data: which
         // frame sits where against the §5.3 budgets.
