@@ -380,9 +380,17 @@ pub fn develop_scene_linear_from_raw_with_quality_cancellable(
     // Commutative with the downstream scalar gains (auto_exposure,
     // white_balance) so placement here vs. post-AE has no algebraic effect.
     if let Some(params) = capture_sharpening_params_from_model(model) {
+        // Cancellable: the Richardson–Lucy iterations are seconds of compute
+        // at 100 MP and sit inside this otherwise-cancellable cold-open chain
+        // (#1089). The stage observes `cancel` between iterations and per row;
+        // this post-stage check turns a partial-then-cancelled pass into a
+        // clean Err so the half-sharpened buffer is never packed into a result.
         stage("capture_sharpening", || {
-            capture_sharpening::apply_capture_sharpening(&mut scene, &params)
-        });
+            capture_sharpening::apply_capture_sharpening_cancellable(&mut scene, &params, cancel)
+        })?;
+        if cancel.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
     }
     dump_after("04b_capture_sharpening", &scene);
     // Per-image scene-anchor (ticket #429). Operates on the post-DCP /
