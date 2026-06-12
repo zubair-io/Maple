@@ -145,7 +145,7 @@ export async function planAndPlace(args: {
     }
     // Different bytes, or a duplicate that carries companions we must not drop:
     // claim the next free sibling. Never overwrite the occupant.
-    targetAbs = await pickFreePath(newTargetAbs);
+    targetAbs = await pickFreePath(newTargetAbs, 'migration:primary');
     outcome = 'renamed';
   }
 
@@ -163,7 +163,10 @@ export async function planAndPlace(args: {
     const name = path.basename(sidecar);
     if (!name.startsWith(oldBase)) continue; // defensive — listPairedSidecars guarantees this
     const renamed = newBase + name.slice(oldBase.length);
-    const dst = await pickFreePath(path.join(path.dirname(targetAbs), renamed));
+    const dst = await pickFreePath(
+      path.join(path.dirname(targetAbs), renamed),
+      'migration:sidecar',
+    );
     await copyVerified(sidecar, dst);
     sourcesToDelete.push(sidecar);
     createdPaths.push(dst);
@@ -174,7 +177,10 @@ export async function planAndPlace(args: {
   if (renderedPresent && renderedAbsOld) {
     const rName = path.basename(renderedAbsOld);
     const renamed = rName.startsWith(oldBase) ? newBase + rName.slice(oldBase.length) : rName;
-    const dst = await pickFreePath(path.join(path.dirname(targetAbs), renamed));
+    const dst = await pickFreePath(
+      path.join(path.dirname(targetAbs), renamed),
+      'migration:rendered',
+    );
     await copyVerified(renderedAbsOld, dst);
     newRenderedRel = toPosixRel(libRoot, dst);
     sourcesToDelete.push(renderedAbsOld);
