@@ -83,7 +83,9 @@ use motion::{gate_frames, GateContext, GateOutcome, MotionBook};
 use support::{
     build_blocks, finalize, finalize_trivial, focal_fallback, largest_subcomponent, median,
 };
-pub use types::{BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats, RetentionPolicy};
+pub use types::{
+    BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats, RetentionPolicy,
+};
 
 /// Global bundle adjustment over a verified match graph.
 ///
