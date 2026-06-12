@@ -70,7 +70,7 @@ mod types;
 
 use support::{
     build_blocks, finalize, finalize_trivial, focal_fallback, frame_stats, largest_subcomponent,
-    median, prune_outlier_blocks, PRUNE_ROUNDS_MAX,
+    median, pairs_per_frame, prune_outlier_blocks, PRUNE_ROUNDS_MAX,
 };
 pub use types::{BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats};
 
@@ -254,14 +254,24 @@ pub fn solve(
         // correspondence into a dropped frame and feeding the drop
         // cascade (measured on pano_01: frames with 0.9–3 px means dying
         // on 9–18 px single-match maxes). Prune correspondences whose
-        // residual exceeds the max budget in either direction, with a
-        // per-frame fraction guard so a genuinely misaligned frame (all
-        // residuals big) cannot prune itself respectable — it falls
+        // residual exceeds the max budget in either direction, iterated
+        // to a bounded fixed point (each re-solve can push a few
+        // residuals across the threshold), with a CUMULATIVE per-frame
+        // fraction guard so a genuinely misaligned frame (all residuals
+        // big) cannot prune itself respectable across rounds — it falls
         // through to the gate with its blocks intact.
+        let original_pairs = pairs_per_frame(&blocks, active.len());
+        let mut pruned_pairs = vec![0usize; active.len()];
         for _ in 0..PRUNE_ROUNDS_MAX {
-            let Some((retained, pruned)) =
-                prune_outlier_blocks(&blocks, &frames, &state, active.len(), opts.max_budget_px)
-            else {
+            let Some((retained, pruned)) = prune_outlier_blocks(
+                &blocks,
+                &frames,
+                &state,
+                active.len(),
+                opts.max_budget_px,
+                &original_pairs,
+                &mut pruned_pairs,
+            ) else {
                 break;
             };
             solution.pruned_matches += pruned;
