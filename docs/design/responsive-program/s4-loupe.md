@@ -2,7 +2,7 @@
 
 Fourth sub-project of the responsive program (epic [#577](https://github.com/zubair-io/Maple/issues/577)). Full-screen single-image view with zoom/pan/swipe and auto-hiding chrome. Pushed from a grid cell tap in any tab's NavStack. Depends on S0a (`MapleLayout`), S1a (tab-bar hide pattern), S1c (bottom-sheet for Info modal), and S2 (cell tap origin).
 
-Visual reference: `/Users/riabuz/Projects/_Maple/mobile/Maple Mobile Editor.html` frame **03 · Full image (loupe)**, plus prompt §5.4.
+Visual reference: `/Users/riabuz/Projects/_Maple/mobile/maple-mobile-editor.html` frame **03 · Full image (loupe)**, plus prompt §5.4.
 
 One ticket — **S4** — shipped as one PR.
 

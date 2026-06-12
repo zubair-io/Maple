@@ -2,7 +2,7 @@
 
 Sixth sub-project of the responsive program (epic [#577](https://github.com/zubair-io/Maple/issues/577)). One `InfoPanelView` component renders inside two slots: the phone bottom sheet (from S1c) and the tablet/desktop right inspector pane. Same content, different shell.
 
-Visual reference: `/Users/riabuz/Projects/_Maple/mobile/Maple Mobile Editor.html` — **Info sheet (tap i in header)** frame plus prompt §5.7.
+Visual reference: `/Users/riabuz/Projects/_Maple/mobile/maple-mobile-editor.html` — **Info sheet (tap i in header)** frame plus prompt §5.7.
 
 One ticket — **S6** — shipped as one PR.
 
