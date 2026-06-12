@@ -7,8 +7,10 @@ import {
   Component,
   HostListener,
   OnInit,
+  computed,
   effect,
   inject,
+  signal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -25,6 +27,7 @@ import { MaterialIconComponent } from '../../icons/material-icon.component';
 import { LibraryPickerComponent } from '../../components/library-picker/library-picker.component';
 import { LibraryPickerModalComponent } from '../../components/library-picker-modal/library-picker-modal.component';
 import { TimelineViewComponent } from '../../components/timeline-view/timeline-view.component';
+import { PanoDialogComponent } from '../../pano/pano-dialog.component';
 
 @Component({
   selector: 'browse-shell',
@@ -41,6 +44,7 @@ import { TimelineViewComponent } from '../../components/timeline-view/timeline-v
     LibraryPickerComponent,
     LibraryPickerModalComponent,
     TimelineViewComponent,
+    PanoDialogComponent,
   ],
   templateUrl: './browse-shell.component.html',
   styleUrl: './browse-shell.component.scss',
@@ -50,6 +54,15 @@ export class BrowseShellComponent implements OnInit {
   state = inject(LibraryStateService);
   private router = inject(Router);
   private route = inject(ActivatedRoute);
+
+  /** True when the pano options dialog is open. */
+  readonly panoDialogVisible = signal(false);
+
+  /** Asset ids to stitch — snapshot of selected ids when the dialog opens. */
+  readonly panoAssetIds = signal<string[]>([]);
+
+  /** True when ≥2 assets are selected (enables the "Merge to panorama…" button). */
+  readonly canMergePano = computed(() => this.state.selectedCount() >= 2);
 
   constructor() {
     // ── URL → selection ─────────────────────────────────────────────────────
@@ -83,6 +96,18 @@ export class BrowseShellComponent implements OnInit {
         queryParamsHandling: 'merge',
       });
     });
+  }
+
+  // ── Pano dialog ───────────────────────────────────────────────────────────
+  onMergePano(): void {
+    // Snapshot the selection at click time so the dialog has a stable list.
+    this.panoAssetIds.set([...this.state.selectedAssetIds()]);
+    this.panoDialogVisible.set(true);
+  }
+
+  onPanoDismiss(): void {
+    this.panoDialogVisible.set(false);
+    this.panoAssetIds.set([]);
   }
 
   ngOnInit(): void {
