@@ -485,6 +485,13 @@ fn stitch_set(
         solution.shared_focal_px,
         solution.dropped
     );
+    if !solution.motion_affected.is_empty() {
+        eprintln!(
+            "pano: motion — frame(s) {:?} kept on their static cores (spec §8), \
+             {:?} motion match(es) pruned",
+            solution.motion_affected, solution.motion_pruned_matches
+        );
+    }
 
     // ---- Composite --------------------------------------------------------
     // The solve already ran at full resolution (full-res matches, full
@@ -545,6 +552,19 @@ fn stitch_set(
         "k2": solution.k2,
         "dropped_images": solution.dropped.iter().map(|d| format!("{d:?}")).collect::<Vec<_>>(),
         "pruned_matches": solution.pruned_matches,
+        // Spec §8 moving-subjects handling (#1216): frames kept on their
+        // static cores after motion pruning, with per-frame pruned
+        // counts (parallel arrays). Non-empty ⇒ the §8 product warning
+        // below.
+        "motion_affected": solution.motion_affected,
+        "motion_pruned_matches": solution.motion_pruned_matches,
+        // Plain-language actionable notices (spec §6/§9.4 StitchReport
+        // contract); today the §8 movement warning is the only source.
+        "warnings": if solution.motion_affected.is_empty() {
+            Vec::<String>::new()
+        } else {
+            vec!["Movement detected, some areas may show ghosting".to_string()]
+        },
         "refined_matches": refined_matches,
         "fallback_matches": fallback_matches,
         "reverify_edges_dropped": reverify.edges_dropped,
