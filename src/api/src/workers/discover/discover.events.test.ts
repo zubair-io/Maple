@@ -9,7 +9,7 @@
  * Skips gracefully when Mongo is unreachable.
  */
 import { describe, expect, it, beforeAll, afterAll } from 'bun:test';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { MongoClient, type Db } from 'mongodb';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -210,6 +210,49 @@ describe('discover producer — events', () => {
     // Clean up.
     await coll.deleteMany({ folder_id: folderId });
     await changesColl.deleteMany({ folder_id: folderId });
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('refuses events whose absPath is inside the `.maple/` cache (defense-in-depth)', async () => {
+    // Regression for #1186: if any producer (current or future) hands the
+    // handler a path inside `.maple/`, the handler must refuse rather than
+    // insert a phantom row — even with the sweeper-side filter in place.
+    if (!mongoReachable) return;
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'discover-maple-cache-'));
+    const cacheDir = path.join(tempDir, '.maple', 'thumbs');
+    await mkdir(cacheDir, { recursive: true });
+    const phantom = path.join(cacheDir, 'cafe.jpg');
+    await writeFile(phantom, Buffer.alloc(50, 0xab));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: tempDir,
+      label: path.basename(tempDir),
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    // Every event kind must be refused.
+    await handleEvent({ kind: 'created', absPath: phantom }, folderId, tempDir);
+    await handleEvent({ kind: 'modified', absPath: phantom }, folderId, tempDir);
+    await handleEvent({ kind: 'removed', absPath: phantom }, folderId, tempDir);
+    await handleEvent(
+      { kind: 'renamed', absPath: path.join(tempDir, 'oops.jpg'), fromPath: phantom },
+      folderId,
+      tempDir,
+    );
+
+    const coll = await assetsCollection();
+    const rows = await coll.find({ 'fileinfo.library_id': folderId }).toArray();
+    expect(rows).toEqual([]);
+
+    await coll.deleteMany({ 'fileinfo.library_id': folderId });
     await foldersColl.deleteOne({ _id: folderId });
     await rm(tempDir, { recursive: true, force: true });
   });

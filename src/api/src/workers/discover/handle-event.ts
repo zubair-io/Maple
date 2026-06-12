@@ -20,7 +20,7 @@ import { assetsCollection } from '../../db/client.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { hashFileForId } from '../../indexer/id.ts';
 import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
-import { buildFileinfoEntry } from './types.ts';
+import { buildFileinfoEntry, isInsideMapleCache } from './types.ts';
 
 const log = child('discover');
 
@@ -39,6 +39,23 @@ export async function handleEvent(
   libraryRoot: string,
 ): Promise<void> {
   const { kind, absPath, fromPath } = event;
+
+  // Defense-in-depth: refuse any event whose absPath lives inside our own
+  // derivative cache. The sweeper filters `.maple/` at directory-walk time,
+  // so this branch should never fire in practice — but if a future event
+  // source (re-introduced watcher, manual enqueue, etc.) forgets to filter,
+  // refusing here keeps the bug local instead of letting it poison the
+  // assets collection. See the issue/PR that introduced this guard for the
+  // recursive `.maple/.maple/…` failure mode it prevents.
+  if (isInsideMapleCache(libraryRoot, absPath)) {
+    log.warn({ libraryRoot, absPath, kind }, 'event inside .maple cache — refusing');
+    return;
+  }
+  if (kind === 'renamed' && fromPath && isInsideMapleCache(libraryRoot, fromPath)) {
+    log.warn({ libraryRoot, fromPath, kind }, 'rename from .maple cache — refusing');
+    return;
+  }
+
   const coll = await assetsCollection();
 
   if (kind === 'removed') {
