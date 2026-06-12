@@ -13,17 +13,15 @@
 //! tile is exactly 0 (no DC bias — solid colors stay on their u8
 //! plateau ±1 LSB).
 //!
-//! Cross-platform parity: the same matrix is embedded in the Web AgX
-//! shader (`src/web/projects/maple-common/src/lib/webgl/shaders/agx-view-transform.ts`).
-//! Same indexing (`(x & 7, y & 7)`), same offset formula, so both
-//! platforms drop the same dither dots on the same pixels for a given
-//! image. Rust outputs gamma-encoded sRGB and dithers post-gamma in
-//! u8 units; the Web path writes display-linear Rec.2020 to an RGBA8
-//! canvas and the browser does the gamma+quantize, so the Web side
-//! dithers in the linear domain — approximate (not byte-identical)
-//! parity, which is acceptable here because cross-platform color
-//! parity is gated at the AgX-LUT boundary, not post-encode (see
-//! `view/agx.rs` `glsl_port_matches_rust_lut`).
+//! Cross-platform parity: the same matrix is mirrored in the GPU view
+//! transform (`raw-gpu/src/agx.wgsl`), same indexing (`(x & 7, y & 7)`)
+//! and offset formula, so both paths drop the same dither dots on the
+//! same pixels for a given image. (The standalone Web GLSL chain that
+//! also carried this matrix was removed in #1042.) Rust outputs
+//! gamma-encoded sRGB and dithers post-gamma in u8 units; the GPU path
+//! dithers in its own display domain — approximate (not byte-identical)
+//! parity, which is acceptable here because cross-platform color parity
+//! is gated at the AgX-LUT boundary, not post-encode.
 
 /// 8×8 Bayer matrix. Values 0..=63. Indexed `BAYER_8X8[y][x]`.
 ///
