@@ -1,116 +1,136 @@
 # Maple — Architecture Overview
 
-Maple is a non-destructive photo editor for macOS, iPadOS, and iOS built by Just Maple. It supports RAW and standard image formats, persists all edits to XMP sidecars (never touching originals), and renders through a GPU-backed Core Image pipeline.
+Maple is a professional, non-destructive RAW photo editor by Just Maple. It runs natively on macOS, iPadOS, and iOS via a **Swift + SwiftUI** shell, and in evergreen browsers via **Angular** — both backed by a **single shared Rust image-processing core**. Every edit is non-destructive and persists to XMP sidecars; originals are never touched.
+
+The product bar is: color quality a working photographer will trust, and a slider that responds inside a single 60 Hz frame on a 100 MP RAW.
 
 For deep dives into specific systems, see the companion docs:
 
-- [Image Pipeline & Editing](./pipeline.md) — decode, filter chain, two-phase rendering, editing lifecycle
-- [Zoom System](./zoom.md) — retina-aware coordinate system, pinch gesture, viewport clipping
-- [Caching](./caching.md) — all 5 cache layers, locations, eviction, flow diagram
-- [Product Status](./product-status.md) — what's built, what's left, phase breakdown
+- [Image Pipeline & Editing](./pipeline.md) — decode, the scene-linear chain, the view transform, render entry points
+- [Caching](./caching.md) — the cache layers, locations, eviction, flow
+- [Sidecar schema](./sidecar-schema.md) — the XMP contract
+- [Testing](./testing.md) — parity gates and diagnostic tools
 
 ---
 
-## Tech Stack
+## One Rust core, three native pipelines
 
-| Layer                 | Technology                                 | Purpose                                                          |
-| --------------------- | ------------------------------------------ | ---------------------------------------------------------------- |
-| **UI**                | SwiftUI                                    | Three-column shell, sliders, gestures, toolbar                   |
-| **State**             | `@Observable` (Observation framework)      | `EditSession`, `UnifiedLibraryViewModel` — no Combine            |
-| **Image decode**      | `CIRAWFilter` (Core Image)                 | RAW demosaic for 750+ formats (DNG, CR3, NEF, ARW...)            |
-| **Image processing**  | `CIFilter` chain (Core Image)              | 11 adjustments composed as a lazy filter graph                   |
-| **GPU render**        | `CIContext` backed by `MTLDevice`          | Metal-accelerated tiling for images up to 100+ MP                |
-| **Sidecar**           | Custom XMP writer (`crs:` namespace)       | Adobe-compatible `.xmp` files, auto-saved on slider change       |
-| **Thumbnails**        | ImageIO (`CGImageSource`)                  | Embedded JPEG extraction from RAW, disk + memory cache           |
-| **Network**           | AMSMB2                                     | Direct SMB file share browsing and sidecar read/write            |
-| **Photos library**    | PhotoKit (`PHAsset`, `PHImageManager`)     | Apple Photos integration                                         |
-| **Filesystem**        | Security-scoped bookmarks, POSIX `opendir` | Sandboxed access to user-selected folders                        |
-| **Package structure** | Swift Package Manager                      | `MapleCore` package for all non-UI code; thin SwiftUI app target |
+Color math — decode, demosaic, calibration (DCP), the scene-linear adjustment chain, the AgX view transform, Auto Profile, dehaze, deconvolution — lives in one crate, `src/raw-pipeline/raw-core`. That crate compiles:
 
----
+- once as a **static library for Apple** (C-FFI headers via `raw-ffi` / `cbindgen`, packaged as `RawPipeline.xcframework`), and
+- once as **WebAssembly for browsers** (`wasm-bindgen` bindings via `raw-wasm`).
 
-## Module Boundary
+A third consumer, the Self-Hosted API (`src/api`), loads the same core as a `bun:ffi` dylib. Platform GPU paths are idiomatic on each platform but **gated against the Rust reference** — pixel parity between Apple and Web is a merge gate, not an aspiration (see [Testing](./testing.md)).
 
 ```
-Maple (app target)          MapleCore (SPM package)
-├── Views/                        ├── Pipeline/
-│   ├── AppShell.swift            │   ├── RAWDecodeEngine.swift
-│   ├── BrowseMode/               │   ├── ImageEditPipeline.swift
-│   │   ├── ImageGridView.swift   │   ├── EditSession.swift
-│   │   └── SourceTreeView.swift  │   ├── CIFilterMapping.swift
-│   ├── FullImageMode/            │   └── RenderedPreviewCache.swift
-│   │   └── FullImageView.swift   ├── Export/
-│   └── DetailPanel/              │   ├── ExportEngine.swift
-│       └── ColorTabView.swift    │   └── ExportConfiguration.swift
-└── DesignSystem/                 ├── Library/
-    └── JM.swift (tokens)         │   ├── UnifiedLibraryViewModel.swift
-                                  │   ├── ThumbnailLoader.swift
-                                  │   └── ThumbnailDiskCache.swift
-                                  ├── Sidecar/
-                                  │   ├── XMPSidecarStore.swift
-                                  │   └── SidecarPathResolver.swift
-                                  ├── Filesystem/
-                                  │   └── FilesystemSource.swift
-                                  ├── SMB/
-                                  │   └── SMBSource.swift
-                                  └── Model/
-                                      ├── AdjustmentModel.swift
-                                      └── ImageAsset.swift
+                         ┌──────────────────────────────┐
+                         │  raw-core  (pure Rust math)   │
+                         │  decode → demosaic → DCP →     │
+                         │  scene-linear chain → AgX →    │
+                         │  Auto Profile → display encode │
+                         └──────────────────────────────┘
+                  ┌───────────────┬──────────┴──────────┬───────────────┐
+                  ▼               ▼                     ▼               ▼
+          raw-ffi (C-FFI)   raw-wasm (WASM)      bun:ffi dylib     raw-gpu (WGSL)
+                  │               │                     │          single-sourced
+                  ▼               ▼                     ▼          GPU kernels
+        RawPipeline.xcframework  maple-common          src/api
+                  │            (Angular consumer)    (Self Hosted)
+                  ▼               │
+          Swift + SwiftUI app     ▼
+        (Mac / iPad / iPhone)   Angular app (Web)
 ```
 
-All business logic lives in `MapleCore`. The app target contains only SwiftUI views and the design system. Platform `#if` guards are confined to the view layer.
+---
+
+## Tech stack
+
+| Layer         | Apple                                 | Web                                | Shared                           |
+| ------------- | ------------------------------------- | ---------------------------------- | -------------------------------- |
+| UI            | SwiftUI                               | Angular 21 + standalone components | —                                |
+| State         | `@Observable` (Observation framework) | Signals + RxJS observables         | —                                |
+| Image decode  | Rust core via C-FFI (xcframework)     | Rust core via WASM                 | `raw-core` crate                 |
+| GPU pipeline  | wgpu + WGSL (epic #925, default)      | wgpu/WebGPU + WGSL; WASM-CPU live  | `raw-gpu` WGSL from Rust consts  |
+| Sidecar I/O   | Custom XMP writer in Swift            | Custom XMP writer in TypeScript    | Schema validated on both sides   |
+| Thumbnails    | `CGImageSource` + disk cache          | WASM thumb extraction + IndexedDB  | —                                |
+| API (web)     | —                                     | Angular `HttpClient` → Bun/Elysia  | Shared DTO types via codegen     |
+| Offline (web) | —                                     | Angular service worker + IndexedDB | —                                |
+
+**GPU path (epic #925).** The render math is unified on **wgpu + WGSL**, collapsing the previously separate Metal-Shading-Language and WebGL2-GLSL implementations against the Rust reference. The GPU path is the shipping default on Apple (`MAPLE_GPU_LIVE=0` is the runtime kill-switch) and is used on the Web where `navigator.gpu` is available. The WGSL kernels (`src/raw-pipeline/raw-gpu`) bake the Oklab/Rec.2020 matrices and AgX coefficients as consts generated from the same `raw-core` sources the CPU pipeline uses, so the GPU copy cannot silently diverge.
 
 ---
 
-## Concurrency Model
+## Scene-linear chain
 
-| Component                 | Isolation             | Pattern                                                                                            |
-| ------------------------- | --------------------- | -------------------------------------------------------------------------------------------------- |
-| `EditSession`             | `@MainActor`          | All state mutations on main thread. RAW decode offloaded via `Task.detached`.                      |
-| `UnifiedLibraryViewModel` | `@MainActor`          | `loadGeneration` counter prevents stale async loads from writing into the current folder's arrays. |
-| `ThumbnailLoader`         | `actor`               | Concurrency-limited (6 slots) with checked continuation waiters.                                   |
-| `XMPSidecarStore`         | `actor`               | Serialized read/write access to sidecar files.                                                     |
-| `FilesystemSource`        | `@unchecked Sendable` | Single-threaded access assumed (called from `@MainActor` view model).                              |
-| `ImageEditPipeline`       | `@unchecked Sendable` | Thread-safe — `CIContext` is thread-safe, `CIImage` is immutable.                                  |
+The working space is **linear Rec.2020 D65 at f32**. The pipeline is scene-referred: exposure is a linear multiply, and a single view transform at the end compresses scene range into display range. **Nothing before the view transform clips.**
 
-### Race Condition Prevention
+The canonical chain is `develop_scene_linear_from_raw_with_quality` in `src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs`. Every full-image entry point (CLI, WASM, Apple FFI, the parity harness) funnels through it, so all platforms develop bit-identically. In order: linearize → hot-pixel → demosaic → DefaultCrop → BaselineExposure → WB pre-gain → highlight recovery → DCP colorimetry (ColorMatrix/ForwardMatrix + HSM in linear ProPhoto-D50, then gamut-convert to Rec.2020) → ProfileGainTableMap → chroma pre-filter (#1104) → BM3D deep denoise (#1105) → capture sharpening → **auto-exposure (#429)** → white balance → **scene-tone controls (#1102/#1103: exposure, brightness, contrast, highlights, shadows, whites, blacks)** → tone curves → vibrance → saturation → clarity → texture → dehaze → local adjustments → **vignette (#1109)** → sharpen → NR luminance → NR color.
 
-Folder switching uses a generation counter:
+The result is an unbounded scene-linear Rec.2020 buffer. The **view transform** then applies **AgX** (Sobotka AgX with filmic hue restoration and Oklab gamut compression — scene-linear → display-linear Rec.2020), **split-tone (#1111)** and **film grain (#1110)** in display-linear space, an optional **Auto Profile (#536)** per-image tone residual fit from the embedded JPEG, and a final Rec.2020 → sRGB / display-P3 encode. Full stage-by-stage detail, including the per-tick chain that re-runs only the cheap stages on each slider tick, is in [Image Pipeline & Editing](./pipeline.md).
 
-```swift
-loadGeneration &+= 1
-let gen = loadGeneration
+Any change to a scene-linear stage or the view transform must pass the parity harness — see [Testing](./testing.md) § "Parity gates."
 
-// ... async work ...
+---
 
-guard gen == loadGeneration else { return }  // stale — another folder was selected
-assetSlots[index] = asset  // safe — this is still the current folder
+## Module boundary — Apple
+
+The Apple app is an Xcode project consuming a local Swift package (`MapleCore`) plus the committed `RawPipeline.xcframework`. All business logic lives in `MapleCore`; the app target holds only SwiftUI views and the design system.
+
+```
+MapleApp (app target)            MapleCore (SPM package)
+├── AppShell                          ├── Pipeline/        (RawPipeline FFI wrapper,
+├── BrowseMode/                       │                     EditSession, render cache)
+│   ├── ImageGridView                 ├── Sidecar/         (XMP read/write, path resolver)
+│   ├── SourceTreeView                ├── Library/         (view models, thumbnail loader,
+├── FullImageMode/                    │                     disk cache)
+│   └── FullImageView                 ├── Sources/         (Filesystem, SMB, Photos adapters)
+├── DetailPanel/                      ├── Generated/       (codegen Swift: AdjustmentModel,
+│   └── ColorTabView                  │                     UITokens — from tools/codegen.sh)
+└── DesignSystem/ (tokens)            └── Model/           (AdjustmentModel, ImageAsset)
 ```
 
-Every `await` boundary in `loadAssets` and `loadPage` checks the generation before writing state. If the user clicks three folders in quick succession, only the last one's data lands in the arrays.
+`MapleCore.Pipeline` wraps the Rust FFI: it calls into the xcframework to decode + develop a scene-linear buffer, then runs the AgX view transform and the GPU-resident sharpen / color-NR via wgpu/WGSL (default since #1066) or the legacy Metal path. There is no Core Image filter chain — the color math is the Rust core.
+
+## Module boundary — Web
+
+The Angular workspace has two projects: `maple` (the editor/browse app) and `maple-common` (shared components, services, models, and the `raw-wasm` consumer). The live canvas renders via the WASM `render_bytes` path (the full develop + view transform, including Auto Profile, runs in-core); the canvas surface is tagged **display-P3**. A headless WebGPU path uses the `raw-gpu` WGSL kernels, routed by `navigator.gpu`. Cross-language model and token shapes (`AdjustmentModel`, UI tokens) are generated from `raw-core` by `tools/codegen.sh`.
 
 ---
 
-## Security-Scoped Bookmarks
+## Cross-platform parity & codegen
 
-Sandboxed access to user-selected folders is managed through security-scoped bookmarks:
+Every constant and schema that appears in more than one language is single-sourced from `raw-core` and emitted by the `codegen` crate, driven by **`tools/codegen.sh`** (not a hand-maintained per-platform port):
 
-1. **User picks a folder** — `fileImporter` returns a security-scoped URL
-2. `**FilesystemSource.addFolder(url:)**` — starts scope, saves bookmark, stores URL in `scopedURLs`
-3. **App launch** — `BookmarkStore.restore()` resolves bookmarks, `rootContainers()` populates `scopedURLs`, calls `markReady()`
-4. **Last-folder restore** — `await filesystemSource.ensureReady()` blocks until `rootContainers()` completes, preventing EPERM on cold start
-5. **Directory listing** — `findScopedParent(for: url)` walks `scopedURLs` to find the bookmarked ancestor, then `startAccessingSecurityScopedResource()` on that URL
+- adjustment schema (`raw_core::types::ADJUSTMENT_SCHEMA`) → Swift + TypeScript
+- UI tokens (`raw_core::ui_tokens`) → Swift + TypeScript + SCSS
+- color matrices (`raw_core::color::{matrices,oklab}`) → WGSL
+- AgX coefficients (`derive_agx_lut.py`) → WGSL
+
+A `codegen-drift` CI job (in `.github/workflows/cross.yml`) confirms the committed outputs match a fresh generation, so the individual platform copies cannot drift. When a matrix or schema changes, run `tools/codegen.sh` and commit the regenerated files.
 
 ---
 
-## XMP Sidecar Persistence
+## Concurrency model — Apple
 
-All edits are non-destructive. `AdjustmentModel` is serialized to XMP using the `crs:` (Camera Raw Settings) namespace for Adobe compatibility, plus `papp:` for app-specific data (ratings, flags, labels).
+| Component                 | Isolation             | Pattern                                                                       |
+| ------------------------- | --------------------- | ----------------------------------------------------------------------------- |
+| `EditSession`             | `@MainActor`          | State mutations on main; RAW decode/develop offloaded off-actor.              |
+| Library view model        | `@MainActor`          | `loadGeneration` counter rejects stale async loads after a folder switch.     |
+| Thumbnail loader          | `actor`               | Concurrency-limited with continuation waiters.                                |
+| XMP sidecar store         | `actor`               | Serialized read/write access to sidecar files.                                |
 
-| Asset Source                | Sidecar Location                         | Example                                                        |
-| --------------------------- | ---------------------------------------- | -------------------------------------------------------------- |
-| **Local filesystem**        | Sibling `.xmp` file                      | `/Photos/IMG_001.xmp` (next to `IMG_001.CR3`)                  |
-| **SMB network share**       | Sibling `.xmp` file (written via AMSMB2) | `smb://server/share/IMG_001.xmp`                               |
-| **Apple Photos (PhotoKit)** | App Support directory                    | `~/Library/Application Support/MapleMaple/sidecars/{UUID}.xmp` |
+Folder switching uses a generation counter: every `await` boundary re-checks the generation before writing state, so rapid folder clicks land only the last selection's data. RAW decode is cancellable — a slider tick during a cold open unwinds the in-flight develop mid-stage via a cancel token (#951).
 
-Sidecars are written with a 500ms debounce after each slider change. On `endEditing`, the sidecar is flushed synchronously before clearing state.
+---
+
+## XMP sidecar persistence
+
+All edits are non-destructive; the original file is never modified. The adjustment model serializes to an XMP sidecar using the `crs:` (Camera Raw Settings) namespace for Adobe-compatible fields, plus `papp:` for Maple-specific data (`papp:Profile`, `papp:Brightness`, `papp:AutoExposure`, ratings, flags, labels). The schema is versioned and passthrough XML preserves unknown fields byte-for-byte. The Swift and TypeScript writers are validated against the same schema.
+
+| Asset source                | Sidecar location                                              |
+| --------------------------- | ------------------------------------------------------------ |
+| Local filesystem            | Sibling `.xmp` file next to the original                      |
+| SMB network share           | Sibling `.xmp` file on the share                              |
+| Apple Photos (PhotoKit)     | App Support directory, keyed by asset UUID                    |
+
+The sidecar is the contract; the pixels are derived. See [`sidecar-schema.md`](./sidecar-schema.md).
