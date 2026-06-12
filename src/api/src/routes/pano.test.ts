@@ -43,7 +43,13 @@ const TEST_DB = `maple_pano_test_${process.pid}`;
 
 // Set before any getDb() call. getDb() is lazy (reads env at connect-time), so
 // even though imports are hoisted these are in effect before any route handler
-// runs. In the full suite closeDb() in beforeAll resets a prior singleton.
+// runs. In the full suite closeDb() in beforeAll resets a prior singleton —
+// and afterAll RESTORES these vars: leaving them pointing at :27077 makes
+// every later test file in the same process reconnect to a port that only
+// exists on dev machines (CI has no :27077 — the whole tail of the suite
+// times out "MongoDB unreachable").
+const PRIOR_MONGO_URI = process.env.MAPLE_MONGO_URI;
+const PRIOR_MONGO_DB = process.env.MAPLE_MONGO_DB;
 process.env.MAPLE_MONGO_URI = MONGO_URL;
 process.env.MAPLE_MONGO_DB = TEST_DB;
 
@@ -114,7 +120,12 @@ afterAll(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   if (db) await db.dropDatabase().catch(() => {});
   await client?.close().catch(() => {});
-  // Reset the singleton so subsequent test files aren't left pointing at :27077.
+  // Reset the singleton AND the env so subsequent test files reconnect to
+  // the suite's own Mongo, not this file's throwaway :27077.
+  if (PRIOR_MONGO_URI === undefined) delete process.env.MAPLE_MONGO_URI;
+  else process.env.MAPLE_MONGO_URI = PRIOR_MONGO_URI;
+  if (PRIOR_MONGO_DB === undefined) delete process.env.MAPLE_MONGO_DB;
+  else process.env.MAPLE_MONGO_DB = PRIOR_MONGO_DB;
   const { closeDb } = await import('../db/client.ts');
   await closeDb();
 });
@@ -377,8 +388,7 @@ describe('panoStitchHandler (completion)', () => {
     );
 
     expect(outcome.kind).toBe('done');
-    const r = (outcome as { result: { outputAssetId: string | null; outputPath: string } })
-      .result;
+    const r = (outcome as { result: { outputAssetId: string | null; outputPath: string } }).result;
     expect(r.outputAssetId).not.toBeNull();
 
     const doc = await db.collection('assets').findOne({ _id: new ObjectId(r.outputAssetId!) });
