@@ -1,7 +1,17 @@
 //! `maple-cli pano stitch` (#1182) — the end-to-end panorama pipeline:
-//! decode → priors → proxy → ALIKED+LightGlue → match graph → global BA
-//! → leveling → composite → 16-bit PNG (+ optional sRGB preview)
-//! + a `StitchReport`-shaped JSON.
+//! decode → priors → proxy → ALIKED+LightGlue → match graph →
+//! full-resolution match refinement (#1210) → global BA → leveling →
+//! composite → 16-bit PNG (+ optional sRGB preview) + a
+//! `StitchReport`-shaped JSON.
+//!
+//! Geometry runs at two scales by design: matching + robust pairwise
+//! verification on the long-edge-capped proxies (the resolution the
+//! matcher carries its accuracy at), then every verified inlier match is
+//! re-localized on the full-resolution frames (`maple_pano::refine`) and
+//! bundle adjustment solves in FULL-RES coordinates. The §5.3 gates
+//! (mean ≤ 1.5 px / max ≤ 6 px) therefore apply at the resolution the
+//! spec wrote them for ("1.5 px on 24 MP input") — closing the
+//! proxy-vs-spec scale ambiguity this module previously documented.
 //!
 //! Two modes:
 //!
@@ -41,6 +51,7 @@ use maple_pano::ingest::{ingest_file, proxy_to_long_edge, IngestedFrame, PlanarI
 use maple_pano::leveling;
 use maple_pano::matching::LightGlueMatcher;
 use maple_pano::models::ModelDir;
+use maple_pano::refine::{refine_correspondences, RefineOptions};
 use maple_pano::render::write_frame_png;
 use maple_pano::robust::RobustOptions;
 use maple_pano::twoview::PixelCorrespondence;
@@ -281,13 +292,12 @@ fn stitch_set(
         frames.iter().map(|f| f.applied_opcodes.clone()).collect();
 
     // ---- Features on proxies ---------------------------------------------
-    // The whole geometry stage (verification, BA, its px-denominated
-    // gates) runs in PROXY coordinates: that is the resolution the
-    // matches actually carry their accuracy at — scaling coordinates up
-    // first would multiply match noise by the proxy factor and blow the
-    // spec budgets spuriously. Solved cameras are lifted to full
-    // resolution afterwards (rotation and k1/k2 are scale-invariant;
-    // focal scales by the proxy factor).
+    // Matching and pairwise verification run in PROXY coordinates: that
+    // is the resolution the matches carry their accuracy at, and the
+    // verifier's noise model (sigma_max_px) is calibrated there. The
+    // verified inliers are then re-localized at FULL resolution
+    // (#1210, below), so BA and the §5.3 px gates run in full-res
+    // coordinates — the resolution the spec wrote them for.
     let t_feat = Instant::now();
     let mut feature_sets: Vec<FeatureSet> = Vec::with_capacity(frames.len());
     let mut proxy_scale: Vec<f64> = Vec::with_capacity(frames.len());
@@ -314,11 +324,13 @@ fn stitch_set(
     }
     let features_s = t_feat.elapsed().as_secs_f64();
 
-    let images: Vec<GraphImage> = frames
+    // Cameras at FULL resolution (EXIF focal in native pixels) — the BA
+    // input once refinement lifts the matches to full-res coordinates.
+    // The proxy-scale clones below serve matching + verification only.
+    let full_images: Vec<GraphImage> = frames
         .iter()
         .zip(inputs)
-        .enumerate()
-        .map(|(i, (f, path))| {
+        .map(|(f, path)| {
             let focal_px = f.priors.focal_px.ok_or_else(|| {
                 format!(
                     "{}: no EXIF 35mm-equivalent focal length — cannot seed \
@@ -329,23 +341,38 @@ fn stitch_set(
             Ok(GraphImage {
                 camera: Camera::new(
                     [0.0; 3],
-                    focal_px / proxy_scale[i],
+                    focal_px,
                     0.0,
                     0.0,
-                    proxy_dims[i].0,
-                    proxy_dims[i].1,
+                    f.image.width(),
+                    f.image.height(),
                 ),
                 prior_rotation: f.priors.gimbal.as_ref().map(ba::init::rotation_from_gimbal),
             })
         })
         .collect::<Result<_, String>>()?;
+    let proxy_images: Vec<GraphImage> = full_images
+        .iter()
+        .enumerate()
+        .map(|(i, img)| GraphImage {
+            camera: Camera::new(
+                [0.0; 3],
+                img.camera.focal_px / proxy_scale[i],
+                0.0,
+                0.0,
+                proxy_dims[i].0,
+                proxy_dims[i].1,
+            ),
+            prior_rotation: img.prior_rotation,
+        })
+        .collect();
 
     // ---- Match graph (capture order + gimbal prior candidates) ----------
     let t_graph = Instant::now();
     let mut match_failures: Vec<String> = Vec::new();
     let matcher = &mut ml.matcher;
-    let graph = build_match_graph(
-        &images,
+    let mut graph = build_match_graph(
+        &proxy_images,
         &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
         |a, b| -> Vec<PixelCorrespondence> {
             match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
@@ -373,10 +400,44 @@ fn stitch_set(
         graph.orphans
     );
 
+    // ---- Full-resolution match refinement (#1210) -------------------------
+    // Re-localize every verified inlier on the full-res frames (borrowed
+    // from `frames` — no clones) and REPLACE the edge payloads with the
+    // full-res coordinates, so BA below solves at full resolution.
+    // Matches the refiner cannot honestly improve keep their proxy
+    // accuracy (scaled up, counted as fallbacks in the report).
+    let t_refine = Instant::now();
+    let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
+    for edge in &mut graph.edges {
+        let (img_a, img_b) = (&frames[edge.a].image, &frames[edge.b].image);
+        let scale_of = |img: &PlanarImage, i: usize| {
+            (
+                img.width() as f64 / proxy_dims[i].0 as f64,
+                img.height() as f64 / proxy_dims[i].1 as f64,
+            )
+        };
+        let outcome = refine_correspondences(
+            img_a,
+            img_b,
+            scale_of(img_a, edge.a),
+            scale_of(img_b, edge.b),
+            &edge.inlier_matches,
+            &RefineOptions::default(),
+        );
+        refined_matches += outcome.refined_count;
+        fallback_matches += outcome.fallback_count;
+        edge.inlier_matches = outcome.refined;
+    }
+    let refine_s = t_refine.elapsed().as_secs_f64();
+    eprintln!(
+        "pano: refine — {refined_matches} matches NCC-refined at full res, \
+         {fallback_matches} kept proxy accuracy ({refine_s:.1}s)"
+    );
+
     // ---- Global solve + leveling ----------------------------------------
     let t_solve = Instant::now();
     let mut solution = ba::solve(
-        &images,
+        &full_images,
         &graph,
         &BaOptions {
             mean_budget_px,
@@ -399,22 +460,14 @@ fn stitch_set(
     );
 
     // ---- Composite --------------------------------------------------------
-    // Lift the proxy-space solve to full resolution: rotation and the
-    // normalized-coordinate k1/k2 are scale-invariant; focal scales by
-    // each frame's proxy factor.
+    // The solve already ran at full resolution (full-res matches, full
+    // dims, EXIF-native focal) — solved cameras feed compositing as-is.
     // Move images out of `frames` (which is not used afterwards) instead of
     // cloning to avoid doubling peak memory for large panorama sets.
     let kept: Vec<(PlanarImage, Camera)> = frames
         .into_iter()
         .zip(&solution.cameras)
-        .zip(&proxy_scale)
-        .filter_map(|((f, cam), &scale)| {
-            cam.as_ref().map(|c| {
-                let (w, h) = (f.image.width(), f.image.height());
-                let full = Camera::new(c.axis_angle, c.focal_px * scale, c.k1, c.k2, w, h);
-                (f.image, full)
-            })
-        })
+        .filter_map(|(f, cam)| cam.as_ref().map(|c| (f.image, c.clone())))
         .collect();
     if kept.len() < 2 {
         return Err(format!(
@@ -465,6 +518,8 @@ fn stitch_set(
         "k2": solution.k2,
         "dropped_images": solution.dropped.iter().map(|d| format!("{d:?}")).collect::<Vec<_>>(),
         "pruned_matches": solution.pruned_matches,
+        "refined_matches": refined_matches,
+        "fallback_matches": fallback_matches,
         "leveled": leveled,
         "horizon_tilt_deg": horizon_tilt_deg,
         "gate_mean_budget_px": mean_budget_px,
@@ -478,6 +533,7 @@ fn stitch_set(
             "decode": decode_s,
             "features": features_s,
             "match_graph": graph_s,
+            "refine": refine_s,
             "solve": solve_s,
             "composite": composite_s,
             "write": write_s,
