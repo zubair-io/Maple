@@ -159,12 +159,13 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
       );
     }
   };
-  const persistPaused = (value: boolean): void => {
-    void getRepo()
-      .then((r) => r.patch(MIGRATION_WORKER_NAME, { paused: value }))
-      .catch(() => {
-        /* best-effort — in-memory state already applied; next boot re-reads */
-      });
+  const persistPaused = async (value: boolean): Promise<void> => {
+    try {
+      const r = await getRepo();
+      await r.patch(MIGRATION_WORKER_NAME, { paused: value });
+    } catch {
+      /* best-effort — in-memory state already applied; next boot re-reads */
+    }
   };
 
   stageRegistry.register(MIGRATION_WORKER_NAME, {
@@ -176,12 +177,12 @@ export function startMigration(opts: StartMigrationOptions = {}): MigrationHandl
     reloadConfig: loadPaused,
     pause: async () => {
       paused = true;
-      persistPaused(true);
+      await persistPaused(true);
       log.info('migration worker paused');
     },
     resume: async () => {
       paused = false;
-      persistPaused(false);
+      await persistPaused(false);
       log.info('migration worker resumed');
     },
   });

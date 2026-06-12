@@ -479,12 +479,13 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
       );
     }
   };
-  const persistPaused = (value: boolean): void => {
-    void getRepo()
-      .then((r) => r.patch(MISSING_REAPER_NAME, { paused: value }))
-      .catch(() => {
-        /* best-effort — in-memory state already applied; next boot re-reads */
-      });
+  const persistPaused = async (value: boolean): Promise<void> => {
+    try {
+      const r = await getRepo();
+      await r.patch(MISSING_REAPER_NAME, { paused: value });
+    } catch {
+      /* best-effort — in-memory state already applied; next boot re-reads */
+    }
   };
 
   stageRegistry.register(MISSING_REAPER_NAME, {
@@ -500,12 +501,12 @@ export function startMissingReaper(opts: StartMissingReaperOptions = {}): Missin
     },
     pause: async () => {
       paused = true;
-      persistPaused(true);
+      await persistPaused(true);
       log.info('missing-reaper paused');
     },
     resume: async () => {
       paused = false;
-      persistPaused(false);
+      await persistPaused(false);
       log.warn('missing-reaper RESUMED — aged-out missing rows are now eligible for hard delete');
     },
   });

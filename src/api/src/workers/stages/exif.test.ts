@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll, mock } from 'bun:test';
+import { describe, expect, it, beforeAll, afterAll, spyOn } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -90,24 +90,33 @@ describe('exif handler', () => {
     // probe sees "no winner" and the handler proceeds with patch.maple_id.
     // Snapshot + restore so the stub doesn't leak into later tests.
     const realDbClient = await import('../../db/client.ts');
+    const originalAssetsCollection = realDbClient.assetsCollection;
+    const dbSpy = spyOn(realDbClient, 'assetsCollection').mockImplementation(async () => {
+      const realColl = await originalAssetsCollection();
+      return new Proxy(realColl, {
+        get(target, prop, receiver) {
+          if (prop === 'findOne') {
+            return async () => null;
+          }
+          if (prop === 'updateOne') {
+            return async () => ({ acknowledged: true, modifiedCount: 0 });
+          }
+          if (prop === 'deleteOne') {
+            return async () => ({ acknowledged: true, deletedCount: 0 });
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+    });
     try {
-      mock.module('../../db/client.ts', () => ({
-        ...realDbClient,
-        assetsCollection: async () => ({
-          findOne: async () => null,
-          updateOne: async () => ({ acknowledged: true, modifiedCount: 0 }),
-          deleteOne: async () => ({ acknowledged: true, deletedCount: 0 }),
-        }),
-      }));
-      const { default: freshExifStage } = await import('./exif.ts');
       const doc = makeDoc(dng, rawLibraryId, path.dirname(dng));
-      const result = await freshExifStage.handler(doc as never, {} as never);
+      const result = await exifStage.handler(doc as never, {} as never);
       const { patch } = result as { patch: Record<string, unknown> };
       const exif = patch.exif as Record<string, unknown> | null;
       expect(exif).not.toBeNull();
       expect(typeof exif?.camera_make).toBe('string');
     } finally {
-      mock.module('../../db/client.ts', () => realDbClient);
+      dbSpy.mockRestore();
     }
     setLibraryRootsForTests(new Map([[libraryId.toHexString(), dir]]));
   });
@@ -198,28 +207,16 @@ describe('exif handler', () => {
     // into the spread copy and keeps subsequent describe.test.ts /
     // face.test.ts files broken.
     const realModule = await import('../../indexer/libraries.cache.ts');
-    const restored = {
-      loadLibraryRoots: realModule.loadLibraryRoots,
-      invalidateLibraryRoots: realModule.invalidateLibraryRoots,
-      setLibraryRootsForTests: realModule.setLibraryRootsForTests,
-    };
+    const cacheSpy = spyOn(realModule, 'loadLibraryRoots').mockImplementation(async () => {
+      throw new Error('simulated transient mongo failure');
+    });
     try {
-      mock.module('../../indexer/libraries.cache.ts', () => ({
-        ...restored,
-        loadLibraryRoots: async () => {
-          throw new Error('simulated transient mongo failure');
-        },
-      }));
-      // Fresh import so the handler picks up the mocked binding — bun:test
-      // rewires the ESM binding for the duration of the test, mirroring the
-      // cache-gc.test.ts pattern.
-      const { default: freshExifStage } = await import('./exif.ts');
       const doc = makeDoc(path.join(dir, 'does-not-matter.jpg'), libraryId, dir);
-      await expect(freshExifStage.handler(doc as never, {} as never)).rejects.toThrow(
+      await expect(exifStage.handler(doc as never, {} as never)).rejects.toThrow(
         'simulated transient mongo failure',
       );
     } finally {
-      mock.module('../../indexer/libraries.cache.ts', () => restored);
+      cacheSpy.mockRestore();
     }
   });
 });
@@ -253,16 +250,11 @@ describe('readExif — video extension short-circuit', () => {
   it('returns null for video extensions without calling exifr.parse', async () => {
     const realExifr = (await import('exifr')).default;
     let parseCalls = 0;
+    const exifrSpy = spyOn(realExifr, 'parse').mockImplementation(async () => {
+      parseCalls += 1;
+      throw new Error('exifr.parse should not be invoked for video extensions');
+    });
     try {
-      mock.module('exifr', () => ({
-        default: {
-          ...realExifr,
-          parse: async () => {
-            parseCalls += 1;
-            throw new Error('exifr.parse should not be invoked for video extensions');
-          },
-        },
-      }));
       const { readExif } = await import('../../indexer/exif.ts');
       for (const p of [
         '/tmp/clip.mov',
@@ -280,7 +272,7 @@ describe('readExif — video extension short-circuit', () => {
       }
       expect(parseCalls).toBe(0);
     } finally {
-      mock.module('exifr', () => ({ default: realExifr }));
+      exifrSpy.mockRestore();
     }
   });
 });
