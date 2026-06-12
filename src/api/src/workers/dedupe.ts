@@ -181,8 +181,10 @@ async function processAsset(
     }
   }
 
-  // Tag any absent entries immediately so the missing-reaper can prune them.
-  // The reaper pulls these stale database entries after the cooldown period.
+  // Tag any absent entries so the missing-reaper can prune them after the
+  // cooldown period. Only stamp entries that are NOT already tagged —
+  // resetting `missing_since` on every pass would restart the reaper's
+  // cooldown clock, preventing stale entries from ever aging out.
   if (absentEntries.length > 0 && !dryRun) {
     const now = new Date().toISOString();
     await coll
@@ -192,6 +194,11 @@ async function processAsset(
         {
           arrayFilters: [
             {
+              // Match only the absent entries that have no timestamp yet.
+              // Entries already tagged keep their original timestamp so the
+              // reaper's prune window is measured from the first absence, not
+              // the most recent dedupe pass.
+              'e.missing_since': { $in: [null, undefined] },
               $or: absentEntries.map((e) => ({
                 'e.library_id': e.library_id,
                 'e.path': e.path,
