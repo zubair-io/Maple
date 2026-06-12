@@ -149,6 +149,10 @@ pub(super) struct TileReportContext<'a> {
     pub fallback_matches: usize,
     pub reverify: &'a ReverifySummary,
     pub tile_report: &'a TileCompositeReport,
+    /// Frame indices disconnected from anchor (the tile-path orphan list).
+    /// Parallel to the rotation path's `dropped_images`; empty on a
+    /// fully-connected tile set.
+    pub tile_orphans: &'a [usize],
     /// Stage timings, serialized in array order.
     pub timings_s: [(&'static str, f64); 8],
 }
@@ -212,9 +216,10 @@ pub(super) fn tile_stitch_report(ctx: &TileReportContext) -> serde_json::Value {
     serde_json::json!({
         "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         "applied_opcodes": ctx.applied_opcodes,
-        // Tile strategy never drops frames — all frames with a pose are
-        // composited. The harness gates dropped_frames=0 via dropped_images.
-        "dropped_images": serde_json::json!([]),
+        // Tile strategy orphans — frames disconnected from the anchor
+        // component. Empty for a fully-connected set (the normal case).
+        // The harness gates dropped_frames=0 via this field.
+        "dropped_images": ctx.tile_orphans.iter().map(|i| format!("Disconnected({i})")).collect::<Vec<_>>(),
         "strategy": {
             "requested": strat.requested.as_str(),
             "selected": strat.selected.as_str(),
