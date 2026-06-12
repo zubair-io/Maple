@@ -33,6 +33,8 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+
 import { panoRoutes } from './pano.ts';
 
 // Standalone test DB — never touches the dev DB on :27017.
@@ -325,5 +327,71 @@ describe('DELETE /api/pano/jobs/:id', () => {
     // Verify the flag was set.
     const doc = await db!.collection('jobs').findOne({ _id: new ObjectId(id) });
     expect(doc?.cancel_requested).toBe(true);
+  });
+});
+
+// ── panoStitchHandler — job completion + content identity ────────────────────
+
+describe('panoStitchHandler (completion)', () => {
+  it('registers the output asset with its REAL content identity', async () => {
+    if (!mongoReachable || !db) return;
+
+    // Two seeded input assets backed by real files in the library root.
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetIds: string[] = [];
+    for (const name of ['in-a.png', 'in-b.png']) {
+      await fs.writeFile(path.join(tmpDir, 'lib', name), png);
+      const _id = new ObjectId();
+      await db.collection('assets').insertOne({
+        _id,
+        maple_id: `seed-${name}`,
+        fileinfo: [{ path: '', filename: name, library_id: folderId, deleted_at: null }],
+      } as never);
+      assetIds.push(_id.toHexString());
+    }
+    // The roots map is a process-wide cache with no TTL; beforeEach inserted
+    // a fresh folder doc, so force a reload before the handler resolves paths.
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+
+    const outputDir = path.join(tmpDir, `handler-out-${process.pid}`);
+    const { panoStitchHandler } = await import('../job-runner/handlers/pano-stitch.ts');
+    const outcome = await panoStitchHandler.run(
+      {
+        assetIds,
+        libraryId: folderId.toHexString(),
+        outputDir,
+        retention: 'keep',
+        localAlign: 'mesh',
+        strategy: null,
+        strategySupported: false,
+        mapleCli: fakeCli,
+        modelsDir: null,
+        ortDylibPath: null,
+      },
+      {
+        jobId: new ObjectId(),
+        reportProgress: async () => {},
+        shouldCancel: async () => false,
+      },
+    );
+
+    expect(outcome.kind).toBe('done');
+    const r = (outcome as { result: { outputAssetId: string | null; outputPath: string } })
+      .result;
+    expect(r.outputAssetId).not.toBeNull();
+
+    const doc = await db.collection('assets').findOne({ _id: new ObjectId(r.outputAssetId!) });
+    expect(doc).not.toBeNull();
+
+    // The registered identity must be the file's real one: a parseable
+    // fallback-form maple_id (a stitched PNG has no camera serial) and a
+    // sha1_head equal to an independently computed SHA-1 of the head bytes.
+    const { fromHex, SHA1_HEAD_BYTES } = await import('../indexer/id.ts');
+    expect(fromHex(doc!.maple_id as string).kind).toBe('fallback');
+
+    const written = await fs.readFile(r.outputPath);
+    const head = written.subarray(0, Math.min(written.length, SHA1_HEAD_BYTES));
+    expect(doc!.sha1_head).toBe(createHash('sha1').update(head).digest('hex'));
   });
 });
