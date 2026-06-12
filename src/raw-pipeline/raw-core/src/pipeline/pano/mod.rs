@@ -9,10 +9,16 @@
 //! that assumption per-image.
 //!
 //! [`decode_for_pano`] is therefore the canonical develop chain
-//! ([`super::develop`]) **truncated after the decode-referred stages**:
+//! ([`super::develop`]) **truncated after the decode-referred stages**,
+//! plus one pano-only stage the canonical chain does not run yet (2a):
 //!
 //! 1. `linearize` (black/white level; or `linearraw_to_camera_rgb`),
 //! 2. `demosaic` at `RenderQuality::Full`,
+//! 2a. **DNG OpcodeList3** when present (#1159): `GainMap`
+//!     (vignette/shading) and `WarpRectilinear` (geometric distortion +
+//!     lateral CA), applied in list order on the demosaiced linear data
+//!     — the DNG processing-model stage for List3. See [`opcodes`] /
+//!     [`opcode_apply`] and the divergence note below,
 //! 3. DNG § 6.3 DefaultCrop,
 //! 4. DNG § C.1.2 BaselineExposure gain,
 //! 5. DNG WB pre-gain (`AsShotNeutral`),
@@ -23,7 +29,7 @@
 //!    scene-linear Rec.2020 D65),
 //! 8. ProfileGainTableMap when present (DNG 1.6 § 6.8 spatially-varying
 //!    calibration gain — the in-file lens-shading/vignette mechanism
-//!    raw-core already applies; see the vignette note below),
+//!    raw-core already applies),
 //! 9. EXIF orientation.
 //!
 //! **Excluded — everything after PGTM in the canonical chain:** the
@@ -40,17 +46,29 @@
 //! locks the two paths together bit-for-bit on a synthetic DNG, so the
 //! mirror cannot drift silently.
 //!
-//! ## Vignette status (pano fixtures, 2026-06)
+//! ## OpcodeList3 — a deliberate pano-path divergence (#1159)
 //!
-//! The DJI pano fixtures (`test-fixtures/raws/pano_01/`, Hasselblad
-//! L2D-20c) carry their vignette correction as a DNG **`OpcodeList3`
-//! `GainMap` opcode** (alongside `WarpRectilinear`), *not* as a
-//! ProfileGainTableMap. raw-core does not currently parse DNG OpcodeLists
-//! on any path, so stage 8 is a no-op for these files and the decoded
-//! frames keep the lens's radial falloff. Opcode parsing is explicitly out
-//! of scope for #1156 — the gap is documented on the PR and tracked as a
-//! follow-up. (The L3D-100c `pano_00` frames carry only `WarpRectilinear`
-//! — no in-file vignette data at all.)
+//! Stage 2a is the one place `decode_for_pano` is more than a truncation
+//! of the canonical chain. The DJI pano fixtures carry their lens
+//! corrections as DNG `OpcodeList3` opcodes, *not* as a
+//! ProfileGainTableMap: the L2D-20c (`pano_01`) writes `GainMap` +
+//! `WarpRectilinear`, the L3D-100c (`pano_00`) `WarpRectilinear` only.
+//! Without them, the stitcher sees 5–80 px reprojection residuals
+//! (frames get dropped at the spec §5.3 1.5/6 px gates) and vignette
+//! banding at seams — the stitching spec (§5.1) requires vignette
+//! correction **before** matching.
+//!
+//! The canonical develop chain does not apply opcodes anywhere yet;
+//! adopting them there is a budgets-ratchet decision that needs a full
+//! color-harness evaluation (ACR applies opcodes, so this likely
+//! *improves* parity on opcode-carrying bodies) — tracked in #1190.
+//! Until that lands, the bit-pin test compares the two paths on
+//! opcode-free sources (where stage 2a is structurally a no-op), and
+//! `tests::applies_opcode_list3_gain_map` proves the divergence is real
+//! on opcode-carrying sources.
+
+pub mod opcode_apply;
+pub mod opcodes;
 
 use rawler::decoders::{RawDecodeParams, WellKnownIFD};
 use rawler::rawsource::RawSource;
