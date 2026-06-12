@@ -235,6 +235,41 @@ impl LocalCorrection {
     }
 }
 
+/// One block's end-of-chain residual magnitude: the BA residual minus
+/// the local-alignment displacement at the destination observation.
+/// Invalid chains count as gross, same as everywhere else in stage D.
+///
+/// This is THE residual definition for every §5.3 decision once stage F
+/// is in the chain — gate stats, core membership, and motion pruning
+/// must all use it or they police a quantity the gate no longer reads
+/// (a match that disagrees with the local parallax field has
+/// corrected > raw, and raw-measured pruning can never remove it).
+pub(crate) fn corrected_block_residual(
+    state: &State,
+    frames: &[FrameMeta],
+    corrections: &[LocalCorrection],
+    block: &Block,
+) -> f64 {
+    use crate::ba::residual::INVALID_BLOCK_RESIDUAL_PX;
+    match eval_residual(state, frames, block) {
+        Some(r) => {
+            let (cx, cy) = corrections[block.dst].apply(block.p_dst.0, block.p_dst.1);
+            let rx = r[0] - (cx - block.p_dst.0);
+            let ry = r[1] - (cy - block.p_dst.1);
+            (rx * rx + ry * ry).sqrt()
+        }
+        None => INVALID_BLOCK_RESIDUAL_PX,
+    }
+}
+
+/// Identity corrections for every frame — the stage-F no-op used when
+/// local alignment is disabled ([`crate::ba::BaOptions::local_align`]).
+pub(crate) fn identity_corrections(frames: &[FrameMeta], n_local: usize) -> Vec<LocalCorrection> {
+    (0..n_local)
+        .map(|f| LocalCorrection::identity(frames[f].cx * 2.0, frames[f].cy * 2.0))
+        .collect()
+}
+
 /// Measure per-frame reprojection stats **after** applying the local
 /// corrections.
 ///
@@ -252,24 +287,9 @@ pub(crate) fn stats_after_local(
     corrections: &[LocalCorrection],
     n_local: usize,
 ) -> Vec<FrameStats> {
-    use crate::ba::residual::INVALID_BLOCK_RESIDUAL_PX;
-
     let mut per_frame: Vec<Vec<f64>> = vec![Vec::new(); n_local];
     for block in blocks {
-        let s = match eval_residual(state, frames, block) {
-            Some(r) => {
-                let d = block.dst;
-                // correction(p_obs_d) = p_corrected − p_obs_d
-                let (cx, cy) = corrections[d].apply(block.p_dst.0, block.p_dst.1);
-                let corr_x = cx - block.p_dst.0;
-                let corr_y = cy - block.p_dst.1;
-                let rx = r[0] - corr_x;
-                let ry = r[1] - corr_y;
-                (rx * rx + ry * ry).sqrt()
-            }
-            None => INVALID_BLOCK_RESIDUAL_PX,
-        };
-        per_frame[block.dst].push(s);
+        per_frame[block.dst].push(corrected_block_residual(state, frames, corrections, block));
     }
     per_frame
         .into_iter()
@@ -310,22 +330,9 @@ pub(crate) fn global_stats_after_local(
     state: &State,
     corrections: &[LocalCorrection],
 ) -> (f64, f64) {
-    use crate::ba::residual::INVALID_BLOCK_RESIDUAL_PX;
-
     let (mut sum, mut max, mut count) = (0.0_f64, 0.0_f64, 0usize);
     for block in blocks {
-        let s = match eval_residual(state, frames, block) {
-            Some(r) => {
-                let d = block.dst;
-                let (cx, cy) = corrections[d].apply(block.p_dst.0, block.p_dst.1);
-                let corr_x = cx - block.p_dst.0;
-                let corr_y = cy - block.p_dst.1;
-                let rx = r[0] - corr_x;
-                let ry = r[1] - corr_y;
-                (rx * rx + ry * ry).sqrt()
-            }
-            None => INVALID_BLOCK_RESIDUAL_PX,
-        };
+        let s = corrected_block_residual(state, frames, corrections, block);
         sum += s;
         if s > max {
             max = s;

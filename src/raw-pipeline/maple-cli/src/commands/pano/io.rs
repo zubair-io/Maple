@@ -23,6 +23,10 @@ pub(super) struct ReportContext<'a> {
     pub horizon_tilt_deg: Option<f64>,
     /// `(mean_budget_px, max_budget_px)` the §5.3 gate ran at.
     pub gate_budgets: (f64, f64),
+    /// Frame-retention policy + local-alignment mode the solve ran with
+    /// (CLI `--retention` / `--local-align`), for report auditability.
+    pub retention: &'static str,
+    pub local_align: &'static str,
     pub comp_report: &'a CompositeReport,
     /// Stage timings, serialized in array order.
     pub timings_s: [(&'static str, f64); 8],
@@ -39,6 +43,8 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
         .collect();
     serde_json::json!({
         "inputs": ctx.inputs.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+        "retention": ctx.retention,
+        "local_align": ctx.local_align,
         "applied_opcodes": ctx.applied_opcodes,
         "cameras": solution.cameras.iter().map(|c| c.as_ref().map(|c| serde_json::json!({
             "axis_angle": c.axis_angle,

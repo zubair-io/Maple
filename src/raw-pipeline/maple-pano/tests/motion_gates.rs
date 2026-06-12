@@ -9,7 +9,7 @@
 mod common;
 
 use common::{build_graph, realistic_matches, relative_set, ring_options, seed_images};
-use maple_pano::ba::{solve, BaOptions, DropReason};
+use maple_pano::ba::{solve, BaOptions, DropReason, RetentionPolicy};
 use maple_pano::camera::Camera;
 use maple_pano::graph::MatchGraph;
 use maple_pano::prng::SplitMix64;
@@ -118,17 +118,20 @@ fn gate_motion_frame_kept_on_static_core() {
             "frame {i}: relative-rotation delta {gap}° vs the clean run"
         );
     }
-    // Survivors (all 8) pass the spec gates on their cleaned stats.
+    // Survivors (all 8) pass the spec gates on their cleaned stats —
+    // per frame, not just in aggregate (review: a global mean can hide
+    // one bad frame among seven good ones).
     assert!(solution.mean_reproj_px <= 1.5 && solution.max_reproj_px <= 6.0);
+    assert_per_frame_within_budgets(&solution);
 }
 
-/// Spec §8 gate (#1216): a frame that is mostly motion — 75% of its
-/// correspondences shifted, multi-directional blobs so the static
-/// remnant stays the only registered subset — has a tight multi-edge
-/// core ((a)+(b) hold) but too little static truth to pose reliably
-/// ((c) fails). It must drop with the distinct MotionDominated reason
-/// carrying the core evidence, not be kept on the sliver and not drop
-/// as a bare HighResidual.
+/// Spec §8 gate (#1216), STRICT retention: a frame that is mostly
+/// motion — 75% of its correspondences shifted, multi-directional blobs
+/// so the static remnant stays the only registered subset — has a tight
+/// multi-edge core ((a)+(b) hold) but too little static truth to pose
+/// reliably ((c) fails). Under `RetentionPolicy::Strict` it must drop
+/// with the distinct MotionDominated reason carrying the core evidence,
+/// not be kept on the sliver and not drop as a bare HighResidual.
 #[test]
 fn gate_motion_dominated_frame_drops_with_distinct_reason() {
     let gt = build_camera_set(&ring_options(8), &mut SplitMix64::new(31)).expect("valid options");
@@ -139,7 +142,15 @@ fn gate_motion_dominated_frame_drops_with_distinct_reason() {
     let shifted = corrupt_target_edges_with_motion(&mut graph, target, 0.75);
     assert!(shifted > 0);
 
-    let solution = solve(&images, &graph, &BaOptions::default()).expect("solve");
+    let solution = solve(
+        &images,
+        &graph,
+        &BaOptions {
+            retention: RetentionPolicy::Strict,
+            ..Default::default()
+        },
+    )
+    .expect("solve");
     println!(
         "motion-dominated gate: dropped {:?}, motion_affected {:?}",
         solution.dropped, solution.motion_affected
@@ -179,4 +190,53 @@ fn gate_motion_dominated_frame_drops_with_distinct_reason() {
         solution.dropped
     );
     assert!(solution.mean_reproj_px <= 1.5 && solution.max_reproj_px <= 6.0);
+    assert_per_frame_within_budgets(&solution);
+}
+
+/// Spec §8 gate, KEEP retention (the product default): the same
+/// 75%-motion frame has a certified pose ((a)+(b) hold on its core), so
+/// `RetentionPolicy::KeepAlignable` keeps it — wild matches pruned,
+/// frame classified motion_affected — and every surviving frame
+/// individually passes the §5.3 budgets on its cleaned stats.
+#[test]
+fn gate_motion_dominated_frame_kept_under_keep_policy() {
+    let gt = build_camera_set(&ring_options(8), &mut SplitMix64::new(31)).expect("valid options");
+    let cams: Vec<Camera> = gt.iter().map(|g| g.to_camera()).collect();
+    let images = seed_images(&cams, true);
+    let target = 3usize;
+    let mut graph = build_graph(&images, &cams, &realistic_matches());
+    let shifted = corrupt_target_edges_with_motion(&mut graph, target, 0.75);
+    assert!(shifted > 0);
+
+    let solution = solve(&images, &graph, &BaOptions::default()).expect("solve");
+    println!(
+        "keep-policy gate: dropped {:?}, motion_affected {:?} (pruned {:?})",
+        solution.dropped, solution.motion_affected, solution.motion_pruned_matches
+    );
+    assert!(
+        solution.dropped.is_empty(),
+        "keep policy: a frame with a certified core is never dropped: {:?}",
+        solution.dropped
+    );
+    assert!(
+        solution.motion_affected.contains(&target),
+        "frame {target} must carry the motion classification: {:?}",
+        solution.motion_affected
+    );
+    assert_per_frame_within_budgets(&solution);
+}
+
+/// Every SURVIVING frame individually passes the §5.3 budgets on its
+/// end-of-chain stats — the per-frame form of the gate (the global
+/// aggregates can mask one bad frame among many good ones).
+fn assert_per_frame_within_budgets(solution: &maple_pano::ba::BaSolution) {
+    for (i, s) in solution.frame_stats.iter().enumerate() {
+        let Some(s) = s else { continue };
+        assert!(
+            s.mean_px <= 1.5 && s.max_px <= 6.0,
+            "surviving frame {i} violates the per-frame gate: mean {:.3} max {:.3}",
+            s.mean_px,
+            s.max_px
+        );
+    }
 }

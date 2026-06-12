@@ -83,7 +83,7 @@ use motion::{gate_frames, GateContext, GateOutcome, MotionBook};
 use support::{
     build_blocks, finalize, finalize_trivial, focal_fallback, largest_subcomponent, median,
 };
-pub use types::{BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats};
+pub use types::{BaError, BaOptions, BaSolution, DropReason, DroppedFrame, FrameStats, RetentionPolicy};
 
 /// Global bundle adjustment over a verified match graph.
 ///
@@ -324,7 +324,11 @@ pub fn solve(
                 // (gate_frames computed them internally for pass/fail but
                 // doesn't expose them — this second fit is cheap and
                 // deterministic from the same blocks+state.)
-                let corrections_local = fit_local_corrections(&blocks, &frames, &state, n_local);
+                let corrections_local = if opts.local_align {
+                    fit_local_corrections(&blocks, &frames, &state, n_local, opts.max_budget_px)
+                } else {
+                    crate::local_align::identity_corrections(&frames, n_local)
+                };
 
                 // Global corrected mean/max for the solution summary.
                 use crate::local_align::global_stats_after_local;
