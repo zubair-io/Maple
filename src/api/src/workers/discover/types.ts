@@ -71,6 +71,22 @@ export function toPosixRelDir(relDir: string): string {
 }
 
 /**
+ * Reject absPaths that live inside our own derivative cache. The sweeper
+ * filters `.maple/` at directory-walk time (see `sweeper.ts`), so under
+ * normal operation handleEvent never sees one of these paths. The check
+ * here is defense-in-depth: a future event producer that forgets to
+ * filter cannot poison the assets collection with phantom rows whose
+ * thumb/preview outputs would land one `.maple/` deeper than themselves
+ * and re-feed the indexer next sweep — the recursion that produced
+ * `.maple/previews/.maple/previews/.maple/thumbs/…/<hash>.jpg`.
+ */
+export function isInsideMapleCache(libraryRoot: string, absPath: string): boolean {
+  const rel = path.relative(libraryRoot, absPath);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return false;
+  return rel.split(path.sep).includes('.maple');
+}
+
+/**
  * Build the `fileinfo[0]` entry for a file inside a known library root.
  * Returns null when the file path escapes the library (defensive — should
  * not happen because the watcher only emits events under registered roots,

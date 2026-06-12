@@ -46,15 +46,26 @@ export async function visitDirectory(
   for (const ent of entries) {
     const abs = path.join(dir.dir_path, ent.name);
     if (ent.isDirectory()) {
-      // Never descend into the DeDuplicate quarantine. A moved copy is
-      // byte-identical to the kept one, so re-discovering it would re-attach
-      // its location to the very asset it was split from (content-dedup). This
-      // skip is what makes the move stick.
-      if (ent.name === DUPLICATES_DIR_NAME) continue;
+      // Never descend into:
+      //   - the DeDuplicate quarantine. A moved copy is byte-identical to the
+      //     kept one, so re-discovering it would re-attach its location to the
+      //     very asset it was split from (content-dedup). This skip is what
+      //     makes the move stick.
+      //   - any dotdir. In particular `.maple/` — our own cache of derived
+      //     thumbs/previews. Indexing the cache turns each entry into a
+      //     phantom asset whose thumb/preview outputs land one `.maple/`
+      //     deeper than the file (see `fs/xmp.ts` path math), which the next
+      //     sweep then indexes too — a self-feeding `.maple/.maple/.../…jpg`
+      //     loop. Matches the pattern other walkers already use
+      //     (`workers/cache-gc.ts`, `routes/folders.ts`).
+      if (ent.name === DUPLICATES_DIR_NAME || ent.name.startsWith('.')) continue;
       subdirs.push(abs);
       continue;
     }
-    if (!ent.isFile() || !isSupported(ent.name)) continue;
+    // Skip non-files, non-images, and dotfiles (e.g. `.DS_Store`, AppleDouble
+    // `._foo.jpg` resource forks — their extension matches but their content
+    // doesn't).
+    if (!ent.isFile() || !isSupported(ent.name) || ent.name.startsWith('.')) continue;
     filesOnDisk.set(ent.name, abs);
   }
 
