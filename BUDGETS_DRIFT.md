@@ -126,7 +126,7 @@ be read as expected post-#443 drift, not regression.
 
 ### Partial re-baseline (#911)
 
-The fixtures-present sweep predicted above landed: **12 of 17 neutral
+The fixtures-present sweep predicted above landed: **12 of 16 neutral
 baselines breach** `test-fixtures/budgets.json`. #911 re-baselines only
 the subset whose breach matches the retired look's bounded tonal-floor
 signature — a roughly uniform-RGB shift (R/G/B per-zone bias co-moving),
@@ -138,8 +138,8 @@ only; nothing lowered).
 - **Re-baselined (look-removal tonal signature):** test_0003 (mean, p95),
   test_0007 (mean, max), test_0011 (mean, p95).
 - **Isolated outliers (conservative nudge):** test_0006 (single hot-pixel
-  `max` 32.86→46.4; mean is 37% UNDER budget), test_0015 (`bias` over by
-  0.0010 → 0.1397→0.1477; the large bias was already budgeted).
+  `max` 32.86→46.4; mean is 37% UNDER budget), test_0015 (`bias` exceeded its budget by 0.0010 — budget nudged from
+  0.1397 → 0.1477; the large bias was already budgeted).
 - **NOT re-baselined — flagged as candidate regressions (budgets
   unchanged):** test_0001, test_0002, test_0005, test_0009, test_0012,
   test_0014 (large/divergent per-channel bias, off neutrals ΔE 5–20, or a
