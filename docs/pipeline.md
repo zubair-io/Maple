@@ -1,188 +1,186 @@
 # Image Pipeline & Editing
 
-The image pipeline takes a RAW (or standard) file from disk, decodes it into a GPU-backed CIImage, applies a chain of adjustments as lazy CIFilters, and renders the result to a CGImage for display or export.
+The image pipeline takes a RAW (or standard) file from disk and develops it through a **scene-referred Rust core** (`src/raw-pipeline/raw-core`): decode → linearize → demosaic → a scene-linear adjustment chain → a single view transform (AgX) → display encode. The same crate runs on every platform — compiled to a static library for Apple (via C-FFI) and to WebAssembly for the Web. Platform GPU paths (wgpu + WGSL, epic #925) mirror the Rust reference and are gated against it for pixel parity.
+
+The working space is **linear Rec.2020 D65 at f32**. Exposure is a linear multiply; nothing before the view transform clips. See [Architecture](./architecture.md) for the cross-platform shape.
 
 ---
 
-## Decode
+## Decode → scene-linear develop
+
+The canonical funnel is `develop_scene_linear_from_raw_with_quality` in `src/raw-pipeline/raw-core/src/pipeline/develop/mod.rs`. Every full-image entry point (CLI, WASM, the Apple FFI, the parity harness) runs through it, so all platforms develop identically. The stages, in order:
 
 ```
 RAW file on disk
   │
   ▼
-RAWDecodeEngine.decode(url:)
-  │  Creates CIRAWFilter(imageURL:)
-  │  Sets neutral decode: exposure=0, temperature=6500K, tint=0
-  │  Calls CIRAWFilter.outputImage → lazy CIImage
+decode (rawler)  →  RawImage  (CFA mosaic, EXIF, DCP tags, AsShotNeutral, crop rect)
+  │
+  ├─ 1.  linearize            (sensor values → linear; black/white-level normalize)
+  ├─ 2.  hot_pixel            (#1106; pre-demosaic outlier suppression — Off by default)
+  ├─ 3.  demosaic             (Bayer: half-res / bilinear / Hamilton-Adams / AMaZE by
+  │                            RenderQuality; X-Trans: bilinear / Markesteijn)
+  ├─ 4.  crop_to_default      (DNG DefaultCrop — drop optical-black border)
+  ├─ 5.  baseline_exposure    (DNG BaselineExposure gain, scene-linear multiply)
+  ├─ 6.  white_balance pre-gain(divide camera RGB by AsShotNeutral → neutral = (1,1,1))
+  ├─ 7.  highlight_recovery   (per-channel clip reconstruction)
+  ├─ 8.  dcp::apply_colorimetry(ColorMatrix/ForwardMatrix + HSM in linear ProPhoto-D50,
+  │                            then gamut-convert to scene-linear Rec.2020 D65)
+  ├─ 9.  highlight_recovery_oklab (opt-in Oklab chroma reduction; no-op by default)
+  ├─ 10. profile_gain_table_map (DNG 1.6 spatially-varying gain, when present)
+  ├─ 11. chroma_prefilter     (#1104; decode-time chroma denoise — 0 by default)
+  ├─ 12. deep_denoise         (#1105; BM3D collaborative filtering — 0 by default)
+  ├─ 13. capture_sharpening   (Richardson-Lucy deconvolution — 0/Off by default)
+  │  ── end of the cached "decode product"; the stages below re-run per slider tick ──
+  ├─ 14. auto_exposure        (#429; per-image scene anchor — measures mid-gray,
+  │                            multiplies toward 0.18 so every camera lands on the same
+  │                            AgX point. On by default; opt out via papp:AutoExposure="Off")
+  ├─ 15. white_balance        (user Temperature/Tint; CAT16 chromatic adaptation)
+  ├─ 16. scene_tone_controls  (#1103 DAG: exposure, brightness #1102, contrast→AgX slope,
+  │                            highlights, shadows, whites, blacks)
+  ├─ 17. tone_curves          (parametric + per-channel R/G/B curves — identity by default)
+  ├─ 18. vibrance
+  ├─ 19. saturation
+  ├─ 20. clarity              (midtone local contrast, large-radius unsharp)
+  ├─ 21. texture              (fine-detail local contrast, small-radius unsharp)
+  ├─ 22. dehaze
+  ├─ 23. local_adjustments    (#280; masked region edits — empty by default)
+  ├─ 24. vignette             (#1109; scene-linear radial gain)
+  ├─ 25. sharpen              (output sharpening; default amount 40)
+  ├─ 26. nr_luminance         (luminance noise reduction)
+  └─ 27. nr_color             (color noise reduction; default 25)
   │
   ▼
-decodedImage: CIImage  (cached in EditSession — never re-decoded
-                         unless the user switches to a different image)
+Image in ColorSpace::SceneLinearRec2020  (unbounded f32, no clipping yet)
 ```
 
-The decode is always **neutral** — white balance and exposure are applied as post-decode CIFilters. This means changing the exposure slider costs ~30ms (a filter chain re-evaluation), not ~300ms (a full RAW re-decode).
+Stages whose slider sits at its default short-circuit to a **bit-identical** no-op, so the parity-harness baseline is unchanged when a feature lands.
 
-For non-RAW files (JPEG, HEIC, PNG, TIFF), `CIImage(contentsOf:)` is used instead of `CIRAWFilter`.
+### Decode product vs. per-tick chain
 
-### Why Neutral Decode?
+The expensive, model-independent work — decode, demosaic, DCP, the decode-time denoise stages, and auto-exposure — is run once and its result cached as an fp16/f32 RGBA buffer in scene-linear Rec.2020. On every slider tick only the cheap, model-dependent stages re-run, via `apply_scene_linear_chain` in `src/raw-pipeline/raw-core/src/pipeline/scene_linear_chain.rs`:
 
-RAW decoding involves demosaic, color matrix, and white balance — all in linear light with full bit depth. Historically, WB and exposure were baked in at decode time for best quality. We trade a small quality delta for a 10x latency improvement: the user can drag the exposure slider at 30ms/frame instead of waiting 300ms per change.
+```
+white_balance (delta) → scene_tone_controls → tone_curves → vibrance → saturation
+  → clarity → texture → dehaze → local_adjustments → vignette → nr_luminance
+  → [view tail: agx → split_tone → grain]
+```
 
-The decode runs off the main actor via `Task.detached` so the UI thread is never blocked during the ~300ms demosaic.
+The per-tick chain deliberately omits `sharpen` and `nr_color` — those stay on the platform GPU path (Metal / WGSL compute) because sharpen at viewport size exceeds the 16 ms tick budget on CPU. The stage order matches `develop_scene_linear_from_raw_with_quality` exactly so the color-pipeline harness stays the single canonical metric.
+
+The early-downsample variant `develop_scene_linear_sized_from_raw_with_quality` (in `pipeline/develop_sized.rs`) downsamples to fit the viewport immediately after demosaic, so every later stage runs on the smaller buffer — this is the fast-phase cold-open path.
 
 ---
 
-## Filter Chain
+## View transform (AgX + Auto Profile)
 
-`CIFilterMapping.apply(_:to:)` composes a lazy CIImage chain. No pixels are computed until a render call.
+A single view transform at the end of the chain compresses the unbounded scene-linear range into display range. It lives in `src/raw-pipeline/raw-core/src/view/`.
 
 ```
-decodedImage (neutral CIImage)
+scene-linear Rec.2020 (unbounded)
   │
-  ├─ 0a. CITemperatureAndTint   (WB: neutral=6500/0 → target=user's Kelvin/tint)
-  ├─ 0b. CIExposureAdjust       (EV stops, linear-light)
-  ├─ 1.  CIColorControls        (contrast: -100..+100 → 0.25..1.75)
-  ├─ 2.  CIHighlightShadowAdjust (highlights + shadows)
-  ├─ 3.  CIToneCurve             (whites + blacks via 5-point curve)
-  ├─ 4.  CIVibrance              (saturation-aware boost)
-  ├─ 5.  CIColorControls         (saturation: -100..+100 → 0..2)
-  ├─ 6.  CIUnsharpMask           (clarity: large radius ~40px)
-  ├─ 7.  CIUnsharpMask           (texture: small radius ~3px)
-  ├─ 8.  CIColorControls + CIGammaAdjust (dehaze approximation)
-  ├─ 9.  CIUnsharpMask           (sharpening: user radius + intensity)
-  └─ 10. CINoiseReduction        (luminance + color NR)
+  ├─ AgX (view/agx.rs)            Sobotka AgX: inset matrix → ratio-preserving sigmoid
+  │                              (sigmoid on max(R,G,B), RGB scaled by sigmoid_norm/norm
+  │                              so hue is invariant) → outset matrix → Oklab hue-preserving
+  │                              gamut compression to [0,1]³.  Contrast modulates the slope.
+  │  → display-linear Rec.2020 [0,1]
+  ├─ split_tone (stages/split_tone.rs)   #1111; display-linear Oklab shadow/highlight tint
+  ├─ grain (stages/grain.rs)             #1110; display-linear deterministic hash noise
+  ├─ Auto Profile (view/auto_profile/)   #536; per-image tone residual fit from the embedded
+  │                              JPEG preview, layered on top of AgX in display space (#550).
+  │                              Profile = "Auto" (default) or "Neutral" (AgX-only, no residual).
+  └─ display encode (view/encode.rs)     Rec.2020 → sRGB / display-P3 via the Oklab-aware
+                                 rec2020_to_srgb (#877), optional dither, quantize.
   │
   ▼
-processed: CIImage (lazy — still no pixels)
+display-encoded pixels (sRGB / display-P3, 8-bit or fp16)
 ```
 
-Each filter is skipped (identity pass-through) when its slider is at the default value. The chain order matches Adobe Camera Raw for sidecar compatibility.
+The AgX matrices, sigmoid coefficients, and LUT are derived by `src/scripts/derive_agx_lut.py` and emitted as `agx_coeffs.rs` (constants) + `agx_lut.bin` (512×f32, `include_bytes!`-embedded). Apple bundles a byte-identical `agx_lut.bin`; the Web/GPU side compiles the same constants into a WGSL shader (`raw-gpu/src/agx.wgsl`, generated by `tools/codegen.sh`). Cross-platform AgX parity at 1e-4 per channel is a CI gate.
 
-### Slider Ranges
-
-| Slider         | Field           | Range          | Default | CIFilter                        |
-| -------------- | --------------- | -------------- | ------- | ------------------------------- |
-| Exposure       | `exposure`      | -4 … +4 EV     | 0       | CIExposureAdjust                |
-| Temperature    | `temperature`   | 2000 … 12000 K | 6500    | CITemperatureAndTint            |
-| Tint           | `tint`          | -100 … +100    | 0       | CITemperatureAndTint            |
-| Contrast       | `contrast`      | -100 … +100    | 0       | CIColorControls                 |
-| Highlights     | `highlights`    | -100 … +100    | 0       | CIHighlightShadowAdjust         |
-| Shadows        | `shadows`       | -100 … +100    | 0       | CIHighlightShadowAdjust         |
-| Whites         | `whites`        | -100 … +100    | 0       | CIToneCurve                     |
-| Blacks         | `blacks`        | -100 … +100    | 0       | CIToneCurve                     |
-| Vibrance       | `vibrance`      | -100 … +100    | 0       | CIVibrance                      |
-| Saturation     | `saturation`    | -100 … +100    | 0       | CIColorControls                 |
-| Clarity        | `clarity`       | -100 … +100    | 0       | CIUnsharpMask (r=40)            |
-| Texture        | `texture`       | -100 … +100    | 0       | CIUnsharpMask (r=3)             |
-| Dehaze         | `dehaze`        | -100 … +100    | 0       | CIColorControls + CIGammaAdjust |
-| Sharpen Amount | `sharpenAmount` | 0 … 150        | 0       | CIUnsharpMask                   |
-| Sharpen Radius | `sharpenRadius` | 0.5 … 3.0      | 1.0     | CIUnsharpMask                   |
-| NR Luminance   | `nrLuminance`   | 0 … 100        | 0       | CINoiseReduction                |
-| NR Color       | `nrColor`       | 0 … 100        | 25      | CINoiseReduction                |
+**Profile.** The `papp:Profile` enum chooses between **Auto** (fit a per-image CDF tone curve from the camera's embedded JPEG so output tracks the camera maker's rendering) and **Neutral** (the scene-referred AgX transform alone). Auto Profile runs *after* AgX as a per-channel residual — AgX owns chroma and cross-channel coupling; the curve only nudges tone. The retired static "Look" LUT (`papp:Look`, ticket #371 → retired #443) survives as a no-op enum for sidecar back-compat; the `look` field still parses but does nothing.
 
 ---
 
-## Render
+## Slider ranges & defaults
 
-```
-processed CIImage
-  │
-  ▼
-ImageEditPipeline.renderPreview(processed, targetSize:)
-  │  Scales down if targetSize < extent (never upscales)
-  │  CIContext.createCGImage(scaled, from: extent)  ← GPU render happens HERE
-  │
-  ▼
-CGImage → assigned to EditSession.previewImage → SwiftUI Image() displays it
-```
+Authoritative source: `ADJUSTMENT_SCHEMA` in `src/raw-pipeline/raw-core/src/types/adjustment/schema/mod.rs`. This table is single-sourced from there and mirrored to Swift / TypeScript by `tools/codegen.sh`.
 
-The `CIContext` is Metal-backed (`MTLCreateSystemDefaultDevice()`), uses extended linear sRGB working space, and outputs Display P3. Tiling for large images is handled automatically by Core Image.
+| Slider                 | Field                       | Range          | Default | Stage                              |
+| ---------------------- | --------------------------- | -------------- | ------- | ---------------------------------- |
+| Temperature            | `temperature`               | 2000 … 12000 K | 6500    | white_balance (CAT16)              |
+| Tint                   | `tint`                      | -100 … +100    | 0       | white_balance                      |
+| Exposure               | `exposure`                  | -4 … +4 EV     | 0       | scene_tone_controls (linear mult)  |
+| Brightness             | `brightness`                | -100 … +100    | 0       | scene_tone_controls (#1102)        |
+| Contrast               | `contrast`                  | -100 … +100    | 0       | scene_tone_controls → AgX slope    |
+| Highlights             | `highlights`                | -100 … +100    | 0       | scene_tone_controls                |
+| Shadows                | `shadows`                   | -100 … +100    | 0       | scene_tone_controls                |
+| Whites                 | `whites`                    | -100 … +100    | 0       | scene_tone_controls                |
+| Blacks                 | `blacks`                    | -100 … +100    | 0       | scene_tone_controls                |
+| Parametric Highlights  | `parametric_highlights`     | -100 … +100    | 0       | tone_curves                        |
+| Parametric Lights      | `parametric_lights`         | -100 … +100    | 0       | tone_curves                        |
+| Parametric Darks       | `parametric_darks`          | -100 … +100    | 0       | tone_curves                        |
+| Parametric Shadows     | `parametric_shadows`        | -100 … +100    | 0       | tone_curves                        |
+| Vibrance               | `vibrance`                  | -100 … +100    | 0       | vibrance                           |
+| Saturation             | `saturation`                | -100 … +100    | 0       | saturation                         |
+| Clarity                | `clarity`                   | -100 … +100    | 0       | clarity                            |
+| Texture                | `texture`                   | -100 … +100    | 0       | texture                            |
+| Dehaze                 | `dehaze`                    | -100 … +100    | 0       | dehaze                             |
+| Sharpen Amount         | `sharpen_amount`            | 0 … 150        | **40**  | sharpen                            |
+| Sharpen Radius         | `sharpen_radius`            | 0.5 … 3.0      | 1.0     | sharpen                            |
+| Sharpen Detail         | `sharpen_detail`            | 0 … 100        | 25      | sharpen                            |
+| Sharpen Masking        | `sharpen_masking`           | 0 … 100        | 0       | sharpen                            |
+| Capture Sharpening     | `capture_sharpening_amount` | 0 … 100        | 0       | capture_sharpening (RL deconv)     |
+| Capture Sharpen Sigma  | `capture_sharpening_sigma`  | 0.5 … 2.0      | 1.0     | capture_sharpening                 |
+| NR Luminance           | `nr_luminance`              | 0 … 100        | 0       | nr_luminance                       |
+| NR Color               | `nr_color`                  | 0 … 100        | **25**  | nr_color                           |
+| Chroma Pre-filter      | `chroma_prefilter`          | 0 … 100        | 0       | chroma_prefilter (#1104)           |
+| Deep Denoise           | `deep_denoise`              | 0 … 100        | 0       | deep_denoise / BM3D (#1105)        |
+| Vignette Amount        | `vignette_amount`           | -100 … +100    | 0       | vignette (#1109)                   |
+| Vignette Feather       | `vignette_feather`          | 0 … 100        | 50      | vignette                           |
+| Grain Amount           | `grain_amount`              | 0 … 100        | 0       | grain (#1110)                      |
+| Grain Size             | `grain_size`                | 0 … 100        | 25      | grain                              |
+| Grain Roughness        | `grain_roughness`           | 0 … 100        | 50      | grain                              |
+| Split-tone Shadow Hue  | `split_tone_shadow_hue`     | 0 … 360°       | 0       | split_tone (#1111)                 |
+| Split-tone Shadow Sat  | `split_tone_shadow_saturation` | 0 … 100     | 0       | split_tone                         |
+| Split-tone Hi Hue      | `split_tone_highlight_hue`  | 0 … 360°       | 0       | split_tone                         |
+| Split-tone Hi Sat      | `split_tone_highlight_saturation` | 0 … 100  | 0       | split_tone                         |
+| Split-tone Balance     | `split_tone_balance`        | -100 … +100    | 0       | split_tone                         |
+
+Enum fields (defaults in **bold**): `wb_method` = **Cat16** (chromatic adaptation) / DiagonalRec2020; `highlight_recovery` = **ChromaticAdaptation** / OklabChromaReduction / …; `auto_exposure` = **On** / Off; `profile` = **Auto** / Neutral; `tone_curve_mode` = **PerChannel** / RatioPreserving; `hot_pixel_suppression` = **Off** / On.
 
 ---
 
-## Two-Phase Rendering
+## Render entry points
+
+`render_scene_linear_from_raw_with_quality` (and the `_sized`, `_f32`, and `_cancellable` variants in `pipeline/render/scene_linear.rs`) run the develop chain, pack to fp16/f32 RGBA, apply EXIF orientation, and hand the **scene-linear** buffer to the platform view transform. The cold-open fast phase routes through the cancellable sized entry so a slider tick during a long decode can unwind mid-stage (#951 — the ~8.5 s `nr_color` on a 100 MP frame is the freeze the cancel token interrupts).
+
+- **Apple**: imports the buffer as a CIImage tagged `extendedLinearITUR_2020`, then runs the AgX kernel + sRGB encode (and the GPU-resident sharpen / nr_color) via wgpu/WGSL (default since #1066) or the legacy Metal path.
+- **Web**: the live canvas renders via the WASM `render_bytes` path (Auto Profile applied in-core), with the canvas surface tagged display-P3; the headless GPU path uses `raw-gpu` WGSL kernels routed by `navigator.gpu`.
+
+`RenderQuality` selects the demosaic kernel: `Preview` (half-res Bayer, fast), `Full` (bilinear or Hamilton-Adams), `Amaze` (AMaZE / Markesteijn, export quality).
+
+---
+
+## Two-phase rendering
 
 To keep sliders responsive while supporting pixel-perfect zoom:
 
-| Phase      | Debounce   | Target Size                             | Purpose                                              |
-| ---------- | ---------- | --------------------------------------- | ---------------------------------------------------- |
-| **Fast**   | 50ms       | `previewSize` (viewport in real pixels) | Immediate feedback during slider drag                |
-| **Refine** | 300ms idle | `nativeImageSize × min(zoomScale, 1.0)` | Crisp pixels when zoomed in, up to native resolution |
+| Phase      | Debounce    | Target                                  | Purpose                                       |
+| ---------- | ----------- | --------------------------------------- | --------------------------------------------- |
+| **Fast**   | immediate   | viewport size, cancellable              | Immediate feedback during slider drag         |
+| **Refine** | ~150ms idle | full image, full resolution             | Crisp pixels once the user stops dragging     |
 
-The refine pass only fires when the refined target exceeds the fast target by more than 1 pixel. At fit zoom, both targets are the same size, so refine is skipped entirely.
-
-After the refine completes, the rendered preview is persisted to the disk cache (see [Caching](./caching.md)) so future cold-opens of the same image are instant.
-
----
-
-## Editing Lifecycle
-
-```
-User clicks image in grid
-  │
-  ▼
-AppShell.onChange(of: appMode)
-  │  Calls editSession.beginEditing(asset:source:)
-  │
-  ▼
-EditSession.beginEditing:
-  1. Load as-shot WB from CIRAWFilter metadata
-  2. Read XMP sidecar (if exists) → populate adjustments
-  3. Check RenderedPreviewCache → if hit, show instantly, decode in background
-  4. If no cache: decode RAW (off main actor) → render → show
-  │
-  ▼
-User drags slider
-  │  adjustments.exposure = newValue (didSet fires)
-  │
-  ├─ scheduleRender() — 50ms debounce
-  │   └─ decodeAndRender(targetSize: fastTargetSize)
-  │       └─ pipeline.process() + renderPreview() → previewImage updated
-  │
-  ├─ scheduleRefine() — 300ms idle debounce (if zoomed in)
-  │   └─ decodeAndRender(targetSize: refinedTargetSize)
-  │       └─ renders at higher resolution for crisp zoom
-  │       └─ persistCurrentPreviewToCache() — JPEG written to disk
-  │
-  └─ scheduleSave() — 500ms debounce
-      └─ sidecarStore.write(adjustments, for: asset) → .xmp file
-      └─ regenerateThumbnail(for: asset) → grid thumb updated
-  │
-  ▼
-User navigates back to grid
-  │
-  ▼
-editSession.endEditing()
-  1. Cancel in-flight render/refine/save tasks
-  2. Flush final sidecar write
-  3. Regenerate thumbnail → fires onThumbnailRegenerated callback
-  4. Persist preview to disk cache
-  5. Clear all state (decodedImage, previewImage, etc.)
-```
-
-### Debounce Timings
-
-| Action                    | Delay              | Reason                                                                     |
-| ------------------------- | ------------------ | -------------------------------------------------------------------------- |
-| Render (fast preview)     | 50ms               | Responsive slider feedback; avoids rendering every intermediate value      |
-| Refine (high-res preview) | 300ms idle         | Only fires once the user stops dragging; avoids expensive renders mid-drag |
-| Sidecar save              | 500ms idle         | Batch rapid slider changes into a single disk write                        |
-| Thumbnail regen           | After sidecar save | Grid thumbnail reflects the saved state                                    |
-
-### Eyedropper (White Balance Picker)
-
-The eyedropper samples a 5x5 pixel region from the decoded CIImage at the tap location, computes the R/G and B/G ratios to derive a temperature/tint shift, and applies it to `adjustments.temperature` / `adjustments.tint`. The cursor changes to a crosshair while active (macOS).
+After the refine completes, the rendered preview is persisted to the disk cache (see [Caching](./caching.md)) so future cold-opens of the same image are instant. The rendered-preview cache key includes the adjustment version and the view-transform version, so a pipeline change invalidates stale previews.
 
 ---
 
 ## Export
 
-`ExportEngine` renders the full-resolution processed CIImage to disk:
+The export path develops the full-resolution image at `RenderQuality::Amaze`, runs the full adjustment chain + view transform, optionally resizes to a long-edge constraint, and encodes to the requested format (JPEG / HEIC / TIFF-16 / PNG). Because the develop chain is the same one the editor uses, an export is pixel-identical to the on-screen full-resolution refine.
 
-1. Decode the RAW at neutral settings (same as editing)
-2. Apply the full adjustment chain via `CIFilterMapping`
-3. Resize if the user selected a long-edge constraint
-4. Encode via `CIContext.jpegRepresentation` / `heifRepresentation` / `pngRepresentation` / `tiffRepresentation`
-5. Write to `~/Pictures/Maple Exports/` (macOS) or `Documents/Exports/` (iOS)
+---
 
-Supported formats: JPEG (quality slider), HEIC, TIFF (16-bit), PNG.
+## Non-destructive editing & sidecars
+
+Every edit is non-destructive: the original file is never modified. Adjustments serialize to an **XMP sidecar** (`crs:` namespace for Adobe-compatible fields, `papp:` for Maple-specific fields like `papp:Profile`, `papp:Brightness`, `papp:AutoExposure`). The sidecar is the contract; the pixels are derived. See [`sidecar-schema.md`](./sidecar-schema.md) for the schema and [Architecture](./architecture.md) for how the Swift and TypeScript writers stay in lockstep.
