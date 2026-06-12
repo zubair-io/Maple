@@ -221,6 +221,9 @@ pub struct IngestedFrame {
     pub priors: FramePriors,
     pub camera_make: String,
     pub camera_model: String,
+    /// OpcodeList3 corrections applied at decode (#1159) — empty when the
+    /// source carries none. Surfaced in the stitch report.
+    pub applied_opcodes: Vec<String>,
 }
 
 /// Ingest a RAW frame from bytes. `ext` is the lowercase file-extension
@@ -237,6 +240,7 @@ pub fn ingest_bytes(bytes: &[u8], ext: &str) -> Result<IngestedFrame, PanoError>
         priors,
         camera_make: decoded.metadata.camera_make,
         camera_model: decoded.metadata.camera_model,
+        applied_opcodes: decoded.applied_opcodes,
     })
 }
 
@@ -257,6 +261,7 @@ pub fn ingest_file(path: &Path) -> Result<IngestedFrame, PanoError> {
         priors,
         camera_make: decoded.metadata.camera_make,
         camera_model: decoded.metadata.camera_model,
+        applied_opcodes: decoded.applied_opcodes,
     })
 }
 

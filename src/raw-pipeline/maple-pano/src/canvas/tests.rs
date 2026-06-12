@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::camera::focal_px_for_hfov;
 use crate::prng::SplitMix64;
