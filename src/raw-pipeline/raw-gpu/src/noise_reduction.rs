@@ -26,10 +26,14 @@
 //! `out(p) = (1/Z) · Σ_{q ∈ search}  w(p,q) · I(q)`, where
 //! `w(p,q) = exp(-‖patch(p) - patch(q)‖² / (h²·patch_area))` and the centre pixel
 //! `q = p` is added at the end with weight = running max weight (self-similarity
-//! correction). raw-core uses per-shift integral images to make the patch-SSD
-//! O(1); we recompute the patch sum DIRECTLY (see `noise_reduction.wgsl`) because
-//! an integral-image accumulate would need a 5th storage buffer — over the
-//! `downlevel_defaults()` 4-storage cap. Correctness-only; perf is P4.
+//! correction). raw-core computes the patch-SSD with a per-shift separable
+//! sliding box-sum (#1195; it previously used a per-shift integral image);
+//! either way the patch SSD is a sum of `(I(q) - I(q+d))²` over the (2P+1)²
+//! patch. We recompute that sum DIRECTLY in registers (see
+//! `noise_reduction.wgsl`) — a materialised-intermediate accumulate would need
+//! a 5th storage buffer, over the `downlevel_defaults()` 4-storage cap. The
+//! direct register sum matches raw-core's local box-sum to the f32 floor
+//! (plane-parity max abs diff ~5e-8). Correctness-only; perf is P4.
 //!
 //! ## Buffer budget (every kernel ≤ 4 storage)
 //!

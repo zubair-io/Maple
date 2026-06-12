@@ -7,18 +7,20 @@
 // wrapped by `raw_core::stages::noise_reduction::{apply_luminance,apply_color}`
 // (the Oklab adapter), `< 1e-4`.
 //
-// ## Why no integral image (the Darbon 2008 fast variant raw-core uses)
+// ## Why we recompute the patch-SSD directly (no materialised intermediate)
 //
-// raw-core collapses the (2P+1)² patch-SSD inner loop with a per-shift integral
-// image: `SSD = ii_bot[x1] - ii_top[x1] - ii_bot[x0] + ii_top[x0]`. That O(1)
-// rect query is mathematically the sum of `(I(q) - I(q+d))²` over the patch — so
-// we recompute that sum DIRECTLY in the accumulate kernel (a nested patch loop),
-// reading only the plane. This is BUFFER-FORCED, not a perf choice: an
-// integral-image accumulate would bind `plane + ii + acc + wsum + max_w` = 5
-// storage buffers, over the `downlevel_defaults()` 4-storage cap. Direct-sum
-// binds `plane + acc + wsum + max_w` = 4. (Perf is P4; this is correctness-only.)
-// The only numerical delta from raw-core is float summation ORDER of the same
-// (2P+1)² non-negative terms — a ~1e-6 effect, well under the 1e-4 gate.
+// raw-core collapses the (2P+1)² patch-SSD inner loop with a per-shift separable
+// sliding box-sum (#1195; formerly a per-shift integral image). Either way the
+// patch SSD equals the sum of `(I(q) - I(q+d))²` over the (2P+1)² patch — so we
+// recompute that sum DIRECTLY in the accumulate kernel (a nested patch loop),
+// reading only the plane. This is BUFFER-FORCED, not a perf choice: binding a
+// materialised box-sum/integral plane alongside the accumulators would be
+// `plane + aux + acc + wsum + max_w` = 5 storage buffers, over the
+// `downlevel_defaults()` 4-storage cap. Direct-sum binds `plane + acc + wsum +
+// max_w` = 4. (Perf is P4; this is correctness-only.) The only numerical delta
+// from raw-core is float summation ORDER of the same (2P+1)² non-negative terms;
+// since raw-core's box-sum forms the SAME local sum (no global prefix), the
+// plane-parity max abs diff is ~5e-8 — well under the 1e-4 gate.
 //
 // ## Why the exp is `lerp(exp(-x_i), exp(-x_{i+1}), frac)`, not `exp(-x)`
 //
