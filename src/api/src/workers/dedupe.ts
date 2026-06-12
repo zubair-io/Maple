@@ -196,10 +196,7 @@ async function processAsset(
             {
               $and: [
                 {
-                  $or: [
-                    { 'e.missing_since': { $exists: false } },
-                    { 'e.missing_since': null },
-                  ],
+                  $or: [{ 'e.missing_since': { $exists: false } }, { 'e.missing_since': null }],
                 },
                 {
                   $or: absentEntries.map((e) => ({
