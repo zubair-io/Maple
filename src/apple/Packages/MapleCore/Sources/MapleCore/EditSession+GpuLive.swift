@@ -65,29 +65,40 @@ extension EditSession {
         targetSize: CGSize?,
         gen: UInt64?
     ) async -> Bool {
-        guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else { return false }
-        // The live chain is the RAW scene-linear chain (the decode-boundary
-        // contract is written for the RAW decode buffer). Non-RAW keeps its CPU
-        // path this cut — its decode/contract differ (no AE/capture-sharpen bake).
-        guard asset.isRaw else { return false }
-        // No canvas to present into yet — let the CPU path publish a CIImage so
-        // SOMETHING is on screen until the layer lays out and registers.
-        guard driver.hasLayer else { return false }
+        guard GpuLiveFlag.isEnabled, let driver = gpuLiveDriver else {
+            editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
+            return false
+        }
+        guard asset.isRaw else {
+            editSessionLogger.notice("GPU-TRACE reject non-raw gen=\(gen ?? 0)")
+            return false
+        }
+        guard driver.hasLayer else {
+            editSessionLogger.notice("GPU-TRACE reject no-layer gen=\(gen ?? 0)")
+            return false
+        }
 
         let m = model
         let pipeline = self.pipeline
         let assetURL = asset.primaryURL
 
-        // Open (upload-once) the session for these dims if needed. The readback
-        // is the per-DECODE cost; `open` re-uploads only on a dims change.
         let dims = Self.gpuTargetDims(for: decoded, targetSize: targetSize, pipeline: pipeline)
-        guard let dims else { return false }
+        guard let dims else {
+            editSessionLogger.notice("GPU-TRACE reject nil-dims decoded.extent=\(decoded.extent.width)x\(decoded.extent.height) target=\(targetSize.map { "\($0.width)x\($0.height)" } ?? "nil")")
+            return false
+        }
+        editSessionLogger.notice("GPU-TRACE enter gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height) profile=\(String(describing: m.profile), privacy: .public)")
+
         if !driver.isOpen(width: dims.width, height: dims.height) {
+            editSessionLogger.notice("GPU-TRACE open begin gen=\(gen ?? 0)")
             guard let buf = pipeline.sceneLinearFloats(from: decoded, targetSize: targetSize) else {
+                editSessionLogger.notice("GPU-TRACE reject readback-fail gen=\(gen ?? 0)")
                 return false
             }
+            editSessionLogger.notice("GPU-TRACE readback ok pixels=\(buf.pixels.count) dims=\(buf.width)x\(buf.height) firstPx=[\(buf.pixels[0]), \(buf.pixels[1]), \(buf.pixels[2]), \(buf.pixels[3])]")
             do {
                 try driver.open(pixels: buf.pixels, width: buf.width, height: buf.height)
+                editSessionLogger.notice("GPU-TRACE open ok gen=\(gen ?? 0)")
             } catch {
                 editSessionLogger.error(
                     "GPU live open failed: \(error.localizedDescription, privacy: .public) — CPU fallback")
@@ -113,23 +124,24 @@ extension EditSession {
             }
         }
 
-        // Clear any prior error BEFORE the present (optimistic) so a recovered
-        // present drops the banner; the `onError` closure re-sets it on failure
-        // (clearing AFTER would swallow the very error the closure just set).
         renderError = nil
+        // Align the layer's drawableSize to the image dims BEFORE present —
+        // see `GpuLiveDriver.setDrawableSize` doc for why; without this the
+        // viewport-derived drawableSize is 1 pixel off the image dims, the
+        // wgpu chain's `surface_dims == image_dims` assertion fails, and the
+        // present throws `GpuLiveError(1)` (#1240).
+        driver.setDrawableSize(width: dims.width, height: dims.height)
+        editSessionLogger.notice("GPU-TRACE present begin gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height)")
+        var presentErr: Error? = nil
         await driver.present(model: m) { [weak self] error in
-            // A real GPU/present failure: surface it on the session banner
-            // (device logs aren't capturable). We've already committed to the
-            // GPU path for this frame, so we don't retro-fall-back to CPU here —
-            // the next tick re-attempts; a persistent failure shows the banner.
+            presentErr = error
             self?.renderError = error
         }
-        // A frame is now on the canvas layer — drive the loading indicator +
-        // canvas-ready sentinel off this (renderedPreview is never set on this
-        // path). NOT set in the stale-drop branch above (no frame presented). #1069
-        // Latch once per session: `EditSession` is `@Observable` and fires on
-        // every assignment (no same-value dedup), so an unguarded per-present
-        // write would invalidate observing views each frame.
+        if let presentErr {
+            editSessionLogger.notice("GPU-TRACE present FAILED gen=\(gen ?? 0): \(presentErr.localizedDescription, privacy: .public)")
+        } else {
+            editSessionLogger.notice("GPU-TRACE present OK gen=\(gen ?? 0)")
+        }
         if !gpuFramePresented { gpuFramePresented = true }
         // GPU analog of the CPU publish clear (#1221): `decodeAndRender` returns
         // early on a successful GPU present and never reaches its `renderedPreview`

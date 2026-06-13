@@ -19,6 +19,13 @@ use std::cell::{OnceCell, RefCell};
 pub struct GpuContext {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    /// The wgpu instance the adapter was requested from. Held so the present
+    /// paths (`CAMetalLayer` #1028 / web canvas #1029) can create their surface
+    /// from THIS SAME instance — otherwise `surface.get_capabilities(&adapter)`
+    /// panics with `Adapter[Id(…)] does not exist` (#1240). Adapters belong to
+    /// the instance that produced them; mixing a surface from a fresh instance
+    /// with this instance's adapter trips wgpu's per-instance hub registry.
+    pub instance: wgpu::Instance,
     /// The adapter the device was created from. Held so a display surface (the
     /// P4b present paths — Apple `CAMetalLayer` #1028, web canvas #1029) can query
     /// `Surface::get_capabilities(&adapter)` and configure itself on THIS device
@@ -320,6 +327,7 @@ impl GpuContext {
         Ok(Self {
             device,
             queue,
+            instance,
             adapter,
             exposure_pipeline: OnceCell::new(),
             vibrance_pipeline: OnceCell::new(),

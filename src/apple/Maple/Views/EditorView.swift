@@ -260,24 +260,9 @@ struct EditorView: View {
 
     // MARK: - Canvas
 
-    /// True when the canvas should present via the wgpu live path. Mirrors
-    /// `FullImageView.useGpuCanvas` and `EditSession.presentViaGpuLive`'s own
-    /// `guard asset.isRaw`: the GPU live chain only handles RAW; non-RAW falls
-    /// through to the CPU `CanvasImageView` leaf.
-    ///
-    /// OPT-IN: defaults OFF on both macOS and iOS pending editor-canvas
-    /// validation of the wgpu chain. Initial #1240 user report: with the
-    /// GPU canvas wired in, the editor presents to a black surface on
-    /// both platforms after the first present lands (the CPU overlay
-    /// drops, the Metal layer reveals, and nothing is on it). The chain
-    /// works in the parity gates but the in-editor present is producing
-    /// no visible output — root cause is open. Set
-    /// `MAPLE_GPU_EDITOR=1` (any platform) to opt in for the validation
-    /// work itself; default behaviour is unchanged from pre-#1240.
+    /// True when the canvas should present via the wgpu live path.
     private var useGpuCanvas: Bool {
-        let optIn = ProcessInfo.processInfo.environment["MAPLE_GPU_EDITOR"] == "1"
-        guard optIn else { return false }
-        return FullImageViewVM.shouldPresentViaGpuCanvas(
+        FullImageViewVM.shouldPresentViaGpuCanvas(
             flagEnabled: GpuLiveFlag.isEnabled,
             isRaw: state.session.asset.isRaw,
             showingOriginal: state.session.showingOriginal

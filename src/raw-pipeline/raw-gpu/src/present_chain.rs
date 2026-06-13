@@ -85,17 +85,24 @@ pub unsafe fn present_chain_to_surface(
         ));
     }
 
-    let instance = wgpu::Instance::default();
+    // Create the surface from the CONTEXT's instance, not a fresh one (#1240).
+    // Adapters belong to the instance that produced them; a surface from a
+    // sibling instance + `get_capabilities(&ctx.adapter)` panics with
+    // `Adapter[Id(…)] does not exist` because wgpu's hub registry is
+    // per-instance. The fresh-instance shape worked in unit tests against an
+    // `Instance::default()` that happened to enumerate the same adapter, but
+    // fails on the very first present call in production — the bug behind the
+    // editor's "image disappears" report (#1240 user trace:
+    // `gpu_present_chain: panicked: Adapter[Id(0,1)] does not exist`).
+    //
     // SAFETY: `layer` is a valid CAMetalLayer* per this fn's contract; the surface
     // is used and dropped entirely within this call.
-    let surface = instance
+    let surface = ctx
+        .instance
         .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
         .map_err(|e| format!("create_surface_unsafe failed: {e}"))?;
 
-    // Reuse the context's adapter (it was requested without a compatible_surface,
-    // but on Metal there is a single adapter, so it is surface-compatible). The
-    // surface MUST be configured with the context's DEVICE so the f32 chain buffer
-    // — bound in the present pass — is on the same device as the surface texture.
+    // Now `surface` and `ctx.adapter` share the same instance, so this is safe.
     let caps = surface.get_capabilities(&ctx.adapter);
     if caps.formats.is_empty() {
         return Err("surface advertised no formats".to_string());
