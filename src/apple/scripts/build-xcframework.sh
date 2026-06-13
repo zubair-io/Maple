@@ -89,6 +89,39 @@ echo "    raw-ffi:    $RAW_FFI_DIR"
 echo "    frameworks: $FRAMEWORKS_DIR"
 echo "    profile:    $PROFILE"
 echo "    GPU:        ON (--features gpu, offline + vendored — always-gpu since #1064)"
+echo "    PANO-iOS:   ON (--features pano-ios for iOS slices; static ORT — M6 #1244)"
+
+# ---------------------------------------------------------------------------
+# 0a-pano. Provision the ONNX Runtime iOS static xcframework (M6 #1244).
+#
+# The ORT iOS static lib is required for the iOS + iOS-sim slices when
+# `pano-ios` is enabled. It is NOT committed (35 MB arm64 static + 76 MB
+# fat sim static — over GitHub's per-file limit); fetch-ort-ios.sh caches
+# it at ~/.cache/maple-pano/ort-ios/ and verifies the ZIP SHA-256.
+#
+# ORT version 1.22.0 (pod-archive-onnxruntime-c-1.22.0.zip) pairs with the
+# workspace's `ort = "=2.0.0-rc.10"` crate (which binds ORT 1.22.x C API).
+# The official iOS pod is a static xcframework — libonnxruntime.a for arm64
+# and a fat arm64+x86_64 for the simulator — and includes the CoreML EP
+# symbols (M6-C placeholder, not yet wired).
+# ---------------------------------------------------------------------------
+ORT_IOS_XCFW_BASE="${HOME}/.cache/maple-pano/ort-ios/onnxruntime-c-1.22.0/onnxruntime.xcframework"
+
+fetch_ort_ios_if_needed() {
+    local fetch_script="$SCRIPT_DIR/fetch-ort-ios.sh"
+    if [[ ! -x "$fetch_script" ]]; then
+        echo "ERROR: fetch-ort-ios.sh not found at $fetch_script" >&2
+        exit 1
+    fi
+    if [[ ! -f "${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework/onnxruntime" ]]; then
+        echo "==> ORT iOS static lib not cached — fetching..."
+        "$fetch_script"
+    else
+        echo "==> ORT iOS static lib cached at $ORT_IOS_XCFW_BASE"
+    fi
+}
+
+fetch_ort_ios_if_needed
 
 LIB_NAME="libraw_ffi.a"
 
@@ -148,7 +181,8 @@ compute_input_hash() {
             "$RAW_PIPELINE_DIR/raw-core/Cargo.toml" \
             "$RAW_PIPELINE_DIR/raw-ffi/Cargo.toml" \
             "$RAW_PIPELINE_DIR/maple-pano/Cargo.toml" \
-            "$RAW_FFI_DIR/cbindgen.toml"; do
+            "$RAW_FFI_DIR/cbindgen.toml" \
+            "$SCRIPT_DIR/fetch-ort-ios.sh"; do
             [[ -f "$f" ]] && shasum "$f"
         done
     } | shasum | awk '{print $1}'
@@ -251,19 +285,51 @@ build_target() {
         # + links into every slice (incl. aarch64-apple-ios — the #1 risk) with no
         # crates.io round-trip and no DNS flake.
         #
-        # `--features pano` is unconditional since M3 of epic #1234 (#1235):
-        # it pulls `maple-pano` (with its `ml` feature: ALIKED + LightGlue via ort
-        # `load-dynamic`) into every slice and compiles the `maple_pano_stitch`
-        # symbol. On iOS/iOS-sim the ML code-path is `#[cfg(target_os="macos")]`
-        # -gated inside `src/pano.rs`, so no ort dylib is needed at runtime on
-        # those slices — the symbol exists but returns error −3 (pending M6 #1234).
-        # All ort/libloading/sha2/toml transitive deps are already vendored.
+        # Pano features (M6 #1244 — split by target):
+        #
+        # macOS slices (`--features gpu,pano`): pulls `maple-pano` with `ml`
+        # (ALIKED + LightGlue via ort `load-dynamic`). The onnxruntime dylib is
+        # loaded at runtime; it is NOT embedded in the xcframework.
+        #
+        # iOS + iOS-sim slices (`--features gpu,pano-ios`): pulls `maple-pano`
+        # with `ml-static` (ort WITHOUT `load-dynamic`). `ORT_LIB_LOCATION`
+        # points at the official iOS static xcframework (cached by fetch-ort-ios.sh
+        # at ~/.cache/maple-pano/ort-ios/). ort-sys sees `libonnxruntime.a` (or the
+        # framework binary named `onnxruntime`) in that dir and emits
+        # `cargo:rustc-link-lib=static=onnxruntime`. The iOS sandbox blocks dlopen
+        # of arbitrary paths — static linking is the only correct path.
+        #
+        # The framework binary inside Apple's pod is named `onnxruntime` (no lib
+        # prefix, no .a extension). ort-sys's build.rs accepts this exact name in
+        # addition to `libonnxruntime.a`; we symlink `libonnxruntime.a` in the
+        # framework dir to be safe.
+        local PANO_FEATURES="pano"
+        case "$triple" in
+            *-apple-ios|*-apple-ios-sim)
+                PANO_FEATURES="pano-ios"
+                # ort-sys's build.rs searches for `libonnxruntime.a` in the dir.
+                # Apple's pod names the binary `onnxruntime`; create a symlink.
+                case "$triple" in
+                    *-apple-ios)
+                        ORT_FRAMEWORK_DIR="${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework"
+                        ;;
+                    *-apple-ios-sim)
+                        ORT_FRAMEWORK_DIR="${ORT_IOS_XCFW_BASE}/ios-arm64_x86_64-simulator/onnxruntime.framework"
+                        ;;
+                esac
+                if [[ ! -f "$ORT_FRAMEWORK_DIR/libonnxruntime.a" ]]; then
+                    ln -sf "$ORT_FRAMEWORK_DIR/onnxruntime" "$ORT_FRAMEWORK_DIR/libonnxruntime.a"
+                fi
+                export ORT_LIB_LOCATION="$ORT_FRAMEWORK_DIR"
+                echo "    ORT_LIB_LOCATION=$ORT_LIB_LOCATION (static, M6 #1244)"
+                ;;
+        esac
         CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
             --config 'source.crates-io.replace-with="vendored-sources"' \
             --config "source.vendored-sources.directory=\"$RAW_PIPELINE_DIR/vendor\"" \
             --target "$triple" \
             --package raw-ffi \
-            --features gpu,pano \
+            --features "gpu,$PANO_FEATURES" \
             2>&1
     )
 }

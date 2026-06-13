@@ -1,20 +1,27 @@
-//! Panorama stitch C-FFI — `maple_pano_stitch` (M3 of epic #1234, issue #1235).
+//! Panorama stitch C-FFI — `maple_pano_stitch` (M3 of epic #1234, issue #1235;
+//! iOS static-link enabled in M6, issue #1244).
 //!
 //! # Gating
 //!
-//! **macOS** (`#[cfg(target_os = "macos")]`): the real path. Calls
-//! `maple_pano`'s full pipeline via [`maple_pano::stitch::stitch`] —
-//! the single shared orchestration for both this FFI entry and
-//! `maple-cli pano stitch` (CLAUDE.md principle #4 — parity is a merge
-//! gate). Both callers produce byte-identical output given the same inputs.
+//! **macOS** (`#[cfg(target_os = "macos")]`, `--features pano`): the real
+//! path using `ort` with `load-dynamic`. Calls `maple_pano`'s full pipeline
+//! via [`maple_pano::stitch::stitch`] — the single shared orchestration for
+//! both this FFI entry and `maple-cli pano stitch` (CLAUDE.md principle #4 —
+//! parity is a merge gate).
 //!
-//! **iOS / iOS-Simulator** (all other Apple targets): the ML runtime
-//! (`ort` + ONNX models) cannot be embedded in the xcframework in the
-//! current milestone. The symbol still exists so the link step succeeds,
-//! but it returns error code −3 ("unsupported on this platform") and sets
-//! `maple_last_error`. iOS embedding is **deliberately deferred to M6 of
-//! #1234** — see the `#[cfg(not(target_os = "macos"))]` stub below and
-//! the comment there.
+//! **iOS + iOS-Simulator** (`#[cfg(target_os = "ios")]`, `--features
+//! pano-ios`, M6 #1244): the same real path, now enabled on iOS via
+//! statically-linked ONNX Runtime. `ort` is built WITHOUT `load-dynamic`
+//! (the `ml-static` feature in maple-pano), and `ORT_LIB_LOCATION` in the
+//! xcframework build script points at the official iOS static xcframework
+//! (`pod-archive-onnxruntime-c-1.22.0.zip`) so ort-sys links statically.
+//! The iOS sandbox blocks `dlopen` of arbitrary paths — static linking is
+//! the only correct path.
+//!
+//! The `pano_apple.rs` module (previously `pano_macos.rs`) is
+//! platform-agnostic: it calls `maple_pano::stitch::stitch`, which contains
+//! no platform-specific code. The rename and cfg change remove the old -3
+//! stub and let both Apple slices use the real orchestration.
 //!
 //! # ABI conventions (mirrors `render.rs` / `scene_linear_f32.rs`)
 //!
@@ -45,11 +52,15 @@ use crate::MapleCancelFlag;
 
 use std::ffi::{c_char, c_void, CStr};
 
-// `with_large_stack` is only referenced inside the `#[cfg(target_os = "macos")]`
-// block below. Gate the import the same way so the iOS/iOS-sim build stays
-// warning-free.
-#[cfg(target_os = "macos")]
+// `with_large_stack` is referenced inside the `#[cfg(any(target_os = ...))]`
+// block below. Gate the import the same way so a hypothetical non-Apple build
+// (macOS or iOS slice without pano/pano-ios) stays warning-free.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 use crate::error::with_large_stack;
+
+// Both `pano` and `pano-ios` activate the same `dep:maple-pano` dep entry
+// with different feature sets (`ml` vs `ml-static`). The Rust crate name
+// is `maple_pano` in both cases — no alias needed.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public ABI types (cbindgen emits these into RawPipeline.h)
@@ -206,34 +217,41 @@ pub unsafe extern "C" fn maple_pano_stitch(
         user: cb_user,
     };
 
-    // ── macOS-only stitch path ────────────────────────────────────────────
-    #[cfg(target_os = "macos")]
+    // ── Apple stitch path (macOS + iOS, M6 #1244) ────────────────────────
+    //
+    // Both `pano` (macOS, load-dynamic ort) and `pano-ios` (iOS, static ort,
+    // M6 #1244) reach the same `pano_apple::run_stitch_apple` orchestration.
+    // The difference is in how ORT is initialized:
+    //   macOS: `ort::init_from(dylib_path)` (load-dynamic) in OrtRuntime::preflight
+    //   iOS:   `ort::init()` (static) in OrtRuntime::preflight (ml-static path)
+    // Both paths are handled inside maple_pano — this FFI layer is
+    // platform-agnostic.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         // `cb` is a `SendProgressCallback` which implements `Send` (see
         // struct-level safety comment). The struct is captured whole so the
         // raw `*mut c_void` it wraps crosses the thread boundary through the
         // `Send` impl, not as a bare naked pointer.
         with_large_stack(move || {
-            pano_macos::run_stitch_macos(
+            pano_apple::run_stitch_apple(
                 owned_paths,
                 out_path_str,
                 retention,
                 local_align,
                 strategy,
-                cb, // SendProgressCallback (Send) — pano_macos deconstructs it
+                cb, // SendProgressCallback (Send) — pano_apple deconstructs it
                 send_cancel,
             )
         })
     }
 
-    // ── Non-macOS stub (iOS / iOS-sim) ────────────────────────────────────
-    // Panorama stitch via the ONNX-backed ALIKED + LightGlue pipeline is
-    // NOT supported on iOS in this milestone (M3 of #1234). iOS embedding
-    // of the ONNX Runtime dylib requires packaging the framework into the
-    // xcframework and wiring `ort::init_from` to the on-device path —
-    // tracked as **M6 of epic #1234**. Until then, the FFI symbol exists
-    // so the static link step succeeds, but calling it returns this error.
-    #[cfg(not(target_os = "macos"))]
+    // ── Non-Apple stub ─────────────────────────────────────────────────────
+    // The xcframework build only targets Apple (macOS, iOS, iOS-sim).
+    // This branch is unreachable in any xcframework slice but is required to
+    // satisfy the compiler on non-Apple host builds (e.g. `cargo check` on
+    // Linux, the web WASM build). It is NOT the old iOS -3 stub — iOS now
+    // reaches the real path above.
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     {
         let _ = (
             owned_paths,
@@ -245,9 +263,7 @@ pub unsafe extern "C" fn maple_pano_stitch(
             send_cancel,
         );
         set_last_error(
-            "maple_pano_stitch: not supported on this platform — panorama \
-             ONNX-ML stitch on iOS/iPadOS is pending M6 of #1234"
-                .into(),
+            "maple_pano_stitch: not supported on this platform (pano is Apple-only)".into(),
         );
         -3
     }
@@ -276,9 +292,10 @@ pub(super) struct SendProgressCallback {
 unsafe impl Send for SendProgressCallback {}
 
 // ─────────────────────────────────────────────────────────────────────────────
-// macOS implementation (compiled only on macOS) — split to pano_macos.rs per
-// the 600-LOC per-file budget.
+// Apple implementation (macOS + iOS) — split to pano_apple.rs per the 600-LOC
+// per-file budget. Previously named pano_macos.rs; renamed + cfg expanded to
+// cover iOS in M6 #1244.
 // ─────────────────────────────────────────────────────────────────────────────
-#[cfg(target_os = "macos")]
-#[path = "pano_macos.rs"]
-mod pano_macos;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[path = "pano_apple.rs"]
+mod pano_apple;
