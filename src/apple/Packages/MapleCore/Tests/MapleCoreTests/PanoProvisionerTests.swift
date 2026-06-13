@@ -117,12 +117,13 @@ struct PanoProvisionerTests {
         let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
         let modelsDir = dir.appendingPathComponent("models", isDirectory: true)
         try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
-        let bytes = Data("the model".utf8)
-        _ = try writeFixture(bytes, to: modelsDir.appendingPathComponent("present.onnx"))
+        // Real SHA, because isModelInstalled() verifies the digest (not just size).
+        let (presentSha, presentSize) = try writeFixture(
+            Data("the model".utf8), to: modelsDir.appendingPathComponent("present.onnx"))
 
         let present = PanoArtifactSpec(
             label: "Present", url: URL(string: "https://example.invalid/p")!,
-            sha256: String(repeating: "0", count: 64), size: bytes.count,
+            sha256: presentSha, size: presentSize,
             kind: .modelFile(filename: "present.onnx"))
         let missing = PanoArtifactSpec(
             label: "Missing", url: URL(string: "https://example.invalid/m")!,
@@ -155,6 +156,39 @@ struct PanoProvisionerTests {
         #else
         // iOS ignores the ORT source (the runtime is embedded at build time).
         #expect(PanoProvisioner.canAutoProvision(status(.appSupport, .environment)))
+        #endif
+    }
+
+    @Test("a right-sized but wrong-content file is not treated as installed")
+    func rejectsWrongContentSameSize() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let modelsDir = dir.appendingPathComponent("models", isDirectory: true)
+        try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+        let real = Data(repeating: 0x41, count: 256)
+        let wrong = Data(repeating: 0x42, count: 256)   // same size, different bytes
+        try wrong.write(to: modelsDir.appendingPathComponent("m.onnx"))
+        let realSha = SHA256.hash(data: real).map { String(format: "%02x", $0) }.joined()
+        let spec = PanoArtifactSpec(
+            label: "M", url: URL(string: "https://example.invalid/m")!,
+            sha256: realSha, size: real.count, kind: .modelFile(filename: "m.onnx"))
+        let prov = PanoProvisioner(modelsDir: modelsDir, ortDylibPath: nil, modelSpecs: [spec], ortSpec: nil)
+        let plan = await prov.plan()
+        #expect(plan.pending == ["M"], "a wrong-content file must not count as installed")
+    }
+
+    @Test("isReady: macOS needs models + ORT; iOS needs models only")
+    func isReadyPlatform() {
+        func st(_ models: Bool, _ ort: Bool) -> PanoProvisioningStatus {
+            PanoProvisioningStatus(
+                modelsDir: nil, modelsDirSource: .appSupport, modelsDirExists: models,
+                ortDylibPath: nil, ortDylibSource: .appSupport, ortDylibExists: ort)
+        }
+        #if os(macOS)
+        #expect(PanoProvisioner.isReady(st(true, true)))
+        #expect(!PanoProvisioner.isReady(st(true, false)))
+        #else
+        #expect(PanoProvisioner.isReady(st(true, false)))   // iOS: ORT embedded at build time
+        #expect(!PanoProvisioner.isReady(st(false, false)))
         #endif
     }
 
