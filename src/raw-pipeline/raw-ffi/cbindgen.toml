@@ -19,3 +19,9 @@ language = "C"
 
 [defines]
 "target_vendor = apple" = "__APPLE__"
+# Maps Rust `#[cfg(target_os = "ios")]` → `#if defined(TARGET_OS_IOS)` in the
+# generated header. Used by `maple_pano_ort_selftest` (M6 #1244) so the iOS
+# smoke-test FFI entry is declared only in the iOS-target header (not macOS).
+# On macOS builds the preprocessor constant is undefined, so the declaration
+# is excluded and no link error occurs.
+"target_os = ios" = "TARGET_OS_IOS"

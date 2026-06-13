@@ -10,6 +10,10 @@
 
 import XCTest
 
+// MapleUITests uses MapleAppDriver (which calls AppKit / XCUIApplication for
+// macOS live-UI driving). Gate it out on iOS so the target can also compile
+// for the iOS Simulator (needed by PanoOrtSelftestUITests, M6 #1244).
+#if os(macOS)
 final class MapleUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -80,3 +84,4 @@ final class MapleUITests: XCTestCase {
         // Always pass — this is a recording test, not a gate.
     }
 }
+#endif // os(macOS)

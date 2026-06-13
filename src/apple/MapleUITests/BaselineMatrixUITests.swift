@@ -26,6 +26,9 @@
 // To gate, run SliderMatrixUITests instead.
 
 import XCTest
+// BaselineMatrixUITests uses MapleAppDriver + AppKit for macOS live-UI driving.
+// Gate it out on iOS so the target can compile for iOS Simulator (M6 #1244).
+#if os(macOS)
 import AppKit
 import CoreImage
 import ImageIO
@@ -372,3 +375,4 @@ final class BaselineMatrixUITests: XCTestCase {
         }
     }
 }
+#endif // os(macOS)
