@@ -248,67 +248,94 @@ fn gate_deterministic() {
 
 // ─── Tiling invariant (M6-D, #1248) ──────────────────────────────────────────
 
-/// Tiling invariant: `composite_tiled_frames` with any tile height produces
-/// exactly the same valid pixels as the full-canvas Voronoi path.
+/// Tiling invariant: `composite_tiled_frames` with multiple tile heights
+/// produces pixel-identical output to the REAL `composite` (with
+/// `levels_override: Some(1)` to match the tiled path's linear Voronoi blend).
 ///
-/// The tiled path uses linear Voronoi blending (blend_levels=1). The full
-/// path uses multi-band with the same Voronoi mask. Because Voronoi assigns
-/// exclusive ownership to one frame per pixel, both algorithms write
-/// unmodified warp samples — the blend algebra cancels to the identity for
-/// exclusive weights.  This test verifies that the strip arithmetic produces
-/// bit-identical pixel values for every valid canvas pixel.
+/// This test compares the tiled path against the production `composite` path,
+/// not against itself. The reference is `composite` with `levels_override: 1`
+/// (single-band = pure linear Voronoi), which is what the tiled path
+/// implements. Voronoi assigns exclusive ownership (each canvas pixel belongs
+/// to exactly one frame), so with single-band blending the result must be
+/// pixel-identical regardless of tile decomposition — the strip arithmetic
+/// cannot change which sample is written.
+///
+/// Tile heights tested: 1, 7, 23, 64, and the full canvas height (the last
+/// exercises the no-split degenerate case).
 #[test]
-fn tiling_equals_full_composite_on_exclusive_voronoi() {
-    // 6-frame partial ring: non-trivial overlap, no full wrap (avoids the
-    // case where every pixel is owned by some frame — we want to see that
-    // uncovered pixels stay invalid too).
+fn tiling_equals_real_composite() {
+    // 6-frame partial ring: non-trivial overlap, no full wrap (we want
+    // uncovered pixels to stay invalid — a full ring would cover everything
+    // and not exercise the validity-boundary logic).
     let source = scene(77);
     let cams = camera_set(&ring(6, 55.0, false), 11);
     let frames = gt_frames(&source, &cams);
-    let gains: Vec<[f32; 3]> = vec![[1.0; 3]; cams.len()];
 
-    let canvas_opts = CanvasOptions::default();
-    let canvas = auto_canvas(&cams, &canvas_opts).expect("auto_canvas");
+    // Compute the real composite with single-band blending so the blend
+    // algebra matches the tiled path's linear Voronoi exactly.
+    let comp_opts = CompositeOptions {
+        canvas: CanvasOptions::default(),
+        levels_override: Some(1),
+        ..Default::default()
+    };
+    let (reference, report) =
+        composite(&frames, &cams, &comp_opts, &[]).expect("reference composite");
 
-    // Full-canvas reference (1 tile = whole canvas — same code path).
-    let (full, _) = composite_tiled_frames(&frames, &cams, &gains, &[], &canvas, canvas.height)
-        .expect("full tile");
+    // Re-use the canvas and gains from the reference run so both paths
+    // operate on identical geometry and colour corrections.
+    let canvas = &report.canvas;
+    let gains = &report.gains;
 
-    // Tiled at multiple heights, including non-divisors.
+    let (w, h) = (canvas.width as usize, canvas.height as usize);
+    let ref_covered = reference.validity.count_valid();
+    println!(
+        "reference: {}x{} canvas, {}/{} valid pixels, {} frames",
+        canvas.width, canvas.height, ref_covered, w * h, cams.len()
+    );
+    assert!(ref_covered > 0, "reference composite must cover some pixels");
+
+    // Tiled at multiple heights, including non-divisors and the full height.
     for tile_rows in [1u32, 7, 23, 64, canvas.height] {
-        let (tiled, _) = composite_tiled_frames(&frames, &cams, &gains, &[], &canvas, tile_rows)
-            .expect("tiled composite");
+        let (tiled, _) =
+            composite_tiled_frames(&frames, &cams, gains, &[], canvas, tile_rows)
+                .expect("tiled composite");
 
-        let (w, h) = (canvas.width as usize, canvas.height as usize);
-        let mut mismatch = 0usize;
+        let mut validity_mismatches = 0usize;
+        let mut value_mismatches = 0usize;
         for y in 0..h as u32 {
             for x in 0..w as u32 {
-                let full_v = full.validity.get(x, y);
+                let ref_v = reference.validity.get(x, y);
                 let tile_v = tiled.validity.get(x, y);
-                if full_v != tile_v {
-                    mismatch += 1;
+                if ref_v != tile_v {
+                    validity_mismatches += 1;
                     continue;
                 }
-                if full_v {
+                if ref_v {
                     let i = y as usize * w + x as usize;
-                    assert_eq!(
-                        tiled.r[i], full.r[i],
-                        "tile_rows={tile_rows} R mismatch at ({x},{y})"
-                    );
-                    assert_eq!(
-                        tiled.g[i], full.g[i],
-                        "tile_rows={tile_rows} G mismatch at ({x},{y})"
-                    );
-                    assert_eq!(
-                        tiled.b[i], full.b[i],
-                        "tile_rows={tile_rows} B mismatch at ({x},{y})"
-                    );
+                    if tiled.r[i] != reference.r[i]
+                        || tiled.g[i] != reference.g[i]
+                        || tiled.b[i] != reference.b[i]
+                    {
+                        value_mismatches += 1;
+                        if value_mismatches <= 3 {
+                            eprintln!(
+                                "  tile_rows={tile_rows} pixel ({x},{y}): \
+                                 tiled=({:.6},{:.6},{:.6}) ref=({:.6},{:.6},{:.6})",
+                                tiled.r[i], tiled.g[i], tiled.b[i],
+                                reference.r[i], reference.g[i], reference.b[i]
+                            );
+                        }
+                    }
                 }
             }
         }
         assert_eq!(
-            mismatch, 0,
-            "tile_rows={tile_rows}: {mismatch} validity mismatches"
+            validity_mismatches, 0,
+            "tile_rows={tile_rows}: {validity_mismatches} validity mismatches vs real composite"
+        );
+        assert_eq!(
+            value_mismatches, 0,
+            "tile_rows={tile_rows}: {value_mismatches} pixel value mismatches vs real composite"
         );
     }
 }

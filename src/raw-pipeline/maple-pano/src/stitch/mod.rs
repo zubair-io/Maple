@@ -118,7 +118,8 @@ pub fn stitch(
 
     let applied_opcodes: Vec<Vec<String>> =
         frames.iter().map(|f| f.applied_opcodes.clone()).collect();
-    let priors = frames.iter().map(|f| f.priors.clone()).collect();
+    let priors: Vec<crate::ingest::FramePriors> =
+        frames.iter().map(|f| f.priors.clone()).collect();
 
     // ── stage 1: ML load + proxy feature extraction ───────────────────────
     let t1 = Instant::now();
