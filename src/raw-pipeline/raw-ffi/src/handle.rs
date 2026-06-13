@@ -37,7 +37,7 @@ use crate::model::{dehaze_active, load_xmp_model_owned, LoadModel};
 use crate::scene_linear::write_scene_linear_buf;
 use raw_core::decode::decode_bytes;
 use raw_core::xmp;
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 
 /// Internal state behind the opaque pointer. Not exposed in the C ABI.
 pub(crate) struct MapleRawHandleInner {
@@ -88,20 +88,14 @@ pub unsafe extern "C" fn maple_open_raw_handle(
     *handle_out = std::ptr::null_mut();
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
-        }
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
         None
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
         }
     };
     let handle_out_addr = handle_out as usize;
@@ -111,28 +105,16 @@ pub unsafe extern "C" fn maple_open_raw_handle(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
-        {
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
             Ok(b) => b,
-            Err(e) => {
-                set_last_error(format!("raw read: {}", e));
-                return 6;
-            }
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
         };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&raw_bytes, ext)
-        }) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
             Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
-        let inner = Box::new(MapleRawHandleInner {
-            raw: raw_img,
-            model,
-        });
+        let inner = Box::new(MapleRawHandleInner { raw: raw_img, model });
         let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
         let handle = Box::new(MapleRawHandle { inner: inner_ptr });
         unsafe {
@@ -164,10 +146,7 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
     } else {
         match CStr::from_ptr(hint_ext).to_str() {
             Ok(s) => s.to_owned(),
-            Err(e) => {
-                set_last_error(format!("hint_ext not UTF-8: {}", e));
-                return 2;
-            }
+            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
         }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
@@ -175,10 +154,7 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
         }
     };
     let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
@@ -188,19 +164,11 @@ pub unsafe extern "C" fn maple_open_raw_handle_bytes(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&input, &ext_owned)
-        }) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
             Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
-        let inner = Box::new(MapleRawHandleInner {
-            raw: raw_img,
-            model,
-        });
+        let inner = Box::new(MapleRawHandleInner { raw: raw_img, model });
         let inner_ptr = Box::into_raw(inner) as *mut std::ffi::c_void;
         let handle = Box::new(MapleRawHandle { inner: inner_ptr });
         unsafe {
@@ -266,8 +234,7 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
         // RawImageCache; see Task 5). The references read here live in
         // the heap-boxed `MapleRawHandleInner` whose lifetime is tied
         // to the matching `maple_close_raw_handle` call.
-        let raw_img: &raw_core::image::RawImage =
-            unsafe { &*(raw_addr as *const raw_core::image::RawImage) };
+        let raw_img: &raw_core::image::RawImage = unsafe { &*(raw_addr as *const raw_core::image::RawImage) };
         let model: &xmp::AdjustmentModel = unsafe { &*(model_addr as *const xmp::AdjustmentModel) };
         if dehaze_active(model) {
             set_last_error("dehaze unsupported on tile path".into());
@@ -289,15 +256,9 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
                     || msg.contains("deep denoise")
                     || msg.contains("local adjustments")
                     || msg.contains("capture sharpening")
-                {
-                    return 10;
-                }
-                if msg.contains("upscale") || msg.contains("downscale-only") {
-                    return 11;
-                }
-                if msg.contains("matching aspect") {
-                    return 12;
-                }
+                { return 10; }
+                if msg.contains("upscale") || msg.contains("downscale-only") { return 11; }
+                if msg.contains("matching aspect") { return 12; }
                 return 8;
             }
         };
@@ -311,9 +272,7 @@ pub unsafe extern "C" fn maple_render_handle_scene_linear_tile(
 /// this on cache eviction or asset switch.
 #[no_mangle]
 pub unsafe extern "C" fn maple_close_raw_handle(handle: *mut MapleRawHandle) {
-    if handle.is_null() {
-        return;
-    }
+    if handle.is_null() { return; }
     let h = Box::from_raw(handle);
     if !h.inner.is_null() {
         let inner = h.inner as *mut MapleRawHandleInner;

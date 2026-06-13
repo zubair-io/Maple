@@ -229,10 +229,7 @@ fn fixture_fit_matches_cube_when_present() {
         return;
     }
     assert_eq!(rc, 0, "fit returned {rc} (expected 0 or the soft-skip 1)");
-    assert!(
-        present == 1 || size > 0,
-        "a successful fit must surface a curve or a residual"
-    );
+    assert!(present == 1 || size > 0, "a successful fit must surface a curve or a residual");
 
     // Build the composed cube the DEFAULT Apple path bakes, for the same RAW.
     let n = CUBE_N;
