@@ -19,6 +19,15 @@
         "_comment": "3-frame nadir strip (frame 0001 missing from capture) — tile strategy (auto selects tile for this translation-dominant set, spec §8 #1226). No reference (no coverage/rmse keys). No horizon gate (nadir). No rotation-model reproj keys (the tile path does not run rotation BA). dropped_frames=0 is the product bar for well-shot sets.",
         "dropped_frames": 0
       }
+    },
+    "pano_02": {
+      "stitch": {
+        "_comment": "Synthetic 6-frame 180° partial ring (pano-gen-fixture, seed 42, 1280×960 px, 60° FOV, 50% overlap). Rotation-BA strategy (mean 0.070px, max 0.216px). No reference (gitignored) — gates on StitchReport metrics only. Ceilings at observed + ~7% slack. Peak RSS (full canvas): 9.64 GB; --canvas-tile-rows 512: 7.65 GB — preliminary on pre-#1252 tiling; re-measure after #1252 merges.",
+        "dropped_frames": 0,
+        "mean_reproj_px": 0.08,
+        "max_reproj_px": 0.24,
+        "horizon_tilt_deg": 0.003
+      }
     }
   }
 }

@@ -68,6 +68,15 @@ path = "src/bin/pano-gt-render.rs"
 name = "pano-ingest-probe"
 path = "src/bin/pano-ingest-probe.rs"
 
+# pano_02 synthetic rotation fixture generator (#1256): deterministic DNG
+# writer producing 6 frames from a 180° partial ring for the canvas-tiling
+# RSS measurement. The DNGs are gitignored (test-fixtures/raws/pano_02/);
+# CI regenerates them via src/scripts/gen_pano_02.sh.
+[[bin]]
+name = "pano-gen-fixture"
+path = "src/bin/pano-gen-fixture.rs"
+
+
 # M1a gate tests need the testkit; `cargo test -p maple-pano` (no
 # features) skips them, `--all-features` runs them. Other test targets
 # under tests/ remain auto-discovered.
