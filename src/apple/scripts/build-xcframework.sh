@@ -223,6 +223,38 @@ for tool in cargo cbindgen xcodebuild; do
 done
 
 # ---------------------------------------------------------------------------
+# 0b-pano. Verify the ort-sys iOS vendor patch is applied (M6 #1244).
+#
+# The iOS build requires a patch to vendor/ort-sys/build.rs that guards the
+# clang_rt.osx link emission behind an `if !target_triple.contains("apple-ios")`
+# check. `cargo vendor` silently reverts vendor patches — this guard catches that
+# before the build fails with a cryptic linker error.
+#
+# SHA-256 of the PATCHED build.rs (must match patches/ort-sys-ios-no-clang-rt.patch).
+# Update when the patch changes: `shasum -a 256 vendor/ort-sys/build.rs`
+# ---------------------------------------------------------------------------
+ORT_SYS_PATCHED_SHA256="82aa6ecb6f147b2af1c0759b90a31a0c0b100f6c6666cd0dff5df5502acfe8fe"
+ORT_SYS_BUILD_RS="$RAW_PIPELINE_DIR/vendor/ort-sys/build.rs"
+if [[ -f "$ORT_SYS_BUILD_RS" ]]; then
+    actual_sha="$(shasum -a 256 "$ORT_SYS_BUILD_RS" | awk '{print $1}')"
+    if [[ "$actual_sha" != "$ORT_SYS_PATCHED_SHA256" ]]; then
+        echo "" >&2
+        echo "ERROR: vendor/ort-sys/build.rs does not have the expected iOS patch." >&2
+        echo "       Found SHA:    $actual_sha" >&2
+        echo "       Expected SHA: $ORT_SYS_PATCHED_SHA256" >&2
+        echo "" >&2
+        echo "       This likely means 'cargo vendor' was re-run and reverted the patch." >&2
+        echo "       Re-apply it:" >&2
+        echo "         src/raw-pipeline/scripts/re-apply-patches.sh" >&2
+        echo "       Then commit vendor/ort-sys/build.rs + vendor/ort-sys/.cargo-checksum.json." >&2
+        echo "" >&2
+        echo "       See src/raw-pipeline/patches/ort-sys-ios-no-clang-rt.patch for details." >&2
+        exit 1
+    fi
+    echo "==> ort-sys iOS patch verified (SHA $ORT_SYS_PATCHED_SHA256)"
+fi
+
+# ---------------------------------------------------------------------------
 # 1. Ensure required Rust targets are installed
 # ---------------------------------------------------------------------------
 TARGETS=(
@@ -486,6 +518,15 @@ echo "==> symbol guard — verifying header symbols are present in every slice"
 # conditional-region stripping is needed. (The two Apple-only present entries are
 # wrapped in `#if defined(__APPLE__)`, which holds on every Apple slice, so their
 # symbols are correctly expected too.)
+#
+# EXCEPTION — iOS-only symbols (M6 #1244): `maple_pano_ort_selftest` is compiled
+# only for iOS/iOS-sim (the static-link ORT path). Its declaration appears in the
+# shared header (cbindgen parses source text regardless of feature/target cfg), but
+# the symbol is NOT present in the macOS slice. We maintain an explicit list here;
+# macOS slice checks skip these. iOS/iOS-sim slices MUST have them.
+IOS_ONLY_SYMBOLS=(
+    maple_pano_ort_selftest   # ORT static-link smoke test (M6 #1244, pano-ios only)
+)
 
 # (No `mapfile` — the Xcode/CLI shebang resolves to macOS's bash 3.2, which
 # lacks it. Read line-by-line into the array the portable way.)
@@ -505,11 +546,27 @@ if [[ "${#EXPECTED_SYMBOLS[@]}" -eq 0 ]]; then
     echo "       Refusing to bless a possibly-empty xcframework." >&2
     exit 1
 fi
-echo "    expecting ${#EXPECTED_SYMBOLS[@]} exported maple_* symbols"
+echo "    expecting ${#EXPECTED_SYMBOLS[@]} exported maple_* symbols (${#IOS_ONLY_SYMBOLS[@]} iOS-only)"
+
+# Helper: returns 0 (true) if $1 is in the IOS_ONLY_SYMBOLS list.
+is_ios_only_symbol() {
+    local sym="$1"
+    local s
+    for s in "${IOS_ONLY_SYMBOLS[@]}"; do
+        [[ "$s" == "$sym" ]] && return 0
+    done
+    return 1
+}
 
 guard_failed=0
 while IFS= read -r slice_lib; do
     slice_dir="$(basename "$(dirname "$slice_lib")")"
+    # Determine whether this slice is an iOS slice (arm64 device or simulator).
+    # macOS slices are named `macos-*`; iOS slices are `ios-*`.
+    is_ios_slice=0
+    if [[ "$slice_dir" == ios-* ]]; then
+        is_ios_slice=1
+    fi
     # `nm -gU` lists external (-g), defined-only (-U) symbols. On a lipo'd
     # fat archive (the macOS slice) nm lists them per-arch; a symbol defined
     # in any arch satisfies the per-symbol check below. The Apple ABI
@@ -528,9 +585,27 @@ while IFS= read -r slice_lib; do
     # failure, not a false pass.
     defined="$(nm -gU "$slice_lib" 2>/dev/null | awk '{print $NF}' || true)"
     for sym in "${EXPECTED_SYMBOLS[@]}"; do
-        if ! grep -qxF "_$sym" <<<"$defined"; then
-            echo "ERROR: stale/incomplete slice $slice_dir: missing symbol $sym" >&2
-            guard_failed=1
+        # iOS-only symbols: required in iOS slices, must NOT be in macOS slices.
+        if is_ios_only_symbol "$sym"; then
+            if [[ "$is_ios_slice" -eq 1 ]]; then
+                # iOS slice MUST have the symbol.
+                if ! grep -qxF "_$sym" <<<"$defined"; then
+                    echo "ERROR: iOS slice $slice_dir: missing iOS-only symbol $sym" >&2
+                    guard_failed=1
+                fi
+            else
+                # macOS slice must NOT have it (would indicate a mis-build).
+                if grep -qxF "_$sym" <<<"$defined"; then
+                    echo "ERROR: macOS slice $slice_dir: found iOS-only symbol $sym (should be absent)" >&2
+                    guard_failed=1
+                fi
+            fi
+        else
+            # All-slice symbol: must be present in every slice.
+            if ! grep -qxF "_$sym" <<<"$defined"; then
+                echo "ERROR: stale/incomplete slice $slice_dir: missing symbol $sym" >&2
+                guard_failed=1
+            fi
         fi
     done
 done < <(find "$XCFW_OUT" -name "$LIB_NAME")
@@ -543,7 +618,7 @@ if [[ "$guard_failed" -ne 0 ]]; then
     echo "       rebuild every slice from the current sources." >&2
     exit 1
 fi
-echo "    OK — all ${#EXPECTED_SYMBOLS[@]} symbols present in every slice"
+echo "    OK — all ${#EXPECTED_SYMBOLS[@]} symbols verified across all slices (${#IOS_ONLY_SYMBOLS[@]} iOS-only)"
 
 # Mark this build as up-to-date for the staleness fast-path. We store the
 # input content hash (NOT a bare touch) so the next run can compare content,
