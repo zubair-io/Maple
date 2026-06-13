@@ -43,253 +43,39 @@
 //!
 //! When `StitchOptions::canvas_tile_rows` is `Some(n)`, the composite phase
 //! uses a streaming path that keeps at most **one decoded full-resolution
-//! frame** resident at a time (decoded on demand from the input paths, warped
-//! into a `canvas_width × n` strip buffer, then dropped). The output canvas
-//! is accumulated in an identically-sized strip buffer and assembled row-by-
-//! row. Multi-band blending is replaced by Voronoi-mask linear blending on
-//! the tiled path; the seam quality is identical when ownership masks are
-//! hard (which they are — Voronoi gives exclusive ownership to one frame per
-//! pixel). The gain solve runs before the pixel drop (it needs overlap
-//! sampling), after which the full-res pixel planes are freed.
-//!
-//! Measured peak RSS on pano_01 (21 DJI DNGs):
-//! - Full path (all-resident): ~71 GB
-//! - Bounded path (proxy_long_edge=1280, canvas_tile_rows=512): see PR body
-//!
-//! The default `StitchOptions::default()` uses the full path for
-//! backward compatibility; the Apple FFI (M6-E) will override
-//! `proxy_long_edge = 1280` and `canvas_tile_rows = Some(512)` for iPad.
+//! frame** resident at a time. The gain solve runs before the pixel drop.
+//! Measured peak RSS on pano_01 (21 DJI DNGs): **17.83 GB** (see
+//! composite module doc and #1254 for the memory driver details).
+
+mod io;
+mod types;
+
+pub use io::{interleave_planar, quantize_to_u16};
+pub use types::{StitchError, StitchOptions, StitchOutcome};
 
 use std::path::PathBuf;
 
-use crate::ba::{self, BaOptions, BaSolution, RetentionPolicy};
+use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
 use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
-use crate::composite::{composite, composite_tiled, CompositeOptions, CompositeReport};
+use crate::composite::{composite, composite_tiled, CompositeOptions};
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::gain::{solve_gains, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
-use crate::ingest::{ingest_file, proxy_to_long_edge, FramePriors, IngestedFrame, PlanarImage};
+use crate::ingest::{ingest_file, proxy_to_long_edge, IngestedFrame, PlanarImage};
 use crate::leveling;
 use crate::local_align::LocalCorrection;
 use crate::matching::LightGlueMatcher;
 use crate::models::ModelDir;
 use crate::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use crate::robust::RobustOptions;
-use crate::strategy::{select_strategy, Strategy, StrategyReport};
+use crate::strategy::{select_strategy, Strategy};
 use crate::twoview::PixelCorrespondence;
-
-// ─── Input options ───────────────────────────────────────────────────────────
-
-/// All tunable parameters for a single stitch run. Callers construct this
-/// with `StitchOptions::default()` and override what they need.
-#[derive(Clone)]
-pub struct StitchOptions {
-    /// Frame-retention policy passed to the BA solver.
-    pub retention: RetentionPolicy,
-    /// Enable Stage-F bilinear-mesh local alignment (#1218).
-    pub local_align: bool,
-    /// Content-based / forced strategy selection (#1226).
-    pub strategy: StrategyRequest,
-    /// Spec §5.3 mean reprojection-error acceptance gate (px).
-    pub mean_budget_px: f64,
-    /// Spec §5.3 max reprojection-error acceptance gate (px).
-    pub max_budget_px: f64,
-    /// Optional explicit models directory; `None` reads `MAPLE_PANO_MODELS`.
-    pub models_dir: Option<PathBuf>,
-    /// Long-edge cap for the feature-extraction proxy (px).
-    ///
-    /// Default **1600**. 1280 was tried (M6-D, ALIKED's native input) but
-    /// measurably starved the matcher on the acceptance set — pano_01
-    /// regressed to tile strategy + 19 orphans / no candidate at 1280 vs
-    /// rotation, 0-dropped, mean 1.13 at 1600 (#1248). The proxy feeds the
-    /// match/BA phase only, not the composite memory peak that
-    /// `canvas_tile_rows` addresses, so 1600 costs ~no memory vs 1280.
-    /// Lower it only when the matcher-quality tradeoff is acceptable.
-    pub proxy_long_edge: u32,
-    /// Total output canvas pixel cap (uniform downscale to fit).
-    pub max_canvas_px: usize,
-    /// Canvas tile height for memory-bounded composite (M6-D, #1248).
-    ///
-    /// When `Some(n)`, the composite phase processes `n` canvas rows at a
-    /// time, decoding source frames on demand and discarding them after each
-    /// tile, keeping at most **one full-resolution frame** resident per tile
-    /// pass instead of all N simultaneously. The gain solve runs before the
-    /// pixel data is freed and its result is re-used across all tiles.
-    ///
-    /// `None` (default): full-canvas all-resident path (backward compatible;
-    /// uses full multi-band blending).
-    ///
-    /// Recommended for iPad: `Some(512)`. At 512 rows × full canvas width the
-    /// peak composite-phase RSS is ≈ 0.5 GB (one frame + one tile strip +
-    /// output strip) vs. ~4 GB for the all-resident path on a 25000×9900
-    /// canvas.
-    ///
-    /// The tiled path uses linear Voronoi blending (blend_levels=1) which is
-    /// pixel-identical to the full path's blend when each pixel is exclusively
-    /// owned by one frame (which is always true for Voronoi masks). Output
-    /// quality is unchanged.
-    pub canvas_tile_rows: Option<u32>,
-    // M6-C (#1248 follow-up): CoreML EP wiring for iOS. When that lands,
-    // add `use_coreml: bool` here so the Apple FFI can request CoreML EP
-    // without touching the CLI path. Default: false (CPU-only baseline).
-}
-
-impl Default for StitchOptions {
-    fn default() -> Self {
-        Self {
-            retention: RetentionPolicy::KeepAlignable,
-            local_align: true,
-            strategy: StrategyRequest::Auto,
-            mean_budget_px: 1.5,
-            max_budget_px: 6.0,
-            models_dir: None,
-            // 1600, NOT 1280: dropping the default to 1280 starves ALIKED of
-            // keypoints on the acceptance set (pano_01 regressed to tile
-            // strategy + 19 orphans / no candidate at 1280; rotation, 0
-            // dropped, mean 1.13 at 1600 — measured). The proxy only feeds
-            // the match/BA phase, NOT the composite peak that tiling
-            // addresses, so 1600 costs ~no memory vs 1280. Callers that
-            // accept the matcher-quality tradeoff can still lower it.
-            proxy_long_edge: 1600,
-            max_canvas_px: 256_000_000,
-            canvas_tile_rows: None,
-        }
-    }
-}
 
 /// Strategy selection request (mirrors `maple_pano::strategy::StrategyRequest`
 /// re-exported here so callers don't need two imports).
 pub use crate::strategy::StrategyRequest;
-
-// ─── Output ──────────────────────────────────────────────────────────────────
-
-/// Everything `stitch` returns on success. The composited image is the
-/// primary product; all other fields are bookkeeping the CLI uses to
-/// assemble the `StitchReport` JSON (spec §6). The FFI caller ignores
-/// those fields.
-pub struct StitchOutcome {
-    /// Scene-linear Rec.2020 composite (the value the PNG/DNG writer encodes).
-    pub image: PlanarImage,
-    /// The compositing stage report (projection, canvas dims, gains, …).
-    pub comp_report: CompositeReport,
-    /// Bundle-adjustment solution (cameras, reproj stats, drops, …).
-    pub solution: BaSolution,
-    /// Per-frame local-alignment corrections (parallel to `solution.cameras`).
-    pub local_corrections: Vec<Option<LocalCorrection>>,
-    /// Strategy-selection outcome (evidence + selection + optional warning).
-    pub strategy_report: StrategyReport,
-    /// Decoded input frames (applied_opcodes survives frame consumption).
-    pub applied_opcodes: Vec<Vec<String>>,
-    /// Per-frame EXIF/gimbal priors (needed for CLI report).
-    pub priors: Vec<FramePriors>,
-    /// Number of full-resolution NCC-refined correspondences.
-    pub refined_matches: usize,
-    /// Number of correspondences that fell back to proxy accuracy.
-    pub fallback_matches: usize,
-    /// Summary of the full-resolution reverification (edges/matches dropped).
-    pub reverify: crate::graph::ReverifySummary,
-    /// Whether the BA solution was roll-leveled.
-    pub leveled: bool,
-    /// Horizon tilt in degrees when leveling was applied.
-    pub horizon_tilt_deg: Option<f64>,
-    /// Stage wall-clock timings (seconds). Indices are stage ordinals above.
-    /// Entry 5 = composite; entry 6 = not used (write is the caller's job).
-    pub stage_timings_s: [f64; 6],
-}
-
-// ─── Errors ──────────────────────────────────────────────────────────────────
-
-/// Errors from [`stitch`].
-#[derive(Debug)]
-pub enum StitchError {
-    /// Fewer than 2 input paths were provided.
-    TooFewFrames(usize),
-    /// ML environment unavailable (models dir or ORT dylib missing).
-    MlUnavailable(String),
-    /// Frame decode or prior extraction failed.
-    Decode { path: PathBuf, cause: String },
-    /// Feature extraction failed for a frame.
-    Feature { frame_idx: usize, cause: String },
-    /// LightGlue matching failed on one or more pairs.
-    MatchFailed(Vec<String>),
-    /// Bundle adjustment failed.
-    BaSolve(String),
-    /// Reverification failed.
-    Reverify(String),
-    /// Compositing failed.
-    Composite(String),
-    /// Strategy returned `Tile` — the caller must route to its tile path.
-    /// The strategy evidence is included so the caller can log it.
-    TileNotSupported(StrategyReport),
-    /// Too few frames survived bundle adjustment to composite.
-    TooFewSurvivors {
-        survived: usize,
-        dropped: Vec<ba::DroppedFrame>,
-    },
-    /// No EXIF 35mm focal length available for seeding the camera model.
-    NoFocal { path: PathBuf },
-    /// Cancelled by the caller.
-    Cancelled,
-}
-
-impl std::fmt::Display for StitchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::TooFewFrames(n) => write!(f, "need at least 2 frames, got {n}"),
-            Self::MlUnavailable(e) => write!(
-                f,
-                "ML environment unavailable: {e}\n\
-                 Set MAPLE_PANO_MODELS to the models dir and ORT_DYLIB_PATH \
-                 to libonnxruntime (>= 1.23)"
-            ),
-            Self::Decode { path, cause } => write!(f, "{}: {cause}", path.display()),
-            Self::Feature { frame_idx, cause } => {
-                write!(f, "frame {frame_idx}: feature extraction: {cause}")
-            }
-            Self::MatchFailed(pairs) => {
-                write!(
-                    f,
-                    "LightGlue failed on {} pair(s): {}",
-                    pairs.len(),
-                    pairs.join("; ")
-                )
-            }
-            Self::BaSolve(e) => write!(f, "BA solve: {e}"),
-            Self::Reverify(e) => write!(f, "reverify: {e}"),
-            Self::Composite(e) => write!(f, "composite: {e}"),
-            Self::TileNotSupported(_) => write!(
-                f,
-                "tile strategy selected; tile FFI path not yet implemented"
-            ),
-            Self::TooFewSurvivors { survived, dropped } => write!(
-                f,
-                "only {survived} frame(s) survived BA (drops: {dropped:?})"
-            ),
-            Self::NoFocal { path } => write!(
-                f,
-                "{}: no EXIF 35mm focal length — cannot seed camera model",
-                path.display()
-            ),
-            Self::Cancelled => write!(f, "cancelled by caller"),
-        }
-    }
-}
-
-// ─── Interleave helper (pub for CLI io.rs) ───────────────────────────────────
-
-/// Interleave a planar image into the ALIKED detector's packed-RGB f32 layout.
-pub fn interleave_planar(img: &PlanarImage) -> Vec<f32> {
-    let n = img.pixel_count();
-    let mut out = Vec::with_capacity(n * 3);
-    for i in 0..n {
-        out.push(img.r[i]);
-        out.push(img.g[i]);
-        out.push(img.b[i]);
-    }
-    out
-}
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
@@ -332,7 +118,7 @@ pub fn stitch(
 
     let applied_opcodes: Vec<Vec<String>> =
         frames.iter().map(|f| f.applied_opcodes.clone()).collect();
-    let priors: Vec<FramePriors> = frames.iter().map(|f| f.priors.clone()).collect();
+    let priors = frames.iter().map(|f| f.priors.clone()).collect();
 
     // ── stage 1: ML load + proxy feature extraction ───────────────────────
     let t1 = Instant::now();
@@ -441,11 +227,7 @@ pub fn stitch(
     // ── strategy selection (runs on proxy graph, before full-res reverify) ─
     let mean_focal_px = {
         let vals: Vec<f64> = full_images.iter().map(|img| img.camera.focal_px).collect();
-        if vals.is_empty() {
-            1.0
-        } else {
-            vals.iter().sum::<f64>() / vals.len() as f64
-        }
+        if vals.is_empty() { 1.0 } else { vals.iter().sum::<f64>() / vals.len() as f64 }
     };
     let strategy_report = select_strategy(
         opts.strategy,
@@ -454,7 +236,6 @@ pub fn stitch(
         mean_focal_px,
         0x1226_cafe_dead_beef,
     );
-
     if strategy_report.selected == Strategy::Tile {
         return Err(StitchError::TileNotSupported(strategy_report));
     }
@@ -528,12 +309,8 @@ pub fn stitch(
         return Err(StitchError::Cancelled);
     }
 
-    // Pull local_corrections out BEFORE consuming frames (the solution's
-    // local_corrections are parallel to the input frame list).
     let local_corrections = solution.local_corrections.clone();
 
-    // Build the (input-index → kept-index) mapping and collect cameras/
-    // corrections for the frames BA accepted.
     let kept_meta: Vec<(usize, Camera, Option<LocalCorrection>)> = frames
         .iter()
         .enumerate()
@@ -559,10 +336,10 @@ pub fn stitch(
 
     let (image, comp_report) = if let Some(tile_rows) = opts.canvas_tile_rows {
         // ── Memory-bounded tiled path (M6-D, #1248) ─────────────────────
-        //
-        // Solve gains NOW (before dropping pixel planes): gain needs the
-        // full-res frames to sample overlap means in source space.
-        let kept_cams_for_gain: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
+        // #1254: `kept_frames_for_gain` is a full-res clone and the primary
+        // memory driver of the 17.83 GB peak RSS measured on pano_01.
+        let kept_cams_for_gain: Vec<Camera> =
+            kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
         let kept_frames_for_gain: Vec<PlanarImage> = kept_meta
             .iter()
             .map(|(inp_idx, _, _)| frames[*inp_idx].image.clone())
@@ -573,51 +350,35 @@ pub fn stitch(
             &GainOptions::default(),
         )
         .map_err(|e| StitchError::Composite(e.to_string()))?;
-
-        // Drop full-res pixel planes from all ingested frames now.
-        // The input paths survive in `inputs` — we re-decode per-frame
-        // during the tiled composite below.
         drop(kept_frames_for_gain);
         drop(frames);
 
-        let kept_paths: Vec<PathBuf> = kept_meta
-            .iter()
-            .map(|(inp_idx, _, _)| inputs[*inp_idx].clone())
-            .collect();
+        let kept_paths: Vec<PathBuf> =
+            kept_meta.iter().map(|(inp_idx, _, _)| inputs[*inp_idx].clone()).collect();
         let kept_cams: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
         let kept_local: Vec<Option<LocalCorrection>> =
             kept_meta.iter().map(|(_, _, lc)| lc.clone()).collect();
 
-        // The canvas spec is computed once from cameras (no pixels needed).
         let canvas = auto_canvas(&kept_cams, &canvas_opts)
             .map_err(|e| StitchError::Composite(e.to_string()))?;
-
-        composite_tiled(
-            &kept_paths,
-            &kept_cams,
-            &gains,
-            &kept_local,
-            &canvas,
-            tile_rows,
-        )
-        .map_err(|e| StitchError::Composite(e.to_string()))?
+        composite_tiled(&kept_paths, &kept_cams, &gains, &kept_local, &canvas, tile_rows)
+            .map_err(|e| StitchError::Composite(e.to_string()))?
     } else {
         // ── Full all-resident path (default; backward compatible) ────────
-        let (kept, kept_local): (Vec<(PlanarImage, Camera)>, Vec<Option<LocalCorrection>>) = frames
-            .into_iter()
-            .zip(&solution.cameras)
-            .zip(&solution.local_corrections)
-            .filter_map(|((f, cam), lc)| cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone())))
-            .unzip();
-
+        let (kept, kept_local): (Vec<(PlanarImage, Camera)>, Vec<Option<LocalCorrection>>) =
+            frames
+                .into_iter()
+                .zip(&solution.cameras)
+                .zip(&solution.local_corrections)
+                .filter_map(|((f, cam), lc)| {
+                    cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone()))
+                })
+                .unzip();
         let (kept_frames, kept_cams): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
         composite(
             &kept_frames,
             &kept_cams,
-            &CompositeOptions {
-                canvas: canvas_opts,
-                ..Default::default()
-            },
+            &CompositeOptions { canvas: canvas_opts, ..Default::default() },
             &kept_local,
         )
         .map_err(|e| StitchError::Composite(e.to_string()))?
@@ -638,39 +399,6 @@ pub fn stitch(
         reverify,
         leveled,
         horizon_tilt_deg,
-        stage_timings_s: [
-            t_decode,
-            t_features,
-            t_graph,
-            t_refine,
-            t_solve,
-            t_composite,
-        ],
+        stage_timings_s: [t_decode, t_features, t_graph, t_refine, t_solve, t_composite],
     })
-}
-
-// ─── Shared 16-bit PNG quantizer (pub for callers) ────────────────────────────
-
-/// Quantize the scene-linear composite to a 16-bit packed RGB buffer
-/// (row-major, R/G/B interleaved). Values are clamped to [0, 1].
-/// Optionally applies IEC 61966 sRGB transfer for an eyeball-able preview.
-pub fn quantize_to_u16(img: &PlanarImage, srgb: bool) -> Vec<u16> {
-    let n = img.pixel_count();
-    let mut data = Vec::with_capacity(n * 3);
-    for i in 0..n {
-        for plane in [&img.r, &img.g, &img.b] {
-            let v = plane[i].clamp(0.0, 1.0);
-            let v = if srgb { srgb_encode(v) } else { v };
-            data.push((v * 65535.0).round() as u16);
-        }
-    }
-    data
-}
-
-fn srgb_encode(v: f32) -> f32 {
-    if v <= 0.003_130_8 {
-        12.92 * v
-    } else {
-        1.055 * v.powf(1.0 / 2.4) - 0.055
-    }
 }
