@@ -74,6 +74,9 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
     let onEditorShare: () -> Void
     /// S5 EditorView Info affordance — reveals the DetailPanel column.
     let onEditorInfo: () -> Void
+    /// M2: called when the user taps "Merge to Panorama…" from BrowseGrid
+    /// (forwarded from AppShellCenterColumn → BrowseGrid → PanoSelectionBar).
+    var onMergePanorama: (() -> Void)? = nil
 
     var body: some View {
         // In Browse mode the detail panel is suppressed entirely — the
@@ -183,7 +186,8 @@ struct AppShellMacLayout<SidebarContent: View, ToolbarContentT: ToolbarContent>:
             onFullImageFallback: onFullImageFallback,
             onEditorDismiss: onEditorDismiss,
             onEditorShare: onEditorShare,
-            onEditorInfo: onEditorInfo
+            onEditorInfo: onEditorInfo,
+            onMergePanorama: onMergePanorama
         )
     }
 }

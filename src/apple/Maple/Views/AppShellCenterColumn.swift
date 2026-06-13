@@ -71,6 +71,9 @@ struct AppShellCenterColumn: View {
     /// S5 EditorView Info affordance (reveals the DetailPanel column).
     /// Only used when `useEditor` is true; defaults to no-op. #815.
     var onEditorInfo: () -> Void = {}
+    /// Called when the user taps "Merge to Panorama…" from the BrowseGrid
+    /// multi-select action bar (M2, #1236). nil suppresses the bar.
+    var onMergePanorama: (() -> Void)? = nil
 
     var body: some View {
         // The center column switches between the explorer grid (browse
@@ -156,7 +159,8 @@ struct AppShellCenterColumn: View {
                         onGrantPhotosAccess: onGrantPhotosAccess,
                         onNavigateFolder: onNavigateFolder,
                         onOpenEditor: onOpenEditor,
-                        onPrimeSession: onPrimeSession
+                        onPrimeSession: onPrimeSession,
+                        onMergePanorama: onMergePanorama
                     )
                 }
                 #else
@@ -167,7 +171,8 @@ struct AppShellCenterColumn: View {
                     onGrantPhotosAccess: onGrantPhotosAccess,
                     onNavigateFolder: onNavigateFolder,
                     onOpenEditor: onOpenEditor,
-                    onPrimeSession: onPrimeSession
+                    onPrimeSession: onPrimeSession,
+                    onMergePanorama: onMergePanorama
                 )
                 #endif
             }

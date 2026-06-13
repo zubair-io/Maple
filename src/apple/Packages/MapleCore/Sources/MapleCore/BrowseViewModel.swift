@@ -22,6 +22,65 @@ public final class BrowseViewModel {
     public var subfolders: [URL] = []
     public var selectedID: AssetRef.ID? = nil
     public var sortOrder: SortOrder = .nameAscending
+
+    // MARK: - Multi-select (M1 — #1236 / #1234)
+
+    /// True when the grid is in multi-select mode. Entering this mode keeps
+    /// the existing single `selectedID` intact so switching back to normal
+    /// browse restores the prior highlight without any extra bookkeeping.
+    public var isSelecting: Bool = false
+
+    /// IDs of all assets currently checked in multi-select mode. Only
+    /// meaningful while `isSelecting == true`; always cleared when leaving
+    /// select mode.
+    public var selectedIDs: Set<AssetRef.ID> = []
+
+    /// True when enough assets are selected to trigger a panorama merge (≥2).
+    public var canMergePanorama: Bool { selectedIDs.count >= 2 }
+
+    /// Enter multi-select mode. Does NOT clear any prior single selection.
+    public func enterSelectMode() {
+        isSelecting = true
+    }
+
+    /// Leave multi-select mode and clear all checked assets.
+    public func exitSelectMode() {
+        isSelecting = false
+        selectedIDs = []
+    }
+
+    /// Toggle an asset's checked state. No-op if not in select mode.
+    public func toggleSelected(_ id: AssetRef.ID) {
+        guard isSelecting else { return }
+        if selectedIDs.contains(id) {
+            selectedIDs.remove(id)
+        } else {
+            selectedIDs.insert(id)
+        }
+    }
+
+    /// Select an individual asset. No-op if not in select mode.
+    public func select(_ id: AssetRef.ID) {
+        guard isSelecting else { return }
+        selectedIDs.insert(id)
+    }
+
+    /// Deselect an individual asset. No-op if not in select mode.
+    public func deselect(_ id: AssetRef.ID) {
+        guard isSelecting else { return }
+        selectedIDs.remove(id)
+    }
+
+    /// Clear all checked assets while staying in select mode.
+    public func clearSelection() {
+        selectedIDs = []
+    }
+
+    /// Ordered list of checked AssetRefs, in the same order they appear in
+    /// `assets`. Preserves insertion order for stable stitching input.
+    public var selectedAssets: [AssetRef] {
+        assets.filter { selectedIDs.contains($0.id) }
+    }
     /// Non-nil while an async `loadFolder` is in flight.
     public var isLoading: Bool = false
     /// Last load error; views can surface a banner when non-nil.
@@ -264,6 +323,8 @@ public final class BrowseViewModel {
         photosAuthNeeded = false
         mergedCells = []
         isMerged = false
+        isSelecting = false
+        selectedIDs = []
     }
 
     /// Put the grid into the "Photos Library selected but access not granted"
