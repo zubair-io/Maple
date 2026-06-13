@@ -38,6 +38,9 @@
 //   src/scripts/test_color_pipeline.sh (Rust-side analogue)
 
 import XCTest
+// SliderMatrixUITests uses MapleAppDriver + AppKit for macOS live-UI driving.
+// Gate it out on iOS so the target can compile for iOS Simulator (M6 #1244).
+#if os(macOS)
 import AppKit
 import CoreImage
 import ImageIO
@@ -434,3 +437,4 @@ final class SliderMatrixUITests: XCTestCase {
         }
     }
 }
+#endif // os(macOS)

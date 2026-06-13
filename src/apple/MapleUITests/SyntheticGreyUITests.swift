@@ -21,6 +21,9 @@
 // Spec: .archived-plans/specs/2026-04-28-grey-card-adjustment-tests-design.md
 
 import XCTest
+// SyntheticGreyUITests uses MapleAppDriver + AppKit for macOS live-UI driving.
+// Gate it out on iOS so the target can compile for iOS Simulator (M6 #1244).
+#if os(macOS)
 import AppKit
 
 final class SyntheticGreyUITests: XCTestCase {
@@ -199,3 +202,4 @@ final class SyntheticGreyUITests: XCTestCase {
         }
     }
 }
+#endif // os(macOS)
