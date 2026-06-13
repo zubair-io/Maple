@@ -51,10 +51,17 @@ mod gpu_auto_profile;
 mod handle;
 mod id;
 mod model;
+// Epic #1234 / M3 (#1235): panorama stitch C-FFI. Gated behind the `pano`
+// feature — `maple-pano` (with `ml`) is absent from default builds so
+// `cargo build -p raw-ffi` without features stays small. The xcframework
+// build turns it on via `--features gpu,pano`. The `maple_pano_stitch` symbol
+// is present in all 4 slices; iOS/iOS-sim returns error −3 (pending M6 #1234).
+#[cfg(feature = "pano")]
+mod pano;
 mod render;
 mod scene_linear;
-mod scene_linear_f32;
 mod scene_linear_chain;
+mod scene_linear_f32;
 mod thumbnail;
 
 // Re-export every C ABI type so cbindgen sees the same surface it always has.
@@ -69,7 +76,9 @@ pub use scene_linear_chain::MapleAdjustmentParams;
 // gpu-gated: the live-session FFI structs (absent from the default xcframework).
 #[cfg(feature = "gpu")]
 pub use gpu_live::{MapleGpuLiveParams, MapleGpuLiveSession};
-
+// pano-gated: the panorama stitch ABI types (epic #1234 / M3 #1235).
+#[cfg(feature = "pano")]
+pub use pano::{MaplePanoLocalAlign, MaplePanoProgressFn, MaplePanoRetention, MaplePanoStrategy};
 
 // Tests are split per-topic so each file stays well under the 600-LOC
 // per-file budget; the `#[path]` references keep them as plain siblings
@@ -80,20 +89,20 @@ pub use gpu_live::{MapleGpuLiveParams, MapleGpuLiveSession};
 #[path = "auto_tone_tests.rs"]
 mod auto_tone_tests;
 #[cfg(test)]
-#[path = "render_tests.rs"]
-mod render_tests;
-#[cfg(test)]
-#[path = "scene_linear_tests.rs"]
-mod scene_linear_tests;
-#[cfg(test)]
 #[path = "handle_tests.rs"]
 mod handle_tests;
 #[cfg(test)]
 #[path = "id_tests.rs"]
 mod id_tests;
 #[cfg(test)]
+#[path = "render_tests.rs"]
+mod render_tests;
+#[cfg(test)]
 #[path = "scene_linear_chain_tests.rs"]
 mod scene_linear_chain_tests;
+#[cfg(test)]
+#[path = "scene_linear_tests.rs"]
+mod scene_linear_tests;
 #[cfg(test)]
 #[path = "thumbnail_tests.rs"]
 mod thumbnail_tests;
