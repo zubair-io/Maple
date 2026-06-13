@@ -23,7 +23,10 @@ use std::ffi::{CStr, CString};
 const JPEG_SOI: [u8; 3] = [0xFF, 0xD8, 0xFF];
 
 fn empty_byte_buf() -> MapleByteBuffer {
-    MapleByteBuffer { bytes: std::ptr::null_mut(), len: 0 }
+    MapleByteBuffer {
+        bytes: std::ptr::null_mut(),
+        len: 0,
+    }
 }
 
 fn fixture_path() -> std::path::PathBuf {
@@ -38,9 +41,7 @@ fn fixture_path() -> std::path::PathBuf {
 #[test]
 fn render_thumbnail_jpeg_null_raw_path_returns_rc1() {
     let mut out = empty_byte_buf();
-    let rc = unsafe {
-        maple_render_thumbnail_jpeg(std::ptr::null(), 512, 0, &mut out)
-    };
+    let rc = unsafe { maple_render_thumbnail_jpeg(std::ptr::null(), 512, 0, &mut out) };
     assert_eq!(rc, 1);
     assert!(out.bytes.is_null());
     let err = unsafe { maple_last_error() };
@@ -53,9 +54,7 @@ fn render_thumbnail_jpeg_null_raw_path_returns_rc1() {
 #[test]
 fn render_thumbnail_jpeg_null_out_returns_rc1() {
     let path = CString::new("/tmp/does-not-matter").unwrap();
-    let rc = unsafe {
-        maple_render_thumbnail_jpeg(path.as_ptr(), 512, 0, std::ptr::null_mut())
-    };
+    let rc = unsafe { maple_render_thumbnail_jpeg(path.as_ptr(), 512, 0, std::ptr::null_mut()) };
     assert_eq!(rc, 1);
 }
 
@@ -88,9 +87,7 @@ fn render_thumbnail_jpeg_zero_max_px_returns_rc9() {
 fn render_thumbnail_to_file_zero_max_px_returns_rc9() {
     let raw = CString::new("/tmp/in.dng").unwrap();
     let out = CString::new("/tmp/out.jpg").unwrap();
-    let rc = unsafe {
-        maple_render_thumbnail_jpeg_to_file(raw.as_ptr(), out.as_ptr(), 0, 0)
-    };
+    let rc = unsafe { maple_render_thumbnail_jpeg_to_file(raw.as_ptr(), out.as_ptr(), 0, 0) };
     assert_eq!(rc, 9);
 }
 
@@ -114,9 +111,8 @@ fn render_thumbnail_to_file_missing_input_returns_rc6() {
     let out_dir = tempfile::tempdir().unwrap();
     let out_path = out_dir.path().join("thumb.jpg");
     let out_cstr = CString::new(out_path.to_str().unwrap()).unwrap();
-    let rc = unsafe {
-        maple_render_thumbnail_jpeg_to_file(raw.as_ptr(), out_cstr.as_ptr(), 512, 0)
-    };
+    let rc =
+        unsafe { maple_render_thumbnail_jpeg_to_file(raw.as_ptr(), out_cstr.as_ptr(), 512, 0) };
     assert_eq!(rc, 6);
     assert!(!out_path.exists(), "output must not be created on rc=6");
 }
@@ -132,9 +128,7 @@ fn render_thumbnail_jpeg_synth_dng_no_preview_returns_rc8() {
     SyntheticGreyDng::default().write_to(&dng_path).unwrap();
     let raw_cstr = CString::new(dng_path.to_str().unwrap()).unwrap();
     let mut out = empty_byte_buf();
-    let rc = unsafe {
-        maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 512, 0, &mut out)
-    };
+    let rc = unsafe { maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 512, 0, &mut out) };
     assert_eq!(rc, 8, "synth DNG should hit rc=8, got {}", rc);
     assert!(out.bytes.is_null());
     let err = unsafe { maple_last_error() };
@@ -155,7 +149,10 @@ fn render_thumbnail_to_file_synth_dng_no_preview_returns_rc8() {
         maple_render_thumbnail_jpeg_to_file(raw_cstr.as_ptr(), out_cstr.as_ptr(), 512, 0)
     };
     assert_eq!(rc, 8);
-    assert!(!out_path.exists(), "must not write output on extract failure");
+    assert!(
+        !out_path.exists(),
+        "must not write output on extract failure"
+    );
     let tmp_path = out_path.with_extension("jpg.tmp");
     assert!(!tmp_path.exists(), "must not leak .tmp on extract failure");
 }
@@ -171,10 +168,12 @@ fn render_thumbnail_jpeg_garbage_bytes_returns_rc8() {
     std::fs::write(&raw_path, b"not a real raw file, just some bytes").unwrap();
     let raw_cstr = CString::new(raw_path.to_str().unwrap()).unwrap();
     let mut out = empty_byte_buf();
-    let rc = unsafe {
-        maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 256, 0, &mut out)
-    };
-    assert_eq!(rc, 8, "garbage bytes should fall through to rc=8, got {}", rc);
+    let rc = unsafe { maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 256, 0, &mut out) };
+    assert_eq!(
+        rc, 8,
+        "garbage bytes should fall through to rc=8, got {}",
+        rc
+    );
     assert!(out.bytes.is_null());
 }
 
@@ -187,13 +186,13 @@ fn render_thumbnail_jpeg_garbage_bytes_returns_rc8() {
 #[test]
 fn render_thumbnail_jpeg_fixture_round_trip() {
     let path = fixture_path();
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut out = empty_byte_buf();
     let max_px: u32 = 512;
-    let rc = unsafe {
-        maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), max_px, 0, &mut out)
-    };
+    let rc = unsafe { maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), max_px, 0, &mut out) };
     assert_eq!(rc, 0, "thumbnail rc = {}", rc);
     assert!(!out.bytes.is_null());
     assert!(out.len > 3, "JPEG should be longer than the SOI marker");
@@ -205,8 +204,12 @@ fn render_thumbnail_jpeg_fixture_round_trip() {
     use image::GenericImageView;
     let (w, h) = decoded.dimensions();
     assert!(w > 0 && h > 0);
-    assert!(w.max(h) <= max_px,
-        "long edge {} exceeds max_px={}", w.max(h), max_px);
+    assert!(
+        w.max(h) <= max_px,
+        "long edge {} exceeds max_px={}",
+        w.max(h),
+        max_px
+    );
 
     // Free via the FFI free fn — must zero out the buffer.
     unsafe { maple_free_byte_buffer(&mut out) };
@@ -221,35 +224,35 @@ fn render_thumbnail_jpeg_fixture_round_trip() {
 #[test]
 fn render_thumbnail_bytes_and_file_parity() {
     let path = fixture_path();
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let max_px: u32 = 384;
     let quality: u8 = 75;
 
     // Bytes variant.
     let mut out = empty_byte_buf();
-    let rc_bytes = unsafe {
-        maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), max_px, quality, &mut out)
-    };
+    let rc_bytes =
+        unsafe { maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), max_px, quality, &mut out) };
     assert_eq!(rc_bytes, 0);
-    let bytes_jpeg = unsafe {
-        std::slice::from_raw_parts(out.bytes, out.len).to_vec()
-    };
+    let bytes_jpeg = unsafe { std::slice::from_raw_parts(out.bytes, out.len).to_vec() };
 
     // File variant.
     let dir = tempfile::tempdir().unwrap();
     let out_path = dir.path().join("thumb.jpg");
     let out_cstr = CString::new(out_path.to_str().unwrap()).unwrap();
     let rc_file = unsafe {
-        maple_render_thumbnail_jpeg_to_file(
-            raw_cstr.as_ptr(), out_cstr.as_ptr(), max_px, quality,
-        )
+        maple_render_thumbnail_jpeg_to_file(raw_cstr.as_ptr(), out_cstr.as_ptr(), max_px, quality)
     };
     assert_eq!(rc_file, 0);
     assert!(out_path.exists(), "output file must exist after rc=0");
     let file_jpeg = std::fs::read(&out_path).unwrap();
 
-    assert_eq!(bytes_jpeg, file_jpeg, "bytes-variant and file-variant must agree");
+    assert_eq!(
+        bytes_jpeg, file_jpeg,
+        "bytes-variant and file-variant must agree"
+    );
     // No .tmp left behind after a successful rename.
     let tmp_path = out_path.with_extension("jpg.tmp");
     assert!(!tmp_path.exists(), ".tmp must be removed on rename success");
@@ -265,12 +268,12 @@ fn render_thumbnail_bytes_and_file_parity() {
 #[test]
 fn free_byte_buffer_is_idempotent_after_zeroing() {
     let path = fixture_path();
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut out = empty_byte_buf();
-    let rc = unsafe {
-        maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 256, 0, &mut out)
-    };
+    let rc = unsafe { maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 256, 0, &mut out) };
     assert_eq!(rc, 0);
     unsafe { maple_free_byte_buffer(&mut out) };
     assert!(out.bytes.is_null());
@@ -285,19 +288,17 @@ fn free_byte_buffer_is_idempotent_after_zeroing() {
 #[test]
 fn render_thumbnail_jpeg_quality_zero_uses_default() {
     let path = fixture_path();
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
 
     let mut buf_default = empty_byte_buf();
-    let rc1 = unsafe {
-        maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 256, 0, &mut buf_default)
-    };
+    let rc1 = unsafe { maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 256, 0, &mut buf_default) };
     assert_eq!(rc1, 0);
 
     let mut buf_explicit = empty_byte_buf();
-    let rc2 = unsafe {
-        maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 256, 82, &mut buf_explicit)
-    };
+    let rc2 = unsafe { maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 256, 82, &mut buf_explicit) };
     assert_eq!(rc2, 0);
 
     let a = unsafe { std::slice::from_raw_parts(buf_default.bytes, buf_default.len) };
@@ -363,18 +364,22 @@ fn jpeg_to_file_quality_255_returns_rc_14() {
 fn render_thumbnail_jpeg_applies_orientation_to_portrait_raw() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0003.CR2");
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut out = empty_byte_buf();
-    let rc = unsafe {
-        maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 512, 0, &mut out)
-    };
+    let rc = unsafe { maple_render_thumbnail_jpeg(raw_cstr.as_ptr(), 512, 0, &mut out) };
     assert_eq!(rc, 0, "thumbnail rc = {}", rc);
     let bytes = unsafe { std::slice::from_raw_parts(out.bytes, out.len) };
     let decoded = image::load_from_memory(bytes).expect("decodable JPEG");
     use image::GenericImageView;
     let (w, h) = decoded.dimensions();
-    assert!(h > w,
-        "expected portrait thumb for a portrait-shot RAW, got {}x{}", w, h);
+    assert!(
+        h > w,
+        "expected portrait thumb for a portrait-shot RAW, got {}x{}",
+        w,
+        h
+    );
     unsafe { maple_free_byte_buffer(&mut out) };
 }

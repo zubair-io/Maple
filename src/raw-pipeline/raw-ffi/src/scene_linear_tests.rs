@@ -29,12 +29,13 @@ fn empty_buf() -> MapleSceneLinearBuffer {
 fn render_scene_linear_default_model_via_ffi() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut buf = empty_buf();
-    let rc = unsafe {
-        maple_render_file_scene_linear(raw_cstr.as_ptr(), std::ptr::null(), 1, &mut buf)
-    };
+    let rc =
+        unsafe { maple_render_file_scene_linear(raw_cstr.as_ptr(), std::ptr::null(), 1, &mut buf) };
     assert_eq!(rc, 0, "render rc = {}", rc);
     assert!(buf.width > 0 && buf.height > 0);
     assert_eq!(buf.channels, 4);
@@ -47,7 +48,8 @@ fn render_scene_linear_default_model_via_ffi() {
 #[test]
 fn scene_linear_null_arg_sets_error() {
     let mut buf = empty_buf();
-    let rc = unsafe { maple_render_file_scene_linear(std::ptr::null(), std::ptr::null(), 0, &mut buf) };
+    let rc =
+        unsafe { maple_render_file_scene_linear(std::ptr::null(), std::ptr::null(), 0, &mut buf) };
     assert_eq!(rc, 1);
     let err = unsafe { maple_last_error() };
     assert!(!err.is_null());
@@ -59,18 +61,28 @@ fn scene_linear_null_arg_sets_error() {
 fn render_scene_linear_sized_via_ffi_caps_long_edge() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut buf = empty_buf();
     let max_long_edge: u32 = 800;
     let rc = unsafe {
         maple_render_file_scene_linear_sized(
-            raw_cstr.as_ptr(), std::ptr::null(), max_long_edge, 1, &mut buf,
+            raw_cstr.as_ptr(),
+            std::ptr::null(),
+            max_long_edge,
+            1,
+            &mut buf,
         )
     };
     assert_eq!(rc, 0, "render rc = {}", rc);
-    assert!(buf.width.max(buf.height) <= max_long_edge,
-        "size cap not respected: {}x{}", buf.width, buf.height);
+    assert!(
+        buf.width.max(buf.height) <= max_long_edge,
+        "size cap not respected: {}x{}",
+        buf.width,
+        buf.height
+    );
     assert_eq!(buf.bytes_per_pixel, 8);
     assert_eq!(buf.len_bytes as u32, buf.width * buf.height * 8);
     unsafe { maple_free_scene_linear_buffer(&mut buf) };
@@ -81,13 +93,13 @@ fn render_scene_linear_sized_via_ffi_caps_long_edge() {
 fn sized_zero_long_edge_sets_error() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut buf = empty_buf();
     let rc = unsafe {
-        maple_render_file_scene_linear_sized(
-            raw_cstr.as_ptr(), std::ptr::null(), 0, 1, &mut buf,
-        )
+        maple_render_file_scene_linear_sized(raw_cstr.as_ptr(), std::ptr::null(), 0, 1, &mut buf)
     };
     assert_eq!(rc, 9);
 }
@@ -103,8 +115,16 @@ fn tile_null_arg_sets_error() {
     let mut buf = empty_buf();
     let rc = unsafe {
         maple_render_file_scene_linear_tile(
-            std::ptr::null(), std::ptr::null(),
-            0, 0, 512, 512, 256, 256, 0, &mut buf,
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            0,
+            512,
+            512,
+            256,
+            256,
+            0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 1);
@@ -124,16 +144,32 @@ fn tile_zero_dim_sets_error() {
     // src_w == 0
     let rc = unsafe {
         maple_render_file_scene_linear_tile(
-            dummy.as_ptr(), std::ptr::null(),
-            0, 0, 0, 512, 256, 256, 0, &mut buf,
+            dummy.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+            0,
+            512,
+            256,
+            256,
+            0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 9, "src_w=0 should be rc=9, got {}", rc);
     // out_h == 0
     let rc = unsafe {
         maple_render_file_scene_linear_tile(
-            dummy.as_ptr(), std::ptr::null(),
-            0, 0, 512, 512, 256, 0, 0, &mut buf,
+            dummy.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+            512,
+            512,
+            256,
+            0,
+            0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 9, "out_h=0 should be rc=9, got {}", rc);
@@ -146,8 +182,18 @@ fn tile_bytes_null_arg_sets_error() {
     let ext = CString::new("dng").unwrap();
     let rc = unsafe {
         maple_render_bytes_scene_linear_tile(
-            std::ptr::null(), 0, ext.as_ptr(), std::ptr::null(),
-            0, 0, 512, 512, 256, 256, 0, &mut buf,
+            std::ptr::null(),
+            0,
+            ext.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+            512,
+            512,
+            256,
+            256,
+            0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 1);
@@ -160,14 +206,23 @@ fn tile_bytes_null_arg_sets_error() {
 fn render_tile_default_model_via_ffi() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut buf = empty_buf();
     let rc = unsafe {
         maple_render_file_scene_linear_tile(
-            raw_cstr.as_ptr(), std::ptr::null(),
-            1024, 1024, 512, 512, 256, 256,
-            /* quality_preview = */ 0, &mut buf,
+            raw_cstr.as_ptr(),
+            std::ptr::null(),
+            1024,
+            1024,
+            512,
+            512,
+            256,
+            256,
+            /* quality_preview = */ 0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 0, "tile render rc = {}", rc);
@@ -180,8 +235,11 @@ fn render_tile_default_model_via_ffi() {
     let n_lanes = buf.len_bytes / std::mem::size_of::<u16>();
     let lanes = unsafe { std::slice::from_raw_parts(buf.fp16_rgba, n_lanes) };
     let alpha_ok = lanes.chunks_exact(4).filter(|c| c[3] == 0x3c00).count();
-    assert_eq!(alpha_ok, (buf.width * buf.height) as usize,
-        "all alpha lanes must be fp16 1.0");
+    assert_eq!(
+        alpha_ok,
+        (buf.width * buf.height) as usize,
+        "all alpha lanes must be fp16 1.0"
+    );
     unsafe { maple_free_scene_linear_buffer(&mut buf) };
     assert!(buf.fp16_rgba.is_null());
 }
@@ -192,15 +250,26 @@ fn render_tile_default_model_via_ffi() {
 fn render_tile_default_model_via_bytes_ffi() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let bytes = std::fs::read(&path).unwrap();
     let ext = CString::new("dng").unwrap();
     let mut buf = empty_buf();
     let rc = unsafe {
         maple_render_bytes_scene_linear_tile(
-            bytes.as_ptr(), bytes.len(), ext.as_ptr(), std::ptr::null(),
-            1024, 1024, 512, 512, 256, 256,
-            0, &mut buf,
+            bytes.as_ptr(),
+            bytes.len(),
+            ext.as_ptr(),
+            std::ptr::null(),
+            1024,
+            1024,
+            512,
+            512,
+            256,
+            256,
+            0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 0, "tile bytes render rc = {}", rc);
@@ -220,7 +289,9 @@ fn render_tile_default_model_via_bytes_ffi() {
 fn render_tile_dehaze_active_returns_error_code_10() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     // Synthesize an XMP file with dehaze=50.
     let xmp_path = std::env::temp_dir().join("tile-dehaze-ffi.xmp");
     std::fs::write(
@@ -232,8 +303,16 @@ fn render_tile_dehaze_active_returns_error_code_10() {
     let mut buf = empty_buf();
     let rc = unsafe {
         maple_render_file_scene_linear_tile(
-            raw_cstr.as_ptr(), xmp_cstr.as_ptr(),
-            1024, 1024, 512, 512, 256, 256, 0, &mut buf,
+            raw_cstr.as_ptr(),
+            xmp_cstr.as_ptr(),
+            1024,
+            1024,
+            512,
+            512,
+            256,
+            256,
+            0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 10, "expected dehaze-unsupported rc=10, got {}", rc);
@@ -247,22 +326,40 @@ fn render_tile_dehaze_active_returns_error_code_10() {
 fn render_tile_upscale_returns_error_code_11() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut buf = empty_buf();
     // out_w > src_w
     let rc = unsafe {
         maple_render_file_scene_linear_tile(
-            raw_cstr.as_ptr(), std::ptr::null(),
-            1024, 1024, 256, 256, 512, 256, 0, &mut buf,
+            raw_cstr.as_ptr(),
+            std::ptr::null(),
+            1024,
+            1024,
+            256,
+            256,
+            512,
+            256,
+            0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 11, "out_w>src_w must rc=11, got {}", rc);
     // out_h > src_h
     let rc = unsafe {
         maple_render_file_scene_linear_tile(
-            raw_cstr.as_ptr(), std::ptr::null(),
-            1024, 1024, 256, 256, 256, 512, 0, &mut buf,
+            raw_cstr.as_ptr(),
+            std::ptr::null(),
+            1024,
+            1024,
+            256,
+            256,
+            256,
+            512,
+            0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 11, "out_h>src_h must rc=11, got {}", rc);
@@ -275,14 +372,24 @@ fn render_tile_upscale_returns_error_code_11() {
 fn render_tile_mismatched_aspect_returns_error_code_12() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() { return; }
+    if !path.exists() {
+        return;
+    }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut buf = empty_buf();
     // src 512×512 (1:1), out 512×256 (2:1) — strict aspect mismatch.
     let rc = unsafe {
         maple_render_file_scene_linear_tile(
-            raw_cstr.as_ptr(), std::ptr::null(),
-            1024, 1024, 512, 512, 512, 256, 0, &mut buf,
+            raw_cstr.as_ptr(),
+            std::ptr::null(),
+            1024,
+            1024,
+            512,
+            512,
+            512,
+            256,
+            0,
+            &mut buf,
         )
     };
     assert_eq!(rc, 12, "mismatched aspect must rc=12, got {}", rc);
@@ -344,8 +451,8 @@ const SWIFT_STRIPPED_XMP: &str = r#"<?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzr
 
 #[test]
 fn swift_stripped_xmp_round_trips_to_rust_model() {
-    let model = raw_core::xmp::parse(SWIFT_STRIPPED_XMP)
-        .expect("Swift-shaped XMP must parse in raw-core");
+    let model =
+        raw_core::xmp::parse(SWIFT_STRIPPED_XMP).expect("Swift-shaped XMP must parse in raw-core");
 
     // GPU-replayed fields — must all be zero (strip target).
     assert_eq!(model.temperature, 6500.0);

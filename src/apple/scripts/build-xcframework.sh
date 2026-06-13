@@ -300,28 +300,52 @@ build_target() {
         # of arbitrary paths — static linking is the only correct path.
         #
         # The framework binary inside Apple's pod is named `onnxruntime` (no lib
-        # prefix, no .a extension). ort-sys's build.rs accepts this exact name in
-        # addition to `libonnxruntime.a`; we symlink `libonnxruntime.a` in the
-        # framework dir to be safe.
+        # prefix, no .a extension) and is a Mach-O fat archive (0xcafebabe) even
+        # for single-arch slices. We use `lipo -thin arm64` to extract a plain ar
+        # archive named exactly `libonnxruntime.a` (the name ort-sys probes for)
+        # into a per-target subdirectory of .ort-ios-thin/$PROFILE/$triple/.
         local PANO_FEATURES="pano"
         case "$triple" in
             *-apple-ios|*-apple-ios-sim)
                 PANO_FEATURES="pano-ios"
-                # ort-sys's build.rs searches for `libonnxruntime.a` in the dir.
-                # Apple's pod names the binary `onnxruntime`; create a symlink.
+                # ort-sys's build.rs searches for `libonnxruntime.a` in ORT_LIB_LOCATION.
+                # Apple's xcframework pod names the binary `onnxruntime` (no lib prefix, no
+                # .a extension) and wraps it in a Mach-O fat archive (magic 0xcafebabe) even
+                # when there is only one architecture. Rust's linker rejects a fat archive
+                # as "Unsupported archive identifier" — it expects a plain ar archive (!<arch>).
+                #
+                # Fix: `lipo -thin arm64` extracts the arm64 slice as a clean ar archive.
+                # We write it to the PROFILE-scoped cache dir alongside the build outputs to
+                # avoid contaminating the shared ORT cache. The extracted .a is stable across
+                # build runs (content-addressed by ORT version + profile), so we skip the lipo
+                # step if the file already exists.
+                # Each target gets its own subdirectory so the file is always
+                # named exactly `libonnxruntime.a` — that is the name ort-sys's
+                # build.rs probes for via `platform_format_lib("onnxruntime")`.
+                # Sharing a flat dir and using per-target name suffixes (e.g.
+                # libonnxruntime-ios-arm64.a) caused ort-sys to emit no link
+                # directive and the build to fail with undefined symbols.
+                ORT_THIN_DIR="$CARGO_TARGET_DIR/.ort-ios-thin/$PROFILE/$triple"
+                mkdir -p "$ORT_THIN_DIR"
+                ORT_THIN_LIB="$ORT_THIN_DIR/libonnxruntime.a"
                 case "$triple" in
                     *-apple-ios)
-                        ORT_FRAMEWORK_DIR="${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework"
+                        ORT_FAT_LIB="${ORT_IOS_XCFW_BASE}/ios-arm64/onnxruntime.framework/onnxruntime"
                         ;;
                     *-apple-ios-sim)
-                        ORT_FRAMEWORK_DIR="${ORT_IOS_XCFW_BASE}/ios-arm64_x86_64-simulator/onnxruntime.framework"
+                        ORT_FAT_LIB="${ORT_IOS_XCFW_BASE}/ios-arm64_x86_64-simulator/onnxruntime.framework/onnxruntime"
                         ;;
                 esac
-                if [[ ! -f "$ORT_FRAMEWORK_DIR/libonnxruntime.a" ]]; then
-                    ln -sf "$ORT_FRAMEWORK_DIR/onnxruntime" "$ORT_FRAMEWORK_DIR/libonnxruntime.a"
+                if [[ ! -f "$ORT_THIN_LIB" ]]; then
+                    echo "    lipo -thin arm64 → $ORT_THIN_LIB"
+                    lipo -thin arm64 "$ORT_FAT_LIB" -output "$ORT_THIN_LIB"
+                else
+                    echo "    ORT arm64 slice already extracted: $ORT_THIN_LIB"
                 fi
-                export ORT_LIB_LOCATION="$ORT_FRAMEWORK_DIR"
-                echo "    ORT_LIB_LOCATION=$ORT_LIB_LOCATION (static, M6 #1244)"
+                # ort-sys's build.rs calls `add_search_dir` on ORT_LIB_LOCATION, then checks
+                # if `libonnxruntime.a` exists there to emit `cargo:rustc-link-lib=static=onnxruntime`.
+                export ORT_LIB_LOCATION="$ORT_THIN_DIR"
+                echo "    ORT_LIB_LOCATION=$ORT_LIB_LOCATION (static arm64 ar archive, M6 #1244)"
                 ;;
         esac
         CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
