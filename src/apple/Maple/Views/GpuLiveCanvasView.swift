@@ -70,8 +70,19 @@ final class GpuLiveCanvasController {
     /// authoritative.
     func layoutAndPresent(pixelWidth: CGFloat, pixelHeight: CGFloat) {
         guard pixelWidth >= 1, pixelHeight >= 1 else { return }
-        let size = CGSize(width: pixelWidth, height: pixelHeight)
-        // Avoid thrashing the drawable size on no-op layout passes.
+        // Round to integer pixels BEFORE setting `drawableSize` and propagating
+        // to `previewSize`. The wgpu present chain asserts
+        // `surface_dims == image_dims`, where image_dims comes from
+        // `Int(prescaledExtent.width.rounded())` — passing a fractional
+        // `bounds.width * scale` to `drawableSize` (e.g. 913.5) and to the
+        // decode `targetSize` lands on `914` for the surface but `913` for the
+        // image after `prescaledExtent` rounds the other way. The present
+        // throws `GpuLiveError(1)` and the canvas reads as a black surface
+        // — the exact root cause of the #1240 "image disappears" report.
+        // Rounding both inputs to the same integer here keeps them aligned.
+        let w = pixelWidth.rounded()
+        let h = pixelHeight.rounded()
+        let size = CGSize(width: w, height: h)
         if size != lastPixelSize {
             layer.drawableSize = size
             lastPixelSize = size
