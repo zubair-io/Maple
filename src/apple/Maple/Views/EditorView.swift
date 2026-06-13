@@ -105,12 +105,12 @@ struct EditorView: View {
                 }
                 // Top-center stack: the value chip ("LIGHT │ EXPOSURE +0.25 EV")
                 // sits at the top as before; the GPU live diagnostic pill (#1227)
-                // and the cold-open loading indicator (#1201) stack directly
-                // below it so they share the same eye-line and can't get hidden
-                // by the canvas. EditorView replaces FullImageView when the user
-                // taps an image, so the equivalent banners FullImageView already
-                // has must also live here. See #1240 for the underlying
-                // GPU-live-in-editor wiring this diagnostic is exposing.
+                // stacks directly below it so it shares the same eye-line and
+                // can't get hidden behind the canvas. EditorView replaces
+                // FullImageView when the user taps an image, so a diagnostic
+                // wired only into FullImageView would never be visible. See
+                // #1240 for the underlying GPU-live-in-editor wiring this
+                // diagnostic is exposing.
                 VStack(spacing: 6) {
                     ValueChipOverlay(state: state)
                     if let line = state.session.gpuLiveDiagSummary {
@@ -124,15 +124,6 @@ struct EditorView: View {
                         .padding(6)
                         .background(Color.orange.opacity(0.85), in: RoundedRectangle(cornerRadius: 4))
                         .accessibilityIdentifier("editor-gpu-live-diag")
-                    }
-                    if EditSession.shouldShowLoadingIndicator(
-                        isResolvingFirstFrame: state.session.isResolvingFirstFrame,
-                        isRendering: state.session.isRendering,
-                        hasOnscreenFrame: state.session.renderedPreview != nil
-                    ) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.white)
                     }
                 }
                 .padding(.top, 14)
