@@ -187,11 +187,19 @@ public actor GpuLiveSession {
     ///
     /// The actor serializes this — one render in flight (the `!Send` Rust context).
     @discardableResult
-    public func present(model: AdjustmentModel, layer: CAMetalLayer, cancel: CancelFlag?) throws -> Double? {
+    public func present(
+        model: AdjustmentModel,
+        layer: CAMetalLayer,
+        cancel: CancelFlag?,
+        asShotCCT: Double? = nil,
+        asShotTint: Double? = nil
+    ) throws -> Double? {
         guard var h = handle else {
             throw GpuLiveError(message: "present: session is closed")
         }
-        let params = PipelineRenderer.makeGpuLiveParams(from: model)
+        let params = PipelineRenderer.makeGpuLiveParams(
+            from: model, asShotCCT: asShotCCT, asShotTint: asShotTint
+        )
         let layerPtr = Unmanaged.passUnretained(layer).toOpaque()
         let cancelPtr = cancel?.pointer
 

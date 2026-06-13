@@ -133,7 +133,11 @@ extension EditSession {
         driver.setDrawableSize(width: dims.width, height: dims.height)
         editSessionLogger.notice("GPU-TRACE present begin gen=\(gen ?? 0) dims=\(dims.width)x\(dims.height)")
         var presentErr: Error? = nil
-        await driver.present(model: m) { [weak self] error in
+        await driver.present(
+            model: m,
+            asShotCCT: asShotCCT,
+            asShotTint: asShotTint
+        ) { [weak self] error in
             presentErr = error
             self?.renderError = error
         }

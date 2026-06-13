@@ -54,16 +54,26 @@ extension PipelineRenderer {
     /// `AdjustmentModel` (only the parametric region sliders are — see
     /// `AdjustmentModel`'s tone-curve comment), so those arrays stay empty; the
     /// parametric fields carry the user's tone-region edits.
-    public static func makeGpuLiveParams(from model: AdjustmentModel) -> MapleGpuLiveParams {
+    public static func makeGpuLiveParams(
+        from model: AdjustmentModel,
+        asShotCCT: Double? = nil,
+        asShotTint: Double? = nil
+    ) -> MapleGpuLiveParams {
         // Per-field assignment (not a literal init) — the Swift expression type-
         // checker hits its complexity ceiling on a ~40-field literal init, exactly
         // as `makeParams` documents for the 18-field `MapleAdjustmentParams`.
         var p = MapleGpuLiveParams()
 
-        // --- white balance (ABSOLUTE — the FFI derives wb_cat16_matrix(temp,tint),
-        //     matching develop's absolute apply; NOT a delta vs as-shot) ---
+        // --- white balance (DELTA — the FFI computes M_net = M_live · M_decoded⁻¹
+        //     matching `apply_delta`. With `decoded == asShot`, the matrix is
+        //     identity at `live == asShot` (default slider value), mirroring the
+        //     CPU `processSceneLinear` contract. With both decoded fields zero
+        //     (legacy hosts) the FFI substitutes 6500/0 and the matrix collapses
+        //     to the absolute apply that previously shipped.) #1240 follow-up.
         p.temperature = Float(model.temperature)
         p.tint = Float(model.tint)
+        p.decoded_temperature = Float(asShotCCT ?? 6500.0)
+        p.decoded_tint = Float(asShotTint ?? 0.0)
         p.wb_method = 0 // CAT16 (the Apple model carries no method field)
 
         // --- scene tone controls ---
