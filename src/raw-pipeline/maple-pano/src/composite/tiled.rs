@@ -45,8 +45,7 @@ fn tile_depths(
             for sy in 0..th {
                 let canvas_y = tile_y0 as usize + sy;
                 for x in 0..cw {
-                    let Some(dir) =
-                        canvas.pixel_to_dir(x as f64 + 0.5, canvas_y as f64 + 0.5)
+                    let Some(dir) = canvas.pixel_to_dir(x as f64 + 0.5, canvas_y as f64 + 0.5)
                     else {
                         continue;
                     };
@@ -136,7 +135,11 @@ fn min_overlap_width(
             min_overlap = min_overlap.min(overlap_count[a][b] / rows);
         }
     }
-    if min_overlap == usize::MAX { 0 } else { min_overlap }
+    if min_overlap == usize::MAX {
+        0
+    } else {
+        min_overlap
+    }
 }
 
 /// Accumulate a warp strip into the output planes for pixels owned by `fi`.
@@ -168,11 +171,7 @@ fn accumulate_strip(
 }
 
 /// Build the output validity mask from the flat `out_valid` buffer.
-fn build_validity_mask(
-    out_valid: &[bool],
-    canvas_width: u32,
-    canvas_height: u32,
-) -> ValidityMask {
+fn build_validity_mask(out_valid: &[bool], canvas_width: u32, canvas_height: u32) -> ValidityMask {
     let cw = canvas_width as usize;
     let ch = canvas_height as usize;
     let mut mask = ValidityMask::new_filled(canvas_width, canvas_height, false);
@@ -371,9 +370,7 @@ pub fn composite_tiled_frames(
         );
         drop(depths);
 
-        for (fi, (frame, (cam, gain))) in
-            frames.iter().zip(cameras.iter().zip(gains)).enumerate()
-        {
+        for (fi, (frame, (cam, gain))) in frames.iter().zip(cameras.iter().zip(gains)).enumerate() {
             if !owner.iter().any(|&o| o == fi as u16) {
                 continue;
             }
