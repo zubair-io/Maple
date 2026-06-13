@@ -33,8 +33,8 @@ pub struct StitchArgs {
     pub(super) out_dir: Option<PathBuf>,
     /// Long-edge cap for the feature-extraction proxy. The ALIKED
     /// export letterboxes to 1280² internally; larger proxies only
-    /// cost decode time.
-    #[arg(long, default_value_t = 1600)]
+    /// cost decode time. 1280 = ALIKED native input (M6-D #1248).
+    #[arg(long, default_value_t = 1280)]
     pub(super) proxy_long_edge: u32,
     /// Total canvas pixel cap (uniform downscale to fit).
     #[arg(long, default_value_t = 256_000_000)]
@@ -76,6 +76,15 @@ pub struct StitchArgs {
     /// `tile`: force planar similarity for all sets.
     #[arg(long, value_enum, default_value_t = StrategyArg::Auto)]
     pub(super) strategy: StrategyArg,
+    /// Memory-bounded composite path (M6-D, #1248). Divides the output
+    /// canvas into horizontal strips of this many rows; decodes each
+    /// full-res frame on demand per strip and frees it immediately after
+    /// warping. Peak RSS ≈ 1 decoded frame + 1 warped strip + 1 output
+    /// strip (~555 MB) instead of all frames resident simultaneously.
+    /// None (default): full-canvas path, all frames resident (desktop).
+    /// Recommended value for iPad-class devices: 512.
+    #[arg(long)]
+    pub(super) canvas_tile_rows: Option<u32>,
 }
 
 /// CLI surface for [`maple_pano::ba::RetentionPolicy`].

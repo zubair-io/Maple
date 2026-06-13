@@ -195,6 +195,7 @@ fn stitch_set(
         models_dir: args.models_dir.clone(),
         proxy_long_edge: args.proxy_long_edge,
         max_canvas_px: args.max_canvas_px,
+        canvas_tile_rows: args.canvas_tile_rows,
     };
 
     let progress = |stage: u32, _frac: f32| {
