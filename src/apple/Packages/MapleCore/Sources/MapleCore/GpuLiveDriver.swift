@@ -88,6 +88,22 @@ public final class GpuLiveDriver {
         self.layer = layer
     }
 
+    /// Force the registered layer's `drawableSize` to exactly `(width, height)`.
+    /// The wgpu present chain asserts `surface_dims == image_dims`; the
+    /// canvas view sizes the layer from the host view's pixel bounds, but the
+    /// renderer's `prescaledExtent` rounds to aspect-preserved integer dims
+    /// that may be 1 pixel off (e.g. 914x685 viewport → 913x685 image). The
+    /// present then throws `GpuLiveError(1)` and the canvas reads as opaque
+    /// black — the #1240 "image disappears" report. Calling this with the
+    /// image dims before `present` keeps them aligned.
+    public func setDrawableSize(width: Int, height: Int) {
+        guard let layer = layer else { return }
+        let size = CGSize(width: CGFloat(width), height: CGFloat(height))
+        if layer.drawableSize != size {
+            layer.drawableSize = size
+        }
+    }
+
     /// Open (or re-open) the session for `pixels` at `width × height` — the decoded
     /// scene-linear f32 RGBA buffer. A re-open happens only when the dims change
     /// (upload-once per dims). Resets the Auto Profile fit so the next `present`
@@ -126,27 +142,34 @@ public final class GpuLiveDriver {
     /// Surfaces a real GPU/present error through `onError` (device logs aren't
     /// capturable — the in-app HUD is the only on-device surface).
     public func present(model: AdjustmentModel, onError: (Error) -> Void) async {
-        guard let s = session else { return }
-        guard let layer = layer else { return }
-        // Supersede the prior present (if it hasn't already started on the
-        // actor) before queuing this one — last-write-wins under a fast drag.
+        guard let s = session else {
+            gpuDriverLog.notice("GPU-TRACE driver.present skipped: no session")
+            return
+        }
+        guard let layer = layer else {
+            gpuDriverLog.notice("GPU-TRACE driver.present skipped: no layer")
+            return
+        }
+        gpuDriverLog.notice("GPU-TRACE driver.present begin drawableSize=\(Int(layer.drawableSize.width))x\(Int(layer.drawableSize.height))")
         inFlightCancel?.requestCancel()
         let cancel = CancelFlag()
         inFlightCancel = cancel
         do {
-            // Hold a strong ref to `cancel` across the whole await so the
-            // Rust entry's flag read can't race a dealloc (the RenderCancelFlag
-            // strong-reference contract). `present` returns the GPU render+present
-            // latency in ms for a REAL frame, or `nil` if it was superseded
-            // (cancelled). Feed the HUD only the real frames, and only when the
-            // HUD flag is on (flag-on/HUD-off does no recording at all).
             let elapsedMs = try await s.present(model: model, layer: layer, cancel: cancel)
             withExtendedLifetime(cancel) {}
+            if let elapsedMs {
+                gpuDriverLog.notice("GPU-TRACE driver.present OK \(elapsedMs)ms")
+            } else {
+                gpuDriverLog.notice("GPU-TRACE driver.present cancelled (returned nil)")
+            }
             if GpuHudFlag.isEnabled, let elapsedMs {
                 frameStats.record(elapsedMs)
             }
+        } catch let e as GpuLiveError {
+            gpuDriverLog.notice("GPU-TRACE driver.present THREW: \(e.message, privacy: .public)")
+            onError(e)
         } catch {
-            gpuDriverLog.error("GPU present failed: \(error.localizedDescription, privacy: .public)")
+            gpuDriverLog.notice("GPU-TRACE driver.present THREW: \(error.localizedDescription, privacy: .public)")
             onError(error)
         }
     }
