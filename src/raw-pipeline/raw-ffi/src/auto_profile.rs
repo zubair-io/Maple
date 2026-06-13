@@ -167,20 +167,14 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
-        }
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
         None
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
         }
     };
     let out_ptr = out as usize;
@@ -190,30 +184,23 @@ pub unsafe extern "C" fn maple_compute_profile_curve(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_bytes =
-            match raw_core::pipeline::stage("ffi_profile_raw_read", || std::fs::read(raw_path)) {
-                Ok(b) => b,
-                Err(e) => {
-                    set_last_error(format!("raw read: {}", e));
-                    return 6;
-                }
-            };
+        let raw_bytes = match raw_core::pipeline::stage("ffi_profile_raw_read", || std::fs::read(raw_path)) {
+            Ok(b) => b,
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+        };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img =
-            match raw_core::pipeline::stage("ffi_profile_decode", || decode_bytes(&raw_bytes, ext))
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    set_last_error(format!("decode: {}", e));
-                    return 7;
-                }
-            };
+        let raw_img = match raw_core::pipeline::stage("ffi_profile_decode", || decode_bytes(&raw_bytes, ext)) {
+            Ok(r) => r,
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+        };
         let quality = if quality_preview != 0 {
             RenderQuality::Preview
         } else {
             RenderQuality::Full
         };
-        match fit_profile_curve_from_raw(&raw_img, &model, quality, RawInput::Path(raw_path)) {
+        match fit_profile_curve_from_raw(
+            &raw_img, &model, quality, RawInput::Path(raw_path),
+        ) {
             Some(curve) => {
                 let flat = curve.to_flat();
                 // `to_flat` always returns exactly PROFILE_CURVE_FLAT_LEN —
@@ -435,3 +422,4 @@ fn decode_auto_lut_cached(
         None => Ok(std::sync::Arc::new(decode_bytes(raw_bytes, ext)?)),
     }
 }
+

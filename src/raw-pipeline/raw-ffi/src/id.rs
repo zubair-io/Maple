@@ -13,12 +13,8 @@ pub extern "C" fn maple_blake3_hex(
     bytes_len: usize,
     out_hex: *mut u8,
 ) -> i32 {
-    if bytes_ptr.is_null() || out_hex.is_null() {
-        return -1;
-    }
-    if bytes_len == 0 {
-        return -2;
-    }
+    if bytes_ptr.is_null() || out_hex.is_null() { return -1; }
+    if bytes_len == 0 { return -2; }
     let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
     let hex = raw_core::blake3_hex(bytes);
     unsafe {
@@ -70,7 +66,9 @@ pub extern "C" fn maple_id_primary(
         return -2;
     }
     let head = unsafe { std::slice::from_raw_parts(head_ptr, head_len) };
-    let captured_at_bytes = unsafe { std::slice::from_raw_parts(captured_at_ptr, captured_at_len) };
+    let captured_at_bytes = unsafe {
+        std::slice::from_raw_parts(captured_at_ptr, captured_at_len)
+    };
     let Ok(captured_at) = std::str::from_utf8(captured_at_bytes) else {
         return -2;
     };
@@ -112,12 +110,8 @@ pub extern "C" fn maple_id_fallback(
     filesize: u64,
     out_hex: *mut u8,
 ) -> i32 {
-    if bytes_ptr.is_null() || out_hex.is_null() {
-        return -1;
-    }
-    if bytes_len == 0 {
-        return -2;
-    }
+    if bytes_ptr.is_null() || out_hex.is_null() { return -1; }
+    if bytes_len == 0 { return -2; }
     let bytes = unsafe { std::slice::from_raw_parts(bytes_ptr, bytes_len) };
     let id = raw_core::MapleId::fallback(bytes, filesize);
     let hex = id.to_hex();
