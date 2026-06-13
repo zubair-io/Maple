@@ -14,7 +14,7 @@
 use crate::buffers::MapleByteBuffer;
 use crate::error::set_last_error;
 use raw_core::ExifOrientation;
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 
 /// Common rawler preview-image extraction used by both entries.
 ///
@@ -37,8 +37,10 @@ fn extract_embedded_preview(
     // it's UB and Bun bus-errors the whole process. Catching it lets us
     // return a proper error code instead.
     let extract = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let source = rawler::rawsource::RawSource::new_from_slice(raw_bytes).with_path(raw_path);
-        let decoder = rawler::get_decoder(&source).map_err(|e| format!("get_decoder: {}", e))?;
+        let source = rawler::rawsource::RawSource::new_from_slice(raw_bytes)
+            .with_path(raw_path);
+        let decoder = rawler::get_decoder(&source)
+            .map_err(|e| format!("get_decoder: {}", e))?;
         let params = rawler::decoders::RawDecodeParams::default();
 
         // EXIF orientation. Pull from `raw_metadata().exif.orientation` —
@@ -63,13 +65,13 @@ fn extract_embedded_preview(
         // best available embedded JPEG without running the actual RAW
         // pipeline. `full_image` for non-DNG decoders may also fall through
         // to None, which is fine.
-        let try_slot =
-            |result: Result<Option<image::DynamicImage>, _>| -> Option<image::DynamicImage> {
-                match result {
-                    Ok(Some(img)) => Some(img),
-                    Ok(None) | Err(_) => None,
-                }
-            };
+        let try_slot = |result: Result<Option<image::DynamicImage>, _>|
+            -> Option<image::DynamicImage> {
+            match result {
+                Ok(Some(img)) => Some(img),
+                Ok(None) | Err(_) => None,
+            }
+        };
         let img = try_slot(decoder.preview_image(&source, &params))
             .or_else(|| try_slot(decoder.full_image(&source, &params)))
             .or_else(|| try_slot(decoder.thumbnail_image(&source, &params)));
@@ -91,10 +93,7 @@ fn extract_embedded_preview(
 /// still allocates a fresh buffer — at thumbnail resolutions this is
 /// cheaper than threading an `Option` through the encode call site.
 fn bake_orientation(
-    w: u32,
-    h: u32,
-    rgb: &[u8],
-    orientation: ExifOrientation,
+    w: u32, h: u32, rgb: &[u8], orientation: ExifOrientation,
 ) -> (u32, u32, Vec<u8>) {
     raw_core::image::apply_orientation(rgb, w, h, orientation)
 }
@@ -147,19 +146,13 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg(
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
-        }
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
     };
     let q = if quality == 0 { 82 } else { quality };
     let raw_path = std::path::Path::new(&raw_path_str);
     let raw_bytes = match std::fs::read(raw_path) {
         Ok(b) => b,
-        Err(e) => {
-            set_last_error(format!("raw read: {}", e));
-            return 6;
-        }
+        Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
     };
 
     let (dyn_img, orientation) = match extract_embedded_preview(&raw_bytes, raw_path) {
@@ -181,10 +174,7 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg(
     let (ow, oh, oriented) = bake_orientation(rw, rh, rgb_img.as_raw(), orientation);
     let jpeg = match raw_core::jpeg::encode(ow, oh, &oriented, q) {
         Ok(b) => b,
-        Err(e) => {
-            set_last_error(format!("jpeg encode: {}", e));
-            return 10;
-        }
+        Err(e) => { set_last_error(format!("jpeg encode: {}", e)); return 10; }
     };
 
     let (ptr, len) = {
@@ -240,17 +230,11 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg_to_file(
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
-        }
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
     };
     let out_path_str = match CStr::from_ptr(out_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("out_path not UTF-8: {}", e));
-            return 3;
-        }
+        Err(e) => { set_last_error(format!("out_path not UTF-8: {}", e)); return 3; }
     };
     let q = if quality == 0 { 82 } else { quality };
 
@@ -258,10 +242,7 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg_to_file(
     let out_path = std::path::Path::new(&out_path_str);
     let raw_bytes = match std::fs::read(raw_path) {
         Ok(b) => b,
-        Err(e) => {
-            set_last_error(format!("raw read: {}", e));
-            return 6;
-        }
+        Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
     };
 
     let (dyn_img, orientation) = match extract_embedded_preview(&raw_bytes, raw_path) {
@@ -281,10 +262,7 @@ pub unsafe extern "C" fn maple_render_thumbnail_jpeg_to_file(
     let (ow, oh, oriented) = bake_orientation(rw, rh, rgb_img.as_raw(), orientation);
     let jpeg = match raw_core::jpeg::encode(ow, oh, &oriented, q) {
         Ok(b) => b,
-        Err(e) => {
-            set_last_error(format!("jpeg encode: {}", e));
-            return 10;
-        }
+        Err(e) => { set_last_error(format!("jpeg encode: {}", e)); return 10; }
     };
 
     // Atomic write: write to .tmp, then rename. The parent dir must exist

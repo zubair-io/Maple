@@ -25,7 +25,9 @@ fn empty_buf() -> MapleSceneLinearBuffer {
 #[test]
 fn open_raw_handle_null_arg_sets_error() {
     let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
-    let rc = unsafe { maple_open_raw_handle(std::ptr::null(), std::ptr::null(), &mut handle) };
+    let rc = unsafe {
+        maple_open_raw_handle(std::ptr::null(), std::ptr::null(), &mut handle)
+    };
     assert_eq!(rc, 1);
     assert!(handle.is_null());
     let err = unsafe { maple_last_error() };
@@ -40,15 +42,7 @@ fn render_handle_null_arg_sets_error() {
     let mut buf = empty_buf();
     let rc = unsafe {
         maple_render_handle_scene_linear_tile(
-            std::ptr::null(),
-            0,
-            0,
-            512,
-            512,
-            256,
-            256,
-            0,
-            &mut buf,
+            std::ptr::null(), 0, 0, 512, 512, 256, 256, 0, &mut buf,
         )
     };
     assert_eq!(rc, 1);
@@ -66,17 +60,19 @@ fn close_raw_handle_null_is_noop() {
 fn raw_handle_round_trip_renders_tile() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    if !path.exists() { return; }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
-    let rc = unsafe { maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle) };
+    let rc = unsafe {
+        maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle)
+    };
     assert_eq!(rc, 0, "open rc = {}", rc);
     assert!(!handle.is_null());
     let mut buf = empty_buf();
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf,
+        )
     };
     assert_eq!(rc, 0, "render rc = {}", rc);
     assert_eq!(buf.width, 256);
@@ -102,19 +98,21 @@ fn raw_handle_round_trip_renders_tile() {
 fn raw_handle_renders_multiple_tiles() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    if !path.exists() { return; }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
-    let rc = unsafe { maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle) };
+    let rc = unsafe {
+        maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle)
+    };
     assert_eq!(rc, 0);
     // Render three non-overlapping tiles.
     let coords: [(u32, u32); 3] = [(0, 0), (1024, 0), (0, 1024)];
     for (sx, sy) in coords.iter() {
         let mut buf = empty_buf();
         let rc = unsafe {
-            maple_render_handle_scene_linear_tile(handle, *sx, *sy, 512, 512, 256, 256, 0, &mut buf)
+            maple_render_handle_scene_linear_tile(
+                handle, *sx, *sy, 512, 512, 256, 256, 0, &mut buf,
+            )
         };
         assert_eq!(rc, 0, "tile ({},{}) rc = {}", sx, sy, rc);
         assert_eq!(buf.width, 256);
@@ -131,9 +129,7 @@ fn raw_handle_renders_multiple_tiles() {
 fn raw_handle_with_dehaze_xmp_returns_rc10() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    if !path.exists() { return; }
     let xmp_path = std::env::temp_dir().join("handle-dehaze.xmp");
     std::fs::write(
         &xmp_path,
@@ -142,11 +138,15 @@ fn raw_handle_with_dehaze_xmp_returns_rc10() {
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let xmp_cstr = CString::new(xmp_path.to_str().unwrap()).unwrap();
     let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
-    let rc = unsafe { maple_open_raw_handle(raw_cstr.as_ptr(), xmp_cstr.as_ptr(), &mut handle) };
+    let rc = unsafe {
+        maple_open_raw_handle(raw_cstr.as_ptr(), xmp_cstr.as_ptr(), &mut handle)
+    };
     assert_eq!(rc, 0, "open rc = {}", rc);
     let mut buf = empty_buf();
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf,
+        )
     };
     assert_eq!(rc, 10, "expected dehaze rc=10, got {}", rc);
     unsafe {
@@ -161,16 +161,18 @@ fn raw_handle_with_dehaze_xmp_returns_rc10() {
 fn raw_handle_upscale_returns_rc11() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    if !path.exists() { return; }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
-    let rc = unsafe { maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle) };
+    let rc = unsafe {
+        maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle)
+    };
     assert_eq!(rc, 0);
     let mut buf = empty_buf();
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 256, 256, 512, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 256, 256, 512, 256, 0, &mut buf,
+        )
     };
     assert_eq!(rc, 11, "out_w>src_w must rc=11, got {}", rc);
     unsafe { maple_close_raw_handle(handle) };
@@ -182,17 +184,19 @@ fn raw_handle_upscale_returns_rc11() {
 fn raw_handle_mismatched_aspect_returns_rc12() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    if !path.exists() { return; }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
-    let rc = unsafe { maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle) };
+    let rc = unsafe {
+        maple_open_raw_handle(raw_cstr.as_ptr(), std::ptr::null(), &mut handle)
+    };
     assert_eq!(rc, 0);
     let mut buf = empty_buf();
     // src 512×512 (1:1), out 512×256 (2:1) — strict mismatch.
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 512, 512, 512, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 512, 512, 512, 256, 0, &mut buf,
+        )
     };
     assert_eq!(rc, 12, "mismatched aspect must rc=12, got {}", rc);
     unsafe { maple_close_raw_handle(handle) };
@@ -203,26 +207,22 @@ fn raw_handle_mismatched_aspect_returns_rc12() {
 fn raw_handle_bytes_round_trip() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    if !path.exists() { return; }
     let bytes = std::fs::read(&path).unwrap();
     let ext = CString::new("dng").unwrap();
     let mut handle: *mut MapleRawHandle = std::ptr::null_mut();
     let rc = unsafe {
         maple_open_raw_handle_bytes(
-            bytes.as_ptr(),
-            bytes.len(),
-            ext.as_ptr(),
-            std::ptr::null(),
-            &mut handle,
+            bytes.as_ptr(), bytes.len(), ext.as_ptr(), std::ptr::null(), &mut handle,
         )
     };
     assert_eq!(rc, 0, "open_bytes rc = {}", rc);
     assert!(!handle.is_null());
     let mut buf = empty_buf();
     let rc = unsafe {
-        maple_render_handle_scene_linear_tile(handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf)
+        maple_render_handle_scene_linear_tile(
+            handle, 1024, 1024, 512, 512, 256, 256, 0, &mut buf,
+        )
     };
     assert_eq!(rc, 0);
     assert_eq!(buf.width, 256);
