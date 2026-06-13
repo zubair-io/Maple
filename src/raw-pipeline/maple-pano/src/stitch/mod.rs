@@ -66,7 +66,7 @@ use crate::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider,
 use crate::ingest::{ingest_file, proxy_to_long_edge, IngestedFrame, PlanarImage};
 use crate::leveling;
 use crate::local_align::LocalCorrection;
-use crate::matching::LightGlueMatcher;
+use crate::matching::{LightGlueMatcher, MatcherOptions};
 use crate::models::ModelDir;
 use crate::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use crate::robust::RobustOptions;
@@ -126,10 +126,22 @@ pub fn stitch(
 
     let models = ModelDir::resolve(opts.models_dir.as_deref())
         .map_err(|e| StitchError::MlUnavailable(e.to_string()))?;
-    let mut detector = AlikedDetector::load(&models, DetectorOptions::default())
-        .map_err(|e| StitchError::MlUnavailable(format!("ALIKED load failed: {e}")))?;
-    let mut matcher = LightGlueMatcher::load(&models, Default::default())
-        .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
+    let mut detector = AlikedDetector::load(
+        &models,
+        DetectorOptions {
+            use_coreml: opts.use_coreml,
+            ..DetectorOptions::default()
+        },
+    )
+    .map_err(|e| StitchError::MlUnavailable(format!("ALIKED load failed: {e}")))?;
+    let mut matcher = LightGlueMatcher::load(
+        &models,
+        MatcherOptions {
+            use_coreml: opts.use_coreml,
+            ..Default::default()
+        },
+    )
+    .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
 
     let mut feature_sets: Vec<FeatureSet> = Vec::with_capacity(frames.len());
     let mut proxy_scale: Vec<f64> = Vec::with_capacity(frames.len());

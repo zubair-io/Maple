@@ -23,6 +23,14 @@ use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
 
+// CoreML EP types — only needed for the iOS execution-provider registration
+// (M6-C, #1251). The imports are gated so the host/macOS build does not pull
+// in any CoreML dependency.
+#[cfg(target_os = "ios")]
+use ort::execution_providers::coreml::{
+    CoreMLComputeUnits, CoreMLExecutionProvider, CoreMLModelFormat,
+};
+
 use crate::features::FeatureSet;
 use crate::matching::MlMatch;
 use crate::models::{MlError, ModelDir, OrtRuntime};
@@ -45,6 +53,21 @@ pub struct MatcherOptions {
     /// Intra-op thread count for the session (`None` = ONNX Runtime's
     /// default heuristic).
     pub intra_threads: Option<usize>,
+    /// Request the CoreML Execution Provider (M6-C, #1251).
+    ///
+    /// When `true` and compiled for iOS (`target_os = "ios"`), the
+    /// CoreML EP is registered ahead of the default CPU provider so that
+    /// ANE/GPU-eligible ops run on Apple silicon. LightGlue has ~99.9%
+    /// CoreML op coverage: only `NonZero`, `Range`, and `GatherElements`
+    /// (data-dependent output shapes) fall back to ORT-CPU — those are
+    /// trivial index-extraction ops at the end of the graph. On macOS the
+    /// field is ignored — the macOS path is CPU-ORT (parity-verified).
+    ///
+    /// The EP is registered in "graceful" mode (default, not
+    /// `error_on_failure`): if CoreML is unavailable at runtime the
+    /// session init continues with ORT-CPU and logs a warning rather than
+    /// failing hard. ANE speedup is unvalidated on-device — pending M6-E.
+    pub use_coreml: bool,
 }
 
 impl Default for MatcherOptions {
@@ -52,6 +75,7 @@ impl Default for MatcherOptions {
         Self {
             score_threshold: 0.2,
             intra_threads: None,
+            use_coreml: false,
         }
     }
 }
@@ -65,8 +89,25 @@ pub struct LightGlueMatcher {
 }
 
 impl LightGlueMatcher {
-    /// Load the verified LightGlue model from `models` (CPU execution
-    /// provider — CoreML EP is a later milestone, eng design spec §5).
+    /// Load the verified LightGlue model from `models`.
+    ///
+    /// On iOS with `options.use_coreml = true` the CoreML Execution
+    /// Provider is registered before the default CPU provider
+    /// (`MLProgram` format, `All` compute units). LightGlue has ~99.9%
+    /// CoreML op coverage — only `NonZero`, `Range`, and `GatherElements`
+    /// (data-dependent output shapes; always-CPU in any CoreML EP) fall
+    /// back to ORT-CPU. Those three nodes are trivial index-extraction ops
+    /// at the end of the graph; all ~2,350 transformer attention matmuls
+    /// run on ANE/GPU. On macOS the option is ignored — the macOS path is
+    /// CPU-ORT (parity-verified against ACR references, must not change).
+    ///
+    /// CoreML EP is registered in "graceful" mode: if registration or
+    /// model compilation fails at runtime the session continues with
+    /// ORT-CPU and logs a warning; it never crashes on CoreML failure.
+    ///
+    /// M6-E: ANE speedup is unvalidated on-device — pending real-device
+    /// measurement (estimated ~25s→~5s on A-series; simulator has no ANE
+    /// and falls back to ORT-CPU automatically).
     pub fn load(models: &ModelDir, options: MatcherOptions) -> Result<Self, MlError> {
         OrtRuntime::preflight(None)?;
         let mut builder = Session::builder()
@@ -76,6 +117,22 @@ impl LightGlueMatcher {
             builder = builder
                 .with_intra_threads(threads)
                 .map_err(|e| MlError::Runtime(format!("intra threads: {e}")))?;
+        }
+        // M6-C (#1251): CoreML EP — iOS only. macOS stays on CPU-ORT (the
+        // macOS path is parity-verified against ACR references and must not
+        // be perturbed). The EP is registered in "graceful" mode (the
+        // default, i.e. not error_on_failure): unsupported ops (NonZero,
+        // Range, GatherElements — data-dependent shapes, always-CPU in
+        // CoreML) and any EP init failure fall back to ORT-CPU
+        // automatically; the session never crashes on a CoreML failure alone.
+        #[cfg(target_os = "ios")]
+        if options.use_coreml {
+            builder = builder
+                .with_execution_providers([CoreMLExecutionProvider::default()
+                    .with_model_format(CoreMLModelFormat::MLProgram)
+                    .with_compute_units(CoreMLComputeUnits::All)
+                    .build()])
+                .map_err(|e| MlError::Runtime(format!("CoreML EP registration: {e}")))?;
         }
         let session = builder.commit_from_file(&models.lightglue).map_err(|e| {
             MlError::Runtime(format!("loading {}: {e}", models.lightglue.display()))
