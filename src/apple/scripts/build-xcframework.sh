@@ -2,7 +2,13 @@
 # build-xcframework.sh — compile raw-ffi for Apple targets, run cbindgen,
 # bundle into RawPipeline.xcframework.
 #
-# Usage: ./scripts/build-xcframework.sh [--release]
+# Usage: ./scripts/build-xcframework.sh [--debug]
+#
+# The default profile is RELEASE. The Maple pano path (maple_pano_stitch) runs
+# ~16× slower in debug than release on CPU-heavy SIMD/ONNX workloads (measured:
+# 5785s debug vs 353s release for an identical 21-frame stitch on M4). Pass
+# --debug only for fast-recompile iteration where pano performance doesn't
+# matter. The CI (Xcode Cloud ci_post_clone.sh) always builds release.
 #
 # Requirements:
 #   - cargo + rustup with targets:
@@ -49,11 +55,14 @@ RAW_FFI_DIR="$RAW_PIPELINE_DIR/raw-ffi"
 FRAMEWORKS_DIR="$NATIVE_DIR/Frameworks"
 HEADERS_DIR="$NATIVE_DIR/Packages/MapleCore/Sources/MapleCore/include"
 
-PROFILE="debug"
-CARGO_PROFILE_FLAG=""
-if [[ "${1:-}" == "--release" ]]; then
-    PROFILE="release"
-    CARGO_PROFILE_FLAG="--release"
+PROFILE="release"
+CARGO_PROFILE_FLAG="--release"
+if [[ "${1:-}" == "--debug" ]]; then
+    PROFILE="debug"
+    CARGO_PROFILE_FLAG=""
+    echo "WARNING: building debug xcframework — maple_pano_stitch runs ~16× slower" >&2
+    echo "         in debug than release on CPU-heavy SIMD/ONNX workloads." >&2
+    echo "         Use this only for fast-compile iteration where pano perf doesn't matter." >&2
 fi
 
 # ---------------------------------------------------------------------------
