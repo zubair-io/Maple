@@ -57,6 +57,14 @@ rawler.workspace = true
 image.workspace = true
 thiserror.workspace = true
 
+[[test]]
+# End-to-end parity gate for maple_pano_stitch (M3 #1235 / epic #1234).
+# Uses the `pano` feature (maple-pano + ml); skip-passes when fixtures or ML
+# environment are absent (same house rule as maple-pano's ml_smoke.rs).
+name = "pano_ffi_gates"
+path = "tests/pano_ffi_gates.rs"
+required-features = ["pano"]
+
 [dev-dependencies]
 # Enable raw-core's synthetic-DNG writer for thumbnail tests that need a
 # RAW with no embedded JPEG preview (exercises the rc=8 fall-through).
