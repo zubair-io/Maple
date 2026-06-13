@@ -103,16 +103,17 @@ struct EditorView: View {
                 } fallback: {
                     canvasPlaceholder
                 }
-                ValueChipOverlay(state: state)
-                    .padding(.top, 14)
-
-                // GPU live diagnostic banner (#1227) — same signal the
-                // unified-log notice carries, in-app because device logs
-                // aren't capturable on iPhone / iPad. Anchored bottom so
-                // it doesn't fight the value chip + filmstrip.
-                if let line = state.session.gpuLiveDiagSummary {
-                    VStack {
-                        Spacer()
+                // Top-center stack: the value chip ("LIGHT │ EXPOSURE +0.25 EV")
+                // sits at the top as before; the GPU live diagnostic pill (#1227)
+                // and the cold-open loading indicator (#1201) stack directly
+                // below it so they share the same eye-line and can't get hidden
+                // by the canvas. EditorView replaces FullImageView when the user
+                // taps an image, so the equivalent banners FullImageView already
+                // has must also live here. See #1240 for the underlying
+                // GPU-live-in-editor wiring this diagnostic is exposing.
+                VStack(spacing: 6) {
+                    ValueChipOverlay(state: state)
+                    if let line = state.session.gpuLiveDiagSummary {
                         HStack(spacing: 6) {
                             Image(systemName: "speedometer")
                             Text(line)
@@ -122,9 +123,19 @@ struct EditorView: View {
                         .foregroundStyle(.white)
                         .padding(6)
                         .background(Color.orange.opacity(0.85), in: RoundedRectangle(cornerRadius: 4))
-                        .padding(.bottom, 12)
+                        .accessibilityIdentifier("editor-gpu-live-diag")
+                    }
+                    if EditSession.shouldShowLoadingIndicator(
+                        isResolvingFirstFrame: state.session.isResolvingFirstFrame,
+                        isRendering: state.session.isRendering,
+                        hasOnscreenFrame: state.session.renderedPreview != nil
+                    ) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
                     }
                 }
+                .padding(.top, 14)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(MapleTokens.bg)
