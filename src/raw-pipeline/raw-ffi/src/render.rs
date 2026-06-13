@@ -20,7 +20,7 @@ use raw_core::{
         RenderQuality,
     },
 };
-use std::ffi::{CStr, c_char};
+use std::ffi::{c_char, CStr};
 
 /// Render a RAW+XMP to an sRGB 8-bit RGB buffer. Returns 0 on success, non-zero
 /// on error (call `maple_last_error` for a description). `xmp_path` may be null,
@@ -48,31 +48,46 @@ pub unsafe extern "C" fn maple_render_file(
     // Pull the paths into owned Strings so the worker thread can own them.
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
+        Err(e) => {
+            set_last_error(format!("raw_path not UTF-8: {}", e));
+            return 2;
+        }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
         None
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+            Err(e) => {
+                set_last_error(format!("xmp_path not UTF-8: {}", e));
+                return 3;
+            }
         }
     };
-    let out_ptr = out as usize;  // Send across the thread as a usize, cast back inside.
+    let out_ptr = out as usize; // Send across the thread as a usize, cast back inside.
     with_large_stack(move || {
         let raw_path = std::path::Path::new(&raw_path_str);
         let model = match load_xmp_model_owned(xmp_path_str.as_deref()) {
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
+        {
             Ok(b) => b,
-            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+            Err(e) => {
+                set_last_error(format!("raw read: {}", e));
+                return 6;
+            }
         };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
+            decode_bytes(&raw_bytes, ext)
+        }) {
             Ok(r) => r,
-            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+            Err(e) => {
+                set_last_error(format!("decode: {}", e));
+                return 7;
+            }
         };
         let quality = if quality_preview != 0 {
             RenderQuality::Preview
@@ -84,10 +99,16 @@ pub unsafe extern "C" fn maple_render_file(
         // the path is guaranteed to be valid; `maple_render_bytes` below
         // is bytes-only and runs AgX unconditionally.
         let (w, h, bytes) = match render_from_raw_with_quality_and_source(
-            &raw_img, &model, quality, Some(raw_core::pipeline::RawInput::Path(raw_path)),
+            &raw_img,
+            &model,
+            quality,
+            Some(raw_core::pipeline::RawInput::Path(raw_path)),
         ) {
             Ok(t) => t,
-            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+            Err(e) => {
+                set_last_error(format!("render: {}", e));
+                return 8;
+            }
         };
         let (rgb, len) = raw_core::pipeline::stage("ffi_pack", || {
             let mut boxed = bytes.into_boxed_slice();
@@ -97,8 +118,12 @@ pub unsafe extern "C" fn maple_render_file(
             (p, n)
         });
         unsafe {
-            *(out_ptr as *mut MapleImageBuffer) =
-                MapleImageBuffer { rgb, len, width: w, height: h };
+            *(out_ptr as *mut MapleImageBuffer) = MapleImageBuffer {
+                rgb,
+                len,
+                width: w,
+                height: h,
+            };
         }
         0
     })
@@ -133,7 +158,10 @@ pub unsafe extern "C" fn maple_render_bytes(
     } else {
         match CStr::from_ptr(hint_ext).to_str() {
             Ok(s) => s.to_owned(),
-            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
+            Err(e) => {
+                set_last_error(format!("hint_ext not UTF-8: {}", e));
+                return 2;
+            }
         }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
@@ -141,7 +169,10 @@ pub unsafe extern "C" fn maple_render_bytes(
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+            Err(e) => {
+                set_last_error(format!("xmp_path not UTF-8: {}", e));
+                return 3;
+            }
         }
     };
     // Copy input bytes into a Vec the worker can own — the caller's pointer
@@ -153,9 +184,14 @@ pub unsafe extern "C" fn maple_render_bytes(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
+            decode_bytes(&input, &ext_owned)
+        }) {
             Ok(r) => r,
-            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+            Err(e) => {
+                set_last_error(format!("decode: {}", e));
+                return 7;
+            }
         };
         let quality = if quality_preview != 0 {
             RenderQuality::Preview
@@ -164,7 +200,10 @@ pub unsafe extern "C" fn maple_render_bytes(
         };
         let (w, h, out_bytes) = match render_from_raw_with_quality(&raw_img, &model, quality) {
             Ok(t) => t,
-            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+            Err(e) => {
+                set_last_error(format!("render: {}", e));
+                return 8;
+            }
         };
         let (rgb, len) = raw_core::pipeline::stage("ffi_pack", || {
             let mut boxed = out_bytes.into_boxed_slice();
@@ -174,8 +213,12 @@ pub unsafe extern "C" fn maple_render_bytes(
             (p, n)
         });
         unsafe {
-            *(out_ptr as *mut MapleImageBuffer) =
-                MapleImageBuffer { rgb, len, width: w, height: h };
+            *(out_ptr as *mut MapleImageBuffer) = MapleImageBuffer {
+                rgb,
+                len,
+                width: w,
+                height: h,
+            };
         }
         0
     })
@@ -257,14 +300,20 @@ pub unsafe extern "C" fn maple_histogram_file(
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
+        Err(e) => {
+            set_last_error(format!("raw_path not UTF-8: {}", e));
+            return 2;
+        }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
         None
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
+            Err(e) => {
+                set_last_error(format!("xmp_path not UTF-8: {}", e));
+                return 3;
+            }
         }
     };
     let out_ptr = out_bins as usize; // Send across the worker thread as a usize.
@@ -274,22 +323,37 @@ pub unsafe extern "C" fn maple_histogram_file(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
+        {
             Ok(b) => b,
-            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
+            Err(e) => {
+                set_last_error(format!("raw read: {}", e));
+                return 6;
+            }
         };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
+            decode_bytes(&raw_bytes, ext)
+        }) {
             Ok(r) => r,
-            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
+            Err(e) => {
+                set_last_error(format!("decode: {}", e));
+                return 7;
+            }
         };
         // Full-quality render so the histogram reflects the authoritative
         // export pixels (mirrors `maple_render_file` with quality_preview = 0).
         let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
-            &raw_img, &model, RenderQuality::Full, Some(RawInput::Path(raw_path)),
+            &raw_img,
+            &model,
+            RenderQuality::Full,
+            Some(RawInput::Path(raw_path)),
         ) {
             Ok(t) => t,
-            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
+            Err(e) => {
+                set_last_error(format!("render: {}", e));
+                return 8;
+            }
         };
         let bins = bin_rgb888(&bytes);
         // SAFETY: the caller guarantees `out_bins` (captured as `out_ptr`)
@@ -366,4 +430,3 @@ pub unsafe extern "C" fn maple_compute_look_lut(look_mode: u8, out: *mut u8) -> 
         _ => -1,
     }
 }
-
