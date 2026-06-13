@@ -150,27 +150,29 @@ struct PanoMergeSessionTests {
     ///
     /// `AppShell.dismissPanoramaMerge()` is the single exit point for ALL
     /// dismissal paths (Cancel button, Done button, swipe-down, Escape).
-    /// This test verifies that calling `session.cancel()` — exactly what
-    /// `dismissPanoramaMerge()` does — stops the stitch regardless of
-    /// which path triggered it.
+    /// This test verifies that `session.cancel()` — exactly what
+    /// `dismissPanoramaMerge()` does — immediately:
+    ///   1. Invokes `stitcher.cancel()` (counted by the spy).
+    ///   2. Transitions `session.state` to `.idle`.
+    ///   3. Reports `session.isRunning == false`.
     ///
-    /// The `CancellableSpyStitcher` suspends forever in `stitch` until
-    /// `cancel()` is called, letting us verify that:
-    ///   1. The session is running after `start()`.
-    ///   2. `cancel()` immediately transitions state to `.idle`.
-    ///   3. `isRunning` is false after cancel.
+    /// Implementation note: `cancel()` is synchronous on `@MainActor`.
+    /// We do not need to await anything to confirm the effect — both the
+    /// state transition and the spy-count update are synchronous.
     @Test("cancel() on dismiss stops an in-flight stitch")
-    func cancelOnDismissStopsInFlightStitch() async throws {
+    func cancelOnDismissStopsInFlightStitch() {
         let spy = CancellableSpyStitcher()
         let session = PanoMergeSession(stitcher: spy)
 
+        // start() sets state = .running(...) synchronously, then launches
+        // an unstructured Task.  We're on @MainActor so the Task hasn't
+        // been scheduled to run yet.
         session.start(assets: makeAssets(3))
-        // Yield once so the Task in PanoMergeSession starts and the stitcher
-        // enters its suspension point. The spy records the cancel() call
-        // regardless of whether the Task has started yet, so this is stable.
-        await Task.yield()
+        #expect(session.isRunning, "session should be .running after start()")
 
         // Simulate AppShell.dismissPanoramaMerge() calling session.cancel().
+        // cancel() is synchronous on @MainActor: it calls stitcher.cancel()
+        // and sets state = .idle before returning.
         session.cancel()
 
         #expect(!session.isRunning, "session must not be running after cancel")
@@ -182,14 +184,18 @@ struct PanoMergeSessionTests {
 
 // MARK: - CancellableSpyStitcher
 
-/// Stitcher that suspends in `stitch` until cancelled. Records the number
-/// of times `cancel()` is invoked so tests can assert it was called.
+/// Stitcher spy that records how many times `cancel()` is called.
+///
+/// `stitch` suspends indefinitely via a single `Task.sleep` long enough
+/// to outlive the test.  The assertions in the test are all synchronous
+/// (PanoMergeSession.cancel() updates state on @MainActor without
+/// awaiting anything), so the stitch task is still suspended when the
+/// asserts run.  PanoMergeSession's generation counter ensures the
+/// stitch result is ignored even if the task ever wakes.
 private final class CancellableSpyStitcher: PanoStitching {
     nonisolated(unsafe) private(set) var cancelCallCount: Int = 0
-    nonisolated(unsafe) private var cancelled: Bool = false
 
     func cancel() {
-        cancelled = true
         cancelCallCount += 1
     }
 
@@ -198,13 +204,9 @@ private final class CancellableSpyStitcher: PanoStitching {
         options: PanoOptions,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
-        cancelled = false
-        // Emit a single progress tick so the session enters .running, then
-        // suspend until cancel() flips the flag.
-        await MainActor.run { progress(.decoding, 0.0) }
-        while !cancelled {
-            try await Task.sleep(for: .milliseconds(5))
-        }
+        // Sleep for an arbitrarily long time — the test asserts synchronously
+        // before this ever wakes.  1 hour is effectively infinite for a unit test.
+        try await Task.sleep(for: .seconds(3600))
         throw CancellationError()
     }
 }
