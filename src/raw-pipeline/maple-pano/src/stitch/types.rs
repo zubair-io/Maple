@@ -51,9 +51,11 @@ pub struct StitchOptions {
     pub canvas_tile_rows: Option<u32>,
     /// Request the CoreML Execution Provider for the ALIKED + LightGlue
     /// ORT sessions (M6-C, #1251). iOS-only: the EP is registered behind
-    /// `#[cfg(target_os = "ios")]` in the session builders and falls back
-    /// to ORT-CPU when it can't engage. The CLI/macOS path leaves this
-    /// `false` (CPU ORT, parity-verified); the iOS FFI sets it `true`.
+    /// `#[cfg(target_os = "ios")]` in the session builders. If CoreML
+    /// can't engage at runtime, ORT logs a warning and continues on
+    /// CPU-ORT (a logged fallback, not a silent one). The CLI/macOS path
+    /// leaves this `false` (CPU ORT, parity-verified); the iOS FFI sets
+    /// it `true`.
     pub use_coreml: bool,
 }
 
