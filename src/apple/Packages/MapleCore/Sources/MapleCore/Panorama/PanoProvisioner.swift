@@ -112,6 +112,19 @@ public actor PanoProvisioner {
         #endif
     }
 
+    /// Platform-aware readiness. macOS needs the models *and* the ORT dylib on
+    /// disk; iOS needs only the models (ORT is the static framework embedded at
+    /// build time, so there is no dylib file to find). Use this instead of
+    /// `PanoProvisioningStatus.isProvisioned` for UI state — `isProvisioned`
+    /// always requires the ORT dylib and so reads as "not ready" on iOS.
+    public nonisolated static func isReady(_ status: PanoProvisioningStatus) -> Bool {
+        #if os(macOS)
+        return status.modelsDirExists && status.ortDylibExists
+        #else
+        return status.modelsDirExists
+        #endif
+    }
+
     /// Approximate total download size for a fresh provision on this
     /// platform (models everywhere, + ORT tarball on macOS). For UI copy.
     public nonisolated static var approximateDownloadBytes: Int {
@@ -181,7 +194,12 @@ public actor PanoProvisioner {
         guard case let .modelFile(filename) = spec.kind,
               let dir = modelsDir else { return false }
         let url = dir.appendingPathComponent(filename)
-        return fileSize(url) == spec.size
+        // Size gate first (cheap); only hash a same-sized file so a
+        // right-sized-but-wrong-contents file isn't treated as installed
+        // (honours the "present and verified" contract). The hash cost is paid
+        // only when a file already exists at the target.
+        guard fileSize(url) == spec.size else { return false }
+        return (try? sha256Hex(ofFileAt: url)) == spec.sha256
     }
 
     private func isOrtInstalled() -> Bool {
@@ -273,14 +291,22 @@ public actor PanoProvisioner {
                 artifact: spec.label,
                 detail: "expected \(internalDylibPath) not found in archive")
         }
-        try ensureDir(target.deletingLastPathComponent())
-        // cp -L: copy the real dylib (dereference the version symlink) to the
-        // exact path the resolver returns. Overwrites a prior install.
-        try? FileManager.default.removeItem(at: target)
-        try runTool("/bin/cp", ["-L", extractedDylib.path, target.path], artifact: spec.label, what: "install")
+        // cp -L (dereference the version symlink) to a temp file, then
+        // atomically replace the target — a failed copy can't leave the
+        // installed dylib missing/corrupt.
+        let cpTmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pano-ort-dylib-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: cpTmp) }
+        try runTool("/bin/cp", ["-L", extractedDylib.path, cpTmp.path], artifact: spec.label, what: "install")
+        try replaceItem(at: target, with: cpTmp)
     }
 
     private func runTool(_ launchPath: String, _ args: [String], artifact: String, what: String) throws {
+        func fail(_ detail: String) -> PanoProvisionError {
+            what == "install"
+                ? .installFailed(artifact: artifact, detail: detail)
+                : .extractFailed(artifact: artifact, detail: detail)
+        }
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: launchPath)
         proc.arguments = args
@@ -291,13 +317,11 @@ public actor PanoProvisioner {
             try proc.run()
             proc.waitUntilExit()
         } catch {
-            throw PanoProvisionError.extractFailed(artifact: artifact, detail: "\(what): \(error.localizedDescription)")
+            throw fail("\(what): \(error.localizedDescription)")
         }
         guard proc.terminationStatus == 0 else {
             let msg = String(data: err.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw PanoProvisionError.extractFailed(
-                artifact: artifact,
-                detail: "\(what) exited \(proc.terminationStatus): \(msg.trimmingCharacters(in: .whitespacesAndNewlines))")
+            throw fail("\(what) exited \(proc.terminationStatus): \(msg.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
     }
     #endif
@@ -308,12 +332,21 @@ public actor PanoProvisioner {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
-    /// Atomically place `source` at `target` (replacing any existing file).
+    /// Atomically place `source` at `target`, replacing any existing file
+    /// without a destroy-then-write window: stage into the target directory
+    /// (same volume, so `moveItem` from a cross-volume temp copies into place),
+    /// then atomically swap. A failure leaves any prior install intact.
     private func replaceItem(at target: URL, with source: URL) throws {
+        let dir = target.deletingLastPathComponent()
+        try ensureDir(dir)
+        let staging = dir.appendingPathComponent(".\(target.lastPathComponent).staging-\(UUID().uuidString)")
+        try? FileManager.default.removeItem(at: staging)
+        try FileManager.default.moveItem(at: source, to: staging)
         if FileManager.default.fileExists(atPath: target.path) {
-            try FileManager.default.removeItem(at: target)
+            _ = try FileManager.default.replaceItemAt(target, withItemAt: staging)
+        } else {
+            try FileManager.default.moveItem(at: staging, to: target)
         }
-        try FileManager.default.moveItem(at: source, to: target)
     }
 
     private func fileSize(_ url: URL) -> Int? {
