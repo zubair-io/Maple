@@ -12,6 +12,7 @@
 
 import Foundation
 import CoreGraphics
+import ImageIO
 #if canImport(AppKit)
 import AppKit
 #elseif canImport(UIKit)
