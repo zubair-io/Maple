@@ -170,6 +170,18 @@ pub struct MapleGpuLiveParams {
     pub hsl_lum_blue: f32,
     pub hsl_lum_purple: f32,
     pub hsl_lum_magenta: f32,
+    // --- decoded WB (the WB the buffer being rendered was decoded at — #1240
+    //     follow-up). The chain's WB step computes `M_net = M_live · M_decoded⁻¹`
+    //     instead of `M_live` alone, mirroring `apply_delta`: identity at
+    //     `live == decoded` (post-DCP D65 buffer, slider at as-shot CCT), shift
+    //     relative to as-shot otherwise. Without this, the GPU chain applied
+    //     `M_live` ABSOLUTELY from D65 and the editor canvas rendered the as-shot
+    //     scene with `wb_cat16(asShot)` baked in (e.g. test_0002 → uniform colour
+    //     cast user reported). Appended at the tail per the ABI convention; an
+    //     un-set host (zero/zero) reads as "decoded == 6500/0", collapsing the
+    //     ratio to the absolute apply that earlier hosts expected.
+    pub decoded_temperature: f32,
+    pub decoded_tint: f32,
 }
 
 /// Internal handle state: the owned context + session. Behind the opaque pointer.
