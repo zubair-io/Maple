@@ -64,15 +64,19 @@ extension PipelineRenderer {
         // as `makeParams` documents for the 18-field `MapleAdjustmentParams`.
         var p = MapleGpuLiveParams()
 
-        // --- white balance (DELTA — the FFI computes M_net = M_live · M_decoded⁻¹
-        //     matching `apply_delta`. With `decoded == asShot`, the matrix is
-        //     identity at `live == asShot` (default slider value), mirroring the
-        //     CPU `processSceneLinear` contract. With both decoded fields zero
-        //     (legacy hosts) the FFI substitutes 6500/0 and the matrix collapses
-        //     to the absolute apply that previously shipped.) #1240 follow-up.
+        // --- white balance (DELTA when `asShotCCT/asShotTint` are supplied:
+        //     the FFI computes `M_net = M_live · M_decoded⁻¹` matching
+        //     `apply_delta`. With `decoded == asShot`, the matrix is identity
+        //     at `live == asShot` (default slider value), mirroring the CPU
+        //     `processSceneLinear` contract. When asShot is unknown / not
+        //     supplied, write the 0/0 sentinel so the FFI takes the legacy
+        //     ABSOLUTE branch (`M_net = M_live`) — explicitly NOT 6500/0,
+        //     because `wb_cat16_matrix(6500, 0)` is not exact identity and
+        //     composing with its inverse would silently shift the legacy
+        //     output. (Copilot review on #1262.) #1240 follow-up.
         p.temperature = Float(model.temperature)
         p.tint = Float(model.tint)
-        p.decoded_temperature = Float(asShotCCT ?? 6500.0)
+        p.decoded_temperature = Float(asShotCCT ?? 0.0)
         p.decoded_tint = Float(asShotTint ?? 0.0)
         p.wb_method = 0 // CAT16 (the Apple model carries no method field)
 

@@ -47,46 +47,57 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
         1 => raw_core::types::WbMethod::DiagonalRec2020,
         _ => raw_core::types::WbMethod::Cat16,
     };
-    // Compute the DELTA WB matrix (#1240 follow-up): `M_net = M_live · M_decoded⁻¹`,
-    // matching `raw_core::stages::white_balance::apply_delta`. The pre-#1240 form
-    // here computed `M_live` ALONE — equivalent to `M_decoded = I` — which
-    // mishandled the editor decode-boundary contract: the f32 buffer is at D65
-    // (post-DCP), but Apple's `processSceneLinear` passes `decodedTemp =
-    // asShot.temperature`, so the chain's WB step IS the live-vs-asShot delta
-    // (identity at default slider value). With `M_live` alone, the GPU canvas
-    // baked `wb_cat16(asShot)` into the D65 buffer for every render — a uniform
-    // colour cast on any photo whose as-shot CCT was far from D65 (e.g. test_0002
-    // at asShot=4522K). A backwards-compatible host that doesn't set the new
-    // tail fields lands `decoded == 0/0`, which `wb_cat16_matrix(0, 0)` happens
-    // to produce a near-identity for — but we explicitly treat that as the
-    // legacy "decoded == 6500/0" sentinel below so the absolute behaviour is
-    // preserved by default.
-    let decoded_temp = if p.decoded_temperature > 0.0 {
-        p.decoded_temperature
-    } else {
-        6500.0 // legacy: no decoded WB → treat as D65 (the absolute apply)
-    };
-    let decoded_tint = p.decoded_tint;
+    // Compute the WB matrix (#1240 follow-up). When the host supplies a
+    // `decoded_temperature` (> 0 — the 0/0 sentinel means "no decoded WB"),
+    // build the DELTA `M_net = M_live · M_decoded⁻¹` matching
+    // `raw_core::stages::white_balance::apply_delta`. This handles the editor
+    // decode-boundary contract: the f32 buffer is at D65 (post-DCP), but
+    // Apple's `processSceneLinear` passes `decodedTemp = asShot.temperature`,
+    // so the chain's WB step is the live-vs-asShot delta (identity at default
+    // slider value, where live == asShot). With `M_live` alone, the GPU
+    // canvas baked `wb_cat16(asShot)` into the D65 buffer for every render —
+    // a uniform colour cast on any photo whose as-shot CCT was far from D65
+    // (e.g. test_0002 at asShot=4522K).
+    //
+    // When the host does NOT supply decoded WB (0/0 sentinel), preserve the
+    // pre-#1240 absolute apply: `M_net = M_live`. This is what legacy callers
+    // (and the headless render path) expect — `wb_cat16_matrix(6500, 0)` is
+    // NOT exactly identity, so naively forcing `decoded_temp = 6500` and
+    // composing with its inverse would silently change the legacy output.
+    // (Copilot review on #1262.)
+    let use_delta = p.decoded_temperature > 0.0;
     let wb_matrix = match wb_method {
         raw_core::types::WbMethod::Cat16 => {
             let m_live = raw_core::stages::white_balance::wb_cat16_matrix(p.temperature, p.tint);
-            let m_decoded =
-                raw_core::stages::white_balance::wb_cat16_matrix(decoded_temp, decoded_tint);
-            let m_decoded_inv = m_decoded
-                .inverse()
-                .expect("CAT16 user-WB matrix is non-singular for valid (T, tint)");
-            m_live.mul_mat(&m_decoded_inv).0
+            if use_delta {
+                let m_decoded = raw_core::stages::white_balance::wb_cat16_matrix(
+                    p.decoded_temperature,
+                    p.decoded_tint,
+                );
+                let m_decoded_inv = m_decoded
+                    .inverse()
+                    .expect("CAT16 user-WB matrix is non-singular for valid (T, tint)");
+                m_live.mul_mat(&m_decoded_inv).0
+            } else {
+                m_live.0
+            }
         }
         raw_core::types::WbMethod::DiagonalRec2020 => {
             let g_live = raw_core::stages::white_balance::wb_gains(p.temperature, p.tint);
-            let g_decoded =
-                raw_core::stages::white_balance::wb_gains(decoded_temp, decoded_tint);
-            let r = [
-                g_live[0] / g_decoded[0].max(1e-6),
-                g_live[1] / g_decoded[1].max(1e-6),
-                g_live[2] / g_decoded[2].max(1e-6),
-            ];
-            [[r[0], 0.0, 0.0], [0.0, r[1], 0.0], [0.0, 0.0, r[2]]]
+            if use_delta {
+                let g_decoded = raw_core::stages::white_balance::wb_gains(
+                    p.decoded_temperature,
+                    p.decoded_tint,
+                );
+                let r = [
+                    g_live[0] / g_decoded[0].max(1e-6),
+                    g_live[1] / g_decoded[1].max(1e-6),
+                    g_live[2] / g_decoded[2].max(1e-6),
+                ];
+                [[r[0], 0.0, 0.0], [0.0, r[1], 0.0], [0.0, 0.0, r[2]]]
+            } else {
+                [[g_live[0], 0.0, 0.0], [0.0, g_live[1], 0.0], [0.0, 0.0, g_live[2]]]
+            }
         }
     };
 
