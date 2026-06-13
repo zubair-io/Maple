@@ -1,5 +1,5 @@
 //! Apple stitch implementation for `maple_pano_stitch` (M3 of #1234 #1235;
-//! iOS enabled in M6 #1244).
+//! iOS enabled in M6 #1244; CoreML EP enabled in M6-C #1251).
 //!
 //! Thin caller of [`maple_pano::stitch::stitch`] — the single shared
 //! orchestration for both this FFI entry and `maple-cli pano stitch`
@@ -7,19 +7,23 @@
 //! stages (decode → ALIKED → LightGlue → match graph → refine → BA →
 //! leveling → composite) live in `maple_pano::stitch`.
 //!
-//! Compiled on macOS (`--features pano`) and iOS (`--features pano-ios`,
-//! M6 #1244). The difference between the two is in how ORT is initialized:
-//! macOS uses `load-dynamic` (`ort::init_from`); iOS uses the static
-//! variant (`ort::init`). Both paths are handled inside `maple_pano`
-//! (specifically `OrtRuntime::preflight` in `maple_pano::models`); this
-//! module is platform-agnostic.
+//! Platform differences:
+//! - **macOS** (`--features pano`, `target_os = "macos"`): ORT initialized
+//!   via `load-dynamic` (`ort::init_from`). CPU execution provider only.
+//!   The macOS path is parity-verified against ACR references and must not
+//!   change; `use_coreml` is not set.
+//! - **iOS** (`--features pano-ios`, `target_os = "ios"`, M6 #1244): ORT
+//!   statically linked (`ort::init()`). `use_coreml = true` enables the
+//!   CoreML Execution Provider for both ALIKED and LightGlue sessions —
+//!   ANE/GPU-eligible ops route to Apple silicon; unsupported ops fall
+//!   back to ORT-CPU automatically (graceful, never crashes).
 //!
-//! # M6-C placeholder
+//! # M6-E: ANE speedup UNVALIDATED on-device
 //!
-//! CoreML EP wiring is deferred to M6-C (#1244 follow-up). When it lands,
-//! the `StitchOptions` passed here will carry a `CoreMLExecutionProvider`
-//! builder. The `// M6-C:` comment in `maple_pano::stitch::StitchOptions`
-//! marks the insertion point.
+//! The CoreML EP is wired correctly and compiles into the iOS slices, but
+//! the actual ANE/GPU acceleration is unvalidated — there is no ANE in the
+//! iOS Simulator. Real-device validation (estimated ~25s→~5s on A-series)
+//! is owed by M6-E. Do not claim a perf number until M6-E lands.
 
 use crate::cancel::{token_from_ptr, SendCancelPtr};
 use crate::error::set_last_error;
@@ -37,12 +41,6 @@ use super::{MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy, SendProg
 /// Full Apple stitch pipeline. Called by `maple_pano_stitch` after argument
 /// validation; runs on a large-stack worker thread (see `with_large_stack`
 /// in the caller). Returns 0 on success, negative on failure (last_error set).
-///
-/// Platform differences:
-/// - macOS: ORT initialized via `load-dynamic` (`ort::init_from` in
-///   `OrtRuntime::preflight`).
-/// - iOS (M6 #1244): ORT statically linked; `ort::init()` used instead.
-///   No other changes — the geometry/compositing pipeline is identical.
 pub(super) fn run_stitch_apple(
     input_paths: Vec<String>,
     out_png_path: String,
@@ -63,6 +61,12 @@ pub(super) fn run_stitch_apple(
             MaplePanoStrategy::Rotation => StrategyRequest::Rotation,
             MaplePanoStrategy::Tile => StrategyRequest::Tile,
         },
+        // M6-C (#1251): enable CoreML EP on iOS only. macOS stays on CPU-ORT
+        // (parity-verified; do not change). On iOS the simulator falls back to
+        // ORT-CPU automatically (no ANE); real-device ANE speedup is
+        // unvalidated — pending M6-E.
+        #[cfg(target_os = "ios")]
+        use_coreml: true,
         ..StitchOptions::default()
     };
 
