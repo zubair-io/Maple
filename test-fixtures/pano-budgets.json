@@ -22,7 +22,7 @@
     },
     "pano_02": {
       "stitch": {
-        "_comment": "Synthetic 6-frame 180° partial ring (pano-gen-fixture, seed 42, 1280×960 px, 60° FOV, 50% overlap). Rotation-BA strategy (mean 0.070px, max 0.216px). No reference (gitignored) — gates on StitchReport metrics only. Ceilings at observed + ~7% slack. Peak RSS (full canvas): 9.64 GB; --canvas-tile-rows 512: 7.65 GB — preliminary on pre-#1252 tiling; re-measure after #1252 merges.",
+        "_comment": "Synthetic 6-frame 180° partial ring (pano-gen-fixture, seed 42, 1280×960 px, 60° FOV, 50% overlap). Rotation-BA strategy (mean 0.070px, max 0.216px). No reference (gitignored) — gates on StitchReport metrics only. Ceilings at observed + ~10-15% slack. Peak RSS measured on main post-#1252 (/usr/bin/time -l, this 6-frame set): full canvas 9.66 GB (9.00 GiB); --canvas-tile-rows 512: 7.65 GB (7.13 GiB) — 20.8% reduction. Both paths produce identical BA geometry (tiling bounds composite residency only, not the match/refine peak — see #1254).",
         "dropped_frames": 0,
         "mean_reproj_px": 0.08,
         "max_reproj_px": 0.24,

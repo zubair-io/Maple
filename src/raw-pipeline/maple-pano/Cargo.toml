@@ -74,7 +74,7 @@ path = "src/bin/pano-ingest-probe.rs"
 # CI regenerates them via src/scripts/gen_pano_02.sh.
 [[bin]]
 name = "pano-gen-fixture"
-path = "src/bin/pano-gen-fixture.rs"
+path = "src/bin/pano-gen-fixture/main.rs"
 
 
 # M1a gate tests need the testkit; `cargo test -p maple-pano` (no
