@@ -40,11 +40,20 @@
 //! −7   pipeline error (decode / match / BA / composite / write — detail in last_error)
 //! ```
 
-use crate::cancel::{token_from_ptr, SendCancelPtr};
-use crate::error::{set_last_error, with_large_stack};
+use crate::cancel::SendCancelPtr;
+use crate::error::set_last_error;
 use crate::MapleCancelFlag;
 
 use std::ffi::{c_char, c_void, CStr};
+
+// `token_from_ptr`, `with_large_stack`, and `Ordering` are only referenced
+// inside the `#[cfg(target_os = "macos")]` blocks below. Gate the imports
+// the same way so the iOS/iOS-sim build stays warning-free.
+#[cfg(target_os = "macos")]
+use crate::cancel::token_from_ptr;
+#[cfg(target_os = "macos")]
+use crate::error::with_large_stack;
+#[cfg(target_os = "macos")]
 use std::sync::atomic::Ordering;
 
 // ─────────────────────────────────────────────────────────────────────────────
