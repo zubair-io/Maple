@@ -8,23 +8,18 @@ use crate::id::{maple_id_fallback, maple_id_primary};
 #[test]
 fn maple_id_primary_matches_raw_core() {
     let mut bytes = vec![0u8; 1024];
-    for (i, b) in bytes.iter_mut().enumerate() {
-        *b = (i & 0xff) as u8;
-    }
+    for (i, b) in bytes.iter_mut().enumerate() { *b = (i & 0xff) as u8; }
     let ts = b"2024:06:01 12:34:56";
     let serial = b"SN-1234";
-    let expected =
-        raw_core::MapleId::primary(&bytes, "2024:06:01 12:34:56", Some("SN-1234"), Some(4242))
-            .to_hex();
+    let expected = raw_core::MapleId::primary(
+        &bytes, "2024:06:01 12:34:56", Some("SN-1234"), Some(4242),
+    ).to_hex();
 
     let mut out = [0u8; 32];
     let rc = maple_id_primary(
-        bytes.as_ptr(),
-        bytes.len(),
-        ts.as_ptr(),
-        ts.len(),
-        serial.as_ptr(),
-        serial.len(),
+        bytes.as_ptr(), bytes.len(),
+        ts.as_ptr(), ts.len(),
+        serial.as_ptr(), serial.len(),
         4242,
         out.as_mut_ptr(),
     );
@@ -36,17 +31,15 @@ fn maple_id_primary_matches_raw_core() {
 fn maple_id_primary_null_serial_matches_none_branch() {
     let bytes = [9u8; 256];
     let ts = b"2024:06:01 12:34:56";
-    let expected =
-        raw_core::MapleId::primary(&bytes, "2024:06:01 12:34:56", None, Some(0)).to_hex();
+    let expected = raw_core::MapleId::primary(
+        &bytes, "2024:06:01 12:34:56", None, Some(0),
+    ).to_hex();
 
     let mut out = [0u8; 32];
     let rc = maple_id_primary(
-        bytes.as_ptr(),
-        bytes.len(),
-        ts.as_ptr(),
-        ts.len(),
-        std::ptr::null(),
-        0,
+        bytes.as_ptr(), bytes.len(),
+        ts.as_ptr(), ts.len(),
+        std::ptr::null(), 0,
         0,
         out.as_mut_ptr(),
     );
@@ -60,39 +53,21 @@ fn maple_id_primary_rejects_nulls() {
     let ts = b"2024:06:01 12:34:56";
     // null head
     let rc = maple_id_primary(
-        std::ptr::null(),
-        0,
-        ts.as_ptr(),
-        ts.len(),
-        std::ptr::null(),
-        0,
-        0,
-        out.as_mut_ptr(),
+        std::ptr::null(), 0, ts.as_ptr(), ts.len(),
+        std::ptr::null(), 0, 0, out.as_mut_ptr(),
     );
     assert_eq!(rc, -1);
     // null captured_at
     let bytes = [1u8; 8];
     let rc = maple_id_primary(
-        bytes.as_ptr(),
-        bytes.len(),
-        std::ptr::null(),
-        0,
-        std::ptr::null(),
-        0,
-        0,
-        out.as_mut_ptr(),
+        bytes.as_ptr(), bytes.len(), std::ptr::null(), 0,
+        std::ptr::null(), 0, 0, out.as_mut_ptr(),
     );
     assert_eq!(rc, -1);
     // null out_hex
     let rc = maple_id_primary(
-        bytes.as_ptr(),
-        bytes.len(),
-        ts.as_ptr(),
-        ts.len(),
-        std::ptr::null(),
-        0,
-        0,
-        std::ptr::null_mut(),
+        bytes.as_ptr(), bytes.len(), ts.as_ptr(), ts.len(),
+        std::ptr::null(), 0, 0, std::ptr::null_mut(),
     );
     assert_eq!(rc, -1);
 }
@@ -104,26 +79,14 @@ fn maple_id_primary_rejects_empty_inputs() {
     let ts = b"2024:06:01 12:34:56";
     // zero head_len
     let rc = maple_id_primary(
-        bytes.as_ptr(),
-        0,
-        ts.as_ptr(),
-        ts.len(),
-        std::ptr::null(),
-        0,
-        0,
-        out.as_mut_ptr(),
+        bytes.as_ptr(), 0, ts.as_ptr(), ts.len(),
+        std::ptr::null(), 0, 0, out.as_mut_ptr(),
     );
     assert_eq!(rc, -2);
     // zero captured_at_len
     let rc = maple_id_primary(
-        bytes.as_ptr(),
-        bytes.len(),
-        ts.as_ptr(),
-        0,
-        std::ptr::null(),
-        0,
-        0,
-        out.as_mut_ptr(),
+        bytes.as_ptr(), bytes.len(), ts.as_ptr(), 0,
+        std::ptr::null(), 0, 0, out.as_mut_ptr(),
     );
     assert_eq!(rc, -2);
 }
@@ -131,17 +94,12 @@ fn maple_id_primary_rejects_empty_inputs() {
 #[test]
 fn maple_id_fallback_matches_raw_core() {
     let mut bytes = vec![0u8; 512];
-    for (i, b) in bytes.iter_mut().enumerate() {
-        *b = ((i * 7) & 0xff) as u8;
-    }
+    for (i, b) in bytes.iter_mut().enumerate() { *b = ((i * 7) & 0xff) as u8; }
     let expected = raw_core::MapleId::fallback(&bytes, bytes.len() as u64).to_hex();
 
     let mut out = [0u8; 32];
     let rc = maple_id_fallback(
-        bytes.as_ptr(),
-        bytes.len(),
-        bytes.len() as u64,
-        out.as_mut_ptr(),
+        bytes.as_ptr(), bytes.len(), bytes.len() as u64, out.as_mut_ptr(),
     );
     assert_eq!(rc, 0);
     assert_eq!(std::str::from_utf8(&out).unwrap(), expected);
@@ -159,7 +117,9 @@ fn maple_id_fallback_filesize_independent_of_bytes_len() {
     let expected = raw_core::MapleId::fallback(&bytes, claimed_size).to_hex();
 
     let mut out = [0u8; 32];
-    let rc = maple_id_fallback(bytes.as_ptr(), bytes.len(), claimed_size, out.as_mut_ptr());
+    let rc = maple_id_fallback(
+        bytes.as_ptr(), bytes.len(), claimed_size, out.as_mut_ptr(),
+    );
     assert_eq!(rc, 0);
     assert_eq!(std::str::from_utf8(&out).unwrap(), expected);
 }
@@ -170,12 +130,7 @@ fn maple_id_fallback_rejects_nulls_and_empty() {
     let rc = maple_id_fallback(std::ptr::null(), 0, 0, out.as_mut_ptr());
     assert_eq!(rc, -1);
     let bytes = [1u8; 4];
-    let rc = maple_id_fallback(
-        bytes.as_ptr(),
-        bytes.len(),
-        bytes.len() as u64,
-        std::ptr::null_mut(),
-    );
+    let rc = maple_id_fallback(bytes.as_ptr(), bytes.len(), bytes.len() as u64, std::ptr::null_mut());
     assert_eq!(rc, -1);
     let rc = maple_id_fallback(bytes.as_ptr(), 0, 0, out.as_mut_ptr());
     assert_eq!(rc, -2);
@@ -192,23 +147,14 @@ fn maple_id_ffi_tags_distinct() {
     let mut fall = [0u8; 32];
     assert_eq!(
         maple_id_primary(
-            bytes.as_ptr(),
-            bytes.len(),
-            ts.as_ptr(),
-            ts.len(),
-            std::ptr::null(),
-            0,
-            0,
-            prim.as_mut_ptr(),
+            bytes.as_ptr(), bytes.len(), ts.as_ptr(), ts.len(),
+            std::ptr::null(), 0, 0, prim.as_mut_ptr(),
         ),
         0,
     );
     assert_eq!(
         maple_id_fallback(
-            bytes.as_ptr(),
-            bytes.len(),
-            bytes.len() as u64,
-            fall.as_mut_ptr(),
+            bytes.as_ptr(), bytes.len(), bytes.len() as u64, fall.as_mut_ptr(),
         ),
         0,
     );
