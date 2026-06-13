@@ -248,6 +248,11 @@ pub(super) fn make_params(
         residual_lut_size: lut_size as u32,
         residual_lut_ptr: arr.residual.as_ptr(),
         residual_lut_len: arr.residual.len(),
+        // Decoded WB sentinel — 0/0 hits the legacy absolute apply branch in
+        // `inputs_from_params`, preserving the pre-#1240 behaviour the parity
+        // tests calibrate against. (Copilot review on #1262.)
+        decoded_temperature: 0.0,
+        decoded_tint: 0.0,
     }
 }
 
