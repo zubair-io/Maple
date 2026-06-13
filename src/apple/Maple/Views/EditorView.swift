@@ -105,6 +105,26 @@ struct EditorView: View {
                 }
                 ValueChipOverlay(state: state)
                     .padding(.top, 14)
+
+                // GPU live diagnostic banner (#1227) — same signal the
+                // unified-log notice carries, in-app because device logs
+                // aren't capturable on iPhone / iPad. Anchored bottom so
+                // it doesn't fight the value chip + filmstrip.
+                if let line = state.session.gpuLiveDiagSummary {
+                    VStack {
+                        Spacer()
+                        HStack(spacing: 6) {
+                            Image(systemName: "speedometer")
+                            Text(line)
+                                .font(.caption2.monospaced())
+                                .lineLimit(3)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(Color.orange.opacity(0.85), in: RoundedRectangle(cornerRadius: 4))
+                        .padding(.bottom, 12)
+                    }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(MapleTokens.bg)
