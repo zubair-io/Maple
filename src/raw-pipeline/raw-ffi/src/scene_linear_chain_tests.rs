@@ -29,7 +29,7 @@ fn default_params() -> MapleAdjustmentParams {
         dehaze: 0.0,
         decoded_temperature: 5500.0,
         decoded_tint: 0.0,
-        skip_agx: 1,  // skip AgX in tests — keeps math trivial
+        skip_agx: 1, // skip AgX in tests — keeps math trivial
         look_mode: 1, // matches AdjustmentModel::default() — Look::Default
         brightness: 0.0,
         vignette_amount: 0.0,
@@ -77,7 +77,13 @@ fn null_params_returns_rc_1() {
     let input = vec![0u16; 4];
     let mut out = vec![0u16; 4];
     let rc = unsafe {
-        maple_apply_scene_linear_chain(input.as_ptr(), 1, 1, std::ptr::null(), out.as_mut_ptr())
+        maple_apply_scene_linear_chain(
+            input.as_ptr(),
+            1,
+            1,
+            std::ptr::null(),
+            out.as_mut_ptr(),
+        )
     };
     assert_eq!(rc, 1);
     assert!(last_error_string().contains("null"));
@@ -106,7 +112,13 @@ fn zero_width_returns_rc_2() {
     let params = default_params();
     let mut out = vec![0u16; 4];
     let rc = unsafe {
-        maple_apply_scene_linear_chain(input.as_ptr(), 0, 1, &params as *const _, out.as_mut_ptr())
+        maple_apply_scene_linear_chain(
+            input.as_ptr(),
+            0,
+            1,
+            &params as *const _,
+            out.as_mut_ptr(),
+        )
     };
     assert_eq!(rc, 2);
     assert!(last_error_string().contains("zero dimension"));
@@ -118,7 +130,13 @@ fn zero_height_returns_rc_2() {
     let params = default_params();
     let mut out = vec![0u16; 4];
     let rc = unsafe {
-        maple_apply_scene_linear_chain(input.as_ptr(), 1, 0, &params as *const _, out.as_mut_ptr())
+        maple_apply_scene_linear_chain(
+            input.as_ptr(),
+            1,
+            0,
+            &params as *const _,
+            out.as_mut_ptr(),
+        )
     };
     assert_eq!(rc, 2);
     assert!(last_error_string().contains("zero dimension"));
@@ -175,7 +193,13 @@ fn f32_null_params_returns_rc_1() {
     let input = vec![0.0f32; 4];
     let mut out = vec![0.0f32; 4];
     let rc = unsafe {
-        maple_apply_scene_linear_chain_f32(input.as_ptr(), 1, 1, std::ptr::null(), out.as_mut_ptr())
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            1,
+            1,
+            std::ptr::null(),
+            out.as_mut_ptr(),
+        )
     };
     assert_eq!(rc, 1);
     assert!(last_error_string().contains("null"));
