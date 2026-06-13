@@ -18,11 +18,28 @@ import Foundation
 public final class PanoMergeSession {
     // MARK: - State machine
 
+    /// Sendable error carrier for the `.error` state.
+    ///
+    /// `Error` is not guaranteed `Sendable`, so the enum cannot store an
+    /// arbitrary `Error` and correctly claim `Sendable` conformance.  Instead
+    /// we capture the human-readable description at throw-site and carry the
+    /// original error's `localizedDescription` as a plain `String`.  Views
+    /// only need the message text; if the full error is needed for debugging
+    /// it can be added as an additional `String`-typed field here.
+    public struct StitchError: Sendable {
+        /// The `localizedDescription` of the underlying error.
+        public let message: String
+
+        public init(underlying: any Error) {
+            self.message = underlying.localizedDescription
+        }
+    }
+
     public enum RunState: Sendable {
         case idle
         case running(stage: PanoStage, stageFraction: Double, overallFraction: Double)
         case done(result: PanoResult)
-        case error(Error)
+        case error(StitchError)
     }
 
     public private(set) var state: RunState = .idle
@@ -98,7 +115,9 @@ public final class PanoMergeSession {
                 // initial `.running` state.
             } catch {
                 guard runGeneration == gen else { return }
-                state = .error(error)
+                // Wrap the arbitrary (non-Sendable) error in StitchError so
+                // RunState.error(_:) can correctly claim Sendable conformance.
+                state = .error(StitchError(underlying: error))
             }
         }
     }

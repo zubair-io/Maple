@@ -11,7 +11,7 @@ import Foundation
 
 /// User-configurable options for a panorama stitch run.
 /// Mirrors the CLI's --retention / --local-align / --strategy flags so the
-// real FFI impl (M4) can pass these through without field mapping.
+/// real FFI impl (M4) can pass these through without field mapping.
 public struct PanoOptions: Sendable, Equatable {
     /// How aggressively to retain overlapping regions in the composite.
     public enum Retention: String, Sendable, CaseIterable {

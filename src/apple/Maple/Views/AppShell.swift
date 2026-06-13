@@ -122,9 +122,9 @@ struct AppShell: View {
     //     Mac/iPad pane shell flips to this when the user opens an image
     //     (#815). The pane shell has no NavigationStack, so the editor
     //     mounts in the center column rather than being pushed.
-    //   • `.panoramaMerge` — the PanoMergeView (M2, #1236). Mac/iPad: full-
-    //     screen center column (same pattern as `.editing`). iPhone: pushed
-    //     via the Library tab's NavigationStack. Cancel returns to `.browse`.
+    //   • `.panoramaMerge` — the PanoMergeView (M2, #1236). Presented as a
+    //     modal sheet on both Mac/iPad and iPhone via `.sheet(isPresented:)`.
+    //     Cancel/Done dismisses the sheet and returns to `.browse`.
     //
     // Distinct cases (rather than overloading `.fullImage`) keep the iPhone
     // shell's many `mode == .fullImage` / `.browse` readers — title, Info
@@ -703,7 +703,13 @@ struct AppShell: View {
 
     /// Dismiss the panorama merge view and return to browse. Exits select
     /// mode so the grid resets to normal tap-to-open behaviour.
+    ///
+    /// Always cancels the in-flight stitch, regardless of how the sheet is
+    /// dismissed (Cancel/Done button OR system swipe-down / Escape gesture).
+    /// The `.sheet(isPresented:set:)` binding routes ALL dismissal paths here,
+    /// so the stitch can never leak after the sheet is gone.
     func dismissPanoramaMerge() {
+        panoMergeSession.cancel()
         mode = .browse
         browseVM.exitSelectMode()
     }
