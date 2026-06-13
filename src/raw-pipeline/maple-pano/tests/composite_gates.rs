@@ -313,16 +313,20 @@ fn tiling_equals_full_composite_on_exclusive_voronoi() {
     }
 }
 
-/// Proxy default is 1280 px: StitchOptions::default().proxy_long_edge == 1280.
-/// This pins the M6-D change (was 1600 before #1248).
+/// Proxy default is 1600 px: StitchOptions::default().proxy_long_edge == 1600.
+/// Pins the regression guard from #1248 — the M6-D 1280 default starved
+/// ALIKED on pano_01 (tile strategy + 19 orphans / no candidate); 1600
+/// keeps it rotation, 0-dropped, mean 1.13. The proxy feeds matching
+/// only (not the composite memory peak that tiling addresses), so 1600
+/// costs ~no memory vs 1280.
 /// Gated on the `ml` feature because `stitch` is only compiled with it.
 #[test]
 #[cfg(any(feature = "ml", feature = "ml-static"))]
-fn proxy_long_edge_default_is_1280() {
+fn proxy_long_edge_default_is_1600() {
     use maple_pano::stitch::StitchOptions;
     assert_eq!(
         StitchOptions::default().proxy_long_edge,
-        1280,
-        "M6-D (#1248): ALIKED native input is 1280px; default must match"
+        1600,
+        "#1248: 1280 default regressed pano_01 to 19 orphans; default must stay 1600"
     );
 }

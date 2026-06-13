@@ -33,8 +33,8 @@ pub struct StitchArgs {
     pub(super) out_dir: Option<PathBuf>,
     /// Long-edge cap for the feature-extraction proxy. The ALIKED
     /// export letterboxes to 1280² internally; larger proxies only
-    /// cost decode time. 1280 = ALIKED native input (M6-D #1248).
-    #[arg(long, default_value_t = 1280)]
+    /// cost decode time. Default 1600 (matches the pano harness baseline). 1280 starves ALIKED on pano_01 (regressed to 19 orphans, #1248) — lower it only when accepting that tradeoff.
+    #[arg(long, default_value_t = 1600)]
     pub(super) proxy_long_edge: u32,
     /// Total canvas pixel cap (uniform downscale to fit).
     #[arg(long, default_value_t = 256_000_000)]
