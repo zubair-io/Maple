@@ -118,8 +118,7 @@ pub fn stitch(
 
     let applied_opcodes: Vec<Vec<String>> =
         frames.iter().map(|f| f.applied_opcodes.clone()).collect();
-    let priors: Vec<crate::ingest::FramePriors> =
-        frames.iter().map(|f| f.priors.clone()).collect();
+    let priors: Vec<crate::ingest::FramePriors> = frames.iter().map(|f| f.priors.clone()).collect();
 
     // ── stage 1: ML load + proxy feature extraction ───────────────────────
     let t1 = Instant::now();
@@ -228,7 +227,11 @@ pub fn stitch(
     // ── strategy selection (runs on proxy graph, before full-res reverify) ─
     let mean_focal_px = {
         let vals: Vec<f64> = full_images.iter().map(|img| img.camera.focal_px).collect();
-        if vals.is_empty() { 1.0 } else { vals.iter().sum::<f64>() / vals.len() as f64 }
+        if vals.is_empty() {
+            1.0
+        } else {
+            vals.iter().sum::<f64>() / vals.len() as f64
+        }
     };
     let strategy_report = select_strategy(
         opts.strategy,
@@ -339,8 +342,7 @@ pub fn stitch(
         // ── Memory-bounded tiled path (M6-D, #1248) ─────────────────────
         // #1254: `kept_frames_for_gain` is a full-res clone and the primary
         // memory driver of the 17.83 GB peak RSS measured on pano_01.
-        let kept_cams_for_gain: Vec<Camera> =
-            kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
+        let kept_cams_for_gain: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
         let kept_frames_for_gain: Vec<PlanarImage> = kept_meta
             .iter()
             .map(|(inp_idx, _, _)| frames[*inp_idx].image.clone())
@@ -354,32 +356,41 @@ pub fn stitch(
         drop(kept_frames_for_gain);
         drop(frames);
 
-        let kept_paths: Vec<PathBuf> =
-            kept_meta.iter().map(|(inp_idx, _, _)| inputs[*inp_idx].clone()).collect();
+        let kept_paths: Vec<PathBuf> = kept_meta
+            .iter()
+            .map(|(inp_idx, _, _)| inputs[*inp_idx].clone())
+            .collect();
         let kept_cams: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
         let kept_local: Vec<Option<LocalCorrection>> =
             kept_meta.iter().map(|(_, _, lc)| lc.clone()).collect();
 
         let canvas = auto_canvas(&kept_cams, &canvas_opts)
             .map_err(|e| StitchError::Composite(e.to_string()))?;
-        composite_tiled(&kept_paths, &kept_cams, &gains, &kept_local, &canvas, tile_rows)
-            .map_err(|e| StitchError::Composite(e.to_string()))?
+        composite_tiled(
+            &kept_paths,
+            &kept_cams,
+            &gains,
+            &kept_local,
+            &canvas,
+            tile_rows,
+        )
+        .map_err(|e| StitchError::Composite(e.to_string()))?
     } else {
         // ── Full all-resident path (default; backward compatible) ────────
-        let (kept, kept_local): (Vec<(PlanarImage, Camera)>, Vec<Option<LocalCorrection>>) =
-            frames
-                .into_iter()
-                .zip(&solution.cameras)
-                .zip(&solution.local_corrections)
-                .filter_map(|((f, cam), lc)| {
-                    cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone()))
-                })
-                .unzip();
+        let (kept, kept_local): (Vec<(PlanarImage, Camera)>, Vec<Option<LocalCorrection>>) = frames
+            .into_iter()
+            .zip(&solution.cameras)
+            .zip(&solution.local_corrections)
+            .filter_map(|((f, cam), lc)| cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone())))
+            .unzip();
         let (kept_frames, kept_cams): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
         composite(
             &kept_frames,
             &kept_cams,
-            &CompositeOptions { canvas: canvas_opts, ..Default::default() },
+            &CompositeOptions {
+                canvas: canvas_opts,
+                ..Default::default()
+            },
             &kept_local,
         )
         .map_err(|e| StitchError::Composite(e.to_string()))?
@@ -400,6 +411,13 @@ pub fn stitch(
         reverify,
         leveled,
         horizon_tilt_deg,
-        stage_timings_s: [t_decode, t_features, t_graph, t_refine, t_solve, t_composite],
+        stage_timings_s: [
+            t_decode,
+            t_features,
+            t_graph,
+            t_refine,
+            t_solve,
+            t_composite,
+        ],
     })
 }
