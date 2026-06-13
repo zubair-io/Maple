@@ -85,9 +85,9 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_f32(
     // the host-owned flag outlives the borrow we reconstruct inside.
     let cancel = SendCancelPtr(cancel);
     with_large_stack(move || {
-        let cancel = cancel; // capture the Send shim
-                             // SAFETY: worker is join-ed before the FFI call returns; the host keeps
-                             // the flag allocation alive across the call (see module doc in cancel.rs).
+        let cancel = cancel;
+        // SAFETY: worker is join-ed before the FFI call returns; the host keeps
+        // the flag allocation alive across the call (see module doc in cancel.rs).
         let token = match token_from_ptr(cancel.0) {
             Some(p) => CancelToken::new(p.as_ref()),
             None => CancelToken::never(),
