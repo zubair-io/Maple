@@ -17,10 +17,13 @@
 //   3. ~/Library/Application Support/app.justmaple.aperture/pano-models/
 //      and …/ort/libonnxruntime.dylib (default locations).
 //
-// follow-up: #1234 M6 — auto-download/bundle models + ORT so users
-//   don't need to configure paths manually.
+// Auto-provisioning (#1234 M6): the "Download & Install" action runs
+//   `PanoProvisioner`, which downloads + SHA-verifies the ONNX models (and,
+//   on macOS, the ONNX Runtime dylib) into the default Application Support
+//   location — so users don't have to configure paths manually. The path
+//   fields remain as optional overrides for advanced setups.
 //
-// Ticket: #1241 / Part of #1234
+// Ticket: #1241 / #1234 M6
 
 import SwiftUI
 import MapleCore
@@ -40,6 +43,7 @@ struct PanoSettingsView: View {
         forKey: PanoProvisioningDefaults.ortDylibPathKey) ?? ""
     @State private var status: PanoProvisioningStatus = PanoProvisioning().status()
     @State private var saveDebounceTask: Task<Void, Never>?
+    @State private var provisionModel = PanoProvisionModel()
 
     private let provisioning = PanoProvisioning()
 
@@ -80,8 +84,87 @@ struct PanoSettingsView: View {
             }
             .padding(.vertical, 2)
             .accessibilityElement(children: .combine)
+
+            provisionActionView
         } header: {
             Text("Status")
+        }
+    }
+
+    // MARK: - Auto-provision action
+
+    @ViewBuilder
+    private var provisionActionView: some View {
+        switch provisionModel.state {
+        case .idle:
+            if !status.isProvisioned {
+                if PanoProvisioner.canAutoProvision(status) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Button {
+                            startDownload()
+                        } label: {
+                            Label("Download & Install", systemImage: "arrow.down.circle")
+                        }
+                        .accessibilityIdentifier("pano.settings.download")
+                        Text("Downloads \(downloadSummary) (~\(approxDownloadMB) MB) and installs "
+                             + "them into the default Application Support location automatically.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                } else {
+                    Text("A custom path is set below. Clear the override(s) to enable automatic setup.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 2)
+                }
+            }
+        case let .running(fraction, label):
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView(value: fraction) {
+                    Text(label).font(.caption)
+                }
+                Text("\(Int((fraction * 100).rounded()))%")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 2)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Installing panorama components, \(Int((fraction * 100).rounded())) percent")
+        case let .failed(message):
+            VStack(alignment: .leading, spacing: 6) {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    startDownload()
+                } label: {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                }
+                .accessibilityIdentifier("pano.settings.retry")
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private var downloadSummary: String {
+        #if os(macOS)
+        return "the ALIKED + LightGlue models and the ONNX Runtime"
+        #else
+        return "the ALIKED + LightGlue models"
+        #endif
+    }
+
+    private var approxDownloadMB: Int {
+        Int((Double(PanoProvisioner.approximateDownloadBytes) / 1_000_000).rounded())
+    }
+
+    private func startDownload() {
+        Task {
+            await provisionModel.download {
+                refreshStatus()
+            }
         }
     }
 
@@ -149,8 +232,9 @@ struct PanoSettingsView: View {
         } header: {
             Text("Paths")
         } footer: {
-            // follow-up: #1234 M6 — auto-download/bundle models + ORT
-            Text("Auto-download and bundling of models and the ONNX Runtime are planned for a future release (M6 of #1234). Until then, configure the paths above or place the files in their default Application Support locations.")
+            Text("These paths are optional overrides for advanced setups. Most users can leave "
+                 + "them blank and use “Download & Install” above, which fetches the required "
+                 + "files and installs them into the default Application Support location.")
                 .font(.caption2)
                 .foregroundStyle(Color(white: 0.5))
         }
@@ -241,6 +325,51 @@ struct PanoSettingsView: View {
 
     private func refreshStatus() {
         status = provisioning.status()
+    }
+}
+
+// MARK: - Provision model
+
+/// Drives the "Download & Install" action: runs `PanoProvisioner` and
+/// publishes progress to the view. MainActor-isolated so SwiftUI state
+/// updates are safe; the provisioner's progress callbacks (off the main
+/// actor) hop back here.
+@MainActor
+@Observable
+final class PanoProvisionModel {
+    enum State: Equatable {
+        case idle
+        case running(fraction: Double, label: String)
+        case failed(String)
+    }
+
+    private(set) var state: State = .idle
+    private var isRunning = false
+
+    /// Run a provisioning pass. On success, `onComplete` runs on the main
+    /// actor (the view refreshes its status). Re-entrant-safe; call again to
+    /// retry after a failure.
+    func download(onComplete: @escaping @MainActor () -> Void) async {
+        guard !isRunning else { return }
+        isRunning = true
+        state = .running(fraction: 0, label: "Starting…")
+        let provisioner = PanoProvisioner()
+        do {
+            try await provisioner.provision { progress in
+                Task { @MainActor in
+                    // Ignore stray late ticks once we've left .running.
+                    if case .running = self.state {
+                        self.state = .running(fraction: progress.fraction, label: progress.label)
+                    }
+                }
+            }
+            state = .idle
+            isRunning = false
+            onComplete()
+        } catch {
+            state = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            isRunning = false
+        }
     }
 }
 
