@@ -77,6 +77,7 @@ extension EditSession {
     /// MainActor at the call site.
     func _scheduleRender(phase: RenderPhase) {
         let actor = renderActor
+        renderRequestCount &+= 1   // diagnostic counter — surfaced in #1227 banner.
         editSessionLogger.debug(
             "scheduleRender request phase=\(String(describing: phase), privacy: .public)"
         )

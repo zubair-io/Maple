@@ -136,6 +136,12 @@ public final class EditSession {
     /// drag against a permanent reject accumulates one entry, not hundreds.
     public var gpuLiveRejectMessages: [String] = []
 
+    /// Number of times `_scheduleRender` has been called this session — surfaced
+    /// in the diagnostic banner so a slider drag whose edits aren't reaching the
+    /// scheduler is visible at a glance (drag without the counter ticking = the
+    /// slider isn't producing model updates that re-render). #1227 follow-up.
+    public var renderRequestCount: Int = 0
+
     /// One-line summary for the in-app diagnostic banner. Always non-nil while
     /// `MAPLE_GPU_DIAG` is shipping so we can see WHAT state the session is in
     /// even when the GPU live path hasn't been called yet (i.e. before the first
@@ -145,7 +151,7 @@ public final class EditSession {
     /// (a hung pipeline shows e.g. `decode=true firstFrame=true preview=false`
     /// with `0 pres / 0 rej` — diagnostic of a hung decode, not a GPU reject).
     public var gpuLiveDiagSummary: String? {
-        let presents = "GPU: \(gpuLivePresentCount) pres / \(gpuLiveRejectMessages.count) rej"
+        let presents = "GPU: \(gpuLivePresentCount) pres / \(gpuLiveRejectMessages.count) rej / \(renderRequestCount) req"
         let state = "decode=\(isFullQualityDecoding) firstFrame=\(isResolvingFirstFrame) render=\(isRendering) preview=\(renderedPreview != nil)"
         let rejects = gpuLiveRejectMessages.isEmpty
             ? ""
