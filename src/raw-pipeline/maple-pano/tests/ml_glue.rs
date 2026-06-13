@@ -83,6 +83,7 @@ fn ml_matches_drive_a_verified_graph_edge() {
             max_keypoints: None,
         },
         intra_threads: None,
+        use_coreml: false,
     };
     let mut detector = match AlikedDetector::load(&models, detector_options) {
         Ok(d) => d,

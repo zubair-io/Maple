@@ -12,6 +12,14 @@ use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
 
+// CoreML EP types — only needed for the iOS execution-provider registration
+// (M6-C, #1251). The imports are gated so the host/macOS build does not pull
+// in any CoreML dependency.
+#[cfg(target_os = "ios")]
+use ort::execution_providers::coreml::{
+    CoreMLComputeUnits, CoreMLExecutionProvider, CoreMLModelFormat,
+};
+
 use crate::features::postprocess::{select_keypoints, KeypointFilter};
 use crate::features::preprocess::letterbox_to_chw;
 use crate::features::{FeatureSet, Keypoint, LinearRgbFrame};
@@ -34,6 +42,20 @@ pub struct DetectorOptions {
     /// Intra-op thread count for the session. `None` lets ONNX Runtime
     /// pick (its default heuristic uses the physical core count).
     pub intra_threads: Option<usize>,
+    /// Request the CoreML Execution Provider (M6-C, #1251).
+    ///
+    /// When `true` and compiled for iOS (`target_os = "ios"`), the
+    /// CoreML EP is registered ahead of the default CPU provider so that
+    /// ANE/GPU-eligible ops run on silicon; unsupported ops (none expected
+    /// for ALIKED on iOS 17+) fall back to ORT-CPU automatically. On
+    /// macOS the field is ignored — the macOS path is CPU-ORT and must
+    /// not be perturbed (parity-verified; see M6-C invariant in #1251).
+    ///
+    /// The EP is registered in "graceful" mode (default, not
+    /// `error_on_failure`): if CoreML is unavailable at runtime the
+    /// session init continues with ORT-CPU and logs a warning rather than
+    /// failing hard. ANE speedup is unvalidated on-device — pending M6-E.
+    pub use_coreml: bool,
 }
 
 /// ALIKED keypoint/descriptor detector. Construct once with
@@ -49,13 +71,28 @@ pub struct AlikedDetector {
 }
 
 impl AlikedDetector {
-    /// Load the verified ALIKED model from `models` (CPU execution
-    /// provider; CoreML EP is a later milestone — eng design spec §5
-    /// stages EPs after the CPU bring-up).
+    /// Load the verified ALIKED model from `models`.
+    ///
+    /// On iOS with `options.use_coreml = true` the CoreML Execution
+    /// Provider is registered before the default CPU provider
+    /// (`MLProgram` format, `All` compute units) so that ANE/GPU-eligible
+    /// ops run on Apple silicon. ALIKED has full op coverage on iOS 17+
+    /// (`GridSample` requires CoreML 7 / iOS 17; the build sets
+    /// `IPHONEOS_DEPLOYMENT_TARGET=17.0`). On macOS the option is ignored
+    /// — the macOS path is CPU-ORT (parity-verified, must not change).
+    ///
+    /// CoreML EP is registered in "graceful" mode: if registration or
+    /// model compilation fails at runtime (older OS, EP unavailable, etc.)
+    /// the session continues with ORT-CPU and logs a warning; it never
+    /// crashes or returns a hard error on CoreML failure alone.
     ///
     /// Runs the ONNX Runtime pre-flight first, so a machine without the
     /// dylib gets a typed [`MlError::RuntimeUnavailable`] instead of
     /// `ort`'s load-dynamic panic.
+    ///
+    /// M6-E: ANE speedup is unvalidated on-device — pending real-device
+    /// measurement (estimated ~25s→~5s on A-series; simulator has no ANE
+    /// and falls back to ORT-CPU automatically).
     pub fn load(models: &ModelDir, options: DetectorOptions) -> Result<Self, MlError> {
         OrtRuntime::preflight(None)?;
         let mut builder = Session::builder()
@@ -65,6 +102,21 @@ impl AlikedDetector {
             builder = builder
                 .with_intra_threads(threads)
                 .map_err(|e| MlError::Runtime(format!("intra threads: {e}")))?;
+        }
+        // M6-C (#1251): CoreML EP — iOS only. macOS stays on CPU-ORT (the
+        // macOS path is parity-verified against ACR references and must not
+        // be perturbed). The EP is registered in "graceful" mode (the
+        // default, i.e. not error_on_failure): unsupported ops and EP init
+        // failures fall back to ORT-CPU automatically; the session never
+        // crashes on a CoreML failure alone.
+        #[cfg(target_os = "ios")]
+        if options.use_coreml {
+            builder = builder
+                .with_execution_providers([CoreMLExecutionProvider::default()
+                    .with_model_format(CoreMLModelFormat::MLProgram)
+                    .with_compute_units(CoreMLComputeUnits::All)
+                    .build()])
+                .map_err(|e| MlError::Runtime(format!("CoreML EP registration: {e}")))?;
         }
         let session = builder
             .commit_from_file(&models.aliked)
