@@ -49,7 +49,12 @@ pub struct StitchOptions {
     /// `None` (default): full-canvas all-resident path (backward compatible;
     /// uses full multi-band blending).
     pub canvas_tile_rows: Option<u32>,
-    // M6-C (#1248 follow-up): CoreML EP wiring for iOS.
+    /// Request the CoreML Execution Provider for the ALIKED + LightGlue
+    /// ORT sessions (M6-C, #1251). iOS-only: the EP is registered behind
+    /// `#[cfg(target_os = "ios")]` in the session builders and falls back
+    /// to ORT-CPU when it can't engage. The CLI/macOS path leaves this
+    /// `false` (CPU ORT, parity-verified); the iOS FFI sets it `true`.
+    pub use_coreml: bool,
 }
 
 impl Default for StitchOptions {
@@ -71,6 +76,7 @@ impl Default for StitchOptions {
             proxy_long_edge: 1600,
             max_canvas_px: 256_000_000,
             canvas_tile_rows: None,
+            use_coreml: false,
         }
     }
 }

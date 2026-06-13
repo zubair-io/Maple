@@ -131,6 +131,7 @@ fn aliked_lightglue_end_to_end_on_synthetic_pair() {
             max_keypoints: None,
         },
         intra_threads: None,
+        use_coreml: false,
     };
     let mut detector = match AlikedDetector::load(&models, detector_options) {
         Ok(d) => d,
