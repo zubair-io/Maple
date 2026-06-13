@@ -263,23 +263,20 @@ struct EditorView: View {
     /// True when the canvas should present via the wgpu live path. Mirrors
     /// `FullImageView.useGpuCanvas` and `EditSession.presentViaGpuLive`'s own
     /// `guard asset.isRaw`: the GPU live chain only handles RAW; non-RAW falls
-    /// through to the CPU `CanvasImageView` leaf, otherwise the canvas would
-    /// host an opaque-and-never-presented `CAMetalLayer` (#1240).
+    /// through to the CPU `CanvasImageView` leaf.
     ///
-    /// iOS-gated: on iPhone / iPad the wgpu chain produces a black surface
-    /// in the editor — iOS-device HUD validation is still open (#1028-A4 /
-    /// #992), and `GpuLiveFlag.swift` calls it out explicitly:
-    ///   "iOS-on-device perf/correctness of the default-on path is not yet
-    ///    validated — see #1064."
-    /// So this fix lands GPU live for macOS only; iOS stays on the CPU path
-    /// it had before #1240 until the iOS GPU correctness ticket lands. The
-    /// `MAPLE_GPU_EDITOR_IOS=1` env override is available for on-device
-    /// testing once that work starts.
+    /// OPT-IN: defaults OFF on both macOS and iOS pending editor-canvas
+    /// validation of the wgpu chain. Initial #1240 user report: with the
+    /// GPU canvas wired in, the editor presents to a black surface on
+    /// both platforms after the first present lands (the CPU overlay
+    /// drops, the Metal layer reveals, and nothing is on it). The chain
+    /// works in the parity gates but the in-editor present is producing
+    /// no visible output — root cause is open. Set
+    /// `MAPLE_GPU_EDITOR=1` (any platform) to opt in for the validation
+    /// work itself; default behaviour is unchanged from pre-#1240.
     private var useGpuCanvas: Bool {
-        #if os(iOS)
-        let iosOptIn = ProcessInfo.processInfo.environment["MAPLE_GPU_EDITOR_IOS"] == "1"
-        guard iosOptIn else { return false }
-        #endif
+        let optIn = ProcessInfo.processInfo.environment["MAPLE_GPU_EDITOR"] == "1"
+        guard optIn else { return false }
         return FullImageViewVM.shouldPresentViaGpuCanvas(
             flagEnabled: GpuLiveFlag.isEnabled,
             isRaw: state.session.asset.isRaw,
