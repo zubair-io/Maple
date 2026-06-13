@@ -3,11 +3,10 @@
 //! # Gating
 //!
 //! **macOS** (`#[cfg(target_os = "macos")]`): the real path. Calls
-//! `maple_pano`'s full pipeline — decode → priors → proxy → ALIKED +
-//! LightGlue → match graph → full-resolution refinement → global BA →
-//! leveling → composite → 16-bit PNG — mirroring `maple-cli pano stitch`
-//! exactly (same models, same code → output is byte-identical given the
-//! same inputs).
+//! `maple_pano`'s full pipeline via [`maple_pano::stitch::stitch`] —
+//! the single shared orchestration for both this FFI entry and
+//! `maple-cli pano stitch` (CLAUDE.md principle #4 — parity is a merge
+//! gate). Both callers produce byte-identical output given the same inputs.
 //!
 //! **iOS / iOS-Simulator** (all other Apple targets): the ML runtime
 //! (`ort` + ONNX models) cannot be embedded in the xcframework in the
@@ -48,7 +47,7 @@ use std::ffi::{c_char, c_void, CStr};
 
 // `with_large_stack` is only referenced inside the `#[cfg(target_os = "macos")]`
 // block below. Gate the import the same way so the iOS/iOS-sim build stays
-// warning-free. `token_from_ptr` and `Ordering` are used inside `pano_macos`.
+// warning-free.
 #[cfg(target_os = "macos")]
 use crate::error::with_large_stack;
 
@@ -97,7 +96,7 @@ pub enum MaplePanoStrategy {
 /// Progress callback type for `maple_pano_stitch`.
 ///
 /// `stage`  — pipeline stage ordinal (0 = decode, 1 = features, 2 = match,
-///            3 = refine, 4 = solve, 5 = composite, 6 = write).
+///            3 = refine, 4 = solve, 5 = composite).
 /// `frac`   — completion fraction [0, 1] within the current stage.
 /// `user`   — the opaque pointer the host passed to `maple_pano_stitch`.
 ///
@@ -191,17 +190,29 @@ pub unsafe extern "C" fn maple_pano_stitch(
     // thread boundary inside SendCancelPtr (same pattern as scene_linear_f32).
     let send_cancel = SendCancelPtr(cancel);
 
-    // Progress callback: wrap as a sendable usize pair (fn ptr + user data)
-    // so the worker can call it without a raw *mut c_void crossing Send.
-    let cb_fn_usize: usize = match progress_cb {
-        Some(f) => f as usize,
-        None => 0,
+    // Progress callback: the typed `Option<fn-pointer>` and `*mut c_void`
+    // are sent across the thread boundary wrapped in their natural types,
+    // with no usize round-trip (avoids the transmute UB of the prior impl).
+    // Both are valid for the duration of the synchronous call — the worker
+    // is joined before `maple_pano_stitch` returns.
+    //
+    // SAFETY: `progress_cb` is a valid function-pointer option (or None);
+    // `cb_user` is the caller's opaque context pointer, valid across the
+    // synchronous call. Wrapping them in `SendProgressCallback` makes them
+    // sendable across the worker-thread boundary (same contract as
+    // `SendCancelPtr`: caller guarantees liveness, worker is joined first).
+    let cb = SendProgressCallback {
+        f: progress_cb,
+        user: cb_user,
     };
-    let cb_user_usize: usize = cb_user as usize;
 
     // ── macOS-only stitch path ────────────────────────────────────────────
     #[cfg(target_os = "macos")]
     {
+        // `cb` is a `SendProgressCallback` which implements `Send` (see
+        // struct-level safety comment). The struct is captured whole so the
+        // raw `*mut c_void` it wraps crosses the thread boundary through the
+        // `Send` impl, not as a bare naked pointer.
         with_large_stack(move || {
             pano_macos::run_stitch_macos(
                 owned_paths,
@@ -209,8 +220,7 @@ pub unsafe extern "C" fn maple_pano_stitch(
                 retention,
                 local_align,
                 strategy,
-                cb_fn_usize,
-                cb_user_usize,
+                cb, // SendProgressCallback (Send) — pano_macos deconstructs it
                 send_cancel,
             )
         })
@@ -231,8 +241,7 @@ pub unsafe extern "C" fn maple_pano_stitch(
             retention,
             local_align,
             strategy,
-            cb_fn_usize,
-            cb_user_usize,
+            cb,
             send_cancel,
         );
         set_last_error(
@@ -243,6 +252,28 @@ pub unsafe extern "C" fn maple_pano_stitch(
         -3
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Send shim for the typed C progress callback
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Wraps the typed C callback + user pointer so both can cross the
+/// `with_large_stack` worker-thread boundary.
+///
+/// SAFETY contract (same as `SendCancelPtr`): the caller guarantees that
+/// both pointers remain valid for the duration of the synchronous FFI call.
+/// The worker is joined before `maple_pano_stitch` returns, so the pointers
+/// outlive all uses inside the worker.
+pub(super) struct SendProgressCallback {
+    pub(super) f: MaplePanoProgressFn,
+    pub(super) user: *mut c_void,
+}
+
+// SAFETY: see the struct-level comment. The host must not use `cb_user`
+// concurrently while the worker runs (the call is synchronous from the
+// host's perspective). `MaplePanoProgressFn` is a plain C function pointer
+// — inherently Send.
+unsafe impl Send for SendProgressCallback {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // macOS implementation (compiled only on macOS) — split to pano_macos.rs per

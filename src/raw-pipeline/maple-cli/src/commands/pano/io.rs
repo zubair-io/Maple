@@ -109,18 +109,6 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
     })
 }
 
-/// Interleave a planar image into the detector's RGB f32 layout.
-pub(super) fn interleave(img: &PlanarImage) -> Vec<f32> {
-    let n = img.pixel_count();
-    let mut out = Vec::with_capacity(n * 3);
-    for i in 0..n {
-        out.push(img.r[i]);
-        out.push(img.g[i]);
-        out.push(img.b[i]);
-    }
-    out
-}
-
 /// Quantize the composite to 16-bit PNG. `srgb` applies the IEC 61966
 /// transfer for an eyeball-able preview; otherwise values stay linear
 /// (clamped to [0, 1] — the PNG carries the display-range slice of the
