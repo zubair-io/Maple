@@ -290,15 +290,21 @@ fn tiling_equals_real_composite() {
     let ref_covered = reference.validity.count_valid();
     println!(
         "reference: {}x{} canvas, {}/{} valid pixels, {} frames",
-        canvas.width, canvas.height, ref_covered, w * h, cams.len()
+        canvas.width,
+        canvas.height,
+        ref_covered,
+        w * h,
+        cams.len()
     );
-    assert!(ref_covered > 0, "reference composite must cover some pixels");
+    assert!(
+        ref_covered > 0,
+        "reference composite must cover some pixels"
+    );
 
     // Tiled at multiple heights, including non-divisors and the full height.
     for tile_rows in [1u32, 7, 23, 64, canvas.height] {
-        let (tiled, _) =
-            composite_tiled_frames(&frames, &cams, gains, &[], canvas, tile_rows)
-                .expect("tiled composite");
+        let (tiled, _) = composite_tiled_frames(&frames, &cams, gains, &[], canvas, tile_rows)
+            .expect("tiled composite");
 
         let mut validity_mismatches = 0usize;
         let mut value_mismatches = 0usize;
@@ -321,8 +327,12 @@ fn tiling_equals_real_composite() {
                             eprintln!(
                                 "  tile_rows={tile_rows} pixel ({x},{y}): \
                                  tiled=({:.6},{:.6},{:.6}) ref=({:.6},{:.6},{:.6})",
-                                tiled.r[i], tiled.g[i], tiled.b[i],
-                                reference.r[i], reference.g[i], reference.b[i]
+                                tiled.r[i],
+                                tiled.g[i],
+                                tiled.b[i],
+                                reference.r[i],
+                                reference.g[i],
+                                reference.b[i]
                             );
                         }
                     }
