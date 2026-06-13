@@ -56,12 +56,14 @@ mod scene_linear;
 mod scene_linear_f32;
 mod scene_linear_chain;
 mod thumbnail;
-// Epic #1234 / M3 (#1235): panorama stitch C-FFI. Gated behind the `pano`
-// feature — `maple-pano` (with `ml`) is absent from default builds; the
-// xcframework build turns it on via `--features gpu,pano`. The
-// `maple_pano_stitch` symbol is present in all 4 slices; iOS/iOS-sim return
-// error −3 (pending M6 #1234).
-#[cfg(feature = "pano")]
+// Epic #1234 / M3 (#1235) + M6 (#1244): panorama stitch C-FFI.
+//
+// Gated behind `pano` (macOS slices, load-dynamic ort) or `pano-ios` (iOS
+// slices, static ort, M6 #1244). The two features select different
+// maple-pano dep variants (`ml` vs `ml-static`) but compile the same
+// `pano.rs` + `pano_apple.rs` module. The xcframework build uses
+// `--features gpu,pano` for macOS and `--features gpu,pano-ios` for iOS.
+#[cfg(any(feature = "pano", feature = "pano-ios"))]
 mod pano;
 
 // Re-export every C ABI type so cbindgen sees the same surface it always has.
@@ -76,10 +78,11 @@ pub use scene_linear_chain::MapleAdjustmentParams;
 // gpu-gated: the live-session FFI structs (absent from the default xcframework).
 #[cfg(feature = "gpu")]
 pub use gpu_live::{MapleGpuLiveParams, MapleGpuLiveSession};
-// pano-gated: the panorama stitch ABI types + entry point (epic #1234 / M3).
-// `maple_pano_stitch` is exported via `#[no_mangle]` (C ABI); the `pub use`
-// also makes it reachable from Rust integration tests via the rlib form.
-#[cfg(feature = "pano")]
+// pano-gated: the panorama stitch ABI types + entry point (epic #1234 / M3
+// + M6 #1244). `maple_pano_stitch` is exported via `#[no_mangle]` (C ABI);
+// the `pub use` also makes it reachable from Rust integration tests.
+// Enabled by `pano` (macOS) or `pano-ios` (iOS static-link, M6 #1244).
+#[cfg(any(feature = "pano", feature = "pano-ios"))]
 pub use pano::{
     maple_pano_stitch, MaplePanoLocalAlign, MaplePanoProgressFn, MaplePanoRetention,
     MaplePanoStrategy,

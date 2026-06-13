@@ -34,13 +34,30 @@ rayon = "1"
 # #1139). Pinned to exactly 2.0.0-rc.10 — the rc.10/rc.12 line has a history
 # of compile breaks in the VitisAI execution-provider glue (the failure that
 # blocked the earlier pano-core ML attempt, see PR #17's Cargo.toml), so any
-# bump is its own PR gated on the pano regression run. `default-features =
-# false` + `load-dynamic`: the onnxruntime dylib is loaded at runtime
-# (`ORT_DYLIB_PATH` / `ort::init_from`), never statically linked and never
-# downloaded by the build — keeps the vendored offline build hermetic and the
-# vendor tree small. Verified compiling clean against ort-sys 2.0.0-rc.10 on
-# Rust 1.95 (2026-06-11).
-ort = { version = "=2.0.0-rc.10", default-features = false, features = ["load-dynamic"] }
+# bump is its own PR gated on the pano regression run.
+#
+# ONNX Runtime bindings (single workspace entry, M6 #1244 redesign).
+#
+# `default-features = false`, NO features by default. Features are activated
+# per-consumer:
+#
+# macOS / host (`ml` feature in maple-pano):
+#   maple-pano adds `features = ["ort/load-dynamic"]` via its `ml` feature.
+#   The dylib is dlopen'd at runtime from `ORT_DYLIB_PATH`.
+#
+# iOS / static (`ml-static` feature in maple-pano, M6 #1244):
+#   maple-pano does NOT add `load-dynamic`. ort-sys sees `ORT_LIB_LOCATION`
+#   pointing at the official iOS static xcframework and emits
+#   `cargo:rustc-link-lib=static=onnxruntime`. The iOS sandbox blocks
+#   dlopen; static linking is the only correct path.
+#
+# `--all-features` (host CI): both `ml` and `ml-static` active. Cargo
+# unifies features → `load-dynamic` wins (union). The `ml` preflight path
+# (`ort::init_from`) is selected by the `#[cfg(feature = "ml")]` guard
+# in OrtRuntime::preflight (checked first), so host tests pass normally.
+# The `ml-static` path (calling `ort::init()`) is only reached on iOS
+# cross-compilation where `ml` is absent. No behavior regression.
+ort = { version = "=2.0.0-rc.10", default-features = false }
 # Pre-flight dlopen check for the onnxruntime dylib (maple-pano ml feature):
 # `ort` with `load-dynamic` *panics* when the dylib is missing/unloadable, so
 # the loader probes with libloading first and returns a typed error instead.
