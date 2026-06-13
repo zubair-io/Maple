@@ -34,19 +34,23 @@
 // # Models / ONNX Runtime provisioning
 //
 // The pipeline needs:
-//   - ALIKED + LightGlue ONNX models  (MAPLE_PANO_MODELS env var or app-support)
-//   - ONNX Runtime dylib              (ORT_DYLIB_PATH env var or app-support)
+//   - ALIKED + LightGlue ONNX models  (Settings → Pano, MAPLE_PANO_MODELS env var, or app-support)
+//   - ONNX Runtime dylib              (Settings → Pano, ORT_DYLIB_PATH env var, or app-support)
 //
-// Both env vars are read once at stitch-start and forwarded to the Rust core
-// via `setenv`. If neither env var is set and the app-support path doesn't
-// contain the files, the FFI returns -6 ("ML environment unavailable") and we
-// throw `PanoStitcherError.modelsNotInstalled` with a clear message.
+// Resolution order (via PanoProvisioning):
+//   1. UserDefaults (Settings → Pano page — the user configured a path).
+//   2. Process environment (MAPLE_PANO_MODELS / ORT_DYLIB_PATH — dev / CI).
+//   3. Default app-support location.
 //
-// A proper settings/download flow is a tracked follow-up (M6 of #1234). The
-// bundling and on-device provisioning of the ONNX Runtime dylib on iOS is
-// also deferred to M6 (the FFI returns -3 on iOS today).
+// If none of the three tiers yields a path that exists on disk, `stitch`
+// throws `PanoStitcherError.modelsNotInstalled` with a message that directs
+// the user to Settings → Pano.
 //
-// Ticket: #1234 (M4+M5) / #1235 / #1239
+// follow-up: #1234 M6 — auto-download / bundle ONNX models + libonnxruntime
+//   so users don't need to configure paths manually. iOS ORT provisioning
+//   also deferred to M6 (FFI returns -3 on iOS today).
+//
+// Ticket: #1234 (M4+M5) / #1235 / #1239 / #1241
 
 import Foundation
 import OSLog
@@ -192,13 +196,9 @@ private final class ProgressPoller {
 public final class RustPanoStitcher: PanoStitching {
     // MARK: - State
 
-    /// Directory containing the ALIKED + LightGlue ONNX model files.
-    /// Resolved at init from env var → app-support fallback.
-    private let modelsDir: URL?
-
-    /// Path to the ONNX Runtime dylib (`libonnxruntime.dylib`).
-    /// Resolved at init from env var → app-support fallback.
-    private let ortDylibPath: URL?
+    /// Resolves the two ML-runtime paths (models dir + ORT dylib).
+    /// Priority: UserDefaults settings → env vars → default app-support.
+    private let provisioning: PanoProvisioning
 
     /// Cancel flag forwarded to the FFI so `cancel()` can interrupt a
     /// running stitch. Replaced on each new `stitch(...)` call so a
@@ -207,9 +207,14 @@ public final class RustPanoStitcher: PanoStitching {
 
     // MARK: - Init
 
-    public init() {
-        self.modelsDir = Self.resolveModelsDir()
-        self.ortDylibPath = Self.resolveOrtDylibPath()
+    /// Creates a stitcher backed by the given provisioning resolver.
+    /// The default resolver reads from `UserDefaults.standard`, so
+    /// Settings → Pano values take effect immediately on the next stitch.
+    ///
+    /// Pass a custom `PanoProvisioning` in tests to inject controlled paths
+    /// without touching process environment or UserDefaults.
+    public init(provisioning: PanoProvisioning = PanoProvisioning()) {
+        self.provisioning = provisioning
     }
 
     // MARK: - PanoStitching
@@ -467,65 +472,70 @@ public final class RustPanoStitcher: PanoStitching {
 
     /// Set `MAPLE_PANO_MODELS` and `ORT_DYLIB_PATH` in the process environment
     /// so the Rust `maple_pano` crate can locate the ONNX Runtime dylib and
-    /// model files. Reads from:
-    ///   1. Environment variables already set by the caller (dev workflow).
-    ///   2. Resolved paths from `resolveModelsDir()` / `resolveOrtDylibPath()`.
+    /// model files.
     ///
-    /// Throws `PanoStitcherError.modelsNotInstalled` if neither source yields
-    /// a usable path. A proper settings/download flow for end users is
-    /// tracked as M6 of #1234.
+    /// Resolution order (via `PanoProvisioning`):
+    ///   1. UserDefaults from Settings → Pano (in-app configuration).
+    ///   2. Process environment variables (dev / CI workflow).
+    ///   3. Default app-support locations.
+    ///
+    /// When a tier higher than the env-var tier provides the path (i.e.
+    /// UserDefaults settings), we `setenv` it so the Rust core picks it up.
+    /// When the env var is already set, we leave it alone (the Rust core will
+    /// read it directly — no redundant `setenv` needed).
+    ///
+    /// Throws `PanoStitcherError.modelsNotInstalled` if no tier yields a
+    /// path that exists on disk, with a message directing the user to
+    /// Settings → Pano. Follow-up: auto-download/bundle — M6 of #1234.
     private func provisionMLEnvironment() throws {
-        // Models dir
-        if ProcessInfo.processInfo.environment["MAPLE_PANO_MODELS"] == nil {
-            guard let dir = modelsDir, FileManager.default.fileExists(atPath: dir.path) else {
+        let fm = FileManager.default
+
+        // ── Models directory ───────────────────────────────────────────────
+        let modelsDir = provisioning.resolvedModelsDir()
+
+        // Only setenv when the env var isn't already set (dev / CI path already
+        // forwarded by the caller) OR when Settings overrides it.
+        let settingsModels = UserDefaults.standard.string(forKey: PanoProvisioningDefaults.modelsDirKey)
+        let hasSettingsModels = !(settingsModels?.isEmpty ?? true)
+        let hasEnvModels = !(ProcessInfo.processInfo.environment["MAPLE_PANO_MODELS"]?.isEmpty ?? true)
+
+        if hasSettingsModels || !hasEnvModels {
+            // Settings takes priority over env; or env isn't set → use resolved path.
+            guard let dir = modelsDir, fm.fileExists(atPath: dir.path) else {
                 throw PanoStitcherError.modelsNotInstalled(
-                    "Panorama models not installed. Set MAPLE_PANO_MODELS to the directory " +
-                    "containing aliked.onnx and lightglue.onnx, or place them in " +
+                    "Panorama models are not installed. " +
+                    "Open Settings → Pano and set the Models Directory to the folder " +
+                    "containing aliked.onnx and lightglue.onnx " +
+                    "(e.g. ~/.cache/maple-pano/models on a dev machine), " +
+                    "or place the files in " +
                     "~/Library/Application Support/app.justmaple.aperture/pano-models/. " +
-                    "(Model bundling and download UI: M6 of #1234.)"
+                    "(Auto-download/bundle: M6 of #1234.)"
                 )
             }
             setenv("MAPLE_PANO_MODELS", dir.path, 1)
         }
 
-        // ORT dylib path
-        if ProcessInfo.processInfo.environment["ORT_DYLIB_PATH"] == nil {
-            guard let dylib = ortDylibPath, FileManager.default.fileExists(atPath: dylib.path) else {
+        // ── ORT dylib ──────────────────────────────────────────────────────
+        let ortPath = provisioning.resolvedOrtDylibPath()
+
+        let settingsOrt = UserDefaults.standard.string(forKey: PanoProvisioningDefaults.ortDylibPathKey)
+        let hasSettingsOrt = !(settingsOrt?.isEmpty ?? true)
+        let hasEnvOrt = !(ProcessInfo.processInfo.environment["ORT_DYLIB_PATH"]?.isEmpty ?? true)
+
+        if hasSettingsOrt || !hasEnvOrt {
+            guard let dylib = ortPath, fm.fileExists(atPath: dylib.path) else {
                 throw PanoStitcherError.modelsNotInstalled(
-                    "ONNX Runtime dylib not found. Set ORT_DYLIB_PATH to the " +
-                    "libonnxruntime.dylib path (≥ 1.23), or place it in " +
+                    "ONNX Runtime dylib not found. " +
+                    "Open Settings → Pano and set the ONNX Runtime Dylib Path to " +
+                    "libonnxruntime.dylib (version ≥ 1.23) " +
+                    "(e.g. ~/.cache/maple-pano/libonnxruntime.dylib on a dev machine), " +
+                    "or place it in " +
                     "~/Library/Application Support/app.justmaple.aperture/ort/. " +
                     "(ORT bundling: M6 of #1234.)"
                 )
             }
             setenv("ORT_DYLIB_PATH", dylib.path, 1)
         }
-    }
-
-    // MARK: - Path resolution
-
-    /// Resolve the models directory. Priority:
-    ///   1. `MAPLE_PANO_MODELS` environment variable (dev).
-    ///   2. `~/Library/Application Support/app.justmaple.aperture/pano-models/`.
-    private static func resolveModelsDir() -> URL? {
-        if let envVal = ProcessInfo.processInfo.environment["MAPLE_PANO_MODELS"],
-           !envVal.isEmpty {
-            return URL(fileURLWithPath: envVal, isDirectory: true)
-        }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("app.justmaple.aperture/pano-models", isDirectory: true)
-    }
-
-    /// Resolve the ORT dylib path. Priority:
-    ///   1. `ORT_DYLIB_PATH` environment variable (dev).
-    ///   2. `~/Library/Application Support/app.justmaple.aperture/ort/libonnxruntime.dylib`.
-    private static func resolveOrtDylibPath() -> URL? {
-        if let envVal = ProcessInfo.processInfo.environment["ORT_DYLIB_PATH"],
-           !envVal.isEmpty {
-            return URL(fileURLWithPath: envVal)
-        }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("app.justmaple.aperture/ort/libonnxruntime.dylib")
     }
 }
 
