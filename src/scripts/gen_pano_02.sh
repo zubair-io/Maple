@@ -27,7 +27,8 @@ err() { printf "gen_pano_02: %s\n" "$*" >&2; }
 
 # Check if already present (unless FORCE).
 if [[ -z "$FORCE" && -d "$OUT_DIR" ]]; then
-  n="$(ls "$OUT_DIR"/*.dng 2>/dev/null | wc -l | tr -d ' ')"
+  # find (not ls *.dng) so an empty dir yields 0, not a pipefail exit.
+  n="$(find "$OUT_DIR" -maxdepth 1 -name '*.dng' 2>/dev/null | wc -l | tr -d ' ')"
   if [[ "$n" -ge 6 ]]; then
     echo "gen_pano_02: $n DNG(s) already present in $OUT_DIR — skipping"
     echo "gen_pano_02: (set FORCE=1 to regenerate)"
