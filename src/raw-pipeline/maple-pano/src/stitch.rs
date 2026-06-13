@@ -100,10 +100,13 @@ pub struct StitchOptions {
     pub models_dir: Option<PathBuf>,
     /// Long-edge cap for the feature-extraction proxy (px).
     ///
-    /// Default **1280** (M6-D #1248): ALIKED's native input is 1280×1280 —
-    /// a 1280 px long-edge proxy feeds it at its native resolution with no
-    /// upscaling loss, while halving proxy size vs. the pre-M6-D default of
-    /// 1600 px (15 MB vs 23 MB per proxy frame at the DJI pano_01 geometry).
+    /// Default **1600**. 1280 was tried (M6-D, ALIKED's native input) but
+    /// measurably starved the matcher on the acceptance set — pano_01
+    /// regressed to tile strategy + 19 orphans / no candidate at 1280 vs
+    /// rotation, 0-dropped, mean 1.13 at 1600 (#1248). The proxy feeds the
+    /// match/BA phase only, not the composite memory peak that
+    /// `canvas_tile_rows` addresses, so 1600 costs ~no memory vs 1280.
+    /// Lower it only when the matcher-quality tradeoff is acceptable.
     pub proxy_long_edge: u32,
     /// Total output canvas pixel cap (uniform downscale to fit).
     pub max_canvas_px: usize,
@@ -142,7 +145,14 @@ impl Default for StitchOptions {
             mean_budget_px: 1.5,
             max_budget_px: 6.0,
             models_dir: None,
-            proxy_long_edge: 1280,
+            // 1600, NOT 1280: dropping the default to 1280 starves ALIKED of
+            // keypoints on the acceptance set (pano_01 regressed to tile
+            // strategy + 19 orphans / no candidate at 1280; rotation, 0
+            // dropped, mean 1.13 at 1600 — measured). The proxy only feeds
+            // the match/BA phase, NOT the composite peak that tiling
+            // addresses, so 1600 costs ~no memory vs 1280. Callers that
+            // accept the matcher-quality tradeoff can still lower it.
+            proxy_long_edge: 1600,
             max_canvas_px: 256_000_000,
             canvas_tile_rows: None,
         }
