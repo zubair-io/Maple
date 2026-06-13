@@ -193,9 +193,17 @@ fn static_link_prerequisites(using_pyke_libs: bool) {
 
 	if target_triple.contains("apple") {
 		println!("cargo:rustc-link-lib=framework=Foundation");
-		if let Some(dir) = macos_rtlib_search_dir() {
-			println!("cargo:rustc-link-search={dir}");
-			println!("cargo:rustc-link-lib=clang_rt.osx");
+		// Only emit clang_rt.osx for macOS targets — iOS / iOS-sim cross-compile
+		// must NOT link this library. `macos_rtlib_search_dir()` calls the host
+		// `clang --print-search-dirs` which returns the macOS/Catalyst runtime dir;
+		// injecting that path into an iOS link command produces:
+		//   "linking in object file built for 'zippered(macOS/Catalyst)'"
+		// and fails with a linker error. (Maple M6 #1244 vendor patch.)
+		if !target_triple.contains("apple-ios") {
+			if let Some(dir) = macos_rtlib_search_dir() {
+				println!("cargo:rustc-link-search={dir}");
+				println!("cargo:rustc-link-lib=clang_rt.osx");
+			}
 		}
 	}
 	if target_triple.contains("windows") && using_pyke_libs {
