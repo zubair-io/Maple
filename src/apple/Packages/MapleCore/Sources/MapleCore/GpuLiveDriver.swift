@@ -141,7 +141,12 @@ public final class GpuLiveDriver {
     /// there is no session or no layer yet (the canvas keeps its prior frame).
     /// Surfaces a real GPU/present error through `onError` (device logs aren't
     /// capturable — the in-app HUD is the only on-device surface).
-    public func present(model: AdjustmentModel, onError: (Error) -> Void) async {
+    public func present(
+        model: AdjustmentModel,
+        asShotCCT: Double? = nil,
+        asShotTint: Double? = nil,
+        onError: (Error) -> Void
+    ) async {
         guard let s = session else {
             gpuDriverLog.notice("GPU-TRACE driver.present skipped: no session")
             return
@@ -155,7 +160,10 @@ public final class GpuLiveDriver {
         let cancel = CancelFlag()
         inFlightCancel = cancel
         do {
-            let elapsedMs = try await s.present(model: model, layer: layer, cancel: cancel)
+            let elapsedMs = try await s.present(
+                model: model, layer: layer, cancel: cancel,
+                asShotCCT: asShotCCT, asShotTint: asShotTint
+            )
             withExtendedLifetime(cancel) {}
             if let elapsedMs {
                 gpuDriverLog.notice("GPU-TRACE driver.present OK \(elapsedMs)ms")
