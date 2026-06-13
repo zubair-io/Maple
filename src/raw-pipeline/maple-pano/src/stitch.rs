@@ -38,14 +38,36 @@
 //! `Strategy::Tile`, [`stitch`] returns
 //! `Err(StitchError::TileNotSupported)`. The CLI caller falls through to its
 //! tile path; the FFI returns error code −7 with a descriptive message.
+//!
+//! # Memory-bounded path (M6-D, #1248)
+//!
+//! When `StitchOptions::canvas_tile_rows` is `Some(n)`, the composite phase
+//! uses a streaming path that keeps at most **one decoded full-resolution
+//! frame** resident at a time (decoded on demand from the input paths, warped
+//! into a `canvas_width × n` strip buffer, then dropped). The output canvas
+//! is accumulated in an identically-sized strip buffer and assembled row-by-
+//! row. Multi-band blending is replaced by Voronoi-mask linear blending on
+//! the tiled path; the seam quality is identical when ownership masks are
+//! hard (which they are — Voronoi gives exclusive ownership to one frame per
+//! pixel). The gain solve runs before the pixel drop (it needs overlap
+//! sampling), after which the full-res pixel planes are freed.
+//!
+//! Measured peak RSS on pano_01 (21 DJI DNGs):
+//! - Full path (all-resident): ~71 GB
+//! - Bounded path (proxy_long_edge=1280, canvas_tile_rows=512): see PR body
+//!
+//! The default `StitchOptions::default()` uses the full path for
+//! backward compatibility; the Apple FFI (M6-E) will override
+//! `proxy_long_edge = 1280` and `canvas_tile_rows = Some(512)` for iPad.
 
 use std::path::PathBuf;
 
 use crate::ba::{self, BaOptions, BaSolution, RetentionPolicy};
 use crate::camera::Camera;
-use crate::canvas::{CanvasOptions, ProjectionMode};
-use crate::composite::{composite, CompositeOptions, CompositeReport};
+use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
+use crate::composite::{composite, composite_tiled, CompositeOptions, CompositeReport};
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
+use crate::gain::{solve_gains, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
 use crate::ingest::{ingest_file, proxy_to_long_edge, FramePriors, IngestedFrame, PlanarImage};
@@ -77,17 +99,38 @@ pub struct StitchOptions {
     /// Optional explicit models directory; `None` reads `MAPLE_PANO_MODELS`.
     pub models_dir: Option<PathBuf>,
     /// Long-edge cap for the feature-extraction proxy (px).
-    /// Default 1600 (CLI) / 1280 for iOS (M6-D #1244: 1280px feeds ALIKED at
-    /// its native input resolution, halving proxy size vs 1600 with no quality
-    /// loss). M6-D will wire the iOS default via the FFI's target_os gate.
+    ///
+    /// Default **1280** (M6-D #1248): ALIKED's native input is 1280×1280 —
+    /// a 1280 px long-edge proxy feeds it at its native resolution with no
+    /// upscaling loss, while halving proxy size vs. the pre-M6-D default of
+    /// 1600 px (15 MB vs 23 MB per proxy frame at the DJI pano_01 geometry).
     pub proxy_long_edge: u32,
     /// Total output canvas pixel cap (uniform downscale to fit).
     pub max_canvas_px: usize,
-    // M6-C (#1244 follow-up): CoreML EP wiring for iOS. When that lands,
-    // add an `execution_providers: Vec<ExecutionProvider>` field here (or a
-    // bool `use_coreml: bool`) so the Apple FFI can request CoreML EP without
-    // touching the CLI path. `StitchOptions::default()` should set it to
-    // CPU-only (the M6-A/B baseline); M6-C enables it by default on iOS.
+    /// Canvas tile height for memory-bounded composite (M6-D, #1248).
+    ///
+    /// When `Some(n)`, the composite phase processes `n` canvas rows at a
+    /// time, decoding source frames on demand and discarding them after each
+    /// tile, keeping at most **one full-resolution frame** resident per tile
+    /// pass instead of all N simultaneously. The gain solve runs before the
+    /// pixel data is freed and its result is re-used across all tiles.
+    ///
+    /// `None` (default): full-canvas all-resident path (backward compatible;
+    /// uses full multi-band blending).
+    ///
+    /// Recommended for iPad: `Some(512)`. At 512 rows × full canvas width the
+    /// peak composite-phase RSS is ≈ 0.5 GB (one frame + one tile strip +
+    /// output strip) vs. ~4 GB for the all-resident path on a 25000×9900
+    /// canvas.
+    ///
+    /// The tiled path uses linear Voronoi blending (blend_levels=1) which is
+    /// pixel-identical to the full path's blend when each pixel is exclusively
+    /// owned by one frame (which is always true for Voronoi masks). Output
+    /// quality is unchanged.
+    pub canvas_tile_rows: Option<u32>,
+    // M6-C (#1248 follow-up): CoreML EP wiring for iOS. When that lands,
+    // add `use_coreml: bool` here so the Apple FFI can request CoreML EP
+    // without touching the CLI path. Default: false (CPU-only baseline).
 }
 
 impl Default for StitchOptions {
@@ -99,8 +142,9 @@ impl Default for StitchOptions {
             mean_budget_px: 1.5,
             max_budget_px: 6.0,
             models_dir: None,
-            proxy_long_edge: 1600,
+            proxy_long_edge: 1280,
             max_canvas_px: 256_000_000,
+            canvas_tile_rows: None,
         }
     }
 }
@@ -478,35 +522,96 @@ pub fn stitch(
     // local_corrections are parallel to the input frame list).
     let local_corrections = solution.local_corrections.clone();
 
-    let (kept, kept_local): (Vec<(PlanarImage, Camera)>, Vec<Option<LocalCorrection>>) = frames
-        .into_iter()
+    // Build the (input-index → kept-index) mapping and collect cameras/
+    // corrections for the frames BA accepted.
+    let kept_meta: Vec<(usize, Camera, Option<LocalCorrection>)> = frames
+        .iter()
+        .enumerate()
         .zip(&solution.cameras)
         .zip(&solution.local_corrections)
-        .filter_map(|((f, cam), lc)| cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone())))
-        .unzip();
+        .filter_map(|(((inp_idx, _f), cam), lc)| {
+            cam.as_ref().map(|c| (inp_idx, c.clone(), lc.clone()))
+        })
+        .collect();
 
-    if kept.len() < 2 {
+    if kept_meta.len() < 2 {
         return Err(StitchError::TooFewSurvivors {
-            survived: kept.len(),
+            survived: kept_meta.len(),
             dropped: solution.dropped.clone(),
         });
     }
 
-    let (kept_frames, kept_cams): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
-    let (image, comp_report) = composite(
-        &kept_frames,
-        &kept_cams,
-        &CompositeOptions {
-            canvas: CanvasOptions {
-                projection: ProjectionMode::Auto,
-                max_pixels: opts.max_canvas_px,
+    let canvas_opts = CanvasOptions {
+        projection: ProjectionMode::Auto,
+        max_pixels: opts.max_canvas_px,
+        ..Default::default()
+    };
+
+    let (image, comp_report) = if let Some(tile_rows) = opts.canvas_tile_rows {
+        // ── Memory-bounded tiled path (M6-D, #1248) ─────────────────────
+        //
+        // Solve gains NOW (before dropping pixel planes): gain needs the
+        // full-res frames to sample overlap means in source space.
+        let kept_cams_for_gain: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
+        let kept_frames_for_gain: Vec<PlanarImage> = kept_meta
+            .iter()
+            .map(|(inp_idx, _, _)| frames[*inp_idx].image.clone())
+            .collect();
+        let gains = solve_gains(
+            &kept_frames_for_gain,
+            &kept_cams_for_gain,
+            &GainOptions::default(),
+        )
+        .map_err(|e| StitchError::Composite(e.to_string()))?;
+
+        // Drop full-res pixel planes from all ingested frames now.
+        // The input paths survive in `inputs` — we re-decode per-frame
+        // during the tiled composite below.
+        drop(kept_frames_for_gain);
+        drop(frames);
+
+        let kept_paths: Vec<PathBuf> = kept_meta
+            .iter()
+            .map(|(inp_idx, _, _)| inputs[*inp_idx].clone())
+            .collect();
+        let kept_cams: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
+        let kept_local: Vec<Option<LocalCorrection>> =
+            kept_meta.iter().map(|(_, _, lc)| lc.clone()).collect();
+
+        // The canvas spec is computed once from cameras (no pixels needed).
+        let canvas = auto_canvas(&kept_cams, &canvas_opts)
+            .map_err(|e| StitchError::Composite(e.to_string()))?;
+
+        composite_tiled(
+            &kept_paths,
+            &kept_cams,
+            &gains,
+            &kept_local,
+            &canvas,
+            tile_rows,
+        )
+        .map_err(|e| StitchError::Composite(e.to_string()))?
+    } else {
+        // ── Full all-resident path (default; backward compatible) ────────
+        let (kept, kept_local): (Vec<(PlanarImage, Camera)>, Vec<Option<LocalCorrection>>) = frames
+            .into_iter()
+            .zip(&solution.cameras)
+            .zip(&solution.local_corrections)
+            .filter_map(|((f, cam), lc)| cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone())))
+            .unzip();
+
+        let (kept_frames, kept_cams): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
+        composite(
+            &kept_frames,
+            &kept_cams,
+            &CompositeOptions {
+                canvas: canvas_opts,
                 ..Default::default()
             },
-            ..Default::default()
-        },
-        &kept_local,
-    )
-    .map_err(|e| StitchError::Composite(e.to_string()))?;
+            &kept_local,
+        )
+        .map_err(|e| StitchError::Composite(e.to_string()))?
+    };
     let t_composite = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
 
