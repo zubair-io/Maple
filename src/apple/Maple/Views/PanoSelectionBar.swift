@@ -20,17 +20,22 @@ struct PanoSelectionBar: View {
             Divider()
             HStack(spacing: 16) {
                 // Left: select-all / deselect-all
+                // Guard on !assets.isEmpty: when both selectedIDs.count and
+                // assets.count are 0 the condition is vacuously true and
+                // "Deselect All" would appear with nothing to deselect.
+                let allSelected = !vm.assets.isEmpty && vm.selectedIDs.count == vm.assets.count
                 Button {
-                    if vm.selectedIDs.count == vm.assets.count {
+                    if allSelected {
                         vm.clearSelection()
                     } else {
                         vm.assets.forEach { vm.select($0.id) }
                     }
                 } label: {
-                    Text(vm.selectedIDs.count == vm.assets.count ? "Deselect All" : "Select All")
+                    Text(allSelected ? "Deselect All" : "Select All")
                         .font(.subheadline)
                 }
-                .accessibilityLabel(vm.selectedIDs.count == vm.assets.count
+                .disabled(vm.assets.isEmpty)
+                .accessibilityLabel(allSelected
                     ? "Deselect all images"
                     : "Select all images")
 

@@ -77,7 +77,8 @@ public final class BrowseViewModel {
     }
 
     /// Ordered list of checked AssetRefs, in the same order they appear in
-    /// `assets`. Preserves insertion order for stable stitching input.
+    /// `assets` (not the order they were checked — `selectedIDs` is an
+    /// unordered `Set`). Preserves `assets` order for stable stitching input.
     public var selectedAssets: [AssetRef] {
         assets.filter { selectedIDs.contains($0.id) }
     }

@@ -151,13 +151,16 @@ struct BrowseGrid: View {
                                                     displayMode: resolvedDisplayMode,
                                                     style: .desktop)
 
-                                        // Multi-select checkmark badge
+                                        // Multi-select checkmark badge.
+                                        // Checked: white glyph on accent fill (visible on any thumbnail).
+                                        // Unchecked: white circle outline on a dark scrim (readable
+                                        //   on both light and dark thumbnails).
                                         if vm.isSelecting {
                                             Image(systemName: isChecked
                                                   ? "checkmark.circle.fill"
                                                   : "circle")
                                                 .font(.system(size: 20, weight: .semibold))
-                                                .foregroundStyle(isChecked ? .white : .white)
+                                                .foregroundStyle(isChecked ? .white : Color.white.opacity(0.90))
                                                 .background(
                                                     Circle()
                                                         .fill(isChecked

@@ -4,9 +4,8 @@
 // action bar.  Driven by `PanoMergeSession` (MapleCore). Runs against
 // `MockPanoStitcher` until the real FFI impl lands (M4, #1234).
 //
-// Mac/iPad: mounted as a center-column full-screen view (same pattern as
-// `.editing`). iPhone: pushed onto the Library tab's NavigationStack.
-// Cancel returns to `.browse` in both cases.
+// Mac/iPad and iPhone: presented as a modal sheet via `.sheet(isPresented:)`
+// in AppShell. Cancel/Done dismisses the sheet and returns to browse.
 //
 // Ticket: #1236 / Part of #1234
 
@@ -33,8 +32,8 @@ struct PanoMergeView: View {
                     progressSection(stage: stage, overall: overall)
                 case .done(let result):
                     resultSection(result: result)
-                case .error(let error):
-                    errorSection(error: error)
+                case .error(let stitchError):
+                    errorSection(stitchError: stitchError)
                 }
             }
             .formStyle(.grouped)
@@ -206,22 +205,22 @@ struct PanoMergeView: View {
             // M5: wire "Add to Library" here — the real stitcher (M4) will
             // return an outputURL pointing at the final DNG/TIFF; M5 will
             // hand it to the Library source adapter and select it in the grid.
+            // "Show in Finder" is macOS-only: there is no Finder on iOS, so
+            // the control is hidden entirely on that platform rather than
+            // shown as a permanently-disabled dead button.
+            #if os(macOS)
             Button("Show in Finder") {
-                #if os(macOS)
                 NSWorkspace.shared.activateFileViewerSelecting([result.outputURL])
-                #endif
             }
-            #if os(iOS)
-            .disabled(true)
-            #endif
             .accessibilityLabel("Reveal panorama output in Finder")
+            #endif
         } header: {
             Text("Result")
         }
     }
 
     @ViewBuilder
-    private func errorSection(error: Error) -> some View {
+    private func errorSection(stitchError: PanoMergeSession.StitchError) -> some View {
         Section {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "exclamationmark.triangle.fill")
@@ -231,7 +230,7 @@ struct PanoMergeView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Merge failed")
                         .font(.subheadline.weight(.medium))
-                    Text(error.localizedDescription)
+                    Text(stitchError.message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
