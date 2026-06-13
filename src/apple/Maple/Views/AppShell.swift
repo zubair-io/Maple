@@ -135,8 +135,9 @@ struct AppShell: View {
 
     /// PanoMergeSession drives the panorama merge view. Created when the
     /// user hits "Merge to panorama…" and torn down (session reset) on
-    /// cancel or navigation away.
-    @State var panoMergeSession: PanoMergeSession = PanoMergeSession(stitcher: MockPanoStitcher())
+    /// cancel or navigation away. Uses RustPanoStitcher (M4, #1234) so the
+    /// real FFI stitch runs; MockPanoStitcher is retained for unit tests only.
+    @State var panoMergeSession: PanoMergeSession = PanoMergeSession(stitcher: RustPanoStitcher())
 
     /// True when an image is open in either editor mode (`.fullImage` or
     /// `.editing`) — i.e. the center column is showing an image, not the
@@ -464,7 +465,10 @@ struct AppShell: View {
             PanoMergeView(
                 assets: browseVM.selectedAssets,
                 session: panoMergeSession,
-                onDismiss: { dismissPanoramaMerge() }
+                onDismiss: { dismissPanoramaMerge() },
+                // M5 (#1234): inject the stitched PNG into the library so it
+                // shows in the browse grid and is auto-selected.
+                onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) }
             )
             #if os(macOS)
             .frame(minWidth: 560, minHeight: 480)
@@ -607,7 +611,9 @@ struct AppShell: View {
             PanoMergeView(
                 assets: browseVM.selectedAssets,
                 session: panoMergeSession,
-                onDismiss: { dismissPanoramaMerge() }
+                onDismiss: { dismissPanoramaMerge() },
+                // M5 (#1234): inject the stitched PNG into the library.
+                onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) }
             )
         }
     }
