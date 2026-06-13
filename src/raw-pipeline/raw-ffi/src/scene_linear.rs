@@ -40,7 +40,7 @@ use crate::model::{
     force_ae_off_if_auto_will_fit_path, load_xmp_model_owned, LoadModel,
 };
 use raw_core::decode::decode_bytes;
-use std::ffi::{c_char, CStr};
+use std::ffi::{CStr, c_char};
 
 /// Render a RAW+XMP to a scene-linear Rec.2020 fp16 RGBA buffer. Returns
 /// 0 on success, non-zero on error (call `maple_last_error`). The output
@@ -62,20 +62,14 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
-        }
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
         None
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
         }
     };
     let out_ptr = out as usize;
@@ -85,23 +79,14 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
-        {
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
             Ok(b) => b,
-            Err(e) => {
-                set_last_error(format!("raw read: {}", e));
-                return 6;
-            }
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
         };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&raw_bytes, ext)
-        }) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
             Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
         let quality = if quality_preview != 0 {
             raw_core::pipeline::RenderQuality::Preview
@@ -117,10 +102,7 @@ pub unsafe extern "C" fn maple_render_file_scene_linear(
             &raw_img, &model, quality,
         ) {
             Ok(t) => t,
-            Err(e) => {
-                set_last_error(format!("render: {}", e));
-                return 8;
-            }
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf(out_ptr, w, h, fp16);
         0
@@ -147,10 +129,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
     } else {
         match CStr::from_ptr(hint_ext).to_str() {
             Ok(s) => s.to_owned(),
-            Err(e) => {
-                set_last_error(format!("hint_ext not UTF-8: {}", e));
-                return 2;
-            }
+            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
         }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
@@ -158,10 +137,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
         }
     };
     let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
@@ -171,14 +147,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&input, &ext_owned)
-        }) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
             Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
         let quality = if quality_preview != 0 {
             raw_core::pipeline::RenderQuality::Preview
@@ -192,10 +163,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear(
             &raw_img, &model, quality,
         ) {
             Ok(t) => t,
-            Err(e) => {
-                set_last_error(format!("render: {}", e));
-                return 8;
-            }
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf(out_ptr, w, h, fp16);
         0
@@ -234,20 +202,14 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
-        }
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
         None
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
         }
     };
     let out_ptr = out as usize;
@@ -257,23 +219,14 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
-        {
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
             Ok(b) => b,
-            Err(e) => {
-                set_last_error(format!("raw read: {}", e));
-                return 6;
-            }
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
         };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&raw_bytes, ext)
-        }) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
             Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
         let quality = if quality_preview != 0 {
             raw_core::pipeline::RenderQuality::Preview
@@ -283,16 +236,10 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_sized(
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_path(&model, raw_path);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
-            &raw_img,
-            &model,
-            quality,
-            max_long_edge,
+            &raw_img, &model, quality, max_long_edge,
         ) {
             Ok(t) => t,
-            Err(e) => {
-                set_last_error(format!("render: {}", e));
-                return 8;
-            }
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf(out_ptr, w, h, fp16);
         0
@@ -325,10 +272,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
     } else {
         match CStr::from_ptr(hint_ext).to_str() {
             Ok(s) => s.to_owned(),
-            Err(e) => {
-                set_last_error(format!("hint_ext not UTF-8: {}", e));
-                return 2;
-            }
+            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
         }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
@@ -336,10 +280,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
         }
     };
     let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
@@ -349,14 +290,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&input, &ext_owned)
-        }) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
             Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
         let quality = if quality_preview != 0 {
             raw_core::pipeline::RenderQuality::Preview
@@ -366,16 +302,10 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
         // #871: force auto_exposure Off when an Auto Profile curve will fit.
         let model = force_ae_off_if_auto_will_fit_bytes(&model, &input, &ext_owned);
         let (w, h, fp16) = match raw_core::pipeline::render_scene_linear_sized_from_raw_with_quality(
-            &raw_img,
-            &model,
-            quality,
-            max_long_edge,
+            &raw_img, &model, quality, max_long_edge,
         ) {
             Ok(t) => t,
-            Err(e) => {
-                set_last_error(format!("render: {}", e));
-                return 8;
-            }
+            Err(e) => { set_last_error(format!("render: {}", e)); return 8; }
         };
         write_scene_linear_buf(out_ptr, w, h, fp16);
         0
@@ -429,20 +359,14 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
     }
     let raw_path_str = match CStr::from_ptr(raw_path).to_str() {
         Ok(s) => s.to_owned(),
-        Err(e) => {
-            set_last_error(format!("raw_path not UTF-8: {}", e));
-            return 2;
-        }
+        Err(e) => { set_last_error(format!("raw_path not UTF-8: {}", e)); return 2; }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
         None
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
         }
     };
     let out_ptr = out as usize;
@@ -452,23 +376,14 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path))
-        {
+        let raw_bytes = match raw_core::pipeline::stage("ffi_raw_read", || std::fs::read(raw_path)) {
             Ok(b) => b,
-            Err(e) => {
-                set_last_error(format!("raw read: {}", e));
-                return 6;
-            }
+            Err(e) => { set_last_error(format!("raw read: {}", e)); return 6; }
         };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&raw_bytes, ext)
-        }) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&raw_bytes, ext)) {
             Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
         let quality = if quality_preview != 0 {
             raw_core::pipeline::RenderQuality::Preview
@@ -501,15 +416,9 @@ pub unsafe extern "C" fn maple_render_file_scene_linear_tile(
                     || msg.contains("deep denoise")
                     || msg.contains("local adjustments")
                     || msg.contains("capture sharpening")
-                {
-                    return 10;
-                }
-                if msg.contains("upscale") || msg.contains("downscale-only") {
-                    return 11;
-                }
-                if msg.contains("matching aspect") {
-                    return 12;
-                }
+                { return 10; }
+                if msg.contains("upscale") || msg.contains("downscale-only") { return 11; }
+                if msg.contains("matching aspect") { return 12; }
                 return 8;
             }
         };
@@ -550,10 +459,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
     } else {
         match CStr::from_ptr(hint_ext).to_str() {
             Ok(s) => s.to_owned(),
-            Err(e) => {
-                set_last_error(format!("hint_ext not UTF-8: {}", e));
-                return 2;
-            }
+            Err(e) => { set_last_error(format!("hint_ext not UTF-8: {}", e)); return 2; }
         }
     };
     let xmp_path_str: Option<String> = if xmp_path.is_null() {
@@ -561,10 +467,7 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
     } else {
         match CStr::from_ptr(xmp_path).to_str() {
             Ok(s) => Some(s.to_owned()),
-            Err(e) => {
-                set_last_error(format!("xmp_path not UTF-8: {}", e));
-                return 3;
-            }
+            Err(e) => { set_last_error(format!("xmp_path not UTF-8: {}", e)); return 3; }
         }
     };
     let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
@@ -574,14 +477,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
             LoadModel::Ok(m) => m,
             LoadModel::Err(rc) => return rc,
         };
-        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
-            decode_bytes(&input, &ext_owned)
-        }) {
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || decode_bytes(&input, &ext_owned)) {
             Ok(r) => r,
-            Err(e) => {
-                set_last_error(format!("decode: {}", e));
-                return 7;
-            }
+            Err(e) => { set_last_error(format!("decode: {}", e)); return 7; }
         };
         let quality = if quality_preview != 0 {
             raw_core::pipeline::RenderQuality::Preview
@@ -614,15 +512,9 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_tile(
                     || msg.contains("deep denoise")
                     || msg.contains("local adjustments")
                     || msg.contains("capture sharpening")
-                {
-                    return 10;
-                }
-                if msg.contains("upscale") || msg.contains("downscale-only") {
-                    return 11;
-                }
-                if msg.contains("matching aspect") {
-                    return 12;
-                }
+                { return 10; }
+                if msg.contains("upscale") || msg.contains("downscale-only") { return 11; }
+                if msg.contains("matching aspect") { return 12; }
                 return 8;
             }
         };
@@ -645,13 +537,14 @@ pub(crate) fn write_scene_linear_buf(out_ptr: usize, w: u32, h: u32, fp16: Vec<u
         (p, n, n * std::mem::size_of::<u16>())
     });
     unsafe {
-        *(out_ptr as *mut MapleSceneLinearBuffer) = MapleSceneLinearBuffer {
-            fp16_rgba: fp16_ptr,
-            len_bytes,
-            channels: 4,
-            bytes_per_pixel: 8,
-            width: w,
-            height: h,
-        };
+        *(out_ptr as *mut MapleSceneLinearBuffer) =
+            MapleSceneLinearBuffer {
+                fp16_rgba: fp16_ptr,
+                len_bytes,
+                channels: 4,
+                bytes_per_pixel: 8,
+                width: w,
+                height: h,
+            };
     }
 }
