@@ -3,17 +3,28 @@
 // Wraps `maple_pano_stitch` from RawPipeline.xcframework. The FFI call is a
 // ~6-minute blocking operation and runs off the MainActor on a detached task.
 //
-// # Progress bridging
+// # Progress bridging  (fixed in #1239)
 //
 // The C callback `MaplePanoProgressFn` is `void(*)(uint32_t stage, float frac,
-// void *user)`. We pass an `Unmanaged<ProgressBox>` pointer as `cb_user`.
-// `ProgressBox` captures the `@MainActor` Swift closure; the C trampoline
-// function reconstructs the box from the opaque pointer and hops to MainActor
-// to call the closure. Ownership:
-//   1. `passRetained(_:)` bumps the refcount before the FFI call.
-//   2. `release()` decrements it unconditionally after the FFI call returns
-//      (the FFI joins all worker threads before returning, so the trampoline
-//      is guaranteed not to run after this point).
+// void *user)`. We pass an `Unmanaged<ProgressAtom>` pointer as `cb_user`.
+//
+// The hot path is lock-free:
+//   - The C trampoline (called from rayon worker threads, potentially from
+//     multiple threads simultaneously) does ONLY: reconstruct the atom from
+//     the opaque pointer, acquire `os_unfair_lock` for one word-store, release.
+//     No Task allocation, no MainActor enqueue.
+//   - A `ProgressPoller` Timer fires ~20×/sec on the main run loop, reads the
+//     latest stored `(stage, fraction)`, and calls the `@MainActor` closure if
+//     the value has changed.
+//
+// Ownership / lifetime:
+//   1. `passRetained(_:)` bumps the atom's refcount before the FFI call.
+//   2. The FFI (`maple_pano_stitch`) joins all rayon workers before returning.
+//      After that point the trampoline is guaranteed NOT to run.
+//   3. `release()` decrements the refcount unconditionally after the FFI returns
+//      (no use-after-free possible — the join is the barrier).
+//   4. The poller's final tick fires after the FFI returns (from `_runFFI`) to
+//      emit the terminal stage/fraction to the UI regardless of poll timing.
 //
 // # Cancel
 //
@@ -35,7 +46,7 @@
 // bundling and on-device provisioning of the ONNX Runtime dylib on iOS is
 // also deferred to M6 (the FFI returns -3 on iOS today).
 //
-// Ticket: #1234 (M4+M5) / #1235
+// Ticket: #1234 (M4+M5) / #1235 / #1239
 
 import Foundation
 import OSLog
@@ -43,26 +54,66 @@ import RawPipeline
 
 private let panoLog = Logger(subsystem: "app.justmaple.aperture", category: "RustPanoStitcher")
 
-// MARK: - ProgressBox
+// MARK: - ProgressAtom
 
-/// Heap-allocated context box passed through the C `cb_user` void pointer.
-/// Captures the `@MainActor` Swift progress closure so the C trampoline
-/// can hop back to MainActor and call it safely.
-private final class ProgressBox {
-    let progress: @MainActor (PanoStage, Double) -> Void
+/// Lock-protected atom that stores the latest `(stage, fraction)` tick
+/// received from the C trampoline.  The atom itself is heap-allocated and
+/// passed through the C `cb_user` void pointer; its lifetime is managed by
+/// `passRetained` / `release` in `_runFFI`.
+///
+/// `os_unfair_lock` is used because:
+///   - It is async-signal–safe and callable from any thread including rayon
+///     worker threads (unlike `NSLock` / `pthread_mutex`).
+///   - The critical section is two word-stores — contention is negligible even
+///     under parallel rayon calls.
+///   - `Mutex<T>` from Swift Concurrency would require awaiting and cannot be
+///     used from a synchronous C-ABI function.
+// @unchecked because the lock guards all mutable state; Swift cannot verify
+// that automatically, but the implementation is provably thread-safe.
+private final class ProgressAtom: @unchecked Sendable {
+    // os_unfair_lock must be heap-allocated and accessed via pointer.
+    // We store it in a fixed slot and never move the ProgressAtom after init.
+    private var lock: os_unfair_lock = .init()
 
-    init(_ progress: @escaping @MainActor (PanoStage, Double) -> Void) {
-        self.progress = progress
+    // Latest values; guarded by `lock`.
+    private var _stage: UInt32 = 0
+    private var _frac: Float = 0.0
+
+    // Whether any tick has been stored at all (sentinel for "not yet started").
+    private var _hasTick: Bool = false
+
+    /// Store a new tick from the C trampoline.  Called from arbitrary threads.
+    @inline(__always)
+    func store(stage: UInt32, frac: Float) {
+        os_unfair_lock_lock(&lock)
+        _stage = stage
+        _frac  = frac
+        _hasTick = true
+        os_unfair_lock_unlock(&lock)
+    }
+
+    /// Read the latest tick.  Returns `nil` if no tick has been stored yet.
+    /// Called only from the main thread (poller timer).
+    func load() -> (stage: UInt32, frac: Float)? {
+        os_unfair_lock_lock(&lock)
+        let has = _hasTick
+        let s   = _stage
+        let f   = _frac
+        os_unfair_lock_unlock(&lock)
+        return has ? (s, f) : nil
     }
 }
 
 // MARK: - C trampoline (free function — no method pointer round-trip)
 
 /// C-ABI trampoline called by the Rust worker for each progress tick.
-/// Reconstructs the `ProgressBox` from `user` WITHOUT consuming the retain
-/// (passUnretained) — the box lifetime is managed by the balanced
-/// `passRetained`/`release` pair in `_runFFI`. Hops to MainActor and calls
-/// the Swift closure.
+/// Reconstructs the `ProgressAtom` from `user` WITHOUT consuming the retain
+/// (passUnretained) — the atom lifetime is managed by the balanced
+/// `passRetained`/`release` pair in `_runFFI`.
+///
+/// HOT PATH: does NO Task allocation and NO MainActor enqueue.  It does only
+/// one lock-acquire + two word-stores + lock-release.  Safe to call from
+/// multiple rayon threads concurrently.
 ///
 /// Stage ordinals from `maple_pano::stitch` module docs:
 ///   0 = decode + priors
@@ -73,12 +124,61 @@ private final class ProgressBox {
 ///   5 = composite
 private func panoProgressTrampoline(stage: UInt32, frac: Float, user: UnsafeMutableRawPointer?) {
     guard let user else { return }
-    let box = Unmanaged<ProgressBox>.fromOpaque(user).takeUnretainedValue()
-    let swiftStage = PanoStage.fromFFIStage(stage)
-    let fraction = Double(frac)
-    // Hop to MainActor. The closure captures no actors and is @Sendable.
-    Task { @MainActor in
-        box.progress(swiftStage, fraction)
+    Unmanaged<ProgressAtom>.fromOpaque(user).takeUnretainedValue().store(stage: stage, frac: frac)
+}
+
+// MARK: - ProgressPoller
+
+/// Main-run-loop timer that reads the shared atom ~20×/sec and calls the
+/// `@MainActor` progress closure when the value changes.
+///
+/// Lifecycle: created just before the FFI call, invalidated just after it
+/// returns.  One final forced flush is done after invalidation so the terminal
+/// stage/fraction always reaches the UI regardless of poll timing.
+@MainActor
+private final class ProgressPoller {
+    private let atom: ProgressAtom
+    private let closure: @MainActor (PanoStage, Double) -> Void
+    private var timer: Timer?
+
+    // Last value dispatched to the closure — used to suppress no-change ticks.
+    private var lastStage: UInt32 = UInt32.max
+    private var lastFrac: Float = -1.0
+
+    init(atom: ProgressAtom, closure: @escaping @MainActor (PanoStage, Double) -> Void) {
+        self.atom = atom
+        self.closure = closure
+    }
+
+    /// Start polling.  Must be called from MainActor.
+    func start() {
+        // 50 ms interval → ~20 updates/sec (well inside human-perceptible latency).
+        // scheduledTimer fires on the main run loop (same thread the MainActor
+        // runs on); MainActor.assumeIsolated documents this invariant explicitly.
+        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.tick()
+            }
+        }
+    }
+
+    /// Stop polling and emit one final tick so the terminal state always
+    /// reaches the UI.  Must be called from MainActor.
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        tick()   // flush terminal state unconditionally
+    }
+
+    // Reads the atom and dispatches if changed.
+    private func tick() {
+        guard let (s, f) = atom.load() else { return }
+        // Suppress if unchanged (float equality is intentional: we stored the
+        // exact bit pattern that came from Rust, so round-trip is exact).
+        guard s != lastStage || f != lastFrac else { return }
+        lastStage = s
+        lastFrac  = f
+        closure(PanoStage.fromFFIStage(s), Double(f))
     }
 }
 
@@ -138,32 +238,56 @@ public final class RustPanoStitcher: PanoStitching {
         let flag = CancelFlag()
         cancelFlag = flag
 
+        // Shared atom: the C trampoline writes here lock-free; the poller
+        // reads it on the main run loop.
+        let atom = ProgressAtom()
+
+        // Start the MainActor-side poller BEFORE the detached task begins.
+        // We hop to the MainActor to create + start the timer, then hop back.
+        let poller = await MainActor.run {
+            let p = ProgressPoller(atom: atom, closure: progress)
+            p.start()
+            return p
+        }
+
         // Run the blocking FFI off the main actor. Task.detached avoids
         // inheriting the @MainActor context (which would block it); the
         // closure is @Sendable because CancelFlag + URL + PanoOptions are all
-        // Sendable.
-        let result = try await Task.detached(priority: .userInitiated) { [flag] () throws -> PanoResult in
-            try Self._runFFI(
-                inputURLs: inputURLs,
-                outputURL: outputURL,
-                options: options,
-                progress: progress,
-                cancelFlag: flag
-            )
-        }.value
-
-        return result
+        // Sendable.  We pass `atom` (not the progress closure) so no
+        // @MainActor type crosses into the non-isolated detached context.
+        do {
+            let result = try await Task.detached(priority: .userInitiated) { [flag] () throws -> PanoResult in
+                try Self._runFFI(
+                    inputURLs: inputURLs,
+                    outputURL: outputURL,
+                    options: options,
+                    atom: atom,
+                    cancelFlag: flag
+                )
+            }.value
+            // Stop and flush the poller after the FFI returns (hops to MainActor).
+            await MainActor.run { poller.stop() }
+            return result
+        } catch {
+            await MainActor.run { poller.stop() }
+            throw error
+        }
     }
 
     // MARK: - FFI invocation (static — no actor capture)
 
     /// All the actual FFI plumbing. Static so the detached Task doesn't
     /// capture `self` (no implicit @MainActor leak).
+    ///
+    /// `atom` is the shared `ProgressAtom` written by the C trampoline and
+    /// read by the `ProgressPoller` running on the main run loop.  We retain
+    /// it across the synchronous FFI call so the trampoline never reads a
+    /// freed pointer.
     private static func _runFFI(
         inputURLs: [URL],
         outputURL: URL,
         options: PanoOptions,
-        progress: @escaping @MainActor (PanoStage, Double) -> Void,
+        atom: ProgressAtom,
         cancelFlag: CancelFlag
     ) throws -> PanoResult {
         // 1. Build C strings. `cStrings` is an array of [CChar] that lives on
@@ -197,11 +321,11 @@ public final class RustPanoStitcher: PanoStitching {
             case .tile:     Tile
         }
 
-        // 4. Progress bridging — retain the box across the synchronous FFI
+        // 4. Progress bridging — retain the atom across the synchronous FFI
         //    call; release unconditionally when it returns (the FFI joins all
-        //    worker threads before returning).
-        let box = ProgressBox(progress)
-        let retained = Unmanaged.passRetained(box)
+        //    worker threads before returning, so the trampoline is guaranteed
+        //    not to run after this point — no use-after-free).
+        let retained = Unmanaged.passRetained(atom)
         let ctxPtr = retained.toOpaque()
         defer { retained.release() }
 
