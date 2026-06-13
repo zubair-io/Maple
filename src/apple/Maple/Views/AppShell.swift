@@ -72,6 +72,10 @@ struct AppShell: View {
     @State var sessions: [AssetRef.ID: EditSession] = [:]
     @State private var showExport = false
     @State private var showSettings = false
+    /// Non-nil when the Settings sheet should open on a specific tab.
+    /// Set to `.pano` by the PanoMergeView "Configure in Settings → Pano"
+    /// callback so the sheet lands directly on the Pano tab. (#1241)
+    @State private var settingsInitialTab: SettingsTab? = nil
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     /// Whether the S5 editor's right-hand Info inspector is shown on the
     /// Mac/iPad pane shell. The editor's `(i)` button toggles this (#875
@@ -451,9 +455,9 @@ struct AppShell: View {
             // M2 panorama merge (#1236).
             onMergePanorama: { openPanoramaMerge() }
         )
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-                .frame(minWidth: 520, minHeight: 460)
+        .sheet(isPresented: $showSettings, onDismiss: { settingsInitialTab = nil }) {
+            SettingsView(initialTab: settingsInitialTab)
+                .frame(minWidth: 540, minHeight: 480)
         }
         // M2: panorama merge view — presented as a sheet on Mac/iPad.
         // Covers the full content area; Cancel dismisses back to Browse
@@ -468,7 +472,16 @@ struct AppShell: View {
                 onDismiss: { dismissPanoramaMerge() },
                 // M5 (#1234): inject the stitched PNG into the library so it
                 // shows in the browse grid and is auto-selected.
-                onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) }
+                onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) },
+                // M6 provisioning (#1241): modelsNotInstalled error offers a
+                // "Configure in Settings → Pano" button. We dismiss the pano
+                // sheet first, then open Settings on the Pano tab so the user
+                // can configure paths without the sheet stacking on top.
+                onOpenPanoSettings: {
+                    dismissPanoramaMerge()
+                    settingsInitialTab = .pano
+                    showSettings = true
+                }
             )
             #if os(macOS)
             .frame(minWidth: 560, minHeight: 480)
@@ -613,7 +626,14 @@ struct AppShell: View {
                 session: panoMergeSession,
                 onDismiss: { dismissPanoramaMerge() },
                 // M5 (#1234): inject the stitched PNG into the library.
-                onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) }
+                onComplete: { result in browseVM.injectPanoResult(url: result.outputURL) },
+                // M6 provisioning (#1241): direct not-provisioned errors to
+                // Settings → Pano on iPhone as well.
+                onOpenPanoSettings: {
+                    dismissPanoramaMerge()
+                    settingsInitialTab = .pano
+                    showSettings = true
+                }
             )
         }
     }
@@ -634,6 +654,7 @@ struct AppShell: View {
         showSMBSheet = false
         addCloudSheetTarget = nil
         showSettings = false
+        settingsInitialTab = nil
         showExport = false
         #if os(iOS)
         iPhoneInfoSheet = false
