@@ -20,8 +20,20 @@ import UIKit
 
 // MARK: - MockPanoStitcher
 
+/// Test double for `PanoStitching`.
+///
+/// Thread-safety note: `cancelledFlag` is accessed from two methods — `cancel()`
+/// and `stitch(_:options:progress:)`. In practice `cancel()` is called on the
+/// `@MainActor` (from `PanoMergeSession`) while `stitch` suspends on a
+/// cooperative thread. The flag is only ever written from one direction at a
+/// time (stitch resets it at entry; cancel sets it during the run), so
+/// nonisolated(unsafe) is sound here. The real FFI impl (M4) will need a
+/// proper actor or atomic; this mock keeps it simple.
 public final class MockPanoStitcher: PanoStitching {
-    private var cancelledFlag: Bool = false
+    // nonisolated(unsafe) satisfies Swift 6 Sendable: we document the locking
+    // invariant above rather than paying the overhead of an actor or NSLock
+    // for a test-only double with a single-writer pattern.
+    nonisolated(unsafe) private var cancelledFlag: Bool = false
 
     public init() {}
 
