@@ -29,9 +29,19 @@ public final class PanoMergeSession {
     public struct StitchError: Sendable {
         /// The `localizedDescription` of the underlying error.
         public let message: String
+        /// `true` when the underlying error was `PanoStitcherError.modelsNotInstalled`.
+        /// The merge view uses this to show a "Configure in Settings → Pano" button
+        /// instead of the generic "Try Again" button. (#1241)
+        public let isModelsNotInstalled: Bool
 
         public init(underlying: any Error) {
             self.message = underlying.localizedDescription
+            if let panoErr = underlying as? PanoStitcherError,
+               case .modelsNotInstalled = panoErr {
+                self.isModelsNotInstalled = true
+            } else {
+                self.isModelsNotInstalled = false
+            }
         }
     }
 
