@@ -115,7 +115,19 @@ if [[ -f "$ARM64_LIB" ]]; then
     echo "==> Already extracted — skipping."
 else
     echo "==> Extracting..."
-    unzip -q -o "$ARCHIVE" -d "$CACHE_DIR"
+    # The zip's internal layout is FLAT — `Headers/`, `LICENSE`,
+    # `onnxruntime.xcframework/` at the root, no `onnxruntime-c-<version>/`
+    # wrapping directory. The sentinel path nests under `$EXTRACTED` which
+    # IS that wrapping, so we have to extract INTO `$EXTRACTED` (creating
+    # the wrapping ourselves) rather than into `$CACHE_DIR` (which would
+    # land the files one level too shallow). Without this, a fresh Xcode
+    # Cloud worker — no pre-existing cache — extracts to `$CACHE_DIR` and
+    # the sentinel check fails with `extraction completed but sentinel not
+    # found`. Worked locally only because a prior manual setup had already
+    # moved files under the wrapping. (CI failure spotted on PR #1245
+    # post-merge.)
+    mkdir -p "$EXTRACTED"
+    unzip -q -o "$ARCHIVE" -d "$EXTRACTED"
     if [[ ! -f "$ARM64_LIB" ]]; then
         echo "ERROR: extraction completed but sentinel not found: $ARM64_LIB" >&2
         exit 1
