@@ -228,28 +228,62 @@ private nonisolated(unsafe) var _memoryPressureSource: DispatchSourceMemoryPress
 
 // MARK: - SettingsView (cross-platform)
 
+/// Tab identifiers for `SettingsView`.  Callers (e.g. `AppShell`) can pass
+/// a binding to pre-select a tab — used by the not-provisioned pano error
+/// flow so "Configure in Settings → Pano" opens directly on the Pano tab.
+enum SettingsTab: String {
+    case general
+    case backup
+    case selfHosted
+    case pano
+    case observability
+    case finder
+}
+
 struct SettingsView: View {
+    /// Optional pre-selected tab.  `nil` defaults to the General tab.
+    /// Provided by callers that want to deep-link into a specific tab
+    /// (e.g. the PanoMergeView "Configure in Settings → Pano" action).
+    var initialTab: SettingsTab? = nil
+
+    @State private var selectedTab: SettingsTab = .general
+
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gear") }
+                .tag(SettingsTab.general)
             BackupSettingsView()
                 .tabItem { Label("Backup", systemImage: "icloud.and.arrow.up") }
+                .tag(SettingsTab.backup)
             SelfHostedSettingsTab()
                 .tabItem { Label("Self Hosted", systemImage: "cloud") }
+                .tag(SettingsTab.selfHosted)
+            PanoSettingsView()
+                .tabItem { Label("Pano", systemImage: "photo.stack") }
+                .tag(SettingsTab.pano)
+                .accessibilityIdentifier("settings.tab.pano")
             ObservabilitySettingsTab()
                 .tabItem { Label("Observability", systemImage: "waveform.path.ecg") }
+                .tag(SettingsTab.observability)
             #if os(macOS)
             FileProviderSettingsView()
                 .tabItem { Label("Finder", systemImage: "folder") }
+                .tag(SettingsTab.finder)
             #elseif os(iOS)
             FileProviderSettingsViewIOS()
                 .tabItem { Label("Files", systemImage: "folder") }
+                .tag(SettingsTab.finder)
             #endif
         }
         #if os(macOS)
-        .frame(width: 520, height: 460)
+        .frame(width: 540, height: 480)
         #endif
+        .onAppear {
+            if let tab = initialTab {
+                selectedTab = tab
+            }
+        }
     }
 }
 
