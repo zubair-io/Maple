@@ -9,12 +9,12 @@ recorded here.
 
 ## Locked baseline
 
-| Metric                  | Value                          |
-| ----------------------- | ------------------------------ |
-| Reference fixture       | `test-fixtures/raws/dji-mavic3pro-100mp.dng` (100 MP Hasselblad L3D-100c, ~129 MB DNG) |
-| Cold-open median        | **4740 ms** (5 cold opens, current `main` after `nr_color` hoist + rayon work — user-reported `[swift] rust FFI decode`) |
-| Hard-stop threshold     | **5210 ms** (4740 + 10%)       |
-| Allowed regression      | ≤ +474 ms net                  |
+| Metric              | Value                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Reference fixture   | `test-fixtures/raws/dji-mavic3pro-100mp.dng` (100 MP Hasselblad L3D-100c, ~129 MB DNG)                                   |
+| Cold-open median    | **4740 ms** (5 cold opens, current `main` after `nr_color` hoist + rayon work — user-reported `[swift] rust FFI decode`) |
+| Hard-stop threshold | **5210 ms** (4740 + 10%)                                                                                                 |
+| Allowed regression  | ≤ +474 ms net                                                                                                            |
 
 Source: user observation on personal hardware. Numbers above the +10% threshold
 fail Spike 1.3 and stop Plan 1 before Task 5 wires the new path into `EditSession`.
@@ -169,7 +169,7 @@ Step 1.3.2 / Step 7.5.
 
 ## Hard-stop quick reference
 
-| Net change vs 4740 ms | Verdict                        |
-| --------------------- | ------------------------------ |
-| ≤ +474 ms             | Pass (regression accepted)     |
+| Net change vs 4740 ms | Verdict                          |
+| --------------------- | -------------------------------- |
+| ≤ +474 ms             | Pass (regression accepted)       |
 | > +474 ms (> 5210 ms) | **Stop. Plan 1 needs revision.** |
