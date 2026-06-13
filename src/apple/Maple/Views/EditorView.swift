@@ -265,8 +265,22 @@ struct EditorView: View {
     /// `guard asset.isRaw`: the GPU live chain only handles RAW; non-RAW falls
     /// through to the CPU `CanvasImageView` leaf, otherwise the canvas would
     /// host an opaque-and-never-presented `CAMetalLayer` (#1240).
+    ///
+    /// iOS-gated: on iPhone / iPad the wgpu chain produces a black surface
+    /// in the editor — iOS-device HUD validation is still open (#1028-A4 /
+    /// #992), and `GpuLiveFlag.swift` calls it out explicitly:
+    ///   "iOS-on-device perf/correctness of the default-on path is not yet
+    ///    validated — see #1064."
+    /// So this fix lands GPU live for macOS only; iOS stays on the CPU path
+    /// it had before #1240 until the iOS GPU correctness ticket lands. The
+    /// `MAPLE_GPU_EDITOR_IOS=1` env override is available for on-device
+    /// testing once that work starts.
     private var useGpuCanvas: Bool {
-        FullImageViewVM.shouldPresentViaGpuCanvas(
+        #if os(iOS)
+        let iosOptIn = ProcessInfo.processInfo.environment["MAPLE_GPU_EDITOR_IOS"] == "1"
+        guard iosOptIn else { return false }
+        #endif
+        return FullImageViewVM.shouldPresentViaGpuCanvas(
             flagEnabled: GpuLiveFlag.isEnabled,
             isRaw: state.session.asset.isRaw,
             showingOriginal: state.session.showingOriginal
