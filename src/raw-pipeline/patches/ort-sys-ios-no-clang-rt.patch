@@ -1,0 +1,55 @@
+# ort-sys iOS clang_rt.osx guard — Maple M6 #1244
+#
+# Problem: ort-sys's build.rs calls macos_rtlib_search_dir() (which invokes the
+# HOST clang --print-search-dirs) to obtain the macOS/Catalyst runtime library
+# search path, then unconditionally emits:
+#
+#   cargo:rustc-link-search=<host-clang-rtlib-dir>
+#   cargo:rustc-link-lib=clang_rt.osx
+#
+# That path and library do not exist on iOS / iOS-sim targets. Injecting the
+# macOS Catalyst path into an iOS link command produces a hard linker error:
+#
+#   "linking in object file built for 'zippered(macOS/Catalyst)'"
+#
+# Fix: guard the emission behind `if !target_triple.contains("apple-ios")`.
+# macOS builds continue to emit the clang_rt.osx link as before; iOS and
+# iOS-sim builds skip it cleanly.
+#
+# This patch is re-applied by scripts/re-apply-patches.sh after every
+# `cargo vendor` run. The guard in build-xcframework.sh verifies the patched
+# checksum (PATCHED_BUILD_RS_SHA256 constant) is present and aborts loudly
+# if the vendor directory was refreshed without re-applying the patch.
+#
+# Upstream fix: not submitted — the upstream `ort` crate does not support iOS
+# cross-compilation in its distributed binaries, so maintaining this as a local
+# patch is the correct long-term approach until the crate adds iOS targets.
+#
+# IMPORTANT: when upgrading ort-sys, re-apply this patch manually and update:
+#   1. The PATCHED_BUILD_RS_SHA256 constant in build-xcframework.sh
+#   2. The "build.rs" entry in vendor/ort-sys/.cargo-checksum.json
+#      (run `shasum -a 256 vendor/ort-sys/build.rs` and set it)
+#
+--- vendor/ort-sys/build.rs.orig	(ort-sys upstream)
++++ vendor/ort-sys/build.rs	(Maple M6 iOS patch)
+@@ -193,9 +193,17 @@
+
+ 	if target_triple.contains("apple") {
+ 		println!("cargo:rustc-link-lib=framework=Foundation");
+-		if let Some(dir) = macos_rtlib_search_dir() {
+-			println!("cargo:rustc-link-search={dir}");
+-			println!("cargo:rustc-link-lib=clang_rt.osx");
++		// Only emit clang_rt.osx for macOS targets — iOS / iOS-sim cross-compile
++		// must NOT link this library. `macos_rtlib_search_dir()` calls the host
++		// `clang --print-search-dirs` which returns the macOS/Catalyst runtime dir;
++		// injecting that path into an iOS link command produces:
++		//   "linking in object file built for 'zippered(macOS/Catalyst)'"
++		// and fails with a linker error. (Maple M6 #1244 vendor patch.)
++		if !target_triple.contains("apple-ios") {
++			if let Some(dir) = macos_rtlib_search_dir() {
++				println!("cargo:rustc-link-search={dir}");
++				println!("cargo:rustc-link-lib=clang_rt.osx");
++			}
+ 		}
+ 	}
+ 	if target_triple.contains("windows") && using_pyke_libs {
