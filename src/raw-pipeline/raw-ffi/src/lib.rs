@@ -76,9 +76,17 @@ pub use scene_linear_chain::MapleAdjustmentParams;
 // gpu-gated: the live-session FFI structs (absent from the default xcframework).
 #[cfg(feature = "gpu")]
 pub use gpu_live::{MapleGpuLiveParams, MapleGpuLiveSession};
-// pano-gated: the panorama stitch ABI types (epic #1234 / M3 #1235).
+// pano-gated: the panorama stitch ABI types and entry point (epic #1234 / M3 #1235).
+// `maple_pano_stitch` is also exported via its `#[no_mangle]` attribute (C ABI),
+// but the `pub use` here makes it accessible to Rust integration tests that call
+// the FFI through the rlib form of the crate.
 #[cfg(feature = "pano")]
-pub use pano::{MaplePanoLocalAlign, MaplePanoProgressFn, MaplePanoRetention, MaplePanoStrategy};
+pub use pano::{
+    maple_pano_stitch, MaplePanoLocalAlign, MaplePanoProgressFn, MaplePanoRetention,
+    MaplePanoStrategy,
+};
+// `maple_last_error` is exported for integration tests too (re-export from error).
+pub use error::maple_last_error;
 
 // Tests are split per-topic so each file stays well under the 600-LOC
 // per-file budget; the `#[path]` references keep them as plain siblings

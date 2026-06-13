@@ -157,3 +157,11 @@ pub mod local_align;
 pub mod similarity;
 pub mod strategy;
 pub mod tile;
+
+// --- Shared stitch orchestration (M3, #1235): the single authoritative
+// rotation-strategy pipeline that both `maple-cli pano stitch` and the
+// `maple_pano_stitch` C-FFI entry call. Keeping one copy closes the
+// Apple↔CLI parity gap (CLAUDE.md principle #4). Requires `ml`.
+// Appended after tile — keep lib.rs append-only.
+#[cfg(feature = "ml")]
+pub mod stitch;
