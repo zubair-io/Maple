@@ -1,17 +1,13 @@
-//! `maple-cli pano stitch` (#1182) — the end-to-end panorama pipeline:
-//! decode → priors → proxy → ALIKED+LightGlue → match graph →
-//! full-resolution match refinement (#1210) → global BA → leveling →
-//! composite → 16-bit PNG (+ optional sRGB preview) + a
-//! `StitchReport`-shaped JSON.
+//! `maple-cli pano stitch` (#1182) — the end-to-end panorama pipeline.
 //!
-//! Geometry runs at two scales by design: matching + robust pairwise
-//! verification on the long-edge-capped proxies (the resolution the
-//! matcher carries its accuracy at), then every verified inlier match is
-//! re-localized on the full-resolution frames (`maple_pano::refine`) and
-//! bundle adjustment solves in FULL-RES coordinates. The §5.3 gates
-//! (mean ≤ 1.5 px / max ≤ 6 px) therefore apply at the resolution the
-//! spec wrote them for ("1.5 px on 24 MP input") — closing the
-//! proxy-vs-spec scale ambiguity this module previously documented.
+//! This module is a thin orchestrator: it parses CLI arguments, drives
+//! [`maple_pano::stitch`] for the rotation strategy, falls through to
+//! [`tile`] for the tile strategy, and assembles the `StitchReport` JSON
+//! (spec §6) via [`io`].
+//!
+//! All geometry runs inside `maple_pano::stitch` — the shared single
+//! source of truth for both this CLI and the `maple_pano_stitch` FFI
+//! entry (CLAUDE.md principle #4 — Apple↔CLI parity is a merge gate).
 //!
 //! Two modes:
 //!
@@ -30,10 +26,6 @@
 //! The ML environment is a hard, actionable error in both modes (the
 //! CLI is the operator surface; only the harness skip-passes, and it
 //! does so before invoking this command).
-//!
-//! The linear PNG carries the scene-linear Rec.2020 composite (the
-//! values the linear-DNG writer of spec step 9 will carry), clamped to
-//! the display-range slice.
 
 mod io;
 mod tile;
@@ -43,23 +35,10 @@ use std::time::Instant;
 
 use clap::Subcommand;
 
-use maple_pano::ba::{self, BaOptions};
-use maple_pano::camera::Camera;
-use maple_pano::canvas::{CanvasOptions, ProjectionMode};
-use maple_pano::composite::{composite, CompositeOptions};
-use maple_pano::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
-use maple_pano::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
-use maple_pano::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
-use maple_pano::ingest::{ingest_file, proxy_to_long_edge, IngestedFrame, PlanarImage};
-use maple_pano::leveling;
-use maple_pano::matching::LightGlueMatcher;
-use maple_pano::models::ModelDir;
-use maple_pano::refine::{refine_correspondences, RefineGeometry, RefineOptions};
-use maple_pano::robust::RobustOptions;
-use maple_pano::strategy::{select_strategy, Strategy};
-use maple_pano::twoview::PixelCorrespondence;
+use maple_pano::stitch::{self, StitchError, StitchOptions};
+use maple_pano::strategy::Strategy;
 
-use io::{interleave, stitch_report, write_png16, ReportContext};
+use io::{stitch_report, tile_stitch_report, write_png16, ReportContext};
 
 mod args;
 pub use args::StitchArgs;
@@ -76,32 +55,8 @@ pub enum PanoCmd {
 
 pub fn run(cmd: PanoCmd) -> Result<(), String> {
     match cmd {
-        PanoCmd::Stitch(args) => stitch(args),
+        PanoCmd::Stitch(args) => run_stitch(args),
     }
-}
-
-/// The loaded ML stack (one load per invocation, shared across cases).
-struct Ml {
-    detector: AlikedDetector,
-    matcher: LightGlueMatcher,
-}
-
-fn load_ml(models_dir: Option<&Path>) -> Result<Ml, String> {
-    let models = ModelDir::resolve(models_dir).map_err(|e| {
-        format!(
-            "ML environment unavailable: {e}\n\
-             The pano pipeline needs the ALIKED + LightGlue models and an \
-             ONNX Runtime dylib:\n\
-             set MAPLE_PANO_MODELS to the models directory (SHA-pinned in \
-             maple-pano/models.toml)\n\
-             and ORT_DYLIB_PATH to libonnxruntime (>= 1.23)."
-        )
-    })?;
-    let detector = AlikedDetector::load(&models, DetectorOptions::default())
-        .map_err(|e| format!("ALIKED load failed: {e}"))?;
-    let matcher = LightGlueMatcher::load(&models, Default::default())
-        .map_err(|e| format!("LightGlue load failed: {e}"))?;
-    Ok(Ml { detector, matcher })
 }
 
 /// Where one stitched set's artifacts go.
@@ -114,9 +69,7 @@ struct SetOutputs {
     report: Option<PathBuf>,
 }
 
-fn stitch(args: StitchArgs) -> Result<(), String> {
-    let mut ml = load_ml(args.models_dir.as_deref())?;
-
+fn run_stitch(args: StitchArgs) -> Result<(), String> {
     if let Some(manifest_path) = &args.manifest {
         // Batch mode = the harness bar: spec gates only.
         if args.max_mean_px != SPEC_MEAN_BUDGET_PX || args.max_residual_px != SPEC_MAX_BUDGET_PX {
@@ -129,7 +82,7 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
             .out_dir
             .as_ref()
             .expect("clap: --out-dir required with --manifest");
-        return stitch_manifest(&mut ml, manifest_path, out_dir, &args);
+        return stitch_manifest(manifest_path, out_dir, &args);
     }
 
     if args.inputs.len() < 2 {
@@ -143,7 +96,6 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
     let mut inputs = args.inputs.clone();
     inputs.sort();
     let report = stitch_set(
-        &mut ml,
         &inputs,
         &SetOutputs {
             linear: out,
@@ -163,12 +115,7 @@ fn stitch(args: StitchArgs) -> Result<(), String> {
 /// Batch over a harness manifest:
 /// `{ "cases": [ { "name", "frames": [...], "reference"?, "options"? } ] }`.
 /// Candidate `<name>.png` is the display encode (see module docs).
-fn stitch_manifest(
-    ml: &mut Ml,
-    manifest_path: &Path,
-    out_dir: &Path,
-    args: &StitchArgs,
-) -> Result<(), String> {
+fn stitch_manifest(manifest_path: &Path, out_dir: &Path, args: &StitchArgs) -> Result<(), String> {
     let bytes =
         std::fs::read(manifest_path).map_err(|e| format!("{}: {e}", manifest_path.display()))?;
     let manifest: serde_json::Value = serde_json::from_slice(&bytes)
@@ -205,7 +152,6 @@ fn stitch_manifest(
             report: Some(out_dir.join(format!("{name}.report.json"))),
         };
         match stitch_set(
-            ml,
             &frames,
             &outs,
             (SPEC_MEAN_BUDGET_PX, SPEC_MAX_BUDGET_PX),
@@ -233,334 +179,89 @@ fn stitch_manifest(
 /// The full per-set pipeline. Returns the report JSON (also written to
 /// `outs.report` when set).
 fn stitch_set(
-    ml: &mut Ml,
     inputs: &[PathBuf],
     outs: &SetOutputs,
-    (mean_budget_px, max_budget_px): (f64, f64),
+    gate_budgets: (f64, f64),
     args: &StitchArgs,
 ) -> Result<serde_json::Value, String> {
     let t0 = Instant::now();
 
-    // ---- Decode + priors ------------------------------------------------
-    let t_decode = Instant::now();
-    let mut frames: Vec<IngestedFrame> = Vec::with_capacity(inputs.len());
-    for path in inputs {
-        eprintln!("pano: decoding {}", path.display());
-        frames.push(ingest_file(path).map_err(|e| format!("{}: {e}", path.display()))?);
-    }
-    let decode_s = t_decode.elapsed().as_secs_f64();
-    // Captured before `frames` is consumed by the composite lift below.
-    let applied_opcodes: Vec<Vec<String>> =
-        frames.iter().map(|f| f.applied_opcodes.clone()).collect();
-
-    // ---- Features on proxies ---------------------------------------------
-    // Matching and pairwise verification run in PROXY coordinates: that
-    // is the resolution the matches carry their accuracy at, and the
-    // verifier's noise model (sigma_max_px) is calibrated there. The
-    // verified inliers are then re-localized at FULL resolution
-    // (#1210, below), so BA and the §5.3 px gates run in full-res
-    // coordinates — the resolution the spec wrote them for.
-    let t_feat = Instant::now();
-    let mut feature_sets: Vec<FeatureSet> = Vec::with_capacity(frames.len());
-    let mut proxy_scale: Vec<f64> = Vec::with_capacity(frames.len());
-    let mut proxy_dims: Vec<(u32, u32)> = Vec::with_capacity(frames.len());
-    for (frame, path) in frames.iter().zip(inputs) {
-        let proxy = proxy_to_long_edge(&frame.image, args.proxy_long_edge);
-        proxy_scale.push(frame.image.width() as f64 / proxy.width() as f64);
-        proxy_dims.push((proxy.width(), proxy.height()));
-        let rgb = interleave(&proxy);
-        let lin = LinearRgbFrame::new(proxy.width(), proxy.height(), rgb)
-            .map_err(|e| format!("{}: {e}", path.display()))?;
-        let fs = ml
-            .detector
-            .detect(&lin)
-            .map_err(|e| format!("{}: detect: {e}", path.display()))?;
-        eprintln!(
-            "pano: {} — {} keypoints on {}x{} proxy",
-            path.display(),
-            fs.len(),
-            proxy.width(),
-            proxy.height()
-        );
-        feature_sets.push(fs);
-    }
-    let features_s = t_feat.elapsed().as_secs_f64();
-
-    // Cameras at FULL resolution (EXIF focal in native pixels) — the BA
-    // input once refinement lifts the matches to full-res coordinates.
-    // The proxy-scale clones below serve matching + verification only.
-    let full_images: Vec<GraphImage> = frames
-        .iter()
-        .zip(inputs)
-        .map(|(f, path)| {
-            let focal_px = f.priors.focal_px.ok_or_else(|| {
-                format!(
-                    "{}: no EXIF 35mm-equivalent focal length — cannot seed \
-                     the camera model (spec §5.3 initialization)",
-                    path.display()
-                )
-            })?;
-            Ok(GraphImage {
-                camera: Camera::new(
-                    [0.0; 3],
-                    focal_px,
-                    0.0,
-                    0.0,
-                    f.image.width(),
-                    f.image.height(),
-                ),
-                prior_rotation: f.priors.gimbal.as_ref().map(ba::init::rotation_from_gimbal),
-            })
-        })
-        .collect::<Result<_, String>>()?;
-    let proxy_images: Vec<GraphImage> = full_images
-        .iter()
-        .enumerate()
-        .map(|(i, img)| GraphImage {
-            camera: Camera::new(
-                [0.0; 3],
-                img.camera.focal_px / proxy_scale[i],
-                0.0,
-                0.0,
-                proxy_dims[i].0,
-                proxy_dims[i].1,
-            ),
-            prior_rotation: img.prior_rotation,
-        })
-        .collect();
-
-    // ---- Match graph (capture order + gimbal prior candidates) ----------
-    let t_graph = Instant::now();
-    let mut match_failures: Vec<String> = Vec::new();
-    let matcher = &mut ml.matcher;
-    let mut graph = build_match_graph(
-        &proxy_images,
-        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
-        |a, b| -> Vec<PixelCorrespondence> {
-            match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
-                Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
-                Err(e) => {
-                    match_failures.push(format!("pair ({a},{b}): {e}"));
-                    Vec::new()
-                }
-            }
-        },
-        &RobustOptions::default(),
-    );
-    let graph_s = t_graph.elapsed().as_secs_f64();
-    if !match_failures.is_empty() {
-        return Err(format!(
-            "LightGlue failed on {} pair(s):\n{}",
-            match_failures.len(),
-            match_failures.join("\n")
-        ));
-    }
-    eprintln!(
-        "pano: graph — {} verified edges, components {:?}, orphans {:?}",
-        graph.edges.len(),
-        graph.components.iter().map(|c| c.len()).collect::<Vec<_>>(),
-        graph.orphans
-    );
-
-    // ---- Strategy selection (#1226) --------------------------------------
-    // Auto / rotation / tile: content-based per-pair comparison of the
-    // rotation-model RMS vs similarity-model RMS; gimbal metadata
-    // corroborates but never decides.
-    //
-    // IMPORTANT: selection runs on the PROXY-verified graph (before full-res
-    // reverification) so that nadir/translation-dominant sets still have
-    // their edges present for evidence. The rotation-model full-res
-    // reverification would drop all edges on a pure-translation set — using
-    // a post-reverify graph would give zero evidence and silently misclassify
-    // every nadir capture as rotation (which then fails with no frames).
-    let mean_focal_px = {
-        let vals: Vec<f64> = full_images.iter().map(|img| img.camera.focal_px).collect();
-        if vals.is_empty() {
-            1.0
-        } else {
-            vals.iter().sum::<f64>() / vals.len() as f64
-        }
+    let opts = StitchOptions {
+        retention: args.retention.policy(),
+        local_align: args.local_align.enabled(),
+        strategy: args.strategy.to_request(),
+        mean_budget_px: gate_budgets.0,
+        max_budget_px: gate_budgets.1,
+        models_dir: args.models_dir.clone(),
+        proxy_long_edge: args.proxy_long_edge,
+        max_canvas_px: args.max_canvas_px,
     };
-    let priors: Vec<maple_pano::ingest::FramePriors> =
-        frames.iter().map(|f| f.priors.clone()).collect();
-    let strategy_report = select_strategy(
-        args.strategy.to_request(),
-        &graph,
-        &priors,
-        mean_focal_px,
-        0x1226_cafe_dead_beef,
-    );
-    eprintln!(
-        "pano: strategy — requested={} selected={} tile_votes={} rotation_votes={}{}",
-        strategy_report.requested.as_str(),
-        strategy_report.selected.as_str(),
-        strategy_report.evidence.tile_votes,
-        strategy_report.evidence.rotation_votes,
-        strategy_report
-            .warning
-            .map(|w| format!(" [WARN: {w}]"))
-            .unwrap_or_default(),
-    );
 
-    match strategy_report.selected {
-        // ---- Tile strategy -----------------------------------------------
-        // Skip full-res rotation reverification — the tile path uses
-        // similarity estimation on the proxy-lifted matches directly.
-        // Full-res NCC refinement still runs (below) for sub-pixel accuracy.
-        // Implementation extracted to `pano/tile.rs` for the file-size budget.
-        Strategy::Tile => tile::run_tile(tile::TileInput {
-            inputs,
-            applied_opcodes: &applied_opcodes,
-            frames,
-            proxy_dims: &proxy_dims,
-            graph: &mut graph,
-            strategy_report: &strategy_report,
-            outs,
-            t0,
-            decode_s,
-            features_s,
-            graph_s,
-        }),
+    let progress = |stage: u32, _frac: f32| {
+        // Progress to stderr so it doesn't pollute the report JSON on stdout.
+        let label = match stage {
+            0 => "decode",
+            1 => "features",
+            2 => "match_graph",
+            3 => "refine",
+            4 => "solve",
+            5 => "composite",
+            _ => "?",
+        };
+        let _ = label; // consumed only at stage start (frac == 0.0)
+    };
 
-        // ---- Rotation strategy (existing path) ---------------------------
-        // Full-res NCC refinement + rotation reverification before BA.
-        Strategy::Rotation => {
-            let t_refine = Instant::now();
-            let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
-            for edge in &mut graph.edges {
-                let (img_a, img_b) = (&frames[edge.a].image, &frames[edge.b].image);
-                let scale_of = |img: &PlanarImage, i: usize| {
-                    (
-                        img.width() as f64 / proxy_dims[i].0 as f64,
-                        img.height() as f64 / proxy_dims[i].1 as f64,
-                    )
-                };
-                let geometry = RefineGeometry {
-                    cam_a: &full_images[edge.a].camera,
-                    cam_b: &full_images[edge.b].camera,
-                    rotation: &edge.rotation,
-                };
-                let outcome = refine_correspondences(
-                    img_a,
-                    img_b,
-                    scale_of(img_a, edge.a),
-                    scale_of(img_b, edge.b),
-                    Some(&geometry),
-                    &edge.inlier_matches,
-                    &RefineOptions::default(),
-                );
-                refined_matches += outcome.refined_count;
-                fallback_matches += outcome.fallback_count;
-                edge.inlier_matches = outcome.refined;
-            }
-            let reverify = graph
-                .reverify(&full_images, &RobustOptions::default())
-                .map_err(|e| e.to_string())?;
-            let refine_s = t_refine.elapsed().as_secs_f64();
-            eprintln!(
-                "pano: refine — {refined_matches} matches NCC-refined at full res, \
-                 {fallback_matches} kept proxy accuracy; full-res re-verification \
-                 dropped {} edge(s) / {} match(es) ({refine_s:.1}s)",
-                reverify.edges_dropped, reverify.matches_dropped
-            );
-            if !graph.orphans.is_empty() {
-                eprintln!(
-                    "pano: re-verification orphaned image(s) {:?} — reported as \
-                     Disconnected by the solve",
-                    graph.orphans
-                );
-            }
-
-            let t_solve = Instant::now();
-            let mut solution = ba::solve(
-                &full_images,
-                &graph,
-                &BaOptions {
-                    mean_budget_px,
-                    max_budget_px,
-                    retention: args.retention.policy(),
-                    local_align: args.local_align.enabled(),
-                    ..Default::default()
-                },
-            )
-            .map_err(|e| e.to_string())?;
-            let leveled = leveling::apply(&mut solution);
-            let horizon_tilt_deg = leveled.then(|| leveling::horizon_tilt_deg(&solution));
-            let solve_s = t_solve.elapsed().as_secs_f64();
-            eprintln!(
-                "pano: solve — mean {:.3}px max {:.3}px over {} rounds ({} LM iters), focal {:.1}px, dropped {:?}, leveled={leveled}",
-                solution.mean_reproj_px,
-                solution.max_reproj_px,
-                solution.solve_rounds,
-                solution.lm_iterations,
-                solution.shared_focal_px,
-                solution.dropped
-            );
-            if !solution.motion_affected.is_empty() {
-                eprintln!(
-                    "pano: motion — frame(s) {:?} kept on their static cores (spec §8), \
-                     {:?} motion match(es) pruned",
-                    solution.motion_affected, solution.motion_pruned_matches
-                );
-            }
-
-            let (kept, kept_local): (
-                Vec<(PlanarImage, Camera)>,
-                Vec<Option<maple_pano::local_align::LocalCorrection>>,
-            ) = frames
-                .into_iter()
-                .zip(&solution.cameras)
-                .zip(&solution.local_corrections)
-                .filter_map(|((f, cam), lc)| {
-                    cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone()))
-                })
-                .unzip();
-            if kept.len() < 2 {
-                return Err(format!(
-                    "only {} frame(s) survived the solve — nothing to composite \
-                     (drops: {:?})",
-                    kept.len(),
-                    solution.dropped
-                ));
-            }
-            let t_comp = Instant::now();
-            let (kept_frames, kept_cams): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
-            let (out_img, comp_report) = composite(
-                &kept_frames,
-                &kept_cams,
-                &CompositeOptions {
-                    canvas: CanvasOptions {
-                        projection: ProjectionMode::Auto,
-                        max_pixels: args.max_canvas_px,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-                &kept_local,
-            )
-            .map_err(|e| e.to_string())?;
-            let composite_s = t_comp.elapsed().as_secs_f64();
-
+    match stitch::stitch(inputs, &opts, progress, || false) {
+        Ok(outcome) => {
+            // ---- write outputs -----------------------------------------------
             let t_out = Instant::now();
-            write_png16(&outs.linear, &out_img, false)?;
+            write_png16(&outs.linear, &outcome.image, false)?;
             if let Some(display) = &outs.display {
-                write_png16(display, &out_img, true)?;
+                write_png16(display, &outcome.image, true)?;
             }
             let write_s = t_out.elapsed().as_secs_f64();
 
+            eprintln!(
+                "pano: solve — mean {:.3}px max {:.3}px over {} rounds ({} LM iters), \
+                 focal {:.1}px, dropped {:?}, leveled={}",
+                outcome.solution.mean_reproj_px,
+                outcome.solution.max_reproj_px,
+                outcome.solution.solve_rounds,
+                outcome.solution.lm_iterations,
+                outcome.solution.shared_focal_px,
+                outcome.solution.dropped,
+                outcome.leveled,
+            );
+            if !outcome.solution.motion_affected.is_empty() {
+                eprintln!(
+                    "pano: motion — frame(s) {:?} kept on their static cores (spec §8), \
+                     {:?} motion match(es) pruned",
+                    outcome.solution.motion_affected, outcome.solution.motion_pruned_matches
+                );
+            }
+            eprintln!(
+                "pano: wrote {} ({}x{}) in {:.1}s",
+                outs.linear.display(),
+                outcome.image.width(),
+                outcome.image.height(),
+                t0.elapsed().as_secs_f64()
+            );
+
+            let [decode_s, features_s, graph_s, refine_s, solve_s, composite_s] =
+                outcome.stage_timings_s;
             let report = stitch_report(&ReportContext {
                 inputs,
-                applied_opcodes: &applied_opcodes,
-                solution: &solution,
-                refined_matches,
-                fallback_matches,
-                reverify: &reverify,
-                leveled,
-                horizon_tilt_deg,
-                gate_budgets: (mean_budget_px, max_budget_px),
+                applied_opcodes: &outcome.applied_opcodes,
+                solution: &outcome.solution,
+                refined_matches: outcome.refined_matches,
+                fallback_matches: outcome.fallback_matches,
+                reverify: &outcome.reverify,
+                leveled: outcome.leveled,
+                horizon_tilt_deg: outcome.horizon_tilt_deg,
+                gate_budgets,
                 retention: args.retention.label(),
                 local_align: args.local_align.label(),
-                comp_report: &comp_report,
+                comp_report: &outcome.comp_report,
                 timings_s: [
                     ("decode", decode_s),
                     ("features", features_s),
@@ -576,14 +277,34 @@ fn stitch_set(
                 let pretty = serde_json::to_string_pretty(&report).expect("report serializes");
                 std::fs::write(path, &pretty).map_err(|e| format!("{}: {e}", path.display()))?;
             }
-            eprintln!(
-                "pano: wrote {} ({}x{}) in {:.1}s",
-                outs.linear.display(),
-                out_img.width(),
-                out_img.height(),
-                t0.elapsed().as_secs_f64()
-            );
             Ok(report)
         }
+
+        // ---- Tile strategy: fall through to the tile path -------------------
+        Err(StitchError::TileNotSupported(strategy_report)) => {
+            eprintln!(
+                "pano: strategy — selected=tile tile_votes={} rotation_votes={}{}",
+                strategy_report.evidence.tile_votes,
+                strategy_report.evidence.rotation_votes,
+                strategy_report
+                    .warning
+                    .map(|w| format!(" [WARN: {w}]"))
+                    .unwrap_or_default(),
+            );
+            // Re-decode for the tile path (stitch() consumed the frames in
+            // the rotation path before detecting tile). The tile path owns
+            // its own decode + feature loop.
+            tile::run_tile_from_paths(tile::TilePathArgs {
+                inputs,
+                opts: &opts,
+                strategy_report: &strategy_report,
+                outs_linear: &outs.linear,
+                outs_display: outs.display.as_deref(),
+                outs_report: outs.report.as_deref(),
+                t0,
+            })
+        }
+
+        Err(e) => Err(e.to_string()),
     }
 }
