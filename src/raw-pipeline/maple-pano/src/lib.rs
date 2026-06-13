@@ -82,18 +82,24 @@ pub mod robust;
 pub mod testkit;
 pub mod twoview;
 
-// --- `ml` feature (#1139): ALIKED + LightGlue via ONNX Runtime ----------
+// --- `ml` / `ml-static` features (#1139, M6 #1244): ALIKED + LightGlue --
 //
 // Native-only detector/matcher stack per the eng design spec §2.2/§5.
 // `features` owns detection (keypoints/descriptors/scores), `matching`
 // owns LightGlue and the `MlMatch` contract records the #1138 geometry
 // side consumes, `models` owns the models.toml manifest, SHA-256
 // verification, and the onnxruntime pre-flight.
-#[cfg(feature = "ml")]
+//
+// `ml`        = macOS/host: `ort` with `load-dynamic` (dlopen at runtime).
+// `ml-static` = iOS (M6 #1244): `ort` WITHOUT `load-dynamic` (ORT
+//               statically linked via the official iOS xcframework at
+//               `ORT_LIB_LOCATION`). Both features use the same `dep:ort`
+//               workspace entry — no separate alias needed.
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod features;
-#[cfg(feature = "ml")]
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod matching;
-#[cfg(feature = "ml")]
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod models;
 
 // --- Ingest (#1156, spec §5.1): real-frame decode via raw-core ----------
@@ -121,7 +127,7 @@ pub mod ba;
 // verifier's `PixelCorrespondence` input. Appended after the ba block.
 pub mod leveling;
 
-#[cfg(feature = "ml")]
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod glue;
 
 // --- M2-CPU compositing (#1155, spec §5.4–§5.8): canvas → warp → gain →
@@ -161,7 +167,8 @@ pub mod tile;
 // --- Shared stitch orchestration (M3, #1235): the single authoritative
 // rotation-strategy pipeline that both `maple-cli pano stitch` and the
 // `maple_pano_stitch` C-FFI entry call. Keeping one copy closes the
-// Apple↔CLI parity gap (CLAUDE.md principle #4). Requires `ml`.
+// Apple↔CLI parity gap (CLAUDE.md principle #4). Requires `ml` or
+// `ml-static` (M6 #1244 — iOS static-link path).
 // Appended after tile — keep lib.rs append-only.
-#[cfg(feature = "ml")]
+#[cfg(any(feature = "ml", feature = "ml-static"))]
 pub mod stitch;

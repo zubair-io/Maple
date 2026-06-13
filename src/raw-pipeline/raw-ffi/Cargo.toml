@@ -26,20 +26,25 @@ gpu = ["dep:raw-gpu", "raw-core/gpu"]
 
 # Epic #1234 / M3 (#1235): panorama stitch C-FFI (`src/pano.rs`).
 #
-# Pulls `maple-pano` with its `ml` feature (ALIKED + LightGlue via ort
-# `load-dynamic`). All transitive deps (ort, ort-sys, libloading, sha2, toml
-# and their transitive tree) are vendored under `vendor/` as of the workspace
-# `cargo vendor` run that pre-dates this PR — the offline xcframework build
-# is therefore hermetic on all 4 Apple slices.
+# Two variants, same `dep:maple-pano` (M6 #1244 redesign):
 #
-# The pano symbol (`maple_pano_stitch`) is present on all 4 slices; on
-# iOS/iOS-sim it returns error code −3 ("unsupported on this platform — pending
-# M6 of #1234"). The macOS-only ML path is gated inside `pano.rs` via
-# `#[cfg(target_os = "macos")]`.
+# `pano` (macOS slices): activates `maple-pano` with `ml` (ALIKED +
+# LightGlue via ort `load-dynamic`). The dylib is dlopen'd at runtime.
+# xcframework build: `--features gpu,pano` for macOS targets.
 #
-# The xcframework build script turns this on unconditionally alongside `gpu`:
-# `--features gpu,pano`.
-pano = ["dep:maple-pano"]
+# `pano-ios` (iOS + iOS-sim slices, M6 #1244): activates `maple-pano`
+# with `ml-static` (ort WITHOUT `load-dynamic`). The xcframework build
+# script sets `ORT_LIB_LOCATION` to the official iOS static xcframework
+# (pod-archive-onnxruntime-c-1.22.0.zip). ort-sys sees `libonnxruntime.a`
+# in that dir and emits `cargo:rustc-link-lib=static=onnxruntime`. The
+# `pano.rs` stub that returned error −3 is removed — both iOS slices now
+# call the real `maple_pano::stitch` orchestration via `pano_apple.rs`.
+# xcframework build: `--features gpu,pano-ios` for iOS/iOS-sim targets.
+#
+# All transitive deps (ort, ort-sys, sha2, toml and their tree) are
+# vendored under `vendor/` — the offline xcframework build is hermetic.
+pano = ["dep:maple-pano", "maple-pano/ml"]
+pano-ios = ["dep:maple-pano", "maple-pano/ml-static"]
 
 [dependencies]
 raw-core = { path = "../raw-core" }
@@ -52,7 +57,14 @@ raw-gpu = { path = "../raw-gpu", optional = true }
 # exposes the ML stitch path directly. On iOS targets the ML code-path is
 # `#[cfg(target_os = "macos")]`-gated inside `src/pano.rs` so no ort
 # dylib is required at runtime on iOS.
-maple-pano = { path = "../maple-pano", optional = true, features = ["ml"] }
+# Single dep entry for both `pano` (macOS) and `pano-ios` (iOS) features.
+# The features are additive to `maple-pano`'s feature set; `pano` activates
+# `ml` (load-dynamic ort) and `pano-ios` activates `ml-static` (static ort).
+# Since both features activate the same optional dep, `pano` and `pano-ios`
+# can coexist safely if needed (Cargo unifies `ml` + `ml-static`, which
+# means `load-dynamic` wins — but in practice the build script never
+# activates both simultaneously).
+maple-pano = { path = "../maple-pano", optional = true }
 rawler.workspace = true
 image.workspace = true
 thiserror.workspace = true

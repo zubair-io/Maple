@@ -1,5 +1,5 @@
 //! ML model manifest, integrity verification, and ONNX Runtime pre-flight
-//! (`ml` feature, #1139).
+//! (`ml` / `ml-static` features, #1139, M6 #1244).
 //!
 //! # Models policy
 //!
@@ -13,17 +13,26 @@
 //! A digest mismatch is a hard [`MlError::ModelVerification`] — there is
 //! deliberately no "load anyway" path.
 //!
-//! # ONNX Runtime pre-flight
+//! # ONNX Runtime pre-flight — two modes
 //!
-//! `ort` is built with `load-dynamic`: the onnxruntime dylib is dlopen'd at
-//! runtime from the path in the `ORT_DYLIB_PATH` environment variable
-//! (ort's own convention). On failure ort *panics* inside a `OnceLock`
-//! initializer, which is unusable as an API contract, so
-//! [`OrtRuntime::preflight`] probes the dylib first with `libloading` —
-//! checking that it loads, exports `OrtGetApiBase`, and reports an ONNX
-//! Runtime version compatible with the bound API (1.22 for ort
-//! 2.0.0-rc.10) — and returns a typed [`MlError`] instead. Only after the
-//! probe succeeds does it hand the same path to [`ort::init_from`].
+//! **`ml` (macOS / host, `load-dynamic`):** `ort` is built with
+//! `load-dynamic`: the onnxruntime dylib is dlopen'd at runtime from the
+//! path in the `ORT_DYLIB_PATH` environment variable (ort's own
+//! convention). On failure ort *panics* inside a `OnceLock` initializer,
+//! which is unusable as an API contract, so [`OrtRuntime::preflight`]
+//! probes the dylib first with `libloading` — checking that it loads,
+//! exports `OrtGetApiBase`, and reports an ONNX Runtime version compatible
+//! with the bound API (1.22 for ort 2.0.0-rc.10) — and returns a typed
+//! [`MlError`] instead. Only after the probe succeeds does it hand the same
+//! path to [`ort::init_from`].
+//!
+//! **`ml-static` (iOS, M6 #1244):** `ort-static` is built WITHOUT
+//! `load-dynamic`. The iOS sandbox blocks `dlopen` of arbitrary paths, so
+//! the ORT C library is statically linked via `ORT_LIB_LOCATION` pointing
+//! at the official iOS xcframework (pod-archive-onnxruntime-c-1.22.0.zip).
+//! [`OrtRuntime::preflight`] calls `ort::init()` directly — no dylib path,
+//! no libloading probe. The `dylib` field is a sentinel `PathBuf::new()`
+//! (empty path) and `version` is the string "static".
 //!
 //! [`MlError::is_environment_missing`] classifies the "this machine simply
 //! doesn't have the ML environment" cases (unset variables, absent files,
@@ -46,7 +55,9 @@ pub const MODELS_DIR_ENV: &str = "MAPLE_PANO_MODELS";
 
 /// Environment variable naming the onnxruntime dylib to load. This is the
 /// variable `ort` itself reads with `load-dynamic`; the pre-flight uses the
-/// same one so there is a single source of truth.
+/// same one so there is a single source of truth. Only meaningful when
+/// compiled with the `ml` feature (`load-dynamic`); the `ml-static` path
+/// (iOS) does not consult this variable.
 pub const ORT_DYLIB_ENV: &str = "ORT_DYLIB_PATH";
 
 /// Minimum ONNX Runtime minor version the bound `ort` API requires
@@ -277,72 +288,114 @@ fn sha256_file(path: &Path) -> Result<String, MlError> {
     Ok(hex)
 }
 
-/// Verified handle to the ONNX Runtime dylib. Construction proves the
-/// dylib loads and is version-compatible, and registers its path with
-/// `ort` — after which [`ort::session::Session`] creation cannot hit the
-/// load-dynamic panic paths for the realistic failure modes.
+/// Verified handle to the ONNX Runtime environment. Construction proves
+/// ORT is initialized and ready — after which
+/// [`ort::session::Session`] creation cannot hit the load-dynamic panic
+/// paths for the realistic failure modes.
+///
+/// Two construction paths:
+/// - **`ml` (macOS/host, `load-dynamic`):** `dylib` is the path that was
+///   dlopen'd and version-verified; `version` is the reported ORT version.
+/// - **`ml-static` (iOS, M6 #1244):** ORT is statically linked; `dylib`
+///   is an empty `PathBuf` (sentinel) and `version` is `"static"`. The
+///   `ORT_DYLIB_PATH` environment variable is not consulted.
 #[derive(Debug, Clone)]
 pub struct OrtRuntime {
-    /// The dylib that passed the pre-flight.
+    /// The dylib that passed the pre-flight, OR an empty sentinel when
+    /// the static-link path was used (`ml-static`).
     pub dylib: PathBuf,
-    /// `GetVersionString()` as reported by the dylib (e.g. "1.22.0").
+    /// `GetVersionString()` as reported by the dylib, or `"static"` when
+    /// the static-link path was used.
     pub version: String,
 }
 
 impl OrtRuntime {
-    /// Probe the onnxruntime dylib and initialize `ort` with it.
+    /// Initialize the ONNX Runtime environment.
     ///
-    /// `explicit` wins over the `ORT_DYLIB_PATH` environment variable.
-    /// With neither present this is [`MlError::RuntimeUnavailable`] — `ort`
-    /// would fall back to dlopen'ing a bare `libonnxruntime.dylib`, which
-    /// on a stock macOS/Linux box never resolves and would panic; requiring
-    /// an explicit path keeps the failure mode a typed error and the
-    /// environment reproducible.
+    /// **`ml` (macOS/host, load-dynamic):** probes the dylib at
+    /// `explicit` (or `ORT_DYLIB_PATH`) with `libloading`, verifies the
+    /// version, then calls `ort::init_from`. With neither path present this
+    /// is [`MlError::RuntimeUnavailable`] — `ort` would panic on a missing
+    /// dylib; requiring an explicit path keeps the failure mode typed.
     ///
-    /// Idempotent: `ort`'s dylib path is process-global, first-set-wins
-    /// (`OnceLock`), so calling this twice with different paths verifies
-    /// the second path but keeps using the first. The detector and matcher
-    /// both call it; in any sane configuration the paths agree.
+    /// **`ml-static` (iOS, M6 #1244):** the ORT C library is statically
+    /// linked; calls `ort::init()` directly. The `explicit` argument is
+    /// ignored and `ORT_DYLIB_PATH` is not consulted.
+    ///
+    /// Idempotent: `ort`'s environment is process-global, first-set-wins
+    /// (`OnceLock`). The detector and matcher both call it; in any sane
+    /// configuration the second call is a no-op.
     pub fn preflight(explicit: Option<&Path>) -> Result<Self, MlError> {
-        let path = match explicit {
-            Some(p) => p.to_path_buf(),
-            None => match std::env::var_os(ORT_DYLIB_ENV) {
-                Some(v) if !v.is_empty() => PathBuf::from(v),
-                _ => {
-                    return Err(MlError::RuntimeUnavailable {
-                        reason: format!("{ORT_DYLIB_ENV} is not set"),
-                    });
-                }
-            },
-        };
-        if !path.is_file() {
-            return Err(MlError::RuntimeUnavailable {
-                reason: format!("{} does not exist", path.display()),
+        // ── ml-static path (iOS, statically-linked ORT) ──────────────────
+        // Only active when `ml` is NOT also enabled. When both features are
+        // present (e.g. `--all-features`), `ml`'s `#[cfg(feature = "ml")]`
+        // block below takes precedence (it's checked first) and this block
+        // is dead code. In a pure `ml-static` iOS build, `ort` is compiled
+        // without `load-dynamic` and `ort::init_from` does not exist, so
+        // we call `ort::init()` directly.
+        #[cfg(all(feature = "ml-static", not(feature = "ml")))]
+        {
+            let _ = explicit; // dylib path is irrelevant for static builds
+            ort::init()
+                .commit()
+                .map_err(|e| MlError::Runtime(format!("ort environment init failed: {e}")))?;
+            return Ok(Self {
+                dylib: PathBuf::new(), // sentinel: no dylib in static builds
+                version: "static".to_owned(),
             });
         }
-        let version = probe_dylib(&path)?;
-        let minor = version
-            .split('.')
-            .nth(1)
-            .and_then(|m| m.parse::<u32>().ok())
-            .unwrap_or(0);
-        if minor < MIN_ORT_MINOR {
-            return Err(MlError::RuntimeUnavailable {
-                reason: format!(
-                    "{} reports ONNX Runtime {version}, but ort 2.0.0-rc.10 requires \
-                     1.{MIN_ORT_MINOR}+",
-                    path.display()
-                ),
+
+        // ── ml path (macOS/host, load-dynamic) ───────────────────────────
+        #[cfg(feature = "ml")]
+        {
+            let path = match explicit {
+                Some(p) => p.to_path_buf(),
+                None => match std::env::var_os(ORT_DYLIB_ENV) {
+                    Some(v) if !v.is_empty() => PathBuf::from(v),
+                    _ => {
+                        return Err(MlError::RuntimeUnavailable {
+                            reason: format!("{ORT_DYLIB_ENV} is not set"),
+                        });
+                    }
+                },
+            };
+            if !path.is_file() {
+                return Err(MlError::RuntimeUnavailable {
+                    reason: format!("{} does not exist", path.display()),
+                });
+            }
+            let version = probe_dylib(&path)?;
+            let minor = version
+                .split('.')
+                .nth(1)
+                .and_then(|m| m.parse::<u32>().ok())
+                .unwrap_or(0);
+            if minor < MIN_ORT_MINOR {
+                return Err(MlError::RuntimeUnavailable {
+                    reason: format!(
+                        "{} reports ONNX Runtime {version}, but ort 2.0.0-rc.10 requires \
+                         1.{MIN_ORT_MINOR}+",
+                        path.display()
+                    ),
+                });
+            }
+            // Hand the verified path to ort (first-set-wins; harmless when the
+            // environment variable already pointed ort at the same file).
+            ort::init_from(path.display().to_string())
+                .commit()
+                .map_err(|e| MlError::Runtime(format!("ort environment init failed: {e}")))?;
+            return Ok(Self {
+                dylib: path,
+                version,
             });
         }
-        // Hand the verified path to ort (first-set-wins; harmless when the
-        // environment variable already pointed ort at the same file).
-        ort::init_from(path.display().to_string())
-            .commit()
-            .map_err(|e| MlError::Runtime(format!("ort environment init failed: {e}")))?;
-        Ok(Self {
-            dylib: path,
-            version,
+
+        // This branch is only reachable if neither `ml` nor `ml-static` is
+        // enabled — which cannot happen since `OrtRuntime` itself is only
+        // compiled under those features. Belt-and-suspenders.
+        #[allow(unreachable_code)]
+        Err(MlError::RuntimeUnavailable {
+            reason: "no ORT feature enabled (build configuration error)".to_owned(),
         })
     }
 }
@@ -351,6 +404,9 @@ impl OrtRuntime {
 /// runtime's version string. Any failure is [`MlError::RuntimeUnavailable`]
 /// (the "skip on CI" class) because it means this machine cannot run the
 /// ML stack as configured.
+///
+/// Only compiled under the `ml` feature (`load-dynamic` path).
+#[cfg(feature = "ml")]
 fn probe_dylib(path: &Path) -> Result<String, MlError> {
     // Mirrors the first steps `ort::api()` performs, but with errors
     // instead of panics. The library handle is dropped at the end of the
@@ -481,6 +537,12 @@ mod tests {
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 
+    // The two preflight tests below exercise the `load-dynamic` code path
+    // (dlopen + libloading probe). Gate them to the `ml` feature so they
+    // don't run (and don't fail to compile) under `ml-static`, where the
+    // preflight calls `ort::init()` directly and the path/dylib arguments
+    // are irrelevant.
+    #[cfg(feature = "ml")]
     #[test]
     fn preflight_unset_or_missing_is_environment_missing() {
         // Explicit-but-absent path: never consults the environment, so the
@@ -491,6 +553,7 @@ mod tests {
         assert!(err.is_environment_missing());
     }
 
+    #[cfg(feature = "ml")]
     #[test]
     fn preflight_rejects_non_ort_dylib() {
         // A real loadable dylib that is definitely not ONNX Runtime: libz.
