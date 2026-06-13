@@ -65,6 +65,19 @@ pub fn write_linearraw_dng(
     focal_mm_den: u32,
     focal_35mm: u16,
 ) -> io::Result<()> {
+    // Validate up front: the IFD strip byte-counts are derived from
+    // width*height*3, so a mismatched slice would write a malformed DNG
+    // (declared StripByteCounts != actual payload).
+    let expected = width as usize * height as usize * 3;
+    if rgb16.len() != expected {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "rgb16 length {} != width*height*3 = {expected} ({width}x{height})",
+                rgb16.len()
+            ),
+        ));
+    }
     let bytes = build_linearraw_dng(width, height, rgb16, focal_mm_num, focal_mm_den, focal_35mm);
     std::fs::write(path, bytes)
 }
@@ -121,8 +134,8 @@ fn build_linearraw_dng(
     buf.extend_from_slice(&ifd0_bytes);
     buf.extend_from_slice(&exif_bytes);
 
-    // Pixel strip: interleaved RGB16 (big-endian per TIFF spec; rawler handles
-    // endianness via the II/MM header — with II header, 16-bit samples are LE).
+    // Pixel strip: interleaved RGB16, little-endian to match the "II" TIFF
+    // header written above (rawler reads sample endianness from that header).
     for &v in rgb16 {
         write_u16_le(&mut buf, v);
     }
@@ -223,11 +236,12 @@ fn build_ifds(
 
     // ── ExifIFD ──
     let mut exif: Vec<(u16, IfdVal)> = Vec::new();
-    // FocalLength as RATIONAL (mm): written as num/den * 1_000_000 to match
-    // rational precision expected by rawler's metadata pass (n/d → f32).
+    // FocalLength as RATIONAL (mm), written unscaled. rawler computes n/d as
+    // f32, so (30, 1) decodes identically to (30e6, 1e6); the unscaled form
+    // avoids any u32 wraparound for large focal lengths (small-FOV inputs).
     exif.push((
         TAG_EXIF_FOCAL_LENGTH,
-        IfdVal::Rationals(vec![(focal_mm_num * 1_000_000, focal_mm_den * 1_000_000)]),
+        IfdVal::Rationals(vec![(focal_mm_num, focal_mm_den)]),
     ));
     // FocalLengthIn35mmFormat as SHORT (integer-rounded, per camera firmware convention)
     exif.push((TAG_EXIF_FOCAL_LENGTH_35MM, IfdVal::Short(focal_35mm)));
