@@ -296,24 +296,38 @@ struct EditorView: View {
     /// the visual-golden harness (`MapleUITests`) crops to: it
     /// screenshots the `canvas-render-ready` element's frame directly.
     ///
-    /// GPU live wiring (#1240): when `useGpuCanvas` holds, the leaf is
-    /// `GpuLiveCanvasView` — the wgpu chain presents directly into its
-    /// `CAMetalLayer`, no `renderedPreview` CIImage. Otherwise the CPU
-    /// `CanvasImageView` rasters `renderedPreview` exactly as before. The
-    /// canvas-ready accessibility id keys off `gpuFramePresented` on the
-    /// GPU path (the wgpu chain never sets `renderedPreview`, so the
-    /// previous `renderedPreview != nil` test would never settle).
+    /// GPU live wiring (#1240): when `useGpuCanvas` holds, the leaf is a
+    /// `ZStack` with `GpuLiveCanvasView` (the wgpu chain presents into its
+    /// `CAMetalLayer`) underneath and `CanvasImageView` of `renderedPreview`
+    /// on top while `!gpuFramePresented` — so the user keeps seeing the
+    /// embedded-JPEG preview during the cold-open seconds the Rust decode
+    /// is running, instead of the opaque-black Metal layer. Once the first
+    /// GPU frame presents, the CPU overlay drops and the GPU layer takes
+    /// over for the slider drag. The CPU `CanvasImageView`-only branch
+    /// (non-RAW / showingOriginal / flag off) is unchanged.
     @ViewBuilder
     private var canvasLeaf: some View {
         if useGpuCanvas {
-            GpuLiveCanvasView(session: state.session)
-                .accessibilityElement(children: .ignore)
-                .accessibilityIdentifier(
-                    FullImageViewVM.canvasAccessibilityID(
-                        isRendering: state.session.isRendering,
-                        hasPreview: state.session.gpuFramePresented
-                    )
+            ZStack {
+                GpuLiveCanvasView(session: state.session)
+                // CPU backdrop visible while the GPU path hasn't presented
+                // its first frame yet — keeps the embedded JPEG seeded into
+                // `renderedPreview` on screen across the cold-open Rust
+                // decode (otherwise the canvas reads as a black hole until
+                // the first GPU present, ~seconds later on a 100MP RAW).
+                if !state.session.gpuFramePresented,
+                   let preview = state.session.renderedPreview {
+                    CanvasImageView(image: preview)
+                        .allowsHitTesting(false)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier(
+                FullImageViewVM.canvasAccessibilityID(
+                    isRendering: state.session.isRendering,
+                    hasPreview: state.session.gpuFramePresented
                 )
+            )
         } else if let preview = state.session.renderedPreview {
             // UITest harness sentinel — the identifier only appears once
             // the refine pass has published a preview AND `isRendering`
