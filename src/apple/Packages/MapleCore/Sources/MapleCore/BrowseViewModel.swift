@@ -394,6 +394,25 @@ public final class BrowseViewModel {
         photosAuthNeeded = false
     }
 
+    /// Inject a completed panorama result into the library and select it.
+    ///
+    /// Called by the pano merge view (M5 of #1234) after a successful
+    /// `RustPanoStitcher` run writes the PNG to `url`. Appends the new
+    /// asset to the current `assets` list and sets it as the selected item
+    /// so it appears highlighted in Browse. Does NOT reload the containing
+    /// folder — the panorama output is treated as a first-class asset in the
+    /// current library context without disrupting the user's scroll position.
+    ///
+    /// The `scopeParentURL` is set to the output file's parent directory so
+    /// downstream FFI reads can re-claim the security scope on the right URL.
+    /// NEVER modifies or touches the source RAWs — this method only registers
+    /// the output.
+    public func injectPanoResult(url: URL) {
+        let ref = AssetRef(url: url, scopeParentURL: url.deletingLastPathComponent())
+        assets.append(ref)
+        selectedID = ref.id
+    }
+
     /// Cloud equivalent of `loadFolder(url:)` — calls `CloudSource.listDir`
     /// for one directory level on the server and populates BOTH `assets`
     /// (image children) and `subfolders` (synthetic file URLs whose

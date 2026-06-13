@@ -1,8 +1,9 @@
 // PanoMergeView.swift — Panorama merge view with options, progress, and results.
 //
 // Presented when the user taps "Merge to panorama…" from the multi-select
-// action bar.  Driven by `PanoMergeSession` (MapleCore). Runs against
-// `MockPanoStitcher` until the real FFI impl lands (M4, #1234).
+// action bar.  Driven by `PanoMergeSession` (MapleCore). Wired to
+// `RustPanoStitcher` (M4, #1234) via AppShell; the real stitch runs and
+// the output PNG is imported into the library (M5) when the user taps Done.
 //
 // Mac/iPad and iPhone: presented as a modal sheet via `.sheet(isPresented:)`
 // in AppShell. Cancel/Done dismisses the sheet and returns to browse.
@@ -18,6 +19,10 @@ struct PanoMergeView: View {
     let assets: [AssetRef]
     let session: PanoMergeSession
     let onDismiss: () -> Void
+    /// Called when the user taps Done after a successful stitch. The library
+    /// caller (AppShell) uses this to inject the result into BrowseViewModel
+    /// (M5 of #1234) before dismissing the sheet.
+    var onComplete: ((PanoResult) -> Void)? = nil
 
     var body: some View {
         NavigationStack {
@@ -55,9 +60,13 @@ struct PanoMergeView: View {
                             session.cancel()
                         }
                         .accessibilityLabel("Stop the in-progress stitch")
-                    } else if case .done = session.state {
-                        Button("Done") { onDismiss() }
-                            .accessibilityLabel("Close panorama results and return to browse")
+                    } else if case .done(let result) = session.state {
+                        Button("Done") {
+                            // M5: inject the result into the library before dismissing.
+                            onComplete?(result)
+                            onDismiss()
+                        }
+                        .accessibilityLabel("Add panorama to library and return to browse")
                     } else {
                         Button("Merge") {
                             session.start(assets: assets)
@@ -202,12 +211,10 @@ struct PanoMergeView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            // M5: wire "Add to Library" here — the real stitcher (M4) will
-            // return an outputURL pointing at the final DNG/TIFF; M5 will
-            // hand it to the Library source adapter and select it in the grid.
-            // "Show in Finder" is macOS-only: there is no Finder on iOS, so
-            // the control is hidden entirely on that platform rather than
-            // shown as a permanently-disabled dead button.
+            // M5 (complete): tapping Done (toolbar) calls onComplete which
+            // hands outputURL to BrowseViewModel.injectPanoResult — the
+            // panorama appears in the library grid and is auto-selected.
+            // "Show in Finder" is macOS-only: there is no Finder on iOS.
             #if os(macOS)
             Button("Show in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([result.outputURL])
