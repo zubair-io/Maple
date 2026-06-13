@@ -8,7 +8,12 @@
 // Mac/iPad and iPhone: presented as a modal sheet via `.sheet(isPresented:)`
 // in AppShell. Cancel/Done dismisses the sheet and returns to browse.
 //
-// Ticket: #1236 / Part of #1234
+// Not-provisioned UX (#1241): when the error state is `modelsNotInstalled`
+// the error section shows a "Configure in Settings → Pano" button that calls
+// the `onOpenPanoSettings` callback (supplied by AppShell). AppShell then
+// dismisses this sheet, opens the Settings sheet, and navigates to the Pano tab.
+//
+// Ticket: #1236 / Part of #1234 / #1241
 
 import SwiftUI
 import MapleCore
@@ -23,6 +28,10 @@ struct PanoMergeView: View {
     /// caller (AppShell) uses this to inject the result into BrowseViewModel
     /// (M5 of #1234) before dismissing the sheet.
     var onComplete: ((PanoResult) -> Void)? = nil
+    /// Called when the user taps "Configure in Settings → Pano" after a
+    /// `modelsNotInstalled` error. AppShell dismisses this sheet and opens
+    /// Settings navigated to the Pano tab. (#1241)
+    var onOpenPanoSettings: (() -> Void)? = nil
 
     var body: some View {
         NavigationStack {
@@ -235,8 +244,11 @@ struct PanoMergeView: View {
                     .imageScale(.large)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Merge failed")
+                    Text(stitchError.isModelsNotInstalled ? "Models not installed" : "Merge failed")
                         .font(.subheadline.weight(.medium))
+                        .accessibilityLabel(stitchError.isModelsNotInstalled
+                            ? "Panorama models not installed"
+                            : "Panorama merge failed")
                     Text(stitchError.message)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -244,11 +256,31 @@ struct PanoMergeView: View {
             }
             .padding(.vertical, 4)
 
-            Button("Try Again") {
-                session.reset()
-                session.start(assets: assets)
+            if stitchError.isModelsNotInstalled {
+                // Not-provisioned path: direct the user to Settings → Pano
+                // so they can configure the models directory and ORT dylib path.
+                // The "Configure" button calls onOpenPanoSettings (supplied by
+                // AppShell) which dismisses this sheet and opens the Pano settings
+                // tab. If the callback isn't wired (e.g. previews), we fall back
+                // to the plain retry button so the view is never broken.
+                if let openSettings = onOpenPanoSettings {
+                    Button("Configure in Settings → Pano") {
+                        openSettings()
+                    }
+                    .accessibilityLabel("Open Settings → Pano to configure panorama model and runtime paths")
+                } else {
+                    Text("Open Settings → Pano to configure the models directory and ONNX Runtime path.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Navigate to Settings then Pano to configure panorama models")
+                }
+            } else {
+                Button("Try Again") {
+                    session.reset()
+                    session.start(assets: assets)
+                }
+                .accessibilityLabel("Retry the panorama merge with the same settings")
             }
-            .accessibilityLabel("Retry the panorama merge with the same settings")
         } header: {
             Text("Error")
         }
