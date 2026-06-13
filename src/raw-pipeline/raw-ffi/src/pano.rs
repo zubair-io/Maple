@@ -292,6 +292,48 @@ pub(super) struct SendProgressCallback {
 unsafe impl Send for SendProgressCallback {}
 
 // ─────────────────────────────────────────────────────────────────────────────
+// `maple_pano_ort_selftest` — iOS static-link ORT smoke test (M6 #1244)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Smoke test: initialize the statically-linked ONNX Runtime environment and
+/// confirm it is reachable on iOS.
+///
+/// Calls `ort::init().commit()` (the `ml-static` path in
+/// `maple_pano::models::OrtRuntime::preflight`). Returns `0` on success
+/// (ORT initialized), `-1` on failure (ORT not reachable — detail in
+/// `maple_last_error()`).
+///
+/// iOS-only: macOS uses `ort::init_from(dylib_path)` (the `load-dynamic`
+/// path) so a no-argument `ort::init()` call is incorrect there. This
+/// entry point exists solely for the iOS Simulator XCTest smoke gate
+/// (M6 #1244) that verifies ORT actually runs on iOS, not just links.
+///
+/// cbindgen wraps this in `#if defined(TARGET_OS_IOS)` via the
+/// `target_os = ios` → `TARGET_OS_IOS` mapping in cbindgen.toml, so the
+/// declaration only appears in iOS-targeted headers and the Swift compiler
+/// on macOS correctly excludes it.
+///
+/// # Safety
+///
+/// Always safe to call. Has no pointer arguments.
+#[cfg(all(feature = "pano-ios", target_os = "ios"))]
+#[no_mangle]
+pub extern "C" fn maple_pano_ort_selftest() -> i32 {
+    use maple_pano::models::OrtRuntime;
+    match OrtRuntime::preflight(None) {
+        Ok(rt) => {
+            // Expected: rt.version == "static" for the ml-static path.
+            let _ = rt;
+            0
+        }
+        Err(e) => {
+            set_last_error(format!("maple_pano_ort_selftest: ORT init failed: {e}"));
+            -1
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Apple implementation (macOS + iOS) — split to pano_apple.rs per the 600-LOC
 // per-file budget. Previously named pano_macos.rs; renamed + cfg expanded to
 // cover iOS in M6 #1244.

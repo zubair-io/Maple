@@ -87,6 +87,14 @@ pub use pano::{
     maple_pano_stitch, MaplePanoLocalAlign, MaplePanoProgressFn, MaplePanoRetention,
     MaplePanoStrategy,
 };
+// ORT smoke test entry (iOS + iOS-sim only, M6 #1244). Gated on `pano-ios`
+// AND `target_os = "ios"` — macOS uses load-dynamic ORT so `ort::init()` (no
+// dylib path) is incorrect there. cbindgen maps `target_os = ios` →
+// `TARGET_OS_IOS` (see cbindgen.toml), so the header declaration appears only
+// on iOS targets. The Swift test target can therefore call this without
+// triggering a link error on macOS.
+#[cfg(all(feature = "pano-ios", target_os = "ios"))]
+pub use pano::maple_pano_ort_selftest;
 // Re-exported for the pano integration tests that read it after a failed stitch.
 pub use error::maple_last_error;
 
