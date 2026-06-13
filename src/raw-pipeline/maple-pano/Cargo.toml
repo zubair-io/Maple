@@ -25,11 +25,31 @@ testkit = []
 # machines only.
 fixtures = []
 # ALIKED + LightGlue detector/matcher via ONNX Runtime (#1139, spec §5.2).
-# Native-only: `ort` with `load-dynamic` has no wasm story here — the web
-# delivery path (WebGPU/WASM EP, lazy model fetch) is a later milestone per
-# the eng design spec §7. Off by default so the geometry/test surface builds
+# Native-only: `ort` has no wasm story here — the web delivery path
+# (WebGPU/WASM EP, lazy model fetch) is a later milestone per the eng
+# design spec §7. Off by default so the geometry/test surface builds
 # without the ONNX dependency tree.
-ml = ["dep:ort", "dep:libloading", "dep:sha2", "dep:toml"]
+#
+# Two variants sharing the same `dep:ort` (M6 #1244 redesign):
+#
+#   `ml`        — `ort` WITH `ort/load-dynamic` (macOS / host). The dylib
+#                 is dlopen'd at runtime from `ORT_DYLIB_PATH`. Includes
+#                 a `libloading` preflight probe so ORT's panic-on-missing-
+#                 dylib is turned into a typed MlError.
+#
+#   `ml-static` — `ort` WITHOUT `load-dynamic` (iOS, M6 #1244). ort-sys
+#                 sees `ORT_LIB_LOCATION` pointing at the official iOS
+#                 static xcframework and links statically.
+#                 `OrtRuntime::preflight` calls `ort::init()` directly —
+#                 no dlopen, no libloading probe.
+#
+# When both are active (`--all-features` on host CI), Cargo unifies
+# features → `ort/load-dynamic` wins. The `#[cfg(feature = "ml")]` guard
+# in `OrtRuntime::preflight` selects the `ort::init_from` path first, so
+# host tests pass normally. The `ml-static` path is only reached in iOS
+# cross-compilation where `ml` is absent.
+ml = ["dep:ort", "ort/load-dynamic", "dep:libloading", "dep:sha2", "dep:toml"]
+ml-static = ["dep:ort", "dep:sha2", "dep:toml"]
 
 [[bin]]
 name = "pano-gt-render"
@@ -76,10 +96,15 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
-# --- `ml` feature only (see [features] above) ---------------------------
-# ONNX Runtime FFI — see the workspace manifest for the rc.10 pin rationale.
+# --- `ml` / `ml-static` features (see [features] above) ----------------
+# Single `ort` dep for both variants. `ml` adds `ort/load-dynamic` to
+# enable dlopen; `ml-static` leaves it off so ort-sys static-links
+# (controlled by `ORT_LIB_LOCATION` in the xcframework build script).
 ort = { workspace = true, optional = true }
-# dlopen pre-flight for the onnxruntime dylib (ort panics on load failure).
+# dlopen pre-flight for the onnxruntime dylib (`ml` path only).
+# `ort` with `load-dynamic` panics when the dylib is missing/unloadable;
+# the loader probes with libloading first and returns a typed MlError.
+# Not needed for `ml-static` — no dlopen occurs.
 libloading = { workspace = true, optional = true }
 # SHA-256 verification of model files against models.toml.
 sha2 = { workspace = true, optional = true }

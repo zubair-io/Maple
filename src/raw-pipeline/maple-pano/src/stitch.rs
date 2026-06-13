@@ -77,9 +77,17 @@ pub struct StitchOptions {
     /// Optional explicit models directory; `None` reads `MAPLE_PANO_MODELS`.
     pub models_dir: Option<PathBuf>,
     /// Long-edge cap for the feature-extraction proxy (px).
+    /// Default 1600 (CLI) / 1280 for iOS (M6-D #1244: 1280px feeds ALIKED at
+    /// its native input resolution, halving proxy size vs 1600 with no quality
+    /// loss). M6-D will wire the iOS default via the FFI's target_os gate.
     pub proxy_long_edge: u32,
     /// Total output canvas pixel cap (uniform downscale to fit).
     pub max_canvas_px: usize,
+    // M6-C (#1244 follow-up): CoreML EP wiring for iOS. When that lands,
+    // add an `execution_providers: Vec<ExecutionProvider>` field here (or a
+    // bool `use_coreml: bool`) so the Apple FFI can request CoreML EP without
+    // touching the CLI path. `StitchOptions::default()` should set it to
+    // CPU-only (the M6-A/B baseline); M6-C enables it by default on iOS.
 }
 
 impl Default for StitchOptions {
