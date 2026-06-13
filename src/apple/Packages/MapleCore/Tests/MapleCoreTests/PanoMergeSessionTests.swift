@@ -186,12 +186,12 @@ struct PanoMergeSessionTests {
 
 /// Stitcher spy that records how many times `cancel()` is called.
 ///
-/// `stitch` suspends indefinitely via a single `Task.sleep` long enough
-/// to outlive the test.  The assertions in the test are all synchronous
-/// (PanoMergeSession.cancel() updates state on @MainActor without
-/// awaiting anything), so the stitch task is still suspended when the
-/// asserts run.  PanoMergeSession's generation counter ensures the
-/// stitch result is ignored even if the task ever wakes.
+/// `stitch` immediately throws `CancellationError` so the unstructured
+/// Task launched by PanoMergeSession.start() exits promptly.
+/// The test assertions all run synchronously on @MainActor before the
+/// Task is scheduled, so the spy never needs to suspend.
+/// PanoMergeSession's generation counter prevents the early throw from
+/// overwriting the post-cancel `.idle` state.
 private final class CancellableSpyStitcher: PanoStitching {
     nonisolated(unsafe) private(set) var cancelCallCount: Int = 0
 
@@ -204,9 +204,10 @@ private final class CancellableSpyStitcher: PanoStitching {
         options: PanoOptions,
         progress: @escaping @MainActor (PanoStage, Double) -> Void
     ) async throws -> PanoResult {
-        // Sleep for an arbitrarily long time — the test asserts synchronously
-        // before this ever wakes.  1 hour is effectively infinite for a unit test.
-        try await Task.sleep(for: .seconds(3600))
+        // Yield once so this Task is properly "started" in the cooperative
+        // scheduler, then exit cleanly.  The generation counter in
+        // PanoMergeSession means this throw never touches session.state.
+        await Task.yield()
         throw CancellationError()
     }
 }
