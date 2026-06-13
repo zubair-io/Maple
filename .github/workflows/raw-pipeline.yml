@@ -95,6 +95,15 @@ jobs:
       - name: cargo fmt --check -p raw-ffi
         working-directory: src/raw-pipeline
         run: cargo fmt --check -p raw-ffi
+      # Pano feature compile gate (#1259): `--features pano` pulls maple-pano
+      # with its ML stack; this is the only always-on CI step that compiles
+      # maple-cli with that feature. The gate is compile-only — no tests, no
+      # fixtures. It prevents the class of breakage that occurred in #1253
+      # (StitchOptions field added without updating the maple-cli construction
+      # site), which was invisible to CI until #1258 fixed it.
+      - name: cargo build --bin maple-cli --features pano (compile gate)
+        working-directory: src/raw-pipeline
+        run: cargo build --bin maple-cli --features pano
 
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.
