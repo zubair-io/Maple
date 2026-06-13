@@ -54,13 +54,17 @@ struct EditorDestination: View {
             }
         }
         .task(id: asset.id) {
-            // Build (or reuse) the EditSession + EditorState. EditSession.init
-            // is async (loads sidecar / as-shot WB).
+            // Build (or reuse) the EditSession + EditorState. `EditSession.init`
+            // is synchronous — sidecar / as-shot WB load lazily on first render
+            // via `loadSidecar()` / `ensureRenderStarted()`, NOT during init —
+            // so this closure has no real await. (The stale comment + spurious
+            // `await` here triggered Swift's "no async operations occur within
+            // await" warning.)
             if let existing = sessions[asset.id] {
                 self.state = EditorState(session: existing)
                 return
             }
-            let session = await EditSession(asset: asset)
+            let session = EditSession(asset: asset)
             sessions[asset.id] = session
             self.state = EditorState(session: session)
         }
