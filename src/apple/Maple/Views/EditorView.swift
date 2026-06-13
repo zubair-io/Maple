@@ -305,17 +305,28 @@ struct EditorView: View {
     /// GPU frame presents, the CPU overlay drops and the GPU layer takes
     /// over for the slider drag. The CPU `CanvasImageView`-only branch
     /// (non-RAW / showingOriginal / flag off) is unchanged.
+    /// When the CPU `renderedPreview` overlay should sit on top of the GPU
+    /// `CAMetalLayer`. Held while the cold-open Rust decode is in flight
+    /// (`isFullQualityDecoding`) OR no GPU frame has landed yet
+    /// (`!gpuFramePresented`) — the first GPU present can fire against the
+    /// embedded-preview-decoded buffer well before the full-quality decode
+    /// resolves, so settling on `gpuFramePresented` alone drops the overlay
+    /// too eagerly and the canvas briefly reads as black before the real
+    /// frame lands. Drops only once both: decode is finished AND the GPU
+    /// chain has presented at least one frame.
+    private var showCpuBackdrop: Bool {
+        state.session.isFullQualityDecoding || !state.session.gpuFramePresented
+    }
+
     @ViewBuilder
     private var canvasLeaf: some View {
         if useGpuCanvas {
             ZStack {
                 GpuLiveCanvasView(session: state.session)
-                // CPU backdrop visible while the GPU path hasn't presented
-                // its first frame yet — keeps the embedded JPEG seeded into
-                // `renderedPreview` on screen across the cold-open Rust
-                // decode (otherwise the canvas reads as a black hole until
-                // the first GPU present, ~seconds later on a 100MP RAW).
-                if !state.session.gpuFramePresented,
+                // CPU backdrop visible across the cold-open window — see
+                // `showCpuBackdrop` doc above for why the gate is the
+                // composite, not bare `!gpuFramePresented`.
+                if showCpuBackdrop,
                    let preview = state.session.renderedPreview {
                     CanvasImageView(image: preview)
                         .allowsHitTesting(false)
