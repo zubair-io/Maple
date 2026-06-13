@@ -249,4 +249,21 @@ public final class SearchViewModel {
     }
     return vm
   }
+
+  // MARK: - Test-only internal setters
+
+  /// Internal (module-visible) write path so the test target can seed
+  /// `results` and `total` without breaking out of `private(set)`.
+  /// Equivalent to what the test extension tried to do, but expressed at
+  /// the module level where the private setter is accessible.
+  /// Called exclusively from `SearchViewModelTests`.
+  func _test_setResults(_ assets: [SearchAsset]) {
+    results = assets
+    total = assets.count
+  }
+
+  func _test_seedForLoadMore(results: [SearchAsset], total: Int) {
+    self.results = results
+    self.total = total
+  }
 }

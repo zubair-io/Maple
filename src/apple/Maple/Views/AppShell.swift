@@ -122,13 +122,21 @@ struct AppShell: View {
     //     Mac/iPad pane shell flips to this when the user opens an image
     //     (#815). The pane shell has no NavigationStack, so the editor
     //     mounts in the center column rather than being pushed.
+    //   • `.panoramaMerge` — the PanoMergeView (M2, #1236). Mac/iPad: full-
+    //     screen center column (same pattern as `.editing`). iPhone: pushed
+    //     via the Library tab's NavigationStack. Cancel returns to `.browse`.
     //
     // Distinct cases (rather than overloading `.fullImage`) keep the iPhone
     // shell's many `mode == .fullImage` / `.browse` readers — title, Info
     // sheet, back chevron, toolbar + drawer gating — behaviourally
     // unchanged: iPhone never enters `.editing`.
-    enum Mode { case browse, fullImage, editing }
+    enum Mode { case browse, fullImage, editing, panoramaMerge }
     @State var mode: Mode = .browse
+
+    /// PanoMergeSession drives the panorama merge view. Created when the
+    /// user hits "Merge to panorama…" and torn down (session reset) on
+    /// cancel or navigation away.
+    @State var panoMergeSession: PanoMergeSession = PanoMergeSession(stitcher: MockPanoStitcher())
 
     /// True when an image is open in either editor mode (`.fullImage` or
     /// `.editing`) — i.e. the center column is showing an image, not the
@@ -438,11 +446,29 @@ struct AppShell: View {
             // shell the info surface is the right-hand inspector, shown via
             // `.inspector(isPresented:)` — toggling preserves the editor's
             // armed-tool / fine-mode state (#816), unlike a column swap.
-            onEditorInfo: { withAnimation { editorDetailVisible.toggle() } }
+            onEditorInfo: { withAnimation { editorDetailVisible.toggle() } },
+            // M2 panorama merge (#1236).
+            onMergePanorama: { openPanoramaMerge() }
         )
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .frame(minWidth: 520, minHeight: 460)
+        }
+        // M2: panorama merge view — presented as a sheet on Mac/iPad.
+        // Covers the full content area; Cancel dismisses back to Browse
+        // and exits select mode.
+        .sheet(isPresented: Binding(
+            get: { mode == .panoramaMerge },
+            set: { if !$0 { dismissPanoramaMerge() } }
+        )) {
+            PanoMergeView(
+                assets: browseVM.selectedAssets,
+                session: panoMergeSession,
+                onDismiss: { dismissPanoramaMerge() }
+            )
+            #if os(macOS)
+            .frame(minWidth: 560, minHeight: 480)
+            #endif
         }
     }
 
@@ -569,8 +595,21 @@ struct AppShell: View {
             onNavigateFolder: { url in navigateFolder(url) },
             onOpenEditor: { asset in openEditor(for: asset) },
             onPrimeSession: { asset in ensureSession(for: asset) },
-            onFullImageFallback: { mode = .browse }
+            onFullImageFallback: { mode = .browse },
+            onMergePanorama: { openPanoramaMerge() }
         )
+        // M2: panorama merge sheet for iPhone — same sheet as Mac/iPad,
+        // but presented over the tab shell instead of the pane shell.
+        .sheet(isPresented: Binding(
+            get: { mode == .panoramaMerge },
+            set: { if !$0 { dismissPanoramaMerge() } }
+        )) {
+            PanoMergeView(
+                assets: browseVM.selectedAssets,
+                session: panoMergeSession,
+                onDismiss: { dismissPanoramaMerge() }
+            )
+        }
     }
     #endif
 
@@ -639,8 +678,34 @@ struct AppShell: View {
             onSetCloudViewMode: { setCloudViewMode($0) },
             onExport: { showExport = true },
             onOpenFolder: { showFilePicker = true },
-            onSettings: { showSettings = true }
+            onSettings: { showSettings = true },
+            // M1 multi-select (#1236): show the Select/Done toggle in browse mode only.
+            isSelecting: browseVM.isSelecting,
+            onToggleSelect: mode == .browse ? {
+                if browseVM.isSelecting {
+                    browseVM.exitSelectMode()
+                } else {
+                    browseVM.enterSelectMode()
+                }
+            } : nil
         )
+    }
+
+    // MARK: - Panorama merge actions (M2, #1236)
+
+    /// Open the panorama merge view with the currently-selected assets.
+    /// Only called when `browseVM.canMergePanorama` is true.
+    func openPanoramaMerge() {
+        guard browseVM.canMergePanorama else { return }
+        panoMergeSession.reset()
+        mode = .panoramaMerge
+    }
+
+    /// Dismiss the panorama merge view and return to browse. Exits select
+    /// mode so the grid resets to normal tap-to-open behaviour.
+    func dismissPanoramaMerge() {
+        mode = .browse
+        browseVM.exitSelectMode()
     }
 }
 

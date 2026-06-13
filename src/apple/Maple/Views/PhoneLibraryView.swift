@@ -49,6 +49,8 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
     let onOpenEditor: (AssetRef) -> Void
     let onPrimeSession: (AssetRef) -> Void
     let onFullImageFallback: () -> Void
+    /// M2: opens the panorama merge view when the user taps "Merge to Panorama…".
+    var onMergePanorama: (() -> Void)? = nil
 
     var body: some View {
         AppShellIPhoneShell(
@@ -75,7 +77,8 @@ struct PhoneLibraryView<ToolbarContentT: ToolbarContent>: View {
             onNavigateFolder: onNavigateFolder,
             onOpenEditor: onOpenEditor,
             onPrimeSession: onPrimeSession,
-            onFullImageFallback: onFullImageFallback
+            onFullImageFallback: onFullImageFallback,
+            onMergePanorama: onMergePanorama
         )
         // Tab-bar hide-on-push contract for the phone shell. S4 was
         // dropped (#619); cell tap pushes straight into the S5 Editor

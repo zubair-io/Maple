@@ -85,6 +85,9 @@ struct BrowseGrid: View {
     /// lazily create per-asset `EditSession`s only when their cell scrolls
     /// into view, instead of eagerly priming every asset in the folder.
     var onPrimeSession: ((AssetRef) -> Void)? = nil
+    /// Fired when the user taps "Merge to Panorama…" from the selection bar
+    /// (≥2 assets selected). `nil` suppresses the bar entirely (e.g. previews).
+    var onMergePanorama: (() -> Void)? = nil
 
     /// Local fallback when no parent binding is supplied (e.g. previews).
     /// Real toolbar wiring lives on `AppShell`.
@@ -105,108 +108,138 @@ struct BrowseGrid: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            // The grid itself — always in the hierarchy so SwiftUI doesn't
-            // tear it down when assets briefly go empty during a source
-            // switch. We fade it under the empty-state only when nothing is
-            // loaded at all.
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 4) {
-                        if vm.isMerged {
-                            // Merged Photos + Cloud timeline mode.
-                            ForEach(vm.mergedCells, id: \.self) { cell in
-                                MergedCellView(cell: cell,
-                                               displayMode: resolvedDisplayMode)
-                            }
-                        } else {
-                            // Sub-folders first — Finder-style — then images.
-                            ForEach(vm.subfolders, id: \.self) { url in
-                                // Single tap navigates into the folder. The
-                                // FolderCell button style provides press
-                                // feedback (scale + tinted background) so the
-                                // user gets immediate confirmation the tap
-                                // registered before the grid reloads.
-                                FolderCell(url: url) {
-                                    onNavigateFolder?(url)
+        VStack(spacing: 0) {
+            ZStack(alignment: .top) {
+                // The grid itself — always in the hierarchy so SwiftUI doesn't
+                // tear it down when assets briefly go empty during a source
+                // switch. We fade it under the empty-state only when nothing is
+                // loaded at all.
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 4) {
+                            if vm.isMerged {
+                                // Merged Photos + Cloud timeline mode.
+                                ForEach(vm.mergedCells, id: \.self) { cell in
+                                    MergedCellView(cell: cell,
+                                                   displayMode: resolvedDisplayMode)
                                 }
-                            }
-                            ForEach(vm.assets) { asset in
-                                LibraryCell(asset: asset,
-                                            isSelected: vm.selectedID == asset.id,
-                                            session: sessions[asset.id],
-                                            source: vm.currentSource,
-                                            displayMode: resolvedDisplayMode,
-                                            style: .desktop)
+                            } else {
+                                // Sub-folders first — Finder-style — then images.
+                                // Folder cells are hidden during multi-select so
+                                // only image tiles can be checked.
+                                if !vm.isSelecting {
+                                    ForEach(vm.subfolders, id: \.self) { url in
+                                        // Single tap navigates into the folder. The
+                                        // FolderCell button style provides press
+                                        // feedback (scale + tinted background) so the
+                                        // user gets immediate confirmation the tap
+                                        // registered before the grid reloads.
+                                        FolderCell(url: url) {
+                                            onNavigateFolder?(url)
+                                        }
+                                    }
+                                }
+                                ForEach(vm.assets) { asset in
+                                    let isChecked = vm.selectedIDs.contains(asset.id)
+                                    ZStack(alignment: .topTrailing) {
+                                        LibraryCell(asset: asset,
+                                                    isSelected: vm.isSelecting
+                                                        ? isChecked
+                                                        : vm.selectedID == asset.id,
+                                                    session: sessions[asset.id],
+                                                    source: vm.currentSource,
+                                                    displayMode: resolvedDisplayMode,
+                                                    style: .desktop)
+
+                                        // Multi-select checkmark badge
+                                        if vm.isSelecting {
+                                            Image(systemName: isChecked
+                                                  ? "checkmark.circle.fill"
+                                                  : "circle")
+                                                .font(.system(size: 20, weight: .semibold))
+                                                .foregroundStyle(isChecked ? .white : .white)
+                                                .background(
+                                                    Circle()
+                                                        .fill(isChecked
+                                                              ? Color.accentColor
+                                                              : Color.black.opacity(0.45))
+                                                        .padding(-2)
+                                                )
+                                                .padding(6)
+                                                .accessibilityHidden(true)
+                                        }
+                                    }
                                     .id(asset.id)
-                                    // Pin hit testing to the cell rectangle. In
-                                    // .fill mode the inner Image's resizable
-                                    // overflow extends past the rounded clip,
-                                    // and without an explicit content shape the
-                                    // tap region follows that overflow into the
-                                    // adjacent cell — so a click near the edge
-                                    // of a portrait cell selects the cell below
-                                    // it, a landscape cell selects the cell to
-                                    // its left, etc. The Rectangle shape is the
-                                    // cell's actual layout frame.
+                                    // Pin hit testing to the cell rectangle.
                                     .contentShape(Rectangle())
                                     // Lazy session prime — fires when SwiftUI
                                     // instantiates this cell (i.e. when it
                                     // scrolls into view in the LazyVGrid).
-                                    // Replaces the previous eager
-                                    // `primeSessionsForCurrentAssets()` which
-                                    // built a session per asset in the folder
-                                    // regardless of visibility.
                                     .onAppear { onPrimeSession?(asset) }
-                                    // Single click opens the editor. Matches
-                                    // the cloud Timeline's click-to-open
-                                    // behavior so a thumbnail tap behaves the
-                                    // same regardless of source (Files,
-                                    // PhotoKit, Cloud). Selection still moves
-                                    // to the tapped asset so keyboard nav and
-                                    // the Info-pane focus are unaffected.
                                     .onTapGesture {
-                                        vm.selectedID = asset.id
-                                        onOpenEditor?(asset)
+                                        if vm.isSelecting {
+                                            // Multi-select mode: tap toggles check.
+                                            vm.toggleSelected(asset.id)
+                                        } else {
+                                            // Normal mode: tap opens the editor.
+                                            vm.selectedID = asset.id
+                                            onOpenEditor?(asset)
+                                        }
                                     }
+                                    .accessibilityLabel(vm.isSelecting
+                                        ? "\(asset.displayName), \(isChecked ? "selected" : "not selected")"
+                                        : asset.displayName)
+                                    .accessibilityHint(vm.isSelecting
+                                        ? "Double tap to \(isChecked ? "deselect" : "select")"
+                                        : "Double tap to open")
+                                }
                             }
                         }
+                        // UITest sentinel — the harness uses
+                        // `app.otherElements["browse-grid"]` to confirm browse
+                        // mode is active before driving thumbnail selection.
+                        .accessibilityIdentifier("browse-grid")
+                        .padding(8)
+                        // Bottom padding so the last row isn't hidden under
+                        // the selection bar when it's shown.
+                        .padding(.bottom, vm.isSelecting ? 60 : 0)
                     }
-                    // UITest sentinel — the harness uses
-                    // `app.otherElements["browse-grid"]` to confirm browse
-                    // mode is active before driving thumbnail selection.
-                    .accessibilityIdentifier("browse-grid")
+                    .background(MapleTokens.bg)
+                    .opacity(isEmpty ? 0 : 1)
+                    .onChange(of: vm.selectedID) { _, newID in
+                        // Minimum scroll — bring the cell into view only when it's
+                        // outside the viewport. `.center` re-centered every click,
+                        // and the resulting mid-click layout shift made rapid taps
+                        // land on the wrong cell. Keyboard arrow nav still works:
+                        // when the next/prev cell is offscreen, SwiftUI scrolls just
+                        // enough to expose it.
+                        if let id = newID { proxy.scrollTo(id, anchor: nil) }
+                    }
+                }
+
+                // Error banner at the top of the grid.
+                if let err = vm.loadError {
+                    ErrorBanner(
+                        message: err.localizedDescription,
+                        onRetry: { vm.loadError = nil },
+                        onDismiss: { vm.loadError = nil }
+                    )
                     .padding(8)
                 }
-                .background(MapleTokens.bg)
-                .opacity(isEmpty ? 0 : 1)
-                .onChange(of: vm.selectedID) { _, newID in
-                    // Minimum scroll — bring the cell into view only when it's
-                    // outside the viewport. `.center` re-centered every click,
-                    // and the resulting mid-click layout shift made rapid taps
-                    // land on the wrong cell. Keyboard arrow nav still works:
-                    // when the next/prev cell is offscreen, SwiftUI scrolls just
-                    // enough to expose it.
-                    if let id = newID { proxy.scrollTo(id, anchor: nil) }
+
+                // Empty state overlay — only when the folder has zero folders AND
+                // zero images.
+                if isEmpty {
+                    BrowseEmptyState(vm: vm, onGrantPhotosAccess: onGrantPhotosAccess)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(MapleTokens.bg)
                 }
             }
 
-            // Error banner at the top of the grid.
-            if let err = vm.loadError {
-                ErrorBanner(
-                    message: err.localizedDescription,
-                    onRetry: { vm.loadError = nil },
-                    onDismiss: { vm.loadError = nil }
-                )
-                .padding(8)
-            }
-
-            // Empty state overlay — only when the folder has zero folders AND
-            // zero images.
-            if isEmpty {
-                BrowseEmptyState(vm: vm, onGrantPhotosAccess: onGrantPhotosAccess)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(MapleTokens.bg)
+            // Multi-select action bar — shown only when in select mode and an
+            // onMergePanorama handler was wired (prevents showing in previews).
+            if vm.isSelecting, let onMergePanorama {
+                PanoSelectionBar(vm: vm, onMerge: onMergePanorama)
             }
         }
         .keyboardShortcuts(vm: vm, sessions: sessions)
