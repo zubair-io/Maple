@@ -136,22 +136,21 @@ public final class EditSession {
     /// drag against a permanent reject accumulates one entry, not hundreds.
     public var gpuLiveRejectMessages: [String] = []
 
-    /// One-line summary for the in-app diagnostic banner. `nil` while the GPU live
-    /// path is silent (no presents yet, no rejects yet — the bare cold-open
-    /// window); a present count + last-tick ms once it engages; a "REJECT" prefix
-    /// when the path falls back to CPU. The banner reads this directly so it
-    /// stays in sync with the underlying counters.
+    /// One-line summary for the in-app diagnostic banner. Always non-nil while
+    /// `MAPLE_GPU_DIAG` is shipping so we can see WHAT state the session is in
+    /// even when the GPU live path hasn't been called yet (i.e. before the first
+    /// `presentViaGpuLive` reject lands). Layout:
+    ///   GPU: <pres> pres / <rej> rej  |  decode=<bool> firstFrame=<bool> render=<bool> preview=<bool>  |  REJECT: <reasons>
+    /// The state triplet tells us whether `decodeAndRender` is wired in at all
+    /// (a hung pipeline shows e.g. `decode=true firstFrame=true preview=false`
+    /// with `0 pres / 0 rej` — diagnostic of a hung decode, not a GPU reject).
     public var gpuLiveDiagSummary: String? {
-        if !gpuLiveRejectMessages.isEmpty {
-            let presented = gpuLivePresentCount > 0
-                ? "\(gpuLivePresentCount) presented · "
-                : ""
-            return "GPU live: \(presented)REJECT — \(gpuLiveRejectMessages.joined(separator: " · "))"
-        }
-        if gpuLivePresentCount > 0 {
-            return "GPU live: \(gpuLivePresentCount) presented · last \(Int(gpuLiveLastPresentMs.rounded()))ms"
-        }
-        return nil
+        let presents = "GPU: \(gpuLivePresentCount) pres / \(gpuLiveRejectMessages.count) rej"
+        let state = "decode=\(isFullQualityDecoding) firstFrame=\(isResolvingFirstFrame) render=\(isRendering) preview=\(renderedPreview != nil)"
+        let rejects = gpuLiveRejectMessages.isEmpty
+            ? ""
+            : "  |  REJECT: \(gpuLiveRejectMessages.joined(separator: ", "))"
+        return "\(presents)  |  \(state)\(rejects)"
     }
 
     /// True from the start of a cold-open until the full-quality (background
