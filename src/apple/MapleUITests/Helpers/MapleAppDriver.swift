@@ -9,6 +9,11 @@
 // See .archived-plans/plans/2026-04-25-xcuitest-visual-harness.md.
 
 import XCTest
+// MapleAppDriver is macOS-only: it drives Maple via XCUIApplication and
+// uses AppKit APIs (NSApplication, screen coordinates). On iOS targets
+// (including the iOS Simulator used for PanoOrtSelftestUITests) AppKit is
+// absent and this struct is excluded from compilation.
+#if os(macOS)
 import AppKit
 
 struct MapleAppDriver {
@@ -156,3 +161,4 @@ struct MapleAppDriver {
         return FileManager.default.currentDirectoryPath + "/test-fixtures/raws"
     }
 }
+#endif // os(macOS)
