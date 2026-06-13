@@ -91,8 +91,9 @@ impl AlikedDetector {
     /// `ort`'s load-dynamic panic.
     ///
     /// M6-E: ANE speedup is unvalidated on-device — pending real-device
-    /// measurement (estimated ~25s→~5s on A-series; simulator has no ANE
-    /// and falls back to ORT-CPU automatically).
+    /// measurement (estimated ~25s→~5s on A-series). The simulator has no
+    /// ANE; ORT logs the CoreML EP status and runs the graph on CPU-ORT —
+    /// a logged fallback, never silent.
     pub fn load(models: &ModelDir, options: DetectorOptions) -> Result<Self, MlError> {
         OrtRuntime::preflight(None)?;
         let mut builder = Session::builder()
@@ -106,9 +107,11 @@ impl AlikedDetector {
         // M6-C (#1251): CoreML EP — iOS only. macOS stays on CPU-ORT (the
         // macOS path is parity-verified against ACR references and must not
         // be perturbed). The EP is registered in "graceful" mode (the
-        // default, i.e. not error_on_failure): unsupported ops and EP init
-        // failures fall back to ORT-CPU automatically; the session never
-        // crashes on a CoreML failure alone.
+        // default, i.e. not error_on_failure): unsupported ops are
+        // partitioned onto CPU-ORT automatically, and an EP-registration
+        // failure (older OS, EP unavailable) is logged by ORT as a warning
+        // and then falls back to CPU-ORT — not a silent fallback. The
+        // session never returns a hard error on a CoreML failure alone.
         #[cfg(target_os = "ios")]
         if options.use_coreml {
             builder = builder
