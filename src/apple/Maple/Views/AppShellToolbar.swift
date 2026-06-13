@@ -66,6 +66,12 @@ struct AppShellToolbar: ToolbarContent {
     let onOpenFolder: () -> Void
     /// Tapped when the user hits the Settings gear (also ⌘, on macOS).
     let onSettings: () -> Void
+    /// True when BrowseViewModel is in multi-select mode (M1, #1236).
+    /// Drives the "Select" / "Done" toolbar toggle.
+    var isSelecting: Bool = false
+    /// Tapped when the user hits the "Select" / "Done" multi-select toggle.
+    /// nil hides the button (Full-image and edit modes).
+    var onToggleSelect: (() -> Void)? = nil
 
     var body: some ToolbarContent {
         // `.navigation` placement lands on the LEADING edge of the title
@@ -100,6 +106,20 @@ struct AppShellToolbar: ToolbarContent {
                 }
                 .accessibilityLabel(browseDisplayMode.toggleAccessibilityLabel)
                 .accessibilityIdentifier("browse-grid-display-mode-toggle")
+            }
+        }
+        // Multi-select toggle (M1, #1236) — Browse mode only, not in edit /
+        // full-image. Shows "Select" when idle, "Done" when active. Only
+        // rendered when the parent provides the `onToggleSelect` closure.
+        if !isFullImage && !isEditing, let onToggleSelect {
+            ToolbarItem(placement: .primaryAction) {
+                Button(isSelecting ? "Done" : "Select") {
+                    onToggleSelect()
+                }
+                .accessibilityLabel(isSelecting
+                    ? "Exit selection mode"
+                    : "Enter multi-select mode to choose images for panorama merge")
+                .accessibilityIdentifier("multi-select-toggle")
             }
         }
         // Cloud Timeline/Folder view-mode toggle — browse mode, cloud
