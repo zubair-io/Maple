@@ -229,6 +229,78 @@ fn warp_is_deterministic() {
     assert_eq!(a.validity, b.validity);
 }
 
+/// **Tiling invariant (M6-D, #1248)**: warp_to_canvas_strip rows exactly
+/// match the corresponding rows of warp_to_canvas — they are the same
+/// computation, just scoped to [tile_y0, tile_y1).
+///
+/// Checks multiple tile sizes (1, 5, height/3, height) to cover boundary
+/// arithmetic at odd splits and single-row tiles.
+#[test]
+fn strip_warp_matches_full_warp_pixel_for_pixel() {
+    let cam = Camera::new([0.2, -0.1, 0.05], 120.0, 0.0, 0.0, 96, 72);
+    let src = planar_from_fn(96, 72, |x, y| {
+        [
+            (x as f32 * 0.017).sin().abs(),
+            (y as f32 * 0.023).cos().abs(),
+            ((x + y * 3) as f32 * 0.011).fract(),
+        ]
+    });
+    let canvas = CanvasSpec::full_sphere(80).unwrap();
+    let gain = [1.1_f32, 0.9, 1.05];
+
+    // Full warp reference.
+    let full = warp_to_canvas(&src, &cam, &canvas, gain, None);
+    let cw = canvas.width as usize;
+
+    for &tile_rows in &[1u32, 5, canvas.height / 3, canvas.height] {
+        let tile_rows = tile_rows.max(1);
+        let mut checked = 0usize;
+        let mut tile_y0: u32 = 0;
+        while tile_y0 < canvas.height {
+            let tile_y1 = (tile_y0 + tile_rows).min(canvas.height);
+            let strip = warp_to_canvas_strip(&src, &cam, &canvas, gain, None, tile_y0, tile_y1);
+            let th = (tile_y1 - tile_y0) as usize;
+            assert_eq!(
+                (strip.width(), strip.height()),
+                (canvas.width, tile_y1 - tile_y0),
+                "tile_rows={tile_rows} strip dims"
+            );
+            for sy in 0..th {
+                let canvas_y = tile_y0 as usize + sy;
+                for x in 0..cw {
+                    let full_i = canvas_y * cw + x;
+                    let strip_i = sy * cw + x;
+                    assert_eq!(
+                        strip.validity.get(x as u32, sy as u32),
+                        full.validity.get(x as u32, canvas_y as u32),
+                        "tile_rows={tile_rows} validity at ({x},{canvas_y})"
+                    );
+                    if full.validity.get(x as u32, canvas_y as u32) {
+                        assert_eq!(
+                            strip.r[strip_i], full.r[full_i],
+                            "tile_rows={tile_rows} R at ({x},{canvas_y})"
+                        );
+                        assert_eq!(
+                            strip.g[strip_i], full.g[full_i],
+                            "tile_rows={tile_rows} G at ({x},{canvas_y})"
+                        );
+                        assert_eq!(
+                            strip.b[strip_i], full.b[full_i],
+                            "tile_rows={tile_rows} B at ({x},{canvas_y})"
+                        );
+                        checked += 1;
+                    }
+                }
+            }
+            tile_y0 = tile_y1;
+        }
+        assert!(
+            checked > 0,
+            "tile_rows={tile_rows}: no valid pixels checked"
+        );
+    }
+}
+
 /// Pole-containing frame gets the full x span (it covers every
 /// longitude on a spherical canvas).
 #[test]

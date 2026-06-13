@@ -352,5 +352,118 @@ pub fn warp_to_canvas(
     PlanarImage::from_planes(canvas.width, canvas.height, r, g, b, mask)
 }
 
+/// Warp one source frame into a horizontal canvas strip `[tile_y0, tile_y1)`.
+///
+/// This is the memory-bounded variant used by [`crate::composite::composite_tiled`]
+/// (M6-D, #1248). Instead of materializing a full `canvas_width × canvas_height`
+/// buffer, it produces a `canvas_width × (tile_y1 - tile_y0)` [`PlanarImage`]
+/// covering only the requested canvas rows.
+///
+/// The semantics are identical to [`warp_to_canvas`] over the strip rows;
+/// pixel coordinates are the same — row 0 of the returned image corresponds to
+/// canvas row `tile_y0`.
+///
+/// `tile_y0` and `tile_y1` must satisfy `tile_y0 < tile_y1 <= canvas.height`.
+pub fn warp_to_canvas_strip(
+    src: &PlanarImage,
+    cam: &Camera,
+    canvas: &CanvasSpec,
+    gain: [f32; 3],
+    local_align: Option<&LocalCorrection>,
+    tile_y0: u32,
+    tile_y1: u32,
+) -> PlanarImage {
+    assert_eq!(
+        (src.width(), src.height()),
+        (cam.width, cam.height),
+        "source frame and camera dimensions must agree"
+    );
+    assert!(
+        tile_y0 < tile_y1 && tile_y1 <= canvas.height,
+        "tile y range [{tile_y0}, {tile_y1}) must be within [0, {})",
+        canvas.height
+    );
+    let cw = canvas.width as usize;
+    let th = (tile_y1 - tile_y0) as usize;
+    let n = cw * th;
+    let mut r = vec![0.0_f32; n];
+    let mut g = vec![0.0_f32; n];
+    let mut b = vec![0.0_f32; n];
+    let mut valid = vec![false; n];
+
+    let bbox_margin = if local_align.is_some() {
+        4.0 + MAX_CORRECTION_PX
+    } else {
+        4.0
+    };
+    // Compute the full bbox, then clamp to this tile's row range.
+    let Some(bbox) = frame_canvas_bbox(cam, canvas, bbox_margin) else {
+        let mask = ValidityMask::new_filled(canvas.width, tile_y1 - tile_y0, false);
+        return PlanarImage::from_planes(canvas.width, tile_y1 - tile_y0, r, g, b, mask);
+    };
+
+    // Only process rows that intersect both the frame bbox and this tile.
+    let row_lo = (bbox.y0 as usize).max(tile_y0 as usize);
+    let row_hi = (bbox.y1 as usize).min(tile_y1 as usize);
+    if row_lo >= row_hi {
+        let mask = ValidityMask::new_filled(canvas.width, tile_y1 - tile_y0, false);
+        return PlanarImage::from_planes(canvas.width, tile_y1 - tile_y0, r, g, b, mask);
+    }
+
+    let src_w = src.width() as f64;
+    let src_h = src.height() as f64;
+
+    // Strip-local indices: strip row 0 = canvas row tile_y0.
+    let strip_lo = row_lo - tile_y0 as usize;
+    let strip_hi = row_hi - tile_y0 as usize;
+
+    r[strip_lo * cw..strip_hi * cw]
+        .par_chunks_mut(cw)
+        .zip(g[strip_lo * cw..strip_hi * cw].par_chunks_mut(cw))
+        .zip(b[strip_lo * cw..strip_hi * cw].par_chunks_mut(cw))
+        .zip(valid[strip_lo * cw..strip_hi * cw].par_chunks_mut(cw))
+        .enumerate()
+        .for_each(|(dy, (((row_r, row_g), row_b), row_v))| {
+            let canvas_y = row_lo + dy;
+            let py = canvas_y as f64 + 0.5;
+            for &(sx0, sx1) in &bbox.x_spans {
+                for x in sx0 as usize..sx1 as usize {
+                    let px = x as f64 + 0.5;
+                    let Some(dir) = canvas.pixel_to_dir(px, py) else {
+                        continue;
+                    };
+                    let Some((mut fx, mut fy)) = cam.world_dir_to_pixel(dir) else {
+                        continue;
+                    };
+                    if let Some(la) = local_align {
+                        (fx, fy) = la.apply(fx, fy);
+                    }
+                    if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
+                        continue;
+                    }
+                    let Some(s) = sample_bicubic(src, fx, fy) else {
+                        continue;
+                    };
+                    row_r[x] = s[0] * gain[0];
+                    row_g[x] = s[1] * gain[1];
+                    row_b[x] = s[2] * gain[2];
+                    row_v[x] = true;
+                }
+            }
+        });
+
+    let strip_h = tile_y1 - tile_y0;
+    let mut mask = ValidityMask::new_filled(canvas.width, strip_h, false);
+    for sy in 0..th {
+        let row = sy * cw;
+        for x in 0..cw {
+            if valid[row + x] {
+                mask.set(x as u32, sy as u32, true);
+            }
+        }
+    }
+    PlanarImage::from_planes(canvas.width, strip_h, r, g, b, mask)
+}
+
 #[cfg(test)]
 mod tests;

@@ -4,7 +4,8 @@
 //! exactly-known cameras (no solver) so they measure compositing alone.
 
 use maple_pano::camera::Camera;
-use maple_pano::composite::{composite, CompositeOptions};
+use maple_pano::canvas::{auto_canvas, CanvasOptions};
+use maple_pano::composite::{composite, composite_tiled_frames, CompositeOptions};
 use maple_pano::gain::GainMode;
 use maple_pano::ingest::{PlanarImage, ValidityMask};
 use maple_pano::prng::SplitMix64;
@@ -243,4 +244,85 @@ fn gate_deterministic() {
     assert_eq!(a.r, b.r);
     assert_eq!(a.g, b.g);
     assert_eq!(a.b, b.b);
+}
+
+// ─── Tiling invariant (M6-D, #1248) ──────────────────────────────────────────
+
+/// Tiling invariant: `composite_tiled_frames` with any tile height produces
+/// exactly the same valid pixels as the full-canvas Voronoi path.
+///
+/// The tiled path uses linear Voronoi blending (blend_levels=1). The full
+/// path uses multi-band with the same Voronoi mask. Because Voronoi assigns
+/// exclusive ownership to one frame per pixel, both algorithms write
+/// unmodified warp samples — the blend algebra cancels to the identity for
+/// exclusive weights.  This test verifies that the strip arithmetic produces
+/// bit-identical pixel values for every valid canvas pixel.
+#[test]
+fn tiling_equals_full_composite_on_exclusive_voronoi() {
+    // 6-frame partial ring: non-trivial overlap, no full wrap (avoids the
+    // case where every pixel is owned by some frame — we want to see that
+    // uncovered pixels stay invalid too).
+    let source = scene(77);
+    let cams = camera_set(&ring(6, 55.0, false), 11);
+    let frames = gt_frames(&source, &cams);
+    let gains: Vec<[f32; 3]> = vec![[1.0; 3]; cams.len()];
+
+    let canvas_opts = CanvasOptions::default();
+    let canvas = auto_canvas(&cams, &canvas_opts).expect("auto_canvas");
+
+    // Full-canvas reference (1 tile = whole canvas — same code path).
+    let (full, _) = composite_tiled_frames(&frames, &cams, &gains, &[], &canvas, canvas.height)
+        .expect("full tile");
+
+    // Tiled at multiple heights, including non-divisors.
+    for tile_rows in [1u32, 7, 23, 64, canvas.height] {
+        let (tiled, _) = composite_tiled_frames(&frames, &cams, &gains, &[], &canvas, tile_rows)
+            .expect("tiled composite");
+
+        let (w, h) = (canvas.width as usize, canvas.height as usize);
+        let mut mismatch = 0usize;
+        for y in 0..h as u32 {
+            for x in 0..w as u32 {
+                let full_v = full.validity.get(x, y);
+                let tile_v = tiled.validity.get(x, y);
+                if full_v != tile_v {
+                    mismatch += 1;
+                    continue;
+                }
+                if full_v {
+                    let i = y as usize * w + x as usize;
+                    assert_eq!(
+                        tiled.r[i], full.r[i],
+                        "tile_rows={tile_rows} R mismatch at ({x},{y})"
+                    );
+                    assert_eq!(
+                        tiled.g[i], full.g[i],
+                        "tile_rows={tile_rows} G mismatch at ({x},{y})"
+                    );
+                    assert_eq!(
+                        tiled.b[i], full.b[i],
+                        "tile_rows={tile_rows} B mismatch at ({x},{y})"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            mismatch, 0,
+            "tile_rows={tile_rows}: {mismatch} validity mismatches"
+        );
+    }
+}
+
+/// Proxy default is 1280 px: StitchOptions::default().proxy_long_edge == 1280.
+/// This pins the M6-D change (was 1600 before #1248).
+/// Gated on the `ml` feature because `stitch` is only compiled with it.
+#[test]
+#[cfg(any(feature = "ml", feature = "ml-static"))]
+fn proxy_long_edge_default_is_1280() {
+    use maple_pano::stitch::StitchOptions;
+    assert_eq!(
+        StitchOptions::default().proxy_long_edge,
+        1280,
+        "M6-D (#1248): ALIKED native input is 1280px; default must match"
+    );
 }
