@@ -18,14 +18,21 @@ pub struct MapleImageBuffer {
 
 impl MapleImageBuffer {
     pub(crate) fn empty() -> Self {
-        Self { rgb: std::ptr::null_mut(), len: 0, width: 0, height: 0 }
+        Self {
+            rgb: std::ptr::null_mut(),
+            len: 0,
+            width: 0,
+            height: 0,
+        }
     }
 }
 
 /// Free a buffer populated by `maple_render_file` or `maple_render_bytes`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_buffer(buffer: *mut MapleImageBuffer) {
-    if buffer.is_null() { return; }
+    if buffer.is_null() {
+        return;
+    }
     let b = &mut *buffer;
     if !b.rgb.is_null() {
         let slice = std::slice::from_raw_parts_mut(b.rgb, b.len);
@@ -53,14 +60,19 @@ pub struct MapleByteBuffer {
 
 impl MapleByteBuffer {
     pub(crate) fn empty() -> Self {
-        Self { bytes: std::ptr::null_mut(), len: 0 }
+        Self {
+            bytes: std::ptr::null_mut(),
+            len: 0,
+        }
     }
 }
 
 /// Free a buffer populated by `maple_render_thumbnail_jpeg`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_byte_buffer(buffer: *mut MapleByteBuffer) {
-    if buffer.is_null() { return; }
+    if buffer.is_null() {
+        return;
+    }
     let b = &mut *buffer;
     if !b.bytes.is_null() {
         let slice = std::slice::from_raw_parts_mut(b.bytes, b.len);
@@ -106,7 +118,9 @@ impl MapleSceneLinearBuffer {
 /// Free a buffer populated by `maple_render_*_scene_linear`.
 #[no_mangle]
 pub unsafe extern "C" fn maple_free_scene_linear_buffer(buffer: *mut MapleSceneLinearBuffer) {
-    if buffer.is_null() { return; }
+    if buffer.is_null() {
+        return;
+    }
     let b = &mut *buffer;
     if !b.fp16_rgba.is_null() {
         let len_lanes = b.len_bytes / std::mem::size_of::<u16>();
@@ -160,7 +174,9 @@ impl MapleSceneLinearBufferF32 {
 pub unsafe extern "C" fn maple_free_scene_linear_buffer_f32(
     buffer: *mut MapleSceneLinearBufferF32,
 ) {
-    if buffer.is_null() { return; }
+    if buffer.is_null() {
+        return;
+    }
     let b = &mut *buffer;
     if !b.f32_rgba.is_null() {
         let len_lanes = b.len_bytes / std::mem::size_of::<f32>();

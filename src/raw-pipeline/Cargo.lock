@@ -1786,6 +1786,7 @@ name = "raw-ffi"
 version = "0.1.0"
 dependencies = [
  "image",
+ "maple-pano",
  "raw-core",
  "raw-gpu",
  "rawler",

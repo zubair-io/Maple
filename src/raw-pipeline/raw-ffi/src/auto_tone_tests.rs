@@ -26,9 +26,7 @@ fn auto_tone_midgray_returns_zero_exposure() {
         px[3] = 1.0;
     }
     let mut out = sentinel();
-    let rc = unsafe {
-        maple_compute_auto_tone(rgba.as_ptr(), w as u32, h as u32, &mut out)
-    };
+    let rc = unsafe { maple_compute_auto_tone(rgba.as_ptr(), w as u32, h as u32, &mut out) };
     assert_eq!(rc, 0);
     assert!(out.exposure.abs() < 0.05, "got {}", out.exposure);
     // Phase 1a contract: all other fields are slider rest position.
@@ -52,9 +50,7 @@ fn auto_tone_dark_image_recommends_positive_exposure() {
         px[3] = 1.0;
     }
     let mut out = sentinel();
-    let rc = unsafe {
-        maple_compute_auto_tone(rgba.as_ptr(), w as u32, h as u32, &mut out)
-    };
+    let rc = unsafe { maple_compute_auto_tone(rgba.as_ptr(), w as u32, h as u32, &mut out) };
     assert_eq!(rc, 0);
     assert!(
         (out.exposure - 2.0).abs() < 0.15,
@@ -66,9 +62,7 @@ fn auto_tone_dark_image_recommends_positive_exposure() {
 #[test]
 fn auto_tone_null_buffer_returns_error() {
     let mut out = sentinel();
-    let rc = unsafe {
-        maple_compute_auto_tone(std::ptr::null(), 1, 1, &mut out)
-    };
+    let rc = unsafe { maple_compute_auto_tone(std::ptr::null(), 1, 1, &mut out) };
     assert_eq!(rc, -1);
     // `out` is untouched on the error path.
     assert_eq!(out.exposure, -999.0);
@@ -77,9 +71,7 @@ fn auto_tone_null_buffer_returns_error() {
 #[test]
 fn auto_tone_null_out_returns_error() {
     let rgba = vec![0.18f32; 4];
-    let rc = unsafe {
-        maple_compute_auto_tone(rgba.as_ptr(), 1, 1, std::ptr::null_mut())
-    };
+    let rc = unsafe { maple_compute_auto_tone(rgba.as_ptr(), 1, 1, std::ptr::null_mut()) };
     assert_eq!(rc, -1);
 }
 
@@ -88,13 +80,6 @@ fn auto_tone_overflow_returns_error() {
     // width * height overflows usize on 32-bit (vacuous on 64-bit, but
     // `width * height * 4` still overflows above 2^30 pixels).
     let rgba = vec![0.18f32; 4];
-    let rc = unsafe {
-        maple_compute_auto_tone(
-            rgba.as_ptr(),
-            u32::MAX,
-            u32::MAX,
-            &mut sentinel(),
-        )
-    };
+    let rc = unsafe { maple_compute_auto_tone(rgba.as_ptr(), u32::MAX, u32::MAX, &mut sentinel()) };
     assert_eq!(rc, -1);
 }
