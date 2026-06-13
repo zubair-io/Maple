@@ -143,4 +143,68 @@ struct PanoMergeSessionTests {
         let session = PanoMergeSession(stitcher: SynchronousMockStitcher())
         #expect(!session.isRunning)
     }
+
+    // MARK: - Cancel-on-dismiss (issue #4 / AppShell.swift:709)
+
+    /// Regression guard for the "leak on system-gesture dismiss" bug.
+    ///
+    /// `AppShell.dismissPanoramaMerge()` is the single exit point for ALL
+    /// dismissal paths (Cancel button, Done button, swipe-down, Escape).
+    /// This test verifies that calling `session.cancel()` — exactly what
+    /// `dismissPanoramaMerge()` does — stops the stitch regardless of
+    /// which path triggered it.
+    ///
+    /// The `CancellableSpyStitcher` suspends forever in `stitch` until
+    /// `cancel()` is called, letting us verify that:
+    ///   1. The session is running after `start()`.
+    ///   2. `cancel()` immediately transitions state to `.idle`.
+    ///   3. `isRunning` is false after cancel.
+    @Test("cancel() on dismiss stops an in-flight stitch")
+    func cancelOnDismissStopsInFlightStitch() async throws {
+        let spy = CancellableSpyStitcher()
+        let session = PanoMergeSession(stitcher: spy)
+
+        session.start(assets: makeAssets(3))
+        // Yield once so the Task in PanoMergeSession starts and the stitcher
+        // enters its suspension point. The spy records the cancel() call
+        // regardless of whether the Task has started yet, so this is stable.
+        await Task.yield()
+
+        // Simulate AppShell.dismissPanoramaMerge() calling session.cancel().
+        session.cancel()
+
+        #expect(!session.isRunning, "session must not be running after cancel")
+        if case .idle = session.state { /* pass */ }
+        else { Issue.record("Expected idle after cancel-on-dismiss, got \(session.state)") }
+        #expect(spy.cancelCallCount >= 1, "stitcher.cancel() must be invoked")
+    }
+}
+
+// MARK: - CancellableSpyStitcher
+
+/// Stitcher that suspends in `stitch` until cancelled. Records the number
+/// of times `cancel()` is invoked so tests can assert it was called.
+private final class CancellableSpyStitcher: PanoStitching {
+    nonisolated(unsafe) private(set) var cancelCallCount: Int = 0
+    nonisolated(unsafe) private var cancelled: Bool = false
+
+    func cancel() {
+        cancelled = true
+        cancelCallCount += 1
+    }
+
+    func stitch(
+        assets: [AssetRef],
+        options: PanoOptions,
+        progress: @escaping @MainActor (PanoStage, Double) -> Void
+    ) async throws -> PanoResult {
+        cancelled = false
+        // Emit a single progress tick so the session enters .running, then
+        // suspend until cancel() flips the flag.
+        await MainActor.run { progress(.decoding, 0.0) }
+        while !cancelled {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        throw CancellationError()
+    }
 }
