@@ -83,7 +83,14 @@ public struct PanoProvisioningStatus: Sendable, Equatable {
 ///
 /// Thread safety: all methods are synchronous and read-only (they read
 /// UserDefaults + env + FileManager); safe to call from any thread.
-public struct PanoProvisioning: Sendable {
+///
+/// `@unchecked Sendable`: the only stored property is a `UserDefaults`,
+/// which is documented thread-safe but not marked `Sendable` by the SDK.
+/// `RustPanoStitcher` captures a `PanoProvisioning` into a detached stitch
+/// task, so the conformance is required; plain `Sendable` would be a
+/// concurrency error under the Swift 6 language mode (the stored
+/// `UserDefaults` is non-Sendable).
+public struct PanoProvisioning: @unchecked Sendable {
 
     // MARK: - Defaults instance
 
