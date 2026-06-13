@@ -65,16 +65,16 @@ struct PanoSettingsView: View {
     private var statusSection: some View {
         Section {
             HStack(spacing: 10) {
-                Image(systemName: status.isProvisioned
+                Image(systemName: PanoProvisioner.isReady(status)
                       ? "checkmark.circle.fill"
                       : "exclamationmark.triangle.fill")
-                    .foregroundStyle(status.isProvisioned ? Color.green : Color.orange)
+                    .foregroundStyle(PanoProvisioner.isReady(status) ? Color.green : Color.orange)
                     .imageScale(.medium)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(status.isProvisioned ? "Ready" : "Not configured")
+                    Text(PanoProvisioner.isReady(status) ? "Ready" : "Not configured")
                         .font(.subheadline.weight(.medium))
-                        .accessibilityLabel(status.isProvisioned
+                        .accessibilityLabel(PanoProvisioner.isReady(status)
                             ? "Panorama models and runtime are configured and ready"
                             : "Panorama models or runtime are not configured")
                     Text(statusDescription)
@@ -97,7 +97,7 @@ struct PanoSettingsView: View {
     private var provisionActionView: some View {
         switch provisionModel.state {
         case .idle:
-            if !status.isProvisioned {
+            if !PanoProvisioner.isReady(status) {
                 if PanoProvisioner.canAutoProvision(status) {
                     VStack(alignment: .leading, spacing: 6) {
                         Button {
@@ -169,12 +169,15 @@ struct PanoSettingsView: View {
     }
 
     private var statusDescription: String {
-        if status.isProvisioned {
+        if PanoProvisioner.isReady(status) {
             return "Panorama stitching is ready to use."
         }
         var missing: [String] = []
-        if !status.modelsDirExists { missing.append("models directory") }
-        if !status.ortDylibExists  { missing.append("ONNX Runtime dylib") }
+        if !status.modelsDirExists { missing.append("models") }
+        #if os(macOS)
+        // iOS embeds the ONNX Runtime at build time — never "missing" there.
+        if !status.ortDylibExists { missing.append("ONNX Runtime") }
+        #endif
         return "Missing: " + missing.joined(separator: ", ") + "."
     }
 
