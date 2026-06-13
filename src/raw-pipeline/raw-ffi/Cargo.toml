@@ -24,11 +24,35 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 # raw-wasm's `gpu = ["dep:raw-gpu", ...]`).
 gpu = ["dep:raw-gpu", "raw-core/gpu"]
 
+# Epic #1234 / M3 (#1235): panorama stitch C-FFI (`src/pano.rs`).
+#
+# Pulls `maple-pano` with its `ml` feature (ALIKED + LightGlue via ort
+# `load-dynamic`). All transitive deps (ort, ort-sys, libloading, sha2, toml
+# and their transitive tree) are vendored under `vendor/` as of the workspace
+# `cargo vendor` run that pre-dates this PR — the offline xcframework build
+# is therefore hermetic on all 4 Apple slices.
+#
+# The pano symbol (`maple_pano_stitch`) is present on all 4 slices; on
+# iOS/iOS-sim it returns error code −3 ("unsupported on this platform — pending
+# M6 of #1234"). The macOS-only ML path is gated inside `pano.rs` via
+# `#[cfg(target_os = "macos")]`.
+#
+# The xcframework build script turns this on unconditionally alongside `gpu`:
+# `--features gpu,pano`.
+pano = ["dep:maple-pano"]
+
 [dependencies]
 raw-core = { path = "../raw-core" }
 # Headless GPU resource core (epic #925). Gated by the `gpu` feature; absent
 # from default builds. wgpu is pulled in transitively through here.
 raw-gpu = { path = "../raw-gpu", optional = true }
+# Panorama stitching core (epic #1234 / M3 #1235). Gated by the `pano`
+# feature; absent from default builds. The `ml` sub-feature (ALIKED +
+# LightGlue via ort) is unconditionally enabled here because the FFI surface
+# exposes the ML stitch path directly. On iOS targets the ML code-path is
+# `#[cfg(target_os = "macos")]`-gated inside `src/pano.rs` so no ort
+# dylib is required at runtime on iOS.
+maple-pano = { path = "../maple-pano", optional = true, features = ["ml"] }
 rawler.workspace = true
 image.workspace = true
 thiserror.workspace = true

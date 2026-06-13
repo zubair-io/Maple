@@ -127,13 +127,18 @@ EXPECTED_SLICE_DIRS=(ios-arm64 ios-arm64-simulator macos-arm64_x86_64)
 # filesystem ordering.
 compute_input_hash() {
     {
-        find "$RAW_PIPELINE_DIR/raw-core/src" "$RAW_PIPELINE_DIR/raw-ffi/src" \
+        # raw-core, raw-ffi, and (since M3 #1235) maple-pano — the pano FFI
+        # delegates directly to maple-pano, so its source is also an input.
+        find "$RAW_PIPELINE_DIR/raw-core/src" \
+             "$RAW_PIPELINE_DIR/raw-ffi/src" \
+             "$RAW_PIPELINE_DIR/maple-pano/src" \
             -type f -name '*.rs' -print0 2>/dev/null | sort -z | xargs -0 shasum
         for f in \
             "$RAW_PIPELINE_DIR/Cargo.lock" \
             "$RAW_PIPELINE_DIR/Cargo.toml" \
             "$RAW_PIPELINE_DIR/raw-core/Cargo.toml" \
             "$RAW_PIPELINE_DIR/raw-ffi/Cargo.toml" \
+            "$RAW_PIPELINE_DIR/maple-pano/Cargo.toml" \
             "$RAW_FFI_DIR/cbindgen.toml"; do
             [[ -f "$f" ]] && shasum "$f"
         done
@@ -236,12 +241,20 @@ build_target() {
         # wgpu's full dep tree IS vendored (#996), so the gpu build cross-compiles
         # + links into every slice (incl. aarch64-apple-ios — the #1 risk) with no
         # crates.io round-trip and no DNS flake.
+        #
+        # `--features pano` is unconditional since M3 of epic #1234 (#1235):
+        # it pulls `maple-pano` (with its `ml` feature: ALIKED + LightGlue via ort
+        # `load-dynamic`) into every slice and compiles the `maple_pano_stitch`
+        # symbol. On iOS/iOS-sim the ML code-path is `#[cfg(target_os="macos")]`
+        # -gated inside `src/pano.rs`, so no ort dylib is needed at runtime on
+        # those slices — the symbol exists but returns error −3 (pending M6 #1234).
+        # All ort/libloading/sha2/toml transitive deps are already vendored.
         CARGO_TARGET_DIR="$CARGO_TARGET_DIR" cargo build --offline $CARGO_PROFILE_FLAG \
             --config 'source.crates-io.replace-with="vendored-sources"' \
             --config "source.vendored-sources.directory=\"$RAW_PIPELINE_DIR/vendor\"" \
             --target "$triple" \
             --package raw-ffi \
-            --features gpu \
+            --features gpu,pano \
             2>&1
     )
 }
