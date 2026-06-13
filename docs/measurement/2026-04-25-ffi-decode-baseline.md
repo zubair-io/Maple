@@ -26,7 +26,7 @@ fail Spike 1.3 and stop Plan 1 before Task 5 wires the new path into `EditSessio
 - Reference DNG present at `src/raw-pipeline/test-fixtures/raws/dji-mavic3pro-100mp.dng`
   (`test-fixtures/` is gitignored — fetch locally per `docs/raw-pipeline-architecture.md`).
 - Rust toolchain + iOS/macOS targets installed; xcframework rebuilt against the
-  current `raw-core` (`./src/apple/scripts/build-xcframework.sh`).
+  current `raw-core` (`./src/apple/scripts/build-xcframework.sh` — defaults to release).
 - macOS app built in **Debug** for app-side measurements, **Release** for the
   CLI sanity check (the user's 4740 ms baseline is from the Debug app — keep
   apples-to-apples).

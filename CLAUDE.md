@@ -92,6 +92,8 @@ The app is an Xcode project (`src/apple/Maple.xcodeproj`) that consumes a local 
 ./src/apple/scripts/build-xcframework.sh
 ```
 
+The script defaults to a **release** build. Pass `--debug` only for fast-compile iteration when pano performance is irrelevant — a debug xcframework makes `maple_pano_stitch` run ~16× slower (measured: 5785s debug vs 353s release for the same 21-frame stitch on M4). CI (Xcode Cloud) always builds release.
+
 This needs Rust + cbindgen + the iOS/macOS Rust targets (`rustup target add aarch64-apple-ios aarch64-apple-ios-sim aarch64-apple-darwin x86_64-apple-darwin`). The script regenerates the Headers, the `module.modulemap`, and the per-platform static libs.
 
 ```bash
