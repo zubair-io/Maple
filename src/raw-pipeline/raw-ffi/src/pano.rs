@@ -39,7 +39,8 @@
 //! ```text
 //! −1   null pointer in required argument (raw_paths / out_png_path)
 //! −2   count < 2  (panorama needs at least 2 input frames)
-//! −3   unsupported on this platform (iOS / iOS-sim; pending M6 #1234)
+//! −3   unsupported on this platform (non-Apple: Linux / WASM). macOS,
+//!      iOS, and iOS-sim all run the real stitch path (M6 #1244).
 //! −4   a raw_paths element is not valid UTF-8 or is null
 //! −5   out_png_path is not valid UTF-8
 //! −6   ML environment unavailable (models or ORT dylib missing)
