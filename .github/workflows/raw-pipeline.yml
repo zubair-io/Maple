@@ -88,6 +88,13 @@ jobs:
       - name: cargo build -p raw-ffi
         working-directory: src/raw-pipeline
         run: cargo build -p raw-ffi
+      # Scoped fmt gate (#1247): raw-ffi files are now rustfmt-canonical; this
+      # step ensures they stay that way so future `cargo fmt` runs are no-ops
+      # and don't bloat files or trip the file-budget gate again. NOT a
+      # workspace-wide check — raw-core and other crates remain non-canonical.
+      - name: cargo fmt --check -p raw-ffi
+        working-directory: src/raw-pipeline
+        run: cargo fmt --check -p raw-ffi
 
   # Fixture-free Rust test gate (#1082). Before this job, NO CI executed
   # `cargo test` anywhere — the ~750 raw-core lib tests ran only on laptops.

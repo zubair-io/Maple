@@ -166,15 +166,15 @@ pub unsafe extern "C" fn maple_gpu_fit_auto_profile(
                 }
             };
         let ext = raw_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let raw_img =
-            match raw_core::pipeline::stage("ffi_gpu_auto_decode", || decode_bytes(&raw_bytes, ext))
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    set_last_error(format!("decode: {}", e));
-                    return 7;
-                }
-            };
+        let raw_img = match raw_core::pipeline::stage("ffi_gpu_auto_decode", || {
+            decode_bytes(&raw_bytes, ext)
+        }) {
+            Ok(r) => r,
+            Err(e) => {
+                set_last_error(format!("decode: {}", e));
+                return 7;
+            }
+        };
         let quality = if quality_preview != 0 {
             RenderQuality::Preview
         } else {
