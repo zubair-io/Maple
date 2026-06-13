@@ -97,7 +97,7 @@ struct EditorView: View {
                     onWheelEditing: { steps, unit in
                         state.wheelNudge(steps: steps, unit: unit)
                     },
-                    canvasReady: state.session.renderedPreview != nil
+                    canvasReady: canvasIsReady
                 ) {
                     canvasLeaf
                 } fallback: {
@@ -260,6 +260,30 @@ struct EditorView: View {
 
     // MARK: - Canvas
 
+    /// True when the canvas should present via the wgpu live path. Mirrors
+    /// `FullImageView.useGpuCanvas` and `EditSession.presentViaGpuLive`'s own
+    /// `guard asset.isRaw`: the GPU live chain only handles RAW; non-RAW falls
+    /// through to the CPU `CanvasImageView` leaf, otherwise the canvas would
+    /// host an opaque-and-never-presented `CAMetalLayer` (#1240).
+    private var useGpuCanvas: Bool {
+        FullImageViewVM.shouldPresentViaGpuCanvas(
+            flagEnabled: GpuLiveFlag.isEnabled,
+            isRaw: state.session.asset.isRaw,
+            showingOriginal: state.session.showingOriginal
+        )
+    }
+
+    /// True when the host should render the canvas leaf (vs the
+    /// placeholder). The GPU layer mounts immediately so a fresh open with
+    /// no published `renderedPreview` still mounts `GpuLiveCanvasView` (its
+    /// `layoutSubviews()` is what calls `driver.register(layer:)` — without
+    /// it `presentViaGpuLive` would reject every tick with `no-layer`, the
+    /// path that produced the slider-lag report). The CPU leaf still needs
+    /// a published preview, exactly as before. #1240.
+    private var canvasIsReady: Bool {
+        useGpuCanvas || state.session.renderedPreview != nil
+    }
+
     /// The canvas leaf the zoom host frames + pans. The host resolves
     /// the display frame off the session's `nativeImageSize` — the only
     /// trustworthy image extent (the preview buffer may be smaller:
@@ -271,9 +295,26 @@ struct EditorView: View {
     /// contract `FullImageView`'s `CIImageView` provided, which is what
     /// the visual-golden harness (`MapleUITests`) crops to: it
     /// screenshots the `canvas-render-ready` element's frame directly.
+    ///
+    /// GPU live wiring (#1240): when `useGpuCanvas` holds, the leaf is
+    /// `GpuLiveCanvasView` — the wgpu chain presents directly into its
+    /// `CAMetalLayer`, no `renderedPreview` CIImage. Otherwise the CPU
+    /// `CanvasImageView` rasters `renderedPreview` exactly as before. The
+    /// canvas-ready accessibility id keys off `gpuFramePresented` on the
+    /// GPU path (the wgpu chain never sets `renderedPreview`, so the
+    /// previous `renderedPreview != nil` test would never settle).
     @ViewBuilder
     private var canvasLeaf: some View {
-        if let preview = state.session.renderedPreview {
+        if useGpuCanvas {
+            GpuLiveCanvasView(session: state.session)
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier(
+                    FullImageViewVM.canvasAccessibilityID(
+                        isRendering: state.session.isRendering,
+                        hasPreview: state.session.gpuFramePresented
+                    )
+                )
+        } else if let preview = state.session.renderedPreview {
             // UITest harness sentinel — the identifier only appears once
             // the refine pass has published a preview AND `isRendering`
             // has flipped false. The harness waits + crops on the element
