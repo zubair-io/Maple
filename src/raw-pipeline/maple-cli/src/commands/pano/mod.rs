@@ -196,6 +196,9 @@ fn stitch_set(
         proxy_long_edge: args.proxy_long_edge,
         max_canvas_px: args.max_canvas_px,
         canvas_tile_rows: args.canvas_tile_rows,
+        // CLI/macOS path is CPU-ORT (parity-verified); CoreML is the
+        // iOS-FFI-only path (M6-C, #1253). See StitchOptions::use_coreml.
+        use_coreml: false,
     };
 
     let progress = |stage: u32, _frac: f32| {
