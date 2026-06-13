@@ -53,8 +53,8 @@ mod id;
 mod model;
 mod render;
 mod scene_linear;
-mod scene_linear_f32;
 mod scene_linear_chain;
+mod scene_linear_f32;
 mod thumbnail;
 // Epic #1234 / M3 (#1235) + M6 (#1244): panorama stitch C-FFI.
 //
@@ -90,7 +90,6 @@ pub use pano::{
 // Re-exported for the pano integration tests that read it after a failed stitch.
 pub use error::maple_last_error;
 
-
 // Tests are split per-topic so each file stays well under the 600-LOC
 // per-file budget; the `#[path]` references keep them as plain siblings
 // under `src/` rather than scattering them in a `tests/` integration
@@ -100,20 +99,20 @@ pub use error::maple_last_error;
 #[path = "auto_tone_tests.rs"]
 mod auto_tone_tests;
 #[cfg(test)]
-#[path = "render_tests.rs"]
-mod render_tests;
-#[cfg(test)]
-#[path = "scene_linear_tests.rs"]
-mod scene_linear_tests;
-#[cfg(test)]
 #[path = "handle_tests.rs"]
 mod handle_tests;
 #[cfg(test)]
 #[path = "id_tests.rs"]
 mod id_tests;
 #[cfg(test)]
+#[path = "render_tests.rs"]
+mod render_tests;
+#[cfg(test)]
 #[path = "scene_linear_chain_tests.rs"]
 mod scene_linear_chain_tests;
+#[cfg(test)]
+#[path = "scene_linear_tests.rs"]
+mod scene_linear_tests;
 #[cfg(test)]
 #[path = "thumbnail_tests.rs"]
 mod thumbnail_tests;

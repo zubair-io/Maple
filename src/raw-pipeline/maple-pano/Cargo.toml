@@ -41,7 +41,10 @@ fixtures = []
 #                 sees `ORT_LIB_LOCATION` pointing at the official iOS
 #                 static xcframework and links statically.
 #                 `OrtRuntime::preflight` calls `ort::init()` directly —
-#                 no dlopen, no libloading probe.
+#                 no dlopen, no libloading probe. Includes `ort/std` so
+#                 `commit_from_file` compiles (it's gated #[cfg(feature="std")]
+#                 in ort; `load-dynamic` implies it on the `ml` path but
+#                 `ml-static` must add it explicitly).
 #
 # When both are active (`--all-features` on host CI), Cargo unifies
 # features → `ort/load-dynamic` wins. The `#[cfg(feature = "ml")]` guard
@@ -49,7 +52,10 @@ fixtures = []
 # host tests pass normally. The `ml-static` path is only reached in iOS
 # cross-compilation where `ml` is absent.
 ml = ["dep:ort", "ort/load-dynamic", "dep:libloading", "dep:sha2", "dep:toml"]
-ml-static = ["dep:ort", "dep:sha2", "dep:toml"]
+# `ort/std` is required for `commit_from_file` (which is #[cfg(feature = "std")]
+# in ort). `load-dynamic` implies `std`, so the `ml` path gets it transitively;
+# `ml-static` must add it explicitly since we omit `load-dynamic`.
+ml-static = ["dep:ort", "ort/std", "dep:sha2", "dep:toml"]
 
 [[bin]]
 name = "pano-gt-render"

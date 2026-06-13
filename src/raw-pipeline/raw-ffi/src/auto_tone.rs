@@ -64,12 +64,8 @@ pub unsafe extern "C" fn maple_compute_auto_tone(
         None => return -1,
     };
     let slice = std::slice::from_raw_parts(scene_post_wb_rgba, len);
-    let result = auto_tone::compute_auto_tone_from_rgba(
-        slice,
-        width as usize,
-        height as usize,
-        0.005,
-    );
+    let result =
+        auto_tone::compute_auto_tone_from_rgba(slice, width as usize, height as usize, 0.005);
     *out = MapleAutoTone {
         exposure: result.exposure,
         contrast: result.contrast,
