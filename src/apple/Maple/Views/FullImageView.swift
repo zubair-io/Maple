@@ -183,6 +183,29 @@ struct FullImageView: View {
                 }
             }
 
+            // GPU live diagnostic banner (#1227). Device logs aren't capturable
+            // on iPhone / iPad (network pair only), so this surfaces the same
+            // signal the unified log notice carries — engagement count + last-
+            // tick ms when the GPU live path is presenting, or a `REJECT —
+            // <reason>` list when it's falling back to CPU. Visible on every
+            // build for now; gate behind a `MAPLE_GPU_DIAG` env var when the
+            // slider-lag investigation lands.
+            if let line = session.gpuLiveDiagSummary {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Image(systemName: "speedometer")
+                        Text(line)
+                            .font(.caption2.monospaced())
+                            .lineLimit(3)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(6)
+                    .background(Color.orange.opacity(0.85), in: RoundedRectangle(cornerRadius: 4))
+                    .padding(.bottom, 12)
+                }
+            }
+
             // Loading indicator. Shown while the cold-open is still resolving
             // its first full-quality frame (`isResolvingFirstFrame`) — it stays
             // up from open, through the sub-second preview AND the seconds-long

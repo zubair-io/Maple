@@ -134,6 +134,11 @@ extension EditSession {
         // present drops the banner; the `onError` closure re-sets it on failure
         // (clearing AFTER would swallow the very error the closure just set).
         renderError = nil
+        // Wall-clock the present so the in-app diagnostic banner can show
+        // last-tick ms. The internal `GpuFrameTimeStats` only records when the
+        // HUD env-flag is on; this counter is unconditional (one Date pair per
+        // present, single Observable write) so the in-app banner is always live.
+        let presentStart = Date()
         await driver.present(model: m) { [weak self] error in
             // A real GPU/present failure: surface it on the session banner
             // (device logs aren't capturable). We've already committed to the
@@ -141,6 +146,8 @@ extension EditSession {
             // the next tick re-attempts; a persistent failure shows the banner.
             self?.renderError = error
         }
+        gpuLiveLastPresentMs = Date().timeIntervalSince(presentStart) * 1000.0
+        gpuLivePresentCount &+= 1
         // A frame is now on the canvas layer — drive the loading indicator +
         // canvas-ready sentinel off this (renderedPreview is never set on this
         // path). NOT set in the stale-drop branch above (no frame presented). #1069
@@ -207,6 +214,7 @@ extension EditSession {
         let d = detail()
         let driver = gpuLiveDriver
         let driverState = "driver=\(driver == nil ? "nil" : "set") hasLayer=\(driver?.hasLayer ?? false) hasSession=\(driver?.hasSession ?? false)"
+        let userToken = d.isEmpty ? reason : "\(reason)(\(d))"
         if d.isEmpty {
             editSessionLogger.notice(
                 "GPU live REJECTED — \(reason, privacy: .public) [\(driverState, privacy: .public)] → CPU fallback this session"
@@ -216,6 +224,10 @@ extension EditSession {
                 "GPU live REJECTED — \(reason, privacy: .public): \(d, privacy: .public) [\(driverState, privacy: .public)] → CPU fallback this session"
             )
         }
+        // Surface in-app too — iOS device logs aren't capturable (network pair,
+        // no USB attach). The banner in `FullImageView` reads `gpuLiveDiagSummary`,
+        // which prefers REJECT entries over the present-count line.
+        gpuLiveRejectMessages.append(userToken)
     }
 
     /// The post-prescale pixel dims the GPU session/layer use for `decoded` at

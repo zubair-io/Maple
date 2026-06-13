@@ -120,6 +120,40 @@ public final class EditSession {
     /// this resets to `false` naturally. Set in `presentViaGpuLive`. See #1069.
     public var gpuFramePresented: Bool = false
 
+    /// On-device GPU live diagnostic (#1227). Unified-log lines are not capturable
+    /// on iPhone / iPad (network pairing, no USB attach), so the diagnostic also
+    /// surfaces in-app via `gpuLiveDiagSummary`. Tracks both successful presents
+    /// (count + last-tick wall-clock ms) and latched reject reasons so a slider
+    /// drag tells us at a glance whether the GPU live path is engaging, engaging
+    /// but slow, or never engaging — the three branches the cross-platform
+    /// slider-lag report folds into.
+    public var gpuLivePresentCount: Int = 0
+    /// Last `await driver.present(...)` wall-clock in ms (the slider-tick budget
+    /// is 16 ms; a 50–100 ms here would explain a slow drag even on the GPU path).
+    public var gpuLiveLastPresentMs: Double = 0
+    /// One entry per UNIQUE reject reason this session — `presentViaGpuLive` only
+    /// appends when `gpuLiveRejectReasonsLogged` first sees the reason, so a slider
+    /// drag against a permanent reject accumulates one entry, not hundreds.
+    public var gpuLiveRejectMessages: [String] = []
+
+    /// One-line summary for the in-app diagnostic banner. `nil` while the GPU live
+    /// path is silent (no presents yet, no rejects yet — the bare cold-open
+    /// window); a present count + last-tick ms once it engages; a "REJECT" prefix
+    /// when the path falls back to CPU. The banner reads this directly so it
+    /// stays in sync with the underlying counters.
+    public var gpuLiveDiagSummary: String? {
+        if !gpuLiveRejectMessages.isEmpty {
+            let presented = gpuLivePresentCount > 0
+                ? "\(gpuLivePresentCount) presented · "
+                : ""
+            return "GPU live: \(presented)REJECT — \(gpuLiveRejectMessages.joined(separator: " · "))"
+        }
+        if gpuLivePresentCount > 0 {
+            return "GPU live: \(gpuLivePresentCount) presented · last \(Int(gpuLiveLastPresentMs.rounded()))ms"
+        }
+        return nil
+    }
+
     /// True from the start of a cold-open until the full-quality (background
     /// Rust) decode lands. The sub-second-open seeds a fast preview (cache /
     /// embedded JPEG) and presents it within ~50 ms, so `gpuFramePresented` /
