@@ -2,12 +2,12 @@
 //! `maple_render_bytes` FFI entries. Fixture-gated (require
 //! `test_0002.dng` to exist) — they skip cleanly when absent.
 
-use crate::auto_profile::{maple_compute_profile_curve, maple_compute_profile_lut};
 use crate::buffers::{maple_free_buffer, MapleImageBuffer};
 use crate::error::maple_last_error;
+use crate::auto_profile::{maple_compute_profile_curve, maple_compute_profile_lut};
 use crate::render::{
-    bin_rgb888, maple_compute_look_lut, maple_histogram_file, maple_render_bytes,
-    maple_render_file, HISTOGRAM_BINS_LEN,
+    bin_rgb888, maple_compute_look_lut, maple_histogram_file, maple_render_bytes, maple_render_file,
+    HISTOGRAM_BINS_LEN,
 };
 use raw_core::test_support::synth_dng::SyntheticGreyDng;
 use std::ffi::{CStr, CString};
@@ -16,16 +16,9 @@ use std::ffi::{CStr, CString};
 fn render_default_model_via_ffi() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    if !path.exists() { return; }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
-    let mut buf = MapleImageBuffer {
-        rgb: std::ptr::null_mut(),
-        len: 0,
-        width: 0,
-        height: 0,
-    };
+    let mut buf = MapleImageBuffer { rgb: std::ptr::null_mut(), len: 0, width: 0, height: 0 };
     let rc = unsafe { maple_render_file(raw_cstr.as_ptr(), std::ptr::null(), 0, &mut buf) };
     assert_eq!(rc, 0, "render rc = {}", rc);
     assert!(buf.width > 0 && buf.height > 0);
@@ -38,26 +31,13 @@ fn render_default_model_via_ffi() {
 fn render_bytes_via_ffi() {
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    if !path.exists() { return; }
     let bytes = std::fs::read(&path).unwrap();
     let ext = CString::new("dng").unwrap();
-    let mut buf = MapleImageBuffer {
-        rgb: std::ptr::null_mut(),
-        len: 0,
-        width: 0,
-        height: 0,
-    };
+    let mut buf = MapleImageBuffer { rgb: std::ptr::null_mut(), len: 0, width: 0, height: 0 };
     let rc = unsafe {
-        maple_render_bytes(
-            bytes.as_ptr(),
-            bytes.len(),
-            ext.as_ptr(),
-            std::ptr::null(),
-            0,
-            &mut buf,
-        )
+        maple_render_bytes(bytes.as_ptr(), bytes.len(), ext.as_ptr(),
+                           std::ptr::null(), 0, &mut buf)
     };
     assert_eq!(rc, 0, "render_bytes rc = {}", rc);
     assert!(buf.width > 0 && buf.height > 0);
@@ -68,12 +48,7 @@ fn render_bytes_via_ffi() {
 
 #[test]
 fn null_arg_sets_error() {
-    let mut buf = MapleImageBuffer {
-        rgb: std::ptr::null_mut(),
-        len: 0,
-        width: 0,
-        height: 0,
-    };
+    let mut buf = MapleImageBuffer { rgb: std::ptr::null_mut(), len: 0, width: 0, height: 0 };
     let rc = unsafe { maple_render_file(std::ptr::null(), std::ptr::null(), 0, &mut buf) };
     assert_eq!(rc, 1);
     let err = unsafe { maple_last_error() };
@@ -113,11 +88,7 @@ fn bin_rgb888_ignores_trailing_partial_pixel() {
     assert_eq!(bins[10], 1);
     assert_eq!(bins[256 + 20], 1);
     assert_eq!(bins[512 + 30], 1);
-    assert_eq!(
-        bins.iter().map(|&c| c as u64).sum::<u64>(),
-        3,
-        "exactly 3 increments"
-    );
+    assert_eq!(bins.iter().map(|&c| c as u64).sum::<u64>(), 3, "exactly 3 increments");
 }
 
 #[test]
@@ -140,11 +111,7 @@ fn histogram_rejects_misaligned_out_bins() {
     // u32-aligned regardless of the allocator's base alignment.
     let mut backing = vec![0u8; HISTOGRAM_BINS_LEN * 4 + 4];
     let base = backing.as_mut_ptr();
-    let off = if (base as usize) % std::mem::align_of::<u32>() == 0 {
-        1
-    } else {
-        0
-    };
+    let off = if (base as usize) % std::mem::align_of::<u32>() == 0 { 1 } else { 0 };
     let misaligned = unsafe { base.add(off) } as *mut u32;
     assert_ne!(
         misaligned as usize % std::mem::align_of::<u32>(),
@@ -172,15 +139,10 @@ fn histogram_synth_dng_sums_to_pixel_count() {
     SyntheticGreyDng::default().write_to(&dng_path).unwrap();
     let raw_cstr = CString::new(dng_path.to_str().unwrap()).unwrap();
     let mut bins = [0u32; HISTOGRAM_BINS_LEN];
-    let rc =
-        unsafe { maple_histogram_file(raw_cstr.as_ptr(), std::ptr::null(), bins.as_mut_ptr()) };
+    let rc = unsafe { maple_histogram_file(raw_cstr.as_ptr(), std::ptr::null(), bins.as_mut_ptr()) };
     assert_eq!(rc, 0, "synth DNG histogram rc = {}", rc);
     let sum = |s: &[u32]| s.iter().map(|&c| c as u64).sum::<u64>();
-    let (r, g, b) = (
-        sum(&bins[0..256]),
-        sum(&bins[256..512]),
-        sum(&bins[512..768]),
-    );
+    let (r, g, b) = (sum(&bins[0..256]), sum(&bins[256..512]), sum(&bins[512..768]));
     assert!(r > 0, "expected a non-empty histogram");
     assert_eq!(r, g, "R and G sums must equal the pixel count");
     assert_eq!(g, b, "G and B sums must equal the pixel count");
@@ -195,15 +157,10 @@ fn histogram_fixture_sums_to_pixel_count() {
     }
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut bins = [0u32; HISTOGRAM_BINS_LEN];
-    let rc =
-        unsafe { maple_histogram_file(raw_cstr.as_ptr(), std::ptr::null(), bins.as_mut_ptr()) };
+    let rc = unsafe { maple_histogram_file(raw_cstr.as_ptr(), std::ptr::null(), bins.as_mut_ptr()) };
     assert_eq!(rc, 0, "histogram rc = {}", rc);
     let sum = |s: &[u32]| s.iter().map(|&c| c as u64).sum::<u64>();
-    let (r, g, b) = (
-        sum(&bins[0..256]),
-        sum(&bins[256..512]),
-        sum(&bins[512..768]),
-    );
+    let (r, g, b) = (sum(&bins[0..256]), sum(&bins[256..512]), sum(&bins[512..768]));
     // Exactly one sample per pixel per channel, so all three sums equal the
     // pixel count (and are non-zero).
     assert!(r > 0, "expected non-empty histogram");
@@ -303,8 +260,9 @@ fn profile_lut_matches_raw_core_bake() {
     let flat = curve.to_flat();
     let n = DEFAULT_LUT_SIZE;
     let mut out = vec![0.0f32; n * n * n * 3];
-    let rc =
-        unsafe { maple_compute_profile_lut(flat.as_ptr(), flat.len(), n as u32, out.as_mut_ptr()) };
+    let rc = unsafe {
+        maple_compute_profile_lut(flat.as_ptr(), flat.len(), n as u32, out.as_mut_ptr())
+    };
     assert_eq!(rc, 0, "profile lut rc = {rc}");
     let expected = bake_profile_lut(&curve, n);
     assert_eq!(out, expected, "FFI LUT must be byte-identical to core bake");
@@ -316,12 +274,10 @@ fn profile_lut_null_pointer_returns_error() {
     let flat = vec![0.0f32; PROFILE_CURVE_FLAT_LEN];
     let mut out = vec![0.0f32; 2 * 2 * 2 * 3];
     // Null curve.
-    let rc =
-        unsafe { maple_compute_profile_lut(std::ptr::null(), flat.len(), 2, out.as_mut_ptr()) };
+    let rc = unsafe { maple_compute_profile_lut(std::ptr::null(), flat.len(), 2, out.as_mut_ptr()) };
     assert_eq!(rc, -1);
     // Null out.
-    let rc =
-        unsafe { maple_compute_profile_lut(flat.as_ptr(), flat.len(), 2, std::ptr::null_mut()) };
+    let rc = unsafe { maple_compute_profile_lut(flat.as_ptr(), flat.len(), 2, std::ptr::null_mut()) };
     assert_eq!(rc, -1);
 }
 
@@ -368,15 +324,11 @@ fn profile_curve_null_pointer_returns_error() {
     use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
     let mut out = vec![0.0f32; PROFILE_CURVE_FLAT_LEN];
     // Null raw_path.
-    let rc = unsafe {
-        maple_compute_profile_curve(std::ptr::null(), std::ptr::null(), 0, out.as_mut_ptr())
-    };
+    let rc = unsafe { maple_compute_profile_curve(std::ptr::null(), std::ptr::null(), 0, out.as_mut_ptr()) };
     assert_eq!(rc, -1);
     // Null out.
     let raw_cstr = CString::new("/nonexistent.dng").unwrap();
-    let rc = unsafe {
-        maple_compute_profile_curve(raw_cstr.as_ptr(), std::ptr::null(), 0, std::ptr::null_mut())
-    };
+    let rc = unsafe { maple_compute_profile_curve(raw_cstr.as_ptr(), std::ptr::null(), 0, std::ptr::null_mut()) };
     assert_eq!(rc, -1);
 }
 
@@ -391,17 +343,16 @@ fn profile_curve_matches_core_fit() {
     use raw_core::view::auto_profile::PROFILE_CURVE_FLAT_LEN;
     let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../test-fixtures/raws/test_0002.dng");
-    if !path.exists() {
-        return;
-    }
+    if !path.exists() { return; }
 
     // Core reference (shares the LRU cache with the FFI call below; identical
     // either way — the cache returns the same fitted curve).
     let bytes = std::fs::read(&path).unwrap();
     let raw_img = raw_core::decode::decode_bytes(&bytes, "dng").unwrap();
     let model = raw_core::xmp::AdjustmentModel::default();
-    let core_curve =
-        fit_profile_curve_from_raw(&raw_img, &model, RenderQuality::Full, RawInput::Path(&path));
+    let core_curve = fit_profile_curve_from_raw(
+        &raw_img, &model, RenderQuality::Full, RawInput::Path(&path),
+    );
 
     let raw_cstr = CString::new(path.to_str().unwrap()).unwrap();
     let mut out = vec![0.0f32; PROFILE_CURVE_FLAT_LEN];
