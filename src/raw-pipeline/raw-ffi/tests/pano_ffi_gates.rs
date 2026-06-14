@@ -358,10 +358,17 @@ fn pano_ffi_stitch_pano_00_tile_succeeds() {
     eprintln!("pano_ffi_gates[tile]: PASS — tile stitched pano_00 via FFI ({sz} bytes)");
 }
 
-/// Degenerate-geometry guard gate (#1269): forcing `Rotation` strategy on the
-/// translational nadir set (`pano_00`) must return rc −8 (DegenerateGeometry)
-/// quickly — i.e. before any large allocation — NOT an OOM or a hundreds-of-GB
-/// memory spike.
+/// Translational-set rotation gate (#1269): forcing `Rotation` strategy on the
+/// translational nadir set (`pano_00`) must FAIL FAST with a bounded-memory
+/// error — never the hundreds-of-GB spike / OOM that motivated the ticket.
+///
+/// Measured behavior: pano_00's three nadir frames don't overlap rotationally,
+/// so they disconnect in the rotation match graph and BA drops all but one →
+/// the run is rejected as `TooFewSurvivors` (rc −7) before any composite. (The
+/// canvas-ratio `DegenerateGeometry` guard, rc −8, is the backstop for
+/// *connected* near-parallel sets — exercised by the canvas unit tests.) Either
+/// way the contract is the same: non-zero rc, fast, no giant output. `auto`
+/// strategy routes pano_00 to tile (see `pano_ffi_stitch_pano_00_tile_succeeds`).
 ///
 /// Skip-passes without fixtures/models, matching the other pano_ffi_gates
 /// skip pattern.
@@ -371,10 +378,10 @@ fn pano_ffi_stitch_pano_00_tile_succeeds() {
 /// MAPLE_PANO_MODELS=~/.cache/maple-pano/models \
 /// ORT_DYLIB_PATH=~/.cache/maple-pano/ort/onnxruntime-osx-arm64-1.23.2/lib/libonnxruntime.dylib \
 /// cargo test --release -p raw-ffi --features pano --test pano_ffi_gates \
-///   pano_ffi_rotation_on_translational_set_returns_degenerate -- --nocapture
+///   pano_ffi_rotation_on_translational_set_fails_fast -- --nocapture
 /// ```
 #[test]
-fn pano_ffi_rotation_on_translational_set_returns_degenerate() {
+fn pano_ffi_rotation_on_translational_set_fails_fast() {
     if std::env::var("MAPLE_PANO_MODELS").is_err() {
         skip("MAPLE_PANO_MODELS not set");
         return;
@@ -450,7 +457,7 @@ fn pano_ffi_rotation_on_translational_set_returns_degenerate() {
             c_out_path.as_ptr(),
             MaplePanoRetention::Keep,
             MaplePanoLocalAlign::Mesh,
-            // Force Rotation — should trigger DegenerateGeometry guard.
+            // Force Rotation on a translational set — must fail fast, not balloon.
             MaplePanoStrategy::Rotation,
             None,
             std::ptr::null_mut(),
@@ -469,27 +476,30 @@ fn pano_ffi_rotation_on_translational_set_returns_degenerate() {
     };
     eprintln!("pano_ffi_gates[degenerate]: rc={rc} msg={msg:?} elapsed={elapsed:.1?}");
 
-    // The guard must return rc −8 (DegenerateGeometry), not 0 or any other error.
-    assert_eq!(
-        rc, -8,
-        "expected rc −8 (DegenerateGeometry) for forced Rotation on translational set, \
-         got rc={rc}: {msg}"
+    // Must FAIL FAST with a clean, bounded-memory error — never rc 0 and never
+    // the hundreds-of-GB blowup. pano_00's nadir frames disconnect under
+    // rotation → TooFewSurvivors (rc −7); a connected near-parallel set would
+    // trip the canvas-ratio guard → DegenerateGeometry (rc −8). Either is the
+    // correct "don't balloon" outcome; accept both, reject everything else.
+    assert!(
+        rc == -7 || rc == -8,
+        "expected a fast bounded failure (rc −7 TooFewSurvivors or rc −8 \
+         DegenerateGeometry) for forced Rotation on a translational set, got rc={rc}: {msg}"
     );
 
-    // The guard must fire before the giant composite allocation — long before
-    // the hours-scale OOM that this test is preventing. We allow up to 5
-    // minutes (the BA still has to run to produce kept cameras for the guard).
-    // On the 3-frame pano_00 with release build this typically takes < 2 min.
+    // Must fail long before the hours-scale OOM this test prevents. The BA still
+    // runs to produce kept cameras; on the 3-frame pano_00 (release) this is
+    // well under 2 min. Allow 5 min of headroom.
     assert!(
         elapsed.as_secs() < 300,
-        "guard took {elapsed:.1?} — expected < 5 min (BA + guard, no composite)"
+        "rotation on translational set took {elapsed:.1?} — expected < 5 min (no composite)"
     );
 
-    // The output PNG must NOT have been written (guard fires before composite).
+    // No output PNG: we bailed before the composite allocation.
     assert!(
         !out_path.exists(),
-        "output PNG was written despite DegenerateGeometry error — guard did not prevent allocation"
+        "output PNG was written despite the failure — the giant composite was not prevented"
     );
 
-    eprintln!("pano_ffi_gates[degenerate]: PASS — rc −8 in {elapsed:.1?}, no output file");
+    eprintln!("pano_ffi_gates[degenerate]: PASS — rc {rc} in {elapsed:.1?}, no output file");
 }
