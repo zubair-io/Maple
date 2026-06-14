@@ -1,13 +1,12 @@
 //! Tile-strategy CLI driver for `pano stitch` (spec §8, ticket #1226).
 //! Split from `pano/mod.rs` for the file-size budget.
 //!
-//! After the #1270 refactor the primary entry point is
+//! After the #1270 refactor this module exposes a single entry point:
 //! [`run_tile_from_outcome`], which accepts a [`TileStitchOutcome`] that
-//! `stitch()` already computed (no re-decode, no re-ML). The older
-//! [`run_tile_from_paths`] is retained for any caller that still wants to
-//! run the stand-alone `stitch_tile` pipeline (e.g. direct `--strategy
-//! tile` without going through `stitch`). In practice the CLI
-//! `stitch_set` always calls `run_tile_from_outcome` now.
+//! `stitch()` already computed (stages 0–5 ran inside the unified pipeline,
+//! sharing ALIKED + LightGlue inference with the rotation path). This
+//! function only handles the I/O tail: PNG writes and JSON report assembly.
+//! `run_tile_from_paths` was removed in the #1270 refactor.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
