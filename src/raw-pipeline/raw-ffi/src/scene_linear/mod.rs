@@ -383,6 +383,12 @@ pub unsafe extern "C" fn maple_render_bytes_scene_linear_sized(
 }
 
 pub(crate) mod tile;
+// Re-exported so `scene_linear_tests.rs` can import them as
+// `crate::scene_linear::maple_render_{bytes,file}_scene_linear_tile`.
+// Rust's unused-import lint fires because the parent module is private,
+// but these are also `#[no_mangle] extern "C"` symbols (always exported
+// to C) and are exercised by the test module above.
+#[allow(unused_imports)]
 pub use tile::{maple_render_bytes_scene_linear_tile, maple_render_file_scene_linear_tile};
 
 /// Pack a (w, h, fp16) tuple into the caller-provided

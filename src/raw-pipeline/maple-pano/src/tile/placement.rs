@@ -55,7 +55,7 @@ use crate::similarity::Similarity2d;
 
 #[path = "placement_solve.rs"]
 mod placement_solve;
-use placement_solve::{gauss_eliminate, ls_scalar, ls_translation, size_canvas};
+use placement_solve::{ls_scalar, ls_translation, size_canvas};
 
 /// The absolute canvas pose of one frame in the tile strategy.
 ///
@@ -297,7 +297,6 @@ pub fn solve_tile_poses(
                 //
                 // For anchor (s_a=1, θ_a=0, t_a=0): t_b = sim_ab_inv.t
                 let s = c.sim_ab.scale;
-                let (sin_ab, cos_ab) = c.sim_ab.theta.sin_cos();
                 let inv_s = 1.0 / s;
                 // sim_ab_inv.t = -R(-θ_ab)·t_ab / s
                 let (sin_inv, cos_inv) = (-c.sim_ab.theta).sin_cos();

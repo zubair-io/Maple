@@ -237,7 +237,7 @@ pub fn parse_opcode_list(bytes: &[u8]) -> Option<OpcodeList3> {
     })
 }
 
-fn parse_gain_map(cur: &mut Cursor, param_len: usize) -> Option<GainMapOpcode> {
+fn parse_gain_map(cur: &mut Cursor<'_>, param_len: usize) -> Option<GainMapOpcode> {
     let top = cur.read_u32()?;
     let left = cur.read_u32()?;
     let bottom = cur.read_u32()?;
@@ -304,7 +304,7 @@ fn parse_gain_map(cur: &mut Cursor, param_len: usize) -> Option<GainMapOpcode> {
     })
 }
 
-fn parse_warp_rectilinear(cur: &mut Cursor, param_len: usize) -> Option<WarpRectilinearOpcode> {
+fn parse_warp_rectilinear(cur: &mut Cursor<'_>, param_len: usize) -> Option<WarpRectilinearOpcode> {
     let n = cur.read_u32()? as usize;
     // u32 N + N×6×f64 + 2×f64 center must exactly fill the block.
     if n == 0 || param_len != 4 + n * 48 + 16 {
