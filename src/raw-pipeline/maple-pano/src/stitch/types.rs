@@ -262,11 +262,9 @@ impl std::fmt::Display for StitchError {
                 "{}: no EXIF 35mm focal length — cannot seed camera model",
                 path.display()
             ),
-            Self::DegenerateGeometry(msg) => write!(
-                f,
-                "degenerate rotation geometry: {msg} — \
-                 this set is not rotation-stitchable; use Auto or Tile strategy"
-            ),
+            Self::DegenerateGeometry(msg) => {
+                write!(f, "degenerate rotation geometry: {msg}")
+            }
             Self::Cancelled => write!(f, "cancelled by caller"),
         }
     }

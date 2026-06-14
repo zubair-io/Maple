@@ -449,10 +449,27 @@ pub fn stitch(
         let kept_cams_guard: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
         if let Some(ratio) = natural_canvas_pixel_ratio(&kept_cams_guard, &canvas_opts) {
             if ratio > DEGENERATE_CANVAS_RATIO {
+                // Tailor the hint to how we ended up here.
+                // - Auto chose rotation: the content-based vote said rotation, but
+                //   the BA geometry is still degenerate.  The frames likely share
+                //   only a thin sliver of overlap or the matched region is mostly
+                //   planar — suggest Tile or recapture with more overlap.
+                // - User forced --strategy rotation: the set may not be a rotation
+                //   pano at all; suggest Auto or Tile.
+                let hint = match strategy_report.requested {
+                    StrategyRequest::Auto => {
+                        "Auto selected Rotation, but the solved geometry is degenerate — \
+                         the frames may not form a true rotation panorama, or overlap is too \
+                         narrow for a reliable rotation solve. Try --strategy Tile, or \
+                         recapture with more overlap between frames."
+                    }
+                    _ => "try --strategy Auto or --strategy Tile",
+                };
                 return Err(StitchError::DegenerateGeometry(format!(
-                    "natural canvas is {ratio:.0}× larger than the {mp} MP cap — the rotation \
-                     geometry is likely degenerate (near-parallel or translational frames; try \
-                     Auto or Tile). If this is a genuinely large panorama, raise --max-canvas-px",
+                    "natural canvas is {ratio:.0}× larger than the {mp} MP cap — \
+                     the rotation geometry is likely degenerate (near-parallel or \
+                     translational frames). {hint} \
+                     If this is a genuinely large panorama, raise --max-canvas-px.",
                     mp = opts.max_canvas_px as f64 / 1_000_000.0,
                 )));
             }
