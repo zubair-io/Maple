@@ -45,6 +45,8 @@
 //! −5   out_png_path is not valid UTF-8
 //! −6   ML environment unavailable (models or ORT dylib missing)
 //! −7   pipeline error (decode / match / BA / composite / write — detail in last_error)
+//! −8   degenerate rotation geometry (frames are near-parallel / translational
+//!      and cannot be rotation-stitched — retry with Auto or Tile strategy)
 //! ```
 
 use crate::cancel::SendCancelPtr;
