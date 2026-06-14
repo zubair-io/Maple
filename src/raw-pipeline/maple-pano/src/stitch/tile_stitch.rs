@@ -30,7 +30,7 @@ use crate::graph::{
     build_match_graph, CaptureOrderProvider, GimbalPriorProvider, MatchGraph, ReverifySummary,
 };
 use crate::ingest::{ingest_file, proxy_to_long_edge, FramePriors, IngestedFrame, PlanarImage};
-use crate::matching::LightGlueMatcher;
+use crate::matching::{LightGlueMatcher, MatcherOptions};
 use crate::models::ModelDir;
 use crate::refine::{refine_correspondences, RefineOptions};
 use crate::robust::RobustOptions;
@@ -101,8 +101,14 @@ pub fn stitch_tile(
         },
     )
     .map_err(|e| StitchError::MlUnavailable(format!("ALIKED load failed: {e}")))?;
-    let mut matcher = LightGlueMatcher::load(&models, Default::default())
-        .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
+    let mut matcher = LightGlueMatcher::load(
+        &models,
+        MatcherOptions {
+            use_coreml: opts.use_coreml,
+            ..MatcherOptions::default()
+        },
+    )
+    .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
 
     let mut feature_sets = Vec::with_capacity(frames.len());
     let mut proxy_dims: Vec<(u32, u32)> = Vec::with_capacity(frames.len());
@@ -245,10 +251,20 @@ pub fn stitch_tile(
 
     let poses_placed = poses.len();
     let reachable_set: HashSet<usize> = poses.iter().map(|p| p.frame_idx).collect();
-    let all_frame_images: Vec<PlanarImage> = frames.into_iter().map(|f| f.image).collect();
+    // Move (don't clone) each placed frame's full-resolution image out of
+    // `frames` into the composite input. `poses` carries strictly distinct,
+    // in-bounds `frame_idx` values (see `solve_tile_poses`: built from the
+    // ascending `reachable` set), so every slot is taken at most once and the
+    // `expect` cannot fire. Avoids deep-copying full-res planes (#1254).
+    let mut frame_slots: Vec<Option<PlanarImage>> =
+        frames.into_iter().map(|f| Some(f.image)).collect();
     let component_frames: Vec<PlanarImage> = poses
         .iter()
-        .map(|p| all_frame_images[p.frame_idx].clone())
+        .map(|p| {
+            frame_slots[p.frame_idx]
+                .take()
+                .expect("each pose maps a distinct, present frame")
+        })
         .collect();
     let component_edges: Vec<crate::tile::TileEdge> = tile_edges
         .iter()
