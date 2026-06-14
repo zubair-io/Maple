@@ -32,8 +32,9 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use maple_pano::ba::RetentionPolicy;
+use maple_pano::ingest::PlanarImage;
 use maple_pano::render::write_frame_png;
-use maple_pano::stitch::{stitch, StitchError, StitchOptions};
+use maple_pano::stitch::{stitch, stitch_tile, StitchError, StitchOptions};
 use maple_pano::strategy::StrategyRequest;
 
 use super::{MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy, SendProgressCallback};
@@ -77,7 +78,7 @@ pub(super) fn run_stitch_apple(
     // + `*mut c_void` directly and call them through their C types. The
     // worker is joined before `maple_pano_stitch` returns, so both remain
     // valid here.
-    let progress = move |stage: u32, frac: f32| {
+    let mut progress = move |stage: u32, frac: f32| {
         if let Some(f) = cb.f {
             // SAFETY: `f` is a valid extern "C" fn; `cb.user` is the
             // caller-supplied opaque pointer, valid for the duration of the
@@ -99,58 +100,69 @@ pub(super) fn run_stitch_apple(
         }
     };
 
-    match stitch(&inputs, &opts, progress, is_cancelled) {
-        Ok(outcome) => {
-            // Write the scene-linear 16-bit PNG.
-            let out_path = std::path::Path::new(&out_png_path);
-            if let Some(parent) = out_path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    if let Err(e) = std::fs::create_dir_all(parent) {
-                        set_last_error(format!("maple_pano_stitch: create output dir: {e}"));
-                        return -7;
-                    }
+    // Quantize a scene-linear PlanarImage to 16-bit and write it as a PNG.
+    // Shared by the rotation (`stitch`) and tile (`stitch_tile`) success paths.
+    // Returns 0 on success, -7 on a filesystem/encode error (last_error set).
+    let write_out = |img: &PlanarImage| -> i32 {
+        let out_path = std::path::Path::new(&out_png_path);
+        if let Some(parent) = out_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    set_last_error(format!("maple_pano_stitch: create output dir: {e}"));
+                    return -7;
                 }
             }
-            // Quantize to 16-bit (scene-linear, no sRGB — mirrors
-            // `write_png16(path, img, srgb=false)` in maple-cli pano/io.rs).
-            let img = &outcome.image;
-            let n = img.pixel_count();
-            let mut data: Vec<u16> = Vec::with_capacity(n * 3);
-            for i in 0..n {
-                data.push((img.r[i].clamp(0.0, 1.0) * 65535.0).round() as u16);
-                data.push((img.g[i].clamp(0.0, 1.0) * 65535.0).round() as u16);
-                data.push((img.b[i].clamp(0.0, 1.0) * 65535.0).round() as u16);
+        }
+        // Quantize to 16-bit (scene-linear, no sRGB — mirrors
+        // `write_png16(path, img, srgb=false)` in maple-cli pano/io.rs).
+        let n = img.pixel_count();
+        let mut data: Vec<u16> = Vec::with_capacity(n * 3);
+        for i in 0..n {
+            data.push((img.r[i].clamp(0.0, 1.0) * 65535.0).round() as u16);
+            data.push((img.g[i].clamp(0.0, 1.0) * 65535.0).round() as u16);
+            data.push((img.b[i].clamp(0.0, 1.0) * 65535.0).round() as u16);
+        }
+        if let Err(e) = write_frame_png(out_path, img.width(), img.height(), &data) {
+            set_last_error(format!("maple_pano_stitch: write PNG: {e}"));
+            return -7;
+        }
+        0
+    };
+
+    match stitch(&inputs, &opts, &mut progress, &is_cancelled) {
+        Ok(outcome) => write_out(&outcome.image),
+
+        // Tile strategy selected: the rotation `stitch` doesn't run tile, so
+        // run the dedicated tile pipeline (same ML + NCC refine, planar
+        // composite). This is what makes nadir/translational sets stitch on
+        // Apple instead of degenerating through rotation (which ballooned
+        // memory on near-parallel frames). #1235.
+        Err(StitchError::TileNotSupported(report)) => {
+            match stitch_tile(&inputs, &opts, report, &mut progress, &is_cancelled) {
+                Ok(tile) => write_out(&tile.image),
+                Err(StitchError::Cancelled) => {
+                    set_last_error("maple_pano_stitch: cancelled by caller".into());
+                    -7
+                }
+                Err(StitchError::MlUnavailable(msg)) => {
+                    set_last_error(format!("maple_pano_stitch: {msg}"));
+                    -6
+                }
+                Err(e) => {
+                    set_last_error(format!("maple_pano_stitch (tile): {e}"));
+                    -7
+                }
             }
-            if let Err(e) = write_frame_png(out_path, img.width(), img.height(), &data) {
-                set_last_error(format!("maple_pano_stitch: write PNG: {e}"));
-                return -7;
-            }
-            0
         }
 
         Err(StitchError::Cancelled) => {
             set_last_error("maple_pano_stitch: cancelled by caller".into());
             -7
         }
-
         Err(StitchError::MlUnavailable(msg)) => {
             set_last_error(format!("maple_pano_stitch: {msg}"));
             -6
         }
-
-        // Tile strategy selected: FFI does not yet implement tile.
-        // Tracked as the next sub-task of #1235. The CLI tile path is
-        // unaffected — it uses its own tile.rs caller.
-        Err(StitchError::TileNotSupported(_)) => {
-            set_last_error(
-                "maple_pano_stitch: tile strategy selected — tile FFI path \
-                 is not yet implemented; pass strategy=Rotation or retry \
-                 with Strategy::Auto on a rotation-dominated set"
-                    .into(),
-            );
-            -7
-        }
-
         Err(e) => {
             set_last_error(format!("maple_pano_stitch: {e}"));
             -7

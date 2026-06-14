@@ -119,6 +119,43 @@ pub struct StitchOutcome {
     pub stage_timings_s: [f64; 6],
 }
 
+// ─── Tile outcome ────────────────────────────────────────────────────────────
+
+/// Everything [`stitch_tile`](super::stitch_tile) returns on success.
+///
+/// The composited image is the primary product; all other fields are
+/// bookkeeping the CLI uses to assemble the tile `StitchReport` JSON
+/// (spec §8 / #1226). The FFI caller needs only `image`.
+pub struct TileStitchOutcome {
+    /// Scene-linear Rec.2020 composite (the value the PNG/DNG writer encodes).
+    pub image: PlanarImage,
+    /// Tile composite report (canvas, placements, gains, residuals, …).
+    pub tile_report: crate::tile::TileCompositeReport,
+    /// Strategy-selection outcome (evidence + selection + optional warning).
+    pub strategy_report: StrategyReport,
+    /// Per-frame opcode lists (needed for CLI report).
+    pub applied_opcodes: Vec<Vec<String>>,
+    /// Per-frame EXIF/gimbal priors (needed for CLI report).
+    pub priors: Vec<FramePriors>,
+    /// Number of full-resolution NCC-refined correspondences.
+    pub refined_matches: usize,
+    /// Number of correspondences that fell back to proxy accuracy.
+    pub fallback_matches: usize,
+    /// Summary of the rotation-path reverification step (always 0/0 for tile).
+    pub reverify: crate::graph::ReverifySummary,
+    /// Frame indices disconnected from the anchor component.
+    pub orphans: Vec<usize>,
+    /// Number of frames successfully placed in the tile composite.
+    pub poses_placed: usize,
+    /// Mean planar residual across all verified inlier pairs (px).
+    pub mean_planar_residual_px: f64,
+    /// Max planar residual across all verified inlier pairs (px).
+    pub max_planar_residual_px: f64,
+    /// Stage wall-clock timings (seconds). Named keys:
+    /// `[decode, features, match_graph, refine, solve, composite]`.
+    pub stage_timings_s: [f64; 6],
+}
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 /// Errors from `stitch`.
