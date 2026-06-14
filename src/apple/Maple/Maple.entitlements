@@ -8,6 +8,15 @@
 	<true/>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!--
+	  Pano stitching dlopen()s the downloaded ONNX Runtime dylib, which is
+	  signed by Microsoft's Team ID. Under the hardened runtime, Library
+	  Validation rejects loading a dylib from a different team ("different
+	  Team IDs"). This exception permits it. The dylib is still SHA-256
+	  pinned + verified by PanoProvisioner before it is ever loaded. (#1234 M6)
+	-->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.app.justmaple.aperture</string>

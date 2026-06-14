@@ -349,6 +349,9 @@ final class PanoProvisionModel {
     private(set) var state: State = .idle
     private var isRunning = false
 
+    /// True while a download is in flight (drives Merge-flow gating).
+    var isBusy: Bool { if case .running = state { return true } else { return false } }
+
     /// Run a provisioning pass. On success, `onComplete` runs on the main
     /// actor (the view refreshes its status). Re-entrant-safe; call again to
     /// retry after a failure.

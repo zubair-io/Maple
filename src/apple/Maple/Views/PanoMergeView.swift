@@ -17,6 +17,11 @@
 
 import SwiftUI
 import MapleCore
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 // MARK: - PanoMergeView
 
@@ -33,11 +38,22 @@ struct PanoMergeView: View {
     /// Settings navigated to the Pano tab. (#1241)
     var onOpenPanoSettings: (() -> Void)? = nil
 
+    /// Shared thumbnail loader for the input-frame previews. `@State` keeps the
+    /// actor (and its in-memory cache) stable across body re-evaluations.
+    @State private var thumbLoader = ThumbnailLoader()
+
+    /// Drives the auto-download-on-Merge flow (#1234 M6): if the ML runtime
+    /// isn't provisioned when the user taps Merge, fetch it inline (with
+    /// progress) and then start the stitch — no detour through Settings.
+    @State private var provisionModel = PanoProvisionModel()
+
     var body: some View {
         NavigationStack {
             Form {
                 inputFramesSection
                 optionsSection
+
+                provisionStatusSection
 
                 switch session.state {
                 case .idle:
@@ -64,7 +80,11 @@ struct PanoMergeView: View {
                     .accessibilityLabel("Cancel panorama merge and return to browse")
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    if session.isRunning {
+                    if provisionModel.isBusy {
+                        Button("Installing…") {}
+                            .disabled(true)
+                            .accessibilityLabel("Downloading panorama components")
+                    } else if session.isRunning {
                         Button("Stop") {
                             session.cancel()
                         }
@@ -78,12 +98,80 @@ struct PanoMergeView: View {
                         .accessibilityLabel("Add panorama to library and return to browse")
                     } else {
                         Button("Merge") {
-                            session.start(assets: assets)
+                            startMerge()
                         }
                         .disabled(assets.count < 2)
                         .accessibilityLabel("Start panorama merge with \(assets.count) selected frames")
                     }
                 }
+            }
+        }
+    }
+
+    // MARK: - Merge flow (auto-provision, then stitch)
+
+    private func startMerge() {
+        let status = PanoProvisioning().status()
+        // Ready, or a manual Settings/env override is in force (auto-download
+        // into the app-support default wouldn't change resolution) → start
+        // directly. An unprovisioned override surfaces the existing
+        // modelsNotInstalled error with the "Configure in Settings" path.
+        if PanoProvisioner.isReady(status) || !PanoProvisioner.canAutoProvision(status) {
+            session.start(assets: assets)
+            return
+        }
+        // Not provisioned and we can auto-provision: download inline, then stitch.
+        Task {
+            await provisionModel.download {
+                session.start(assets: assets)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var provisionStatusSection: some View {
+        switch provisionModel.state {
+        case .idle:
+            EmptyView()
+        case let .running(fraction, label):
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(label).font(.subheadline)
+                        Spacer()
+                        Text("\(Int((fraction * 100).rounded()))%")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    ProgressView(value: fraction).progressViewStyle(.linear)
+                }
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Downloading panorama components, \(Int((fraction * 100).rounded())) percent")
+            } header: {
+                Text("Setting Up")
+            }
+        case let .failed(message):
+            Section {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .imageScale(.large)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Download failed")
+                            .font(.subheadline.weight(.medium))
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+                Button("Retry Download") { startMerge() }
+                    .accessibilityLabel("Retry downloading panorama components")
+            } header: {
+                Text("Setting Up")
             }
         }
     }
@@ -96,13 +184,7 @@ struct PanoMergeView: View {
                 HStack(spacing: 8) {
                     ForEach(assets) { asset in
                         VStack(spacing: 4) {
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(Color.secondary.opacity(0.2))
-                                .frame(width: 64, height: 48)
-                                .overlay(
-                                    Image(systemName: "photo")
-                                        .foregroundStyle(.secondary)
-                                )
+                            PanoFrameThumbnail(asset: asset, loader: thumbLoader)
                             Text(asset.displayName)
                                 .font(.caption2)
                                 .lineLimit(1)
@@ -284,6 +366,56 @@ struct PanoMergeView: View {
         } header: {
             Text("Error")
         }
+    }
+}
+
+// MARK: - Input-frame thumbnail
+
+/// One 64×48 input-frame preview. Loads through the app's `ThumbnailLoader`
+/// (disk-cached, security-scoped): a neutral glyph while loading, the real
+/// thumbnail when decoded, and a clean "can't preview" glyph if the frame
+/// can't be decoded — never raw bytes.
+private struct PanoFrameThumbnail: View {
+    let asset: AssetRef
+    let loader: ThumbnailLoader
+
+    @State private var image: Image?
+    @State private var failed = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .fill(Color.secondary.opacity(0.2))
+            .frame(width: 64, height: 48)
+            .overlay {
+                if let image {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image(systemName: failed ? "exclamationmark.triangle" : "photo")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .task(id: asset.id) { await load() }
+    }
+
+    private func load() async {
+        guard let url = asset.primaryURL else { failed = true; return }
+        let data = await loader.load(for: url, scopeParentURL: asset.scopeParentURL)
+        if let data, let img = Self.image(from: data) {
+            image = img
+        } else {
+            failed = true
+        }
+    }
+
+    private static func image(from data: Data) -> Image? {
+        #if os(macOS)
+        return NSImage(data: data).map(Image.init(nsImage:))
+        #else
+        return UIImage(data: data).map(Image.init(uiImage:))
+        #endif
     }
 }
 
