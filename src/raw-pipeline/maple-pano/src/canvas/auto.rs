@@ -393,6 +393,131 @@ fn angular_canvas(
     )
 }
 
+/// Ratio of the natural (unclamped, pre-cap) canvas pixel count to
+/// `max_pixels` for the given camera set and cap.
+///
+/// A ratio >> 1 means the pixel cap would crush resolution to a degree
+/// that makes the rotation composite meaningless. A translational /
+/// near-parallel set forced through the rotation path can produce ratios
+/// in the millions because the BA solution places cameras at nearly
+/// identical orientations — the projected extent covers an enormous
+/// fraction of the sphere at the per-pixel density of the source frames,
+/// but the actual overlap is a sliver of that extent.
+///
+/// This function is cheap: it samples cameras (same work as `auto_canvas`)
+/// but exits after computing the natural extent, before allocating anything.
+/// Returns `None` when the samples are invalid (same conditions that would
+/// make `auto_canvas` return `PanoError::InvalidOptions`).
+pub fn natural_canvas_pixel_ratio(cameras: &[Camera], opts: &CanvasOptions) -> Option<f64> {
+    if cameras.is_empty() || opts.max_pixels == 0 {
+        return None;
+    }
+    let samples: Result<Vec<_>, _> = cameras.iter().map(sample_camera).collect();
+    let samples = samples.ok()?;
+
+    let density = samples
+        .iter()
+        .map(|s| s.max_density)
+        .fold(0.0_f64, f64::max);
+    if !(density.is_finite() && density > 0.0) {
+        return None;
+    }
+    let step = 1.0 / density;
+
+    let projection = match opts.projection {
+        ProjectionMode::Force(p) => p,
+        ProjectionMode::Auto => select_projection(extent_deg_of(&samples)),
+    };
+
+    let natural_pixels = match projection {
+        Projection::Rectilinear => {
+            // Compute the angular extent in tangent-space (u, v) coordinates.
+            // We need a centroid-aligned frame, mirroring rectilinear_canvas.
+            let mut c = Vec3::new(0.0, 0.0, 0.0);
+            for s in &samples {
+                for d in &s.dirs {
+                    c = c + *d;
+                }
+            }
+            let c = c.normalized()?;
+            let yaw = c.x.atan2(c.z);
+            let pitch = (-c.y).clamp(-1.0, 1.0).asin();
+            let rotation =
+                crate::math::Mat3::rotation_y(yaw).mul_mat(&crate::math::Mat3::rotation_x(pitch));
+            let rot_inv = rotation.transpose();
+
+            let mut u_min = f64::INFINITY;
+            let mut u_max = f64::NEG_INFINITY;
+            let mut v_min = f64::INFINITY;
+            let mut v_max = f64::NEG_INFINITY;
+            for s in &samples {
+                for d in &s.dirs {
+                    let dc = rot_inv.mul_vec(*d);
+                    if let Some((u, v)) = crate::project::Projection::Rectilinear.forward(dc) {
+                        u_min = u_min.min(u);
+                        u_max = u_max.max(u);
+                        v_min = v_min.min(v);
+                        v_max = v_max.max(v);
+                    }
+                }
+            }
+            if !u_min.is_finite() {
+                return None;
+            }
+            let w = ((u_max - u_min) / step).ceil().max(1.0);
+            let h = ((v_max - v_min) / step).ceil().max(1.0);
+            w * h
+        }
+        Projection::Cylindrical | Projection::Spherical => {
+            // Longitude + latitude ranges, mirroring angular_canvas.
+            let any_pole_frame = samples.iter().any(|s| s.lon_window.is_none());
+            let windows: Vec<(f64, f64)> = samples.iter().filter_map(|s| s.lon_window).collect();
+            let lon_window = if any_pole_frame || windows.is_empty() {
+                None
+            } else {
+                circular_window(&windows)
+            };
+
+            let mut v_min = f64::INFINITY;
+            let mut v_max = f64::NEG_INFINITY;
+            for s in &samples {
+                for d in &s.dirs {
+                    if let Some((_, v)) = projection.forward(*d) {
+                        v_min = v_min.min(v);
+                        v_max = v_max.max(v);
+                    }
+                }
+                let v_limit = match projection {
+                    crate::project::Projection::Spherical => FRAC_PI_2,
+                    _ => 85.0_f64.to_radians().tan(),
+                };
+                if s.sees_zenith {
+                    v_max = v_limit;
+                }
+                if s.sees_nadir {
+                    v_min = -v_limit;
+                }
+            }
+            if !(v_min.is_finite() && v_max.is_finite()) {
+                return None;
+            }
+
+            let u_range = match lon_window {
+                None => TAU,
+                Some((lo, hi)) => (hi - lo).min(TAU),
+            };
+            let w = (u_range / step).ceil().max(1.0);
+            let h = ((v_max - v_min) / step).ceil().max(1.0);
+            w * h
+        }
+    };
+
+    if !natural_pixels.is_finite() || natural_pixels <= 0.0 {
+        return None;
+    }
+    Some(natural_pixels / opts.max_pixels as f64)
+}
+
 /// Round ranges to pixel counts at the target steps, then uniformly
 /// downscale (aspect preserved) until `width · height <= max_pixels`.
 /// Returns `(width, height, du, dv)` with steps recomputed from the
