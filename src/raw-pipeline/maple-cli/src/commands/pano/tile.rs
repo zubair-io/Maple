@@ -1,70 +1,67 @@
 //! Tile-strategy CLI driver for `pano stitch` (spec §8, ticket #1226).
 //! Split from `pano/mod.rs` for the file-size budget.
 //!
-//! This module is a thin CLI tail: it delegates all orchestration to
-//! [`maple_pano::stitch::stitch_tile`] and owns only the output I/O
-//! (PNG writes and the `StitchReport` JSON assembly). Identical outputs
-//! to the previous inline implementation — behavior is unchanged.
+//! After the #1270 refactor the primary entry point is
+//! [`run_tile_from_outcome`], which accepts a [`TileStitchOutcome`] that
+//! `stitch()` already computed (no re-decode, no re-ML). The older
+//! [`run_tile_from_paths`] is retained for any caller that still wants to
+//! run the stand-alone `stitch_tile` pipeline (e.g. direct `--strategy
+//! tile` without going through `stitch`). In practice the CLI
+//! `stitch_set` always calls `run_tile_from_outcome` now.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use maple_pano::stitch::{stitch_tile, StitchOptions};
-use maple_pano::strategy::StrategyReport;
+use maple_pano::stitch::TileStitchOutcome;
 
 use super::io::{tile_stitch_report, write_png16, TileReportContext};
 
-/// Arguments for the tile path when called after `stitch()` returned
-/// `TileNotSupported`. All frame data is re-derived from paths (the
-/// shared `stitch` function already consumed the frames on the rotation
-/// path before detecting tile).
-pub(super) struct TilePathArgs<'a> {
-    pub inputs: &'a [PathBuf],
-    pub opts: &'a StitchOptions,
-    pub strategy_report: &'a StrategyReport,
+// ─── Primary entry point: outcome already computed ────────────────────────────
+
+/// Arguments for [`run_tile_from_outcome`].
+///
+/// Called by `stitch_set` when [`maple_pano::stitch::stitch`] returned
+/// `StitchSuccess::Tile` — the tile pipeline already ran inside `stitch`
+/// (with shared ALIKED + LightGlue from #1270). This function only owns
+/// the I/O tail (PNG write + JSON report assembly).
+pub(super) struct TileOutcomeArgs<'a> {
+    pub outcome: TileStitchOutcome,
     pub outs_linear: &'a Path,
     pub outs_display: Option<&'a Path>,
     pub outs_report: Option<&'a Path>,
+    pub inputs: &'a [PathBuf],
     pub t0: Instant,
 }
 
-/// Run the tile strategy from raw paths (re-decodes + re-features since
-/// `stitch()` already consumed the frames internally before returning
-/// `TileNotSupported`). Delegates all orchestration to `stitch_tile` in
-/// the maple-pano crate; only PNG I/O and the report JSON stay here.
-pub(super) fn run_tile_from_paths(args: TilePathArgs<'_>) -> Result<serde_json::Value, String> {
-    let TilePathArgs {
-        inputs,
-        opts,
-        strategy_report,
+/// Write outputs for a tile stitch that already ran inside `stitch()` (#1270).
+///
+/// After the unified pipeline the tile outcome arrives pre-computed;
+/// this function only handles the PNG writes and JSON report assembly that
+/// `stitch_set` can't do generically.
+pub(super) fn run_tile_from_outcome(
+    args: TileOutcomeArgs<'_>,
+) -> Result<serde_json::Value, String> {
+    let TileOutcomeArgs {
+        outcome,
         outs_linear,
         outs_display,
         outs_report,
+        inputs,
         t0,
     } = args;
 
-    let outcome = stitch_tile(
-        inputs,
-        opts,
-        strategy_report.clone(),
-        |stage, _frac| {
-            let label = match stage {
-                0 => "decode",
-                1 => "features",
-                2 => "match_graph",
-                3 => "refine",
-                4 => "solve",
-                5 => "composite",
-                _ => "?",
-            };
-            eprintln!("pano[tile]: stage {label}");
-        },
-        || false,
-    )
-    .map_err(|e| e.to_string())?;
-
     let [decode_s, features_s, graph_s, refine_s, solve_s, composite_s] = outcome.stage_timings_s;
 
+    eprintln!(
+        "pano: strategy — selected=tile tile_votes={} rotation_votes={}{}",
+        outcome.strategy_report.evidence.tile_votes,
+        outcome.strategy_report.evidence.rotation_votes,
+        outcome
+            .strategy_report
+            .warning
+            .map(|w| format!(" [WARN: {w}]"))
+            .unwrap_or_default(),
+    );
     eprintln!(
         "pano[tile]: refine — {} matches NCC-refined at full res, \
          {} kept proxy accuracy ({refine_s:.1}s)",
