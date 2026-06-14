@@ -30,14 +30,20 @@
 //! 5 — composite
 //! ```
 //!
-//! # Tile strategy
+//! # Tile strategy (#1270)
 //!
-//! The tile strategy is implemented separately in `maple-cli/src/commands/
-//! pano/tile.rs` (CLI) and is not yet surfaced through the FFI (tracked as
-//! the next sub-task of #1235). When `select_strategy` returns
-//! `Strategy::Tile`, [`stitch`] returns
-//! `Err(StitchError::TileNotSupported)`. The CLI caller falls through to its
-//! tile path; the FFI returns error code −7 with a descriptive message.
+//! The tile strategy now runs inline inside [`stitch`] when `select_strategy`
+//! returns `Strategy::Tile`. The early-stage state (decode-proxy + ALIKED +
+//! LightGlue + match graph, stages 0–2) is shared between both paths;
+//! only the tail (stages 3–5) differs. This eliminates the previous
+//! double-decode + double-ML pattern where callers had to re-run the entire
+//! pipeline after receiving `Err(TileNotSupported)`.
+//!
+//! [`stitch`] now returns `Result<StitchSuccess, StitchError>` where
+//! `StitchSuccess::Rotation(outcome)` or `StitchSuccess::Tile(outcome)`
+//! tells the caller which strategy ran. The `TileNotSupported` error variant
+//! is retained for backward compatibility but is no longer returned by
+//! [`stitch`].
 //!
 //! # Memory-bounded path (#1254)
 //!
@@ -75,7 +81,7 @@ mod types;
 
 pub use io::{interleave_planar, quantize_to_u16};
 pub use tile_stitch::stitch_tile;
-pub use types::{StitchError, StitchOptions, StitchOutcome, TileStitchOutcome};
+pub use types::{StitchError, StitchOptions, StitchOutcome, StitchSuccess, TileStitchOutcome};
 
 use std::path::PathBuf;
 
@@ -89,17 +95,17 @@ use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFram
 use crate::gain::{solve_gains_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
-use crate::ingest::{ingest_file_proxy, FrameMeta, PlanarImage};
+use crate::ingest::{ingest_file_proxy, FrameMeta};
 
 use crate::leveling;
 use crate::local_align::LocalCorrection;
 use crate::matching::{LightGlueMatcher, MatcherOptions};
 use crate::models::ModelDir;
-use crate::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use crate::robust::RobustOptions;
 use crate::strategy::{select_strategy, Strategy};
 use crate::twoview::PixelCorrespondence;
-use frame_cache::{choose_evict_slot, load_frame};
+use frame_cache::refine_edges_lru;
+use tile_stitch::{run_tile_branch, TileBranchInput};
 
 /// Strategy selection request (mirrors `maple_pano::strategy::StrategyRequest`
 /// re-exported here so callers don't need two imports).
@@ -107,21 +113,31 @@ pub use crate::strategy::StrategyRequest;
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
-/// Run the full rotation-strategy panorama pipeline on the given RAW frames.
+/// Run the shared panorama pipeline on the given RAW frames, branching to the
+/// rotation or tile tail based on strategy selection.
 ///
 /// `inputs` must have at least 2 elements. `progress` is called with
 /// `(stage, fraction)` at each pipeline stage (see module-level ordinal
 /// table). `is_cancelled` is polled between stages — return `true` to
 /// abort with `StitchError::Cancelled`.
 ///
-/// On `TileNotSupported`, the returned `StrategyReport` has the evidence
-/// for the caller to log; CLI routes to its tile path, FFI returns an error.
+/// Stages 0–2 (decode-proxy + ALIKED + LightGlue + match graph) run once
+/// for every call regardless of the selected strategy. Stage 3 onwards
+/// branches:
+/// - **Rotation** → NCC refinement → BA → leveling → equirect composite;
+///   returns `Ok(StitchSuccess::Rotation(_))`.
+/// - **Tile** → NCC refinement → planar placement → planar composite;
+///   returns `Ok(StitchSuccess::Tile(_))`.
+///
+/// The previous `Err(StitchError::TileNotSupported)` sentinel is no longer
+/// returned — callers that previously caught it to drive a second
+/// `stitch_tile` call should now consume `StitchSuccess::Tile` directly.
 pub fn stitch(
     inputs: &[PathBuf],
     opts: &StitchOptions,
     mut progress: impl FnMut(u32, f32),
     is_cancelled: impl Fn() -> bool,
-) -> Result<StitchOutcome, StitchError> {
+) -> Result<StitchSuccess, StitchError> {
     use std::time::Instant;
 
     if inputs.len() < 2 {
@@ -246,23 +262,35 @@ pub fn stitch(
         .collect();
 
     // ── stage 2: match graph ──────────────────────────────────────────────
+    //
+    // Raw LightGlue matches are cached keyed by `(a, b)` so that if the tile
+    // branch needs to re-build the graph with unit-focal cameras, it can
+    // re-use the ONNX output without running inference a second time (#1270).
+    // The cache is a `Vec` indexed by the deterministic candidate order
+    // (ascending `(a, b)`) — pairs not in the candidate set are never
+    // requested twice, so a simple `Vec<((usize,usize), Vec<_>)>` is enough.
     let t2 = Instant::now();
     progress(2, 0.0);
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
     let mut match_failures: Vec<String> = Vec::new();
+    // `raw_matches_cache[i] = ((a, b), correspondences)` in the order
+    // `build_match_graph` requests them (deterministic from candidate sort).
+    let mut raw_matches_cache: Vec<((usize, usize), Vec<PixelCorrespondence>)> = Vec::new();
     let mut graph = build_match_graph(
         &proxy_images,
         &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
         |a, b| -> Vec<PixelCorrespondence> {
-            match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
+            let corrs = match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
                 Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
                 Err(e) => {
                     match_failures.push(format!("pair ({a},{b}): {e}"));
                     Vec::new()
                 }
-            }
+            };
+            raw_matches_cache.push(((a, b), corrs.clone()));
+            corrs
         },
         &RobustOptions::default(),
     );
@@ -288,114 +316,53 @@ pub fn stitch(
         mean_focal_px,
         0x1226_cafe_dead_beef,
     );
+
+    // ── tile branch: hand off to run_tile_branch (tile_stitch.rs) ──────────
+    //
+    // #1270: Previously `stitch` returned `Err(TileNotSupported)` here and
+    // callers re-ran the full pipeline via `stitch_tile`. Now the shared
+    // ALIKED + LightGlue results (stage 1) are re-used directly via
+    // `run_tile_branch`, which re-builds the graph with unit-focal cameras
+    // (using cached raw matches — no ONNX call) and then runs the tile tail.
+    //
+    // Cost vs before: ALIKED × N once (saved); LightGlue × edges once
+    // (saved); re-verification (CPU-only RANSAC) × edges once (cheap, ~ms).
     if strategy_report.selected == Strategy::Tile {
-        return Err(StitchError::TileNotSupported(strategy_report));
+        let tile_outcome = run_tile_branch(
+            TileBranchInput {
+                inputs,
+                opts,
+                raw_matches_cache,
+                proxy_dims,
+                feature_sets,
+                strategy_report,
+                stage_timings_012: [t_decode, t_features, t_graph],
+                applied_opcodes,
+                priors,
+            },
+            &mut progress,
+            &is_cancelled,
+        )?;
+        return Ok(StitchSuccess::Tile(tile_outcome));
     }
 
     // ── stage 3: full-resolution NCC refinement + reverification ──────────
     //
-    // #1254: instead of holding all N full-res frames resident, we use a
-    // 2-entry LRU decode cache.  Each edge's pair (a, b) is decoded on
-    // demand; frames are evicted when neither edge of the upcoming pair
-    // references them.  At most 2 full-resolution `PlanarImage`s are live
-    // simultaneously during this stage.
+    // #1254: 2-entry LRU decode cache — at most 2 full-resolution frames are
+    // live simultaneously. The loop is factored into `frame_cache::refine_edges_lru`
+    // to keep this file under the 600-LOC budget.
     let t3 = Instant::now();
     progress(3, 0.0);
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
-    let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
-    {
-        // 2-entry LRU cache: (frame_index, PlanarImage).
-        let mut cache: [Option<(usize, PlanarImage)>; 2] = [None, None];
-
-        let edge_count = graph.edges.len();
-        // Pre-compute (a, b) pairs for all edges and the look-ahead for
-        // eviction decisions — avoids borrowing graph.edges during iter_mut.
-        let edge_pairs: Vec<(usize, usize)> = graph.edges.iter().map(|e| (e.a, e.b)).collect();
-
-        for ei in 0..edge_count {
-            let (ia, ib) = edge_pairs[ei];
-
-            // Check which frames are already cached.
-            let slot_a = cache
-                .iter()
-                .position(|s| s.as_ref().map(|c| c.0) == Some(ia));
-
-            // Determine which cache slot to evict for each missing frame.
-            // Strategy: evict the slot whose frame is not referenced by
-            // either index of the *next* edge (if any).
-            let next_pair: Option<(usize, usize)> = edge_pairs.get(ei + 1).copied();
-
-            let slot_for_a = match slot_a {
-                Some(s) => s,
-                None => {
-                    // Need to load frame A.  Find the best slot to evict.
-                    let evict = choose_evict_slot(&cache, ia, ib, next_pair);
-                    load_frame(&mut cache, ia, &inputs[ia], evict).map_err(|cause| {
-                        StitchError::Decode {
-                            path: inputs[ia].clone(),
-                            cause,
-                        }
-                    })?;
-                    evict
-                }
-            };
-
-            // Re-check slot_b after possibly loading frame A (it could have
-            // been in the evict slot).
-            let slot_b_after = cache
-                .iter()
-                .position(|s| s.as_ref().map(|c| c.0) == Some(ib));
-            let slot_for_b = match slot_b_after {
-                Some(s) => s,
-                None => {
-                    // Load frame B into the remaining slot.
-                    let evict = if slot_for_a == 0 { 1 } else { 0 };
-                    load_frame(&mut cache, ib, &inputs[ib], evict).map_err(|cause| {
-                        StitchError::Decode {
-                            path: inputs[ib].clone(),
-                            cause,
-                        }
-                    })?;
-                    evict
-                }
-            };
-
-            // Both frames are now in the cache.
-            let img_a = cache[slot_for_a].as_ref().unwrap();
-            let img_b = cache[slot_for_b].as_ref().unwrap();
-            debug_assert_eq!(img_a.0, ia);
-            debug_assert_eq!(img_b.0, ib);
-
-            let scale_of = |meta: &FrameMeta| (meta.proxy_scale_x, meta.proxy_scale_y);
-            // Borrow edge fields we need, then release before mutating.
-            let (rotation_clone, inlier_matches_clone) = {
-                let edge = &graph.edges[ei];
-                (edge.rotation, edge.inlier_matches.clone())
-            };
-            let geometry = RefineGeometry {
-                cam_a: &full_images[ia].camera,
-                cam_b: &full_images[ib].camera,
-                rotation: &rotation_clone,
-            };
-            let outcome = refine_correspondences(
-                &img_a.1,
-                &img_b.1,
-                scale_of(&metas[ia]),
-                scale_of(&metas[ib]),
-                Some(&geometry),
-                &inlier_matches_clone,
-                &RefineOptions::default(),
-            );
-            refined_matches += outcome.refined_count;
-            fallback_matches += outcome.fallback_count;
-            graph.edges[ei].inlier_matches = outcome.refined;
-
-            progress(3, (ei + 1) as f32 / edge_count as f32);
-        }
-        // cache drops here, freeing the last ≤2 full-res frames.
-    }
+    let refine_result = refine_edges_lru(&mut graph, inputs, &metas, &full_images, |frac| {
+        progress(3, frac)
+    })?;
+    let (refined_matches, fallback_matches) = (
+        refine_result.refined_matches,
+        refine_result.fallback_matches,
+    );
 
     let reverify = graph
         .reverify(&full_images, &RobustOptions::default())
@@ -538,7 +505,7 @@ pub fn stitch(
     let t_composite = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
 
-    Ok(StitchOutcome {
+    Ok(StitchSuccess::Rotation(StitchOutcome {
         image,
         comp_report,
         solution,
@@ -559,5 +526,5 @@ pub fn stitch(
             t_solve,
             t_composite,
         ],
-    })
+    }))
 }
