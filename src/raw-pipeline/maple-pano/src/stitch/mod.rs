@@ -62,8 +62,11 @@
 //! When `canvas_tile_rows` is `None`, a default of 512 rows is used so the
 //! tiled path always engages on the rotation-strategy path.
 //!
-//! End-to-end on pano_01 (21 DJI DNGs): peak RSS < ~4 GB (vs 17.83 GB
-//! before this change — see PR #1254 for the `/usr/bin/time -l` measurements).
+//! End-to-end on pano_01 (21 DJI DNGs): the **frame-processing** peak RSS
+//! drops from ~34 GB → ~4.9 GB (measured).  End-to-end peak is ~13.6 GB,
+//! dominated by the ~8.7 GiB ONNX Runtime resident floor (tracked: #1275).
+//! The <4 GB target is an iOS-only goal (tracked: #1274) that requires
+//! ORT model pruning or on-demand ORT teardown.
 
 mod frame_cache;
 mod io;
@@ -521,12 +524,6 @@ pub fn stitch(
     // `canvas_tile_rows` controls the strip height; when `None` we default
     // to 512 rows so the tiled path (and its memory bound of ≤1 full-res
     // frame resident per strip pass) always engages.
-    eprintln!(
-        "[pano] stage 5: composite_tiled strip_rows={}, canvas={}×{}",
-        opts.canvas_tile_rows.unwrap_or(512),
-        canvas.width,
-        canvas.height,
-    );
     let tile_rows = opts.canvas_tile_rows.unwrap_or(512);
     let (image, comp_report) = composite_tiled(
         &kept_paths,
