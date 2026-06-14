@@ -59,7 +59,9 @@ use std::path::PathBuf;
 
 use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
-use crate::canvas::{auto_canvas, natural_canvas_pixel_ratio, CanvasOptions, ProjectionMode};
+use crate::canvas::{
+    auto_canvas, natural_canvas_pixel_ratio, CanvasOptions, ProjectionMode, DEGENERATE_CANVAS_RATIO,
+};
 use crate::composite::{composite, composite_tiled, CompositeOptions};
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::gain::{solve_gains, GainOptions};
@@ -368,15 +370,10 @@ pub fn stitch(
     // frames that DO connect but whose rotation BA is degenerate enough to blow
     // up the canvas.
     //
-    // Threshold — a small multiple of the cap (#1269: "a sane ceiling, a small
-    // multiple of max_canvas_px"). Measured anchors: a legit 21-frame DJI
-    // rotation pano (pano_01) sizes to ratio ≈ 1.08× at the 256 MP default; the
-    // ~317 GB blowup back-of-envelopes to ≈ 26–103× natural. 8× sits well clear
-    // of legit content yet fires before the blowup across that range. The risk
-    // is asymmetric — failing fast on a borderline-large pano is recoverable
-    // (raise --max-canvas-px, which lowers the ratio), but letting a degenerate
-    // set through hangs the host — so we err toward the lower bound.
-    const DEGENERATE_CANVAS_RATIO: f64 = 8.0;
+    // Threshold = `DEGENERATE_CANVAS_RATIO`, a small multiple of the cap
+    // (#1269: "a sane ceiling, a small multiple of max_canvas_px"). It is
+    // single-sourced in `crate::canvas` so this guard and its unit tests can't
+    // drift; see there for the measured anchors behind the value.
     {
         let kept_cams_guard: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
         if let Some(ratio) = natural_canvas_pixel_ratio(&kept_cams_guard, &canvas_opts) {
@@ -385,7 +382,7 @@ pub fn stitch(
                     "natural canvas is {ratio:.0}× larger than the {mp} MP cap — the rotation \
                      geometry is likely degenerate (near-parallel or translational frames; try \
                      Auto or Tile). If this is a genuinely large panorama, raise --max-canvas-px",
-                    mp = opts.max_canvas_px / 1_000_000,
+                    mp = opts.max_canvas_px as f64 / 1_000_000.0,
                 )));
             }
         }
