@@ -5,7 +5,8 @@ use crate::render::{build_camera_set, CameraSetOptions, Pattern};
 
 // The degeneracy threshold used in stitch/mod.rs; mirrored here so the unit
 // test can assert the ratio is above it without importing stitch internals.
-const DEGENERATE_CANVAS_RATIO: f64 = 1_000.0;
+// Keep in sync with `DEGENERATE_CANVAS_RATIO` in stitch/mod.rs.
+const DEGENERATE_CANVAS_RATIO: f64 = 8.0;
 
 fn ring(count: u32, fov_deg: f64, full: bool, overlap: f64) -> Vec<Camera> {
     let opts = CameraSetOptions {
@@ -251,13 +252,13 @@ fn rectilinear_force_rejects_wide_sets() {
 ///
 /// This test constructs 6 cameras that span the full sphere (mimicking the
 /// degenerate BA output) with a long focal length, then asserts that
-/// `natural_canvas_pixel_ratio` returns a value > 1 000× (the guard constant).
+/// `natural_canvas_pixel_ratio` returns a value > 8× (the guard constant).
 ///
 /// Math:
 ///   density ≈ focal / 1 px = 200 000 px/rad
 ///   full-sphere natural ≈ (2π × 200 000) × (π × 200 000)
 ///                       ≈ 1.257e6 × 6.283e5 ≈ 7.9e11 px
-///   ratio = 7.9e11 / 256e6 ≈ 3 086 > 1 000 ✓
+///   ratio = 7.9e11 / 256e6 ≈ 3 086 ≫ 8 ✓
 #[test]
 fn degenerate_geometry_exceeds_canvas_ratio_threshold() {
     // Six cameras spanning the full sphere (4 equatorial + zenith + nadir),
@@ -303,5 +304,27 @@ fn degenerate_geometry_exceeds_canvas_ratio_threshold() {
         ratio > DEGENERATE_CANVAS_RATIO,
         "full-sphere cameras with focal={focal} px produced ratio={ratio:.1}, \
          expected > {DEGENERATE_CANVAS_RATIO} (degeneracy guard threshold)"
+    );
+}
+
+/// The no-false-positive direction: a *legit* rotation pano (a normal
+/// horizontal ring with sane focal and overlap) must size to a natural canvas
+/// only modestly larger than the cap, so the guard does NOT fire. This locks
+/// the threshold as a "small multiple": it has to sit above realistic content.
+///
+/// Empirical anchor: a real 21-frame DJI rotation set (pano_01) measures
+/// ratio ≈ 1.08× at the 256 MP default. A synthetic ring is comfortably below
+/// the 8× threshold for the same reason.
+#[test]
+fn legit_rotation_ring_stays_under_canvas_ratio_threshold() {
+    // 8-camera partial horizontal ring, 60° FOV, 30% overlap — a normal pano.
+    let cams = ring(8, 60.0, false, 0.3);
+    let opts = CanvasOptions::default(); // max_pixels = 256 MP
+    let ratio = natural_canvas_pixel_ratio(&cams, &opts)
+        .expect("a legit ring should produce a finite ratio");
+    assert!(
+        ratio < DEGENERATE_CANVAS_RATIO,
+        "legit 8-camera ring produced ratio={ratio:.3}, expected < {DEGENERATE_CANVAS_RATIO} \
+         (guard must not fire on realistic geometry)"
     );
 }
