@@ -188,41 +188,6 @@ public actor PanoProvisioner {
         onProgress(PanoProvisionProgress(fraction: 1, label: "Done"))
     }
 
-    // MARK: - Load-time integrity (defends disable-library-validation)
-
-    /// Result of re-verifying the ORT dylib just before it is loaded.
-    public enum OrtDylibIntegrity: Sendable, Equatable {
-        case ok
-        case mismatch
-        case unreadable
-        /// iOS (ORT embedded at build time), or no ORT artifact in the manifest.
-        case notApplicable
-    }
-
-    /// Pure, testable core: compare the file's SHA-256 to `expectedSha256`
-    /// (`nil` → `.notApplicable`, missing/unreadable file → `.unreadable`).
-    nonisolated static func ortIntegrity(at url: URL, expectedSha256: String?) -> OrtDylibIntegrity {
-        guard let expected = expectedSha256 else { return .notApplicable }
-        guard let actual = try? sha256Hex(ofFileAt: url) else { return .unreadable }
-        return actual == expected ? .ok : .mismatch
-    }
-
-    /// Re-verify the installed ORT dylib at `url` against the pinned SHA-256
-    /// immediately before it is `dlopen`'d. The app runs with
-    /// `disable-library-validation` and the dylib lives in a user-writable
-    /// location, so a download-time check alone leaves a tamper/replace window
-    /// open. Callers must refuse to load on anything but `.ok`/`.notApplicable`.
-    /// iOS → `.notApplicable` (ORT is the build-time embedded framework).
-    public nonisolated static func verifyOrtDylibIntegrity(at url: URL) -> OrtDylibIntegrity {
-        #if os(macOS)
-        guard let ort = PanoProvisionManifest.ortRuntime,
-              case let .ortTarball(_, installedSha256) = ort.kind else { return .notApplicable }
-        return ortIntegrity(at: url, expectedSha256: installedSha256)
-        #else
-        return .notApplicable
-        #endif
-    }
-
     // MARK: - Install-state checks
 
     private func isModelInstalled(_ spec: PanoArtifactSpec) -> Bool {
