@@ -166,12 +166,19 @@ pub(super) fn run_tile_branch(
             match match_cache_map.get(&(a, b)) {
                 Some(cached) => cached.clone(),
                 None => {
-                    // This pair was not generated in the rotation graph build.
-                    // Run LightGlue inference fresh for this pair so we don't
-                    // silently drop it (shouldn't happen for well-formed sets).
+                    // This pair was requested by the unit-focal graph but was
+                    // absent from the rotation graph's candidate set (which used
+                    // EXIF focal + gimbal priors, so it may have generated a
+                    // *different* candidate set). We do NOT re-run LightGlue
+                    // inference here — the matcher and models are no longer
+                    // available in this scope. Instead we record a failure and
+                    // return an empty correspondence list; the graph will drop
+                    // this edge, and `tile_match_failures` will cause
+                    // `run_tile_branch` to propagate `StitchError::MatchFailed`.
                     tile_match_failures.push(format!(
-                        "tile re-verify: pair ({a},{b}) not in rotation cache — \
-                         the unit-focal candidate set is a superset of the EXIF-focal set"
+                        "tile re-verify: pair ({a},{b}) not in rotation match cache — \
+                         the unit-focal candidate set requested a pair the EXIF-focal \
+                         graph did not generate; stitching cannot proceed"
                     ));
                     Vec::new()
                 }
@@ -183,9 +190,14 @@ pub(super) fn run_tile_branch(
         return Err(StitchError::MatchFailed(tile_match_failures));
     }
 
-    // Decode full-res frames for NCC refinement (stage 3 of tile tail).
+    // Decode full-res frames for NCC refinement.  This is the first work of
+    // the tile tail (stage 3), which runs *after* stages 0–2 completed in
+    // `stitch()`.  Report progress on ordinal 3 so callers see a monotonically
+    // increasing stage number (0→1→2→3→4→5) and the fraction does not appear
+    // to go backwards.
     // For pano_00 (3 frames, ~130 MP total) this is ~3 GB transient RSS;
     // the rotation path avoids this via the 2-entry LRU cache (#1254).
+    progress(3, 0.0);
     let mut tile_frames: Vec<IngestedFrame> = Vec::with_capacity(inputs.len());
     for (i, path) in inputs.iter().enumerate() {
         if is_cancelled() {
@@ -195,7 +207,7 @@ pub(super) fn run_tile_branch(
             path: path.clone(),
             cause: e.to_string(),
         })?);
-        progress(0, (i + 1) as f32 / inputs.len() as f32);
+        progress(3, (i + 1) as f32 / inputs.len() as f32);
     }
 
     tile_tail(
