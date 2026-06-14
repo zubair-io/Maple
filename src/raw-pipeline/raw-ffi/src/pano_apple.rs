@@ -34,7 +34,7 @@ use std::sync::atomic::Ordering;
 use maple_pano::ba::RetentionPolicy;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::write_frame_png;
-use maple_pano::stitch::{stitch, stitch_tile, StitchError, StitchOptions};
+use maple_pano::stitch::{quantize_to_u16, stitch, stitch_tile, StitchError, StitchOptions};
 use maple_pano::strategy::StrategyRequest;
 
 use super::{MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy, SendProgressCallback};
@@ -115,13 +115,7 @@ pub(super) fn run_stitch_apple(
         }
         // Quantize to 16-bit (scene-linear, no sRGB — mirrors
         // `write_png16(path, img, srgb=false)` in maple-cli pano/io.rs).
-        let n = img.pixel_count();
-        let mut data: Vec<u16> = Vec::with_capacity(n * 3);
-        for i in 0..n {
-            data.push((img.r[i].clamp(0.0, 1.0) * 65535.0).round() as u16);
-            data.push((img.g[i].clamp(0.0, 1.0) * 65535.0).round() as u16);
-            data.push((img.b[i].clamp(0.0, 1.0) * 65535.0).round() as u16);
-        }
+        let data = quantize_to_u16(img, false);
         if let Err(e) = write_frame_png(out_path, img.width(), img.height(), &data) {
             set_last_error(format!("maple_pano_stitch: write PNG: {e}"));
             return -7;

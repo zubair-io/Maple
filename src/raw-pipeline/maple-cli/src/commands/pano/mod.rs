@@ -36,9 +36,8 @@ use std::time::Instant;
 use clap::Subcommand;
 
 use maple_pano::stitch::{self, StitchError, StitchOptions};
-use maple_pano::strategy::Strategy;
 
-use io::{stitch_report, tile_stitch_report, write_png16, ReportContext};
+use io::{stitch_report, write_png16, ReportContext};
 
 mod args;
 pub use args::StitchArgs;
