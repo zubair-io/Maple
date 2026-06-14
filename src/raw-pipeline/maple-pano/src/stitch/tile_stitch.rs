@@ -2,8 +2,18 @@
 //! consumed by the Apple FFI and any other caller (spec §8, ticket #1226).
 //!
 //! This is the planar/flat stitching path for nadir and translational sets
-//! (film scans, flatbed tiles, strip mapping). It is deliberately separate
-//! from the rotation-strategy [`super::stitch`] and shares no stage with it.
+//! (film scans, flatbed tiles, strip mapping). After the strategy-selection
+//! refactor (#1270) this module has two entry points:
+//!
+//! - [`stitch_tile`]: the full stand-alone tile pipeline (stages 0–5). Used
+//!   for testing and any caller that wants a self-contained tile entry point.
+//!   It runs its own decode + ML + match graph, then calls [`tile_tail`].
+//!
+//! - [`tile_tail`]: the tile-specific tail (stages 3–5: NCC refine +
+//!   placement solve + composite). Called by [`super::stitch`] when
+//!   strategy selection returns `Tile`, re-using the already-computed
+//!   early-stage state (metas, feature sets, match graph) so the expensive
+//!   ALIKED + LightGlue inference runs exactly once per stitch call (#1270).
 //!
 //! # Stage ordinals (progress callback)
 //!
@@ -18,16 +28,18 @@
 //!
 //! # No I/O
 //!
-//! This function does **not** write PNGs or JSON reports. The caller
+//! Neither function writes PNGs or JSON reports. The caller
 //! (CLI or FFI) owns all output I/O so that the crate stays I/O-free.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use crate::features::{AlikedDetector, DetectorOptions, LinearRgbFrame};
+use crate::camera::Camera;
+use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{
-    build_match_graph, CaptureOrderProvider, GimbalPriorProvider, MatchGraph, ReverifySummary,
+    build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage, MatchGraph,
+    ReverifySummary,
 };
 use crate::ingest::{ingest_file, proxy_to_long_edge, FramePriors, IngestedFrame, PlanarImage};
 use crate::matching::{LightGlueMatcher, MatcherOptions};
@@ -38,146 +50,201 @@ use crate::stitch::interleave_planar;
 use crate::strategy::StrategyReport;
 use crate::tile::placement::{solve_tile_poses, TileConstraint};
 use crate::tile::{composite_tile, verify_tile_edges};
+use crate::twoview::PixelCorrespondence;
 
 use super::types::{StitchError, StitchOptions, TileStitchOutcome};
 
-/// Run the tile-strategy panorama pipeline on the given RAW frames.
+// ─── Shared early-stage state ─────────────────────────────────────────────────
+
+/// Early-stage state (stages 0–2) passed to [`tile_tail`] by [`super::stitch`].
 ///
-/// `inputs` must have at least 2 elements. `progress` is called with
-/// `(stage, fraction)` at each pipeline stage (ordinals 0–5, see module
-/// docs). `is_cancelled` is polled between stages — return `true` to
-/// abort with [`StitchError::Cancelled`].
+/// Fields are ordered by how they are produced during the shared pipeline:
+/// stage-0 meta → stage-1 features + proxy dims → stage-2 match graph.
+pub(super) struct TileEarlyState<'a> {
+    /// Ingested full-resolution frames; the tile refine step reads pixels here.
+    pub frames: Vec<IngestedFrame>,
+    /// Per-frame proxy dimensions `(width, height)`.
+    pub proxy_dims: Vec<(u32, u32)>,
+    /// Feature sets extracted by ALIKED (kept here for the struct but not read
+    /// by `tile_tail` — the graph's match closure already consumed them during
+    /// `build_match_graph`; they are stored so the caller can forward them if
+    /// a future stage needs re-matching without re-running ALIKED).
+    pub _feature_sets: Vec<FeatureSet>,
+    /// The proxy-resolution match graph (verified edges).
+    pub graph: MatchGraph,
+    /// Strategy-selection report (evidence + selected strategy + warning).
+    pub strategy_report: StrategyReport,
+    /// Wall-clock times for stages 0, 1, 2 (seconds).
+    pub stage_timings_012: [f64; 3],
+    /// Path list parallel to `frames` (for the stitch report).
+    pub _inputs: &'a [PathBuf],
+}
+
+// ─── Tile branch helper called from stitch() ─────────────────────────────────
+
+/// State passed from `stitch()` into the tile branch.
 ///
-/// On success the caller owns all I/O (PNG writing, JSON report). This
-/// function is pure computation: decode → features → graph → refine →
-/// solve → composite.
-pub fn stitch_tile(
-    inputs: &[PathBuf],
-    opts: &StitchOptions,
-    strategy_report: StrategyReport,
+/// Contains everything `stitch()` computed in stages 0–2 that the tile
+/// branch needs, plus the raw LightGlue match cache so the graph can be
+/// re-built with unit-focal cameras without re-running ONNX inference.
+pub(super) struct TileBranchInput<'a> {
+    /// Paths of the input files (used for on-demand full-res decode).
+    pub inputs: &'a [std::path::PathBuf],
+    /// Options forwarded from the `stitch()` caller.
+    pub opts: &'a super::types::StitchOptions,
+    /// Raw LightGlue correspondences keyed by `(a, b)` in candidate order.
+    pub raw_matches_cache: Vec<((usize, usize), Vec<PixelCorrespondence>)>,
+    /// Per-frame proxy dimensions `(width, height)` from stage 0.
+    pub proxy_dims: Vec<(u32, u32)>,
+    /// Feature sets from stage 1 (kept for future re-matching without ALIKED).
+    pub feature_sets: Vec<FeatureSet>,
+    /// Strategy report (evidence + selected strategy + warning).
+    pub strategy_report: StrategyReport,
+    /// Stage 0–2 wall-clock timings (decode, features, match_graph).
+    pub stage_timings_012: [f64; 3],
+    /// Per-frame opcode lists from stage 0.
+    pub applied_opcodes: Vec<Vec<String>>,
+    /// Per-frame EXIF/gimbal priors from stage 0.
+    pub priors: Vec<crate::ingest::FramePriors>,
+}
+
+/// Run the tile branch from inside `stitch()` (#1270).
+///
+/// `stitch()` calls this when `select_strategy` returns `Tile`.  The raw
+/// LightGlue matches from stage 2 are re-used verbatim; only the geometric
+/// verification is re-run with unit-focal cameras (no ONNX call).
+///
+/// Returns a `TileStitchOutcome` ready for `StitchSuccess::Tile`.
+pub(super) fn run_tile_branch(
+    input: TileBranchInput<'_>,
     mut progress: impl FnMut(u32, f32),
     is_cancelled: impl Fn() -> bool,
-) -> Result<TileStitchOutcome, StitchError> {
-    use std::time::Instant;
+) -> Result<TileStitchOutcome, super::types::StitchError> {
+    use super::types::StitchError;
 
-    if inputs.len() < 2 {
-        return Err(StitchError::TooFewFrames(inputs.len()));
+    let TileBranchInput {
+        inputs,
+        opts,
+        raw_matches_cache,
+        proxy_dims,
+        feature_sets,
+        strategy_report,
+        stage_timings_012,
+        applied_opcodes,
+        priors,
+    } = input;
+
+    // Build unit-focal proxy cameras (same as stitch_tile does).  The tile
+    // path uses pixel correspondences directly; it doesn't need real focal.
+    let unit_proxy_images: Vec<GraphImage> = proxy_dims
+        .iter()
+        .map(|&(w, h)| GraphImage {
+            camera: Camera::new([0.0; 3], 1.0, 0.0, 0.0, w, h),
+            prior_rotation: None,
+        })
+        .collect();
+
+    // Re-build the match graph using cached LightGlue matches + unit focal
+    // cameras so the rotation verifier (σ_max_rad at unit focal is very large)
+    // passes through the translational correspondences, exactly replicating
+    // what stitch_tile produces and making the tile output byte-identical to
+    // the pre-#1270 behavior.
+    //
+    // Key-based lookup: the rotation graph (EXIF focal, with gimbal priors)
+    // may have generated MORE candidate pairs than the unit-focal graph
+    // (no priors → GimbalPriorProvider produces no pairs).  A sequential
+    // cache iterator would mis-assign cached matches if the pair sets differ.
+    // Instead we index the cache by `(a, b)` and look up each pair by key.
+    use std::collections::HashMap;
+    let match_cache_map: HashMap<(usize, usize), Vec<PixelCorrespondence>> =
+        raw_matches_cache.into_iter().collect();
+    let mut tile_match_failures: Vec<String> = Vec::new();
+    let tile_graph = build_match_graph(
+        &unit_proxy_images,
+        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
+        |a, b| -> Vec<PixelCorrespondence> {
+            match match_cache_map.get(&(a, b)) {
+                Some(cached) => cached.clone(),
+                None => {
+                    // This pair was not generated in the rotation graph build.
+                    // Run LightGlue inference fresh for this pair so we don't
+                    // silently drop it (shouldn't happen for well-formed sets).
+                    tile_match_failures.push(format!(
+                        "tile re-verify: pair ({a},{b}) not in rotation cache — \
+                         the unit-focal candidate set is a superset of the EXIF-focal set"
+                    ));
+                    Vec::new()
+                }
+            }
+        },
+        &RobustOptions::default(),
+    );
+    if !tile_match_failures.is_empty() {
+        return Err(StitchError::MatchFailed(tile_match_failures));
     }
 
-    // ── stage 0: decode + priors ──────────────────────────────────────────
-    let t0 = Instant::now();
-    progress(0, 0.0);
-    let mut frames: Vec<IngestedFrame> = Vec::with_capacity(inputs.len());
+    // Decode full-res frames for NCC refinement (stage 3 of tile tail).
+    // For pano_00 (3 frames, ~130 MP total) this is ~3 GB transient RSS;
+    // the rotation path avoids this via the 2-entry LRU cache (#1254).
+    let mut tile_frames: Vec<IngestedFrame> = Vec::with_capacity(inputs.len());
     for (i, path) in inputs.iter().enumerate() {
         if is_cancelled() {
             return Err(StitchError::Cancelled);
         }
-        frames.push(ingest_file(path).map_err(|e| StitchError::Decode {
+        tile_frames.push(ingest_file(path).map_err(|e| StitchError::Decode {
             path: path.clone(),
             cause: e.to_string(),
         })?);
         progress(0, (i + 1) as f32 / inputs.len() as f32);
     }
-    let decode_s = t0.elapsed().as_secs_f64();
 
-    let applied_opcodes: Vec<Vec<String>> =
-        frames.iter().map(|f| f.applied_opcodes.clone()).collect();
-    let priors: Vec<FramePriors> = frames.iter().map(|f| f.priors.clone()).collect();
-
-    // ── stage 1: ML load + proxy feature extraction ───────────────────────
-    let t1 = Instant::now();
-    progress(1, 0.0);
-    if is_cancelled() {
-        return Err(StitchError::Cancelled);
-    }
-
-    let models = ModelDir::resolve(opts.models_dir.as_deref())
-        .map_err(|e| StitchError::MlUnavailable(e.to_string()))?;
-    let mut detector = AlikedDetector::load(
-        &models,
-        DetectorOptions {
-            use_coreml: opts.use_coreml,
-            ..DetectorOptions::default()
+    tile_tail(
+        TileEarlyState {
+            frames: tile_frames,
+            proxy_dims,
+            _feature_sets: feature_sets,
+            graph: tile_graph,
+            strategy_report,
+            stage_timings_012,
+            _inputs: inputs,
         },
+        opts,
+        applied_opcodes,
+        priors,
+        progress,
+        is_cancelled,
     )
-    .map_err(|e| StitchError::MlUnavailable(format!("ALIKED load failed: {e}")))?;
-    let mut matcher = LightGlueMatcher::load(
-        &models,
-        MatcherOptions {
-            use_coreml: opts.use_coreml,
-            ..MatcherOptions::default()
-        },
-    )
-    .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
+}
 
-    let mut feature_sets = Vec::with_capacity(frames.len());
-    let mut proxy_dims: Vec<(u32, u32)> = Vec::with_capacity(frames.len());
+// ─── Tile tail (stages 3–5) ───────────────────────────────────────────────────
 
-    for (i, frame) in frames.iter().enumerate() {
-        if is_cancelled() {
-            return Err(StitchError::Cancelled);
-        }
-        let proxy = proxy_to_long_edge(&frame.image, opts.proxy_long_edge);
-        proxy_dims.push((proxy.width(), proxy.height()));
-        let rgb = interleave_planar(&proxy);
-        let lin = LinearRgbFrame::new(proxy.width(), proxy.height(), rgb).map_err(|e| {
-            StitchError::Feature {
-                frame_idx: i,
-                cause: e.to_string(),
-            }
-        })?;
-        let fs = detector.detect(&lin).map_err(|e| StitchError::Feature {
-            frame_idx: i,
-            cause: format!("detect: {e}"),
-        })?;
-        feature_sets.push(fs);
-        progress(1, (i + 1) as f32 / frames.len() as f32);
-    }
-    let features_s = t1.elapsed().as_secs_f64();
+/// Run the tile-specific tail (NCC refinement → placement solve → composite)
+/// using already-computed early-stage state.
+///
+/// Called by [`super::stitch`] when `select_strategy` returns `Tile` — the
+/// shared ALIKED + LightGlue inference and match graph from stages 0–2 are
+/// re-used directly, so no re-decode or re-inference happens (#1270).
+///
+/// Also called by [`stitch_tile`] after it builds its own early state.
+pub(super) fn tile_tail(
+    state: TileEarlyState<'_>,
+    _opts: &StitchOptions,
+    applied_opcodes: Vec<Vec<String>>,
+    priors: Vec<FramePriors>,
+    mut progress: impl FnMut(u32, f32),
+    is_cancelled: impl Fn() -> bool,
+) -> Result<TileStitchOutcome, StitchError> {
+    use std::time::Instant;
 
-    // Build proxy-resolution camera seeds with unit focal (1.0). The tile
-    // path uses pixel correspondences directly and skips perspective BA, so
-    // no EXIF focal is needed.
-    let proxy_images: Vec<crate::graph::GraphImage> = frames
-        .iter()
-        .enumerate()
-        .map(|(i, _f)| crate::graph::GraphImage {
-            camera: crate::camera::Camera::new(
-                [0.0; 3],
-                1.0,
-                0.0,
-                0.0,
-                proxy_dims[i].0,
-                proxy_dims[i].1,
-            ),
-            prior_rotation: None,
-        })
-        .collect();
-
-    // ── stage 2: match graph ──────────────────────────────────────────────
-    let t2 = Instant::now();
-    progress(2, 0.0);
-    if is_cancelled() {
-        return Err(StitchError::Cancelled);
-    }
-    let mut match_failures: Vec<String> = Vec::new();
-    let mut graph: MatchGraph = build_match_graph(
-        &proxy_images,
-        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
-        |a, b| match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
-            Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
-            Err(e) => {
-                match_failures.push(format!("pair ({a},{b}): {e}"));
-                Vec::new()
-            }
-        },
-        &RobustOptions::default(),
-    );
-    if !match_failures.is_empty() {
-        return Err(StitchError::MatchFailed(match_failures));
-    }
-    let graph_s = t2.elapsed().as_secs_f64();
-    progress(2, 1.0);
+    let TileEarlyState {
+        frames,
+        proxy_dims,
+        _feature_sets: _,
+        mut graph,
+        strategy_report,
+        stage_timings_012: [decode_s, features_s, graph_s],
+        _inputs: _,
+    } = state;
 
     // ── stage 3: full-resolution NCC refinement ───────────────────────────
     // No rotation geometry for the tile path — pass `None` for geometry.
@@ -323,4 +390,173 @@ pub fn stitch_tile(
             composite_s,
         ],
     })
+}
+
+// ─── Stand-alone entry point (stages 0–5) ────────────────────────────────────
+
+/// Run the tile-strategy panorama pipeline on the given RAW frames.
+///
+/// `inputs` must have at least 2 elements. `progress` is called with
+/// `(stage, fraction)` at each pipeline stage (ordinals 0–5, see module
+/// docs). `is_cancelled` is polled between stages — return `true` to
+/// abort with [`StitchError::Cancelled`].
+///
+/// On success the caller owns all I/O (PNG writing, JSON report). This
+/// function is pure computation: decode → features → graph → refine →
+/// solve → composite.
+///
+/// # Implementation note
+///
+/// After the #1270 refactor this is a thin wrapper: it runs stages 0–2
+/// to build early state, then calls [`tile_tail`] for stages 3–5.
+/// The shared [`super::stitch`] entry point does the same thing but
+/// re-uses the early state it already computed (skipping a second decode
+/// and ML pass for sets that auto-select tile). This function exists for
+/// standalone tests and any caller that wants to run the tile path
+/// unconditionally without first calling [`super::stitch`].
+pub fn stitch_tile(
+    inputs: &[PathBuf],
+    opts: &StitchOptions,
+    strategy_report: StrategyReport,
+    mut progress: impl FnMut(u32, f32),
+    is_cancelled: impl Fn() -> bool,
+) -> Result<TileStitchOutcome, StitchError> {
+    use std::time::Instant;
+
+    if inputs.len() < 2 {
+        return Err(StitchError::TooFewFrames(inputs.len()));
+    }
+
+    // ── stage 0: decode + priors ──────────────────────────────────────────
+    let t0 = Instant::now();
+    progress(0, 0.0);
+    let mut frames: Vec<IngestedFrame> = Vec::with_capacity(inputs.len());
+    for (i, path) in inputs.iter().enumerate() {
+        if is_cancelled() {
+            return Err(StitchError::Cancelled);
+        }
+        frames.push(ingest_file(path).map_err(|e| StitchError::Decode {
+            path: path.clone(),
+            cause: e.to_string(),
+        })?);
+        progress(0, (i + 1) as f32 / inputs.len() as f32);
+    }
+    let decode_s = t0.elapsed().as_secs_f64();
+
+    let applied_opcodes: Vec<Vec<String>> =
+        frames.iter().map(|f| f.applied_opcodes.clone()).collect();
+    let priors: Vec<FramePriors> = frames.iter().map(|f| f.priors.clone()).collect();
+
+    // ── stage 1: ML load + proxy feature extraction ───────────────────────
+    let t1 = Instant::now();
+    progress(1, 0.0);
+    if is_cancelled() {
+        return Err(StitchError::Cancelled);
+    }
+
+    let models = ModelDir::resolve(opts.models_dir.as_deref())
+        .map_err(|e| StitchError::MlUnavailable(e.to_string()))?;
+    let mut detector = AlikedDetector::load(
+        &models,
+        DetectorOptions {
+            use_coreml: opts.use_coreml,
+            ..DetectorOptions::default()
+        },
+    )
+    .map_err(|e| StitchError::MlUnavailable(format!("ALIKED load failed: {e}")))?;
+    let mut matcher = LightGlueMatcher::load(
+        &models,
+        MatcherOptions {
+            use_coreml: opts.use_coreml,
+            ..MatcherOptions::default()
+        },
+    )
+    .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
+
+    let mut feature_sets = Vec::with_capacity(frames.len());
+    let mut proxy_dims: Vec<(u32, u32)> = Vec::with_capacity(frames.len());
+
+    for (i, frame) in frames.iter().enumerate() {
+        if is_cancelled() {
+            return Err(StitchError::Cancelled);
+        }
+        let proxy = proxy_to_long_edge(&frame.image, opts.proxy_long_edge);
+        proxy_dims.push((proxy.width(), proxy.height()));
+        let rgb = interleave_planar(&proxy);
+        let lin = LinearRgbFrame::new(proxy.width(), proxy.height(), rgb).map_err(|e| {
+            StitchError::Feature {
+                frame_idx: i,
+                cause: e.to_string(),
+            }
+        })?;
+        let fs = detector.detect(&lin).map_err(|e| StitchError::Feature {
+            frame_idx: i,
+            cause: format!("detect: {e}"),
+        })?;
+        feature_sets.push(fs);
+        progress(1, (i + 1) as f32 / frames.len() as f32);
+    }
+    let features_s = t1.elapsed().as_secs_f64();
+
+    // Build proxy-resolution camera seeds with unit focal (1.0). The tile
+    // path uses pixel correspondences directly and skips perspective BA, so
+    // no EXIF focal is needed.
+    let proxy_images: Vec<crate::graph::GraphImage> = frames
+        .iter()
+        .enumerate()
+        .map(|(i, _f)| crate::graph::GraphImage {
+            camera: crate::camera::Camera::new(
+                [0.0; 3],
+                1.0,
+                0.0,
+                0.0,
+                proxy_dims[i].0,
+                proxy_dims[i].1,
+            ),
+            prior_rotation: None,
+        })
+        .collect();
+
+    // ── stage 2: match graph ──────────────────────────────────────────────
+    let t2 = Instant::now();
+    progress(2, 0.0);
+    if is_cancelled() {
+        return Err(StitchError::Cancelled);
+    }
+    let mut match_failures: Vec<String> = Vec::new();
+    let graph: MatchGraph = build_match_graph(
+        &proxy_images,
+        &[&CaptureOrderProvider, &GimbalPriorProvider::default()],
+        |a, b| match matcher.match_features(&feature_sets[a], &feature_sets[b]) {
+            Ok(ml_matches) => ml_matches_to_correspondences(&ml_matches, DEFAULT_MIN_SCORE),
+            Err(e) => {
+                match_failures.push(format!("pair ({a},{b}): {e}"));
+                Vec::new()
+            }
+        },
+        &RobustOptions::default(),
+    );
+    if !match_failures.is_empty() {
+        return Err(StitchError::MatchFailed(match_failures));
+    }
+    let graph_s = t2.elapsed().as_secs_f64();
+    progress(2, 1.0);
+
+    // ── stages 3–5: NCC refine + placement + composite ────────────────────
+    tile_tail(
+        TileEarlyState {
+            frames,
+            proxy_dims,
+            _feature_sets: feature_sets,
+            graph,
+            strategy_report,
+            stage_timings_012: [decode_s, features_s, graph_s],
+            _inputs: inputs,
+        },
+        opts,
+        applied_opcodes,
+        priors,
+        progress,
+        is_cancelled,
+    )
 }

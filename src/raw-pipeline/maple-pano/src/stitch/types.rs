@@ -1,4 +1,9 @@
 //! Public types for the stitch pipeline: options, outcome, and errors.
+//!
+//! [`StitchSuccess`] is the top-level success type returned by [`super::stitch`];
+//! it carries either a rotation outcome or a tile outcome. Both strategies share
+//! the same early pipeline (decode + ML + match graph) so no re-decode happens
+//! when the auto selector chooses tile (#1270).
 
 use std::path::PathBuf;
 
@@ -158,6 +163,34 @@ pub struct TileStitchOutcome {
     pub stage_timings_s: [f64; 6],
 }
 
+// ─── Unified success type ─────────────────────────────────────────────────────
+
+/// The success result of [`super::stitch`].
+///
+/// Both strategies share the early pipeline (decode-proxy + ALIKED +
+/// LightGlue + match graph). After strategy selection the run diverges:
+/// rotation continues through BA → leveling → equirect composite;
+/// tile goes through planar placement → NCC refine → planar composite.
+///
+/// Callers that only need the pixel output can use the blanket accessor
+/// [`StitchSuccess::image`] without matching on the strategy.
+pub enum StitchSuccess {
+    /// The rotation strategy ran (BA → leveling → equirect composite).
+    Rotation(StitchOutcome),
+    /// The tile strategy ran (planar placement → NCC refine → composite).
+    Tile(TileStitchOutcome),
+}
+
+impl StitchSuccess {
+    /// The composited pixel output regardless of which strategy ran.
+    pub fn image(&self) -> &crate::ingest::PlanarImage {
+        match self {
+            Self::Rotation(o) => &o.image,
+            Self::Tile(o) => &o.image,
+        }
+    }
+}
+
 // ─── Errors ──────────────────────────────────────────────────────────────────
 
 /// Errors from `stitch`.
@@ -179,8 +212,6 @@ pub enum StitchError {
     Reverify(String),
     /// Compositing failed.
     Composite(String),
-    /// Strategy returned `Tile` — the caller must route to its tile path.
-    TileNotSupported(StrategyReport),
     /// Too few frames survived bundle adjustment to composite.
     TooFewSurvivors {
         survived: usize,
@@ -222,10 +253,6 @@ impl std::fmt::Display for StitchError {
             Self::BaSolve(e) => write!(f, "BA solve: {e}"),
             Self::Reverify(e) => write!(f, "reverify: {e}"),
             Self::Composite(e) => write!(f, "composite: {e}"),
-            Self::TileNotSupported(_) => write!(
-                f,
-                "tile strategy selected; tile FFI path not yet implemented"
-            ),
             Self::TooFewSurvivors { survived, dropped } => write!(
                 f,
                 "only {survived} frame(s) survived BA (drops: {dropped:?})"
