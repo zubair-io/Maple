@@ -32,18 +32,16 @@
 //!
 //! # Tile strategy (#1270)
 //!
-//! The tile strategy now runs inline inside [`stitch`] when `select_strategy`
-//! returns `Strategy::Tile`. The early-stage state (decode-proxy + ALIKED +
-//! LightGlue + match graph, stages 0–2) is shared between both paths;
-//! only the tail (stages 3–5) differs. This eliminates the previous
-//! double-decode + double-ML pattern where callers had to re-run the entire
-//! pipeline after receiving `Err(TileNotSupported)`.
+//! When `select_strategy` returns `Strategy::Tile`, [`stitch`] hands off to
+//! [`tile_stitch::run_tile_branch`] after completing stages 0–2. The
+//! early-stage state (decode-proxy + ALIKED + LightGlue + match graph) is
+//! shared; only the tail (stages 3–5) differs between the two paths. This
+//! eliminates the previous double-decode + double-ML pattern.
 //!
-//! [`stitch`] now returns `Result<StitchSuccess, StitchError>` where
+//! [`stitch`] returns `Result<StitchSuccess, StitchError>` where
 //! `StitchSuccess::Rotation(outcome)` or `StitchSuccess::Tile(outcome)`
 //! tells the caller which strategy ran. The `TileNotSupported` error variant
-//! is retained for backward compatibility but is no longer returned by
-//! [`stitch`].
+//! was removed in the #1270 refactor — it is no longer part of `StitchError`.
 //!
 //! # Memory-bounded path (#1254)
 //!
@@ -129,9 +127,11 @@ pub use crate::strategy::StrategyRequest;
 /// - **Tile** → NCC refinement → planar placement → planar composite;
 ///   returns `Ok(StitchSuccess::Tile(_))`.
 ///
-/// The previous `Err(StitchError::TileNotSupported)` sentinel is no longer
-/// returned — callers that previously caught it to drive a second
-/// `stitch_tile` call should now consume `StitchSuccess::Tile` directly.
+/// On success the return value is either `Ok(StitchSuccess::Rotation(_))` or
+/// `Ok(StitchSuccess::Tile(_))` depending on which strategy was selected.
+/// `StitchError::TileNotSupported` no longer exists — callers that previously
+/// caught it to drive a second `stitch_tile` call should consume
+/// `StitchSuccess::Tile` directly.
 pub fn stitch(
     inputs: &[PathBuf],
     opts: &StitchOptions,
