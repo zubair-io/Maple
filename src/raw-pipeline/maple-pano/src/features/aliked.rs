@@ -8,6 +8,7 @@
 
 use std::path::PathBuf;
 
+use ort::execution_providers::cpu::CPUExecutionProvider;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
@@ -96,8 +97,46 @@ impl AlikedDetector {
     /// a logged fallback, never silent.
     pub fn load(models: &ModelDir, options: DetectorOptions) -> Result<Self, MlError> {
         OrtRuntime::preflight(None)?;
+        // #1275: Disable ORT's pre-allocation heuristics on macOS-CPU to
+        // reduce the session memory floor.
+        //
+        // `with_memory_pattern(false)`: ORT's memory-pattern optimisation
+        // pre-allocates contiguous buffers sized to the *worst-case* output
+        // across all nodes in the first inference pass and reuses them for
+        // every subsequent call. For a static-shape model that never changes
+        // size (ALIKED is exported as a fixed 1280×1280 square) the savings
+        // are zero, while the pre-allocated slab stays resident for the
+        // session's lifetime. Disabling it alone reduces the 2-frame floor by
+        // ~2.76 GiB. LightGlue, by contrast, has dynamic N axes (keypoint
+        // count varies per frame) so the pattern optimisation genuinely
+        // over-reserves.
+        //
+        // `CPUExecutionProvider::with_arena_allocator(false)`: the CPU arena
+        // uses a doubling-growth strategy and never returns memory to the OS
+        // for the session's lifetime. Each intra-op thread maintains its own
+        // arena pool. For two sessions across all threads that compounds.
+        // Disabling the arena reduces the 2-frame floor by ~1.40 GiB on its
+        // own; combined with memory-pattern(false) the total reduction is
+        // ~4.02 GiB (8.67 → 4.65 GiB, measured on macOS arm64, ORT 1.23.2).
+        //
+        // Neither option affects correctness: both control memory management
+        // only. Inference-time (wall-clock) is unchanged at the default
+        // thread count (measured: 2.8 s for the 2-frame probe, same as
+        // baseline). `intra_threads=1` reduces RSS by a further ~40 MB but
+        // doubles inference time — not worth it.
+        //
+        // These options apply to the macOS-CPU path only. The iOS CoreML path
+        // (registered below when `use_coreml = true`) is unaffected: CoreML
+        // uses its own allocator and ignores ORT's CPU arena / memory-pattern
+        // settings. The options are safe to keep unconditionally.
         let mut builder = Session::builder()
             .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
+            .and_then(|b| b.with_memory_pattern(false))
+            .and_then(|b| {
+                b.with_execution_providers([CPUExecutionProvider::default()
+                    .with_arena_allocator(false)
+                    .build()])
+            })
             .map_err(|e| MlError::Runtime(format!("session builder: {e}")))?;
         if let Some(threads) = options.intra_threads {
             builder = builder
