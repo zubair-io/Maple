@@ -21,19 +21,24 @@ use super::{bilinear_valid, frames_may_overlap, solve_dense, GainMode, GainOptio
 ///
 /// Instead of storing the source pixel value (12 bytes) alongside the
 /// destination coordinate (16 bytes), this struct stores only the destination
-/// coordinate in f32 precision (8 bytes) and the source frame index (1 byte)
-/// — 9 bytes per record, padded to 12.  The source pixel value is accumulated
+/// coordinate in f32 precision (8 bytes) and the source frame index (2 bytes)
+/// — 10 bytes per record, padded to 12.  The source pixel value is accumulated
 /// separately into `sum_i_scratch` while frame `i` is still decoded, removing
 /// the need to store it here.
 ///
 /// Memory savings on pano_01 (21 frames, stride=4): pending buffer shrinks
 /// from ~4 GB at peak (36 bytes × ~19 M pending samples) to ~228 MB (12 bytes
 /// × same count) — an 18× reduction (#1254).
+///
+/// `src_frame` is `u16` (up to 65 535 frames) — `u8` was insufficient for
+/// panos with more than 255 frames and would silently corrupt pair
+/// accumulation by wrapping frame indices.
 #[derive(Clone, Copy)]
 pub(super) struct PendingSample {
     /// Source frame index i (always i < j = current destination frame).
-    /// Stored as u8: sufficient for up to 255 frames.
-    pub src_frame: u8,
+    /// `u16`: supports up to 65 535 frames; `u8` would overflow for
+    /// panos with more than 255 frames.
+    pub src_frame: u16,
     /// Sub-pixel destination coordinate in frame j (f32 precision).
     pub dst_x: f32,
     pub dst_y: f32,
@@ -68,12 +73,18 @@ struct SumIScratch {
 /// **Forward:** for each potential pair `(k, j)` with j > k and overlapping
 /// cameras, walk frame k's strided grid; for each sample that projects into
 /// cam_j's bounds, push a [`PendingSample`] into `pending_for_dst[j]` with
-/// the destination coordinate in frame j.  Accumulate the source pixel value
-/// from frame k into `sum_i_scratch[k * n + j]` while frame k is still live.
+/// the destination coordinate in frame j and the source frame index `k`.
+/// The source pixel value is **not** stored in the `PendingSample`; instead
+/// it is accumulated directly into `sum_i_scratch[k * n + j]` (a separate
+/// array, alive while frame k is decoded).
 ///
 /// **Resolve:** drain `pending_for_dst[k]` — contributions from all earlier
 /// frames i < k whose grid points map into cam_k.  Bilinear-sample frame k
-/// at each recorded coordinate and accumulate into `pair_accum[i * n + k]`.
+/// at each recorded destination coordinate and accumulate the result into
+/// `pair_accum[i * n + k].sum_j`.  After resolving, copy `sum_i_scratch`
+/// into `pair_accum[i * n + k].sum_i` scaled by the fraction of samples
+/// that resolved (border misses are rare; scaling keeps the pair means
+/// consistent).
 ///
 /// After all N passes, `pair_accum` holds per-pair statistics and the linear
 /// system is solved identically to `solve_gains`.
@@ -152,7 +163,7 @@ pub fn solve_gains_streaming(
     let stride = opts.sample_stride.max(1);
 
     for k in 0..n {
-        let frame = ingest_file(&paths[k]).map_err(|e| PanoError::InvalidOptions(e.to_string()))?;
+        let frame = ingest_file(&paths[k])?;
         let img = frame.image;
 
         // ── Forward: frame k as SOURCE for pairs (k, j), j > k ──────────
@@ -180,7 +191,7 @@ pub fn solve_gains_streaming(
                                 {
                                     // Record only the destination coord (f32).
                                     pending_for_dst[j].push(PendingSample {
-                                        src_frame: k as u8,
+                                        src_frame: k as u16,
                                         dst_x: qx as f32,
                                         dst_y: qy as f32,
                                     });
