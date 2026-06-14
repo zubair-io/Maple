@@ -1,5 +1,5 @@
 use super::*;
-use crate::camera::focal_px_for_hfov;
+use crate::camera::{focal_px_for_hfov, Camera};
 use crate::prng::SplitMix64;
 use crate::render::{build_camera_set, CameraSetOptions, Pattern};
 
