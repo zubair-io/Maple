@@ -265,6 +265,81 @@ pub fn ingest_file(path: &Path) -> Result<IngestedFrame, PanoError> {
     })
 }
 
+/// Lightweight frame metadata collected during the decode-and-proxy stage.
+///
+/// Holds everything needed for feature extraction, match-graph construction,
+/// strategy selection, bundle adjustment, and re-decode orchestration — but
+/// **not** the full-resolution pixel planes.  Those are decoded on demand in
+/// the refinement and composite stages (see `#1254`).
+#[derive(Clone, Debug)]
+pub struct FrameMeta {
+    /// Long-edge-capped proxy (downscaled from the full-res decode).
+    pub proxy: PlanarImage,
+    /// Scale factor `full_width / proxy_width` (used to up-project proxy
+    /// coordinates to full-res in the refinement step).
+    pub proxy_scale_x: f64,
+    /// Scale factor `full_height / proxy_height`.
+    pub proxy_scale_y: f64,
+    /// Full-resolution dimensions of the source frame (needed for the
+    /// `Camera` intrinsics seed and validity mask construction at
+    /// re-decode time).
+    pub full_width: u32,
+    pub full_height: u32,
+    /// EXIF / gimbal priors (focal seed, gimbal attitude).
+    pub priors: FramePriors,
+    /// Camera make string (surfaced in the stitch report).
+    pub camera_make: String,
+    /// Camera model string (surfaced in the stitch report).
+    pub camera_model: String,
+    /// OpcodeList3 corrections applied at decode — surfaced in the stitch
+    /// report; empty when the source carries none.
+    pub applied_opcodes: Vec<String>,
+}
+
+/// Decode `path`, produce the long-edge-capped proxy (side ≤
+/// `proxy_long_edge`), and return the lightweight [`FrameMeta`].  The
+/// full-resolution pixel buffer is allocated internally for the
+/// downscale and then immediately freed — it is **never** returned to
+/// the caller, so only the proxy planes are retained.
+///
+/// This is stage-0's decode path for `#1254`: every frame is decoded
+/// once here to produce the proxy and priors; the full-resolution
+/// pixels are re-decoded on demand in later stages.
+pub fn ingest_file_proxy(path: &Path, proxy_long_edge: u32) -> Result<FrameMeta, PanoError> {
+    let bytes = std::fs::read(path).map_err(|e| PanoError::io(path, e))?;
+    let ext = ext_hint(path);
+    let decoded =
+        raw_core::decode_for_pano(&bytes, &ext).map_err(|source| PanoError::RawDecode {
+            context: path.display().to_string(),
+            source,
+        })?;
+    // Build the full-res planar image transiently — only to feed the
+    // downscaler.  Drop it before returning.
+    let full_image = PlanarImage::from_scene_linear(&decoded.image);
+    let full_width = full_image.width();
+    let full_height = full_image.height();
+    let proxy = proxy::proxy_to_long_edge(&full_image, proxy_long_edge);
+    drop(full_image);
+    // Immediately drop the raw decoded bytes too — they can be large.
+    drop(decoded.image);
+
+    let proxy_scale_x = full_width as f64 / proxy.width() as f64;
+    let proxy_scale_y = full_height as f64 / proxy.height() as f64;
+    let priors = FramePriors::from_metadata(&decoded.metadata);
+
+    Ok(FrameMeta {
+        proxy,
+        proxy_scale_x,
+        proxy_scale_y,
+        full_width,
+        full_height,
+        priors,
+        camera_make: decoded.metadata.camera_make,
+        camera_model: decoded.metadata.camera_model,
+        applied_opcodes: decoded.applied_opcodes,
+    })
+}
+
 /// Extract only the priors for a frame — metadata pass, **no develop** —
 /// so a many-frame priors table (e.g. all 21 frames of a pano set) stays
 /// cheap. Same [`FramePriors`] the full ingest produces.
