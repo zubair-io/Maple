@@ -234,3 +234,139 @@ fn voronoi_masks(
     }
     (masks, min_width)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ingest::ValidityMask;
+    use crate::math::Vec3;
+    use crate::prng::SplitMix64;
+    use crate::render::{build_camera_set, CameraSetOptions, Pattern};
+
+    /// Smooth deterministic scene function (same as gain/tests.rs).
+    fn scene(dir: Vec3) -> [f32; 3] {
+        let base = 0.45 + 0.2 * (3.0 * dir.x + 1.0).sin() + 0.15 * (2.0 * dir.y - 0.5).cos();
+        [
+            base as f32,
+            (base * 0.8 + 0.1 * (4.0 * dir.z).sin()) as f32,
+            (base * 0.6 + 0.05) as f32,
+        ]
+    }
+
+    fn frame_from_scene(cam: &Camera) -> PlanarImage {
+        let (w, h) = (cam.width, cam.height);
+        let n = (w as usize) * (h as usize);
+        let (mut r, mut g, mut b) = (vec![0.0; n], vec![0.0; n], vec![0.0; n]);
+        for y in 0..h {
+            for x in 0..w {
+                let d = cam
+                    .pixel_to_world_dir(x as f64 + 0.5, y as f64 + 0.5)
+                    .expect("invertible");
+                let s = scene(d);
+                let i = (y * w + x) as usize;
+                r[i] = s[0];
+                g[i] = s[1];
+                b[i] = s[2];
+            }
+        }
+        PlanarImage::from_planes(w, h, r, g, b, ValidityMask::new_filled(w, h, true))
+    }
+
+    fn ring_cameras(count: u32) -> Vec<Camera> {
+        let opts = CameraSetOptions {
+            count,
+            pattern: Pattern::Ring { full: false },
+            fov_deg: 60.0,
+            overlap: 0.4,
+            pitch_deg: 0.0,
+            jitter_deg: 0.0,
+            k1: 0.0,
+            k2: 0.0,
+            width: 64,
+            height: 48,
+        };
+        build_camera_set(&opts, &mut SplitMix64::new(7))
+            .expect("valid ring")
+            .iter()
+            .map(|c| c.to_camera())
+            .collect()
+    }
+
+    /// `composite_tiled_frames` must produce pixel-for-pixel identical output
+    /// to `composite` (with `levels_override: Some(1)` to match the Voronoi
+    /// linear blend that `composite_tiled_frames` always uses).
+    ///
+    /// The same gain vector produced by `composite`'s internal `solve_gains`
+    /// is fed to `composite_tiled_frames`, so both paths see identical gains.
+    ///
+    /// Tested with two different `tile_rows` values to confirm strip size
+    /// does not affect the result.
+    #[test]
+    fn composite_tiled_frames_equals_composite_at_level1() {
+        let cams = ring_cameras(3);
+        let frames: Vec<PlanarImage> = cams.iter().map(frame_from_scene).collect();
+        let no_lc: Vec<Option<crate::local_align::LocalCorrection>> = vec![None; cams.len()];
+
+        let canvas_opts = CanvasOptions::default();
+        let canvas = auto_canvas(&cams, &canvas_opts).expect("canvas");
+
+        // Reference: composite with Voronoi mask and levels=1 (single-band
+        // blend — identical contract to composite_tiled_frames).
+        let ref_opts = CompositeOptions {
+            canvas: canvas_opts.clone(),
+            gain: GainOptions::default(),
+            levels_override: Some(1),
+        };
+        let (ref_img, ref_report) =
+            composite(&frames, &cams, &ref_opts, &no_lc).expect("composite");
+
+        // Use the exact gain vector that composite computed so both paths
+        // see identical inputs (guards against future changes to GainOptions
+        // defaults affecting only one path).
+        let gains = ref_report.gains.clone();
+
+        // Run composite_tiled_frames at two strip heights.
+        for strip_rows in [1_u32, 8] {
+            let (tiled_img, _) =
+                composite_tiled_frames(&frames, &cams, &gains, &no_lc, &canvas, strip_rows)
+                    .expect("composite_tiled_frames");
+
+            assert_eq!(
+                tiled_img.width(),
+                ref_img.width(),
+                "strip_rows={strip_rows}: canvas width mismatch"
+            );
+            assert_eq!(
+                tiled_img.height(),
+                ref_img.height(),
+                "strip_rows={strip_rows}: canvas height mismatch"
+            );
+
+            let n = (ref_img.width() as usize) * (ref_img.height() as usize);
+            let mut max_diff = 0.0_f32;
+            for i in 0..n {
+                let dr = (tiled_img.r[i] - ref_img.r[i]).abs();
+                let dg = (tiled_img.g[i] - ref_img.g[i]).abs();
+                let db = (tiled_img.b[i] - ref_img.b[i]).abs();
+                max_diff = max_diff.max(dr).max(dg).max(db);
+
+                // Validity must also match.
+                let (x, y) = (
+                    (i % ref_img.width() as usize) as u32,
+                    (i / ref_img.width() as usize) as u32,
+                );
+                assert_eq!(
+                    tiled_img.validity.get(x, y),
+                    ref_img.validity.get(x, y),
+                    "validity mismatch at ({x},{y}) strip_rows={strip_rows}"
+                );
+            }
+
+            assert!(
+                max_diff < 1e-6,
+                "strip_rows={strip_rows}: max pixel diff = {max_diff} (expected < 1e-6); \
+                 composite and composite_tiled_frames are not equivalent"
+            );
+        }
+    }
+}

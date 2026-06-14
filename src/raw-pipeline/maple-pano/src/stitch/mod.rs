@@ -65,6 +65,7 @@
 //! End-to-end on pano_01 (21 DJI DNGs): peak RSS < ~4 GB (vs 17.83 GB
 //! before this change — see PR #1254 for the `/usr/bin/time -l` measurements).
 
+mod frame_cache;
 mod io;
 mod tile_stitch;
 mod types;
@@ -85,7 +86,8 @@ use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFram
 use crate::gain::{solve_gains_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
-use crate::ingest::{ingest_file, ingest_file_proxy, FrameMeta, PlanarImage};
+use crate::ingest::{ingest_file_proxy, FrameMeta, PlanarImage};
+
 use crate::leveling;
 use crate::local_align::LocalCorrection;
 use crate::matching::{LightGlueMatcher, MatcherOptions};
@@ -94,6 +96,7 @@ use crate::refine::{refine_correspondences, RefineGeometry, RefineOptions};
 use crate::robust::RobustOptions;
 use crate::strategy::{select_strategy, Strategy};
 use crate::twoview::PixelCorrespondence;
+use frame_cache::{choose_evict_slot, load_frame};
 
 /// Strategy selection request (mirrors `maple_pano::strategy::StrategyRequest`
 /// re-exported here so callers don't need two imports).
@@ -302,19 +305,6 @@ pub fn stitch(
     {
         // 2-entry LRU cache: (frame_index, PlanarImage).
         let mut cache: [Option<(usize, PlanarImage)>; 2] = [None, None];
-
-        /// Decode a frame into the cache.  The frame at `cache[evict_slot]`
-        /// is replaced.  Returns a reference to the newly cached frame.
-        fn load_frame(
-            cache: &mut [Option<(usize, PlanarImage)>; 2],
-            idx: usize,
-            path: &PathBuf,
-            evict_slot: usize,
-        ) -> Result<(), String> {
-            let frame = ingest_file(path).map_err(|e| e.to_string())?;
-            cache[evict_slot] = Some((idx, frame.image));
-            Ok(())
-        }
 
         let edge_count = graph.edges.len();
         // Pre-compute (a, b) pairs for all edges and the look-ahead for
@@ -573,32 +563,4 @@ pub fn stitch(
             t_composite,
         ],
     })
-}
-
-// ─── LRU cache helpers ────────────────────────────────────────────────────────
-
-/// Choose which of the two cache slots to evict when loading a new frame.
-///
-/// Prefers to evict the slot that is *not* referenced by either index in
-/// `next_pair` — if both or neither are referenced, evicts slot 1
-/// (arbitrary tiebreak, deterministic).
-fn choose_evict_slot(
-    cache: &[Option<(usize, PlanarImage)>; 2],
-    _want_a: usize,
-    _want_b: usize,
-    next_pair: Option<(usize, usize)>,
-) -> usize {
-    let Some((na, nb)) = next_pair else {
-        return 1; // Last edge: pick any slot.
-    };
-    for (slot, entry) in cache.iter().enumerate() {
-        if let Some((idx, _)) = entry {
-            if *idx != na && *idx != nb {
-                return slot; // This slot's frame is not needed next.
-            }
-        } else {
-            return slot; // Empty slot — free to use.
-        }
-    }
-    1 // Both slots are referenced by next_pair — evict slot 1.
 }
