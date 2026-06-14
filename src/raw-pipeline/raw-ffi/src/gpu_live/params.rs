@@ -96,7 +96,11 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
                 ];
                 [[r[0], 0.0, 0.0], [0.0, r[1], 0.0], [0.0, 0.0, r[2]]]
             } else {
-                [[g_live[0], 0.0, 0.0], [0.0, g_live[1], 0.0], [0.0, 0.0, g_live[2]]]
+                [
+                    [g_live[0], 0.0, 0.0],
+                    [0.0, g_live[1], 0.0],
+                    [0.0, 0.0, g_live[2]],
+                ]
             }
         }
     };

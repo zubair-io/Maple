@@ -63,8 +63,7 @@ pub(super) fn run_tile_from_paths(args: TilePathArgs<'_>) -> Result<serde_json::
     )
     .map_err(|e| e.to_string())?;
 
-    let [decode_s, features_s, graph_s, refine_s, solve_s, composite_s] =
-        outcome.stage_timings_s;
+    let [decode_s, features_s, graph_s, refine_s, solve_s, composite_s] = outcome.stage_timings_s;
 
     eprintln!(
         "pano[tile]: refine — {} matches NCC-refined at full res, \
