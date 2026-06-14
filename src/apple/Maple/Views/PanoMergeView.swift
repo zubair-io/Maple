@@ -401,8 +401,13 @@ private struct PanoFrameThumbnail: View {
     }
 
     private func load() async {
+        // Reset up front so a reused cell (asset.id changed) doesn't show the
+        // previous frame's thumbnail or failure state during the new load.
+        image = nil
+        failed = false
         guard let url = asset.primaryURL else { failed = true; return }
         let data = await loader.load(for: url, scopeParentURL: asset.scopeParentURL)
+        if Task.isCancelled { return }
         if let data, let img = Self.image(from: data) {
             image = img
         } else {
