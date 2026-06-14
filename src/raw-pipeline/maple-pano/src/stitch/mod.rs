@@ -59,7 +59,7 @@ use std::path::PathBuf;
 
 use crate::ba::{self, BaOptions};
 use crate::camera::Camera;
-use crate::canvas::{auto_canvas, CanvasOptions, ProjectionMode};
+use crate::canvas::{auto_canvas, natural_canvas_pixel_ratio, CanvasOptions, ProjectionMode};
 use crate::composite::{composite, composite_tiled, CompositeOptions};
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
 use crate::gain::{solve_gains, GainOptions};
@@ -351,6 +351,38 @@ pub fn stitch(
         max_pixels: opts.max_canvas_px,
         ..Default::default()
     };
+
+    // ── Degeneracy guard (must run BEFORE any composite allocation) ────────
+    // A translational / near-parallel camera set forced through the rotation
+    // path produces a BA solution where the cameras point in nearly the same
+    // direction. The spherical projection maps that geometry to a near-full-
+    // sphere canvas at the per-pixel density of the source frames — potentially
+    // hundreds of GB. The pixel cap (max_canvas_px) *does* fire, but it fires
+    // inside composite(), after frames have been decoded into memory.
+    //
+    // We compute the ratio of the natural (unclamped) canvas pixel count to
+    // max_canvas_px here, before any allocation. A ratio > the threshold means
+    // the cap would crush the output resolution by a factor of sqrt(ratio),
+    // which for near-parallel sets is so extreme (10⁵–10⁶×) that the result
+    // would be 1×1 pixels: the geometry is simply not rotation-stitchable.
+    //
+    // Threshold: 1 000× — i.e. the natural canvas exceeds the cap by three
+    // orders of magnitude. At that scale-factor the cap compresses a notional
+    // 256 MP pano to a ~256 px wide thumbnail, and the BA is clearly
+    // degenerate. We use a named constant so reviewers can see and adjust it.
+    const DEGENERATE_CANVAS_RATIO: f64 = 1_000.0;
+    {
+        let kept_cams_guard: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
+        if let Some(ratio) = natural_canvas_pixel_ratio(&kept_cams_guard, &canvas_opts) {
+            if ratio > DEGENERATE_CANVAS_RATIO {
+                return Err(StitchError::DegenerateGeometry(format!(
+                    "natural canvas is {ratio:.0}× larger than the {mp} MP cap \
+                     (frames are near-parallel or translational)",
+                    mp = opts.max_canvas_px / 1_000_000,
+                )));
+            }
+        }
+    }
 
     let (image, comp_report) = if let Some(tile_rows) = opts.canvas_tile_rows {
         // ── Memory-bounded tiled path (M6-D, #1248) ─────────────────────

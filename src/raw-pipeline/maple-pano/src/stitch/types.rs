@@ -186,6 +186,11 @@ pub enum StitchError {
     },
     /// No EXIF 35mm focal length available for seeding the camera model.
     NoFocal { path: PathBuf },
+    /// The BA solution produced a degenerate geometry that would require an
+    /// impossibly large canvas to represent (e.g. near-parallel / translational
+    /// camera set forced through the rotation path). The guard fires before any
+    /// large allocation. The caller should retry with Auto or Tile strategy.
+    DegenerateGeometry(String),
     /// Cancelled by the caller.
     Cancelled,
 }
@@ -227,6 +232,11 @@ impl std::fmt::Display for StitchError {
                 f,
                 "{}: no EXIF 35mm focal length — cannot seed camera model",
                 path.display()
+            ),
+            Self::DegenerateGeometry(msg) => write!(
+                f,
+                "degenerate rotation geometry: {msg} — \
+                 this set is not rotation-stitchable; use Auto or Tile strategy"
             ),
             Self::Cancelled => write!(f, "cancelled by caller"),
         }

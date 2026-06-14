@@ -3,6 +3,10 @@ use crate::camera::focal_px_for_hfov;
 use crate::prng::SplitMix64;
 use crate::render::{build_camera_set, CameraSetOptions, Pattern};
 
+// The degeneracy threshold used in stitch/mod.rs; mirrored here so the unit
+// test can assert the ratio is above it without importing stitch internals.
+const DEGENERATE_CANVAS_RATIO: f64 = 1_000.0;
+
 fn ring(count: u32, fov_deg: f64, full: bool, overlap: f64) -> Vec<Camera> {
     let opts = CameraSetOptions {
         count,
@@ -230,4 +234,74 @@ fn rectilinear_force_rejects_wide_sets() {
         },
     );
     assert!(matches!(r, Err(PanoError::InvalidOptions(_))));
+}
+
+/// Degenerate rotation geometry (translational set forced through rotation BA)
+/// produces a natural canvas many orders of magnitude larger than the pixel cap.
+/// `natural_canvas_pixel_ratio` must report a ratio well above the
+/// `DEGENERATE_CANVAS_RATIO` threshold so the stitch guard can fire before any
+/// large allocation.
+///
+/// The failure mode: a translational / nadir camera set with a very high
+/// per-pixel density (long focal — as on a 100 MP Hasselblad or DJI L3D)
+/// forced through rotation BA ends up with the BA assigning cameras wildly
+/// divergent solved rotations that span the full sphere. At extreme focal
+/// lengths the full-sphere natural canvas is billions to trillions of pixels,
+/// far above the 256 MP cap, and the composite would OOM.
+///
+/// This test constructs 6 cameras that span the full sphere (mimicking the
+/// degenerate BA output) with a long focal length, then asserts that
+/// `natural_canvas_pixel_ratio` returns a value > 1 000× (the guard constant).
+///
+/// Math:
+///   density ≈ focal / 1 px = 200 000 px/rad
+///   full-sphere natural ≈ (2π × 200 000) × (π × 200 000)
+///                       ≈ 1.257e6 × 6.283e5 ≈ 7.9e11 px
+///   ratio = 7.9e11 / 256e6 ≈ 3 086 > 1 000 ✓
+#[test]
+fn degenerate_geometry_exceeds_canvas_ratio_threshold() {
+    // Six cameras spanning the full sphere (4 equatorial + zenith + nadir),
+    // all with a very long focal length → high pixel density → enormous natural
+    // full-sphere canvas.
+    let focal = 200_000.0_f64;
+    let cams = vec![
+        // Equatorial ring: 0°, 90°, 180°, 270° yaw
+        Camera::new([0.0, 0.0_f64.to_radians(), 0.0], focal, 0.0, 0.0, 192, 144),
+        Camera::new([0.0, 90.0_f64.to_radians(), 0.0], focal, 0.0, 0.0, 192, 144),
+        Camera::new(
+            [0.0, 180.0_f64.to_radians(), 0.0],
+            focal,
+            0.0,
+            0.0,
+            192,
+            144,
+        ),
+        Camera::new(
+            [0.0, 270.0_f64.to_radians(), 0.0],
+            focal,
+            0.0,
+            0.0,
+            192,
+            144,
+        ),
+        // Zenith (pitch −90° = looking up in camera conventions)
+        Camera::new(
+            [(-90.0_f64).to_radians(), 0.0, 0.0],
+            focal,
+            0.0,
+            0.0,
+            192,
+            144,
+        ),
+        // Nadir (pitch +90° = looking down)
+        Camera::new([90.0_f64.to_radians(), 0.0, 0.0], focal, 0.0, 0.0, 192, 144),
+    ];
+    let opts = CanvasOptions::default(); // max_pixels = 256 MP
+    let ratio =
+        natural_canvas_pixel_ratio(&cams, &opts).expect("valid cameras should produce a ratio");
+    assert!(
+        ratio > DEGENERATE_CANVAS_RATIO,
+        "full-sphere cameras with focal={focal} px produced ratio={ratio:.1}, \
+         expected > {DEGENERATE_CANVAS_RATIO} (degeneracy guard threshold)"
+    );
 }
