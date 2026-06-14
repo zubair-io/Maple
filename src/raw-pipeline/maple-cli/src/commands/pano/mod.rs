@@ -1,9 +1,11 @@
 //! `maple-cli pano stitch` (#1182) — the end-to-end panorama pipeline.
 //!
 //! This module is a thin orchestrator: it parses CLI arguments, drives
-//! [`maple_pano::stitch`] for the rotation strategy, falls through to
-//! [`tile`] for the tile strategy, and assembles the `StitchReport` JSON
-//! (spec §6) via [`io`].
+//! [`maple_pano::stitch`] (handles both rotation and tile strategies after
+//! #1270), and assembles the `StitchReport` JSON (spec §6 / §8) via
+//! [`io`]. The old "fall through to tile" pattern is gone — `stitch` now
+//! returns `StitchSuccess::Rotation` or `StitchSuccess::Tile` directly,
+//! with ALIKED + LightGlue running exactly once regardless of strategy.
 //!
 //! All geometry runs inside `maple_pano::stitch` — the shared single
 //! source of truth for both this CLI and the `maple_pano_stitch` FFI
@@ -35,7 +37,7 @@ use std::time::Instant;
 
 use clap::Subcommand;
 
-use maple_pano::stitch::{self, StitchError, StitchOptions};
+use maple_pano::stitch::{self, StitchOptions, StitchSuccess};
 
 use io::{stitch_report, write_png16, ReportContext};
 
@@ -214,8 +216,10 @@ fn stitch_set(
         let _ = label; // consumed only at stage start (frac == 0.0)
     };
 
+    // After #1270 `stitch` handles both rotation and tile internally.
+    // ALIKED + LightGlue run once; the result is either Rotation or Tile.
     match stitch::stitch(inputs, &opts, progress, || false) {
-        Ok(outcome) => {
+        Ok(StitchSuccess::Rotation(outcome)) => {
             // ---- write outputs -----------------------------------------------
             let t_out = Instant::now();
             write_png16(&outs.linear, &outcome.image, false)?;
@@ -283,27 +287,17 @@ fn stitch_set(
             Ok(report)
         }
 
-        // ---- Tile strategy: fall through to the tile path -------------------
-        Err(StitchError::TileNotSupported(strategy_report)) => {
-            eprintln!(
-                "pano: strategy — selected=tile tile_votes={} rotation_votes={}{}",
-                strategy_report.evidence.tile_votes,
-                strategy_report.evidence.rotation_votes,
-                strategy_report
-                    .warning
-                    .map(|w| format!(" [WARN: {w}]"))
-                    .unwrap_or_default(),
-            );
-            // Re-decode for the tile path (stitch() consumed the frames in
-            // the rotation path before detecting tile). The tile path owns
-            // its own decode + feature loop.
-            tile::run_tile_from_paths(tile::TilePathArgs {
-                inputs,
-                opts: &opts,
-                strategy_report: &strategy_report,
+        // ---- Tile strategy: stitch() ran the tile pipeline directly ---------
+        // After #1270 there is no TileNotSupported fallthrough — `stitch`
+        // returns the tile outcome inline (ML ran once, re-verify with
+        // unit-focal cameras, full-res decode for NCC, planar composite).
+        Ok(StitchSuccess::Tile(tile_outcome)) => {
+            tile::run_tile_from_outcome(tile::TileOutcomeArgs {
+                outcome: tile_outcome,
                 outs_linear: &outs.linear,
                 outs_display: outs.display.as_deref(),
                 outs_report: outs.report.as_deref(),
+                inputs,
                 t0,
             })
         }

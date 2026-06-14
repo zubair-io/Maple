@@ -1,11 +1,17 @@
 //! Apple stitch implementation for `maple_pano_stitch` (M3 of #1234 #1235;
-//! iOS enabled in M6 #1244; CoreML EP enabled in M6-C #1251).
+//! iOS enabled in M6 #1244; CoreML EP enabled in M6-C #1251; unified
+//! tile path in #1270).
 //!
 //! Thin caller of [`maple_pano::stitch::stitch`] — the single shared
 //! orchestration for both this FFI entry and `maple-cli pano stitch`
 //! (CLAUDE.md principle #4 — parity is a merge gate). All pipeline
-//! stages (decode → ALIKED → LightGlue → match graph → refine → BA →
-//! leveling → composite) live in `maple_pano::stitch`.
+//! stages (decode → ALIKED → LightGlue → match graph → refine → strategy
+//! tail → composite) live in `maple_pano::stitch`.
+//!
+//! After #1270 `stitch` handles both rotation and tile internally.
+//! The caller receives a [`StitchSuccess`] enum and no longer needs to
+//! fall through to a separate `stitch_tile` call — ALIKED + LightGlue
+//! run exactly once regardless of which strategy is selected.
 //!
 //! Platform differences:
 //! - **macOS** (`--features pano`, `target_os = "macos"`): ORT initialized
@@ -34,7 +40,7 @@ use std::sync::atomic::Ordering;
 use maple_pano::ba::RetentionPolicy;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::write_frame_png;
-use maple_pano::stitch::{quantize_to_u16, stitch, stitch_tile, StitchError, StitchOptions};
+use maple_pano::stitch::{quantize_to_u16, stitch, StitchError, StitchOptions, StitchSuccess};
 use maple_pano::strategy::StrategyRequest;
 
 use super::{MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy, SendProgressCallback};
@@ -123,31 +129,12 @@ pub(super) fn run_stitch_apple(
         0
     };
 
+    // After #1270, `stitch` handles both rotation and tile internally.
+    // ALIKED + LightGlue run exactly once; the tile path re-uses their output
+    // without a second decode or ML pass.  No `TileNotSupported` fallthrough.
     match stitch(&inputs, &opts, &mut progress, &is_cancelled) {
-        Ok(outcome) => write_out(&outcome.image),
-
-        // Tile strategy selected: the rotation `stitch` doesn't run tile, so
-        // run the dedicated tile pipeline (same ML + NCC refine, planar
-        // composite). This is what makes nadir/translational sets stitch on
-        // Apple instead of degenerating through rotation (which ballooned
-        // memory on near-parallel frames). #1235.
-        Err(StitchError::TileNotSupported(report)) => {
-            match stitch_tile(&inputs, &opts, report, &mut progress, &is_cancelled) {
-                Ok(tile) => write_out(&tile.image),
-                Err(StitchError::Cancelled) => {
-                    set_last_error("maple_pano_stitch: cancelled by caller".into());
-                    -7
-                }
-                Err(StitchError::MlUnavailable(msg)) => {
-                    set_last_error(format!("maple_pano_stitch: {msg}"));
-                    -6
-                }
-                Err(e) => {
-                    set_last_error(format!("maple_pano_stitch (tile): {e}"));
-                    -7
-                }
-            }
-        }
+        Ok(StitchSuccess::Rotation(outcome)) => write_out(&outcome.image),
+        Ok(StitchSuccess::Tile(tile)) => write_out(&tile.image),
 
         Err(StitchError::Cancelled) => {
             set_last_error("maple_pano_stitch: cancelled by caller".into());
