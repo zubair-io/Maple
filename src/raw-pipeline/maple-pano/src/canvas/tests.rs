@@ -327,3 +327,50 @@ fn legit_rotation_ring_stays_under_canvas_ratio_threshold() {
          (guard must not fire on realistic geometry)"
     );
 }
+
+/// A small (2–3 frame) OVERLAPPING set must not trip the degeneracy guard
+/// (#1276). A legit 2–3 shot pano — even at large-sensor resolution
+/// (DJI L3D-100c-like: 11 648 × 8 736, 74° HFOV) — sizes well under 8×.
+///
+/// Measured (#1276 investigation):
+///   2-frame DJI-like 74° HFOV, 30% overlap → ratio ≈ 1.42×  (< 8× ✓)
+///   3-frame DJI-like 74° HFOV, 30% overlap → ratio ≈ 2.01×  (< 8× ✓)
+///
+/// The 61× that tripped the guard during #1254 verification came from
+/// PANO0001+PANO0002 forced through rotation BA when those frames are NOT
+/// rotationally adjacent — a genuinely degenerate BA solution, not a
+/// small-pano false positive.
+#[test]
+fn legit_small_overlapping_pano_stays_under_canvas_ratio_threshold() {
+    let opts = CanvasOptions::default(); // max_pixels = 256 MP
+
+    // Small synthetic sensor: far below threshold.
+    for count in [2_u32, 3] {
+        let cams = ring(count, 60.0, false, 0.3);
+        let ratio = natural_canvas_pixel_ratio(&cams, &opts).expect("valid cameras");
+        assert!(
+            ratio < DEGENERATE_CANVAS_RATIO,
+            "legit {count}-camera 60°/30% ring: ratio={ratio:.3} \
+             expected < {DEGENERATE_CANVAS_RATIO}"
+        );
+    }
+
+    // Large sensor (DJI L3D-100c-like: 11648px wide, 74° HFOV, ~7700px focal) —
+    // the worst realistic case for the ratio because density² ∝ focal².
+    // Measured: 2-frame ≈ 1.42×, 3-frame ≈ 2.01× — both well below 8×.
+    let focal_dji = focal_px_for_hfov(74.0, 11648);
+    for count in [2_u32, 3] {
+        let cams: Vec<Camera> = (0..count)
+            .map(|i| {
+                let yaw = i as f64 * 74.0_f64.to_radians() * 0.7; // 30% overlap
+                Camera::new([0.0, yaw, 0.0], focal_dji, 0.0, 0.0, 11648, 8736)
+            })
+            .collect();
+        let ratio = natural_canvas_pixel_ratio(&cams, &opts).expect("valid cameras");
+        assert!(
+            ratio < DEGENERATE_CANVAS_RATIO,
+            "legit {count}-camera DJI-like 74°/30% set: ratio={ratio:.3} \
+             expected < {DEGENERATE_CANVAS_RATIO} (guard must not false-positive on small panos)"
+        );
+    }
+}
