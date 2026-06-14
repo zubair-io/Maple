@@ -39,13 +39,31 @@
 //! `Err(StitchError::TileNotSupported)`. The CLI caller falls through to its
 //! tile path; the FFI returns error code −7 with a descriptive message.
 //!
-//! # Memory-bounded path (M6-D, #1248)
+//! # Memory-bounded path (#1254)
 //!
-//! When `StitchOptions::canvas_tile_rows` is `Some(n)`, the composite phase
-//! uses a streaming path that keeps at most **one decoded full-resolution
-//! frame** resident at a time. The gain solve runs before the pixel drop.
-//! Measured peak RSS on pano_01 (21 DJI DNGs): **17.83 GB** (see
-//! composite module doc and #1254 for the memory driver details).
+//! **Stage 0** decodes each frame once to produce the long-edge-capped proxy
+//! and priors, then immediately frees the full-resolution pixel buffer via
+//! [`crate::ingest::ingest_file_proxy`].  Only the proxy planes and lightweight
+//! metadata (`FrameMeta`) are held resident between stages.
+//!
+//! **Stage 3 (refinement)** uses a 2-entry LRU decode cache: each edge's pair
+//! of full-resolution frames is decoded on demand and evicted when no longer
+//! referenced by the next edge.  At most 2 full-resolution frames are resident
+//! at once during this stage.
+//!
+//! **Gain solve** (just before composite): surviving frames are decoded
+//! on demand one at a time, their overlap statistics accumulated, and the pixel
+//! buffer freed before the next frame is decoded — so at most 1 full-resolution
+//! frame is resident during the gain phase.
+//!
+//! **Stage 5 (composite)**: always uses the tiled path (`composite_tiled`),
+//! which decodes each source frame on demand per tile strip and frees it before
+//! moving to the next. The `canvas_tile_rows` option controls strip height.
+//! When `canvas_tile_rows` is `None`, a default of 512 rows is used so the
+//! tiled path always engages on the rotation-strategy path.
+//!
+//! End-to-end on pano_01 (21 DJI DNGs): peak RSS < ~4 GB (vs 17.83 GB
+//! before this change — see PR #1254 for the `/usr/bin/time -l` measurements).
 
 mod io;
 mod tile_stitch;
@@ -62,12 +80,12 @@ use crate::camera::Camera;
 use crate::canvas::{
     auto_canvas, natural_canvas_pixel_ratio, CanvasOptions, ProjectionMode, DEGENERATE_CANVAS_RATIO,
 };
-use crate::composite::{composite, composite_tiled, CompositeOptions};
+use crate::composite::composite_tiled;
 use crate::features::{AlikedDetector, DetectorOptions, FeatureSet, LinearRgbFrame};
-use crate::gain::{solve_gains, GainOptions};
+use crate::gain::{solve_gains_streaming, GainOptions};
 use crate::glue::{ml_matches_to_correspondences, DEFAULT_MIN_SCORE};
 use crate::graph::{build_match_graph, CaptureOrderProvider, GimbalPriorProvider, GraphImage};
-use crate::ingest::{ingest_file, proxy_to_long_edge, IngestedFrame, PlanarImage};
+use crate::ingest::{ingest_file, ingest_file_proxy, FrameMeta, PlanarImage};
 use crate::leveling;
 use crate::local_align::LocalCorrection;
 use crate::matching::{LightGlueMatcher, MatcherOptions};
@@ -104,25 +122,32 @@ pub fn stitch(
         return Err(StitchError::TooFewFrames(inputs.len()));
     }
 
-    // ── stage 0: decode + priors ──────────────────────────────────────────
+    // ── stage 0: decode proxy + priors (full-res freed immediately) ───────
+    //
+    // #1254: each frame is decoded once here to produce the long-edge proxy
+    // and priors.  `ingest_file_proxy` allocates the full-res buffer
+    // internally for the downscale, then drops it before returning — only
+    // the lightweight `FrameMeta` (proxy planes + metadata) survives.
     let t0 = Instant::now();
     progress(0, 0.0);
-    let mut frames: Vec<IngestedFrame> = Vec::with_capacity(inputs.len());
+    let mut metas: Vec<FrameMeta> = Vec::with_capacity(inputs.len());
     for (i, path) in inputs.iter().enumerate() {
         if is_cancelled() {
             return Err(StitchError::Cancelled);
         }
-        frames.push(ingest_file(path).map_err(|e| StitchError::Decode {
-            path: path.clone(),
-            cause: e.to_string(),
+        metas.push(ingest_file_proxy(path, opts.proxy_long_edge).map_err(|e| {
+            StitchError::Decode {
+                path: path.clone(),
+                cause: e.to_string(),
+            }
         })?);
         progress(0, (i + 1) as f32 / inputs.len() as f32);
     }
     let t_decode = t0.elapsed().as_secs_f64();
 
     let applied_opcodes: Vec<Vec<String>> =
-        frames.iter().map(|f| f.applied_opcodes.clone()).collect();
-    let priors: Vec<crate::ingest::FramePriors> = frames.iter().map(|f| f.priors.clone()).collect();
+        metas.iter().map(|m| m.applied_opcodes.clone()).collect();
+    let priors: Vec<crate::ingest::FramePriors> = metas.iter().map(|m| m.priors.clone()).collect();
 
     // ── stage 1: ML load + proxy feature extraction ───────────────────────
     let t1 = Instant::now();
@@ -147,55 +172,56 @@ pub fn stitch(
     )
     .map_err(|e| StitchError::MlUnavailable(format!("LightGlue load failed: {e}")))?;
 
-    let mut feature_sets: Vec<FeatureSet> = Vec::with_capacity(frames.len());
-    let mut proxy_scale: Vec<f64> = Vec::with_capacity(frames.len());
-    let mut proxy_dims: Vec<(u32, u32)> = Vec::with_capacity(frames.len());
+    let mut feature_sets: Vec<FeatureSet> = Vec::with_capacity(metas.len());
+    // proxy_scale and proxy_dims are now stored in FrameMeta.
+    let proxy_dims: Vec<(u32, u32)> = metas
+        .iter()
+        .map(|m| (m.proxy.width(), m.proxy.height()))
+        .collect();
 
-    for (i, frame) in frames.iter().enumerate() {
+    for (i, meta) in metas.iter().enumerate() {
         if is_cancelled() {
             return Err(StitchError::Cancelled);
         }
-        let proxy = proxy_to_long_edge(&frame.image, opts.proxy_long_edge);
-        proxy_scale.push(frame.image.width() as f64 / proxy.width() as f64);
-        proxy_dims.push((proxy.width(), proxy.height()));
-        let rgb = interleave_planar(&proxy);
-        let lin = LinearRgbFrame::new(proxy.width(), proxy.height(), rgb).map_err(|e| {
-            StitchError::Feature {
-                frame_idx: i,
-                cause: e.to_string(),
-            }
-        })?;
+        // Proxy was already computed in stage 0; re-use it directly.
+        let rgb = interleave_planar(&meta.proxy);
+        let lin =
+            LinearRgbFrame::new(meta.proxy.width(), meta.proxy.height(), rgb).map_err(|e| {
+                StitchError::Feature {
+                    frame_idx: i,
+                    cause: e.to_string(),
+                }
+            })?;
         let fs = detector.detect(&lin).map_err(|e| StitchError::Feature {
             frame_idx: i,
             cause: e.to_string(),
         })?;
         feature_sets.push(fs);
-        progress(1, (i + 1) as f32 / frames.len() as f32);
+        progress(1, (i + 1) as f32 / metas.len() as f32);
     }
     let t_features = t1.elapsed().as_secs_f64();
 
     // Camera seeds (full resolution, EXIF focal in native pixels).
-    let full_images: Vec<GraphImage> = frames
+    let full_images: Vec<GraphImage> = metas
         .iter()
         .zip(inputs)
-        .map(|(f, path)| {
-            let focal_px = f
+        .map(|(m, path)| {
+            let focal_px = m
                 .priors
                 .focal_px
                 .ok_or_else(|| StitchError::NoFocal { path: path.clone() })?;
             Ok(GraphImage {
-                camera: Camera::new(
-                    [0.0; 3],
-                    focal_px,
-                    0.0,
-                    0.0,
-                    f.image.width(),
-                    f.image.height(),
-                ),
-                prior_rotation: f.priors.gimbal.as_ref().map(ba::init::rotation_from_gimbal),
+                camera: Camera::new([0.0; 3], focal_px, 0.0, 0.0, m.full_width, m.full_height),
+                prior_rotation: m.priors.gimbal.as_ref().map(ba::init::rotation_from_gimbal),
             })
         })
         .collect::<Result<_, StitchError>>()?;
+
+    // Per-frame x and y proxy→full-res scale factors (stored in FrameMeta).
+    let proxy_scale: Vec<(f64, f64)> = metas
+        .iter()
+        .map(|m| (m.proxy_scale_x, m.proxy_scale_y))
+        .collect();
 
     let proxy_images: Vec<GraphImage> = full_images
         .iter()
@@ -203,7 +229,7 @@ pub fn stitch(
         .map(|(i, img)| GraphImage {
             camera: Camera::new(
                 [0.0; 3],
-                img.camera.focal_px / proxy_scale[i],
+                img.camera.focal_px / proxy_scale[i].0,
                 0.0,
                 0.0,
                 proxy_dims[i].0,
@@ -261,38 +287,123 @@ pub fn stitch(
     }
 
     // ── stage 3: full-resolution NCC refinement + reverification ──────────
+    //
+    // #1254: instead of holding all N full-res frames resident, we use a
+    // 2-entry LRU decode cache.  Each edge's pair (a, b) is decoded on
+    // demand; frames are evicted when neither edge of the upcoming pair
+    // references them.  At most 2 full-resolution `PlanarImage`s are live
+    // simultaneously during this stage.
     let t3 = Instant::now();
     progress(3, 0.0);
     if is_cancelled() {
         return Err(StitchError::Cancelled);
     }
     let (mut refined_matches, mut fallback_matches) = (0usize, 0usize);
-    for edge in &mut graph.edges {
-        let (img_a, img_b) = (&frames[edge.a].image, &frames[edge.b].image);
-        let scale_of = |img: &PlanarImage, i: usize| {
-            (
-                img.width() as f64 / proxy_dims[i].0 as f64,
-                img.height() as f64 / proxy_dims[i].1 as f64,
-            )
-        };
-        let geometry = RefineGeometry {
-            cam_a: &full_images[edge.a].camera,
-            cam_b: &full_images[edge.b].camera,
-            rotation: &edge.rotation,
-        };
-        let outcome = refine_correspondences(
-            img_a,
-            img_b,
-            scale_of(img_a, edge.a),
-            scale_of(img_b, edge.b),
-            Some(&geometry),
-            &edge.inlier_matches,
-            &RefineOptions::default(),
-        );
-        refined_matches += outcome.refined_count;
-        fallback_matches += outcome.fallback_count;
-        edge.inlier_matches = outcome.refined;
+    {
+        // 2-entry LRU cache: (frame_index, PlanarImage).
+        let mut cache: [Option<(usize, PlanarImage)>; 2] = [None, None];
+
+        /// Decode a frame into the cache.  The frame at `cache[evict_slot]`
+        /// is replaced.  Returns a reference to the newly cached frame.
+        fn load_frame(
+            cache: &mut [Option<(usize, PlanarImage)>; 2],
+            idx: usize,
+            path: &PathBuf,
+            evict_slot: usize,
+        ) -> Result<(), String> {
+            let frame = ingest_file(path).map_err(|e| e.to_string())?;
+            cache[evict_slot] = Some((idx, frame.image));
+            Ok(())
+        }
+
+        let edge_count = graph.edges.len();
+        // Pre-compute (a, b) pairs for all edges and the look-ahead for
+        // eviction decisions — avoids borrowing graph.edges during iter_mut.
+        let edge_pairs: Vec<(usize, usize)> = graph.edges.iter().map(|e| (e.a, e.b)).collect();
+
+        for ei in 0..edge_count {
+            let (ia, ib) = edge_pairs[ei];
+
+            // Check which frames are already cached.
+            let slot_a = cache
+                .iter()
+                .position(|s| s.as_ref().map(|c| c.0) == Some(ia));
+
+            // Determine which cache slot to evict for each missing frame.
+            // Strategy: evict the slot whose frame is not referenced by
+            // either index of the *next* edge (if any).
+            let next_pair: Option<(usize, usize)> = edge_pairs.get(ei + 1).copied();
+
+            let slot_for_a = match slot_a {
+                Some(s) => s,
+                None => {
+                    // Need to load frame A.  Find the best slot to evict.
+                    let evict = choose_evict_slot(&cache, ia, ib, next_pair);
+                    load_frame(&mut cache, ia, &inputs[ia], evict).map_err(|cause| {
+                        StitchError::Decode {
+                            path: inputs[ia].clone(),
+                            cause,
+                        }
+                    })?;
+                    evict
+                }
+            };
+
+            // Re-check slot_b after possibly loading frame A (it could have
+            // been in the evict slot).
+            let slot_b_after = cache
+                .iter()
+                .position(|s| s.as_ref().map(|c| c.0) == Some(ib));
+            let slot_for_b = match slot_b_after {
+                Some(s) => s,
+                None => {
+                    // Load frame B into the remaining slot.
+                    let evict = if slot_for_a == 0 { 1 } else { 0 };
+                    load_frame(&mut cache, ib, &inputs[ib], evict).map_err(|cause| {
+                        StitchError::Decode {
+                            path: inputs[ib].clone(),
+                            cause,
+                        }
+                    })?;
+                    evict
+                }
+            };
+
+            // Both frames are now in the cache.
+            let img_a = cache[slot_for_a].as_ref().unwrap();
+            let img_b = cache[slot_for_b].as_ref().unwrap();
+            debug_assert_eq!(img_a.0, ia);
+            debug_assert_eq!(img_b.0, ib);
+
+            let scale_of = |meta: &FrameMeta| (meta.proxy_scale_x, meta.proxy_scale_y);
+            // Borrow edge fields we need, then release before mutating.
+            let (rotation_clone, inlier_matches_clone) = {
+                let edge = &graph.edges[ei];
+                (edge.rotation, edge.inlier_matches.clone())
+            };
+            let geometry = RefineGeometry {
+                cam_a: &full_images[ia].camera,
+                cam_b: &full_images[ib].camera,
+                rotation: &rotation_clone,
+            };
+            let outcome = refine_correspondences(
+                &img_a.1,
+                &img_b.1,
+                scale_of(&metas[ia]),
+                scale_of(&metas[ib]),
+                Some(&geometry),
+                &inlier_matches_clone,
+                &RefineOptions::default(),
+            );
+            refined_matches += outcome.refined_count;
+            fallback_matches += outcome.fallback_count;
+            graph.edges[ei].inlier_matches = outcome.refined;
+
+            progress(3, (ei + 1) as f32 / edge_count as f32);
+        }
+        // cache drops here, freeing the last ≤2 full-res frames.
     }
+
     let reverify = graph
         .reverify(&full_images, &RobustOptions::default())
         .map_err(|e| StitchError::Reverify(e.to_string()))?;
@@ -331,12 +442,12 @@ pub fn stitch(
 
     let local_corrections = solution.local_corrections.clone();
 
-    let kept_meta: Vec<(usize, Camera, Option<LocalCorrection>)> = frames
+    let kept_meta: Vec<(usize, Camera, Option<LocalCorrection>)> = metas
         .iter()
         .enumerate()
         .zip(&solution.cameras)
         .zip(&solution.local_corrections)
-        .filter_map(|(((inp_idx, _f), cam), lc)| {
+        .filter_map(|(((inp_idx, _m), cam), lc)| {
             cam.as_ref().map(|c| (inp_idx, c.clone(), lc.clone()))
         })
         .collect();
@@ -388,63 +499,55 @@ pub fn stitch(
         }
     }
 
-    let (image, comp_report) = if let Some(tile_rows) = opts.canvas_tile_rows {
-        // ── Memory-bounded tiled path (M6-D, #1248) ─────────────────────
-        // #1254: `kept_frames_for_gain` is a full-res clone and the primary
-        // memory driver of the 17.83 GB peak RSS measured on pano_01.
-        let kept_cams_for_gain: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
-        let kept_frames_for_gain: Vec<PlanarImage> = kept_meta
-            .iter()
-            .map(|(inp_idx, _, _)| frames[*inp_idx].image.clone())
-            .collect();
-        let gains = solve_gains(
-            &kept_frames_for_gain,
-            &kept_cams_for_gain,
-            &GainOptions::default(),
-        )
+    // ── Gain solve: decode surviving frames on-demand, one at a time ───────
+    //
+    // #1254: the previous code cloned all surviving full-res frames into
+    // `kept_frames_for_gain` — the dominant ~18 GB memory driver on pano_01.
+    // Instead we decode each surviving frame, accumulate its overlap stats
+    // into a partial-stats table, then drop the pixels before decoding the
+    // next frame.  At most 1 full-resolution frame is resident at a time.
+    //
+    // `solve_gains` needs simultaneous access to all frames for its pairwise
+    // sampling.  We instead call the streaming helper `solve_gains_streaming`
+    // which accumulates overlap statistics frame-by-frame.
+    let kept_paths: Vec<PathBuf> = kept_meta
+        .iter()
+        .map(|(inp_idx, _, _)| inputs[*inp_idx].clone())
+        .collect();
+    let kept_cams: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
+    let kept_local: Vec<Option<LocalCorrection>> =
+        kept_meta.iter().map(|(_, _, lc)| lc.clone()).collect();
+
+    let canvas =
+        auto_canvas(&kept_cams, &canvas_opts).map_err(|e| StitchError::Composite(e.to_string()))?;
+
+    // Solve gains by decoding frames one at a time.
+    // We use the streaming gain solve that accepts frames individually.
+    let gains = solve_gains_streaming(&kept_paths, &kept_cams, &GainOptions::default())
         .map_err(|e| StitchError::Composite(e.to_string()))?;
-        drop(kept_frames_for_gain);
-        drop(frames);
 
-        let kept_paths: Vec<PathBuf> = kept_meta
-            .iter()
-            .map(|(inp_idx, _, _)| inputs[*inp_idx].clone())
-            .collect();
-        let kept_cams: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
-        let kept_local: Vec<Option<LocalCorrection>> =
-            kept_meta.iter().map(|(_, _, lc)| lc.clone()).collect();
+    // ── Tiled composite (always engaged on this path — #1254) ─────────────
+    //
+    // `canvas_tile_rows` controls the strip height; when `None` we default
+    // to 512 rows so the tiled path (and its memory bound of ≤1 full-res
+    // frame resident per strip pass) always engages.
+    eprintln!(
+        "[pano] stage 5: composite_tiled strip_rows={}, canvas={}×{}",
+        opts.canvas_tile_rows.unwrap_or(512),
+        canvas.width,
+        canvas.height,
+    );
+    let tile_rows = opts.canvas_tile_rows.unwrap_or(512);
+    let (image, comp_report) = composite_tiled(
+        &kept_paths,
+        &kept_cams,
+        &gains,
+        &kept_local,
+        &canvas,
+        tile_rows,
+    )
+    .map_err(|e| StitchError::Composite(e.to_string()))?;
 
-        let canvas = auto_canvas(&kept_cams, &canvas_opts)
-            .map_err(|e| StitchError::Composite(e.to_string()))?;
-        composite_tiled(
-            &kept_paths,
-            &kept_cams,
-            &gains,
-            &kept_local,
-            &canvas,
-            tile_rows,
-        )
-        .map_err(|e| StitchError::Composite(e.to_string()))?
-    } else {
-        // ── Full all-resident path (default; backward compatible) ────────
-        let (kept, kept_local): (Vec<(PlanarImage, Camera)>, Vec<Option<LocalCorrection>>) = frames
-            .into_iter()
-            .zip(&solution.cameras)
-            .zip(&solution.local_corrections)
-            .filter_map(|((f, cam), lc)| cam.as_ref().map(|c| ((f.image, c.clone()), lc.clone())))
-            .unzip();
-        let (kept_frames, kept_cams): (Vec<_>, Vec<_>) = kept.into_iter().unzip();
-        composite(
-            &kept_frames,
-            &kept_cams,
-            &CompositeOptions {
-                canvas: canvas_opts,
-                ..Default::default()
-            },
-            &kept_local,
-        )
-        .map_err(|e| StitchError::Composite(e.to_string()))?
-    };
     let t_composite = t5.elapsed().as_secs_f64();
     progress(5, 1.0);
 
@@ -470,4 +573,32 @@ pub fn stitch(
             t_composite,
         ],
     })
+}
+
+// ─── LRU cache helpers ────────────────────────────────────────────────────────
+
+/// Choose which of the two cache slots to evict when loading a new frame.
+///
+/// Prefers to evict the slot that is *not* referenced by either index in
+/// `next_pair` — if both or neither are referenced, evicts slot 1
+/// (arbitrary tiebreak, deterministic).
+fn choose_evict_slot(
+    cache: &[Option<(usize, PlanarImage)>; 2],
+    _want_a: usize,
+    _want_b: usize,
+    next_pair: Option<(usize, usize)>,
+) -> usize {
+    let Some((na, nb)) = next_pair else {
+        return 1; // Last edge: pick any slot.
+    };
+    for (slot, entry) in cache.iter().enumerate() {
+        if let Some((idx, _)) = entry {
+            if *idx != na && *idx != nb {
+                return slot; // This slot's frame is not needed next.
+            }
+        } else {
+            return slot; // Empty slot — free to use.
+        }
+    }
+    1 // Both slots are referenced by next_pair — evict slot 1.
 }
