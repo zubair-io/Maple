@@ -353,31 +353,38 @@ pub fn stitch(
     };
 
     // ── Degeneracy guard (must run BEFORE any composite allocation) ────────
-    // A translational / near-parallel camera set forced through the rotation
-    // path produces a BA solution where the cameras point in nearly the same
-    // direction. The spherical projection maps that geometry to a near-full-
-    // sphere canvas at the per-pixel density of the source frames — potentially
-    // hundreds of GB. The pixel cap (max_canvas_px) *does* fire, but it fires
-    // inside composite(), after frames have been decoded into memory.
+    // A *connected* near-parallel / translational set forced through the
+    // rotation path produces a BA solution whose spherical projection spans a
+    // huge angular extent — the natural (unclamped) canvas balloons to tens or
+    // hundreds of GB. The max_canvas_px cap only bites *inside* composite(),
+    // after that giant buffer (and the decoded frames) are already allocated —
+    // which is how a nadir set ballooned to ~317 GB (#1267). We fail fast here,
+    // before any allocation, comparing the natural canvas pixel count to the cap.
     //
-    // We compute the ratio of the natural (unclamped) canvas pixel count to
-    // max_canvas_px here, before any allocation. A ratio > the threshold means
-    // the cap would crush the output resolution by a factor of sqrt(ratio),
-    // which for near-parallel sets is so extreme (10⁵–10⁶×) that the result
-    // would be 1×1 pixels: the geometry is simply not rotation-stitchable.
+    // NOTE this is a *backstop*. A fully translational set whose frames don't
+    // overlap rotationally (e.g. the pano_00 nadir set) disconnects in the
+    // match graph and is already rejected above as TooFewSurvivors; `auto`
+    // routes such sets to tile (#1271). This guard catches the remaining case:
+    // frames that DO connect but whose rotation BA is degenerate enough to blow
+    // up the canvas.
     //
-    // Threshold: 1 000× — i.e. the natural canvas exceeds the cap by three
-    // orders of magnitude. At that scale-factor the cap compresses a notional
-    // 256 MP pano to a ~256 px wide thumbnail, and the BA is clearly
-    // degenerate. We use a named constant so reviewers can see and adjust it.
-    const DEGENERATE_CANVAS_RATIO: f64 = 1_000.0;
+    // Threshold — a small multiple of the cap (#1269: "a sane ceiling, a small
+    // multiple of max_canvas_px"). Measured anchors: a legit 21-frame DJI
+    // rotation pano (pano_01) sizes to ratio ≈ 1.08× at the 256 MP default; the
+    // ~317 GB blowup back-of-envelopes to ≈ 26–103× natural. 8× sits well clear
+    // of legit content yet fires before the blowup across that range. The risk
+    // is asymmetric — failing fast on a borderline-large pano is recoverable
+    // (raise --max-canvas-px, which lowers the ratio), but letting a degenerate
+    // set through hangs the host — so we err toward the lower bound.
+    const DEGENERATE_CANVAS_RATIO: f64 = 8.0;
     {
         let kept_cams_guard: Vec<Camera> = kept_meta.iter().map(|(_, c, _)| c.clone()).collect();
         if let Some(ratio) = natural_canvas_pixel_ratio(&kept_cams_guard, &canvas_opts) {
             if ratio > DEGENERATE_CANVAS_RATIO {
                 return Err(StitchError::DegenerateGeometry(format!(
-                    "natural canvas is {ratio:.0}× larger than the {mp} MP cap \
-                     (frames are near-parallel or translational)",
+                    "natural canvas is {ratio:.0}× larger than the {mp} MP cap — the rotation \
+                     geometry is likely degenerate (near-parallel or translational frames; try \
+                     Auto or Tile). If this is a genuinely large panorama, raise --max-canvas-px",
                     mp = opts.max_canvas_px / 1_000_000,
                 )));
             }
