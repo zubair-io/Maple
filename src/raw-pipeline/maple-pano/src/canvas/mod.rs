@@ -246,7 +246,7 @@ pub(super) struct CameraSamples {
 }
 
 mod auto;
-pub use auto::{angular_extent_deg, auto_canvas};
+pub use auto::{angular_extent_deg, auto_canvas, natural_canvas_pixel_ratio};
 
 #[cfg(test)]
 mod tests;

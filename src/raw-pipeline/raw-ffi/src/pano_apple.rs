@@ -157,6 +157,16 @@ pub(super) fn run_stitch_apple(
             set_last_error(format!("maple_pano_stitch: {msg}"));
             -6
         }
+        // rc -8: degenerate rotation geometry — the caller should retry with
+        // Auto or Tile strategy. Distinct from -7 (generic failure) so Swift
+        // callers can surface "use Auto/Tile" rather than a generic error.
+        Err(StitchError::DegenerateGeometry(msg)) => {
+            set_last_error(format!(
+                "maple_pano_stitch: rotation geometry is degenerate — {msg}; \
+                 retry with Auto or Tile strategy"
+            ));
+            -8
+        }
         Err(e) => {
             set_last_error(format!("maple_pano_stitch: {e}"));
             -7
