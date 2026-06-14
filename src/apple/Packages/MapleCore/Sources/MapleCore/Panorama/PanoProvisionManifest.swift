@@ -37,9 +37,13 @@ struct PanoArtifactSpec: Sendable {
         /// Plain file → install to `modelsDir/filename`.
         case modelFile(filename: String)
         /// gzip tarball → extract `internalDylibPath`, install as the ORT
-        /// dylib (macOS only). `internalDylibPath` is relative to the
-        /// archive root.
-        case ortTarball(internalDylibPath: String)
+        /// dylib (macOS only). `internalDylibPath` is relative to the archive
+        /// root. `installedSha256` is the SHA-256 of the *extracted* dylib
+        /// (the real Mach-O, symlink dereferenced) — used to re-verify the
+        /// installed dylib at load time, before `dlopen`, since the app runs
+        /// with `disable-library-validation` and the dylib lives in a
+        /// user-writable location.
+        case ortTarball(internalDylibPath: String, installedSha256: String)
     }
 }
 
@@ -78,7 +82,10 @@ enum PanoProvisionManifest {
             url: URL(string: "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-arm64-1.23.2.tgz")!,
             sha256: "b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856",
             size: 9_999_931,
-            kind: .ortTarball(internalDylibPath: "onnxruntime-osx-arm64-1.23.2/lib/libonnxruntime.dylib")
+            kind: .ortTarball(
+                internalDylibPath: "onnxruntime-osx-arm64-1.23.2/lib/libonnxruntime.dylib",
+                installedSha256: "d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299"
+            )
         )
         #else
         return PanoArtifactSpec(
@@ -86,7 +93,10 @@ enum PanoProvisionManifest {
             url: URL(string: "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-x86_64-1.23.2.tgz")!,
             sha256: "d10359e16347b57d9959f7e80a225a5b4a66ed7d7e007274a15cae86836485a6",
             size: 11_676_322,
-            kind: .ortTarball(internalDylibPath: "onnxruntime-osx-x86_64-1.23.2/lib/libonnxruntime.dylib")
+            kind: .ortTarball(
+                internalDylibPath: "onnxruntime-osx-x86_64-1.23.2/lib/libonnxruntime.dylib",
+                installedSha256: "8c9c78de65ea3786f987c0d980e9c1b13a3a5fbc6b3e2965ba05b450e6e4c054"
+            )
         )
         #endif
         #else

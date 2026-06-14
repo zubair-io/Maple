@@ -534,6 +534,29 @@ public final class RustPanoStitcher: PanoStitching {
                     "(ORT bundling: M6 of #1234.)"
                 )
             }
+            // Load-time integrity check for the AUTO-PROVISIONED dylib only
+            // (no Settings/env override). The app runs with
+            // disable-library-validation and the dylib lives in a
+            // user-writable location, so re-verify its pinned SHA-256
+            // immediately before it's dlopen'd; refuse a tampered/corrupt file.
+            // A user-specified override is the user's own dylib — not pin-checked.
+            if !hasSettingsOrt && !hasEnvOrt {
+                switch PanoProvisioner.verifyOrtDylibIntegrity(at: dylib) {
+                case .ok, .notApplicable:
+                    break
+                case .mismatch:
+                    throw PanoStitcherError.modelsNotInstalled(
+                        "The installed ONNX Runtime failed its integrity check — the file at " +
+                        "\(dylib.path) does not match the expected build and will not be loaded " +
+                        "(it may be corrupt or modified). Re-download it from Settings → Pano."
+                    )
+                case .unreadable:
+                    throw PanoStitcherError.modelsNotInstalled(
+                        "The installed ONNX Runtime could not be read for verification " +
+                        "(\(dylib.path)). Re-download it from Settings → Pano."
+                    )
+                }
+            }
             setenv("ORT_DYLIB_PATH", dylib.path, 1)
         }
     }

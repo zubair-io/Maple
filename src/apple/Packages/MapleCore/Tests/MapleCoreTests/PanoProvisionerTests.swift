@@ -57,9 +57,21 @@ struct PanoProvisionerTests {
         let f = dir.appendingPathComponent("blob.bin")
         let bytes = Data((0..<5000).map { UInt8($0 & 0xff) })
         let (expected, _) = try writeFixture(bytes, to: f)
-        let prov = PanoProvisioner(modelsDir: dir, ortDylibPath: nil, modelSpecs: [], ortSpec: nil)
-        let actual = try await prov.sha256Hex(ofFileAt: f)
+        let actual = try PanoProvisioner.sha256Hex(ofFileAt: f)
         #expect(actual == expected)
+    }
+
+    // MARK: - ORT load-time integrity
+
+    @Test("ortIntegrity: ok on match, mismatch on wrong SHA, unreadable when missing, n/a when nil")
+    func ortIntegrityChecks() throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("ort.dylib")
+        let (sha, _) = try writeFixture(Data("fake dylib bytes for integrity".utf8), to: f)
+        #expect(PanoProvisioner.ortIntegrity(at: f, expectedSha256: sha) == .ok)
+        #expect(PanoProvisioner.ortIntegrity(at: f, expectedSha256: String(repeating: "0", count: 64)) == .mismatch)
+        #expect(PanoProvisioner.ortIntegrity(at: dir.appendingPathComponent("nope"), expectedSha256: sha) == .unreadable)
+        #expect(PanoProvisioner.ortIntegrity(at: f, expectedSha256: nil) == .notApplicable)
     }
 
     // MARK: - verify
@@ -233,7 +245,8 @@ struct PanoProvisionerTests {
         let spec = PanoArtifactSpec(
             label: "Test ORT", url: URL(string: "https://example.invalid/ort.tgz")!,
             sha256: String(repeating: "0", count: 64), size: size,
-            kind: .ortTarball(internalDylibPath: "root/lib/libonnxruntime.dylib"))
+            kind: .ortTarball(internalDylibPath: "root/lib/libonnxruntime.dylib",
+                              installedSha256: String(repeating: "0", count: 64)))
 
         let prov = PanoProvisioner(modelsDir: nil, ortDylibPath: target, modelSpecs: [], ortSpec: nil)
         try await prov.install(spec, verifiedFile: tgz)
