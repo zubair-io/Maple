@@ -76,13 +76,14 @@ pub struct StitchArgs {
     /// `tile`: force planar similarity for all sets.
     #[arg(long, value_enum, default_value_t = StrategyArg::Auto)]
     pub(super) strategy: StrategyArg,
-    /// Memory-bounded composite path (M6-D, #1248). Divides the output
-    /// canvas into horizontal strips of this many rows; decodes each
-    /// full-res frame on demand per strip and frees it immediately after
-    /// warping. Peak RSS ≈ 1 decoded frame + 1 warped strip + 1 output
-    /// strip (~555 MB) instead of all frames resident simultaneously.
-    /// None (default): full-canvas path, all frames resident (desktop).
-    /// Recommended value for iPad-class devices: 512.
+    /// Canvas strip height for the memory-bounded composite (#1254).
+    /// Divides the output canvas into horizontal strips of this many rows;
+    /// decodes each full-res frame on demand per strip and frees it
+    /// immediately after warping. Peak RSS ≈ 1 decoded frame + 1 warped
+    /// strip + 1 output strip instead of all frames resident simultaneously.
+    /// Omitting this flag uses a default of 512 rows — the tiled path
+    /// always engages on the rotation path (#1254). Pass a larger value to
+    /// reduce tile-pass overhead at the cost of more peak RSS.
     #[arg(long)]
     pub(super) canvas_tile_rows: Option<u32>,
 }

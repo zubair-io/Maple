@@ -38,7 +38,7 @@ pub struct StitchOptions {
     pub proxy_long_edge: u32,
     /// Total output canvas pixel cap (uniform downscale to fit).
     pub max_canvas_px: usize,
-    /// Canvas tile height for memory-bounded composite (M6-D, #1248).
+    /// Canvas tile height for memory-bounded composite (M6-D, #1248, #1254).
     ///
     /// When `Some(n)`, the composite phase processes `n` canvas rows at a
     /// time, decoding source frames on demand and discarding them after each
@@ -46,8 +46,10 @@ pub struct StitchOptions {
     /// pass instead of all N simultaneously. The gain solve runs before the
     /// pixel data is freed and its result is re-used across all tiles.
     ///
-    /// `None` (default): full-canvas all-resident path (backward compatible;
-    /// uses full multi-band blending).
+    /// `None` (default): **512-row tiled path** — the tiled composite always
+    /// engages on the rotation-strategy path (#1254).  A `None` value no
+    /// longer selects a full-canvas all-resident path; it selects the default
+    /// tile height of 512 rows.  Pass `Some(n)` to override the strip height.
     pub canvas_tile_rows: Option<u32>,
     /// Request the CoreML Execution Provider for the ALIKED + LightGlue
     /// ORT sessions (M6-C, #1251). iOS-only: the EP is registered behind

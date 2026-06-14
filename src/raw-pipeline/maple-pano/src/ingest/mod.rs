@@ -313,6 +313,10 @@ pub fn ingest_file_proxy(path: &Path, proxy_long_edge: u32) -> Result<FrameMeta,
             context: path.display().to_string(),
             source,
         })?;
+    // Drop the input file buffer immediately after decode — large DNG files
+    // (100 MP ≈ 200 MB compressed) would otherwise remain live until function
+    // return, doubling the transient stage-0 RSS (#1254).
+    drop(bytes);
     // Build the full-res planar image transiently — only to feed the
     // downscaler.  Drop it before returning.
     let full_image = PlanarImage::from_scene_linear(&decoded.image);

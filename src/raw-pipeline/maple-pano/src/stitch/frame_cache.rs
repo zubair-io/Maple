@@ -24,26 +24,38 @@ pub(super) fn load_frame(
 
 /// Choose which of the two cache slots to evict when loading a new frame.
 ///
-/// Prefers to evict the slot that is *not* referenced by either index in
-/// `next_pair` — if both or neither are referenced, evicts slot 1
-/// (arbitrary tiebreak, deterministic).
+/// **Never** evicts a slot holding `want_a` or `want_b` — the two frames
+/// the current edge requires.  Among the remaining candidates, prefers the
+/// slot whose frame is *not* referenced by either index in `next_pair`.
+/// Falls back to slot 1 when all slots are excluded or tied.
 pub(super) fn choose_evict_slot(
     cache: &[Option<(usize, PlanarImage)>; 2],
-    _want_a: usize,
-    _want_b: usize,
+    want_a: usize,
+    want_b: usize,
     next_pair: Option<(usize, usize)>,
 ) -> usize {
-    let Some((na, nb)) = next_pair else {
-        return 1; // Last edge: pick any slot.
-    };
-    for (slot, entry) in cache.iter().enumerate() {
-        if let Some((idx, _)) = entry {
-            if *idx != na && *idx != nb {
-                return slot; // This slot's frame is not needed next.
-            }
-        } else {
-            return slot; // Empty slot — free to use.
+    // Build eviction candidates: exclude slots that hold want_a or want_b
+    // (evicting them would force an immediate re-decode of the same frame).
+    let candidates: Vec<usize> = (0..2)
+        .filter(|&slot| {
+            !cache[slot]
+                .as_ref()
+                .map(|(idx, _)| *idx == want_a || *idx == want_b)
+                .unwrap_or(false)
+        })
+        .collect();
+
+    // Among candidates, prefer empty slots or ones not needed by next_pair.
+    let (na, nb) = next_pair.unwrap_or((usize::MAX, usize::MAX));
+    for &slot in &candidates {
+        match &cache[slot] {
+            None => return slot, // Empty — free to use.
+            Some((idx, _)) if *idx != na && *idx != nb => return slot, // Not needed next.
+            _ => {}
         }
     }
-    1 // Both slots are referenced by next_pair — evict slot 1.
+    // Fallback: pick first candidate (or slot 1 if no candidates, which
+    // would only happen if both slots already hold want_a and want_b — the
+    // caller should then not call choose_evict_slot at all).
+    candidates.into_iter().next().unwrap_or(1)
 }
