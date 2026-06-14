@@ -3,10 +3,9 @@ use crate::camera::focal_px_for_hfov;
 use crate::prng::SplitMix64;
 use crate::render::{build_camera_set, CameraSetOptions, Pattern};
 
-// The degeneracy threshold used in stitch/mod.rs; mirrored here so the unit
-// test can assert the ratio is above it without importing stitch internals.
-// Keep in sync with `DEGENERATE_CANVAS_RATIO` in stitch/mod.rs.
-const DEGENERATE_CANVAS_RATIO: f64 = 8.0;
+// `DEGENERATE_CANVAS_RATIO` (the guard threshold) is single-sourced in the
+// parent `canvas` module and pulled in via `use super::*` above — these tests
+// assert against the exact value the guard uses, so they can't drift from it.
 
 fn ring(count: u32, fov_deg: f64, full: bool, overlap: f64) -> Vec<Camera> {
     let opts = CameraSetOptions {

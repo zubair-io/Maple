@@ -248,5 +248,14 @@ pub(super) struct CameraSamples {
 mod auto;
 pub use auto::{angular_extent_deg, auto_canvas, natural_canvas_pixel_ratio};
 
+/// Natural-canvas-to-cap pixel-ratio above which a rotation BA solution is
+/// treated as degenerate and rejected fail-fast (see the guard in
+/// `stitch::stitch`, #1269). A small multiple of `max_canvas_px`: a legit
+/// 21-frame DJI rotation pano measures ~1.08×, while the ~317 GB blowup
+/// back-of-envelopes to ~26–103× natural — 8× clears legit content yet fires
+/// before the blowup. Single-sourced here so the guard and its unit tests
+/// cannot drift.
+pub(crate) const DEGENERATE_CANVAS_RATIO: f64 = 8.0;
+
 #[cfg(test)]
 mod tests;
