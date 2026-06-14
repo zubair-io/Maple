@@ -19,6 +19,7 @@
 
 use std::path::PathBuf;
 
+use ort::execution_providers::cpu::CPUExecutionProvider;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
@@ -111,8 +112,22 @@ impl LightGlueMatcher {
     /// a logged fallback, never silent.
     pub fn load(models: &ModelDir, options: MatcherOptions) -> Result<Self, MlError> {
         OrtRuntime::preflight(None)?;
+        // #1275: Disable ORT's pre-allocation heuristics on macOS-CPU to
+        // reduce the session memory floor — see the parallel comment in
+        // `AlikedDetector::load` for the full rationale and measured deltas.
+        // LightGlue has dynamic N axes (keypoint count varies per frame pair),
+        // which makes the memory-pattern pre-allocation *especially* wasteful:
+        // ORT sizes the slab to the first-call maximum and never shrinks it,
+        // so the worst-case keypoint count from frame 0 stays resident
+        // regardless of subsequent pair sizes.
         let mut builder = Session::builder()
             .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
+            .and_then(|b| b.with_memory_pattern(false))
+            .and_then(|b| {
+                b.with_execution_providers([CPUExecutionProvider::default()
+                    .with_arena_allocator(false)
+                    .build()])
+            })
             .map_err(|e| MlError::Runtime(format!("session builder: {e}")))?;
         if let Some(threads) = options.intra_threads {
             builder = builder
