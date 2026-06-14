@@ -401,6 +401,45 @@ INCLUDE_DIR="$FRAMEWORKS_DIR/include"
 mkdir -p "$INCLUDE_DIR" "$HEADERS_DIR"
 
 echo "==> cbindgen — generating RawPipeline.h"
+
+# cbindgen runs `cargo metadata` internally to resolve the crate graph, and
+# that invocation reads `.cargo/config.toml` from the directory hierarchy.
+# On Xcode Cloud (empty registry cache + intermittent DNS) the default
+# `cargo metadata` attempts to "Update crates.io index", fails to resolve
+# `blake3`, and the build dies with:
+#
+#   ERROR: Couldn't execute `cargo metadata` ... failed to get `blake3` as
+#   a dependency ... download of bl/ak/blake3 failed ... Could not resolve
+#   host: index.crates.io
+#
+# Fix: write a scoped, transient `.cargo/config.toml` under raw-ffi/ so
+# cbindgen's internal `cargo metadata` resolves offline from vendor/.
+#
+# WHY scoped to raw-ffi/.cargo/ (not repo root): a repo-level config.toml
+# would also be inherited by the WASM build (raw-wasm/), which uses
+# `-Z build-std` — that rebuilds std from source and needs std's own
+# dependency versions, which are not (and should not be) in our vendor dir.
+# A config under raw-ffi/.cargo/ is only discovered when cwd is within
+# raw-ffi/ (exactly the cbindgen step below), so the WASM and API builds
+# continue resolving from crates.io as before.
+#
+# The file is removed immediately after cbindgen (and on any exit via trap)
+# so it never persists into subsequent build steps.
+CBINDGEN_CARGO_DIR="$RAW_FFI_DIR/.cargo"
+CBINDGEN_CARGO_CFG="$CBINDGEN_CARGO_DIR/config.toml"
+mkdir -p "$CBINDGEN_CARGO_DIR"
+cat > "$CBINDGEN_CARGO_CFG" <<CBINDGEN_CFG
+[source.crates-io]
+replace-with = "vendored-sources"
+[source.vendored-sources]
+directory = "$RAW_PIPELINE_DIR/vendor"
+[net]
+offline = true
+CBINDGEN_CFG
+
+# Ensure the transient config is removed even when the script exits early.
+trap 'rm -rf "$CBINDGEN_CARGO_DIR"' EXIT
+
 (
     cd "$RAW_FFI_DIR"
     # Since #1064 the header declares the GPU FFI surface (`maple_gpu_*`,
@@ -417,6 +456,12 @@ echo "==> cbindgen — generating RawPipeline.h"
         --crate raw-ffi \
         2>&1
 )
+
+# Remove the transient .cargo/ immediately so the cleanup trap is a no-op
+# for normal (non-error) exits (belt-and-suspenders).
+rm -rf "$CBINDGEN_CARGO_DIR"
+# Unset the trap now that we've cleaned up manually.
+trap - EXIT
 
 # Emit a modulemap so Swift can `import RawPipeline`. Without it, SwiftPM /
 # xcodebuild treat the xcframework as a plain static library and the

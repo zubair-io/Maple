@@ -29,7 +29,6 @@
 //! rectilinear canvas is yawed/pitched toward the content centroid with
 //! zero roll.
 
-use crate::camera::Camera;
 use crate::error::PanoError;
 use crate::math::{Mat3, Vec3};
 use crate::project::Projection;

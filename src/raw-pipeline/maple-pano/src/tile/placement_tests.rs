@@ -1,6 +1,7 @@
 //! Unit tests for [`crate::tile::placement`].
 //! Kept in a separate file for the file-size budget.
 
+use super::placement_solve::gauss_eliminate;
 use super::*;
 use crate::similarity::Similarity2d;
 
