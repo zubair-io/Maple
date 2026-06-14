@@ -254,6 +254,13 @@ pub use auto::{angular_extent_deg, auto_canvas, natural_canvas_pixel_ratio};
 /// back-of-envelopes to ~26–103× natural — 8× clears legit content yet fires
 /// before the blowup. Single-sourced here so the guard and its unit tests
 /// cannot drift.
+///
+/// Small-pano safety (#1276): a 2–3 frame overlapping set is safe at any
+/// realistic sensor size. A DJI L3D-100c-like camera (11 648 × 8 736,
+/// 74° HFOV, ~7 700 px focal) measures only ~1.42× for 2 frames and
+/// ~2.01× for 3 frames — far below 8×. The 61× value observed during #1254
+/// verification was two non-adjacent frames from pano_01 (PANO0001 +
+/// PANO0002) forced through the rotation path, not a legitimate small pano.
 pub(crate) const DEGENERATE_CANVAS_RATIO: f64 = 8.0;
 
 #[cfg(test)]
