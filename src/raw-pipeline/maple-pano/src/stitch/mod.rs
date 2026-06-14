@@ -48,10 +48,12 @@
 //! composite module doc and #1254 for the memory driver details).
 
 mod io;
+mod tile_stitch;
 mod types;
 
 pub use io::{interleave_planar, quantize_to_u16};
-pub use types::{StitchError, StitchOptions, StitchOutcome};
+pub use tile_stitch::stitch_tile;
+pub use types::{StitchError, StitchOptions, StitchOutcome, TileStitchOutcome};
 
 use std::path::PathBuf;
 

@@ -246,3 +246,114 @@ fn pano_ffi_stitch_pano_01_matches_reference() {
         }
     }
 }
+
+/// Tile-strategy FFI gate (#1267): a nadir/translational set must stitch
+/// through the FFI's tile path (`stitch` → `TileNotSupported` → `stitch_tile`),
+/// not error or degenerate through rotation. `pano_00` is the 3-frame DJI nadir
+/// set; `auto` selects tile. No committed reference, so we assert the C-ABI
+/// returns 0 and writes a non-trivial image — proving the tile path is wired
+/// (the exact path the Apple app uses). Heavy (~55 GB / ~1 min); skip-passes
+/// without fixtures/models, like the pano_01 gate.
+#[test]
+fn pano_ffi_stitch_pano_00_tile_succeeds() {
+    if std::env::var("MAPLE_PANO_MODELS").is_err() {
+        skip("MAPLE_PANO_MODELS not set");
+        return;
+    }
+    if std::env::var("ORT_DYLIB_PATH").is_err() {
+        skip("ORT_DYLIB_PATH not set");
+        return;
+    }
+    let root = match repo_root() {
+        Some(r) => r,
+        None => {
+            skip("repo root not found (no test-fixtures/ ancestor)");
+            return;
+        }
+    };
+    let fixtures_dir = root.join("test-fixtures/raws/pano_00");
+    if !fixtures_dir.is_dir() {
+        skip(format!("fixtures absent: {}", fixtures_dir.display()));
+        return;
+    }
+    let mut raw_paths: Vec<PathBuf> = std::fs::read_dir(&fixtures_dir)
+        .expect("read fixtures dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| {
+            matches!(
+                p.extension().and_then(|e| e.to_str()),
+                Some("DNG")
+                    | Some("dng")
+                    | Some("CR3")
+                    | Some("cr3")
+                    | Some("NEF")
+                    | Some("nef")
+                    | Some("ARW")
+                    | Some("arw")
+            )
+        })
+        .collect();
+    raw_paths.sort();
+    if raw_paths.len() < 2 {
+        skip(format!(
+            "need ≥ 2 RAW frames in {}, found {}",
+            fixtures_dir.display(),
+            raw_paths.len()
+        ));
+        return;
+    }
+
+    let tmp_dir = tempfile::tempdir().expect("create temp dir");
+    let out_linear = tmp_dir.path().join("pano_00_tile.png");
+
+    let c_input_strings: Vec<CString> = raw_paths
+        .iter()
+        .map(|p| CString::new(p.to_str().expect("path UTF-8")).expect("no interior NUL in path"))
+        .collect();
+    let c_input_ptrs: Vec<*const c_char> = c_input_strings.iter().map(|cs| cs.as_ptr()).collect();
+    let c_out_path =
+        CString::new(out_linear.to_str().expect("out path UTF-8")).expect("no interior NUL");
+
+    eprintln!(
+        "pano_ffi_gates[tile]: calling maple_pano_stitch on {} nadir frames (auto→tile) ...",
+        c_input_ptrs.len()
+    );
+    let rc = unsafe {
+        maple_pano_stitch(
+            c_input_ptrs.as_ptr(),
+            c_input_ptrs.len(),
+            c_out_path.as_ptr(),
+            MaplePanoRetention::Keep,
+            MaplePanoLocalAlign::Mesh,
+            MaplePanoStrategy::Auto,
+            None,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+        )
+    };
+    if rc != 0 {
+        let msg = unsafe {
+            let ptr = maple_last_error();
+            if ptr.is_null() {
+                "(no error message)".to_string()
+            } else {
+                std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
+            }
+        };
+        panic!("maple_pano_stitch (tile/pano_00) returned {rc}: {msg}");
+    }
+    assert!(
+        out_linear.exists(),
+        "tile FFI returned 0 but no output PNG: {}",
+        out_linear.display()
+    );
+    // A 3-frame 132 MP nadir set composites to a ~167 MP pano (~800 MB PNG).
+    // Assert a non-trivial file to confirm a real image, not an empty stub.
+    let sz = std::fs::metadata(&out_linear).expect("stat output").len();
+    assert!(
+        sz > 10_000_000,
+        "tile FFI output suspiciously small ({sz} bytes) — expected a multi-frame pano"
+    );
+    eprintln!("pano_ffi_gates[tile]: PASS — tile stitched pano_00 via FFI ({sz} bytes)");
+}
