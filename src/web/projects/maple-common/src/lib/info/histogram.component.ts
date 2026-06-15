@@ -66,7 +66,10 @@ export class InfoHistogramComponent {
    *  Null when neither is available, which short-circuits the template back
    *  to the decorative placeholder. */
   readonly polylines = computed(() => {
-    const px = this.canvas.currentPixels();
+    // Only source from live local pixels when an asset is actually bound — the
+    // canvas service may still hold a previous image's snapshot, and the
+    // contract is: no asset ⇒ placeholder.
+    const px = this.asset() ? this.canvas.currentPixels() : null;
     if (px) {
       const { r, g, b } = computeRgbHistograms(px);
       return { r: toPolylinePoints(r), g: toPolylinePoints(g), b: toPolylinePoints(b) };
