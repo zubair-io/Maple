@@ -96,6 +96,65 @@ export function liveFileInfoElemMatch(): Record<string, unknown> {
 }
 
 /**
+ * Mongo predicate for "this asset has ≥2 *live* `fileinfo` entries", used by
+ * both the deduplicate worker's candidate `find` and the `/status` pending
+ * count so the two stay in sync (#1290).
+ *
+ * **Query strategy:** we first apply the `fileinfo.1 exists` partial-index
+ * filter (`fileinfo_multi_location`) to restrict the scan to the small set of
+ * multi-location rows, then use `$expr` + `$filter` to count only the live
+ * subset of each row's `fileinfo` array in-memory. This avoids a full
+ * COLLSCAN while giving an exact "≥2 live" count rather than the coarser
+ * "≥2 total" that the bare index predicate would give.
+ *
+ * **Tradeoff:** `$expr` with `$filter` is not covered by the partial index
+ * (MongoDB cannot use an index to evaluate `$expr` sub-expressions), so the
+ * executor does:
+ *   1. Index COUNT_SCAN / FETCH over the `fileinfo_multi_location` partial
+ *      index (only duplicate-location rows, typically tiny).
+ *   2. Per-row in-memory `$filter` over the `fileinfo` array to count live
+ *      entries (array is small — usually 2–3 elements).
+ *
+ * This is safe under the 2 s status cache: step 1 is O(duplicates) not
+ * O(total assets), and step 2 is O(fileinfo.length) per row. On a library
+ * with 100 k assets but only 1 k duplicates the index prunes to 1 k rows;
+ * the per-row work is negligible. A defensible cheaper alternative would be
+ * `fileinfo.1 exists AND ≥1 live` (one `$elemMatch`), which also narrows via
+ * the partial index and avoids `$expr` entirely, but would still count some
+ * one-live + tombstoned-sibling rows. The exact predicate is preferred because
+ * it lets the badge reach 0 from deduplicate alone.
+ *
+ * In `$expr`/`$filter` context, absent fields are NOT automatically `null` —
+ * they evaluate to a missing-value that `$in: [null]` does not match. We use
+ * `$ifNull` to coerce absent fields to `null` before comparing, so both
+ * missing and explicit `null` are treated as "no tag" (live), exactly matching
+ * `isLiveFileInfo` which checks `!entry.deleted_at && !entry.missing_since`.
+ */
+export function liveAwareDuplicatePredicate(): Record<string, unknown> {
+  return {
+    'fileinfo.1': { $exists: true },
+    $expr: {
+      $gte: [
+        {
+          $size: {
+            $filter: {
+              input: { $ifNull: ['$fileinfo', []] },
+              cond: {
+                $and: [
+                  { $eq: [{ $ifNull: ['$$this.deleted_at', null] }, null] },
+                  { $eq: [{ $ifNull: ['$$this.missing_since', null] }, null] },
+                ],
+              },
+            },
+          },
+        },
+        2,
+      ],
+    },
+  };
+}
+
+/**
  * First live `fileinfo` entry, or `null` when the array is missing or every
  * entry is non-live (`deleted_at` and/or `missing_since` set). "Live" is
  * defined by {@link isLiveFileInfo}.
