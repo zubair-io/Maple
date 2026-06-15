@@ -345,6 +345,13 @@ public actor ImageEditPipeline {
         // Pull bytes (or use the URL directly when available).
         let cgImage: CGImage?
         let sourceColorSpace: CGColorSpace?
+        // EXIF orientation (1–8) of the source. ImageIO returns the
+        // stored, un-oriented pixels on both the thumbnail and full-res
+        // decode paths, so we apply the rotation ourselves below (uniform
+        // across fast + refine). iPhone HEIC/JPEG captures are almost
+        // always stored landscape with an orientation tag; without this
+        // the image opens sideways (#…heif-rotation).
+        let exifOrientation: Int32
         // Downsample at decode for the fast (viewport) phase so the
         // full-resolution bitmap is never allocated — a 40-100MP JPEG's
         // full-res CGImage + CIImage + scene-linear f32 buffer is hundreds
@@ -360,12 +367,14 @@ public actor ImageEditPipeline {
             let pair = Self.decodeNonRawCGImage(url: url, maxPixelSize: maxPixelSize)
             cgImage = pair.image
             sourceColorSpace = pair.colorSpace
+            exifOrientation = pair.orientation
         } else if let provider = asset.bytesProvider {
             do {
                 let bytes = try await provider()
                 let pair = Self.decodeNonRawCGImage(data: bytes, maxPixelSize: maxPixelSize)
                 cgImage = pair.image
                 sourceColorSpace = pair.colorSpace
+                exifOrientation = pair.orientation
             } catch {
                 logger.error("decodeSceneLinearNonRaw bytesProvider failed for \(asset.displayName, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 return nil
@@ -386,9 +395,20 @@ public actor ImageEditPipeline {
         if let cs = sourceColorSpace ?? cgImage.colorSpace {
             options[.colorSpace] = cs
         }
-        let raw = mapleStage("decode non-RAW CIImage build") {
+        let decodedCI = mapleStage("decode non-RAW CIImage build") {
             CIImage(cgImage: cgImage, options: options)
         }
+
+        // Apply the EXIF orientation. ImageIO handed us stored (sensor)
+        // pixels; this rotates/flips them into display orientation. A
+        // geometric transform commutes with the per-pixel color promotion
+        // below, so order with the CIColorMatrix is irrelevant. Normal (1)
+        // is a no-op fast path. `.oriented` is applied identically to the
+        // fast (thumbnail) and refine (full-res) decodes, so the two phases
+        // never disagree.
+        let raw: CIImage = exifOrientation == 1
+            ? decodedCI
+            : decodedCI.oriented(forExifOrientation: exifOrientation)
 
         // Tag the working buffer as extendedLinearITUR_2020 so the rest of
         // the scene-linear chain treats it as Rec.2020 fp16. CoreImage
@@ -438,13 +458,13 @@ public actor ImageEditPipeline {
     nonisolated private static func decodeNonRawCGImage(
         url: URL,
         maxPixelSize: Int? = nil
-    ) -> (image: CGImage?, colorSpace: CGColorSpace?) {
+    ) -> (image: CGImage?, colorSpace: CGColorSpace?, orientation: Int32) {
         let opts: [CFString: Any] = [
             kCGImageSourceShouldCache: false,
             kCGImageSourceShouldCacheImmediately: false,
         ]
         guard let src = CGImageSourceCreateWithURL(url as CFURL, opts as CFDictionary) else {
-            return (nil, nil)
+            return (nil, nil, 1)
         }
         return decodeNonRawCGImage(source: src, maxPixelSize: maxPixelSize)
     }
@@ -452,21 +472,38 @@ public actor ImageEditPipeline {
     nonisolated private static func decodeNonRawCGImage(
         data: Data,
         maxPixelSize: Int? = nil
-    ) -> (image: CGImage?, colorSpace: CGColorSpace?) {
+    ) -> (image: CGImage?, colorSpace: CGColorSpace?, orientation: Int32) {
         let opts: [CFString: Any] = [
             kCGImageSourceShouldCache: false,
             kCGImageSourceShouldCacheImmediately: false,
         ]
         guard let src = CGImageSourceCreateWithData(data as CFData, opts as CFDictionary) else {
-            return (nil, nil)
+            return (nil, nil, 1)
         }
         return decodeNonRawCGImage(source: src, maxPixelSize: maxPixelSize)
+    }
+
+    /// Read the EXIF/TIFF orientation (1–8) recorded for the primary image
+    /// (index 0) of a `CGImageSource`. Returns `1` (Normal) when the tag is
+    /// absent or out of range. ImageIO surfaces the same value whether the
+    /// pixels are later decoded via the thumbnail or the full-res path, so
+    /// the caller can apply one rotation consistently across both.
+    nonisolated private static func exifOrientation(of source: CGImageSource) -> Int32 {
+        guard
+            let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+            let value = props[kCGImagePropertyOrientation] as? NSNumber
+        else {
+            return 1
+        }
+        let raw = value.int32Value
+        return (1...8).contains(raw) ? raw : 1
     }
 
     nonisolated private static func decodeNonRawCGImage(
         source: CGImageSource,
         maxPixelSize: Int?
-    ) -> (image: CGImage?, colorSpace: CGColorSpace?) {
+    ) -> (image: CGImage?, colorSpace: CGColorSpace?, orientation: Int32) {
+        let orientation = exifOrientation(of: source)
         // Index 0 is the primary image for HEIF / JPEG / PNG. (HEIF can
         // contain multiple images via the `pitm` box but Apple's
         // CGImageSource defaults index 0 to the primary item.)
@@ -477,13 +514,15 @@ public actor ImageEditPipeline {
             // straight from the decoder so the full-res bitmap is never
             // allocated.
             //
-            // We deliberately do NOT set `…WithTransform`: the full-res
-            // path (`CGImageSourceCreateImageAtIndex`) returns stored,
-            // un-oriented pixels and nothing downstream rotates the
-            // non-RAW buffer, so orienting only the thumbnail would flip
-            // the image when the refine pass replaces it. Matching the
-            // full-res path's stored orientation keeps fast and refine
-            // consistent (#785 is OOM-only — no rendered-output change).
+            // We deliberately do NOT set `…WithTransform`: both this
+            // thumbnail decode and the full-res path
+            // (`CGImageSourceCreateImageAtIndex`) return stored,
+            // un-oriented pixels, and the caller applies the EXIF
+            // orientation (returned alongside) once via
+            // `CIImage.oriented(forExifOrientation:)`. Letting ImageIO
+            // transform only the thumbnail here would double-apply (or
+            // disagree with) that rotation. Returning identical stored
+            // orientation from both paths keeps fast and refine consistent.
             let thumbOpts: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceShouldCacheImmediately: false,
@@ -501,7 +540,7 @@ public actor ImageEditPipeline {
                 // very images this guards). The full-res refine path below
                 // applies the identical sRGB default on nil, so fast and
                 // refine never disagree (#785).
-                return (cg, cg.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB))
+                return (cg, cg.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB), orientation)
             }
             // Fall through to the full-res path if the thumbnail decode
             // failed (e.g. an exotic format ImageIO can downsample-decode
@@ -518,7 +557,7 @@ public actor ImageEditPipeline {
         // and the full-res refine agree on colorimetry (#785). Leave nil
         // only when the decode itself failed (no image to tag).
         let cs = cg.map { $0.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) } ?? nil
-        return (cg, cs)
+        return (cg, cs, orientation)
     }
 
     // MARK: FFI per-tick chain helper

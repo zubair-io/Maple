@@ -230,6 +230,57 @@ final class NonRawSupportTests: XCTestCase {
         XCTAssertEqual(decoded.extent.height, CGFloat(h), accuracy: 1.0)
     }
 
+    /// EXIF orientation must be applied to non-RAW decodes. iPhone HEIC /
+    /// JPEG captures store landscape pixels with an orientation tag; the
+    /// full-image open path used to ignore it, so portrait photos opened
+    /// sideways (the grid thumbnail — which sets `…WithTransform` — was
+    /// already correct, making the mismatch obvious). Synthesise a 320×240
+    /// JPEG tagged orientation 6 (Rotate 90°) and assert the decoded
+    /// CIImage comes back portrait (240×320) — i.e. the rotation landed.
+    func testDecodeSceneLinearNonRawAppliesExifOrientation() async throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        // Stored (sensor) pixels are landscape 320×240.
+        let w = 320, h = 240
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(
+            data: nil, width: w, height: h,
+            bitsPerComponent: 8, bytesPerRow: w * 4,
+            space: cs,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        ctx.setFillColor(red: 0.3, green: 0.6, blue: 0.9, alpha: 1.0)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        guard let cg = ctx.makeImage() else {
+            XCTFail("synth CGImage failed"); return
+        }
+        guard let dest = CGImageDestinationCreateWithURL(
+            tmp as CFURL, UTType.jpeg.identifier as CFString, 1, nil
+        ) else {
+            XCTFail("CGImageDestination failed"); return
+        }
+        // Orientation 6 = "rotate 90° CW for display" — width/height swap.
+        let props: [CFString: Any] = [kCGImagePropertyOrientation: 6]
+        CGImageDestinationAddImage(dest, cg, props as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(dest))
+
+        let asset = AssetRef(url: tmp)
+        let pipeline = ImageEditPipeline()
+        guard let decoded = await pipeline.decodeSceneLinearNonRaw(
+            asset: asset, targetSize: nil
+        ) else {
+            XCTFail("decodeSceneLinearNonRaw returned nil"); return
+        }
+
+        // Display orientation is portrait: dims swapped vs. stored pixels.
+        XCTAssertEqual(decoded.extent.width, CGFloat(h), accuracy: 1.0,
+                       "rotated width should equal stored height")
+        XCTAssertEqual(decoded.extent.height, CGFloat(w), accuracy: 1.0,
+                       "rotated height should equal stored width")
+    }
+
     /// Synthesise a 320×240 PNG and decode through the non-RAW path.
     /// Verifies the alpha-channel handling in the ImageIO path doesn't
     /// blow up.
