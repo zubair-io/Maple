@@ -6,8 +6,8 @@ use crate::auto_profile::{maple_compute_profile_curve, maple_compute_profile_lut
 use crate::buffers::{maple_free_buffer, MapleImageBuffer};
 use crate::error::maple_last_error;
 use crate::render::{
-    bin_rgb888, maple_compute_look_lut, maple_histogram_file, maple_render_bytes,
-    maple_render_file, HISTOGRAM_BINS_LEN,
+    bin_rgb888, maple_compute_look_lut, maple_histogram_bytes, maple_histogram_file,
+    maple_render_bytes, maple_render_file, HISTOGRAM_BINS_LEN,
 };
 use raw_core::test_support::synth_dng::SyntheticGreyDng;
 use std::ffi::{CStr, CString};
@@ -209,6 +209,136 @@ fn histogram_fixture_sums_to_pixel_count() {
     assert!(r > 0, "expected non-empty histogram");
     assert_eq!(r, g, "R and G sums must both equal the pixel count");
     assert_eq!(g, b, "G and B sums must both equal the pixel count");
+}
+
+// ---------------------------------------------------------------------------
+// maple_histogram_bytes — bytes-source sibling for PhotoKit / Self-Hosted
+// assets (no file path). Takes the XMP *document* (not a path) + a quality
+// flag, develops via RawInput::Bytes, bins in Rust. See render.rs.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn histogram_bytes_null_arg_returns_error() {
+    let mut bins = [0u32; HISTOGRAM_BINS_LEN];
+    // null raw_bytes
+    let rc = unsafe {
+        maple_histogram_bytes(
+            std::ptr::null(),
+            0,
+            std::ptr::null(),
+            std::ptr::null(),
+            1,
+            bins.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 1);
+    // null out_bins
+    let bytes = [0u8; 4];
+    let rc2 = unsafe {
+        maple_histogram_bytes(
+            bytes.as_ptr(),
+            bytes.len(),
+            std::ptr::null(),
+            std::ptr::null(),
+            1,
+            std::ptr::null_mut(),
+        )
+    };
+    assert_eq!(rc2, 1);
+}
+
+#[test]
+fn histogram_bytes_rejects_misaligned_out_bins() {
+    // A misaligned `*mut u32` would make the `from_raw_parts_mut` write UB; the
+    // entry must reject it (rc = 1) before reinterpreting the pointer. The
+    // alignment check reads only the pointer value, never dereferences it.
+    let mut backing = vec![0u8; HISTOGRAM_BINS_LEN * 4 + 4];
+    let base = backing.as_mut_ptr();
+    let off = if (base as usize) % std::mem::align_of::<u32>() == 0 {
+        1
+    } else {
+        0
+    };
+    let misaligned = unsafe { base.add(off) } as *mut u32;
+    assert_ne!(
+        misaligned as usize % std::mem::align_of::<u32>(),
+        0,
+        "test setup: pointer must be misaligned",
+    );
+    let bytes = [0u8; 4];
+    let rc = unsafe {
+        maple_histogram_bytes(
+            bytes.as_ptr(),
+            bytes.len(),
+            std::ptr::null(),
+            std::ptr::null(),
+            1,
+            misaligned,
+        )
+    };
+    assert_eq!(rc, 1, "misaligned out_bins must be rejected with code 1");
+}
+
+#[test]
+fn histogram_bytes_bad_xmp_doc_returns_parse_error() {
+    // Malformed XMP document text must surface the shared parse code (4)
+    // before any decode/render — and never touch the output buffer. The
+    // `<` opener with no valid XML body is rejected by `xmp::parse`.
+    let bytes = [0u8; 4];
+    let xmp = CString::new("<this is not valid xmp").unwrap();
+    let mut bins = [7u32; HISTOGRAM_BINS_LEN]; // sentinel — must stay untouched
+    let rc = unsafe {
+        maple_histogram_bytes(
+            bytes.as_ptr(),
+            bytes.len(),
+            std::ptr::null(),
+            xmp.as_ptr(),
+            1,
+            bins.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 4, "malformed xmp_doc must return parse code 4");
+    assert!(
+        bins.iter().all(|&c| c == 7),
+        "error path must not write the histogram buffer"
+    );
+}
+
+/// End-to-end success path, always-run: a hand-rolled synthetic DNG is read
+/// into memory, decoded + rendered (preview quality) from bytes + binned, with
+/// no gitignored fixture required. Mirrors `histogram_synth_dng_sums_to_pixel_count`
+/// but exercises the bytes entry the Apple PhotoKit path drives. The structural
+/// invariant — one sample per pixel per channel — holds at any quality, so the
+/// three channel sums are equal and non-zero regardless of the preview
+/// downsample.
+#[test]
+fn histogram_bytes_synth_dng_sums_to_pixel_count() {
+    let dir = tempfile::tempdir().unwrap();
+    let dng_path = dir.path().join("synth-grey.dng");
+    SyntheticGreyDng::default().write_to(&dng_path).unwrap();
+    let bytes = std::fs::read(&dng_path).unwrap();
+    let ext = CString::new("dng").unwrap();
+    let mut bins = [0u32; HISTOGRAM_BINS_LEN];
+    let rc = unsafe {
+        maple_histogram_bytes(
+            bytes.as_ptr(),
+            bytes.len(),
+            ext.as_ptr(),
+            std::ptr::null(), // default model
+            1,                // preview quality (the interactive Apple path)
+            bins.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0, "synth DNG histogram_bytes rc = {}", rc);
+    let sum = |s: &[u32]| s.iter().map(|&c| c as u64).sum::<u64>();
+    let (r, g, b) = (
+        sum(&bins[0..256]),
+        sum(&bins[256..512]),
+        sum(&bins[512..768]),
+    );
+    assert!(r > 0, "expected a non-empty histogram");
+    assert_eq!(r, g, "R and G sums must equal the pixel count");
+    assert_eq!(g, b, "G and B sums must equal the pixel count");
 }
 
 // ---------------------------------------------------------------------------
