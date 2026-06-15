@@ -121,6 +121,24 @@ export async function buildAuthenticationOptions(userId: ObjectId, email: string
   return opts;
 }
 
+/**
+ * Read a stored credential public key as a tight `Uint8Array<ArrayBuffer>`.
+ *
+ * MongoDB hands binary fields back as a BSON `Binary` (with a `.buffer` Node
+ * Buffer) by default, or — under `promoteBuffers` — as a raw Node `Buffer`. A
+ * Node Buffer is a view into a shared pool, so its `.buffer` is the WHOLE pool
+ * (extra bytes + wrong length); we must copy the Buffer itself (which respects
+ * byteOffset/length), not its underlying ArrayBuffer. Handles both shapes so a
+ * driver/config change can't silently corrupt the key and break every login.
+ */
+function credentialPublicKeyBytes(pk: unknown): Uint8Array {
+  if (pk instanceof Uint8Array) return Uint8Array.from(pk); // Node Buffer / Uint8Array
+  const buf = (pk as { buffer?: unknown } | null)?.buffer; // BSON Binary
+  if (buf instanceof Uint8Array) return Uint8Array.from(buf);
+  if (buf) return Uint8Array.from(new Uint8Array(buf as ArrayBufferLike));
+  return new Uint8Array(0);
+}
+
 export async function verifyAuthentication(args: {
   response: any;
   expectedChallenge: string;
@@ -140,14 +158,7 @@ export async function verifyAuthentication(args: {
     requireUserVerification: false,
     credential: {
       id: args.credential.credential_id,
-      // MongoDB returns BSON Binary (not Buffer) on read; reach into the
-      // underlying buffer rather than `new Uint8Array(binary)` which yields 0
-      // length. Works for both Buffer and Binary inputs. `Uint8Array.from`
-      // copies into a plain ArrayBuffer-backed array — v13 tightened the
-      // expected type to `Uint8Array<ArrayBuffer>` (not `ArrayBufferLike`).
-      publicKey: Uint8Array.from(
-        new Uint8Array((args.credential.public_key as { buffer: ArrayBufferLike }).buffer),
-      ),
+      publicKey: credentialPublicKeyBytes(args.credential.public_key),
       counter: args.credential.counter,
       transports: args.credential.transports as any,
     },
