@@ -9,7 +9,7 @@ import { getDb } from '../db/client.ts';
 import type { WorkerConfigDoc } from './worker-config.repo.ts';
 import type { WorkerConfig, ImageDoc } from './run-stage.ts';
 import { buildClaimQuery } from './run-stage.ts';
-import { liveFileInfoElemMatch } from '../indexer/images.repo.ts';
+import { liveFileInfoElemMatch, liveAwareDuplicatePredicate } from '../indexer/images.repo.ts';
 import { deriveBatchSize } from './loop-policy.ts';
 import { ALL_STAGE_NAMES } from './stages/manifest.ts';
 import { MISSING_REAPER_NAME } from './missing-reaper.ts';
@@ -237,15 +237,20 @@ export async function fetchStatusDbState(
   }
 
   // `deduplicate` is not a claim stage either. Surface the count of assets with
-  // more than one on-disk location (`fileinfo.1` exists) as `pending` so the
-  // Workers UI shows the duplicate backlog instead of 0/0/0. Backed by the
-  // `fileinfo_multi_location` partial index (db/client.ts), so this is an index
-  // COUNT_SCAN over the duplicate-location rows, not a COLLSCAN, on each
-  // (2s-cached) refresh. Coarse on purpose (it counts rows with a tombstoned
-  // sibling too); the worker pass refines to live-only.
+  // ≥2 *live* fileinfo entries as `pending` so the Workers UI badge reflects
+  // what the worker can actually act on and can reach 0 from deduplicate alone
+  // (#1290). Uses the same `liveAwareDuplicatePredicate` as the worker's
+  // candidate query so the two stay in sync.
+  //
+  // Query plan: the `fileinfo_multi_location` partial index narrows to
+  // multi-location rows (typically tiny), then `$expr`+`$filter` counts live
+  // entries per row in-memory. The 2 s cache makes this safe at scale — see the
+  // extended tradeoff discussion in `liveAwareDuplicatePredicate` (images.repo.ts).
   if (assets && stageNames.includes(DEDUPLICATE_NAME)) {
     try {
-      const pending = await assets.countDocuments({ 'fileinfo.1': { $exists: true } });
+      const pending = await assets.countDocuments(
+        liveAwareDuplicatePredicate() as Parameters<typeof assets.countDocuments>[0],
+      );
       pendingByStage.set(DEDUPLICATE_NAME, pending);
       readyByStage.set(DEDUPLICATE_NAME, pending);
     } catch (err) {

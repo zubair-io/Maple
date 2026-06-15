@@ -41,7 +41,11 @@ import type { ObjectId } from 'mongodb';
 import * as fs from '../fs/mirrored.ts';
 import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { isLiveFileInfo, assetPrimaryFileInfo } from '../indexer/images.repo.ts';
+import {
+  isLiveFileInfo,
+  assetPrimaryFileInfo,
+  liveAwareDuplicatePredicate,
+} from '../indexer/images.repo.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
@@ -103,12 +107,16 @@ export async function runDeDuplicateOnce(
 
   const summary = emptySummary();
 
-  // Coarse gate: a 2nd fileinfo entry exists (≡ the operator's
-  // `{$expr:{$gt:[{$size:'$fileinfo'},1]}}`), backed by the
-  // `fileinfo_multi_location` partial index so it seeks only the rare dup rows.
-  // Liveness is refined per-row below (a lone tombstoned sibling doesn't count).
+  // Live-aware gate: ≥2 live (non-tombstoned) fileinfo entries. Backed by the
+  // `fileinfo_multi_location` partial index which narrows to multi-location rows,
+  // then `$expr`+`$filter` counts only non-tombstoned entries per row (#1290).
+  // Keeps in sync with the `/status` pending count (same predicate via
+  // `liveAwareDuplicatePredicate`) so the badge reaches 0 from deduplicate alone
+  // and wasted scan passes on sticky non-live rows are eliminated.
   const candidates = (await coll
-    .find({ 'fileinfo.1': { $exists: true } }, { projection: { _id: 1, fileinfo: 1, maple_id: 1 } })
+    .find(liveAwareDuplicatePredicate() as never, {
+      projection: { _id: 1, fileinfo: 1, maple_id: 1 },
+    })
     .limit(batchSize)
     .toArray()) as DedupeCandidate[];
 
@@ -126,7 +134,11 @@ export async function runDeDuplicateOnce(
   }
 
   if (summary.scanned === 0) {
-    log.debug('deduplicate pass: no candidates — nothing to do');
+    // INFO so operators get a clear "nothing left to deduplicate" signal once
+    // the live-aware backlog drains to 0. Logged on every idle pass; at the
+    // 5-minute interval this produces at most ~288 lines/day, which is
+    // acceptable. Promoted from debug (#1290).
+    log.info('deduplicate pass: no live candidates — backlog is empty');
   } else {
     if (summary.skippedOffline > 0) {
       log.warn(

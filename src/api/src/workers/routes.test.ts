@@ -362,6 +362,112 @@ describe('PATCH /api/workers/:name/config', () => {
   });
 });
 
+// --- #1290: deduplicate ready/pending count must be live-aware ---
+// fetchStatusDbState's deduplicate count must exclude assets where the 2nd
+// fileinfo entry is tombstoned (missing_since or deleted_at set), so the
+// badge reflects what the worker can actually act on (and can reach 0).
+describe('deduplicate count — fetchStatusDbState (#1290)', () => {
+  it('does NOT count an asset with 1 live + 1 missing_since sibling', async () => {
+    if (!dbReachable) return;
+    const db = await getDb();
+    const libraryId = new (await import('mongodb')).ObjectId();
+    // Asset: one live entry + one tombstoned via missing_since.
+    // The coarse predicate `fileinfo.1 exists` would count this; the live-aware
+    // predicate must NOT.
+    await db.collection('assets').insertOne({
+      fileinfo: [
+        { path: 'live', filename: 'IMG.dng', library_id: libraryId },
+        {
+          path: 'gone',
+          filename: 'IMG.dng',
+          library_id: libraryId,
+          missing_since: '2026-01-01T00:00:00Z',
+        },
+      ],
+      maple_id: 'b'.repeat(32),
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-06-01T00:00:00Z',
+      deleted_at: null,
+      stages: {},
+    } as never);
+
+    const { fetchStatusDbState, _resetStatusCacheForTests } = await import('./routes-status.ts');
+    _resetStatusCacheForTests();
+    const state = await fetchStatusDbState(['deduplicate'], {});
+    const pending = state.pendingByStage.get('deduplicate') ?? 0;
+    const ready = state.readyByStage.get('deduplicate') ?? 0;
+    expect(pending).toBe(0);
+    expect(ready).toBe(0);
+  });
+
+  it('does NOT count an asset with 1 live + 1 deleted_at sibling', async () => {
+    if (!dbReachable) return;
+    const db = await getDb();
+    const libraryId = new (await import('mongodb')).ObjectId();
+    await db.collection('assets').insertOne({
+      fileinfo: [
+        { path: 'live', filename: 'IMG.dng', library_id: libraryId },
+        {
+          path: 'replaced',
+          filename: 'IMG.dng',
+          library_id: libraryId,
+          deleted_at: '2026-01-01T00:00:00Z',
+        },
+      ],
+      maple_id: 'c'.repeat(32),
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-06-01T00:00:00Z',
+      deleted_at: null,
+      stages: {},
+    } as never);
+
+    const { fetchStatusDbState, _resetStatusCacheForTests } = await import('./routes-status.ts');
+    _resetStatusCacheForTests();
+    const state = await fetchStatusDbState(['deduplicate'], {});
+    const pending = state.pendingByStage.get('deduplicate') ?? 0;
+    const ready = state.readyByStage.get('deduplicate') ?? 0;
+    expect(pending).toBe(0);
+    expect(ready).toBe(0);
+  });
+
+  it('DOES count an asset with >=2 live entries', async () => {
+    if (!dbReachable) return;
+    const db = await getDb();
+    const libraryId = new (await import('mongodb')).ObjectId();
+    await db.collection('assets').insertOne({
+      fileinfo: [
+        { path: 'a', filename: 'IMG.dng', library_id: libraryId },
+        { path: 'b', filename: 'IMG.dng', library_id: libraryId },
+      ],
+      maple_id: 'd'.repeat(32),
+      size: 1,
+      mtime: 0,
+      rating: 0,
+      flag: 0,
+      color_label: '',
+      indexed_at: '2026-06-01T00:00:00Z',
+      deleted_at: null,
+      stages: {},
+    } as never);
+
+    const { fetchStatusDbState, _resetStatusCacheForTests } = await import('./routes-status.ts');
+    _resetStatusCacheForTests();
+    const state = await fetchStatusDbState(['deduplicate'], {});
+    const pending = state.pendingByStage.get('deduplicate') ?? 0;
+    const ready = state.readyByStage.get('deduplicate') ?? 0;
+    expect(pending).toBe(1);
+    expect(ready).toBe(1);
+  });
+});
+
 describe('migration routes', () => {
   const app = new Elysia().use(workerRoutes());
 
