@@ -10,8 +10,13 @@ import type { DecodedImage, DecodedSceneLinearImage } from './raw-pipeline.types
  *
  * `createImageBitmap` honours the file's embedded colour profile and hands
  * back display-referred pixels; we draw to a 2D canvas and read back RGBA.
- * The returned `DecodedImage.rgb` is packed display sRGB 8-bit (3 * w * h) —
- * the same contract as the WASM `render_bytes` legacy path.
+ * `imageOrientation: 'from-image'` applies the EXIF/TIFF orientation tag so
+ * iPhone HEIC/JPEG captures (stored landscape + an orientation tag) come back
+ * already rotated to display orientation — matching Apple's
+ * `decodeSceneLinearNonRaw`, which applies `CIImage.oriented(forExifOrientation:)`.
+ * Without it portrait photos open sideways. The returned `DecodedImage.rgb` is
+ * packed display sRGB 8-bit (3 * w * h) — the same contract as the WASM
+ * `render_bytes` legacy path.
  *
  * White-balance metadata doesn't exist for a developed image, so we report
  * neutral as-shot values (6500 K / 0 tint). `seedAsShotWhiteBalance` treats
@@ -26,7 +31,7 @@ export async function decodeNonRawToRgb(bytes: Uint8Array): Promise<DecodedImage
   // Copy into a standalone ArrayBuffer-backed view so the Blob owns its bytes
   // regardless of whether `bytes` is a view over a larger/transferred buffer.
   const blob = new Blob([bytes.slice() as unknown as BlobPart]);
-  const bitmap = await createImageBitmap(blob);
+  const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
   try {
     const { width, height } = bitmap;
     const ctx = make2dContext(width, height);
@@ -60,12 +65,16 @@ export async function decodeNonRawToRgb(bytes: Uint8Array): Promise<DecodedImage
  * Per Apple's `decodeSceneLinearNonRaw`: undo the sRGB transfer (display →
  * scene-linear) and rotate the sRGB/Rec.709 primaries into Rec.2020. Alpha is
  * fp16 1.0 (0x3c00), matching the RAW path and Apple's buffer layout.
+ *
+ * `imageOrientation: 'from-image'` applies the EXIF orientation tag so the
+ * decoded bitmap is already in display orientation (width/height swapped for
+ * 90°/270° captures) — parity with Apple's `CIImage.oriented(forExifOrientation:)`.
  */
 export async function decodeNonRawToSceneLinear(
   bytes: Uint8Array,
 ): Promise<DecodedSceneLinearImage> {
   const blob = new Blob([bytes.slice() as unknown as BlobPart]);
-  const bitmap = await createImageBitmap(blob);
+  const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
   try {
     const { width, height } = bitmap;
     const ctx = make2dContext(width, height);
