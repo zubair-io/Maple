@@ -350,7 +350,7 @@ public actor ImageEditPipeline {
         // decode paths, so we apply the rotation ourselves below (uniform
         // across fast + refine). iPhone HEIC/JPEG captures are almost
         // always stored landscape with an orientation tag; without this
-        // the image opens sideways (#…heif-rotation).
+        // the image opens sideways (#1283).
         let exifOrientation: Int32
         // Downsample at decode for the fast (viewport) phase so the
         // full-resolution bitmap is never allocated — a 40-100MP JPEG's
