@@ -27,9 +27,10 @@ describe('webauthn user handle (#864)', () => {
       existingUserId: null,
       excludeCredentialIds: [],
     });
-    const handle = Buffer.from(opts.user.id, 'base64url').toString('utf8');
-    expect(handle).not.toBe(EMAIL);
-    expect(handle).not.toContain('@');
+    // The handle must NOT be the email encoded (that was the PII). Assert on the
+    // base64url directly — decoding random bytes as UTF-8 to look for '@' is
+    // flaky (a random 0x40 byte decodes to '@').
+    expect(opts.user.id).not.toBe(Buffer.from(EMAIL).toString('base64url'));
     // 32 random bytes → 43-char base64url.
     expect(opts.user.id).toMatch(/^[A-Za-z0-9_-]{43}$/);
   });
