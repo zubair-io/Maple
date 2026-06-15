@@ -38,7 +38,16 @@ extension RustPanoStitcher {
             setenv("MAPLE_PANO_MODELS", dir.path, 1)
         }
 
-        // ── ORT dylib ──────────────────────────────────────────────────────
+        // ── ORT dylib (macOS only) ─────────────────────────────────────────
+        // iOS links ONNX Runtime STATICALLY (the `ml-static` Rust feature →
+        // `ort::init()`, no dlopen), so there is no dylib to resolve and the
+        // Rust core never reads `ORT_DYLIB_PATH` on iOS. Resolving/requiring it
+        // here on iOS wrongly threw "ONNX Runtime is not installed …" at merge
+        // time even after the models downloaded and Settings showed ready —
+        // because `isReady`/`canAutoProvision`/the downloader are all already
+        // `#if os(macOS)`-gated and this one site was not. iOS needs only the
+        // models (set above); the static ORT is embedded at build time.
+        #if os(macOS)
         let ortPath = provisioning.resolvedOrtDylibPath()
         let settingsOrt = UserDefaults.standard.string(forKey: PanoProvisioningDefaults.ortDylibPathKey)
         let hasSettingsOrt = !(settingsOrt?.isEmpty ?? true)
@@ -74,5 +83,6 @@ extension RustPanoStitcher {
             }
             setenv("ORT_DYLIB_PATH", dylib.path, 1)
         }
+        #endif
     }
 }
