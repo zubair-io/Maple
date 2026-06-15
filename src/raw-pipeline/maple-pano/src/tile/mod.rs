@@ -58,17 +58,19 @@
 //! per-frame `{tx_px, ty_px, scale, theta_rad}` and the mean/max
 //! *planar* residual over verified inlier pairs.
 
+pub mod gain_solve;
 pub mod placement;
+pub mod streaming;
 pub mod warp;
 
 pub use placement::{
     solve_tile_poses, TileCanvasSpec, TilePlacement, TilePlacementError, TilePose,
 };
+pub use streaming::{composite_tile_streaming, DEFAULT_TILE_STRIP_ROWS};
 pub use warp::warp_to_tile_canvas;
 
-use crate::blend::{blend_multiband, levels_for_overlap_width};
 use crate::error::PanoError;
-use crate::gain::{solve_gains_tile, GainOptions};
+use crate::gain::GainOptions;
 use crate::graph::MatchGraph;
 use crate::ingest::PlanarImage;
 use crate::similarity::{estimate_similarity, SimilarityEstimate, SimilarityOptions};
@@ -141,14 +143,12 @@ pub struct TileCompositeReport {
     pub max_planar_residual_px: f64,
 }
 
-/// End-to-end tile composite.
+/// End-to-end tile composite (strip-streaming, memory-bounded).
 ///
-/// 1. Verify edges with the similarity model.
-/// 2. Solve global placement (anchor = frame 0).
-/// 3. Size the canvas from placed corners.
-/// 4. Warp each frame to canvas.
-/// 5. Solve gains (tile-space overlap sampling).
-/// 6. Voronoi seam + multi-band blend.
+/// Delegates to [`composite_tile_streaming`] with the default strip height
+/// ([`DEFAULT_TILE_STRIP_ROWS`] = 512).  Output is byte-identical to the
+/// former full-canvas implementation; peak memory is bounded to one strip
+/// × K source frames instead of full-canvas × K × 2 + K Voronoi planes.
 ///
 /// # Frame / pose alignment contract
 ///
@@ -171,175 +171,13 @@ pub fn composite_tile(
     gain_opts: &GainOptions,
     levels_override: Option<usize>,
 ) -> Result<(PlanarImage, TileCompositeReport), PanoError> {
-    if frames.len() != poses.len() {
-        return Err(PanoError::InvalidOptions(format!(
-            "composite_tile: {} frames vs {} poses",
-            frames.len(),
-            poses.len()
-        )));
-    }
-    if frames.is_empty() {
-        return Err(PanoError::InvalidOptions(
-            "composite_tile: no frames".into(),
-        ));
-    }
-
-    // Build a global-frame-index → local-pose-index map so edge residual
-    // computation never misaligns when orphans have been filtered out.
-    // Edges referencing frames not in the map (orphans) are skipped.
-    let max_frame_idx = poses.iter().map(|p| p.frame_idx).max().unwrap_or(0);
-    let mut frame_to_local = vec![usize::MAX; max_frame_idx + 1];
-    for (li, pose) in poses.iter().enumerate() {
-        frame_to_local[pose.frame_idx] = li;
-    }
-
-    // Planar residuals across all edges (only edges within the component).
-    let mut residual_sum = 0.0_f64;
-    let mut residual_max = 0.0_f64;
-    let mut residual_count = 0usize;
-    for edge in tile_edges {
-        let la = frame_to_local.get(edge.a).copied().unwrap_or(usize::MAX);
-        let lb = frame_to_local.get(edge.b).copied().unwrap_or(usize::MAX);
-        if la == usize::MAX || lb == usize::MAX {
-            // Edge spans an orphan; skip — no pose exists for it.
-            continue;
-        }
-        let pa = &poses[la];
-        let pb = &poses[lb];
-        for m in &edge.inlier_matches {
-            // Transform: canvas(a) = pa(a_px), canvas(b) = pb(b_px).
-            // Consistency: pa(a_px) ≈ pb(b_px) at overlap.
-            let (cax, cay) = pa.sim.apply(m.a.0, m.a.1);
-            let (cbx, cby) = pb.sim.apply(m.b.0, m.b.1);
-            let res = ((cax - cbx).powi(2) + (cay - cby).powi(2)).sqrt();
-            residual_sum += res;
-            if res > residual_max {
-                residual_max = res;
-            }
-            residual_count += 1;
-        }
-    }
-    let mean_planar = if residual_count > 0 {
-        residual_sum / residual_count as f64
-    } else {
-        0.0
-    };
-
-    // Warp each frame.
-    let layers: Vec<PlanarImage> = frames
-        .iter()
-        .zip(poses)
-        .map(|(f, pose)| warp_to_tile_canvas(f, pose, canvas, [1.0, 1.0, 1.0]))
-        .collect();
-
-    // Gain compensation in tile space (overlap means in canvas coords).
-    let gains = solve_gains_tile(&layers, gain_opts)?;
-
-    // Re-warp with gains folded in (or just fold into a single pass).
-    let layers_gained: Vec<PlanarImage> = frames
-        .iter()
-        .zip(poses)
-        .zip(&gains)
-        .map(|((f, pose), &g)| warp_to_tile_canvas(f, pose, canvas, g))
-        .collect();
-
-    // Voronoi seam masks.
-    let (masks, min_overlap) = voronoi_masks_tile(&layers_gained);
-    let levels = levels_override.unwrap_or_else(|| levels_for_overlap_width(min_overlap));
-    let blended = blend_multiband(&layers_gained, &masks, levels);
-
-    Ok((
-        blended,
-        TileCompositeReport {
-            canvas: canvas.clone(),
-            placements: poses.to_vec(),
-            gains,
-            blend_levels: levels,
-            min_overlap_width_px: min_overlap,
-            mean_planar_residual_px: mean_planar,
-            max_planar_residual_px: residual_max,
-        },
-    ))
-}
-
-/// Voronoi masks for the tile canvas: each covered pixel is owned by the
-/// frame whose placed footprint it lies deepest inside.
-fn voronoi_masks_tile(layers: &[PlanarImage]) -> (Vec<Vec<f32>>, usize) {
-    let Some(first) = layers.first() else {
-        return (vec![], 0);
-    };
-    let cw = first.width() as usize;
-    let ch = first.height() as usize;
-    let n = cw * ch;
-    let k = layers.len();
-
-    // Validity-based depth: for tile canvas, use border distance (same
-    // metric as composite.rs's voronoi_masks).
-    let depths: Vec<Vec<f32>> = layers
-        .iter()
-        .map(|layer| {
-            let mut d = vec![-1.0_f32; n];
-            for py in 0..ch {
-                for px in 0..cw {
-                    if !layer.validity.get(px as u32, py as u32) {
-                        continue;
-                    }
-                    // Border distance in canvas pixels.
-                    let border = (px as f64)
-                        .min(cw as f64 - 1.0 - px as f64)
-                        .min(py as f64)
-                        .min(ch as f64 - 1.0 - py as f64);
-                    d[py * cw + px] = border.max(0.0) as f32;
-                }
-            }
-            d
-        })
-        .collect();
-
-    let mut masks = vec![vec![0.0_f32; n]; k];
-    let mut overlap_count = vec![vec![0usize; k]; k];
-    let mut overlap_rows: Vec<Vec<std::collections::BTreeSet<usize>>> =
-        vec![vec![std::collections::BTreeSet::new(); k]; k];
-
-    for i in 0..n {
-        let mut best: Option<(usize, f32)> = None;
-        for (f, depth) in depths.iter().enumerate() {
-            let d = depth[i];
-            if d < 0.0 {
-                continue;
-            }
-            if best.is_none_or(|(_, bd)| d > bd) {
-                best = Some((f, d));
-            }
-        }
-        if let Some((f, _)) = best {
-            masks[f][i] = 1.0;
-        }
-        for a in 0..k {
-            if depths[a][i] < 0.0 {
-                continue;
-            }
-            for b in (a + 1)..k {
-                if depths[b][i] >= 0.0 {
-                    overlap_count[a][b] += 1;
-                    overlap_rows[a][b].insert(i / cw);
-                }
-            }
-        }
-    }
-
-    let mut min_width = usize::MAX;
-    for a in 0..k {
-        for b in (a + 1)..k {
-            let rows = overlap_rows[a][b].len();
-            if rows == 0 {
-                continue;
-            }
-            min_width = min_width.min(overlap_count[a][b] / rows);
-        }
-    }
-    if min_width == usize::MAX {
-        min_width = 0;
-    }
-    (masks, min_width)
+    composite_tile_streaming(
+        frames,
+        tile_edges,
+        poses,
+        canvas,
+        gain_opts,
+        levels_override,
+        DEFAULT_TILE_STRIP_ROWS,
+    )
 }

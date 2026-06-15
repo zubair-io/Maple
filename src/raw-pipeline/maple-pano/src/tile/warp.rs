@@ -33,7 +33,7 @@ pub fn warp_to_tile_canvas(
     let src_w = src.width() as f64;
     let src_h = src.height() as f64;
 
-    let inv = inverse_similarity(&pose.sim, canvas.offset_x, canvas.offset_y);
+    let inv = inverse_similarity_with_offset(&pose.sim, canvas.offset_x, canvas.offset_y);
 
     let mut r = vec![0.0_f32; n];
     let mut g = vec![0.0_f32; n];
@@ -81,7 +81,14 @@ pub fn warp_to_tile_canvas(
 /// The forward map is: canvas_px = sim.apply(src_px) + offset.
 /// So: src_px = sim_inv(canvas_px − offset).
 /// We bake this into a single transform: sim_with_offset_inv.
-fn inverse_similarity(sim: &Similarity2d, offset_x: f64, offset_y: f64) -> Similarity2d {
+///
+/// Exported (pub(super)) for [`super::streaming`] which reuses the same
+/// inverse without allocating a full-canvas warp buffer.
+pub(super) fn inverse_similarity_with_offset(
+    sim: &Similarity2d,
+    offset_x: f64,
+    offset_y: f64,
+) -> Similarity2d {
     // Inverse of sim: s_inv = 1/s, θ_inv = -θ, t_inv = -R(-θ)·t/s.
     let inv_s = 1.0 / sim.scale.max(1e-12);
     let inv_theta = -sim.theta;
@@ -121,7 +128,7 @@ fn catmull_rom(f: f64) -> [f64; 4] {
     ]
 }
 
-fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
+pub(super) fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
     let sw = src.width() as i64;
     let sh = src.height() as i64;
     let ix = x_px.floor() as i64;
