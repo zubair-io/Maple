@@ -120,16 +120,21 @@ impl AlikedDetector {
         // own; combined with memory-pattern(false) the total reduction is
         // ~4.02 GiB (8.67 → 4.65 GiB, measured on macOS arm64, ORT 1.23.2).
         //
-        // Neither option affects correctness: both control memory management
-        // only. Inference-time (wall-clock) is unchanged at the default
-        // thread count (measured: 2.8 s for the 2-frame probe, same as
-        // baseline). `intra_threads=1` reduces RSS by a further ~40 MB but
-        // doubles inference time — not worth it.
+        // Neither option affects correctness — both control memory management
+        // only — and the reduction is best-effort: `with_execution_providers`
+        // registers the CPU provider gracefully, so ORT logs (rather than
+        // hard-fails) if an option can't be applied. We deliberately do NOT
+        // `error_on_failure` here: a user's stitch should degrade to higher
+        // memory, never crash. The reduction is confirmed applied (4.64 GiB,
+        // ORT 1.23.2). Inference-time is unchanged at the default thread count;
+        // `intra_threads=1` saves ~40 MB more but doubles latency.
         //
-        // These options apply to the macOS-CPU path only. The iOS CoreML path
-        // (registered below when `use_coreml = true`) is unaffected: CoreML
-        // uses its own allocator and ignores ORT's CPU arena / memory-pattern
-        // settings. The options are safe to keep unconditionally.
+        // These options are gated to the non-iOS (macOS) path below via
+        // `cfg(not(target_os = "ios"))`. They are session-level, so leaving
+        // them on for iOS would register an explicit CPU EP that takes
+        // priority over the iOS CoreML EP (ORT honors registration order) and
+        // could perturb ORT-CPU fallback nodes in the CoreML session.
+        // Excluding them on iOS keeps exactly main's config (CoreML first).
         let mut builder = Session::builder()
             .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
             .map_err(|e| MlError::Runtime(format!("session builder: {e}")))?;
