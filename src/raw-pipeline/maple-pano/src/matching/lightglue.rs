@@ -120,7 +120,11 @@ impl LightGlueMatcher {
         // which makes the memory-pattern pre-allocation *especially* wasteful:
         // ORT sizes the slab to the first-call maximum and never shrinks it,
         // so the worst-case keypoint count from frame 0 stays resident
-        // regardless of subsequent pair sizes.
+        // regardless of subsequent pair sizes. The reduction is best-effort:
+        // the CPU provider is registered gracefully (ORT logs rather than
+        // hard-fails if an option can't be applied), so we don't
+        // `error_on_failure` — a stitch degrades to higher memory, never
+        // crashes. Gated to non-iOS below to preserve CoreML EP priority.
         let mut builder = Session::builder()
             .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
             .map_err(|e| MlError::Runtime(format!("session builder: {e}")))?;
