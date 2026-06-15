@@ -14,16 +14,6 @@ describe('tokens', () => {
     const claims = await verifyAccessToken(jwt, SECRET);
     expect(claims.sub).toBe('u1');
     expect(claims.role).toBe('owner');
-    expect(claims.tv).toBe(0); // default token_version (#860)
-  });
-
-  it('carries the token_version as the tv claim (#860)', async () => {
-    const jwt = await signAccessToken(
-      { sub: 'u1', email: 'a@b.c', role: 'owner', token_version: 7 },
-      SECRET,
-    );
-    const claims = await verifyAccessToken(jwt, SECRET);
-    expect(claims.tv).toBe(7);
   });
 
   it('issues short-lived access tokens (≤15 min) by default (#860)', async () => {

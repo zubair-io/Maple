@@ -28,11 +28,10 @@ beforeEach(async () => {
     role: 'owner',
     created_at: new Date().toISOString(),
     last_seen_at: null,
-    token_version: 0,
   });
   ownerId = ins.insertedId;
   bearer = await signAccessToken(
-    { sub: ownerId.toHexString(), email: EMAIL, role: 'owner', token_version: 0 },
+    { sub: ownerId.toHexString(), email: EMAIL, role: 'owner' },
     SECRET,
   );
 });
