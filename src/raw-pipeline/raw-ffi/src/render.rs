@@ -12,7 +12,7 @@
 
 use crate::buffers::MapleImageBuffer;
 use crate::error::{set_last_error, with_large_stack};
-use crate::model::{load_xmp_model_owned, LoadModel};
+use crate::model::{load_xmp_model_from_doc, load_xmp_model_owned, LoadModel};
 use raw_core::{
     decode::decode_bytes,
     pipeline::{
@@ -348,6 +348,137 @@ pub unsafe extern "C" fn maple_histogram_file(
             &model,
             RenderQuality::Full,
             Some(RawInput::Path(raw_path)),
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                set_last_error(format!("render: {}", e));
+                return 8;
+            }
+        };
+        let bins = bin_rgb888(&bytes);
+        // SAFETY: the caller guarantees `out_bins` (captured as `out_ptr`)
+        // points to >= HISTOGRAM_BINS_LEN writable u32s that outlive the call.
+        unsafe {
+            std::slice::from_raw_parts_mut(out_ptr as *mut u32, HISTOGRAM_BINS_LEN)
+                .copy_from_slice(&bins);
+        }
+        0
+    })
+}
+
+/// Bytes-source sibling of [`maple_histogram_file`] for hosts that hold the
+/// RAW in memory rather than on disk (Apple PhotoKit / Self-Hosted assets,
+/// which live behind an opaque identifier with no file path). Decodes
+/// `raw_bytes` (dispatched by the `hint_ext` extension), develops it under the
+/// adjustments in `xmp_doc`, bins the 8-bit sRGB result, and writes the 3×256
+/// channel-major histogram into the caller-owned `out_bins`.
+///
+/// `xmp_doc` is the XMP *document text itself* (nullable), NOT a path — a
+/// sourceless asset has no `.xmp` on disk, so the editor serialises its live
+/// in-memory model straight to a string. `null` ⇒ `AdjustmentModel::default()`.
+///
+/// `quality_preview` mirrors [`maple_render_bytes`]: `1` = half-res preview
+/// demosaic, `0` = full export quality. A histogram is a statistical reduction,
+/// so the half-res demosaic is visually identical and ~4× cheaper — the
+/// interactive Apple scope passes `1`. Either way each surviving pixel
+/// contributes exactly one sample per channel, so all three channel sums equal
+/// the rendered pixel count.
+///
+/// Auto Profile parity: the develop runs through
+/// [`render_from_raw_with_quality_and_source`] with [`RawInput::Bytes`] — the
+/// same source the web WASM canvas uses — so a `Profile::Auto` model fits its
+/// curve from the embedded preview exactly as the displayed image does. (The
+/// legacy `maple_render_bytes` passes no source and so runs AgX
+/// unconditionally; the histogram wants canvas parity, hence the `_and_source`
+/// form here.)
+///
+/// Same memory contract as `maple_histogram_file`: the rendered pixel buffer
+/// never crosses the boundary — only the 3 KB histogram does, through a buffer
+/// the caller owns.
+///
+/// Returns 0 on success, non-zero on error (call `maple_last_error`). Error
+/// codes: 1 = null `raw_bytes` / null or misaligned `out_bins`, 2 = `hint_ext`
+/// not UTF-8, 3 = `xmp_doc` not UTF-8, 4 = XMP parse, 7 = decode, 8 = render.
+/// (No raw-read / xmp-read codes — nothing is read from disk.)
+///
+/// # Safety
+///
+/// `raw_bytes` must point to `raw_len` readable bytes for the duration of the
+/// call; `hint_ext` and `xmp_doc` may be null or valid C strings; `out_bins`
+/// must point to >= [`HISTOGRAM_BINS_LEN`] writable `u32`s that are
+/// `u32`-aligned (rejected with code 1 otherwise) and outlive the call.
+#[no_mangle]
+pub unsafe extern "C" fn maple_histogram_bytes(
+    raw_bytes: *const u8,
+    raw_len: usize,
+    hint_ext: *const c_char,
+    xmp_doc: *const c_char,
+    quality_preview: i32,
+    out_bins: *mut u32,
+) -> i32 {
+    if raw_bytes.is_null() || out_bins.is_null() {
+        set_last_error("null pointer argument".into());
+        return 1;
+    }
+    // Same alignment guard as `maple_histogram_file` — `out_bins` is
+    // reinterpreted as a `*mut u32` slice below, instant UB if unaligned.
+    if out_bins as usize % std::mem::align_of::<u32>() != 0 {
+        set_last_error("out_bins pointer is not u32-aligned".into());
+        return 1;
+    }
+    let ext_owned: String = if hint_ext.is_null() {
+        String::new()
+    } else {
+        match CStr::from_ptr(hint_ext).to_str() {
+            Ok(s) => s.to_owned(),
+            Err(e) => {
+                set_last_error(format!("hint_ext not UTF-8: {}", e));
+                return 2;
+            }
+        }
+    };
+    let xmp_doc_owned: Option<String> = if xmp_doc.is_null() {
+        None
+    } else {
+        match CStr::from_ptr(xmp_doc).to_str() {
+            Ok(s) => Some(s.to_owned()),
+            Err(e) => {
+                set_last_error(format!("xmp_doc not UTF-8: {}", e));
+                return 3;
+            }
+        }
+    };
+    // Copy input bytes into a Vec the worker can own — the caller's pointer may
+    // not live past the join() on a slow decode (mirrors `maple_render_bytes`).
+    let input: Vec<u8> = std::slice::from_raw_parts(raw_bytes, raw_len).to_vec();
+    let out_ptr = out_bins as usize; // Send across the worker thread as a usize.
+    with_large_stack(move || {
+        let model = match load_xmp_model_from_doc(xmp_doc_owned.as_deref()) {
+            LoadModel::Ok(m) => m,
+            LoadModel::Err(rc) => return rc,
+        };
+        let raw_img = match raw_core::pipeline::stage("ffi_rawler_decode", || {
+            decode_bytes(&input, &ext_owned)
+        }) {
+            Ok(r) => r,
+            Err(e) => {
+                set_last_error(format!("decode: {}", e));
+                return 7;
+            }
+        };
+        let quality = if quality_preview != 0 {
+            RenderQuality::Preview
+        } else {
+            RenderQuality::Full
+        };
+        let (_w, _h, bytes) = match render_from_raw_with_quality_and_source(
+            &raw_img,
+            &model,
+            quality,
+            Some(RawInput::Bytes {
+                bytes: &input,
+                ext: &ext_owned,
+            }),
         ) {
             Ok(t) => t,
             Err(e) => {
