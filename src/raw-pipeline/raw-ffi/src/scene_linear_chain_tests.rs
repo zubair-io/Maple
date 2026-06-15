@@ -42,6 +42,33 @@ fn default_params() -> MapleAdjustmentParams {
         split_tone_highlight_hue: 0.0,
         split_tone_highlight_saturation: 0.0,
         split_tone_balance: 0.0,
+        // Per-band HSL (identity — these tests only exercise the FFI shim's
+        // pointer/geometry guards, not HSL math). Added to keep the struct
+        // initializer complete after the 8-band HSL fields landed.
+        hsl_hue_red: 0.0,
+        hsl_hue_orange: 0.0,
+        hsl_hue_yellow: 0.0,
+        hsl_hue_green: 0.0,
+        hsl_hue_aqua: 0.0,
+        hsl_hue_blue: 0.0,
+        hsl_hue_purple: 0.0,
+        hsl_hue_magenta: 0.0,
+        hsl_sat_red: 0.0,
+        hsl_sat_orange: 0.0,
+        hsl_sat_yellow: 0.0,
+        hsl_sat_green: 0.0,
+        hsl_sat_aqua: 0.0,
+        hsl_sat_blue: 0.0,
+        hsl_sat_purple: 0.0,
+        hsl_sat_magenta: 0.0,
+        hsl_lum_red: 0.0,
+        hsl_lum_orange: 0.0,
+        hsl_lum_yellow: 0.0,
+        hsl_lum_green: 0.0,
+        hsl_lum_aqua: 0.0,
+        hsl_lum_blue: 0.0,
+        hsl_lum_purple: 0.0,
+        hsl_lum_magenta: 0.0,
     }
 }
 

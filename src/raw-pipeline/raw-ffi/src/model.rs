@@ -46,6 +46,28 @@ pub(crate) fn load_xmp_model_owned(xmp_path_str: Option<&str>) -> LoadModel {
     }
 }
 
+/// Parse an in-memory XMP *document* (the sidecar text itself, not a path)
+/// into an `AdjustmentModel`. `None` returns `AdjustmentModel::default()`.
+///
+/// The bytes-source histogram entry (`maple_histogram_bytes`) needs this: a
+/// PhotoKit / Self-Hosted asset has no `.xmp` file on disk, so the Apple host
+/// serialises its live in-memory model straight to a string and hands it over
+/// — there's nothing to `read_to_string`. Parse failures map to the same
+/// code 4 the file path uses, so callers get one "bad XMP" contract regardless
+/// of whether the document came from disk or memory.
+pub(crate) fn load_xmp_model_from_doc(xmp_doc: Option<&str>) -> LoadModel {
+    match xmp_doc {
+        None => LoadModel::Ok(xmp::AdjustmentModel::default()),
+        Some(xml) => match xmp::parse(xml) {
+            Ok(m) => LoadModel::Ok(m),
+            Err(e) => {
+                set_last_error(format!("xmp parse: {}", e));
+                LoadModel::Err(4)
+            }
+        },
+    }
+}
+
 /// Returns `true` when `model.dehaze` is meaningfully non-zero (matches
 /// `dehaze::apply`'s own early-exit threshold of `1e-3`). Tile-path
 /// safety gate — see module doc.
