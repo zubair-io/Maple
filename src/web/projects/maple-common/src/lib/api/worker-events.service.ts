@@ -78,6 +78,14 @@ export class WorkerEventsService {
       }
       socket.onopen = () => {
         attempts = 0;
+        // #863: authenticate via a post-connect frame — the token is no longer
+        // in the URL (it leaked into proxy/access logs). The server keeps the
+        // socket silent until this frame validates, then starts streaming.
+        try {
+          socket?.send(JSON.stringify({ type: 'auth', token: this.auth.bearer ?? '' }));
+        } catch {
+          /* socket already closing */
+        }
       };
       socket.onmessage = (ev) => this.handleMessage(ev, subscriber);
       socket.onclose = () => {
@@ -140,16 +148,13 @@ export class WorkerEventsService {
   }
 
   /**
-   * Resolve the `/api/events` WebSocket URL. The browser `WebSocket` ctor can't
-   * send an Authorization header, so the access token rides as a query param
-   * (the server validates it in `beforeHandle`). Handles both absolute and
-   * `/api`-relative base URLs.
+   * Resolve the `/api/events` WebSocket URL. The token is NOT in the URL (#863);
+   * it's sent as a post-connect `auth` frame in `onopen`. Handles both absolute
+   * and `/api`-relative base URLs.
    */
   private socketUrl(): string {
-    const token = this.auth.bearer ?? '';
     const httpUrl = new URL(`${this.base}/events`, this.origin());
     httpUrl.protocol = httpUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-    if (token) httpUrl.searchParams.set('token', token);
     return httpUrl.toString();
   }
 
