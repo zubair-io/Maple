@@ -306,13 +306,16 @@ export const eventsRoutes = new Elysia({ prefix: '/api' }).ws('/events', {
     const frame = parseFrame(message);
     const token = frame && frame.type === 'auth' ? frame.token : undefined;
     if (typeof token !== 'string') return reject('expected auth frame');
+    // Claim the auth slot SYNCHRONOUSLY, before the await — otherwise two auth
+    // frames arriving back-to-back both pass the `__authed` check above and each
+    // start a streaming loop (#863 review). A second frame now short-circuits.
+    data.__authed = true;
     let exp: number;
     try {
       ({ exp } = await verifyAccessToken(token, jwtSecret()));
     } catch {
       return reject('invalid token');
     }
-    data.__authed = true;
     const t = data.__authTimer as ReturnType<typeof setTimeout> | undefined;
     if (t) clearTimeout(t);
     startStreaming(ws as unknown as StreamWs, exp);
