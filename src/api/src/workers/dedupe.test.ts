@@ -6,6 +6,11 @@
  * into `_duplicates/`, fileinfo `$pull`, cache cleanup of the moved copy's
  * folder, cache-stage re-arm when the anchor moves, live-only gating
  * (tombstoned siblings ignored), missing-file skip, and dry-run.
+ *
+ * #1290: also covers live-aware candidate query — assets with one live + one
+ * tombstoned (`missing_since` / `deleted_at`) entry must NOT be returned by the
+ * worker's candidate prefilter (`liveAwareDuplicatePredicate`) and must NOT be
+ * counted in the deduplicate ready/pending total (covered in routes.test.ts).
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'bun:test';
@@ -275,5 +280,88 @@ describe('runDeDuplicateOnce', () => {
     expect(existsSync(join(root, 'a', 'IMG.dng'))).toBe(true); // not moved
     const asset = await getAsset(id);
     expect(asset!.fileinfo).toHaveLength(2); // not pulled
+  });
+
+  // --- #1290: live-aware candidate prefilter ---
+  // The worker's candidate query must use liveAwareDuplicatePredicate so that
+  // assets with only one live entry (the other tombstoned) are not fetched at
+  // all, avoiding wasted scan budget and stale-row starvation.
+
+  it('#1290: asset with 1 live + 1 missing_since sibling is NOT fetched by the candidate query (scanned=0)', async () => {
+    if (!mongoReachable) return;
+    writeFile('live', 'IMG.dng');
+    // Insert asset where the second entry is tombstoned via missing_since —
+    // the coarse predicate `fileinfo.1 exists` would match this, but the
+    // live-aware predicate must exclude it.
+    await insertAsset([
+      fi('live', 'IMG.dng'),
+      fi('gone', 'IMG.dng', { missing_since: '2026-01-01T00:00:00Z' }),
+    ]);
+
+    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    // With the live-aware prefilter, the asset is not fetched at all.
+    expect(summary.scanned).toBe(0);
+    expect(summary.deduped).toBe(0);
+  });
+
+  it('#1290: asset with 1 live + 1 deleted_at sibling is NOT fetched by the candidate query (scanned=0)', async () => {
+    if (!mongoReachable) return;
+    writeFile('live', 'IMG.dng');
+    // Insert asset where the second entry is tombstoned via deleted_at.
+    await insertAsset([
+      fi('live', 'IMG.dng'),
+      {
+        path: 'replaced',
+        filename: 'IMG.dng',
+        library_id: libraryId,
+        deleted_at: '2026-01-01T00:00:00Z',
+      },
+    ]);
+
+    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    // With the live-aware prefilter, the asset is not fetched at all.
+    expect(summary.scanned).toBe(0);
+    expect(summary.deduped).toBe(0);
+  });
+
+  it('#1290: asset with >=2 live entries IS fetched and processed by the candidate query', async () => {
+    if (!mongoReachable) return;
+    writeFile('a', 'IMG.dng');
+    writeFile('b', 'IMG.dng');
+    // Both entries are live (no tags) — should be fetched and deduped.
+    const id = await insertAsset([fi('a', 'IMG.dng'), fi('b', 'IMG.dng')]);
+
+    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.scanned).toBe(1);
+    expect(summary.deduped).toBe(1);
+    const asset = await getAsset(id);
+    expect(asset!.fileinfo).toHaveLength(1);
+  });
+
+  it('#1290: absent+untagged entry (present+absent pair) is still fetched — tag-then-skip drain path preserved', async () => {
+    if (!mongoReachable) return;
+    // 'keep' exists on disk; 'ghost' does not (absent but NOT yet tagged).
+    // Both are "live" by isLiveFileInfo (no missing_since / deleted_at).
+    // The live-aware prefilter must still fetch this asset so processAsset
+    // can stat the files, discover 'ghost' is absent, tag it, and return early.
+    writeFile('keep', 'IMG.dng');
+    const id = await insertAsset([fi('keep', 'IMG.dng'), fi('ghost', 'IMG.dng')]);
+
+    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    // Fetched (scanned), NOT deduped (only 1 on disk), absent entry tagged.
+    expect(summary.scanned).toBe(1);
+    expect(summary.deduped).toBe(0);
+    expect(summary.skippedMissingFile).toBe(1);
+    const asset = await getAsset(id);
+    const ghost = (asset!.fileinfo as any[]).find((e: any) => e.path === 'ghost');
+    expect(ghost.missing_since).toBeTypeOf('string');
   });
 });
