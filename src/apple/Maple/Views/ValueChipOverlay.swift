@@ -42,24 +42,39 @@ struct ValueChipOverlay: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Text(state.armedGroup.displayName.uppercased())
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(MapleTokens.textMuted)
-            chipDivider
-            Text(state.armedTool.displayName.uppercased())
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .foregroundStyle(MapleTokens.textMuted)
-            if let sub = state.armedSubParam {
-                chipDivider
-                Text(sub.label.uppercased())
+            if state.session.isResolvingFirstFrame {
+                // Cold-open state — the chain hasn't published a frame yet, so the
+                // slider value is stale (still on the previous asset's last value,
+                // or `.default` for a fresh session). Show LOADING in place of the
+                // group/tool/value triplet so the chip doesn't claim "+0.00 EV" on
+                // an image that hasn't rendered yet.
+                ProgressView()
+                    .controlSize(.mini)
+                    .tint(MapleTokens.textMuted)
+                Text("LOADING")
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(MapleTokens.textMuted)
-                    .accessibilityIdentifier("editor-value-chip-subparam")
+                    .accessibilityIdentifier("editor-value-chip-loading")
+            } else {
+                Text(state.armedGroup.displayName.uppercased())
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(MapleTokens.textMuted)
+                chipDivider
+                Text(state.armedTool.displayName.uppercased())
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(MapleTokens.textMuted)
+                if let sub = state.armedSubParam {
+                    chipDivider
+                    Text(sub.label.uppercased())
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(MapleTokens.textMuted)
+                        .accessibilityIdentifier("editor-value-chip-subparam")
+                }
+                Text(formattedValue)
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .monospacedDigit()
+                    .foregroundStyle(MapleTokens.primary)
             }
-            Text(formattedValue)
-                .font(.system(size: 11, weight: .regular, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(MapleTokens.primary)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
