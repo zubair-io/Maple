@@ -89,6 +89,22 @@ const TILE_PX: usize = 1024;
 /// 2 per level-downsample). The influence radius at full resolution is
 /// `2 * (2^levels - 1)`. We round up to the next power of two for alignment,
 /// then add a safety factor of 2 to ensure boundary accuracy.
+///
+/// ## Floor at 16 / 32 px
+///
+/// `influence.next_power_of_two()` is clamped to a minimum of 16 before the
+/// ×2 safety factor, yielding a minimum halo of 32 px even when `levels` is
+/// small (e.g. `levels = 1` → influence 2 → without the floor the halo would
+/// be 4 px). The floor serves two purposes:
+///
+/// 1. **Rounding guard.** A 2 px halo offers almost no margin against
+///    sub-pixel inverse-map rounding or integer-truncation in the interior
+///    copy; 32 px gives comfortable headroom at zero cost on realistic tile
+///    sizes.
+/// 2. **Overhead avoidance.** Degenerate tiny halos (< one cache line wide)
+///    produce more tile-boundary bookkeeping work than they save in warp area;
+///    32 px keeps the per-tile overhead small relative to the 1024 px tile
+///    body.
 fn halo_for_levels(levels: usize) -> usize {
     let influence = 2 * ((1usize << levels).saturating_sub(1));
     let next_pow2 = influence.next_power_of_two().max(16);
@@ -193,12 +209,14 @@ pub struct TileCompositeReport {
 ///
 /// ## Output
 ///
-/// The result is **not** byte-identical to the old full-canvas path:
-/// seam transitions at tile boundaries are computed with different
-/// pyramid context. Interiors of tiles are identical; boundaries are
-/// approximate. Visible seams are prevented by the halo being large
-/// enough that the seam blending zone is always fully within a single
-/// tile's interior relative to any adjacent tile.
+/// The result is **byte-identical** to the full-canvas `composite_tile` path
+/// when the halo fully covers the multiband pyramid's influence radius —
+/// which is always true when `halo >= halo_for_levels(levels)` (the default).
+/// The halo ensures every interior pixel's pyramid taps land within the haloed
+/// region, so no tile boundary introduces a different context than the
+/// full-canvas computation would. The byte-identity breaks only if a caller
+/// explicitly reduces the halo below `halo_for_levels(levels)`, which the
+/// public API does not expose.
 ///
 /// # Frame / pose alignment contract
 ///
@@ -306,7 +324,7 @@ pub fn composite_tile(
                 .collect();
 
             // Skip tile if no frame covers any pixel in the haloed region.
-            let any_valid = haloed_layers.iter().any(|l| l.validity.count_valid() > 0);
+            let any_valid = haloed_layers.iter().any(|l| l.validity.any_valid());
             if !any_valid {
                 tx0 = tx1;
                 continue;
@@ -406,18 +424,18 @@ fn estimate_min_overlap_width(
             let cx = rx as f64 + 0.5;
             let cy = ry as f64 + 0.5;
             // Which frames cover this canvas point?
+            // Use sample_bicubic to match the actual warp gate: a canvas pixel
+            // is only produced when the bicubic kernel has sufficient valid-pixel
+            // support (weight threshold 0.01). The simpler nearest-neighbour check
+            // overestimates overlap near validity boundaries.
             let covered: Vec<bool> = (0..k)
                 .map(|i| {
                     let (fw, fh) = frame_dims[i];
                     let (fx, fy) = inv_sims[i].apply(cx, cy);
-                    fx >= 0.0
-                        && fx <= fw
-                        && fy >= 0.0
-                        && fy <= fh
-                        && frames[i].validity.get(
-                            fx.min(frames[i].width() as f64 - 1.0).max(0.0) as u32,
-                            fy.min(frames[i].height() as f64 - 1.0).max(0.0) as u32,
-                        )
+                    if fx < 0.0 || fx > fw || fy < 0.0 || fy > fh {
+                        return false;
+                    }
+                    warp::sample_bicubic(&frames[i], fx - 0.5, fy - 0.5).is_some()
                 })
                 .collect();
             for a in 0..k {
