@@ -914,11 +914,6 @@ export interface UserDoc {
   role: UserRole;
   created_at: string;
   last_seen_at: string | null;
-  /** Access-token generation counter (#860). Embedded in each access JWT as the
-   * `tv` claim and checked in `requireAuth`; bumping it invalidates every live
-   * access token for this user within one verify (instant "kill this user").
-   * Absent on pre-#860 users — treated as 0. */
-  token_version?: number;
 }
 export type UserWithId = WithId<UserDoc>;
 
