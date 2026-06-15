@@ -19,6 +19,7 @@
 
 use std::path::PathBuf;
 
+#[cfg(not(target_os = "ios"))]
 use ort::execution_providers::cpu::CPUExecutionProvider;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -122,13 +123,23 @@ impl LightGlueMatcher {
         // regardless of subsequent pair sizes.
         let mut builder = Session::builder()
             .and_then(|b| b.with_optimization_level(GraphOptimizationLevel::Level3))
-            .and_then(|b| b.with_memory_pattern(false))
-            .and_then(|b| {
-                b.with_execution_providers([CPUExecutionProvider::default()
-                    .with_arena_allocator(false)
-                    .build()])
-            })
             .map_err(|e| MlError::Runtime(format!("session builder: {e}")))?;
+        // #1275: macOS-CPU memory-floor reduction (memory_pattern off + CPU
+        // arena off → ~-4 GiB peak RSS). Gated to non-iOS on purpose:
+        // registering an explicit CPU EP here would take priority over the iOS
+        // CoreML EP registered below (ORT honors EP registration order),
+        // starving CoreML. On iOS the session config is unchanged from main.
+        #[cfg(not(target_os = "ios"))]
+        {
+            builder = builder
+                .with_memory_pattern(false)
+                .and_then(|b| {
+                    b.with_execution_providers([CPUExecutionProvider::default()
+                        .with_arena_allocator(false)
+                        .build()])
+                })
+                .map_err(|e| MlError::Runtime(format!("session memory options: {e}")))?;
+        }
         if let Some(threads) = options.intra_threads {
             builder = builder
                 .with_intra_threads(threads)
