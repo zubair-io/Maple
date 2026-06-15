@@ -84,7 +84,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           sub: user._id.toHexString(),
           email: user.email,
           role: user.role,
-          token_version: user.token_version,
         },
         jwtSecret(),
       );
@@ -348,7 +347,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           sub: user._id.toHexString(),
           email: user.email,
           role: user.role,
-          token_version: user.token_version,
         },
         jwtSecret(),
       );
@@ -412,7 +410,6 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
           sub: user._id.toHexString(),
           email: user.email,
           role: user.role,
-          token_version: user.token_version,
         },
         jwtSecret(),
       );

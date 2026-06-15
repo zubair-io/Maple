@@ -27,12 +27,13 @@ requests to protected routes return `401`.
 
 Tokens come from `/api/auth/register/verify`, `/api/auth/login/verify`, or
 `/api/auth/refresh`. The access token is an **HS256 JWT signed via `jose`**
-(`MAPLE_JWT_SECRET`), **15-minute** TTL, carrying a `token_version` (`tv`) claim
-that `requireAuth` checks for instant per-user revocation (#860). The durable
-session is a rotating httpOnly refresh cookie (`maple_refresh`); see
-[`docs/auth-architecture.md`](auth-architecture.md). Sensitive actions
-(add/remove credential, create/rescind invite) additionally require a fresh
-WebAuthn **step-up** token in `X-Step-Up` (#861).
+(`MAPLE_JWT_SECRET`), **15-minute** TTL, verified **statelessly** (signature +
+`exp` only — no per-request DB read). Revocation is bounded by that short TTL:
+once the refresh session is revoked, the in-flight access token can't be renewed
+and ages out within ≤15 min. The durable session is a rotating httpOnly refresh
+cookie (`maple_refresh`); see [`docs/auth-architecture.md`](auth-architecture.md).
+Sensitive actions (add/remove credential, create/rescind invite) additionally
+require a fresh WebAuthn **step-up** token in `X-Step-Up` (#861).
 
 ### Signing-secret persistence
 
