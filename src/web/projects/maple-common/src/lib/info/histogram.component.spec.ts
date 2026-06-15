@@ -17,6 +17,8 @@ import { of, throwError } from 'rxjs';
 
 import { InfoHistogramComponent } from './histogram.component';
 import { BunApiBackendService, type ApiHistogram } from '../api/bun-api-backend.service';
+import { ImageCanvasService } from '../components/image-canvas/image-canvas.service';
+import type { DecodedImage } from '../raw-pipeline/raw-pipeline.types';
 import type { Asset } from '../models/asset';
 
 function makeAsset(id = 'asset-1'): Asset {
@@ -120,6 +122,39 @@ describe('InfoHistogramComponent', () => {
     // Live svg never rendered; placeholder visible.
     expect(root.querySelector('svg.live')).toBeNull();
     expect(root.querySelector('.placeholder')).not.toBeNull();
+  });
+
+  it('prefers live local pixels over the server histogram', () => {
+    // Server returns an empty (all-zero) histogram; the local snapshot has a
+    // hot bin at 255, so if the local path wins we see `255,0.00` — which an
+    // empty server histogram (every bin at the baseline y=100) never produces.
+    const api = makeApiStub();
+    TestBed.configureTestingModule({
+      imports: [InfoHistogramComponent],
+      providers: [{ provide: BunApiBackendService, useValue: api }],
+    });
+    const canvas = TestBed.inject(ImageCanvasService);
+    const decoded: DecodedImage = {
+      width: 2,
+      height: 1,
+      rgb: new Uint8Array([255, 0, 0, 0, 255, 0]), // red pixel, green pixel
+      asShotTemperature: 5500,
+      asShotTint: 0,
+    };
+    canvas.currentPixels.set(decoded);
+
+    const fixture = TestBed.createComponent(InfoHistogramComponent);
+    fixture.componentRef.setInput('asset', makeAsset('local-1'));
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.placeholder')).toBeNull();
+    const polylines = root.querySelectorAll('svg.live polyline');
+    expect(polylines.length).toBe(3);
+    // R channel: bins 0 and 255 both = 1 (peak), so both sit at the top (y=0).
+    const rPoints = (polylines[0] as SVGPolylineElement).getAttribute('points') ?? '';
+    expect(rPoints.startsWith('0,0.00')).toBe(true);
+    expect(rPoints).toContain('255,0.00');
   });
 
   it('refetches when the asset id changes', () => {

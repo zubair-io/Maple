@@ -1,11 +1,13 @@
 // InfoHistogramComponent — S6 Info content section 2 (web).
 //
-// Fetches the server-computed RGB histogram from
-// `GET /api/assets/:id/histogram` (#633) when an asset is bound, and
-// renders three overlaid line plots as inline SVG polylines. Falls back
-// to the decorative placeholder during the fetch and on any error
-// (network, 4xx, 5xx — including the 503 the server returns when the
-// libraw_ffi dylib is unavailable).
+// Renders three overlaid RGB line plots as inline SVG polylines, sourced in
+// priority order: (1) live local pixels — the editor canvas publishes a decoded
+// snapshot to `ImageCanvasService.currentPixels`, which we bin on device so the
+// histogram works for local (non-server) files and updates with every edit; or
+// (2) the server-computed histogram from `GET /api/assets/:id/histogram` (#633)
+// for Browse mode / before the canvas has decoded. Falls back to the decorative
+// placeholder when neither is available — including on any fetch error
+// (network, 4xx, 5xx, or the 503 the server returns when libraw_ffi is down).
 //
 // Why line plots, not filled stacked bars: at 56px tall the typical
 // histogram has too few vertical pixels to read stacks; overlapping
@@ -30,6 +32,8 @@ import {
 import { catchError, of } from 'rxjs';
 import type { Asset } from '../models/asset';
 import { BunApiBackendService, type ApiHistogram } from '../api/bun-api-backend.service';
+import { ImageCanvasService } from '../components/image-canvas/image-canvas.service';
+import { computeRgbHistograms } from '../raw-pipeline/image-utils';
 
 @Component({
   selector: 'app-info-histogram',
@@ -44,16 +48,29 @@ import { BunApiBackendService, type ApiHistogram } from '../api/bun-api-backend.
 })
 export class InfoHistogramComponent {
   private readonly api = inject(BunApiBackendService);
+  private readonly canvas = inject(ImageCanvasService);
 
   readonly asset = input<Asset | null>(null);
 
-  /** Histogram data, or null when not yet loaded / failed / no asset. */
+  /** Server-computed histogram (fallback), or null when not yet loaded /
+   *  failed / no asset. The live local path below takes precedence. */
   readonly histogram = signal<ApiHistogram | null>(null);
 
-  /** Polyline `points` strings for each channel — recomputed when the
-   *  fetched histogram lands. Empty when there's no histogram, which
-   *  short-circuits the template back to the decorative placeholder. */
+  /** Polyline `points` strings for each channel. Source priority:
+   *    1. Live local pixels — the editor canvas publishes a decoded snapshot
+   *       to `ImageCanvasService.currentPixels`; binning it here makes the
+   *       histogram work for local (non-server) files AND update with every
+   *       edit, with no server round-trip.
+   *    2. The server-computed histogram (Browse mode, or before the canvas
+   *       has decoded).
+   *  Null when neither is available, which short-circuits the template back
+   *  to the decorative placeholder. */
   readonly polylines = computed(() => {
+    const px = this.canvas.currentPixels();
+    if (px) {
+      const { r, g, b } = computeRgbHistograms(px);
+      return { r: toPolylinePoints(r), g: toPolylinePoints(g), b: toPolylinePoints(b) };
+    }
     const h = this.histogram();
     if (!h) return null;
     return {
@@ -98,9 +115,9 @@ export class InfoHistogramComponent {
  * baseline (y = 100); the `?? 1` guard is a defensive no-op for that
  * shape so we don't divide by zero.
  */
-function toPolylinePoints(bins: number[]): string {
+function toPolylinePoints(bins: ArrayLike<number>): string {
   let max = 0;
-  for (const v of bins) if (v > max) max = v;
+  for (let i = 0; i < bins.length; i++) if (bins[i] > max) max = bins[i];
   const denom = max > 0 ? max : 1;
   const out: string[] = [];
   for (let i = 0; i < bins.length; i++) {
