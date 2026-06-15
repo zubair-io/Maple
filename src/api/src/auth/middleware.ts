@@ -1,6 +1,9 @@
 // src/api/src/auth/middleware.ts
 import { Elysia } from 'elysia';
+import { child as childLogger } from '../log.ts';
 import { verifyAccessToken, verifyStepUpToken, type AccessClaims } from './tokens.ts';
+
+const log = childLogger('auth');
 
 function jwtSecret(): string {
   const s = process.env.MAPLE_JWT_SECRET;
@@ -8,13 +11,28 @@ function jwtSecret(): string {
   return s;
 }
 
+/** Path for a rejection log, without the query string (which may carry a token). */
+function reqPath(request: Request): string {
+  try {
+    return new URL(request.url).pathname;
+  } catch {
+    return request.url;
+  }
+}
+
 export const requireAuth = new Elysia({ name: 'requireAuth' }).derive(
   { as: 'scoped' },
-  async ({ headers, set }) => {
+  async ({ headers, set, request }) => {
     const h = headers['authorization'] ?? '';
     const m = /^Bearer (.+)$/.exec(h);
     if (!m) {
       set.status = 401;
+      // Log WHY a request was rejected (#1296): no Authorization bearer at all
+      // — usually a not-signed-in client or a dropped header.
+      log.warn(
+        { reason: 'missing bearer', method: request.method, path: reqPath(request) },
+        'rejected',
+      );
       throw new Error('missing bearer');
     }
     let claims: AccessClaims;
@@ -22,6 +40,13 @@ export const requireAuth = new Elysia({ name: 'requireAuth' }).derive(
       claims = await verifyAccessToken(m[1], jwtSecret());
     } catch (e) {
       set.status = 401;
+      // The error message is the reason: "token expired" (session aged out →
+      // the client should refresh), "bad signature" (wrong/rotated JWT secret —
+      // cross-check the boot "JWT secret resolved" fingerprint), or "malformed …".
+      log.warn(
+        { reason: (e as Error).message, method: request.method, path: reqPath(request) },
+        'rejected',
+      );
       throw e;
     }
     // Stateless: signature + exp only, NO per-request DB read. Revocation is
