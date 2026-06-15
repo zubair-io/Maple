@@ -16,9 +16,13 @@ class FakeWebSocket {
   onerror: (() => void) | null = null;
   onmessage: ((ev: { data: string }) => void) | null = null;
   closed = false;
+  sent: string[] = [];
 
   constructor(public url: string) {
     FakeWebSocket.instances.push(this);
+  }
+  send(data: string): void {
+    this.sent.push(data);
   }
   close(): void {
     this.closed = true;
@@ -71,13 +75,17 @@ describe('WorkerEventsService', () => {
     (globalThis as unknown as { WebSocket: unknown }).WebSocket = origWs;
   });
 
-  it('opens a /api/events ws with the access token on subscribe', () => {
+  it('opens a tokenless /api/events ws and sends an auth frame on open (#863)', () => {
     const sub = svc.workersStatus$.subscribe();
     expect(FakeWebSocket.instances).toHaveLength(1);
-    const url = FakeWebSocket.instances[0].url;
-    expect(url).toContain('/api/events');
-    expect(url).toMatch(/^ws/);
-    expect(url).toContain('token=tok-123');
+    const ws = FakeWebSocket.instances[0];
+    expect(ws.url).toContain('/api/events');
+    expect(ws.url).toMatch(/^ws/);
+    expect(ws.url).not.toContain('token'); // token is no longer in the URL
+    // It authenticates with a post-connect frame instead.
+    ws.onopen?.();
+    expect(ws.sent).toHaveLength(1);
+    expect(JSON.parse(ws.sent[0])).toEqual({ type: 'auth', token: 'tok-123' });
     sub.unsubscribe();
   });
 

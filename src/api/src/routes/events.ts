@@ -17,7 +17,7 @@
  * after a fetch failure until reachable again.
  */
 
-import { Elysia, t } from 'elysia';
+import { Elysia } from 'elysia';
 import { stageRegistry } from '../workers/registry.ts';
 import { workersStatusBroadcaster } from '../workers/status-broadcast.ts';
 import { verifyAccessToken } from '../auth/tokens.ts';
@@ -118,33 +118,75 @@ async function fetchStatus(): Promise<ChildStatus | null> {
   }
 }
 
-export const eventsRoutes = new Elysia({ prefix: '/api' }).ws('/events', {
-  // Browser `new WebSocket()` can't send Authorization headers, so the
-  // standard pattern is a query-string token. Elysia runs `beforeHandle`
-  // during the HTTP-side handshake — rejecting here means the upgrade
-  // never completes and the browser sees a 401, not a closed socket.
-  query: t.Object({ token: t.Optional(t.String()) }),
-  async beforeHandle({ query, set }) {
-    const token = query.token;
-    if (!token) {
-      set.status = 401;
-      return { error: 'missing token' };
-    }
-    try {
-      await verifyAccessToken(token, jwtSecret());
-    } catch {
-      set.status = 401;
-      return { error: 'invalid token' };
-    }
-  },
+/** WebSocket close code for any auth failure (app-defined 4xxx range). */
+const WS_AUTH_CLOSE = 4401;
+/** Drop a socket that doesn't send a valid auth frame within this window. */
+const WS_AUTH_TIMEOUT_MS = 10_000;
 
-  open(ws) {
+/**
+ * Origins allowed to open the events WebSocket (#863, cross-site WebSocket
+ * hijack defense). Mirrors the WebAuthn origin allowlist: `MAPLE_ORIGIN`
+ * (comma-separated) or the dev localhost ports. A browser always sends `Origin`;
+ * a non-browser client (no `Origin`) is allowed through — CSWSH is browser-only.
+ */
+function allowedWsOrigins(): string[] {
+  const raw = process.env.MAPLE_ORIGIN;
+  if (raw)
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  return ['http://localhost:3000', 'http://localhost:4200', 'http://localhost:4201'];
+}
+export function isWsOriginAllowed(origin: string | undefined | null): boolean {
+  if (!origin) return true; // non-browser client; not subject to CSWSH
+  return allowedWsOrigins().includes(origin);
+}
+
+function parseFrame(message: unknown): Record<string, unknown> | null {
+  if (typeof message === 'object' && message !== null) return message as Record<string, unknown>;
+  if (typeof message === 'string') {
+    try {
+      const v = JSON.parse(message);
+      return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** Minimal shape of the Elysia/Bun WS handle that the streaming loop uses. */
+interface StreamWs {
+  send: (data: unknown) => unknown;
+  close: (code?: number, reason?: string) => unknown;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Begin pushing status frames — called ONLY after the socket authenticates
+ * (#863). `exp` is the access token's expiry (epoch seconds); the loop closes
+ * the socket once it passes, so a revoked session's socket dies within the token
+ * TTL and the client reconnects with a fresh token (no per-tick DB read — same
+ * stateless bound as the HTTP path).
+ */
+function startStreaming(ws: StreamWs, exp: number): void {
+  {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
     let lastReachable = true;
 
     const tick = async (): Promise<void> => {
       if (closed) return;
+      // #863: periodic expiry recheck — close once the access token expires.
+      if (Date.now() / 1000 >= exp) {
+        try {
+          ws.close(WS_AUTH_CLOSE, 'token expired');
+        } catch {
+          /* already closing */
+        }
+        return;
+      }
       const status = await fetchStatus();
       if (closed) return;
 
@@ -221,10 +263,66 @@ export const eventsRoutes = new Elysia({ prefix: '/api' }).ws('/events', {
 
     // Kick off the polling loop.
     timer = setTimeout(tick, 0);
+  }
+}
+
+export const eventsRoutes = new Elysia({ prefix: '/api' }).ws('/events', {
+  // #863: the access token is NOT in the URL anymore (it leaked into proxy /
+  // access logs). The handshake only enforces an Origin allowlist (cross-site
+  // WebSocket-hijack defense); the client then sends a `{ type: 'auth', token }`
+  // frame, and the socket stays silent — and is closed after WS_AUTH_TIMEOUT_MS
+  // — until it authenticates.
+  beforeHandle({ request, set }) {
+    if (!isWsOriginAllowed(request.headers.get('origin'))) {
+      set.status = 403;
+      return { error: 'origin not allowed' };
+    }
+  },
+
+  open(ws) {
+    const data = ws.data as Record<string, unknown>;
+    data.__authed = false;
+    data.__authTimer = setTimeout(() => {
+      try {
+        ws.close(WS_AUTH_CLOSE, 'auth timeout');
+      } catch {
+        /* already closing */
+      }
+    }, WS_AUTH_TIMEOUT_MS);
+  },
+
+  async message(ws, message) {
+    const data = ws.data as Record<string, unknown>;
+    // After auth, `/api/events` is a server→client push; ignore client frames.
+    if (data.__authed) return;
+
+    const reject = (reason: string): void => {
+      try {
+        ws.close(WS_AUTH_CLOSE, reason);
+      } catch {
+        /* already closing */
+      }
+    };
+    const frame = parseFrame(message);
+    const token = frame && frame.type === 'auth' ? frame.token : undefined;
+    if (typeof token !== 'string') return reject('expected auth frame');
+    let exp: number;
+    try {
+      ({ exp } = await verifyAccessToken(token, jwtSecret()));
+    } catch {
+      return reject('invalid token');
+    }
+    data.__authed = true;
+    const t = data.__authTimer as ReturnType<typeof setTimeout> | undefined;
+    if (t) clearTimeout(t);
+    startStreaming(ws as unknown as StreamWs, exp);
   },
 
   close(ws) {
-    const cleanup = (ws.data as Record<string, unknown>).__cleanup;
+    const data = ws.data as Record<string, unknown>;
+    const t = data.__authTimer as ReturnType<typeof setTimeout> | undefined;
+    if (t) clearTimeout(t);
+    const cleanup = data.__cleanup;
     if (typeof cleanup === 'function') cleanup();
   },
 });
