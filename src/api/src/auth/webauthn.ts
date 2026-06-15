@@ -1,16 +1,21 @@
 // src/api/src/auth/webauthn.ts
-import { ObjectId } from "mongodb";
+import { ObjectId } from 'mongodb';
+import { randomBytes } from 'node:crypto';
 import {
-  generateRegistrationOptions, verifyRegistrationResponse,
-  generateAuthenticationOptions, verifyAuthenticationResponse,
+  generateRegistrationOptions,
+  verifyRegistrationResponse,
+  generateAuthenticationOptions,
+  verifyAuthenticationResponse,
   type VerifiedRegistrationResponse,
   type VerifiedAuthenticationResponse,
-} from "@simplewebauthn/server";
-import { challengesCollection, credentialsCollection } from "../db/client.ts";
-import type { ChallengePurpose, CredentialDoc } from "../db/schema.ts";
+} from '@simplewebauthn/server';
+import { challengesCollection, credentialsCollection } from '../db/client.ts';
+import type { ChallengePurpose, CredentialDoc } from '../db/schema.ts';
 
-const RP_NAME = "Maple";
-function rpID(): string { return process.env.MAPLE_RP_ID ?? "localhost"; }
+const RP_NAME = 'Maple';
+function rpID(): string {
+  return process.env.MAPLE_RP_ID ?? 'localhost';
+}
 
 // Allowed WebAuthn origins. SimpleWebAuthn accepts an array — useful in dev,
 // where the bun API runs on :3000 and the Angular dev server runs on :4201
@@ -20,8 +25,12 @@ function rpID(): string { return process.env.MAPLE_RP_ID ?? "localhost"; }
 // ng-serve directly.
 function origin(): string[] {
   const raw = process.env.MAPLE_ORIGIN;
-  if (raw) return raw.split(",").map((s) => s.trim()).filter(Boolean);
-  return ["http://localhost:3000", "http://localhost:4200", "http://localhost:4201"];
+  if (raw)
+    return raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  return ['http://localhost:3000', 'http://localhost:4200', 'http://localhost:4201'];
 }
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -40,8 +49,8 @@ async function storeChallenge(args: {
 async function consumeChallenge(challenge: string) {
   const c = await challengesCollection();
   const row = await c.findOneAndDelete({ challenge });
-  if (!row) throw new Error("challenge not found / already consumed");
-  if (row.expires_at.getTime() < Date.now()) throw new Error("challenge expired");
+  if (!row) throw new Error('challenge not found / already consumed');
+  if (row.expires_at.getTime() < Date.now()) throw new Error('challenge expired');
   return row;
 }
 
@@ -54,15 +63,23 @@ export async function buildRegistrationOptions(args: {
   const opts = await generateRegistrationOptions({
     rpName: RP_NAME,
     rpID: rpID(),
-    userID: new TextEncoder().encode(args.existingUserId?.toHexString() ?? args.email),
+    // WebAuthn user handle (#864): never the email — that put PII in the
+    // credential, against library guidance. For an additional credential on an
+    // existing user, reuse the stable account id (`_id`) so the authenticator
+    // groups the user's passkeys together. For a brand-new account (no `_id`
+    // yet), mint a random 32-byte handle; we never look users up by handle
+    // (credentials are keyed by `credential_id`), so an opaque value is fine.
+    userID: args.existingUserId
+      ? new TextEncoder().encode(args.existingUserId.toHexString())
+      : new Uint8Array(randomBytes(32)),
     userName: args.email,
-    attestationType: "none",
-    authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+    attestationType: 'none',
+    authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
     excludeCredentials: args.excludeCredentialIds.map((id) => ({ id })),
   });
   await storeChallenge({
     challenge: opts.challenge,
-    purpose: args.existingUserId ? "add_credential" : "register",
+    purpose: args.existingUserId ? 'add_credential' : 'register',
     user_id: args.existingUserId,
     email: args.email.toLowerCase(),
     invite_code: args.inviteCode,
@@ -88,12 +105,15 @@ export async function buildAuthenticationOptions(userId: ObjectId, email: string
   const allowed = await creds.find({ user_id: userId }).toArray();
   const opts = await generateAuthenticationOptions({
     rpID: rpID(),
-    allowCredentials: allowed.map((c) => ({ id: c.credential_id, transports: c.transports as any })),
-    userVerification: "preferred",
+    allowCredentials: allowed.map((c) => ({
+      id: c.credential_id,
+      transports: c.transports as any,
+    })),
+    userVerification: 'preferred',
   });
   await storeChallenge({
     challenge: opts.challenge,
-    purpose: "authenticate",
+    purpose: 'authenticate',
     user_id: userId,
     email: email.toLowerCase(),
     invite_code: null,
@@ -122,9 +142,11 @@ export async function verifyAuthentication(args: {
       id: args.credential.credential_id,
       // MongoDB returns BSON Binary (not Buffer) on read; reach into the
       // underlying buffer rather than `new Uint8Array(binary)` which yields 0
-      // length. Works for both Buffer and Binary inputs.
-      publicKey: new Uint8Array(
-        (args.credential.public_key as { buffer: ArrayBufferLike }).buffer
+      // length. Works for both Buffer and Binary inputs. `Uint8Array.from`
+      // copies into a plain ArrayBuffer-backed array — v13 tightened the
+      // expected type to `Uint8Array<ArrayBuffer>` (not `ArrayBufferLike`).
+      publicKey: Uint8Array.from(
+        new Uint8Array((args.credential.public_key as { buffer: ArrayBufferLike }).buffer),
       ),
       counter: args.credential.counter,
       transports: args.credential.transports as any,
