@@ -114,6 +114,16 @@ impl ValidityMask {
         self.words.iter().map(|w| w.count_ones() as usize).sum()
     }
 
+    /// True if at least one pixel is valid (cheap early-exit scan).
+    ///
+    /// Equivalent to `count_valid() > 0` but short-circuits on the first
+    /// non-zero word instead of accumulating over the entire mask, so it is
+    /// O(1) in the common early-exit case.
+    #[inline]
+    pub fn any_valid(&self) -> bool {
+        self.words.iter().any(|&w| w != 0)
+    }
+
     /// True when every pixel is valid.
     pub fn all_valid(&self) -> bool {
         self.count_valid() == (self.width as usize) * (self.height as usize)
@@ -379,6 +389,21 @@ mod tests {
         assert!(m.all_valid());
         assert!(m.get(0, 0));
         assert!(m.get(12, 4));
+    }
+
+    #[test]
+    fn validity_mask_any_valid() {
+        // All-false mask: any_valid returns false.
+        let m = ValidityMask::new_filled(13, 5, false);
+        assert!(!m.any_valid());
+        // All-true mask: any_valid returns true.
+        let m = ValidityMask::new_filled(13, 5, true);
+        assert!(m.any_valid());
+        // Single bit set in a multi-word mask: any_valid returns true.
+        let mut m = ValidityMask::new_filled(70, 2, false);
+        assert!(!m.any_valid());
+        m.set(69, 1, true);
+        assert!(m.any_valid());
     }
 
     #[test]
