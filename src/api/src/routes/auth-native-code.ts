@@ -50,7 +50,6 @@ export const nativeCodeRedeemRoutes = new Elysia().post(
         sub: user._id.toHexString(),
         email: user.email,
         role: user.role,
-        token_version: user.token_version,
       },
       jwtSecret(),
     );

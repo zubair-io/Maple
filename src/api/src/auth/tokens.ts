@@ -19,10 +19,6 @@ export interface AccessClaims {
   sub: string; // user_id
   email: string;
   role: 'owner' | 'member';
-  /** Token-version generation counter (#860). Compared against the user's
-   * current `token_version` in `requireAuth`; a mismatch means the token was
-   * revoked. Absent on pre-#860 tokens — treated as 0. */
-  tv: number;
   iat: number;
   exp: number;
 }
@@ -36,13 +32,13 @@ function secretKey(secret: string): Uint8Array {
  * Web-Crypto-backed signing has no synchronous API.
  */
 export async function signAccessToken(
-  payload: { sub: string; email: string; role: 'owner' | 'member'; token_version?: number },
+  payload: { sub: string; email: string; role: 'owner' | 'member' },
   secret: string,
   opts: { expiresInSeconds?: number } = {},
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const exp = now + (opts.expiresInSeconds ?? ACCESS_TTL_SECONDS);
-  return new SignJWT({ email: payload.email, role: payload.role, tv: payload.token_version ?? 0 })
+  return new SignJWT({ email: payload.email, role: payload.role })
     .setProtectedHeader({ alg: ALG, typ: 'JWT' })
     .setSubject(payload.sub)
     .setIssuedAt(now)
@@ -68,7 +64,7 @@ export async function verifyAccessToken(jwt: string, secret: string): Promise<Ac
     if (e instanceof joseErrors.JWSSignatureVerificationFailed) throw new Error('bad signature');
     throw new Error('malformed token');
   }
-  const { sub, email, role, tv, iat, exp } = claims;
+  const { sub, email, role, iat, exp } = claims;
   if (
     typeof sub !== 'string' ||
     typeof email !== 'string' ||
@@ -81,7 +77,6 @@ export async function verifyAccessToken(jwt: string, secret: string): Promise<Ac
     sub,
     email,
     role,
-    tv: typeof tv === 'number' ? tv : 0,
     iat: typeof iat === 'number' ? iat : 0,
     exp,
   };

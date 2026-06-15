@@ -17,13 +17,13 @@ Design intent:
 
 - **Passwordless.** Identity is proven with **WebAuthn / passkeys** only. There
   are no passwords anywhere in the system.
-- **Short-lived, revocable request auth.** `/api/*` is gated by a JWT bearer
-  token. Verification is mostly self-contained (signature + `exp`), plus one
-  indexed `_id` lookup of the user's `token_version` (#860) so a bumped version
-  instantly invalidates live access tokens. Tokens are short-lived (15 min), so
-  the lookup rate is bounded and a lost token self-expires quickly.
+- **Stateless request auth.** `/api/*` is gated by a JWT bearer token, verified
+  on signature + `exp` only — **no per-request DB read** (the hot path is hit
+  constantly by photo backup + thumbnail traffic). Tokens are short-lived
+  (15 min), which is what bounds revocation: a revoked session's in-flight
+  access token simply ages out and can't be renewed.
 - **Stateful, revocable login.** A rotating refresh token, recorded server-side,
-  is the durable session and a revocation point (alongside `token_version`).
+  is the durable session and the revocation point.
 
 The security-critical identity ceremony is delegated to a maintained library
 (`@simplewebauthn/server`), and JWT sign/verify to `jose` (#859, algorithm
@@ -35,16 +35,16 @@ domain logic.
 Two distinct tokens with different lifecycles. Conflating them is the source of
 most confusion:
 
-|                      | **Access token (JWT)**                                   | **Refresh token**                                |
-| -------------------- | -------------------------------------------------------- | ------------------------------------------------ |
-| Format               | HS256 JWT via `jose` (#859)                              | opaque 32-byte random (base64url)                |
-| Proves               | "this request is authorized"                             | "this device has a live login"                   |
-| Server-side record   | `token_version` on the user doc (#860)                   | row in `refresh_tokens` (stored as SHA-256 hash) |
-| Lifetime             | **15 min**, fixed at issue (#860)                        | 90 days, rotates on every use                    |
-| Revocable?           | **yes** — bump `token_version` (#860), else self-expires | yes — `revoked_at` / family + chain revoke       |
-| Where it lives (web) | **memory only**, lost on reload                          | httpOnly cookie `maple_refresh`                  |
-| Transport            | `Authorization: Bearer` (HTTP), `?token=` (WebSocket)    | cookie; also JSON body (native)                  |
-| Verified by          | signature + `exp` + `token_version` match                | hash lookup + `revoked_at`/`expires_at` checks   |
+|                      | **Access token (JWT)**                                 | **Refresh token**                                |
+| -------------------- | ------------------------------------------------------ | ------------------------------------------------ |
+| Format               | HS256 JWT via `jose` (#859)                            | opaque 32-byte random (base64url)                |
+| Proves               | "this request is authorized"                           | "this device has a live login"                   |
+| Server-side record   | **none** (stateless)                                   | row in `refresh_tokens` (stored as SHA-256 hash) |
+| Lifetime             | **15 min**, fixed at issue (#860)                      | 90 days, rotates on every use                    |
+| Revocable?           | indirectly — self-expires ≤15 min once refresh revoked | yes — `revoked_at` / family + chain revoke       |
+| Where it lives (web) | **memory only**, lost on reload                        | httpOnly cookie `maple_refresh`                  |
+| Transport            | `Authorization: Bearer` (HTTP), `?token=` (WebSocket)  | cookie; also JSON body (native)                  |
+| Verified by          | signature + `exp` only                                 | hash lookup + `revoked_at`/`expires_at` checks   |
 
 ```
         ┌──────────── Web (Angular) ─────────────┐
@@ -68,7 +68,7 @@ most confusion:
 | [`src/api/src/auth/tokens.ts`](../src/api/src/auth/tokens.ts)                                               | HS256 JWT sign/verify via `jose` (alg-pinned); refresh-token generation + hashing; TTL constants |
 | [`src/api/src/auth/refresh_store.ts`](../src/api/src/auth/refresh_store.ts)                                 | Refresh-token issue / **rotate** / reuse-detection / revoke (Mongo)                              |
 | [`src/api/src/auth/webauthn.ts`](../src/api/src/auth/webauthn.ts)                                           | Passkey ceremony via `@simplewebauthn/server`; challenge store/consume                           |
-| [`src/api/src/auth/middleware.ts`](../src/api/src/auth/middleware.ts)                                       | `requireAuth` / `requireOwner` Elysia guards (verify + `token_version` check)                    |
+| [`src/api/src/auth/middleware.ts`](../src/api/src/auth/middleware.ts)                                       | `requireAuth` / `requireOwner` Elysia guards (stateless verify) + `stepUpBeforeHandle`           |
 | [`src/api/src/auth/rate_limit.ts`](../src/api/src/auth/rate_limit.ts)                                       | In-memory per-process sliding-window limiter                                                     |
 | [`src/api/src/auth/jwt-bootstrap.ts`](../src/api/src/auth/jwt-bootstrap.ts) + `jwt-secret.repo.ts`          | Resolve the HS256 secret at startup (DB → file → memory)                                         |
 | [`src/api/src/auth/invites.ts`](../src/api/src/auth/invites.ts)                                             | Create / redeem / list / rescind invites                                                         |
@@ -103,20 +103,20 @@ being able to recognize a revoked token rather than treat it as unknown.
 
 - **HS256 via `jose`** (#859). `jose` handles sign/verify; there is no
   hand-rolled JWT envelope or HMAC compare anymore.
-- **Claims:** `sub` (user id, hex), `email`, `role`, `tv` (token_version, #860),
-  `iat`, `exp`.
+- **Claims:** `sub` (user id, hex), `email`, `role`, `iat`, `exp`.
 - **TTL: 15 min** (`ACCESS_TTL_SECONDS`, #860). Short enough that a leaked token
   self-expires quickly; rotation (#858) absorbs the higher refresh cadence.
 - **Verification** (`verifyAccessToken`) verifies the signature with the
   algorithm **pinned to `['HS256']`**, so `alg:none` / RS256→HS256 confusion is
   rejected by construction, then checks `exp`. It does **not** validate
   `iss` / `aud` / `nbf`, and there is no `jti`.
-- **One DB read at verify time** (#860): `requireAuth` loads the user's
-  `token_version` by indexed `_id` and rejects the token if its `tv` claim is
-  behind. A non-ObjectId `sub` or a not-yet-persisted user falls through to a
-  stateless accept (keeps bootstrap/test bearers working), bounded by the 15-min
-  TTL. Bumping `token_version` (e.g. via `revokeChain`) is the instant
-  per-user "kill now" lever.
+- **No DB read at verify time** — `requireAuth` is fully stateless (signature +
+  `exp`). This keeps the hot path (constant photo-backup/thumbnail traffic) free
+  of an auth lookup. The cost is that revocation is bounded by the 15-min TTL
+  rather than instant: once a refresh family is revoked, the in-flight access
+  token can't be renewed and ages out. (A `token_version` per-request check for
+  instant revoke was tried in #860 and removed — the per-request DB read wasn't
+  worth it for a single-owner server.)
 
 ### Refresh token — `refresh_store.ts`
 
@@ -283,9 +283,11 @@ WebAuthn/crypto-primitive layer; they cluster in the hand-rolled session layer.
    detection. Logout revokes by family. Concurrency/lost-response is regression-
    tested (`refresh_store.test.ts`, `auth-flow-e2e.test.ts`).
 2. **~~30-day, non-revocable access token → "valid" ≠ "fresh".~~** RESOLVED
-   (#860). TTL is now 15 min, and `requireAuth` checks the user's
-   `token_version` per request, so bumping it (`revokeChain`) kills live access
-   tokens within one verify.
+   (#860). TTL dropped from 30 days to **15 min**, so a revoked session's access
+   token ages out fast. (A `token_version` per-request DB check for _instant_
+   revoke was added in #860 and later removed: the lookup on every `/api/*` hit
+   wasn't worth it for a single-owner, backup-heavy workload — the 15-min bound
+   is sufficient. `requireAuth` is stateless again.)
 3. **~~Hand-rolled JWT.~~** RESOLVED (#859). Sign/verify is now `jose` with the
    algorithm pinned to HS256; the hand-rolled envelope and `timingSafeEqual` are
    deleted.
@@ -301,17 +303,17 @@ WebAuthn/crypto-primitive layer; they cluster in the hand-rolled session layer.
    §Authentication now lists the real endpoints and points to the generated
    `/openapi.json` as canonical.
 
-Also added since the original audit: instant per-user revoke via `token_version`
-(#860), step-up re-auth for sensitive actions (#861), and atomic
-first-registration claim (#865).
+Also added since the original audit: step-up re-auth for sensitive actions
+(#861) and atomic first-registration claim (#865).
 
 ## Status
 
 The auth-hardening effort is tracked as epic **#852**. Phases 0–2 (P0 holes +
-rotation core) and Phase 3 (jose, short TTL + `token_version`, step-up) are
-delivered, plus Phase 4's rate-limit (#862) and registration-atomicity (#865)
-work. Remaining: WebSocket auth hardening (#863) and the
-`@simplewebauthn/server` v13 upgrade (#864).
+rotation core) and Phase 3 (jose, short TTL, step-up) are delivered, plus
+Phase 4's rate-limit (#862), registration-atomicity (#865), and
+`@simplewebauthn/server` v13 upgrade (#864). Remaining: WebSocket auth
+hardening (#863). (Access auth is stateless — the #860 `token_version`
+per-request check was reverted; revocation is bounded by the 15-min TTL.)
 
 ## Decisions (documented)
 
