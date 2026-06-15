@@ -176,6 +176,70 @@ public struct PipelineRenderer: Sendable {
         }
     }
 
+    // MARK: Histogram (local — bytes source)
+
+    /// Compute a 3×256 RGB histogram of the developed image from in-memory RAW
+    /// bytes, mirroring what the Self-Hosted server returns from
+    /// `GET /api/assets/:id/histogram` — but entirely on-device, so local
+    /// (filesystem) and PhotoKit assets get a real histogram without a server.
+    ///
+    /// - Parameters:
+    ///   - rawBytes: Full RAW file bytes. Copied into the Rust decoder.
+    ///   - hint: RAW extension hint without the dot (e.g. `"dng"`). Empty is
+    ///           allowed — the decoder falls back to content sniffing.
+    ///   - xmpDocument: The XMP sidecar *document text* (not a path) for the
+    ///                  adjustments to apply, typically
+    ///                  `XMPSerializer.serialize(model:culling:)` so the
+    ///                  histogram reflects the live in-memory edit. `nil` uses
+    ///                  `AdjustmentModel::default()`.
+    ///   - quality: `.preview` (default) runs the half-res demosaic — a
+    ///              histogram is a statistical reduction, so it is visually
+    ///              identical and ~4× cheaper than `.full`, which keeps the
+    ///              on-edit-settle recompute light.
+    /// - Returns: The unnormalised RGB counts (same shape as `CloudHistogram`).
+    /// - Throws: `PipelineError` on a non-zero FFI status.
+    public static func histogram(
+        rawBytes: Data,
+        hint: String,
+        xmpDocument: String?,
+        quality: Quality = .preview
+    ) throws -> CloudHistogram {
+        guard let hintCStr = hint.cString(using: .utf8) else {
+            throw PipelineError.hintEncodingError(hint)
+        }
+        // `[UInt32]` storage is u32-aligned, which the FFI requires for the
+        // `from_raw_parts_mut` write on the Rust side.
+        var bins = [UInt32](repeating: 0, count: 768)
+        let xmpCChars: [CChar]? = xmpDocument?.cString(using: .utf8)
+        let rc: Int32 = rawBytes.withUnsafeBytes { (buf: UnsafeRawBufferPointer) -> Int32 in
+            let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
+            return hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
+                bins.withUnsafeMutableBufferPointer { binsPtr -> Int32 in
+                    let call: (UnsafePointer<CChar>?) -> Int32 = { xmpPtr in
+                        maple_histogram_bytes(
+                            base, UInt(buf.count), hintPtr.baseAddress, xmpPtr,
+                            quality.rawValue, binsPtr.baseAddress
+                        )
+                    }
+                    if let xmpCChars {
+                        return xmpCChars.withUnsafeBufferPointer { call($0.baseAddress) }
+                    } else {
+                        return call(nil)
+                    }
+                }
+            }
+        }
+        guard rc == 0 else {
+            let msg = maple_last_error().map { String(cString: $0) } ?? "unknown error"
+            throw PipelineError.renderFailed(code: Int(rc), message: msg)
+        }
+        return CloudHistogram(
+            r: bins[0..<256].map(Int.init),
+            g: bins[256..<512].map(Int.init),
+            b: bins[512..<768].map(Int.init)
+        )
+    }
+
     // MARK: Scene-linear render (Plan 1 FFI split)
 
     /// Render a RAW file to a Rec.2020 fp16 RGBA scene-linear buffer.
@@ -1107,6 +1171,10 @@ public enum PipelineError: Error, LocalizedError {
     case renderFailed(code: Int, message: String)
     case pathEncodingError(URL)
     case hintEncodingError(String)
+    /// The asset exposes neither a `primaryURL` nor a `bytesProvider`, so
+    /// there is nothing to decode. Thrown by the local-histogram path for a
+    /// degenerate `AssetRef`; callers fall back to the placeholder.
+    case noByteSource
     /// The render was cancelled by the host (#951) — a newer decode superseded
     /// this one (asset switch / profile toggle / invalidate). Not a failure;
     /// callers map it onto the silent "dropped" path (the same place the
@@ -1121,6 +1189,8 @@ public enum PipelineError: Error, LocalizedError {
             return "Path cannot be encoded as UTF-8: \(url.path)"
         case .hintEncodingError(let s):
             return "Decoder hint cannot be encoded as UTF-8: \(s)"
+        case .noByteSource:
+            return "Asset has no file URL or bytes provider."
         case .cancelled:
             return "Render cancelled."
         }
