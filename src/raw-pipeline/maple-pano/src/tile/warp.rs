@@ -12,6 +12,14 @@
 //! 3. Fold in the per-frame gain multiplier.
 //!
 //! Rows are rayon-parallel; per-pixel work is pure and deterministic.
+//!
+//! ## Region-restricted variant
+//!
+//! [`warp_to_tile_region`] warps only the sub-rectangle
+//! `[rx0, rx1) × [ry0, ry1)` of the canvas — pixel-for-pixel identical
+//! to taking that crop out of `warp_to_tile_canvas`, but without
+//! allocating the full canvas buffer. Used by the tiled multiband
+//! composite (#1291) to bound peak memory.
 
 use rayon::prelude::*;
 
@@ -75,12 +83,85 @@ pub fn warp_to_tile_canvas(
     PlanarImage::from_planes(canvas.width, canvas.height, r, g, b, mask)
 }
 
+/// Region-restricted warp: fills only the `[rx0, rx1) × [ry0, ry1)` sub-
+/// rectangle of the full canvas, returning a `PlanarImage` of size
+/// `(rx1 − rx0) × (ry1 − ry0)`. Pixel values are identical to the
+/// corresponding crop of `warp_to_tile_canvas` — same inverse similarity,
+/// same bicubic kernel, same gain application. Nothing outside the region
+/// is computed or allocated.
+pub(super) fn warp_to_tile_region(
+    src: &PlanarImage,
+    pose: &TilePose,
+    canvas: &TileCanvasSpec,
+    gain: [f32; 3],
+    rx0: usize,
+    ry0: usize,
+    rx1: usize,
+    ry1: usize,
+) -> PlanarImage {
+    debug_assert!(rx1 <= canvas.width as usize && ry1 <= canvas.height as usize);
+    debug_assert!(rx0 < rx1 && ry0 < ry1);
+
+    let rw = rx1 - rx0;
+    let rh = ry1 - ry0;
+    let n = rw * rh;
+    let src_w = src.width() as f64;
+    let src_h = src.height() as f64;
+
+    let inv = inverse_similarity_with_offset(&pose.sim, canvas.offset_x, canvas.offset_y);
+
+    let mut r = vec![0.0_f32; n];
+    let mut g = vec![0.0_f32; n];
+    let mut b = vec![0.0_f32; n];
+    let mut valid = vec![false; n];
+
+    r.par_chunks_mut(rw)
+        .zip(g.par_chunks_mut(rw))
+        .zip(b.par_chunks_mut(rw))
+        .zip(valid.par_chunks_mut(rw))
+        .enumerate()
+        .for_each(|(row, (((row_r, row_g), row_b), row_v))| {
+            let cy = (ry0 + row) as f64 + 0.5;
+            for col in 0..rw {
+                let cx = (rx0 + col) as f64 + 0.5;
+                let (fx, fy) = inv.apply(cx, cy);
+                if fx < 0.0 || fx > src_w || fy < 0.0 || fy > src_h {
+                    continue;
+                }
+                if let Some([sr, sg, sb]) = sample_bicubic(src, fx - 0.5, fy - 0.5) {
+                    row_r[col] = (sr * gain[0]).max(0.0);
+                    row_g[col] = (sg * gain[1]).max(0.0);
+                    row_b[col] = (sb * gain[2]).max(0.0);
+                    row_v[col] = true;
+                }
+            }
+        });
+
+    let mut mask = ValidityMask::new_filled(rw as u32, rh as u32, false);
+    for (i, &v) in valid.iter().enumerate() {
+        if v {
+            mask.set((i % rw) as u32, (i / rw) as u32, true);
+        }
+    }
+    PlanarImage::from_planes(rw as u32, rh as u32, r, g, b, mask)
+}
+
 /// Pre-compose the canvas offset into the inverse similarity so the
 /// hot loop only calls `apply` once per pixel.
 ///
 /// The forward map is: canvas_px = sim.apply(src_px) + offset.
 /// So: src_px = sim_inv(canvas_px − offset).
 /// We bake this into a single transform: sim_with_offset_inv.
+/// Exported (pub(super)) for [`super::gain_solve`] and
+/// [`warp_to_tile_region`].
+pub(super) fn inverse_similarity_with_offset(
+    sim: &Similarity2d,
+    offset_x: f64,
+    offset_y: f64,
+) -> Similarity2d {
+    inverse_similarity(sim, offset_x, offset_y)
+}
+
 fn inverse_similarity(sim: &Similarity2d, offset_x: f64, offset_y: f64) -> Similarity2d {
     // Inverse of sim: s_inv = 1/s, θ_inv = -θ, t_inv = -R(-θ)·t/s.
     let inv_s = 1.0 / sim.scale.max(1e-12);
@@ -121,7 +202,9 @@ fn catmull_rom(f: f64) -> [f64; 4] {
     ]
 }
 
-fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
+/// Bicubic Catmull-Rom interpolation. Exported pub(super) for
+/// [`super::gain_solve`].
+pub(super) fn sample_bicubic(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<[f32; 3]> {
     let sw = src.width() as i64;
     let sh = src.height() as i64;
     let ix = x_px.floor() as i64;

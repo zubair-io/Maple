@@ -89,7 +89,7 @@ impl Default for GainOptions {
 
 /// Per-pair overlap statistics (per-channel sums over corresponding
 /// sample points).
-pub(super) struct PairStats {
+pub(crate) struct PairStats {
     pub i: usize,
     pub j: usize,
     pub count: usize,
@@ -377,7 +377,7 @@ pub(super) fn bilinear_valid(src: &PlanarImage, x_px: f64, y_px: f64) -> Option<
 /// Dense linear solve via Gaussian elimination with partial pivoting
 /// (the gain systems are tiny — one row per frame). `None` when the
 /// matrix is numerically singular.
-pub(super) fn solve_dense(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
+pub(crate) fn solve_dense(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     let n = b.len();
     for col in 0..n {
         // Pivot.
