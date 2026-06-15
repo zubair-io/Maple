@@ -1,17 +1,22 @@
 // HistogramBlock.swift — S6 Info content, section 2.
 //
-// Live RGB histogram for Self-Hosted assets (closes #633). The view
-// reaches for the optional `\.cloudHistogramClient` SwiftUI environment
-// value and, when set and the bound `AssetRef.stableID` is non-nil,
-// fetches `GET /api/assets/:id/histogram` and renders three overlaid
-// line plots via `SwiftUI.Canvas`. Local-only assets (filesystem /
-// PhotoKit) get the original decorative placeholder — the asset id on
-// the server is only minted for cloud-shaped rows.
+// Live RGB histogram on every platform (closes #633 / histogram-all-platforms).
+// The view renders three overlaid line plots via `SwiftUI.Canvas` from a 3×256
+// RGB histogram sourced, in priority order:
 //
-// Layout pact with the placeholder: same 56pt block height, 0.5pt
-// border, 6pt corner radius, `surface` background. The live canvas
-// fades in over the placeholder once the fetch completes, so the
-// inspector never jumps.
+//   1. Self-Hosted — when a `\.cloudHistogramClient` is injected AND the bound
+//      `AssetRef.stableID` is non-nil, fetch `GET /api/assets/:id/histogram`
+//      (the server computes + caches it, so we don't download the full RAW).
+//   2. Filesystem / PhotoKit — a local RAW computes on device via
+//      `LocalHistogram` (the Rust core), debounced so a slider drag settles
+//      before a decode. This is what makes the histogram work on Mac / iPad /
+//      iPhone without a server.
+//   3. Otherwise (non-RAW, or no source) — the decorative placeholder.
+//
+// Layout pact with the placeholder: same 56pt block height, 0.5pt border, 6pt
+// corner radius, `surface` background. The live canvas fades in over the
+// placeholder once the data lands, so the inspector never jumps; an in-place
+// edit keeps the prior curves visible through the recompute (no mid-edit flash).
 
 import MapleCore
 import SwiftUI
@@ -37,14 +42,23 @@ extension EnvironmentValues {
 // MARK: - HistogramBlock
 
 struct HistogramBlock: View {
-  let asset: AssetRef?
+  /// The active editing session. The histogram is computed for `session.asset`
+  /// under the live `session.model` / `session.culling`, so it tracks edits.
+  /// `nil` ⇒ placeholder.
+  let session: EditSession?
 
   @Environment(\.cloudHistogramClient) private var client
   @State private var histogram: CloudHistogram?
   @State private var loadFailed = false
-  /// Generation counter so a late-arriving fetch result for a previous
-  /// asset doesn't clobber the current one. Bumped on every asset change.
+  /// Identity of the asset the currently-shown `histogram` was computed for.
+  /// Used to clear stale curves on an asset switch WITHOUT flashing the
+  /// placeholder on every in-place edit (where only the model changes).
+  @State private var shownAssetID: UUID?
+  /// Generation counter so a late-arriving result for a superseded
+  /// (asset, edit) tuple doesn't clobber the current one.
   @State private var loadGeneration: Int = 0
+
+  private var asset: AssetRef? { session?.asset }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -53,7 +67,17 @@ struct HistogramBlock: View {
     }
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("info-panel-histogram")
-    .task(id: TaskKey(client: client, assetID: asset?.stableID)) {
+    // Built here in `body` (MainActor) so reading the `@MainActor`
+    // `EditSession`'s model/culling is legal; `.task` re-runs on any change.
+    .task(
+      id: TaskKey(
+        assetID: asset?.id,
+        stableID: asset?.stableID,
+        clientHost: client?.server.absoluteString,
+        model: session?.model,
+        culling: session?.culling
+      )
+    ) {
       await refresh()
     }
   }
@@ -182,58 +206,105 @@ struct HistogramBlock: View {
       .tracking(1.4)
   }
 
-  // MARK: - Fetch
+  // MARK: - Fetch / compute
 
-  /// Drive the fetch for the current (client, asset) tuple. Called by
-  /// `.task(id:)`, which automatically cancels the inflight Task and
-  /// re-runs whenever the tuple changes — so an asset swap mid-fetch
-  /// drops the stale result. The generation counter is a defense in
-  /// depth for the rare case where two adjacent fetches differ only in
-  /// the order of their completions.
+  /// Drive the histogram for the current (asset, edit, client) tuple. Called by
+  /// `.task(id:)`, which cancels the inflight Task and re-runs whenever the
+  /// tuple changes — so an asset swap or a settled edit supersedes the prior
+  /// computation. The generation counter is defense-in-depth against
+  /// out-of-order completions.
+  ///
+  /// Source priority:
+  ///   1. **Self-Hosted** — a `CloudHistogramClient` is injected AND the asset
+  ///      carries a server `stableID`: fetch `GET /api/assets/:id/histogram`.
+  ///      The server computes + caches it, so we avoid downloading the full RAW
+  ///      just to bin it locally.
+  ///   2. **Filesystem / PhotoKit** — a local RAW (URL or bytes provider):
+  ///      compute on device via `LocalHistogram` after a short debounce, so a
+  ///      slider drag settles before we pay a decode.
+  ///   3. Otherwise — non-RAW, or no source — the placeholder.
+  @MainActor
   private func refresh() async {
     loadGeneration &+= 1
     let gen = loadGeneration
-    // Reset state when the underlying tuple changes so the previous
-    // asset's histogram doesn't flash on the new asset.
-    histogram = nil
-    loadFailed = false
 
-    guard let client, let assetID = asset?.stableID else {
-      // No server context or no cross-session id — placeholder only.
+    // Clear stale curves only on an asset SWITCH. An in-place edit keeps the
+    // last histogram visible through the recompute so the block never flashes
+    // the placeholder mid-edit.
+    if asset?.id != shownAssetID {
+      histogram = nil
+      loadFailed = false
+    }
+
+    guard let session, let asset else {
+      loadFailed = true
       return
     }
+
+    // 1. Self-Hosted server path.
+    if let client, let assetID = asset.stableID {
+      do {
+        let result = try await client.histogram(assetID: assetID)
+        guard gen == loadGeneration else { return }
+        histogram = result
+        loadFailed = false
+        shownAssetID = asset.id
+      } catch {
+        guard gen == loadGeneration else { return }
+        if histogram == nil { loadFailed = true }
+      }
+      return
+    }
+
+    // 2. Local on-device path (filesystem / PhotoKit RAW). The Rust decoder
+    //    only handles RAW; non-RAW images fall through to the placeholder.
+    guard asset.isRaw, asset.primaryURL != nil || asset.bytesProvider != nil else {
+      if histogram == nil { loadFailed = true }
+      return
+    }
+    // Debounce: a slider drag re-keys `.task` on every tick, cancelling this
+    // sleep, so the decode only fires ~after the edit settles.
+    try? await Task.sleep(for: .milliseconds(350))
+    if Task.isCancelled || gen != loadGeneration { return }
+
+    // Snapshot the live edit on the main actor, then compute off it — the
+    // decode + develop must not block the UI.
+    let model = session.model
+    let culling = session.culling
     do {
-      let result = try await client.histogram(assetID: assetID)
-      // Late-result guard.
+      let result = try await Task.detached(priority: .utility) {
+        try await LocalHistogram.compute(asset: asset, model: model, culling: culling)
+      }.value
       guard gen == loadGeneration else { return }
       histogram = result
+      loadFailed = false
+      shownAssetID = asset.id
     } catch {
       guard gen == loadGeneration else { return }
-      loadFailed = true
+      if histogram == nil { loadFailed = true }
     }
   }
 
-  /// Hashable composite key for `.task(id:)`. SwiftUI re-runs the task
-  /// when this changes, which gives us automatic per-(client, asset)
-  /// cancellation without writing our own lifecycle code.
+  /// Hashable composite key for `.task(id:)`. SwiftUI re-runs the task when
+  /// this changes, giving per-(asset, edit, client) cancellation for free.
+  /// Includes the model + culling so a settled edit recomputes the local
+  /// histogram (and revalidates the Self-Hosted ETag). Plain memberwise init —
+  /// the values are extracted in `body` (MainActor), where reading the
+  /// `EditSession` is legal.
   private struct TaskKey: Hashable {
-    /// Identifies the client by its server URL — actors are not
-    /// Hashable, but the (server, assetID) pair is the load-bearing
-    /// identity for cache purposes anyway.
-    let serverHost: String?
-    let assetID: String?
-
-    init(client: CloudHistogramClient?, assetID: String?) {
-      self.serverHost = client?.server.absoluteString
-      self.assetID = assetID
-    }
+    let assetID: UUID?
+    let stableID: String?
+    let clientHost: String?
+    let model: AdjustmentModel?
+    let culling: CullingState?
   }
 }
 
 // MARK: - Previews
 
 #Preview("HistogramBlock — placeholder") {
-  HistogramBlock(asset: .preview())
+  // No session ⇒ no source ⇒ placeholder (the preview asset isn't on disk).
+  HistogramBlock(session: nil)
     .frame(width: 280)
     .padding()
     .background(MapleTokens.bg)
