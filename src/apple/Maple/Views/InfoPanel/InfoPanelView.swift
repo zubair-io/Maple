@@ -15,8 +15,9 @@
 //
 // Sections (in order):
 //   1. RatingFlagsRow      — pick/unflag/reject pill row + 5-star tap row.
-//   2. HistogramBlock      — server-rendered RGB curves (placeholder in v0.1
-//                            until the API endpoint lands — follow-up).
+//   2. HistogramBlock      — live RGB curves: Self-Hosted via the server
+//                            endpoint, local/PhotoKit via the on-device Rust
+//                            core (placeholder only for non-RAW / no source).
 //   3. CameraLocationGrid  — Body / Lens / Aperture / Shutter / ISO / Focal /
 //                            Coords / City. Pulled from ImageMetadataReader
 //                            EXIF entries, async-loaded into @State.
@@ -73,7 +74,7 @@ struct InfoPanelView: View {
           InfoSheetHeader(onClose: onClose)
         }
         RatingFlagsRow(session: session)
-        HistogramBlock(asset: session?.asset)
+        HistogramBlock(session: session)
         CameraLocationGrid(asset: session?.asset)
         KeywordChipsRow(session: session)
       }
