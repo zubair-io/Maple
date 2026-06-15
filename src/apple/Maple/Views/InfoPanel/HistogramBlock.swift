@@ -267,14 +267,17 @@ struct HistogramBlock: View {
     try? await Task.sleep(for: .milliseconds(350))
     if Task.isCancelled || gen != loadGeneration { return }
 
-    // Snapshot the live edit on the main actor, then compute off it — the
-    // decode + develop must not block the UI.
+    // Snapshot the live edit on the main actor, then compute. `LocalHistogram`
+    // is a `nonisolated async` namespace, so awaiting it directly hops OFF the
+    // main actor for the decode + develop (the UI is never blocked) while
+    // staying STRUCTURED under this `.task`: when the task re-keys on the next
+    // edit, SwiftUI cancels this invocation before starting the new one, so
+    // superseded computes don't run to completion or pile up (a detached task
+    // would do neither — it ignores the parent's cancellation).
     let model = session.model
     let culling = session.culling
     do {
-      let result = try await Task.detached(priority: .utility) {
-        try await LocalHistogram.compute(asset: asset, model: model, culling: culling)
-      }.value
+      let result = try await LocalHistogram.compute(asset: asset, model: model, culling: culling)
       guard gen == loadGeneration else { return }
       histogram = result
       loadFailed = false
