@@ -431,6 +431,12 @@ describe('RawPipelineService — non-RAW browser-native decode (#784)', () => {
     // Neutral WB so seedAsShotWhiteBalance no-ops (default 6500K / 0 tint).
     expect(decoded.asShotTemperature).toBe(6500);
     expect(decoded.asShotTint).toBe(0);
+    // EXIF orientation must be applied by the browser decode so portrait
+    // iPhone captures don't open sideways (parity with Apple's
+    // CIImage.oriented(forExifOrientation:)).
+    expect(globalThis.createImageBitmap).toHaveBeenCalledWith(expect.anything(), {
+      imageOrientation: 'from-image',
+    });
   });
 
   it('decodeSceneLinear() routes non-RAW to the browser and produces fp16 Rec.2020', async () => {
