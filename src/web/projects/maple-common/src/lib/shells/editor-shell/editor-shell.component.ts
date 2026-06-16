@@ -20,6 +20,8 @@ import { ImageCanvasComponent } from '../../components/image-canvas/image-canvas
 import { ImageCanvasService } from '../../components/image-canvas/image-canvas.service';
 import { EditorDetailPanelComponent } from '../../components/editor-detail-panel/editor-detail-panel.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
+import { parseAddress } from '../../addressing/maple-address';
+import { routeSegmentsToAddress } from '../../addressing/route-address';
 
 @Component({
   selector: 'editor-shell',
@@ -67,13 +69,37 @@ export class EditorShellComponent implements OnInit {
       return;
     }
 
-    // Self-Hosted FS-walk cold-load: deep-link to /edit/fs:<absPath>
-    // (browser refresh, shared link, etc.) without first navigating via
-    // Browse. Synthesize a placeholder asset so the editor mounts and
-    // starts fetching bytes from /api/fs/raw immediately, then fire the
-    // parent-dir listing in the background to populate the filmstrip with
-    // siblings. The third arg keeps OUR asset selected after the listing
-    // arrives instead of the listing's first entry.
+    // M2: deep-link via MapleAddress (slug:relPath). The :slug param carries
+    // the slug; the ** wildcard is the image relPath (joined by Router).
+    // If id contains ':' it's a MapleAddress string; try to parse it.
+    if (id.includes(':') && !id.startsWith('fs:')) {
+      try {
+        const addr = parseAddress(id);
+        // Reconstruct from route URL if id was passed as ':slug' (the full
+        // relPath is in the ** segments, not the :id param).
+        const slug = this.route.snapshot.paramMap.get('slug') ?? addr.slug;
+        const segments = this.route.snapshot.url.slice(1).map((s) => s.path);
+        const fullAddr = routeSegmentsToAddress(slug, segments);
+        // Synthesize a placeholder asset and load the parent folder.
+        if (this.state.backend === 'self-hosted') {
+          const synth = this.state.hydrateSelfHostedFsAsset(id as AssetId);
+          if (synth?.absPath) {
+            this.state.selectAsset(synth.id);
+            const lastSlash = synth.absPath.lastIndexOf('/');
+            if (lastSlash > 0) {
+              const parentDir = synth.absPath.slice(0, lastSlash);
+              this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
+            }
+            return;
+          }
+        }
+        void this.hydrateFromCache(fullAddr.relPath.split('/').pop() ?? id);
+        return;
+      } catch {
+        // Not a MapleAddress — fall through to legacy paths.
+      }
+    }
+    // Legacy Self-Hosted FS-walk cold-load (fs:<absPath>).
     if (this.state.backend === 'self-hosted' && id.startsWith('fs:')) {
       const synth = this.state.hydrateSelfHostedFsAsset(id as AssetId);
       if (synth?.absPath) {
@@ -117,7 +143,7 @@ export class EditorShellComponent implements OnInit {
   }
 
   goBack(): void {
-    // P7: Router.navigate replaces window.location.href cross-app hack.
+    // Navigate back to browse (M2: path-based /browse).
     void this.router.navigate(['/browse']);
   }
 

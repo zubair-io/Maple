@@ -13,8 +13,16 @@ import { LibraryPageComponent } from './library-page.component';
 // Editor explicitly from there.
 const baseRoutes: Routes = [
   { path: '', component: LandingComponent },
+  // M2: path-based routes replacing ?folder= and fs: scheme.
+  {
+    path: 'browse/:slug',
+    children: [{ path: '**', component: BrowseShellComponent }],
+  },
   { path: 'browse', component: BrowseShellComponent },
-  { path: 'edit/:id', component: EditorShellComponent },
+  {
+    path: 'edit/:slug',
+    children: [{ path: '**', component: EditorShellComponent }],
+  },
   // Responsive-program S1a (#597) / S2 (#623) / S5 (#625) / S7 (#622)
   // — phone-tier tab routes shared with RootShellComponent. The Library
   // tab renders the responsive grid; loupe redirects to the S5 Editor

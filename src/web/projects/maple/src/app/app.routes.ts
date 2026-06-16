@@ -20,13 +20,22 @@ export const routes: Routes = [
     path: 'join',
     loadComponent: () => import('./sign-in/join.component').then((m) => m.JoinComponent),
   },
-  // `/` IS the browse shell. The legacy `/browse` URL redirects to `/` so
-  // existing bookmarks keep working. The browse shell encodes the currently-
-  // opened folder as `?folder=<absPath>` so direct loads, history nav, and
-  // shared links all land on the right folder.
-  { path: '', canActivate: [authGuard], component: BrowseShellComponent },
-  { path: 'browse', redirectTo: '', pathMatch: 'full' },
-  { path: 'edit/:id', canActivate: [authGuard], component: EditorShellComponent },
+  // M2: path-based routes replacing ?folder= and fs: scheme.
+  // /browse/:slug/** deep-links into a folder by MapleAddress (slug:relPath).
+  // /edit/:slug/**  deep-links into an image by MapleAddress.
+  // Legacy '/' redirects to /browse so the root URL stays usable.
+  { path: '', redirectTo: 'browse', pathMatch: 'full' },
+  {
+    path: 'browse/:slug',
+    canActivate: [authGuard],
+    children: [{ path: '**', component: BrowseShellComponent }],
+  },
+  { path: 'browse', canActivate: [authGuard], component: BrowseShellComponent },
+  {
+    path: 'edit/:slug',
+    canActivate: [authGuard],
+    children: [{ path: '**', component: EditorShellComponent }],
+  },
   // Responsive-program S1a (#597) — phone-tier tab routes. The same
   // router serves both shells; RootShellComponent picks which wrapper
   // to render based on LayoutService.layout(). On phone the bottom-nav
