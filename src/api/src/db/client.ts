@@ -11,8 +11,10 @@ import { child as childLogger } from '../log.ts';
 import { searchBlobUpdateExpression } from '../enrichment/search-blob.ts';
 import {
   backfillFileinfo,
+  backfillFolderSlugs,
   countAssetsMissingFileinfo,
   dropLegacyLocationFields,
+  hardenFileinfoCompoundIndex,
   mergeDuplicateAssets,
   migrationApplied,
   recordMigration,
@@ -515,11 +517,25 @@ export async function ensureIndexes(): Promise<void> {
     }
   }
 
-  // folders: path is unique; slug is the stable public identifier (unique)
+  // folders: path is unique
   await db.collection('folders').createIndex({ path: 1 }, { unique: true });
+
+  // Backfill `slug` on folders that pre-date M1, then create the unique
+  // index — ordering matters: the index must be created after all rows have
+  // a non-null slug so the createIndex call doesn't fail on null dupes.
+  if (!(await migrationApplied(db, 'backfill-folder-slugs-2026-06-16'))) {
+    try {
+      const res = await backfillFolderSlugs(db);
+      await recordMigration(db, 'backfill-folder-slugs-2026-06-16', res.updated);
+      log.info(res, 'applied backfill-folder-slugs');
+    } catch (err) {
+      log.warn({ err: err instanceof Error ? err.message : err }, 'folder slug backfill failed');
+    }
+  }
+  // Safe to create the unique index now — all rows have a slug.
   await db
     .collection('folders')
-    .createIndex({ slug: 1 }, { unique: true, name: 'folders_slug_unique' });
+    .createIndex({ slug: 1 }, { unique: true, sparse: true, name: 'folders_slug_unique' });
 
   // assets: legacy compound + standalone indexes on `folder_id` / `filename`
   // were retired in the drop-abs-path-2026-05-21 migration below (see end of
@@ -798,15 +814,26 @@ export async function ensureIndexes(): Promise<void> {
 
   // Compound (library_id, path, filename) index for the M1 catalog-backed
   // browse: resolveAddress performs a point query on this triple to locate
-  // an asset by its slug-relative path. Non-unique in M1 — uniqueness
-  // hardening (Task 2b) is a separate guarded step that checks for
-  // violations before promoting to a unique constraint.
+  // an asset by its slug-relative path. Non-unique base index is always
+  // created first; then Task 2b promotion to unique runs if zero violations.
   await db
     .collection('assets')
     .createIndex(
       { 'fileinfo.library_id': 1, 'fileinfo.path': 1, 'fileinfo.filename': 1 },
       { name: 'fileinfo_lib_path_name' },
     );
+
+  // Task 2b: attempt to promote to a unique index. If violations exist,
+  // logs them and leaves the non-unique index in place (STOP-and-report
+  // per CLAUDE.md principle 6 — never silently skip).
+  try {
+    await hardenFileinfoCompoundIndex(db);
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : err },
+      'fileinfo compound uniqueness hardening failed (non-unique index remains in place)',
+    );
+  }
 
   // Content-derived dedup key: `maple_id` is the 16-byte hash assigned by
   // the hash stage. Hot-path callers (every one of these would COLLSCAN

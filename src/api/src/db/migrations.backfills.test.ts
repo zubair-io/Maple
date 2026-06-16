@@ -542,3 +542,134 @@ describe("ensureIndexes — backfills don't re-run on second boot", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 3: backfillFolderSlugs
+// ---------------------------------------------------------------------------
+
+describe('backfillFolderSlugs', () => {
+  it('mints unique stable slugs from label and is idempotent', async () => {
+    if (!mongoReachable) return;
+    const { backfillFolderSlugs } = await import('./migrations.ts');
+    await db!.collection('folders').insertMany([
+      { path: '/srv/a/Library', label: 'Library', last_scan: null, file_count: 0, created_at: '2026-06-16T00:00:00Z' },
+      { path: '/srv/b/Library', label: 'Library', last_scan: null, file_count: 0, created_at: '2026-06-16T00:00:00Z' },
+    ]);
+    await backfillFolderSlugs(db!);
+    const rows = await db!.collection('folders').find().sort({ _id: 1 }).toArray();
+    expect(rows[0]!.slug).toBe('library');
+    expect(rows[1]!.slug).toBe('library-2');
+    // idempotent: rerun changes nothing
+    const before = rows.map((r) => r.slug);
+    await backfillFolderSlugs(db!);
+    const after = (await db!.collection('folders').find().sort({ _id: 1 }).toArray()).map(
+      (r) => r.slug,
+    );
+    expect(after).toEqual(before);
+  });
+
+  it('skips folders that already have a slug', async () => {
+    if (!mongoReachable) return;
+    const { backfillFolderSlugs } = await import('./migrations.ts');
+    await db!.collection('folders').insertOne({
+      path: '/srv/c/Photos',
+      label: 'Photos',
+      slug: 'my-custom-slug',
+      last_scan: null,
+      file_count: 0,
+      created_at: '2026-06-16T00:00:00Z',
+    });
+    await backfillFolderSlugs(db!);
+    const row = await db!.collection('folders').findOne({ path: '/srv/c/Photos' });
+    // Custom slug must be preserved
+    expect((row as Record<string, unknown>)?.slug).toBe('my-custom-slug');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 2b: fileinfo compound index uniqueness hardening
+// ---------------------------------------------------------------------------
+
+describe('hardening: fileinfo compound index uniqueness', () => {
+  it('leaves non-unique index in place and logs when violations exist', async () => {
+    if (!mongoReachable) return;
+    const { hardenFileinfoCompoundIndex } = await import('./migrations.ts');
+
+    // Drop unique index if present from a prior ensureIndexes() run
+    await db!.collection('assets').dropIndex('fileinfo_lib_path_name_unique').catch(() => undefined);
+    // Ensure the non-unique base index is present before calling the hardener
+    await db!
+      .collection('assets')
+      .createIndex(
+        { 'fileinfo.library_id': 1, 'fileinfo.path': 1, 'fileinfo.filename': 1 },
+        { name: 'fileinfo_lib_path_name' },
+      )
+      .catch(() => undefined); // idempotent — may already exist
+
+    // Seed a duplicate tuple (no unique index to reject it now)
+    const libId = new ObjectId();
+    const entry = { library_id: libId, path: '2026', filename: 'dup.jpg', deleted_at: null, missing_since: null };
+    await db!.collection('assets').insertMany([
+      {
+        maple_id: 'ccc',
+        fileinfo: [entry],
+        size: 1, mtime: 0, rating: 0, flag: 0, color_label: '', indexed_at: '2026-06-16T00:00:00Z', deleted_at: null,
+      },
+      {
+        maple_id: 'ddd',
+        fileinfo: [entry],
+        size: 1, mtime: 0, rating: 0, flag: 0, color_label: '', indexed_at: '2026-06-16T00:00:00Z', deleted_at: null,
+      },
+    ]);
+
+    const result = await hardenFileinfoCompoundIndex(db!);
+    expect(result.violations).toBeGreaterThan(0);
+    expect(result.promoted).toBe(false);
+
+    const indexes = await db!.collection('assets').indexes();
+    // The unique index must NOT be present — violation detected
+    expect(indexes.find((i) => i.name === 'fileinfo_lib_path_name_unique')).toBeUndefined();
+    // The non-unique base index must still be there
+    expect(indexes.find((i) => i.name === 'fileinfo_lib_path_name')).toBeDefined();
+  });
+
+  it('promotes to unique index when no violations exist', async () => {
+    if (!mongoReachable) return;
+    const { hardenFileinfoCompoundIndex } = await import('./migrations.ts');
+
+    // Drop unique index if it exists from a prior run
+    await db!.collection('assets').dropIndex('fileinfo_lib_path_name_unique').catch(() => undefined);
+    // Ensure base index
+    await db!
+      .collection('assets')
+      .createIndex(
+        { 'fileinfo.library_id': 1, 'fileinfo.path': 1, 'fileinfo.filename': 1 },
+        { name: 'fileinfo_lib_path_name' },
+      )
+      .catch(() => undefined);
+
+    // Seed a clean set — no duplicate (library_id, path, filename) tuples
+    const libId = new ObjectId();
+    await db!.collection('assets').insertMany([
+      {
+        maple_id: 'eee',
+        fileinfo: [{ library_id: libId, path: '2026', filename: 'e.jpg', deleted_at: null, missing_since: null }],
+        size: 1, mtime: 0, rating: 0, flag: 0, color_label: '', indexed_at: '2026-06-16T00:00:00Z', deleted_at: null,
+      },
+      {
+        maple_id: 'fff',
+        fileinfo: [{ library_id: libId, path: '2026', filename: 'f.jpg', deleted_at: null, missing_since: null }],
+        size: 1, mtime: 0, rating: 0, flag: 0, color_label: '', indexed_at: '2026-06-16T00:00:00Z', deleted_at: null,
+      },
+    ]);
+
+    const result = await hardenFileinfoCompoundIndex(db!);
+    expect(result.violations).toBe(0);
+    expect(result.promoted).toBe(true);
+
+    const indexes = await db!.collection('assets').indexes();
+    const uniqueIdx = indexes.find((i) => i.name === 'fileinfo_lib_path_name_unique');
+    expect(uniqueIdx).toBeDefined();
+    expect(uniqueIdx!.unique).toBe(true);
+  });
+});
