@@ -15,12 +15,15 @@ import {
   bulkSuccessLabel,
   chunkPeopleRows,
   clusteringSummary,
+  hidePeopleConfirm,
   hidePersonConfirm,
   faceCropTransform,
   faceKey,
   filterNamed,
   hiddenFaceCount,
   isAutoNamed,
+  mergePeopleConfirm,
+  mergeTargets,
   peopleCardWidth,
   peopleGridColumns,
   peopleRowHeight,
@@ -29,11 +32,11 @@ import {
   pickSelectedFaces,
   selectAllKeys,
   sortPeople,
+  toggleKey,
   toggleSelection,
   visibleFaces,
   withNaturalDims,
 } from './people.vm';
-import { toggleKey, mergeTargets, mergePeopleConfirm, hidePeopleConfirm } from './people.vm';
 
 // ── Fixture builders ───────────────────────────────────────────────────────
 
