@@ -483,14 +483,34 @@ export class PeopleComponent implements OnDestroy {
     this.draftName.set('');
   }
 
-  /** The "Merge into…" button on the detail header just kicks the same
-   * inline-edit flow as clicking the name — there's no separate merge
-   * endpoint, but renaming to an existing name triggers the server-side
-   * merge in `renamePerson`. The named-people datalist gives a one-click
-   * pick over a free-text rename. */
-  triggerMerge(): void {
+  // ── Detail-view "Merge into…" picker ────────────────────────────────
+  /** Whether the detail header is showing the merge-target `<select>`. */
+  readonly mergePickerOpen = signal<boolean>(false);
+
+  /** Named-people targets for the detail merge, excluding the open person. */
+  readonly detailMergeTargets = computed(() => {
     const detail = this.selected();
-    if (detail) this.startEdit(detail);
+    const exclude = new Set<string>(detail ? [detail.id] : []);
+    return mergeTargets(this.namedPeople(), exclude);
+  });
+
+  openMergePicker(): void {
+    this.mergePickerOpen.set(true);
+  }
+
+  cancelMergePicker(): void {
+    this.mergePickerOpen.set(false);
+  }
+
+  /** Merge the open person INTO the picked target, then navigate to the
+   * target's detail page (it now shows the combined faces). */
+  mergeDetailInto(targetId: string): void {
+    const detail = this.selected();
+    if (!detail || !targetId) return;
+    this.mergePickerOpen.set(false);
+    void this.performMerge(targetId, [detail.id], () => {
+      void this.router.navigate(['/settings/people', targetId]);
+    });
   }
 
   commitEdit(personId: string): void {
