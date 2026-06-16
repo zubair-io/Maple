@@ -36,7 +36,6 @@ beforeAll(async () => {
   });
 });
 
-
 describe('parseAddressPath', () => {
   it('splits the slug segment from the rest', () => {
     expect(parseAddressPath('library', ['2026', 'France', '0002', 'a.JPG'])).toEqual({
@@ -103,6 +102,15 @@ describe('resolveAddress', () => {
   it('blocks symlink escape', async () => {
     // escape-link is a symlink inside the root pointing outside
     await expect(resolveAddress(TEST_SLUG, 'escape-link/secret')).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('blocks symlink escape under a multi-level non-existent tail', async () => {
+    // Regression: a single-level parent realpath misses an escaping symlink
+    // when the non-existent tail is more than one segment deep. The walk-up
+    // must reach the nearest EXISTING ancestor (escape-link) and resolve it.
+    await expect(resolveAddress(TEST_SLUG, 'escape-link/nope/deeper')).rejects.toMatchObject({
       status: 400,
     });
   });
