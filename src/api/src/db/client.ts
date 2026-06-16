@@ -581,6 +581,24 @@ export async function ensureIndexes(): Promise<void> {
     },
   );
 
+  // Partial index on `live_location_count` for the deduplicate status count
+  // (#1302). The /status count switches from liveAwareDuplicatePredicate()'s
+  // `$expr`+`$filter` FETCH scan to:
+  //   countDocuments({ live_location_count: { $gte: 2 } })
+  // which hits only the entries in this index (only assets with ≥2 live
+  // locations) and returns an index COUNT_SCAN with zero per-row FETCH.
+  // The partial filter `{ $gte: 2 }` keeps the index tiny (proportional to
+  // the duplicate set, not the whole collection). Background to avoid blocking
+  // on first deploy with a large existing collection.
+  await db.collection('assets').createIndex(
+    { live_location_count: 1 },
+    {
+      name: 'live_location_count_gte2',
+      partialFilterExpression: { live_location_count: { $gte: 2 } },
+      background: true,
+    },
+  );
+
   // Fold the legacy root-level `missing_since` tag down onto the row's
   // `fileinfo` entries (it moved per-location), then drop the root field.
   // Each entry inherits the root timestamp unless it already carries its own,

@@ -239,18 +239,25 @@ export async function fetchStatusDbState(
   // `deduplicate` is not a claim stage either. Surface the count of assets with
   // ≥2 *live* fileinfo entries as `pending` so the Workers UI badge reflects
   // what the worker can actually act on and can reach 0 from deduplicate alone
-  // (#1290). Uses the same `liveAwareDuplicatePredicate` as the worker's
-  // candidate query so the two stay in sync.
+  // (#1290, #1302).
   //
-  // Query plan: the `fileinfo_multi_location` partial index narrows to
-  // multi-location rows (typically tiny), then `$expr`+`$filter` counts live
-  // entries per row in-memory. The 2 s cache makes this safe at scale — see the
-  // extended tradeoff discussion in `liveAwareDuplicatePredicate` (images.repo.ts).
+  // Query plan (#1302): `live_location_count_gte2` is a partial index whose
+  // filter is `{ live_location_count: { $gte: 2 } }`, so this countDocuments
+  // is answered by an index COUNT_SCAN with no per-row FETCH — replacing the
+  // `$expr`+`$filter` scan that `liveAwareDuplicatePredicate` required. The
+  // predicate for the count is the indexed field; `liveAwareDuplicatePredicate`
+  // is kept as the correctness reference (used by the worker's candidate find
+  // and by the parity test in live-location-count.test.ts).
+  //
+  // Fallback: assets missing `live_location_count` (pre-migration) are not
+  // in the partial index and are excluded from the count until the
+  // `backfill-live-location-count` migration runs. The migration's pending
+  // count on the Workers UI signals this state to operators.
   if (assets && stageNames.includes(DEDUPLICATE_NAME)) {
     try {
-      const pending = await assets.countDocuments(
-        liveAwareDuplicatePredicate() as Parameters<typeof assets.countDocuments>[0],
-      );
+      const pending = await assets.countDocuments({
+        live_location_count: { $gte: 2 },
+      });
       pendingByStage.set(DEDUPLICATE_NAME, pending);
       readyByStage.set(DEDUPLICATE_NAME, pending);
     } catch (err) {

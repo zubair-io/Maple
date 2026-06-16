@@ -393,6 +393,7 @@ describe('deduplicate count — fetchStatusDbState (#1290)', () => {
       indexed_at: '2026-06-01T00:00:00Z',
       deleted_at: null,
       stages: {},
+      live_location_count: 1,
     } as never);
 
     const { fetchStatusDbState, _resetStatusCacheForTests } = await import('./routes-status.ts');
@@ -427,6 +428,7 @@ describe('deduplicate count — fetchStatusDbState (#1290)', () => {
       indexed_at: '2026-06-01T00:00:00Z',
       deleted_at: null,
       stages: {},
+      live_location_count: 1,
     } as never);
 
     const { fetchStatusDbState, _resetStatusCacheForTests } = await import('./routes-status.ts');
@@ -456,6 +458,7 @@ describe('deduplicate count — fetchStatusDbState (#1290)', () => {
       indexed_at: '2026-06-01T00:00:00Z',
       deleted_at: null,
       stages: {},
+      live_location_count: 2,
     } as never);
 
     const { fetchStatusDbState, _resetStatusCacheForTests } = await import('./routes-status.ts');

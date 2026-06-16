@@ -72,6 +72,7 @@ import { assetsCollection } from '../db/client.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { meilisearchClient } from '../enrichment/meilisearch-client.ts';
+import { updateLiveLocationCount } from '../indexer/images.repo.ts';
 import type { FileInfo } from '../db/schema.ts';
 import { child as childLogger } from '../log.ts';
 import { stageRegistry } from './registry.ts';
@@ -395,6 +396,8 @@ async function reconcileSurvivor(
     summary.prunedEntries += prune.length;
   }
 
+  // Recompute live count after any recover/prune mutations on this row.
+  await updateLiveLocationCount(coll, doc._id);
   summary.recovered++;
 }
 

@@ -36,6 +36,7 @@ import {
 } from '../backup/fs-util.ts';
 import { resolveBackupLocation } from '../backup/ingest-geocode.ts';
 import { isScreenshotFilename } from '../indexer/screenshot.ts';
+import { updateLiveLocationCount } from '../indexer/images.repo.ts';
 import { backupSessionsRepo } from '../db/backup-sessions.repo.ts';
 import { child as childLogger } from '../log.ts';
 import fs from 'node:fs/promises';
@@ -414,6 +415,8 @@ export const backupIngestRoutes = new Elysia().post(
         update.$push = { fileinfo: newFileInfo, phasset_links: link };
       }
       await a.updateOne({ _id: existing._id }, update);
+      // Recompute live count after adding a new live fileinfo entry.
+      await updateLiveLocationCount(a as never, existing._id);
 
       await uploadSessions.complete({
         sessionId: session._id,
@@ -543,6 +546,8 @@ export const backupIngestRoutes = new Elysia().post(
           deleted_at: null,
         },
       ],
+      // One live fileinfo entry on insert.
+      live_location_count: 1,
       size: totalBytes,
       mtime: Date.now(),
       rating: 0,
