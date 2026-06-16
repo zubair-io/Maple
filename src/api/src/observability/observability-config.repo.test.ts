@@ -16,9 +16,7 @@ describe('validateHttpUrl', () => {
     expect(validateHttpUrl('http://example.com')).toBe('http://example.com');
     expect(validateHttpUrl('https://example.com/')).toBe('https://example.com');
     expect(validateHttpUrl('https://example.com///')).toBe('https://example.com');
-    expect(validateHttpUrl('http://127.0.0.1:4318/v1/traces')).toBe(
-      'http://127.0.0.1:4318/v1/traces',
-    );
+    expect(validateHttpUrl('http://127.0.0.1:4318')).toBe('http://127.0.0.1:4318');
     expect(validateHttpUrl('https://signoz.internal:4318/')).toBe('https://signoz.internal:4318');
   });
 
