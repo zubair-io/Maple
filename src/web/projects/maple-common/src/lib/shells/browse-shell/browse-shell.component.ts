@@ -17,6 +17,8 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import { LAST_SOURCE_KEY } from '../../state/library-fetch.service';
 import { TypedStorage } from '../../util/typed-storage';
+import { parseAddress, formatAddress } from '../../addressing/maple-address';
+import { routeSegmentsToAddress, addressToRouteSegments } from '../../addressing/route-address';
 import { FolderTreeComponent } from '../../components/folder-tree/folder-tree.component';
 import { AssetGridComponent } from '../../components/asset-grid/asset-grid.component';
 import { DropZoneComponent } from '../../components/drop-zone/drop-zone.component';
@@ -65,36 +67,32 @@ export class BrowseShellComponent implements OnInit {
   readonly canMergePano = computed(() => this.state.selectedCount() >= 2);
 
   constructor() {
-    // ── URL → selection ─────────────────────────────────────────────────────
-    // `?folder=<absPath>` deep-links into a folder. Subscribes (not just the
-    // snapshot) so back/forward navigation re-applies the URL.
-    this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((qp) => {
-      const path = qp.get('folder');
-      if (!path) return;
-      const targetId = `fs:${path}`;
-      if (this.state.selectedSourceId() === targetId) return;
-      // `openSelfHostedSubfolder` no-ops on non-self-hosted backends; safe
-      // to call without a backend check here.
-      this.state.openSelfHostedSubfolder(path, targetId);
+    // ── URL (slug:relPath) → selection ─────────────────────────────────────
+    // M2: read the MapleAddress from :slug + ** wildcard segments. Subscribes
+    // so back/forward navigation re-applies the address.
+    this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((pm) => {
+      const slug = pm.get('slug');
+      if (!slug) return;
+      const segments = this.route.snapshot.url.slice(1).map((s) => s.path);
+      const addr = routeSegmentsToAddress(slug, segments);
+      const addrStr = formatAddress(addr);
+      if (this.state.selectedSourceId() === addrStr) return;
+      this.state.openSelfHostedSubfolder(addr.relPath, addrStr);
     });
 
     // ── Selection → URL + localStorage ──────────────────────────────────────
-    // The folder-tree component, asset-grid breadcrumbs, and the post-load
-    // auto-select in LibraryFetch all flow through `selectedSourceId`. Mirror
-    // every change back into the URL so refreshing or copying the URL lands
-    // the user on the same folder.
+    // Mirror every address change back into the path-based URL.
     effect(() => {
       const id = this.state.selectedSourceId();
-      if (!id || !id.startsWith('fs:')) return;
-      const path = id.slice(3);
-      TypedStorage.setRaw(LAST_SOURCE_KEY, id);
-      const current = this.route.snapshot.queryParamMap.get('folder');
-      if (current === path) return;
-      void this.router.navigate([], {
-        relativeTo: this.route,
-        queryParams: { folder: path },
-        queryParamsHandling: 'merge',
-      });
+      if (!id || !id.includes(':')) return;
+      try {
+        const addr = parseAddress(id);
+        TypedStorage.setRaw(LAST_SOURCE_KEY, id);
+        const segments = addressToRouteSegments(addr, 'browse');
+        void this.router.navigate(segments);
+      } catch {
+        // Legacy id or unparseable — ignore.
+      }
     });
   }
 

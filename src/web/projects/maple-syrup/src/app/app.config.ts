@@ -13,6 +13,7 @@ import {
   LIBRARY_BACKEND,
   authInterceptor,
   provideAuthBootstrap,
+  provideLibrarySource,
 } from '@maple-common';
 import { routes } from './app.routes';
 
@@ -23,6 +24,7 @@ export const appConfig: ApplicationConfig = {
     provideRouter(routes, withInMemoryScrolling({ scrollPositionRestoration: 'enabled' })),
     provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
     provideAuthBootstrap(),
+    provideLibrarySource,
     { provide: LIBRARY_BACKEND, useValue: 'hosted' },
     provideServiceWorker('ngsw-worker.js', {
       enabled: !isDevMode(),
