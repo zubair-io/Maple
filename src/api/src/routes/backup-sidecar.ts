@@ -33,8 +33,7 @@ import { child as childLogger } from '../log.ts';
 // replicates to the library's backup root(s).
 import fs from '../fs/mirrored.ts';
 import path from 'node:path';
-import os from 'node:os';
-import crypto from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 
 const log = childLogger('backup-sidecar');
 const MAX_SIDECAR_BYTES = 256 * 1024; // 256 KB
@@ -183,12 +182,9 @@ export const backupSidecarRoutes = new Elysia().post(
 
     await fs.mkdir(path.dirname(finalPath), { recursive: true });
 
-    // Atomic write: temp file alongside the final destination, then rename.
-    const tmpDir = path.dirname(finalPath);
-    const tmpFile = path.join(
-      os.tmpdir(),
-      `maple-sidecar-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.tmp`,
-    );
+    // Atomic write: sibling temp file next to final destination, then rename.
+    // The `.tmp.` marker prevents mirroring churn (see fs/mirrored.ts).
+    const tmpFile = `${finalPath}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`;
     await fs.writeFile(tmpFile, buf);
     await atomicMove(tmpFile, finalPath);
 
