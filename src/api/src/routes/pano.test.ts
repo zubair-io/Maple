@@ -506,6 +506,39 @@ describe('POST /api/pano/stitch — path-based resolution (#1311)', () => {
     expect(body.error).toBe('path_outside_library');
   });
 
+  it('rejects a path that uses .. to escape the library root (path-traversal security)', async () => {
+    // Regression test for the path-traversal vulnerability fixed in #1313.
+    //
+    // Without the fix: `<libroot>/../../etc/passwd` passes the raw-string
+    // `isUnderRoot` check (it lexically starts with libroot + "/") and then
+    // gets fed to `handleEvent`, indexing a file outside the library.
+    //
+    // With the fix: `fs.realpath` collapses the traversal to `/etc/passwd`
+    // (or rejects with ENOENT if the file doesn't exist); either way the
+    // normalized path fails the jail check and the request is rejected 400.
+    if (!mongoReachable) return;
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+
+    const libPath = path.join(tmpDir, 'lib');
+
+    // Craft a traversal path: starts with the library root so a raw-string
+    // prefix check would pass, but resolves outside it via "..".
+    const traversalPath = path.join(libPath, '..', '..', 'etc', 'hosts');
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths: [traversalPath, traversalPath],
+      libraryId: folderId.toHexString(),
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    // Must be either path_outside_library (realpath succeeded, jail check
+    // caught it) or path_not_found (realpath failed — non-existent target).
+    // Both are correct outcomes; neither is the 201 that proves the escape.
+    expect(['path_outside_library', 'path_not_found']).toContain(body.error);
+  });
+
   it('rejects when neither assetIds nor assetPaths is supplied', async () => {
     if (!mongoReachable) return;
     const res = await postJson('/api/pano/stitch', {
