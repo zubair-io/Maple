@@ -34,6 +34,7 @@ import { child as childLogger } from '../log.ts';
 import fs from '../fs/mirrored.ts';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 
 const log = childLogger('backup-sidecar');
 const MAX_SIDECAR_BYTES = 256 * 1024; // 256 KB
@@ -186,7 +187,7 @@ export const backupSidecarRoutes = new Elysia().post(
     const tmpDir = path.dirname(finalPath);
     const tmpFile = path.join(
       os.tmpdir(),
-      `maple-sidecar-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
+      `maple-sidecar-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.tmp`,
     );
     await fs.writeFile(tmpFile, buf);
     await atomicMove(tmpFile, finalPath);
