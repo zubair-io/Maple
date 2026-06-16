@@ -716,6 +716,23 @@ export class BunApiBackendService {
     );
   }
 
+  /** Merge source people INTO a target — the target survives (keeps id /
+   * cover / created_at). Returns the survivor + counts. */
+  mergePeople(targetId: string, sourceIds: string[]): Observable<ApiMergeResult> {
+    return this.http
+      .post<ApiMergeResultRaw>(`${this.base}/people/merge`, {
+        target_id: targetId,
+        source_ids: sourceIds,
+      })
+      .pipe(
+        map((r) => ({
+          id: r.id,
+          name: r.name,
+          mergedCount: r.merged_count,
+        })),
+      );
+  }
+
   assignFaceToPerson(
     assetId: string,
     faceIndex: number,
@@ -927,6 +944,13 @@ export interface ApiRenameResult {
   mergedFrom: string | null;
 }
 
+/** Result of POST /api/people/merge (camel-cased). */
+export interface ApiMergeResult {
+  id: string;
+  name: string;
+  mergedCount: number;
+}
+
 export interface ApiClusterResult {
   assigned: number;
   newPeople: number;
@@ -971,6 +995,12 @@ interface ApiRenameResultRaw {
   id: string;
   name: string;
   merged_from?: string | null;
+}
+
+interface ApiMergeResultRaw {
+  id: string;
+  name: string;
+  merged_count: number;
 }
 
 interface ApiClusterResultRaw {
