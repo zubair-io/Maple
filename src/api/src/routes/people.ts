@@ -27,6 +27,7 @@ import {
   hidePerson,
   listHiddenPeople,
   listPeople,
+  mergePeopleInto,
   renamePerson,
   unhidePerson,
   type PersonWithCount,
@@ -54,6 +55,11 @@ const AssignBody = t.Object({
 const HideBody = t.Object({
   asset_id: t.String({ minLength: 1 }),
   face_index: t.Number(),
+});
+
+const MergeBody = t.Object({
+  target_id: t.String({ minLength: 1 }),
+  source_ids: t.Array(t.String({ minLength: 1 }), { minItems: 1 }),
 });
 
 function safeObjectId(raw: string): ObjectId | null {
@@ -205,6 +211,55 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
       }
     },
     { body: NameBody },
+  )
+
+  // ── Explicit merge: fold source people INTO a target (target survives) ──
+  // Unlike rename-on-collision, the chosen target is always the survivor — it
+  // keeps its id, cover, and created_at. Backs the list bulk-merge toolbar and
+  // the detail "Merge into…" button.
+  .post(
+    '/merge',
+    async ({ body, set }) => {
+      const targetId = safeObjectId(body.target_id);
+      if (!targetId) {
+        set.status = 400;
+        return { error: 'invalid target_id' };
+      }
+      // Parse + de-dupe source ids; drop invalid ones and the target itself.
+      const seen = new Set<string>();
+      const sourceIds: ObjectId[] = [];
+      for (const raw of body.source_ids) {
+        const oid = safeObjectId(raw);
+        if (!oid) continue;
+        const hex = oid.toHexString();
+        if (hex === targetId.toHexString() || seen.has(hex)) continue;
+        seen.add(hex);
+        sourceIds.push(oid);
+      }
+      if (sourceIds.length === 0) {
+        set.status = 400;
+        return { error: 'no valid source_ids to merge' };
+      }
+      try {
+        const result = await mergePeopleInto(targetId, sourceIds);
+        return {
+          id: result.survivor._id.toHexString(),
+          name: result.survivor.name,
+          merged_count: result.mergedCount,
+          faces_repointed: result.facesRepointed,
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.startsWith('person not found') || msg.startsWith('person already merged')) {
+          set.status = 404;
+          return { error: msg };
+        }
+        log.error({ err: msg }, 'merge failed');
+        set.status = 500;
+        return { error: msg };
+      }
+    },
+    { body: MergeBody },
   )
 
   // ── Soft-hide a person (keeps faces + row; stays a clustering seed) ──
