@@ -19,7 +19,7 @@ import { child } from '../../log.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { hashFileForId } from '../../indexer/id.ts';
-import { liveFileInfoElemMatch } from '../../indexer/images.repo.ts';
+import { liveFileInfoElemMatch, updateLiveLocationCount } from '../../indexer/images.repo.ts';
 import { buildFileinfoEntry, isInsideMapleCache } from './types.ts';
 
 const log = child('discover');
@@ -96,6 +96,8 @@ export async function handleEvent(
         ],
       },
     );
+    // Recompute the denormalized live count after tagging one entry missing.
+    await updateLiveLocationCount(coll, existing._id);
     // Was that the last live location? If so the asset is now hidden (no live
     // fileinfo entry) — surface a `delete`. Otherwise a copy survives, so this
     // is an `update` (the asset lost one of its locations). The post-update
@@ -278,6 +280,8 @@ export async function handleEvent(
         ],
       },
     );
+    // Recompute live count after marking one entry deleted on the old row.
+    await updateLiveLocationCount(coll, staleAtPath._id);
     log.info(
       { absPath, old_sha1_head: staleAtPath.sha1_head, new_sha1_head: hashed.sha1_head },
       'file content changed — marked old fileinfo entry deleted',
@@ -364,6 +368,8 @@ export async function handleEvent(
           $set: dedupSet,
         },
       );
+      // Recompute live count after appending a new live fileinfo entry.
+      await updateLiveLocationCount(coll, existing._id);
       log.info({ absPath, maple_id: hashed.maple_id, dedup: 'append' }, 'deduped — new location');
     } else {
       // Already-known location: clear any per-entry deleted_at on a
@@ -391,6 +397,8 @@ export async function handleEvent(
           ],
         },
       );
+      // Recompute live count: clearing deleted_at/missing_since may revive an entry.
+      await updateLiveLocationCount(coll, existing._id);
       log.debug({ absPath, maple_id: hashed.maple_id, dedup: 'noop' }, 'idempotent re-discover');
     }
     await recordAndPublishAssetChange({
@@ -413,6 +421,8 @@ export async function handleEvent(
     await coll.insertOne({
       _id: insertedId,
       fileinfo: [{ ...fileinfoEntry, deleted_at: null }],
+      // One live fileinfo entry on insert.
+      live_location_count: 1,
       rating: 0,
       flag: 0,
       color_label: '',
@@ -468,6 +478,8 @@ export async function handleEvent(
               $set: dedupSet,
             },
           );
+          // Recompute live count after race-loser append of a new live entry.
+          await updateLiveLocationCount(coll, winner._id);
         } else {
           await coll.updateOne(
             { _id: winner._id },
@@ -488,6 +500,8 @@ export async function handleEvent(
               ],
             },
           );
+          // Recompute live count: race-loser re-discover may have un-tombstoned an entry.
+          await updateLiveLocationCount(coll, winner._id);
         }
         await recordAndPublishAssetChange({
           kind: kind === 'created' ? 'create' : 'update',

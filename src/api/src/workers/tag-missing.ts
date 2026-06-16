@@ -9,6 +9,7 @@ import type { Collection, ObjectId } from 'mongodb';
 // import cycle with run-stage.ts (which imports the function below).
 import type { ImageDoc } from './run-stage.ts';
 import type { FileInfo } from '../db/schema.ts';
+import { updateLiveLocationCount } from '../indexer/images.repo.ts';
 
 /**
  * Conditional, first-detection `missing_since` stamp on ONE `fileinfo` entry
@@ -41,4 +42,6 @@ export async function tagMissingSince(
       },
     )
     .catch(() => {});
+  // Recompute live count after tagging an entry missing_since (best-effort).
+  await updateLiveLocationCount(images as never, id).catch(() => {});
 }
