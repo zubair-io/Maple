@@ -206,6 +206,10 @@ export async function recomputeCentroids(): Promise<number> {
     }
     if (count === 0 || mean === null) {
       // Nobody assigned — clear the centroid so it doesn't bias future runs.
+      // Skip if already clear to avoid a write on every repeat run.
+      if (person.centroid_face_count === 0 && (!person.centroid || person.centroid.length === 0)) {
+        continue;
+      }
       bulkOps.push({
         updateOne: {
           filter: { _id: person._id },
