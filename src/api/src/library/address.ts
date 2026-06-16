@@ -77,21 +77,34 @@ export async function resolveAddress(slug: string, relPath: string): Promise<Res
   // 3. Compute absPath and realpath-jail check.
   const absPath = relPath === '' ? root : path.join(root, relPath);
 
-  // Resolve symlinks: realpath the nearest existing ancestor if the target
-  // doesn't exist yet (e.g. an indexed path not yet on disk).
+  // Resolve symlinks. If the target doesn't exist yet, walk up to the nearest
+  // EXISTING ancestor and realpath that — so an escaping symlink anywhere in
+  // the existing portion is resolved and caught — then re-append the
+  // non-existent tail. The tail is guaranteed free of `.`/`..` by the
+  // validation above, so it cannot escape textually. (A single-level parent
+  // realpath would miss an escaping symlink higher up under a non-existent
+  // tail.)
   let realAbs: string;
   try {
     realAbs = await realpath(absPath);
   } catch {
-    // Target doesn't exist — realpath the parent to still catch escapes.
-    const parent = path.dirname(absPath);
-    try {
-      const realParent = await realpath(parent);
-      realAbs = path.join(realParent, path.basename(absPath));
-    } catch {
-      // Parent also doesn't exist — fall back to the unresolved path.
-      // The jail check below will still validate against the root.
-      realAbs = absPath;
+    const tail: string[] = [];
+    let cursor = absPath;
+    for (;;) {
+      const parent = path.dirname(cursor);
+      if (parent === cursor) {
+        // Reached the filesystem root without an existing ancestor.
+        realAbs = absPath;
+        break;
+      }
+      tail.unshift(path.basename(cursor));
+      try {
+        const realParent = await realpath(parent);
+        realAbs = path.join(realParent, ...tail);
+        break;
+      } catch {
+        cursor = parent;
+      }
     }
   }
 
