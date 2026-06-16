@@ -16,6 +16,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Jules Reviewer
+        if: ${{ secrets.JULES_API_KEY != '' }}
         uses: sanjay3290/jules-pr-reviewer@v1
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
