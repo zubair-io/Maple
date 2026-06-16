@@ -29,7 +29,7 @@
  * pano_stitch job is already running); the handler itself is stateless.
  */
 
-import { mkdir, rm, unlink } from 'node:fs/promises';
+import { mkdir, rename, rm, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { ObjectId } from 'mongodb';
 import { assetsCollection } from '../../db/client.ts';
