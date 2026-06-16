@@ -374,6 +374,21 @@ export interface AssetDoc {
    * multiple devices.
    */
   maple_id?: string;
+  /**
+   * Denormalized count of live `fileinfo` entries (entries where neither
+   * `deleted_at` nor `missing_since` is set). Maintained at every liveness
+   * mutation site and backfilled by the `backfill-live-location-count`
+   * migration. Indexed by `live_location_count_gte2` (partial index,
+   * `{ $gte: 2 }`) so `countDocuments({ live_location_count: { $gte: 2 } })`
+   * is an index COUNT_SCAN with no per-row FETCH, replacing the `$expr`+`$filter`
+   * scan that `liveAwareDuplicatePredicate` required (#1302).
+   *
+   * Optional because legacy rows pre-date this field; the
+   * `backfill-live-location-count` migration populates them. Absent rows are
+   * excluded from the partial index and are not counted in the deduplicate
+   * badge until the migration runs.
+   */
+  live_location_count?: number;
   /** True iff an XMP sidecar exists on disk next to this asset. Populated
    * by the XMP write/delete handlers (Phase 5b). Optional because legacy
    * rows pre-date the flag; readers should treat missing as `false`. */

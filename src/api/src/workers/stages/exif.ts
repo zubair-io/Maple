@@ -18,7 +18,11 @@ import type { ObjectId } from 'mongodb';
 import { readExif } from '../../indexer/exif.ts';
 import { isLikelyScreenshot } from '../../indexer/screenshot.ts';
 import { deriveId } from '../../indexer/id.ts';
-import { assetAbsPath, assetPrimaryFileInfo } from '../../indexer/images.repo.ts';
+import {
+  assetAbsPath,
+  assetPrimaryFileInfo,
+  updateLiveLocationCount,
+} from '../../indexer/images.repo.ts';
 import { assetsCollection } from '../../db/client.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import type { AssetExif, FileInfo } from '../../db/schema.ts';
@@ -335,7 +339,11 @@ async function mergeFileinfoEntry(
     },
     { $push: { fileinfo: entry as never } },
   );
-  if (pushResult.modifiedCount > 0) return;
+  if (pushResult.modifiedCount > 0) {
+    // Pushed a new entry — recompute live count.
+    await updateLiveLocationCount(assets as never, survivorId);
+    return;
+  }
   // Entry already present on the survivor. If ours is live, surface that
   // over any tombstone the survivor was holding. (If ours is tombstoned
   // too, keep the survivor's first-seen entry — same as the boot-time
@@ -355,6 +363,8 @@ async function mergeFileinfoEntry(
         ],
       },
     );
+    // Recompute live count: clearing deleted_at may revive the entry.
+    await updateLiveLocationCount(assets as never, survivorId);
   }
 }
 

@@ -45,6 +45,7 @@ import {
   isLiveFileInfo,
   assetPrimaryFileInfo,
   liveAwareDuplicatePredicate,
+  updateLiveLocationCount,
 } from '../indexer/images.repo.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import type { AssetDoc, FileInfo } from '../db/schema.ts';
@@ -222,6 +223,10 @@ async function processAsset(
           ],
         },
       )
+      .then(async () => {
+        // Recompute live count after tagging absent entries missing_since.
+        await updateLiveLocationCount(coll, doc._id);
+      })
       .catch((err) => {
         log.warn(
           { _id: String(doc._id), err: err instanceof Error ? err.message : err },
@@ -317,6 +322,8 @@ async function processAsset(
     if (i === 0 && anchorMoves) pullUpdate['$set'] = reArmCacheStages();
     await coll.updateOne({ _id: doc._id }, pullUpdate as never);
   }
+  // Recompute live count after pulling moved entries from fileinfo.
+  await updateLiveLocationCount(coll, doc._id);
   summary.deduped++;
 
   // Publish an update keyed by the surviving primary so clients + search refresh.
