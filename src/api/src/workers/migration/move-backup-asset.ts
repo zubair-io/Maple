@@ -95,7 +95,7 @@ export async function dedupeLiveFileinfo(
     // Recompute live count: the fileinfo array was collapsed. A race-inserted
     // duplicate live entry would have double-counted; correcting it here keeps
     // live_location_count in sync with the actual array (#1302).
-    await updateLiveLocationCount(coll as never, id);
+    await updateLiveLocationCount(coll, id);
     log.info(
       { _id: String(id), removed: list.length - deduped.length },
       'move: collapsed duplicate fileinfo entries (discover-watcher race)',

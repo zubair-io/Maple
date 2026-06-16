@@ -416,7 +416,7 @@ export const backupIngestRoutes = new Elysia().post(
       }
       await a.updateOne({ _id: existing._id }, update);
       // Recompute live count after adding a new live fileinfo entry.
-      await updateLiveLocationCount(a as never, existing._id);
+      await updateLiveLocationCount(a, existing._id);
 
       await uploadSessions.complete({
         sessionId: session._id,

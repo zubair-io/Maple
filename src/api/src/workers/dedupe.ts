@@ -200,7 +200,7 @@ async function processAsset(
   // cooldown clock, preventing stale entries from ever aging out.
   if (absentEntries.length > 0 && !dryRun) {
     const now = new Date().toISOString();
-    await coll
+    const tagged = await coll
       .updateOne(
         { _id: doc._id },
         { $set: { 'fileinfo.$[e].missing_since': now } },
@@ -223,16 +223,23 @@ async function processAsset(
           ],
         },
       )
-      .then(async () => {
-        // Recompute live count after tagging absent entries missing_since.
-        await updateLiveLocationCount(coll, doc._id);
-      })
+      .then(() => true)
       .catch((err) => {
         log.warn(
           { _id: String(doc._id), err: err instanceof Error ? err.message : err },
           'deduplicate: failed to tag absent entries',
         );
+        return false;
       });
+    if (tagged) {
+      // Recompute live count after tagging absent entries missing_since.
+      await updateLiveLocationCount(coll, doc._id).catch((err) => {
+        log.warn(
+          { _id: String(doc._id), err: err instanceof Error ? err.message : err },
+          'deduplicate: failed to recompute live_location_count after tagging',
+        );
+      });
+    }
   }
 
   // Fewer than two copies on disk → not a real duplicate set right now (the
