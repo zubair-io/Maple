@@ -248,11 +248,7 @@ export async function mergePeopleInto(
 /** Internal merge helper: repoint `asset.faces[].person_id` from `orphan`
  * to `survivor`, then mark the orphan as `merged_into = survivor`. The
  * survivor's name is canonicalised to `name` (operator spelling). */
-async function mergeInto(
-  survivor: ObjectId,
-  orphan: ObjectId,
-  name: string,
-): Promise<void> {
+async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: string): Promise<void> {
   const survivorHex = survivor.toHexString();
   const orphanHex = orphan.toHexString();
   const assets = await assetsCollection();
