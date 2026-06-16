@@ -11,6 +11,7 @@
  *   POST   /api/people/cluster        — kicks off online clustering
  *   POST   /api/people/assign         — manual face → person override
  *   POST   /api/people/hide           — hide a face (excluded from clustering)
+ *   POST   /api/people/merge          — merge source people into a target (target survives)
  *
  * Mounted behind `requireAuth` in `src/api/src/index.ts`.
  */
@@ -246,7 +247,6 @@ export const peopleRoutes = new Elysia({ prefix: '/api/people' })
           id: result.survivor._id.toHexString(),
           name: result.survivor.name,
           merged_count: result.mergedCount,
-          faces_repointed: result.facesRepointed,
         };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
