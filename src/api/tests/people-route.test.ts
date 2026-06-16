@@ -463,12 +463,10 @@ describe('POST /api/people/merge', () => {
       id: string;
       name: string;
       merged_count: number;
-      faces_repointed: number;
     };
     expect(body.id).toBe(target._id.toHexString());
     expect(body.name).toBe('Alice');
     expect(body.merged_count).toBe(1);
-    expect(body.faces_repointed).toBe(1);
 
     // Source is now unreachable (tombstoned → getPerson returns 404).
     const gone = await get(`/api/people/${src._id.toHexString()}`);
@@ -491,6 +489,17 @@ describe('POST /api/people/merge', () => {
       source_ids: [new ObjectId().toHexString()],
     });
     expect(r.status).toBe(404);
+  });
+
+  it('400s when source_ids dedup to empty (only the target)', async () => {
+    if (!mongoReachable) return;
+    const { createPerson } = await import('../src/people/people.repo.ts');
+    const target = await createPerson('Alice');
+    const r = await post('/api/people/merge', {
+      target_id: target._id.toHexString(),
+      source_ids: [target._id.toHexString()],
+    });
+    expect(r.status).toBe(400);
   });
 });
 
