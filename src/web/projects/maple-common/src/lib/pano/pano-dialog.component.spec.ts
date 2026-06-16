@@ -144,7 +144,32 @@ describe('PanoDialogComponent', () => {
     fixture.componentInstance.onCancel();
   });
 
-  it('submits both assetPaths and assetIds when the client has both', () => {
+  it('sends a path for path-having assets and an id only for id-only assets (#1313)', () => {
+    // a1, a2 are referenced by path; a3 has no path, only an API id. The client
+    // must send paths for a1/a2 and the id for a3 — never both for one asset.
+    TestBed.resetTestingModule();
+    setup(
+      MOCK_FOLDER,
+      { a3: 'ccc' },
+      { a1: '/Volumes/Photos/img1.dng', a2: '/Volumes/Photos/img2.dng' },
+    );
+    open(false);
+    fixture.componentInstance.onSubmit();
+    const call = http.expectOne('/api/pano/stitch');
+    expect(call.request.body.assetPaths).toEqual([
+      '/Volumes/Photos/img1.dng',
+      '/Volumes/Photos/img2.dng',
+    ]);
+    expect(call.request.body.assetIds).toEqual(['ccc']);
+    expect(call.request.body.libraryId).toBe(MOCK_FOLDER.id);
+    call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
+    expect(fixture.componentInstance.phase()).toBe('polling');
+    fixture.componentInstance.onCancel();
+  });
+
+  it('omits the API id when the same asset also has a path (no stale-id shadowing, #1313)', () => {
+    // Default mock: every asset has BOTH a path and an id. The client must send
+    // only the (fresh) paths and omit the (possibly stale) ids entirely.
     open(false);
     fixture.componentInstance.onSubmit();
     const call = http.expectOne('/api/pano/stitch');
@@ -153,8 +178,7 @@ describe('PanoDialogComponent', () => {
       '/Volumes/Photos/img2.dng',
       '/Volumes/Photos/img3.dng',
     ]);
-    expect(call.request.body.assetIds).toEqual(['aaa', 'bbb', 'ccc']);
-    expect(call.request.body.libraryId).toBe(MOCK_FOLDER.id);
+    expect(call.request.body.assetIds).toBeUndefined();
     call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
     fixture.componentInstance.onCancel();
@@ -202,14 +226,33 @@ describe('PanoDialogComponent', () => {
     http.expectNone('/api/pano/stitch');
   });
 
-  it('submits the folder ObjectId as libraryId and resolved API ids as assetIds', () => {
-    // The local asset ids are 'a1', 'a2', 'a3'. The mock maps them to
-    // 'aaa', 'bbb', 'ccc'. The library folder id is MOCK_FOLDER.id.
-    // The handler expects MongoDB ObjectId hex strings for both fields.
+  it('fails fast when even one selected asset has neither a path nor an id (#1313)', () => {
+    // a1 has a path + id, a2 has a path, a3 has NEITHER. The whole submit must
+    // error rather than silently stitching only a1 + a2 (fewer than selected).
+    TestBed.resetTestingModule();
+    setup(
+      MOCK_FOLDER,
+      { a1: 'aaa' },
+      { a1: '/Volumes/Photos/img1.dng', a2: '/Volumes/Photos/img2.dng' },
+    );
+    open(false);
+    fixture.componentInstance.onSubmit();
+    expect(fixture.componentInstance.phase()).toBe('error');
+    expect(fixture.componentInstance.errorCode()).toBe('assets_not_indexed');
+    http.expectNone('/api/pano/stitch');
+  });
+
+  it('submits API ids as assetIds when assets have no local path (#1313)', () => {
+    // Cloud-hosted style: assets carry API ids but no absolute file path, so
+    // the client sends assetIds (and no assetPaths). The library folder id is
+    // MOCK_FOLDER.id. The handler expects MongoDB ObjectId hex strings.
+    TestBed.resetTestingModule();
+    setup(MOCK_FOLDER, { a1: 'aaa', a2: 'bbb', a3: 'ccc' }, {});
     open(false);
     fixture.componentInstance.onSubmit();
     const call = http.expectOne('/api/pano/stitch');
     expect(call.request.body.assetIds).toEqual(['aaa', 'bbb', 'ccc']);
+    expect(call.request.body.assetPaths).toBeUndefined();
     expect(call.request.body.libraryId).toBe(MOCK_FOLDER.id);
     expect(call.request.body.options).toEqual({ retention: 'keep', localAlign: 'mesh' });
     call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
