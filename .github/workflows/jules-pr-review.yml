@@ -17,5 +17,8 @@ jobs:
 
       - name: Run Jules Reviewer
         uses: sanjay3290/jules-pr-reviewer@v1
+        env:
+          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
           jules_api_key: ${{ secrets.JULES_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
