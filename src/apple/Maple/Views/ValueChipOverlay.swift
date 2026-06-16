@@ -74,6 +74,20 @@ struct ValueChipOverlay: View {
                     .font(.system(size: 11, weight: .regular, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(MapleTokens.primary)
+                // Render-path indicator — surfaces whether the canvas is being
+                // driven by the wgpu live chain (`GPU`) or the CPU
+                // `processSceneLinear` + Metal fallback (`CPU`). `gpuFramePresented`
+                // latches the first successful GPU present; until then the only
+                // image on screen is the CPU `renderedPreview` (or the embedded-
+                // JPEG seed). Useful for triaging slider responsiveness on iPad
+                // (#1240 follow-up — iOS-device GPU correctness is still gated by
+                // #1028-A4 / #992, so the chip naming the active path is the
+                // fastest in-app signal of which chain rendered the frame).
+                chipDivider
+                Text(state.session.gpuFramePresented ? "GPU" : "CPU")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(MapleTokens.textMuted)
+                    .accessibilityIdentifier("editor-value-chip-render-path")
             }
         }
         .padding(.horizontal, 10)
