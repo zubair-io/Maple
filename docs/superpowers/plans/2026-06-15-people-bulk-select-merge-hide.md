@@ -21,9 +21,12 @@
 
 ---
 
-## Task 1: Backend repo — `mergePeopleInto` (+ `mergeInto` returns face count)
+## Task 1: Backend repo — `mergePeopleInto`
+
+> **Post-review amendment (applied in a follow-up `fix(api/people)` commit):** the code below originally had `mergeInto` return a face count and surfaced `facesRepointed`/`faces_repointed`. Code review found that count is `updateMany.modifiedCount` (asset documents, not faces) and it was unused by the UI, so it was **dropped everywhere**: `mergeInto` stays `Promise<void>`, `MergePeopleResult` is `{ survivor, mergedCount }`, and the route returns `{ id, name, merged_count }`. `mergePeopleInto` also calls `markAssetsForMeiliReindexBestEffort([targetId, ...sourceIds])` after the loop (parity with `renamePerson`). The blocks below are the original plan; the follow-up commit is the source of truth.
 
 **Files:**
+
 - Modify: `src/api/src/people/people.repo.ts`
 - Test: `src/api/src/people/people.repo.test.ts`
 
@@ -116,7 +119,7 @@ async function mergeInto(
 Then at the very end of that function, after the `log.info({ … }, 'merged person');` call, add:
 
 ```ts
-  return { facesRepointed: repoint.modifiedCount };
+return { facesRepointed: repoint.modifiedCount };
 ```
 
 (`renamePerson` already calls `await mergeInto(...)` without using the result, so it needs no change.)
@@ -200,6 +203,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Task 2: Backend route — `POST /api/people/merge`
 
 **Files:**
+
 - Modify: `src/api/src/routes/people.ts`
 - Test: `src/api/tests/people-route.test.ts`
 
@@ -369,6 +373,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Task 3: Web API client — `mergePeople` + `ApiMergeResult`
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts`
 
 No dedicated unit test (this is a thin snake→camel HTTP map, matching the un-unit-tested `renamePerson`/`hidePerson` methods next to it); covered by the route test + the verification walkthrough in Task 8.
@@ -383,7 +388,6 @@ export interface ApiMergeResult {
   id: string;
   name: string;
   mergedCount: number;
-  facesRepointed: number;
 }
 ```
 
@@ -394,7 +398,6 @@ interface ApiMergeResultRaw {
   id: string;
   name: string;
   merged_count: number;
-  faces_repointed: number;
 }
 ```
 
@@ -416,7 +419,6 @@ In the `BunApiBackendService` class, immediately after the `renamePerson` method
           id: r.id,
           name: r.name,
           mergedCount: r.merged_count,
-          facesRepointed: r.faces_repointed,
         })),
       );
   }
@@ -441,6 +443,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Task 4: Web store — `mergePeople`, `hidePeople`, shared eviction tail
 
 **Files:**
+
 - Modify: `src/web/projects/maple-common/src/lib/api/people.store.ts`
 
 - [ ] **Step 1: Import `ApiMergeResult`**
@@ -528,6 +531,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Task 5: VM helpers — `toggleKey`, `mergeTargets`, confirm copy (+ refactor `toggleSelection`)
 
 **Files:**
+
 - Modify: `src/web/projects/maple/src/app/settings/people/people.vm.ts`
 - Test: `src/web/projects/maple/src/app/settings/people/people.vm.spec.ts`
 
@@ -668,6 +672,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Task 6: List page — select mode + bulk toolbar
 
 **Files:**
+
 - Modify: `src/web/projects/maple/src/app/settings/people/people.component.ts`
 - Modify: `src/web/projects/maple/src/app/settings/people/people.component.html`
 - Modify: `src/web/projects/maple/src/app/settings/people/people.component.scss`
@@ -777,38 +782,33 @@ In `people.component.ts`, add the following members to the `PeopleComponent` cla
 In `people.component.html`, in the list-view `<div class="actions">` block (currently containing the Hidden link, Worker settings link, and Run clustering button — around line 281), add the toggle as the first child:
 
 ```html
-        <div class="actions">
-          @if (selectMode()) {
-            <button
-              type="button"
-              class="btn-ghost"
-              (click)="exitSelectMode()"
-              aria-label="Exit selection mode"
-            >
-              Done
-            </button>
-          } @else {
-            <button
-              type="button"
-              class="btn-ghost"
-              (click)="enterSelectMode()"
-              aria-label="Select people for bulk actions"
-            >
-              Select
-            </button>
-          }
-          <a class="btn-ghost" routerLink="/settings/people/hidden">Hidden</a>
-          <a class="btn-ghost" routerLink="/settings/workers">Worker settings</a>
-          <button
-            type="button"
-            class="btn-primary"
-            [disabled]="clusteringBusy()"
-            (click)="runClustering()"
-          >
-            <maple-settings-icon name="sparkle" [size]="13" color="#ffffff" />
-            {{ clusteringBusy() ? 'Clustering…' : 'Run clustering' }}
-          </button>
-        </div>
+<div class="actions">
+  @if (selectMode()) {
+  <button
+    type="button"
+    class="btn-ghost"
+    (click)="exitSelectMode()"
+    aria-label="Exit selection mode"
+  >
+    Done
+  </button>
+  } @else {
+  <button
+    type="button"
+    class="btn-ghost"
+    (click)="enterSelectMode()"
+    aria-label="Select people for bulk actions"
+  >
+    Select
+  </button>
+  }
+  <a class="btn-ghost" routerLink="/settings/people/hidden">Hidden</a>
+  <a class="btn-ghost" routerLink="/settings/workers">Worker settings</a>
+  <button type="button" class="btn-primary" [disabled]="clusteringBusy()" (click)="runClustering()">
+    <maple-settings-icon name="sparkle" [size]="13" color="#ffffff" />
+    {{ clusteringBusy() ? 'Clustering…' : 'Run clustering' }}
+  </button>
+</div>
 ```
 
 - [ ] **Step 4: Make cards toggle selection in select mode**
@@ -816,43 +816,38 @@ In `people.component.html`, in the list-view `<div class="actions">` block (curr
 In `people.component.html`, replace the opening `<article class="person-card" …>` tag (around line 332) and add the check indicator inside `.person-thumb`. Replace the `<article …>` opening tag with:
 
 ```html
-                <article
-                  class="person-card"
-                  [class.is-selectable]="selectMode()"
-                  [class.is-selected]="selectMode() && isPersonSelected(p.id)"
-                  [style.width.px]="cardWidth()"
-                  (click)="selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id)"
-                  (mapleVisibleOnce)="ensureCoverThumb(p)"
-                  tabindex="0"
-                  role="button"
-                  [attr.aria-pressed]="selectMode() ? isPersonSelected(p.id) : null"
-                  [attr.aria-label]="selectMode() ? 'Select ' + p.name : null"
-                  (keydown.enter)="
+<article
+  class="person-card"
+  [class.is-selectable]="selectMode()"
+  [class.is-selected]="selectMode() && isPersonSelected(p.id)"
+  [style.width.px]="cardWidth()"
+  (click)="selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id)"
+  (mapleVisibleOnce)="ensureCoverThumb(p)"
+  tabindex="0"
+  role="button"
+  [attr.aria-pressed]="selectMode() ? isPersonSelected(p.id) : null"
+  [attr.aria-label]="selectMode() ? 'Select ' + p.name : null"
+  (keydown.enter)="
                     selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id);
                     $event.preventDefault()
                   "
-                  (keydown.space)="
+  (keydown.space)="
                     selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id);
                     $event.preventDefault()
                   "
-                >
+></article>
 ```
 
 Then, immediately inside `<div class="person-thumb">` (as its first child, before the cover `@if`), add the reused check chip:
 
 ```html
-                    @if (selectMode()) {
-                      <span class="select-check" [class.is-selected]="isPersonSelected(p.id)">
-                        @if (isPersonSelected(p.id)) {
-                          <maple-settings-icon
-                            name="check"
-                            [size]="12"
-                            color="#ffffff"
-                            [stroke]="2.4"
-                          />
-                        }
-                      </span>
-                    }
+@if (selectMode()) {
+<span class="select-check" [class.is-selected]="isPersonSelected(p.id)">
+  @if (isPersonSelected(p.id)) {
+  <maple-settings-icon name="check" [size]="12" color="#ffffff" [stroke]="2.4" />
+  }
+</span>
+}
 ```
 
 - [ ] **Step 5: Hide the per-card "Hide" button in select mode**
@@ -860,16 +855,16 @@ Then, immediately inside `<div class="person-thumb">` (as its first child, befor
 In the same card, wrap the existing per-card Hide `<button class="card-delete" …>` (around line 377) in a guard:
 
 ```html
-                      @if (!selectMode()) {
-                        <button
-                          type="button"
-                          class="card-delete"
-                          [title]="'Hide ' + p.name"
-                          (click)="$event.stopPropagation(); hidePerson(p)"
-                        >
-                          Hide
-                        </button>
-                      }
+@if (!selectMode()) {
+<button
+  type="button"
+  class="card-delete"
+  [title]="'Hide ' + p.name"
+  (click)="$event.stopPropagation(); hidePerson(p)"
+>
+  Hide
+</button>
+}
 ```
 
 - [ ] **Step 6: Add the list bulk toolbar**
@@ -877,45 +872,45 @@ In the same card, wrap the existing per-card Hide `<button class="card-delete" �
 In `people.component.html`, add this block inside the list-view `<div class="people-list-view">`, immediately after the closing `</div>` of `<div class="people-body">` (still inside `.people-list-view`). It reuses the existing `.bulk-toolbar-wrap` / `.bulk-toolbar` styles:
 
 ```html
-      @if (selectMode() && selectedPeople().size > 0) {
-        <div class="bulk-toolbar-wrap">
-          <div class="bulk-toolbar">
-            <span class="bulk-count">{{ selectedPeople().size }} selected</span>
-            <div class="bulk-sep"></div>
+@if (selectMode() && selectedPeople().size > 0) {
+<div class="bulk-toolbar-wrap">
+  <div class="bulk-toolbar">
+    <span class="bulk-count">{{ selectedPeople().size }} selected</span>
+    <div class="bulk-sep"></div>
 
-            <label class="bulk-btn">
-              <maple-settings-icon name="merge" [size]="13" color="#f5f4f2" />
-              <span>Merge into…</span>
-              <select
-                class="bulk-select"
-                [disabled]="peopleBulkBusy() > 0 || mergeTargetsList().length === 0"
-                aria-label="Merge selected people into"
-                (change)="mergeSelectedInto($any($event.target).value); $any($event.target).value = ''"
-              >
-                <option value="">…</option>
-                @for (t of mergeTargetsList(); track t.id) {
-                  <option [value]="t.id">{{ t.name }}</option>
-                }
-              </select>
-            </label>
+    <label class="bulk-btn">
+      <maple-settings-icon name="merge" [size]="13" color="#f5f4f2" />
+      <span>Merge into…</span>
+      <select
+        class="bulk-select"
+        [disabled]="peopleBulkBusy() > 0 || mergeTargetsList().length === 0"
+        aria-label="Merge selected people into"
+        (change)="mergeSelectedInto($any($event.target).value); $any($event.target).value = ''"
+      >
+        <option value="">…</option>
+        @for (t of mergeTargetsList(); track t.id) {
+        <option [value]="t.id">{{ t.name }}</option>
+        }
+      </select>
+    </label>
 
-            <button
-              type="button"
-              class="bulk-btn"
-              [disabled]="peopleBulkBusy() > 0"
-              (click)="hideSelectedPeople()"
-            >
-              <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
-              Hide
-            </button>
-            <div class="bulk-sep"></div>
-            <button type="button" class="bulk-btn mute" (click)="exitSelectMode()">
-              <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
-              Cancel
-            </button>
-          </div>
-        </div>
-      }
+    <button
+      type="button"
+      class="bulk-btn"
+      [disabled]="peopleBulkBusy() > 0"
+      (click)="hideSelectedPeople()"
+    >
+      <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
+      Hide
+    </button>
+    <div class="bulk-sep"></div>
+    <button type="button" class="bulk-btn mute" (click)="exitSelectMode()">
+      <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
+      Cancel
+    </button>
+  </div>
+</div>
+}
 ```
 
 - [ ] **Step 7: Add minimal selected-card styling**
@@ -962,6 +957,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Task 7: Person page — "Merge into…" picker → navigate to target
 
 **Files:**
+
 - Modify: `src/web/projects/maple/src/app/settings/people/people.component.ts`
 - Modify: `src/web/projects/maple/src/app/settings/people/people.component.html`
 
@@ -1010,35 +1006,35 @@ In `people.component.html`, replace the `<div class="detail-actions">` block (ar
 Reuse the existing `.btn-ghost` class on the `<select>` (no new SCSS — keeps it visually consistent with the other detail-action controls):
 
 ```html
-        <div class="detail-actions">
-          @if (mergePickerOpen()) {
-            <select
-              class="btn-ghost merge-select"
-              [disabled]="peopleBulkBusy() > 0 || detailMergeTargets().length === 0"
-              aria-label="Merge this person into"
-              (change)="mergeDetailInto($any($event.target).value)"
-            >
-              <option value="">Merge into…</option>
-              @for (t of detailMergeTargets(); track t.id) {
-                <option [value]="t.id">{{ t.name }}</option>
-              }
-            </select>
-            <button type="button" class="btn-ghost" (click)="cancelMergePicker()">Cancel</button>
-          } @else {
-            <button
-              type="button"
-              class="btn-ghost"
-              [disabled]="detailMergeTargets().length === 0"
-              (click)="openMergePicker()"
-            >
-              <maple-settings-icon name="merge" [size]="12" />
-              Merge into…
-            </button>
-          }
-          <button type="button" class="btn-ghost danger" (click)="hideSelectedCluster()">
-            Hide person
-          </button>
-        </div>
+<div class="detail-actions">
+  @if (mergePickerOpen()) {
+  <select
+    class="btn-ghost merge-select"
+    [disabled]="peopleBulkBusy() > 0 || detailMergeTargets().length === 0"
+    aria-label="Merge this person into"
+    (change)="mergeDetailInto($any($event.target).value)"
+  >
+    <option value="">Merge into…</option>
+    @for (t of detailMergeTargets(); track t.id) {
+    <option [value]="t.id">{{ t.name }}</option>
+    }
+  </select>
+  <button type="button" class="btn-ghost" (click)="cancelMergePicker()">Cancel</button>
+  } @else {
+  <button
+    type="button"
+    class="btn-ghost"
+    [disabled]="detailMergeTargets().length === 0"
+    (click)="openMergePicker()"
+  >
+    <maple-settings-icon name="merge" [size]="12" />
+    Merge into…
+  </button>
+  }
+  <button type="button" class="btn-ghost danger" (click)="hideSelectedCluster()">
+    Hide person
+  </button>
+</div>
 ```
 
 - [ ] **Step 3: Build to verify**
@@ -1108,4 +1104,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - **DRY anchors:** `mergeInto` is the single repoint/mark primitive; `toggleKey` underlies both face and people selection; `mergeTargets` feeds both pickers; `performMerge` is shared by list + detail; `_evictAndRefreshLists` is the single hide/unhide/merge cache tail.
 - **a11y:** Select toggle, selectable cards (`role=button` + `aria-pressed` + `aria-label`), and every toolbar control have labels.
 - **No deletion:** "Hide" is soft-hide only (rows + faces preserved). No code path deletes assets or people rows.
+
+```
+
 ```

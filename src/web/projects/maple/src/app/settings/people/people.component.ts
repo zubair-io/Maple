@@ -235,9 +235,7 @@ export class PeopleComponent implements OnDestroy {
   }
 
   mergeSelectedInto(targetId: string): void {
-    void this.performMerge(targetId, [...this.selectedPeople()], () =>
-      this.clearPeopleSelection(),
-    );
+    void this.performMerge(targetId, [...this.selectedPeople()], () => this.clearPeopleSelection());
   }
 
   async hideSelectedPeople(): Promise<void> {
