@@ -68,6 +68,11 @@ export class PeopleStore implements Store<ApiPerson[]> {
   private readonly _listError = signal<Error | null>(null);
   /** Guards against overlapping list fetches (e.g. ensureList + invalidate). */
   private _listInFlight = false;
+  /** Set when `ensureList`/`invalidate` is called during an in-flight fetch.
+   * The completion handler re-fetches once so a post-mutation invalidation
+   * can't be swallowed by an earlier-started request (which would leave the
+   * People page showing stale membership). Mirrors `_hiddenDirty`. */
+  private _listDirty = false;
 
   readonly data: Signal<ApiPerson[] | undefined> = this._list.asReadonly();
 
@@ -110,8 +115,14 @@ export class PeopleStore implements Store<ApiPerson[]> {
   }
 
   private _fetchList(): void {
-    if (this._listInFlight) return;
+    if (this._listInFlight) {
+      // A refresh is already running; remember the result is now stale so we
+      // re-fetch once it lands instead of dropping this call. Mirrors _fetchHidden.
+      this._listDirty = true;
+      return;
+    }
     this._listInFlight = true;
+    this._listDirty = false;
     this._listLoading.set(true);
     this._listError.set(null);
     this.api.listPeople().subscribe({
@@ -119,11 +130,13 @@ export class PeopleStore implements Store<ApiPerson[]> {
         this._list.set(rows);
         this._listLoading.set(false);
         this._listInFlight = false;
+        if (this._listDirty) this._fetchList();
       },
       error: (err: unknown) => {
         this._listError.set(err instanceof Error ? err : new Error(String(err)));
         this._listLoading.set(false);
         this._listInFlight = false;
+        if (this._listDirty) this._fetchList();
       },
     });
   }
