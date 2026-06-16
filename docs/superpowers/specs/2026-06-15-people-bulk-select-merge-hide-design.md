@@ -49,10 +49,10 @@ Two flows, one merge primitive:
   survivor name, forces a centroid recompute. It already computes
   `repoint.modifiedCount`.
 - **Merge entry point**: `renamePerson` (`PUT /api/people/:id`) — merges only on
-  a *name collision* and picks the survivor by **older `_id`**. Wrong policy for
+  a _name collision_ and picks the survivor by **older `_id`**. Wrong policy for
   "merge into target": a source with an older `_id` would make the target the
   tombstone (its id 404s via `getPerson`'s `merged_into` guard) and the merged
-  person would inherit the *source's* cover (mergeInto copies only the name).
+  person would inherit the _source's_ cover (mergeInto copies only the name).
 - **Soft-hide**: `hidePerson(id)` (`POST /api/people/:id/hide`) + store
   `hidePerson` (evict detail, invalidate main + hidden lists). Per-card "Hide"
   button already wired.
@@ -78,14 +78,14 @@ No new merge logic; a deterministic entry point over the existing helper.
    ```ts
    export interface MergePeopleResult {
      survivor: PersonWithId;
-     mergedCount: number;     // sources actually merged
-     facesRepointed: number;  // summed across merges
+     mergedCount: number; // sources actually merged
+     facesRepointed: number; // summed across merges
    }
 
    export async function mergePeopleInto(
      targetId: ObjectId,
      sourceIds: ObjectId[],
-   ): Promise<MergePeopleResult>
+   ): Promise<MergePeopleResult>;
    ```
 
    - Load the target; throw `person not found` / `person already merged` (the
@@ -186,7 +186,7 @@ Reuse `.bulk-toolbar-wrap` / `.bulk-toolbar`. Shown when
 ### Actions
 
 - `mergeSelectedInto(targetId)` → `performMerge(targetId, [...selectedPeople()],
-  () => this.clearPeopleSelection())` (stays in select mode).
+() => this.clearPeopleSelection())` (stays in select mode).
 - `hideSelectedPeople()` → confirm `hidePeopleConfirm(n)`; `peopleBulkBusy++`;
   `await store.hidePeople(ids)`; toast ok/failed; clear selection; stay in
   select mode; `peopleBulkBusy--`.
@@ -200,7 +200,7 @@ merge:
   `mergeTargets(namedPeople(), new Set([detail.id]))` (named people, excl. self)
   — mirrors the list toolbar control. On pick →
   `mergeDetailInto(targetId)` → `performMerge(targetId, [detail.id],
-  () => this.router.navigate(['/settings/people', targetId]))`.
+() => this.router.navigate(['/settings/people', targetId]))`.
 - The name-click **rename** flow (`startEdit`/`commitEdit`) is unchanged.
 
 ## Shared / DRY helpers — `people.vm.ts`
@@ -266,18 +266,18 @@ Both the list and detail merge call sites share it; only `after` differs.
 
 ## Files touched
 
-| File | Change |
-|------|--------|
-| `src/api/src/people/people.repo.ts` | `mergeInto` returns face count; new `mergePeopleInto` |
-| `src/api/src/routes/people.ts` | new `POST /api/people/merge` |
-| `src/api/src/people/*.test.ts` | merge repo + route tests |
-| `src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts` | `mergePeople` + `ApiMergeResult` |
-| `src/web/projects/maple-common/src/lib/api/people.store.ts` | `mergePeople`, `hidePeople`, shared invalidate tail |
-| `src/web/projects/maple/src/app/settings/people/people.component.ts` | select mode, bulk merge/hide, detail merge picker, `performMerge` |
-| `src/web/projects/maple/src/app/settings/people/people.component.html` | Select toggle, select-mode cards, list bulk toolbar, detail picker |
-| `src/web/projects/maple/src/app/settings/people/people.component.scss` | minor (selected-card affordance; reuse `.bulk-toolbar`) |
-| `src/web/projects/maple/src/app/settings/people/people.vm.ts` | `toggleKey`, `mergeTargets`, confirm copy; refactor `toggleSelection` |
-| `src/web/projects/maple/src/app/settings/people/*.spec.ts` | vm unit tests |
+| File                                                                   | Change                                                                |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `src/api/src/people/people.repo.ts`                                    | `mergeInto` returns face count; new `mergePeopleInto`                 |
+| `src/api/src/routes/people.ts`                                         | new `POST /api/people/merge`                                          |
+| `src/api/src/people/*.test.ts`                                         | merge repo + route tests                                              |
+| `src/web/projects/maple-common/src/lib/api/bun-api-backend.service.ts` | `mergePeople` + `ApiMergeResult`                                      |
+| `src/web/projects/maple-common/src/lib/api/people.store.ts`            | `mergePeople`, `hidePeople`, shared invalidate tail                   |
+| `src/web/projects/maple/src/app/settings/people/people.component.ts`   | select mode, bulk merge/hide, detail merge picker, `performMerge`     |
+| `src/web/projects/maple/src/app/settings/people/people.component.html` | Select toggle, select-mode cards, list bulk toolbar, detail picker    |
+| `src/web/projects/maple/src/app/settings/people/people.component.scss` | minor (selected-card affordance; reuse `.bulk-toolbar`)               |
+| `src/web/projects/maple/src/app/settings/people/people.vm.ts`          | `toggleKey`, `mergeTargets`, confirm copy; refactor `toggleSelection` |
+| `src/web/projects/maple/src/app/settings/people/*.spec.ts`             | vm unit tests                                                         |
 
 ## Ticket
 
