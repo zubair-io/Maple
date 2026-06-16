@@ -80,6 +80,7 @@ import { loadMirrorConfig } from './fs/mirror-config.ts';
 import { flushPendingMirrorOps } from './fs/mirrored.ts';
 import { installMirrorQueueSink } from './workers/mirror/sink.ts';
 import { workerRoutes } from './workers/routes.ts';
+import { libraryRoutes } from './routes/library/index.ts';
 import { meilisearchClient, reconfigureMeilisearch } from './enrichment/meilisearch-client.ts';
 import {
   loadEnrichmentConfig,
@@ -187,6 +188,10 @@ export function buildApp(_opts: { stageNames?: string[] } = {}): Elysia {
         .use(backupRenderedRoutes)
         .use(backupNotifyDeletedRoutes)
         .use(foldersRoutes)
+        // M1 unified library addressing routes (slug:relPath).
+        // Mounted before assetsRoutes so /api/folder|image|thumb|preview
+        // are not shadowed by other prefixes.
+        .use(libraryRoutes)
         // Mounted BEFORE assetsRoutes so the bare `GET /api/assets` list
         // endpoint matches before the `:id`-prefixed routes shadow it.
         .use(assetsListRoutes)
