@@ -444,6 +444,56 @@ describe('POST /api/people/hide', () => {
   });
 });
 
+describe('POST /api/people/merge', () => {
+  it('folds sources into the target and returns counts', async () => {
+    if (!mongoReachable) return;
+    const { createPerson } = await import('../src/people/people.repo.ts');
+    const target = await createPerson('Alice');
+    const src = await createPerson('Person 1');
+    await insertAssetWithFaces([
+      { bbox: { x: 0, y: 0, w: 10, h: 10 }, person_id: src._id.toHexString(), confidence: 0.9 },
+    ]);
+
+    const r = await post('/api/people/merge', {
+      target_id: target._id.toHexString(),
+      source_ids: [src._id.toHexString()],
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as {
+      id: string;
+      name: string;
+      merged_count: number;
+      faces_repointed: number;
+    };
+    expect(body.id).toBe(target._id.toHexString());
+    expect(body.name).toBe('Alice');
+    expect(body.merged_count).toBe(1);
+    expect(body.faces_repointed).toBe(1);
+
+    // Source is now unreachable (tombstoned → getPerson returns 404).
+    const gone = await get(`/api/people/${src._id.toHexString()}`);
+    expect(gone.status).toBe(404);
+  });
+
+  it('400s on an invalid target id', async () => {
+    if (!mongoReachable) return;
+    const r = await post('/api/people/merge', {
+      target_id: 'not-an-id',
+      source_ids: ['0123456789abcdef01234567'],
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it('404s on an unknown target', async () => {
+    if (!mongoReachable) return;
+    const r = await post('/api/people/merge', {
+      target_id: new ObjectId().toHexString(),
+      source_ids: [new ObjectId().toHexString()],
+    });
+    expect(r.status).toBe(404);
+  });
+});
+
 describe('cover_bbox surface', () => {
   it('list response includes cover_bbox once clustering has run', async () => {
     if (!mongoReachable) return;
