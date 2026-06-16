@@ -215,10 +215,11 @@ public struct PipelineRenderer: Sendable {
             let base = buf.baseAddress?.assumingMemoryBound(to: UInt8.self)
             return hintCStr.withUnsafeBufferPointer { hintPtr -> Int32 in
                 bins.withUnsafeMutableBufferPointer { binsPtr -> Int32 in
+                    let binsBase = binsPtr.baseAddress      // capture the pointer value, not the inout `binsPtr`
                     let call: (UnsafePointer<CChar>?) -> Int32 = { xmpPtr in
                         maple_histogram_bytes(
                             base, UInt(buf.count), hintPtr.baseAddress, xmpPtr,
-                            quality.rawValue, binsPtr.baseAddress
+                            quality.rawValue, binsBase
                         )
                     }
                     if let xmpCChars {
