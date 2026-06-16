@@ -98,10 +98,10 @@
         <div class="detail-actions">
           @if (mergePickerOpen()) {
             <select
-              class="btn-ghost merge-select"
+              class="btn-ghost"
               [disabled]="peopleBulkBusy() > 0 || detailMergeTargets().length === 0"
               aria-label="Merge this person into"
-              (change)="mergeDetailInto($any($event.target).value)"
+              (change)="mergeDetailInto($any($event.target).value); $any($event.target).value = ''"
             >
               <option value="">Merge into…</option>
               @for (t of detailMergeTargets(); track t.id) {
@@ -370,7 +370,6 @@
               @for (p of row; track p.id) {
                 <article
                   class="person-card"
-                  [class.is-selectable]="selectMode()"
                   [class.is-selected]="selectMode() && isPersonSelected(p.id)"
                   [style.width.px]="cardWidth()"
                   (click)="selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id)"
@@ -480,6 +479,7 @@
               type="button"
               class="bulk-btn"
               [disabled]="peopleBulkBusy() > 0"
+              aria-label="Hide selected people"
               (click)="hideSelectedPeople()"
             >
               <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
