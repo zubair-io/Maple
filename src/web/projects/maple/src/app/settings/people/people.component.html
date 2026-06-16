@@ -279,6 +279,25 @@
           </p>
         </div>
         <div class="actions">
+          @if (selectMode()) {
+            <button
+              type="button"
+              class="btn-ghost"
+              (click)="exitSelectMode()"
+              aria-label="Exit selection mode"
+            >
+              Done
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="btn-ghost"
+              (click)="enterSelectMode()"
+              aria-label="Select people for bulk actions"
+            >
+              Select
+            </button>
+          }
           <a class="btn-ghost" routerLink="/settings/people/hidden">Hidden</a>
           <a class="btn-ghost" routerLink="/settings/workers">Worker settings</a>
           <button
@@ -331,15 +350,37 @@
               @for (p of row; track p.id) {
                 <article
                   class="person-card"
+                  [class.is-selectable]="selectMode()"
+                  [class.is-selected]="selectMode() && isPersonSelected(p.id)"
                   [style.width.px]="cardWidth()"
-                  (click)="selectPerson(p.id)"
+                  (click)="selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id)"
                   (mapleVisibleOnce)="ensureCoverThumb(p)"
                   tabindex="0"
                   role="button"
-                  (keydown.enter)="selectPerson(p.id); $event.preventDefault()"
-                  (keydown.space)="selectPerson(p.id); $event.preventDefault()"
+                  [attr.aria-pressed]="selectMode() ? isPersonSelected(p.id) : null"
+                  [attr.aria-label]="selectMode() ? 'Select ' + p.name : null"
+                  (keydown.enter)="
+                    selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id);
+                    $event.preventDefault()
+                  "
+                  (keydown.space)="
+                    selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id);
+                    $event.preventDefault()
+                  "
                 >
                   <div class="person-thumb">
+                    @if (selectMode()) {
+                      <span class="select-check" [class.is-selected]="isPersonSelected(p.id)">
+                        @if (isPersonSelected(p.id)) {
+                          <maple-settings-icon
+                            name="check"
+                            [size]="12"
+                            color="#ffffff"
+                            [stroke]="2.4"
+                          />
+                        }
+                      </span>
+                    }
                     @if (coverThumbUrl(p); as url) {
                       @if (p.coverBbox; as bbox) {
                         <img
@@ -374,14 +415,16 @@
                       <span class="person-faces"
                         >{{ p.faceCount }} face{{ p.faceCount === 1 ? '' : 's' }}</span
                       >
-                      <button
-                        type="button"
-                        class="card-delete"
-                        [title]="'Hide ' + p.name"
-                        (click)="$event.stopPropagation(); hidePerson(p)"
-                      >
-                        Hide
-                      </button>
+                      @if (!selectMode()) {
+                        <button
+                          type="button"
+                          class="card-delete"
+                          [title]="'Hide ' + p.name"
+                          (click)="$event.stopPropagation(); hidePerson(p)"
+                        >
+                          Hide
+                        </button>
+                      }
                     </div>
                   </div>
                 </article>
@@ -390,6 +433,46 @@
           </cdk-virtual-scroll-viewport>
         }
       </div>
+
+      @if (selectMode() && selectedPeople().size > 0) {
+        <div class="bulk-toolbar-wrap">
+          <div class="bulk-toolbar">
+            <span class="bulk-count">{{ selectedPeople().size }} selected</span>
+            <div class="bulk-sep"></div>
+
+            <label class="bulk-btn">
+              <maple-settings-icon name="merge" [size]="13" color="#f5f4f2" />
+              <span>Merge into…</span>
+              <select
+                class="bulk-select"
+                [disabled]="peopleBulkBusy() > 0 || mergeTargetsList().length === 0"
+                aria-label="Merge selected people into"
+                (change)="mergeSelectedInto($any($event.target).value); $any($event.target).value = ''"
+              >
+                <option value="">…</option>
+                @for (t of mergeTargetsList(); track t.id) {
+                  <option [value]="t.id">{{ t.name }}</option>
+                }
+              </select>
+            </label>
+
+            <button
+              type="button"
+              class="bulk-btn"
+              [disabled]="peopleBulkBusy() > 0"
+              (click)="hideSelectedPeople()"
+            >
+              <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
+              Hide
+            </button>
+            <div class="bulk-sep"></div>
+            <button type="button" class="bulk-btn mute" (click)="exitSelectMode()">
+              <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
+              Cancel
+            </button>
+          </div>
+        </div>
+      }
     </div>
   }
 </maple-settings-shell>
