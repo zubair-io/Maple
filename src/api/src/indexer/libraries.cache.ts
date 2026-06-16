@@ -1,5 +1,6 @@
 /**
- * Process-wide cache of `library_id hex → absolute path`.
+ * Process-wide cache of `library_id hex → absolute path` and
+ * `slug → { libraryId, root, label }`.
  *
  * Every code path that resolves a `fileinfo[]` entry to an on-disk location
  * needs this map (cache-path resolution, change feed projection, route
@@ -9,21 +10,57 @@
  * The cache lives at module scope (process-local) and is rebuilt lazily on
  * the first read after invalidation. There is no TTL — clients that need
  * fresh data after mutating folders must call `invalidateLibraryRoots()`.
+ *
+ * Extended for M1 unified addressing: the same single DB read also builds a
+ * slug → { libraryId, root, label } map so `resolveAddress` can resolve a
+ * slug to a library root with zero additional DB round-trips.
  */
+import type { ObjectId } from 'mongodb';
 import { foldersCollection } from '../db/client.ts';
 
-let cached: ReadonlyMap<string, string> | null = null;
+/** Resolved library info keyed by slug. */
+export interface LibraryBySlug {
+  libraryId: ObjectId;
+  root: string;
+  label: string;
+}
 
-export async function loadLibraryRoots(): Promise<ReadonlyMap<string, string>> {
+interface LibraryCache {
+  /** library_id hex → absolute root path (pre-existing) */
+  byId: ReadonlyMap<string, string>;
+  /** slug → { libraryId, root, label } (M1 addition) */
+  bySlug: ReadonlyMap<string, LibraryBySlug>;
+}
+
+let cached: LibraryCache | null = null;
+
+async function loadCache(): Promise<LibraryCache> {
   if (cached) return cached;
   const coll = await foldersCollection();
-  const docs = await coll.find({}, { projection: { path: 1 } }).toArray();
-  const map = new Map<string, string>();
+  const docs = await coll.find({}, { projection: { path: 1, slug: 1, label: 1 } }).toArray();
+  const byId = new Map<string, string>();
+  const bySlug = new Map<string, LibraryBySlug>();
   for (const d of docs) {
-    map.set(d._id.toHexString(), d.path);
+    byId.set(d._id.toHexString(), d.path);
+    if (d.slug) {
+      bySlug.set(d.slug, { libraryId: d._id, root: d.path, label: d.label ?? '' });
+    }
   }
-  cached = map;
-  return map;
+  cached = { byId, bySlug };
+  return cached;
+}
+
+export async function loadLibraryRoots(): Promise<ReadonlyMap<string, string>> {
+  return (await loadCache()).byId;
+}
+
+/**
+ * Resolve a slug to its library metadata. Returns null if the slug is unknown.
+ * Result is served from the in-memory cache — zero DB round-trips per lookup.
+ */
+export async function getLibraryBySlug(slug: string): Promise<LibraryBySlug | null> {
+  const c = await loadCache();
+  return c.bySlug.get(slug) ?? null;
 }
 
 export function invalidateLibraryRoots(): void {
@@ -36,5 +73,9 @@ export function invalidateLibraryRoots(): void {
  * instance. Pass `null` to revert to the lazy-load behaviour.
  */
 export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null): void {
-  cached = map;
+  if (map === null) {
+    cached = null;
+  } else {
+    cached = { byId: map, bySlug: new Map() };
+  }
 }
