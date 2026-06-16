@@ -23,3 +23,16 @@ jobs:
         with:
           jules_api_key: ${{ secrets.JULES_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag AI Agents for Review
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.action == 'opened' }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '@claude[agent] @codex[agent] Please review this PR.'
+            })
