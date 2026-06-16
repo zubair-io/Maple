@@ -1405,7 +1405,7 @@ export async function ensureIndexes(): Promise<void> {
 /** Gracefully close the connection (call on server shutdown). */
 export async function closeDb(): Promise<void> {
   if (_client) {
-    await _client.close();
+    await _client.close(true);
     _client = null;
     _db = null;
     _connectPromise = null;

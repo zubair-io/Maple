@@ -67,3 +67,6 @@ gpu = ["dep:raw-gpu", "dep:wasm-bindgen-futures", "dep:web-sys"]
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 pollster = "0.4"
 wgpu = "23"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
