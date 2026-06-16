@@ -33,6 +33,15 @@ export interface RenameResult {
   mergedFrom?: ObjectId;
 }
 
+/** Result of `mergePeopleInto`. `mergedCount` is the number of sources that
+ * were actually folded in (self / already-merged / missing sources are
+ * skipped); `facesRepointed` is the total faces moved onto the survivor. */
+export interface MergePeopleResult {
+  survivor: PersonWithId;
+  mergedCount: number;
+  facesRepointed: number;
+}
+
 /** Result of `listPeople({ withCounts: true })`. The face count is an
  * aggregation over `assets.faces` filtered by `person_id`.
  *
@@ -195,10 +204,55 @@ export async function renamePerson(id: ObjectId, name: string): Promise<RenameRe
   return { survivor: fresh as PersonWithId, mergedFrom: orphan._id };
 }
 
+/**
+ * Merge one or more source people INTO a target. Unlike rename-on-collision
+ * (`renamePerson`), the TARGET is always the survivor — it keeps its `_id`,
+ * `name`, cover, and `created_at`; every source's faces are repointed at the
+ * target and each source row is marked `merged_into = target`. Reuses the same
+ * `mergeInto` primitive the rename path uses, so the repoint/mark logic lives
+ * in exactly one place.
+ *
+ * Sources equal to the target, already merged, or missing are skipped
+ * (idempotent / defensive). Throws `person not found` / `person already merged`
+ * for the target so the route can map them to 404 (mirrors `renamePerson`).
+ */
+export async function mergePeopleInto(
+  targetId: ObjectId,
+  sourceIds: ObjectId[],
+): Promise<MergePeopleResult> {
+  const coll = await peopleCollection();
+  const target = await coll.findOne({ _id: targetId });
+  if (!target) {
+    throw new Error(`person not found: ${targetId.toHexString()}`);
+  }
+  if (target.merged_into) {
+    throw new Error(`person already merged: ${targetId.toHexString()}`);
+  }
+  let mergedCount = 0;
+  let facesRepointed = 0;
+  for (const sourceId of sourceIds) {
+    if (sourceId.equals(targetId)) continue;
+    const source = await coll.findOne({ _id: sourceId });
+    if (!source || source.merged_into) continue;
+    // Target stays the survivor; pass its current name so the canonical name
+    // is unchanged (no rename on an explicit merge).
+    const { facesRepointed: n } = await mergeInto(targetId, sourceId, target.name);
+    mergedCount += 1;
+    facesRepointed += n;
+  }
+  const fresh = await coll.findOne({ _id: targetId });
+  if (!fresh) throw new Error('target disappeared mid-merge');
+  return { survivor: fresh as PersonWithId, mergedCount, facesRepointed };
+}
+
 /** Internal merge helper: repoint `asset.faces[].person_id` from `orphan`
  * to `survivor`, then mark the orphan as `merged_into = survivor`. The
  * survivor's name is canonicalised to `name` (operator spelling). */
-async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: string): Promise<void> {
+async function mergeInto(
+  survivor: ObjectId,
+  orphan: ObjectId,
+  name: string,
+): Promise<{ facesRepointed: number }> {
   const survivorHex = survivor.toHexString();
   const orphanHex = orphan.toHexString();
   const assets = await assetsCollection();
@@ -242,6 +296,7 @@ async function mergeInto(survivor: ObjectId, orphan: ObjectId, name: string): Pr
     },
     'merged person',
   );
+  return { facesRepointed: repoint.modifiedCount };
 }
 
 /**
