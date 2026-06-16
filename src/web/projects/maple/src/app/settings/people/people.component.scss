@@ -650,6 +650,17 @@
   font-size: inherit;
 }
 
+// ── List-view select mode ───────────────────────────────────────────────────
+.person-card.is-selectable {
+  cursor: pointer;
+}
+
+.person-card.is-selected {
+  outline: 2px solid #6ea8fe;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
 // ── Mobile tweaks ──────────────────────────────────────────────────
 
 @media (max-width: 767px) {
