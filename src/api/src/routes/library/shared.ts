@@ -42,9 +42,7 @@ export const IMMUTABLE_CACHE = 'public, max-age=31536000, immutable';
 /**
  * Safe stat — returns null on any error.
  */
-export async function safeStat(
-  p: string,
-): Promise<Awaited<ReturnType<typeof stat>> | null> {
+export async function safeStat(p: string): Promise<Awaited<ReturnType<typeof stat>> | null> {
   try {
     return await stat(p);
   } catch {
@@ -96,17 +94,32 @@ export function extOf(filename: string): string {
 }
 
 /**
+ * Split an Elysia `*` wildcard into path segments, percent-decoding each.
+ * Elysia 1.1 does NOT decode path params, and the web client encodes every
+ * segment with `encodeURIComponent` (see MapleAddress.toApiPath), so each
+ * segment must be decoded here or filenames with spaces / `#` / unicode never
+ * match the decoded `fileinfo.filename` in Mongo. `/` separators are literal
+ * and split first; a malformed escape falls back to the raw segment.
+ */
+export function parseWildcardSegments(wildcard: string): string[] {
+  if (!wildcard) return [];
+  return wildcard.split('/').map((seg) => {
+    try {
+      return decodeURIComponent(seg);
+    } catch {
+      return seg;
+    }
+  });
+}
+
+/**
  * Get the asset record for a specific (library_id, path, filename) tuple.
  * Uses the `fileinfo_lib_path_name` compound index.
  */
 import { assetsCollection } from '../../db/client.ts';
 import type { ObjectId } from 'mongodb';
 
-export async function findAssetByAddress(
-  libraryId: ObjectId,
-  relPath: string,
-  filename: string,
-) {
+export async function findAssetByAddress(libraryId: ObjectId, relPath: string, filename: string) {
   const coll = await assetsCollection();
   return coll.findOne(
     {

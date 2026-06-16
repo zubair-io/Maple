@@ -36,7 +36,11 @@ async function tryConnect(): Promise<MongoClient | null> {
     await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch { /* ignore */ }
+    try {
+      await c.close();
+    } catch {
+      /* ignore */
+    }
     return null;
   }
 }
@@ -70,11 +74,23 @@ beforeEach(async () => {
 
 afterAll(async () => {
   if (mongo) {
-    try { await mongo.db(TEST_DB).dropDatabase(); } catch { /* ignore */ }
-    try { await mongo.close(); } catch { /* ignore */ }
+    try {
+      await mongo.db(TEST_DB).dropDatabase();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await mongo.close();
+    } catch {
+      /* ignore */
+    }
   }
   if (tmpDir) {
-    try { await rm(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      await rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
   invalidateLibraryRoots();
   const { closeDb } = await import('../../db/client.ts');
@@ -85,7 +101,7 @@ describe('GET /folder/:slug/*', () => {
   test('returns 404 for unknown slug', async () => {
     const res = await app.handle(new Request('http://localhost/folder/no-such-slug/'));
     expect(res.status).toBe(404);
-    const body = await res.json() as { error: string };
+    const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/slug/i);
   });
 
@@ -102,7 +118,7 @@ describe('GET /folder/:slug/*', () => {
 
     const res = await app.handle(new Request('http://localhost/folder/emptylib/'));
     expect(res.status).toBe(200);
-    const body = await res.json() as {
+    const body = (await res.json()) as {
       address: string;
       parent: null;
       folders: unknown[];
@@ -121,13 +137,15 @@ describe('GET /folder/:slug/*', () => {
     // Insert a catalog asset
     await db!.collection('assets').insertOne({
       maple_id: mapleId,
-      fileinfo: [{
-        library_id: libraryId,
-        path: '',
-        filename: 'shot.dng',
-        deleted_at: null,
-        missing_since: null,
-      }],
+      fileinfo: [
+        {
+          library_id: libraryId,
+          path: '',
+          filename: 'shot.dng',
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
       deleted_at: null,
       exif: { width: 3000, height: 2000, captured_at: '2026-06-01T12:00:00Z' },
     } as never);
@@ -135,10 +153,17 @@ describe('GET /folder/:slug/*', () => {
     const res = await app.handle(new Request('http://localhost/folder/testlib/'));
     expect(res.status).toBe(200);
 
-    const body = await res.json() as { images: Array<{
-      name: string; address: string; mapleId: string | null; indexed: boolean;
-      width?: number; height?: number; capturedAt?: string;
-    }> };
+    const body = (await res.json()) as {
+      images: Array<{
+        name: string;
+        address: string;
+        mapleId: string | null;
+        indexed: boolean;
+        width?: number;
+        height?: number;
+        capturedAt?: string;
+      }>;
+    };
     const img = body.images.find((i) => i.name === 'shot.dng');
     expect(img).toBeDefined();
     expect(img!.indexed).toBe(true);
@@ -154,7 +179,9 @@ describe('GET /folder/:slug/*', () => {
 
     const res = await app.handle(new Request('http://localhost/folder/testlib/'));
     expect(res.status).toBe(200);
-    const body = await res.json() as { images: Array<{ name: string; indexed: boolean; mapleId: null }> };
+    const body = (await res.json()) as {
+      images: Array<{ name: string; indexed: boolean; mapleId: null }>;
+    };
     const unindexed = body.images.find((i) => i.name === 'new-file.jpg');
     expect(unindexed).toBeDefined();
     expect(unindexed!.indexed).toBe(false);
@@ -173,9 +200,77 @@ describe('GET /folder/:slug/*', () => {
     await mkdir(sub, { recursive: true });
     const res = await app.handle(new Request('http://localhost/folder/testlib/'));
     expect(res.status).toBe(200);
-    const body = await res.json() as { folders: Array<{ name: string; address: string }> };
+    const body = (await res.json()) as { folders: Array<{ name: string; address: string }> };
     const found = body.folders.find((f) => f.name === 'sub-album');
     expect(found).toBeDefined();
     expect(found!.address).toBe('testlib:sub-album');
+  });
+
+  test('does NOT leak a deduplicated asset whose (library,path) live in different fileinfo entries', async () => {
+    if (!mongoReachable) return;
+    // Regression: a loose `{'fileinfo.library_id': id, 'fileinfo.path': relPath}`
+    // query cross-matches when library_id and path come from DIFFERENT entries.
+    // This asset has the test library at folderB and a *different* library at
+    // folderA — querying folderA must NOT surface its folderB filename.
+    await mkdir(path.join(tmpDir, 'folderA'), { recursive: true });
+    await mkdir(path.join(tmpDir, 'folderB'), { recursive: true });
+    await db!.collection('assets').insertOne({
+      maple_id: new ObjectId().toHexString(),
+      fileinfo: [
+        {
+          library_id: libraryId,
+          path: 'folderB',
+          filename: 'b.jpg',
+          deleted_at: null,
+          missing_since: null,
+        },
+        {
+          library_id: new ObjectId(),
+          path: 'folderA',
+          filename: 'a.jpg',
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
+      deleted_at: null,
+    } as never);
+
+    const res = await app.handle(new Request('http://localhost/folder/testlib/folderA'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { images: Array<{ name: string }> };
+    expect(body.images.find((i) => i.name === 'b.jpg')).toBeUndefined();
+    expect(body.images.find((i) => i.name === 'a.jpg')).toBeUndefined();
+    expect(body.images).toEqual([]);
+  });
+
+  test('percent-decodes the wildcard so folders/files with spaces resolve', async () => {
+    if (!mongoReachable) return;
+    // Regression: Elysia does not decode path params; without explicit
+    // decoding, `My%20Album` never matches the on-disk dir or the catalog path.
+    await mkdir(path.join(tmpDir, 'My Album'), { recursive: true });
+    await db!.collection('assets').insertOne({
+      maple_id: new ObjectId().toHexString(),
+      fileinfo: [
+        {
+          library_id: libraryId,
+          path: 'My Album',
+          filename: 'x.jpg',
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
+      deleted_at: null,
+    } as never);
+
+    const res = await app.handle(new Request('http://localhost/folder/testlib/My%20Album'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      address: string;
+      images: Array<{ name: string; address: string }>;
+    };
+    expect(body.address).toBe('testlib:My Album');
+    const img = body.images.find((i) => i.name === 'x.jpg');
+    expect(img).toBeDefined();
+    expect(img!.address).toBe('testlib:My Album/x.jpg');
   });
 });
