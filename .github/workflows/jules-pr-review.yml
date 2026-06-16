@@ -16,7 +16,7 @@ jobs:
 
       - name: Run Jules Reviewer
         if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-        uses: sanjay3290/jules-pr-reviewer@432e901b3bc32353e7c75503421c64df4ffccc8b  # v1
+        uses: sanjay3290/jules-pr-reviewer@432e901b3bc32353e7c75503421c64df4ffccc8b # v1
         env:
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
         with:
