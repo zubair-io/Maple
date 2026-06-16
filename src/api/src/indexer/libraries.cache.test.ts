@@ -140,3 +140,63 @@ describe('loadLibraryRoots', () => {
     expect(second.size).toBe(0);
   });
 });
+
+describe('getLibraryBySlug', () => {
+  test('returns {libraryId, root, label} for a known slug', async () => {
+    if (!mongoReachable) return;
+    const { getLibraryBySlug } = await import('./libraries.cache.ts');
+    const { foldersCollection } = await import('../db/client.ts');
+    const f = await foldersCollection();
+    const id = new ObjectId();
+    await f.insertOne({
+      _id: id,
+      path: '/srv/lib-slug',
+      label: 'My Library',
+      slug: 'my-library',
+      last_scan: null,
+      file_count: 0,
+      created_at: '2026-06-16T00:00:00Z',
+    } as never);
+    const result = await getLibraryBySlug('my-library');
+    expect(result).not.toBeNull();
+    expect(result!.root).toBe('/srv/lib-slug');
+    expect(result!.label).toBe('My Library');
+    expect(result!.libraryId.toHexString()).toBe(id.toHexString());
+  });
+
+  test('returns null for an unknown slug', async () => {
+    if (!mongoReachable) return;
+    const { getLibraryBySlug } = await import('./libraries.cache.ts');
+    const result = await getLibraryBySlug('no-such-slug');
+    expect(result).toBeNull();
+  });
+
+  test('invalidate forces reload that picks up a newly-inserted folder slug', async () => {
+    if (!mongoReachable) return;
+    const { getLibraryBySlug, invalidateLibraryRoots } = await import('./libraries.cache.ts');
+    const { foldersCollection } = await import('../db/client.ts');
+
+    // Not yet present
+    expect(await getLibraryBySlug('fresh-library')).toBeNull();
+
+    // Insert a new folder
+    const f = await foldersCollection();
+    await f.insertOne({
+      path: '/srv/fresh',
+      label: 'Fresh Library',
+      slug: 'fresh-library',
+      last_scan: null,
+      file_count: 0,
+      created_at: '2026-06-16T00:00:00Z',
+    } as never);
+
+    // Cache still stale — must not see it yet
+    expect(await getLibraryBySlug('fresh-library')).toBeNull();
+
+    // Invalidate and re-query
+    invalidateLibraryRoots();
+    const result = await getLibraryBySlug('fresh-library');
+    expect(result).not.toBeNull();
+    expect(result!.root).toBe('/srv/fresh');
+  });
+});
