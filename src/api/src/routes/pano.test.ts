@@ -1,5 +1,5 @@
 /**
- * routes/pano.ts integration tests (#1231).
+ * routes/pano.ts integration tests (#1231, #1311).
  *
  * Uses a real MongoDB on :27077 (throwaway — never touches :27017).
  * Skip-passes when Mongo is unreachable (CI without services).
@@ -18,6 +18,9 @@
  *   - DELETE /api/pano/jobs/:id sets cancel_requested
  *   - GET/PUT /api/pano/config round-trips
  *   - 400 on bad ObjectId
+ *   - (#1311) Path-based resolution: indexed assets resolved by path
+ *   - (#1311) Index-on-demand: unindexed in-library paths get indexed then proceed
+ *   - (#1311) Security: paths outside every registered library root are rejected
  *
  * DB isolation: getDb() is a singleton. When bun test runs the full suite in
  * one process, a prior test file may have already connected the singleton to
@@ -409,6 +412,119 @@ describe('DELETE /api/pano/jobs/:id', () => {
     // Verify the flag was set.
     const doc = await db!.collection('jobs').findOne({ _id: new ObjectId(id) });
     expect(doc?.cancel_requested).toBe(true);
+  });
+});
+
+// ── #1311: server-authoritative path resolution ───────────────────────────────
+
+describe('POST /api/pano/stitch — path-based resolution (#1311)', () => {
+  beforeEach(async () => {
+    if (!mongoReachable) return;
+    await putJson('/api/pano/config', { maple_cli_path: fakeCli, enabled: true });
+  });
+
+  it('resolves already-indexed assets by path and creates a queued job', async () => {
+    if (!mongoReachable || !db) return;
+    const libPath = path.join(tmpDir, 'lib');
+
+    // Write real files and seed asset docs pointing at them.
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths: string[] = [];
+    for (const name of ['path-a.png', 'path-b.png']) {
+      const filePath = path.join(libPath, name);
+      await fs.writeFile(filePath, png);
+      assetPaths.push(filePath);
+      const _id = new ObjectId();
+      await db.collection('assets').insertOne({
+        _id,
+        maple_id: `seed-path-${name}`,
+        fileinfo: [{ path: '', filename: name, library_id: folderId, deleted_at: null }],
+      } as never);
+    }
+    // Force library-roots cache to reload so the route sees the test folder.
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths,
+      libraryId: folderId.toHexString(),
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; indexing?: number };
+    expect(ObjectId.isValid(body.id)).toBe(true);
+    // All paths were already indexed — no on-demand indexing needed.
+    expect(body.indexing).toBeUndefined();
+  });
+
+  it('indexes an in-library path on-demand when not yet in the DB', async () => {
+    if (!mongoReachable || !db) return;
+    const libPath = path.join(tmpDir, 'lib');
+
+    // Write files but do NOT insert asset docs — simulate unindexed state.
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+    const assetPaths: string[] = [];
+    for (const name of ['demand-a.png', 'demand-b.png']) {
+      const filePath = path.join(libPath, name);
+      await fs.writeFile(filePath, png);
+      assetPaths.push(filePath);
+    }
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths,
+      libraryId: folderId.toHexString(),
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; indexing?: number };
+    expect(ObjectId.isValid(body.id)).toBe(true);
+    // Both paths were indexed on-demand.
+    expect(body.indexing).toBe(2);
+    // Both asset docs must now exist in the DB.
+    for (const p of assetPaths) {
+      const filename = path.basename(p);
+      const doc = await db.collection('assets').findOne({ 'fileinfo.filename': filename });
+      expect(doc).not.toBeNull();
+    }
+  });
+
+  it('rejects a path that is outside every registered library root (security)', async () => {
+    if (!mongoReachable) return;
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+
+    const res = await postJson('/api/pano/stitch', {
+      // /etc/passwd is never under a registered library root.
+      assetPaths: ['/etc/passwd', '/etc/hosts'],
+      libraryId: folderId.toHexString(),
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('path_outside_library');
+  });
+
+  it('rejects when neither assetIds nor assetPaths is supplied', async () => {
+    if (!mongoReachable) return;
+    const res = await postJson('/api/pano/stitch', {
+      libraryId: folderId.toHexString(),
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it('accepts legacy assetIds-only request without paths', async () => {
+    if (!mongoReachable) return;
+    const res = await postJson('/api/pano/stitch', {
+      assetIds: [new ObjectId().toHexString(), new ObjectId().toHexString()],
+      libraryId: folderId.toHexString(),
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+    // Job is created even for non-existent asset ids (the handler itself
+    // validates at run time — the route only checks id format here).
+    expect(res.status).toBe(201);
   });
 });
 

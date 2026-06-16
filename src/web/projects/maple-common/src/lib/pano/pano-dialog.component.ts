@@ -159,30 +159,44 @@ export class PanoDialogComponent implements OnDestroy {
     }
     const libraryId = folder.id;
 
-    // ── Resolve asset ObjectIds ───────────────────────────────────────────
-    // In self-hosted browse mode the grid gives assets local ids like
-    // `fs:<absPath>`. The server's assets collection uses MongoDB ObjectIds.
-    // `apiIdFor` maps local IDs → persisted `_id` hex (populated by the
-    // discover watcher after indexing). If an asset has no mapping yet it is
-    // not in the assets collection and the job handler would reject it.
+    // ── Resolve asset references ──────────────────────────────────────────
+    // Strategy: always send absolute paths so the server can resolve the
+    // current index state at merge time (avoids the stale-client-map false-
+    // negative). The client's `apiIdFor` map is populated from a prior browse
+    // fetch and may not reflect recently-indexed files.
     //
-    // Gate: require all selected assets to have a resolved API id. When some
-    // are not yet indexed we surface a clear error rather than sending ids
-    // the server will reject. This is the honest design constraint — the
-    // "Merge to panorama" action requires persisted assets.
-    const resolvedIds: string[] = [];
+    // We also include any known MongoDB ObjectIds as an optimisation — the
+    // server accepts both and prefers the path for freshness.
+    //
+    // For self-hosted FS-walk assets the local id is `fs:<absPath>`, so
+    // `absPathFor(localId)` returns the absolute path. When no abs-path is
+    // available (e.g. a cloud-hosted asset already carrying an API id) we
+    // fall back to the API id alone.
+    const assetPaths: string[] = [];
+    const assetIds: string[] = [];
+
     for (const localId of localIds) {
-      const apiId = this.state.apiIdFor(localId);
-      if (!apiId) {
-        this.errorCode.set('assets_not_indexed');
-        this.errorMessage.set(
-          'One or more selected images have not been indexed yet. ' +
-            'Wait for the indexer to finish scanning, then try again.',
-        );
-        this.phase.set('error');
-        return;
+      const absPath = this.state.absPathFor(localId);
+      if (absPath) {
+        assetPaths.push(absPath);
       }
-      resolvedIds.push(apiId);
+      const apiId = this.state.apiIdFor(localId);
+      if (apiId) {
+        assetIds.push(apiId);
+      }
+    }
+
+    // If we have neither paths nor ids for any asset the server has no way
+    // to resolve inputs — surface an early error rather than sending an
+    // empty request.
+    if (assetPaths.length === 0 && assetIds.length === 0) {
+      this.errorCode.set('assets_not_indexed');
+      this.errorMessage.set(
+        'Could not determine the file paths for the selected images. ' +
+          'Try re-opening the folder and selecting again.',
+      );
+      this.phase.set('error');
+      return;
     }
 
     this.phase.set('submitting');
@@ -192,26 +206,38 @@ export class PanoDialogComponent implements OnDestroy {
       ...(this.strategySupported() ? { strategy: this.strategy() } : {}),
     };
 
-    this.pano.stitch({ assetIds: resolvedIds, libraryId, options }).subscribe({
-      next: ({ id }) => {
-        this.phase.set('polling');
-        this._startPolling(id);
-      },
-      error: (err: HttpErrorResponse) => {
-        const code: string = err.error?.error ?? '';
-        this.errorCode.set(code);
-        if (err.status === 409 && code === 'pano_not_provisioned') {
-          this.errorMessage.set(err.error.message);
-        } else if (err.status === 409 && code === 'pano_job_running') {
-          this.errorMessage.set(
-            `A panorama job is already running or queued (job ${err.error.jobId ?? ''}). Wait for it to finish.`,
-          );
-        } else {
-          this.errorMessage.set(err.error?.message ?? 'Failed to start panorama job.');
-        }
-        this.phase.set('error');
-      },
-    });
+    this.pano
+      .stitch({
+        ...(assetPaths.length > 0 ? { assetPaths } : {}),
+        ...(assetIds.length > 0 ? { assetIds } : {}),
+        libraryId,
+        options,
+      })
+      .subscribe({
+        next: ({ id, indexing }) => {
+          if (indexing && indexing > 0) {
+            // Server indexed files on-demand before queuing the job.
+            // The job is now queued; transition directly to polling.
+            this.errorMessage.set('');
+          }
+          this.phase.set('polling');
+          this._startPolling(id);
+        },
+        error: (err: HttpErrorResponse) => {
+          const code: string = err.error?.error ?? '';
+          this.errorCode.set(code);
+          if (err.status === 409 && code === 'pano_not_provisioned') {
+            this.errorMessage.set(err.error.message);
+          } else if (err.status === 409 && code === 'pano_job_running') {
+            this.errorMessage.set(
+              `A panorama job is already running or queued (job ${err.error.jobId ?? ''}). Wait for it to finish.`,
+            );
+          } else {
+            this.errorMessage.set(err.error?.message ?? 'Failed to start panorama job.');
+          }
+          this.phase.set('error');
+        },
+      });
   }
 
   onCancel(): void {

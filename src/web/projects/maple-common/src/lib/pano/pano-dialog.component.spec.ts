@@ -30,15 +30,22 @@ const MOCK_FOLDER = { id: 'deadbeefdeadbeefdeadbeef', path: '/Volumes/Photos', l
  *
  * @param folderOverride - null = no registered folder (simulates "no library selected")
  * @param apiIdMap - local assetId → MongoDB hex _id map (empty = not indexed)
+ * @param absPathMap - local assetId → absolute filesystem path map
  */
 function makeLibraryStateMock(
   folderOverride: typeof MOCK_FOLDER | null = MOCK_FOLDER,
   apiIdMap: Record<string, string> = { a1: 'aaa', a2: 'bbb', a3: 'ccc' },
+  absPathMap: Record<string, string> = {
+    a1: '/Volumes/Photos/img1.dng',
+    a2: '/Volumes/Photos/img2.dng',
+    a3: '/Volumes/Photos/img3.dng',
+  },
 ) {
   return {
     selectedSourceId: () => 'fs:/Volumes/Photos',
     currentRegisteredFolder: () => folderOverride,
     apiIdFor: (id: string) => apiIdMap[id],
+    absPathFor: (id: string) => absPathMap[id],
   };
 }
 
@@ -49,6 +56,11 @@ describe('PanoDialogComponent', () => {
   function setup(
     folderOverride: typeof MOCK_FOLDER | null = MOCK_FOLDER,
     apiIdMap: Record<string, string> = { a1: 'aaa', a2: 'bbb', a3: 'ccc' },
+    absPathMap: Record<string, string> = {
+      a1: '/Volumes/Photos/img1.dng',
+      a2: '/Volumes/Photos/img2.dng',
+      a3: '/Volumes/Photos/img3.dng',
+    },
   ): void {
     TestBed.configureTestingModule({
       imports: [PanoDialogComponent],
@@ -59,7 +71,7 @@ describe('PanoDialogComponent', () => {
         { provide: API_BASE_URL, useValue: '/api' },
         {
           provide: LibraryStateService,
-          useValue: makeLibraryStateMock(folderOverride, apiIdMap),
+          useValue: makeLibraryStateMock(folderOverride, apiIdMap, absPathMap),
         },
       ],
     }).compileComponents();
@@ -100,21 +112,70 @@ describe('PanoDialogComponent', () => {
     expect(el.querySelector('#pano-strategy')).not.toBeNull();
   });
 
-  // ── LOAD-BEARING: libraryId and assetIds resolution (comments #1 & #2) ──────
+  // ── LOAD-BEARING: server-authoritative path-based submission (#1311) ──────────
 
-  it('submits the folder ObjectId as libraryId and resolved API ids as assetIds', () => {
-    // The local asset ids are 'a1', 'a2', 'a3'. The mock maps them to
-    // 'aaa', 'bbb', 'ccc'. The library folder id is MOCK_FOLDER.id.
-    // The handler expects MongoDB ObjectId hex strings for both fields.
+  it('submits assetPaths and libraryId; proceeds to polling even when apiIdMap is empty', () => {
+    // The client's API id map is empty (assets not yet in the client cache),
+    // but the abs-path map is populated. The server resolves paths → ids.
+    // The submit should NOT error; it should send assetPaths to the server.
+    TestBed.resetTestingModule();
+    setup(
+      MOCK_FOLDER,
+      {},
+      {
+        a1: '/Volumes/Photos/img1.dng',
+        a2: '/Volumes/Photos/img2.dng',
+        a3: '/Volumes/Photos/img3.dng',
+      },
+    );
     open(false);
     fixture.componentInstance.onSubmit();
     const call = http.expectOne('/api/pano/stitch');
-    expect(call.request.body).toEqual({
-      assetIds: ['aaa', 'bbb', 'ccc'],
-      libraryId: MOCK_FOLDER.id,
-      options: { retention: 'keep', localAlign: 'mesh' },
-    });
+    expect(call.request.body.assetPaths).toEqual([
+      '/Volumes/Photos/img1.dng',
+      '/Volumes/Photos/img2.dng',
+      '/Volumes/Photos/img3.dng',
+    ]);
+    expect(call.request.body.libraryId).toBe(MOCK_FOLDER.id);
+    // assetIds not sent when empty
+    expect(call.request.body.assetIds).toBeUndefined();
     call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
+    expect(fixture.componentInstance.phase()).toBe('polling');
+    fixture.componentInstance.onCancel();
+  });
+
+  it('submits both assetPaths and assetIds when the client has both', () => {
+    open(false);
+    fixture.componentInstance.onSubmit();
+    const call = http.expectOne('/api/pano/stitch');
+    expect(call.request.body.assetPaths).toEqual([
+      '/Volumes/Photos/img1.dng',
+      '/Volumes/Photos/img2.dng',
+      '/Volumes/Photos/img3.dng',
+    ]);
+    expect(call.request.body.assetIds).toEqual(['aaa', 'bbb', 'ccc']);
+    expect(call.request.body.libraryId).toBe(MOCK_FOLDER.id);
+    call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
+    expect(fixture.componentInstance.phase()).toBe('polling');
+    fixture.componentInstance.onCancel();
+  });
+
+  it('proceeds to polling when the server reports indexing:N (index-on-demand)', () => {
+    TestBed.resetTestingModule();
+    setup(
+      MOCK_FOLDER,
+      {},
+      {
+        a1: '/Volumes/Photos/img1.dng',
+        a2: '/Volumes/Photos/img2.dng',
+        a3: '/Volumes/Photos/img3.dng',
+      },
+    );
+    open(false);
+    fixture.componentInstance.onSubmit();
+    const call = http.expectOne('/api/pano/stitch');
+    // Server indexed 3 files on-demand; still returns a job id.
+    call.flush({ id: 'j2', indexing: 3 }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
     fixture.componentInstance.onCancel();
   });
@@ -130,27 +191,37 @@ describe('PanoDialogComponent', () => {
     http.expectNone('/api/pano/stitch');
   });
 
-  it('shows an error when selected assets are not yet indexed (comment #2)', () => {
-    // Re-create the component with an empty apiIdMap (no assets indexed).
+  it('shows an error when the client has neither paths nor ids for the selected assets', () => {
+    // Both maps are empty — client cannot provide any reference.
     TestBed.resetTestingModule();
-    setup(MOCK_FOLDER, {});
+    setup(MOCK_FOLDER, {}, {});
     open(false);
     fixture.componentInstance.onSubmit();
     expect(fixture.componentInstance.phase()).toBe('error');
     expect(fixture.componentInstance.errorCode()).toBe('assets_not_indexed');
-    expect(fixture.componentInstance.errorMessage()).toContain('not been indexed');
     http.expectNone('/api/pano/stitch');
+  });
+
+  it('submits the folder ObjectId as libraryId and resolved API ids as assetIds', () => {
+    // The local asset ids are 'a1', 'a2', 'a3'. The mock maps them to
+    // 'aaa', 'bbb', 'ccc'. The library folder id is MOCK_FOLDER.id.
+    // The handler expects MongoDB ObjectId hex strings for both fields.
+    open(false);
+    fixture.componentInstance.onSubmit();
+    const call = http.expectOne('/api/pano/stitch');
+    expect(call.request.body.assetIds).toEqual(['aaa', 'bbb', 'ccc']);
+    expect(call.request.body.libraryId).toBe(MOCK_FOLDER.id);
+    expect(call.request.body.options).toEqual({ retention: 'keep', localAlign: 'mesh' });
+    call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
+    expect(fixture.componentInstance.phase()).toBe('polling');
+    fixture.componentInstance.onCancel();
   });
 
   it('submits without a strategy field when unsupported', () => {
     open(false);
     fixture.componentInstance.onSubmit();
     const call = http.expectOne('/api/pano/stitch');
-    expect(call.request.body).toEqual({
-      assetIds: ['aaa', 'bbb', 'ccc'],
-      libraryId: MOCK_FOLDER.id,
-      options: { retention: 'keep', localAlign: 'mesh' },
-    });
+    expect(call.request.body.options).toEqual({ retention: 'keep', localAlign: 'mesh' });
     call.flush({ id: 'j1' }, { status: 201, statusText: 'Created' });
     expect(fixture.componentInstance.phase()).toBe('polling');
     fixture.componentInstance.onCancel();
@@ -161,10 +232,10 @@ describe('PanoDialogComponent', () => {
     fixture.componentInstance.strategy.set('tile');
     fixture.componentInstance.onSubmit();
     const call = http.expectOne('/api/pano/stitch');
-    expect(call.request.body).toEqual({
-      assetIds: ['aaa', 'bbb', 'ccc'],
-      libraryId: MOCK_FOLDER.id,
-      options: { retention: 'keep', localAlign: 'mesh', strategy: 'tile' },
+    expect(call.request.body.options).toEqual({
+      retention: 'keep',
+      localAlign: 'mesh',
+      strategy: 'tile',
     });
     call.flush({ id: 'j2' }, { status: 201, statusText: 'Created' });
     fixture.componentInstance.onCancel();
