@@ -40,6 +40,7 @@ import { firstValueFrom } from 'rxjs';
 
 import {
   BunApiBackendService,
+  type ApiMergeResult,
   type ApiPerson,
   type ApiPersonDetail,
 } from './bun-api-backend.service';
@@ -311,23 +312,47 @@ export class PeopleStore implements Store<ApiPerson[]> {
   // exposes `await`-able hide/unhide helpers so the cache bookkeeping
   // (eviction + list invalidation) happens atomically with the mutation.
 
-  /** Soft-hide a person server-side, then evict its cached detail and
-   * invalidate BOTH lists so the person leaves the main list and appears on
-   * the Hidden page immediately. Throws on failure so the caller can surface
-   * an error toast. */
-  async hidePerson(id: string): Promise<void> {
-    await firstValueFrom(this.api.hidePerson(id));
-    this.evictDetail(id);
+  /** Evict the given details, then refresh BOTH the main and hidden lists
+   * once. Shared by every people mutation that can move rows between the two
+   * lists (hide / unhide / merge) so the cache bookkeeping lives in one place. */
+  private _evictAndRefreshLists(ids: string[]): void {
+    ids.forEach((id) => this.evictDetail(id));
     this.invalidate();
     this.invalidateHidden();
   }
 
-  /** Restore a hidden person, then invalidate BOTH lists so it returns to the
-   * main list and drops off the Hidden page. Throws on failure. */
+  /** Soft-hide a person server-side, then evict + refresh both lists. Throws
+   * on failure so the caller can surface an error toast. */
+  async hidePerson(id: string): Promise<void> {
+    await firstValueFrom(this.api.hidePerson(id));
+    this._evictAndRefreshLists([id]);
+  }
+
+  /** Restore a hidden person, then evict + refresh both lists. Throws on failure. */
   async unhidePerson(id: string): Promise<void> {
     await firstValueFrom(this.api.unhidePerson(id));
-    this.evictDetail(id);
-    this.invalidate();
-    this.invalidateHidden();
+    this._evictAndRefreshLists([id]);
+  }
+
+  /** Merge source people into a target (target survives). Evicts the now-
+   * tombstoned sources, refreshes both lists, and refreshes the survivor's
+   * detail. Throws on failure. Returns the survivor + counts for the toast. */
+  async mergePeople(targetId: string, sourceIds: string[]): Promise<ApiMergeResult> {
+    const result = await firstValueFrom(this.api.mergePeople(targetId, sourceIds));
+    this._evictAndRefreshLists(sourceIds);
+    this.invalidateDetail(targetId);
+    return result;
+  }
+
+  /** Bulk soft-hide. Fans out the per-person hide in parallel (allSettled so a
+   * single failure doesn't abort the batch), then evicts + refreshes both
+   * lists once. Returns ok/failed counts for the toast. */
+  async hidePeople(ids: string[]): Promise<{ ok: number; failed: number }> {
+    const results = await Promise.allSettled(
+      ids.map((id) => firstValueFrom(this.api.hidePerson(id))),
+    );
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    this._evictAndRefreshLists(ids);
+    return { ok, failed: ids.length - ok };
   }
 }
