@@ -79,3 +79,15 @@ export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null)
     cached = { byId: map, bySlug: new Map() };
   }
 }
+
+/**
+ * Test-only: register a single slug entry so address-resolution tests can
+ * exercise `resolveAddress` without a Mongo instance.
+ */
+export function setLibraryBySlugForTests(slug: string, entry: LibraryBySlug): void {
+  if (!cached) {
+    cached = { byId: new Map(), bySlug: new Map() };
+  }
+  // Cast to mutable so we can write into it.
+  (cached.bySlug as Map<string, LibraryBySlug>).set(slug, entry);
+}
