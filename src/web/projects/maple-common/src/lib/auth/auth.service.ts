@@ -180,13 +180,19 @@ export class AuthService {
     this.acceptTokens(r);
   }
 
-  async signIn(email: string): Promise<void> {
+  /**
+   * Sign in with a passkey. Usernameless by default (#1304): with no `email`,
+   * the browser offers the user's discoverable passkeys for this site and the
+   * server identifies the account from the chosen credential — nothing to type.
+   * Passing an `email` keeps the older scoped flow as a fallback.
+   */
+  async signIn(email?: string): Promise<void> {
     const optionsJSON = await firstValueFrom(
-      this.http.post<any>('/api/auth/login/options', { email }),
+      this.http.post<any>('/api/auth/login/options', email ? { email } : {}),
     );
     const credential = await startAuthentication({ optionsJSON });
     const r = await firstValueFrom(
-      this.http.post<any>('/api/auth/login/verify', { email, credential }),
+      this.http.post<any>('/api/auth/login/verify', email ? { email, credential } : { credential }),
     );
     this.acceptTokens(r);
   }
