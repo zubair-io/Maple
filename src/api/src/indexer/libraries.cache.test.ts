@@ -92,7 +92,7 @@ describe('loadLibraryRoots', () => {
       last_scan: null,
       file_count: 0,
       created_at: '2026-05-20T00:00:00Z',
-    });
+    } as never);
     const roots = await loadLibraryRoots();
     expect(roots.get(id.toHexString())).toBe('/srv/lib-a');
   });
@@ -110,7 +110,7 @@ describe('loadLibraryRoots', () => {
       last_scan: null,
       file_count: 0,
       created_at: 'now',
-    });
+    } as never);
     const first = await loadLibraryRoots();
     // Wipe behind the cache; the cached map should still be returned.
     await f.deleteMany({});
@@ -131,7 +131,7 @@ describe('loadLibraryRoots', () => {
       last_scan: null,
       file_count: 0,
       created_at: 'now',
-    });
+    } as never);
     const first = await loadLibraryRoots();
     expect(first.size).toBe(1);
     invalidateLibraryRoots();
