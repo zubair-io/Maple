@@ -190,6 +190,58 @@ export function liveLocationCountExpression(): Record<string, unknown> {
  * Callers that use a pipeline update directly (e.g. adding a new entry via
  * `$concatArrays`) should inline `liveLocationCountExpression()` themselves
  * instead of calling this separately, to avoid a second round-trip.
+ *
+ * ── EXHAUSTIVE SITE REGISTRY ────────────────────────────────────────────────
+ * Every site that adds/removes a fileinfo entry OR sets/clears a per-entry
+ * `deleted_at` / `missing_since` MUST either call this function or inline
+ * `liveLocationCountExpression()`. If you add a 9th site, add it here too.
+ *
+ * Site 1 — workers/discover/handle-event.ts
+ *   • tag `fileinfo.$[e].missing_since` (remove event)   → updateLiveLocationCount
+ *   • clear `fileinfo.$[entry].deleted_at + missing_since` (re-add known loc) → updateLiveLocationCount
+ *   • replace fileinfo array with `$concatArrays` (new location)              → inline liveLocationCountExpression
+ *   • tag `fileinfo.$[entry].deleted_at + missing_since` (stale-at-path)      → updateLiveLocationCount
+ *   • clear during dedup-merge                                                 → updateLiveLocationCount ×2
+ *
+ * Site 2 — workers/dedupe.ts
+ *   • tag `fileinfo.$[e].missing_since` (mark absent entries)  → updateLiveLocationCount
+ *   • `$pull` entry (collapse to primary)                      → updateLiveLocationCount
+ *
+ * Site 3 — workers/tag-missing.ts
+ *   • tag `fileinfo.$[e].missing_since` (stage runner ENOENT) → updateLiveLocationCount (best-effort)
+ *
+ * Site 4 — workers/missing-reaper.ts
+ *   • clear `fileinfo.$[r].missing_since` (file recovered)    → updateLiveLocationCount
+ *
+ * Site 5 — workers/stages/exif.ts
+ *   • clear `fileinfo.$[entry].deleted_at` (exif merge)       → updateLiveLocationCount ×2
+ *
+ * Site 6 — routes/backup-ingest.ts
+ *   • `$push fileinfo` (cross-library dedup, add new entry)   → updateLiveLocationCount
+ *   • `insertOne` (fresh asset)                               → live_location_count: 1 inline
+ *
+ * Site 7 — routes/folders.ts (upload route)
+ *   • `$set { fileinfo: [singleEntry], deleted_at }` (re-upload-overwrite) → updateLiveLocationCount (#1302)
+ *   • `findOneAndUpdate upsert` INSERT arm (`$setOnInsert`)                → live_location_count: 1 in $setOnInsert (#1302)
+ *
+ * Site 8 — workers/migration/move-backup-asset.ts :: dedupeLiveFileinfo
+ *   • `$set { fileinfo: deduped }` (collapse discover-race dup entry)      → updateLiveLocationCount (#1302)
+ *
+ * NO-OP sites (do NOT require recompute):
+ *   • db/assets.trash.ts markSoftDeleted / restoreFromTrash: rewrites the
+ *     fileinfo entry's (path, filename) to the trash / restore path, and sets
+ *     the TOP-LEVEL asset `deleted_at`. Per-entry `deleted_at` is NOT touched
+ *     — the entry stays live throughout. Count is unchanged.
+ *   • workers/trash-gc.ts: calls `deleteOne` — doc is gone, no recompute needed.
+ *   • db/migrations.ts backfill-fileinfo-from-abs-path: one-time startup
+ *     migration; `backfill-live-location-count` (also a startup migration)
+ *     runs after and populates the field for all pre-existing rows.
+ *   • db/client.ts missing_since migration: same — runs at startup before the
+ *     backfill-live-location-count migration.
+ *   • indexer/images.repo.ts softDelete: sets TOP-LEVEL `deleted_at` only.
+ *   • workers/migration/move-backup-asset.ts moveBackupAsset positional $:
+ *     updates `fileinfo.$.path / filename` of ONE entry — no change to liveness.
+ * ────────────────────────────────────────────────────────────────────────────
  */
 export async function updateLiveLocationCount(
   coll: Collection<{ live_location_count?: number }>,

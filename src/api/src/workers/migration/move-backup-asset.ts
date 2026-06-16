@@ -32,6 +32,7 @@
 import type { Collection, WithId } from 'mongodb';
 import type { AssetDoc, FileInfo } from '../../db/schema.ts';
 import { child as childLogger } from '../../log.ts';
+import { updateLiveLocationCount } from '../../indexer/images.repo.ts';
 import { finalize, planAndPlace, revertCreated } from './restructure-fs.ts';
 
 const log = childLogger('migration:move');
@@ -91,6 +92,10 @@ export async function dedupeLiveFileinfo(
   }
   if (deduped.length !== list.length) {
     await coll.updateOne({ _id: id }, { $set: { fileinfo: deduped } });
+    // Recompute live count: the fileinfo array was collapsed. A race-inserted
+    // duplicate live entry would have double-counted; correcting it here keeps
+    // live_location_count in sync with the actual array (#1302).
+    await updateLiveLocationCount(coll as never, id);
     log.info(
       { _id: String(id), removed: list.length - deduped.length },
       'move: collapsed duplicate fileinfo entries (discover-watcher race)',
