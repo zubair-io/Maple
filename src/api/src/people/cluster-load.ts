@@ -29,7 +29,7 @@
  * on the main thread — those are cheap Mongo round-trips, not O(N·D) CPU.
  */
 
-import { type Filter, ObjectId } from 'mongodb';
+import { type Filter, ObjectId, type AnyBulkWriteOperation } from 'mongodb';
 import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { Bbox, PersonDoc } from '../db/schema.ts';
 import {
@@ -172,6 +172,8 @@ export async function recomputeCentroids(): Promise<number> {
   // here — see `hidePerson` in people.repo.ts.
   const livePeople = await peopleC.find({ merged_into: null } as Filter<PersonDoc>).toArray();
   let updated = 0;
+  const bulkOps: AnyBulkWriteOperation<PersonDoc>[] = [];
+
   for (const person of livePeople) {
     const personHex = person._id.toHexString();
     // Pull the embedding off every face assigned to this person. Two
@@ -204,10 +206,12 @@ export async function recomputeCentroids(): Promise<number> {
     }
     if (count === 0 || mean === null) {
       // Nobody assigned — clear the centroid so it doesn't bias future runs.
-      await peopleC.updateOne(
-        { _id: person._id },
-        { $set: { centroid: [], centroid_face_count: 0 } },
-      );
+      bulkOps.push({
+        updateOne: {
+          filter: { _id: person._id },
+          update: { $set: { centroid: [], centroid_face_count: 0 } },
+        },
+      });
       continue;
     }
     for (let i = 0; i < EMBEDDING_DIM; i += 1) mean[i] /= count;
@@ -220,17 +224,24 @@ export async function recomputeCentroids(): Promise<number> {
       // Centroid unchanged — skip the write.
       continue;
     }
-    await peopleC.updateOne(
-      { _id: person._id },
-      {
-        $set: {
-          centroid: Array.from(normalised),
-          centroid_face_count: count,
+    bulkOps.push({
+      updateOne: {
+        filter: { _id: person._id },
+        update: {
+          $set: {
+            centroid: Array.from(normalised),
+            centroid_face_count: count,
+          },
         },
       },
-    );
+    });
     updated += 1;
   }
+
+  if (bulkOps.length > 0) {
+    await peopleC.bulkWrite(bulkOps);
+  }
+
   return updated;
 }
 
