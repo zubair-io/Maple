@@ -5,22 +5,53 @@
   <h2 class="mb-3 text-[20px] font-semibold tracking-[-0.01em]">
     {{ claimed() === true ? 'Sign in' : 'Claim this server' }}
   </h2>
-  <input
-    type="email"
-    [(ngModel)]="email"
-    name="email"
-    placeholder="Email"
-    autocomplete="email"
-    required
-    class="block w-full px-3.5 py-3 text-sm text-text-main bg-input-bg border border-border rounded-md outline-none transition-colors duration-[120ms] ease-default placeholder:text-text-muted focus:border-primary"
-  />
-  <button
-    type="submit"
-    [disabled]="busy() || !email"
-    class="submit-btn inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed"
-  >
-    {{ claimed() === true ? 'Sign in with passkey' : 'Create passkey' }}
-  </button>
+  @if (claimed() === true) {
+    <!-- Usernameless passkey sign-in (#1304): no email to type — the browser
+         offers your saved passkeys for this site. -->
+    <button
+      type="button"
+      (click)="signInPasskey()"
+      [disabled]="busy()"
+      class="submit-btn inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed"
+    >
+      Sign in with a passkey
+    </button>
+    <details class="text-[13px] text-text-muted">
+      <summary class="cursor-pointer self-center">Use email instead</summary>
+      <input
+        type="email"
+        [(ngModel)]="email"
+        name="email"
+        placeholder="Email"
+        autocomplete="email"
+        class="block w-full mt-3 px-3.5 py-3 text-sm text-text-main bg-input-bg border border-border rounded-md outline-none transition-colors duration-[120ms] ease-default placeholder:text-text-muted focus:border-primary"
+      />
+      <button
+        type="submit"
+        [disabled]="busy() || !email"
+        class="inline-block w-full mt-2 px-4 py-3 text-sm font-semibold text-text-main bg-input-bg border border-border rounded-md transition-[background,opacity] duration-[120ms] ease-default hover:border-primary disabled:cursor-not-allowed"
+      >
+        Sign in with email
+      </button>
+    </details>
+  } @else {
+    <input
+      type="email"
+      [(ngModel)]="email"
+      name="email"
+      placeholder="Email"
+      autocomplete="email"
+      required
+      class="block w-full px-3.5 py-3 text-sm text-text-main bg-input-bg border border-border rounded-md outline-none transition-colors duration-[120ms] ease-default placeholder:text-text-muted focus:border-primary"
+    />
+    <button
+      type="submit"
+      [disabled]="busy() || !email"
+      class="submit-btn inline-block w-full px-4 py-3 mt-1 text-sm font-semibold text-white bg-primary border border-transparent rounded-md transition-[background,opacity] duration-[120ms] ease-default disabled:cursor-not-allowed"
+    >
+      Create passkey
+    </button>
+  }
   @if (error(); as e) {
     <p class="m-0 px-3 py-2 text-[13px] text-error-text bg-error-bg rounded-md">
       {{ e }}

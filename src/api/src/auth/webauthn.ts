@@ -74,7 +74,10 @@ export async function buildRegistrationOptions(args: {
       : new Uint8Array(randomBytes(32)),
     userName: args.email,
     attestationType: 'none',
-    authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+    // residentKey 'required' (#1304): store a DISCOVERABLE credential so the user
+    // can sign in without first typing an email — the authenticator offers the
+    // passkey and the server identifies the account from the credential id.
+    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
     excludeCredentials: args.excludeCredentialIds.map((id) => ({ id })),
   });
   await storeChallenge({
@@ -116,6 +119,30 @@ export async function buildAuthenticationOptions(userId: ObjectId, email: string
     purpose: 'authenticate',
     user_id: userId,
     email: email.toLowerCase(),
+    invite_code: null,
+  });
+  return opts;
+}
+
+/**
+ * Usernameless / discoverable-credential authentication options (#1304). No
+ * email is known yet, so `allowCredentials` is empty — the authenticator offers
+ * whichever resident passkey the user picks for this RP, and `login/verify`
+ * identifies the account from the asserted credential id. The challenge is
+ * stored unbound to any user (`user_id`/`email` null); it's single-use and the
+ * assertion's signature is what authenticates.
+ */
+export async function buildDiscoverableAuthenticationOptions() {
+  const opts = await generateAuthenticationOptions({
+    rpID: rpID(),
+    allowCredentials: [],
+    userVerification: 'preferred',
+  });
+  await storeChallenge({
+    challenge: opts.challenge,
+    purpose: 'authenticate',
+    user_id: null,
+    email: null,
     invite_code: null,
   });
   return opts;
