@@ -81,6 +81,16 @@ export function filterNamed(rows: readonly ApiPerson[]): ApiPerson[] {
   return rows.filter((p) => !isAutoNamed(p.name));
 }
 
+/** Merge-target candidates: named people minus the given ids (the currently-
+ * selected people, or the open person on the detail page). Feeds both the list
+ * bulk-merge `<select>` and the detail "Merge into…" picker. */
+export function mergeTargets(
+  named: readonly ApiPerson[],
+  excludeIds: ReadonlySet<string>,
+): ApiPerson[] {
+  return named.filter((p) => !excludeIds.has(p.id));
+}
+
 // ── Virtual-scroll row packing ──────────────────────────────────────────────
 //
 // The list grid renders ~15k uniform cards. To window the DOM with CDK's
@@ -218,18 +228,23 @@ export function selectAllKeys(faces: readonly ApiPersonFace[]): Set<string> {
   return next;
 }
 
-/** Toggle a single face key in / out of a selection set. Returns a new
- * `Set` — never mutates the input. Component drives signal updates with
- * the returned set. */
-export function toggleSelection(
-  selection: ReadonlySet<string>,
-  face: { assetId: string; faceIndex: number },
-): Set<string> {
-  const key = faceKey(face);
+/** Toggle a single key in / out of a selection set. Returns a NEW `Set` —
+ * never mutates the input. The one immutable add/remove primitive behind both
+ * face selection (keyed by `faceKey`) and people selection (keyed by id). */
+export function toggleKey(selection: ReadonlySet<string>, key: string): Set<string> {
   const next = new Set(selection);
   if (next.has(key)) next.delete(key);
   else next.add(key);
   return next;
+}
+
+/** Toggle a single face key in / out of a selection set. Thin wrapper over
+ * {@link toggleKey}. */
+export function toggleSelection(
+  selection: ReadonlySet<string>,
+  face: { assetId: string; faceIndex: number },
+): Set<string> {
+  return toggleKey(selection, faceKey(face));
 }
 
 /** Intersect `selection` with the live `detail.faces` list, returning the
@@ -318,6 +333,19 @@ export function faceCropTransform(
  * honestly so the copy never reads "1 photos". */
 export function hidePersonConfirm(name: string, faceCount: number): string {
   return `Hide "${name}"? They'll move to the Hidden page; their ${faceCount} photo${faceCount === 1 ? ' stays' : 's stay'} grouped and you can restore them anytime.`;
+}
+
+/** Confirm-prompt body for bulk soft-hide from the list toolbar. Pluralises
+ * "person"/"people" honestly. Soft action — rows move to the Hidden page. */
+export function hidePeopleConfirm(count: number): string {
+  return `Hide ${count} ${count === 1 ? 'person' : 'people'}? They'll move to the Hidden page; their photos stay grouped and you can restore them anytime.`;
+}
+
+/** Confirm-prompt body for a bulk / explicit merge. The target survives; the
+ * merged people's faces are reassigned to it. Pluralises honestly. */
+export function mergePeopleConfirm(count: number, targetName: string): string {
+  const noun = count === 1 ? 'person' : 'people';
+  return `Merge ${count} ${noun} into "${targetName}"? Their faces will be reassigned to "${targetName}" and the merged ${noun} will disappear from the list.`;
 }
 
 /** Toast text after a clustering run. Reads cleanly for the zero-result
