@@ -507,8 +507,11 @@ export class PeopleComponent implements OnDestroy {
   mergeDetailInto(targetId: string): void {
     const detail = this.selected();
     if (!detail || !targetId) return;
-    this.mergePickerOpen.set(false);
+    // Close the picker only on confirmed success (inside `after`), so a
+    // cancelled confirm leaves it open to retry. The <select> value is reset
+    // by its (change) handler so a cancel shows the placeholder, not a stale pick.
     void this.performMerge(targetId, [detail.id], () => {
+      this.mergePickerOpen.set(false);
       void this.router.navigate(['/settings/people', targetId]);
     });
   }
