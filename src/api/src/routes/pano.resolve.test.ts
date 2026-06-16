@@ -205,11 +205,15 @@ describe('POST /api/pano/stitch — path-based resolution (#1311)', () => {
     const libPath = path.join(tmpDir, 'lib');
 
     // Write files but do NOT insert asset docs — simulate unindexed state.
+    // Distinct content per file: identical bytes would dedup to ONE asset
+    // document (the indexer's maple_id is content-addressed), collapsing the
+    // two inputs to a single id and failing the ≥2 guard. Real pano frames are
+    // always distinct, so give each file a unique tail.
     const png = Buffer.from(TINY_PNG_B64, 'base64');
     const assetPaths: string[] = [];
     for (const name of ['demand-a.png', 'demand-b.png']) {
       const filePath = path.join(libPath, name);
-      await fs.writeFile(filePath, png);
+      await fs.writeFile(filePath, Buffer.concat([png, Buffer.from(name)]));
       assetPaths.push(filePath);
     }
     const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
@@ -301,6 +305,48 @@ describe('POST /api/pano/stitch — path-based resolution (#1311)', () => {
     // Job is created even for non-existent asset ids (the handler itself
     // validates at run time — the route only checks id format here).
     expect(res.status).toBe(201);
+  });
+
+  it('unions one resolvable path with one assetId (mixed selection, #1313)', async () => {
+    // Regression for the both-fields handling: previously the route preferred
+    // paths and IGNORED assetIds, so assetPaths:[one] + assetIds:[one] failed
+    // the ≥2 guard even though two distinct assets were referenced. The union
+    // accepts it.
+    if (!mongoReachable || !db) return;
+    const libPath = path.join(tmpDir, 'lib');
+    const png = Buffer.from(TINY_PNG_B64, 'base64');
+
+    // One asset referenced by path (indexed on-demand), one by id only.
+    const onlyPath = path.join(libPath, 'mixed-a.png');
+    await fs.writeFile(onlyPath, png);
+    const { invalidateLibraryRoots } = await import('../indexer/libraries.cache.ts');
+    invalidateLibraryRoots();
+
+    const res = await postJson('/api/pano/stitch', {
+      assetPaths: [onlyPath],
+      assetIds: [new ObjectId().toHexString()],
+      libraryId: folderId.toHexString(),
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+    // 1 path + 1 id = 2 distinct inputs → accepted, not rejected as <2 paths.
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { id: string; indexing?: number };
+    expect(ObjectId.isValid(body.id)).toBe(true);
+    expect(body.indexing).toBe(1);
+  });
+
+  it('rejects a malformed libraryId before creating a job (#1313)', async () => {
+    // libraryId flows into `new ObjectId(payload.libraryId)` in the handler;
+    // validating it at request time avoids enqueuing a guaranteed-to-crash job.
+    if (!mongoReachable) return;
+    const res = await postJson('/api/pano/stitch', {
+      assetIds: [new ObjectId().toHexString(), new ObjectId().toHexString()],
+      libraryId: 'not-an-objectid',
+      options: { retention: 'keep', localAlign: 'mesh' },
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe('invalid_library_id');
   });
 });
 
