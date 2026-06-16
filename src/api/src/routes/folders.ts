@@ -27,6 +27,7 @@ import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { slugify, dedupeSlug } from '../library/slug.ts';
 import { assetAbsPath, updateLiveLocationCount } from '../indexer/images.repo.ts';
 import type { AssetDoc, AssetWithId } from '../db/schema.ts';
 import { stageManifest, blankStagesSkeleton } from '../workers/stages/manifest.ts';
@@ -249,15 +250,26 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       }
 
       const now = new Date().toISOString();
+      const derivedLabel = label ?? path.split('/').filter(Boolean).pop() ?? path;
+
+      // Mint a unique slug for this library. Load the taken set in one query
+      // so we can deduplicate atomically inside this request.
+      const takenSlugs = await coll
+        .find({ slug: { $exists: true } } as never, { projection: { slug: 1 } })
+        .toArray()
+        .then((rows) => new Set((rows as Array<{ slug?: string }>).map((r) => r.slug!).filter(Boolean)));
+      const slug = dedupeSlug(slugify(derivedLabel), takenSlugs);
+
       const doc = {
         path,
-        label: label ?? path.split('/').filter(Boolean).pop() ?? path,
+        label: derivedLabel,
+        slug,
         last_scan: null as string | null,
         file_count: 0,
         created_at: now,
       };
 
-      const result = await coll.insertOne(doc);
+      const result = await coll.insertOne(doc as never);
       const id = result.insertedId.toHexString();
       const folderId = result.insertedId;
 
@@ -282,6 +294,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
         id,
         path: doc.path,
         label: doc.label,
+        slug: doc.slug,
         last_scan: doc.last_scan,
         file_count: doc.file_count,
         created_at: doc.created_at,
