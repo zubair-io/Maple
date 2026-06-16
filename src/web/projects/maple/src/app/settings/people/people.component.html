@@ -96,10 +96,30 @@
         </div>
 
         <div class="detail-actions">
-          <button type="button" class="btn-ghost" (click)="triggerMerge()">
-            <maple-settings-icon name="merge" [size]="12" />
-            Merge into…
-          </button>
+          @if (mergePickerOpen()) {
+            <select
+              class="btn-ghost merge-select"
+              [disabled]="peopleBulkBusy() > 0 || detailMergeTargets().length === 0"
+              aria-label="Merge this person into"
+              (change)="mergeDetailInto($any($event.target).value)"
+            >
+              <option value="">Merge into…</option>
+              @for (t of detailMergeTargets(); track t.id) {
+                <option [value]="t.id">{{ t.name }}</option>
+              }
+            </select>
+            <button type="button" class="btn-ghost" (click)="cancelMergePicker()">Cancel</button>
+          } @else {
+            <button
+              type="button"
+              class="btn-ghost"
+              [disabled]="detailMergeTargets().length === 0"
+              (click)="openMergePicker()"
+            >
+              <maple-settings-icon name="merge" [size]="12" />
+              Merge into…
+            </button>
+          }
           <button type="button" class="btn-ghost danger" (click)="hideSelectedCluster()">
             Hide person
           </button>
