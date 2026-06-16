@@ -73,9 +73,7 @@ async function applyPausedToWorkerConfig(name: string, paused: boolean): Promise
 
 /** Apply the paused state to every stage in the split face pipeline. */
 async function applyPausedToFaceStages(paused: boolean): Promise<void> {
-  for (const name of FACE_STAGE_NAMES) {
-    await applyPausedToWorkerConfig(name, paused);
-  }
+  await Promise.all(FACE_STAGE_NAMES.map((name) => applyPausedToWorkerConfig(name, paused)));
 }
 
 /**
