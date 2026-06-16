@@ -30,6 +30,8 @@ jobs:
   format-check:
     name: format-check (prettier)
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -95,6 +97,8 @@ jobs:
   file-budget:
     name: file-budget (400 soft / 600 hard LOC)
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
 
@@ -123,6 +127,8 @@ jobs:
     # Only meaningful on PRs — needs a merge base to diff against.
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -192,6 +198,8 @@ jobs:
   codegen-drift:
     name: codegen-drift (regenerated outputs are committed)
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
 
@@ -226,6 +234,8 @@ jobs:
   gitleaks:
     name: gitleaks (PR commits)
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - uses: actions/checkout@v4
         with:
