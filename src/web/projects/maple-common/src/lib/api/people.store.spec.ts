@@ -167,6 +167,41 @@ describe('PeopleStore', () => {
     subject.complete();
   });
 
+  it('invalidate() while in-flight sets dirty flag and re-fires once the fetch lands', () => {
+    // Regression for #1310: without the _listDirty flag, an invalidate() that
+    // arrives while a list fetch is in flight is silently dropped — the UI is
+    // left showing stale data after the mutation that triggered the invalidate.
+    const subjects: Subject<ApiPerson[]>[] = [];
+    const api = new ApiStub();
+    api.listPeople = vi.fn(() => {
+      const s = new Subject<ApiPerson[]>();
+      subjects.push(s);
+      return s.asObservable();
+    });
+    makeBed(api);
+    store = TestBed.inject(PeopleStore);
+
+    // Start a fetch — now in flight.
+    store.ensureList();
+    expect(api.listPeople).toHaveBeenCalledTimes(1);
+
+    // Invalidate while in flight — must NOT fire a second fetch immediately.
+    store.invalidate();
+    expect(api.listPeople).toHaveBeenCalledTimes(1);
+
+    // First fetch lands — the dirty flag must trigger a second fetch.
+    subjects[0].next([person('p1', 'Alice')]);
+    subjects[0].complete();
+    expect(api.listPeople).toHaveBeenCalledTimes(2);
+
+    // The second fetch must NOT loop — completing it without another invalidate
+    // must leave the call count at exactly 2.
+    subjects[1].next([person('p1', 'Alice (fresh)'), person('p2', 'Bob')]);
+    subjects[1].complete();
+    expect(api.listPeople).toHaveBeenCalledTimes(2);
+    expect(store.data()![0].name).toBe('Alice (fresh)');
+  });
+
   it('invalidate() re-fetches the list, keeping the cached value visible', () => {
     const subjects: Subject<ApiPerson[]>[] = [];
     const api = new ApiStub();
