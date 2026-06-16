@@ -466,7 +466,9 @@
                 class="bulk-select"
                 [disabled]="peopleBulkBusy() > 0 || mergeTargetsList().length === 0"
                 aria-label="Merge selected people into"
-                (change)="mergeSelectedInto($any($event.target).value); $any($event.target).value = ''"
+                (change)="
+                  mergeSelectedInto($any($event.target).value); $any($event.target).value = ''
+                "
               >
                 <option value="">…</option>
                 @for (t of mergeTargetsList(); track t.id) {
