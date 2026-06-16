@@ -129,11 +129,19 @@ export const panoStitchHandler: JobHandler = {
       const libs = await loadLibraryRoots();
       const inputPaths: string[] = [];
 
+      const objectIds: ObjectId[] = [];
       for (const idHex of payload.assetIds) {
         if (!ObjectId.isValid(idHex)) {
           throw new Error(`pano_stitch: invalid asset id: ${idHex}`);
         }
-        const doc = await coll.findOne({ _id: new ObjectId(idHex) });
+        objectIds.push(new ObjectId(idHex));
+      }
+
+      const docs = await coll.find({ _id: { $in: objectIds } }).toArray();
+      const docsById = new Map(docs.map((d) => [d._id.toHexString(), d]));
+
+      for (const idHex of payload.assetIds) {
+        const doc = docsById.get(idHex);
         if (!doc) throw new Error(`pano_stitch: asset not found: ${idHex}`);
         const p = assetAbsPath(doc, libs);
         if (!p) throw new Error(`pano_stitch: asset has no resolvable path: ${idHex}`);
@@ -168,7 +176,9 @@ export const panoStitchHandler: JobHandler = {
       args.push('--', ...inputPaths);
 
       // ── 3. Spawn maple-cli ────────────────────────────────────────────────
-      const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+      const env: Record<string, string> = {
+        ...(process.env as Record<string, string>),
+      };
       if (payload.modelsDir) env.MAPLE_PANO_MODELS = payload.modelsDir;
       if (payload.ortDylibPath) env.ORT_DYLIB_PATH = payload.ortDylibPath;
 
@@ -248,7 +258,10 @@ export const panoStitchHandler: JobHandler = {
           stagesCompleted,
           error: 'cancelled',
         };
-        return { kind: 'cancelled', result: result as unknown as Record<string, unknown> };
+        return {
+          kind: 'cancelled',
+          result: result as unknown as Record<string, unknown>,
+        };
       }
 
       if (exitCode !== 0) {
@@ -319,7 +332,10 @@ export const panoStitchHandler: JobHandler = {
         stagesCompleted,
         error: null,
       };
-      return { kind: 'done', result: result as unknown as Record<string, unknown> };
+      return {
+        kind: 'done',
+        result: result as unknown as Record<string, unknown>,
+      };
     } finally {
       // Remove the temp dir created by the route for this job. On success the
       // rename path has already emptied it; on the copy-fallback path we
