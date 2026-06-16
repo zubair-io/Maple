@@ -1,7 +1,8 @@
-// protocol-handler.component.spec.ts — PWA polish (#620).
+// protocol-handler.component.spec.ts — PWA polish (#620) + M2 path routing (#1327).
 // Covers the URL-parsing helper directly (cheap, no router needed) and a
 // thin component-level test that the redirect actually happens.
 
+import { describe, it, expect, beforeEach } from 'vitest';
 import { TestBed } from '@angular/core/testing';
 import { Component } from '@angular/core';
 import { NavigationEnd, provideRouter, Router } from '@angular/router';
@@ -45,6 +46,50 @@ describe('parseProtocolUrl', () => {
     expect(parseProtocolUrl('web+maple://image/fs%3A%2Ffoo%2Fbar.dng')).toEqual([
       '/library/editor',
       'fs:/foo/bar.dng',
+    ]);
+  });
+
+  // M2 path-based routing (#1327): browse + edit deep-links using MapleAddress
+  // grammar (slug:relPath). The protocol handler maps:
+  //   maple://browse/<slug>/<...relPath segments>  →  /browse/:slug/**
+  //   maple://edit/<slug>/<...relPath segments>    →  /edit/:slug/**
+  it('parses maple://browse/<slug> (root folder)', () => {
+    expect(parseProtocolUrl('maple://browse/my-library')).toEqual(['/browse', 'my-library']);
+  });
+
+  it('parses maple://browse/<slug>/<relPath> (sub-folder)', () => {
+    expect(parseProtocolUrl('maple://browse/my-library/2024/jan')).toEqual([
+      '/browse',
+      'my-library',
+      '2024',
+      'jan',
+    ]);
+  });
+
+  it('parses maple://edit/<slug>/<relPath> (image deep-link)', () => {
+    expect(parseProtocolUrl('maple://edit/my-library/shots/img_001.dng')).toEqual([
+      '/edit',
+      'my-library',
+      'shots',
+      'img_001.dng',
+    ]);
+  });
+
+  it('rejects maple://browse with no slug', () => {
+    expect(parseProtocolUrl('maple://browse/')).toBeNull();
+    expect(parseProtocolUrl('maple://browse')).toBeNull();
+  });
+
+  it('rejects maple://edit with no slug', () => {
+    expect(parseProtocolUrl('maple://edit/')).toBeNull();
+    expect(parseProtocolUrl('maple://edit')).toBeNull();
+  });
+
+  it('parses web+maple://browse/<slug>/<path> correctly', () => {
+    expect(parseProtocolUrl('web+maple://browse/my-library/2024')).toEqual([
+      '/browse',
+      'my-library',
+      '2024',
     ]);
   });
 });

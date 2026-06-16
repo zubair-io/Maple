@@ -79,6 +79,69 @@ export class LruCache {
   }
 }
 
+// ── Thumbnail LRU cache ───────────────────────────────────────────────────────
+
+/**
+ * Count-bounded LRU cache for thumbnail URLs (blob: or plain HTTPS strings).
+ * Uses Map insertion order as a recency queue (delete-and-reinsert on access).
+ * Revokes `blob:` URLs when entries are evicted or the cache is cleared so
+ * Blob bytes are freed promptly rather than waiting for a folder switch.
+ *
+ * Default capacity: 500 thumbnails. At 10-30 kB each this stays well inside
+ * a comfortable memory envelope even on a 5,000-image folder. Folder switch
+ * used to wipe the entire map; with this LRU, recently-viewed thumbnails from
+ * the previous folder stay warm until displaced by newer ones (M2, #1327).
+ */
+export class ThumbLruCache {
+  private readonly entries = new Map<string, string>();
+
+  constructor(private readonly maxCount: number) {}
+
+  get size(): number {
+    return this.entries.size;
+  }
+
+  get(id: string): string | undefined {
+    const v = this.entries.get(id);
+    if (v !== undefined) {
+      // Refresh recency by reinserting at the end.
+      this.entries.delete(id);
+      this.entries.set(id, v);
+    }
+    return v;
+  }
+
+  set(id: string, url: string): void {
+    if (this.entries.has(id)) {
+      this.entries.delete(id);
+    }
+    this.entries.set(id, url);
+    this._evict();
+  }
+
+  /** Revoke all blob URLs and empty the cache. */
+  clearAll(): void {
+    for (const url of this.entries.values()) {
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    }
+    this.entries.clear();
+  }
+
+  /** Snapshot as a plain Map for the Angular signal. */
+  toMap(): Map<string, string> {
+    return new Map(this.entries);
+  }
+
+  private _evict(): void {
+    while (this.entries.size > this.maxCount) {
+      const oldest = this.entries.keys().next().value as string;
+      const url = this.entries.get(oldest)!;
+      this.entries.delete(oldest);
+      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    }
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class LibraryCache {
   private readonly store = inject(LibraryStore);
@@ -141,7 +204,18 @@ export class LibraryCache {
 
   // ── Thumbnails ─────────────────────────────────────────────────────────────
 
-  /** Thumbnail URL cache (blob URLs — revoked when assets are removed). */
+  /**
+   * Bounded LRU backing store for thumbnail URLs.
+   * Capacity: 500 entries. Entries are evicted (and blob URLs revoked)
+   * as new thumbnails arrive so the cache self-trims across folder
+   * navigation instead of needing a full wipe on each switch (M2, #1327).
+   */
+  private readonly thumbLru = new ThumbLruCache(500);
+
+  /**
+   * Signal view of the thumbnail URL map. Components read this reactively;
+   * `cacheThumbnailUrl` keeps it in sync with `thumbLru` after every mutation.
+   */
   readonly thumbnailUrls = signal<Map<AssetId, string>>(new Map());
 
   /** In-flight thumbnail loads (id → Promise) so concurrent callers from
@@ -155,16 +229,12 @@ export class LibraryCache {
     this.byteCache.clear();
     this.fileHandles.clear();
     this.legacyBytes.clear();
-    // Revoke the thumbnail object URLs BEFORE dropping the map. `set(new Map())`
-    // alone only orphans them — the underlying blob bytes leak until the page
-    // reloads, which on a long session across many folders adds up. clearAll is
-    // a teardown (folder switch / sign-out) and already empties the map, so
-    // nothing is displaying these anymore; revoking is safe. Double-revoke of
-    // the FS-walk URLs (also held by FilesystemBrowseService) is a harmless
-    // no-op. Guard on `blob:` so a non-object URL is never touched.
-    for (const url of this.thumbnailUrls().values()) {
-      if (url.startsWith('blob:')) URL.revokeObjectURL(url);
-    }
+    // Revoke all thumbnail blob URLs via the LRU (it guards on `blob:` itself)
+    // then reset the signal so components clear their view. This is the
+    // hard-reset path (sign-out / forced wipe); the LRU evicts old entries
+    // automatically during normal browsing so most folder switches no longer
+    // need a full wipe.
+    this.thumbLru.clearAll();
     this.thumbnailUrls.set(new Map());
     // FilesystemBrowseService owns the FS-walk thumb blob URLs in its own cache
     // (unbounded, previously revoked only on sign-out). Clear it here too so a
@@ -311,15 +381,16 @@ export class LibraryCache {
   // ── Thumbnails ─────────────────────────────────────────────────────────────
 
   cacheThumbnailUrl(id: AssetId, url: string): void {
-    this.thumbnailUrls.update((map) => {
-      const next = new Map(map);
-      next.set(id, url);
-      return next;
-    });
+    this.thumbLru.set(id, url);
+    // Publish a new Map snapshot so components that read `thumbnailUrls()`
+    // re-render. The LRU may have evicted the oldest entry (revoking its
+    // blob URL) before inserting the new one, so the snapshot is always
+    // consistent with the LRU state.
+    this.thumbnailUrls.set(this.thumbLru.toMap() as Map<AssetId, string>);
   }
 
   thumbnailUrlFor(id: AssetId): string | undefined {
-    return this.thumbnailUrls().get(id);
+    return this.thumbLru.get(id);
   }
 
   /** Idempotently load the blob-URL thumbnail for one asset. Both
