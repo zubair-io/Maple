@@ -9,8 +9,10 @@
 // Same routes as Apple — keeps the two platforms shoulder-to-shoulder
 // per the spec's "shared DeepLinkResolver" goal:
 //
-//   • maple://image/{id} ↔ /library/editor/{id}
-//   • maple://source/{id} ↔ /library?source={id}
+//   • maple://image/{id}                       ↔ /library/editor/{id}
+//   • maple://source/{id}                      ↔ /library?source={id}
+//   • maple://browse/{slug}[/{...relPath}]     ↔ /browse/:slug/**  (M2, #1327)
+//   • maple://edit/{slug}/{...relPath}         ↔ /edit/:slug/**    (M2, #1327)
 //
 // HTTPS deep links also accept bare `?image=…`/`?source=…` query
 // params (in-app callers that pre-build the route); those drop
@@ -49,6 +51,9 @@ export class DeepLinkService {
     // so we decode the last segment first and check for a `maple://`
     // prefix before re-resolving.
     const segs = u.pathname.split('/').filter(Boolean);
+    // The PWA `protocol_handlers` shim lands `maple://…` invocations at
+    // `/library/editor/<encoded maple://…>` (legacy) or `/protocol-handler?url=…`
+    // (M2). Support both the legacy segment-based unwrap and the new handler.
     if (segs.length === 3 && segs[0] === 'library' && segs[1] === 'editor') {
       try {
         const inner = decodeURIComponent(segs[2]);
@@ -75,15 +80,24 @@ export class DeepLinkService {
     // `URL` parses `maple://image/abc` with `hostname = "image"` and
     // `pathname = "/abc"`. We accept both the `pathname` form and a
     // bare host (`maple://image/`) per spec §3 minimum-id check.
-    const parts = u.pathname.split('/').filter(Boolean);
+    const pathSegs = u.pathname.split('/').filter(Boolean);
     const host = u.hostname;
-    const id = parts[0];
-    if (!id) return;
 
     if (host === 'image') {
+      // Phone-tier route: the id is the full path (may include slug:relPath)
+      const id = pathSegs.join('/');
+      if (!id) return;
       this.router.navigate(['/library/editor', id]);
     } else if (host === 'source') {
+      const id = pathSegs[0];
+      if (!id) return;
       this.router.navigate(['/library'], { queryParams: { source: id } });
+    } else if ((host === 'browse' || host === 'edit') && pathSegs.length > 0) {
+      // M2 (#1327): path-based browse/edit routes. `pathSegs[0]` is the slug;
+      // remaining segments are the relPath parts. Router.navigate accepts an
+      // array of segments; it will build `/browse/<slug>/<...rest>` correctly.
+      const routeSegs = pathSegs.map((s) => decodeURIComponent(s));
+      this.router.navigate(['/' + host, ...routeSegs]);
     }
   }
 

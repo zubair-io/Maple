@@ -11,9 +11,11 @@
 // registers (per the deep-links spec referenced in pwa-polish.md §3); the
 // future deep-link service will normalise both forms.
 //
-// Supported targets today:
-//   web+maple://image/<id>  →  /library/editor/<id>
-//   maple://image/<id>      →  /library/editor/<id>
+// Supported targets:
+//   web+maple://image/<id>            →  /library/editor/<id>
+//   maple://image/<id>                →  /library/editor/<id>
+//   maple://browse/<slug>[/<relPath>] →  /browse/:slug/**  (M2, #1327)
+//   maple://edit/<slug>/<relPath>     →  /edit/:slug/**    (M2, #1327)
 //
 // Anything malformed (missing param, non-maple scheme, unknown host) falls
 // back to `/library` rather than throwing, so an attacker can't pivot off
@@ -68,10 +70,23 @@ export function parseProtocolUrl(raw: string | null): string[] | null {
   if (scheme !== 'maple' && scheme !== 'web+maple') return null;
 
   // For `web+maple://image/abc`, hostname = 'image', pathname = '/abc'.
+  // M2 (#1327): `maple://browse/<slug>/...` and `maple://edit/<slug>/...`
+  // map to the path-based Angular routes `/browse/:slug/**` and `/edit/:slug/**`.
   const host = parsed.hostname;
-  const path = parsed.pathname.replace(/^\//, '');
-  if (host === 'image' && path.length > 0) {
-    return ['/library/editor', decodeURIComponent(path)];
+  // pathname = '/slug/segment1/segment2/...' → split and filter empties
+  const pathSegs = parsed.pathname.split('/').filter(Boolean);
+
+  if (host === 'image' && pathSegs.length > 0) {
+    return ['/library/editor', decodeURIComponent(pathSegs.join('/'))];
   }
+
+  if ((host === 'browse' || host === 'edit') && pathSegs.length > 0) {
+    // slug is pathSegs[0]; remaining segments are the relPath parts.
+    // Each segment is separately decoded so percent-encoded slashes in
+    // individual names are preserved as-is across the router segments.
+    const routeSegs = pathSegs.map((s) => decodeURIComponent(s));
+    return ['/' + host, ...routeSegs];
+  }
+
   return null;
 }
