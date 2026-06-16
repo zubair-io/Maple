@@ -290,6 +290,278 @@ describe('live_location_count maintenance: restore (clear tombstone)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Parity helper — re-assert after every mutation below
+// ---------------------------------------------------------------------------
+
+async function assertParityAndCount(
+  coll: import('mongodb').Collection,
+  id: import('mongodb').ObjectId,
+  expectedCount: number,
+) {
+  const { liveAwareDuplicatePredicate } = await import('../indexer/images.repo.ts');
+  const doc = (await coll.findOne({ _id: id })) as Record<string, unknown> | null;
+  expect(doc!.live_location_count).toBe(expectedCount);
+
+  // Whole-collection parity: indexed count == expr count
+  const indexed = await coll.countDocuments({ live_location_count: { $gte: 2 } });
+  const expr = await coll.countDocuments(
+    liveAwareDuplicatePredicate() as Parameters<typeof coll.countDocuments>[0],
+  );
+  expect(indexed).toBe(expr);
+}
+
+// ---------------------------------------------------------------------------
+// 4. folders.ts re-upload-overwrite: replaces fileinfo with 1-entry array
+//
+// Simulates the path at routes/folders.ts ~line 621-637 where a file-overwrite
+// trashes the existing asset and does:
+//   assets.updateOne({ _id }, { $set: { fileinfo: [singleEntry], deleted_at, original_path } })
+//   updateLiveLocationCount(assets, existing._id)   ← fix added in #1302
+// After that full sequence live_location_count must drop to 1.
+// ---------------------------------------------------------------------------
+
+describe('live_location_count: folders.ts re-upload-overwrite replaces fileinfo array', () => {
+  it('setting fileinfo to a 1-entry live array then calling updateLiveLocationCount gives count=1', async () => {
+    if (!mongoReachable) return;
+    const coll = db!.collection('assets');
+
+    // Start: 2 live entries → count 2 (qualifies as duplicate)
+    const id = await insertAsset([liveEntry('a'), liveEntry('b')]);
+
+    // Simulate the re-upload-overwrite $set from folders.ts:
+    // replaces fileinfo with a single live entry pointing at the trash path,
+    // and sets the TOP-LEVEL deleted_at to mark the asset as trashed.
+    await coll.updateOne(
+      { _id: id },
+      {
+        $set: {
+          fileinfo: [
+            {
+              path: '.maple/trash/a',
+              filename: 'img.dng',
+              library_id: libraryId,
+              deleted_at: null, // per-entry stays live (points at trash path)
+            },
+          ],
+          deleted_at: new Date().toISOString(), // top-level asset deleted_at
+          original_path: '/library/a/img.dng',
+        },
+      },
+    );
+
+    // The fix: routes/folders.ts now calls updateLiveLocationCount after the $set.
+    const { updateLiveLocationCount: recompute } = await import('../indexer/images.repo.ts');
+    await recompute(coll as never, id);
+
+    await assertParityAndCount(coll, id, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 5. folders.ts new-upload $setOnInsert: inserts fileinfo without count
+//
+// Simulates the findOneAndUpdate(..., { upsert: true }) INSERT arm in
+// routes/folders.ts ~line 767-789. When no existing doc matches the fileinfo
+// $elemMatch, MongoDB performs an insert via $setOnInsert. The route now sets
+// live_location_count: 1 in $setOnInsert so the field is present from birth.
+// ---------------------------------------------------------------------------
+
+describe('live_location_count: folders.ts new-upload upsert sets count on insert', () => {
+  it('a fresh upsert insert (no matching doc) sets live_location_count to 1', async () => {
+    if (!mongoReachable) return;
+    const coll = db!.collection('assets');
+    const { liveAwareDuplicatePredicate } = await import('../indexer/images.repo.ts');
+
+    const filename = `upload_test_${Date.now()}.dng`;
+    const relDir = 'uploads';
+
+    // Simulate the folders.ts findOneAndUpdate upsert WITH the fix applied:
+    // live_location_count: 1 is now in $setOnInsert.
+    const result = await coll.findOneAndUpdate(
+      {
+        fileinfo: {
+          $elemMatch: { library_id: libraryId, path: relDir, filename },
+        },
+      },
+      {
+        $set: {
+          size: 12345,
+          mtime: Date.now(),
+          indexed_at: new Date().toISOString(),
+          deleted_at: null,
+        },
+        $setOnInsert: {
+          // Fix (#1302): live_location_count: 1 is now seeded on insert.
+          fileinfo: [{ path: relDir, filename, library_id: libraryId, deleted_at: null }],
+          live_location_count: 1,
+          maple_id: makeMapleId(),
+          rating: 0,
+          flag: 0,
+          color_label: '',
+          exif: null,
+        } as never,
+      },
+      { upsert: true, returnDocument: 'after' },
+    );
+
+    const doc = result as Record<string, unknown> | null;
+    expect(doc!.live_location_count).toBe(1);
+
+    // Parity: indexed == expr
+    const indexed = await coll.countDocuments({ live_location_count: { $gte: 2 } });
+    const expr = await coll.countDocuments(
+      liveAwareDuplicatePredicate() as Parameters<typeof coll.countDocuments>[0],
+    );
+    expect(indexed).toBe(expr);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. dedupeLiveFileinfo collapses duplicate entries and recomputes count
+//
+// Simulates move-backup-asset.ts::dedupeLiveFileinfo which now does:
+//   coll.updateOne({ _id }, { $set: { fileinfo: deduped } })
+//   updateLiveLocationCount(coll, id)   ← fix added in #1302
+// where `deduped` has fewer entries than the original. After the full
+// sequence live_location_count must reflect the collapsed count.
+// ---------------------------------------------------------------------------
+
+describe('live_location_count: dedupeLiveFileinfo collapse recomputes count', () => {
+  it('replacing fileinfo with deduped array (2→1 live) then recomputing gives count=1', async () => {
+    if (!mongoReachable) return;
+    const coll = db!.collection('assets');
+
+    // Start: 2 live entries (duplicate — would qualify for badge), count=2
+    const entry = liveEntry('photos');
+    const id = await insertAsset([entry, { ...entry }]); // two identical live entries
+
+    // Simulate dedupeLiveFileinfo: collapse to 1 entry, write back via $set
+    await coll.updateOne({ _id: id }, { $set: { fileinfo: [entry] } });
+
+    // The fix: dedupeLiveFileinfo now calls updateLiveLocationCount after the collapse.
+    const { updateLiveLocationCount: recompute } = await import('../indexer/images.repo.ts');
+    await recompute(coll as never, id);
+
+    await assertParityAndCount(coll, id, 1);
+  });
+
+  it('dedup collapse preserves parity across the whole collection', async () => {
+    if (!mongoReachable) return;
+    const coll = db!.collection('assets');
+
+    // Real duplicate (different paths) — should remain a duplicate after dedup
+    const id1 = await insertAsset([liveEntry('a'), liveEntry('b')]);
+    // Fake duplicate (same path, two entries) — should collapse to 1
+    const entry = liveEntry('c');
+    const id2 = await insertAsset([entry, { ...entry }]);
+
+    // Collapse id2 and recompute (as the fixed dedupeLiveFileinfo does)
+    await coll.updateOne({ _id: id2 }, { $set: { fileinfo: [entry] } });
+    const { updateLiveLocationCount: recompute } = await import('../indexer/images.repo.ts');
+    await recompute(coll as never, id2);
+
+    // id1 still count=2, id2 count=1, parity holds
+    const { liveAwareDuplicatePredicate } = await import('../indexer/images.repo.ts');
+    await assertParityAndCount(coll, id1, 2);
+    await assertParityAndCount(coll, id2, 1);
+
+    const indexed = await coll.countDocuments({ live_location_count: { $gte: 2 } });
+    const expr = await coll.countDocuments(
+      liveAwareDuplicatePredicate() as Parameters<typeof coll.countDocuments>[0],
+    );
+    expect(indexed).toBe(expr);
+    expect(indexed).toBe(1); // only id1 remains a duplicate
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. trash/restore round-trip — top-level deleted_at only, count unchanged
+//
+// Trashing and restoring an asset touches the TOP-LEVEL deleted_at and may
+// repoint the fileinfo entry path (to .maple/trash/...) but does NOT change
+// per-entry liveness. The live count must stay stable across the round-trip.
+// ---------------------------------------------------------------------------
+
+describe('live_location_count: trash/restore round-trip leaves count stable', () => {
+  it('soft-delete (top-level deleted_at set, fileinfo entry stays live) does not change count', async () => {
+    if (!mongoReachable) return;
+    const coll = db!.collection('assets');
+
+    // Asset with 1 live entry — count=1
+    const id = await insertAsset([liveEntry('photos')]);
+
+    // Simulate markSoftDeleted (legacy path): fileinfo replaced with 1 live
+    // entry pointing at trash; top-level deleted_at set.
+    await coll.updateOne(
+      { _id: id },
+      {
+        $set: {
+          fileinfo: [
+            {
+              path: '.maple/trash/photos',
+              filename: 'img.dng',
+              library_id: libraryId,
+              deleted_at: null, // per-entry stays live
+            },
+          ],
+          deleted_at: new Date().toISOString(), // TOP-LEVEL only
+          original_path: '/library/photos/img.dng',
+        },
+      },
+    );
+
+    // No recompute needed: per-entry liveness didn't change, count stays 1
+    const doc = (await coll.findOne({ _id: id })) as Record<string, unknown> | null;
+    expect(doc!.live_location_count).toBe(1);
+  });
+
+  it('restore (top-level deleted_at cleared) does not change count', async () => {
+    if (!mongoReachable) return;
+    const coll = db!.collection('assets');
+
+    // Asset in trash — 1 live fileinfo entry pointing at trash path, top-level deleted_at set
+    const id = await insertAsset([
+      {
+        path: '.maple/trash/photos',
+        filename: 'img.dng',
+        library_id: libraryId,
+        deleted_at: null, // per-entry live (points at trash)
+        missing_since: null,
+      },
+    ]);
+    await coll.updateOne(
+      { _id: id },
+      { $set: { deleted_at: new Date().toISOString(), original_path: '/library/photos/img.dng' } },
+    );
+
+    // Simulate restoreFromTrash (legacy path): repoint fileinfo + clear top-level deleted_at
+    await coll.updateOne(
+      { _id: id },
+      {
+        $set: {
+          fileinfo: [
+            {
+              path: 'photos',
+              filename: 'img.dng',
+              library_id: libraryId,
+              deleted_at: null,
+            },
+          ],
+          size: 12345,
+          mtime: Date.now(),
+          deleted_at: null, // clear top-level
+          original_path: null,
+        },
+      },
+    );
+
+    // No recompute needed: per-entry liveness unchanged, count stays 1
+    const doc = (await coll.findOne({ _id: id })) as Record<string, unknown> | null;
+    expect(doc!.live_location_count).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 3. Status count uses live_location_count (index-covered path)
 // ---------------------------------------------------------------------------
 
