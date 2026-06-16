@@ -43,5 +43,5 @@ export async function tagMissingSince(
     )
     .catch(() => {});
   // Recompute live count after tagging an entry missing_since (best-effort).
-  await updateLiveLocationCount(images as never, id).catch(() => {});
+  await updateLiveLocationCount(images, id).catch(() => {});
 }

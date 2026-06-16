@@ -638,10 +638,7 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
                 // Recompute live count: the fileinfo array was replaced with a
                 // single entry (the trashed location). If the old row had 2+
                 // live entries the count would otherwise stay stale (#1302).
-                await updateLiveLocationCount(
-                  assets as never,
-                  existing._id as import('mongodb').ObjectId,
-                );
+                await updateLiveLocationCount(assets, existing._id);
                 trashed = {
                   docId: existing._id as ObjectId,
                   newAbsPath: moved.newAbsPath,

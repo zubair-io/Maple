@@ -341,7 +341,7 @@ async function mergeFileinfoEntry(
   );
   if (pushResult.modifiedCount > 0) {
     // Pushed a new entry — recompute live count.
-    await updateLiveLocationCount(assets as never, survivorId);
+    await updateLiveLocationCount(assets, survivorId);
     return;
   }
   // Entry already present on the survivor. If ours is live, surface that
@@ -364,7 +364,7 @@ async function mergeFileinfoEntry(
       },
     );
     // Recompute live count: clearing deleted_at may revive the entry.
-    await updateLiveLocationCount(assets as never, survivorId);
+    await updateLiveLocationCount(assets, survivorId);
   }
 }
 
