@@ -186,9 +186,15 @@ export function liveLocationCountExpression(): Record<string, unknown> {
  * asset identified by `_id`. Called after any mutation that changes liveness
  * of an array element (set/clear `missing_since` or `deleted_at`, `$pull`).
  *
- * Uses a pipeline update so the recompute is atomic with the subsequent write.
- * Callers that use a pipeline update directly (e.g. adding a new entry via
- * `$concatArrays`) should inline `liveLocationCountExpression()` themselves
+ * This helper issues its OWN single pipeline `updateOne` that atomically
+ * recomputes `live_location_count` from `$fileinfo`. It is normally called as
+ * a SEPARATE round-trip AFTER the mutation that changed liveness, so there is
+ * a brief window where the stored count is stale. That window is safe because:
+ * the dedupe worker uses the exact `liveAwareDuplicatePredicate()` (drift-proof)
+ * and only the 2 s-cached `/status` count reads this field.
+ *
+ * Callers that already issue a pipeline update themselves (e.g. adding a new
+ * entry via `$concatArrays`) should inline `liveLocationCountExpression()`
  * instead of calling this separately, to avoid a second round-trip.
  *
  * ── EXHAUSTIVE SITE REGISTRY ────────────────────────────────────────────────
@@ -243,11 +249,16 @@ export function liveLocationCountExpression(): Record<string, unknown> {
  *     updates `fileinfo.$.path / filename` of ONE entry — no change to liveness.
  * ────────────────────────────────────────────────────────────────────────────
  */
+/** Minimal structural interface so call sites don't need `as never` casts. */
+interface CollectionWithUpdateOne {
+  updateOne(filter: Record<string, unknown>, update: Record<string, unknown>[]): Promise<unknown>;
+}
+
 export async function updateLiveLocationCount(
-  coll: Collection<{ live_location_count?: number }>,
+  coll: CollectionWithUpdateOne,
   id: ObjectId,
 ): Promise<void> {
-  await (coll as Collection<Record<string, unknown>>).updateOne({ _id: id as unknown }, [
+  await coll.updateOne({ _id: id as unknown }, [
     { $set: { live_location_count: liveLocationCountExpression() } },
   ]);
 }

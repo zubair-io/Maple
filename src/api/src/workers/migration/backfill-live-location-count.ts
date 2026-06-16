@@ -12,8 +12,10 @@
  * replaces the `$expr`+`$filter` FETCH scan the deduplicate `/status`
  * count previously used.
  *
- * Processes assets in batches of `batchSize` using `$lt: cursor` pagination
- * so a large collection is never loaded into memory at once.
+ * Processes assets in batches of `batchSize`. Each batch queries rows that
+ * are still missing the field (`pendingFilter`) with a `limit`; because the
+ * batch SETS `live_location_count`, processed rows drop out of `pendingFilter`
+ * automatically, so the next batch sees fresh rows — no cursor or sort needed.
  */
 
 import { getDb } from '../../db/client.ts';
@@ -43,12 +45,11 @@ export const backfillLiveLocationCount: Migration = {
     const db = await getDb();
     const assets = db.collection('assets');
 
-    // Process a batch of assets missing the field. Using updateMany with a
-    // pipeline so the recompute is atomic per row and never needs a cursor.
-    // We limit via $limit in an aggregation + bulkWrite to avoid loading the
-    // whole collection; a pipeline updateMany without a limit would process
-    // ALL pending rows in one shot — fine for correctness but potentially a
-    // large write on first run.
+    // Collect a batch of IDs missing the field, then atomically recompute
+    // live_location_count for each via a single pipeline updateMany. Using
+    // find(pendingFilter, { limit }) + updateMany({_id:{$in:ids}}) rather
+    // than an unbounded updateMany, which would process ALL pending rows in
+    // one shot — fine for correctness but potentially a large write on first run.
     const candidates = await assets
       .find(pendingFilter(), { projection: { _id: 1 }, limit: batchSize })
       .toArray();
@@ -58,7 +59,6 @@ export const backfillLiveLocationCount: Migration = {
     const ids = candidates.map((c) => c._id);
 
     let processed = 0;
-    let errors = 0;
     try {
       const result = await assets.updateMany({ _id: { $in: ids } }, [
         {
@@ -69,10 +69,9 @@ export const backfillLiveLocationCount: Migration = {
       ]);
       processed = result.modifiedCount;
     } catch (err) {
-      errors = candidates.length;
       throw err;
     }
 
-    return { processed, errors };
+    return { processed, errors: 0 };
   },
 };
