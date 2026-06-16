@@ -172,28 +172,38 @@ export class PanoDialogComponent implements OnDestroy {
     // `absPathFor(localId)` returns the absolute path. When no abs-path is
     // available (e.g. a cloud-hosted asset already carrying an API id) we
     // fall back to the API id alone.
+    // Per asset, send the best single reference: prefer the absolute path
+    // (the server resolves it fresh, avoiding the stale-id false-negative) and
+    // fall back to the API id only when there is no path. We never send BOTH a
+    // path and an id for the same asset — a stale cached id alongside a fresh
+    // path would make the server stitch a duplicate (or a 404'd) document.
     const assetPaths: string[] = [];
     const assetIds: string[] = [];
+    const unreferenced: string[] = [];
 
     for (const localId of localIds) {
       const absPath = this.state.absPathFor(localId);
       if (absPath) {
         assetPaths.push(absPath);
+        continue;
       }
       const apiId = this.state.apiIdFor(localId);
       if (apiId) {
         assetIds.push(apiId);
+        continue;
       }
+      unreferenced.push(localId);
     }
 
-    // If we have neither paths nor ids for any asset the server has no way
-    // to resolve inputs — surface an early error rather than sending an
-    // empty request.
-    if (assetPaths.length === 0 && assetIds.length === 0) {
+    // Fail fast if ANY selected asset cannot be referenced. Dropping it
+    // silently would stitch fewer images than the user picked, with no
+    // feedback — surface a clear error instead.
+    if (unreferenced.length > 0) {
       this.errorCode.set('assets_not_indexed');
       this.errorMessage.set(
-        'Could not determine the file paths for the selected images. ' +
-          'Try re-opening the folder and selecting again.',
+        `${unreferenced.length} of the selected ` +
+          `${unreferenced.length === 1 ? 'image' : 'images'} could not be located ` +
+          'on disk or in the index. Try re-opening the folder and selecting again.',
       );
       this.phase.set('error');
       return;

@@ -37,7 +37,6 @@ import {
 import { createJob, getJob, listJobs, requestCancel } from '../job-runner/jobs.repo.ts';
 import type { JobWithId } from '../db/schema.ts';
 import { assetsCollection } from '../db/client.ts';
-import { assetAbsPath } from '../indexer/images.repo.ts';
 import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { isUnderRoot } from '../fs/browse.ts';
 
@@ -77,13 +76,14 @@ async function probeStrategySupported(cliPath: string): Promise<boolean> {
 
 // ── body / query schemas ──────────────────────────────────────────────────────
 
-// The client may send either `assetIds` (Mongo ObjectId hex strings, stale
-// fast-path) or `assetPaths` (absolute server-side filesystem paths, always
-// fresh), or both. The route resolves paths → ids on the server at request
-// time so the client's in-memory id map can never cause a false-negative.
-// Elysia v1 does not support `t.Union` at the object level for mutual
-// exclusivity; we accept both as optional and validate the invariant in the
-// handler.
+// Per selected asset the client sends its best single reference: `assetPaths`
+// (absolute server-side filesystem paths, always fresh) when it has one, else
+// `assetIds` (Mongo ObjectId hex strings) for assets it can only name by id.
+// The two arrays are disjoint at the asset level — the client never sends both
+// a path and an id for the same asset, so a stale cached id can never shadow a
+// fresh path. The route resolves paths → ids and unions them with the supplied
+// ids. Both are optional here; the ≥2-distinct-inputs invariant is validated in
+// the handler.
 const StitchBody = t.Object({
   assetIds: t.Optional(t.Array(t.String())),
   assetPaths: t.Optional(t.Array(t.String())),
@@ -141,8 +141,9 @@ function projectJob(doc: JobWithId): JobView {
  * arbitrary server paths can never be indexed or stitched.
  *
  * For each path:
- *   (a) Look up the asset doc by filename match + `assetAbsPath` verification
- *       (same query the browse route uses).
+ *   (a) Look up the asset doc by filename match + canonical path comparison
+ *       (the realpath-normalized absolute path must equal the path rebuilt
+ *       from the doc's library root + stored relative path).
  *   (b) If not found: index the file on-demand by firing `handleEvent` (the
  *       discover producer's per-file insert path). This is a light index —
  *       skeleton doc + fileinfo only. The stitch reads the RAW file by path
@@ -341,23 +342,39 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
         };
       }
 
+      // 2b. Validate libraryId is a well-formed ObjectId. The job handler does
+      //     `new ObjectId(payload.libraryId)` and `loadLibraryRoots().get(id)`;
+      //     a malformed id would otherwise create a job that is guaranteed to
+      //     crash at run time. Reject early with a clear 422.
+      if (!ObjectId.isValid(body.libraryId)) {
+        set.status = 422;
+        return {
+          error: 'invalid_library_id',
+          message: `Invalid library id: ${body.libraryId}`,
+        };
+      }
+
       // 3. Resolve asset IDs — server-authoritative to avoid stale-client-map
       //    false-negatives.
       //
-      //    The client may send:
+      //    The client sends, per selected asset, the best reference it has:
       //      (a) `assetPaths` — absolute server-side paths (always fresh).
-      //      (b) `assetIds`   — MongoDB ObjectId hexes (fast-path, may be stale).
-      //      (c) Both         — paths take precedence (used when client has both).
+      //      (b) `assetIds`   — MongoDB ObjectId hexes, ONLY for assets the
+      //                         client cannot reference by path (e.g. cloud-
+      //                         hosted). The client never sends an id for an
+      //                         asset it also sends a path for, so a stale id
+      //                         can never shadow a fresh path-resolved id.
       //
-      //    When `assetPaths` is supplied, we resolve each path to an asset _id,
-      //    indexing the file on-demand when it isn't in the collection yet.
-      //    The security boundary is enforced here: paths must lie under a
-      //    registered library root (verified by `resolveAssetPaths`).
-      let resolvedIds: string[];
+      //    We resolve paths → ids (indexing on-demand, enforcing the library-
+      //    root boundary in `resolveAssetPaths`) and UNION them with the
+      //    directly-supplied ids. A union — not paths-XOR-ids — is what lets a
+      //    mixed selection (some path-only, some id-only assets) stitch all of
+      //    them instead of dropping one set or failing when neither set alone
+      //    has 2 entries.
+      const resolvedIds: string[] = [];
       let indexedCount = 0;
 
       if (body.assetPaths && body.assetPaths.length > 0) {
-        // Path-based resolution (server-authoritative).
         let resolved: Awaited<ReturnType<typeof resolveAssetPaths>>;
         try {
           resolved = await resolveAssetPaths(body.assetPaths);
@@ -373,33 +390,33 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
           }
           throw err;
         }
-        resolvedIds = resolved.resolvedIds;
+        resolvedIds.push(...resolved.resolvedIds);
         indexedCount = resolved.indexedCount;
+      }
 
-        // Guard: need ≥ 2 inputs for a stitch.
-        if (resolvedIds.length < 2) {
-          set.status = 422;
-          return {
-            error: 'insufficient_assets',
-            message: 'At least 2 valid image paths are required to create a panorama.',
-          };
-        }
-      } else if (body.assetIds && body.assetIds.length >= 2) {
-        // Legacy ObjectId-only path (client has known API ids).
-        // Validate each is a well-formed ObjectId.
+      if (body.assetIds && body.assetIds.length > 0) {
+        // Validate each id-only reference is a well-formed ObjectId.
         for (const id of body.assetIds) {
           if (!ObjectId.isValid(id)) {
             set.status = 422;
             return { error: 'invalid_asset_id', message: `Invalid asset id: ${id}` };
           }
         }
-        resolvedIds = body.assetIds;
-      } else {
+        resolvedIds.push(...body.assetIds);
+      }
+
+      // Dedup while preserving order: a path and an id can resolve to the same
+      // deduplicated asset document (two files with identical content share one
+      // Mongo _id), and the stitcher must not receive the same input twice.
+      const uniqueIds = [...new Set(resolvedIds)];
+
+      // Need ≥ 2 distinct inputs for a stitch.
+      if (uniqueIds.length < 2) {
         set.status = 422;
         return {
           error: 'insufficient_assets',
           message:
-            'Provide at least 2 asset paths (assetPaths) or asset ids (assetIds) to create a panorama.',
+            'At least 2 valid images (via assetPaths or assetIds) are required to create a panorama.',
         };
       }
 
@@ -414,7 +431,7 @@ export const panoRoutes = new Elysia({ prefix: '/api/pano' })
       const doc = await createJob({
         kind: 'pano_stitch',
         payload: {
-          assetIds: resolvedIds,
+          assetIds: uniqueIds,
           libraryId: body.libraryId,
           outputDir,
           retention: body.options.retention,
