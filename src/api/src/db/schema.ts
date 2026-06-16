@@ -64,6 +64,10 @@ export interface MirrorQueueDoc {
 export interface FolderDoc {
   /** Absolute filesystem path to the library root. */
   path: string;
+  /** Stable public identifier, [a-z0-9-]. Minted once at registration,
+   * never auto-changes (the human label may change freely). Present on
+   * all rows after the backfillFolderSlugs migration. */
+  slug: string;
   /** Display label (defaults to basename of path). */
   label: string;
   /** When the last full scan completed (ISO string). */
