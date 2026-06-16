@@ -151,7 +151,6 @@ export const panoStitchHandler: JobHandler = {
       const args: string[] = [
         'pano',
         'stitch',
-        ...inputPaths,
         '--out',
         outputPng,
         '--retention',
@@ -165,6 +164,8 @@ export const panoStitchHandler: JobHandler = {
       if (payload.modelsDir) {
         args.push('--models-dir', payload.modelsDir);
       }
+
+      args.push('--', ...inputPaths);
 
       // ── 3. Spawn maple-cli ────────────────────────────────────────────────
       const env: Record<string, string> = { ...(process.env as Record<string, string>) };
