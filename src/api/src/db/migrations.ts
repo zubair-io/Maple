@@ -18,6 +18,7 @@
 import * as pathMod from 'node:path';
 import type { AnyBulkWriteOperation, Db, ObjectId } from 'mongodb';
 import { child as childLogger } from '../log.ts';
+import { slugify, dedupeSlug } from '../library/slug.ts';
 
 const log = childLogger('db:migrations');
 
@@ -34,7 +35,8 @@ export type MigrationId =
   | 'swap-maple-id-partial-filter-2026-05-23'
   | 'migrate-missing-since-to-fileinfo-2026-06-05'
   | 'repair-captured-year-month-2026-06-07'
-  | 'drop-legacy-location-fields-2026-06-11';
+  | 'drop-legacy-location-fields-2026-06-11'
+  | 'backfill-folder-slugs-2026-06-16';
 
 interface MigrationDoc {
   _id: MigrationId;
@@ -434,4 +436,140 @@ export async function dropLegacyLocationFields(db: Db): Promise<DropLegacyLocati
     },
   );
   return { cleared: res.modifiedCount ?? 0 };
+}
+
+// ---------------------------------------------------------------------------
+// backfill-folder-slugs-2026-06-16
+//
+// Mints a `slug` for every `folders` document that lacks one. Deterministic:
+// documents are processed in `_id` order (ascending insertion order), so
+// deduplication is stable across reruns. Idempotent: rows that already carry
+// a `slug` are skipped. The unique `folders_slug_unique` index is created
+// AFTER this backfill runs (see ensureIndexes ordering in client.ts).
+// ---------------------------------------------------------------------------
+
+export interface BackfillFolderSlugsResult {
+  updated: number;
+  skipped: number;
+}
+
+export async function backfillFolderSlugs(db: Db): Promise<BackfillFolderSlugsResult> {
+  const log = childLogger('db:migrations:folder-slugs');
+
+  // Seed the taken set with slugs already assigned so dedup is collision-safe
+  // even in partial-run scenarios.
+  const existing = await db
+    .collection('folders')
+    .find({ slug: { $exists: true, $ne: null } }, { projection: { slug: 1 } })
+    .toArray();
+  const taken = new Set<string>(existing.map((d) => d.slug as string).filter(Boolean));
+
+  const cursor = db
+    .collection('folders')
+    .find({ $or: [{ slug: { $exists: false } }, { slug: null }] }, { projection: { _id: 1, label: 1, path: 1 } })
+    .sort({ _id: 1 });
+
+  let updated = 0;
+  let skipped = 0;
+
+  for await (const doc of cursor) {
+    const label = (doc.label as string | undefined) ?? '';
+    const base = slugify(label || pathMod.basename(doc.path as string) || 'library');
+    const slug = dedupeSlug(base, taken);
+    taken.add(slug);
+    const res = await db.collection('folders').updateOne(
+      { _id: doc._id, $or: [{ slug: { $exists: false } }, { slug: null }] },
+      { $set: { slug } },
+    );
+    if (res.modifiedCount > 0) {
+      updated += 1;
+    } else {
+      skipped += 1;
+    }
+  }
+
+  log.info({ updated, skipped }, 'backfilled folder slugs');
+  return { updated, skipped };
+}
+
+// ---------------------------------------------------------------------------
+// fileinfo compound index uniqueness hardening (Task 2b)
+//
+// Checks for duplicate (library_id, path, filename) tuples in the assets
+// collection. If zero violations, promotes the compound index to unique. If
+// violations exist, logs them and leaves the non-unique index in place.
+// Called from ensureIndexes() after the non-unique `fileinfo_lib_path_name`
+// index has been created.
+// ---------------------------------------------------------------------------
+
+export interface FileinfoUniquenessResult {
+  violations: number;
+  promoted: boolean;
+}
+
+export async function hardenFileinfoCompoundIndex(db: Db): Promise<FileinfoUniquenessResult> {
+  const log = childLogger('db:migrations:fileinfo-unique');
+
+  // Count groups with size > 1 — each such group is a duplicate tuple.
+  const pipeline = [
+    { $unwind: '$fileinfo' },
+    {
+      $group: {
+        _id: {
+          library_id: '$fileinfo.library_id',
+          path: '$fileinfo.path',
+          filename: '$fileinfo.filename',
+        },
+        count: { $sum: 1 },
+      },
+    },
+    { $match: { count: { $gt: 1 } } },
+    { $count: 'total' },
+  ];
+
+  const result = await db.collection('assets').aggregate(pipeline).toArray();
+  const violations = result[0]?.total ?? 0;
+
+  if (violations > 0) {
+    // Log the offending tuples for operator inspection (up to 10 for brevity).
+    const dupPipeline = [
+      { $unwind: '$fileinfo' },
+      {
+        $group: {
+          _id: {
+            library_id: '$fileinfo.library_id',
+            path: '$fileinfo.path',
+            filename: '$fileinfo.filename',
+          },
+          count: { $sum: 1 },
+          maple_ids: { $push: '$maple_id' },
+        },
+      },
+      { $match: { count: { $gt: 1 } } },
+      { $limit: 10 },
+    ];
+    const dups = await db.collection('assets').aggregate(dupPipeline).toArray();
+    log.warn(
+      { violations, sample: dups },
+      '[STOP] fileinfo compound uniqueness violations detected — unique index NOT created; operator must resolve duplicates before re-running',
+    );
+    return { violations, promoted: false };
+  }
+
+  // Zero violations — safe to promote to unique.
+  // The partialFilterExpression restricts the unique constraint to rows that
+  // actually have at least one fileinfo entry (excludes skeleton rows and rows
+  // without fileinfo, which would otherwise all collide on null keys).
+  await db
+    .collection('assets')
+    .createIndex(
+      { 'fileinfo.library_id': 1, 'fileinfo.path': 1, 'fileinfo.filename': 1 },
+      {
+        unique: true,
+        name: 'fileinfo_lib_path_name_unique',
+        partialFilterExpression: { 'fileinfo.0': { $exists: true } },
+      },
+    );
+  log.info('promoted fileinfo compound index to unique (zero violations)');
+  return { violations: 0, promoted: true };
 }
