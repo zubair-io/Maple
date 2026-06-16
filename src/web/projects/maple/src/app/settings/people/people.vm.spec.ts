@@ -33,6 +33,7 @@ import {
   visibleFaces,
   withNaturalDims,
 } from './people.vm';
+import { toggleKey, mergeTargets, mergePeopleConfirm, hidePeopleConfirm } from './people.vm';
 
 // ── Fixture builders ───────────────────────────────────────────────────────
 
@@ -415,6 +416,43 @@ describe('bulkFailureLabel', () => {
   it('embeds the first rejection reason', () => {
     expect(bulkFailureLabel(2, 'timeout')).toBe('2 faces failed: timeout');
     expect(bulkFailureLabel(1, 'boom')).toBe('1 face failed: boom');
+  });
+});
+
+describe('toggleKey', () => {
+  it('adds a missing key and removes a present one, immutably', () => {
+    const a = toggleKey(new Set<string>(), 'x');
+    expect([...a]).toEqual(['x']);
+    const b = toggleKey(a, 'x');
+    expect([...b]).toEqual([]);
+    expect([...a]).toEqual(['x']); // original set untouched
+  });
+});
+
+describe('mergeTargets', () => {
+  const mk = (id: string, name: string): ApiPerson => ({
+    id,
+    name,
+    faceCount: 0,
+    coverAssetId: null,
+    coverAbsPath: null,
+    coverBbox: null,
+    createdAt: '',
+    updatedAt: '',
+  });
+  it('returns named people minus the excluded ids', () => {
+    const named = [mk('1', 'Alice'), mk('2', 'Bob'), mk('3', 'Cara')];
+    const out = mergeTargets(named, new Set(['2']));
+    expect(out.map((p) => p.id)).toEqual(['1', '3']);
+  });
+});
+
+describe('mergePeopleConfirm / hidePeopleConfirm', () => {
+  it('pluralises the subject count', () => {
+    expect(mergePeopleConfirm(1, 'Alice')).toContain('1 person into "Alice"');
+    expect(mergePeopleConfirm(3, 'Alice')).toContain('3 people into "Alice"');
+    expect(hidePeopleConfirm(1)).toContain('Hide 1 person');
+    expect(hidePeopleConfirm(2)).toContain('Hide 2 people');
   });
 });
 
