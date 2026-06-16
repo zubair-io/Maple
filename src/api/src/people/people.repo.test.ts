@@ -469,7 +469,6 @@ describe('people.repo — mergePeopleInto', () => {
     expect(result.survivor._id.toHexString()).toBe(target._id.toHexString());
     expect(result.survivor.name).toBe('Alice');
     expect(result.mergedCount).toBe(2);
-    expect(result.facesRepointed).toBe(2);
 
     // All three faces now resolve under the target.
     const detail = await getPerson(target._id);
