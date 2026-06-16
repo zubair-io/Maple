@@ -27,6 +27,7 @@ pub fn run(
 
     let output = Command::new("python3")
         .arg(&script)
+        .arg("--")
         .arg(candidate)
         .arg(reference)
         .output()?;
