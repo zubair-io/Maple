@@ -96,25 +96,29 @@
         </div>
 
         <div class="detail-actions">
-          @if (mergePickerOpen()) {
+          @if (bulk.mergePickerOpen()) {
             <select
               class="btn-ghost"
-              [disabled]="peopleBulkBusy() > 0 || detailMergeTargets().length === 0"
+              [disabled]="bulk.peopleBulkBusy() > 0 || bulk.detailMergeTargets().length === 0"
               aria-label="Merge this person into"
-              (change)="mergeDetailInto($any($event.target).value); $any($event.target).value = ''"
+              (change)="
+                bulk.mergeDetailInto($any($event.target).value); $any($event.target).value = ''
+              "
             >
               <option value="">Merge into…</option>
-              @for (t of detailMergeTargets(); track t.id) {
+              @for (t of bulk.detailMergeTargets(); track t.id) {
                 <option [value]="t.id">{{ t.name }}</option>
               }
             </select>
-            <button type="button" class="btn-ghost" (click)="cancelMergePicker()">Cancel</button>
+            <button type="button" class="btn-ghost" (click)="bulk.cancelMergePicker()">
+              Cancel
+            </button>
           } @else {
             <button
               type="button"
               class="btn-ghost"
-              [disabled]="detailMergeTargets().length === 0"
-              (click)="openMergePicker()"
+              [disabled]="bulk.detailMergeTargets().length === 0"
+              (click)="bulk.openMergePicker()"
             >
               <maple-settings-icon name="merge" [size]="12" />
               Merge into…
@@ -299,11 +303,11 @@
           </p>
         </div>
         <div class="actions">
-          @if (selectMode()) {
+          @if (bulk.selectMode()) {
             <button
               type="button"
               class="btn-ghost"
-              (click)="exitSelectMode()"
+              (click)="bulk.exitSelectMode()"
               aria-label="Exit selection mode"
             >
               Done
@@ -312,7 +316,7 @@
             <button
               type="button"
               class="btn-ghost"
-              (click)="enterSelectMode()"
+              (click)="bulk.enterSelectMode()"
               aria-label="Select people for bulk actions"
             >
               Select
@@ -370,27 +374,29 @@
               @for (p of row; track p.id) {
                 <article
                   class="person-card"
-                  [class.is-selected]="selectMode() && isPersonSelected(p.id)"
+                  [class.is-selected]="bulk.selectMode() && bulk.isPersonSelected(p.id)"
                   [style.width.px]="cardWidth()"
-                  (click)="selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id)"
+                  (click)="
+                    bulk.selectMode() ? bulk.togglePersonSelection(p.id) : selectPerson(p.id)
+                  "
                   (mapleVisibleOnce)="ensureCoverThumb(p)"
                   tabindex="0"
                   role="button"
-                  [attr.aria-pressed]="selectMode() ? isPersonSelected(p.id) : null"
-                  [attr.aria-label]="selectMode() ? 'Select ' + p.name : null"
+                  [attr.aria-pressed]="bulk.selectMode() ? bulk.isPersonSelected(p.id) : null"
+                  [attr.aria-label]="bulk.selectMode() ? 'Select ' + p.name : null"
                   (keydown.enter)="
-                    selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id);
+                    bulk.selectMode() ? bulk.togglePersonSelection(p.id) : selectPerson(p.id);
                     $event.preventDefault()
                   "
                   (keydown.space)="
-                    selectMode() ? togglePersonSelection(p.id) : selectPerson(p.id);
+                    bulk.selectMode() ? bulk.togglePersonSelection(p.id) : selectPerson(p.id);
                     $event.preventDefault()
                   "
                 >
                   <div class="person-thumb">
-                    @if (selectMode()) {
-                      <span class="select-check" [class.is-selected]="isPersonSelected(p.id)">
-                        @if (isPersonSelected(p.id)) {
+                    @if (bulk.selectMode()) {
+                      <span class="select-check" [class.is-selected]="bulk.isPersonSelected(p.id)">
+                        @if (bulk.isPersonSelected(p.id)) {
                           <maple-settings-icon
                             name="check"
                             [size]="12"
@@ -434,7 +440,7 @@
                       <span class="person-faces"
                         >{{ p.faceCount }} face{{ p.faceCount === 1 ? '' : 's' }}</span
                       >
-                      @if (!selectMode()) {
+                      @if (!bulk.selectMode()) {
                         <button
                           type="button"
                           class="card-delete"
@@ -453,10 +459,10 @@
         }
       </div>
 
-      @if (selectMode() && selectedPeople().size > 0) {
+      @if (bulk.selectMode() && bulk.selectedPeople().size > 0) {
         <div class="bulk-toolbar-wrap">
           <div class="bulk-toolbar">
-            <span class="bulk-count">{{ selectedPeople().size }} selected</span>
+            <span class="bulk-count">{{ bulk.selectedPeople().size }} selected</span>
             <div class="bulk-sep"></div>
 
             <label class="bulk-btn">
@@ -464,14 +470,14 @@
               <span>Merge into…</span>
               <select
                 class="bulk-select"
-                [disabled]="peopleBulkBusy() > 0 || mergeTargetsList().length === 0"
+                [disabled]="bulk.peopleBulkBusy() > 0 || bulk.mergeTargetsList().length === 0"
                 aria-label="Merge selected people into"
                 (change)="
-                  mergeSelectedInto($any($event.target).value); $any($event.target).value = ''
+                  bulk.mergeSelectedInto($any($event.target).value); $any($event.target).value = ''
                 "
               >
                 <option value="">…</option>
-                @for (t of mergeTargetsList(); track t.id) {
+                @for (t of bulk.mergeTargetsList(); track t.id) {
                   <option [value]="t.id">{{ t.name }}</option>
                 }
               </select>
@@ -480,15 +486,15 @@
             <button
               type="button"
               class="bulk-btn"
-              [disabled]="peopleBulkBusy() > 0"
+              [disabled]="bulk.peopleBulkBusy() > 0"
               aria-label="Hide selected people"
-              (click)="hideSelectedPeople()"
+              (click)="bulk.hideSelectedPeople()"
             >
               <maple-settings-icon name="eye" [size]="13" color="#f5f4f2" />
               Hide
             </button>
             <div class="bulk-sep"></div>
-            <button type="button" class="bulk-btn mute" (click)="exitSelectMode()">
+            <button type="button" class="bulk-btn mute" (click)="bulk.exitSelectMode()">
               <maple-settings-icon name="x" [size]="13" color="#a8a29e" />
               Cancel
             </button>

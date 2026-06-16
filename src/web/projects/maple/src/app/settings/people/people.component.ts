@@ -11,24 +11,16 @@
 // is the single source of truth: a `selectedRouteId` computed signal
 // reads paramMap, and a constructor-time effect fires GET /api/people/:id
 // whenever the id changes. Computed signals dedupe by equality, so
-// duplicate paramMap emissions for the same id don't re-fetch. Click
-// handlers only navigate.
+// duplicate paramMap emissions for the same id don't re-fetch.
 //
 // Renaming a person to a name that already exists triggers a SERVER-SIDE
 // merge — the response includes `mergedFrom` so the UI can show the
 // "Merged into {name}" toast.
 //
-// Bulk operations (Move / Unassign / Hide) fan out to the existing
-// single-face endpoints in parallel and refresh once after settle — the
-// API doesn't surface a bulk endpoint yet, and typical selection sizes
-// (≤ 60 faces, per the visible cap) make N round-trips acceptable.
-//
-// Bearer-gated thumb loading lives in {@link ThumbBlobCache} so the
-// component stays focused on UI flow control.
-//
-// Pure derivation (auto-name predicate, sort/filter, face-key plumbing,
-// bbox geometry, label copy, error normalisation) lives next door in
-// `./people.vm.ts`. This file owns DI, signal wiring, and side effects.
+// List-view bulk people selection / merge / hide lives in
+// {@link PeopleBulkController} (co-located). Bearer-gated thumb loading
+// lives in {@link ThumbBlobCache}. Pure derivation lives in `./people.vm.ts`.
+// This file owns DI, signal wiring, and side effects.
 
 import {
   ChangeDetectionStrategy,
@@ -74,11 +66,8 @@ import {
   faceKey,
   filterNamed,
   hiddenFaceCount,
-  hidePeopleConfirm,
   hidePersonConfirm,
   isAutoNamed,
-  mergePeopleConfirm,
-  mergeTargets,
   NaturalDims,
   PEOPLE_GRID,
   peopleCardWidth,
@@ -89,11 +78,11 @@ import {
   pickSelectedFaces,
   selectAllKeys,
   sortPeople,
-  toggleKey,
   toggleSelection,
   visibleFaces,
   withNaturalDims,
 } from './people.vm';
+import { PeopleBulkController } from './people-bulk.controller';
 
 @Component({
   standalone: true,
@@ -176,84 +165,17 @@ export class PeopleComponent implements OnDestroy {
 
   readonly namedPeople = computed(() => filterNamed(this.sortedPeople()));
 
-  // ── List-view people selection (bulk hide / merge) ──────────────────
-  /** When true, list cards toggle selection instead of navigating. */
-  readonly selectMode = signal<boolean>(false);
-  /** Selected person ids for the bulk toolbar. */
-  readonly selectedPeople = signal<ReadonlySet<string>>(new Set());
-  /** In-flight count for a bulk people op — disables the toolbar while > 0. */
-  readonly peopleBulkBusy = signal<number>(0);
-
-  /** Named-people merge targets for the list toolbar, excluding the current
-   * selection (you can't merge people into one of themselves). */
-  readonly mergeTargetsList = computed(() =>
-    mergeTargets(this.namedPeople(), this.selectedPeople()),
-  );
-
-  enterSelectMode(): void {
-    this.selectMode.set(true);
-  }
-
-  exitSelectMode(): void {
-    this.selectMode.set(false);
-    this.selectedPeople.set(new Set());
-  }
-
-  isPersonSelected(id: string): boolean {
-    return this.selectedPeople().has(id);
-  }
-
-  togglePersonSelection(id: string): void {
-    this.selectedPeople.set(toggleKey(this.selectedPeople(), id));
-  }
-
-  private clearPeopleSelection(): void {
-    this.selectedPeople.set(new Set());
-  }
-
-  /** Shared merge flow for the list toolbar AND the detail button. Confirms,
-   * calls the store, toasts the result, then runs `after` (list: clear +
-   * stay in select mode; detail: navigate to the target). */
-  private async performMerge(
-    targetId: string,
-    sourceIds: string[],
-    after: () => void,
-  ): Promise<void> {
-    if (!targetId || sourceIds.length === 0) return;
-    const targetName = this.people().find((p) => p.id === targetId)?.name ?? 'person';
-    if (!confirm(mergePeopleConfirm(sourceIds.length, targetName))) return;
-    this.peopleBulkBusy.update((n) => n + 1);
-    try {
-      const result = await this.store.mergePeople(targetId, sourceIds);
-      this.showToast(`Merged ${result.mergedCount} into ${result.name}`, 'success');
-      after();
-    } catch (err) {
-      this.showToast(errorMessage(err), 'error');
-    } finally {
-      this.peopleBulkBusy.update((n) => Math.max(0, n - 1));
-    }
-  }
-
-  mergeSelectedInto(targetId: string): void {
-    void this.performMerge(targetId, [...this.selectedPeople()], () => this.clearPeopleSelection());
-  }
-
-  async hideSelectedPeople(): Promise<void> {
-    const ids = [...this.selectedPeople()];
-    if (ids.length === 0) return;
-    if (!confirm(hidePeopleConfirm(ids.length))) return;
-    this.peopleBulkBusy.update((n) => n + 1);
-    try {
-      const { ok, failed } = await this.store.hidePeople(ids);
-      if (ok > 0) this.showToast(`Hid ${ok} ${ok === 1 ? 'person' : 'people'}`, 'success');
-      if (failed > 0) this.showToast(`${failed} failed to hide`, 'error');
-      this.clearPeopleSelection();
-    } catch (err) {
-      this.showToast(errorMessage(err), 'error');
-    } finally {
-      this.peopleBulkBusy.update((n) => Math.max(0, n - 1));
-    }
-  }
+  /** Bulk list-selection / merge / hide controller. Declared after `store`,
+   * `router`, `people`, `namedPeople`, and `selected` so field initializers
+   * that reference those are already resolved. */
+  readonly bulk = new PeopleBulkController({
+    store: this.store,
+    router: this.router,
+    people: this.people,
+    namedPeople: this.namedPeople,
+    selected: this.selected,
+    toast: (text, tone) => this.showToast(text, tone),
+  });
 
   // ── List-view virtual scroll ────────────────────────────────────────────
   // The list grid is windowed by `cdk-virtual-scroll-viewport`: sorted people
@@ -479,39 +401,6 @@ export class PeopleComponent implements OnDestroy {
   cancelEdit(): void {
     this.editingId.set(null);
     this.draftName.set('');
-  }
-
-  // ── Detail-view "Merge into…" picker ────────────────────────────────
-  /** Whether the detail header is showing the merge-target `<select>`. */
-  readonly mergePickerOpen = signal<boolean>(false);
-
-  /** Named-people targets for the detail merge, excluding the open person. */
-  readonly detailMergeTargets = computed(() => {
-    const detail = this.selected();
-    const exclude = new Set<string>(detail ? [detail.id] : []);
-    return mergeTargets(this.namedPeople(), exclude);
-  });
-
-  openMergePicker(): void {
-    this.mergePickerOpen.set(true);
-  }
-
-  cancelMergePicker(): void {
-    this.mergePickerOpen.set(false);
-  }
-
-  /** Merge the open person INTO the picked target, then navigate to the
-   * target's detail page (it now shows the combined faces). */
-  mergeDetailInto(targetId: string): void {
-    const detail = this.selected();
-    if (!detail || !targetId) return;
-    // Close the picker only on confirmed success (inside `after`), so a
-    // cancelled confirm leaves it open to retry. The <select> value is reset
-    // by its (change) handler so a cancel shows the placeholder, not a stale pick.
-    void this.performMerge(targetId, [detail.id], () => {
-      this.mergePickerOpen.set(false);
-      void this.router.navigate(['/settings/people', targetId]);
-    });
   }
 
   commitEdit(personId: string): void {
