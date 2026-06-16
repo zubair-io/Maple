@@ -23,13 +23,25 @@ export interface PanoStitchOptions {
 }
 
 export interface PanoStitchRequest {
-  assetIds: string[];
+  /** Mongo ObjectId hex strings for already-indexed assets. Optional fast-path
+   *  when the client has stale IDs — the server ignores IDs not found in the DB
+   *  and falls back to `assetPaths` for resolution. At least one of `assetIds`
+   *  or `assetPaths` must supply ≥2 resolvable entries. */
+  assetIds?: string[];
+  /** Absolute server-side filesystem paths. The server resolves each path to its
+   *  Mongo asset document (indexing on-demand when not yet indexed) after
+   *  validating it lies under a registered library root. */
+  assetPaths?: string[];
   libraryId: string;
   options: PanoStitchOptions;
 }
 
 export interface PanoStitchResponse {
   id: string;
+  /** Number of assets that were indexed on-demand before the job was queued.
+   *  Present and > 0 when the server had to index files that were not yet in
+   *  the assets collection. The job proceeds normally regardless. */
+  indexing?: number;
 }
 
 export interface PanoJobProgress {
