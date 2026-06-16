@@ -27,7 +27,7 @@ import { child as childLogger } from '../log.ts';
 import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
-import { assetAbsPath } from '../indexer/images.repo.ts';
+import { assetAbsPath, updateLiveLocationCount } from '../indexer/images.repo.ts';
 import type { AssetDoc, AssetWithId } from '../db/schema.ts';
 import { stageManifest, blankStagesSkeleton } from '../workers/stages/manifest.ts';
 
@@ -635,6 +635,13 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
                     },
                   },
                 );
+                // Recompute live count: the fileinfo array was replaced with a
+                // single entry (the trashed location). If the old row had 2+
+                // live entries the count would otherwise stay stale (#1302).
+                await updateLiveLocationCount(
+                  assets as never,
+                  existing._id as import('mongodb').ObjectId,
+                );
                 trashed = {
                   docId: existing._id as ObjectId,
                   newAbsPath: moved.newAbsPath,
@@ -779,6 +786,10 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
               },
               $setOnInsert: {
                 fileinfo: [fileinfoEntry],
+                // One live fileinfo entry on insert (#1302). Must be in
+                // $setOnInsert (not $set) so an existing-doc update arm
+                // never overwrites a count that was already maintained.
+                live_location_count: 1,
                 rating: 0,
                 flag: 0,
                 color_label: '',
