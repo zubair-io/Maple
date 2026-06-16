@@ -35,11 +35,10 @@ export interface RenameResult {
 
 /** Result of `mergePeopleInto`. `mergedCount` is the number of sources that
  * were actually folded in (self / already-merged / missing sources are
- * skipped); `facesRepointed` is the total faces moved onto the survivor. */
+ * skipped). */
 export interface MergePeopleResult {
   survivor: PersonWithId;
   mergedCount: number;
-  facesRepointed: number;
 }
 
 /** Result of `listPeople({ withCounts: true })`. The face count is an
@@ -229,20 +228,21 @@ export async function mergePeopleInto(
     throw new Error(`person already merged: ${targetId.toHexString()}`);
   }
   let mergedCount = 0;
-  let facesRepointed = 0;
   for (const sourceId of sourceIds) {
     if (sourceId.equals(targetId)) continue;
     const source = await coll.findOne({ _id: sourceId });
     if (!source || source.merged_into) continue;
     // Target stays the survivor; pass its current name so the canonical name
     // is unchanged (no rename on an explicit merge).
-    const { facesRepointed: n } = await mergeInto(targetId, sourceId, target.name);
+    await mergeInto(targetId, sourceId, target.name);
     mergedCount += 1;
-    facesRepointed += n;
+  }
+  if (mergedCount > 0) {
+    markAssetsForMeiliReindexBestEffort([targetId, ...sourceIds]);
   }
   const fresh = await coll.findOne({ _id: targetId });
   if (!fresh) throw new Error('target disappeared mid-merge');
-  return { survivor: fresh as PersonWithId, mergedCount, facesRepointed };
+  return { survivor: fresh as PersonWithId, mergedCount };
 }
 
 /** Internal merge helper: repoint `asset.faces[].person_id` from `orphan`
@@ -252,7 +252,7 @@ async function mergeInto(
   survivor: ObjectId,
   orphan: ObjectId,
   name: string,
-): Promise<{ facesRepointed: number }> {
+): Promise<void> {
   const survivorHex = survivor.toHexString();
   const orphanHex = orphan.toHexString();
   const assets = await assetsCollection();
@@ -296,7 +296,6 @@ async function mergeInto(
     },
     'merged person',
   );
-  return { facesRepointed: repoint.modifiedCount };
 }
 
 /**
