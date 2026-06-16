@@ -192,3 +192,13 @@ export * from './lib/search/search.component';
 export * from './lib/util/errors';
 export * from './lib/util/idb';
 export * from './lib/util/typed-storage';
+
+// M2 — Unified library addressing (MapleAddress + LibrarySource strategy).
+export * from './lib/addressing/maple-address';
+export * from './lib/addressing/library-source';
+export * from './lib/addressing/library-source-selector';
+export * from './lib/addressing/library-source-provider';
+export * from './lib/addressing/http-library-source';
+export * from './lib/addressing/fs-access-library-source';
+export * from './lib/addressing/library-slug-registry';
+export * from './lib/addressing/route-address';
