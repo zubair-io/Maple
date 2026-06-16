@@ -155,6 +155,52 @@ export function liveAwareDuplicatePredicate(): Record<string, unknown> {
 }
 
 /**
+ * MongoDB aggregation expression that counts live `fileinfo` entries (where
+ * neither `deleted_at` nor `missing_since` is set). Identical liveness
+ * definition as `isLiveFileInfo`. Used in pipeline `$set` stages so the
+ * denormalized `live_location_count` field is recomputed atomically in the
+ * same update that mutates the array (#1302).
+ *
+ * In aggregation context, absent fields evaluate to a missing-value that
+ * `$eq: null` does NOT match — we use `$ifNull` to coerce absent → `null`
+ * before comparing, matching `isLiveFileInfo` exactly.
+ */
+export function liveLocationCountExpression(): Record<string, unknown> {
+  return {
+    $size: {
+      $filter: {
+        input: { $ifNull: ['$fileinfo', []] },
+        cond: {
+          $and: [
+            { $eq: [{ $ifNull: ['$$this.deleted_at', null] }, null] },
+            { $eq: [{ $ifNull: ['$$this.missing_since', null] }, null] },
+          ],
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Recompute `live_location_count` from the stored `fileinfo` array for one
+ * asset identified by `_id`. Called after any mutation that changes liveness
+ * of an array element (set/clear `missing_since` or `deleted_at`, `$pull`).
+ *
+ * Uses a pipeline update so the recompute is atomic with the subsequent write.
+ * Callers that use a pipeline update directly (e.g. adding a new entry via
+ * `$concatArrays`) should inline `liveLocationCountExpression()` themselves
+ * instead of calling this separately, to avoid a second round-trip.
+ */
+export async function updateLiveLocationCount(
+  coll: Collection<{ live_location_count?: number }>,
+  id: ObjectId,
+): Promise<void> {
+  await (coll as Collection<Record<string, unknown>>).updateOne({ _id: id as unknown }, [
+    { $set: { live_location_count: liveLocationCountExpression() } },
+  ]);
+}
+
+/**
  * First live `fileinfo` entry, or `null` when the array is missing or every
  * entry is non-live (`deleted_at` and/or `missing_since` set). "Live" is
  * defined by {@link isLiveFileInfo}.
@@ -288,6 +334,8 @@ export async function upsertByMapleId(input: UpsertInput): Promise<UpdateResult>
             deleted_at: null,
           } as FileInfo,
         ],
+        // One live fileinfo entry on insert.
+        live_location_count: 1,
         rating: 0,
         flag: 0,
         color_label: '',
