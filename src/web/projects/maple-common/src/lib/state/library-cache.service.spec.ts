@@ -4,11 +4,15 @@
 // (not just orphan the map) so their bytes are freed, and must clear the
 // FilesystemBrowseService thumb cache too so a folder switch reclaims that
 // memory instead of holding it until sign-out.
+//
+// Also tests ThumbLruCache: the bounded LRU that backs thumbnailUrls so
+// folder-switch no longer wipes the entire cache — old entries evict
+// gradually as new thumbnails arrive (M2, #1327).
 
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 
-import { LibraryCache } from './library-cache.service';
+import { LibraryCache, ThumbLruCache } from './library-cache.service';
 import { LibraryStore } from './library-store.service';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { FilesystemBrowseService } from '../api/filesystem-browse.service';
@@ -70,5 +74,72 @@ describe('LibraryCache — thumbnail object-URL lifecycle', () => {
     svc.cacheThumbnailUrl('c' as AssetId, 'https://cdn.example/x.jpg');
     svc.clearAll();
     expect(revoke).not.toHaveBeenCalledWith('https://cdn.example/x.jpg');
+  });
+});
+
+describe('ThumbLruCache — bounded LRU for thumbnail blob URLs', () => {
+  let revoke: Mock<(url: string) => void>;
+  let originalRevoke: typeof URL.revokeObjectURL;
+
+  beforeEach(() => {
+    originalRevoke = URL.revokeObjectURL;
+    revoke = vi.fn<(url: string) => void>();
+    URL.revokeObjectURL = revoke;
+  });
+
+  afterEach(() => {
+    URL.revokeObjectURL = originalRevoke;
+  });
+
+  it('stores entries up to capacity without eviction', () => {
+    const lru = new ThumbLruCache(3);
+    lru.set('a' as AssetId, 'blob:a');
+    lru.set('b' as AssetId, 'blob:b');
+    lru.set('c' as AssetId, 'blob:c');
+    expect(lru.size).toBe(3);
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it('evicts the oldest entry and revokes its blob URL when capacity is exceeded', () => {
+    const lru = new ThumbLruCache(2);
+    lru.set('a' as AssetId, 'blob:a');
+    lru.set('b' as AssetId, 'blob:b');
+    lru.set('c' as AssetId, 'blob:c'); // evicts 'a'
+    expect(revoke).toHaveBeenCalledWith('blob:a');
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(lru.size).toBe(2);
+    expect(lru.get('a' as AssetId)).toBeUndefined();
+    expect(lru.get('b' as AssetId)).toBe('blob:b');
+    expect(lru.get('c' as AssetId)).toBe('blob:c');
+  });
+
+  it('does not revoke non-blob URLs on eviction', () => {
+    const lru = new ThumbLruCache(1);
+    lru.set('a' as AssetId, 'https://cdn.example/a.jpg');
+    lru.set('b' as AssetId, 'blob:b'); // evicts 'a' but 'a' is not blob:
+    expect(revoke).not.toHaveBeenCalled();
+  });
+
+  it('get refreshes recency so the accessed entry is not the next evicted', () => {
+    const lru = new ThumbLruCache(2);
+    lru.set('a' as AssetId, 'blob:a');
+    lru.set('b' as AssetId, 'blob:b');
+    lru.get('a' as AssetId); // refresh 'a' → 'b' is now oldest
+    lru.set('c' as AssetId, 'blob:c'); // evicts 'b'
+    expect(revoke).toHaveBeenCalledWith('blob:b');
+    expect(lru.get('a' as AssetId)).toBe('blob:a');
+    expect(lru.get('b' as AssetId)).toBeUndefined();
+  });
+
+  it('clearAll revokes all blob URLs and empties the cache', () => {
+    const lru = new ThumbLruCache(10);
+    lru.set('a' as AssetId, 'blob:a');
+    lru.set('b' as AssetId, 'blob:b');
+    lru.set('c' as AssetId, 'https://cdn.example/c.jpg');
+    lru.clearAll();
+    expect(revoke).toHaveBeenCalledWith('blob:a');
+    expect(revoke).toHaveBeenCalledWith('blob:b');
+    expect(revoke).not.toHaveBeenCalledWith('https://cdn.example/c.jpg');
+    expect(lru.size).toBe(0);
   });
 });
