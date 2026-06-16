@@ -23,6 +23,7 @@
  */
 
 import { Elysia, t } from 'elysia';
+import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { ObjectId } from 'mongodb';
@@ -159,10 +160,29 @@ async function resolveAssetPaths(
 ): Promise<{ resolvedIds: string[]; indexedCount: number }> {
   const libs = await loadLibraryRoots();
 
-  // Build a root → folderId map for the index-on-demand path.
-  const rootToFolderId = new Map<string, ObjectId>();
+  // Canonicalize every registered root via realpath so that the jail check
+  // works correctly on macOS (where e.g. /tmp → /private/tmp) and with
+  // symlinked library roots. This mirrors what browse.ts's browseRoots()
+  // does for MAPLE_ROOTS. Roots that don't exist on disk are kept as-is.
+  //
+  // We also build a `libIdToCanonRoot` map so that `findDocByPath` can
+  // construct the expected absolute path using the canonicalized root
+  // (matching the realpath-normalized `absPath`) instead of the raw stored
+  // root. Without this, the comparison would fail on macOS where the stored
+  // folder.path is /var/folders/… but realpath returns /private/var/folders/…
+  const canonRootToFolderId = new Map<string, ObjectId>();
+  const canonRoots: string[] = [];
+  const libIdToCanonRoot = new Map<string, string>();
   for (const [id, root] of libs) {
-    rootToFolderId.set(root, new ObjectId(id));
+    let canonRoot: string;
+    try {
+      canonRoot = await fs.realpath(root);
+    } catch {
+      canonRoot = root;
+    }
+    canonRootToFolderId.set(canonRoot, new ObjectId(id));
+    canonRoots.push(canonRoot);
+    libIdToCanonRoot.set(id, canonRoot);
   }
 
   const resolvedIds: string[] = [];
@@ -170,9 +190,32 @@ async function resolveAssetPaths(
 
   const coll = await assetsCollection();
 
-  for (const absPath of paths) {
+  for (const rawPath of paths) {
+    // ── Normalize input path (collapse `..` and resolve symlinks) ─────────
+    // This is the primary security fix: `fs.realpath` collapses traversal
+    // sequences like `/lib/../../etc/hosts` to `/etc/hosts` so that
+    // `isUnderRoot` cannot be fooled by a path that lexically starts with
+    // the library root prefix but physically escapes it. This mirrors the
+    // `real = await realpath(reqPath)` step in browse.ts's `listDir` and
+    // `listDirContents`.
+    //
+    // If realpath fails the file does not exist on disk — we cannot stitch
+    // a non-existent file, so we reject immediately (400) without touching
+    // the jail check or the indexer.
+    let absPath: string;
+    try {
+      absPath = await fs.realpath(rawPath);
+    } catch {
+      throw Object.assign(new Error(`Path does not exist or cannot be accessed: ${rawPath}`), {
+        status: 400,
+        code: 'path_not_found',
+      });
+    }
+
     // ── Security boundary ──────────────────────────────────────────────────
-    const owningRoot = Array.from(libs.values()).find((root) => isUnderRoot(absPath, root));
+    // Check against the realpath-canonicalized roots so a symlinked root
+    // (e.g. /Volumes/Photos → /private/mnt/…) still matches.
+    const owningRoot = canonRoots.find((root) => isUnderRoot(absPath, root));
     if (!owningRoot) {
       throw Object.assign(
         new Error(
@@ -181,7 +224,7 @@ async function resolveAssetPaths(
         { status: 400, code: 'path_outside_library' },
       );
     }
-    const owningFolderId = rootToFolderId.get(owningRoot)!;
+    const owningFolderId = canonRootToFolderId.get(owningRoot)!;
 
     // ── Resolve by filename (same approach as browse.ts) ──────────────────
     // We check ALL fileinfo entries on each matching doc (not just the
@@ -204,7 +247,12 @@ async function resolveAssetPaths(
         }>;
         for (const entry of entries) {
           if (entry.deleted_at || entry.missing_since) continue;
-          const libRoot = libs.get(entry.library_id.toHexString());
+          const libId = entry.library_id.toHexString();
+          // Use the canonicalized root (realpath'd) so the path comparison
+          // matches the normalized absPath on systems where the stored
+          // folder.path differs from its realpath (e.g. macOS /var vs
+          // /private/var). Fall back to the raw stored root if not found.
+          const libRoot = libIdToCanonRoot.get(libId) ?? libs.get(libId);
           if (!libRoot) continue;
           const segments = entry.path === '' ? [] : entry.path.split('/');
           const resolved = path.join(libRoot, ...segments, entry.filename);
@@ -227,6 +275,11 @@ async function resolveAssetPaths(
     // the skeleton asset doc. This is lightweight: it hashes the file head
     // and upserts a fileinfo entry; heavy enrichment (thumb, exif, etc.)
     // runs asynchronously on the normal worker schedule.
+    //
+    // NOTE: absPath here is the realpath-normalized value — not the raw
+    // client-supplied string. The indexer receives the canonical path so
+    // the stored fileinfo entry is consistent with what a filesystem walk
+    // would produce.
     log.info({ absPath }, 'pano/stitch: indexing file on-demand');
     const { handleEvent } = await import('../workers/discover/index.ts');
     await handleEvent({ kind: 'created', absPath }, owningFolderId, owningRoot);
