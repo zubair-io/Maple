@@ -351,3 +351,25 @@ describe('ensureIndexes — maple_id index (Fix 4)', () => {
     expect((dupKeyError as { code?: number }).code).toBe(11000);
   });
 });
+
+describe('ensureIndexes — slug + fileinfo compound index (M1)', () => {
+  it('has a unique index on folders.slug and the fileinfo compound index', async () => {
+    if (!mongoReachable) return;
+    const { closeDb, ensureIndexes } = await import('./client.ts');
+    await closeDb();
+    await ensureIndexes();
+
+    const folderIdx = await db!.collection('folders').indexes();
+    expect(folderIdx.some((i) => i.key?.slug === 1 && i.unique === true)).toBe(true);
+
+    const assetIdx = await db!.collection('assets').indexes();
+    expect(
+      assetIdx.some(
+        (i) =>
+          i.key?.['fileinfo.library_id'] === 1 &&
+          i.key?.['fileinfo.path'] === 1 &&
+          i.key?.['fileinfo.filename'] === 1,
+      ),
+    ).toBe(true);
+  });
+});

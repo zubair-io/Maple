@@ -515,8 +515,11 @@ export async function ensureIndexes(): Promise<void> {
     }
   }
 
-  // folders: path is unique
+  // folders: path is unique; slug is the stable public identifier (unique)
   await db.collection('folders').createIndex({ path: 1 }, { unique: true });
+  await db
+    .collection('folders')
+    .createIndex({ slug: 1 }, { unique: true, name: 'folders_slug_unique' });
 
   // assets: legacy compound + standalone indexes on `folder_id` / `filename`
   // were retired in the drop-abs-path-2026-05-21 migration below (see end of
@@ -792,6 +795,18 @@ export async function ensureIndexes(): Promise<void> {
       );
     }
   }
+
+  // Compound (library_id, path, filename) index for the M1 catalog-backed
+  // browse: resolveAddress performs a point query on this triple to locate
+  // an asset by its slug-relative path. Non-unique in M1 — uniqueness
+  // hardening (Task 2b) is a separate guarded step that checks for
+  // violations before promoting to a unique constraint.
+  await db
+    .collection('assets')
+    .createIndex(
+      { 'fileinfo.library_id': 1, 'fileinfo.path': 1, 'fileinfo.filename': 1 },
+      { name: 'fileinfo_lib_path_name' },
+    );
 
   // Content-derived dedup key: `maple_id` is the 16-byte hash assigned by
   // the hash stage. Hot-path callers (every one of these would COLLSCAN
