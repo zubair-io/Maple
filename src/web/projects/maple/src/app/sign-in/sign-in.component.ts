@@ -60,6 +60,26 @@ export class SignInComponent implements OnInit {
     }
   }
 
+  /**
+   * Usernameless passkey sign-in (#1304) — no email needed. The browser offers
+   * the user's discoverable passkeys for this site; the server identifies the
+   * account from the chosen credential.
+   */
+  async signInPasskey(): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.auth.signIn();
+      if (!this.auth.isNativeShell) {
+        await this.router.navigateByUrl('/');
+      }
+    } catch (e: unknown) {
+      this.error.set(errorMessage(e));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   async devSignIn(): Promise<void> {
     this.busy.set(true);
     this.error.set(null);

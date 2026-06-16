@@ -14,6 +14,7 @@ import {
   verifyRegistration,
   consumeChallenge,
   buildAuthenticationOptions,
+  buildDiscoverableAuthenticationOptions,
   verifyAuthentication,
 } from '../auth/webauthn.ts';
 import { redeemInvite, createInvite, listInvites, rescindInvite } from '../auth/invites.ts';
@@ -255,7 +256,12 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 429;
         return { error: 'rate limited' };
       }
-      const email = body.email.toLowerCase();
+      // Usernameless (#1304): no email → discoverable-credential options. The
+      // authenticator offers the user's resident passkey and login/verify
+      // identifies the account from the asserted credential id. Passing an email
+      // still works (scopes allowCredentials to that user) as a fallback.
+      const email = body.email?.toLowerCase();
+      if (!email) return buildDiscoverableAuthenticationOptions();
       const u = await (await usersCollection()).findOne({ email });
       if (!u) {
         set.status = 404;
@@ -263,25 +269,20 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
       }
       return buildAuthenticationOptions(u._id, email);
     },
-    { body: t.Object({ email: t.String({ format: 'email' }) }) },
+    { body: t.Object({ email: t.Optional(t.String({ format: 'email' })) }) },
   )
 
   // ----- login/verify -----
   .post(
     '/login/verify',
     async ({ body, set, cookie }) => {
-      const email = body.email.toLowerCase();
       const clientChallenge = body.credential?.response?.clientDataJSON
         ? JSON.parse(Buffer.from(body.credential.response.clientDataJSON, 'base64url').toString())
             .challenge
         : '';
 
       // Consume the challenge first so an invalid/replayed challenge can't
-      // trigger user + credential lookups (DB-amplification on bad input).
-      // Once the challenge is validated, fan out the user + credential reads
-      // in parallel — they're independent. The credential is looked up by
-      // its unique `credential_id` and the user binding is checked in JS,
-      // matching the semantics of the prior compound-key findOne.
+      // trigger DB lookups (amplification on bad input). Single-use.
       let challengeRow;
       try {
         challengeRow = await consumeChallenge(clientChallenge);
@@ -289,30 +290,34 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
         set.status = 400;
         return { error: 'challenge invalid' };
       }
-      if (challengeRow.purpose !== 'authenticate' || challengeRow.email !== email) {
+      if (challengeRow.purpose !== 'authenticate') {
         set.status = 400;
         return { error: 'challenge mismatch' };
       }
 
+      // Identify the account from the asserted credential id (#1304) — works for
+      // both usernameless and email-scoped sign-in. No email binding is needed:
+      // the challenge is single-use and the assertion signature is verified
+      // against THIS credential's stored public key.
+      const credentialId = body.credential?.id;
+      if (!credentialId) {
+        set.status = 400;
+        return { error: 'unknown credential' };
+      }
       const [credsColl, usersColl] = await Promise.all([
         credentialsCollection(),
         usersCollection(),
       ]);
-      const credentialId = body.credential?.id;
-      const [user, credLookup] = await Promise.all([
-        usersColl.findOne({ email }),
-        credentialId ? credsColl.findOne({ credential_id: credentialId }) : Promise.resolve(null),
-      ]);
-
+      const cred = await credsColl.findOne({ credential_id: credentialId });
+      if (!cred) {
+        set.status = 400;
+        return { error: 'unknown credential' };
+      }
+      const user = await usersColl.findOne({ _id: cred.user_id });
       if (!user) {
         set.status = 404;
         return { error: 'no such user' };
       }
-      if (!credLookup || !credLookup.user_id.equals(user._id)) {
-        set.status = 400;
-        return { error: 'unknown credential' };
-      }
-      const cred = credLookup;
 
       const verification = await verifyAuthentication({
         response: body.credential,
@@ -372,7 +377,9 @@ export const authRoutes = new Elysia({ prefix: '/api/auth' })
     },
     {
       body: t.Object({
-        email: t.String({ format: 'email' }),
+        // Optional (#1304): usernameless sign-in sends only the credential; the
+        // account is identified by the asserted credential id.
+        email: t.Optional(t.String({ format: 'email' })),
         credential: t.Any(),
       }),
     },
