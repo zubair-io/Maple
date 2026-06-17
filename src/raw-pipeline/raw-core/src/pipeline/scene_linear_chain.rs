@@ -22,7 +22,7 @@ use super::{
     fp16::{f16_bits_to_f32, f32_to_f16_bits},
     stage,
 };
-use crate::{error::Result, xmp::AdjustmentModel};
+use crate::{error::Result, view::encode::TargetPrimaries, xmp::AdjustmentModel};
 
 /// Apply the per-tick scene-linear chain to an already-decoded fp16 RGBA
 /// scene-linear Rec.2020 buffer.
@@ -57,12 +57,17 @@ use crate::{error::Result, xmp::AdjustmentModel};
 /// alpha=1.0 unconditionally because every stage in the chain operates on
 /// straight RGB and `Image::pixels` is `Vec<[f32; 3]>`.
 ///
-/// Output is the same packed fp16 RGBA layout: post-AgX
-/// `DisplayLinearRec2020` ([0,1]) when `skip_agx == false`, else still
-/// scene-linear `SceneLinearRec2020` (unbounded). The Apple side re-tags
-/// the CIImage as `extendedLinearITUR_2020` for the optional sharpen /
-/// nr_color Metal kernels to consume, then sRGB-encodes at the
-/// `CIContext.createCGImage` boundary.
+/// Output is the same packed fp16 RGBA layout. When `skip_agx == false`:
+/// - `target_primaries == Srgb` (0, default): `DisplayLinearRec2020` ([0,1]),
+///   identical to the pre-#1337 behavior. The caller is responsible for the
+///   Rec.2020 → sRGB display encode (e.g. `encode_display_srgb_f32`).
+/// - `target_primaries == P3` (1): the chain applies `rec2020_to_display`
+///   internally, so the output carries Display P3 primaries
+///   (`DisplayLinearP3`, [0,1]). Legacy callers that zero-initialise
+///   `target_primaries` always take the `Srgb` branch — bit-identical to
+///   the pre-#1337 pipeline.
+/// When `skip_agx == true` the output is scene-linear `SceneLinearRec2020`
+/// (unbounded) regardless of `target_primaries`.
 ///
 /// Performance notes (per the worktree-agent-a1ee8a4c brief):
 /// At 2 MP viewport size, every stage in this chain runs in <2 ms with
@@ -76,12 +81,12 @@ pub fn apply_scene_linear_chain(
     decoded_temp: f32,
     decoded_tint: f32,
     skip_agx: bool,
+    target_primaries: TargetPrimaries,
 ) -> Result<Vec<u16>> {
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette,
-        white_balance,
+        scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -139,13 +144,24 @@ pub fn apply_scene_linear_chain(
     // when `live == decoded` — that's the As Shot rendering, where
     // the slider sits at asShotCCT and the data is unshifted.
     stage("ffi_chain_white_balance", || {
-        white_balance::apply_delta(&mut img, model.temperature, model.tint, decoded_temp, decoded_tint, model.wb_method)
+        white_balance::apply_delta(
+            &mut img,
+            model.temperature,
+            model.tint,
+            decoded_temp,
+            decoded_tint,
+            model.wb_method,
+        )
     });
     stage("ffi_chain_scene_tone_controls", || {
         scene_tone_controls::apply(&mut img, model)
     });
-    stage("ffi_chain_tone_curves", || tone_curves::apply(&mut img, model));
-    stage("ffi_chain_vibrance", || vibrance::apply(&mut img, model.vibrance));
+    stage("ffi_chain_tone_curves", || {
+        tone_curves::apply(&mut img, model)
+    });
+    stage("ffi_chain_vibrance", || {
+        vibrance::apply(&mut img, model.vibrance)
+    });
     stage("ffi_chain_saturation", || {
         saturation::apply(&mut img, model.saturation)
     });
@@ -156,27 +172,43 @@ pub fn apply_scene_linear_chain(
         hsl::apply(
             &mut img,
             &[
-                model.hue_adjustment_red, model.hue_adjustment_orange,
-                model.hue_adjustment_yellow, model.hue_adjustment_green,
-                model.hue_adjustment_aqua, model.hue_adjustment_blue,
-                model.hue_adjustment_purple, model.hue_adjustment_magenta,
+                model.hue_adjustment_red,
+                model.hue_adjustment_orange,
+                model.hue_adjustment_yellow,
+                model.hue_adjustment_green,
+                model.hue_adjustment_aqua,
+                model.hue_adjustment_blue,
+                model.hue_adjustment_purple,
+                model.hue_adjustment_magenta,
             ],
             &[
-                model.saturation_adjustment_red, model.saturation_adjustment_orange,
-                model.saturation_adjustment_yellow, model.saturation_adjustment_green,
-                model.saturation_adjustment_aqua, model.saturation_adjustment_blue,
-                model.saturation_adjustment_purple, model.saturation_adjustment_magenta,
+                model.saturation_adjustment_red,
+                model.saturation_adjustment_orange,
+                model.saturation_adjustment_yellow,
+                model.saturation_adjustment_green,
+                model.saturation_adjustment_aqua,
+                model.saturation_adjustment_blue,
+                model.saturation_adjustment_purple,
+                model.saturation_adjustment_magenta,
             ],
             &[
-                model.luminance_adjustment_red, model.luminance_adjustment_orange,
-                model.luminance_adjustment_yellow, model.luminance_adjustment_green,
-                model.luminance_adjustment_aqua, model.luminance_adjustment_blue,
-                model.luminance_adjustment_purple, model.luminance_adjustment_magenta,
+                model.luminance_adjustment_red,
+                model.luminance_adjustment_orange,
+                model.luminance_adjustment_yellow,
+                model.luminance_adjustment_green,
+                model.luminance_adjustment_aqua,
+                model.luminance_adjustment_blue,
+                model.luminance_adjustment_purple,
+                model.luminance_adjustment_magenta,
             ],
         )
     });
-    stage("ffi_chain_clarity", || clarity::apply(&mut img, model.clarity));
-    stage("ffi_chain_texture", || texture::apply(&mut img, model.texture));
+    stage("ffi_chain_clarity", || {
+        clarity::apply(&mut img, model.clarity)
+    });
+    stage("ffi_chain_texture", || {
+        texture::apply(&mut img, model.texture)
+    });
     stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
     // Local adjustments (ticket #280). Empty Vec is a bit-identical no-op.
     stage("ffi_chain_local_adjustments", || {
@@ -214,11 +246,34 @@ pub fn apply_scene_linear_chain(
         // the display-domain effects ride the view transform, and the
         // skip_agx buffer never enters DisplayLinearRec2020.
         stage("ffi_chain_grain", || {
-            grain::apply(&mut img, model.grain_amount, model.grain_size, model.grain_roughness)
+            grain::apply(
+                &mut img,
+                model.grain_amount,
+                model.grain_size,
+                model.grain_roughness,
+            )
         });
+        // Display-primary conversion (#1337). Mirrors the GPU chain's
+        // `DisplayEncodePass` position (after grain, before sRGB gamma).
+        // For `Srgb` (value 0 / the zero-init default) this branch is a
+        // no-op — the buffer stays `DisplayLinearRec2020` and the caller
+        // applies `rec2020_to_srgb` separately (e.g. via
+        // `encode_display_srgb_f32`), preserving bit-identical behavior
+        // for every pre-#1337 caller. For `P3` (value 1) the Oklab
+        // gamut-compress + sRGB→P3 matrix runs here; the output carries
+        // `DisplayLinearP3`.
+        if target_primaries != TargetPrimaries::Srgb {
+            use crate::view::encode::rec2020_to_display;
+            stage("ffi_chain_display_encode", || {
+                rec2020_to_display(&mut img, target_primaries)
+            });
+        }
     }
 
-    // Pack post-AgX (DisplayLinearRec2020, [0,1]) back to fp16 RGBA.
+    // Pack the result back to fp16 RGBA. Tag notes:
+    // • skip_agx=true  → SceneLinearRec2020 (unbounded, no display encode)
+    // • skip_agx=false, Srgb → DisplayLinearRec2020 (caller handles encode)
+    // • skip_agx=false, P3  → DisplayLinearP3 (display encode applied above)
     // `finite_or_zero` scrubs NaN/Inf at the pack endcap (#1088) —
     // `f32_to_f16_bits` preserves NaN by design, and the caller hands
     // these lanes straight to a GPU texture.
@@ -249,6 +304,10 @@ pub fn apply_scene_linear_chain(
 /// per pixel directly, runs the chain, and writes four f32 lanes per
 /// pixel out. Alpha is read but ignored — output writes 1.0
 /// unconditionally because every stage operates on straight RGB.
+///
+/// `target_primaries` follows the same convention as the fp16 sibling:
+/// `Srgb` (0) leaves the output in `DisplayLinearRec2020` (bit-identical
+/// to pre-#1337); `P3` (1) applies `rec2020_to_display` inside the chain.
 pub fn apply_scene_linear_chain_f32(
     in_f32_rgba: &[f32],
     width: u32,
@@ -257,12 +316,12 @@ pub fn apply_scene_linear_chain_f32(
     decoded_temp: f32,
     decoded_tint: f32,
     skip_agx: bool,
+    target_primaries: TargetPrimaries,
 ) -> Result<Vec<f32>> {
     use crate::image::{ColorSpace, Image};
     use crate::stages::{
         clarity, dehaze, grain, hsl, local_adjustments, noise_reduction, saturation,
-        scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette,
-        white_balance,
+        scene_tone_controls, split_tone, texture, tone_curves, vibrance, vignette, white_balance,
     };
     use crate::view::agx;
 
@@ -308,13 +367,24 @@ pub fn apply_scene_linear_chain_f32(
     // sibling) verbatim. The order MUST match the Rust reference so
     // `calibrate_color_pipeline` remains the canonical metric.
     stage("ffi_chain_white_balance", || {
-        white_balance::apply_delta(&mut img, model.temperature, model.tint, decoded_temp, decoded_tint, model.wb_method)
+        white_balance::apply_delta(
+            &mut img,
+            model.temperature,
+            model.tint,
+            decoded_temp,
+            decoded_tint,
+            model.wb_method,
+        )
     });
     stage("ffi_chain_scene_tone_controls", || {
         scene_tone_controls::apply(&mut img, model)
     });
-    stage("ffi_chain_tone_curves", || tone_curves::apply(&mut img, model));
-    stage("ffi_chain_vibrance", || vibrance::apply(&mut img, model.vibrance));
+    stage("ffi_chain_tone_curves", || {
+        tone_curves::apply(&mut img, model)
+    });
+    stage("ffi_chain_vibrance", || {
+        vibrance::apply(&mut img, model.vibrance)
+    });
     stage("ffi_chain_saturation", || {
         saturation::apply(&mut img, model.saturation)
     });
@@ -323,27 +393,43 @@ pub fn apply_scene_linear_chain_f32(
         hsl::apply(
             &mut img,
             &[
-                model.hue_adjustment_red, model.hue_adjustment_orange,
-                model.hue_adjustment_yellow, model.hue_adjustment_green,
-                model.hue_adjustment_aqua, model.hue_adjustment_blue,
-                model.hue_adjustment_purple, model.hue_adjustment_magenta,
+                model.hue_adjustment_red,
+                model.hue_adjustment_orange,
+                model.hue_adjustment_yellow,
+                model.hue_adjustment_green,
+                model.hue_adjustment_aqua,
+                model.hue_adjustment_blue,
+                model.hue_adjustment_purple,
+                model.hue_adjustment_magenta,
             ],
             &[
-                model.saturation_adjustment_red, model.saturation_adjustment_orange,
-                model.saturation_adjustment_yellow, model.saturation_adjustment_green,
-                model.saturation_adjustment_aqua, model.saturation_adjustment_blue,
-                model.saturation_adjustment_purple, model.saturation_adjustment_magenta,
+                model.saturation_adjustment_red,
+                model.saturation_adjustment_orange,
+                model.saturation_adjustment_yellow,
+                model.saturation_adjustment_green,
+                model.saturation_adjustment_aqua,
+                model.saturation_adjustment_blue,
+                model.saturation_adjustment_purple,
+                model.saturation_adjustment_magenta,
             ],
             &[
-                model.luminance_adjustment_red, model.luminance_adjustment_orange,
-                model.luminance_adjustment_yellow, model.luminance_adjustment_green,
-                model.luminance_adjustment_aqua, model.luminance_adjustment_blue,
-                model.luminance_adjustment_purple, model.luminance_adjustment_magenta,
+                model.luminance_adjustment_red,
+                model.luminance_adjustment_orange,
+                model.luminance_adjustment_yellow,
+                model.luminance_adjustment_green,
+                model.luminance_adjustment_aqua,
+                model.luminance_adjustment_blue,
+                model.luminance_adjustment_purple,
+                model.luminance_adjustment_magenta,
             ],
         )
     });
-    stage("ffi_chain_clarity", || clarity::apply(&mut img, model.clarity));
-    stage("ffi_chain_texture", || texture::apply(&mut img, model.texture));
+    stage("ffi_chain_clarity", || {
+        clarity::apply(&mut img, model.clarity)
+    });
+    stage("ffi_chain_texture", || {
+        texture::apply(&mut img, model.texture)
+    });
     stage("ffi_chain_dehaze", || dehaze::apply(&mut img, model.dehaze));
     stage("ffi_chain_local_adjustments", || {
         local_adjustments::apply(&mut img, &model.local_adjustments)
@@ -371,11 +457,24 @@ pub fn apply_scene_linear_chain_f32(
             )
         });
         stage("ffi_chain_grain", || {
-            grain::apply(&mut img, model.grain_amount, model.grain_size, model.grain_roughness)
+            grain::apply(
+                &mut img,
+                model.grain_amount,
+                model.grain_size,
+                model.grain_roughness,
+            )
         });
+        // Display-primary conversion (#1337) — see the fp16 sibling for the
+        // full rationale. `Srgb` is a no-op; `P3` applies rec2020_to_display.
+        if target_primaries != TargetPrimaries::Srgb {
+            use crate::view::encode::rec2020_to_display;
+            stage("ffi_chain_display_encode", || {
+                rec2020_to_display(&mut img, target_primaries)
+            });
+        }
     }
 
-    // Pack post-AgX (DisplayLinearRec2020, [0,1]) back to f32 RGBA.
+    // Pack the result back to f32 RGBA.
     // Alpha is always 1.0 — see fp16 sibling's contract. `finite_or_zero`
     // scrubs NaN/Inf at the pack endcap (#1088).
     let out = stage("ffi_chain_pack_f32", || {
