@@ -433,16 +433,19 @@ export class LibraryCache {
   ): Promise<void> {
     try {
       // 0. Self-Hosted M2 slug:relPath asset → /api/thumb via the authed
-      //    LibrarySource (HttpClient attaches the bearer; returns a blob: URL).
-      //    Checked first: M2 assets are address-keyed with no absPath/apiId, so
-      //    without this they fell through every branch and showed no thumbnail.
+      //    LibrarySource (HttpClient attaches the bearer). M2 assets are
+      //    address-keyed with no absPath/apiId, so without this they fell
+      //    through every branch and showed no thumbnail. Exclude legacy
+      //    `fs:<absPath>` ids — they also contain ':' but must use the absPath
+      //    FS-walk branch below.
       if (
         this.store.backend === 'self-hosted' &&
         typeof asset.id === 'string' &&
-        asset.id.includes(':')
+        asset.id.includes(':') &&
+        !asset.id.startsWith('fs:')
       ) {
-        const url = await this.librarySource.thumbUrl(parseAddress(asset.id));
-        this.cacheThumbnailUrl(asset.id, url);
+        const blob = await this.librarySource.thumbBlob(parseAddress(asset.id));
+        this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
         return;
       }
 

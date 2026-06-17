@@ -9,9 +9,8 @@
 // All four methods go through HttpClient so the authInterceptor attaches the
 // bearer token. /api/thumb|preview are behind requireAuth (bearer-only — see
 // auth/middleware.ts), so a bare `<img src>` with no Authorization header
-// would 401. thumbUrl/previewUrl therefore fetch the JPEG and return a `blob:`
-// URL the template renders; the caller owns revocation (ThumbLruCache revokes
-// on eviction).
+// would 401. thumbBlob/previewBlob return the JPEG as a Blob; the CALLER owns
+// the object-URL lifecycle (create + revoke — see ThumbLruCache).
 
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
@@ -36,17 +35,15 @@ export class HttpLibrarySource implements LibrarySource {
     );
   }
 
-  async thumbUrl(a: MapleAddress): Promise<string> {
-    const blob = await firstValueFrom(
+  thumbBlob(a: MapleAddress): Promise<Blob> {
+    return firstValueFrom(
       this.http.get(`${this.base}/thumb/${toApiPath(a)}`, { responseType: 'blob' }),
     );
-    return URL.createObjectURL(blob);
   }
 
-  async previewUrl(a: MapleAddress): Promise<string> {
-    const blob = await firstValueFrom(
+  previewBlob(a: MapleAddress): Promise<Blob> {
+    return firstValueFrom(
       this.http.get(`${this.base}/preview/${toApiPath(a)}`, { responseType: 'blob' }),
     );
-    return URL.createObjectURL(blob);
   }
 }

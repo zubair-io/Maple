@@ -116,7 +116,7 @@ export class FsAccessLibrarySource implements LibrarySource {
     return fileHandle.getFile();
   }
 
-  async thumbUrl(a: MapleAddress): Promise<string> {
+  async thumbBlob(a: MapleAddress): Promise<Blob> {
     validateRelPath(a.relPath);
     const rootHandle = await this.registry.getHandle(a.slug);
     if (!rootHandle) {
@@ -139,17 +139,16 @@ export class FsAccessLibrarySource implements LibrarySource {
     };
     const cached = await this.cache.readThumb(folderHandle, sha);
     if (cached) {
-      return URL.createObjectURL(cached);
+      return cached;
     }
-    // No cached thumb → fall back to generating from file bytes (caller
-    // handles this via LibraryCache.ensureThumbnailUrl). Return empty string
-    // so the caller knows to trigger the generation path.
-    return '';
+    // No cached thumb yet — signal the caller (LibraryCache.ensureThumbnailUrl)
+    // to fall through to its WASM-decode generation path.
+    throw new Error('no cached thumb');
   }
 
-  async previewUrl(a: MapleAddress): Promise<string> {
+  async previewBlob(a: MapleAddress): Promise<Blob> {
     // Hosted preview: same path as thumb for now. Full preview generation is M3.
-    return this.thumbUrl(a);
+    return this.thumbBlob(a);
   }
 
   private async walkToDir(
