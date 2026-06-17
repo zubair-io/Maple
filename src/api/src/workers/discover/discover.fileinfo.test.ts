@@ -187,6 +187,53 @@ describe('discover producer — fileinfo', () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it('records keep:true on the fileinfo entry when a `.keep` marker is in the folder', async () => {
+    if (!mongoReachable) return;
+
+    const { handleEvent } = await import('./index.ts');
+    const { assetsCollection, foldersCollection } = await import('../../db/client.ts');
+    const { mkdir } = await import('node:fs/promises');
+
+    const root = await mkdtemp(path.join(os.tmpdir(), 'discover-keep-'));
+    const pinned = path.join(root, 'pinned');
+    const loose = path.join(root, 'loose');
+    await mkdir(pinned, { recursive: true });
+    await mkdir(loose, { recursive: true });
+    // Marker in the pinned folder only.
+    await writeFile(path.join(pinned, '.keep'), '');
+    const pinnedFile = path.join(pinned, 'A.dng');
+    const looseFile = path.join(loose, 'B.dng');
+    await writeFile(pinnedFile, Buffer.alloc(64, 0x01));
+    await writeFile(looseFile, Buffer.alloc(64, 0x02));
+
+    const foldersColl = await foldersCollection();
+    const folderResult = await foldersColl.insertOne({
+      path: root,
+      label: path.basename(root),
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+    const folderId = folderResult.insertedId;
+
+    await handleEvent({ kind: 'created', absPath: pinnedFile }, folderId, root);
+    await handleEvent({ kind: 'created', absPath: looseFile }, folderId, root);
+
+    const coll = await assetsCollection();
+    const pinnedDoc = await coll.findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, filename: 'A.dng' } },
+    } as never);
+    const looseDoc = await coll.findOne({
+      fileinfo: { $elemMatch: { library_id: folderId, filename: 'B.dng' } },
+    } as never);
+    expect(pinnedDoc!.fileinfo![0]!.keep).toBe(true);
+    expect(looseDoc!.fileinfo![0]!.keep).toBe(false);
+
+    await coll.deleteMany({ fileinfo: { $elemMatch: { library_id: folderId } } } as never);
+    await foldersColl.deleteOne({ _id: folderId });
+    await rm(root, { recursive: true, force: true });
+  });
+
   it('rename updates fileinfo[0] (still one entry — rename is not a new location)', async () => {
     if (!mongoReachable) return;
 

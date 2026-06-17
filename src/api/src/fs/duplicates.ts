@@ -24,6 +24,27 @@ import { pickFreePath, moveSidecarsAlongside, type MoveResult } from './trash.ts
  * originals. Excluded from indexing — see the module docstring. */
 export const DUPLICATES_DIR_NAME = '_duplicates';
 
+/** Marker file an operator drops into a folder to protect its copies from the
+ * DeDuplicate worker. Any asset with a live copy in a `.keep` folder keeps that
+ * copy (and every other kept copy) instead of being collapsed to one — see
+ * `FileInfo.keep` and `processAsset` in `workers/dedupe.ts`. A dotfile, so the
+ * discover sweeper already skips it when listing a directory. */
+export const KEEP_FILENAME = '.keep';
+
+/**
+ * True when `dir` contains a `.keep` marker file. Best-effort: any error
+ * (ENOENT for the common "no marker" case, but also EACCES / ENOTDIR on a
+ * vanished or odd path) reads as "no marker". The caller decides what to do.
+ */
+export async function directoryHasKeepFile(dir: string): Promise<boolean> {
+  try {
+    await fs.access(path.join(dir, KEEP_FILENAME));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Compute the `_duplicates`-side absolute path for a file under a library root:
  * `<root>/_duplicates/<rel>` where `rel` is the file's path relative to `root`.

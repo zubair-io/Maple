@@ -12,6 +12,7 @@
  * Exported so integration tests can simulate events without waiting for the
  * watcher's polling interval. See `discover.test.ts`.
  */
+import * as path from 'node:path';
 import { ObjectId } from 'mongodb';
 import type { WatchEvent } from './types.ts';
 import { blankStagesSkeleton } from '../stages/manifest.ts';
@@ -20,6 +21,7 @@ import { assetsCollection } from '../../db/client.ts';
 import { recordAndPublishAssetChange } from '../../db/changes.repo.ts';
 import { hashFileForId } from '../../indexer/id.ts';
 import { liveFileInfoElemMatch, updateLiveLocationCount } from '../../indexer/images.repo.ts';
+import { directoryHasKeepFile } from '../../fs/duplicates.ts';
 import { buildFileinfoEntry, isInsideMapleCache } from './types.ts';
 
 const log = child('discover');
@@ -201,11 +203,17 @@ export async function handleEvent(
   // warning and drop the event than insert a row without a valid fileinfo
   // entry (which would violate the invariant that every live asset has
   // length ≥ 1).
-  const fileinfoEntry = buildFileinfoEntry(libraryRoot, absPath, folderId);
-  if (!fileinfoEntry) {
+  const baseEntry = buildFileinfoEntry(libraryRoot, absPath, folderId);
+  if (!baseEntry) {
     log.warn({ libraryRoot, absPath }, 'event absPath escapes library root — skipping insert');
     return;
   }
+  // Record whether this location is operator-protected: a `.keep` marker file in
+  // the same directory pins every copy here against the DeDuplicate worker. Stored
+  // on the fileinfo entry for read-side visibility; the worker re-confirms the
+  // marker on disk before acting (it can be added/removed after first index).
+  const keep = await directoryHasKeepFile(path.dirname(absPath));
+  const fileinfoEntry = { ...baseEntry, keep };
 
   let hashed: Awaited<ReturnType<typeof hashFileForId>>;
   try {
@@ -385,6 +393,9 @@ export async function handleEvent(
             // Re-discovering a live file at this location un-parks it: clear
             // any per-entry `missing_since` the reaper would otherwise act on.
             'fileinfo.$[entry].missing_since': null,
+            // Refresh the keep flag — a `.keep` marker may have been added or
+            // removed since this location was first indexed.
+            'fileinfo.$[entry].keep': keep,
           },
         },
         {

@@ -260,6 +260,16 @@ export interface FileInfo {
    * window it `$pull`s the entry — deleting the whole record when no other
    * entry remains. Replaces the former root-level `missing_since`. */
   missing_since?: string | null;
+  /** True when this location sits in a folder the operator marked to keep —
+   * a `.keep` marker file present in the same directory at index time (see
+   * `KEEP_FILENAME` / `directoryHasKeepFile` in `fs/duplicates.ts`). The
+   * DeDuplicate worker never relocates a kept copy: when any live copy of an
+   * asset is kept, every kept copy survives and only the un-kept duplicates are
+   * collapsed into `_duplicates/`. Absent/false ⇒ ordinary keeper ranking
+   * applies. The flag is recorded at discover time for visibility, but the
+   * worker re-confirms the `.keep` file on disk before acting (the marker can be
+   * added or removed after a file was first indexed). */
+  keep?: boolean;
 }
 
 export interface AssetDoc {
