@@ -15,8 +15,8 @@
 import { ObjectId, type Collection, type WithId, type Filter } from 'mongodb';
 import { assetsCollection, peopleCollection } from '../db/client.ts';
 import type { AssetDoc, AssetFaceDoc, Bbox, PersonDoc, PersonWithId } from '../db/schema.ts';
-import { assetAbsPath } from '../indexer/images.repo.ts';
-import { loadLibraryRoots } from '../indexer/libraries.cache.ts';
+import { assetAbsPath, assetPrimaryFileInfo } from '../indexer/images.repo.ts';
+import { loadLibraryRoots, loadLibraryIdToSlug } from '../indexer/libraries.cache.ts';
 import {
   markAssetsForMeiliReindexBestEffort,
   markAssetIdsForMeiliReindexBestEffort,
@@ -37,15 +37,18 @@ export interface RenameResult {
 /** Result of `listPeople({ withCounts: true })`. The face count is an
  * aggregation over `assets.faces` filtered by `person_id`.
  *
- * `coverAbsPath` is the absolute filesystem path of the asset whose thumb
- * represents the person — surfaced so the web can fetch covers via the
- * shared `/api/fs/thumb?path=…` URL (same blob-URL cache as /browse), not
- * the bespoke `/api/assets/:id/thumb` endpoint. Null when the cover asset
- * doc was deleted or never resolved. */
+ * `coverAbsPath` is the absolute filesystem path of the cover asset, kept
+ * for backward compat. `coverAddress` is the preferred `slug:relPath`
+ * address — use this with `/api/thumb/:slug/*` for cache-coherent
+ * thumbnail fetches. Null when the cover asset doc was deleted or never
+ * resolved. */
 export interface PersonWithCount {
   person: PersonWithId;
   faceCount: number;
   coverAbsPath: string | null;
+  /** slug:relPath address of the cover asset. Null if the cover is missing
+   * or the library has no slug (pre-M1 install). */
+  coverAddress: string | null;
 }
 
 /** Options shared by the list endpoint. */
@@ -297,22 +300,29 @@ async function listPeopleByFilter(
   if (people.length === 0) return [];
   // One batched _id lookup gets every cover asset's abs_path. Indexed by
   // _id, so this is O(N) bytes returned, not O(N) round-trips.
-  const coverAbsPaths = await coverAbsPathByPerson(people);
+  const coverInfos = await coverAbsPathByPerson(people);
   return people.map((p) => ({
     person: p as PersonWithId,
     // Read the denormalised face_count directly — O(1) per person, no
     // aggregation. Falls back to 0 when the migration hasn't run yet.
     faceCount: withCounts ? (p.face_count ?? 0) : 0,
-    coverAbsPath: coverAbsPaths.get(p._id.toHexString()) ?? null,
+    coverAbsPath: coverInfos.get(p._id.toHexString())?.absPath ?? null,
+    coverAddress: coverInfos.get(p._id.toHexString())?.address ?? null,
   }));
 }
 
-/** Batch-resolve `cover_asset_id` → `abs_path` for a slice of people. One
+interface CoverInfo {
+  absPath: string | null;
+  /** `slug:relPath` address, or null if the library has no slug (pre-M1). */
+  address: string | null;
+}
+
+/** Batch-resolve `cover_asset_id` → cover info for a slice of people. One
  * `_id`-indexed `find({ _id: { $in: [...] } })` against `assets`; returns a
- * `personHex → absPath` map. People whose `cover_asset_id` is null/missing
+ * `personHex → CoverInfo` map. People whose `cover_asset_id` is null/missing
  * or whose asset doc was deleted simply don't appear in the map. */
-async function coverAbsPathByPerson(people: WithId<PersonDoc>[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+async function coverAbsPathByPerson(people: WithId<PersonDoc>[]): Promise<Map<string, CoverInfo>> {
+  const out = new Map<string, CoverInfo>();
   // Key by lowercase hex (`oid.toHexString()`) on both sides — Mongo
   // accepts mixed-case hex in `cover_asset_id` strings, but `_id`s round-
   // trip as lowercase. Normalising via `safeObjectId(...).toHexString()`
@@ -331,11 +341,22 @@ async function coverAbsPathByPerson(people: WithId<PersonDoc>[]): Promise<Map<st
   const assets = await assetsCollection();
   const cursor = assets.find({ _id: { $in: coverObjectIds } }, { projection: { fileinfo: 1 } });
   const libs = await loadLibraryRoots();
+  const idToSlug = await loadLibraryIdToSlug();
   for await (const row of cursor) {
     const personHex = personByCover.get(row._id.toHexString());
     if (!personHex) continue;
-    const resolved = assetAbsPath(row, libs);
-    if (resolved) out.set(personHex, resolved);
+    const absPath = assetAbsPath(row, libs);
+    // Compute slug:relPath if the library has a slug.
+    let address: string | null = null;
+    const primary = assetPrimaryFileInfo(row);
+    if (primary) {
+      const slug = idToSlug.get(primary.library_id.toHexString());
+      if (slug) {
+        const relPath = primary.path ? `${primary.path}/${primary.filename}` : primary.filename;
+        address = `${slug}:${relPath}`;
+      }
+    }
+    out.set(personHex, { absPath: absPath ?? null, address });
   }
   return out;
 }

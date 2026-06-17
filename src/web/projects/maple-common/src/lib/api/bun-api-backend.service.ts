@@ -840,6 +840,7 @@ function normalisePerson(r: ApiPersonRaw): ApiPerson {
     name: r.name,
     faceCount: r.face_count,
     coverAssetId: r.cover_asset_id ?? null,
+    coverAddress: r.cover_address ?? null,
     coverAbsPath: r.cover_abs_path ?? null,
     coverBbox: r.cover_bbox ?? null,
     createdAt: r.created_at,
@@ -990,10 +991,12 @@ export interface ApiPerson {
   name: string;
   faceCount: number;
   coverAssetId: string | null;
-  /** Absolute filesystem path of the cover asset. Null when the cover
-   * asset is missing — falls back to `coverAssetId` lookup at the call
-   * site. Surfaced so the web can hit `/api/fs/thumb?path=…` (the URL
-   * /browse uses) for cache reuse. */
+  /** `slug:relPath` address of the cover asset. Use with `LibrarySource.thumbUrl`
+   * (→ `/api/thumb/:slug/*`) for cache-coherent thumbnail fetches. Null when
+   * the cover asset is missing or the server is pre-M2. */
+  coverAddress: string | null;
+  /** Absolute filesystem path of the cover asset. Kept for backward compat;
+   * prefer `coverAddress` where available. */
   coverAbsPath: string | null;
   /** Bbox of the cover face on the cover asset, in normalised `[0,1]`.
    * The UI applies the same crop transform it uses for detail-panel
@@ -1063,6 +1066,7 @@ interface ApiPersonRaw {
   name: string;
   face_count: number;
   cover_asset_id?: string | null;
+  cover_address?: string | null;
   cover_abs_path?: string | null;
   cover_bbox?: Bbox | null;
   created_at: string;
