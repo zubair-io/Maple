@@ -13,10 +13,11 @@
 // the object-URL lifecycle (create + revoke — see ThumbLruCache).
 
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
+import { HttpClient, HttpEventType } from '@angular/common/http';
+import { firstValueFrom, filter, map } from 'rxjs';
 import { API_BASE_URL } from '../api/api-base-url.token';
-import { toApiPath } from './maple-address';
+import type { DownloadProgress } from '../api/filesystem-browse.service';
+import { toApiPath, formatAddress } from './maple-address';
 import type { MapleAddress } from './maple-address';
 import type { LibrarySource, FolderListing } from './library-source';
 
@@ -29,9 +30,38 @@ export class HttpLibrarySource implements LibrarySource {
     return firstValueFrom(this.http.get<FolderListing>(`${this.base}/folder/${toApiPath(a)}`));
   }
 
-  imageBlob(a: MapleAddress): Promise<Blob> {
+  imageBlob(a: MapleAddress, onProgress?: (p: DownloadProgress) => void): Promise<Blob> {
+    const url = `${this.base}/image/${toApiPath(a)}`;
+
+    if (!onProgress) {
+      return firstValueFrom(this.http.get(url, { responseType: 'blob' }));
+    }
+
+    // Stream the body so the editor's open-progress overlay can update. Mirrors
+    // BunApiBackendService.getRawBytes: fire onProgress as a side effect, then
+    // pass through only the final Response body so firstValueFrom yields one Blob.
     return firstValueFrom(
-      this.http.get(`${this.base}/image/${toApiPath(a)}`, { responseType: 'blob' }),
+      this.http.get(url, { responseType: 'blob', observe: 'events', reportProgress: true }).pipe(
+        map((event) => {
+          if (event.type === HttpEventType.DownloadProgress) {
+            onProgress({ loaded: event.loaded, total: event.total ?? null });
+            return null;
+          }
+          if (event.type === HttpEventType.Response) {
+            // A successful download always carries a body; a null body means the
+            // request aborted mid-stream — fail fast rather than hand back an
+            // empty Blob that surfaces later as a baffling RAW decode error.
+            if (event.body == null) {
+              throw new Error(
+                `imageBlob: empty response body for ${formatAddress(a)} (status ${event.status})`,
+              );
+            }
+            return event.body;
+          }
+          return null;
+        }),
+        filter((body): body is Blob => body !== null),
+      ),
     );
   }
 
