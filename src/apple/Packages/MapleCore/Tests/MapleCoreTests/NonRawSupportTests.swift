@@ -356,6 +356,49 @@ final class NonRawSupportTests: XCTestCase {
         XCTAssertNotNil(decoded)
     }
 
+    /// `LocalHistogram.computeNonRaw` must also work via a bytesProvider (no
+    /// URL) — the PhotoKit / cloud path. Mirrors the decode test above.
+    func testComputeNonRawViaBytesProvider() async throws {
+        let w = 256, h = 64
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(
+            data: nil, width: w, height: h,
+            bitsPerComponent: 8, bytesPerRow: w * 4,
+            space: cs,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        for x in 0..<w {
+            let v = CGFloat(x) / CGFloat(w - 1)
+            ctx.setFillColor(red: v, green: 1.0 - v, blue: 0.5, alpha: 1.0)
+            ctx.fill(CGRect(x: x, y: 0, width: 1, height: h))
+        }
+        guard let cg = ctx.makeImage() else { XCTFail("synth CGImage failed"); return }
+        let mutData = NSMutableData()
+        guard
+            let dest = CGImageDestinationCreateWithData(
+                mutData, UTType.jpeg.identifier as CFString, 1, nil)
+        else { XCTFail("CGImageDestination failed"); return }
+        CGImageDestinationAddImage(dest, cg, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(dest))
+
+        let bytes = mutData as Data
+        let asset = AssetRef(displayName: "synth.jpg", hintExtension: "jpg", bytesProvider: { bytes })
+        XCTAssertFalse(asset.isRaw)
+
+        let hist: CloudHistogram
+        do {
+            hist = try await LocalHistogram.computeNonRaw(asset: asset, model: AdjustmentModel())
+        } catch {
+            XCTFail("computeNonRaw (bytesProvider) threw: \(error)")
+            return
+        }
+        XCTAssertEqual(hist.r.count, 256)
+        let spread =
+            hist.r.filter { $0 > 0 }.count + hist.g.filter { $0 > 0 }.count
+            + hist.b.filter { $0 > 0 }.count
+        XCTAssertGreaterThan(spread, 10, "bytesProvider histogram should spread, got \(spread)")
+    }
+
     /// Fixture-gated end-to-end: open a real JPEG via the EditSession's
     /// public API, drag a slider, and confirm a preview lands inside a
     /// reasonable budget. Mirrors how a user would open an iPhone HEIF
@@ -462,5 +505,61 @@ final class NonRawSupportTests: XCTestCase {
         )
         XCTAssertGreaterThan(processed.extent.width, 0)
         XCTAssertGreaterThan(processed.extent.height, 0)
+    }
+
+    // MARK: LocalHistogram — non-RAW histogram (#1332)
+
+    /// `LocalHistogram.computeNonRaw` must develop a non-RAW image and return a
+    /// real 3×256 histogram (not throw → placeholder). Synthesises an RGB
+    /// gradient PNG so the histogram is expected to spread across many bins.
+    func testComputeNonRawProducesRealHistogram() async throws {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("\(UUID().uuidString).png")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        // 256×64 horizontal RGB gradient → varied per-channel values.
+        let w = 256, h = 64
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(
+            data: nil, width: w, height: h,
+            bitsPerComponent: 8, bytesPerRow: w * 4,
+            space: cs,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        for x in 0..<w {
+            let v = CGFloat(x) / CGFloat(w - 1)
+            ctx.setFillColor(red: v, green: v * 0.5, blue: 1.0 - v, alpha: 1.0)
+            ctx.fill(CGRect(x: x, y: 0, width: 1, height: h))
+        }
+        guard let cg = ctx.makeImage() else { XCTFail("synth CGImage failed"); return }
+        guard
+            let dest = CGImageDestinationCreateWithURL(
+                tmp as CFURL, UTType.png.identifier as CFString, 1, nil)
+        else { XCTFail("CGImageDestination failed"); return }
+        CGImageDestinationAddImage(dest, cg, nil)
+        XCTAssertTrue(CGImageDestinationFinalize(dest))
+
+        let asset = AssetRef(url: tmp)
+        XCTAssertFalse(asset.isRaw, "synthetic .png must classify as non-RAW")
+
+        let hist: CloudHistogram
+        do {
+            hist = try await LocalHistogram.computeNonRaw(asset: asset, model: AdjustmentModel())
+        } catch {
+            XCTFail("computeNonRaw threw: \(error)")
+            return
+        }
+
+        XCTAssertEqual(hist.r.count, 256)
+        XCTAssertEqual(hist.g.count, 256)
+        XCTAssertEqual(hist.b.count, 256)
+        // A gradient must spread across bins — not all-zero (failed bin) and
+        // not collapsed into a single bin.
+        let rNonZero = hist.r.filter { $0 > 0 }.count
+        let gNonZero = hist.g.filter { $0 > 0 }.count
+        let bNonZero = hist.b.filter { $0 > 0 }.count
+        XCTAssertGreaterThan(rNonZero, 5, "R should spread; got \(rNonZero) non-zero bins")
+        XCTAssertGreaterThan(gNonZero, 5, "G should spread; got \(gNonZero) non-zero bins")
+        XCTAssertGreaterThan(bNonZero, 5, "B should spread; got \(bNonZero) non-zero bins")
     }
 }
