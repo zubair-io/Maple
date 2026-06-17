@@ -292,6 +292,37 @@ describe('LibraryCache — thumbnailUrlFor reactivity (M2 #1327 regression)', ()
     expect(viewB()).toBeUndefined();
     expect(countB).toBe(1);
   });
+
+  // #1359 left thumbSignals unbounded: thumbnailUrlFor lazily creates a signal
+  // for ANY id, but cleanup only ran on LRU eviction — so ids queried but never
+  // cached (failed/absent thumbnails, or tiles scrolled past before load) leaked
+  // a signal for the whole session. These guard the access-ordered cap (#1363).
+  const signalMapSize = (s: LibraryCache): number =>
+    (s as unknown as { thumbSignals: Map<unknown, unknown> }).thumbSignals.size;
+  const signalMapHas = (s: LibraryCache, id: AssetId): boolean =>
+    (s as unknown as { thumbSignals: Map<AssetId, unknown> }).thumbSignals.has(id);
+
+  it('bounds thumbSignals when many never-cached ids are queried', () => {
+    const CAP = 1000; // LibraryCache['THUMB_SIGNAL_CAP']
+    for (let i = 0; i < CAP + 100; i++) {
+      // Each query creates a per-asset signal but never caches the id (no
+      // cacheThumbnailUrl), so the id never enters the LRU.
+      svc.thumbnailUrlFor(`lib:orphan/${i}.jpg` as AssetId);
+    }
+    expect(signalMapSize(svc)).toBeLessThanOrEqual(CAP);
+  });
+
+  it('keeps a re-accessed id hot under cap pressure (access-ordered eviction)', () => {
+    const CAP = 1000;
+    const hot = 'lib:hot.jpg' as AssetId;
+    svc.thumbnailUrlFor(hot); // inserted first — would be the oldest...
+    for (let i = 0; i < CAP + 50; i++) {
+      svc.thumbnailUrlFor(`lib:churn/${i}.jpg` as AssetId);
+      svc.thumbnailUrlFor(hot); // ...but re-accessing it each round keeps it hot
+    }
+    expect(signalMapSize(svc)).toBeLessThanOrEqual(CAP);
+    expect(signalMapHas(svc, hot)).toBe(true);
+  });
 });
 
 describe('ThumbLruCache — bounded LRU for thumbnail blob URLs', () => {

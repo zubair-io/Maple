@@ -235,19 +235,45 @@ export class LibraryCache {
    * `computed()` depends only on its own id's signal, so loading ONE thumbnail
    * recomputes only THAT tile — not every tile on screen (O(N²) avoidance).
    *
-   * Lifecycle: signals are set to `undefined` before being removed from the map
-   * (on LRU eviction and `clearAll`), so any computed that still holds the
-   * signal object reacts correctly. The map stays bounded to at most LRU
-   * capacity + the count of ids currently being rendered.
+   * Lifecycle: signals are set to `undefined` before being removed (on LRU
+   * eviction, the cap eviction in `thumbSignalFor`, and `clearAll`), so any
+   * computed that still holds the signal object reacts correctly and recreates
+   * it (seeded from the LRU) on its next read.
+   *
+   * Bounded by THUMB_SIGNAL_CAP. The LRU-eviction delete only covers ids that
+   * were cached; an id that is rendered but never cached — a thumbnail that
+   * fails to load or a tile scrolled past before its load lands — never enters
+   * the LRU, so without the cap its signal would leak for the whole session.
    */
+  private static readonly THUMB_SIGNAL_CAP = 1000;
   private readonly thumbSignals = new Map<AssetId, WritableSignal<string | undefined>>();
 
-  /** Lazily create (or return existing) the per-asset signal for `id`. */
+  /**
+   * Lazily create (or return existing) the per-asset signal for `id`, refreshing
+   * its access recency. Visible tiles call this every change-detection pass, so
+   * they stay most-recent; stale orphans (no longer rendered, never cached) sink
+   * to the bottom and evict once the map exceeds THUMB_SIGNAL_CAP.
+   */
   private thumbSignalFor(id: AssetId): WritableSignal<string | undefined> {
-    let s = this.thumbSignals.get(id);
-    if (!s) {
-      s = signal<string | undefined>(this.thumbLru.get(id));
-      this.thumbSignals.set(id, s);
+    const existing = this.thumbSignals.get(id);
+    if (existing) {
+      // Refresh recency — delete + reinsert moves this id to the most-recent
+      // position (JS Map preserves insertion order).
+      this.thumbSignals.delete(id);
+      this.thumbSignals.set(id, existing);
+      return existing;
+    }
+    const s = signal<string | undefined>(this.thumbLru.get(id));
+    this.thumbSignals.set(id, s);
+    // Evict the least-recently-accessed entries when over the cap. The id just
+    // inserted is most-recent, so it is never the one evicted. Set undefined
+    // before delete so a computed still holding an evicted signal recomputes and
+    // lazily recreates it from the LRU on next read.
+    while (this.thumbSignals.size > LibraryCache.THUMB_SIGNAL_CAP) {
+      const oldest = this.thumbSignals.keys().next().value as AssetId | undefined;
+      if (oldest === undefined) break;
+      this.thumbSignals.get(oldest)?.set(undefined);
+      this.thumbSignals.delete(oldest);
     }
     return s;
   }
