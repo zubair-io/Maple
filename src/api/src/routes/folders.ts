@@ -252,28 +252,55 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const now = new Date().toISOString();
       const derivedLabel = label ?? path.split('/').filter(Boolean).pop() ?? path;
 
-      // Mint a unique slug for this library. Load the taken set in one query
-      // so we can deduplicate atomically inside this request.
-      const takenSlugs = await coll
-        .find({ slug: { $exists: true } } as never, { projection: { slug: 1 } })
-        .toArray()
-        .then(
-          (rows) => new Set((rows as Array<{ slug?: string }>).map((r) => r.slug!).filter(Boolean)),
-        );
-      const slug = dedupeSlug(slugify(derivedLabel), takenSlugs);
+      // Mint a unique slug and insert atomically with retry on duplicate-key.
+      //
+      // The in-memory deduplication races against concurrent POST /folders
+      // requests: two simultaneous calls may both read the same taken-set,
+      // mint the same slug, and then both attempt the insert. The unique
+      // `folders_slug_unique` index catches the collision (Mongo code 11000).
+      // On E11000 we increment the suffix and retry (up to 5 attempts) so
+      // the request succeeds deterministically without exposing a 500 to the
+      // caller.
+      const baseSlug = slugify(derivedLabel);
+      let slug: string;
+      let insertResult: Awaited<ReturnType<typeof coll.insertOne>> | undefined;
+      const MAX_SLUG_ATTEMPTS = 5;
+      for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
+        const takenSlugs = await coll
+          .find({ slug: { $exists: true } } as never, { projection: { slug: 1 } })
+          .toArray()
+          .then(
+            (rows) =>
+              new Set((rows as Array<{ slug?: string }>).map((r) => r.slug!).filter(Boolean)),
+          );
+        slug = dedupeSlug(baseSlug, takenSlugs);
+        try {
+          insertResult = await coll.insertOne({
+            path,
+            label: derivedLabel,
+            slug,
+            last_scan: null as string | null,
+            file_count: 0,
+            created_at: now,
+          } as never);
+          break; // success
+        } catch (err) {
+          const mongoErr = err as { code?: number; keyPattern?: Record<string, unknown> };
+          if (mongoErr.code === 11000 && mongoErr.keyPattern?.['slug'] !== undefined) {
+            // Concurrent insert claimed the same slug — retry with fresh taken-set.
+            log.warn({ attempt, slug: slug! }, 'slug duplicate-key on insert, retrying');
+            continue;
+          }
+          throw err; // not a slug collision — rethrow
+        }
+      }
+      if (!insertResult) {
+        set.status = 500;
+        return { error: 'Could not mint a unique slug after retries; please try again' };
+      }
 
-      const doc = {
-        path,
-        label: derivedLabel,
-        slug,
-        last_scan: null as string | null,
-        file_count: 0,
-        created_at: now,
-      };
-
-      const result = await coll.insertOne(doc as never);
-      const id = result.insertedId.toHexString();
-      const folderId = result.insertedId;
+      const id = insertResult.insertedId.toHexString();
+      const folderId = insertResult.insertedId;
 
       // The library-roots cache (used by every fileinfo[] resolver) must
       // re-read after this insert so the new library is visible.
@@ -294,12 +321,12 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       set.status = 201;
       return {
         id,
-        path: doc.path,
-        label: doc.label,
-        slug: doc.slug,
-        last_scan: doc.last_scan,
-        file_count: doc.file_count,
-        created_at: doc.created_at,
+        path,
+        label: derivedLabel,
+        slug: slug!,
+        last_scan: null,
+        file_count: 0,
+        created_at: now,
       };
     },
     {

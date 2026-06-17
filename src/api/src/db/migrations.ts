@@ -573,6 +573,19 @@ export async function hardenFileinfoCompoundIndex(db: Db): Promise<FileinfoUniqu
       partialFilterExpression: { 'fileinfo.0': { $exists: true } },
     },
   );
-  log.info('promoted fileinfo compound index to unique (zero violations)');
+
+  // Drop the redundant non-unique base index now that the unique one covers the
+  // same key. Keeping both would cause every write to update two identical index
+  // entries (write amplification). The unique index satisfies all read queries
+  // that the base index did. Silently ignore "index not found" — the base index
+  // may already have been dropped on a previous deploy.
+  await db
+    .collection('assets')
+    .dropIndex('fileinfo_lib_path_name')
+    .catch((err: { codeName?: string }) => {
+      if (err.codeName !== 'IndexNotFound') throw err;
+    });
+
+  log.info('promoted fileinfo compound index to unique; dropped redundant non-unique base index');
   return { violations: 0, promoted: true };
 }
