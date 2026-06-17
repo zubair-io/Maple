@@ -14,8 +14,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import * as path from 'node:path';
-import { parseAddressPath, resolveAddress } from '../../library/address.ts';
+import { resolveAddress } from '../../library/address.ts';
 import { child as childLogger } from '../../log.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
@@ -40,6 +39,10 @@ export const thumbRoutes = new Elysia().get(
 
     // Split the last segment off as the filename; the rest is the relative dir.
     const filename = segments[segments.length - 1] ?? '';
+    if (!filename) {
+      set.status = 400;
+      return { error: 'Filename is required' };
+    }
     const dirSegs = segments.slice(0, -1);
     const relDir = dirSegs.join('/');
     const fileRelPath = dirSegs.length > 0 ? `${relDir}/${filename}` : filename;

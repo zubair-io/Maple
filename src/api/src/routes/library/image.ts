@@ -7,8 +7,7 @@
 
 import { Elysia, t } from 'elysia';
 import * as path from 'node:path';
-import { parseAddressPath, resolveAddress } from '../../library/address.ts';
-import { child as childLogger } from '../../log.ts';
+import { resolveAddress } from '../../library/address.ts';
 import {
   mimeForExt,
   streamFile,
@@ -18,15 +17,13 @@ import {
   parseWildcardSegments,
 } from './shared.ts';
 
-const log = childLogger('routes/library/image');
-
 export const imageRoutes = new Elysia().get(
   '/image/:slug/*',
   async ({ params, set }) => {
     const slug = params.slug;
     const wildcard = (params as Record<string, string>)['*'] ?? '';
     const segments = parseWildcardSegments(wildcard);
-    const { relPath } = parseAddressPath(slug, segments);
+    const relPath = segments.join('/');
 
     let resolved: Awaited<ReturnType<typeof resolveAddress>>;
     try {
