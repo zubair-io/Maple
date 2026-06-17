@@ -182,10 +182,9 @@ pub fn build_live_split(
     //     texture. Each pass is included only when its stage is NOT a no-op,
     //     replicating develop's per-stage `if` guards / the `apply` short-circuit. ---
     let mut prefix: BoxedPasses = Vec::new();
-    // WB and capture_sharpening are RAW-only stages (#1331): non-RAW shapes
-    // (pano PNG, JPEG) upload a buffer that is already post-WB / post-decode,
-    // so both stages are no-ops for them and must be skipped to avoid a
-    // spurious colour shift. `PostDcpRec2020Fp16` is the historic default,
+    // capture_sharpening is RAW-only (#1331): non-RAW shapes (pano PNG, JPEG)
+    // upload a buffer that is already post-demosaic, so there was no capture
+    // sharpening to apply. `PostDcpRec2020Fp16` is the historic default,
     // preserving the existing RAW behaviour exactly.
     let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
     if is_raw_shape {
@@ -193,11 +192,16 @@ pub fn build_live_split(
             // Already `Option`-gated in `build_split`; `Some` === develop ran the stage.
             prefix.push(Box::new(CaptureSharpeningPass { params }));
         }
-        if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
-            prefix.push(Box::new(WhiteBalancePass {
-                matrix: inputs.wb_matrix,
-            }));
-        }
+    }
+    // WB stays engaged for ALL input shapes (#1331): for non-RAW assets the
+    // FFI caller passes `decoded_temperature = 6500.0` / `decoded_tint = 0.0`
+    // so that `apply_delta(live, decoded=6500/0)` is IDENTITY when the slider
+    // is at default (6500K/0), but SHIFTS correctly as the user drags temp/tint.
+    // Skipping WB for non-RAW would make the temperature/tint sliders inert.
+    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
+        prefix.push(Box::new(WhiteBalancePass {
+            matrix: inputs.wb_matrix,
+        }));
     }
     if !scene_tone_is_noop(&inputs.tone) {
         prefix.push(Box::new(SceneToneControlsPass {
@@ -356,11 +360,13 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     // pano vs a RAW) always lands in a fresh pool bucket — the stage set differs.
     m |= (inputs.input_shape as u32) << 30;
     let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
-    // Bits 0–1: RAW-only stages; always 0 for non-RAW shapes (#1331).
+    // Bit 0: capture_sharpening — RAW-only (#1331); always 0 for non-RAW shapes.
     if is_raw_shape && inputs.capture_sharpening.is_some() {
         m |= 1 << 0;
     }
-    if is_raw_shape && !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
+    // Bit 1: WB — engaged for ALL shapes when the slider is outside the skip
+    // band (the builder now includes WB unconditionally for non-RAW too).
+    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
         m |= 1 << 1;
     }
     if !scene_tone_is_noop(&inputs.tone) {
