@@ -1,24 +1,29 @@
 #!/usr/bin/env bash
-# fetch-ort-ios.sh — Download and verify the official ONNX Runtime iOS
-# static xcframework (M6 of epic #1234, issue #1244).
+# fetch-ort-ios.sh — Extract and verify the vendored ONNX Runtime iOS
+# static xcframework (M6 of epic #1234, issue #1244; vendored in #1353).
 #
-# The ORT iOS xcframework is NOT committed to the repo (35 MB arm64 static
-# archive + 76 MB simulator fat archive — well over GitHub's per-file limit).
-# Instead we cache it at ~/.cache/maple-pano/ort-ios/ and verify the ZIP
-# SHA-256 before extracting. The build script (build-xcframework.sh) calls
-# this as a pre-step for the iOS/iOS-sim cargo invocations.
+# The ORT iOS static xcframework zip is committed to the repo at
+# src/apple/vendor/ort-ios/pod-archive-onnxruntime-c-<version>.zip
+# (45 MB — under GitHub's per-file limit, so no Git LFS needed).
+# This script copies it to the local cache at ~/.cache/maple-pano/ort-ios/,
+# verifies the SHA-256, and extracts it. No network access is required or
+# attempted. The build script (build-xcframework.sh) calls this as a
+# pre-step for the iOS/iOS-sim cargo invocations.
 #
 # Run standalone before building:
 #   ./src/apple/scripts/fetch-ort-ios.sh
 #
 # The cached archive is reused on subsequent calls. Pass --force to
-# re-download even when the archive is present and verified.
+# re-extract from the vendored zip even when the archive is already present.
 #
-# Reproducibility anchors (update together if the ORT version is bumped):
-#   ORT version: 1.22.0
-#   ort crate:   2.0.0-rc.10  (pins ORT 1.22.x C API)
-#   Source URL:  https://download.onnxruntime.ai/pod-archive-onnxruntime-c-1.22.0.zip
-#   ZIP SHA-256: 90d9de5a139087a6b05a18125d01d01d198820e1731e6f0f11b38749b2ab181f
+# Reproducibility anchors (update together with src/apple/vendor/ort-ios/
+# if the ORT version is bumped):
+#   ORT version:   1.22.0
+#   ort crate:     2.0.0-rc.10  (pins ORT 1.22.x C API)
+#   Vendored zip:  src/apple/vendor/ort-ios/pod-archive-onnxruntime-c-1.22.0.zip
+#   Upstream URL:  https://download.onnxruntime.ai/pod-archive-onnxruntime-c-1.22.0.zip
+#                  (for version-bump provenance only — NOT fetched at build time)
+#   ZIP SHA-256:   90d9de5a139087a6b05a18125d01d01d198820e1731e6f0f11b38749b2ab181f
 #
 # The extracted layout under ORT_IOS_XCFW_DIR:
 #   onnxruntime-c-1.22.0/
@@ -37,9 +42,13 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 ORT_VERSION="1.22.0"
-ORT_ZIP_URL="https://download.onnxruntime.ai/pod-archive-onnxruntime-c-${ORT_VERSION}.zip"
 ORT_ZIP_SHA256="90d9de5a139087a6b05a18125d01d01d198820e1731e6f0f11b38749b2ab181f"
+
+# Source of truth: the vendored zip committed in the repo.
+VENDORED_ZIP="${SCRIPT_DIR}/../vendor/ort-ios/pod-archive-onnxruntime-c-${ORT_VERSION}.zip"
 
 CACHE_DIR="${HOME}/.cache/maple-pano/ort-ios"
 ARCHIVE="${CACHE_DIR}/pod-archive-onnxruntime-c-${ORT_VERSION}.zip"
@@ -75,7 +84,7 @@ verify_sha256() {
         echo "ERROR: SHA-256 mismatch for $file" >&2
         echo "  expected: $expected" >&2
         echo "  actual:   $actual" >&2
-        echo "Delete $file and retry, or check for a corrupted download." >&2
+        echo "The vendored zip at src/apple/vendor/ort-ios/ may be corrupted." >&2
         exit 1
     fi
     echo "    SHA-256 OK: $actual"
@@ -87,7 +96,9 @@ verify_sha256() {
 mkdir -p "$CACHE_DIR"
 
 # ---------------------------------------------------------------------------
-# 2. Download (skip when archive is present + verified, unless --force)
+# 2. Copy from vendored zip (skip when archive is present + verified,
+#    unless --force). There is no network fallback — the repo is the source
+#    of truth.
 # ---------------------------------------------------------------------------
 if [[ "$FORCE" -eq 1 ]]; then
     echo "==> --force: removing cached archive and extraction"
@@ -98,12 +109,21 @@ fi
 if [[ -f "$ARCHIVE" ]]; then
     echo "==> Cached archive found — verifying SHA-256..."
     verify_sha256 "$ARCHIVE" "$ORT_ZIP_SHA256"
-    echo "    Archive is current — skipping download."
+    echo "    Archive is current — skipping copy."
 else
-    echo "==> Downloading ONNX Runtime iOS static xcframework v${ORT_VERSION}..."
-    echo "    URL: $ORT_ZIP_URL"
+    if [[ ! -f "$VENDORED_ZIP" ]]; then
+        echo "ERROR: vendored zip not found: $VENDORED_ZIP" >&2
+        echo "       The repo is the source of truth for this artifact." >&2
+        echo "       Check that src/apple/vendor/ort-ios/ is present and the repo is" >&2
+        echo "       fully checked out (no partial sparse-checkout)." >&2
+        echo "       Upstream URL (for version-bump reference, do NOT fetch at build time):" >&2
+        echo "         https://download.onnxruntime.ai/pod-archive-onnxruntime-c-${ORT_VERSION}.zip" >&2
+        exit 1
+    fi
+    echo "==> Copying vendored ONNX Runtime iOS static xcframework v${ORT_VERSION}..."
+    echo "    Source:      $VENDORED_ZIP"
     echo "    Destination: $ARCHIVE"
-    curl --fail --location --progress-bar "$ORT_ZIP_URL" -o "$ARCHIVE"
+    cp "$VENDORED_ZIP" "$ARCHIVE"
     echo "==> Verifying SHA-256..."
     verify_sha256 "$ARCHIVE" "$ORT_ZIP_SHA256"
 fi

@@ -95,15 +95,16 @@ echo "    PANO-iOS:   ON (--features pano-ios for iOS slices; static ORT — M6 
 # 0a-pano. Provision the ONNX Runtime iOS static xcframework (M6 #1244).
 #
 # The ORT iOS static lib is required for the iOS + iOS-sim slices when
-# `pano-ios` is enabled. It is NOT committed (35 MB arm64 static + 76 MB
-# fat sim static — over GitHub's per-file limit); fetch-ort-ios.sh caches
-# it at ~/.cache/maple-pano/ort-ios/ and verifies the ZIP SHA-256.
+# `pano-ios` is enabled. The zip (pod-archive-onnxruntime-c-1.22.0.zip,
+# 45 MB) is vendored in the repo at src/apple/vendor/ort-ios/ (#1353).
+# fetch-ort-ios.sh copies it to ~/.cache/maple-pano/ort-ios/, verifies
+# the ZIP SHA-256, and extracts it. No network access is required.
 #
-# ORT version 1.22.0 (pod-archive-onnxruntime-c-1.22.0.zip) pairs with the
-# workspace's `ort = "=2.0.0-rc.10"` crate (which binds ORT 1.22.x C API).
-# The official iOS pod is a static xcframework — libonnxruntime.a for arm64
-# and a fat arm64+x86_64 for the simulator — and includes the CoreML EP
-# symbols (M6-C placeholder, not yet wired).
+# ORT version 1.22.0 pairs with the workspace's `ort = "=2.0.0-rc.10"`
+# crate (which binds ORT 1.22.x C API). The official iOS pod is a static
+# xcframework — libonnxruntime.a for arm64 and a fat arm64+x86_64 for the
+# simulator — and includes the CoreML EP symbols (M6-C placeholder, not yet
+# wired).
 # ---------------------------------------------------------------------------
 ORT_IOS_XCFW_BASE="${HOME}/.cache/maple-pano/ort-ios/onnxruntime-c-1.22.0/onnxruntime.xcframework"
 
