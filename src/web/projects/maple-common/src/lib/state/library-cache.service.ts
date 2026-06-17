@@ -231,29 +231,20 @@ export class LibraryCache {
   private readonly thumbLoadingIds = new Set<AssetId>();
 
   /**
-   * Per-asset reactive signals for thumbnail URLs. Lazily created; a tile's
-   * `computed()` depends only on its own id's signal, so loading ONE thumbnail
-   * recomputes only THAT tile — not every tile on screen (O(N²) avoidance).
-   *
-   * Lifecycle: signals are set to `undefined` before being removed (on LRU
-   * eviction, the cap eviction in `thumbSignalFor`, and `clearAll`), so any
-   * computed that still holds the signal object reacts correctly and recreates
-   * it (seeded from the LRU) on its next read.
-   *
-   * Bounded by THUMB_SIGNAL_CAP. The LRU-eviction delete only covers ids that
-   * were cached; an id that is rendered but never cached — a thumbnail that
-   * fails to load or a tile scrolled past before its load lands — never enters
-   * the LRU, so without the cap its signal would leak for the whole session.
+   * Per-asset reactive thumbnail-URL signals — a tile's `computed()` depends
+   * only on its own id's signal, so loading ONE thumbnail recomputes only THAT
+   * tile, not every tile on screen (O(N²) avoidance, #1359). Bounded by
+   * THUMB_SIGNAL_CAP via access-ordered eviction in `thumbSignalFor`: the
+   * LRU-eviction delete only covers cached ids, so an id rendered but never
+   * cached (failed/absent thumbnail, or scrolled past before load) would
+   * otherwise leak a signal for the whole session (#1363).
    */
   private static readonly THUMB_SIGNAL_CAP = 1000;
   private readonly thumbSignals = new Map<AssetId, WritableSignal<string | undefined>>();
 
-  /**
-   * Lazily create (or return existing) the per-asset signal for `id`, refreshing
-   * its access recency. Visible tiles call this every change-detection pass, so
-   * they stay most-recent; stale orphans (no longer rendered, never cached) sink
-   * to the bottom and evict once the map exceeds THUMB_SIGNAL_CAP.
-   */
+  /** Lazily create/return the per-asset signal for `id`, refreshing access
+   * recency so visible tiles (which call this every CD pass) stay most-recent
+   * and stale orphans evict once the map exceeds THUMB_SIGNAL_CAP. */
   private thumbSignalFor(id: AssetId): WritableSignal<string | undefined> {
     const existing = this.thumbSignals.get(id);
     if (existing) {
