@@ -24,9 +24,7 @@ export class HttpLibrarySource implements LibrarySource {
   private readonly base = inject(API_BASE_URL);
 
   listFolder(a: MapleAddress): Promise<FolderListing> {
-    return firstValueFrom(
-      this.http.get<FolderListing>(`${this.base}/folder/${toApiPath(a)}`),
-    );
+    return firstValueFrom(this.http.get<FolderListing>(`${this.base}/folder/${toApiPath(a)}`));
   }
 
   imageBlob(a: MapleAddress): Promise<Blob> {

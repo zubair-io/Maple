@@ -119,7 +119,10 @@ export class FsAccessLibrarySource implements LibrarySource {
     // existing maple-cache.service.ts pattern).
     const { filename } = splitRelPath(a.relPath);
     const sha = await sha256Prefix16(filename);
-    const cached = await this.cache.readThumb(rootHandle as unknown as Parameters<typeof this.cache.readThumb>[0], sha);
+    const cached = await this.cache.readThumb(
+      rootHandle as unknown as Parameters<typeof this.cache.readThumb>[0],
+      sha,
+    );
     if (cached) {
       return URL.createObjectURL(cached);
     }

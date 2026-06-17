@@ -19,6 +19,12 @@ import type { ObservabilityConfigResponse } from '../observability/observability
 export interface ApiFolder {
   id: string;
   path: string;
+  /**
+   * URL-safe slug identifying this library in the M1 addressing scheme.
+   * Populated by the server once M1 (#1326) merges; optional here so the
+   * client degrades gracefully on older API versions.
+   */
+  slug?: string;
   /** Display label — defaults to the basename of `path` on the server side. */
   label: string;
   /** Last full-scan timestamp (ISO 8601), or null if the library has never been scanned. */

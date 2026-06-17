@@ -40,19 +40,24 @@ export interface SidebarEntry {
    *   'loaded'  → `children` reflects the directory contents
    *   'error'   → fetch failed; show retry affordance
    */
-  childrenStatus?: "loading" | "loaded" | "error";
+  childrenStatus?: 'loading' | 'loaded' | 'error';
   /** Last error message when childrenStatus === 'error'. */
   childrenError?: string;
 }
 
 // Folder rendered as a navigable tile inside the asset grid (Self-Hosted
-// FS-walk only). Sits alongside Asset records in the grid layout — clicking
+// only). Sits alongside Asset records in the grid layout — clicking
 // one drills into the folder via the same `openSelfHostedSubfolder` path
 // the sidebar uses, so navigation logic stays in one place.
+//
+// After M2 the `id` is the full `slug:relPath` MapleAddress string.
+// `absPath` is kept as an optional legacy field for backward compat with
+// the asset-grid component (which passes it as `relPath` to
+// `openSelfHostedSubfolder`); new listings from LibrarySource omit it.
 export interface GridFolderItem {
   id: string;
   name: string;
-  absPath: string;
+  absPath?: string;
   parentSourceId: string;
   aspectRatio: number;
 }

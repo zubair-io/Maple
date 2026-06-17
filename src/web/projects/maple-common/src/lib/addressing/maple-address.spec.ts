@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { parseAddress, formatAddress, childAddress, parentAddress, toApiPath } from './maple-address';
+import {
+  parseAddress,
+  formatAddress,
+  childAddress,
+  parentAddress,
+  toApiPath,
+} from './maple-address';
 
 describe('MapleAddress', () => {
   it('round-trips', () => {

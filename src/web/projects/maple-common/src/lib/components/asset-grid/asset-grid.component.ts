@@ -26,6 +26,7 @@ import { GridFolderItem } from '../../models/folder';
 import { AssetThumbComponent } from '../asset-thumb/asset-thumb.component';
 import { FolderTileComponent } from '../folder-tile/folder-tile.component';
 import { STORAGE_KEYS, TypedStorage } from '../../util/typed-storage';
+import { parseAddress } from '../../addressing/maple-address';
 
 export type GridItem = { kind: 'folder'; folder: GridFolderItem } | { kind: 'image'; asset: Asset };
 
@@ -152,7 +153,17 @@ export class AssetGridComponent implements AfterViewInit, OnDestroy {
   onFolderTileClick(folder: GridFolderItem): void {
     // Single click drills into the folder — same path the sidebar uses, so
     // selection state, sidebar expansion, and grid contents stay in sync.
-    this.state.openSelfHostedSubfolder(folder.absPath, folder.id);
+    // After M2, folder.id is slug:relPath; derive relPath from it for the first
+    // parameter (which openSelfHostedSubfolder now accepts as relPath).
+    let relPath = folder.absPath ?? '';
+    if (!relPath && folder.id.includes(':')) {
+      try {
+        relPath = parseAddress(folder.id).relPath;
+      } catch {
+        /* ignore */
+      }
+    }
+    this.state.openSelfHostedSubfolder(relPath, folder.id);
     this.state.setFolderOpen(folder.id, true);
   }
 

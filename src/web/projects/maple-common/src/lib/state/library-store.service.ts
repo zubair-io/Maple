@@ -50,6 +50,7 @@ import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { ApiFolder } from '../api/bun-api-backend.service';
 import { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { MapleIndex } from '../maple-cache/maple-cache.types';
+import { parseAddress } from '../addressing/maple-address';
 
 // ─── Location helpers (content-addressing migration) ───────────────────────
 //
@@ -250,19 +251,46 @@ export class LibraryStore {
    * the longest path-prefix match. Returns null when nothing is selected,
    * the user is on Hosted, or the path doesn't fall under any library.
    */
+  /**
+   * Resolve the registered library that owns the current Self-Hosted selection.
+   *
+   * After M2 the `selectedSourceId` is a `slug:relPath` MapleAddress string.
+   * We match by slug: `ApiFolder.slug` (from M1's server response) or fall
+   * back to `ApiFolder.id` when the server is pre-M1 and no slug was returned.
+   *
+   * Legacy `fs:<absPath>` ids (stored in older localStorage sessions) are
+   * handled with a path-prefix walk for backward compat, but no new ids are
+   * created in that format.
+   */
   currentRegisteredFolder(selectedSourceId: string): ApiFolder | null {
     if (this.backend !== 'self-hosted') return null;
-    if (!selectedSourceId.startsWith('fs:')) return null;
-    const absPath = selectedSourceId.slice('fs:'.length);
-    if (!absPath) return null;
+    if (!selectedSourceId) return null;
     const folders = this.registeredFolders();
-    let best: ApiFolder | null = null;
-    for (const f of folders) {
-      if (absPath === f.path || absPath.startsWith(f.path + '/')) {
-        if (!best || f.path.length > best.path.length) best = f;
+
+    // New format: slug:relPath
+    if (selectedSourceId.includes(':') && !selectedSourceId.startsWith('fs:')) {
+      try {
+        const addr = parseAddress(selectedSourceId);
+        return folders.find((f) => f.slug === addr.slug || f.id === addr.slug) ?? null;
+      } catch {
+        return null;
       }
     }
-    return best;
+
+    // Legacy: fs:<absPath> — path-prefix walk for backward compat.
+    if (selectedSourceId.startsWith('fs:')) {
+      const absPath = selectedSourceId.slice('fs:'.length);
+      if (!absPath) return null;
+      let best: ApiFolder | null = null;
+      for (const f of folders) {
+        if (absPath === f.path || absPath.startsWith(f.path + '/')) {
+          if (!best || f.path.length > best.path.length) best = f;
+        }
+      }
+      return best;
+    }
+
+    return null;
   }
 
   // ── Sidebar helpers ────────────────────────────────────────────────────────
@@ -309,11 +337,38 @@ export class LibraryStore {
     });
   }
 
-  /** Look up the SidebarEntry id whose absPath equals `absPath`. */
+  /** Look up the SidebarEntry id whose absPath equals `absPath` (legacy). */
   sourceIdForFsPath(absPath: string): string | null {
     const walk = (entries: SidebarEntry[]): string | null => {
       for (const e of entries) {
         if (e.absPath === absPath) return e.id;
+        if (e.children) {
+          const hit = walk(e.children);
+          if (hit) return hit;
+        }
+      }
+      return null;
+    };
+    return walk(this.sidebarTree());
+  }
+
+  /**
+   * Look up a SidebarEntry id by relative path component within any library.
+   * Walks the tree looking for an entry whose `id` has relPath equal to `relPath`.
+   * Used by `openSelfHostedSubfolder` to re-use an existing node's address id
+   * when the caller passes only the relPath without the slug.
+   */
+  sourceIdForRelPath(relPath: string): string | null {
+    const walk = (entries: SidebarEntry[]): string | null => {
+      for (const e of entries) {
+        if (e.id.includes(':')) {
+          try {
+            const addr = parseAddress(e.id);
+            if (addr.relPath === relPath) return e.id;
+          } catch {
+            // Not a MapleAddress — skip.
+          }
+        }
         if (e.children) {
           const hit = walk(e.children);
           if (hit) return hit;
