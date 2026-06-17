@@ -14,8 +14,9 @@
 // pre-#1337 output bit-exactly.
 //
 // Mirrors `raw_core::view::encode::rec2020_to_display`:
-//   display = M_REC2020_TO_{SRGB|P3} · rgb
-//   out     = compress_to_unit_cube_oklab(display, srgb_linear_to_oklab, oklab_to_srgb_linear)
+//   srgb    = M_REC2020_TO_SRGB · rgb
+//   out     = compress_to_unit_cube_oklab(srgb, srgb_linear_to_oklab, oklab_to_srgb_linear)
+//   [P3]    = M_SRGB_TO_P3 · out   (P3 path only; sRGB path stops after step 2)
 //
 // PARITY-CRITICAL invariants (mirrored verbatim from raw-core):
 //
@@ -112,10 +113,20 @@ fn compress_to_unit_cube(rgb: vec3<f32>) -> vec3<f32> {
     return clamp(out, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
-// Note: mul_rec2020_to_p3 is provided by the generated color_matrices.wgsl
-// module, concatenated ahead of this file at pipeline creation. The P3 matrix
-// rows (M_REC2020_TO_P3_R0/R1/R2) are single-sourced from
-// raw-core/src/color/matrices.rs via the codegen emitter (#1337).
+// Note: mul_rec2020_to_srgb and mul_srgb_to_p3 are provided by the generated
+// color_matrices.wgsl module, concatenated ahead of this file at pipeline
+// creation. Both are single-sourced from raw-core/src/color/matrices.rs via
+// the codegen emitter (#1337).
+//
+// Pipeline order (mirrors raw_core::view::encode::rec2020_to_display):
+//   1. Rec.2020 → linear sRGB         (mul_rec2020_to_srgb)
+//   2. Oklab gamut compress in sRGB    (compress_to_unit_cube — sRGB-defined Oklab)
+//   3. sRGB → P3  (P3 path only)      (mul_srgb_to_p3)
+//
+// Gamut compression MUST run in linear sRGB because compress_to_unit_cube uses
+// srgb_linear_to_oklab / oklab_to_srgb_linear — the LMS cone matrix is
+// calibrated for sRGB primaries. Feeding linear P3 through them would give
+// wrong hue/chroma. The P3 primary swap (step 3) runs after compression.
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -124,12 +135,18 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let px = input_buf[i];
-    // Select primaries matrix: 0 = sRGB (default, pre-#1337), 1 = Display P3.
-    let display: vec3<f32> = select(
-        mul_rec2020_to_srgb(px.rgb),
-        mul_rec2020_to_p3(px.rgb),
-        params.target_primaries == 1u,
-    );
-    let out_rgb = compress_to_unit_cube(display);
+    // Step 1+2: Rec.2020 → sRGB, then Oklab gamut compress in sRGB.
+    // compress_to_unit_cube uses the sRGB Oklab helpers — correct here.
+    let srgb_compressed = compress_to_unit_cube(mul_rec2020_to_srgb(px.rgb));
+    // Step 3: rotate sRGB primaries → P3 primaries (P3 path only).
+    // target_primaries is a uniform — the compiler turns this into a uniform
+    // branch with no warp divergence; both arms are NOT evaluated per pixel
+    // (unlike WGSL select() which evaluates both arguments eagerly).
+    var out_rgb: vec3<f32>;
+    if (params.target_primaries == 1u) {
+        out_rgb = mul_srgb_to_p3(srgb_compressed);
+    } else {
+        out_rgb = srgb_compressed;
+    }
     output_buf[i] = vec4<f32>(out_rgb, px.a);
 }
