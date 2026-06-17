@@ -8,26 +8,22 @@
 //   /edit/:slug/**    → EditorShellComponent
 //
 // Angular's router passes the ** wildcard as remaining url.segments[N].path
-// values. We join them (decoding percent-encoding if present) into relPath.
+// values, ALREADY percent-decoded. We join them as-is into relPath.
 
 import type { MapleAddress } from './maple-address';
 
 /**
  * Convert a slug + array of remaining URL segments into a MapleAddress.
- * Each segment is decoded from percent-encoding if needed.
+ *
+ * Angular's Router already percent-decodes `UrlSegment.path`, so we must NOT
+ * decode again — double-decoding corrupts filenames containing a literal `%xx`
+ * sequence (e.g. an already-decoded "a%20b" would wrongly become "a b").
  *
  * @param slug - the `:slug` route param
  * @param segments - the ** wildcard segments (empty at library root)
  */
 export function routeSegmentsToAddress(slug: string, segments: string[]): MapleAddress {
-  const parts = segments.map((seg) => {
-    try {
-      return decodeURIComponent(seg);
-    } catch {
-      return seg;
-    }
-  });
-  return { slug, relPath: parts.join('/') };
+  return { slug, relPath: segments.join('/') };
 }
 
 /**
