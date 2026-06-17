@@ -19,7 +19,7 @@ import { FilesystemBrowseService } from '../api/filesystem-browse.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { LIBRARY_SOURCE } from '../addressing/library-source';
-import type { AssetId } from '../models/asset';
+import type { Asset, AssetId } from '../models/asset';
 
 describe('LibraryCache — thumbnail object-URL lifecycle', () => {
   let svc: LibraryCache;
@@ -41,7 +41,7 @@ describe('LibraryCache — thumbnail object-URL lifecycle', () => {
         { provide: FilesystemBrowseService, useValue: { clearThumbCache } },
         { provide: MapleCacheService, useValue: {} },
         { provide: RawPipelineService, useValue: {} },
-        { provide: LIBRARY_SOURCE, useValue: {} },
+        { provide: LIBRARY_SOURCE, useValue: { thumbBlob: vi.fn(), previewBlob: vi.fn() } },
       ],
     });
     svc = TestBed.inject(LibraryCache);
@@ -76,6 +76,70 @@ describe('LibraryCache — thumbnail object-URL lifecycle', () => {
     svc.cacheThumbnailUrl('c' as AssetId, 'https://cdn.example/x.jpg');
     svc.clearAll();
     expect(revoke).not.toHaveBeenCalledWith('https://cdn.example/x.jpg');
+  });
+});
+
+describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
+  let originalCreate: typeof URL.createObjectURL;
+  let originalRevoke: typeof URL.revokeObjectURL;
+
+  beforeEach(() => {
+    originalCreate = URL.createObjectURL;
+    originalRevoke = URL.revokeObjectURL;
+    URL.createObjectURL = vi.fn(() => 'blob:m2-thumb');
+    URL.revokeObjectURL = vi.fn();
+  });
+  afterEach(() => {
+    URL.createObjectURL = originalCreate;
+    URL.revokeObjectURL = originalRevoke;
+  });
+
+  // _loadThumbInternal is fire-and-forget (kicked off via .finally); let the
+  // thumbBlob promise + microtasks settle before asserting.
+  const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+
+  function setup(libSource: Record<string, unknown>, fsBrowse: Record<string, unknown> = {}) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        LibraryCache,
+        { provide: LibraryStore, useValue: { backend: 'self-hosted' } },
+        { provide: BunApiBackendService, useValue: {} },
+        { provide: FilesystemBrowseService, useValue: fsBrowse },
+        { provide: MapleCacheService, useValue: {} },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: LIBRARY_SOURCE, useValue: libSource },
+      ],
+    });
+    return TestBed.inject(LibraryCache);
+  }
+
+  it('fetches a slug:relPath thumb via LibrarySource.thumbBlob and caches the object URL', async () => {
+    const thumbBlob = vi.fn(async () => new Blob(['x'], { type: 'image/jpeg' }));
+    const svc = setup({ thumbBlob });
+
+    svc.ensureThumbnailUrl({ id: 'lib:2026/a.jpg', filename: 'a.jpg' } as unknown as Asset);
+    await settle();
+
+    expect(thumbBlob).toHaveBeenCalledWith({ slug: 'lib', relPath: '2026/a.jpg' });
+    expect(svc.thumbnailUrlFor('lib:2026/a.jpg' as AssetId)).toBe('blob:m2-thumb');
+  });
+
+  it('does NOT route a legacy fs:<absPath> id through LibrarySource (regression)', async () => {
+    const thumbBlob = vi.fn(async () => new Blob());
+    const getThumbBlobUrl = vi.fn(async () => 'blob:fs');
+    const svc = setup({ thumbBlob }, { getThumbBlobUrl });
+
+    svc.ensureThumbnailUrl({
+      id: 'fs:/srv/a.jpg',
+      filename: 'a.jpg',
+      absPath: '/srv/a.jpg',
+    } as unknown as Asset);
+    await settle();
+
+    // `fs:` ids contain ':' but must use the absPath FS-walk branch, not LibrarySource.
+    expect(thumbBlob).not.toHaveBeenCalled();
+    expect(getThumbBlobUrl).toHaveBeenCalled();
   });
 });
 

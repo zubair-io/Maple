@@ -37,12 +37,15 @@ export interface LibrarySource {
   listFolder(a: MapleAddress): Promise<FolderListing>;
   imageBlob(a: MapleAddress): Promise<Blob>;
   /**
-   * Resolve the thumbnail URL for an image address.
-   * Self-Hosted: returns an HTTP URL (immutable-cached, plain <img src>).
-   * Hosted: returns a blob: URL backed by the local thumb cache.
+   * Fetch the thumbnail/preview JPEG for an image address as a Blob. The
+   * CALLER owns the object-URL lifecycle (create + revoke) — see
+   * LibraryCache.ThumbLruCache. Returning a Blob (not a blob: URL string)
+   * keeps revocation explicit and lets Self-Hosted fetch via HttpClient so the
+   * bearer token is attached (the /api/thumb|preview routes are bearer-only;
+   * a bare <img src> would 401).
    */
-  thumbUrl(a: MapleAddress): Promise<string>;
-  previewUrl(a: MapleAddress): Promise<string>;
+  thumbBlob(a: MapleAddress): Promise<Blob>;
+  previewBlob(a: MapleAddress): Promise<Blob>;
 }
 
 export const LIBRARY_SOURCE = new InjectionToken<LibrarySource>('LIBRARY_SOURCE');

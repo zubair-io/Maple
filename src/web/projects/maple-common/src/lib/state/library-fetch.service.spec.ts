@@ -64,11 +64,11 @@ function createMockLibrarySource(listingsByAddress: Map<string, FolderListing>):
     imageBlob(_a: MapleAddress): Promise<Blob> {
       return Promise.resolve(new Blob());
     },
-    thumbUrl(_a: MapleAddress): Promise<string> {
-      return Promise.resolve('thumb://mock');
+    thumbBlob(_a: MapleAddress): Promise<Blob> {
+      return Promise.resolve(new Blob());
     },
-    previewUrl(_a: MapleAddress): Promise<string> {
-      return Promise.resolve('preview://mock');
+    previewBlob(_a: MapleAddress): Promise<Blob> {
+      return Promise.resolve(new Blob());
     },
   };
 }
