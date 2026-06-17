@@ -176,7 +176,12 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
 
     const bytes = await svc.bytesForAsset('lib:2026/IMG_001.dng' as AssetId);
 
-    expect(imageBlob).toHaveBeenCalledWith({ slug: 'lib', relPath: '2026/IMG_001.dng' });
+    // Called with the parsed address + a progress callback (drives the editor's
+    // open-progress overlay, same as the apiId/fsAbsPath byte paths).
+    expect(imageBlob).toHaveBeenCalledWith(
+      { slug: 'lib', relPath: '2026/IMG_001.dng' },
+      expect.any(Function),
+    );
     expect(Array.from(bytes)).toEqual([1, 2, 3, 4]);
   });
 
