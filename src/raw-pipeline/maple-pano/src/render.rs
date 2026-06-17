@@ -503,6 +503,20 @@ mod tests {
         assert!(cam1.rotation.max_abs_diff(&want) < 1e-6);
     }
 
+    /// Returns a collision-free temp path for a test PNG.
+    /// Incorporates the process ID and a per-process atomic counter so
+    /// concurrent test runs (rayon / `cargo test -j N`) and leftover files
+    /// from previous runs cannot collide.
+    fn unique_tmp_png(label: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "maple_pano_{label}_{pid}_{n}.png",
+            pid = std::process::id(),
+        ))
+    }
+
     /// write_frame_png with PngMetadata embedding: verify that the written PNG
     /// file contains an `eXIf` chunk and an `sRGB` chunk.
     ///
@@ -526,7 +540,7 @@ mod tests {
         let exif_blob = build_exif_blob(&exif).expect("blob must be Some for rich Exif");
 
         // Write a tiny 2×2 16-bit RGB PNG with EXIF + sRGB metadata.
-        let tmp = std::env::temp_dir().join("maple_pano_metadata_test.png");
+        let tmp = unique_tmp_png("metadata");
         let data: Vec<u16> = vec![0x1234u16; 2 * 2 * 3];
         let meta = PngMetadata {
             exif_blob: Some(exif_blob),
@@ -544,7 +558,6 @@ mod tests {
         assert!(has_chunk(b"sRGB"), "sRGB chunk must be present");
         assert!(has_chunk(b"eXIf"), "eXIf chunk must be present");
 
-        // Clean up (ignore failure — tests that share /tmp may race).
         let _ = std::fs::remove_file(&tmp);
     }
 
@@ -552,7 +565,7 @@ mod tests {
     /// written (the scene-linear carrier must stay clean).
     #[test]
     fn write_frame_png_no_metadata_omits_exif_chunk() {
-        let tmp = std::env::temp_dir().join("maple_pano_no_metadata_test.png");
+        let tmp = unique_tmp_png("no_metadata");
         let data: Vec<u16> = vec![0xAAAAu16; 2 * 2 * 3];
         write_frame_png(&tmp, 2, 2, &data, &PngMetadata::default()).expect("write must succeed");
 
