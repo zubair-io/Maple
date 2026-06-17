@@ -29,6 +29,7 @@
 //! quantized values are used for rendering** — so `ground_truth.json`
 //! (which stores `f32`) describes the render mapping exactly.
 
+use std::borrow::Cow;
 use std::io::Write as _;
 use std::path::Path;
 
@@ -199,19 +200,57 @@ pub fn render_frame(
     Ok(rows?.concat())
 }
 
+/// Optional metadata to embed in a display PNG via `write_frame_png`.
+///
+/// `exif_blob` is a raw TIFF/EXIF byte stream for the `eXIf` chunk.
+/// When `tag_srgb` is true the PNG encoder adds an `sRGB` chunk
+/// (rendering intent: Perceptual) plus companion `gAMA` / `cHRM` chunks.
+/// Neither field is mandatory; pass `Default::default()` for the
+/// scene-linear carrier (no tags).
+#[derive(Debug, Default)]
+pub struct PngMetadata {
+    /// TIFF-format EXIF blob for the `eXIf` chunk, or `None`.
+    pub exif_blob: Option<Vec<u8>>,
+    /// Add an `sRGB` chunk (and `gAMA`/`cHRM` companion chunks).
+    pub tag_srgb: bool,
+}
+
 /// Write an interleaved 16-bit RGB buffer as a PNG.
+///
+/// Pass `meta.tag_srgb = true` and/or `meta.exif_blob = Some(blob)` for the
+/// sRGB-display-encoded pano output. Leave both `None`/`false` for the
+/// scene-linear carrier (`.linear.png`).
 pub fn write_frame_png(
     path: &Path,
     width: u32,
     height: u32,
     data: &[u16],
+    meta: &PngMetadata,
 ) -> Result<(), PanoError> {
     debug_assert_eq!(data.len(), width as usize * height as usize * 3);
     let file = std::fs::File::create(path).map_err(|e| PanoError::io(path, e))?;
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), width, height);
-    enc.set_color(png::ColorType::Rgb);
-    enc.set_depth(png::BitDepth::Sixteen);
+
+    let mut info = png::Info::with_size(width, height);
+    info.color_type = png::ColorType::Rgb;
+    info.bit_depth = png::BitDepth::Sixteen;
+
+    if meta.tag_srgb {
+        // `srgb` is a public field on `Info`; the `png` encoder writes an
+        // `sRGB` chunk for it (PNG spec §11.3.2.5).  The companion `gAMA` and
+        // `cHRM` chunks are written automatically by the encoder when
+        // `source_gamma` / `source_chromaticities` are also set, but the
+        // `sRGB` chunk alone is sufficient for Apple ImageIO / CGImageSource
+        // to identify the color space as sRGB.
+        info.srgb = Some(png::SrgbRenderingIntent::Perceptual);
+    }
+
+    if let Some(blob) = &meta.exif_blob {
+        info.exif_metadata = Some(Cow::Borrowed(blob.as_slice()));
+    }
+
+    let enc = png::Encoder::with_info(std::io::BufWriter::new(file), info)?;
     let mut writer = enc.write_header()?;
+
     // PNG 16-bit samples are big-endian.
     let mut bytes = Vec::with_capacity(data.len() * 2);
     for &v in data {
@@ -266,7 +305,13 @@ pub fn run(
     for (i, gt_cam) in cameras.iter().enumerate() {
         let cam = gt_cam.to_camera();
         let frame = render_frame(&source, &cam, job.supersample)?;
-        write_frame_png(&out_dir.join(&gt_cam.frame), cam.width, cam.height, &frame)?;
+        write_frame_png(
+            &out_dir.join(&gt_cam.frame),
+            cam.width,
+            cam.height,
+            &frame,
+            &PngMetadata::default(),
+        )?;
         progress(i, &gt_cam.frame);
     }
 
@@ -456,5 +501,65 @@ mod tests {
         let want = Mat3::rotation_y(h_step).mul_mat(&Mat3::rotation_x(10.0_f64.to_radians()));
         // f32 quantization of the axis-angle bounds the matrix error.
         assert!(cam1.rotation.max_abs_diff(&want) < 1e-6);
+    }
+
+    /// write_frame_png with PngMetadata embedding: verify that the written PNG
+    /// file contains an `eXIf` chunk and an `sRGB` chunk.
+    ///
+    /// This test reads back the raw PNG bytes and scans for the chunk type
+    /// bytes rather than going through the decoder, so it works on any host
+    /// without extra dependencies.
+    #[test]
+    fn write_frame_png_embeds_exif_and_srgb_chunks() {
+        use crate::exif_embed::build_exif_blob;
+        use raw_core::Exif;
+
+        let exif = Exif {
+            camera_make: Some("TestMake".into()),
+            camera_model: Some("TestModel".into()),
+            iso: Some(400),
+            aperture: Some(4.0),
+            shutter_s: Some(1.0 / 100.0),
+            focal_mm: Some(50.0),
+            ..Default::default()
+        };
+        let exif_blob = build_exif_blob(&exif).expect("blob must be Some for rich Exif");
+
+        // Write a tiny 2×2 16-bit RGB PNG with EXIF + sRGB metadata.
+        let tmp = std::env::temp_dir().join("maple_pano_metadata_test.png");
+        let data: Vec<u16> = vec![0x1234u16; 2 * 2 * 3];
+        let meta = PngMetadata {
+            exif_blob: Some(exif_blob),
+            tag_srgb: true,
+        };
+        write_frame_png(&tmp, 2, 2, &data, &meta).expect("write must succeed");
+
+        // Read back the raw PNG bytes and scan for chunk types.
+        let bytes = std::fs::read(&tmp).expect("PNG file must exist after write");
+
+        // PNG signature is 8 bytes; then chunks follow: 4-byte length, 4-byte
+        // type, data, 4-byte CRC. Scan for known chunk type bytes.
+        let has_chunk = |name: &[u8; 4]| -> bool { bytes.windows(4).any(|w| w == name) };
+
+        assert!(has_chunk(b"sRGB"), "sRGB chunk must be present");
+        assert!(has_chunk(b"eXIf"), "eXIf chunk must be present");
+
+        // Clean up (ignore failure — tests that share /tmp may race).
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// write_frame_png with default (no) metadata: verify no eXIf chunk is
+    /// written (the scene-linear carrier must stay clean).
+    #[test]
+    fn write_frame_png_no_metadata_omits_exif_chunk() {
+        let tmp = std::env::temp_dir().join("maple_pano_no_metadata_test.png");
+        let data: Vec<u16> = vec![0xAAAAu16; 2 * 2 * 3];
+        write_frame_png(&tmp, 2, 2, &data, &PngMetadata::default()).expect("write must succeed");
+
+        let bytes = std::fs::read(&tmp).expect("PNG file must exist");
+        let has_exif = bytes.windows(4).any(|w| w == b"eXIf");
+        assert!(!has_exif, "no eXIf chunk in scene-linear carrier");
+
+        let _ = std::fs::remove_file(&tmp);
     }
 }
