@@ -265,7 +265,7 @@ pub use dehaze::{apply_dehaze, compute_airlight, AirlightSource, DehazePass};
 pub use dither::{alloc_packed_rgb, dither_and_quantize, encode_dither, unpack_rgb_u8};
 pub use display_encode::{apply_display_encode, DisplayEncodePass};
 pub use exposure::{apply_exposure_gain, run_exposure_gpu_async, ExposurePass};
-pub use full_chain::{build_full_chain_passes, build_split, BoxedPasses, FullChainInputs};
+pub use full_chain::{build_full_chain_passes, build_split, BoxedPasses, FullChainInputs, InputShape};
 pub use grain::{apply_grain, GrainPass};
 pub use hsl::{apply_hsl, HslPass};
 pub use image::GpuImage;

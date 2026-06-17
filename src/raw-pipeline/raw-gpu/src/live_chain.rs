@@ -58,7 +58,7 @@ use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
 use crate::grain::GrainPass;
 use crate::hsl::HslPass;
-use crate::full_chain::{BoxedPasses, FullChainInputs};
+use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
@@ -182,14 +182,22 @@ pub fn build_live_split(
     //     texture. Each pass is included only when its stage is NOT a no-op,
     //     replicating develop's per-stage `if` guards / the `apply` short-circuit. ---
     let mut prefix: BoxedPasses = Vec::new();
-    if let Some(params) = inputs.capture_sharpening {
-        // Already `Option`-gated in `build_split`; `Some` === develop ran the stage.
-        prefix.push(Box::new(CaptureSharpeningPass { params }));
-    }
-    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
-        prefix.push(Box::new(WhiteBalancePass {
-            matrix: inputs.wb_matrix,
-        }));
+    // WB and capture_sharpening are RAW-only stages (#1331): non-RAW shapes
+    // (pano PNG, JPEG) upload a buffer that is already post-WB / post-decode,
+    // so both stages are no-ops for them and must be skipped to avoid a
+    // spurious colour shift. `PostDcpRec2020Fp16` is the historic default,
+    // preserving the existing RAW behaviour exactly.
+    let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
+    if is_raw_shape {
+        if let Some(params) = inputs.capture_sharpening {
+            // Already `Option`-gated in `build_split`; `Some` === develop ran the stage.
+            prefix.push(Box::new(CaptureSharpeningPass { params }));
+        }
+        if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
+            prefix.push(Box::new(WhiteBalancePass {
+                matrix: inputs.wb_matrix,
+            }));
+        }
     }
     if !scene_tone_is_noop(&inputs.tone) {
         prefix.push(Box::new(SceneToneControlsPass {
@@ -344,10 +352,15 @@ pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 /// [`chain_signature`] to key the live pool's bind-group cache.
 fn active_mask(inputs: &FullChainInputs) -> u32 {
     let mut m = 0u32;
-    if inputs.capture_sharpening.is_some() {
+    // Encode input_shape in the top 2 bits so that a shape change (e.g. opening a
+    // pano vs a RAW) always lands in a fresh pool bucket — the stage set differs.
+    m |= (inputs.input_shape as u32) << 30;
+    let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
+    // Bits 0–1: RAW-only stages; always 0 for non-RAW shapes (#1331).
+    if is_raw_shape && inputs.capture_sharpening.is_some() {
         m |= 1 << 0;
     }
-    if !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
+    if is_raw_shape && !wb_is_noop(inputs.wb_temperature, inputs.wb_tint) {
         m |= 1 << 1;
     }
     if !scene_tone_is_noop(&inputs.tone) {
