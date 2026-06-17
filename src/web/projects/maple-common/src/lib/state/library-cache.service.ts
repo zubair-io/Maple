@@ -23,6 +23,8 @@ import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
 import { imageDataToBitmap, resizeBitmapToCanvas, canvasToBlob } from '../raw-pipeline/image-utils';
 import { sha256Prefix16 } from '../maple-cache/sha';
 import { LibraryStore } from './library-store.service';
+import { LIBRARY_SOURCE, type LibrarySource } from '../addressing/library-source';
+import { parseAddress } from '../addressing/maple-address';
 
 // ── LRU cache ─────────────────────────────────────────────────────────────────
 
@@ -153,6 +155,7 @@ export class LibraryCache {
   private readonly fsBrowse = inject(FilesystemBrowseService);
   private readonly cache = inject(MapleCacheService);
   private readonly pipeline = inject(RawPipelineService);
+  private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
 
   /**
    * LRU cache: at most 1 GB of RAW bytes resident in memory.
@@ -429,6 +432,20 @@ export class LibraryCache {
     onThumbWritten?: (id: AssetId, sha: string) => void,
   ): Promise<void> {
     try {
+      // 0. Self-Hosted M2 slug:relPath asset → /api/thumb via the authed
+      //    LibrarySource (HttpClient attaches the bearer; returns a blob: URL).
+      //    Checked first: M2 assets are address-keyed with no absPath/apiId, so
+      //    without this they fell through every branch and showed no thumbnail.
+      if (
+        this.store.backend === 'self-hosted' &&
+        typeof asset.id === 'string' &&
+        asset.id.includes(':')
+      ) {
+        const url = await this.librarySource.thumbUrl(parseAddress(asset.id));
+        this.cacheThumbnailUrl(asset.id, url);
+        return;
+      }
+
       // 1. Self-Hosted FS-walk: server renders + caches the JPEG.
       if (this.store.backend === 'self-hosted' && asset.absPath) {
         const url = await this.fsBrowse.getThumbBlobUrl(asset.absPath, 512);
