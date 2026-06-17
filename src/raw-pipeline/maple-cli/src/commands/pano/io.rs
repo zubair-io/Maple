@@ -8,7 +8,7 @@ use maple_pano::ba::BaSolution;
 use maple_pano::composite::CompositeReport;
 use maple_pano::graph::ReverifySummary;
 use maple_pano::ingest::PlanarImage;
-use maple_pano::render::write_frame_png;
+use maple_pano::render::{write_frame_png, PngMetadata};
 use maple_pano::strategy::StrategyReport;
 use maple_pano::tile::TileCompositeReport;
 
@@ -123,8 +123,16 @@ pub(super) fn write_png16(path: &Path, img: &PlanarImage, srgb: bool) -> Result<
             data.push((v * 65535.0).round() as u16);
         }
     }
-    write_frame_png(path, img.width(), img.height(), &data)
-        .map_err(|e| format!("{}: {e}", path.display()))
+    // Linear carrier: no EXIF, no sRGB tag (scene-linear data is not
+    // display-referred sRGB; tagging it as such would mislead viewers).
+    write_frame_png(
+        path,
+        img.width(),
+        img.height(),
+        &data,
+        &PngMetadata::default(),
+    )
+    .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Context for the tile strategy stitch report (no BA solution / leveling /

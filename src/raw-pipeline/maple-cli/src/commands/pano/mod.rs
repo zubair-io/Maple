@@ -37,7 +37,10 @@ use std::time::Instant;
 
 use clap::Subcommand;
 
+use maple_pano::exif_embed::build_exif_blob;
+use maple_pano::render::PngMetadata;
 use maple_pano::stitch::{self, StitchOptions, StitchSuccess};
+use raw_core::read_exif;
 
 use io::{stitch_report, write_png16, ReportContext};
 
@@ -47,6 +50,27 @@ pub use args::StitchArgs;
 /// Spec §5.3 acceptance-gate defaults (single source for both modes).
 const SPEC_MEAN_BUDGET_PX: f64 = 1.5;
 const SPEC_MAX_BUDGET_PX: f64 = 6.0;
+
+/// Build a [`PngMetadata`] for the display-encoded pano PNG by reading EXIF
+/// from the first source frame (capture order = sorted order). Silently
+/// degrades to `tag_srgb: true` with no EXIF blob if the source is
+/// unreadable or carries no useful metadata.
+pub(super) fn display_png_meta(inputs: &[PathBuf]) -> PngMetadata {
+    let exif_blob = inputs.first().and_then(|path| {
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("dng")
+            .to_lowercase();
+        let bytes = std::fs::read(path).ok()?;
+        let exif = read_exif(&bytes, &ext).ok()?;
+        build_exif_blob(&exif)
+    });
+    PngMetadata {
+        exif_blob,
+        tag_srgb: true,
+    }
+}
 
 #[derive(Subcommand)]
 pub enum PanoCmd {
@@ -228,11 +252,14 @@ fn stitch_set(
                 // RAW render. develop_for_display returns the encoded 16-bit
                 // buffer directly → write it straight out (no re-quantize).
                 let data = maple_pano::stitch::develop_for_display(&outcome.image);
+                // Embed EXIF from the first source frame + tag as sRGB (#1333).
+                let meta = display_png_meta(inputs);
                 maple_pano::render::write_frame_png(
                     display,
                     outcome.image.width(),
                     outcome.image.height(),
                     &data,
+                    &meta,
                 )
                 .map_err(|e| format!("{}: {e}", display.display()))?;
             }

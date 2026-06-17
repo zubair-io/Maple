@@ -38,10 +38,12 @@ use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use maple_pano::ba::RetentionPolicy;
+use maple_pano::exif_embed::build_exif_blob;
 use maple_pano::ingest::PlanarImage;
-use maple_pano::render::write_frame_png;
+use maple_pano::render::{write_frame_png, PngMetadata};
 use maple_pano::stitch::{develop_for_display, stitch, StitchError, StitchOptions, StitchSuccess};
 use maple_pano::strategy::StrategyRequest;
+use raw_core::read_exif;
 
 use super::{MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy, SendProgressCallback};
 
@@ -106,6 +108,26 @@ pub(super) fn run_stitch_apple(
         }
     };
 
+    // Build display PNG metadata from the first source frame (capture order =
+    // sorted order, matching how inputs arrive from Swift). Degrades silently
+    // to sRGB-tagged-only if the source is unreadable or carries no metadata.
+    let display_meta = {
+        let exif_blob = inputs.first().and_then(|path| {
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("dng")
+                .to_lowercase();
+            let bytes = std::fs::read(path).ok()?;
+            let exif = read_exif(&bytes, &ext).ok()?;
+            build_exif_blob(&exif)
+        });
+        PngMetadata {
+            exif_blob,
+            tag_srgb: true,
+        }
+    };
+
     // Quantize a scene-linear PlanarImage to 16-bit and write it as a PNG.
     // Shared by the rotation (`stitch`) and tile (`stitch_tile`) success paths.
     // Returns 0 on success, -7 on a filesystem/encode error (last_error set).
@@ -125,7 +147,8 @@ pub(super) fn run_stitch_apple(
         // mis-reading scene-linear Rec.2020 data as display sRGB
         // (cold/desaturated/flat). develop_for_display already encodes + quantizes.
         let data = develop_for_display(img);
-        if let Err(e) = write_frame_png(out_path, img.width(), img.height(), &data) {
+        // Embed EXIF from the first source frame + tag as sRGB (#1333).
+        if let Err(e) = write_frame_png(out_path, img.width(), img.height(), &data, &display_meta) {
             set_last_error(format!("maple_pano_stitch: write PNG: {e}"));
             return -7;
         }

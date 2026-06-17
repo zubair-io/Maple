@@ -13,6 +13,7 @@ use std::time::Instant;
 
 use maple_pano::stitch::TileStitchOutcome;
 
+use super::display_png_meta;
 use super::io::{tile_stitch_report, write_png16, TileReportContext};
 
 // ─── Primary entry point: outcome already computed ────────────────────────────
@@ -95,11 +96,14 @@ pub(super) fn run_tile_from_outcome(
         // render. develop_for_display returns the encoded 16-bit buffer
         // directly → write it straight out (no re-quantize).
         let data = maple_pano::stitch::develop_for_display(&outcome.image);
+        // Embed EXIF from the first source frame + tag as sRGB (#1333).
+        let meta = display_png_meta(inputs);
         maple_pano::render::write_frame_png(
             display,
             outcome.image.width(),
             outcome.image.height(),
             &data,
+            &meta,
         )
         .map_err(|e| format!("{}: {e}", display.display()))?;
     }
