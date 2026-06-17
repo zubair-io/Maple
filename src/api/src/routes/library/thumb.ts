@@ -73,6 +73,22 @@ export const thumbRoutes = new Elysia().get(
         set.status = 404;
         return { error: 'File not found' };
       }
+      // Weak, revalidating validator from the SOURCE file's mtime+size — a
+      // path-keyed pre-index thumb is NOT content-immutable (the file may
+      // change, and indexing will later serve a different content-keyed image
+      // at this same URL), so it must never be cached `immutable`. Computed and
+      // checked BEFORE any generation/read so a revalidation 304s without
+      // touching disk or rendering; the browser picks up the indexed version
+      // later on its own revalidation.
+      const wEtag = `W/"u-${Math.trunc(diskSt.mtimeMs)}-${diskSt.size}"`;
+      const revalidateCache = 'private, max-age=10, must-revalidate';
+      const ifNoneMatchU = headers['if-none-match'];
+      if (ifNoneMatchEqual(typeof ifNoneMatchU === 'string' ? ifNoneMatchU : undefined, wEtag)) {
+        return new Response(null, {
+          status: 304,
+          headers: { ETag: wEtag, 'Cache-Control': revalidateCache },
+        });
+      }
       const thumbPath = resolveThumbPath(absPath);
       if (!(await safeStat(thumbPath))) {
         try {
@@ -90,20 +106,6 @@ export const thumbRoutes = new Elysia().get(
       if (!bytes) {
         set.status = 404;
         return { error: 'Thumbnail file unreadable' };
-      }
-      // Weak, revalidating validator — a path-keyed pre-index thumb is NOT
-      // content-immutable (the file may change, and indexing will later serve a
-      // different content-keyed image at this same URL), so it must never be
-      // cached `immutable`. mtime+size weak ETag lets the browser 304 while
-      // still picking up the indexed version on its next revalidation.
-      const wEtag = `W/"u-${Math.trunc(diskSt.mtimeMs)}-${diskSt.size}"`;
-      const ifNoneMatchU = headers['if-none-match'];
-      const revalidateCache = 'private, max-age=10, must-revalidate';
-      if (ifNoneMatchEqual(typeof ifNoneMatchU === 'string' ? ifNoneMatchU : undefined, wEtag)) {
-        return new Response(null, {
-          status: 304,
-          headers: { ETag: wEtag, 'Cache-Control': revalidateCache },
-        });
       }
       return new Response(bytes as unknown as BodyInit, {
         status: 200,
