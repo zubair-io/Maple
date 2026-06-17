@@ -69,7 +69,7 @@ fn default_params() -> MapleAdjustmentParams {
         hsl_lum_blue: 0.0,
         hsl_lum_purple: 0.0,
         hsl_lum_magenta: 0.0,
-        input_shape: 0,      // PostDcpRec2020Fp16 (RAW path, #1331)
+        input_shape: 0, // PostDcpRec2020Fp16 (RAW path, #1331)
     }
 }
 
