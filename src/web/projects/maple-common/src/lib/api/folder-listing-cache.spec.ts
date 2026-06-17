@@ -2,20 +2,25 @@
 // LibraryFetch's stale-while-revalidate directory reads. The IndexedDB
 // implementation shares the same contract; tests run against the in-memory
 // variant so they don't need a real IDB.
+//
+// After M2 (Task 9) the cache key is a `slug:relPath` address string and the
+// value is a `FolderListing` (LibrarySource contract) rather than FsDirListing.
 
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import { InMemoryFolderListingCache } from './folder-listing-cache';
-import { FsDirListing } from './filesystem-browse.service';
+import type { FolderListing } from '../addressing/library-source';
 
-function listing(path: string, dirCount = 0): FsDirListing {
+function listing(address: string, folderCount = 0): FolderListing {
+  const colonIdx = address.indexOf(':');
+  const slug = colonIdx >= 0 ? address.slice(0, colonIdx) : 'lib';
+  const relPath = colonIdx >= 0 ? address.slice(colonIdx + 1) : '';
   return {
-    path,
+    address,
     parent: null,
-    dirs: Array.from({ length: dirCount }, (_, i) => ({
+    folders: Array.from({ length: folderCount }, (_, i) => ({
       name: `d${i}`,
-      path: `${path}/d${i}`,
-      mtime: '2026-01-01T00:00:00.000Z',
+      address: `${slug}:${relPath ? relPath + '/' : ''}d${i}`,
     })),
     images: [],
   };
@@ -28,35 +33,42 @@ describe('InMemoryFolderListingCache', () => {
     cache = new InMemoryFolderListingCache();
   });
 
-  it('peek returns null for an unknown path', () => {
-    expect(cache.peek('/Lib')).toBeNull();
+  it('peek returns null for an unknown address', () => {
+    expect(cache.peek('lib:')).toBeNull();
   });
 
   it('peek returns the listing synchronously after put', () => {
-    const l = listing('/Lib', 2);
-    cache.put('/Lib', l);
-    expect(cache.peek('/Lib')).toBe(l);
+    const l = listing('lib:', 2);
+    cache.put('lib:', l);
+    expect(cache.peek('lib:')).toBe(l);
   });
 
-  it('get resolves null for an unknown path and the listing once cached', async () => {
-    expect(await cache.get('/Lib')).toBeNull();
-    const l = listing('/Lib', 1);
-    cache.put('/Lib', l);
-    expect(await cache.get('/Lib')).toBe(l);
+  it('get resolves null for an unknown address and the listing once cached', async () => {
+    expect(await cache.get('lib:')).toBeNull();
+    const l = listing('lib:', 1);
+    cache.put('lib:', l);
+    expect(await cache.get('lib:')).toBe(l);
   });
 
-  it('put overwrites a prior listing for the same path (revalidation)', () => {
-    cache.put('/Lib', listing('/Lib', 1));
-    const fresh = listing('/Lib', 3);
-    cache.put('/Lib', fresh);
-    expect(cache.peek('/Lib')).toBe(fresh);
-    expect(cache.peek('/Lib')!.dirs.length).toBe(3);
+  it('put overwrites a prior listing for the same address (revalidation)', () => {
+    cache.put('lib:', listing('lib:', 1));
+    const fresh = listing('lib:', 3);
+    cache.put('lib:', fresh);
+    expect(cache.peek('lib:')).toBe(fresh);
+    expect(cache.peek('lib:')!.folders.length).toBe(3);
   });
 
   it('clear empties the cache', async () => {
-    cache.put('/Lib', listing('/Lib'));
+    cache.put('lib:', listing('lib:'));
     await cache.clear();
-    expect(cache.peek('/Lib')).toBeNull();
-    expect(await cache.get('/Lib')).toBeNull();
+    expect(cache.peek('lib:')).toBeNull();
+    expect(await cache.get('lib:')).toBeNull();
+  });
+
+  it('stores and retrieves listings keyed by sub-folder address', () => {
+    const sub = listing('lib:2026/jan', 0);
+    cache.put('lib:2026/jan', sub);
+    expect(cache.peek('lib:2026/jan')).toBe(sub);
+    expect(cache.peek('lib:')).toBeNull(); // different key
   });
 });
