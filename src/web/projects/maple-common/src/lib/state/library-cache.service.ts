@@ -349,6 +349,19 @@ export class LibraryCache {
     const legacy = this.legacyBytes.get(id);
     if (legacy) return legacy;
 
+    // M2 slug:relPath asset → original bytes via the authed LibrarySource.
+    // HttpLibrarySource (Self-Hosted) hits GET /api/image with the bearer;
+    // FsAccessLibrarySource (Hosted) walks the FileSystemDirectoryHandle.
+    // M2 assets are address-keyed with no absPath/apiId/file-handle, so without
+    // this branch they fell through to the apiId path and threw `no api id`,
+    // leaving the editor unable to open any address-keyed image. Mirrors the M2
+    // thumb branch in _loadThumbInternal. Exclude legacy `fs:<absPath>` ids —
+    // they also contain ':' but resolve via the assetAbsPaths FS-walk below.
+    if (typeof id === 'string' && id.includes(':') && !id.startsWith('fs:')) {
+      const blob = await this.librarySource.imageBlob(parseAddress(id));
+      return new Uint8Array(await blob.arrayBuffer());
+    }
+
     // Self-Hosted FS-walk path: asset id is `fs:<absPath>` and the bytes
     // come from `/api/fs/raw?path=<abs>`. Checked BEFORE the Mongo-asset
     // path because FS-walk assets aren't in `_apiAssetIds`.
