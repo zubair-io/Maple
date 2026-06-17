@@ -127,13 +127,10 @@ pub struct MapleAdjustmentParams {
     pub hsl_lum_blue: f32,
     pub hsl_lum_purple: f32,
     pub hsl_lum_magenta: f32,
-    /// Target display primaries (#1337): 0 = sRGB (legacy default), 1 = P3.
-    /// Appended at the struct tail; a stale host leaves it 0 = sRGB.
-    pub target_primaries: u32,
     /// Input shape tag (#1331): 0 = PostDcpRec2020Fp16 (RAW, historic default),
-    /// 1 = LinearRec2020Fp16 (pano — skip WB delta),
+    /// 1 = LinearRec2020Fp16 (pano PNG — WB stays engaged with decoded=6500/0),
     /// 2 = SrgbGammaEncoded8 (JPEG/HEIF — CPU pre-pass done at session open).
-    /// Appended after `target_primaries`; a stale host leaves it 0 = RAW.
+    /// Appended at the struct tail; a stale host leaves it 0 = RAW.
     pub input_shape: u32,
 }
 
@@ -255,13 +252,11 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 
-    // Non-RAW shapes (#1331): the uploaded buffer is already post-WB, so the
-    // WB delta must be identity. Force `decoded == live` → `M_net = identity`.
-    let (decoded_temp, decoded_tint) = if p.input_shape == 0 {
-        (p.decoded_temperature, p.decoded_tint)
-    } else {
-        (p.temperature, p.tint)
-    };
+    // For all shapes, use the host-supplied decoded WB (0/0 = absolute apply
+    // per the pre-#1240 contract). Non-RAW callers pass decoded=6500/0 so
+    // `M_net = M_live · M_decoded(6500,0)⁻¹` — identity at the default
+    // slider value, shift as the user drags temp/tint. (#1331)
+    let (decoded_temp, decoded_tint) = (p.decoded_temperature, p.decoded_tint);
 
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain(
         in_slice,
@@ -404,12 +399,9 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 
-    // Non-RAW shapes (#1331): force WB delta to identity (same as fp16 sibling).
-    let (decoded_temp, decoded_tint) = if p.input_shape == 0 {
-        (p.decoded_temperature, p.decoded_tint)
-    } else {
-        (p.temperature, p.tint)
-    };
+    // For all shapes, use the host-supplied decoded WB — same contract as the
+    // fp16 sibling: non-RAW callers pass decoded=6500/0 so sliders engage. (#1331)
+    let (decoded_temp, decoded_tint) = (p.decoded_temperature, p.decoded_tint);
 
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32(
         in_slice,

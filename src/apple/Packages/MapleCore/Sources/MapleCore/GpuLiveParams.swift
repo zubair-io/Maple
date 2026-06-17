@@ -56,7 +56,8 @@ extension PipelineRenderer {
     /// parametric fields carry the user's tone-region edits.
     /// `inputShape` is the `MapleGpuLiveParams.input_shape` tag (#1331): 0 =
     /// PostDcpRec2020Fp16 (RAW, all stages; the historic default), 1 =
-    /// LinearRec2020Fp16 (pano PNG — WB and capture_sharpening are skipped).
+    /// LinearRec2020Fp16 (pano PNG — capture_sharpening is skipped; WB stays
+    /// engaged with decoded=6500/0 so temperature/tint sliders work).
     /// Callers that don't pass it get 0 (RAW), preserving pre-#1331 behaviour.
     public static func makeGpuLiveParams(
         from model: AdjustmentModel,
@@ -197,11 +198,6 @@ extension PipelineRenderer {
         p.residual_lut_size = 0
         p.residual_lut_ptr = nil
         p.residual_lut_len = 0
-
-        // Target display primaries (#1337): 0 = sRGB (legacy-compatible default).
-        // Phase 2 (#1338) will set this from the user-facing settings toggle;
-        // until then all renders stay on the sRGB path — no visible change.
-        p.target_primaries = 0
 
         // Input shape tag (#1331): forwarded from the driver so the chain knows
         // which leading stages to run. 0 = RAW (full chain), 1 = pano PNG

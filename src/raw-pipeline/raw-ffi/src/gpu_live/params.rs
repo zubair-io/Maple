@@ -213,9 +213,6 @@ pub(super) unsafe fn inputs_from_params(p: &MapleGpuLiveParams) -> FullChainInpu
             p.residual_lut_len,
             p.residual_lut_size as usize,
         ),
-        // Marshal the target_primaries tag (#1337). Unknown values default to
-        // 0 = sRGB (the legacy-compatible default), matching the WGSL branch.
-        target_primaries: p.target_primaries,
         // Marshal the input_shape tag (#1331). Unknown values (> 2) default to
         // `PostDcpRec2020Fp16` (the full RAW chain) — a safe conservative fallback.
         input_shape: match p.input_shape {

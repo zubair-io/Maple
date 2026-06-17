@@ -1014,9 +1014,6 @@ extension PipelineRenderer {
         params.hsl_lum_blue     = Float(model.luminanceAdjustmentBlue)
         params.hsl_lum_purple   = Float(model.luminanceAdjustmentPurple)
         params.hsl_lum_magenta  = Float(model.luminanceAdjustmentMagenta)
-        // Target display primaries (#1337): 0 = sRGB (legacy-compatible default).
-        // Phase 2 (#1338) will set this from the user-facing settings toggle.
-        params.target_primaries = 0
         // Input shape (#1331): the CPU chain (MapleAdjustmentParams) uses `input_shape`
         // only for the WB-identity collapse; the AgX skip is `skip_agx`, not this field.
         // 0 = PostDcpRec2020Fp16 (RAW path) — both RAW and non-RAW callers leave it 0
