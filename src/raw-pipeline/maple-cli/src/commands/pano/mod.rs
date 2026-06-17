@@ -211,6 +211,14 @@ fn stitch_set(
 ) -> Result<serde_json::Value, String> {
     let t0 = Instant::now();
 
+    // Build PNG metadata EARLY — before stitch/composite, when the only
+    // allocation is the source frame bytes needed to parse EXIF.  At this
+    // point RSS is at its lowest; after stitch() returns the composite
+    // buffer is still live in memory alongside the decoded frames.  Both
+    // the rotation path (below) and the tile path (tile.rs) receive this
+    // pre-computed value so neither path re-reads the RAW at peak RSS.
+    let display_meta = outs.display.as_ref().map(|_| display_png_meta(inputs));
+
     let opts = StitchOptions {
         retention: args.retention.policy(),
         local_align: args.local_align.enabled(),
@@ -252,8 +260,9 @@ fn stitch_set(
                 // RAW render. develop_for_display returns the encoded 16-bit
                 // buffer directly → write it straight out (no re-quantize).
                 let data = maple_pano::stitch::develop_for_display(&outcome.image);
-                // Embed EXIF from the first source frame + tag as sRGB (#1333).
-                let meta = display_png_meta(inputs);
+                // EXIF + sRGB tag were computed BEFORE stitch() to avoid a
+                // peak-RSS re-read of the source RAW (#1349 fix).
+                let meta = display_meta.expect("display_meta is Some when outs.display is Some");
                 maple_pano::render::write_frame_png(
                     display,
                     outcome.image.width(),
@@ -335,6 +344,10 @@ fn stitch_set(
                 outs_display: outs.display.as_deref(),
                 outs_report: outs.report.as_deref(),
                 inputs,
+                // Pass the metadata computed BEFORE stitch() so the tile
+                // write path does not re-read the source RAW at peak RSS
+                // (#1349 fix).
+                display_meta,
                 t0,
             })
         }

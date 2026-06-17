@@ -101,17 +101,41 @@ fn to_rational_100(v: f32) -> (u32, u32) {
 }
 
 /// Convert an exposure time in seconds to a Rational.
-/// Sub-second shutters: 1/N. Long exposures: (round(v*10), 10).
+///
+/// Sub-second values: prefer `1/N` when `|v - 1/N| / v < 0.5%`
+/// (i.e. the value is a close match to a standard shutter speed).
+/// Otherwise fall back to `(round(v * 1000), 1000)` reduced by GCD,
+/// so that e.g. 0.6 s → 3/5 rather than the distorting 1/2.
+/// Long exposures (≥ 1 s): `(round(v*10), 10)`.
 fn to_exposure_rational(v: f32) -> (u32, u32) {
     if v <= 0.0 {
         return (0, 1);
     }
     if v < 1.0 {
         let denom = (1.0 / v).round() as u32;
-        (1, denom.max(1))
+        let denom = denom.max(1);
+        // Accept 1/N when it reconstructs within 0.5 % of the true value.
+        let reconstructed = 1.0 / denom as f32;
+        if (reconstructed - v).abs() / v < 0.005 {
+            (1, denom)
+        } else {
+            // Higher-precision fraction: numerator/1000, then reduce by GCD.
+            let n = (v * 1000.0).round() as u32;
+            let g = gcd(n, 1000);
+            (n / g, 1000 / g)
+        }
     } else {
         let n = (v * 10.0).round() as u32;
         (n, 10)
+    }
+}
+
+/// Greatest common divisor (Euclidean).
+fn gcd(a: u32, b: u32) -> u32 {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
     }
 }
 
@@ -274,9 +298,9 @@ fn write_ifd(buf: &mut Le, entries: &[Entry], heap_start: u32, next_ifd_offset: 
     }
 }
 
-/// Compute the total byte size an IFD (entries + heap) will occupy in the
-/// global blob (not including the preceding entry-count u16 or the trailing
-/// next-IFD u32 — those are written by `write_ifd`).
+/// Compute the total byte size an IFD will occupy in the global blob,
+/// **including** the 2-byte entry-count prefix and the 4-byte next-IFD
+/// pointer suffix that `write_ifd` writes around the entry slots.
 fn ifd_total_size(entries: &[Entry]) -> u32 {
     // entry count (2) + entries (n×12) + next-ifd (4) + heap
     let mut size: u32 = 2 + entries.len() as u32 * 12 + 4;
