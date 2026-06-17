@@ -1,34 +1,44 @@
 //! I/O helpers for the stitch pipeline: frame interleaving for the ALIKED
 //! detector and 16-bit PNG quantization.
 
-use crate::ingest::{PlanarImage, ValidityMask};
+use crate::ingest::PlanarImage;
 
 /// Develop the scene-linear Rec.2020 composite into a DISPLAY-ENCODED sRGB
-/// `PlanarImage`, ready to write as a finished, color-managed panorama (#1335).
+/// 16-bit packed-RGB buffer (row-major, R/G/B interleaved) — ready to hand
+/// straight to `write_frame_png` as a finished, color-managed panorama (#1335).
 ///
 /// The stitched composite lives in the working space — scene-linear Rec.2020.
-/// Writing it raw (the old `srgb=false` path) made the app re-open it cold,
-/// desaturated and flat: a non-RAW image is assumed display-encoded sRGB, so
-/// scene-linear Rec.2020 data was mis-read on every axis (linear-as-gamma,
-/// Rec.2020-as-sRGB primaries, no view transform).
+/// Written raw (the old `srgb=false` path) it re-opened cold, desaturated and
+/// flat: a non-RAW image is assumed display-encoded sRGB, so scene-linear
+/// Rec.2020 data was mis-read on every axis (linear-as-gamma, Rec.2020-as-sRGB
+/// primaries, no view transform).
 ///
 /// This applies the SAME view tail raw-core uses to develop a RAW
 /// (`pipeline/render`): **AgX** at neutral contrast (a stitched pano has no
 /// embedded camera JPEG, so there is no Auto Profile to fit — AgX/Neutral is
 /// the correct fallback), then **Rec.2020 → sRGB** primaries, then the **sRGB
-/// OETF**. The result is a correct display-referred sRGB image, consistent with
-/// how Maple develops RAWs, and read correctly by any viewer that assumes sRGB.
+/// OETF**, then quantizes to 16-bit. The result reads correctly in Maple and in
+/// any viewer that assumes sRGB, consistent with how Maple develops RAWs.
 ///
-/// Quantize the result with `srgb = false` — the OETF is already applied here.
-pub fn develop_for_display(img: &PlanarImage) -> PlanarImage {
+/// Returns the packed 16-bit buffer directly rather than a `PlanarImage`: the
+/// output is display-encoded sRGB, which would violate `PlanarImage`'s
+/// scene-linear-Rec.2020 invariant, and quantizing straight from the
+/// interleaved buffer avoids re-planarizing a second full-frame copy (peak RSS
+/// matters on the 100MP+ pano, notably on iPad via the Apple FFI). The single
+/// interleaved `raw_core::Image` copy is required by raw-core's view-tail API,
+/// which operates on interleaved `[f32; 3]`.
+pub fn develop_for_display(img: &PlanarImage) -> Vec<u16> {
     let n = img.pixel_count();
-    let w = img.width();
-    let h = img.height();
 
-    // Interleave the planar scene-linear data into a raw_core::Image. NO clamp:
-    // AgX is a scene-referred tone map and needs the extended highlight range
-    // (clamping to [0,1] first would blow out highlights the curve should roll).
-    let mut scene = raw_core::Image::new(w, h, raw_core::ColorSpace::SceneLinearRec2020);
+    // Interleave the planar scene-linear data into a raw_core::Image (the view
+    // tail operates on interleaved [f32; 3]). NO clamp: AgX is a scene-referred
+    // tone map and needs the extended highlight range (clamping to [0,1] first
+    // would blow out highlights the curve should roll).
+    let mut scene = raw_core::Image::new(
+        img.width(),
+        img.height(),
+        raw_core::ColorSpace::SceneLinearRec2020,
+    );
     for (px, i) in scene.pixels.iter_mut().zip(0..n) {
         *px = [img.r[i], img.g[i], img.b[i]];
     }
@@ -38,16 +48,15 @@ pub fn develop_for_display(img: &PlanarImage) -> PlanarImage {
     raw_core::view::encode::rec2020_to_srgb(&mut scene);
     raw_core::view::encode::srgb_gamma_encode(&mut scene);
 
-    // Planarize back. Values are display-encoded sRGB in [0, 1].
-    let mut r = Vec::with_capacity(n);
-    let mut g = Vec::with_capacity(n);
-    let mut b = Vec::with_capacity(n);
-    for p in &scene.pixels {
-        r.push(p[0]);
-        g.push(p[1]);
-        b.push(p[2]);
+    // Quantize directly from the interleaved buffer (the sRGB OETF is already
+    // applied; clamp guards any out-of-[0,1] residue from the gamut map).
+    let mut data = Vec::with_capacity(n * 3);
+    for px in &scene.pixels {
+        for &v in &px[..3] {
+            data.push((v.clamp(0.0, 1.0) * 65535.0).round() as u16);
+        }
     }
-    PlanarImage::from_planes(w, h, r, g, b, ValidityMask::new_filled(w, h, true))
+    data
 }
 
 /// Interleave a planar image into the ALIKED detector's packed-RGB f32 layout.
@@ -109,40 +118,41 @@ mod tests {
             ValidityMask::new_filled(w, h, true),
         );
 
-        let out = develop_for_display(&pano);
+        // Packed 16-bit RGB: 3 pixels × 3 channels.
+        let data = develop_for_display(&pano);
+        assert_eq!(data.len(), 9);
+        // pixel `p`, channel `c` → data[p*3 + c], normalised to [0, 1].
+        let v = |p: usize, c: usize| data[p * 3 + c] as f32 / 65535.0;
+        let (shadow, mid, high) = (v(0, 0), v(1, 0), v(2, 0));
 
-        // Display-encoded: every value in [0, 1] (the highlight is rolled, not
-        // left at its scene-linear 4.0).
-        for v in out.r.iter().chain(&out.g).chain(&out.b) {
-            assert!((0.0..=1.0).contains(v), "value out of display range: {v}");
-        }
         // Monotonic tone response: shadow < mid < highlight.
         assert!(
-            out.r[0] < out.r[1] && out.r[1] < out.r[2],
-            "non-monotonic: {:?}",
-            out.r
+            shadow < mid && mid < high,
+            "non-monotonic: {shadow} {mid} {high}"
         );
         // Grey in → grey out (gamut convert + AgX preserve neutrals).
-        for i in 0..3 {
-            assert!((out.r[i] - out.g[i]).abs() < 1e-4, "neutral drift at {i}");
-            assert!((out.r[i] - out.b[i]).abs() < 1e-4, "neutral drift at {i}");
+        for p in 0..3 {
+            assert!(
+                (v(p, 0) - v(p, 1)).abs() < 1e-3,
+                "neutral drift at pixel {p}"
+            );
+            assert!(
+                (v(p, 0) - v(p, 2)).abs() < 1e-3,
+                "neutral drift at pixel {p}"
+            );
         }
-        // AgX anchors mid-grey ~0.18 by design, so 0.18 ≈ a plain sRGB encode —
-        // that is NOT where AgX shows. AgX shows on the HDR highlight: the
-        // +4.5-stop 4.0 input is ROLLED below clip-white by the AgX shoulder,
-        // whereas the OLD display path (clip to 1.0 → sRGB) returned exactly
-        // 1.0 for any input ≥ 1.0. So a highlight visibly below white proves
-        // the view transform ran (not a clip+encode passthrough).
+        // AgX anchors mid-grey ~0.18 by design, so it ≈ a plain sRGB encode —
+        // NOT where AgX shows. AgX shows on the HDR highlight: the +4.5-stop 4.0
+        // input is ROLLED below clip-white by the AgX shoulder, whereas the OLD
+        // path (clip to 1.0 → sRGB) returned exactly 1.0 for any input ≥ 1.0.
         assert!(
-            out.r[2] < 0.99,
-            "HDR highlight should roll below clip-white via AgX, got {}",
-            out.r[2]
+            high < 0.99,
+            "HDR highlight should roll below clip-white via AgX, got {high}"
         );
         // Sanity: mid-grey lands in the expected AgX-anchored band (~0.46).
         assert!(
-            (0.40..=0.52).contains(&out.r[1]),
-            "mid-grey off AgX anchor: {}",
-            out.r[1]
+            (0.40..=0.52).contains(&mid),
+            "mid-grey off AgX anchor: {mid}"
         );
     }
 }

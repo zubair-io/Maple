@@ -92,9 +92,16 @@ pub(super) fn run_tile_from_outcome(
     write_png16(outs_linear, &outcome.image, false)?;
     if let Some(display) = outs_display {
         // Finished, display-referred sRGB (#1335): AgX view tail like a RAW
-        // render. develop_for_display applies the OETF → write with srgb=false.
-        let developed = maple_pano::stitch::develop_for_display(&outcome.image);
-        write_png16(display, &developed, false)?;
+        // render. develop_for_display returns the encoded 16-bit buffer
+        // directly → write it straight out (no re-quantize).
+        let data = maple_pano::stitch::develop_for_display(&outcome.image);
+        maple_pano::render::write_frame_png(
+            display,
+            outcome.image.width(),
+            outcome.image.height(),
+            &data,
+        )
+        .map_err(|e| format!("{}: {e}", display.display()))?;
     }
     let write_s = t_out.elapsed().as_secs_f64();
 
