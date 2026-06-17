@@ -156,7 +156,7 @@ export class HiddenPeopleComponent implements OnDestroy {
 
   ensureCoverThumb(p: ApiPerson): void {
     const key = ThumbBlobCache.coverKey(p);
-    if (key) this.thumbs.ensure(key, p.coverAbsPath, p.coverAssetId);
+    if (key) this.thumbs.ensure(key, p.coverAddress ?? null, p.coverAbsPath, p.coverAssetId);
   }
 
   coverThumbUrl(person: ApiPerson): string | null {

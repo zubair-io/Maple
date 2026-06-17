@@ -16,15 +16,16 @@
 //     owned by that singleton — we deliberately do NOT revoke them.
 //   * URLs we minted via `URL.createObjectURL` (the orphan-cover fallback)
 //     are tracked in `ownedBlobUrls` and revoked by {@link destroy}.
+//
+// Usage:
+//   const cache = new ThumbBlobCache(api, fsBrowse);
+//   cache.ensure(key, address, absPath, apiAssetId);
+//   const url = cache.url(absPath);
+//   ngOnDestroy() { cache.destroy(); }
 
 import { Signal, signal, untracked } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import {
-  BunApiBackendService,
-  FilesystemBrowseService,
-  LIBRARY_SOURCE,
-  type LibrarySource,
-} from '@maple-common';
+import { BunApiBackendService, FilesystemBrowseService, type LibrarySource } from '@maple-common';
 
 export class ThumbBlobCache {
   /** Cache key (`absPath` when present, otherwise `apiId:<id>`) → `blob:`
@@ -67,16 +68,21 @@ export class ThumbBlobCache {
     return null;
   }
 
-  /** Idempotently load the thumb URL for `cacheKey`.
+  /** Idempotently load the thumb URL for `cacheKey` (the dedup key).
    *
-   * Resolution order:
-   *   1. `cacheKey` is a `slug:relPath` address → `LibrarySource.thumbUrl`
+   * Resolution order (routed on the EXPLICIT args, never sniffed from the key):
+   *   1. `address` (`slug:relPath`) present → `LibrarySource.thumbUrl`
    *      (→ `/api/thumb/:slug/*`, immutable-cached HTTP URL; no blob round-trip).
-   *   2. `absPath` is present → `FilesystemBrowseService.getThumbBlobUrl`
+   *   2. `absPath` present → `FilesystemBrowseService.getThumbBlobUrl`
    *      (legacy `/api/fs/thumb?path=…` blob, shared with /browse).
    *   3. `apiAssetId` → `api.getThumb` blob (orphan-cover fallback).
    */
-  ensure(cacheKey: string | null, absPath: string | null, apiAssetId: string | null): void {
+  ensure(
+    cacheKey: string | null,
+    address: string | null,
+    absPath: string | null,
+    apiAssetId: string | null,
+  ): void {
     if (!cacheKey) return;
     if (this.inflight.has(cacheKey)) return;
     // `untracked` so adding a new blob URL doesn't re-trigger any caller
@@ -86,9 +92,11 @@ export class ThumbBlobCache {
 
     let promise: Promise<{ url: string; owned: boolean }>;
 
-    // Preferred M2 path: slug:relPath address via LibrarySource.
-    if (this.librarySource && cacheKey.includes(':') && !cacheKey.startsWith('apiId:')) {
-      const [slug, ...rest] = cacheKey.split(':');
+    // Preferred M2 path: an explicit slug:relPath address via LibrarySource.
+    // Route on the explicit `address` arg — never sniff `cacheKey.includes(':')`,
+    // which misclassifies Windows paths (`C:\…`) and POSIX names containing ':'.
+    if (this.librarySource && address) {
+      const [slug, ...rest] = address.split(':');
       const relPath = rest.join(':');
       promise = this.librarySource
         .thumbUrl({ slug: slug!, relPath })

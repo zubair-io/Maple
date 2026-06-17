@@ -10,7 +10,7 @@ import { Elysia, t } from 'elysia';
 import { ObjectId, type Collection, type Document } from 'mongodb';
 // Mirror-aware drop-in: uploads, folder moves, and mkdir replicate to the
 // library's backup root(s). `rename` is directory-aware for folder moves.
-import { readdir, open, rename, stat, unlink, mkdir, utimes, realpath } from '../fs/mirrored.ts';
+import { readdir, open, rename, stat, unlink, mkdir, utimes } from '../fs/mirrored.ts';
 import type { Dirent } from 'node:fs';
 import * as nodePath from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -18,7 +18,7 @@ import { sha1 } from '@noble/hashes/legacy.js';
 import { foldersCollection, assetsCollection } from '../db/client.ts';
 import { recordAndPublishAssetChange } from '../db/changes.repo.ts';
 import { validateRoot } from '../fs/root.ts';
-import { RAW_EXTENSIONS, isUnderRoot } from '../fs/browse.ts';
+import { RAW_EXTENSIONS } from '../fs/browse.ts';
 import { SHARP_EXTENSIONS } from '../fs/browse.ts';
 import { moveToTrash } from '../fs/trash.ts';
 import { DUPLICATES_DIR_NAME } from '../fs/duplicates.ts';
@@ -170,35 +170,10 @@ async function resolveFolderRelPath(
   if (typeof rawPath !== 'string' || rawPath === '') {
     return { ok: false, status: 400, error: 'missing path query param' };
   }
-  if (nodePath.isAbsolute(rawPath) || rawPath.split('/').includes('..')) {
-    return {
-      ok: false,
-      status: 400,
-      error: 'path must be relative and contain no ".." segments',
-    };
-  }
-  const abs = nodePath.join(folderPath, rawPath);
-  let real: string;
-  try {
-    real = await realpath(abs);
-  } catch {
-    return { ok: false, status: 404, error: 'file not found' };
-  }
-  // Resolve the library root to its realpath as well, so a symlinked root
-  // prefix (e.g. `/var` → `/private/var` on macOS) doesn't falsely reject a
-  // valid request: `real` is already symlink-resolved, so the jail check must
-  // compare against an equally-resolved root. Best-effort — fall back to the
-  // configured path if the root itself can't be resolved.
-  let realRoot = folderPath;
-  try {
-    realRoot = await realpath(folderPath);
-  } catch {
-    /* keep the configured path */
-  }
-  if (!isUnderRoot(real, realRoot)) {
-    return { ok: false, status: 400, error: 'path escapes the library root' };
-  }
-  return { ok: true, real };
+  // Centralised jail (single source of truth in library/address.ts): rejects
+  // `..`/`.`/backslash/absolute, realpath-resolves the target and the root, and
+  // confirms the result stays inside the library root.
+  return realpathJailCheck(folderPath, rawPath);
 }
 
 export const foldersRoutes = new Elysia({ prefix: '/api/folders' })

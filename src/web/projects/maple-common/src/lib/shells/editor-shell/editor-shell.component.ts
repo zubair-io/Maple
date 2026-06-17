@@ -425,9 +425,13 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
       }
       if (this.state.backend === 'self-hosted') {
         const synth = this.state.hydrateSelfHostedFsAsset(addrStr as AssetId);
-        if (synth?.absPath) {
+        if (synth) {
           this.state.selectAsset(synth.id);
-          this.openHydratedFsParent(synth);
+          // Load the parent folder (siblings → filmstrip) via the parent
+          // address. synth.folderId is the parent's `slug:relPath` (post-cutover
+          // the synth no longer carries an absPath to derive the dir from).
+          const parentRelPath = parseAddress(synth.folderId).relPath;
+          this.state.openSelfHostedSubfolder(parentRelPath, synth.folderId, synth.id);
           return;
         }
       }

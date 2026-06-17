@@ -303,7 +303,7 @@ export class PeopleComponent implements OnDestroy {
       const detail = this.selected();
       if (!detail) return;
       for (const f of detail.faces) {
-        this.thumbs.ensure(f.absPath, f.absPath, f.assetId);
+        this.thumbs.ensure(f.absPath, null, f.absPath, f.assetId);
       }
     });
 
@@ -345,7 +345,7 @@ export class PeopleComponent implements OnDestroy {
 
   ensureCoverThumb(p: ApiPerson): void {
     const key = ThumbBlobCache.coverKey(p);
-    if (key) this.thumbs.ensure(key, p.coverAbsPath, p.coverAssetId);
+    if (key) this.thumbs.ensure(key, p.coverAddress ?? null, p.coverAbsPath, p.coverAssetId);
   }
 
   /** Re-fetch the people list. Routes through the store's `invalidate()` so
