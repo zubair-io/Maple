@@ -117,7 +117,11 @@ mod tests {
             assert!((0.0..=1.0).contains(v), "value out of display range: {v}");
         }
         // Monotonic tone response: shadow < mid < highlight.
-        assert!(out.r[0] < out.r[1] && out.r[1] < out.r[2], "non-monotonic: {:?}", out.r);
+        assert!(
+            out.r[0] < out.r[1] && out.r[1] < out.r[2],
+            "non-monotonic: {:?}",
+            out.r
+        );
         // Grey in → grey out (gamut convert + AgX preserve neutrals).
         for i in 0..3 {
             assert!((out.r[i] - out.g[i]).abs() < 1e-4, "neutral drift at {i}");
@@ -135,6 +139,10 @@ mod tests {
             out.r[2]
         );
         // Sanity: mid-grey lands in the expected AgX-anchored band (~0.46).
-        assert!((0.40..=0.52).contains(&out.r[1]), "mid-grey off AgX anchor: {}", out.r[1]);
+        assert!(
+            (0.40..=0.52).contains(&out.r[1]),
+            "mid-grey off AgX anchor: {}",
+            out.r[1]
+        );
     }
 }
