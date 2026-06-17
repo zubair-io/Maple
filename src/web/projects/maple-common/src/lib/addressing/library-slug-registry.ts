@@ -44,12 +44,19 @@ export function dedupeSlug(base: string, taken: Set<string>): string {
   return `${base}-${n}`;
 }
 
+/**
+ * IndexedDB upgrade callback: create the slug→handle store, guarding against
+ * re-creation. A future DB_VERSION bump would otherwise fire onupgradeneeded
+ * with STORE already present and throw ConstraintError, breaking the app.
+ */
+function ensureSlugStore(db: IDBDatabase): void {
+  if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+}
+
 @Injectable({ providedIn: 'root' })
 export class LibrarySlugRegistry {
   private async openStore(mode: IDBTransactionMode) {
-    const db = await openDb(DB_NAME, DB_VERSION, (db) => {
-      db.createObjectStore(STORE);
-    });
+    const db = await openDb(DB_NAME, DB_VERSION, ensureSlugStore);
     return { db, tx: db.transaction(STORE, mode), store: null as unknown as IDBObjectStore };
   }
 
@@ -71,9 +78,7 @@ export class LibrarySlugRegistry {
 
     const slug = dedupeSlug(slugify(handle.name), taken);
 
-    const db = await openDb(DB_NAME, DB_VERSION, (db) => {
-      db.createObjectStore(STORE);
-    });
+    const db = await openDb(DB_NAME, DB_VERSION, ensureSlugStore);
     const tx = db.transaction(STORE, 'readwrite');
     tx.objectStore(STORE).put(handle, slug);
     await txDone(tx);
@@ -83,9 +88,7 @@ export class LibrarySlugRegistry {
 
   /** Retrieve a previously-registered handle by slug, or null. */
   async getHandle(slug: string): Promise<FileSystemDirectoryHandle | null> {
-    const db = await openDb(DB_NAME, DB_VERSION, (db) => {
-      db.createObjectStore(STORE);
-    });
+    const db = await openDb(DB_NAME, DB_VERSION, ensureSlugStore);
     const tx = db.transaction(STORE, 'readonly');
     const result = await reqToPromise(tx.objectStore(STORE).get(slug));
     db.close();
@@ -94,9 +97,7 @@ export class LibrarySlugRegistry {
 
   /** List all registered slugs + handle names. */
   async list(): Promise<{ slug: string; name: string }[]> {
-    const db = await openDb(DB_NAME, DB_VERSION, (db) => {
-      db.createObjectStore(STORE);
-    });
+    const db = await openDb(DB_NAME, DB_VERSION, ensureSlugStore);
     const tx = db.transaction(STORE, 'readonly');
     const store = tx.objectStore(STORE);
     const keys = await reqToPromise(store.getAllKeys());
