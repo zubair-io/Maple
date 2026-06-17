@@ -199,6 +199,10 @@ extension PipelineRenderer {
         p.residual_lut_ptr = nil
         p.residual_lut_len = 0
 
+        // Target display primaries (#1337): 0 = sRGB (legacy-compatible default).
+        // Phase 2 (#1338) will set this from the user-facing settings toggle;
+        // until then all renders stay on the sRGB path — no visible change.
+        p.target_primaries = 0
         // Input shape tag (#1331): forwarded from the driver so the chain knows
         // which leading stages to run. 0 = RAW (full chain), 1 = pano PNG
         // (skip WB + capture_sharpening). The default (0) preserves the

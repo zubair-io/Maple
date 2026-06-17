@@ -182,7 +182,12 @@ pub struct MapleGpuLiveParams {
     //     ratio to the absolute apply that earlier hosts expected.
     pub decoded_temperature: f32,
     pub decoded_tint: f32,
-    // --- input shape tag (#1331) — appended after decoded WB. 0 =
+    // --- target display primaries — view-tail display_encode matrix (#1337).
+    //     Appended at the tail per the append-only ABI convention; a legacy
+    //     host that zero-initializes reads 0 = sRGB (the pre-#1337 default,
+    //     bit-identical output). 1 = Display P3 (SMPTE RP 431-2, D65). ---
+    pub target_primaries: u32,
+    // --- input shape tag (#1331) — appended after target_primaries. 0 =
     //     PostDcpRec2020Fp16 (RAW, all stages), 1 = LinearRec2020Fp16 (pano,
     //     skip CS only — WB stays engaged), 2 = SrgbGammaEncoded8 (JPEG/HEIF,
     //     CPU pre-pass). A stale host leaves this 0 = the historic RAW path;
@@ -506,6 +511,9 @@ mod params;
 #[cfg(test)]
 #[path = "gpu_live_airlight_tests.rs"]
 mod gpu_live_airlight_tests;
+#[cfg(test)]
+#[path = "gpu_live_p3_tests.rs"]
+mod gpu_live_p3_tests;
 #[cfg(test)]
 #[path = "gpu_live_tests.rs"]
 mod gpu_live_tests;

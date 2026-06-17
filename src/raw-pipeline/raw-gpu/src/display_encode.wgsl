@@ -1,16 +1,21 @@
-// display_encode.wgsl — Rec.2020 → sRGB display encode with hue-preserving
-// gamut compression (raw-core spec; view::encode::rec2020_to_srgb / #438).
+// display_encode.wgsl — Rec.2020 → display-primary encode with hue-preserving
+// gamut compression (raw-core spec; view::encode::rec2020_to_display / #438 / #1337).
 //
 // A P2 view-transform stage (epic #925 / #990). This is the f32 → f32
-// display-encode step ONLY: the linear-Rec.2020 → linear-sRGB matrix, plus an
+// display-encode step ONLY: the linear-Rec.2020 → linear-display matrix, plus an
 // Oklab `(a, b)` bisection at constant `L` that compresses any post-matrix
 // triple leaving `[0, 1]^3` back into gamut while keeping hue invariant. It does
 // NOT fold in the sRGB gamma encode or the dither/quantize-to-u8 step — those
 // are format-changing output steps, not scene/display f32 chain passes.
 //
-// Mirrors `raw_core::view::encode::rec2020_to_srgb`:
-//   srgb = M_REC2020_TO_SRGB · rgb
-//   out  = compress_to_unit_cube_oklab(srgb, srgb_linear_to_oklab, oklab_to_srgb_linear)
+// Two target primaries are supported via the `target_primaries` uniform (0 = sRGB,
+// 1 = Display P3). The OETF (IEC 61966-2-1 / 2.4-gamma) is identical for both;
+// only the primaries matrix differs. The default (0 = sRGB) preserves the
+// pre-#1337 output bit-exactly.
+//
+// Mirrors `raw_core::view::encode::rec2020_to_display`:
+//   display = M_REC2020_TO_{SRGB|P3} · rgb
+//   out     = compress_to_unit_cube_oklab(display, srgb_linear_to_oklab, oklab_to_srgb_linear)
 //
 // PARITY-CRITICAL invariants (mirrored verbatim from raw-core):
 //
@@ -26,17 +31,17 @@
 //
 // ## sRGB-only Oklab pair (NOT the rec2020 pair)
 //
-// The matrix already lands the triple in linear sRGB, so the Oklab transforms
-// here must NOT re-apply the inner rec2020→srgb step. We use the sRGB-only pair,
-// built from the generated `color_matrices.wgsl` helpers (concatenated ahead of
-// this source at module creation — WGSL has no `#include`):
+// The matrix already lands the triple in linear display-primary space, so the
+// Oklab transforms here use the sRGB-primary pair (Display P3 and sRGB share the
+// same D65 white point; their Oklab coordinates are via the same LMS transform).
+// Built from the generated `color_matrices.wgsl` helpers:
 //   srgb_linear_to_oklab: mul_srgb_to_lms → cbrt → mul_lms_to_lab
 //   oklab_to_srgb_linear: mul_lab_to_lms → cube(c*c*c) → mul_lms_to_srgb
 // Cube is `c*c*c` (sign-preserving by construction), never `pow`.
 
 struct Params {
-    count: u32,  // number of RGBA pixels
-    _pad0: u32,
+    count: u32,          // number of RGBA pixels
+    target_primaries: u32, // 0 = sRGB (default), 1 = Display P3 (#1337)
     _pad1: u32,
     _pad2: u32,
 };
@@ -107,6 +112,11 @@ fn compress_to_unit_cube(rgb: vec3<f32>) -> vec3<f32> {
     return clamp(out, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+// Note: mul_rec2020_to_p3 is provided by the generated color_matrices.wgsl
+// module, concatenated ahead of this file at pipeline creation. The P3 matrix
+// rows (M_REC2020_TO_P3_R0/R1/R2) are single-sourced from
+// raw-core/src/color/matrices.rs via the codegen emitter (#1337).
+
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
@@ -114,7 +124,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let px = input_buf[i];
-    let srgb = mul_rec2020_to_srgb(px.rgb);
-    let out_rgb = compress_to_unit_cube(srgb);
+    // Select primaries matrix: 0 = sRGB (default, pre-#1337), 1 = Display P3.
+    let display: vec3<f32> = select(
+        mul_rec2020_to_srgb(px.rgb),
+        mul_rec2020_to_p3(px.rgb),
+        params.target_primaries == 1u,
+    );
+    let out_rgb = compress_to_unit_cube(display);
     output_buf[i] = vec4<f32>(out_rgb, px.a);
 }
