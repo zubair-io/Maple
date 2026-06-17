@@ -1,6 +1,7 @@
 //! Unit tests for `scene_linear_chain`. Split into this submodule to stay
 //! under the 600-LOC file budget (#1181).
 use super::*;
+use crate::view::encode::TargetPrimaries;
 
 /// `apply_scene_linear_chain` over a default model is the AgX-only
 /// transform (every other stage short-circuits at default values). On
@@ -21,8 +22,17 @@ fn apply_scene_linear_chain_default_model_yields_agx_only() {
         input.push(one);
     }
     let model = AdjustmentModel::default();
-    let out = apply_scene_linear_chain(&input, w, h, &model, 6500.0, 0.0, false)
-        .expect("apply_scene_linear_chain default-model");
+    let out = apply_scene_linear_chain(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    )
+    .expect("apply_scene_linear_chain default-model");
     assert_eq!(out.len(), input.len());
     let r = f16_bits_to_f32(out[0]);
     let g_out = f16_bits_to_f32(out[1]);
@@ -53,13 +63,25 @@ fn apply_scene_linear_chain_skip_agx_preserves_scene_linear() {
         input.push(one);
     }
     let model = AdjustmentModel::default();
-    let out = apply_scene_linear_chain(&input, w, h, &model, 6500.0, 0.0, true)
-        .expect("apply_scene_linear_chain skip_agx");
+    let out = apply_scene_linear_chain(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        true,
+        TargetPrimaries::Srgb,
+    )
+    .expect("apply_scene_linear_chain skip_agx");
     let r = f16_bits_to_f32(out[0]);
     // Default model = identity for every cheap stage. With skip_agx
     // we expect input ≈ output (modulo fp16 round-trip).
-    assert!((r - 0.18).abs() < 0.01,
-        "skip_agx default-model should be identity at scene-linear, got R={}", r);
+    assert!(
+        (r - 0.18).abs() < 0.01,
+        "skip_agx default-model should be identity at scene-linear, got R={}",
+        r
+    );
 }
 
 /// Length mismatch surfaces as a Pipeline error, not a panic.
@@ -67,7 +89,16 @@ fn apply_scene_linear_chain_skip_agx_preserves_scene_linear() {
 fn apply_scene_linear_chain_rejects_size_mismatch() {
     let model = AdjustmentModel::default();
     let bogus_input = vec![0u16; 10];
-    let r = apply_scene_linear_chain(&bogus_input, 4, 4, &model, 6500.0, 0.0, false);
+    let r = apply_scene_linear_chain(
+        &bogus_input,
+        4,
+        4,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    );
     assert!(r.is_err(), "size mismatch must error");
 }
 
@@ -83,7 +114,16 @@ fn apply_scene_linear_chain_rgba_length_overflow_errors() {
     // usize on 64-bit (usize::MAX = 0xFFFFFFFFFFFFFFFF). The reliable
     // overflow happens on the next step: `pixel_count * 4` for the RGBA
     // byte length, which the impl also guards with checked_mul.
-    let r = apply_scene_linear_chain(&[], u32::MAX, u32::MAX, &model, 6500.0, 0.0, false);
+    let r = apply_scene_linear_chain(
+        &[],
+        u32::MAX,
+        u32::MAX,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    );
     match r {
         Err(crate::error::Error::Pipeline(msg)) => {
             assert!(
@@ -112,8 +152,17 @@ fn apply_scene_linear_chain_f32_skip_agx_is_identity_on_default_model() {
         input.push(1.0);
     }
     let model = AdjustmentModel::default();
-    let out = apply_scene_linear_chain_f32(&input, w, h, &model, 6500.0, 0.0, true)
-        .expect("apply_scene_linear_chain_f32 skip_agx default-model");
+    let out = apply_scene_linear_chain_f32(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        true,
+        TargetPrimaries::Srgb,
+    )
+    .expect("apply_scene_linear_chain_f32 skip_agx default-model");
     assert_eq!(out.len(), input.len());
     // Default model is identity at every cheap stage; with skip_agx the
     // output is the input verbatim modulo f32 rounding noise.
@@ -139,11 +188,30 @@ fn apply_scene_linear_chain_f32_default_model_yields_agx_only() {
         input.push(1.0);
     }
     let model = AdjustmentModel::default();
-    let out = apply_scene_linear_chain_f32(&input, w, h, &model, 6500.0, 0.0, false)
-        .expect("apply_scene_linear_chain_f32 default-model");
+    let out = apply_scene_linear_chain_f32(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    )
+    .expect("apply_scene_linear_chain_f32 default-model");
     assert!(out[0] > 0.0 && out[0] < 1.0, "R out of [0,1]: {}", out[0]);
-    assert!((out[0] - out[1]).abs() < 1e-4, "R != G: {} vs {}", out[0], out[1]);
-    assert!((out[1] - out[2]).abs() < 1e-4, "G != B: {} vs {}", out[1], out[2]);
+    assert!(
+        (out[0] - out[1]).abs() < 1e-4,
+        "R != G: {} vs {}",
+        out[0],
+        out[1]
+    );
+    assert!(
+        (out[1] - out[2]).abs() < 1e-4,
+        "G != B: {} vs {}",
+        out[1],
+        out[2]
+    );
     assert!((out[3] - 1.0).abs() < 1e-6, "alpha must be 1.0: {}", out[3]);
 }
 
@@ -152,7 +220,16 @@ fn apply_scene_linear_chain_f32_default_model_yields_agx_only() {
 fn apply_scene_linear_chain_f32_rejects_size_mismatch() {
     let model = AdjustmentModel::default();
     let bogus_input = vec![0.0f32; 10];
-    let r = apply_scene_linear_chain_f32(&bogus_input, 4, 4, &model, 6500.0, 0.0, false);
+    let r = apply_scene_linear_chain_f32(
+        &bogus_input,
+        4,
+        4,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    );
     assert!(r.is_err(), "size mismatch must error");
 }
 
@@ -179,11 +256,23 @@ fn apply_scene_linear_chain_scrubs_non_finite_at_pack_endcap() {
     // Sanity: the fp16 encode really does preserve non-finiteness on
     // the way IN (otherwise this test would be vacuous).
     assert!(f16_bits_to_f32(input[0]).is_nan(), "fp16 must carry NaN in");
-    assert!(f16_bits_to_f32(input[5]).is_infinite(), "fp16 must carry Inf in");
+    assert!(
+        f16_bits_to_f32(input[5]).is_infinite(),
+        "fp16 must carry Inf in"
+    );
 
     let model = AdjustmentModel::default();
-    let out = apply_scene_linear_chain(&input, w, h, &model, 6500.0, 0.0, true)
-        .expect("apply_scene_linear_chain NaN injection");
+    let out = apply_scene_linear_chain(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        true,
+        TargetPrimaries::Srgb,
+    )
+    .expect("apply_scene_linear_chain NaN injection");
     for (i, &bits) in out.iter().enumerate() {
         let v = f16_bits_to_f32(bits);
         assert!(
@@ -200,7 +289,11 @@ fn apply_scene_linear_chain_scrubs_non_finite_at_pack_endcap() {
     // …while finite lanes pass through (default model + skip_agx is
     // identity; 0.25 is exactly representable in fp16).
     assert_eq!(f16_bits_to_f32(out[12]), 0.25, "finite lane must survive");
-    assert_eq!(f16_bits_to_f32(out[1]), 0.25, "finite lane beside NaN must survive");
+    assert_eq!(
+        f16_bits_to_f32(out[1]),
+        0.25,
+        "finite lane beside NaN must survive"
+    );
 }
 
 /// #1088 — f32 sibling of the NaN-injection test: same chain, packed
@@ -211,14 +304,35 @@ fn apply_scene_linear_chain_f32_scrubs_non_finite_at_pack_endcap() {
     let w = 2u32;
     let h = 2u32;
     let input: Vec<f32> = vec![
-        f32::NAN, 0.25, 0.5, 1.0, //
-        0.25, f32::INFINITY, 0.5, 1.0, //
-        0.25, 0.5, f32::NEG_INFINITY, 1.0, //
-        0.25, 0.25, 0.25, 1.0,
+        f32::NAN,
+        0.25,
+        0.5,
+        1.0, //
+        0.25,
+        f32::INFINITY,
+        0.5,
+        1.0, //
+        0.25,
+        0.5,
+        f32::NEG_INFINITY,
+        1.0, //
+        0.25,
+        0.25,
+        0.25,
+        1.0,
     ];
     let model = AdjustmentModel::default();
-    let out = apply_scene_linear_chain_f32(&input, w, h, &model, 6500.0, 0.0, true)
-        .expect("apply_scene_linear_chain_f32 NaN injection");
+    let out = apply_scene_linear_chain_f32(
+        &input,
+        w,
+        h,
+        &model,
+        6500.0,
+        0.0,
+        true,
+        TargetPrimaries::Srgb,
+    )
+    .expect("apply_scene_linear_chain_f32 NaN injection");
     assert!(
         out.iter().all(|v| v.is_finite()),
         "packed f32 buffer must be NaN/Inf-free: {:?}",
@@ -227,15 +341,32 @@ fn apply_scene_linear_chain_f32_scrubs_non_finite_at_pack_endcap() {
     assert_eq!(out[0], 0.0, "NaN R lane must scrub to 0");
     assert_eq!(out[5], 0.0, "+Inf G lane must scrub to 0");
     assert_eq!(out[10], 0.0, "-Inf B lane must scrub to 0");
-    assert_eq!(out[12].to_bits(), 0.25f32.to_bits(), "finite lane must be bit-exact");
-    assert_eq!(out[1].to_bits(), 0.25f32.to_bits(), "finite lane beside NaN must be bit-exact");
+    assert_eq!(
+        out[12].to_bits(),
+        0.25f32.to_bits(),
+        "finite lane must be bit-exact"
+    );
+    assert_eq!(
+        out[1].to_bits(),
+        0.25f32.to_bits(),
+        "finite lane beside NaN must be bit-exact"
+    );
 }
 
 /// Overflow guard: same shape as the fp16 sibling's overflow test.
 #[test]
 fn apply_scene_linear_chain_f32_rgba_length_overflow_errors() {
     let model = AdjustmentModel::default();
-    let r = apply_scene_linear_chain_f32(&[], u32::MAX, u32::MAX, &model, 6500.0, 0.0, false);
+    let r = apply_scene_linear_chain_f32(
+        &[],
+        u32::MAX,
+        u32::MAX,
+        &model,
+        6500.0,
+        0.0,
+        false,
+        TargetPrimaries::Srgb,
+    );
     match r {
         Err(crate::error::Error::Pipeline(msg)) => {
             assert!(

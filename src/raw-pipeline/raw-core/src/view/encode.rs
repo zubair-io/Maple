@@ -93,7 +93,14 @@ pub fn rec2020_to_display(img: &mut Image, target: TargetPrimaries) {
             TargetPrimaries::P3 => M_SRGB_TO_P3.mul_vec(compressed),
         };
     });
-    img.space = ColorSpace::DisplayLinearSrgb;
+    // Tag the buffer with the primaries it actually carries. Both
+    // `DisplayLinearSrgb` and `DisplayLinearP3` use the same OETF
+    // (`srgb_gamma_encode`), so the gamma stage accepts both via
+    // `ColorSpace::is_display_linear()` rather than a single-variant assert.
+    img.space = match target {
+        TargetPrimaries::Srgb => ColorSpace::DisplayLinearSrgb,
+        TargetPrimaries::P3 => ColorSpace::DisplayLinearP3,
+    };
 }
 
 /// Rec.2020 → sRGB linear: the legacy single-target entry. A thin wrapper
@@ -138,7 +145,12 @@ pub fn srgb_gamma(x: f32) -> f32 {
 /// After this call the buffer is sRGB-gamma-encoded f32 in `[0, 1]`,
 /// ready for `dither_and_quantize`.
 pub fn srgb_gamma_encode(img: &mut Image) {
-    img.assert_space(ColorSpace::DisplayLinearSrgb);
+    // Both `DisplayLinearSrgb` and `DisplayLinearP3` use IEC 61966-2-1 / 2.4-gamma.
+    debug_assert!(
+        img.space.is_display_linear(),
+        "srgb_gamma_encode: expected display-linear space (Srgb or P3), got {:?}",
+        img.space
+    );
     img.pixels.par_iter_mut().for_each(|p| {
         p[0] = srgb_gamma(p[0]);
         p[1] = srgb_gamma(p[1]);
