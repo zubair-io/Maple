@@ -234,8 +234,11 @@ export class LibraryCache {
    * Per-asset reactive signals for thumbnail URLs. Lazily created; a tile's
    * `computed()` depends only on its own id's signal, so loading ONE thumbnail
    * recomputes only THAT tile — not every tile on screen (O(N²) avoidance).
-   * Signals are never deleted after creation so components can hold stable
-   * references; `clearAll` and LRU eviction set them to `undefined` instead.
+   *
+   * Lifecycle: signals are set to `undefined` before being removed from the map
+   * (on LRU eviction and `clearAll`), so any computed that still holds the
+   * signal object reacts correctly. The map stays bounded to at most LRU
+   * capacity + the count of ids currently being rendered.
    */
   private readonly thumbSignals = new Map<AssetId, WritableSignal<string | undefined>>();
 
@@ -263,9 +266,11 @@ export class LibraryCache {
     // need a full wipe.
     this.thumbLru.clearAll();
     this.thumbnailUrls.set(new Map());
-    // Clear per-asset signals so tiles react to the wipe. Signals are kept in
-    // the map (components may still hold the computed); only the value is reset.
+    // Notify then clear the per-asset signal map. Setting each to `undefined`
+    // lets components react to the wipe; then clearing the map keeps memory
+    // bounded — signals will be recreated lazily if the same id appears again.
     for (const s of this.thumbSignals.values()) s.set(undefined);
+    this.thumbSignals.clear();
     // FilesystemBrowseService owns the FS-walk thumb blob URLs in its own cache
     // (unbounded, previously revoked only on sign-out). Clear it here too so a
     // folder switch reclaims that memory instead of letting it accumulate for
@@ -431,7 +436,15 @@ export class LibraryCache {
     // cleared immediately — a tile holding that computed must not keep showing
     // a stale or revoked blob URL.
     this.thumbLru.set(id, url, (evictedId) => {
-      this.thumbSignals.get(evictedId as AssetId)?.set(undefined);
+      // Delete the signal so the map stays bounded (≤ LRU capacity + visible
+      // tiles in flight). The next thumbnailUrlFor call recreates it from
+      // scratch, seeded with undefined — which correctly notifies any computed
+      // that still holds a reference that the URL is gone.
+      const evictedSignal = this.thumbSignals.get(evictedId as AssetId);
+      if (evictedSignal) {
+        evictedSignal.set(undefined);
+        this.thumbSignals.delete(evictedId as AssetId);
+      }
     });
     // Publish a new Map snapshot so components that read `thumbnailUrls()`
     // re-render (e.g. ensureThumbnailUrl short-circuit check). The LRU may
