@@ -260,9 +260,14 @@ describe('LibraryCache — thumbnailUrlFor reactivity (M2 #1327 regression)', ()
   // ALL computeds; the per-asset-signal approach limits invalidation to only the
   // affected id. We count re-evaluations by incrementing a counter inside each
   // computed (Angular only re-evaluates on read after a dependency changes).
-  it('cacheThumbnailUrl for one id does not recompute a computed for a different id', () => {
+  it('changing one cached id does not recompute a computed for a different cached id', () => {
     const idA = 'lib:2026/a.jpg' as AssetId;
     const idB = 'lib:2026/b.jpg' as AssetId;
+    // Cache both first so each tracks its OWN per-asset signal (steady state).
+    // Granularity is for cached tiles; a not-yet-cached tile tracks the coarse
+    // thumbnailUrls signal until its thumbnail lands (see the no-leak tests).
+    svc.cacheThumbnailUrl(idA, 'blob:a0');
+    svc.cacheThumbnailUrl(idB, 'blob:b0');
 
     let countA = 0;
     let countB = 0;
@@ -276,52 +281,50 @@ describe('LibraryCache — thumbnailUrlFor reactivity (M2 #1327 regression)', ()
     });
 
     // Prime both computeds — each evaluates once (count = 1).
-    expect(viewA()).toBeUndefined();
-    expect(viewB()).toBeUndefined();
+    expect(viewA()).toBe('blob:a0');
+    expect(viewB()).toBe('blob:b0');
     expect(countA).toBe(1);
     expect(countB).toBe(1);
 
-    // Load only 'a'.
-    svc.cacheThumbnailUrl(idA, 'blob:a');
+    // Change only 'a'.
+    svc.cacheThumbnailUrl(idA, 'blob:a1');
 
-    // Reading viewA triggers a re-evaluation (count becomes 2).
-    expect(viewA()).toBe('blob:a');
+    // viewA re-evaluates (count becomes 2).
+    expect(viewA()).toBe('blob:a1');
     expect(countA).toBe(2);
 
-    // Reading viewB must NOT trigger a re-evaluation — count stays at 1.
-    expect(viewB()).toBeUndefined();
+    // viewB tracks idB's own per-asset signal, not the global — it must NOT
+    // recompute when an unrelated id changes. Count stays at 1.
+    expect(viewB()).toBe('blob:b0');
     expect(countB).toBe(1);
   });
 
-  // #1359 left thumbSignals unbounded: thumbnailUrlFor lazily creates a signal
-  // for ANY id, but cleanup only ran on LRU eviction — so ids queried but never
-  // cached (failed/absent thumbnails, or tiles scrolled past before load) leaked
-  // a signal for the whole session. These guard the access-ordered cap (#1363).
+  // #1363: the read path must not leak signals. #1359 had thumbnailUrlFor lazily
+  // CREATE a per-asset signal for any id queried, so ids rendered but never
+  // cached (failed/absent thumbnails, or tiles scrolled past before load)
+  // accumulated signals for the whole session. The fix creates signals ONLY in
+  // cacheThumbnailUrl (a cached id) and removes them on LRU eviction, so the map
+  // is bounded by LRU capacity and the read path stays pure — which also avoids
+  // the NG0600 crash a cap-eviction-in-read would cause inside a computed().
   const signalMapSize = (s: LibraryCache): number =>
     (s as unknown as { thumbSignals: Map<unknown, unknown> }).thumbSignals.size;
   const signalMapHas = (s: LibraryCache, id: AssetId): boolean =>
     (s as unknown as { thumbSignals: Map<AssetId, unknown> }).thumbSignals.has(id);
-  // Read the real cap so the assertions track it if it is tuned later.
-  const CAP = (LibraryCache as unknown as { THUMB_SIGNAL_CAP: number }).THUMB_SIGNAL_CAP;
 
-  it('bounds thumbSignals when many never-cached ids are queried', () => {
-    for (let i = 0; i < CAP + 100; i++) {
-      // Each query creates a per-asset signal but never caches the id (no
-      // cacheThumbnailUrl), so the id never enters the LRU.
+  it('thumbnailUrlFor never creates a signal for an un-cached id (no leak)', () => {
+    for (let i = 0; i < 500; i++) {
       svc.thumbnailUrlFor(`lib:orphan/${i}.jpg` as AssetId);
     }
-    expect(signalMapSize(svc)).toBeLessThanOrEqual(CAP);
+    // Pre-fix this was 500 — one leaked signal per query; now it is 0.
+    expect(signalMapSize(svc)).toBe(0);
   });
 
-  it('keeps a re-accessed id hot under cap pressure (access-ordered eviction)', () => {
-    const hot = 'lib:hot.jpg' as AssetId;
-    svc.thumbnailUrlFor(hot); // inserted first — would be the oldest...
-    for (let i = 0; i < CAP + 50; i++) {
-      svc.thumbnailUrlFor(`lib:churn/${i}.jpg` as AssetId);
-      svc.thumbnailUrlFor(hot); // ...but re-accessing it each round keeps it hot
-    }
-    expect(signalMapSize(svc)).toBeLessThanOrEqual(CAP);
-    expect(signalMapHas(svc, hot)).toBe(true);
+  it('creates a per-asset signal only once an id is cached', () => {
+    const id = 'lib:cached.jpg' as AssetId;
+    svc.thumbnailUrlFor(id); // pure read — no signal yet
+    expect(signalMapHas(svc, id)).toBe(false);
+    svc.cacheThumbnailUrl(id, 'blob:x'); // cached → signal created here
+    expect(signalMapHas(svc, id)).toBe(true);
   });
 });
 
