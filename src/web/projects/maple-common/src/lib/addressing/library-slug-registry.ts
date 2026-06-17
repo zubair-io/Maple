@@ -5,7 +5,7 @@
 // persisted in IndexedDB (handles are structured-clonable per the FS-Access
 // spec) so the library stays accessible across sessions.
 //
-// Slug rules mirror the M1 server (src/api/src/library/slug.ts):
+// Slug rules mirror the M1 server's slug generation:
 //   - ASCII-folded to lowercase; non-[a-z0-9] → dash.
 //   - Consecutive dashes collapsed to one; leading/trailing dashes stripped.
 //   - Collision: append -2, -3, … until unique.
@@ -54,16 +54,21 @@ export class LibrarySlugRegistry {
   }
 
   /**
-   * Register a FileSystemDirectoryHandle. If the handle's name has never been
-   * registered, mints a new slug. If it's already registered (same slug key),
-   * returns the existing slug. Persists in IndexedDB.
+   * Register a FileSystemDirectoryHandle. If the handle refers to a directory
+   * already registered (same OS identity, checked via isSameEntry), returns the
+   * existing slug. Two different directories whose names happen to be identical
+   * get distinct slugs (the second gets a "-2" suffix). Persists in IndexedDB.
    */
   async register(handle: FileSystemDirectoryHandle): Promise<string> {
-    const existingSlug = await this.findByName(handle.name);
-    if (existingSlug) return existingSlug;
-
     const existing = await this.list();
     const taken = new Set(existing.map((e) => e.slug));
+    // Check identity: isSameEntry is the OS-level pointer comparison; comparing
+    // names alone would collide when two different dirs share a basename.
+    for (const entry of existing) {
+      const candidate = await this.getHandle(entry.slug);
+      if (candidate && (await candidate.isSameEntry(handle))) return entry.slug;
+    }
+
     const slug = dedupeSlug(slugify(handle.name), taken);
 
     const db = await openDb(DB_NAME, DB_VERSION, (db) => {
@@ -102,10 +107,5 @@ export class LibrarySlugRegistry {
       slug,
       name: (values[i] as FileSystemDirectoryHandle).name,
     }));
-  }
-
-  private async findByName(name: string): Promise<string | null> {
-    const items = await this.list();
-    return items.find((e) => e.name === name)?.slug ?? null;
   }
 }
