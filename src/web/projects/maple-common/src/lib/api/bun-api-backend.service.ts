@@ -992,9 +992,9 @@ export interface ApiPerson {
   faceCount: number;
   coverAssetId: string | null;
   /** `slug:relPath` address of the cover asset. Use with `LibrarySource.thumbUrl`
-   * (→ `/api/thumb/:slug/*`) for cache-coherent thumbnail fetches. Null when
-   * the cover asset is missing or the server is pre-M2. */
-  coverAddress: string | null;
+   * (→ `/api/thumb/:slug/*`) for cache-coherent thumbnail fetches. Optional:
+   * null when the cover asset is missing, absent when the server is pre-M2. */
+  coverAddress?: string | null;
   /** Absolute filesystem path of the cover asset. Kept for backward compat;
    * prefer `coverAddress` where available. */
   coverAbsPath: string | null;
