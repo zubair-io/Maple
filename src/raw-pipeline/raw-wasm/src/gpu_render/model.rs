@@ -218,5 +218,7 @@ pub(super) fn build_full_chain_inputs(
         profile_curve_flat,
         residual_lut_size,
         residual_lut_data,
+        target_primaries: 0, // sRGB (legacy-compatible default, #1337)
+        input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16, // RAW path (#1331)
     }
 }

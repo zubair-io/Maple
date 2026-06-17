@@ -46,9 +46,13 @@ extension EditSession {
     ///   * the runtime flag is off / no driver (a gpu build with `MAPLE_GPU_LIVE`
     ///     unset),
     ///   * no canvas layer is registered yet (the view hasn't laid out),
-    ///   * the asset is non-RAW (the GPU live chain is the RAW scene-linear
-    ///     chain; non-RAW keeps its CPU path this cut),
     ///   * the f32 readback or the session open fails (surfaced, then CPU).
+    ///
+    /// Non-RAW assets (pano PNG, JPEG, HEIF) are now also handled via the GPU
+    /// live chain with `inputShape = LinearRec2020Fp16` (#1331): the CPU decode
+    /// (`decodeSceneLinearNonRaw`) promotes the buffer to extended linear Rec.2020
+    /// before upload, so the chain skips WB + capture_sharpening and runs the
+    /// same user-edit and view-tail stages as the RAW path.
     ///
     /// Upload-once contract: the decoded buffer is read back to f32 and uploaded
     /// to the `GpuLiveSession` only when the dims change (a new decode / a
@@ -69,10 +73,13 @@ extension EditSession {
             editSessionLogger.notice("GPU-TRACE reject flag-or-driver gen=\(gen ?? 0)")
             return false
         }
-        guard asset.isRaw else {
-            editSessionLogger.notice("GPU-TRACE reject non-raw gen=\(gen ?? 0)")
-            return false
-        }
+        // Non-RAW assets (pano PNG, JPEG, HEIF) use the GPU live chain with
+        // `inputShape = 1` (LinearRec2020Fp16): `decodeSceneLinearNonRaw` already
+        // promotes the buffer to extended linear Rec.2020 via CoreImage, so the
+        // chain sees the same post-WB space as the RAW path and only needs to skip
+        // WB + capture_sharpening (#1331). All formats that reach here have a
+        // valid `decoded` CIImage from the existing decode dispatch.
+        let inputShape: UInt32 = asset.isRaw ? 0 : 1
         guard driver.hasLayer else {
             editSessionLogger.notice("GPU-TRACE reject no-layer gen=\(gen ?? 0)")
             return false
@@ -97,17 +104,19 @@ extension EditSession {
             }
             editSessionLogger.notice("GPU-TRACE readback ok pixels=\(buf.pixels.count) dims=\(buf.width)x\(buf.height) firstPx=[\(buf.pixels[0]), \(buf.pixels[1]), \(buf.pixels[2]), \(buf.pixels[3])]")
             do {
-                try driver.open(pixels: buf.pixels, width: buf.width, height: buf.height)
-                editSessionLogger.notice("GPU-TRACE open ok gen=\(gen ?? 0)")
+                try driver.open(
+                    pixels: buf.pixels, width: buf.width, height: buf.height,
+                    inputShape: inputShape)
+                editSessionLogger.notice("GPU-TRACE open ok gen=\(gen ?? 0) inputShape=\(inputShape)")
             } catch {
                 editSessionLogger.error(
                     "GPU live open failed: \(error.localizedDescription, privacy: .public) — CPU fallback")
                 return false
             }
-            // Fit the per-image Auto Profile tail once per open (RAW + Auto only;
-            // a no-op for Neutral). The editor decodes at `.preview`, so the fit
-            // MUST be at `.preview` to match the displayed buffer (#844/#871).
-            if m.profile == .auto, let url = assetURL {
+            // Auto Profile fit: RAW + Auto only. Non-RAW assets have no rawPath to
+            // fit from; their view chain runs through the identity profile artifacts
+            // (`params.rs` defaults to the identity curve + 2³ LUT) (#1331).
+            if asset.isRaw, m.profile == .auto, let url = assetURL {
                 await driver.fitAutoProfileIfNeeded(
                     rawPath: url.path, model: m, quality: .preview)
             }

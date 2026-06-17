@@ -182,6 +182,16 @@ pub struct MapleGpuLiveParams {
     //     ratio to the absolute apply that earlier hosts expected.
     pub decoded_temperature: f32,
     pub decoded_tint: f32,
+    // --- target display primaries (#1337) — appended at the tail after
+    //     decoded WB. 0 = sRGB (legacy-compatible default), 1 = Display P3.
+    //     A stale host that leaves this un-set (zero) stays on sRGB — bit-
+    //     exact with pre-#1337 output. ---
+    pub target_primaries: u32,
+    // --- input shape tag (#1331) — appended after target_primaries. 0 =
+    //     PostDcpRec2020Fp16 (RAW, all stages), 1 = LinearRec2020Fp16 (pano,
+    //     skip WB+CS), 2 = SrgbGammaEncoded8 (JPEG/HEIF, CPU pre-pass). A
+    //     stale host leaves this 0 = the historic RAW path; bit-exact. ---
+    pub input_shape: u32,
 }
 
 /// Internal handle state: the owned context + session. Behind the opaque pointer.

@@ -253,6 +253,10 @@ pub(super) fn make_params(
         // tests calibrate against. (Copilot review on #1262.)
         decoded_temperature: 0.0,
         decoded_tint: 0.0,
+        // #1337 tail field — 0 = sRGB (legacy-compatible default).
+        target_primaries: 0,
+        // #1331 tail field — 0 = PostDcpRec2020Fp16 (RAW path).
+        input_shape: 0,
     }
 }
 
@@ -473,6 +477,8 @@ pub(super) fn direct_raw_gpu(
         profile_curve_flat: curve.to_flat(),
         residual_lut_size: lut.size,
         residual_lut_data: lut.data.clone(),
+        target_primaries: 0, // sRGB (legacy-compatible default, #1337)
+        input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16, // RAW path (#1331)
     };
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let session = LiveSession::new(&ctx, input, w, h).expect("session");

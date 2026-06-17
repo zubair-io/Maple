@@ -59,6 +59,12 @@ public final class GpuLiveDriver {
     /// The RAW path + decode quality for the Auto Profile fit (set on open).
     private var autoProfileFitDone = false
 
+    /// The input-shape tag for the open session (#1331): 0 = PostDcpRec2020Fp16
+    /// (RAW, all stages), 1 = LinearRec2020Fp16 (pano PNG, skip WB+CS). Stored at
+    /// `open` time and forwarded to every `present` so the chain knows which leading
+    /// stages to run. 0 is the safe default (preserves pre-#1331 RAW behaviour).
+    private var inputShape: UInt32 = 0
+
     /// Rolling per-tick GPU render+present latency for the in-app frame-time HUD
     /// (#1053). The driver records every REAL present's elapsed ms here (cancelled
     /// presents return `nil` and are skipped), but ONLY when `GpuHudFlag.isEnabled`
@@ -109,7 +115,9 @@ public final class GpuLiveDriver {
     /// (upload-once per dims). Resets the Auto Profile fit so the next `present`
     /// re-fits for the new buffer if needed. Throws on an FFI open failure (the
     /// caller falls back to leaving the canvas on its prior frame).
-    public func open(pixels: [Float], width: Int, height: Int) throws {
+    /// `inputShape` is the `MapleGpuLiveParams.input_shape` tag (#1331): 0 =
+    /// PostDcpRec2020Fp16 (RAW, all stages), 1 = LinearRec2020Fp16 (pano PNG).
+    public func open(pixels: [Float], width: Int, height: Int, inputShape: UInt32 = 0) throws {
         if let d = sessionDims, d.width == width, d.height == height, session != nil {
             // Same dims — reuse the existing upload-once session (just refresh the
             // pixels by re-opening only if the buffer content changed is the
@@ -120,7 +128,8 @@ public final class GpuLiveDriver {
         self.session = s
         self.sessionDims = (width, height)
         self.autoProfileFitDone = false
-        gpuDriverLog.debug("opened GPU live session \(width)x\(height)")
+        self.inputShape = inputShape
+        gpuDriverLog.debug("opened GPU live session \(width)x\(height) inputShape=\(inputShape)")
     }
 
     /// Fit the Auto Profile curve + residual LUT for `rawPath` once per open (the
@@ -162,7 +171,8 @@ public final class GpuLiveDriver {
         do {
             let elapsedMs = try await s.present(
                 model: model, layer: layer, cancel: cancel,
-                asShotCCT: asShotCCT, asShotTint: asShotTint
+                asShotCCT: asShotCCT, asShotTint: asShotTint,
+                inputShape: self.inputShape
             )
             withExtendedLifetime(cancel) {}
             if let elapsedMs {
