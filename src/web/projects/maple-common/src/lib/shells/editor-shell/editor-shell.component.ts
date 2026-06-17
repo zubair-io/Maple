@@ -45,7 +45,7 @@ import { ValueHudComponent } from '../../components/editor/value-hud.component';
 import { ToneCurveComponent } from '../../components/develop/tone-curve.component';
 import { WbPadComponent } from '../../components/develop/wb-pad.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
-import { formatAddress } from '../../addressing/maple-address';
+import { formatAddress, parseAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress, editRouteCommands } from '../../addressing/route-address';
 import { handleEditorKeydown } from './editor-shell-keyboard';
 import {
