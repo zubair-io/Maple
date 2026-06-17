@@ -11,6 +11,7 @@ import {
   computed,
   inject,
 } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LibraryStateService } from '../../state/library-state.service';
 import type { AssetId } from '../../models/asset';
@@ -20,7 +21,7 @@ import { ImageCanvasComponent } from '../../components/image-canvas/image-canvas
 import { ImageCanvasService } from '../../components/image-canvas/image-canvas.service';
 import { EditorDetailPanelComponent } from '../../components/editor-detail-panel/editor-detail-panel.component';
 import { getPersistedFile } from '../../folder-access/file-cache';
-import { parseAddress } from '../../addressing/maple-address';
+import { formatAddress } from '../../addressing/maple-address';
 import { routeSegmentsToAddress } from '../../addressing/route-address';
 
 @Component({
@@ -42,6 +43,14 @@ export class EditorShellComponent implements OnInit {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
 
+  constructor() {
+    // Re-apply the address when the wildcard segments change (navigating
+    // between images within the same library, same slug).
+    this.route.url.pipe(takeUntilDestroyed()).subscribe(() => {
+      this.applyRouteAddress();
+    });
+  }
+
   // ── Page unload — flush pending XMP writes ────────────────────────────────
   @HostListener('window:beforeunload')
   onBeforeUnload(): void {
@@ -57,6 +66,56 @@ export class EditorShellComponent implements OnInit {
   hasMultiplePhotos = computed(() => this.state.assetsInSelectedFolder().length > 1);
 
   ngOnInit(): void {
+    this.applyRouteAddress();
+  }
+
+  /**
+   * Read the current route and open the addressed asset.
+   *
+   * Route variants handled:
+   *   M2: /edit/:slug/**  — :slug inherited via paramsInheritanceStrategy:'always';
+   *       route.snapshot.url = wildcard (child) segments only (no leading slug).
+   *       Builds a MapleAddress from slug + relPath segments.
+   *   Legacy: /library/editor/:id — :id is a plain asset id or 'first'.
+   *   Legacy fs: /library/editor/fs:<absPath> — Self-Hosted FS-walk deep-link.
+   */
+  private applyRouteAddress(): void {
+    // ── M2 route: /edit/:slug/** ────────────────────────────────────────────
+    // With paramsInheritanceStrategy:'always', the :slug from the parent
+    // route is available on the ** child. route.snapshot.url contains ONLY
+    // the wildcard segments (no leading slug segment).
+    const slug = this.route.snapshot.paramMap.get('slug');
+    if (slug) {
+      const segments = this.route.snapshot.url.map((s) => s.path);
+      const addr = routeSegmentsToAddress(slug, segments);
+      const addrStr = formatAddress(addr);
+      const assets = this.state.assets();
+      const target = assets.find((a) => a.id === addrStr);
+      if (target) {
+        this.state.selectAsset(target.id);
+        return;
+      }
+      // Deep-link: load the parent folder via the address, then select the
+      // asset once the folder loads.
+      if (this.state.backend === 'self-hosted') {
+        const synth = this.state.hydrateSelfHostedFsAsset(addrStr as AssetId);
+        if (synth?.absPath) {
+          this.state.selectAsset(synth.id);
+          const lastSlash = synth.absPath.lastIndexOf('/');
+          if (lastSlash > 0) {
+            const parentDir = synth.absPath.slice(0, lastSlash);
+            this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
+          }
+          return;
+        }
+      }
+      // Hosted / file-cache path: filename is the last relPath segment.
+      const filename = addr.relPath.split('/').pop() ?? addrStr;
+      void this.hydrateFromCache(filename);
+      return;
+    }
+
+    // ── Legacy routes: /library/editor/:id ─────────────────────────────────
     const id = this.route.snapshot.paramMap.get('id');
     if (!id) return;
 
@@ -69,36 +128,6 @@ export class EditorShellComponent implements OnInit {
       return;
     }
 
-    // M2: deep-link via MapleAddress (slug:relPath). The :slug param carries
-    // the slug; the ** wildcard is the image relPath (joined by Router).
-    // If id contains ':' it's a MapleAddress string; try to parse it.
-    if (id.includes(':') && !id.startsWith('fs:')) {
-      try {
-        const addr = parseAddress(id);
-        // Reconstruct from route URL if id was passed as ':slug' (the full
-        // relPath is in the ** segments, not the :id param).
-        const slug = this.route.snapshot.paramMap.get('slug') ?? addr.slug;
-        const segments = this.route.snapshot.url.slice(1).map((s) => s.path);
-        const fullAddr = routeSegmentsToAddress(slug, segments);
-        // Synthesize a placeholder asset and load the parent folder.
-        if (this.state.backend === 'self-hosted') {
-          const synth = this.state.hydrateSelfHostedFsAsset(id as AssetId);
-          if (synth?.absPath) {
-            this.state.selectAsset(synth.id);
-            const lastSlash = synth.absPath.lastIndexOf('/');
-            if (lastSlash > 0) {
-              const parentDir = synth.absPath.slice(0, lastSlash);
-              this.state.openSelfHostedSubfolder(parentDir, synth.folderId, synth.id);
-            }
-            return;
-          }
-        }
-        void this.hydrateFromCache(fullAddr.relPath.split('/').pop() ?? id);
-        return;
-      } catch {
-        // Not a MapleAddress — fall through to legacy paths.
-      }
-    }
     // Legacy Self-Hosted FS-walk cold-load (fs:<absPath>).
     if (this.state.backend === 'self-hosted' && id.startsWith('fs:')) {
       const synth = this.state.hydrateSelfHostedFsAsset(id as AssetId);
