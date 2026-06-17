@@ -12,6 +12,7 @@ import { MongoClient, ObjectId, type Db } from 'mongodb';
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import * as path from 'node:path';
 import { thumbRoutes } from './thumb.ts';
+import { resolveThumbPath } from '../../fs/xmp.ts';
 import { setLibraryBySlugForTests, invalidateLibraryRoots } from '../../indexer/libraries.cache.ts';
 
 const TEST_DB = `maple_test_thumb_route_${process.pid}`;
@@ -111,14 +112,46 @@ describe('GET /thumb/:slug/*', () => {
     expect(res.status).toBe(404);
   });
 
-  test('returns 202 with Retry-After when file exists on disk but is not indexed', async () => {
+  test('serves an on-the-fly thumb (200, not 202) for an un-indexed on-disk file', async () => {
     if (!mongoReachable) return;
-    await writeFile(path.join(tmpDir, 'pending.jpg'), 'fake-jpeg');
+    const src = path.join(tmpDir, 'pending.jpg');
+    await writeFile(src, 'fake-source');
+    // Pre-seed the path-keyed thumb so the route serves it without invoking
+    // native generation (mirrors the 304 test below). The behavioural contract
+    // under test is: un-indexed + on-disk no longer 202s — it renders/serves a
+    // real JPEG with a weak, revalidating validator (NOT immutable).
+    const thumbPath = resolveThumbPath(src);
+    await mkdir(path.dirname(thumbPath), { recursive: true });
+    await writeFile(thumbPath, 'thumb-bytes');
+
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/pending.jpg'));
-    expect(res.status).toBe(202);
-    expect(res.headers.get('Retry-After')).toBe('2');
-    const body = (await res.json()) as { status: string };
-    expect(body.status).toBe('indexing');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('image/jpeg');
+    expect(res.headers.get('Retry-After')).toBeNull();
+    expect(res.headers.get('Cache-Control')).toContain('must-revalidate');
+    expect(res.headers.get('Cache-Control')).not.toContain('immutable');
+    expect(res.headers.get('ETag') ?? '').toMatch(/^W\//); // weak validator
+  });
+
+  test('on-the-fly thumb honours If-None-Match with a 304', async () => {
+    if (!mongoReachable) return;
+    const src = path.join(tmpDir, 'pending2.jpg');
+    await writeFile(src, 'fake-source-2');
+    const thumbPath = resolveThumbPath(src);
+    await mkdir(path.dirname(thumbPath), { recursive: true });
+    await writeFile(thumbPath, 'thumb-bytes-2');
+
+    const first = await app.handle(new Request('http://localhost/thumb/thumblib/pending2.jpg'));
+    const etag = first.headers.get('ETag')!;
+    expect(etag).toMatch(/^W\//);
+
+    const second = await app.handle(
+      new Request('http://localhost/thumb/thumblib/pending2.jpg', {
+        headers: { 'If-None-Match': etag },
+      }),
+    );
+    expect(second.status).toBe(304);
+    expect(second.headers.get('ETag')).toBe(etag);
   });
 
   test('returns 304 when ETag matches If-None-Match', async () => {

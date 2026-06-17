@@ -17,7 +17,7 @@ import { Elysia, t } from 'elysia';
 import { resolveAddress } from '../../library/address.ts';
 import { child as childLogger } from '../../log.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
-import { resolveThumbPathForAsset } from '../../fs/xmp.ts';
+import { resolveThumbPath, resolveThumbPathForAsset } from '../../fs/xmp.ts';
 import { loadLibraryRoots } from '../../indexer/libraries.cache.ts';
 import { generateThumb } from '../../indexer/thumbnailer.ts';
 import {
@@ -62,16 +62,57 @@ export const thumbRoutes = new Elysia().get(
     const asset = await findAssetByAddress(libraryId, relDir, filename);
 
     if (!asset || !asset.maple_id) {
-      // File exists on disk but not indexed yet (or indexing in progress).
+      // Not indexed yet — but the file is on disk, so render the thumbnail on
+      // the fly instead of making the grid wait for the indexer (which may be
+      // idle/behind — file_count can sit at 0). Keyed by file path via
+      // resolveThumbPath (no maple_id needed); for RAW this extracts the
+      // embedded preview JPEG (cheap), non-RAW goes through sharp. Once the
+      // indexer assigns a maple_id the content-keyed branch below takes over.
       const diskSt = await safeStat(absPath);
       if (!diskSt) {
         set.status = 404;
         return { error: 'File not found' };
       }
-      // 202 with Retry-After — client should retry after scan completes.
-      set.status = 202;
-      set.headers['Retry-After'] = '2';
-      return { status: 'indexing', message: 'Image not yet indexed; retry shortly' };
+      const thumbPath = resolveThumbPath(absPath);
+      if (!(await safeStat(thumbPath))) {
+        try {
+          await generateThumb(absPath); // defaults to resolveThumbPath(absPath)
+        } catch (err) {
+          log.warn(
+            { absPath, thumbPath, err: err instanceof Error ? err.message : err },
+            'on-demand thumb generation failed (unindexed)',
+          );
+          set.status = 500;
+          return { error: 'Thumbnail generation failed' };
+        }
+      }
+      const bytes = await safeReadBytes(thumbPath);
+      if (!bytes) {
+        set.status = 404;
+        return { error: 'Thumbnail file unreadable' };
+      }
+      // Weak, revalidating validator — a path-keyed pre-index thumb is NOT
+      // content-immutable (the file may change, and indexing will later serve a
+      // different content-keyed image at this same URL), so it must never be
+      // cached `immutable`. mtime+size weak ETag lets the browser 304 while
+      // still picking up the indexed version on its next revalidation.
+      const wEtag = `W/"u-${Math.trunc(diskSt.mtimeMs)}-${diskSt.size}"`;
+      const ifNoneMatchU = headers['if-none-match'];
+      const revalidateCache = 'private, max-age=10, must-revalidate';
+      if (ifNoneMatchEqual(typeof ifNoneMatchU === 'string' ? ifNoneMatchU : undefined, wEtag)) {
+        return new Response(null, {
+          status: 304,
+          headers: { ETag: wEtag, 'Cache-Control': revalidateCache },
+        });
+      }
+      return new Response(bytes as unknown as BodyInit, {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/jpeg',
+          ETag: wEtag,
+          'Cache-Control': revalidateCache,
+        },
+      });
     }
 
     // ETag is the maple_id (content-keyed = stable until content changes).
