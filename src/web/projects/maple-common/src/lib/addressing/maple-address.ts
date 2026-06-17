@@ -65,7 +65,11 @@ export function parentAddress(a: MapleAddress): MapleAddress | null {
  * Empty relPath → just the slug (no trailing slash).
  */
 export function toApiPath(a: MapleAddress): string {
-  const segments: string[] = [a.slug];
+  // Encode the slug too — `parseAddress`/`routeSegmentsToAddress` accept any
+  // string, so an un-encoded slug from a crafted deep link (e.g. "../../admin")
+  // would otherwise inject path-traversal sequences into the API URL. For a
+  // valid minted slug ([a-z0-9-]) this is a no-op.
+  const segments: string[] = [encodeURIComponent(a.slug)];
   if (a.relPath !== '') {
     for (const seg of a.relPath.split('/')) {
       segments.push(encodeURIComponent(seg));

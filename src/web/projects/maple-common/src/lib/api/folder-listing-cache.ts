@@ -113,6 +113,10 @@ export class FolderListingIdbCache implements FolderListingCacheApi {
       if (!db.objectStoreNames.contains(IDB_STORE)) {
         db.createObjectStore(IDB_STORE, { keyPath: 'address' });
       }
+      // Drop the pre-M2 path-keyed store so its data isn't orphaned forever.
+      if (db.objectStoreNames.contains('listings-by-path')) {
+        db.deleteObjectStore('listings-by-path');
+      }
     });
   }
 }
