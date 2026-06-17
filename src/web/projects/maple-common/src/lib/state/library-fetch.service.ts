@@ -841,9 +841,8 @@ export class LibraryFetch {
    * Cold-load hydration for `/edit/<slug>/<relPath>` deep-links on Self-Hosted.
    *
    * Synthesizes a single placeholder Asset entry from the address so the editor
-   * can mount immediately. Accepts both the new `slug:relPath` format and the
-   * legacy `fs:<absPath>` format (which the editor shell still passes for
-   * backward compat during the transition period).
+   * can mount immediately. Accepts `slug:relPath` addresses only (the legacy
+   * `fs:<absPath>` scheme is retired post-M2 cutover).
    *
    * Caller should follow up with `openSelfHostedSubfolder(parentRelPath,
    * folderId, id)` to populate the filmstrip with siblings.
@@ -851,35 +850,20 @@ export class LibraryFetch {
   hydrateSelfHostedFsAsset(id: AssetId, patch?: Partial<Asset>): Asset | null {
     if (this.store.backend !== 'self-hosted') return null;
 
-    let relPath: string;
-    let slug: string | undefined;
-    /** The full absolute path for legacy `fs:` ids, used to set `Asset.absPath`. */
-    let legacyAbsPath: string | undefined;
+    // Only slug:relPath addresses are accepted post-M2 cutover.
+    // The legacy fs:<absPath> scheme is retired; callers that previously
+    // passed fs: ids should use the new slug:relPath form.
+    if (!id.includes(':')) return null;
 
-    if (id.startsWith('fs:')) {
-      // Legacy: fs:<absPath> — the full absPath is embedded in the id.
-      const absPath = id.slice(3);
-      if (!absPath) return null;
-      legacyAbsPath = absPath;
-      relPath = absPath; // treat as relPath for decomposition below
-      slug = undefined; // unknown until the tree resolves
-    } else if (id.includes(':')) {
-      // New: slug:relPath
-      const addr = parseAddress(id);
-      relPath = addr.relPath;
-      slug = addr.slug;
-    } else {
-      return null;
-    }
+    const addr = parseAddress(id);
+    const relPath = addr.relPath;
+    const slug = addr.slug;
 
-    if (!relPath && !legacyAbsPath) return null;
-    const pathForDecomp = legacyAbsPath ?? relPath;
-    const lastSlash = pathForDecomp.lastIndexOf('/');
-    const filename = lastSlash >= 0 ? pathForDecomp.slice(lastSlash + 1) : pathForDecomp;
-    const parentRelPath = lastSlash >= 0 ? pathForDecomp.slice(0, lastSlash) : '';
-    const folderId: AssetId = slug
-      ? formatAddress({ slug, relPath: parentRelPath })
-      : (`unknown:${parentRelPath}` as AssetId);
+    if (!relPath) return null;
+    const lastSlash = relPath.lastIndexOf('/');
+    const filename = lastSlash >= 0 ? relPath.slice(lastSlash + 1) : relPath;
+    const parentRelPath = lastSlash >= 0 ? relPath.slice(0, lastSlash) : '';
+    const folderId: AssetId = formatAddress({ slug, relPath: parentRelPath });
 
     // Strip identity-bearing fields from `patch`.
     const {
@@ -901,9 +885,6 @@ export class LibraryFetch {
       colorLabel: null,
       thumbnailGradient: '',
       aspectRatio: 3 / 2,
-      // Preserve absPath for legacy fs: ids so editor-shell cold-load
-      // can call openSelfHostedSubfolder with the parent directory.
-      ...(legacyAbsPath != null ? { absPath: legacyAbsPath } : {}),
       ...safePatch,
     };
 

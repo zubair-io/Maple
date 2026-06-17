@@ -19,7 +19,12 @@
 
 import { Signal, signal, untracked } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { BunApiBackendService, FilesystemBrowseService } from '@maple-common';
+import {
+  BunApiBackendService,
+  FilesystemBrowseService,
+  LIBRARY_SOURCE,
+  type LibrarySource,
+} from '@maple-common';
 
 export class ThumbBlobCache {
   /** Cache key (`absPath` when present, otherwise `apiId:<id>`) → `blob:`
@@ -38,6 +43,7 @@ export class ThumbBlobCache {
   constructor(
     private readonly api: BunApiBackendService,
     private readonly fsBrowse: FilesystemBrowseService,
+    private readonly librarySource?: LibrarySource,
   ) {}
 
   /** Read-only view of the cache. Template bindings should read through
@@ -46,20 +52,30 @@ export class ThumbBlobCache {
     return this._blobs.asReadonly();
   }
 
-  /** Build a stable cache key for a cover-shaped record. Prefer `absPath`
-   * so the blob URL is shared with /browse; fall back to a synthetic
-   * `apiId:` key when the cover asset doc was deleted. */
-  static coverKey(p: { coverAbsPath: string | null; coverAssetId: string | null }): string | null {
+  /** Build a stable cache key for a cover-shaped record.
+   * Prefer `coverAddress` (slug:relPath) for cache coherence with /browse's
+   * LibrarySource thumb path; fall back to `absPath` for legacy installs;
+   * last resort `apiId:` when the cover asset doc was deleted. */
+  static coverKey(p: {
+    coverAddress?: string | null;
+    coverAbsPath: string | null;
+    coverAssetId: string | null;
+  }): string | null {
+    if (p.coverAddress) return p.coverAddress;
     if (p.coverAbsPath) return p.coverAbsPath;
     if (p.coverAssetId) return `apiId:${p.coverAssetId}`;
     return null;
   }
 
-  /** Idempotently load the blob URL for a thumb keyed by `cacheKey`. When
-   * `absPath` is set we delegate to `FilesystemBrowseService.getThumbBlobUrl`
-   * (singleton cache, shared with /browse). Otherwise we fall back to the
-   * api-id endpoint, which doesn't share with /browse but covers the
-   * orphan case where the asset doc has been deleted. */
+  /** Idempotently load the thumb URL for `cacheKey`.
+   *
+   * Resolution order:
+   *   1. `cacheKey` is a `slug:relPath` address → `LibrarySource.thumbUrl`
+   *      (→ `/api/thumb/:slug/*`, immutable-cached HTTP URL; no blob round-trip).
+   *   2. `absPath` is present → `FilesystemBrowseService.getThumbBlobUrl`
+   *      (legacy `/api/fs/thumb?path=…` blob, shared with /browse).
+   *   3. `apiAssetId` → `api.getThumb` blob (orphan-cover fallback).
+   */
   ensure(cacheKey: string | null, absPath: string | null, apiAssetId: string | null): void {
     if (!cacheKey) return;
     if (this.inflight.has(cacheKey)) return;
@@ -68,17 +84,28 @@ export class ThumbBlobCache {
     if (untracked(this._blobs).has(cacheKey)) return;
     this.inflight.add(cacheKey);
 
-    // Match the size /browse asks for (512) so the cache key (absPath)
-    // resolves to the same blob entry — otherwise whichever route loads
-    // first wins and the other gets the wrong-resolution thumb.
-    const promise: Promise<{ url: string; owned: boolean }> = absPath
-      ? this.fsBrowse.getThumbBlobUrl(absPath, 512).then((url) => ({ url, owned: false }))
-      : apiAssetId
-        ? firstValueFrom(this.api.getThumb(apiAssetId)).then((b) => ({
-            url: URL.createObjectURL(b),
-            owned: true,
-          }))
-        : Promise.reject(new Error('no asset reference'));
+    let promise: Promise<{ url: string; owned: boolean }>;
+
+    // Preferred M2 path: slug:relPath address via LibrarySource.
+    if (this.librarySource && cacheKey.includes(':') && !cacheKey.startsWith('apiId:')) {
+      const [slug, ...rest] = cacheKey.split(':');
+      const relPath = rest.join(':');
+      promise = this.librarySource
+        .thumbUrl({ slug: slug!, relPath })
+        .then((url) => ({ url, owned: false }));
+    } else if (absPath) {
+      // Legacy path: fetch via /api/fs/thumb + bearer token, cache as blob.
+      // Match the size /browse asks for (512) so the same absPath key
+      // resolves to the same blob entry on both surfaces.
+      promise = this.fsBrowse.getThumbBlobUrl(absPath, 512).then((url) => ({ url, owned: false }));
+    } else if (apiAssetId) {
+      promise = firstValueFrom(this.api.getThumb(apiAssetId)).then((b) => ({
+        url: URL.createObjectURL(b),
+        owned: true,
+      }));
+    } else {
+      promise = Promise.reject(new Error('no asset reference'));
+    }
 
     promise
       .then(({ url, owned }) => {

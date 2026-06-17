@@ -45,6 +45,8 @@ import {
   ApiPersonFace,
   BunApiBackendService,
   FilesystemBrowseService,
+  LIBRARY_SOURCE,
+  type LibrarySource,
   PeopleStore,
 } from '@maple-common';
 import { SettingsShellComponent } from '../settings-shell.component';
@@ -101,6 +103,7 @@ import { PeopleDetailController } from './people-detail.controller';
 export class PeopleComponent implements OnDestroy {
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
+  private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
@@ -259,7 +262,7 @@ export class PeopleComponent implements OnDestroy {
 
   /** Bearer-gated thumbnail blob cache. See {@link ThumbBlobCache} for
    * lifecycle / cache-key rules. Created once per component instance. */
-  private readonly thumbs = new ThumbBlobCache(this.api, this.fsBrowse);
+  private readonly thumbs = new ThumbBlobCache(this.api, this.fsBrowse, this.librarySource);
 
   /** Route paramMap as a signal — `toSignal` registers a teardown against
    * the component's DestroyRef, so no manual unsubscribe is needed. */

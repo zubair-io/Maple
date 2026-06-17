@@ -4,7 +4,8 @@
 // re-implementing dedup, eviction, or backend branching. Reads pull from:
 //   - the LRU (cache hit, instant)
 //   - the legacy in-memory map (drag-drop imports without FS Access)
-//   - the Self-Hosted FS-walk path (`/api/fs/raw?path=…`)
+//   - the M2 slug:relPath path (`LibrarySource.imageBlob` → `/api/image/:slug/*`)
+//   - the Self-Hosted legacy abs-path fallback (`/api/fs/raw?path=…`)
 //   - the Self-Hosted Mongo asset path (`api.getRawBytes(apiId)`)
 //   - the Hosted FS Access folder handle (`entry.getFile()`)
 //
@@ -154,6 +155,7 @@ export class LibraryCache {
   private readonly store = inject(LibraryStore);
   private readonly api = inject(BunApiBackendService);
   private readonly fsBrowse = inject(FilesystemBrowseService);
+  private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly cache = inject(MapleCacheService);
   private readonly pipeline = inject(RawPipelineService);
   private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
@@ -186,7 +188,7 @@ export class LibraryCache {
    * Determinate download progress for the asset currently being opened in
    * the editor, or `null` when nothing is downloading from the network.
    *
-   * Only set for genuine network reads (the Self-Hosted `/api/fs/raw` and
+   * Only set for genuine network reads (the Self-Hosted `/api/image/:slug/*` and
    * `/api/assets/:id/raw` paths). LRU hits, legacy in-memory imports, and the
    * Hosted FS-Access file-handle path never touch the network, so they leave
    * this `null` and the editor shows no bar.
@@ -410,16 +412,22 @@ export class LibraryCache {
     // thumb branch in _loadThumbInternal. Exclude legacy `fs:<absPath>` ids —
     // they also contain ':' but resolve via the assetAbsPaths FS-walk below.
     if (typeof id === 'string' && id.includes(':') && !id.startsWith('fs:')) {
-      const blob = await this.librarySource.imageBlob(
-        parseAddress(id),
-        this.makeProgressCallback(id),
-      );
-      return new Uint8Array(await blob.arrayBuffer());
+      try {
+        const blob = await this.librarySource.imageBlob(
+          parseAddress(id),
+          this.makeProgressCallback(id),
+        );
+        return new Uint8Array(await blob.arrayBuffer());
+      } catch (err) {
+        // Fall through to the legacy abs-path path below if imageBlob fails
+        // (e.g. asset listed via old absPath-keyed scan before M2 addresses
+        // propagate). This keeps the editor working during the transition.
+        const fsAbsPath = this.store.assetAbsPaths.get(id);
+        if (!fsAbsPath) throw err;
+        const buf = await this.fsBrowse.getRawBytes(fsAbsPath, this.makeProgressCallback(id));
+        return new Uint8Array(buf);
+      }
     }
-
-    // Self-Hosted FS-walk path: asset id is `fs:<absPath>` and the bytes
-    // come from `/api/fs/raw?path=<abs>`. Checked BEFORE the Mongo-asset
-    // path because FS-walk assets aren't in `_apiAssetIds`.
     const fsAbsPath = this.store.assetAbsPaths.get(id);
     if (fsAbsPath) {
       const buf = await this.fsBrowse.getRawBytes(fsAbsPath, this.makeProgressCallback(id));

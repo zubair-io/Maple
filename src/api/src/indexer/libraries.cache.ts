@@ -72,6 +72,23 @@ export function invalidateLibraryRoots(): void {
  * exercise the content-addressed cache-path resolution without a Mongo
  * instance. Pass `null` to revert to the lazy-load behaviour.
  */
+
+/**
+ * Return a map from `library_id hex` → slug for all libraries that have a slug.
+ * Used to compute `slug:relPath` addresses for cover assets in the people list.
+ * Served from the same in-memory cache as `loadLibraryRoots` — zero extra DB
+ * round-trips.
+ */
+export async function loadLibraryIdToSlug(): Promise<ReadonlyMap<string, string>> {
+  const c = await loadCache();
+  // Build the reverse map on-demand. The library count is O(10s) so this is
+  // fast and cheap to recompute each call (the cache makes loadCache() free).
+  const out = new Map<string, string>();
+  for (const [slug, { libraryId }] of c.bySlug) {
+    out.set(libraryId.toHexString(), slug);
+  }
+  return out;
+}
 export function setLibraryRootsForTests(map: ReadonlyMap<string, string> | null): void {
   if (map === null) {
     cached = null;

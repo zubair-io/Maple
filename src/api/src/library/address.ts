@@ -33,6 +33,60 @@ export interface ResolvedAddress {
  * address components. The slug is the first path segment; the remaining
  * segments (already percent-decoded by Elysia) are joined with `/`.
  */
+
+/**
+ * Validate a relative path and confirm the symlink-resolved absolute path
+ * stays inside the given root. Used by both the unified `resolveAddress`
+ * route handler and `resolveFolderRelPath` in `routes/folders.ts` so the
+ * two jails share the same security logic.
+ *
+ * Returns:
+ *   - `{ ok: true, real }` on success
+ *   - `{ ok: false, status, error }` on traversal/escape/missing
+ *
+ * The caller must NOT pass an empty `relPath` — it should use the root
+ * directly for that case. Behaviour for empty relPath is undefined.
+ */
+export async function realpathJailCheck(
+  root: string,
+  relPath: string,
+): Promise<{ ok: true; real: string } | { ok: false; status: number; error: string }> {
+  if (path.isAbsolute(relPath)) {
+    return { ok: false, status: 400, error: 'relPath must not be absolute' };
+  }
+  if (relPath.includes('\\')) {
+    return { ok: false, status: 400, error: 'relPath must not contain backslashes' };
+  }
+  const segments = relPath.split('/');
+  for (const seg of segments) {
+    if (seg === '..' || seg === '.') {
+      return { ok: false, status: 400, error: "relPath must not contain '.' or '..' segments" };
+    }
+  }
+
+  const abs = path.join(root, relPath);
+  let real: string;
+  try {
+    real = await realpath(abs);
+  } catch {
+    return { ok: false, status: 404, error: 'file not found' };
+  }
+
+  // Resolve the root itself so a symlinked root prefix does not falsely
+  // reject a valid request. Best-effort — fall back to the configured path.
+  let realRoot = root;
+  try {
+    realRoot = await realpath(root);
+  } catch {
+    /* keep the configured path */
+  }
+
+  if (!isUnderRoot(real, realRoot)) {
+    return { ok: false, status: 400, error: 'path escapes library jail' };
+  }
+  return { ok: true, real };
+}
+
 export function parseAddressPath(slug: string, restSegments: string[]): AddressPath {
   const relPath = restSegments.join('/');
   return { slug, relPath };

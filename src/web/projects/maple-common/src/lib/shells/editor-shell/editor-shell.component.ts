@@ -448,14 +448,9 @@ export class EditorShellComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
 
-    if (this.state.backend === 'self-hosted' && id.startsWith('fs:')) {
-      const synth = this.state.hydrateSelfHostedFsAsset(id as AssetId);
-      if (synth?.absPath) {
-        this.state.selectAsset(synth.id);
-        this.openHydratedFsParent(synth);
-        return;
-      }
-    }
+    // Note: the legacy `fs:<absPath>` scheme is retired (post-M2 cutover).
+    // Deep-links that used it fall through to the file-cache path below,
+    // which redirects to Browse if the file is not in the session cache.
 
     if (assets.length > 0) {
       this.state.selectAsset(assets[0].id);
