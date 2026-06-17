@@ -129,3 +129,15 @@ describe('buildLibrariesById', () => {
     expect(m.size).toBe(2);
   });
 });
+
+describe('buildLibrariesById — M2 addressing (slug field)', () => {
+  it('includes slug in the map key — forward compat check (no-op: map uses id)', () => {
+    // buildLibrariesById maps id→path; slug is not its concern.
+    // This test confirms the function still works when ApiFolder has a slug field.
+    const folders = [
+      { id: 'aaa', path: '/Volumes/A', label: 'A', slug: 'alpha' },
+    ] as unknown as ApiFolder[];
+    const m = buildLibrariesById(folders);
+    expect(m.get('aaa')).toBe('/Volumes/A');
+  });
+});

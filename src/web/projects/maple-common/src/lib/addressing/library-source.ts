@@ -10,10 +10,15 @@
 import { InjectionToken } from '@angular/core';
 import type { MapleAddress } from './maple-address';
 
-export interface FolderEntry {
+/** A sub-folder entry returned by `LibrarySource.listFolder`. */
+export interface LibraryFolderEntry {
   name: string;
   address: string;
 }
+
+/** @deprecated Use {@link LibraryFolderEntry} — renamed to avoid collision with the
+ * `FolderEntry` file-handle type in `folder-access.types`. */
+export type FolderEntry = LibraryFolderEntry;
 
 export interface ImageEntry {
   name: string;
@@ -28,7 +33,7 @@ export interface ImageEntry {
 export interface FolderListing {
   address: string;
   parent: string | null;
-  folders: FolderEntry[];
+  folders: LibraryFolderEntry[];
   images: ImageEntry[];
 }
 

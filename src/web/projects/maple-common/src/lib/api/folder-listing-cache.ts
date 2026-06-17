@@ -1,5 +1,5 @@
-// FolderListingCache — stale-while-revalidate cache for `/api/fs/dir-fast`
-// directory listings, keyed by absolute path.
+// FolderListingCache — stale-while-revalidate cache for LibrarySource.listFolder()
+// directory listings, keyed by formatted MapleAddress string (e.g. `library:2026/jan`).
 //
 // Two tiers:
 //   - an in-memory Map for synchronous hits within a session (instant tree
@@ -10,26 +10,32 @@
 //
 // The cache is advisory: callers always revalidate over the network and
 // apply the fresh listing on top of the cached one (see
-// `LibraryFetch._swrListDir`). Listings are pure filesystem data (sub-dir +
+// `LibraryFetch._swrListFolder`). Listings are pure filesystem data (sub-dir +
 // RAW-image names), so a stale paint is at worst a folder that has since
 // gained/lost an entry — corrected within one round-trip.
 //
 // Shape mirrors `xmp/sidecar-idb-cache.ts`: a hand-rolled IDB module with no
 // extra dependency, and an in-memory implementation for tests.
+//
+// Migration note: the cache was previously keyed by absolute path and stored
+// FsDirListing. Task 9 of M2 switches the key to a `slug:relPath` address
+// string and the value to FolderListing (the LibrarySource contract type).
 
 import { Injectable, InjectionToken, inject } from '@angular/core';
-import { FsDirListing } from './filesystem-browse.service';
+import type { FolderListing } from '../addressing/library-source';
 import { openDb, reqToPromise, txDone } from '../util/idb';
 
 const IDB_DB_NAME = 'maple-folder-listing-cache';
-const IDB_STORE = 'listings-by-path';
-const IDB_VERSION = 1;
+const IDB_STORE = 'listings-by-address';
+// Bump the version so any stale IDB from before the migration (keyed by
+// absPath, storing FsDirListing) is discarded rather than misread.
+const IDB_VERSION = 2;
 
-/** Persisted record. `listing` is the raw `/api/fs/dir-fast` response. */
+/** Persisted record. `listing` is the raw `LibrarySource.listFolder` response. */
 export interface FolderListingRecord {
-  /** Absolute, symlink-resolved directory path (the cache key). */
-  path: string;
-  listing: FsDirListing;
+  /** `slug:relPath` address string (the cache key). */
+  address: string;
+  listing: FolderListing;
   storedAt: number;
 }
 
@@ -41,37 +47,37 @@ export interface FolderListingRecord {
  */
 export interface FolderListingCacheApi {
   /** Synchronous in-memory hit, or null. Never touches IndexedDB. */
-  peek(path: string): FsDirListing | null;
+  peek(address: string): FolderListing | null;
   /** In-memory hit, else the persisted listing (hydrating memory), else null. */
-  get(path: string): Promise<FsDirListing | null>;
+  get(address: string): Promise<FolderListing | null>;
   /** Write through to both tiers. Best-effort on the persistent layer. */
-  put(path: string, listing: FsDirListing): void;
+  put(address: string, listing: FolderListing): void;
   /** Drop everything (e.g. on sign-out). */
   clear(): Promise<void>;
 }
 
 @Injectable({ providedIn: 'root' })
 export class FolderListingIdbCache implements FolderListingCacheApi {
-  private readonly mem = new Map<string, FsDirListing>();
+  private readonly mem = new Map<string, FolderListing>();
 
-  peek(path: string): FsDirListing | null {
-    return this.mem.get(path) ?? null;
+  peek(address: string): FolderListing | null {
+    return this.mem.get(address) ?? null;
   }
 
-  async get(path: string): Promise<FsDirListing | null> {
-    const hit = this.mem.get(path);
+  async get(address: string): Promise<FolderListing | null> {
+    const hit = this.mem.get(address);
     if (hit) return hit;
-    const rec = await this._idbGet(path).catch(() => null);
+    const rec = await this._idbGet(address).catch(() => null);
     if (rec) {
-      this.mem.set(path, rec.listing);
+      this.mem.set(address, rec.listing);
       return rec.listing;
     }
     return null;
   }
 
-  put(path: string, listing: FsDirListing): void {
-    this.mem.set(path, listing);
-    void this._idbPut(path, listing).catch(() => {
+  put(address: string, listing: FolderListing): void {
+    this.mem.set(address, listing);
+    void this._idbPut(address, listing).catch(() => {
       // Best-effort: a full quota or a private-mode IDB block must not break
       // navigation. The in-memory tier still serves this session.
     });
@@ -85,19 +91,19 @@ export class FolderListingIdbCache implements FolderListingCacheApi {
     await txDone(tx).finally(() => db.close());
   }
 
-  private async _idbGet(path: string): Promise<FolderListingRecord | null> {
+  private async _idbGet(address: string): Promise<FolderListingRecord | null> {
     const db = await this._open();
     const tx = db.transaction(IDB_STORE, 'readonly');
-    const result = await reqToPromise(tx.objectStore(IDB_STORE).get(path)).finally(() =>
+    const result = await reqToPromise(tx.objectStore(IDB_STORE).get(address)).finally(() =>
       db.close(),
     );
     return (result as FolderListingRecord | undefined) ?? null;
   }
 
-  private async _idbPut(path: string, listing: FsDirListing): Promise<void> {
+  private async _idbPut(address: string, listing: FolderListing): Promise<void> {
     const db = await this._open();
     const tx = db.transaction(IDB_STORE, 'readwrite');
-    const record: FolderListingRecord = { path, listing, storedAt: Date.now() };
+    const record: FolderListingRecord = { address, listing, storedAt: Date.now() };
     tx.objectStore(IDB_STORE).put(record);
     await txDone(tx).finally(() => db.close());
   }
@@ -105,7 +111,7 @@ export class FolderListingIdbCache implements FolderListingCacheApi {
   private _open(): Promise<IDBDatabase> {
     return openDb(IDB_DB_NAME, IDB_VERSION, (db) => {
       if (!db.objectStoreNames.contains(IDB_STORE)) {
-        db.createObjectStore(IDB_STORE, { keyPath: 'path' });
+        db.createObjectStore(IDB_STORE, { keyPath: 'address' });
       }
     });
   }
@@ -116,18 +122,18 @@ export class FolderListingIdbCache implements FolderListingCacheApi {
  * substitute it without faking IndexedDB.
  */
 export class InMemoryFolderListingCache implements FolderListingCacheApi {
-  private readonly mem = new Map<string, FsDirListing>();
+  private readonly mem = new Map<string, FolderListing>();
 
-  peek(path: string): FsDirListing | null {
-    return this.mem.get(path) ?? null;
+  peek(address: string): FolderListing | null {
+    return this.mem.get(address) ?? null;
   }
 
-  async get(path: string): Promise<FsDirListing | null> {
-    return this.mem.get(path) ?? null;
+  async get(address: string): Promise<FolderListing | null> {
+    return this.mem.get(address) ?? null;
   }
 
-  put(path: string, listing: FsDirListing): void {
-    this.mem.set(path, listing);
+  put(address: string, listing: FolderListing): void {
+    this.mem.set(address, listing);
   }
 
   async clear(): Promise<void> {
