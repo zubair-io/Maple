@@ -106,6 +106,29 @@ pub const M_REC2020_TO_P3: Matrix3 = Matrix3([
     [ 0.0028,  -0.0196,  1.0168],
 ]);
 
+/// Linear sRGB → linear Display P3 (SMPTE RP 431-2, D65 white point).
+///
+/// Derived from IEC 61966-2-1 (sRGB) and SMPTE RP 431-2 (Display P3)
+/// chromaticities, both at the D65 white point (0.3127/0.3290):
+///   `M_XYZ_D65_TO_P3 · M_SRGB_TO_XYZ_D65`
+///
+/// White `[1,1,1]` maps to `[1,1,1]` exactly (both primaries share D65).
+/// The two off-diagonal near-zero entries are exactly 0.0 to floating-point
+/// precision of the chromaticity derivation.
+///
+/// Used by the `display_encode` view-tail (`rec2020_to_display`, ticket
+/// #1337): the P3 path applies Oklab gamut compression in **linear sRGB**
+/// (where the Oklab helpers are defined), then applies this matrix to rotate
+/// from sRGB primaries to P3 primaries. The order is:
+///   1. Rec.2020 → sRGB (`M_REC2020_TO_SRGB`)
+///   2. Oklab gamut compress (valid in linear sRGB)
+///   3. sRGB → P3 (`M_SRGB_TO_P3`) ← this matrix
+pub const M_SRGB_TO_P3: Matrix3 = Matrix3([
+    [ 0.822_462_0,  0.177_538_0,  0.000_000_0],
+    [ 0.033_194_2,  0.966_805_8,  0.000_000_0],
+    [ 0.017_082_6,  0.072_397_4,  0.910_519_9],
+]);
+
 /// Compute Bradford chromatic-adaptation matrix for `src_white` → `dst_white`.
 /// Both in XYZ. See spec § 3.15.
 pub fn bradford_adapt(src_white: Vec3, dst_white: Vec3) -> Matrix3 {
