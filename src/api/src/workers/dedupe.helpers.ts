@@ -10,6 +10,10 @@
  *   3. a copy whose directory path is all numbers
  *   4. otherwise keep the LAST copy in the fileinfo list
  * (1) is the strongest move signal, then (2), then (3); (4) is the tiebreaker.
+ *
+ * This ranking only applies when NO copy is pinned by a `.keep` marker file. A
+ * `.keep` file in a folder protects every copy living there: the worker keeps
+ * all pinned copies and collapses only the un-pinned ones (see `processAsset`).
  */
 
 import type { FileInfo } from '../db/schema.ts';
@@ -28,6 +32,9 @@ export interface DeDuplicateSummary {
    * now (a stale entry from an unreconciled move) — left for the discover /
    * missing-reaper path. Guards against relocating the last real file. */
   skippedMissingFile: number;
+  /** Assets left untouched because EVERY on-disk copy sits in a `.keep`-marked
+   * folder, so there is nothing un-pinned to collapse. */
+  skippedAllKept: number;
   /** Assets that WOULD have been deduped but were left untouched (`dry_run`). */
   dryRun: number;
   /** Assets that raised an unexpected error during the pass. */
@@ -41,6 +48,7 @@ export function emptySummary(): DeDuplicateSummary {
     movedFiles: 0,
     skippedOffline: 0,
     skippedMissingFile: 0,
+    skippedAllKept: 0,
     dryRun: 0,
     errors: 0,
   };

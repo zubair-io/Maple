@@ -12,6 +12,13 @@
  * does nothing until an operator resumes it from /settings/workers. A `dry_run`
  * config knob previews the moves without touching disk.
  *
+ * `.keep` override: a `.keep` marker file in a folder PINS every copy living
+ * there. When any on-disk copy of an asset is pinned, the worker keeps all
+ * pinned copies (there may be more than one) and collapses only the un-pinned
+ * ones; if every copy is pinned the asset is left untouched. The marker is
+ * re-confirmed on disk each pass, so adding/removing a `.keep` takes effect
+ * without re-indexing. The ranking below applies only to UN-pinned sets.
+ *
  * Which copy is KEPT (the spec's ranking — see `selectKeeper` / `dedupe.helpers.ts`):
  *   1. prefer to move a copy under an `unsorted` folder
  *   2. then a `name.N.ext` numbered copy
@@ -55,7 +62,7 @@ import { ThroughputWindow } from './run-stage.ts';
 import { WorkerConfigRepo, type WorkerConfigDoc } from './worker-config.repo.ts';
 import { makePausedPoller } from './paused-poller.ts';
 import { statKind } from './missing-reaper.helpers.ts';
-import { moveToDuplicates } from '../fs/duplicates.ts';
+import { moveToDuplicates, directoryHasKeepFile } from '../fs/duplicates.ts';
 import { loadDeDuplicateConfig, DEFAULT_BATCH_SIZE } from './dedupe-config.repo.ts';
 import {
   emptySummary,
@@ -114,6 +121,13 @@ export async function runDeDuplicateOnce(
   // Keeps in sync with the `/status` pending count (same predicate via
   // `liveAwareDuplicatePredicate`) so the badge reaches 0 from deduplicate alone
   // and wasted scan passes on sticky non-live rows are eliminated.
+  //
+  // NOTE: a duplicate set whose every on-disk copy is pinned by a `.keep` marker
+  // stays a candidate here (and in the pending count) by design — `.keep` is
+  // re-confirmed on disk per pass and the stored `fileinfo.keep` flag can go
+  // stale, so there is no DB-side predicate that could safely exclude such rows
+  // without risking permanently skipping a set whose marker was later removed.
+  // Each pass processes them cheaply (stat the folders, `skippedAllKept`, return).
   const candidates = (await coll
     .find(liveAwareDuplicatePredicate() as never, {
       projection: { _id: 1, fileinfo: 1, maple_id: 1 },
@@ -251,22 +265,56 @@ async function processAsset(
     return;
   }
 
-  // Keeper is selected from — and so guaranteed to be — an on-disk copy; the
-  // copies we move are the OTHER on-disk ones (all confirmed present). They all
-  // share this asset's `maple_id`, so they are byte-identical — collapsing to
-  // one loses no content. Stale (absent) entries are left for the reconciler.
-  const keeper = selectKeeper(onDisk);
-  const keeperKey = folderKey(keeper);
-  const keeperRoot = libs.get(keeper.library_id.toHexString())!;
-  const keeperSegments = keeper.path === '' ? [] : keeper.path.split('/');
-  const keeperAbs = path.join(keeperRoot, ...keeperSegments, keeper.filename);
-  const removeEntries = onDisk.filter((e) => !sameEntry(e, keeper));
+  // `.keep` override: any on-disk copy whose folder holds a `.keep` marker is
+  // PINNED and must survive. Re-confirmed on disk here (authoritative) rather
+  // than trusting the stored `fileinfo.keep` flag, which can go stale if the
+  // marker was added or removed after the file was first indexed. Folders are
+  // cached so a folder shared by several copies is stat'd once.
+  const keepByFolder = new Map<string, boolean>();
+  const pinned: FileInfo[] = [];
+  for (const entry of onDisk) {
+    const key = folderKey(entry);
+    let isKept = keepByFolder.get(key);
+    if (isKept === undefined) {
+      const root = libs.get(entry.library_id.toHexString())!;
+      const segments = entry.path === '' ? [] : entry.path.split('/');
+      isKept = await directoryHasKeepFile(path.join(root, ...segments));
+      keepByFolder.set(key, isKept);
+    }
+    if (isKept) pinned.push(entry);
+  }
+
+  // When at least one copy is pinned, keep EVERY pinned copy and move the rest.
+  // With no marker, fall back to the single-copy keeper ranking. Keepers are
+  // guaranteed on-disk; the copies we move are the OTHER on-disk ones (all
+  // confirmed present). They share this asset's `maple_id`, so they are
+  // byte-identical — collapsing loses no content. Stale (absent) entries are
+  // left for the reconciler.
+  const keepers = pinned.length > 0 ? pinned : [selectKeeper(onDisk)];
+  const keeperKeys = new Set(keepers.map(folderKey));
+  const removeEntries = onDisk.filter((e) => !keepers.some((k) => sameEntry(e, k)));
+
+  // Every on-disk copy is pinned by a `.keep` marker — nothing un-pinned to
+  // collapse. Leave the asset exactly as it is (this is the whole point of the
+  // marker: keep the duplicates).
+  if (removeEntries.length === 0) {
+    summary.skippedAllKept++;
+    return;
+  }
+
+  // Representative surviving copy (earliest in fileinfo order) for change-publish
+  // + cache-anchor math. With multiple keepers this is the one that becomes (or
+  // stays nearest) the cache anchor.
+  const primaryKeeper = keepers[0]!;
+  const keeperRoot = libs.get(primaryKeeper.library_id.toHexString())!;
+  const keeperSegments = primaryKeeper.path === '' ? [] : primaryKeeper.path.split('/');
+  const keeperAbs = path.join(keeperRoot, ...keeperSegments, primaryKeeper.filename);
 
   // The current cache anchor = first live entry (which may be a stale/absent
-  // one). If the kept copy's folder differs, re-arm the location-keyed cache
-  // stages so the kept copy regenerates its thumb/preview at its folder.
+  // one). If no surviving keeper shares its folder, re-arm the location-keyed
+  // cache stages so a kept copy regenerates its thumb/preview at its folder.
   const oldPrimary = assetPrimaryFileInfo(doc as Pick<AssetDoc, 'fileinfo'>)!;
-  const anchorMoves = folderKey(oldPrimary) !== keeperKey;
+  const anchorMoves = !keeperKeys.has(folderKey(oldPrimary));
 
   const moved: FileInfo[] = [];
   for (const entry of removeEntries) {
@@ -294,9 +342,9 @@ async function processAsset(
       'deduplicate: moved duplicate to _duplicates/',
     );
 
-    // Clean the moved copy's folder cache only when the kept copy is NOT in that
-    // folder (else it is the kept copy's live cache and must stay).
-    if (doc.maple_id && folderKey(entry) !== keeperKey) {
+    // Clean the moved copy's folder cache only when no surviving keeper is in
+    // that folder (else it is a kept copy's live cache and must stay).
+    if (doc.maple_id && !keeperKeys.has(folderKey(entry))) {
       await cleanFolderCache(path.dirname(abs), doc.maple_id);
     }
     moved.push(entry);
@@ -337,7 +385,7 @@ async function processAsset(
   await recordAndPublishAssetChange({
     kind: 'update',
     asset_id: doc._id,
-    folder_id: keeper.library_id,
+    folder_id: primaryKeeper.library_id,
     abs_path: keeperAbs,
   });
 }

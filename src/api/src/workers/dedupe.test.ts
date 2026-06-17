@@ -105,8 +105,19 @@ function writeFile(relDir: string, filename: string, withXmp = true): void {
   if (withXmp) writeFileSync(join(dir, filename.replace(/\.[^.]+$/, '.xmp')), '<xmp/>');
 }
 
-function fi(relDir: string, filename: string, tags: Partial<{ missing_since: string }> = {}) {
+function fi(
+  relDir: string,
+  filename: string,
+  tags: Partial<{ missing_since: string; keep: boolean }> = {},
+) {
   return { path: relDir, filename, library_id: libraryId, ...tags };
+}
+
+/** Drop a `.keep` marker file into <root>/<rel dir>. */
+function writeKeep(relDir: string): void {
+  const dir = relDir === '' ? root : join(root, relDir);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, '.keep'), '');
 }
 
 async function insertAsset(
@@ -342,6 +353,103 @@ describe('runDeDuplicateOnce', () => {
     expect(summary.deduped).toBe(1);
     const asset = await getAsset(id);
     expect(asset!.fileinfo).toHaveLength(1);
+  });
+
+  // --- `.keep` marker: pin copies in a folder against collapse ---
+
+  it('keeps the copy in a `.keep` folder and moves the un-pinned one', async () => {
+    if (!mongoReachable) return;
+    // 'photos/2024' would normally be the keeper (rule 4 / clean), but the
+    // operator pinned the 'extra' copy with a `.keep` marker — so 'extra' must
+    // survive and the un-pinned 'photos/2024' copy is the one moved away.
+    writeFile('photos/2024', 'IMG.dng');
+    writeFile('extra', 'IMG.dng');
+    writeKeep('extra');
+    const id = await insertAsset([fi('photos/2024', 'IMG.dng'), fi('extra', 'IMG.dng')]);
+
+    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.deduped).toBe(1);
+    expect(summary.movedFiles).toBe(1);
+    // The pinned copy stays; the un-pinned one is quarantined.
+    expect(existsSync(join(root, 'extra', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(root, 'photos/2024', 'IMG.dng'))).toBe(false);
+    expect(existsSync(join(root, DUP, 'photos/2024', 'IMG.dng'))).toBe(true);
+
+    const asset = await getAsset(id);
+    expect(asset!.fileinfo).toHaveLength(1);
+    expect(asset!.fileinfo[0].path).toBe('extra');
+  });
+
+  it('keeps EVERY pinned copy when more than one folder is marked `.keep`', async () => {
+    if (!mongoReachable) return;
+    // Two pinned folders + one un-pinned copy: both pinned copies survive, only
+    // the un-pinned one is moved.
+    writeFile('keepA', 'IMG.dng');
+    writeFile('keepB', 'IMG.dng');
+    writeFile('loose', 'IMG.dng');
+    writeKeep('keepA');
+    writeKeep('keepB');
+    const id = await insertAsset([
+      fi('keepA', 'IMG.dng'),
+      fi('keepB', 'IMG.dng'),
+      fi('loose', 'IMG.dng'),
+    ]);
+
+    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.deduped).toBe(1);
+    expect(summary.movedFiles).toBe(1);
+    expect(existsSync(join(root, 'keepA', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(root, 'keepB', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(root, 'loose', 'IMG.dng'))).toBe(false);
+    expect(existsSync(join(root, DUP, 'loose', 'IMG.dng'))).toBe(true);
+
+    const asset = await getAsset(id);
+    const paths = (asset!.fileinfo as any[]).map((e) => e.path).sort();
+    expect(paths).toEqual(['keepA', 'keepB']);
+  });
+
+  it('leaves the asset untouched when every on-disk copy is pinned `.keep`', async () => {
+    if (!mongoReachable) return;
+    writeFile('keepA', 'IMG.dng');
+    writeFile('keepB', 'IMG.dng');
+    writeKeep('keepA');
+    writeKeep('keepB');
+    const id = await insertAsset([fi('keepA', 'IMG.dng'), fi('keepB', 'IMG.dng')]);
+
+    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.deduped).toBe(0);
+    expect(summary.movedFiles).toBe(0);
+    expect(summary.skippedAllKept).toBe(1);
+    // Both copies remain on disk and in the row.
+    expect(existsSync(join(root, 'keepA', 'IMG.dng'))).toBe(true);
+    expect(existsSync(join(root, 'keepB', 'IMG.dng'))).toBe(true);
+    const asset = await getAsset(id);
+    expect(asset!.fileinfo).toHaveLength(2);
+  });
+
+  it('re-confirms `.keep` on disk — a stale stored keep flag does not block collapse', async () => {
+    if (!mongoReachable) return;
+    // The stored flag claims 'a' is kept, but there is no `.keep` file on disk
+    // (the marker was removed after indexing). The worker trusts disk and
+    // collapses normally — keeping the last copy per rule 4.
+    writeFile('a', 'IMG.dng');
+    writeFile('b', 'IMG.dng');
+    const id = await insertAsset([fi('a', 'IMG.dng', { keep: true }), fi('b', 'IMG.dng')]);
+
+    const { runDeDuplicateOnce } = await import('./dedupe.ts');
+    const summary = await runDeDuplicateOnce({});
+
+    expect(summary.deduped).toBe(1);
+    expect(summary.movedFiles).toBe(1);
+    const asset = await getAsset(id);
+    expect(asset!.fileinfo).toHaveLength(1);
+    expect(asset!.fileinfo[0].path).toBe('b'); // rule 4 last-kept, marker ignored
   });
 
   it('#1290: absent+untagged entry (present+absent pair) is still fetched — tag-then-skip drain path preserved', async () => {
