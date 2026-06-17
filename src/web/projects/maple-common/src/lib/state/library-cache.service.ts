@@ -413,15 +413,18 @@ export class LibraryCache {
   }
 
   thumbnailUrlFor(id: AssetId): string | undefined {
-    // Read THROUGH the reactive `thumbnailUrls` signal (kept in lockstep with
-    // `thumbLru` by cacheThumbnailUrl), NOT `thumbLru.get()` directly. Both
-    // production callers — asset-thumb + library-cell — read this inside a
-    // `computed()`; a raw LRU Map read isn't a signal, so the computed never
-    // re-ran when a thumbnail finished loading. That left successfully-fetched
-    // (HTTP 200) thumbnails permanently invisible on the browse grid + filmstrip
-    // — the M2 #1327 ThumbLruCache regression. Reading the signal here makes
-    // every reactive caller recompute the instant the blob URL lands.
-    return this.thumbnailUrls().get(id);
+    // Touch the reactive `thumbnailUrls` signal so view computeds (asset-thumb,
+    // library-cell) recompute when the blob URL lands. Both read this inside a
+    // `computed()`; without a signal dependency the computed never re-ran when a
+    // thumbnail finished loading, leaving 200-fetched thumbnails permanently
+    // invisible on the browse grid + filmstrip (the M2 #1327 regression).
+    this.thumbnailUrls();
+    // Return the value via `thumbLru.get()` (NOT the signal snapshot) so the read
+    // refreshes LRU recency — otherwise eviction degrades to FIFO and an
+    // actively-viewed thumb can be evicted under load (>500 cached). The signal
+    // and LRU are kept in lockstep by cacheThumbnailUrl, so both see the same
+    // value; the signal read above is purely for reactive tracking.
+    return this.thumbLru.get(id);
   }
 
   /** Idempotently load the blob-URL thumbnail for one asset. Both
