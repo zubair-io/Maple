@@ -169,6 +169,44 @@ pub struct FullChainInputs {
     pub residual_lut_size: usize,
     /// Auto Profile residual LUT flat grid (`size³ × 3` floats).
     pub residual_lut_data: Vec<f32>,
+    /// Target display primaries for the `display_encode` view-tail stage
+    /// (ticket #1337): `0` = sRGB (default, legacy-compatible), `1` = Display P3.
+    /// Appended at the struct tail so existing `FullChainInputs` struct literals
+    /// that omit this field get `0` (sRGB) via `..Default::default()` or
+    /// zero-init — preserving the pre-#1337 output bit-exactly.
+    pub target_primaries: u32,
+    /// How the uploaded scene-linear buffer was produced — determines which
+    /// leading stages (WB / DCP / AE) the live builder may skip (#1331).
+    /// Appended at the struct tail after `target_primaries` (append-only convention);
+    /// the default `PostDcpRec2020Fp16` is the historic value — all existing callers
+    /// that leave it at zero-init preserve the current RAW behaviour exactly.
+    pub input_shape: InputShape,
+}
+
+/// How the GPU-resident image was produced. Drives which leading stages the live
+/// chain must run at the start of each render tick.
+///
+/// The zero-value `PostDcpRec2020Fp16` is the *default* — the historic RAW path
+/// that ran before this enum was introduced — so any `FullChainInputs` zeroed
+/// by a legacy caller correctly resolves to the full RAW chain. The non-zero
+/// values engage the two new non-RAW branches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum InputShape {
+    /// Scene-linear Rec.2020 f32 after the full RAW decode (DCP + WB at D65/
+    /// 6500K). All chain stages run: WB delta → scene tone → … → view tail.
+    /// Value 0 — the historic default.
+    #[default]
+    PostDcpRec2020Fp16 = 0,
+    /// 16-bit linear Rec.2020 input (pano PNG output). The WB / DCP / AE
+    /// stages have no meaning — the buffer is already in the correct colour
+    /// space — so the live chain starts at the first user-edit stage
+    /// (scene_tone_controls). WB and capture_sharpening are skipped.
+    LinearRec2020Fp16 = 1,
+    /// 8-bit sRGB gamma-encoded input (JPEG / HEIF / 8-bit PNG). A CPU
+    /// pre-pass at session-open time converts to scene-linear Rec.2020
+    /// (`sRGB→linear + sRGB→Rec.2020 primaries matrix`), after which the
+    /// same stage subset as `LinearRec2020Fp16` runs.
+    SrgbGammaEncoded8 = 2,
 }
 
 /// Where the scene-linear / view boundary sits in the assembled Vec, expressed

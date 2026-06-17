@@ -54,10 +54,15 @@ extension PipelineRenderer {
     /// `AdjustmentModel` (only the parametric region sliders are — see
     /// `AdjustmentModel`'s tone-curve comment), so those arrays stay empty; the
     /// parametric fields carry the user's tone-region edits.
+    /// `inputShape` is the `MapleGpuLiveParams.input_shape` tag (#1331): 0 =
+    /// PostDcpRec2020Fp16 (RAW, all stages; the historic default), 1 =
+    /// LinearRec2020Fp16 (pano PNG — WB and capture_sharpening are skipped).
+    /// Callers that don't pass it get 0 (RAW), preserving pre-#1331 behaviour.
     public static func makeGpuLiveParams(
         from model: AdjustmentModel,
         asShotCCT: Double? = nil,
-        asShotTint: Double? = nil
+        asShotTint: Double? = nil,
+        inputShape: UInt32 = 0
     ) -> MapleGpuLiveParams {
         // Per-field assignment (not a literal init) — the Swift expression type-
         // checker hits its complexity ceiling on a ~40-field literal init, exactly
@@ -192,6 +197,17 @@ extension PipelineRenderer {
         p.residual_lut_size = 0
         p.residual_lut_ptr = nil
         p.residual_lut_len = 0
+
+        // Target display primaries (#1337): 0 = sRGB (legacy-compatible default).
+        // Phase 2 (#1338) will set this from the user-facing settings toggle;
+        // until then all renders stay on the sRGB path — no visible change.
+        p.target_primaries = 0
+
+        // Input shape tag (#1331): forwarded from the driver so the chain knows
+        // which leading stages to run. 0 = RAW (full chain), 1 = pano PNG
+        // (skip WB + capture_sharpening). The default (0) preserves the
+        // pre-#1331 RAW behaviour for any caller that doesn't pass it.
+        p.input_shape = inputShape
 
         return p
     }

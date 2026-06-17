@@ -127,6 +127,14 @@ pub struct MapleAdjustmentParams {
     pub hsl_lum_blue: f32,
     pub hsl_lum_purple: f32,
     pub hsl_lum_magenta: f32,
+    /// Target display primaries (#1337): 0 = sRGB (legacy default), 1 = P3.
+    /// Appended at the struct tail; a stale host leaves it 0 = sRGB.
+    pub target_primaries: u32,
+    /// Input shape tag (#1331): 0 = PostDcpRec2020Fp16 (RAW, historic default),
+    /// 1 = LinearRec2020Fp16 (pano — skip WB delta),
+    /// 2 = SrgbGammaEncoded8 (JPEG/HEIF — CPU pre-pass done at session open).
+    /// Appended after `target_primaries`; a stale host leaves it 0 = RAW.
+    pub input_shape: u32,
 }
 
 /// Run the cheap-stage scene-linear chain over a caller-provided fp16 RGBA
@@ -247,13 +255,21 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 
+    // Non-RAW shapes (#1331): the uploaded buffer is already post-WB, so the
+    // WB delta must be identity. Force `decoded == live` → `M_net = identity`.
+    let (decoded_temp, decoded_tint) = if p.input_shape == 0 {
+        (p.decoded_temperature, p.decoded_tint)
+    } else {
+        (p.temperature, p.tint)
+    };
+
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain(
         in_slice,
         width,
         height,
         &model,
-        p.decoded_temperature,
-        p.decoded_tint,
+        decoded_temp,
+        decoded_tint,
         p.skip_agx != 0,
     ) {
         Ok(v) => v,
@@ -388,13 +404,20 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
 
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 
+    // Non-RAW shapes (#1331): force WB delta to identity (same as fp16 sibling).
+    let (decoded_temp, decoded_tint) = if p.input_shape == 0 {
+        (p.decoded_temperature, p.decoded_tint)
+    } else {
+        (p.temperature, p.tint)
+    };
+
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32(
         in_slice,
         width,
         height,
         &model,
-        p.decoded_temperature,
-        p.decoded_tint,
+        decoded_temp,
+        decoded_tint,
         p.skip_agx != 0,
     ) {
         Ok(v) => v,
