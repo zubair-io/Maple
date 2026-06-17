@@ -90,6 +90,15 @@ afterAll(async () => {
 });
 
 describe('GET /preview/:slug/*', () => {
+  test('returns 400 when no filename is provided (empty wildcard)', async () => {
+    // A request to /preview/:slug/ with no filename segment must be rejected
+    // with 400, not treated as a library-root browse returning 202.
+    const res = await app.handle(new Request('http://localhost/preview/prevlib/'));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/filename/i);
+  });
+
   test('returns 404 for unknown slug', async () => {
     const res = await app.handle(new Request('http://localhost/preview/no-such-slug/photo.jpg'));
     expect(res.status).toBe(404);

@@ -2,7 +2,6 @@
  * Shared utilities for the M1 library routes.
  */
 
-import * as path from 'node:path';
 import { stat } from 'node:fs/promises';
 import { RAW_EXTENSIONS, SHARP_EXTENSIONS } from '../../fs/browse.ts';
 

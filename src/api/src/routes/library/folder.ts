@@ -170,7 +170,7 @@ export const folderRoutes = new Elysia().get(
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Server-Timing': `db;dur=${elapsed}`,
+        'Server-Timing': `total;dur=${elapsed}`,
       },
     });
   },

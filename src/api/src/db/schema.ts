@@ -65,8 +65,9 @@ export interface FolderDoc {
   /** Absolute filesystem path to the library root. */
   path: string;
   /** Stable public identifier, [a-z0-9-]. Minted once at registration,
-   * never auto-changes (the human label may change freely). Present on
-   * all rows after the backfillFolderSlugs migration. */
+   * never auto-changes (the human label may change freely). Guaranteed
+   * present on all rows: boot STOPs (rethrows) if backfillFolderSlugs
+   * fails, so the unique index is never created over null slugs. */
   slug: string;
   /** Display label (defaults to basename of path). */
   label: string;

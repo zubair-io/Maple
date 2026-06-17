@@ -257,5 +257,9 @@ describe('hardening: fileinfo compound index uniqueness', () => {
     const uniqueIdx = indexes.find((i) => i.name === 'fileinfo_lib_path_name_unique');
     expect(uniqueIdx).toBeDefined();
     expect(uniqueIdx!.unique).toBe(true);
+
+    // The redundant non-unique base index must be dropped after promotion to
+    // avoid write amplification (two identical index entries per write).
+    expect(indexes.find((i) => i.name === 'fileinfo_lib_path_name')).toBeUndefined();
   });
 });
