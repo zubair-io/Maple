@@ -20,6 +20,7 @@
 
 import MapleCore
 import SwiftUI
+import os
 
 // MARK: - Environment key
 
@@ -59,6 +60,8 @@ struct HistogramBlock: View {
   @State private var loadGeneration: Int = 0
 
   private var asset: AssetRef? { session?.asset }
+
+  private static let log = Logger(subsystem: "app.justmaple.aperture", category: "HistogramBlock")
 
   var body: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -256,9 +259,13 @@ struct HistogramBlock: View {
       return
     }
 
-    // 2. Local on-device path (filesystem / PhotoKit RAW). The Rust decoder
-    //    only handles RAW; non-RAW images fall through to the placeholder.
-    guard asset.isRaw, asset.primaryURL != nil || asset.bytesProvider != nil else {
+    // 2. Local on-device path (filesystem / PhotoKit). A RAW develops via the
+    //    Rust FFI; a non-RAW asset (stitched panorama PNG, JPEG, HEIF) develops
+    //    via the CoreImage non-RAW pipeline and bins the displayed pixels. Both
+    //    are render-path-independent (they run their OWN develop rather than
+    //    reading the live preview, so they survive the wgpu GPU live path, which
+    //    emits no CIImage). Only a truly sourceless asset hits the placeholder.
+    guard asset.primaryURL != nil || asset.bytesProvider != nil else {
       if histogram == nil { loadFailed = true }
       return
     }
@@ -277,7 +284,13 @@ struct HistogramBlock: View {
     let model = session.model
     let culling = session.culling
     do {
-      let result = try await LocalHistogram.compute(asset: asset, model: model, culling: culling)
+      // RAW develops via the Rust FFI; non-RAW (panorama PNG, JPEG, HEIF)
+      // develops via the CoreImage non-RAW pipeline and bins the displayed
+      // pixels. `culling` crop applies only to the RAW develop today.
+      let result =
+        asset.isRaw
+        ? try await LocalHistogram.compute(asset: asset, model: model, culling: culling)
+        : try await LocalHistogram.computeNonRaw(asset: asset, model: model)
       guard gen == loadGeneration else { return }
       histogram = result
       loadFailed = false
@@ -285,6 +298,9 @@ struct HistogramBlock: View {
     } catch {
       guard gen == loadGeneration else { return }
       if histogram == nil { loadFailed = true }
+      Self.log.error(
+        "local histogram compute failed (isRaw=\(asset.isRaw, privacy: .public), hasURL=\(asset.primaryURL != nil, privacy: .public), hasProvider=\(asset.bytesProvider != nil, privacy: .public)): \(String(describing: error), privacy: .public)"
+      )
     }
   }
 
