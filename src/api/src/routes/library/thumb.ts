@@ -30,6 +30,21 @@ import {
 
 const log = childLogger('routes/library/thumb');
 
+// Dedupe concurrent on-the-fly generation for the same source path: a folder
+// open fires many thumb requests at once, and without this a burst for one
+// un-indexed image would launch N overlapping generateThumb writes to the same
+// file (thundering herd / torn reads). generateThumb is itself idempotent and
+// mtime-guarded; this just collapses the in-flight overlap to a single render.
+const inflightThumbGen = new Map<string, Promise<void>>();
+function generateThumbDeduped(absPath: string): Promise<void> {
+  let p = inflightThumbGen.get(absPath);
+  if (!p) {
+    p = generateThumb(absPath).finally(() => inflightThumbGen.delete(absPath));
+    inflightThumbGen.set(absPath, p);
+  }
+  return p;
+}
+
 export const thumbRoutes = new Elysia().get(
   '/thumb/:slug/*',
   async ({ params, headers, set }) => {
@@ -90,17 +105,20 @@ export const thumbRoutes = new Elysia().get(
         });
       }
       const thumbPath = resolveThumbPath(absPath);
-      if (!(await safeStat(thumbPath))) {
-        try {
-          await generateThumb(absPath); // defaults to resolveThumbPath(absPath)
-        } catch (err) {
-          log.warn(
-            { absPath, thumbPath, err: err instanceof Error ? err.message : err },
-            'on-demand thumb generation failed (unindexed)',
-          );
-          set.status = 500;
-          return { error: 'Thumbnail generation failed' };
-        }
+      // Call generateThumb UNCONDITIONALLY (not only when the thumb is missing):
+      // it has its own size+mtime staleness guard, so if the source changed
+      // since a prior render it regenerates instead of serving stale bytes under
+      // a fresh source-derived ETag; if the thumb still covers the source it's a
+      // cheap two-stat no-op. Deduped per source path against the request burst.
+      try {
+        await generateThumbDeduped(absPath);
+      } catch (err) {
+        log.warn(
+          { absPath, thumbPath, err: err instanceof Error ? err.message : err },
+          'on-demand thumb generation failed (unindexed)',
+        );
+        set.status = 500;
+        return { error: 'Thumbnail generation failed' };
       }
       const bytes = await safeReadBytes(thumbPath);
       if (!bytes) {
