@@ -169,15 +169,9 @@ pub struct FullChainInputs {
     pub residual_lut_size: usize,
     /// Auto Profile residual LUT flat grid (`size³ × 3` floats).
     pub residual_lut_data: Vec<f32>,
-    /// Target display primaries for the `display_encode` view-tail stage
-    /// (ticket #1337): `0` = sRGB (default, legacy-compatible), `1` = Display P3.
-    /// Appended at the struct tail so existing `FullChainInputs` struct literals
-    /// that omit this field get `0` (sRGB) via `..Default::default()` or
-    /// zero-init — preserving the pre-#1337 output bit-exactly.
-    pub target_primaries: u32,
     /// How the uploaded scene-linear buffer was produced — determines which
     /// leading stages (WB / DCP / AE) the live builder may skip (#1331).
-    /// Appended at the struct tail after `target_primaries` (append-only convention);
+    /// Appended at the struct tail (append-only convention);
     /// the default `PostDcpRec2020Fp16` is the historic value — all existing callers
     /// that leave it at zero-init preserve the current RAW behaviour exactly.
     pub input_shape: InputShape,
@@ -192,7 +186,7 @@ pub struct FullChainInputs {
 /// values engage the two new non-RAW branches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum InputShape {
-    /// Scene-linear Rec.2020 f32 after the full RAW decode (DCP + WB at D65/
+    /// Scene-linear Rec.2020 fp16 after the full RAW decode (DCP + WB at D65/
     /// 6500K). All chain stages run: WB delta → scene tone → … → view tail.
     /// Value 0 — the historic default.
     #[default]

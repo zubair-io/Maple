@@ -51,8 +51,10 @@ extension EditSession {
     /// Non-RAW assets (pano PNG, JPEG, HEIF) are now also handled via the GPU
     /// live chain with `inputShape = LinearRec2020Fp16` (#1331): the CPU decode
     /// (`decodeSceneLinearNonRaw`) promotes the buffer to extended linear Rec.2020
-    /// before upload, so the chain skips WB + capture_sharpening and runs the
-    /// same user-edit and view-tail stages as the RAW path.
+    /// before upload, so the chain skips only `capture_sharpening` (not WB —
+    /// WB stays engaged with `decoded=6500/0` so temperature/tint slider edits
+    /// work correctly on non-RAW assets) and runs the same user-edit and
+    /// view-tail stages as the RAW path.
     ///
     /// Upload-once contract: the decoded buffer is read back to f32 and uploaded
     /// to the `GpuLiveSession` only when the dims change (a new decode / a
@@ -75,10 +77,11 @@ extension EditSession {
         }
         // Non-RAW assets (pano PNG, JPEG, HEIF) use the GPU live chain with
         // `inputShape = 1` (LinearRec2020Fp16): `decodeSceneLinearNonRaw` already
-        // promotes the buffer to extended linear Rec.2020 via CoreImage, so the
-        // chain sees the same post-WB space as the RAW path and only needs to skip
-        // WB + capture_sharpening (#1331). All formats that reach here have a
-        // valid `decoded` CIImage from the existing decode dispatch.
+        // promotes the buffer to extended linear Rec.2020 via CoreImage. The chain
+        // skips only capture_sharpening (not WB — WB stays engaged with
+        // decoded=6500/0 so the user's temperature/tint slider edits land
+        // correctly). All formats that reach here have a valid `decoded` CIImage
+        // from the existing decode dispatch. (#1331)
         let inputShape: UInt32 = asset.isRaw ? 0 : 1
         guard driver.hasLayer else {
             editSessionLogger.notice("GPU-TRACE reject no-layer gen=\(gen ?? 0)")

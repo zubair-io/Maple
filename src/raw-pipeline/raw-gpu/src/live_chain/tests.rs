@@ -456,6 +456,57 @@ fn chain_signature_folds_in_residual_lut_size() {
     );
 }
 
+/// NON-RAW INPUT SHAPE (#1331): a `LinearRec2020Fp16` chain with the WB slider
+/// at default (6500K/0) must (a) omit `capture_sharpening` AND (b) OMIT WB
+/// too (the `wb_is_noop` gate fires at default), yielding the same view-tail-only
+/// count as a neutral RAW chain. With the WB slider engaged, WB IS present
+/// (not skipped because non-RAW — the fix for the correctness bug where WB was
+/// always dropped for non-RAW shapes, making temperature/tint sliders inert).
+/// The `active_mask` bit for WB must also track the builder's inclusion logic.
+#[test]
+fn linear_rec2020_shape_skips_capture_sharpening_and_keeps_wb_gated() {
+    // (a) Default sliders → WB is a no-op (6500K/0 in the skip band); only
+    //     the view tail runs. capture_sharpening is always absent for non-RAW.
+    let mut case = neutral_case();
+    let mut inputs = case.gpu_inputs();
+    inputs.input_shape = crate::full_chain::InputShape::LinearRec2020Fp16;
+    // Confirm capture_sharpening is None (neutral_case sets None already).
+    assert!(inputs.capture_sharpening.is_none());
+
+    let passes = build_live_chain(&inputs, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes.len(),
+        VIEW_TAIL_PASS_COUNT,
+        "LinearRec2020Fp16 + default WB must yield view-tail-only ({VIEW_TAIL_PASS_COUNT} passes); \
+         got {} — WB or a leaked stage present",
+        passes.len()
+    );
+
+    // (b) WB engaged (temp outside the 6500±0.5 skip band) → WB IS included
+    //     even for non-RAW shape: temperature/tint sliders must work.
+    case.model.temperature = 4800.0;
+    case.model.tint = 12.0;
+    let mut inputs_wb = case.gpu_inputs();
+    inputs_wb.input_shape = crate::full_chain::InputShape::LinearRec2020Fp16;
+
+    let passes_wb = build_live_chain(&inputs_wb, AirlightSource::Cpu([0.0; 3]));
+    assert_eq!(
+        passes_wb.len(),
+        VIEW_TAIL_PASS_COUNT + 1,
+        "LinearRec2020Fp16 + engaged WB must add exactly 1 pass (WhiteBalancePass); \
+         got {} — WB missing or extra pass leaked",
+        passes_wb.len()
+    );
+
+    // (c) Verify active_mask reflects the builder: WB bit (1) set, CS bit (0) clear.
+    let sig_default = chain_signature(&inputs, (8, 8));
+    let sig_wb_on = chain_signature(&inputs_wb, (8, 8));
+    assert_ne!(
+        sig_default, sig_wb_on,
+        "signatures must differ when WB crosses the gate threshold"
+    );
+}
+
 /// Split-tone sub-param gating (#1111): hues / balance alone must NOT
 /// engage the pass — the gate is on the two saturations, mirroring the
 /// raw-core stage's zero-saturation short-circuit.
