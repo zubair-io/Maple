@@ -36,7 +36,11 @@ async function tryConnect(): Promise<MongoClient | null> {
     await c.db('admin').command({ ping: 1 });
     return c;
   } catch {
-    try { await c.close(); } catch { /* ignore */ }
+    try {
+      await c.close();
+    } catch {
+      /* ignore */
+    }
     return null;
   }
 }
@@ -63,11 +67,23 @@ beforeEach(async () => {
 
 afterAll(async () => {
   if (mongo) {
-    try { await mongo.db(TEST_DB).dropDatabase(); } catch { /* ignore */ }
-    try { await mongo.close(); } catch { /* ignore */ }
+    try {
+      await mongo.db(TEST_DB).dropDatabase();
+    } catch {
+      /* ignore */
+    }
+    try {
+      await mongo.close();
+    } catch {
+      /* ignore */
+    }
   }
   if (tmpDir) {
-    try { await rm(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      await rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
   invalidateLibraryRoots();
   const { closeDb } = await import('../../db/client.ts');
@@ -92,7 +108,7 @@ describe('GET /thumb/:slug/*', () => {
     const res = await app.handle(new Request('http://localhost/thumb/thumblib/pending.jpg'));
     expect(res.status).toBe(202);
     expect(res.headers.get('Retry-After')).toBe('2');
-    const body = await res.json() as { status: string };
+    const body = (await res.json()) as { status: string };
     expect(body.status).toBe('indexing');
   });
 
@@ -101,13 +117,15 @@ describe('GET /thumb/:slug/*', () => {
     const mapleId = new ObjectId().toHexString();
     await db!.collection('assets').insertOne({
       maple_id: mapleId,
-      fileinfo: [{
-        library_id: libraryId,
-        path: '',
-        filename: 'cached.jpg',
-        deleted_at: null,
-        missing_since: null,
-      }],
+      fileinfo: [
+        {
+          library_id: libraryId,
+          path: '',
+          filename: 'cached.jpg',
+          deleted_at: null,
+          missing_since: null,
+        },
+      ],
       deleted_at: null,
     } as never);
 

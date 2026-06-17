@@ -257,7 +257,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
       const takenSlugs = await coll
         .find({ slug: { $exists: true } } as never, { projection: { slug: 1 } })
         .toArray()
-        .then((rows) => new Set((rows as Array<{ slug?: string }>).map((r) => r.slug!).filter(Boolean)));
+        .then(
+          (rows) => new Set((rows as Array<{ slug?: string }>).map((r) => r.slug!).filter(Boolean)),
+        );
       const slug = dedupeSlug(slugify(derivedLabel), takenSlugs);
 
       const doc = {
