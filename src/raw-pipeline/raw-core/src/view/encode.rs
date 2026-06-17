@@ -1,6 +1,6 @@
 use crate::{
     color::{
-        matrices::{M_REC2020_TO_P3, M_REC2020_TO_SRGB},
+        matrices::{M_REC2020_TO_SRGB, M_SRGB_TO_P3},
         oklab::{oklab_to_srgb_linear, srgb_linear_to_oklab},
         oklab_gamut::compress_to_unit_cube_oklab,
     },
@@ -45,44 +45,52 @@ impl TargetPrimaries {
     }
 }
 
-/// Rec.2020 → display-primary linear via compile-time 3×3 + **hue-preserving
-/// gamut compression** for any post-matrix triple that leaves `[0, 1]^3`.
+/// Rec.2020 → display-primary linear via compile-time 3×3 matrices and
+/// **hue-preserving Oklab gamut compression** for any out-of-gamut triple.
 ///
-/// `target` selects the primaries matrix:
+/// `target` selects the output primaries:
 /// - [`TargetPrimaries::Srgb`] — the existing `M_REC2020_TO_SRGB` (unchanged).
-/// - [`TargetPrimaries::P3`]  — the new `M_REC2020_TO_P3` (ticket #1337).
+/// - [`TargetPrimaries::P3`]  — Display P3 primaries (ticket #1337).
 ///
-/// Wide-gamut Rec.2020 colors near the saturated primaries land outside
-/// the target unit box after the matrix multiply (typically with one or
-/// two channels negative). The previous behaviour relied on
-/// `srgb_gamma`'s per-channel `clamp(0, 1)` to bring them in; that's a
-/// channel-independent clip and rotates hue (saturated red ends up
-/// magenta-tinged because the now-zero blue from the negative-blue
-/// channel reads as a chromaticity shift rather than a hue-preserving
-/// chroma reduction).
+/// ## Pipeline order
 ///
-/// #438 replaces the per-channel clip with Oklab `(a, b)` bisection at
-/// constant `L` — hue is invariant by construction, only chroma is
-/// reduced until the triple fits in `[0, 1]^3`. The bisection uses the
-/// shared helper at [`crate::color::oklab_gamut`] so the AgX caller
-/// (#435 / `view/agx_hue_restoration.rs`) and this encode caller stay
-/// algorithmically locked.
+/// **sRGB path (unchanged):**
+///   1. Rec.2020 → linear sRGB (`M_REC2020_TO_SRGB`)
+///   2. Oklab gamut compress in linear sRGB (valid — helpers are sRGB-defined)
 ///
-/// **Byte-identity contract (Srgb path):** when the post-matrix triple is
-/// already in `[0, 1]^3` (the overwhelming common case — most pixels
-/// post-AgX), [`compress_to_unit_cube_oklab`] returns the triple
-/// **unmodified**. The downstream `srgb_gamma` clamp behaves identically
-/// to before, so in-gamut input produces bit-for-bit identical output to
-/// the pre-#438 pipeline.
+/// **P3 path (corrected per #1337 review):**
+///   1. Rec.2020 → linear sRGB (`M_REC2020_TO_SRGB`)
+///   2. Oklab gamut compress in linear sRGB (same helpers — valid here)
+///   3. linear sRGB → Display P3 (`M_SRGB_TO_P3`) ← primary swap is the *last* step
+///
+/// The gamut compression **must** happen in linear sRGB because the Oklab
+/// `srgb_linear_to_oklab` / `oklab_to_srgb_linear` helpers are calibrated
+/// against the sRGB-primary LMS cone matrix. Feeding linear P3 through them
+/// without this reorder gives wrong hue/chroma — the LMS matrix assumes sRGB
+/// primaries. By compressing in sRGB first then rotating to P3, both paths use
+/// the same validated Oklab round-trip, and the P3 primary swap is a simple
+/// matrix multiply with no gamut semantics.
+///
+/// ## Byte-identity contracts
+///
+/// **sRGB path:** when the post-matrix triple is already in `[0, 1]^3`,
+/// [`compress_to_unit_cube_oklab`] returns it **unmodified** — bit-for-bit
+/// identical to the pre-#438 pipeline.
+///
+/// **P3 path default (legacy callers):** when `target_primaries = 0` (the FFI
+/// zero-default), the sRGB path runs — no change for any existing caller.
 pub fn rec2020_to_display(img: &mut Image, target: TargetPrimaries) {
     img.assert_space(ColorSpace::DisplayLinearRec2020);
-    let matrix = match target {
-        TargetPrimaries::Srgb => M_REC2020_TO_SRGB,
-        TargetPrimaries::P3 => M_REC2020_TO_P3,
-    };
     img.pixels.par_iter_mut().for_each(|p| {
-        let display = matrix.mul_vec(*p);
-        *p = compress_to_unit_cube_oklab(display, srgb_linear_to_oklab, oklab_to_srgb_linear);
+        // Step 1: Rec.2020 → linear sRGB (valid working space for Oklab).
+        let srgb = M_REC2020_TO_SRGB.mul_vec(*p);
+        // Step 2: Oklab gamut compress in linear sRGB (helpers are sRGB-defined).
+        let compressed = compress_to_unit_cube_oklab(srgb, srgb_linear_to_oklab, oklab_to_srgb_linear);
+        // Step 3 (P3 only): rotate compressed sRGB primaries → P3 primaries.
+        *p = match target {
+            TargetPrimaries::Srgb => compressed,
+            TargetPrimaries::P3 => M_SRGB_TO_P3.mul_vec(compressed),
+        };
     });
     img.space = ColorSpace::DisplayLinearSrgb;
 }
@@ -596,6 +604,59 @@ mod tests {
             assert!(
                 (img.pixels[0][c] - 1.0).abs() < 1e-3,
                 "P3 white channel {c} = {} (expected ≈ 1.0)", img.pixels[0][c]
+            );
+        }
+    }
+
+    #[test]
+    fn p3_gamut_compression_happens_in_srgb_primary_space() {
+        // Confirms the corrected pipeline order (review item 1): gamut
+        // compression runs in linear sRGB (where the Oklab helpers are
+        // defined), and the sRGB→P3 primary swap is the *last* step.
+        //
+        // Round-trip oracle: manually apply the corrected steps and compare
+        // against `rec2020_to_display(..., P3)`:
+        //   1. Rec.2020 → sRGB
+        //   2. Oklab compress in sRGB
+        //   3. sRGB → P3
+        //
+        // A saturated Rec.2020 red is the hardest case: it lands outside sRGB
+        // gamut post-matrix, so the bisector fires. If compression were applied
+        // in P3 space (the old broken order), the Oklab LMS matrix would see
+        // P3-primary values and the hue/chroma would differ.
+        use crate::color::matrices::{M_REC2020_TO_SRGB, M_SRGB_TO_P3};
+        use crate::color::oklab_gamut::compress_to_unit_cube_oklab;
+        use crate::color::oklab::{srgb_linear_to_oklab, oklab_to_srgb_linear};
+
+        let input = [1.0f32, 0.0, 0.0]; // saturated Rec.2020 red
+
+        // Oracle: explicit reordered steps.
+        let srgb = M_REC2020_TO_SRGB.mul_vec(input);
+        let compressed = compress_to_unit_cube_oklab(srgb, srgb_linear_to_oklab, oklab_to_srgb_linear);
+        let expected_p3 = M_SRGB_TO_P3.mul_vec(compressed);
+
+        // Under test: rec2020_to_display with P3 target.
+        let mut img = Image::new(1, 1, ColorSpace::DisplayLinearRec2020);
+        img.pixels[0] = input;
+        rec2020_to_display(&mut img, TargetPrimaries::P3);
+        let got = img.pixels[0];
+
+        // Bit-identical match confirms the implementation follows the oracle.
+        for c in 0..3 {
+            assert_eq!(
+                got[c].to_bits(),
+                expected_p3[c].to_bits(),
+                "P3 pipeline order mismatch on channel {c}: \
+                 got={} expected={} (input={:?})",
+                got[c], expected_p3[c], input,
+            );
+        }
+
+        // Sanity: output must be in [0, 1]^3 (gamut compression guarantees this).
+        for c in 0..3 {
+            assert!(
+                (0.0..=1.0).contains(&got[c]),
+                "P3 channel {c} = {} out of [0, 1]", got[c]
             );
         }
     }
