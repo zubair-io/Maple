@@ -40,7 +40,9 @@ use std::sync::atomic::Ordering;
 use maple_pano::ba::RetentionPolicy;
 use maple_pano::ingest::PlanarImage;
 use maple_pano::render::write_frame_png;
-use maple_pano::stitch::{quantize_to_u16, stitch, StitchError, StitchOptions, StitchSuccess};
+use maple_pano::stitch::{
+    develop_for_display, quantize_to_u16, stitch, StitchError, StitchOptions, StitchSuccess,
+};
 use maple_pano::strategy::StrategyRequest;
 
 use super::{MaplePanoLocalAlign, MaplePanoRetention, MaplePanoStrategy, SendProgressCallback};
@@ -119,10 +121,15 @@ pub(super) fn run_stitch_apple(
                 }
             }
         }
-        // Quantize to 16-bit (scene-linear, no sRGB — mirrors
-        // `write_png16(path, img, srgb=false)` in maple-cli pano/io.rs).
-        let data = quantize_to_u16(img, false);
-        if let Err(e) = write_frame_png(out_path, img.width(), img.height(), &data) {
+        // Develop the scene-linear composite into a FINISHED, display-referred
+        // sRGB image (#1335): AgX view tail matching raw-core's RAW render, so
+        // the app re-opens the pano as a correct photo instead of mis-reading
+        // scene-linear Rec.2020 data as display sRGB (cold/desaturated/flat).
+        // `develop_for_display` already applies the sRGB OETF → quantize with
+        // `srgb=false` so it is not double-encoded.
+        let display = develop_for_display(img);
+        let data = quantize_to_u16(&display, false);
+        if let Err(e) = write_frame_png(out_path, display.width(), display.height(), &data) {
             set_last_error(format!("maple_pano_stitch: write PNG: {e}"));
             return -7;
         }

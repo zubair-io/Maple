@@ -91,7 +91,10 @@ pub(super) fn run_tile_from_outcome(
     let t_out = Instant::now();
     write_png16(outs_linear, &outcome.image, false)?;
     if let Some(display) = outs_display {
-        write_png16(display, &outcome.image, true)?;
+        // Finished, display-referred sRGB (#1335): AgX view tail like a RAW
+        // render. develop_for_display applies the OETF → write with srgb=false.
+        let developed = maple_pano::stitch::develop_for_display(&outcome.image);
+        write_png16(display, &developed, false)?;
     }
     let write_s = t_out.elapsed().as_secs_f64();
 
