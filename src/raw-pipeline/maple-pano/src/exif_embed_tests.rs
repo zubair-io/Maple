@@ -136,3 +136,38 @@ fn fnumber_rational_roundtrip() {
     let back = n as f32 / d as f32;
     assert!((back - 2.8).abs() < 0.01, "back={back}");
 }
+
+/// 0.6 s is NOT close to any 1/N shutter speed; the fallback high-precision
+/// fraction must represent it accurately (within 0.5% of 0.6).
+/// The old code returned 1/2 = 0.5, a 17% error.
+#[test]
+fn exposure_rational_non_reciprocal_sub_second() {
+    let v = 0.6_f32;
+    let (n, d) = to_exposure_rational(v);
+    let reconstructed = n as f32 / d as f32;
+    // Must not be 1/2.
+    assert!(
+        !(n == 1 && d == 2),
+        "0.6s should NOT map to 1/2; got {n}/{d}"
+    );
+    // Must be within 0.5% of 0.6.
+    let err = (reconstructed - v).abs() / v;
+    assert!(
+        err < 0.005,
+        "reconstructed {reconstructed} is {:.2}% from {v}",
+        err * 100.0
+    );
+}
+
+/// Confirm that genuine 1/N values (e.g. 1/200, 1/60) still produce
+/// exact reciprocal fractions.
+#[test]
+fn exposure_rational_genuine_reciprocal_stays_1_over_n() {
+    let (n, d) = to_exposure_rational(1.0 / 60.0);
+    assert_eq!(n, 1, "1/60 s → numerator must be 1, got {n}/{d}");
+    assert_eq!(d, 60, "1/60 s → denominator must be 60, got {n}/{d}");
+
+    let (n, d) = to_exposure_rational(1.0 / 1000.0);
+    assert_eq!(n, 1);
+    assert_eq!(d, 1000);
+}

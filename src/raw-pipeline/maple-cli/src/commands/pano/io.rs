@@ -110,9 +110,15 @@ pub(super) fn stitch_report(ctx: &ReportContext) -> serde_json::Value {
 }
 
 /// Quantize the composite to 16-bit PNG. `srgb` applies the IEC 61966
-/// transfer for an eyeball-able preview; otherwise values stay linear
-/// (clamped to [0, 1] — the PNG carries the display-range slice of the
-/// scene; the DNG writer of spec step 9 is the full-range carrier).
+/// transfer for an eyeball-able preview AND tags the PNG with an `sRGB`
+/// chunk so viewers interpret the pixels correctly. When `srgb = false`
+/// values stay linear (clamped to [0, 1]) and the PNG carries no colour
+/// space tag (scene-linear data is not display-referred sRGB; tagging it
+/// as such would mislead viewers).
+///
+/// Note: callers that need EXIF embedding (the display pano PNG) call
+/// `write_frame_png` directly with a populated [`PngMetadata`] — this
+/// helper is for the plain sRGB-or-linear case only.
 pub(super) fn write_png16(path: &Path, img: &PlanarImage, srgb: bool) -> Result<(), String> {
     let n = img.pixel_count();
     let mut data = Vec::with_capacity(n * 3);
@@ -123,16 +129,17 @@ pub(super) fn write_png16(path: &Path, img: &PlanarImage, srgb: bool) -> Result<
             data.push((v * 65535.0).round() as u16);
         }
     }
-    // Linear carrier: no EXIF, no sRGB tag (scene-linear data is not
-    // display-referred sRGB; tagging it as such would mislead viewers).
-    write_frame_png(
-        path,
-        img.width(),
-        img.height(),
-        &data,
-        &PngMetadata::default(),
-    )
-    .map_err(|e| format!("{}: {e}", path.display()))
+    let meta = if srgb {
+        PngMetadata {
+            tag_srgb: true,
+            ..Default::default()
+        }
+    } else {
+        // Scene-linear carrier: no colour-space tag (would mislead viewers).
+        PngMetadata::default()
+    };
+    write_frame_png(path, img.width(), img.height(), &data, &meta)
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Context for the tile strategy stitch report (no BA solution / leveling /
