@@ -11,8 +11,7 @@
  */
 
 import { Elysia, t } from 'elysia';
-import * as path from 'node:path';
-import { parseAddressPath, resolveAddress } from '../../library/address.ts';
+import { resolveAddress } from '../../library/address.ts';
 import { child as childLogger } from '../../log.ts';
 import { ifNoneMatchEqual } from '../../runtime/http-etag.ts';
 import { cachePathForAsset } from '../../fs/xmp.ts';
@@ -39,6 +38,10 @@ export const previewRoutes = new Elysia().get(
 
     const allSegs = segments;
     const filename = allSegs[allSegs.length - 1] ?? '';
+    if (!filename) {
+      set.status = 400;
+      return { error: 'Filename is required' };
+    }
     const dirSegs = allSegs.slice(0, -1);
     const relDir = dirSegs.join('/');
     const fileRelPath = dirSegs.length > 0 ? `${relDir}/${filename}` : filename;

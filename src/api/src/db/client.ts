@@ -524,15 +524,16 @@ export async function ensureIndexes(): Promise<void> {
   // index — ordering matters: the index must be created after all rows have
   // a non-null slug so the createIndex call doesn't fail on null dupes.
   if (!(await migrationApplied(db, 'backfill-folder-slugs-2026-06-16'))) {
-    try {
-      const res = await backfillFolderSlugs(db);
-      await recordMigration(db, 'backfill-folder-slugs-2026-06-16', res.updated);
-      log.info(res, 'applied backfill-folder-slugs');
-    } catch (err) {
-      log.warn({ err: err instanceof Error ? err.message : err }, 'folder slug backfill failed');
-    }
+    // STOP on backfill failure: creating the unique slug index while rows still
+    // carry null slugs produces a confusing DuplicateKey error (all nulls collide
+    // on the unique constraint). If backfill fails, rethrow so boot halts with a
+    // clear message rather than proceeding to an unrecoverable index-creation failure.
+    const res = await backfillFolderSlugs(db);
+    await recordMigration(db, 'backfill-folder-slugs-2026-06-16', res.updated);
+    log.info(res, 'applied backfill-folder-slugs');
   }
-  // Safe to create the unique index now — all rows have a slug.
+  // Safe to create the unique index now — boot guarantees all rows have a slug
+  // (either pre-existing or minted by the backfill above).
   await db
     .collection('folders')
     .createIndex({ slug: 1 }, { unique: true, sparse: true, name: 'folders_slug_unique' });
