@@ -69,6 +69,8 @@ fn default_params() -> MapleAdjustmentParams {
         hsl_lum_blue: 0.0,
         hsl_lum_purple: 0.0,
         hsl_lum_magenta: 0.0,
+        target_primaries: 0, // sRGB (legacy-compatible default, #1337)
+        input_shape: 0,      // PostDcpRec2020Fp16 (RAW path, #1331)
     }
 }
 
