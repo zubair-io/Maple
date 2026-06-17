@@ -18,15 +18,18 @@ describe('routeSegmentsToAddress', () => {
     expect(addr).toEqual({ slug: 'library', relPath: '' });
   });
 
-  it('decodes percent-encoded segments', () => {
-    const addr = routeSegmentsToAddress('library', ['2026', 'My%20Photo%20%231.JPG']);
+  it('passes Angular-decoded segments through unchanged', () => {
+    // Angular's Router hands us UrlSegment.path already decoded, e.g.
+    // "/browse/library/2026/My Photo #1.JPG" → ['2026', 'My Photo #1.JPG'].
+    const addr = routeSegmentsToAddress('library', ['2026', 'My Photo #1.JPG']);
     expect(addr).toEqual({ slug: 'library', relPath: '2026/My Photo #1.JPG' });
   });
 
-  it('does not double-decode already decoded segments', () => {
-    // Angular router decodes once by default; this handles both cases.
-    const addr = routeSegmentsToAddress('library', ['2026', 'France']);
-    expect(addr).toEqual({ slug: 'library', relPath: '2026/France' });
+  it('does NOT re-decode a literal percent sequence (regression: no double-decode)', () => {
+    // A file literally named "a%20b" arrives from Angular already decoded as
+    // "a%20b". Re-decoding here would corrupt it to "a b".
+    const addr = routeSegmentsToAddress('library', ['a%20b']);
+    expect(addr).toEqual({ slug: 'library', relPath: 'a%20b' });
   });
 });
 
