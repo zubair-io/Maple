@@ -445,8 +445,11 @@ export class LibraryCache {
         !asset.id.startsWith('fs:')
       ) {
         const blob = await this.librarySource.thumbBlob(parseAddress(asset.id));
-        this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
-        return;
+        if (blob) {
+          this.cacheThumbnailUrl(asset.id, URL.createObjectURL(blob));
+          return;
+        }
+        // null = no thumb yet; fall through to the branches below.
       }
 
       // 1. Self-Hosted FS-walk: server renders + caches the JPEG.

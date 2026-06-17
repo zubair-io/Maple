@@ -44,8 +44,8 @@ export interface LibrarySource {
    * bearer token is attached (the /api/thumb|preview routes are bearer-only;
    * a bare <img src> would 401).
    */
-  thumbBlob(a: MapleAddress): Promise<Blob>;
-  previewBlob(a: MapleAddress): Promise<Blob>;
+  thumbBlob(a: MapleAddress): Promise<Blob | null>;
+  previewBlob(a: MapleAddress): Promise<Blob | null>;
 }
 
 export const LIBRARY_SOURCE = new InjectionToken<LibrarySource>('LIBRARY_SOURCE');
