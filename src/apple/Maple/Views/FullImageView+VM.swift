@@ -73,23 +73,24 @@ enum FullImageViewVM {
     ///
     ///   * `flagEnabled` — the runtime GPU-live gate (`GpuLiveFlag.isEnabled`,
     ///     default on / `MAPLE_GPU_LIVE != 0`).
-    ///   * `isRaw` — the live chain IS the RAW scene-linear chain; non-RAW
-    ///     assets (JPEG / HEIC / PNG) keep the CPU path. This MIRRORS
-    ///     `EditSession.presentViaGpuLive`'s own `guard asset.isRaw`: without
-    ///     this term the view shows the opaque `CAMetalLayer` while
-    ///     `presentViaGpuLive` returns `false` and never presents into it, so a
-    ///     non-RAW image renders to a permanently blank canvas — the CPU
-    ///     `renderedPreview` is published (EditSession+Render) but never
-    ///     displayed.
     ///   * `!showingOriginal` — the before/after "original" overlay always uses
     ///     the CPU path (the GPU chain presents the edited frame, it has no
     ///     before-image to show).
+    ///
+    /// (#1331 removed the `isRaw` term: the GPU live chain now handles non-RAW
+    /// `InputShape::LinearRec2020Fp16` too — JPEG / HEIF / pano PNG. Keeping
+    /// `isRaw` here mounted the CPU canvas for non-RAW assets so
+    /// `driver.register(layer:)` never fired, every tick rejected `no-layer`,
+    /// and the chain stayed on CPU. The `isRaw` parameter is preserved on the
+    /// signature for callers that pass it, but unused — the runtime gate is
+    /// just flag + showingOriginal now.)
     static func shouldPresentViaGpuCanvas(
         flagEnabled: Bool,
         isRaw: Bool,
         showingOriginal: Bool
     ) -> Bool {
-        flagEnabled && isRaw && !showingOriginal
+        _ = isRaw
+        return flagEnabled && !showingOriginal
     }
 
     // MARK: - Zoom math
