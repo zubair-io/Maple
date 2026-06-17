@@ -359,4 +359,15 @@ describe('ThumbLruCache — bounded LRU for thumbnail blob URLs', () => {
     expect(revoke).not.toHaveBeenCalledWith('https://cdn.example/c.jpg');
     expect(lru.size).toBe(0);
   });
+
+  it('onEvict callback is called exactly once with the evicted id when capacity is exceeded', () => {
+    const onEvict = vi.fn<(id: string) => void>();
+    const lru = new ThumbLruCache(2);
+    lru.set('a' as AssetId, 'blob:a', onEvict);
+    lru.set('b' as AssetId, 'blob:b', onEvict);
+    // Third set evicts 'a' (oldest).
+    lru.set('c' as AssetId, 'blob:c', onEvict);
+    expect(onEvict).toHaveBeenCalledTimes(1);
+    expect(onEvict).toHaveBeenCalledWith('a');
+  });
 });
