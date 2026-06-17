@@ -12,7 +12,7 @@
 // resulting blob URL, and writes through to the `.maple/thumbs/` on-disk
 // cache on Hosted.
 
-import { Injectable, inject, signal } from '@angular/core';
+import { Injectable, WritableSignal, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { Asset, AssetId } from '../models/asset';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
@@ -113,7 +113,7 @@ export class ThumbLruCache {
     return v;
   }
 
-  set(id: string, url: string): void {
+  set(id: string, url: string, onEvict?: (evictedId: string) => void): void {
     if (this.entries.has(id)) {
       // Revoke the previous blob: URL before replacing so we don't leak
       // the old Blob object — the caller won't hold a reference to it.
@@ -122,7 +122,7 @@ export class ThumbLruCache {
       this.entries.delete(id);
     }
     this.entries.set(id, url);
-    this._evict();
+    this._evict(onEvict);
   }
 
   /** Revoke all blob URLs and empty the cache. */
@@ -138,12 +138,13 @@ export class ThumbLruCache {
     return new Map(this.entries);
   }
 
-  private _evict(): void {
+  private _evict(onEvict?: (evictedId: string) => void): void {
     while (this.entries.size > this.maxCount) {
       const oldest = this.entries.keys().next().value as string;
       const url = this.entries.get(oldest)!;
       this.entries.delete(oldest);
       if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+      onEvict?.(oldest);
     }
   }
 }
@@ -229,6 +230,25 @@ export class LibraryCache {
    * the grid + filmstrip share a single network request per asset. */
   private readonly thumbLoadingIds = new Set<AssetId>();
 
+  /**
+   * Per-asset reactive signals for thumbnail URLs. Lazily created; a tile's
+   * `computed()` depends only on its own id's signal, so loading ONE thumbnail
+   * recomputes only THAT tile — not every tile on screen (O(N²) avoidance).
+   * Signals are never deleted after creation so components can hold stable
+   * references; `clearAll` and LRU eviction set them to `undefined` instead.
+   */
+  private readonly thumbSignals = new Map<AssetId, WritableSignal<string | undefined>>();
+
+  /** Lazily create (or return existing) the per-asset signal for `id`. */
+  private thumbSignalFor(id: AssetId): WritableSignal<string | undefined> {
+    let s = this.thumbSignals.get(id);
+    if (!s) {
+      s = signal<string | undefined>(this.thumbLru.get(id));
+      this.thumbSignals.set(id, s);
+    }
+    return s;
+  }
+
   // ── Reset ──────────────────────────────────────────────────────────────────
 
   /** Clear all in-memory state. Called on folder switch. */
@@ -243,6 +263,9 @@ export class LibraryCache {
     // need a full wipe.
     this.thumbLru.clearAll();
     this.thumbnailUrls.set(new Map());
+    // Clear per-asset signals so tiles react to the wipe. Signals are kept in
+    // the map (components may still hold the computed); only the value is reset.
+    for (const s of this.thumbSignals.values()) s.set(undefined);
     // FilesystemBrowseService owns the FS-walk thumb blob URLs in its own cache
     // (unbounded, previously revoked only on sign-out). Clear it here too so a
     // folder switch reclaims that memory instead of letting it accumulate for
@@ -404,22 +427,31 @@ export class LibraryCache {
   // ── Thumbnails ─────────────────────────────────────────────────────────────
 
   cacheThumbnailUrl(id: AssetId, url: string): void {
-    this.thumbLru.set(id, url);
+    // Pass an eviction callback so any LRU-evicted entry's per-asset signal is
+    // cleared immediately — a tile holding that computed must not keep showing
+    // a stale or revoked blob URL.
+    this.thumbLru.set(id, url, (evictedId) => {
+      this.thumbSignals.get(evictedId as AssetId)?.set(undefined);
+    });
     // Publish a new Map snapshot so components that read `thumbnailUrls()`
-    // re-render. The LRU may have evicted the oldest entry (revoking its
-    // blob URL) before inserting the new one, so the snapshot is always
-    // consistent with the LRU state.
+    // re-render (e.g. ensureThumbnailUrl short-circuit check). The LRU may
+    // have evicted the oldest entry (revoking its blob URL) before inserting
+    // the new one, so the snapshot is always consistent with the LRU state.
     this.thumbnailUrls.set(this.thumbLru.toMap() as Map<AssetId, string>);
+    // Also update the per-asset signal for fine-grained reactivity: only the
+    // tile for THIS id recomputes, not every tile on screen.
+    this.thumbSignalFor(id).set(url);
   }
 
   thumbnailUrlFor(id: AssetId): string | undefined {
-    // Touch the reactive `thumbnailUrls` signal so view computeds (asset-thumb,
-    // library-cell) recompute when the blob URL lands. Both read this inside a
-    // `computed()`; without a signal dependency the computed never re-ran when a
-    // thumbnail finished loading, leaving 200-fetched thumbnails permanently
-    // invisible on the browse grid + filmstrip (the M2 #1327 regression).
-    this.thumbnailUrls();
-    // Return the value via `thumbLru.get()` (NOT the signal snapshot) so the read
+    // Read THIS id's per-asset signal to establish a granular reactive dependency.
+    // A tile's computed() then recomputes only when ITS thumbnail changes, not when
+    // any other thumbnail lands — avoiding the O(N²) global-signal fan-out.
+    // (The global `thumbnailUrls` signal is still kept in sync for ensureThumbnailUrl's
+    // short-circuit check and for clearAll's revoke pass; we just no longer use it here
+    // for reactive tracking.)
+    this.thumbSignalFor(id)();
+    // Return the value via `thumbLru.get()` (NOT the signal value) so the read
     // refreshes LRU recency — otherwise eviction degrades to FIFO and an
     // actively-viewed thumb can be evicted under load (>500 cached). The signal
     // and LRU are kept in lockstep by cacheThumbnailUrl, so both see the same

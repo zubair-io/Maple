@@ -254,6 +254,44 @@ describe('LibraryCache — thumbnailUrlFor reactivity (M2 #1327 regression)', ()
     // Pre-fix this stayed undefined — the computed never tracked the signal.
     expect(view()).toBe('blob:loaded');
   });
+
+  // Granularity: loading asset 'a' must NOT force asset 'b' to recompute.
+  // With the old global-signal approach every cacheThumbnailUrl call invalidated
+  // ALL computeds; the per-asset-signal approach limits invalidation to only the
+  // affected id. We count re-evaluations by incrementing a counter inside each
+  // computed (Angular only re-evaluates on read after a dependency changes).
+  it('cacheThumbnailUrl for one id does not recompute a computed for a different id', () => {
+    const idA = 'lib:2026/a.jpg' as AssetId;
+    const idB = 'lib:2026/b.jpg' as AssetId;
+
+    let countA = 0;
+    let countB = 0;
+    const viewA = computed(() => {
+      countA++;
+      return svc.thumbnailUrlFor(idA);
+    });
+    const viewB = computed(() => {
+      countB++;
+      return svc.thumbnailUrlFor(idB);
+    });
+
+    // Prime both computeds — each evaluates once (count = 1).
+    expect(viewA()).toBeUndefined();
+    expect(viewB()).toBeUndefined();
+    expect(countA).toBe(1);
+    expect(countB).toBe(1);
+
+    // Load only 'a'.
+    svc.cacheThumbnailUrl(idA, 'blob:a');
+
+    // Reading viewA triggers a re-evaluation (count becomes 2).
+    expect(viewA()).toBe('blob:a');
+    expect(countA).toBe(2);
+
+    // Reading viewB must NOT trigger a re-evaluation — count stays at 1.
+    expect(viewB()).toBeUndefined();
+    expect(countB).toBe(1);
+  });
 });
 
 describe('ThumbLruCache — bounded LRU for thumbnail blob URLs', () => {
