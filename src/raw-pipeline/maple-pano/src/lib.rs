@@ -60,6 +60,7 @@
 pub mod camera;
 pub mod distortion;
 pub mod error;
+pub mod exif_embed;
 pub mod gt;
 pub mod math;
 pub mod prng;
