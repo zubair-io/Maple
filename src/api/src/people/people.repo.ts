@@ -300,7 +300,7 @@ async function listPeopleByFilter(
   if (people.length === 0) return [];
   // One batched _id lookup gets every cover asset's abs_path. Indexed by
   // _id, so this is O(N) bytes returned, not O(N) round-trips.
-  const coverInfos = await coverAbsPathByPerson(people);
+  const coverInfos = await coverInfoByPerson(people);
   return people.map((p) => ({
     person: p as PersonWithId,
     // Read the denormalised face_count directly — O(1) per person, no
@@ -321,7 +321,7 @@ interface CoverInfo {
  * `_id`-indexed `find({ _id: { $in: [...] } })` against `assets`; returns a
  * `personHex → CoverInfo` map. People whose `cover_asset_id` is null/missing
  * or whose asset doc was deleted simply don't appear in the map. */
-async function coverAbsPathByPerson(people: WithId<PersonDoc>[]): Promise<Map<string, CoverInfo>> {
+async function coverInfoByPerson(people: WithId<PersonDoc>[]): Promise<Map<string, CoverInfo>> {
   const out = new Map<string, CoverInfo>();
   // Key by lowercase hex (`oid.toHexString()`) on both sides — Mongo
   // accepts mixed-case hex in `cover_asset_id` strings, but `_id`s round-
