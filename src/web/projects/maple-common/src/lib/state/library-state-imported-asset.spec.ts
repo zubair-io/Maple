@@ -25,6 +25,7 @@ import {
 } from './library-state.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { STORAGE_KEYS } from '../util/typed-storage';
+import { provideLibrarySource } from '../addressing/library-source-provider';
 
 // This spec constructs the real BrowsePreferencesService (via
 // LibraryStateService); its persistence effects write `cm.*` keys into the
@@ -44,6 +45,7 @@ describe('LibraryStateService.addImportedAsset', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        provideLibrarySource,
         { provide: LIBRARY_BACKEND, useValue: 'hosted' },
       ],
     });

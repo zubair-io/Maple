@@ -6,11 +6,12 @@
 // system is deferred to M3.
 
 import { Injectable, inject } from '@angular/core';
-import { childAddress, formatAddress, parentAddress, parseAddress } from './maple-address';
+import { childAddress, formatAddress, parentAddress } from './maple-address';
 import type { MapleAddress } from './maple-address';
 import type { LibrarySource, FolderListing, ImageEntry } from './library-source';
 import { LibrarySlugRegistry } from './library-slug-registry';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
+import type { MapleFolderHandle } from '../folder-access/folder-access.types';
 import { sha256Prefix16 } from '../maple-cache/sha';
 
 /** Filesystem entry shape for unit-testable pure helpers. */
@@ -30,10 +31,17 @@ export function validateRelPath(relPath: string): void {
   if (relPath.includes('\\')) {
     throw new Error(`Rejected backslash in relPath: ${JSON.stringify(relPath)}`);
   }
-  const segments = relPath.split('/');
-  for (const seg of segments) {
-    if (seg === '..' || seg === '.') {
-      throw new Error(`Rejected traversal segment in relPath: ${JSON.stringify(relPath)}`);
+  // Allow empty string (the library root itself); reject any path with empty segments
+  // (e.g. "a//b" or "a/") which indicate duplicate or trailing slashes.
+  if (relPath !== '') {
+    const segments = relPath.split('/');
+    for (const seg of segments) {
+      if (seg === '') {
+        throw new Error(`Rejected empty segment in relPath: ${JSON.stringify(relPath)}`);
+      }
+      if (seg === '..' || seg === '.') {
+        throw new Error(`Rejected traversal segment in relPath: ${JSON.stringify(relPath)}`);
+      }
     }
   }
 }
@@ -119,10 +127,17 @@ export class FsAccessLibrarySource implements LibrarySource {
     // existing maple-cache.service.ts pattern).
     const { filename } = splitRelPath(a.relPath);
     const sha = await sha256Prefix16(filename);
-    const cached = await this.cache.readThumb(
-      rootHandle as unknown as Parameters<typeof this.cache.readThumb>[0],
-      sha,
-    );
+    // Wrap the raw FileSystemDirectoryHandle into a MapleFolderHandle so
+    // MapleCacheService.readThumb receives the type it expects (it reads the
+    // `.maple/thumbs/` subdirectory via FolderAccessService, which needs the
+    // `native` property to be set).
+    const folderHandle: MapleFolderHandle = {
+      name: rootHandle.name,
+      read: true,
+      write: false,
+      native: rootHandle,
+    };
+    const cached = await this.cache.readThumb(folderHandle, sha);
     if (cached) {
       return URL.createObjectURL(cached);
     }

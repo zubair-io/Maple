@@ -19,6 +19,7 @@ import { BrowseShellComponent } from './browse-shell.component';
 import { LIBRARY_BACKEND } from '../../api/library-backend.token';
 import { API_BASE_URL } from '../../api/api-base-url.token';
 import { STORAGE_KEYS } from '../../util/typed-storage';
+import { provideLibrarySource } from '../../addressing/library-source-provider';
 
 // This spec constructs the real BrowsePreferencesService (via
 // BrowseShellComponent → LibraryStateService); its persistence effects write
@@ -37,6 +38,7 @@ function setupHosted() {
       provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
+      provideLibrarySource,
       { provide: LIBRARY_BACKEND, useValue: 'hosted' },
       { provide: API_BASE_URL, useValue: '/api' },
     ],
@@ -49,6 +51,7 @@ function setupSelfHosted() {
       provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
+      provideLibrarySource,
       { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
       { provide: API_BASE_URL, useValue: '/api' },
     ],

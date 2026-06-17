@@ -15,6 +15,7 @@ import { EditorComponent } from './editor.component';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
 import { API_BASE_URL } from '../api/api-base-url.token';
 import { STORAGE_KEYS } from '../util/typed-storage';
+import { provideLibrarySource } from '../addressing/library-source-provider';
 
 // This spec constructs the real BrowsePreferencesService (via
 // EditorComponent → LibraryStateService); its persistence effects write
@@ -47,6 +48,7 @@ describe('EditorComponent — canvas wiring (#650)', () => {
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
+        provideLibrarySource,
         { provide: LIBRARY_BACKEND, useValue: 'hosted' },
         { provide: API_BASE_URL, useValue: '/api' },
       ],

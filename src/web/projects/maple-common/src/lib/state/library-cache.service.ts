@@ -113,6 +113,10 @@ export class ThumbLruCache {
 
   set(id: string, url: string): void {
     if (this.entries.has(id)) {
+      // Revoke the previous blob: URL before replacing so we don't leak
+      // the old Blob object — the caller won't hold a reference to it.
+      const prev = this.entries.get(id)!;
+      if (prev.startsWith('blob:')) URL.revokeObjectURL(prev);
       this.entries.delete(id);
     }
     this.entries.set(id, url);
