@@ -13,12 +13,13 @@ import { Asset, AssetId, ColorLabel, Flag } from '../models/asset';
 import { GridFolderItem, SidebarEntry } from '../models/folder';
 import { AdjustmentModel, defaultAdjustmentModel } from '../models/adjustment-model';
 import { ApiFolder, BunApiBackendService } from '../api/bun-api-backend.service';
-import {
-  FilesystemBrowseService,
-  FsDirListing,
-  FsImageEntry,
-} from '../api/filesystem-browse.service';
 import { FolderAccessService } from '../folder-access/folder-access.service';
+import {
+  LIBRARY_SOURCE,
+  type LibrarySource,
+  type FolderListing,
+} from '../addressing/library-source';
+import { parseAddress, formatAddress, type MapleAddress } from '../addressing/maple-address';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { XmpParserService } from '../xmp/xmp-parser.service';
 import { XmpStoreService } from '../xmp/xmp-store.service';
@@ -92,7 +93,7 @@ export class LibraryFetch {
   private readonly xmpSerializer = inject(XmpSerializerService);
   private readonly sidecarStore = inject(SidecarStore);
   private readonly api = inject(BunApiBackendService);
-  private readonly fsBrowse = inject(FilesystemBrowseService);
+  private readonly librarySource: LibrarySource = inject(LIBRARY_SOURCE);
   private readonly prefs = inject(BrowsePreferencesService);
   private readonly folderCache = inject(FOLDER_LISTING_CACHE);
 
@@ -296,45 +297,33 @@ export class LibraryFetch {
    *   3. Otherwise, open the first registered library.
    */
   private _selectInitialFolder(folders: ApiFolder[]): void {
-    const findOwningLib = (absPath: string): ApiFolder | undefined =>
-      folders.find((f) => absPath === f.path || absPath.startsWith(f.path + '/'));
-
     const existing = this.selection.selectedSourceId();
-    if (existing) {
-      // URL deep-link applied selection before libraries were known.
-      // Synthesize the ancestor chain now so the sidebar can resolve a
-      // label and (eventually, when the user expands) show the chain.
-      if (existing.startsWith('fs:')) {
-        const absPath = existing.slice(3);
-        const owning = findOwningLib(absPath);
-        if (owning && absPath !== owning.path) {
-          this._ensureFsPathInTree(absPath, owning.path);
-        }
-      }
+    if (existing && existing.includes(':')) {
+      // URL deep-link applied selection before libraries were known — nothing
+      // more to do; the address is already in slug:relPath form and the grid
+      // will fetch via LibrarySource when openSelfHostedSubfolder runs.
       return;
     }
 
     const lastId = TypedStorage.getRaw(LAST_SOURCE_KEY);
 
-    if (lastId && lastId.startsWith('fs:')) {
-      const absPath = lastId.slice(3);
-      const exactRoot = folders.find((f) => f.path === absPath);
-      if (exactRoot) {
-        this.openSelfHostedFolder(exactRoot);
-        return;
-      }
-      // Sub-folder of a registered library — descendants are not in the
-      // top-level `folders` listing, but `openSelfHostedSubfolder` fetches
-      // via `/api/fs/dir` so it works as long as some library owns the
-      // path. Synthesize the ancestor chain first so the sidebar has
-      // somewhere to highlight the restored selection.
-      const owningLib = findOwningLib(absPath);
-      if (owningLib) {
-        this._ensureFsPathInTree(absPath, owningLib.path);
-        this.openSelfHostedSubfolder(absPath, lastId);
-        return;
+    // New format: slug:relPath — restore directly.
+    if (lastId && lastId.includes(':') && !lastId.startsWith('fs:')) {
+      try {
+        const addr = parseAddress(lastId);
+        const owning = folders.find((f) => f.slug === addr.slug || f.id === addr.slug);
+        if (owning) {
+          this.openSelfHostedSubfolder(addr.relPath, lastId);
+          return;
+        }
+      } catch {
+        // Unparseable — fall through to first library.
       }
     }
+
+    // Legacy `fs:<absPath>` in localStorage — hard-cutover: the fs: scheme is
+    // gone; fall back to the first registered library as if nothing was stored.
+    // (The user's folder history is discarded on first run after upgrade.)
 
     const first = folders[0];
     if (first) this.openSelfHostedFolder(first);
@@ -358,31 +347,38 @@ export class LibraryFetch {
    *
    * No-ops if `absPath` isn't a strict descendant of `libraryRoot`.
    */
-  private _ensureFsPathInTree(absPath: string, libraryRoot: string): void {
-    if (absPath === libraryRoot) return;
-    if (!absPath.startsWith(libraryRoot + '/')) return;
-    const rel = absPath.slice(libraryRoot.length + 1);
-    const segments = rel.split('/').filter(Boolean);
+  /**
+   * Synthesize the ancestor chain for a deep-linked sub-folder address so the
+   * sidebar has nodes to highlight immediately. Works in `slug:relPath` space.
+   *
+   * For each ancestor on the relPath chain (from library root to the parent of
+   * the selected folder) we ensure a tree node exists, auto-expand it, and
+   * trigger a `expandFsFolder` so its real siblings populate.
+   *
+   * No-ops if `addr.relPath` is empty (the address IS the root).
+   */
+  private _ensureAddressInTree(addr: MapleAddress): void {
+    if (!addr.relPath) return;
+    const segments = addr.relPath.split('/').filter(Boolean);
     if (segments.length === 0) return;
 
-    // Make the library row itself open so its children (the first
-    // ancestor we're about to synthesize) are visible.
-    this.prefs.setFolderOpen(`fs:${libraryRoot}`, true);
+    const rootId = formatAddress({ slug: addr.slug, relPath: '' });
 
-    // Every node that owns a child on the chain — the library root through the
-    // selected folder's direct parent. Their children get a real fetch below
-    // so siblings populate.
-    const ancestors: { id: string; absPath: string }[] = [];
+    // Make the library root open so its children (the first ancestor) are visible.
+    this.prefs.setFolderOpen(rootId, true);
 
-    let parentId = `fs:${libraryRoot}`;
-    let parentPath = libraryRoot;
+    // Build the ancestor chain: library root through the direct parent of the
+    // selected folder. Each gets a fetch so its siblings populate.
+    const ancestors: { id: string }[] = [];
+
+    let parentId = rootId;
+    let parentRelPath = '';
     for (let i = 0; i < segments.length; i++) {
-      ancestors.push({ id: parentId, absPath: parentPath });
+      ancestors.push({ id: parentId });
       const seg = segments[i]!;
-      parentPath = `${parentPath}/${seg}`;
-      const childId = `fs:${parentPath}`;
+      const childRelPath = parentRelPath === '' ? seg : `${parentRelPath}/${seg}`;
+      const childId = formatAddress({ slug: addr.slug, relPath: childRelPath });
       const childLabel = seg;
-      const childPath = parentPath;
       this.store.sidebarTree.update((tree) =>
         this.store.patchTree(tree, parentId, (n) => {
           if ((n.children ?? []).some((c) => c.id === childId)) return n;
@@ -395,27 +391,22 @@ export class LibraryFetch {
                 id: childId,
                 label: childLabel,
                 count: null,
-                absPath: childPath,
               },
             ],
           };
         }),
       );
-      // Auto-expand every ancestor on the chain (not the leaf itself —
-      // it has no children yet to reveal, and its own grid is the
-      // active view).
+      // Auto-expand every ancestor on the chain except the leaf.
       if (i < segments.length - 1) {
         this.prefs.setFolderOpen(childId, true);
       }
       parentId = childId;
+      parentRelPath = childRelPath;
     }
 
-    // Load each ancestor's real children so siblings fill in. `expandFsFolder`
-    // is idempotent (no-ops once loaded/loading) and SWR-cached, so this is
-    // cheap on a warm reload and merges with the synthesized chain — the
-    // attach preserves existing nodes by id, keeping the deeper expansion.
+    // Load real children for each ancestor so siblings fill in.
     for (const a of ancestors) {
-      this.expandFsFolder({ id: a.id, absPath: a.absPath, childrenStatus: undefined });
+      this.expandFsFolder({ id: a.id, childrenStatus: undefined });
     }
   }
 
@@ -482,31 +473,32 @@ export class LibraryFetch {
   /**
    * Self-Hosted: open a registered library by walking its filesystem.
    *
-   * Replaces the old DB-asset path (`/api/folders/{id}/assets`) with one that
-   * calls `/api/fs/dir?path=<abs>` against the library's root absolute path.
+   * Builds a MapleAddress from the folder's slug (M1 field) and calls
+   * `LibrarySource.listFolder` via `openSelfHostedSubfolder`. Falls back to
+   * the `id`-derived root address when `slug` is absent (pre-M1 API response).
    */
   openSelfHostedFolder(folder: ApiFolder): void {
     if (this.store.backend !== 'self-hosted') return;
 
-    const sourceId = `fs:${folder.path}`;
-    this.openSelfHostedSubfolder(folder.path, sourceId);
+    const slug = folder.slug ?? folder.id;
+    const rootAddr: MapleAddress = { slug, relPath: '' };
+    const sourceId = formatAddress(rootAddr);
+    this.openSelfHostedSubfolder('', sourceId);
   }
 
   /**
-   * Self-Hosted: open an arbitrary directory inside a registered library by
-   * walking the filesystem. `absPath` is the resolved on-disk path. Used by
-   * the folder-tree sidebar when the user clicks into a sub-folder of a
-   * library that's already been listed via `openSelfHostedFolder`.
+   * Self-Hosted: open an arbitrary directory inside a registered library.
    *
-   * `sourceId` is the SidebarEntry id of the node this directory's contents
-   * should attach to. When it's a registered-library root we use
-   * `fs:<absPath>` (matching `ensureFsFolder`); for a sub-folder we use the
-   * id assigned by `_attachFsChildren`.
+   * `relPath` is the POSIX-relative path within the library root (empty string
+   * for the library root itself). `sourceId` is the full `slug:relPath`
+   * MapleAddress string for this node — when omitted the store is checked for
+   * a node whose address matches the relPath, otherwise the `slug:relPath`
+   * form of any registered library slug + relPath is synthesised.
    */
-  openSelfHostedSubfolder(absPath: string, sourceId?: string, selectAssetId?: AssetId): void {
+  openSelfHostedSubfolder(relPath: string, sourceId?: string, selectAssetId?: AssetId): void {
     if (this.store.backend !== 'self-hosted') return;
 
-    const id = sourceId ?? this.store.sourceIdForFsPath(absPath) ?? `fs:${absPath}`;
+    const id = sourceId ?? this.store.sourceIdForRelPath(relPath) ?? `unknown:${relPath}`;
     // Set the selection synchronously so the file-list breadcrumb + grid
     // empty-state reflect the click immediately, before the HTTP response.
     this.selection.selectedSourceId.set(id);
@@ -535,13 +527,14 @@ export class LibraryFetch {
       }
     };
 
-    this._swrListDir(
-      absPath,
+    const addr = parseAddress(id);
+    this._swrListFolder(
+      addr,
       (listing, fresh) => {
-        this._applyFsListing(id, absPath, listing);
+        this._applyFolderListing(id, listing);
         trySelect();
         this.status.backendLoading.set(false);
-        if (fresh && listing.dirs.length === 0 && listing.images.length === 0) {
+        if (fresh && listing.folders.length === 0 && listing.images.length === 0) {
           // Empty folder — clear any leftover error banner; the grid will
           // show its own "Folder is empty" state. Only act on the fresh
           // listing so a stale-empty cache entry can't flash the empty state.
@@ -561,10 +554,10 @@ export class LibraryFetch {
 
     // Auto-scan-on-open (#804): kick a content-aware re-discover of the owning
     // registered library so a moved/new file is relinked (stages resume). This
-    // is non-blocking — the grid paints from the `_swrListDir` listing above;
+    // is non-blocking — the grid paints from the `_swrListFolder` listing above;
     // the scan resolves later and we re-pull the listing only if it actually
     // re-walked (new/relinked rows may now have apiId + enrichment).
-    this._autoScanLibraryForPath(absPath, id);
+    this._autoScanLibraryForSourceId(id);
   }
 
   /**
@@ -582,7 +575,7 @@ export class LibraryFetch {
    * across a library's sub-folders doesn't re-request; the server's `last_scan`
    * gate is the cross-session backstop and returns `skipped: 'recent'` cheaply.
    */
-  private _autoScanLibraryForPath(absPath: string, sourceId: string): void {
+  private _autoScanLibraryForSourceId(sourceId: string): void {
     if (this.store.backend !== 'self-hosted') return;
     const library = this.store.currentRegisteredFolder(sourceId);
     if (!library) return;
@@ -594,13 +587,14 @@ export class LibraryFetch {
         // A skipped (recent) scan did no re-walk — nothing new to surface, so
         // don't churn the listing. Only refresh when the walk actually ran.
         if (!res.ok || res.skipped === 'recent') return;
-        // Re-pull the still-selected path's listing so relinked/new rows
+        // Re-pull the still-selected address listing so relinked/new rows
         // appear with their server-side ids. Guard against the user having
         // navigated away while the scan was in flight.
         if (this.selection.selectedSourceId() !== sourceId) return;
-        this._swrListDir(
-          absPath,
-          (listing) => this._applyFsListing(sourceId, absPath, listing),
+        const addr = parseAddress(sourceId);
+        this._swrListFolder(
+          addr,
+          (listing) => this._applyFolderListing(sourceId, listing),
           () => {
             // Refresh failure is non-fatal — the grid already shows the
             // filesystem listing; the next manual navigation will re-pull.
@@ -626,32 +620,43 @@ export class LibraryFetch {
    * authoritative and always wins — a late-arriving cache read is dropped
    * once the fresh listing has landed.
    */
-  private _swrListDir(
-    absPath: string,
-    apply: (listing: FsDirListing, fresh: boolean) => void,
+  /**
+   * Stale-while-revalidate directory read via LibrarySource.
+   * Paints the cached FolderListing (in-memory, then IndexedDB) immediately,
+   * then always revalidates over the network and re-applies on top.
+   *
+   * `apply` runs at most twice: once with `fresh=false` (cached) and once with
+   * `fresh=true` (network). Network is authoritative; a late-arriving cached
+   * read is dropped once the fresh listing has landed.
+   */
+  private _swrListFolder(
+    addr: MapleAddress,
+    apply: (listing: FolderListing, fresh: boolean) => void,
     onError: (err: HttpErrorResponse) => void,
   ): void {
     let freshArrived = false;
+    const cacheKey = formatAddress(addr);
 
-    const cached = this.folderCache.peek(absPath);
+    const cached = this.folderCache.peek(cacheKey);
     if (cached) {
       apply(cached, false);
     } else {
-      // No synchronous hit — try the persistent tier. Drop the result if the
-      // network beat us to it.
-      void this.folderCache.get(absPath).then((listing) => {
+      // No synchronous hit — try the persistent tier. Drop if network wins.
+      void this.folderCache.get(cacheKey).then((listing) => {
         if (listing && !freshArrived) apply(listing, false);
       });
     }
 
-    this.fsBrowse.listDir(absPath).subscribe({
-      next: (listing) => {
+    void this.librarySource.listFolder(addr).then(
+      (listing) => {
         freshArrived = true;
-        this.folderCache.put(absPath, listing);
+        this.folderCache.put(cacheKey, listing);
         apply(listing, true);
       },
-      error: onError,
-    });
+      (err: unknown) => {
+        onError(err as HttpErrorResponse);
+      },
+    );
   }
 
   /**
@@ -664,13 +669,18 @@ export class LibraryFetch {
    *  - Push `listing.dirs` into the sidebar tree as children of the matching
    *    node so the lazy-expand chevron has something to reveal.
    */
-  private _applyFsListing(sourceId: string, absPath: string, listing: FsDirListing): void {
-    // Forget previous assets for this source (path-based ids may collide
-    // across re-opens after a rename — purge by folderId). Both the absPath
-    // and apiId maps are cleared so a stale Mongo id can't outlive its file
-    // (e.g. the file was deleted then re-created at the same path before
-    // the indexer caught up — without this cleanup `apiIdFor` would return
-    // the dead doc's id and the detail panel would render foreign data).
+  /**
+   * Apply a `LibrarySource.listFolder` result to state:
+   *  - Drop the current asset/folder entries for the source.
+   *  - Build new `Asset` records from `listing.images`, keyed by their address.
+   *  - Build new `GridFolderItem` records from `listing.folders` and update the
+   *    source's folder tiles.
+   *  - Push `listing.folders` into the sidebar tree as children of the node so
+   *    the lazy-expand chevron has something to reveal.
+   */
+  private _applyFolderListing(sourceId: string, listing: FolderListing): void {
+    // Purge stale assets for this source so stale address-keyed ids don't
+    // linger after a rename or deletion.
     const stale = this.store
       .assets()
       .filter((a) => a.folderId === sourceId)
@@ -680,21 +690,20 @@ export class LibraryFetch {
       this.store.apiAssetIds.delete(id);
     }
 
-    const newAssets: Asset[] = listing.images.map((img: FsImageEntry) => {
-      const id: AssetId = `fs:${img.path}`;
-      this.store.assetAbsPaths.set(id, img.path);
+    const newAssets: Asset[] = listing.images.map((img) => {
+      const id: AssetId = img.address;
       return {
         id,
         filename: img.name,
         folderId: sourceId,
         rating: 0,
-        flag: 'unflagged',
+        flag: 'unflagged' as const,
         colorLabel: null,
         thumbnailGradient: '',
         aspectRatio: 3 / 2,
-        absPath: img.path,
-        size: img.size,
-        mtime: img.mtime,
+        // width/height from the listing when the server provides them.
+        ...(img.width != null ? { width: img.width } : {}),
+        ...(img.height != null ? { height: img.height, aspectRatio: img.width! / img.height } : {}),
       };
     });
 
@@ -705,10 +714,9 @@ export class LibraryFetch {
       return [...others, ...merged];
     });
 
-    const newFolders: GridFolderItem[] = listing.dirs.map((d) => ({
-      id: `fs:${d.path}`,
+    const newFolders: GridFolderItem[] = listing.folders.map((d) => ({
+      id: d.address,
       name: d.name,
-      absPath: d.path,
       parentSourceId: sourceId,
       aspectRatio: 3 / 2,
     }));
@@ -718,7 +726,7 @@ export class LibraryFetch {
       return [...others, ...newFolders];
     });
 
-    this._attachFsChildren(sourceId, absPath, listing.dirs);
+    this._attachFolderChildren(sourceId, listing.folders);
   }
 
   /**
@@ -733,10 +741,16 @@ export class LibraryFetch {
    * listing describes which directories exist, not their per-child
    * expanded state.
    */
-  private _attachFsChildren(
+  /**
+   * Replace the children of the sidebar node identified by `sourceId` with
+   * folder entries derived from a `FolderListing`. Marks the node as `loaded`.
+   *
+   * Preserves existing child entries (carrying over `childrenStatus`, `children`,
+   * etc.) so a refetch of a parent doesn't wipe a deeper expanded subtree.
+   */
+  private _attachFolderChildren(
     sourceId: string,
-    _absPath: string,
-    dirs: { name: string; path: string; mtime: string }[],
+    folders: { name: string; address: string }[],
   ): void {
     this.store.sidebarTree.update((tree) =>
       this.store.patchTree(tree, sourceId, (n) => {
@@ -747,16 +761,14 @@ export class LibraryFetch {
           ...n,
           childrenStatus: 'loaded' as const,
           childrenError: undefined,
-          children: dirs.map((d) => {
-            const id = `fs:${d.path}`;
-            const prior = existingById.get(id);
-            if (prior) return { ...prior, label: d.name, absPath: d.path };
+          children: folders.map((d) => {
+            const prior = existingById.get(d.address);
+            if (prior) return { ...prior, label: d.name };
             return {
               kind: 'folder' as const,
-              id,
+              id: d.address,
               label: d.name,
               count: null,
-              absPath: d.path,
               // childrenStatus left undefined — fetched on first chevron expand.
             };
           }),
@@ -770,34 +782,50 @@ export class LibraryFetch {
    * Used by the folder-tree chevron click. No-ops if the node is already
    * loaded or in flight; flips status to `error` on failure with retry.
    */
+  /**
+   * Lazy-expand: load the children of a sub-folder node via its address (the
+   * node's `id` is a `slug:relPath` MapleAddress string). No-ops if the node
+   * is already loaded or in flight; flips status to `error` on failure.
+   *
+   * `absPath` on legacy sidebar nodes is ignored — the address is the canonical
+   * identifier after M2. Pass the node's `id` as the address.
+   */
   expandFsFolder(node: {
     id: string;
     absPath?: string;
     childrenStatus?: 'loading' | 'loaded' | 'error';
   }): void {
-    if (!node.absPath) return;
     if (node.childrenStatus === 'loading' || node.childrenStatus === 'loaded') return;
+    // node.id is the slug:relPath address after M2; skip if not parseable.
+    if (!node.id.includes(':')) return;
 
     // Mark in-flight so the chevron shows a spinner instead of refetching.
     this.store.sidebarTree.update((tree) =>
       this.store.patchTree(tree, node.id, (n) => ({ ...n, childrenStatus: 'loading' })),
     );
 
-    const absPath = node.absPath;
-    this._swrListDir(
-      absPath,
-      (listing) => this._attachFsChildren(node.id, absPath, listing.dirs),
-      (err: HttpErrorResponse) => {
-        const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
-        this.store.sidebarTree.update((tree) =>
-          this.store.patchTree(tree, node.id, (n) => ({
-            ...n,
-            childrenStatus: 'error' as const,
-            childrenError: detail,
-          })),
-        );
-      },
-    );
+    try {
+      const addr = parseAddress(node.id);
+      this._swrListFolder(
+        addr,
+        (listing) => this._attachFolderChildren(node.id, listing.folders),
+        (err: HttpErrorResponse) => {
+          const detail = err?.error?.error ?? err?.message ?? 'Unknown error';
+          this.store.sidebarTree.update((tree) =>
+            this.store.patchTree(tree, node.id, (n) => ({
+              ...n,
+              childrenStatus: 'error' as const,
+              childrenError: detail,
+            })),
+          );
+        },
+      );
+    } catch {
+      // Unparseable id — revert to undefined so the chevron can retry.
+      this.store.sidebarTree.update((tree) =>
+        this.store.patchTree(tree, node.id, (n) => ({ ...n, childrenStatus: undefined })),
+      );
+    }
   }
 
   /**
@@ -808,21 +836,51 @@ export class LibraryFetch {
    * Caller should follow up with `openSelfHostedSubfolder(parentDir,
    * sourceId, id)` to populate the filmstrip with siblings.
    */
+  /**
+   * Cold-load hydration for `/edit/<slug>/<relPath>` deep-links on Self-Hosted.
+   *
+   * Synthesizes a single placeholder Asset entry from the address so the editor
+   * can mount immediately. Accepts both the new `slug:relPath` format and the
+   * legacy `fs:<absPath>` format (which the editor shell still passes for
+   * backward compat during the transition period).
+   *
+   * Caller should follow up with `openSelfHostedSubfolder(parentRelPath,
+   * folderId, id)` to populate the filmstrip with siblings.
+   */
   hydrateSelfHostedFsAsset(id: AssetId, patch?: Partial<Asset>): Asset | null {
     if (this.store.backend !== 'self-hosted') return null;
-    if (!id.startsWith('fs:')) return null;
-    const absPath = id.slice(3);
-    if (!absPath) return null;
-    const lastSlash = absPath.lastIndexOf('/');
-    if (lastSlash < 0) return null;
-    const filename = absPath.slice(lastSlash + 1) || absPath;
-    const parentDir = absPath.slice(0, lastSlash) || '/';
-    const folderId = `fs:${parentDir}`;
 
-    this.store.assetAbsPaths.set(id, absPath);
+    let relPath: string;
+    let slug: string | undefined;
+    /** The full absolute path for legacy `fs:` ids, used to set `Asset.absPath`. */
+    let legacyAbsPath: string | undefined;
 
-    // Strip identity-bearing fields from `patch` so a caller can't spoof
-    // them via the merge below.
+    if (id.startsWith('fs:')) {
+      // Legacy: fs:<absPath> — the full absPath is embedded in the id.
+      const absPath = id.slice(3);
+      if (!absPath) return null;
+      legacyAbsPath = absPath;
+      relPath = absPath; // treat as relPath for decomposition below
+      slug = undefined; // unknown until the tree resolves
+    } else if (id.includes(':')) {
+      // New: slug:relPath
+      const addr = parseAddress(id);
+      relPath = addr.relPath;
+      slug = addr.slug;
+    } else {
+      return null;
+    }
+
+    if (!relPath && !legacyAbsPath) return null;
+    const pathForDecomp = legacyAbsPath ?? relPath;
+    const lastSlash = pathForDecomp.lastIndexOf('/');
+    const filename = lastSlash >= 0 ? pathForDecomp.slice(lastSlash + 1) : pathForDecomp;
+    const parentRelPath = lastSlash >= 0 ? pathForDecomp.slice(0, lastSlash) : '';
+    const folderId: AssetId = slug
+      ? formatAddress({ slug, relPath: parentRelPath })
+      : (`unknown:${parentRelPath}` as AssetId);
+
+    // Strip identity-bearing fields from `patch`.
     const {
       id: _ignoreId,
       absPath: _ignoreAbsPath,
@@ -842,14 +900,16 @@ export class LibraryFetch {
       colorLabel: null,
       thumbnailGradient: '',
       aspectRatio: 3 / 2,
-      absPath,
+      // Preserve absPath for legacy fs: ids so editor-shell cold-load
+      // can call openSelfHostedSubfolder with the parent directory.
+      ...(legacyAbsPath != null ? { absPath: legacyAbsPath } : {}),
       ...safePatch,
     };
 
     this.store.assets.update((list) => {
       const idx = list.findIndex((a) => a.id === id);
       if (idx === -1) return [...list, baseAsset];
-      // Already present (e.g. listed via _applyFsListing) — merge in any
+      // Already present (e.g. listed via _applyFolderListing) — merge in any
       // richer metadata from the patch without clobbering existing fields.
       const existing = list[idx]!;
       const merged: Asset = { ...existing, ...safePatch };
@@ -869,9 +929,15 @@ export class LibraryFetch {
     // rendered by the folder-tree component and serves as the only label
     // above the libraries themselves. The chevron on each library drives
     // `expandFsFolder()` to reveal subfolders; row click opens the grid.
+    //
+    // Node ids are now `slug:` (the library root address, relPath='') rather
+    // than `fs:<absPath>`. The slug comes from M1's `ApiFolder.slug`; falls
+    // back to `folder.id` (hex ObjectId) when the server is pre-M1.
     for (const f of folders) {
+      const slug = f.slug ?? f.id;
+      const rootId = formatAddress({ slug, relPath: '' });
       const label = f.label || f.path.split('/').filter(Boolean).pop() || f.path;
-      this.store.ensureFsFolder(`fs:${f.path}`, label, f.path);
+      this.store.ensureFsFolder(rootId, label, f.path);
     }
   }
 

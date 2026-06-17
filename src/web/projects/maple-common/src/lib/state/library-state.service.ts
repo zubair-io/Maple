@@ -156,8 +156,8 @@ export class LibraryStateService {
     this.fetch_.openSelfHostedFolder(folder);
   }
 
-  openSelfHostedSubfolder(absPath: string, sourceId?: string, selectAssetId?: AssetId): void {
-    this.fetch_.openSelfHostedSubfolder(absPath, sourceId, selectAssetId);
+  openSelfHostedSubfolder(relPath: string, sourceId?: string, selectAssetId?: AssetId): void {
+    this.fetch_.openSelfHostedSubfolder(relPath, sourceId, selectAssetId);
   }
 
   expandFsFolder(node: {

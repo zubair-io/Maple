@@ -8,11 +8,7 @@
 //   - childAddress logic for building image addresses
 
 import { describe, it, expect } from 'vitest';
-import {
-  validateRelPath,
-  buildFolderListing,
-  type FsEntry,
-} from './fs-access-library-source';
+import { validateRelPath, buildFolderListing, type FsEntry } from './fs-access-library-source';
 import type { MapleAddress } from './maple-address';
 
 describe('validateRelPath', () => {

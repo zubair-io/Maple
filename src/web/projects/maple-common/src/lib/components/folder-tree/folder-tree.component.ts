@@ -6,6 +6,7 @@ import { NgTemplateOutlet, DecimalPipe } from '@angular/common';
 import { LibraryStateService } from '../../state/library-state.service';
 import { MapleIconComponent, MapleIconName } from '../../icons/maple-icon.component';
 import { SidebarEntry } from '../../models/folder';
+import { parseAddress } from '../../addressing/maple-address';
 
 @Component({
   selector: 'app-folder-tree',
@@ -25,14 +26,19 @@ export class FolderTreeComponent {
 
   onFolderClick(node: SidebarEntry, e: MouseEvent): void {
     e.stopPropagation();
-    if (node.absPath) {
-      // FS-walk path — load this directory's contents into the grid AND
-      // attach its subdirs as tree children in one shot. `openSelfHostedSubfolder`
-      // handles both via `_attachFsChildren`, so we don't separately call
-      // `expandFsFolder` here — that would fire a duplicate `/api/fs/dir`
-      // request for the same path because the first call's response hasn't
-      // landed yet (childrenStatus is still undefined at click time).
-      this.state.openSelfHostedSubfolder(node.absPath, node.id);
+    if (node.absPath || node.id.includes(':')) {
+      // FS-walk or M2 addressed folder — load this directory's contents into
+      // the grid AND attach its subdirs as tree children in one shot.
+      // After M2, node.id is `slug:relPath`; derive relPath from it.
+      let relPath = node.absPath ?? '';
+      if (!relPath && node.id.includes(':')) {
+        try {
+          relPath = parseAddress(node.id).relPath;
+        } catch {
+          /* ignore */
+        }
+      }
+      this.state.openSelfHostedSubfolder(relPath, node.id);
       this.state.setFolderOpen(node.id, true);
       return;
     }
@@ -43,10 +49,11 @@ export class FolderTreeComponent {
     e.stopPropagation();
     const willOpen = !this.isFolderOpen(node);
     this.state.setFolderOpen(node.id, willOpen);
-    if (willOpen && node.absPath && node.childrenStatus === undefined) {
+    const canExpand = node.absPath || node.id.includes(':');
+    if (willOpen && canExpand && node.childrenStatus === undefined) {
       this.state.expandFsFolder(node);
     }
-    if (willOpen && node.absPath && node.childrenStatus === 'error') {
+    if (willOpen && canExpand && node.childrenStatus === 'error') {
       // Retry on click when previous load failed.
       this.state.expandFsFolder(node);
     }
