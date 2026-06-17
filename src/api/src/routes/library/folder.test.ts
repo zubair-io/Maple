@@ -191,7 +191,7 @@ describe('GET /folder/:slug/*', () => {
   test('Server-Timing header is present', async () => {
     if (!mongoReachable) return;
     const res = await app.handle(new Request('http://localhost/folder/testlib/'));
-    expect(res.headers.get('Server-Timing')).toMatch(/^db;dur=\d+$/);
+    expect(res.headers.get('Server-Timing')).toMatch(/^total;dur=\d+$/);
   });
 
   test('lists subdirectories', async () => {
