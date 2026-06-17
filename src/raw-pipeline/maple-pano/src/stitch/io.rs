@@ -85,3 +85,56 @@ fn srgb_encode(v: f32) -> f32 {
         1.055 * v.powf(1.0 / 2.4) - 0.055
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ingest::ValidityMask;
+
+    /// `develop_for_display` must tone-map (AgX) and display-encode (sRGB) the
+    /// scene-linear composite — not pass it through. Three grey scene-linear
+    /// pixels (shadow / mid / blown highlight) must come back display-encoded,
+    /// monotonic, in-gamut, and visibly shifted from a naive sRGB encode (i.e.
+    /// AgX actually ran).
+    #[test]
+    fn develop_for_display_tone_maps_and_encodes() {
+        let (w, h) = (3u32, 1u32);
+        let planes = vec![0.02_f32, 0.18, 4.0]; // shadow, mid-grey, HDR highlight
+        let pano = PlanarImage::from_planes(
+            w,
+            h,
+            planes.clone(),
+            planes.clone(),
+            planes.clone(),
+            ValidityMask::new_filled(w, h, true),
+        );
+
+        let out = develop_for_display(&pano);
+
+        // Display-encoded: every value in [0, 1] (the highlight is rolled, not
+        // left at its scene-linear 4.0).
+        for v in out.r.iter().chain(&out.g).chain(&out.b) {
+            assert!((0.0..=1.0).contains(v), "value out of display range: {v}");
+        }
+        // Monotonic tone response: shadow < mid < highlight.
+        assert!(out.r[0] < out.r[1] && out.r[1] < out.r[2], "non-monotonic: {:?}", out.r);
+        // Grey in → grey out (gamut convert + AgX preserve neutrals).
+        for i in 0..3 {
+            assert!((out.r[i] - out.g[i]).abs() < 1e-4, "neutral drift at {i}");
+            assert!((out.r[i] - out.b[i]).abs() < 1e-4, "neutral drift at {i}");
+        }
+        // AgX anchors mid-grey ~0.18 by design, so 0.18 ≈ a plain sRGB encode —
+        // that is NOT where AgX shows. AgX shows on the HDR highlight: the
+        // +4.5-stop 4.0 input is ROLLED below clip-white by the AgX shoulder,
+        // whereas the OLD display path (clip to 1.0 → sRGB) returned exactly
+        // 1.0 for any input ≥ 1.0. So a highlight visibly below white proves
+        // the view transform ran (not a clip+encode passthrough).
+        assert!(
+            out.r[2] < 0.99,
+            "HDR highlight should roll below clip-white via AgX, got {}",
+            out.r[2]
+        );
+        // Sanity: mid-grey lands in the expected AgX-anchored band (~0.46).
+        assert!((0.40..=0.52).contains(&out.r[1]), "mid-grey off AgX anchor: {}", out.r[1]);
+    }
+}
