@@ -143,6 +143,77 @@ describe('LibraryCache — M2 slug:relPath thumbnail path', () => {
   });
 });
 
+describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => {
+  function setup(libSource: Record<string, unknown>, store: Record<string, unknown> = {}) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        LibraryCache,
+        {
+          provide: LibraryStore,
+          useValue: {
+            backend: 'self-hosted',
+            assetAbsPaths: new Map<string, string>(),
+            apiAssetIds: new Map<string, string>(),
+            findAsset: () => undefined,
+            ...store,
+          },
+        },
+        { provide: BunApiBackendService, useValue: {} },
+        { provide: FilesystemBrowseService, useValue: {} },
+        { provide: MapleCacheService, useValue: {} },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: LIBRARY_SOURCE, useValue: libSource },
+      ],
+    });
+    return TestBed.inject(LibraryCache);
+  }
+
+  it('reads a slug:relPath asset via LibrarySource.imageBlob (not the apiId branch)', async () => {
+    const payload = new Uint8Array([1, 2, 3, 4]);
+    const imageBlob = vi.fn(async () => new Blob([payload], { type: 'application/octet-stream' }));
+    const svc = setup({ imageBlob });
+
+    const bytes = await svc.bytesForAsset('lib:2026/IMG_001.dng' as AssetId);
+
+    expect(imageBlob).toHaveBeenCalledWith({ slug: 'lib', relPath: '2026/IMG_001.dng' });
+    expect(Array.from(bytes)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('does NOT route a legacy fs:<absPath> id through LibrarySource.imageBlob (regression)', async () => {
+    const imageBlob = vi.fn(async () => new Blob());
+    const getRawBytes = vi.fn(async () => new Uint8Array([9, 9]).buffer);
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        LibraryCache,
+        {
+          provide: LibraryStore,
+          useValue: {
+            backend: 'self-hosted',
+            assetAbsPaths: new Map<string, string>([['fs:/srv/a.dng', '/srv/a.dng']]),
+            apiAssetIds: new Map<string, string>(),
+            findAsset: () => undefined,
+          },
+        },
+        { provide: BunApiBackendService, useValue: {} },
+        { provide: FilesystemBrowseService, useValue: { getRawBytes } },
+        { provide: MapleCacheService, useValue: {} },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: LIBRARY_SOURCE, useValue: { imageBlob } },
+      ],
+    });
+    const svc = TestBed.inject(LibraryCache);
+
+    const bytes = await svc.bytesForAsset('fs:/srv/a.dng' as AssetId);
+
+    // `fs:` ids contain ':' but must use the assetAbsPaths FS-walk branch.
+    expect(imageBlob).not.toHaveBeenCalled();
+    expect(getRawBytes).toHaveBeenCalledWith('/srv/a.dng', expect.any(Function));
+    expect(Array.from(bytes)).toEqual([9, 9]);
+  });
+});
+
 describe('ThumbLruCache — bounded LRU for thumbnail blob URLs', () => {
   let revoke: Mock<(url: string) => void>;
   let originalRevoke: typeof URL.revokeObjectURL;
