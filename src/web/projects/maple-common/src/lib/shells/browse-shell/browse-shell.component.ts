@@ -68,16 +68,33 @@ export class BrowseShellComponent implements OnInit {
 
   constructor() {
     // ── URL (slug:relPath) → selection ─────────────────────────────────────
-    // M2: read the MapleAddress from :slug + ** wildcard segments. Subscribes
-    // so back/forward navigation re-applies the address.
-    this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((pm) => {
-      const slug = pm.get('slug');
-      if (!slug) return;
-      const segments = this.route.snapshot.url.slice(1).map((s) => s.path);
+    // M2: read the MapleAddress from :slug + ** wildcard segments. With
+    // paramsInheritanceStrategy:'always', :slug is inherited by the ** child
+    // route so paramMap.get('slug') works here. We also subscribe to
+    // route.url (which emits when the wildcard segments change) so that
+    // navigating within the same library (same slug, different relPath) re-
+    // triggers the address resolution.
+    const applyRouteAddress = (slug: string): void => {
+      // route.snapshot.url contains ONLY the wildcard (child) segments — no
+      // leading slug segment — because :slug lives on the parent route.
+      const segments = this.route.snapshot.url.map((s) => s.path);
       const addr = routeSegmentsToAddress(slug, segments);
       const addrStr = formatAddress(addr);
       if (this.state.selectedSourceId() === addrStr) return;
       this.state.openSelfHostedSubfolder(addr.relPath, addrStr);
+    };
+
+    this.route.paramMap.pipe(takeUntilDestroyed()).subscribe((pm) => {
+      const slug = pm.get('slug');
+      if (!slug) return;
+      applyRouteAddress(slug);
+    });
+
+    // Re-fire when wildcard segments change (intra-library folder navigation).
+    this.route.url.pipe(takeUntilDestroyed()).subscribe(() => {
+      const slug = this.route.snapshot.paramMap.get('slug');
+      if (!slug) return;
+      applyRouteAddress(slug);
     });
 
     // ── Selection → URL + localStorage ──────────────────────────────────────
