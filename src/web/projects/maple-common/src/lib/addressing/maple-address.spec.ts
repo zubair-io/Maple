@@ -38,6 +38,12 @@ describe('MapleAddress', () => {
   it('toApiPath with empty relPath returns just the slug', () => {
     expect(toApiPath({ slug: 'library', relPath: '' })).toBe('library');
   });
+  it('toApiPath encodes the slug too (no path-traversal injection)', () => {
+    // A crafted deep-link slug must not inject unencoded path separators.
+    expect(toApiPath({ slug: '../../admin', relPath: '' })).toBe('..%2F..%2Fadmin');
+    // A valid minted slug ([a-z0-9-]) is unaffected (encode is a no-op).
+    expect(toApiPath({ slug: 'france-2026', relPath: 'a' })).toBe('france-2026/a');
+  });
   it('child with empty parent relPath', () => {
     expect(formatAddress(childAddress({ slug: 'l', relPath: '' }, 'France'))).toBe('l:France');
   });
