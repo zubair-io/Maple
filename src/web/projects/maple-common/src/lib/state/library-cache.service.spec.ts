@@ -9,6 +9,7 @@
 // folder-switch no longer wipes the entire cache — old entries evict
 // gradually as new thumbnails arrive (M2, #1327).
 
+import { computed } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 
@@ -216,6 +217,42 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
     expect(imageBlob).not.toHaveBeenCalled();
     expect(getRawBytes).toHaveBeenCalledWith('/srv/a.dng', expect.any(Function));
     expect(Array.from(bytes)).toEqual([9, 9]);
+  });
+});
+
+describe('LibraryCache — thumbnailUrlFor reactivity (M2 #1327 regression)', () => {
+  let svc: LibraryCache;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        LibraryCache,
+        { provide: LibraryStore, useValue: {} },
+        { provide: BunApiBackendService, useValue: {} },
+        { provide: FilesystemBrowseService, useValue: {} },
+        { provide: MapleCacheService, useValue: {} },
+        { provide: RawPipelineService, useValue: {} },
+        { provide: LIBRARY_SOURCE, useValue: { thumbBlob: vi.fn(), previewBlob: vi.fn() } },
+      ],
+    });
+    svc = TestBed.inject(LibraryCache);
+  });
+
+  // The bug: asset-thumb + library-cell read thumbnailUrlFor inside a computed().
+  // When it read the raw (non-signal) LRU, the computed never recomputed after a
+  // thumbnail finished loading, so 200-fetched thumbnails stayed invisible. This
+  // guards that a computed re-evaluates when cacheThumbnailUrl publishes the URL.
+  it('a computed reading thumbnailUrlFor recomputes when the blob URL lands', () => {
+    const id = 'lib:2026/a.jpg' as AssetId;
+    const view = computed(() => svc.thumbnailUrlFor(id));
+
+    expect(view()).toBeUndefined(); // not loaded yet
+
+    svc.cacheThumbnailUrl(id, 'blob:loaded');
+
+    // Pre-fix this stayed undefined — the computed never tracked the signal.
+    expect(view()).toBe('blob:loaded');
   });
 });
 
