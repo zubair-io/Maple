@@ -88,8 +88,10 @@ function toPersonListRow(r: PersonWithCount) {
     name: r.person.name,
     face_count: r.faceCount,
     cover_asset_id: r.person.cover_asset_id ?? null,
-    // Surfaced so the web can request the cover via /api/fs/thumb (the
-    // same URL the browse view uses) and reuse its blob-URL + HTTP cache.
+    // Preferred: slug:relPath address for /api/thumb/:slug/* (M2 shared thumb
+    // cache; replaces the abs-path-keyed /api/fs/thumb path).
+    cover_address: r.coverAddress,
+    // Kept for backward compat; new consumers should use cover_address.
     cover_abs_path: r.coverAbsPath,
     // Bbox of the cover face, in normalised [0,1] — the web applies the
     // same `faceCropTransform` it uses for detail-panel face thumbs so

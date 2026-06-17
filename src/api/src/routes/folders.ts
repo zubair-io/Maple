@@ -28,6 +28,7 @@ import { computeBodyETag, ifNoneMatchEqual } from '../runtime/http-etag.ts';
 import { handleEvent } from '../workers/discover/index.ts';
 import { invalidateLibraryRoots, loadLibraryRoots } from '../indexer/libraries.cache.ts';
 import { slugify, dedupeSlug } from '../library/slug.ts';
+import { realpathJailCheck } from '../library/address.ts';
 import { assetAbsPath, updateLiveLocationCount } from '../indexer/images.repo.ts';
 import type { AssetWithId } from '../db/schema.ts';
 import { stageManifest, blankStagesSkeleton } from '../workers/stages/manifest.ts';
