@@ -26,7 +26,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (tmpDir) {
-    try { await rm(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      await rm(tmpDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
   invalidateLibraryRoots();
 });
@@ -69,7 +73,9 @@ describe('GET /image/:slug/*', () => {
   });
 
   test('rejects path traversal attempt', async () => {
-    const res = await app.handle(new Request('http://localhost/image/imglib/..%2F..%2Fetc%2Fpasswd'));
+    const res = await app.handle(
+      new Request('http://localhost/image/imglib/..%2F..%2Fetc%2Fpasswd'),
+    );
     // Should be 400 or 404 — definitely not 200
     expect(res.status).not.toBe(200);
   });

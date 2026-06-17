@@ -466,7 +466,10 @@ export async function backfillFolderSlugs(db: Db): Promise<BackfillFolderSlugsRe
 
   const cursor = db
     .collection('folders')
-    .find({ $or: [{ slug: { $exists: false } }, { slug: null }] }, { projection: { _id: 1, label: 1, path: 1 } })
+    .find(
+      { $or: [{ slug: { $exists: false } }, { slug: null }] },
+      { projection: { _id: 1, label: 1, path: 1 } },
+    )
     .sort({ _id: 1 });
 
   let updated = 0;
@@ -477,10 +480,12 @@ export async function backfillFolderSlugs(db: Db): Promise<BackfillFolderSlugsRe
     const base = slugify(label || pathMod.basename(doc.path as string) || 'library');
     const slug = dedupeSlug(base, taken);
     taken.add(slug);
-    const res = await db.collection('folders').updateOne(
-      { _id: doc._id, $or: [{ slug: { $exists: false } }, { slug: null }] },
-      { $set: { slug } },
-    );
+    const res = await db
+      .collection('folders')
+      .updateOne(
+        { _id: doc._id, $or: [{ slug: { $exists: false } }, { slug: null }] },
+        { $set: { slug } },
+      );
     if (res.modifiedCount > 0) {
       updated += 1;
     } else {
@@ -560,16 +565,14 @@ export async function hardenFileinfoCompoundIndex(db: Db): Promise<FileinfoUniqu
   // The partialFilterExpression restricts the unique constraint to rows that
   // actually have at least one fileinfo entry (excludes skeleton rows and rows
   // without fileinfo, which would otherwise all collide on null keys).
-  await db
-    .collection('assets')
-    .createIndex(
-      { 'fileinfo.library_id': 1, 'fileinfo.path': 1, 'fileinfo.filename': 1 },
-      {
-        unique: true,
-        name: 'fileinfo_lib_path_name_unique',
-        partialFilterExpression: { 'fileinfo.0': { $exists: true } },
-      },
-    );
+  await db.collection('assets').createIndex(
+    { 'fileinfo.library_id': 1, 'fileinfo.path': 1, 'fileinfo.filename': 1 },
+    {
+      unique: true,
+      name: 'fileinfo_lib_path_name_unique',
+      partialFilterExpression: { 'fileinfo.0': { $exists: true } },
+    },
+  );
   log.info('promoted fileinfo compound index to unique (zero violations)');
   return { violations: 0, promoted: true };
 }
