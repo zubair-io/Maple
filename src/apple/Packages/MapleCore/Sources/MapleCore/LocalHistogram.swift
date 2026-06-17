@@ -155,14 +155,19 @@ public enum LocalHistogram {
     )
 
     var floats = [Float](repeating: 0, count: bins * 4)  // RGBA per bin
-    context.render(
-      histogramImage,
-      toBitmap: &floats,
-      rowBytes: bins * 4 * MemoryLayout<Float>.size,
-      bounds: CGRect(x: 0, y: 0, width: bins, height: 1),
-      format: .RGBAf,
-      colorSpace: nil
-    )
+    // Hand CoreImage the array's contiguous storage explicitly — passing
+    // `&floats` to a raw-pointer parameter is not a sound way to expose an
+    // Array's buffer. The render writes the bin counts into `floats` in-place.
+    floats.withUnsafeMutableBytes { raw in
+      context.render(
+        histogramImage,
+        toBitmap: raw.baseAddress!,
+        rowBytes: bins * 4 * MemoryLayout<Float>.size,
+        bounds: CGRect(x: 0, y: 0, width: bins, height: 1),
+        format: .RGBAf,
+        colorSpace: nil
+      )
+    }
 
     let area = Double(max(1, Int(extent.width.rounded()) * Int(extent.height.rounded())))
     func channel(_ offset: Int) -> [Int] {

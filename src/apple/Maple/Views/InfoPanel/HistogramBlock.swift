@@ -19,8 +19,8 @@
 // edit keeps the prior curves visible through the recompute (no mid-edit flash).
 
 import MapleCore
+import OSLog
 import SwiftUI
-import os
 
 // MARK: - Environment key
 
