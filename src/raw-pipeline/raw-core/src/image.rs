@@ -19,10 +19,29 @@ pub enum ColorSpace {
     SceneLinearRec2020,
     /// Post-AgX: display-linear Rec.2020, [0, 1] clamped.
     DisplayLinearRec2020,
-    /// Post-gamut matrix: display-linear sRGB, [0, 1].
+    /// Post-gamut matrix: display-linear sRGB primaries, [0, 1].
     DisplayLinearSrgb,
+    /// Post-gamut matrix: display-linear Display P3 primaries, [0, 1].
+    /// The OETF that follows (`srgb_gamma_encode`) is identical to the sRGB
+    /// path — IEC 61966-2-1 / 2.4-gamma — so stages that call
+    /// `assert_space(DisplayLinearSrgb)` must be broadened via
+    /// `is_display_linear()` when they are legal for both primaries sets.
+    DisplayLinearP3,
     /// Post-gamma: sRGB gamma-encoded, u8-equivalent range.
     DisplayEncodedSrgb,
+}
+
+impl ColorSpace {
+    /// Returns `true` for both `DisplayLinearSrgb` and `DisplayLinearP3`.
+    ///
+    /// Use this where a stage is legal for either primary set — most
+    /// importantly `srgb_gamma_encode`, whose OETF (IEC 61966-2-1 / 2.4-gamma)
+    /// is shared. Stages that care about primaries must still branch on the
+    /// specific variant.
+    #[inline]
+    pub fn is_display_linear(self) -> bool {
+        matches!(self, Self::DisplayLinearSrgb | Self::DisplayLinearP3)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -36,7 +55,12 @@ pub struct Image {
 impl Image {
     pub fn new(width: u32, height: u32, space: ColorSpace) -> Self {
         let len = (width as usize) * (height as usize);
-        Self { width, height, pixels: vec![[0.0; 3]; len], space }
+        Self {
+            width,
+            height,
+            pixels: vec![[0.0; 3]; len],
+            space,
+        }
     }
 
     pub fn pixel_count(&self) -> usize {
@@ -44,8 +68,11 @@ impl Image {
     }
 
     pub fn assert_space(&self, expected: ColorSpace) {
-        debug_assert_eq!(self.space, expected,
-            "expected colorspace {:?}, got {:?}", expected, self.space);
+        debug_assert_eq!(
+            self.space, expected,
+            "expected colorspace {:?}, got {:?}",
+            expected, self.space
+        );
     }
 }
 
@@ -85,10 +112,30 @@ impl CfaPattern {
         let ex = (x & 1) as u8;
         let ey = (y & 1) as u8;
         match self {
-            Self::Rggb => match (ex, ey) { (0,0)=>0, (1,0)=>1, (0,1)=>1, _=>2 },
-            Self::Bggr => match (ex, ey) { (0,0)=>2, (1,0)=>1, (0,1)=>1, _=>0 },
-            Self::Grbg => match (ex, ey) { (0,0)=>1, (1,0)=>0, (0,1)=>2, _=>1 },
-            Self::Gbrg => match (ex, ey) { (0,0)=>1, (1,0)=>2, (0,1)=>0, _=>1 },
+            Self::Rggb => match (ex, ey) {
+                (0, 0) => 0,
+                (1, 0) => 1,
+                (0, 1) => 1,
+                _ => 2,
+            },
+            Self::Bggr => match (ex, ey) {
+                (0, 0) => 2,
+                (1, 0) => 1,
+                (0, 1) => 1,
+                _ => 0,
+            },
+            Self::Grbg => match (ex, ey) {
+                (0, 0) => 1,
+                (1, 0) => 0,
+                (0, 1) => 2,
+                _ => 1,
+            },
+            Self::Gbrg => match (ex, ey) {
+                (0, 0) => 1,
+                (1, 0) => 2,
+                (0, 1) => 0,
+                _ => 1,
+            },
             Self::XTrans(pat) => {
                 // 6×6 modulo lookup. `pat` is row-major with R=0, G=1, B=2.
                 let cx = (x % 6) as usize;
@@ -120,7 +167,7 @@ pub struct RawImage {
     pub width: u32,
     pub height: u32,
     pub cfa: CfaPattern,
-    pub black_level: [u32; 4],   // per CFA position, indexed as [y_even*2 + x_even]
+    pub black_level: [u32; 4], // per CFA position, indexed as [y_even*2 + x_even]
     pub white_level: u32,
     pub raw_data: Vec<u16>,
     /// Camera RGB reading of a neutral patch in the scene, G-normalized so
@@ -260,7 +307,9 @@ impl CropRect {
         let y = y.min(sensor_h);
         let w = w.min(sensor_w.saturating_sub(x));
         let h = h.min(sensor_h.saturating_sub(y));
-        if w == 0 || h == 0 { return None; }
+        if w == 0 || h == 0 {
+            return None;
+        }
         Some(Self { x, y, w, h })
     }
 }
@@ -271,14 +320,15 @@ impl CropRect {
 /// interpretation.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
 pub enum ExifOrientation {
-    #[default] Normal,          // 1
-    HorizontalFlip,              // 2
-    Rotate180,                   // 3
-    VerticalFlip,                // 4
-    Transpose,                   // 5
-    Rotate90,                    // 6
-    Transverse,                  // 7
-    Rotate270,                   // 8
+    #[default]
+    Normal, // 1
+    HorizontalFlip, // 2
+    Rotate180,      // 3
+    VerticalFlip,   // 4
+    Transpose,      // 5
+    Rotate90,       // 6
+    Transverse,     // 7
+    Rotate270,      // 8
 }
 
 impl ExifOrientation {
@@ -297,7 +347,8 @@ impl ExifOrientation {
 
     /// True if this orientation swaps width and height (transpose-family).
     pub fn swaps_wh(self) -> bool {
-        matches!(self,
+        matches!(
+            self,
             Self::Transpose | Self::Rotate90 | Self::Transverse | Self::Rotate270
         )
     }
@@ -312,18 +363,23 @@ impl ExifOrientation {
     /// swap (because display W = sensor H and vice versa).
     pub fn display_rect_to_sensor(
         self,
-        dx: u32, dy: u32, dw: u32, dh: u32,
-        sw: u32, sh: u32,
+        dx: u32,
+        dy: u32,
+        dw: u32,
+        dh: u32,
+        sw: u32,
+        sh: u32,
     ) -> (u32, u32, u32, u32) {
         match self {
-            Self::Normal          => (dx, dy, dw, dh),
-            Self::HorizontalFlip  => (sw.saturating_sub(dx + dw), dy, dw, dh),
-            Self::Rotate180       => (
+            Self::Normal => (dx, dy, dw, dh),
+            Self::HorizontalFlip => (sw.saturating_sub(dx + dw), dy, dw, dh),
+            Self::Rotate180 => (
                 sw.saturating_sub(dx + dw),
                 sh.saturating_sub(dy + dh),
-                dw, dh,
+                dw,
+                dh,
             ),
-            Self::VerticalFlip    => (dx, sh.saturating_sub(dy + dh), dw, dh),
+            Self::VerticalFlip => (dx, sh.saturating_sub(dy + dh), dw, dh),
             // Transpose family — swap dims. The inverse mapping below
             // mirrors the per-pixel reads in `apply_orientation` (see
             // table at lines ~191-200): for each, sensor (sx, sy) is
@@ -331,14 +387,15 @@ impl ExifOrientation {
             // corners and take the bounding box; for axis-aligned 90°
             // rotations / transposes the result simplifies to the rect
             // expressions below.
-            Self::Transpose       => (dy, dx, dh, dw),
-            Self::Rotate90        => (dy, sh.saturating_sub(dx + dw), dh, dw),
-            Self::Transverse      => (
+            Self::Transpose => (dy, dx, dh, dw),
+            Self::Rotate90 => (dy, sh.saturating_sub(dx + dw), dh, dw),
+            Self::Transverse => (
                 sw.saturating_sub(dy + dh),
                 sh.saturating_sub(dx + dw),
-                dh, dw,
+                dh,
+                dw,
             ),
-            Self::Rotate270       => (sw.saturating_sub(dy + dh), dx, dh, dw),
+            Self::Rotate270 => (sw.saturating_sub(dy + dh), dx, dh, dw),
         }
     }
 }
@@ -351,7 +408,10 @@ impl ExifOrientation {
 /// operation rotates the sensor frame into display orientation — the
 /// displayed-image convention used by EXIF-aware viewers.
 pub fn apply_orientation(
-    rgb: &[u8], w: u32, h: u32, orient: ExifOrientation,
+    rgb: &[u8],
+    w: u32,
+    h: u32,
+    orient: ExifOrientation,
 ) -> (u32, u32, Vec<u8>) {
     let (sw, sh) = (w as usize, h as usize);
     debug_assert_eq!(rgb.len(), sw * sh * 3, "RGB buffer size mismatch");
@@ -367,18 +427,18 @@ pub fn apply_orientation(
     for yp in 0..dh {
         for xp in 0..dw {
             let (sx, sy) = match orient {
-                ExifOrientation::Normal          => (xp, yp),
-                ExifOrientation::HorizontalFlip  => (sw - 1 - xp, yp),
-                ExifOrientation::Rotate180       => (sw - 1 - xp, sh - 1 - yp),
-                ExifOrientation::VerticalFlip    => (xp, sh - 1 - yp),
-                ExifOrientation::Transpose       => (yp, xp),
-                ExifOrientation::Rotate90        => (yp, sh - 1 - xp),
-                ExifOrientation::Transverse      => (sw - 1 - yp, sh - 1 - xp),
-                ExifOrientation::Rotate270       => (sw - 1 - yp, xp),
+                ExifOrientation::Normal => (xp, yp),
+                ExifOrientation::HorizontalFlip => (sw - 1 - xp, yp),
+                ExifOrientation::Rotate180 => (sw - 1 - xp, sh - 1 - yp),
+                ExifOrientation::VerticalFlip => (xp, sh - 1 - yp),
+                ExifOrientation::Transpose => (yp, xp),
+                ExifOrientation::Rotate90 => (yp, sh - 1 - xp),
+                ExifOrientation::Transverse => (sw - 1 - yp, sh - 1 - xp),
+                ExifOrientation::Rotate270 => (sw - 1 - yp, xp),
             };
             let si = (sy * sw + sx) * 3;
             let di = (yp * dw + xp) * 3;
-            out[di]     = rgb[si];
+            out[di] = rgb[si];
             out[di + 1] = rgb[si + 1];
             out[di + 2] = rgb[si + 2];
         }
@@ -400,7 +460,9 @@ mod tests {
     fn tag_fixture_2x3() -> (u32, u32, Vec<u8>) {
         let tags = [b'A', b'B', b'C', b'D', b'E', b'F'];
         let mut v = Vec::with_capacity(18);
-        for t in tags { v.extend_from_slice(&[t, 0, 0]); }
+        for t in tags {
+            v.extend_from_slice(&[t, 0, 0]);
+        }
         (2, 3, v)
     }
 
@@ -413,7 +475,7 @@ mod tests {
         let (w, h, rgb) = tag_fixture_2x3();
         let (nw, nh, out) = apply_orientation(&rgb, w, h, ExifOrientation::Normal);
         assert_eq!((nw, nh), (w, h));
-        assert_eq!(read_tags(&out), vec!['A','B','C','D','E','F']);
+        assert_eq!(read_tags(&out), vec!['A', 'B', 'C', 'D', 'E', 'F']);
     }
 
     #[test]
@@ -425,7 +487,7 @@ mod tests {
         let (w, h, rgb) = tag_fixture_2x3();
         let (nw, nh, out) = apply_orientation(&rgb, w, h, ExifOrientation::Rotate90);
         assert_eq!((nw, nh), (3, 2));
-        assert_eq!(read_tags(&out), vec!['E','C','A','F','D','B']);
+        assert_eq!(read_tags(&out), vec!['E', 'C', 'A', 'F', 'D', 'B']);
     }
 
     #[test]
@@ -434,7 +496,7 @@ mod tests {
         let (nw, nh, out) = apply_orientation(&rgb, w, h, ExifOrientation::Rotate180);
         assert_eq!((nw, nh), (w, h));
         // Reverse of A B C D E F → F E D C B A
-        assert_eq!(read_tags(&out), vec!['F','E','D','C','B','A']);
+        assert_eq!(read_tags(&out), vec!['F', 'E', 'D', 'C', 'B', 'A']);
     }
 
     #[test]
@@ -445,7 +507,7 @@ mod tests {
         //   A B → B A
         //   C D → D C
         //   E F → F E
-        assert_eq!(read_tags(&out), vec!['B','A','D','C','F','E']);
+        assert_eq!(read_tags(&out), vec!['B', 'A', 'D', 'C', 'F', 'E']);
     }
 
     #[test]
@@ -457,7 +519,7 @@ mod tests {
         let (w, h, rgb) = tag_fixture_2x3();
         let (nw, nh, out) = apply_orientation(&rgb, w, h, ExifOrientation::Rotate270);
         assert_eq!((nw, nh), (3, 2));
-        assert_eq!(read_tags(&out), vec!['B','D','F','A','C','E']);
+        assert_eq!(read_tags(&out), vec!['B', 'D', 'F', 'A', 'C', 'E']);
     }
 
     #[test]
