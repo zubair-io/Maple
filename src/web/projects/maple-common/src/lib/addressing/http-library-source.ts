@@ -65,15 +65,26 @@ export class HttpLibrarySource implements LibrarySource {
     );
   }
 
-  thumbBlob(a: MapleAddress): Promise<Blob> {
-    return firstValueFrom(
-      this.http.get(`${this.base}/thumb/${toApiPath(a)}`, { responseType: 'blob' }),
+  async thumbBlob(a: MapleAddress): Promise<Blob | null> {
+    const res = await firstValueFrom(
+      this.http.get(`${this.base}/thumb/${toApiPath(a)}`, {
+        responseType: 'blob',
+        observe: 'response',
+      }),
     );
+    // Only a 200 carries a real JPEG. A 202 (indexing — older servers) or 204
+    // has a JSON/empty body; return null so the caller keeps the gradient
+    // placeholder instead of rendering that body as a broken <img>.
+    return res.status === 200 ? res.body : null;
   }
 
-  previewBlob(a: MapleAddress): Promise<Blob> {
-    return firstValueFrom(
-      this.http.get(`${this.base}/preview/${toApiPath(a)}`, { responseType: 'blob' }),
+  async previewBlob(a: MapleAddress): Promise<Blob | null> {
+    const res = await firstValueFrom(
+      this.http.get(`${this.base}/preview/${toApiPath(a)}`, {
+        responseType: 'blob',
+        observe: 'response',
+      }),
     );
+    return res.status === 200 ? res.body : null;
   }
 }
