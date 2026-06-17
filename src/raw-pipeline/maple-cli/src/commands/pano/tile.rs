@@ -11,9 +11,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use maple_pano::render::PngMetadata;
 use maple_pano::stitch::TileStitchOutcome;
 
-use super::display_png_meta;
 use super::io::{tile_stitch_report, write_png16, TileReportContext};
 
 // ─── Primary entry point: outcome already computed ────────────────────────────
@@ -30,6 +30,10 @@ pub(super) struct TileOutcomeArgs<'a> {
     pub outs_display: Option<&'a Path>,
     pub outs_report: Option<&'a Path>,
     pub inputs: &'a [PathBuf],
+    /// PNG metadata (EXIF blob + sRGB tag) pre-computed BEFORE stitch() ran
+    /// so that this write phase does not re-read any source RAW at peak RSS
+    /// (#1349 fix). `None` iff `outs_display` is `None`.
+    pub display_meta: Option<PngMetadata>,
     pub t0: Instant,
 }
 
@@ -47,6 +51,7 @@ pub(super) fn run_tile_from_outcome(
         outs_display,
         outs_report,
         inputs,
+        display_meta,
         t0,
     } = args;
 
@@ -96,8 +101,9 @@ pub(super) fn run_tile_from_outcome(
         // render. develop_for_display returns the encoded 16-bit buffer
         // directly → write it straight out (no re-quantize).
         let data = maple_pano::stitch::develop_for_display(&outcome.image);
-        // Embed EXIF from the first source frame + tag as sRGB (#1333).
-        let meta = display_png_meta(inputs);
+        // EXIF + sRGB tag were computed BEFORE stitch() to avoid re-reading
+        // the source RAW at peak RSS (#1349 fix).
+        let meta = display_meta.expect("display_meta is Some when outs_display is Some");
         maple_pano::render::write_frame_png(
             display,
             outcome.image.width(),
