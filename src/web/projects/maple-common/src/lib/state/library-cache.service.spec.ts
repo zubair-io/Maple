@@ -301,9 +301,10 @@ describe('LibraryCache — thumbnailUrlFor reactivity (M2 #1327 regression)', ()
     (s as unknown as { thumbSignals: Map<unknown, unknown> }).thumbSignals.size;
   const signalMapHas = (s: LibraryCache, id: AssetId): boolean =>
     (s as unknown as { thumbSignals: Map<AssetId, unknown> }).thumbSignals.has(id);
+  // Read the real cap so the assertions track it if it is tuned later.
+  const CAP = (LibraryCache as unknown as { THUMB_SIGNAL_CAP: number }).THUMB_SIGNAL_CAP;
 
   it('bounds thumbSignals when many never-cached ids are queried', () => {
-    const CAP = 1000; // LibraryCache['THUMB_SIGNAL_CAP']
     for (let i = 0; i < CAP + 100; i++) {
       // Each query creates a per-asset signal but never caches the id (no
       // cacheThumbnailUrl), so the id never enters the LRU.
@@ -313,7 +314,6 @@ describe('LibraryCache — thumbnailUrlFor reactivity (M2 #1327 regression)', ()
   });
 
   it('keeps a re-accessed id hot under cap pressure (access-ordered eviction)', () => {
-    const CAP = 1000;
     const hot = 'lib:hot.jpg' as AssetId;
     svc.thumbnailUrlFor(hot); // inserted first — would be the oldest...
     for (let i = 0; i < CAP + 50; i++) {
