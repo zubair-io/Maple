@@ -1,6 +1,6 @@
 use crate::{
     color::{
-        matrices::M_REC2020_TO_SRGB,
+        matrices::{M_REC2020_TO_P3, M_REC2020_TO_SRGB},
         oklab::{oklab_to_srgb_linear, srgb_linear_to_oklab},
         oklab_gamut::compress_to_unit_cube_oklab,
     },
@@ -9,11 +9,51 @@ use crate::{
 };
 use rayon::prelude::*;
 
-/// Rec.2020 → sRGB linear via compile-time 3×3 + **hue-preserving gamut
-/// compression** for any post-matrix triple that leaves `[0, 1]^3`.
+/// Which display primaries the `display_encode` view-tail converts to.
+///
+/// The OETF is identical for both variants (IEC 61966-2-1 / 2.4-gamma —
+/// the same `srgb_gamma_encode` call follows in both cases). Only the
+/// primaries matrix changes.
+///
+/// - `Srgb` — the current (pre-#1337) behavior: Rec.2020 → sRGB primaries.
+///   `0` in the C FFI / WGSL uniform so legacy callers that never set the
+///   field default to this — bit-identical to the pre-#1337 pipeline.
+/// - `P3` — Rec.2020 → Display P3 primaries (SMPTE RP 431-2, D65 white).
+///   When the `CAMetalLayer` is tagged Display P3 (as it is on Apple), the
+///   bytes produced by this path are geometrically correct for that
+///   colorspace; `Srgb` bytes were re-interpreted through P3 primaries,
+///   giving an unintended saturation bump. Ticket #1337 plumbs the choice;
+///   the user-facing toggle is #1338.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum TargetPrimaries {
+    /// Rec.2020 → sRGB primaries (default — legacy-compatible, zero in FFI).
+    #[default]
+    Srgb,
+    /// Rec.2020 → Display P3 primaries (SMPTE RP 431-2, D65).
+    P3,
+}
+
+impl TargetPrimaries {
+    /// Construct from a C FFI / WGSL `u32` value: `0` → `Srgb`, `1` → `P3`,
+    /// any other value → `Srgb` (defensive default — matches `Look::from`
+    /// and `WbMethod` conventions throughout this crate).
+    pub fn from_u32(v: u32) -> Self {
+        match v {
+            1 => Self::P3,
+            _ => Self::Srgb,
+        }
+    }
+}
+
+/// Rec.2020 → display-primary linear via compile-time 3×3 + **hue-preserving
+/// gamut compression** for any post-matrix triple that leaves `[0, 1]^3`.
+///
+/// `target` selects the primaries matrix:
+/// - [`TargetPrimaries::Srgb`] — the existing `M_REC2020_TO_SRGB` (unchanged).
+/// - [`TargetPrimaries::P3`]  — the new `M_REC2020_TO_P3` (ticket #1337).
 ///
 /// Wide-gamut Rec.2020 colors near the saturated primaries land outside
-/// the sRGB unit box after the matrix multiply (typically with one or
+/// the target unit box after the matrix multiply (typically with one or
 /// two channels negative). The previous behaviour relied on
 /// `srgb_gamma`'s per-channel `clamp(0, 1)` to bring them in; that's a
 /// channel-independent clip and rotates hue (saturated red ends up
@@ -28,19 +68,34 @@ use rayon::prelude::*;
 /// (#435 / `view/agx_hue_restoration.rs`) and this encode caller stay
 /// algorithmically locked.
 ///
-/// **Byte-identity contract:** when the post-matrix triple is already
-/// in `[0, 1]^3` (the overwhelming common case — most pixels post-AgX),
-/// [`compress_to_unit_cube_oklab`] returns the triple **unmodified**.
-/// The downstream `srgb_gamma` clamp behaves identically to before, so
-/// in-gamut input produces bit-for-bit identical output to the
-/// pre-#438 pipeline.
-pub fn rec2020_to_srgb(img: &mut Image) {
+/// **Byte-identity contract (Srgb path):** when the post-matrix triple is
+/// already in `[0, 1]^3` (the overwhelming common case — most pixels
+/// post-AgX), [`compress_to_unit_cube_oklab`] returns the triple
+/// **unmodified**. The downstream `srgb_gamma` clamp behaves identically
+/// to before, so in-gamut input produces bit-for-bit identical output to
+/// the pre-#438 pipeline.
+pub fn rec2020_to_display(img: &mut Image, target: TargetPrimaries) {
     img.assert_space(ColorSpace::DisplayLinearRec2020);
+    let matrix = match target {
+        TargetPrimaries::Srgb => M_REC2020_TO_SRGB,
+        TargetPrimaries::P3 => M_REC2020_TO_P3,
+    };
     img.pixels.par_iter_mut().for_each(|p| {
-        let srgb = M_REC2020_TO_SRGB.mul_vec(*p);
-        *p = compress_to_unit_cube_oklab(srgb, srgb_linear_to_oklab, oklab_to_srgb_linear);
+        let display = matrix.mul_vec(*p);
+        *p = compress_to_unit_cube_oklab(display, srgb_linear_to_oklab, oklab_to_srgb_linear);
     });
     img.space = ColorSpace::DisplayLinearSrgb;
+}
+
+/// Rec.2020 → sRGB linear: the legacy single-target entry. A thin wrapper
+/// around [`rec2020_to_display`] with `TargetPrimaries::Srgb` for
+/// backward-compatibility with existing callers that have not been updated
+/// to pass a `TargetPrimaries` yet.
+///
+/// **ABI note:** this function's signature is unchanged from pre-#1337 —
+/// do not add parameters here; they belong in [`rec2020_to_display`].
+pub fn rec2020_to_srgb(img: &mut Image) {
+    rec2020_to_display(img, TargetPrimaries::Srgb);
 }
 
 /// Piecewise sRGB gamma encode. Per IEC 61966-2-1.
@@ -434,6 +489,114 @@ mod tests {
         for &b in &bytes {
             assert!((b as i32 - 118).abs() <= 2,
                 "mid-gray u8 = {}, expected near 118", b);
+        }
+    }
+
+    // ── TargetPrimaries / rec2020_to_display tests (#1337) ───────────────────
+
+    #[test]
+    fn target_primaries_from_u32_zero_is_srgb() {
+        assert_eq!(TargetPrimaries::from_u32(0), TargetPrimaries::Srgb);
+    }
+
+    #[test]
+    fn target_primaries_from_u32_one_is_p3() {
+        assert_eq!(TargetPrimaries::from_u32(1), TargetPrimaries::P3);
+    }
+
+    #[test]
+    fn target_primaries_from_u32_unknown_is_srgb() {
+        // Defensive default — mirrors Look::from and WbMethod conventions.
+        assert_eq!(TargetPrimaries::from_u32(99), TargetPrimaries::Srgb);
+    }
+
+    #[test]
+    fn rec2020_to_display_srgb_matches_rec2020_to_srgb_legacy() {
+        // The `Srgb` path of `rec2020_to_display` MUST be bit-identical to
+        // the legacy `rec2020_to_srgb` entry — both callers and the parity
+        // gate depend on it.
+        let inputs = [
+            [0.18f32, 0.18, 0.18],
+            [0.50, 0.40, 0.30],
+            [0.05, 0.05, 0.05],
+            [1.00, 0.00, 0.00], // out-of-gamut — exercises the bisection path
+        ];
+        for &input in &inputs {
+            let mut img_legacy = Image::new(1, 1, ColorSpace::DisplayLinearRec2020);
+            img_legacy.pixels[0] = input;
+            rec2020_to_srgb(&mut img_legacy);
+
+            let mut img_display = Image::new(1, 1, ColorSpace::DisplayLinearRec2020);
+            img_display.pixels[0] = input;
+            rec2020_to_display(&mut img_display, TargetPrimaries::Srgb);
+
+            for c in 0..3 {
+                assert_eq!(
+                    img_display.pixels[0][c].to_bits(),
+                    img_legacy.pixels[0][c].to_bits(),
+                    "Srgb path != legacy rec2020_to_srgb on channel {c} input {:?}",
+                    input,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn p3_and_srgb_outputs_differ_on_saturated_patch() {
+        // A saturated Rec.2020 patch MUST produce different linear-display
+        // values for P3 vs sRGB (the matrices are distinct). A neutral
+        // `[1,1,1]` maps to `[1,1,1]` under both (white-point identity), so
+        // use a saturated color that exercises the different primaries.
+        // Pure Rec.2020 red is the widest-gamut case.
+        let input = [1.0f32, 0.0, 0.0];
+
+        let mut img_srgb = Image::new(1, 1, ColorSpace::DisplayLinearRec2020);
+        img_srgb.pixels[0] = input;
+        rec2020_to_display(&mut img_srgb, TargetPrimaries::Srgb);
+
+        let mut img_p3 = Image::new(1, 1, ColorSpace::DisplayLinearRec2020);
+        img_p3.pixels[0] = input;
+        rec2020_to_display(&mut img_p3, TargetPrimaries::P3);
+
+        // Both must be in [0,1]^3 (gamut compression applies to both).
+        for c in 0..3 {
+            assert!(
+                (0.0..=1.0).contains(&img_srgb.pixels[0][c]),
+                "sRGB channel {c} out of [0,1]: {}", img_srgb.pixels[0][c]
+            );
+            assert!(
+                (0.0..=1.0).contains(&img_p3.pixels[0][c]),
+                "P3 channel {c} out of [0,1]: {}", img_p3.pixels[0][c]
+            );
+        }
+
+        // The outputs must differ — the P3 matrix is a strict subset of
+        // the sRGB matrix's column span, so any saturated wide-gamut color
+        // produces different coordinates.
+        let differ = (0..3).any(|c| {
+            (img_srgb.pixels[0][c] - img_p3.pixels[0][c]).abs() > 1e-3
+        });
+        assert!(
+            differ,
+            "P3 and sRGB outputs identical on saturated Rec.2020 red — \
+             matrix selection is broken. sRGB={:?} P3={:?}",
+            img_srgb.pixels[0],
+            img_p3.pixels[0],
+        );
+    }
+
+    #[test]
+    fn p3_white_maps_to_white() {
+        // D65 neutral white must be preserved exactly (same white-point for
+        // both Rec.2020 and Display P3 at D65).
+        let mut img = Image::new(1, 1, ColorSpace::DisplayLinearRec2020);
+        img.pixels[0] = [1.0, 1.0, 1.0];
+        rec2020_to_display(&mut img, TargetPrimaries::P3);
+        for c in 0..3 {
+            assert!(
+                (img.pixels[0][c] - 1.0).abs() < 1e-3,
+                "P3 white channel {c} = {} (expected ≈ 1.0)", img.pixels[0][c]
+            );
         }
     }
 }
