@@ -18,6 +18,7 @@ import { BunApiBackendService } from '../api/bun-api-backend.service';
 import { FilesystemBrowseService } from '../api/filesystem-browse.service';
 import { MapleCacheService } from '../maple-cache/maple-cache.service';
 import { RawPipelineService } from '../raw-pipeline/raw-pipeline.service';
+import { LIBRARY_SOURCE } from '../addressing/library-source';
 import type { AssetId } from '../models/asset';
 
 describe('LibraryCache — thumbnail object-URL lifecycle', () => {
@@ -40,6 +41,7 @@ describe('LibraryCache — thumbnail object-URL lifecycle', () => {
         { provide: FilesystemBrowseService, useValue: { clearThumbCache } },
         { provide: MapleCacheService, useValue: {} },
         { provide: RawPipelineService, useValue: {} },
+        { provide: LIBRARY_SOURCE, useValue: {} },
       ],
     });
     svc = TestBed.inject(LibraryCache);
