@@ -127,10 +127,17 @@ pub struct MapleAdjustmentParams {
     pub hsl_lum_blue: f32,
     pub hsl_lum_purple: f32,
     pub hsl_lum_magenta: f32,
+    // --- target display primaries — view-tail display_encode matrix (#1337).
+    //     Appended at the struct tail per the offset-stable ABI convention; a
+    //     pre-#1337 caller that re-binds to the new header leaves this at 0 =
+    //     sRGB (legacy-compatible default, bit-identical output). 1 = Display P3
+    //     (SMPTE RP 431-2, D65 white point). The OETF is unchanged for both. ---
+    pub target_primaries: u32,
     /// Input shape tag (#1331): 0 = PostDcpRec2020Fp16 (RAW, historic default),
     /// 1 = LinearRec2020Fp16 (pano PNG — WB stays engaged with decoded=6500/0),
     /// 2 = SrgbGammaEncoded8 (JPEG/HEIF — CPU pre-pass done at session open).
-    /// Appended at the struct tail; a stale host leaves it 0 = RAW.
+    /// Appended at the struct tail AFTER `target_primaries`; a stale host leaves
+    /// it 0 = RAW.
     pub input_shape: u32,
 }
 
@@ -250,13 +257,24 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
     model.luminance_adjustment_magenta = p.hsl_lum_magenta;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
+    // For non-RAW shapes (#1331) WB is meaningless — the buffer is already at
+    // the correct linear Rec.2020 white point (the 8-bit path was linearised at
+    // session open; the 16-bit pano path was never WB-encoded). Collapse the WB
+    // delta to identity by setting decoded == live (so apply_delta returns the
+    // identity matrix).
+    let (decoded_temp, decoded_tint) = if p.input_shape == 0 {
+        (p.decoded_temperature, p.decoded_tint)
+    } else {
+        // Non-zero shape: WB delta → identity (live == decoded → no-op).
+        (p.temperature, p.tint)
+    };
+
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 
-    // For all shapes, use the host-supplied decoded WB (0/0 = absolute apply
-    // per the pre-#1240 contract). Non-RAW callers pass decoded=6500/0 so
-    // `M_net = M_live · M_decoded(6500,0)⁻¹` — identity at the default
-    // slider value, shift as the user drags temp/tint. (#1331)
-    let (decoded_temp, decoded_tint) = (p.decoded_temperature, p.decoded_tint);
+    // Map the `target_primaries` u32 tag (#1337): 0 = sRGB (legacy / zero-init
+    // default), 1 = Display P3.  Any other value falls back to sRGB —
+    // matches the GPU-path convention (`Look::from` / `WbMethod` pattern).
+    let primaries = raw_core::view::encode::TargetPrimaries::from_u32(p.target_primaries);
 
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain(
         in_slice,
@@ -266,6 +284,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain(
         decoded_temp,
         decoded_tint,
         p.skip_agx != 0,
+        primaries,
     ) {
         Ok(v) => v,
         Err(e) => {
@@ -397,11 +416,19 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
     model.luminance_adjustment_magenta = p.hsl_lum_magenta;
     model.look = raw_core::view::look::Look::from(p.look_mode);
 
+    // Same WB-identity collapse as the fp16 sibling (#1331): for non-RAW input
+    // shapes WB has no meaning — pass `decoded == live` so `apply_delta` is a
+    // no-op regardless of the slider value.
+    let (decoded_temp, decoded_tint) = if p.input_shape == 0 {
+        (p.decoded_temperature, p.decoded_tint)
+    } else {
+        (p.temperature, p.tint)
+    };
+
     let in_slice = std::slice::from_raw_parts(in_ptr, lanes);
 
-    // For all shapes, use the host-supplied decoded WB — same contract as the
-    // fp16 sibling: non-RAW callers pass decoded=6500/0 so sliders engage. (#1331)
-    let (decoded_temp, decoded_tint) = (p.decoded_temperature, p.decoded_tint);
+    // Map the `target_primaries` u32 tag (#1337) — same convention as the fp16 entry.
+    let primaries = raw_core::view::encode::TargetPrimaries::from_u32(p.target_primaries);
 
     let out_vec = match raw_core::pipeline::apply_scene_linear_chain_f32(
         in_slice,
@@ -411,6 +438,7 @@ pub unsafe extern "C" fn maple_apply_scene_linear_chain_f32(
         decoded_temp,
         decoded_tint,
         p.skip_agx != 0,
+        primaries,
     ) {
         Ok(v) => v,
         Err(e) => {

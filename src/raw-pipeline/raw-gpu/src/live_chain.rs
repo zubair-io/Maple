@@ -56,9 +56,9 @@ use crate::capture_sharpening::CaptureSharpeningPass;
 use crate::clarity::ClarityPass;
 use crate::dehaze::{AirlightSource, DehazePass};
 use crate::display_encode::DisplayEncodePass;
+use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
 use crate::grain::GrainPass;
 use crate::hsl::HslPass;
-use crate::full_chain::{BoxedPasses, FullChainInputs, InputShape};
 use crate::noise_reduction::{NlmColorPass, NlmLumaPass};
 use crate::residual_lut::ResidualLutPass;
 use crate::saturation::SaturationPass;
@@ -71,6 +71,21 @@ use crate::tone_curves::ToneCurvesPass;
 use crate::vibrance::VibrancePass;
 use crate::vignette::VignettePass;
 use crate::white_balance::WhiteBalancePass;
+
+// Compile-time guard: `active_mask` packs `input_shape` into the top 2 bits
+// of a u32 (shift left by 30). That encoding supports at most 4 variants
+// (discriminants 0–3). If a 5th variant (discriminant 4) is ever added, the
+// shift would produce a value with bit 32 set, which is out-of-range for u32
+// in debug (overflow panic) or silently truncated in release. The assert below
+// turns that scenario into a compile error with a clear message instead.
+// There is no `const fn` way to iterate an enum's discriminants in stable Rust,
+// so we assert on the known highest discriminant value directly.
+const _: () = assert!(
+    InputShape::SrgbGammaEncoded8 as u32 <= 3,
+    "InputShape has a variant with discriminant > 3; active_mask's 2-bit \
+     `input_shape` pack in the top 2 bits of u32 (shift 30) would overflow. \
+     Widen the encoding or increase the shift before adding a 5th variant."
+);
 
 /// The per-pixel slider no-op threshold raw-core uses across vibrance,
 /// saturation, clarity, texture, dehaze, sharpen, NR, and the scene-tone
@@ -180,7 +195,13 @@ pub fn build_live_split(
 ) -> (BoxedPasses, BoxedPasses) {
     // --- Prefix: capture_sharpening (FIRST, develop's 04b placement) through
     //     texture. Each pass is included only when its stage is NOT a no-op,
-    //     replicating develop's per-stage `if` guards / the `apply` short-circuit. ---
+    //     replicating develop's per-stage `if` guards / the `apply` short-circuit.
+    //
+    //     For `LinearRec2020Fp16` / `SrgbGammaEncoded8` input shapes the buffer
+    //     is already colour-space–correct linear Rec.2020 (the 8-bit path was
+    //     pre-converted at session open on the CPU side). WB and
+    //     capture_sharpening have no meaning there and are unconditionally
+    //     skipped regardless of slider values. ---
     let mut prefix: BoxedPasses = Vec::new();
     // capture_sharpening is RAW-only (#1331): non-RAW shapes (pano PNG, JPEG)
     // upload a buffer that is already post-demosaic, so there was no capture
@@ -231,7 +252,11 @@ pub fn build_live_split(
     // HSL (#1112) — gated when any of the 24 sliders is engaged (same
     // predicate as raw-core's `hsl_params` is_identity flag: `abs() >= 1e-3`).
     {
-        let hsl_pass = HslPass { hue: inputs.hsl_hue, sat: inputs.hsl_sat, lum: inputs.hsl_lum };
+        let hsl_pass = HslPass {
+            hue: inputs.hsl_hue,
+            sat: inputs.hsl_sat,
+            lum: inputs.hsl_lum,
+        };
         if !hsl_pass.is_noop() {
             prefix.push(Box::new(hsl_pass));
         }
@@ -317,7 +342,11 @@ pub fn build_live_split(
             roughness: inputs.grain_roughness,
         }));
     }
-    suffix.push(Box::new(DisplayEncodePass));
+    // target_primaries from FullChainInputs (#1337): 0 = sRGB (default/legacy),
+    // 1 = Display P3.
+    suffix.push(Box::new(DisplayEncodePass {
+        target_primaries: inputs.target_primaries,
+    }));
     suffix.push(Box::new(SrgbGammaPass));
     suffix.push(Box::new(AutoProfileCurvePass {
         flat_curve: inputs.profile_curve_flat.clone(),
@@ -356,10 +385,16 @@ pub const VIEW_TAIL_PASS_COUNT: usize = 5;
 /// [`chain_signature`] to key the live pool's bind-group cache.
 fn active_mask(inputs: &FullChainInputs) -> u32 {
     let mut m = 0u32;
-    // Encode input_shape in the top 2 bits so that a shape change (e.g. opening a
-    // pano vs a RAW) always lands in a fresh pool bucket — the stage set differs.
-    m |= (inputs.input_shape as u32) << 30;
     let is_raw_shape = inputs.input_shape == InputShape::PostDcpRec2020Fp16;
+    // Encode input_shape in the top 2 bits of the mask so a shape change lands
+    // in a fresh pool bucket (different passes = different bind-group layouts).
+    // The 2-bit mask `& 0b11` is defensive: variant values 0/1/2 are safe, but
+    // a future 4th variant (discriminant 3) would still fit; variant 4 (next
+    // power of two) would shift into bit 32 and overflow a u32 in debug mode
+    // (silent truncation in release). The mask guarantees correctness today and
+    // turns any future out-of-range discriminant into a collision (detectable)
+    // rather than UB. See also the compile-time assert below.
+    m |= ((inputs.input_shape as u32) & 0b11) << 30;
     // Bit 0: capture_sharpening — RAW-only (#1331); always 0 for non-RAW shapes.
     if is_raw_shape && inputs.capture_sharpening.is_some() {
         m |= 1 << 0;
@@ -381,7 +416,13 @@ fn active_mask(inputs: &FullChainInputs) -> u32 {
     if inputs.saturation.abs() >= SLIDER_EPS {
         m |= 1 << 5;
     }
-    if !(HslPass { hue: inputs.hsl_hue, sat: inputs.hsl_sat, lum: inputs.hsl_lum }.is_noop()) {
+    if !(HslPass {
+        hue: inputs.hsl_hue,
+        sat: inputs.hsl_sat,
+        lum: inputs.hsl_lum,
+    }
+    .is_noop())
+    {
         m |= 1 << 15;
     }
     if inputs.clarity.abs() >= SLIDER_EPS {

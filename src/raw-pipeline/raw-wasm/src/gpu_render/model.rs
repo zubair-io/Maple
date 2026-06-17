@@ -218,6 +218,11 @@ pub(super) fn build_full_chain_inputs(
         profile_curve_flat,
         residual_lut_size,
         residual_lut_data,
-        input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16, // RAW path (#1331)
+        // Web does not yet surface a P3-canvas path (canvas is tagged
+        // display-P3 but the live render target is managed by the browser).
+        // Legacy sRGB encode (0) is bit-identical to pre-#1337 behavior.
+        target_primaries: 0,
+        // Web always decodes RAW and routes through the full chain.
+        input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
     }
 }

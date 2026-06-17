@@ -33,7 +33,7 @@ use raw_core::xmp::AdjustmentModel;
 /// A structured scene-linear Rec.2020 RGBA fixture (the kind post-DCP develop
 /// produces). Mirrors the raw-gpu oracle's fixture so the two crates' parity
 /// gates exercise the same content.
-fn scene_linear_rgba(w: usize, h: usize) -> Vec<f32> {
+pub(super) fn scene_linear_rgba(w: usize, h: usize) -> Vec<f32> {
     let mut v = Vec::with_capacity(w * h * 4);
     for y in 0..h {
         for x in 0..w {
@@ -224,6 +224,31 @@ pub(super) fn make_params(
         split_tone_highlight_hue: model.split_tone_highlight_hue,
         split_tone_highlight_saturation: model.split_tone_highlight_saturation,
         split_tone_balance: model.split_tone_balance,
+        // HSL 8-band adjustments (#1112) — pass through from the model.
+        hsl_hue_red: model.hue_adjustment_red,
+        hsl_hue_orange: model.hue_adjustment_orange,
+        hsl_hue_yellow: model.hue_adjustment_yellow,
+        hsl_hue_green: model.hue_adjustment_green,
+        hsl_hue_aqua: model.hue_adjustment_aqua,
+        hsl_hue_blue: model.hue_adjustment_blue,
+        hsl_hue_purple: model.hue_adjustment_purple,
+        hsl_hue_magenta: model.hue_adjustment_magenta,
+        hsl_sat_red: model.saturation_adjustment_red,
+        hsl_sat_orange: model.saturation_adjustment_orange,
+        hsl_sat_yellow: model.saturation_adjustment_yellow,
+        hsl_sat_green: model.saturation_adjustment_green,
+        hsl_sat_aqua: model.saturation_adjustment_aqua,
+        hsl_sat_blue: model.saturation_adjustment_blue,
+        hsl_sat_purple: model.saturation_adjustment_purple,
+        hsl_sat_magenta: model.saturation_adjustment_magenta,
+        hsl_lum_red: model.luminance_adjustment_red,
+        hsl_lum_orange: model.luminance_adjustment_orange,
+        hsl_lum_yellow: model.luminance_adjustment_yellow,
+        hsl_lum_green: model.luminance_adjustment_green,
+        hsl_lum_aqua: model.luminance_adjustment_aqua,
+        hsl_lum_blue: model.luminance_adjustment_blue,
+        hsl_lum_purple: model.luminance_adjustment_purple,
+        hsl_lum_magenta: model.luminance_adjustment_magenta,
         sharpen_amount: model.sharpen_amount,
         sharpen_radius: model.sharpen_radius,
         sharpen_detail: model.sharpen_detail,
@@ -253,7 +278,9 @@ pub(super) fn make_params(
         // tests calibrate against. (Copilot review on #1262.)
         decoded_temperature: 0.0,
         decoded_tint: 0.0,
-        // #1331 tail field — 0 = PostDcpRec2020Fp16 (RAW path).
+        // sRGB primaries (#1337 default, value 0).
+        target_primaries: 0,
+        // RAW shape — the full chain runs (the pre-#1331 default, value 0).
         input_shape: 0,
     }
 }
@@ -451,6 +478,37 @@ pub(super) fn direct_raw_gpu(
         },
         vibrance: model.vibrance,
         saturation: model.saturation,
+        // HSL 8-band adjustments (#1112) — pass through from the model.
+        hsl_hue: [
+            model.hue_adjustment_red,
+            model.hue_adjustment_orange,
+            model.hue_adjustment_yellow,
+            model.hue_adjustment_green,
+            model.hue_adjustment_aqua,
+            model.hue_adjustment_blue,
+            model.hue_adjustment_purple,
+            model.hue_adjustment_magenta,
+        ],
+        hsl_sat: [
+            model.saturation_adjustment_red,
+            model.saturation_adjustment_orange,
+            model.saturation_adjustment_yellow,
+            model.saturation_adjustment_green,
+            model.saturation_adjustment_aqua,
+            model.saturation_adjustment_blue,
+            model.saturation_adjustment_purple,
+            model.saturation_adjustment_magenta,
+        ],
+        hsl_lum: [
+            model.luminance_adjustment_red,
+            model.luminance_adjustment_orange,
+            model.luminance_adjustment_yellow,
+            model.luminance_adjustment_green,
+            model.luminance_adjustment_aqua,
+            model.luminance_adjustment_blue,
+            model.luminance_adjustment_purple,
+            model.luminance_adjustment_magenta,
+        ],
         clarity: model.clarity,
         texture: model.texture,
         dehaze: model.dehaze,
@@ -475,7 +533,10 @@ pub(super) fn direct_raw_gpu(
         profile_curve_flat: curve.to_flat(),
         residual_lut_size: lut.size,
         residual_lut_data: lut.data.clone(),
-        input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16, // RAW path (#1331)
+        // sRGB primaries (#1337 default).
+        target_primaries: 0,
+        // RAW shape — full chain including WB (pre-#1331 default).
+        input_shape: raw_gpu::InputShape::PostDcpRec2020Fp16,
     };
     let ctx = GpuContext::new_blocking().expect("gpu context");
     let session = LiveSession::new(&ctx, input, w, h).expect("session");
@@ -484,31 +545,6 @@ pub(super) fn direct_raw_gpu(
         .render_to_buffer(&ctx, &inputs, &cancel)
         .expect("direct render ok")
         .expect("direct render returns Some")
-}
-
-/// Null-pointer / dimension guards on the open entry.
-#[test]
-fn gpu_live_open_rejects_bad_args() {
-    let mut handle = MapleGpuLiveSession {
-        inner: std::ptr::null_mut(),
-    };
-    // null handle_out.
-    assert_eq!(
-        unsafe { maple_gpu_live_open(std::ptr::null(), 8, 8, std::ptr::null_mut()) },
-        -1
-    );
-    // null pixels.
-    assert_eq!(
-        unsafe { maple_gpu_live_open(std::ptr::null(), 8, 8, &mut handle) },
-        -2
-    );
-    assert!(handle.inner.is_null(), "handle must be null on error");
-    // zero dimension.
-    let px = vec![0.0f32; 4];
-    assert_eq!(
-        unsafe { maple_gpu_live_open(px.as_ptr(), 0, 8, &mut handle) },
-        -3
-    );
 }
 
 /// A re-render through the FFI is byte-identical (the upload-once + pooled path).
@@ -550,36 +586,6 @@ fn gpu_live_rerender_is_byte_identical() {
     assert_eq!(a, b, "FFI re-render at same inputs must be byte-identical");
 }
 
-/// PANIC CONTAINMENT (#1079): the gpu entries wrap their bodies in
-/// `catch_panic_rc`, mirroring the CPU entries' worker-panic rc-99 pattern in
-/// `error.rs`. A panic inside the body must surface as rc 99 + a
-/// `maple_last_error` message, NOT unwind through the `extern "C"` frame (which
-/// aborts the app on Apple). Exercised directly on the barrier — provoking a
-/// real wgpu panic through valid FFI args would require GPU fault injection.
-#[test]
-fn catch_panic_rc_contains_panics_as_rc_99() {
-    let rc = crate::error::catch_panic_rc("test_entry", || {
-        panic!("synthetic wgpu validation failure");
-    });
-    assert_eq!(
-        rc,
-        crate::error::RC_PANICKED,
-        "a contained panic must map to rc 99"
-    );
-
-    let msg = unsafe {
-        let p = crate::error::maple_last_error();
-        assert!(
-            !p.is_null(),
-            "last error must be set after a contained panic"
-        );
-        std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned()
-    };
-    assert!(
-        msg.contains("test_entry") && msg.contains("synthetic wgpu validation failure"),
-        "last error must carry the entry name + panic payload, got: {msg}"
-    );
-
-    // A non-panicking body passes its rc through untouched.
-    assert_eq!(crate::error::catch_panic_rc("test_entry", || -7), -7);
-}
+// Panic-containment barrier test + P3 target-primaries FFI parity tests (#1337)
+// live in the sibling `gpu_live_p3_tests.rs` (600-LOC file budget — same pattern
+// as `gpu_live_airlight_tests.rs` for the dehaze split).

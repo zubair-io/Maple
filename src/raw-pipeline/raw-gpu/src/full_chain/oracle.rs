@@ -202,7 +202,10 @@ impl Case {
             profile_curve_flat: self.curve.to_flat(),
             residual_lut_size: self.lut.size,
             residual_lut_data: self.lut.data.clone(),
-            input_shape: crate::full_chain::InputShape::PostDcpRec2020Fp16, // RAW (#1331)
+            // sRGB primaries — oracle always uses the default (#1337).
+            target_primaries: 0,
+            // All oracle cases are RAW — the full chain.
+            input_shape: crate::full_chain::InputShape::PostDcpRec2020Fp16,
         }
     }
 }

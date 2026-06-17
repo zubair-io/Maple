@@ -86,6 +86,26 @@ pub const M_REC2020_TO_SRGB: Matrix3 = Matrix3([
     [-0.0182, -0.1006,  1.1187],
 ]);
 
+/// Linear Rec.2020 → linear Display P3 (SMPTE RP 431-2, D65 white point).
+///
+/// Derived from first principles via XYZ D65:
+///   `M_XYZ_D65_TO_P3 · M_REC2020_TO_XYZ_D65`
+/// where `M_XYZ_D65_TO_P3` is computed from the Display P3 chromaticities
+/// (R: 0.680/0.320, G: 0.265/0.690, B: 0.150/0.060) and D65 white
+/// (0.3127/0.3290) — the same derivation procedure as `M_REC2020_TO_SRGB`.
+///
+/// Cross-checked: white `[1,1,1]` maps to `[1,1,1]` within floating-point
+/// precision; the sRGB constant matches the analogous derivation bit-for-bit.
+///
+/// Used by the `display_encode` view-tail when `TargetPrimaries::P3` is
+/// selected (ticket #1337). The OETF is identical for sRGB and Display P3
+/// (IEC 61966-2-1 / 2.4-gamma), so `srgb_gamma_encode` is unchanged.
+pub const M_REC2020_TO_P3: Matrix3 = Matrix3([
+    [ 1.3436,  -0.2822, -0.0614],
+    [-0.0653,   1.0758, -0.0105],
+    [ 0.0028,  -0.0196,  1.0168],
+]);
+
 /// Compute Bradford chromatic-adaptation matrix for `src_white` → `dst_white`.
 /// Both in XYZ. See spec § 3.15.
 pub fn bradford_adapt(src_white: Vec3, dst_white: Vec3) -> Matrix3 {

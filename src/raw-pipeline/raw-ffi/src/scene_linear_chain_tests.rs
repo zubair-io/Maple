@@ -69,7 +69,10 @@ fn default_params() -> MapleAdjustmentParams {
         hsl_lum_blue: 0.0,
         hsl_lum_purple: 0.0,
         hsl_lum_magenta: 0.0,
-        input_shape: 0, // PostDcpRec2020Fp16 (RAW path, #1331)
+        // sRGB primaries — the default (#1337, value 0).
+        target_primaries: 0,
+        // RAW shape — the full chain including WB (pre-#1331 default, value 0).
+        input_shape: 0,
     }
 }
 
@@ -376,4 +379,84 @@ fn encode_saturated_green_compresses_blue_above_zero() {
         out[2]
     );
     assert!((out[3] - 1.0).abs() < 1e-6, "alpha must be 1.0");
+}
+
+// ----- P3 target-primaries CPU-chain gate (#1337) -------------------------
+
+/// CPU-CHAIN P3 WIRING GATE (#1337): confirms `target_primaries = 1` (Display
+/// P3) is forwarded through `maple_apply_scene_linear_chain_f32` and actually
+/// changes the output relative to `target_primaries = 0` (sRGB).
+///
+/// Uses a saturated Rec.2020 green input at post-AgX display-linear level
+/// (0.5, 0.5, 0.5 neutral gray would produce identical P3/sRGB output since
+/// neutral grays lie on the achromatic axis and both primary sets map them
+/// identically). A saturated primary breaks symmetry; the P3 and sRGB renders
+/// diverge on any wide-gamut content.
+///
+/// This test is the CPU-side sibling of `gpu_live_render_p3_primaries_marshals_correctly`
+/// in `gpu_live_p3_tests.rs`. Both must pass for the P3 wiring to be
+/// considered complete.
+#[test]
+fn f32_p3_target_primaries_differs_from_srgb() {
+    let w = 4u32;
+    let h = 4u32;
+    let lanes = (w * h * 4) as usize;
+
+    // Saturated Rec.2020 green-ish scene-linear patch: bright enough that
+    // AgX places it well into the [0,1] display range, and green-heavy enough
+    // that the Rec.2020→sRGB vs Rec.2020→P3 primary swap produces distinct
+    // output bytes on at least some pixels.
+    let mut input: Vec<f32> = Vec::with_capacity(lanes);
+    for _ in 0..(w * h) as usize {
+        input.push(0.05); // R — low
+        input.push(0.80); // G — high (saturated green in Rec.2020)
+        input.push(0.10); // B
+        input.push(1.0); // A
+    }
+
+    // sRGB run (target_primaries = 0).
+    let mut params_srgb = default_params();
+    params_srgb.skip_agx = 0; // AgX must run for the display-encode branch to fire
+    params_srgb.target_primaries = 0;
+    let mut out_srgb = vec![0.0f32; lanes];
+    let rc = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            w,
+            h,
+            &params_srgb as *const _,
+            out_srgb.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0, "sRGB run failed with rc {rc}");
+
+    // P3 run (target_primaries = 1).
+    let mut params_p3 = default_params();
+    params_p3.skip_agx = 0;
+    params_p3.target_primaries = 1;
+    let mut out_p3 = vec![0.0f32; lanes];
+    let rc = unsafe {
+        maple_apply_scene_linear_chain_f32(
+            input.as_ptr(),
+            w,
+            h,
+            &params_p3 as *const _,
+            out_p3.as_mut_ptr(),
+        )
+    };
+    assert_eq!(rc, 0, "P3 run failed with rc {rc}");
+
+    // The two runs must differ (otherwise target_primaries is being silently
+    // dropped). We count differing f32 lanes; at least the G channel of at
+    // least one pixel must diverge.
+    let diffs = out_srgb
+        .iter()
+        .zip(&out_p3)
+        .filter(|(a, b)| a.to_bits() != b.to_bits())
+        .count();
+    assert!(
+        diffs > 0,
+        "P3 and sRGB CPU-chain outputs are byte-identical — \
+         target_primaries=1 is not being applied in maple_apply_scene_linear_chain_f32"
+    );
 }

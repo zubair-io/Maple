@@ -36,12 +36,13 @@ use crate::context::GpuContext;
 use crate::spatial::encode_simple;
 
 /// `repr(C)` params uniform shared by the WGSL kernel (`display_encode.wgsl`).
-/// `count` is the RGBA pixel count; `_pad*` round the struct to 16 bytes.
+/// `count` is the RGBA pixel count; `target_primaries` selects the matrix
+/// (0 = sRGB, 1 = Display P3 per #1337); `_pad*` round the struct to 16 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Params {
     count: u32,
-    _pad0: u32,
+    target_primaries: u32, // 0 = sRGB (default), 1 = Display P3 (#1337)
     _pad1: u32,
     _pad2: u32,
 }
@@ -186,10 +187,16 @@ pub fn apply_display_encode(buf: &mut [f32]) {
     }
 }
 
-/// A GPU-resident display-encode stage (Rec.2020 → sRGB + gamut compress).
-/// Carries no parameters — the transform is fixed. The device, pipeline, and
-/// ping-pong buffers come from the [`GpuContext`] / [`ChainRunner`].
-pub struct DisplayEncodePass;
+/// A GPU-resident display-encode stage (Rec.2020 → display-primary + gamut
+/// compress). Carries the `target_primaries` selector for #1337 — defaults to
+/// `0` (sRGB) so the pre-#1337 output is preserved bit-exactly when the chain
+/// does not set the field. The device, pipeline, and ping-pong buffers come
+/// from the [`GpuContext`] / [`ChainRunner`].
+pub struct DisplayEncodePass {
+    /// `0` = sRGB primaries (default, legacy-compatible).
+    /// `1` = Display P3 primaries (SMPTE RP 431-2, D65) — ticket #1337.
+    pub target_primaries: u32,
+}
 
 impl Pass for DisplayEncodePass {
     fn encode(
@@ -205,7 +212,7 @@ impl Pass for DisplayEncodePass {
 
         let params = Params {
             count: pixel_count,
-            _pad0: 0,
+            target_primaries: self.target_primaries,
             _pad1: 0,
             _pad2: 0,
         };
@@ -282,7 +289,7 @@ mod tests {
 
         let img = GpuImage::upload(&ctx, &input, count, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&DisplayEncodePass]);
+        let gpu = runner.run_blocking(&[&DisplayEncodePass { target_primaries: 0 }]);
 
         let max_diff = reference
             .iter()
@@ -375,7 +382,7 @@ mod tests {
         let input = vec![1.0_f32, 0.0, 0.0, 1.0]; // pure Rec.2020 red
         let img = GpuImage::upload(&ctx, &input, 1, 1);
         let runner = ChainRunner::new(&ctx, &img);
-        let gpu = runner.run_blocking(&[&DisplayEncodePass]);
+        let gpu = runner.run_blocking(&[&DisplayEncodePass { target_primaries: 0 }]);
         for (c, &v) in gpu[..3].iter().enumerate() {
             assert!(
                 (0.0..=1.0).contains(&v),

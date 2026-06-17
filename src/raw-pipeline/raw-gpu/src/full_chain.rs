@@ -169,9 +169,17 @@ pub struct FullChainInputs {
     pub residual_lut_size: usize,
     /// Auto Profile residual LUT flat grid (`size³ × 3` floats).
     pub residual_lut_data: Vec<f32>,
+    /// Target display primaries for the `display_encode` view-tail stage
+    /// (ticket #1337): `0` = sRGB (default, legacy-compatible), `1` = Display P3.
+    ///
+    /// C FFI / WASM callers that zero-initialise the struct get `0` ⇒ sRGB,
+    /// which is bit-identical to the pre-#1337 output. Rust callers must
+    /// include this field explicitly — `FullChainInputs` does not impl
+    /// `Default`, so `..Default::default()` is not available.
+    pub target_primaries: u32,
     /// How the uploaded scene-linear buffer was produced — determines which
     /// leading stages (WB / DCP / AE) the live builder may skip (#1331).
-    /// Appended at the struct tail (append-only convention);
+    /// Appended at the struct tail after `target_primaries` (append-only convention);
     /// the default `PostDcpRec2020Fp16` is the historic value — all existing callers
     /// that leave it at zero-init preserve the current RAW behaviour exactly.
     pub input_shape: InputShape,
@@ -319,7 +327,12 @@ pub fn build_split(inputs: &FullChainInputs, airlight: [f32; 3]) -> (BoxedPasses
         size: inputs.grain_size,
         roughness: inputs.grain_roughness,
     }));
-    suffix.push(Box::new(DisplayEncodePass));
+    // target_primaries from FullChainInputs (#1337). The full-chain headless
+    // path defaults to 0 (sRGB) via FullChainInputs::default; the live path
+    // reads it from inputs.
+    suffix.push(Box::new(DisplayEncodePass {
+        target_primaries: inputs.target_primaries,
+    }));
     // srgb_gamma_encode: the per-channel IEC OETF. MUST sit between display_encode
     // and the Auto Profile curve — the curve + residual LUT were fit in gamma
     // space (matches raw-core's render tail: rec2020_to_srgb → srgb_gamma_encode →
