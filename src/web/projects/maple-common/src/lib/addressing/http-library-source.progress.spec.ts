@@ -73,3 +73,54 @@ describe('HttpLibrarySource.imageBlob download progress', () => {
     expect(frames).toEqual([{ loaded: 50, total: null }]);
   });
 });
+
+describe('HttpLibrarySource.thumbBlob / previewBlob status handling', () => {
+  let src: HttpLibrarySource;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        HttpLibrarySource,
+        { provide: API_BASE_URL, useValue: '/api' },
+      ],
+    });
+    src = TestBed.inject(HttpLibrarySource);
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => http.verify());
+
+  it('thumbBlob returns the JPEG Blob on 200', async () => {
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' });
+    const p = src.thumbBlob({ slug: 'lib', relPath: 'a.dng' });
+    http.expectOne('/api/thumb/lib/a.dng').flush(blob, { status: 200, statusText: 'OK' });
+    expect(await p).toBe(blob);
+  });
+
+  it('thumbBlob returns null on 202 (indexing) so the caller keeps the gradient', async () => {
+    const p = src.thumbBlob({ slug: 'lib', relPath: 'b.dng' });
+    // 202 body is JSON (`{status:"indexing"}`) — must NOT become a broken <img>.
+    http
+      .expectOne('/api/thumb/lib/b.dng')
+      .flush(new Blob([JSON.stringify({ status: 'indexing' })]), {
+        status: 202,
+        statusText: 'Accepted',
+      });
+    expect(await p).toBeNull();
+  });
+
+  it('previewBlob returns null on 202', async () => {
+    const p = src.previewBlob({ slug: 'lib', relPath: 'c.dng' });
+    http
+      .expectOne('/api/preview/lib/c.dng')
+      .flush(new Blob([JSON.stringify({ status: 'indexing' })]), {
+        status: 202,
+        statusText: 'Accepted',
+      });
+    expect(await p).toBeNull();
+  });
+});
