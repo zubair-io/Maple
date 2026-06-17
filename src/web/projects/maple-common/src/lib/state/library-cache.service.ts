@@ -358,7 +358,10 @@ export class LibraryCache {
     // thumb branch in _loadThumbInternal. Exclude legacy `fs:<absPath>` ids —
     // they also contain ':' but resolve via the assetAbsPaths FS-walk below.
     if (typeof id === 'string' && id.includes(':') && !id.startsWith('fs:')) {
-      const blob = await this.librarySource.imageBlob(parseAddress(id));
+      const blob = await this.librarySource.imageBlob(
+        parseAddress(id),
+        this.makeProgressCallback(id),
+      );
       return new Uint8Array(await blob.arrayBuffer());
     }
 
