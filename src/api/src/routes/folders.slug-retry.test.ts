@@ -115,4 +115,30 @@ describe('POST /api/folders — slug collision retry', () => {
     expect(body.path).toBe(tmpDir);
     expect(body.label).toBe('My Library');
   });
+
+  it('GET /api/folders returns slug in the payload (client addresses libraries by slug)', async () => {
+    if (!client || !db) {
+      console.log('[folders.slug-retry.test] MongoDB unreachable — skipping');
+      return;
+    }
+    await db.collection('folders').insertOne({
+      _id: new ObjectId(),
+      path: tmpDir,
+      label: 'Library',
+      slug: 'library',
+      last_scan: null,
+      file_count: 0,
+      created_at: new Date().toISOString(),
+    } as never);
+
+    const app = new Elysia().use(foldersRoutes);
+    const res = await app.handle(new Request('http://localhost/api/folders'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string; slug?: string }>;
+    // Regression: without `slug` in the payload the web client falls back to
+    // f.id (the raw ObjectId) and addresses an invalid /api/folder/<ObjectId>.
+    const row = body.find((f) => f.slug === 'library');
+    expect(row).toBeDefined();
+    expect(row!.slug).toBe('library');
+  });
 });
