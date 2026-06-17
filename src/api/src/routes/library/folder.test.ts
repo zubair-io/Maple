@@ -105,6 +105,19 @@ describe('GET /folder/:slug/*', () => {
     expect(body.error).toMatch(/slug/i);
   });
 
+  test('matches the library root WITHOUT a trailing slash (regression: no SPA fallback)', async () => {
+    if (!mongoReachable) return;
+    // The web client requests `/api/folder/<slug>` (NO trailing slash) for the
+    // library root. `/folder/:slug/*` alone does NOT match that, so the request
+    // fell through to the SPA static handler and returned index.html (the live
+    // "Http failure during parsing" bug). The root route must match it.
+    const res = await app.handle(new Request('http://localhost/folder/testlib'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toMatch(/application\/json/);
+    const body = (await res.json()) as { address: string };
+    expect(body.address).toBe('testlib:');
+  });
+
   test('returns empty listing for a root with no files or subdirs', async () => {
     if (!mongoReachable) return;
     const subDir = path.join(tmpDir, `empty-${Date.now()}`);

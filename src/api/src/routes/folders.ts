@@ -208,6 +208,9 @@ export const foldersRoutes = new Elysia({ prefix: '/api/folders' })
     const docs = await coll.find({}).sort({ created_at: 1 }).toArray();
     const payload = docs.map((d) => ({
       id: d._id.toHexString(),
+      // slug is the public M1 address identifier; the web client falls back to
+      // the raw ObjectId when it's absent, which breaks /api/folder/:slug.
+      slug: d.slug,
       path: d.path,
       label: d.label,
       last_scan: d.last_scan,
