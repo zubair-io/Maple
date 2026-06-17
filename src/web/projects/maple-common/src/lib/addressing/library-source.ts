@@ -16,10 +16,6 @@ export interface LibraryFolderEntry {
   address: string;
 }
 
-/** @deprecated Use {@link LibraryFolderEntry} — renamed to avoid collision with the
- * `FolderEntry` file-handle type in `folder-access.types`. */
-export type FolderEntry = LibraryFolderEntry;
-
 export interface ImageEntry {
   name: string;
   address: string;
