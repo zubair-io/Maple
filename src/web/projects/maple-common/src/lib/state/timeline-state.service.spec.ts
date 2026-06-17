@@ -8,9 +8,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TimelineStateService } from './timeline-state.service';
 import { LibraryStateService } from './library-state.service';
 import { LIBRARY_BACKEND } from '../api/library-backend.token';
+import { API_BASE_URL } from '../api/api-base-url.token';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { STORAGE_KEYS } from '../util/typed-storage';
+import { provideLibrarySource } from '../addressing/library-source-provider';
 
 // This spec constructs the real BrowsePreferencesService (via
 // TimelineStateService → LibraryStateService); its persistence effects write
@@ -32,6 +34,8 @@ describe('TimelineStateService', () => {
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
+        provideLibrarySource,
+        { provide: API_BASE_URL, useValue: '/api' },
         { provide: LIBRARY_BACKEND, useValue: 'self-hosted' },
       ],
     });
