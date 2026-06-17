@@ -9,6 +9,7 @@
 
 import { InjectionToken } from '@angular/core';
 import type { MapleAddress } from './maple-address';
+import type { DownloadProgress } from '../api/filesystem-browse.service';
 
 /** A sub-folder entry returned by `LibrarySource.listFolder`. */
 export interface LibraryFolderEntry {
@@ -35,7 +36,14 @@ export interface FolderListing {
 
 export interface LibrarySource {
   listFolder(a: MapleAddress): Promise<FolderListing>;
-  imageBlob(a: MapleAddress): Promise<Blob>;
+  /**
+   * Fetch an image's original bytes as a Blob. Pass `onProgress` to receive
+   * download-progress frames as the body streams in — HttpLibrarySource wires
+   * them to the editor's open-progress overlay so a slow Self-Hosted fetch of a
+   * 100MP RAW doesn't look hung. FsAccessLibrarySource reads a local file
+   * handle (effectively instant) and ignores the callback.
+   */
+  imageBlob(a: MapleAddress, onProgress?: (p: DownloadProgress) => void): Promise<Blob>;
   /**
    * Fetch the thumbnail/preview JPEG for an image address as a Blob. The
    * CALLER owns the object-URL lifecycle (create + revoke) — see
