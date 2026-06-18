@@ -15,11 +15,11 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  computed,
   effect,
   inject,
   input,
   output,
+  signal,
 } from '@angular/core';
 import { MapleIconComponent } from '../../icons/maple-icon.component';
 import { Asset } from '../../models/asset';
@@ -58,17 +58,23 @@ export class AssetThumbComponent {
 
   private state = inject(LibraryStateService);
 
-  /** The blob URL for this asset, or undefined if it hasn't loaded yet
-   * (or if the asset has no absPath — gradient stays). */
-  readonly thumbUrl = computed(() => this.state.thumbnailUrlFor(this.asset().id));
+  /** The blob URL for this asset, or undefined until it loads (gradient stays).
+   * This component OWNS the signal, so it's created and destroyed with the tile
+   * — the virtual scroller's lifecycle bounds the live count to what's on screen
+   * (no central signal map to leak; #1363/#1359). */
+  readonly thumbUrl = signal<string | undefined>(undefined);
 
   constructor() {
-    // Kick off the load whenever the bound asset changes. State-level
-    // dedupe handles repeat calls — this just ensures the request is in
-    // flight on mount.
-    effect(() => {
+    // Kick off the load and subscribe to this asset's thumbnail URL. `effect`'s
+    // onCleanup runs both when the bound asset changes (virtual-scroll recycle)
+    // and when the tile is destroyed (scroll-out), so the subscription can never
+    // outlive its tile. State-level dedupe handles repeat ensure() calls.
+    effect((onCleanup) => {
       const a = this.asset();
-      if (a) this.state.ensureThumbnailUrl(a);
+      if (!a) return;
+      this.state.ensureThumbnailUrl(a);
+      const unsubscribe = this.state.subscribeThumbUrl(a.id, (url) => this.thumbUrl.set(url));
+      onCleanup(unsubscribe);
     });
   }
 }
