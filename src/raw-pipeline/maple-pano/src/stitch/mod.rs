@@ -77,7 +77,7 @@ mod io;
 mod tile_stitch;
 mod types;
 
-pub use io::{develop_for_display, interleave_planar, quantize_to_u16};
+pub use io::{develop_for_display, interleave_planar, quantize_to_u16, write_display_sidecars};
 pub use tile_stitch::stitch_tile;
 pub use types::{StitchError, StitchOptions, StitchOutcome, StitchSuccess, TileStitchOutcome};
 
