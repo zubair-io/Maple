@@ -116,6 +116,19 @@ public actor ThumbnailLoader {
             let accessing = scope.startAccessingSecurityScopedResource()
             defer { if accessing { scope.stopAccessingSecurityScopedResource() } }
 
+            // ASSET-RELATIVE .maple/thumbs — render-time derivatives written
+            // next to the asset (e.g. a pano in Panoramas/) are found even when
+            // the singleton cache is configured for a different (parent) folder.
+            // (#1365.) The disk-cache hit at step 1 short-circuits before this,
+            // so RAWs in their own folder never pay for it.
+            let relThumb = MapleSidecarPaths.thumbURL(for: assetURL)
+            if FileManager.default.fileExists(atPath: relThumb.path),
+                let data = try? Data(contentsOf: relThumb)
+            {
+                await ThumbnailDiskCache.shared.storeThumbnailData(data, for: assetURL)
+                return data
+            }
+
             // FAST PATH — read the embedded JPEG preview via ImageIO.
             // DNGs (and most camera RAWs) carry a ~1920 px preview; ImageIO
             // extracts + resamples it at the target size in 5-50 ms per
