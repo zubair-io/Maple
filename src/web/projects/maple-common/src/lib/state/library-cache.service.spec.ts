@@ -9,7 +9,6 @@
 // folder-switch no longer wipes the entire cache — old entries evict
 // gradually as new thumbnails arrive (M2, #1327).
 
-import { computed } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 
@@ -220,7 +219,7 @@ describe('LibraryCache — M2 slug:relPath byte path (editor cold-open)', () => 
   });
 });
 
-describe('LibraryCache — thumbnailUrlFor reactivity (M2 #1327 regression)', () => {
+describe('LibraryCache — thumbnail subscriptions (component-owned signals)', () => {
   let svc: LibraryCache;
 
   beforeEach(() => {
@@ -239,92 +238,76 @@ describe('LibraryCache — thumbnailUrlFor reactivity (M2 #1327 regression)', ()
     svc = TestBed.inject(LibraryCache);
   });
 
-  // The bug: asset-thumb + library-cell read thumbnailUrlFor inside a computed().
-  // When it read the raw (non-signal) LRU, the computed never recomputed after a
-  // thumbnail finished loading, so 200-fetched thumbnails stayed invisible. This
-  // guards that a computed re-evaluates when cacheThumbnailUrl publishes the URL.
-  it('a computed reading thumbnailUrlFor recomputes when the blob URL lands', () => {
-    const id = 'lib:2026/a.jpg' as AssetId;
-    const view = computed(() => svc.thumbnailUrlFor(id));
+  // Reactivity now lives in subscribeThumbUrl: a tile registers its setter and
+  // the cache pushes the URL on load and on eviction. The per-tile SIGNAL lives
+  // in the COMPONENT (asset-thumb / library-cell), so it dies with the tile —
+  // bounding the live count to what the virtual scroller keeps mounted and
+  // removing the central signal map that previously leaked (#1363/#1359).
+  const subscriberCount = (s: LibraryCache): number =>
+    (s as unknown as { thumbSubscribers: Map<unknown, unknown> }).thumbSubscribers.size;
 
-    expect(view()).toBeUndefined(); // not loaded yet
+  it('subscribeThumbUrl pushes undefined immediately, then the URL when it lands', () => {
+    const id = 'lib:2026/a.jpg' as AssetId;
+    const seen: (string | undefined)[] = [];
+    svc.subscribeThumbUrl(id, (url) => seen.push(url));
+    expect(seen).toEqual([undefined]); // immediate push — nothing cached yet
 
     svc.cacheThumbnailUrl(id, 'blob:loaded');
-
-    // Pre-fix this stayed undefined — the computed never tracked the signal.
-    expect(view()).toBe('blob:loaded');
+    expect(seen).toEqual([undefined, 'blob:loaded']); // pushed again on load
   });
 
-  // Granularity: loading asset 'a' must NOT force asset 'b' to recompute.
-  // With the old global-signal approach every cacheThumbnailUrl call invalidated
-  // ALL computeds; the per-asset-signal approach limits invalidation to only the
-  // affected id. We count re-evaluations by incrementing a counter inside each
-  // computed (Angular only re-evaluates on read after a dependency changes).
-  it('changing one cached id does not recompute a computed for a different cached id', () => {
-    const idA = 'lib:2026/a.jpg' as AssetId;
-    const idB = 'lib:2026/b.jpg' as AssetId;
-    // Cache both first so each tracks its OWN per-asset signal (steady state).
-    // Granularity is for cached tiles; a not-yet-cached tile tracks the coarse
-    // thumbnailUrls signal until its thumbnail lands (see the no-leak tests).
-    svc.cacheThumbnailUrl(idA, 'blob:a0');
-    svc.cacheThumbnailUrl(idB, 'blob:b0');
+  it('subscribeThumbUrl pushes the cached URL immediately for a warm id', () => {
+    const id = 'lib:warm.jpg' as AssetId;
+    svc.cacheThumbnailUrl(id, 'blob:warm');
+    const seen: (string | undefined)[] = [];
+    svc.subscribeThumbUrl(id, (url) => seen.push(url));
+    expect(seen).toEqual(['blob:warm']);
+  });
 
+  it('granular: caching one id notifies only that id’s subscribers', () => {
+    const idA = 'lib:a.jpg' as AssetId;
+    const idB = 'lib:b.jpg' as AssetId;
     let countA = 0;
     let countB = 0;
-    const viewA = computed(() => {
-      countA++;
-      return svc.thumbnailUrlFor(idA);
-    });
-    const viewB = computed(() => {
-      countB++;
-      return svc.thumbnailUrlFor(idB);
-    });
-
-    // Prime both computeds — each evaluates once (count = 1).
-    expect(viewA()).toBe('blob:a0');
-    expect(viewB()).toBe('blob:b0');
-    expect(countA).toBe(1);
+    svc.subscribeThumbUrl(idA, () => countA++);
+    svc.subscribeThumbUrl(idB, () => countB++);
+    expect(countA).toBe(1); // immediate pushes
     expect(countB).toBe(1);
 
-    // Change only 'a'.
-    svc.cacheThumbnailUrl(idA, 'blob:a1');
-
-    // viewA re-evaluates (count becomes 2).
-    expect(viewA()).toBe('blob:a1');
-    expect(countA).toBe(2);
-
-    // viewB tracks idB's own per-asset signal, not the global — it must NOT
-    // recompute when an unrelated id changes. Count stays at 1.
-    expect(viewB()).toBe('blob:b0');
-    expect(countB).toBe(1);
+    svc.cacheThumbnailUrl(idA, 'blob:a');
+    expect(countA).toBe(2); // only A fired again...
+    expect(countB).toBe(1); // ...B untouched (no O(N) fan-out)
   });
 
-  // #1363: the read path must not leak signals. #1359 had thumbnailUrlFor lazily
-  // CREATE a per-asset signal for any id queried, so ids rendered but never
-  // cached (failed/absent thumbnails, or tiles scrolled past before load)
-  // accumulated signals for the whole session. The fix creates signals ONLY in
-  // cacheThumbnailUrl (a cached id) and removes them on LRU eviction, so the map
-  // is bounded by LRU capacity and the read path stays pure — which also avoids
-  // the NG0600 crash a cap-eviction-in-read would cause inside a computed().
-  const signalMapSize = (s: LibraryCache): number =>
-    (s as unknown as { thumbSignals: Map<unknown, unknown> }).thumbSignals.size;
-  const signalMapHas = (s: LibraryCache, id: AssetId): boolean =>
-    (s as unknown as { thumbSignals: Map<AssetId, unknown> }).thumbSignals.has(id);
-
-  it('thumbnailUrlFor never creates a signal for an un-cached id (no leak)', () => {
+  it('unsubscribe stops callbacks and drops the id — the registry stays bounded', () => {
+    // The old design leaked one signal per queried id; here subscribing then
+    // unsubscribing 500 never-cached ids leaves the registry empty.
     for (let i = 0; i < 500; i++) {
-      svc.thumbnailUrlFor(`lib:orphan/${i}.jpg` as AssetId);
+      svc.subscribeThumbUrl(`lib:o/${i}.jpg` as AssetId, () => {})();
     }
-    // Pre-fix this was 500 — one leaked signal per query; now it is 0.
-    expect(signalMapSize(svc)).toBe(0);
+    expect(subscriberCount(svc)).toBe(0);
+
+    let count = 0;
+    const unsub = svc.subscribeThumbUrl('lib:x.jpg' as AssetId, () => count++);
+    expect(subscriberCount(svc)).toBe(1); // exactly its own id
+    unsub();
+    expect(subscriberCount(svc)).toBe(0); // removed on unsubscribe
+
+    svc.cacheThumbnailUrl('lib:x.jpg' as AssetId, 'blob:x');
+    expect(count).toBe(1); // only the immediate push — none after unsub
   });
 
-  it('creates a per-asset signal only once an id is cached', () => {
-    const id = 'lib:cached.jpg' as AssetId;
-    svc.thumbnailUrlFor(id); // pure read — no signal yet
-    expect(signalMapHas(svc, id)).toBe(false);
-    svc.cacheThumbnailUrl(id, 'blob:x'); // cached → signal created here
-    expect(signalMapHas(svc, id)).toBe(true);
+  it('pushes undefined to a subscriber when its URL is evicted from the LRU', () => {
+    const evicted = 'lib:evicted.jpg' as AssetId;
+    const seen: (string | undefined)[] = [];
+    svc.subscribeThumbUrl(evicted, (url) => seen.push(url));
+    svc.cacheThumbnailUrl(evicted, 'blob:evicted'); // cached (oldest)
+    // Overflow the 500-entry LRU so the oldest entry (evicted) is dropped.
+    for (let i = 0; i < 500; i++) {
+      svc.cacheThumbnailUrl(`lib:fill/${i}.jpg` as AssetId, `blob:${i}`);
+    }
+    // undefined (subscribe), blob:evicted (load), undefined (eviction clears tile).
+    expect(seen).toEqual([undefined, 'blob:evicted', undefined]);
   });
 });
 
