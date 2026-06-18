@@ -194,6 +194,11 @@ export class LibraryStateService {
     this.store.seedAsShotWhiteBalance(id, temperature, tint);
   }
 
+  /** Camera As-Shot white balance for `id` (Kelvin + tint), or undefined. */
+  asShotWbFor(id: AssetId): { temperature: number; tint: number } | undefined {
+    return this.store.asShotWbFor(id);
+  }
+
   cacheThumbnailUrl(id: AssetId, url: string): void {
     this.cache_.cacheThumbnailUrl(id, url);
   }

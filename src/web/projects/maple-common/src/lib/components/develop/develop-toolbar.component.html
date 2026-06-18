@@ -1,0 +1,11 @@
+<div class="develop-toolbar" role="group" aria-label="Develop actions">
+  <button
+    type="button"
+    class="toolbar-button"
+    aria-label="Reset all adjustments"
+    [disabled]="!hasImage()"
+    (click)="onReset()"
+  >
+    Reset
+  </button>
+</div>
