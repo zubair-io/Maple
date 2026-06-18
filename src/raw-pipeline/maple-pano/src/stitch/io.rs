@@ -27,6 +27,17 @@ use crate::ingest::PlanarImage;
 /// matters on the 100MP+ pano, notably on iPad via the Apple FFI). The single
 /// interleaved `raw_core::Image` copy is required by raw-core's view-tail API,
 /// which operates on interleaved `[f32; 3]`.
+/// First 8 bytes of `SHA256(name)` as lowercase hex — the canonical
+/// `.maple/{thumbs,previews}/` cache-key derivation, single-sourced by
+/// contract with Apple (`MapleThumbCacheKey.sha256Prefix16`), the API
+/// (`src/api/src/fs/xmp.ts`), and the web (`maple-cache/sha.ts`). The Rust
+/// copy is guarded by `sha256_prefix16_matches_frozen_cross_platform_value`.
+pub(crate) fn sha256_prefix16(name: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(name.as_bytes());
+    digest.iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
 pub fn develop_for_display(img: &PlanarImage) -> Vec<u16> {
     let n = img.pixel_count();
 
@@ -95,10 +106,123 @@ fn srgb_encode(v: f32) -> f32 {
     }
 }
 
+/// Write the canonical `.maple/thumbs` + `.maple/previews` JPEG derivatives
+/// for the pano at `png_path`, downscaled from the already-developed sRGB
+/// display buffer (interleaved RGB16, as returned by `develop_for_display`).
+///
+/// Consumes `display` (moved into an `ImageBuffer` — no full-frame clone;
+/// peak RSS matters on a 100MP+ pano). Non-fatal to the caller: a stitch has
+/// already succeeded by the time this runs, so callers log + ignore `Err`.
+pub fn write_display_sidecars(
+    display: Vec<u16>,
+    width: u32,
+    height: u32,
+    png_path: &std::path::Path,
+) -> Result<(), String> {
+    use image::{imageops::FilterType, DynamicImage, ImageBuffer, Rgb};
+
+    let basename = png_path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("bad pano path: {png_path:?}"))?;
+    let key = sha256_prefix16(basename);
+
+    let src = ImageBuffer::<Rgb<u16>, _>::from_raw(width, height, display)
+        .ok_or_else(|| "display buffer length != width*height*3".to_string())?;
+
+    // (subdir, filename, target long edge, JPEG quality)
+    let variants = [
+        ("thumbs", format!("{key}.jpg"), 256u32, 82u8),
+        ("previews", format!("{key}_1600.jpg"), 1600u32, 85u8),
+    ];
+
+    for (subdir, filename, target, quality) in variants {
+        let (tw, th) = fit_long_edge(width, height, target);
+        let resized: ImageBuffer<Rgb<u16>, Vec<u16>> = if (tw, th) == (width, height) {
+            src.clone() // only when the pano is already ≤ target (tiny) — cheap
+        } else {
+            image::imageops::resize(&src, tw, th, FilterType::Triangle)
+        };
+        let rgb8 = DynamicImage::ImageRgb16(resized).into_rgb8().into_raw();
+        let jpeg = raw_core::jpeg::encode(tw, th, &rgb8, quality).map_err(|e| e.to_string())?;
+
+        let dir = png_path
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join(".maple")
+            .join(subdir);
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join(filename), jpeg).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Fit `(width, height)` to a max long edge, preserving aspect, never upscaling.
+fn fit_long_edge(width: u32, height: u32, target: u32) -> (u32, u32) {
+    let long = width.max(height);
+    if long <= target {
+        return (width, height);
+    }
+    let scale = target as f64 / long as f64;
+    let w = ((width as f64 * scale).round() as u32).max(1);
+    let h = ((height as f64 * scale).round() as u32).max(1);
+    (w, h)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ingest::ValidityMask;
+
+    #[test]
+    fn sha256_prefix16_matches_frozen_cross_platform_value() {
+        // MUST equal Apple's MapleThumbCacheKey.sha256Prefix16 and the API's
+        // sha256Prefix16 for the same input — the .maple/ cache key contract.
+        assert_eq!(sha256_prefix16("panorama-test.png"), "88bab9b0d022c93c");
+    }
+
+    #[test]
+    fn write_display_sidecars_writes_canonical_thumb_and_preview() {
+        use image::GenericImageView;
+        // 400x200 scene-linear mid-grey pano: thumb downsizes (long edge 256),
+        // preview stays native (400 < 1600 → no upscale).
+        let (w, h) = (400u32, 200u32);
+        let n = (w * h) as usize;
+        let pano = PlanarImage::from_planes(
+            w,
+            h,
+            vec![0.18_f32; n],
+            vec![0.18_f32; n],
+            vec![0.18_f32; n],
+            ValidityMask::new_filled(w, h, true),
+        );
+        let display = develop_for_display(&pano);
+
+        let dir =
+            std::env::temp_dir().join(format!("maple_pano_sidecar_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let png_path = dir.join("panorama-test.png");
+
+        write_display_sidecars(display, w, h, &png_path).unwrap();
+
+        let key = sha256_prefix16("panorama-test.png");
+        let thumb = dir.join(".maple/thumbs").join(format!("{key}.jpg"));
+        let preview = dir.join(".maple/previews").join(format!("{key}_1600.jpg"));
+        assert!(thumb.exists(), "thumb missing: {thumb:?}");
+        assert!(preview.exists(), "preview missing: {preview:?}");
+
+        let t = image::open(&thumb).unwrap();
+        assert_eq!(
+            t.dimensions().0.max(t.dimensions().1),
+            256,
+            "thumb long edge"
+        );
+        let p = image::open(&preview).unwrap();
+        assert_eq!(p.dimensions(), (400, 200), "preview must not upscale");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// `develop_for_display` must tone-map (AgX) and display-encode (sRGB) the
     /// scene-linear composite — not pass it through. Three grey scene-linear
