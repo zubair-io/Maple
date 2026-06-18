@@ -28,14 +28,14 @@
       "id": "login_options",
       "method": "POST",
       "path": "/api/auth/login/options",
-      "request_keys": ["email"],
+      "request_keys": [],
       "response_keys": ["challenge", "allowCredentials"]
     },
     {
       "id": "login_verify",
       "method": "POST",
       "path": "/api/auth/login/verify",
-      "request_keys": ["email", "credential"],
+      "request_keys": ["credential"],
       "response_keys": ["access_token", "refresh_token", "user"]
     },
     {
