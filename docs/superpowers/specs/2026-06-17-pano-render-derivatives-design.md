@@ -43,15 +43,15 @@ Maple already has a **canonical, cross-platform** derivative layout shared by Ap
   - API: `src/api/src/fs/xmp.ts` `sha256Prefix16`
   - Web: `src/web/projects/maple-common/src/lib/maple-cache/sha.ts`
   - **New 4th copy:** Rust (`sha2` is already a `maple-pano` dep — `models.rs:50`). Guarded by a parity test (below).
-- **Thumb** filename matches `ThumbnailDiskCache` exactly (`<key>.jpg`, no size suffix) so the existing cache lookup resolves it. **Preview** uses a `_1600` suffix to distinguish a *baked source preview* from `RenderedPreviewCache`'s render-param-keyed entries that also live under `.maple/previews/` (no collision: 16-hex+`_1600` vs MD5-composite keys).
+- **Thumb** filename matches `ThumbnailDiskCache` exactly (`<key>.jpg`, no size suffix) so the existing cache lookup resolves it. **Preview** uses a `_1600` suffix to distinguish a _baked source preview_ from `RenderedPreviewCache`'s render-param-keyed entries that also live under `.maple/previews/` (no collision: 16-hex+`_1600` vs MD5-composite keys).
 - JPEG carries **no ICC profile**; bytes are already sRGB display-encoded (from `develop_for_display`), matching the existing sRGB assumption.
 - **Never upscale:** if the pano's long edge ≤ a target, that derivative is written at native size.
 
 ### The subtlety the canonical layout creates
 
-`ThumbnailDiskCache` and `RenderedPreviewCache` are **singletons configured for the currently-open folder** (`configure(folderURL:)` → `<openFolder>/.maple/{thumbs,previews}`). But a freshly-merged pano lives in the `Panoramas/` **subfolder**, and `injectPanoResult` shows it in the *open* folder's grid without reloading. So the singletons look in `<openFolder>/.maple/thumbs/`, while the pano's canonical thumb is in `<openFolder>/Panoramas/.maple/thumbs/` → a singleton miss.
+`ThumbnailDiskCache` and `RenderedPreviewCache` are **singletons configured for the currently-open folder** (`configure(folderURL:)` → `<openFolder>/.maple/{thumbs,previews}`). But a freshly-merged pano lives in the `Panoramas/` **subfolder**, and `injectPanoResult` shows it in the _open_ folder's grid without reloading. So the singletons look in `<openFolder>/.maple/thumbs/`, while the pano's canonical thumb is in `<openFolder>/Panoramas/.maple/thumbs/` → a singleton miss.
 
-Fix: the loaders fall back to an **asset-relative** lookup (derive `.maple/thumbs|previews` from the *asset's own* directory, not the configured folder). This is just the cache's "travels-with-the-photos" promise applied to the cross-folder case; for normally-browsed assets (`assetDir == openFolder`) the singleton hits first and the fallback never runs (zero overhead).
+Fix: the loaders fall back to an **asset-relative** lookup (derive `.maple/thumbs|previews` from the _asset's own_ directory, not the configured folder). This is just the cache's "travels-with-the-photos" promise applied to the cross-folder case; for normally-browsed assets (`assetDir == openFolder`) the singleton hits first and the fallback never runs (zero overhead).
 
 ## Components
 
@@ -112,7 +112,7 @@ if FileManager.default.fileExists(atPath: relThumb.path),
 }
 ```
 
-Reuses the **existing** `MapleThumbCacheKey` — no invented naming. Cost: one `fileExists` per cold load *only when the singleton already missed*; on hit it seeds the singleton so later loads short-circuit at step 1.
+Reuses the **existing** `MapleThumbCacheKey` — no invented naming. Cost: one `fileExists` per cold load _only when the singleton already missed_; on hit it seeds the singleton so later loads short-circuit at step 1.
 
 ### 4. Swift — `EditSession` seeds the preview on cold-open
 
@@ -166,7 +166,7 @@ Open pano → EditSession hydration
 ## Alternatives considered
 
 - **FFI returns the downscaled bytes; Swift writes the caches.** Keeps cache-key knowledge entirely in Swift, but adds out-param/buffer-free FFI surface for no real gain — Rust writing the canonical files directly reuses the existing "stitch writes files to a path" contract. The frozen `sha256prefix16` is already replicated in 3 languages; a 4th + parity test is consistent with that precedent.
-- **Per-file sidecar name (`<stem>.thumb.jpg`).** Rejected on review — it's a new folder *and* a new key, ignoring the canonical cross-platform `.maple/thumbs|previews/<sha256prefix16>` layout. (This was the first draft of this spec.)
+- **Per-file sidecar name (`<stem>.thumb.jpg`).** Rejected on review — it's a new folder _and_ a new key, ignoring the canonical cross-platform `.maple/thumbs|previews/<sha256prefix16>` layout. (This was the first draft of this spec.)
 
 ## Out of scope / follow-up
 

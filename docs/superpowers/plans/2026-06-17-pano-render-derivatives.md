@@ -16,11 +16,13 @@
 ## File structure
 
 **Rust:**
+
 - Modify `src/raw-pipeline/maple-pano/src/stitch/io.rs` — add `sha256_prefix16` + `write_display_sidecars` (next to `develop_for_display`); both compile only under the ml-gated `stitch` module, where `sha2` is already a dependency.
 - Modify `src/raw-pipeline/maple-pano/src/stitch/mod.rs` — re-export `write_display_sidecars`.
 - Modify `src/raw-pipeline/raw-ffi/src/pano_apple.rs` — call it (non-fatal) after `write_frame_png`.
 
 **Swift (`Packages/MapleCore`):**
+
 - Create `Sources/MapleCore/FileProvider/MapleSidecarPaths.swift` — asset-relative `.maple/thumbs|previews` URL builders (uses the existing `MapleThumbCacheKey.sha256Prefix16`).
 - Modify `Sources/MapleCore/Cache/ThumbnailLoader.swift` — asset-relative thumb fallback in the miss path.
 - Modify `Sources/MapleCore/EditSession+Hydration.swift` — `readMapleSidecarPreview` + `seedFromMapleSidecarPreview`, wired into the cold-open seed sequence.
@@ -33,6 +35,7 @@
 ## Task 1: Rust `sha256_prefix16` key helper + parity test
 
 **Files:**
+
 - Modify: `src/raw-pipeline/maple-pano/src/stitch/io.rs`
 
 - [ ] **Step 1: Write the failing test**
@@ -87,6 +90,7 @@ git commit -m "feat(pano): add sha256_prefix16 cache-key helper (#1365)"
 ## Task 2: Rust `write_display_sidecars` + test
 
 **Files:**
+
 - Modify: `src/raw-pipeline/maple-pano/src/stitch/io.rs`
 
 - [ ] **Step 1: Write the failing test**
@@ -229,6 +233,7 @@ git commit -m "feat(pano): write 256px thumb + 1600px preview .maple sidecars at
 ## Task 3: Re-export + wire into the Apple FFI
 
 **Files:**
+
 - Modify: `src/raw-pipeline/maple-pano/src/stitch/mod.rs:53`
 - Modify: `src/raw-pipeline/raw-ffi/src/pano_apple.rs:44,149-156`
 
@@ -299,6 +304,7 @@ git commit -m "feat(pano): wire render-time derivatives into the Apple stitch FF
 ## Task 4: Swift `MapleSidecarPaths` + parity/path tests
 
 **Files:**
+
 - Create: `src/apple/Packages/MapleCore/Sources/MapleCore/FileProvider/MapleSidecarPaths.swift`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/MapleSidecarPathsTests.swift`
 
@@ -389,6 +395,7 @@ git commit -m "feat(pano): MapleSidecarPaths asset-relative .maple URL builders 
 ## Task 5: `ThumbnailLoader` asset-relative thumb fallback
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/Cache/ThumbnailLoader.swift:119-130`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/ThumbnailLoaderSidecarTests.swift`
 
@@ -487,6 +494,7 @@ git commit -m "feat(pano): ThumbnailLoader asset-relative .maple/thumbs fallback
 ## Task 6: `EditSession` cold-open preview seed
 
 **Files:**
+
 - Modify: `src/apple/Packages/MapleCore/Sources/MapleCore/EditSession+Hydration.swift:221-237,386-417`
 - Test: `src/apple/Packages/MapleCore/Tests/MapleCoreTests/MapleSidecarPreviewReadTests.swift`
 
@@ -633,6 +641,7 @@ Expected: all PASS. (Per `project_uitest_needs_unlocked_screen`, `swift test` is
 
 Run: `cd src/apple && xcodebuild -project Maple.xcodeproj -scheme "Maple Exposure" -destination 'platform=macOS' build 2>&1 | tail -3`
 Expected: `BUILD SUCCEEDED`. (Apple is not in cloud CI — `project_apple_not_gated_by_cloud_ci`.)
+
 > If `xcodebuild` fails with `RawPipeline.h not found` / `could not build module`, regenerate the xcframework header per `project_xcframework_rebuild_workflow`; an undefined `maple_*` symbol means the `.a` is stale → `FORCE_XCFRAMEWORK_REBUILD=1 ./src/apple/scripts/build-xcframework.sh --release`.
 
 ---
