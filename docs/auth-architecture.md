@@ -165,14 +165,19 @@ invite and is created as `member`.
 
 ### Login (`/login/options` → `/login/verify`)
 
-1. `options` (rate-limited): look up user by email (404 if none); build
-   authentication options with `allowCredentials` = the user's passkeys; store
-   challenge (purpose `authenticate`).
-2. `verify`: consume + match the challenge, look up user and credential (by
-   `credential_id`, bound to the user), verify the assertion, bump the signature
-   `counter` + `last_used_at` / `last_seen_at`, and issue an access + refresh
-   pair. (`userVerification: "preferred"` — accepts synced passkeys without
-   forcing a UV gesture; an intentional choice, see [Decisions](#decisions-documented).)
+Login is **pure passkey** (#1377) — no email. Discoverable (resident) credentials
+make the account identifiable from the assertion itself.
+
+1. `options` (rate-limited): build **discoverable** authentication options
+   (`allowCredentials` empty); store the challenge (purpose `authenticate`,
+   unbound to any user). No email is taken, so there is no user lookup and no
+   account-existence 404.
+2. `verify`: consume + match the challenge, look up the credential by
+   `credential_id` (which carries its user), verify the assertion, bump the
+   signature `counter` + `last_used_at` / `last_seen_at`, and issue an access +
+   refresh pair. (`userVerification: "preferred"` — accepts synced passkeys
+   without forcing a UV gesture; an intentional choice, see
+   [Decisions](#decisions-documented).)
 
 ### Refresh & rotation (`POST /api/auth/refresh`)
 

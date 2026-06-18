@@ -87,16 +87,20 @@ describe('usernameless login (#1304)', () => {
     expect(body.user?.email).toBe('owner@maple.test');
   });
 
-  it('still supports email-scoped login as a fallback', async () => {
+  it('issues discoverable options regardless of any supplied email', async () => {
     const ip = '198.51.100.71';
     const email = 'owner@maple.test';
-    const authr = await claim(email, ip);
+    await claim(email, ip); // a resident credential now exists for this email
 
-    const optsRes = await post('/api/auth/login/options', { email }, ip);
-    expect(optsRes.status).toBe(200);
-    const { challenge } = (await optsRes.json()) as { challenge: string };
-    const assertion = await authr.buildAssertion({ challenge, rpId: RP_ID, origin: ORIGIN });
-    const verifyRes = await post('/api/auth/login/verify', { email, credential: assertion }, ip);
-    expect(verifyRes.status).toBe(200);
+    // Login is pure passkey: a registered email must NOT scope the options —
+    // allowCredentials stays empty so no email-keyed credential list leaks.
+    const knownRes = await post('/api/auth/login/options', { email }, ip);
+    expect(knownRes.status).toBe(200);
+    const known = (await knownRes.json()) as { allowCredentials?: unknown[] };
+    expect(known.allowCredentials ?? []).toHaveLength(0);
+
+    // An unknown email must NOT 404 — there is no account-existence oracle.
+    const unknownRes = await post('/api/auth/login/options', { email: 'ghost@nope.io' }, ip);
+    expect(unknownRes.status).toBe(200);
   });
 });
