@@ -157,13 +157,17 @@ export class EditorShellComponent implements OnInit {
   }
 
   /**
-   * After FS-walk-hydrating an asset (fs: cold-load), open its parent folder so
-   * the filmstrip + detail panel populate. The asset is already selected by the
-   * caller. Handles an asset at the FS root (absPath like '/photo.jpg' → parent
-   * '/') — a `lastSlash > 0` guard would silently skip those.
+   * After hydrating a deep-linked asset, open its parent folder so the filmstrip
+   * + detail panel populate (the asset is already selected by the caller).
+   *
+   * Only for slug:relPath ids: an `fs:<absPath>` synth has no slug-addressable
+   * parent, so openSelfHostedSubfolder would resolve `unknown:<path>` and fetch
+   * /api/folder/unknown → 404. Those stay a single-asset hydrate (the editor
+   * opens the one image; no sibling filmstrip). Also handles an asset at the FS
+   * root (absPath '/photo.jpg' → parent '/'), which a `lastSlash > 0` guard skips.
    */
   private openHydratedFsParent(synth: Asset): void {
-    if (!synth.absPath) return;
+    if (synth.id.startsWith('fs:') || !synth.absPath) return;
     const lastSlash = synth.absPath.lastIndexOf('/');
     if (lastSlash < 0) return;
     const parentDir = lastSlash === 0 ? '/' : synth.absPath.slice(0, lastSlash);
