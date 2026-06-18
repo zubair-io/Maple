@@ -27,12 +27,12 @@
 //! steps. Graceful degradation: when too few pixels survive the gates, the
 //! function falls back to the camera's `as_shot_neutral`.
 //!
-//! # Tone phases 1b / 1c
+//! # Tone (deferred — #1376)
 //!
-//! Histogram-percentile heuristics for contrast, whites, blacks,
-//! highlights, and shadows are computed on the **exposure-adjusted**
-//! histogram so they are consistent with the recommended exposure. See
-//! `compute_tone_adjustments` for the per-slider derivation.
+//! Auto-tone (contrast / whites / blacks / highlights / shadows) is deferred
+//! to #1376: the prototype histogram heuristics over-drove on real scenes, so
+//! AUTO currently reports 0 for those five sliders. Exposure + white balance
+//! ship now.
 //!
 //! Refs:
 //!   - spec `docs/superpowers/specs/2026-05-26-auto-tone-and-looks-design.md`
@@ -56,9 +56,6 @@ const TARGET_MIDGRAY: f32 = 0.18;
 
 /// Exposure EV clamp — mirrors the UI slider range.
 const EXPOSURE_CLAMP_EV: f32 = 5.0;
-
-/// Tone-slider range (-100..100).
-const TONE_CLAMP: f32 = 100.0;
 
 /// One-shot per-image slider recommendation for all eight adjustments.
 ///
@@ -158,14 +155,16 @@ pub fn compute_auto_adjustments(
     // --- Exposure ---
     let exposure = compute_exposure(&hist);
 
-    // --- AWB ---
-    let (temperature, tint) = compute_awb(&probe, raw);
+    // --- AWB (temperature + tint) ---
+    let (temperature, tint) = compute_awb(&probe, raw.as_shot_neutral);
 
-    // --- Tone (1b / 1c) ---
-    // The tone heuristics operate on the exposure-adjusted histogram so
-    // they're consistent with the exposure recommendation.
-    let (contrast, highlights, shadows, whites, blacks) =
-        compute_tone_adjustments(&hist, exposure);
+    // --- Tone (contrast / highlights / shadows / whites / blacks) ---
+    // Deferred to #1376. The histogram-percentile heuristics prototyped during
+    // M0 over-drove on real scenes (blacks railed to -100, whites to ±100,
+    // contrast stayed inert), and there is no objective target to calibrate
+    // them against yet. Per review they ship as 0 (no change) so AUTO never
+    // emits a railed value; exposure + white balance ship now.
+    let (contrast, highlights, shadows, whites, blacks) = (0.0, 0.0, 0.0, 0.0, 0.0);
 
     Ok(AutoAdjustments {
         exposure,
@@ -286,7 +285,7 @@ const AWB_MIN_PIXELS: usize = 64;
 /// Graceful degradation:
 /// - Near-neutral scene (gain very close to [1,1,1]) → ~(6500, 0).
 /// - Too few surviving pixels → falls back to camera `as_shot_neutral`.
-fn compute_awb(probe: &Image, raw: &RawImage) -> (f32, f32) {
+fn compute_awb(probe: &Image, as_shot_neutral: [f32; 3]) -> (f32, f32) {
     probe.assert_space(ColorSpace::SceneLinearRec2020);
 
     let mut gray_sum = [0.0_f64; 3];
@@ -342,7 +341,7 @@ fn compute_awb(probe: &Image, raw: &RawImage) -> (f32, f32) {
     // mapped through neutral_to_temp_tint so we still return Kelvin/tint
     // rather than a raw neutral.
     if gray_n < AWB_MIN_PIXELS {
-        return neutral_to_temp_tint(raw.as_shot_neutral);
+        return neutral_to_temp_tint(as_shot_neutral);
     }
 
     let gray_avg = [
@@ -376,122 +375,12 @@ fn compute_awb(probe: &Image, raw: &RawImage) -> (f32, f32) {
         scene_illuminant[2] / g_ref,
     ];
 
-    // The probe buffer was developed at D65 (gain ≈ [1,1,1]). The measured
-    // neutral tells us the scene's true illuminant relative to D65. A reddish
-    // neutral ([r>1, 1, b<1]) means the scene is warmer than D65 → higher CCT.
-    // `neutral_to_temp_tint` applies the correct inversion.
+    // The probe buffer was developed at D65 (gain ≈ [1,1,1]), so the measured
+    // neutral is the scene's residual cast relative to D65. A reddish neutral
+    // ([r>1, 1, b<1]) means a WARM (low-CCT) source that D65 development
+    // under-corrected → `neutral_to_temp_tint` returns a LOW Kelvin to
+    // neutralise it (with the green/magenta residual returned as tint).
     neutral_to_temp_tint(neutral)
-}
-
-// ---------------------------------------------------------------------------
-// Tone adjustments (Phase 1b / 1c)
-// ---------------------------------------------------------------------------
-
-/// Compute tone slider recommendations from the probe histogram.
-///
-/// Returns `(contrast, highlights, shadows, whites, blacks)` — all in
-/// `±100` slider units. The histogram is treated as representing the PROBE
-/// scene; the `exposure_ev` argument is used to shift the percentile
-/// lookups so the recommendations are consistent with the exposure
-/// correction: we look at where p1 / p99 will land AFTER the exposure is
-/// applied, not where they are in the raw probe.
-fn compute_tone_adjustments(
-    hist: &[u32; HIST_BINS],
-    exposure_ev: f32,
-) -> (f32, f32, f32, f32, f32) {
-    // Exposure gain we will apply: shift percentile values accordingly.
-    let exp_gain = exposure_ev.exp2();
-
-    let raw_p1 = percentile(hist, 0.01).unwrap_or(0.0) * exp_gain;
-    let raw_p99 = percentile(hist, 0.99).unwrap_or(1.0) * exp_gain;
-
-    // Clamp adjusted percentiles to valid scene-linear range.
-    let p1 = raw_p1.max(0.0);
-    let p99 = raw_p99.min(8.0).max(p1 + 1e-6);
-
-    // Dynamic range estimate: log2(p99 / p1). This is the "spread" of the
-    // scene tone used to proportionally engage highlights/shadows/contrast.
-    const DR_FLOOR: f32 = 1e-6;
-    let dr_log2 = ((p99 / p1.max(DR_FLOOR)).max(1.0)).log2();
-
-    // Whites: push p99 toward target ~0.92. We derive the slider value by
-    // inverting `predict_whites(p99, w) ≈ 0.92`. The closed-form predictor:
-    //   predict_whites(x, w) = x * (1 + w/200 * smoothstep(0.5, 1.0, x))
-    // For x near p99 (assuming p99 ≈ 0.7..3.0), smoothstep ≈ 1 at high x,
-    // so the inversion is approximately:
-    //   w ≈ 200 * (target/p99 - 1) / smoothstep(0.5, 1.0, p99)
-    const WHITES_TARGET: f32 = 0.92;
-    let whites_raw = if p99 > 0.0 {
-        let ss = smoothstep(0.5, 1.0, p99.min(1.0));
-        let ss_safe = ss.max(0.05); // don't divide by near-zero
-        200.0 * (WHITES_TARGET / p99 - 1.0) / ss_safe
-    } else {
-        0.0
-    };
-    let whites = whites_raw.clamp(-TONE_CLAMP, TONE_CLAMP);
-
-    // Blacks: crush p1 toward ~0.002. NEVER lift blacks (positive blacks
-    // slider is blocked). The closed-form predictor for negative blacks:
-    //   predict_blacks(x, b) ≈ x * (1 + b/100 * smoothstep(0, 0.2, x))
-    // Inverted for b:
-    //   b ≈ 100 * (target/p1 - 1) / smoothstep(0, 0.2, p1)
-    const BLACKS_TARGET: f32 = 0.002;
-    let blacks_raw = if p1 > BLACKS_TARGET {
-        let ss = smoothstep(0.0, 0.2, p1.min(0.2));
-        let ss_safe = ss.max(0.05);
-        100.0 * (BLACKS_TARGET / p1 - 1.0) / ss_safe
-    } else {
-        0.0
-    };
-    // Enforce: blacks must be ≤ 0 (never lift).
-    let blacks = blacks_raw.min(0.0).clamp(-TONE_CLAMP, 0.0);
-
-    // Highlights: engage proportionally to dynamic range.
-    // A wide-DR scene (dr_log2 > 3 stops) benefits from highlight compression.
-    // Use a smoothed engagement that caps at -40 (don't over-compress).
-    const HIGHLIGHTS_DR_ENGAGE: f32 = 3.0; // stops where highlights starts engaging
-    const HIGHLIGHTS_MAX: f32 = -40.0;      // maximum highlights recommendation
-    let highlights_raw = if dr_log2 > HIGHLIGHTS_DR_ENGAGE {
-        let engagement = ((dr_log2 - HIGHLIGHTS_DR_ENGAGE) / 3.0).min(1.0);
-        HIGHLIGHTS_MAX * engagement
-    } else {
-        0.0
-    };
-    let highlights = highlights_raw.clamp(-TONE_CLAMP, TONE_CLAMP);
-
-    // Shadows: lift proportionally to dynamic range.
-    // A flat scene needs no shadow lift; a very wide-DR scene benefits from
-    // lifting the shadows to open detail. Cap at +30.
-    const SHADOWS_DR_ENGAGE: f32 = 3.5;
-    const SHADOWS_MAX: f32 = 30.0;
-    let shadows_raw = if dr_log2 > SHADOWS_DR_ENGAGE {
-        let engagement = ((dr_log2 - SHADOWS_DR_ENGAGE) / 3.0).min(1.0);
-        SHADOWS_MAX * engagement
-    } else {
-        0.0
-    };
-    let shadows = shadows_raw.clamp(-TONE_CLAMP, TONE_CLAMP);
-
-    // Contrast: on low-range scenes, a gentle contrast boost helps. On
-    // wide-DR scenes (where highlights/shadows are already compensating),
-    // contrast defaults to zero to avoid compound compression.
-    const CONTRAST_DR_CAP: f32 = 2.5; // above this DR, no contrast boost
-    const CONTRAST_LOW_DR_TARGET: f32 = 15.0; // flat scenes get a gentle push
-    let contrast_raw = if dr_log2 < CONTRAST_DR_CAP {
-        let factor = 1.0 - dr_log2 / CONTRAST_DR_CAP;
-        CONTRAST_LOW_DR_TARGET * factor
-    } else {
-        0.0
-    };
-    let contrast = contrast_raw.clamp(-TONE_CLAMP, TONE_CLAMP);
-
-    (contrast, highlights, shadows, whites, blacks)
-}
-
-/// GLSL-style smoothstep: clamped Hermite interpolant over [e0, e1].
-fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 // ---------------------------------------------------------------------------
@@ -554,69 +443,14 @@ mod tests {
         // A neutral scene (all pixels equal) with D65 probe model should
         // return approximately 6500K / 0 tint.
         let img = flat_image(0.18, 0.18, 0.18);
-        // Build a minimal fake RawImage for the fallback path. We need
-        // a valid as_shot_neutral.
-        let as_shot_neutral = [0.5_f32, 1.0, 0.7]; // typical daylight
-
-        // Mock RawImage: use as_shot_neutral directly
-        // (the AWB function should NOT hit the fallback for a grey image
-        // since gray_n >= AWB_MIN_PIXELS)
-        let (temp, tint) = compute_awb_inner(&img, as_shot_neutral);
+        // A grey probe has plenty of surviving pixels, so this exercises the
+        // real gray-world path (not the AsShotNeutral fallback).
+        let (temp, tint) = compute_awb(&img, [0.5, 1.0, 0.7]);
         // Neutral probe at D65 should give near-D65 result.
         assert!((temp - 6500.0).abs() < 1500.0,
             "pure-grey should give temperature near 6500K, got {}", temp);
         assert!(tint.abs() < 30.0,
             "pure-grey should give tint near 0, got {}", tint);
-    }
-
-    // Helper that accepts as_shot_neutral directly instead of a full RawImage.
-    // This keeps the unit test fixture-free.
-    fn compute_awb_inner(probe: &Image, as_shot_neutral: [f32; 3]) -> (f32, f32) {
-        probe.assert_space(ColorSpace::SceneLinearRec2020);
-
-        let mut gray_sum = [0.0_f64; 3];
-        let mut gray_n = 0usize;
-        let mut white_sum = [0.0_f64; 3];
-        let mut white_n = 0usize;
-
-        for p in &probe.pixels {
-            let r = p[0]; let g = p[1]; let b = p[2];
-            if !r.is_finite() || !g.is_finite() || !b.is_finite() { continue; }
-            let y = LUMA_REC2020[0] * r + LUMA_REC2020[1] * g + LUMA_REC2020[2] * b;
-            if y < AWB_LUMA_MIN || y > AWB_LUMA_MAX { continue; }
-            let max_ch = r.max(g).max(b).max(1e-6);
-            let mean_ch = (r + g + b) / 3.0;
-            let dev = (r - mean_ch).abs().max((g - mean_ch).abs()).max((b - mean_ch).abs());
-            if dev / max_ch > AWB_CHROMA_GATE { continue; }
-            gray_sum[0] += r as f64; gray_sum[1] += g as f64; gray_sum[2] += b as f64;
-            gray_n += 1;
-            if y > AWB_WHITE_PATCH_THRESHOLD {
-                white_sum[0] += r as f64; white_sum[1] += g as f64; white_sum[2] += b as f64;
-                white_n += 1;
-            }
-        }
-
-        if gray_n < AWB_MIN_PIXELS {
-            return neutral_to_temp_tint(as_shot_neutral);
-        }
-
-        let gray_avg = [
-            (gray_sum[0] / gray_n as f64) as f32,
-            (gray_sum[1] / gray_n as f64) as f32,
-            (gray_sum[2] / gray_n as f64) as f32,
-        ];
-        let scene_illuminant = if white_n >= AWB_MIN_PIXELS {
-            let white_avg = [
-                (white_sum[0] / white_n as f64) as f32,
-                (white_sum[1] / white_n as f64) as f32,
-                (white_sum[2] / white_n as f64) as f32,
-            ];
-            let t = AWB_GRAY_WORLD_BLEND;
-            [t*gray_avg[0]+(1.0-t)*white_avg[0], t*gray_avg[1]+(1.0-t)*white_avg[1], t*gray_avg[2]+(1.0-t)*white_avg[2]]
-        } else { gray_avg };
-        let g_ref = scene_illuminant[1].max(1e-6);
-        let neutral = [scene_illuminant[0]/g_ref, 1.0, scene_illuminant[2]/g_ref];
-        neutral_to_temp_tint(neutral)
     }
 
     #[test]
@@ -626,7 +460,7 @@ mod tests {
         // After gating, the neutral is dominated by the warm-biased pixels →
         // neutral.R > neutral.B → target_gain_rb = B/R < 1 → LOW CCT (warm source).
         let img = flat_image(0.30, 0.25, 0.20);
-        let (temp, _tint) = compute_awb_inner(&img, [0.5, 1.0, 0.7]);
+        let (temp, _tint) = compute_awb(&img, [0.5, 1.0, 0.7]);
         // A gentle warm scene (R>B within gate) → slider CCT < 6500K.
         assert!(temp < 6500.0,
             "gentle-warm-cast scene (R>B, within chroma gate) should give temperature < 6500K, got {}", temp);
@@ -648,7 +482,7 @@ mod tests {
         for px in pixels[neutral_count..].iter_mut() {
             *px = [0.8, 0.05, 0.05];
         }
-        let (temp, tint) = compute_awb_inner(&img, [0.5, 1.0, 0.7]);
+        let (temp, tint) = compute_awb(&img, [0.5, 1.0, 0.7]);
         // The estimate should be near neutral (6500K) because the saturated
         // red pixels are excluded by the chroma gate. Allow ±3000K tolerance
         // since the gray-world estimate from 75% neutral grey pixels can still
@@ -669,7 +503,7 @@ mod tests {
         }
         let as_shot_neutral = [0.52_f32, 1.0, 0.68];
         let (temp_fallback, tint_fallback) = neutral_to_temp_tint(as_shot_neutral);
-        let (temp, tint) = compute_awb_inner(&img, as_shot_neutral);
+        let (temp, tint) = compute_awb(&img, as_shot_neutral);
         // Should match the fallback result exactly.
         assert!((temp - temp_fallback).abs() < 1.0,
             "fallback temp mismatch: got {}, expected {}", temp, temp_fallback);
@@ -677,111 +511,4 @@ mod tests {
             "fallback tint mismatch: got {}, expected {}", tint, tint_fallback);
     }
 
-    // ---- Tone heuristics tests ----
-
-    #[test]
-    fn tone_whites_negative_for_bright_scene() {
-        // A high-key scene (p99 > target) needs whites pulled down.
-        let img = flat_image(0.95, 0.95, 0.95);
-        let h = build_luma_histogram(&img);
-        let (_contrast, _hl, _sh, whites, _bl) = compute_tone_adjustments(&h, 0.0);
-        assert!(whites < 0.0,
-            "bright scene should give negative whites, got {}", whites);
-    }
-
-    #[test]
-    fn tone_blacks_zero_when_already_crushed() {
-        // Scene with p1 at 0.001 (already near target) → blacks near 0.
-        let img = flat_image(0.001, 0.001, 0.001);
-        let h = build_luma_histogram(&img);
-        let (_contrast, _hl, _sh, _wh, blacks) = compute_tone_adjustments(&h, 0.0);
-        assert!(blacks <= 0.0, "blacks should never be positive, got {}", blacks);
-    }
-
-    #[test]
-    fn tone_blacks_always_non_positive() {
-        // blacks must never be > 0 for ANY histogram.
-        for luma in [0.0f32, 0.001, 0.01, 0.05, 0.1, 0.18, 0.5, 0.9] {
-            let img = flat_image(luma, luma, luma);
-            let h = build_luma_histogram(&img);
-            let (_c, _hl, _sh, _wh, blacks) = compute_tone_adjustments(&h, 0.0);
-            assert!(blacks <= 0.0, "luma={}: blacks must be ≤ 0, got {}", luma, blacks);
-        }
-    }
-
-    #[test]
-    fn tone_adjustments_are_deterministic() {
-        let img = flat_image(0.18, 0.18, 0.18);
-        let h = build_luma_histogram(&img);
-        let r1 = compute_tone_adjustments(&h, 0.5);
-        let r2 = compute_tone_adjustments(&h, 0.5);
-        assert_eq!(r1, r2, "tone adjustments must be deterministic");
-    }
-
-    #[test]
-    fn tone_adjustments_all_finite() {
-        for luma in [0.0f32, 0.001, 0.01, 0.05, 0.18, 0.5, 0.9, 1.5] {
-            let img = flat_image(luma, luma, luma);
-            let h = build_luma_histogram(&img);
-            let (c, hl, sh, wh, bl) = compute_tone_adjustments(&h, 0.0);
-            assert!(c.is_finite() && hl.is_finite() && sh.is_finite()
-                    && wh.is_finite() && bl.is_finite(),
-                "luma={}: all outputs must be finite: c={} hl={} sh={} wh={} bl={}",
-                luma, c, hl, sh, wh, bl);
-        }
-    }
-
-    #[test]
-    fn tone_adjustments_in_slider_range() {
-        for luma in [0.001f32, 0.05, 0.18, 0.5, 0.9] {
-            let img = flat_image(luma, luma, luma);
-            let h = build_luma_histogram(&img);
-            let (c, hl, sh, wh, bl) = compute_tone_adjustments(&h, 0.0);
-            for (name, v) in [("contrast", c), ("highlights", hl), ("shadows", sh),
-                               ("whites", wh), ("blacks", bl)] {
-                assert!(v >= -TONE_CLAMP && v <= TONE_CLAMP,
-                    "luma={}: {} out of range: {}", luma, name, v);
-            }
-        }
-    }
-
-    #[test]
-    fn tone_highlights_engages_on_wide_dr() {
-        // A wide-dynamic-range scene (crushed blacks + bright highlights)
-        // should produce a negative highlights recommendation.
-        let mut img = Image::new(128, 128, ColorSpace::SceneLinearRec2020);
-        let half = img.pixels.len() / 2;
-        for px in img.pixels[..half].iter_mut() { *px = [0.005, 0.005, 0.005]; }
-        for px in img.pixels[half..].iter_mut() { *px = [0.90, 0.90, 0.90]; }
-        let h = build_luma_histogram(&img);
-        let (_c, highlights, _sh, _wh, _bl) = compute_tone_adjustments(&h, 0.0);
-        assert!(highlights < 0.0,
-            "wide-DR scene should give negative highlights, got {}", highlights);
-    }
-
-    #[test]
-    fn tone_shadows_engages_on_wide_dr() {
-        // Same wide-DR scene should produce positive shadows.
-        let mut img = Image::new(128, 128, ColorSpace::SceneLinearRec2020);
-        let half = img.pixels.len() / 2;
-        for px in img.pixels[..half].iter_mut() { *px = [0.002, 0.002, 0.002]; }
-        for px in img.pixels[half..].iter_mut() { *px = [0.95, 0.95, 0.95]; }
-        let h = build_luma_histogram(&img);
-        let (_c, _hl, shadows, _wh, _bl) = compute_tone_adjustments(&h, 0.0);
-        assert!(shadows > 0.0,
-            "wide-DR scene should give positive shadows, got {}", shadows);
-    }
-
-    #[test]
-    fn tone_contrast_zero_on_wide_dr() {
-        // Wide DR → contrast should be 0 (we don't stack compression).
-        let mut img = Image::new(128, 128, ColorSpace::SceneLinearRec2020);
-        let half = img.pixels.len() / 2;
-        for px in img.pixels[..half].iter_mut() { *px = [0.002, 0.002, 0.002]; }
-        for px in img.pixels[half..].iter_mut() { *px = [0.90, 0.90, 0.90]; }
-        let h = build_luma_histogram(&img);
-        let (contrast, _hl, _sh, _wh, _bl) = compute_tone_adjustments(&h, 0.0);
-        assert!(contrast.abs() < 1.0,
-            "wide-DR scene should give contrast near 0, got {}", contrast);
-    }
 }
