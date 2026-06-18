@@ -12,7 +12,7 @@
 // resulting blob URL, and writes through to the `.maple/thumbs/` on-disk
 // cache on Hosted.
 
-import { Injectable, WritableSignal, inject, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { Asset, AssetId } from '../models/asset';
 import { BunApiBackendService } from '../api/bun-api-backend.service';
@@ -231,19 +231,45 @@ export class LibraryCache {
   private readonly thumbLoadingIds = new Set<AssetId>();
 
   /**
-   * Per-asset reactive thumbnail-URL signals. Created ONLY when an id is cached
-   * (in `cacheThumbnailUrl`) and removed when its LRU entry evicts, so the map
-   * never exceeds LRU capacity and can't leak signals for ids that are rendered
-   * but never load (#1363). A cached tile's `computed()` depends only on its own
-   * id's signal, so loading/changing one thumbnail recomputes only THAT tile,
-   * not every tile on screen (O(N²) avoidance, #1359).
-   *
-   * Crucially, the read path (`thumbnailUrlFor`) never creates or writes a
-   * signal — a not-yet-cached tile tracks the coarse `thumbnailUrls` signal
-   * instead, then switches to its own per-asset signal once cached. (Writing a
-   * signal inside a `computed()` read would throw NG0600.)
+   * Thumbnail-URL subscribers, keyed by asset id. The reactive SIGNAL lives in
+   * the tile component (asset-thumb / library-cell), which owns its lifecycle —
+   * so it's garbage-collected when the virtual scroller destroys the tile, and
+   * the number of live signals can never exceed what's on screen (no central map
+   * to leak, #1363/#1359). Here we keep only the component's setter callback and
+   * push the URL to it on load (`cacheThumbnailUrl`) and on eviction. Each id's
+   * set is dropped as soon as its last subscriber unsubscribes, so this map is
+   * bounded by live tiles too. The bytes/URLs themselves stay in the central,
+   * count-bounded `thumbLru`.
    */
-  private readonly thumbSignals = new Map<AssetId, WritableSignal<string | undefined>>();
+  private readonly thumbSubscribers = new Map<AssetId, Set<(url: string | undefined) => void>>();
+
+  /**
+   * Subscribe a tile to thumbnail-URL changes for `id`. Invokes `cb` immediately
+   * with the current URL (warm-cache tiles paint at once), then again whenever it
+   * changes (load completes, or the LRU evicts it → `undefined`). Returns an
+   * unsubscribe fn; the caller (component) calls it on destroy / asset-input
+   * change, which is what bounds the live-signal count to the viewport.
+   */
+  subscribeThumbUrl(id: AssetId, cb: (url: string | undefined) => void): () => void {
+    let subs = this.thumbSubscribers.get(id);
+    if (!subs) {
+      subs = new Set();
+      this.thumbSubscribers.set(id, subs);
+    }
+    subs.add(cb);
+    cb(this.thumbLru.get(id));
+    return () => {
+      const s = this.thumbSubscribers.get(id);
+      if (!s) return;
+      s.delete(cb);
+      if (s.size === 0) this.thumbSubscribers.delete(id);
+    };
+  }
+
+  private notifyThumbSubscribers(id: AssetId, url: string | undefined): void {
+    const subs = this.thumbSubscribers.get(id);
+    if (subs) for (const cb of subs) cb(url);
+  }
 
   // ── Reset ──────────────────────────────────────────────────────────────────
 
@@ -259,11 +285,10 @@ export class LibraryCache {
     // need a full wipe.
     this.thumbLru.clearAll();
     this.thumbnailUrls.set(new Map());
-    // Notify then clear the per-asset signal map. Setting each to `undefined`
-    // lets components react to the wipe; then clearing the map keeps memory
-    // bounded — signals will be recreated lazily if the same id appears again.
-    for (const s of this.thumbSignals.values()) s.set(undefined);
-    this.thumbSignals.clear();
+    // Push `undefined` to every subscriber so any still-mounted tile clears its
+    // view, then drop the registry. Still-mounted tiles re-subscribe lazily.
+    for (const subs of this.thumbSubscribers.values()) for (const cb of subs) cb(undefined);
+    this.thumbSubscribers.clear();
     // FilesystemBrowseService owns the FS-walk thumb blob URLs in its own cache
     // (unbounded, previously revoked only on sign-out). Clear it here too so a
     // folder switch reclaims that memory instead of letting it accumulate for
@@ -425,46 +450,25 @@ export class LibraryCache {
   // ── Thumbnails ─────────────────────────────────────────────────────────────
 
   cacheThumbnailUrl(id: AssetId, url: string): void {
-    // Pass an eviction callback so any LRU-evicted entry's per-asset signal is
-    // cleared immediately — a tile holding that computed must not keep showing
-    // a stale or revoked blob URL.
-    this.thumbLru.set(id, url, (evictedId) => {
-      // Notify any computed still holding this signal that the URL is gone, then
-      // delete it. The map only ever holds signals for currently-cached ids, so
-      // it stays bounded by LRU capacity.
-      const evictedSignal = this.thumbSignals.get(evictedId as AssetId);
-      if (evictedSignal) {
-        evictedSignal.set(undefined);
-        this.thumbSignals.delete(evictedId as AssetId);
-      }
-    });
-    // Publish a new Map snapshot so components that read `thumbnailUrls()`
-    // re-render — both the ensureThumbnailUrl short-circuit check AND not-yet-
-    // cached tiles, which track this coarse signal until their own per-asset
-    // signal exists. The LRU may have evicted (and revoked) the oldest entry
-    // before inserting, so the snapshot is always consistent with the LRU.
+    // On LRU eviction, push `undefined` to that id's subscribers so a still-
+    // mounted tile clears its (now-revoked) blob URL instead of showing a dead one.
+    this.thumbLru.set(id, url, (evictedId) =>
+      this.notifyThumbSubscribers(evictedId as AssetId, undefined),
+    );
+    // Publish a new Map snapshot for `thumbnailUrls()` consumers (the
+    // ensureThumbnailUrl short-circuit check). The LRU may have evicted (and
+    // revoked) the oldest entry before inserting, so the snapshot stays
+    // consistent with the LRU.
     this.thumbnailUrls.set(this.thumbLru.toMap() as Map<AssetId, string>);
-    // Create or update THIS id's per-asset signal for fine-grained reactivity:
-    // a cached tile then recomputes only when ITS thumbnail changes. Per-asset
-    // signals exist only for cached ids (deleted by the eviction callback), so
-    // the map is bounded by LRU capacity.
-    const existing = this.thumbSignals.get(id);
-    if (existing) existing.set(url);
-    else this.thumbSignals.set(id, signal<string | undefined>(url));
+    // Push the new URL to THIS id's subscribed tiles — granular: only tiles
+    // showing this id repaint, not every tile on screen.
+    this.notifyThumbSubscribers(id, url);
   }
 
   thumbnailUrlFor(id: AssetId): string | undefined {
-    // PURE read — never creates or writes a signal (doing so inside a computed()
-    // would throw NG0600). If THIS id is cached it has a per-asset signal: read
-    // it for a granular dependency, so only this tile recomputes when its own
-    // thumbnail changes (no O(N²) fan-out). If it isn't cached yet, track the
-    // coarse `thumbnailUrls` signal so the tile recomputes when *some* thumbnail
-    // lands and re-checks — then it picks up its own per-asset signal once
-    // cached. Return the value via `thumbLru.get()` so the read also refreshes
-    // LRU recency (keeps actively-viewed thumbs from FIFO-evicting under load).
-    const s = this.thumbSignals.get(id);
-    if (s) s();
-    else this.thumbnailUrls();
+    // Non-reactive point read of the current URL, for imperative callers. Tiles
+    // get reactive updates via `subscribeThumbUrl` (their own component-owned
+    // signal), not by reading this inside a computed.
     return this.thumbLru.get(id);
   }
 

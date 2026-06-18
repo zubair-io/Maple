@@ -46,6 +46,7 @@ describe('LibraryGridComponent', () => {
     const stateStub = {
       thumbnailUrlFor: () => undefined,
       ensureThumbnailUrl: () => {},
+      subscribeThumbUrl: () => () => {},
     };
     const prefsStub = { filter };
     const selectionStub = {
