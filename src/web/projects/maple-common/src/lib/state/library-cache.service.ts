@@ -233,13 +233,15 @@ export class LibraryCache {
   /**
    * Thumbnail-URL subscribers, keyed by asset id. The reactive SIGNAL lives in
    * the tile component (asset-thumb / library-cell), which owns its lifecycle —
-   * so it's garbage-collected when the virtual scroller destroys the tile, and
-   * the number of live signals can never exceed what's on screen (no central map
-   * to leak, #1363/#1359). Here we keep only the component's setter callback and
-   * push the URL to it on load (`cacheThumbnailUrl`) and on eviction. Each id's
-   * set is dropped as soon as its last subscriber unsubscribes, so this map is
-   * bounded by live tiles too. The bytes/URLs themselves stay in the central,
-   * count-bounded `thumbLru`.
+   * so it dies with the tile and the live-signal count tracks the *rendered*
+   * tiles: the viewport under the browse grid's virtual scroll, or the rendered
+   * set in a plain `@for` host like the Library grid. Either way it can never
+   * accumulate orphans for ids that scrolled away or never loaded — the leak in
+   * #1363/#1359. Here we keep only the component's setter callback and push the
+   * URL to it on load (`cacheThumbnailUrl`) and on eviction; each id's set is
+   * dropped as soon as its last subscriber unsubscribes, so this map dies with
+   * the tiles too. The bytes/URLs themselves stay in the central, count-bounded
+   * `thumbLru`.
    */
   private readonly thumbSubscribers = new Map<AssetId, Set<(url: string | undefined) => void>>();
 

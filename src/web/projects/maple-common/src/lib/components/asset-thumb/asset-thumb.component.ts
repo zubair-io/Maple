@@ -59,9 +59,10 @@ export class AssetThumbComponent {
   private state = inject(LibraryStateService);
 
   /** The blob URL for this asset, or undefined until it loads (gradient stays).
-   * This component OWNS the signal, so it's created and destroyed with the tile
-   * — the virtual scroller's lifecycle bounds the live count to what's on screen
-   * (no central signal map to leak; #1363/#1359). */
+   * This component OWNS the signal, so it's created and destroyed WITH the tile —
+   * the live-signal count therefore tracks the rendered tiles (the viewport when
+   * the host virtualizes, e.g. the browse grid; the rendered set otherwise) and
+   * never accumulates orphans. No central signal map to leak (#1363/#1359). */
   readonly thumbUrl = signal<string | undefined>(undefined);
 
   constructor() {
